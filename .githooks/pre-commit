@@ -1,0 +1,36 @@
+#!/bin/sh
+# Validate that checked-in Go files match what the Rocq prover extracts.
+# Blocks the commit if they diverge — ensures no Go was modified without
+# a corresponding proof change.
+set -e
+
+echo "fido: running Rocq extraction..."
+make extract
+
+echo "fido: validating Go files match prover output..."
+if ! git diff --exit-code -- '*.go' > /dev/null 2>&1; then
+  echo ""
+  echo "ERROR: committed Go files do not match what the prover extracted."
+  echo "Someone may have edited the Go without re-proving, or you need to"
+  echo "stage the fresh extraction:"
+  echo ""
+  git diff -- '*.go'
+  echo ""
+  echo "  git add *.go && git commit"
+  echo ""
+  exit 1
+fi
+
+echo "fido: checking gofmt compliance..."
+unformatted=$(gofmt -l *.go 2>/dev/null)
+if [ -n "$unformatted" ]; then
+  echo ""
+  echo "ERROR: generated Go files are not gofmt-compliant:"
+  echo "$unformatted"
+  echo ""
+  echo "Fix the plugin to emit correctly formatted output."
+  echo ""
+  exit 1
+fi
+
+echo "fido: Go files verified ✓"

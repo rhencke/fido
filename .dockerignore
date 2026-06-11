@@ -1,0 +1,22 @@
+.git/
+.gitignore
+
+# Local build output (not needed in build context)
+/fido
+*.test
+*.out
+vendor/
+.env
+
+# Rocq artifacts (reproducible from .v sources inside the image)
+*.glob
+*.vo
+*.vok
+*.vos
+*.vio
+.coq-native/
+
+# Editor / OS noise
+.DS_Store
+*.swp
+*.swo

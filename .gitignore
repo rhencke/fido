@@ -1,0 +1,16 @@
+# Go build output
+/fido
+*.test
+*.out
+vendor/
+
+# Environment
+.env
+
+# Rocq build artifacts — .v and .go sources are checked in, these are not
+*.glob
+*.vo
+*.vok
+*.vos
+*.vio
+.coq-native/

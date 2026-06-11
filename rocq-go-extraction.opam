@@ -1,0 +1,9 @@
+opam-version: "2.0"
+name: "rocq-go-extraction"
+version: "dev"
+synopsis: "Rocq → Go extraction plugin"
+depends: [
+  "rocq-core" {= "9.2.0"}
+  "rocq-stdlib" {= "9.1.0"}
+  "dune" {>= "3.21"}
+]
