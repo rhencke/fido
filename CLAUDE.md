@@ -176,7 +176,24 @@ safe-by-construction principle. Tracked until closed.
 4. **`type_assert`** — *checked form added*. `type_assert_safe` (CPS, Go's
    native `v, ok := x.(T)`) is the safe-by-construction default; `type_assert`
    is the escape hatch.
-5. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
+5. **Untyped constants** — *open, not yet modelled*. Go integer/float literals
+   are *untyped* and arbitrary-precision: constant arithmetic is exact and a
+   constant gets a type (with a compile-time representability check) only at the
+   point of use. We model literals as already-typed fixed-width values
+   (`int` = Sint63, `float64` = IEEE double), conflating the two layers:
+   - integer: a constant overflowing its target type is a *compile error* in Go,
+     not a runtime wrap; and large constants (`1 << 70`) aren't representable in
+     63-bit `int` at all.
+   - float: Go does constant float arithmetic at arbitrary precision and rounds
+     once at the typed boundary (`const 0.1 + 0.2` = `0.3`), whereas runtime
+     `float64` rounds each step (`0.30000000000000004`). Modelling literals as
+     IEEE doubles matches the *runtime* answer, not the constant one.
+   No impact yet (no large/narrow/constant-arithmetic cases). Accurate model:
+   untyped int constants as `Z`, untyped float constants as exact rationals; a
+   constant acquires a type only at use, where representability is a proof
+   obligation (Go's compile-time check → safe-by-construction). Ties to #2 (the
+   Z int model) and to string literals.
+6. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
    are labelled escape hatches.
