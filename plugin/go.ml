@@ -262,9 +262,12 @@ let nat_op_names = [
   "add",     NatAdd;
   "sub",     NatSub;
   "mul",     NatMul;
-  "div",     NatDiv;
-  "modulo",  NatMod;
-  "mod",     NatMod;
+  (* Integer div / mod are deliberately omitted: Go panics on division by zero,
+     but Rocq's Uint63 / nat division is total (x / 0 = 0, x mod 0 = x), so
+     emitting a raw `/` or `%` would be silently unsound.  Forbidden until a
+     guarded form (proof d <> 0, or a checked form) exists.  Any use now
+     extracts to an undefined identifier rather than wrong Go.  (Float `/` is
+     handled separately and kept — IEEE, no panic.) *)
   "eqb",     NatEqb;
   "ltb",     NatLtb;
   "leb",     NatLeb;

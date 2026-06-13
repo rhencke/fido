@@ -283,7 +283,12 @@ Inductive GoTypeTag : Type -> Type :=
   | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
 
 (** [type_assert tag v] asserts that [v : GoAny] holds a value of Go type [T].
-    Panics (like Go's [v.(T)]) if the runtime type does not match. *)
+    Panics (like Go's [v.(T)]) if the runtime type does not match.
+
+    ESCAPE HATCH: the raw panicking form, safe only inside [catch] or when the
+    runtime type is already known.  The safe-by-construction default — a checked
+    two-value [v, ok := x.(T)] form (CPS, like [recv_ok]) — is a tracked gap
+    (CLAUDE.md "Known gaps"). *)
 Axiom type_assert : forall {T : Type}, GoTypeTag T -> GoAny -> IO T.
 
 Axiom type_assert_ok : forall {T} (tag : GoTypeTag T) (x : T),
@@ -375,6 +380,10 @@ Axiom map_get_set_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V),
 
 Axiom make_chan     : forall {A : Type}, GoTypeTag A -> IO (GoChan A).
 Axiom make_chan_buf : forall {A : Type}, GoTypeTag A -> int -> IO (GoChan A).
+(** ESCAPE HATCH: raw [send] / [close_chan] panic on a closed (or nil) channel
+    (laws [send_closed_panics], [double_close_panics]).  The safe-by-construction
+    layer is session types ([sess_send] etc.), which make those states
+    unrepresentable.  These raw forms exist for non-session channel use. *)
 Axiom send     : forall {A : Type}, GoChan A -> A -> IO unit.
 Axiom recv     : forall {A : Type}, GoTypeTag A -> GoChan A -> IO A.
 Axiom close_chan : forall {A : Type}, GoChan A -> IO unit.
@@ -438,7 +447,11 @@ Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.
 Axiom slice_of_list : forall {A : Type}, GoTypeTag A -> list A -> GoSlice A.
 
 (** Indexed access — returns [IO A] because Go panics on out-of-bounds.
-    Use inside [catch] to handle the OOB case. *)
+
+    ESCAPE HATCH: the raw panicking form; use inside [catch] to handle OOB.  The
+    safe-by-construction default — proof-carrying [slice_at xs i (i < len xs)]
+    extracting to [xs[i]] unguarded, or a checked bounds-and-branch form — is a
+    tracked gap (CLAUDE.md "Known gaps"). *)
 Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
 
 (** ---- Session types (step 6) ----
