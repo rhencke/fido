@@ -38,6 +38,17 @@ programs (channels, goroutines) where the interesting properties are:
   scope.  The claim is "panic-free given sufficient resources", never "never
   crashes".
 
+These concurrency properties rest on a substrate we must model explicitly: the
+**happens-before** relation as documented by the Go memory model
+(go.dev/ref/mem).  Race freedom is *defined* by it — a race is two conflicting
+accesses, at least one a write, unordered by happens-before — and it is what
+actually justifies the channel ordering laws (a send happens-before the
+matching receive completes; a receive from an unbuffered channel happens-before
+its send completes; the kth receive on a capacity-C channel happens-before the
+(k+C)th send).  Today those laws (`send_recv`, …) lean on bind-sequencing
+intuition; happens-before is the honest foundation, and the cross-goroutine
+proofs cannot even be *stated* without it.
+
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.
 
