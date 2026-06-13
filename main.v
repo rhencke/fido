@@ -185,6 +185,17 @@ Definition lookup_demo : IO unit :=
   | None   => println [any false]
   end))).
 
+(** List/slice match: [match xs with [] | x :: rest] lowers to
+    [if len(xs) == 0 { … } else { x := xs[0]; rest := xs[1:]; … }].
+    The [cons] arm binds two variables (head and tail) — a two-binder case the
+    earlier matches did not exercise. *)
+Definition list_demo : IO unit :=
+  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
+  match xs with
+  | nil         => println [any false]
+  | cons x rest => println [any x; any (len rest)]   (* head=10, len tail=2 *)
+  end.
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -196,6 +207,7 @@ Definition main_effect : IO unit :=
   bind adder_demo                      (fun _ =>   (* prints: 42 *)
   bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
   bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
-  ret tt)))))))))).
+  bind list_demo                       (fun _ =>   (* prints: 10 2 *)
+  ret tt))))))))))).
 
 Go Main Extraction main "main_effect".

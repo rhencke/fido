@@ -655,10 +655,10 @@ let pp_io_body state tab env body =
               (* IO-valued branch: bind distributes over case, so push the
                  continuation f into every arm.  This turns the match into a
                  statement (if/switch) rather than a value. *)
-              | MLcase (_, scrut, branches) ->
+              | MLcase (typ, scrut, branches) ->
                   (* Lift the continuation past each arm's pattern binders so its
                      de Bruijn indices stay correct inside the branch scope. *)
-                  emit_case tab env scrut branches
+                  emit_case tab env typ scrut branches
                     (fun nb b -> MLapp (head, [b; ast_lift nb f]))
               | _ ->
              let ids, body = collect_lam f in
@@ -854,8 +854,8 @@ let pp_io_body state tab env body =
              str tab ++ lhs ++ pp_expr state env e1 ++ fnl () ++
              pp_stmts tab new_env e2)
     (* Case analysis in statement position (tail of an IO body). *)
-    | MLcase (_, scrut, branches) ->
-        emit_case tab env scrut branches (fun _nb b -> b)
+    | MLcase (typ, scrut, branches) ->
+        emit_case tab env typ scrut branches (fun _nb b -> b)
     | MLcons (_, r, []) when is_unit_tt r -> mt ()
     | e ->
         str tab ++ pp_expr state env e ++ fnl ()
@@ -865,7 +865,10 @@ let pp_io_body state tab env body =
      k]" when a continuation must be threaded into every arm.  Only [bool]
      matches (i.e. [if]/[else]) are lowered for now; richer inductives and
      type switches follow. *)
-  and emit_case tab env scrut branches mk_body =
+  and emit_case tab env typ scrut branches mk_body =
+    (* Branch binders are stored in constructor order [arg0; …; argN]; the body
+       env is [List.rev ids @ env] (innermost binder = last arg = MLrel 1),
+       matching the lambda convention used elsewhere. *)
     let ctor_of (ids, pat, body) =
       match pat with
       | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
@@ -883,6 +886,14 @@ let pp_io_body state tab env body =
       str tab ++ str "} else {" ++ fnl () ++
       pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
       str tab ++ str "}" ++ fnl ()
+    in
+    (* [list GoRune] = string; the slice lowering (xs[0], xs[1:]) is byte-wise
+       and wrong for runes, so a string match is excluded from the list case. *)
+    let is_string_list =
+      match typ with
+      | Tglob (r, [Tglob (elem, [])]) ->
+          is_list_type r && String.equal (global_basename elem) "GoInt32"
+      | _ -> false
     in
     match Array.to_list branches with
     | [ b1; b2 ] ->
@@ -921,6 +932,34 @@ let pp_io_body state tab env body =
                     (some_body, List.length some_ids, List.rev some_ids @ env)
                     (none_body, 0, env)
               | _ -> unhandled ())
+         (* list / slice: [match xs with [] | x :: rest] → len / index / reslice.
+            Slices only — string (list GoRune) matches are excluded above. *)
+         | Some c1, Some c2
+           when ((is_list_nil c1 && is_list_cons c2)
+              || (is_list_cons c1 && is_list_nil c2))
+             && not is_string_list ->
+             let nil_body, cons_ids, cons_body =
+               if is_list_nil c1 then body1, ids2, body2
+               else body2, ids1, body1 in
+             let head_id, tail_id = match cons_ids with
+               | [h; t] -> h, t
+               | _      -> Dummy, Dummy in
+             let xs = pp_expr state env scrut in
+             let prefix =
+               (if is_dummy head_id then mt ()
+                else str (tab ^ "\t") ++ pp_mlident head_id ++ str " := "
+                     ++ xs ++ str "[0]" ++ fnl ()) ++
+               (if is_dummy tail_id then mt ()
+                else str (tab ^ "\t") ++ pp_mlident tail_id ++ str " := "
+                     ++ xs ++ str "[1:]" ++ fnl ())
+             in
+             str tab ++ str "if len(" ++ xs ++ str ") == 0 {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env (mk_body 0 nil_body) ++
+             str tab ++ str "} else {" ++ fnl () ++
+             prefix ++
+             pp_stmts (tab ^ "\t") (List.rev cons_ids @ env)
+               (mk_body (List.length cons_ids) cons_body) ++
+             str tab ++ str "}" ++ fnl ()
          | _ -> unhandled ())
     | _ -> unhandled ()
   in
