@@ -49,11 +49,86 @@ Definition slice_demo : IO unit :=
      ret tt))
     (fun _ => println [any false])).              (* caught: prints false *)
 
+(** Buffered channel: send 42, close, then recv_ok twice.
+    First recv: value=42, ok=true  (buffered value still present after close).
+    Second recv: value=0,  ok=false (channel drained and closed). *)
+Definition chan_demo : IO unit :=
+  bind (make_chan_buf TInt64 1) (fun ch =>
+  bind (send ch (42 : int))    (fun _ =>
+  bind (close_chan ch)          (fun _ =>
+  recv_ok TInt64 ch             (fun x ok =>
+  bind (println [any x; any ok]) (fun _ =>        (* prints: 42 true *)
+  recv_ok TInt64 ch              (fun x2 ok2 =>
+  println [any x2; any ok2])))))).
+
+(** Unbuffered channel + goroutine: the goroutine sends while main recvs.
+    The pattern that required goroutines — unbuffered send deadlocks solo. *)
+Definition goroutine_demo : IO unit :=
+  bind (make_chan TInt64)              (fun ch =>
+  bind (go_spawn (send ch (42 : int))) (fun _ =>
+  bind (recv TInt64 ch)               (fun x =>
+  println [any x]))).                  (* prints: 42 *)
+
+(** Session-typed ping-pong.
+    Protocol (client view): send int → recv int → end.
+    The server sees the dual:   recv int → send int → end.
+    The Rocq type checker statically enforces that each side
+    follows its role — swapping send/recv is a type error. *)
+
+Definition PingPong : Proto := PSend int (PRecv int PEnd).
+
+Definition ping_server (ep : SessEndpoint (dual PingPong)) : IO unit :=
+  (* dual PingPong = PRecv int (PSend int PEnd) *)
+  sess_recv TInt64 ep (fun n ep' =>
+  sess_send ep' (add n n) (fun ep'' =>
+  sess_close ep'')).
+
+Definition ping_client (ep : SessEndpoint PingPong) : IO unit :=
+  sess_send ep (21 : int) (fun ep' =>
+  sess_recv TInt64 ep' (fun result ep'' =>
+  bind (sess_close ep'') (fun _ =>
+  println [any result]))).     (* prints: 42 *)
+
+Definition session_demo : IO unit :=
+  make_sess (fun client_ep server_ep =>
+  bind (go_spawn (ping_server server_ep)) (fun _ =>
+  ping_client client_ep)).
+
+(** ---- Protocol compliance is enforced at compile time ----
+
+    Each [Fail] below asserts that the enclosed definition does NOT
+    type-check.  The build runs these: if any protocol violation ever
+    started compiling, [Fail] would error and break the build.  They are
+    machine-checked proofs that the session type discipline rejects misuse,
+    at zero runtime cost. *)
+
+(* Protocol sends first; receiving first is a type error
+   (PSend ≠ PRecv at the head of the protocol). *)
+Fail Definition bad_recv_first (ep : SessEndpoint PingPong) : IO unit :=
+  sess_recv TInt64 ep (fun _ ep' => sess_close ep').
+
+(* Protocol sends an int; sending a bool is a type error
+   (the payload type is pinned to int by the endpoint). *)
+Fail Definition bad_send_type (ep : SessEndpoint PingPong) : IO unit :=
+  sess_send ep true (fun ep' => sess_close ep').
+
+(* The protocol is not finished; closing now is a type error
+   (sess_close demands SessEndpoint PEnd). *)
+Fail Definition bad_close_early (ep : SessEndpoint PingPong) : IO unit :=
+  sess_close ep.
+
+(* The server's dual receives first; sending first is a type error. *)
+Fail Definition bad_server_sends (ep : SessEndpoint (dual PingPong)) : IO unit :=
+  sess_send ep (1 : int) (fun ep' => sess_close ep').
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
   bind slice_demo                      (fun _ =>   (* prints: 5 3 / false *)
-  ret tt)))).
+  bind chan_demo                       (fun _ =>   (* prints: 42 true / 0 false *)
+  bind goroutine_demo                  (fun _ =>   (* prints: 42 *)
+  bind session_demo                    (fun _ =>   (* prints: 42 *)
+  ret tt))))))).
 
 Go Main Extraction main "main_effect".

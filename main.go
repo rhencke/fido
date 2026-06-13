@@ -51,9 +51,60 @@ func Slice_demo() {
 	}()
 }
 
+func Chan_demo() {
+	ch := make(chan int64, 1)
+	ch <- 42
+	close(ch)
+	x, ok := <-ch
+	println(x, ok)
+	x2, ok2 := <-ch
+	println(x2, ok2)
+}
+
+func Goroutine_demo() {
+	ch := make(chan int64)
+	go func() {
+		ch <- 42
+	}()
+	x := <-ch
+	println(x)
+}
+
+func Ping_server(ep chan any) {
+	_sr_n := <-ep
+	n := _sr_n.(int64)
+	ep_ := ep
+	ep_ <- Add(n, n)
+	ep__ := ep_
+	_ = ep__
+}
+
+func Ping_client(ep chan any) {
+	ep <- int64(21)
+	ep_ := ep
+	_sr_result := <-ep_
+	result := _sr_result.(int64)
+	ep__ := ep_
+	_ = ep__
+	println(result)
+}
+
+func Session_demo() {
+	_sess_ch := make(chan any)
+	client_ep := _sess_ch
+	server_ep := _sess_ch
+	go func() {
+		Ping_server(server_ep)
+	}()
+	Ping_client(client_ep)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
 	Map_demo()
 	Slice_demo()
+	Chan_demo()
+	Goroutine_demo()
+	Session_demo()
 }

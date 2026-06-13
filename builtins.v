@@ -223,6 +223,11 @@ Definition with_defer {A : Type} (cleanup : IO unit) (m : IO A) : IO A :=
     (x <-' m ;; cleanup >>' ret x)
     (fun v => cleanup >>' panic v).
 
+(** Forward declarations so GoTypeTag can reference composite Go types in its
+    TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
+Axiom GoMap  : Type -> Type -> Type.
+Axiom GoChan : Type -> Type.
+
 (** ---- Type assertions ----
 
     [GoTypeTag T] is a term-level witness encoding the Go type [T].
@@ -238,8 +243,20 @@ Inductive GoTypeTag : Type -> Type :=
   | TString  : GoTypeTag GoString
   | TAny     : GoTypeTag GoAny
   | TInt     : GoTypeTag GoInt
+  | TInt8    : GoTypeTag GoInt8
+  | TInt16   : GoTypeTag GoInt16
   | TInt32   : GoTypeTag GoInt32
-  | TUint64  : GoTypeTag GoUint64.
+  | TUint    : GoTypeTag GoUint
+  | TUint8   : GoTypeTag GoUint8
+  | TUint16  : GoTypeTag GoUint16
+  | TUint32  : GoTypeTag GoUint32
+  | TUint64  : GoTypeTag GoUint64
+  | TFloat32 : GoTypeTag GoFloat32
+  (* Composite type tags — carry the element/key/value tags so the plugin can
+     reconstruct the full Go type string recursively. *)
+  | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
+  | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
+  | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
 
 (** [type_assert tag v] asserts that [v : GoAny] holds a value of Go type [T].
     Panics (like Go's [v.(T)]) if the runtime type does not match. *)
@@ -260,8 +277,6 @@ Axiom type_assert_ok : forall {T} (tag : GoTypeTag T) (x : T),
     [map_make] is in [IO] because it allocates a new map reference.
     [map_get_opt] returns [option V]; its extraction is deferred until we
     handle [option] lowering properly. *)
-
-Axiom GoMap : Type -> Type -> Type.
 
 Axiom map_empty  : forall {K V : Type}, GoMap K V.
 
@@ -316,6 +331,78 @@ Axiom map_get_empty : forall {K V} (k : K),
 Axiom map_get_delete_same : forall {K V} (k : K) (m : GoMap K V),
   bind (map_delete k m) (fun _ => ret (map_get_opt k m)) =
   bind (map_delete k m) (fun _ => ret (@None V)).
+(** Setting [k1] does not affect reads at a different key [k2]. *)
+Axiom map_get_set_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V),
+  k1 <> k2 ->
+  bind (map_set k1 v m) (fun _ => ret (map_get_opt k2 m)) =
+  ret (map_get_opt k2 m).
+
+(** ---- GoChan ----
+
+    [GoChan A] models Go's [chan T].  [make_chan] allocates an unbuffered
+    channel — send blocks until a receiver is ready, so an unbuffered channel
+    requires a complementary goroutine (step 5).  [make_chan_buf n] allocates
+    a buffered channel with capacity [n]; send does not block until the buffer
+    is full, making single-goroutine use safe when n > 0.
+
+    Ownership: whoever holds the [GoChan A] value owns the channel endpoint.
+    Session-type proofs (step 6) will enforce protocol compliance at the Rocq
+    type level, with zero runtime cost. *)
+
+Axiom make_chan     : forall {A : Type}, GoTypeTag A -> IO (GoChan A).
+Axiom make_chan_buf : forall {A : Type}, GoTypeTag A -> int -> IO (GoChan A).
+Axiom send     : forall {A : Type}, GoChan A -> A -> IO unit.
+Axiom recv     : forall {A : Type}, GoTypeTag A -> GoChan A -> IO A.
+Axiom close_chan : forall {A : Type}, GoChan A -> IO unit.
+
+(** Two-value receive: [recv_ok tag ch (fun x ok => body)] lowers to
+    [x, ok := <-ch; body].  [ok] is [false] when [ch] is closed and empty.
+    Continuation-passing style avoids needing product-type extraction. *)
+Axiom recv_ok : forall {A B : Type},
+  GoTypeTag A -> GoChan A -> (A -> bool -> IO B) -> IO B.
+
+(** [go_spawn m] launches [m] as a concurrent goroutine and returns immediately.
+    Ownership of any [GoChan] endpoints captured in [m]'s closure transfers to
+    the new goroutine at spawn time — the key invariant for race freedom.
+
+    Laws relating goroutines to channels require a concurrent world model.
+    That model arrives in step 5/6 (session types); for now the axiom is
+    sufficient to extract correct Go and to structure proofs about protocol
+    compliance on individual channels. *)
+Axiom go_spawn : IO unit -> IO unit.
+
+(** Every Go type has a zero value (false, 0, 0.0, nil, "", …). *)
+Axiom zero_val : forall {A : Type}, GoTypeTag A -> A.
+
+(** After [send ch v], the next [recv] on [ch] returns [v].
+    The bind sequencing encodes that send completed before recv ran — valid
+    for buffered channels (with space) and for unbuffered channels when a
+    complementary goroutine is blocked in recv. *)
+Axiom send_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A),
+  bind (send ch v) (fun _ => recv tag ch) =
+  bind (send ch v) (fun _ => ret v).
+
+(** [recv_ok] variant: after [send ch v], [recv_ok] delivers [(v, true)]. *)
+Axiom send_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A)
+    (f : A -> bool -> IO B),
+  bind (send ch v) (fun _ => recv_ok tag ch f) =
+  bind (send ch v) (fun _ => f v true).
+
+(** Sending on a closed channel panics (Go spec). *)
+Axiom send_closed_panics : forall {A} (ch : GoChan A) (v : A),
+  bind (close_chan ch) (fun _ => send ch v) =
+  bind (close_chan ch) (fun _ => @panic unit (any tt)).
+
+(** Closing an already-closed channel panics (Go spec). *)
+Axiom double_close_panics : forall {A} (ch : GoChan A),
+  bind (close_chan ch) (fun _ => close_chan ch) =
+  bind (close_chan ch) (fun _ => @panic unit (any tt)).
+
+(** NOTE: [recv_ok] on a closed, empty channel returns [(zero_val tag, false)],
+    but this cannot be stated as an unconditional axiom: combined with
+    [send_recv_ok] it would require [v = zero_val tag] for all [v], which is
+    inconsistent.  A guarded version — parameterised by a channel-empty
+    predicate — is deferred until the channel-state model arrives in step 5. *)
 
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
@@ -329,3 +416,91 @@ Axiom slice_of_list : forall {A : Type}, GoTypeTag A -> list A -> GoSlice A.
 (** Indexed access — returns [IO A] because Go panics on out-of-bounds.
     Use inside [catch] to handle the OOB case. *)
 Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
+
+(** ---- Session types (step 6) ----
+
+    [Proto] encodes a typed communication protocol as a sequence of sends
+    and receives.  [dual P] flips every send↔recv, giving the complementary
+    protocol for the other participant.
+
+    [SessEndpoint P] is a channel endpoint whose *remaining* protocol is [P].
+    At runtime both endpoints of a session are the same [chan any]; all type
+    discipline is enforced by Rocq's type-checker at zero runtime cost.
+
+    The key guarantee: [sess_send] only type-checks when the endpoint has
+    type [SessEndpoint (PSend A P)], and [sess_recv] only when it has type
+    [SessEndpoint (PRecv A P)].  Misuse (wrong order, wrong direction) is a
+    Rocq compile-time error — no runtime check required. *)
+
+Inductive Proto : Type :=
+  | PSend : Type -> Proto -> Proto   (** send a value of type A, continue as P *)
+  | PRecv : Type -> Proto -> Proto   (** recv a value of type A, continue as P *)
+  | PEnd  : Proto.                   (** protocol complete *)
+
+Fixpoint dual (p : Proto) : Proto :=
+  match p with
+  | PSend A p' => PRecv A (dual p')
+  | PRecv A p' => PSend A (dual p')
+  | PEnd       => PEnd
+  end.
+
+Lemma dual_involutive : forall p, dual (dual p) = p.
+Proof.
+  induction p as [A p' IH | A p' IH |].
+  - simpl. rewrite IH. reflexivity.
+  - simpl. rewrite IH. reflexivity.
+  - reflexivity.
+Qed.
+
+(** Taking the dual is injective: a protocol is determined by its dual.
+    Follows directly from involutivity. *)
+Lemma dual_injective : forall p q, dual p = dual q -> p = q.
+Proof.
+  intros p q H.
+  rewrite <- (dual_involutive p), <- (dual_involutive q), H.
+  reflexivity.
+Qed.
+
+(** Number of communication steps in a protocol. *)
+Fixpoint proto_len (p : Proto) : nat :=
+  match p with
+  | PSend _ p' => S (proto_len p')
+  | PRecv _ p' => S (proto_len p')
+  | PEnd       => O
+  end.
+
+(** Client and server perform the same number of steps: every send on one
+    end is matched by a receive on the other, so the protocols have equal
+    length.  This is the structural heart of the "both ends agree" guarantee. *)
+Lemma dual_preserves_len : forall p, proto_len (dual p) = proto_len p.
+Proof.
+  induction p as [A p' IH | A p' IH |]; simpl; auto.
+Qed.
+
+(** A session endpoint whose remaining protocol is [P].
+    Extracts to [chan any] — both ends of a session share the same channel;
+    the proto index is a proof-only witness. *)
+Axiom SessEndpoint : Proto -> Type.
+
+(** [make_sess f]: allocate a fresh session channel and call [f] with both
+    endpoints.  One end has protocol [P], the other has [dual P].
+    CPS avoids needing product-type extraction. *)
+Axiom make_sess : forall {B : Type} {P : Proto},
+  (SessEndpoint P -> SessEndpoint (dual P) -> IO B) -> IO B.
+
+(** [sess_send ep v f]: send [v] on [ep] (consuming the PSend step), then
+    continue as [f ep'] where [ep' : SessEndpoint P] is the same channel.
+    Extracts to: [ep <- v; ep' := ep; <f-body>]. *)
+Axiom sess_send : forall {A B : Type} {P : Proto},
+  SessEndpoint (PSend A P) -> A -> (SessEndpoint P -> IO B) -> IO B.
+
+(** [sess_recv tag ep f]: receive a value of type [A] from [ep], then
+    continue as [f v ep'] where [v] is the received value and [ep'] is the
+    same channel advanced past the PRecv step.
+    Extracts to: [_r := <-ep; v := _r.(T); ep' := ep; <f-body>]. *)
+Axiom sess_recv : forall {A B : Type} {P : Proto},
+  GoTypeTag A -> SessEndpoint (PRecv A P) -> (A -> SessEndpoint P -> IO B) -> IO B.
+
+(** End the session.  The endpoint has reached [PEnd] — no more operations.
+    Extracts as a no-op; the channel is garbage-collected. *)
+Axiom sess_close : SessEndpoint PEnd -> IO unit.

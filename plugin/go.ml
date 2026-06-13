@@ -151,8 +151,28 @@ let is_map_set_ref  r = String.equal (global_basename r) "map_set"
 let is_map_del_ref  r = String.equal (global_basename r) "map_delete"
 let is_map_len_ref    r = String.equal (global_basename r) "map_len"
 let is_map_get_or_ref r = String.equal (global_basename r) "map_get_or"
-let is_panic_ref       r = String.equal (global_basename r) "panic"
-let is_type_assert_ref r = String.equal (global_basename r) "type_assert"
+let is_panic_ref         r = String.equal (global_basename r) "panic"
+let is_type_assert_ref   r = String.equal (global_basename r) "type_assert"
+let is_go_chan_type       r = String.equal (global_basename r) "GoChan"
+let is_make_chan_ref      r = String.equal (global_basename r) "make_chan"
+let is_make_chan_buf_ref  r = String.equal (global_basename r) "make_chan_buf"
+let is_send_ref          r = String.equal (global_basename r) "send"
+let is_recv_ref          r = String.equal (global_basename r) "recv"
+let is_close_chan_ref     r = String.equal (global_basename r) "close_chan"
+let is_recv_ok_ref        r = String.equal (global_basename r) "recv_ok"
+let is_go_spawn_ref       r = String.equal (global_basename r) "go_spawn"
+let is_proto_type r =
+  String.equal (global_basename r) "Proto"
+let is_proto_ctor r =
+  String.equal (global_basename r) "PSend" ||
+  String.equal (global_basename r) "PRecv" ||
+  String.equal (global_basename r) "PEnd"
+let is_dual_ref r = String.equal (global_basename r) "dual"
+let is_sess_endpoint_ref r = String.equal (global_basename r) "SessEndpoint"
+let is_make_sess_ref  r = String.equal (global_basename r) "make_sess"
+let is_sess_send_ref  r = String.equal (global_basename r) "sess_send"
+let is_sess_recv_ref  r = String.equal (global_basename r) "sess_recv"
+let is_sess_close_ref r = String.equal (global_basename r) "sess_close"
 
 (* GoTypeTag constructors → Go type names *)
 let go_type_tag_map = [
@@ -162,12 +182,54 @@ let go_type_tag_map = [
   "TString",  "string";
   "TAny",     "any";
   "TInt",     "int";
+  "TInt8",    "int8";
+  "TInt16",   "int16";
   "TInt32",   "int32";
+  "TUint",    "uint";
+  "TUint8",   "uint8";
+  "TUint16",  "uint16";
+  "TUint32",  "uint32";
   "TUint64",  "uint64";
+  "TFloat32", "float32";
 ]
 
+(** Primitive tag lookup — basename only, no recursion. *)
 let classify_go_type_tag r =
   List.assoc_opt (global_basename r) go_type_tag_map
+
+(** Recursive tag → Go type string.  Handles composite tags (TChan, TSlice, TMap)
+    by recursing into their argument tags. *)
+let rec go_type_of_tag = function
+  | MLcons (_, r, []) ->
+      (match List.assoc_opt (global_basename r) go_type_tag_map with
+       | Some t -> t
+       | None   -> "any")
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TChan"  ->
+      "chan " ^ go_type_of_tag inner
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TSlice" ->
+      "[]" ^ go_type_of_tag inner
+  | MLcons (_, r, [kt; vt]) when String.equal (global_basename r) "TMap"  ->
+      "map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt
+  | _ -> "any"
+
+(** Zero value for a Go type given its tag. *)
+let zero_of_tag tag =
+  match tag with
+  | MLcons (_, r, []) when String.equal (global_basename r) "TBool"   -> "false"
+  | MLcons (_, r, []) when String.equal (global_basename r) "TString" -> "\"\""
+  | MLcons (_, r, []) when String.equal (global_basename r) "TAny"    -> "nil"
+  | MLcons (_, r, [_])    when String.equal (global_basename r) "TChan"  -> "nil"
+  | MLcons (_, r, [_])    when String.equal (global_basename r) "TSlice" -> "nil"
+  | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
+  | t -> go_type_of_tag t ^ "(0)"
+
+let is_zero_val_ref r = String.equal (global_basename r) "zero_val"
+
+let is_go_type_tag_ctor r =
+  Option.has_some (classify_go_type_tag r) ||
+  String.equal (global_basename r) "TChan"  ||
+  String.equal (global_basename r) "TSlice" ||
+  String.equal (global_basename r) "TMap"
 
 (* IO monad — basename matching is acceptable here because these names
    live in builtins.v and user theories should not shadow them. *)
@@ -245,6 +307,11 @@ let rec pp_type state = function
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
   (* IO A erases to A — the world token has no runtime representation *)
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
+  (* SessEndpoint P → chan any (both endpoints share one chan any; proto is proof-only) *)
+  | Tglob (r, _) when is_sess_endpoint_ref r -> str "chan any"
+  (* GoChan A → chan T *)
+  | Tglob (r, [arg]) when is_go_chan_type r ->
+      str "chan " ++ pp_type state arg
   (* GoMap K V → map[KT]VT *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
       str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
@@ -343,14 +410,7 @@ let rec pp_expr state env = function
 
        (* type_assert tag v → v.(T) where T is read from the tag constructor *)
        | MLglob r, [tag; v] when is_type_assert_ref r ->
-           let go_type =
-             match tag with
-             | MLcons (_, r2, _) ->
-                 (match classify_go_type_tag r2 with
-                  | Some t -> t
-                  | None   -> "any")
-             | _ -> "any"
-           in
+           let go_type = go_type_of_tag tag in
            let inner =
              match v with
              | MLcons (_, r2, [x])    when is_existT_ref r2 -> pp_expr state env x
@@ -371,11 +431,7 @@ let rec pp_expr state env = function
 
        (* slice_of_list tag list → []T{v1, v2, ...} *)
        | MLglob r, [tag; lst] when is_slice_of_list_ref r ->
-           let go_elem = match tag with
-             | MLcons (_, r2, _) ->
-                 (match classify_go_type_tag r2 with Some t -> t | None -> "any")
-             | _ -> "any"
-           in
+           let go_elem = go_type_of_tag tag in
            (match unfold_list [] lst with
             | Some elems ->
                 str ("[]" ^ go_elem ^ "{") ++
@@ -387,15 +443,38 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; xs; i] when is_slice_get_ref r ->
            pp_expr state env xs ++ str "[" ++ pp_expr state env i ++ str "]"
 
+       (* make_chan tag → make(chan T) *)
+       | MLglob r, [tag] when is_make_chan_ref r ->
+           str ("make(chan " ^ go_type_of_tag tag ^ ")")
+
+       (* make_chan_buf tag n → make(chan T, n) *)
+       | MLglob r, [tag; n] when is_make_chan_buf_ref r ->
+           str ("make(chan " ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
+
+       (* send ch v → ch <- v *)
+       | MLglob r, [ch; v] when is_send_ref r ->
+           pp_expr state env ch ++ str " <- " ++ pp_expr state env v
+
+       (* recv tag ch → <-ch *)
+       | MLglob r, [_tag; ch] when is_recv_ref r ->
+           str "<-" ++ pp_expr state env ch
+
+       (* close_chan ch → close(ch) *)
+       | MLglob r, [ch] when is_close_chan_ref r ->
+           str "close(" ++ pp_expr state env ch ++ str ")"
+
+       (* recv_ok in expression context — handled properly by pp_stmts;
+          this fallback covers the rare case of expression-position use. *)
+       | MLglob r, [_tag; ch; _kont] when is_recv_ok_ref r ->
+           str "<-" ++ pp_expr state env ch
+
+       (* zero_val tag → false / "" / nil / T(0) *)
+       | MLglob r, [tag] when is_zero_val_ref r ->
+           str (zero_of_tag tag)
+
        (* map_make_typed kt vt → make(map[K]V) with concrete types from tags *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
-           let tag_to_go tag =
-             match tag with
-             | MLcons (_, r2, _) ->
-                 (match classify_go_type_tag r2 with Some t -> t | None -> "any")
-             | _ -> "any"
-           in
-           str ("make(map[" ^ tag_to_go kt ^ "]" ^ tag_to_go vt ^ ")")
+           str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
@@ -542,6 +621,8 @@ let pp_io_body state tab env body =
     match collect_app e [] with
     | MLglob r, _ when is_print_ref r || is_println_ref r || is_panic_ref r -> true
     | MLglob r, _ when is_map_set_ref r || is_map_del_ref r -> true
+    | MLglob r, _ when is_send_ref r -> true
+    | MLglob r, _ when is_close_chan_ref r -> true
     | _ -> false
   in
   let is_terminating e =
@@ -557,6 +638,20 @@ let pp_io_body state tab env body =
          | MLglob r, [m; f] when is_bind_ref r ->
              let ids, body = collect_lam f in
              let new_env = List.rev ids @ env in
+             (* go_spawn: bind (go_spawn goroutine_body) f → go func(){body}(); f *)
+             let h_m, all_m = collect_app m [] in
+             let vis_m = List.filter (fun a -> not (is_erased a)) all_m in
+             (match h_m, vis_m with
+              | MLglob r2, [goroutine_body] when is_go_spawn_ref r2 ->
+                  str tab ++ str "go func() {" ++ fnl () ++
+                  pp_stmts (tab ^ "\t") env goroutine_body ++
+                  str tab ++ str "}()" ++ fnl () ++
+                  pp_stmts tab new_env body
+              | MLglob r2, [sess_ep] when is_sess_close_ref r2 ->
+                  (* Use the endpoint var so Go doesn't complain "declared but not used" *)
+                  str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl () ++
+                  pp_stmts tab new_env body
+              | _ ->
              let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
              let lhs = match vis_ids with
                | _ when is_void_call m   -> mt ()
@@ -569,6 +664,7 @@ let pp_io_body state tab env body =
                     | MLglob r when is_slice_get_ref r || is_type_assert_ref r
                                  || is_map_len_ref r || is_map_get_or_ref r
                                  || is_len_ref r || is_cap_ref r
+                                 || is_recv_ref r || is_make_chan_ref r || is_make_chan_buf_ref r
                                  || Option.has_some (classify_nat_op r)
                                  || Option.has_some (classify_int63_op r)
                                  || Option.has_some (classify_float_op r) -> str "_ = "
@@ -587,7 +683,7 @@ let pp_io_body state tab env body =
              in
              str tab ++ lhs ++ emit_m ++ fnl () ++
              (if is_terminating m then mt ()
-              else pp_stmts tab new_env body)
+              else pp_stmts tab new_env body))
          | MLglob r, [_] when is_ret_ref r -> mt ()
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
              let ids, h_body = collect_lam h in
@@ -605,6 +701,107 @@ let pp_io_body state tab env body =
              t ++ str "\t}()" ++ fnl () ++
              pp_stmts (tab ^ "\t") env m ++
              t ++ str "}()" ++ fnl ()
+         (* go_spawn body (not inside bind — uncommon but valid) *)
+         | MLglob r, [goroutine_body] when is_go_spawn_ref r ->
+             str tab ++ str "go func() {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env goroutine_body ++
+             str tab ++ str "}()" ++ fnl ()
+         (* recv_ok tag ch (fun x ok => body) → x, ok := <-ch; body *)
+         | MLglob r, [_tag; ch; kont] when is_recv_ok_ref r ->
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
+             (match vis_ids with
+              | [x_id; ok_id] ->
+                  str tab ++ pp_mlident x_id ++ str ", " ++ pp_mlident ok_id ++
+                  str " := <-" ++ pp_expr state env ch ++ fnl () ++
+                  pp_stmts tab new_env k_body
+              | _ ->
+                  str tab ++ str "_, _ = <-" ++ pp_expr state env ch ++ fnl ())
+         (* make_sess (fun ep1 ep2 => body) → ch := make(chan any); ep1 := ch; ep2 := ch
+            Both endpoints share one chan any; the continuation is always emitted,
+            and each non-dummy endpoint is aliased to the channel. *)
+         | MLglob r, vis when is_make_sess_ref r ->
+             let f = List.nth vis (List.length vis - 1) in
+             let ids, k_body = collect_lam f in
+             let new_env = List.rev ids @ env in
+             let assigns =
+               List.filter_map
+                 (fun id ->
+                    if is_dummy id then None
+                    else Some (str tab ++ pp_mlident id ++ str " := _sess_ch" ++ fnl ()))
+                 ids
+             in
+             str tab ++ str "_sess_ch := make(chan any)" ++ fnl () ++
+             (if assigns = [] then str tab ++ str "_ = _sess_ch" ++ fnl ()
+              else prlist (fun x -> x) assigns) ++
+             pp_stmts tab new_env k_body
+         (* sess_send ep v (fun ep' => body) → ep <- v; ep' := ep; body
+            Proto index P may precede ep in the arg list (not erased if Proto:Type);
+            take the last 3 visible args as ep, v, kont. *)
+         | MLglob r, vis when is_sess_send_ref r && List.length vis >= 3 ->
+             let n = List.length vis in
+             let ep   = List.nth vis (n - 3) in
+             let v    = List.nth vis (n - 2) in
+             let kont = List.nth vis (n - 1) in
+             (* chan any requires explicit Go types for literals — untyped constants
+                default to int/float64 which may not match the recv's type assertion. *)
+             let pp_val e = match e with
+               | MLuint n  -> str ("int64(" ^ Uint63.to_string n ^ ")")
+               | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
+               | _ -> pp_expr state env e
+             in
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (* Alias the advanced endpoint when the continuation binds it; the
+                continuation body is always emitted (never dropped). *)
+             let assign =
+               match List.filter (fun id -> not (is_dummy id)) ids with
+               | [ep'_id] ->
+                   str tab ++ pp_mlident ep'_id ++ str " := " ++ pp_expr state env ep ++ fnl ()
+               | _ -> mt ()
+             in
+             str tab ++ pp_expr state env ep ++ str " <- " ++ pp_val v ++ fnl () ++
+             assign ++
+             pp_stmts tab new_env k_body
+         (* sess_recv tag ep (fun v ep' => body) → _r := <-ep; v := _r.(T); ep' := ep; body
+            Proto index P may precede tag; take the last 3 visible args as tag, ep, kont. *)
+         | MLglob r, vis when is_sess_recv_ref r && List.length vis >= 3 ->
+             let n = List.length vis in
+             let tag  = List.nth vis (n - 3) in
+             let ep   = List.nth vis (n - 2) in
+             let kont = List.nth vis (n - 1) in
+             let go_t = go_type_of_tag tag in
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (* Continuation binds [v] then [ep']; either may be dummy.  We always
+                emit the receive and the continuation body. *)
+             let v_id, ep_id = match ids with
+               | [a; b] -> a, b
+               | [a]    -> a, Dummy
+               | _      -> Dummy, Dummy
+             in
+             let recv_line =
+               if is_dummy v_id then
+                 (* value discarded — receive and drop, no type assertion needed *)
+                 str tab ++ str "<-" ++ pp_expr state env ep ++ fnl ()
+               else
+                 let nm = match v_id with
+                   | Id v | Tmp v -> go_safe (Id.to_string v)
+                   | Dummy        -> "v"
+                 in
+                 let tmp = "_sr_" ^ nm in
+                 str tab ++ str (tmp ^ " := <-") ++ pp_expr state env ep ++ fnl () ++
+                 str tab ++ pp_mlident v_id ++ str (" := " ^ tmp ^ ".(" ^ go_t ^ ")") ++ fnl ()
+             in
+             let ep_line =
+               if is_dummy ep_id then mt ()
+               else str tab ++ pp_mlident ep_id ++ str " := " ++ pp_expr state env ep ++ fnl ()
+             in
+             recv_line ++ ep_line ++ pp_stmts tab new_env k_body
+         (* sess_close ep → _ = ep; marks endpoint var as used, session is done *)
+         | MLglob r, [sess_ep] when is_sess_close_ref r ->
+             str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl ()
          | _ ->
              str tab ++ pp_expr state env e ++ fnl ())
     | MLletin (id, e1, e2) ->
@@ -705,10 +902,16 @@ let is_inlined_ref r =
   is_bool_true r || is_bool_false r ||
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
-  is_type_assert_ref r || Option.has_some (classify_go_type_tag r) ||
+  is_type_assert_ref r || is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
+  is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
+  is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
+  is_go_spawn_ref r ||
+  is_sess_endpoint_ref r || is_make_sess_ref r ||
+  is_sess_send_ref r || is_sess_recv_ref r || is_sess_close_ref r ||
+  is_dual_ref r || is_proto_ctor r || is_proto_type r ||
   is_IO_type r || is_ret_ref r || is_bind_ref r ||
   String.equal (global_basename r) "catch" ||
   String.equal (global_basename r) "with_defer" ||
@@ -743,6 +946,11 @@ let pp_main_body state body =
 let pp_decl state decl =
   match decl with
   | Dterm (r, _, _) when is_inlined_ref r ->
+      mt ()
+
+  (* Suppress top-level definitions whose result type is Proto — protocol
+     descriptors are proof-only witnesses with no runtime representation. *)
+  | Dterm (_, _, Tglob (rt, _)) when is_proto_type rt ->
       mt ()
 
   | Dterm (r, body, typ) ->
@@ -781,7 +989,8 @@ let pp_decl state decl =
       mt ()
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
-    || is_IO_type r || is_go_map_type r
+    || is_IO_type r || is_go_map_type r || is_go_chan_type r
+    || is_sess_endpoint_ref r
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice" -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
