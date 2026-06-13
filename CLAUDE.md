@@ -47,6 +47,21 @@ tricky semantics, or silent overflow are not acceptable even in early
 stages. It's fine to leave things unmodeled; it's not fine to model them
 wrong.
 
+**Principle: partial operations are safe-by-construction or proof-gated.**
+The unsafe primitives — nil deref, out-of-bounds, divide-by-zero,
+send-on-closed, failed type assertion — must be *modelled* (we don't pretend Go
+lacks them), but modelled so their unsafe use is forbidden by default or
+rejected. Prefer a total, **evidence-carrying** API: one that demands a proof
+of safety (`i < len xs`, `d <> 0`, pointer non-nil) and extracts to the raw Go
+op unguarded, because the proof discharged the guard. Where safety depends on
+runtime values, force a **check-and-branch** that yields the evidence (the
+comma-ok / `option` shape, as with `map_get_opt`) so the failure case cannot be
+ignored. The raw panicking form survives only as an explicitly-marked escape
+hatch (in `IO`, recoverable via `catch`); reaching for it is opting out of the
+guarantee, and the panic-freedom proofs flag it. You should never be able to
+*accidentally* write a Rocq program that needs a nil deref or an out-of-bounds
+to work.
+
 ## Wish list
 
 Further-out proofs that **closed-world reasoning** unlocks once the primitive
