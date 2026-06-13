@@ -33,16 +33,42 @@ wrong.
    `catch`/`with_defer` for panic recovery
 3. **Hoare logic** (done) — `run_io` denotational semantics (proof-only);
    monad laws are provable lemmas; `{{ P }} m {{ Q }}` Hoare triple defined;
-   `hoare_ret`, `hoare_bind`, `hoare_consequence` proved
-4. **Channel axioms** — `make_chan`, `send`, `recv`. Lower to `make(chan T)`,
-   `ch <- x`, `<-ch`
-5. **Goroutines** — `go f` spawn. Ownership of channel endpoints transfers
-   at spawn time.
-6. **Session types** — protocol compliance on channels. Pure Rocq guarantee,
-   zero runtime cost
-7. **`select`** — non-deterministic choice between ready channels. Needed for
+   `hoare_ret`, `hoare_bind`, `hoare_consequence`, `hoare_seq` proved
+4. **Channel axioms** (done) — `make_chan`/`make_chan_buf`, `send`, `recv`,
+   `recv_ok`, `close_chan`. Lower to `make(chan T)`, `ch <- x`, `<-ch`,
+   `x, ok := <-ch`, `close(ch)`
+5. **Goroutines** (done) — `go_spawn`. Ownership of channel endpoints
+   transfers to the spawned goroutine at spawn time
+6. **Session types** (done) — `Proto`/`dual`, `SessEndpoint`, `sess_send`/
+   `sess_recv`/`sess_close`. Protocol compliance enforced by Rocq's type
+   checker; violations are compile-time errors (the `Fail` tests in `main.v`
+   are build-checked negative tests). Pure Rocq guarantee, zero runtime cost
+7. **Control flow** — branching and case analysis. Nothing branches today:
+   the plugin has no `MLcase` arm, so `if` (sugar for `match` on `bool`) and
+   every `match` extract to `nil /* TODO */`. This is a correctness hole, not
+   just a missing feature — it compiles wrong instead of failing loudly. Build
+   it in two stages, **statements before expressions**.
+
+   **a. Statements first** — `MLcase` in IO / statement position:
+   - `if`/`else` (match on `bool`) → `if c { … } else { … }` — the core case
+   - `switch` (match on a simple inductive) → Go `switch`/if-chain on the
+     constructor; also unblocks `option`, so `map_get_opt` can finally lower
+   - type switch (`switch v := x.(type)`) — a separate combinator dispatching
+     on a `GoAny`'s runtime type, built on the existing `GoTypeTag` /
+     `type_assert` machinery, *not* on `MLcase`
+   - design point: an IO-valued branch `bind (match …) k` must thread the
+     continuation `k` through every arm — emit each arm's statements then `k`
+     in that branch (duplicate, or hoist the result into a var), never a value
+
+   **b. Expressions second** — `MLcase` in value position. Go has no
+   conditional expression, so pure `if`/`match` lowers via hoisting or an
+   IIFE. This stage also adds precedence/associativity to the expression
+   printer: today `pp_atom` parenthesises conservatively (correct but noisy);
+   clean nested arithmetic/boolean output needs real operator levels. Trickier
+   than (a) — hence second.
+8. **`select`** — non-deterministic choice between ready channels. Needed for
    services/multiplexing/timeouts. Significantly harder semantics than linear
-   send/recv; deferred until session type work forces it.
+   send/recv; wants control flow (each case is a branch) in place first.
 
 ## Architecture
 
