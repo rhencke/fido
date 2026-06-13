@@ -14,6 +14,16 @@ interesting properties are:
   the same send/receive sequence, enforced by Rocq's type checker
 - **Race freedom** — ownership tracking through channel operations
 - **Deadlock freedom** — eventually, via liveness proofs
+- **Panic freedom (logical)** — no nil deref, out-of-bounds, failed type
+  assertion, send-on-closed, etc.  These already live in `IO`; the plan is to
+  discharge each as a Hoare precondition so Rocq propagates the obligation to
+  every call site (a partiality discipline, like the session `Fail` tests).
+  Requires extending `run_io` to expose panic as an *outcome* rather than
+  conflating it with divergence (so `hoare_panic` need no longer be admitted).
+  Explicitly **modulo resources**: OOM and stack overflow are Go *fatal
+  errors*, not panics — the heap is modelled as unbounded and they are out of
+  scope.  The claim is "panic-free given sufficient resources", never "never
+  crashes".
 
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.
