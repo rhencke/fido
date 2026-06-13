@@ -34,6 +34,34 @@ tricky semantics, or silent overflow are not acceptable even in early
 stages. It's fine to leave things unmodeled; it's not fine to model them
 wrong.
 
+## Wish list
+
+Further-out proofs that **closed-world reasoning** unlocks once the primitive
+layer is complete — i.e. once a value's whole lifecycle can stay inside the
+modelled fragment ("we control every method and module it passes through").
+Each extends a guarantee we already have rather than inventing a new kind.
+All gated on structs / methods / interfaces, and on *closure being
+enforceable* — no escape via `any`/reflection, unsynchronised sharing, or
+unmodelled callbacks.
+
+- **Behavioral interface satisfaction** — not just "T has method M" (a local
+  check in the dictionary model) but "M obeys a contract, preserved everywhere
+  the value flows". The preservation is what needs the closed world.
+- **Typestate** — a value advancing through states (File: Open→Readable→Closed;
+  Conn: New→Authed→Active→Closed), every method call a provably legal
+  transition. Session types for values instead of channels.
+- **Representation invariants** — a struct invariant (sorted, balanced, indices
+  in range) preserved by every method.
+- **Information flow / taint** — "this secret never reaches a sink", "input is
+  sanitised before the query". Whole-program properties, meaningless open-world.
+- **Value-level ownership** — extend channel-endpoint ownership (race freedom)
+  to heap values: no aliasing, no use-after-close.
+
+Interdependence to remember: closed-world for a *shared* value presupposes the
+ownership / race-freedom discipline (another goroutine could mutate it out from
+under the invariant), so these and the concurrency proofs are one web, not
+separate tracks.
+
 ## Incremental ladder
 
 1. **Builtins** (done) — `println`, `print`, `panic`, `any`, primitive types,
