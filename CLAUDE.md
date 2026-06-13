@@ -147,6 +147,32 @@ separate tracks.
    services/multiplexing/timeouts. Significantly harder semantics than linear
    send/recv; wants control flow (each case is a branch) in place first.
 
+## Known gaps
+
+Audit (2026-06-13 sweep) of the partial/unsafe primitives against the
+safe-by-construction principle. Tracked until closed.
+
+1. **Integer div/mod by zero** — *neutralised, real fix pending*. Rocq's
+   `Uint63`/`nat` division is total (`x/0 = 0`), Go's panics, and the plugin
+   used to emit a raw `/` — silently unsound. The plugin no longer emits
+   integer `/` or `%`, so the path can't be reached (any use extracts to an
+   undefined identifier). Proper fix: a guarded `div` (proof `d <> 0`, or a
+   checked form). Float `/` is kept — IEEE, no panic.
+2. **Integer overflow/underflow** — *open, needs a model decision*. `int`
+   (`Uint63`, unsigned, wraps at 2⁶³) maps to Go `int64` (signed, wraps at
+   2⁶⁴); `2 - 5` and large `+`/`*` diverge silently. The "63 usable bits" note
+   acknowledges but does not *enforce* the safe range. Needs a signed bounded
+   int model, or in-range proof obligations on arithmetic.
+3. **`slice_get`** — *open*. Only the raw panicking `IO` form (escape hatch).
+   Needs a safe default: proof-carrying `slice_at xs i (i < len xs)` → `xs[i]`
+   unguarded, or a checked bounds-and-branch form.
+4. **`type_assert`** — *open*. Only the raw panicking form. Needs the checked
+   two-value `v, ok := x.(T)` form (CPS, like `recv_ok`).
+5. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
+   (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
+   panic on closed/nil channels — sessions are the safe layer; the raw forms
+   are labelled escape hatches.
+
 ## Architecture
 
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
