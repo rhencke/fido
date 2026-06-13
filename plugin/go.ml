@@ -151,6 +151,12 @@ let is_map_set_ref  r = String.equal (global_basename r) "map_set"
 let is_map_del_ref  r = String.equal (global_basename r) "map_delete"
 let is_map_len_ref    r = String.equal (global_basename r) "map_len"
 let is_map_get_or_ref r = String.equal (global_basename r) "map_get_or"
+let is_map_get_opt_ref r = String.equal (global_basename r) "map_get_opt"
+(* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
+let is_some_ctor r =
+  ref_has_suffix r ".Init.Datatypes.Some" || String.equal (global_basename r) "Some"
+let is_none_ctor r =
+  ref_has_suffix r ".Init.Datatypes.None" || String.equal (global_basename r) "None"
 let is_panic_ref         r = String.equal (global_basename r) "panic"
 let is_type_assert_ref   r = String.equal (global_basename r) "type_assert"
 let is_go_chan_type       r = String.equal (global_basename r) "GoChan"
@@ -647,7 +653,10 @@ let pp_io_body state tab env body =
                  continuation f into every arm.  This turns the match into a
                  statement (if/switch) rather than a value. *)
               | MLcase (_, scrut, branches) ->
-                  emit_case tab env scrut branches (fun b -> MLapp (head, [b; f]))
+                  (* Lift the continuation past each arm's pattern binders so its
+                     de Bruijn indices stay correct inside the branch scope. *)
+                  emit_case tab env scrut branches
+                    (fun nb b -> MLapp (head, [b; ast_lift nb f]))
               | _ ->
              let ids, body = collect_lam f in
              let new_env = List.rev ids @ env in
@@ -843,7 +852,7 @@ let pp_io_body state tab env body =
              pp_stmts tab new_env e2)
     (* Case analysis in statement position (tail of an IO body). *)
     | MLcase (_, scrut, branches) ->
-        emit_case tab env scrut branches (fun b -> b)
+        emit_case tab env scrut branches (fun _nb b -> b)
     | MLcons (_, r, []) when is_unit_tt r -> mt ()
     | e ->
         str tab ++ pp_expr state env e ++ fnl ()
@@ -859,27 +868,58 @@ let pp_io_body state tab env body =
       | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
       | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
     in
+    let unhandled () =
+      str tab ++ str "panic(\"unhandled match\") // TODO: unsupported MLcase"
+      ++ fnl ()
+    in
+    (* Emit a two-arm if/else; [pre] (e.g. an "x, ok :=" init clause) precedes
+       the condition, and [tenv]/[fenv] are the branch environments. *)
+    let if_else pre cond (tbody, tn, tenv) (fbody, fn, fenv) =
+      str tab ++ str "if " ++ pre ++ cond ++ str " {" ++ fnl () ++
+      pp_stmts (tab ^ "\t") tenv (mk_body tn tbody) ++
+      str tab ++ str "} else {" ++ fnl () ++
+      pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
+      str tab ++ str "}" ++ fnl ()
+    in
     match Array.to_list branches with
     | [ b1; b2 ] ->
-        let (r1, _, body1) = ctor_of b1 in
-        let (r2, _, body2) = ctor_of b2 in
+        let (r1, ids1, body1) = ctor_of b1 in
+        let (r2, ids2, body2) = ctor_of b2 in
         (match r1, r2 with
+         (* if/else: match on bool *)
          | Some c1, Some c2
            when (is_bool_true c1 && is_bool_false c2)
              || (is_bool_false c1 && is_bool_true c2) ->
              let then_b, else_b =
                if is_bool_true c1 then body1, body2 else body2, body1 in
-             str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
-             pp_stmts (tab ^ "\t") env (mk_body then_b) ++
-             str tab ++ str "} else {" ++ fnl () ++
-             pp_stmts (tab ^ "\t") env (mk_body else_b) ++
-             str tab ++ str "}" ++ fnl ()
-         | _ ->
-             str tab ++ str "panic(\"unhandled match\") // TODO: non-bool case"
-             ++ fnl ())
-    | _ ->
-        str tab ++ str "panic(\"unhandled match\") // TODO: non-bool case"
-        ++ fnl ()
+             if_else (mt ()) (pp_expr state env scrut)
+               (then_b, 0, env) (else_b, 0, env)
+         (* option: match on [map_get_opt k m] → comma-ok lookup.  The Some arm
+            binds the value; the None arm is the absent case.  Only the
+            map-lookup producer is fused; a free [option] value is not yet
+            representable. *)
+         | Some c1, Some c2
+           when (is_some_ctor c1 && is_none_ctor c2)
+             || (is_none_ctor c1 && is_some_ctor c2) ->
+             let some_ids, some_body, none_body =
+               if is_some_ctor c1 then ids1, body1, body2
+               else ids2, body2, body1 in
+             let sh, sargs = collect_app (strip_magic scrut) [] in
+             let svis = List.filter (fun a -> not (is_erased a)) sargs in
+             (match sh, svis with
+              | MLglob r, [k; m] when is_map_get_opt_ref r ->
+                  let v_doc = match some_ids with
+                    | [id] when not (is_dummy id) -> pp_mlident id
+                    | _ -> str "_" in
+                  let pre =
+                    v_doc ++ str ", _ok := " ++ pp_expr state env m ++
+                    str "[" ++ pp_expr state env k ++ str "]; " in
+                  if_else pre (str "_ok")
+                    (some_body, List.length some_ids, List.rev some_ids @ env)
+                    (none_body, 0, env)
+              | _ -> unhandled ())
+         | _ -> unhandled ())
+    | _ -> unhandled ()
   in
   let rec peel_catches tab env b =
     let head, all_args = collect_app b [] in
@@ -955,6 +995,7 @@ let is_inlined_ref r =
   is_slice_of_list_ref r || is_slice_get_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
+  is_map_get_opt_ref r ||
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
   is_go_spawn_ref r ||

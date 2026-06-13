@@ -157,6 +157,26 @@ func Control_flow_demo() {
 	Pick_demo(true)
 }
 
+func Lookup_demo() {
+	m := make(map[int64]int64)
+	m[7] = 700
+	if v, _ok := m[7]; _ok {
+		println(v, true)
+		if v, _ok := m[9]; _ok {
+			println(v, true)
+		} else {
+			println(false)
+		}
+	} else {
+		println(false)
+		if v, _ok := m[9]; _ok {
+			println(v, true)
+		} else {
+			println(false)
+		}
+	}
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -167,4 +187,5 @@ func main() {
 	Session_demo()
 	Adder_demo()
 	Control_flow_demo()
+	Lookup_demo()
 }

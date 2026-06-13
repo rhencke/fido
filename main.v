@@ -170,6 +170,21 @@ Definition control_flow_demo : IO unit :=
   bind (sign_demo (20 : int)) (fun _ =>   (* prints: 20 false *)
   pick_demo true)).                       (* prints: 1 *)
 
+(** Matching on [map_get_opt] lowers to Go's comma-ok lookup:
+    [match map_get_opt k m with Some v => _ | None => _] becomes
+    [if v, ok := m[k]; ok { _ } else { _ }] — no [option] value is built. *)
+Definition lookup_demo : IO unit :=
+  bind (map_make_typed TInt64 TInt64) (fun m =>
+  bind (map_set (7 : int) (700 : int) m) (fun _ =>
+  bind (match map_get_opt (7 : int) m with    (* present → 700 true *)
+        | Some v => println [any v; any true]
+        | None   => println [any false]
+        end) (fun _ =>
+  match map_get_opt (9 : int) m with           (* absent → false *)
+  | Some v => println [any v; any true]
+  | None   => println [any false]
+  end))).
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -180,6 +195,7 @@ Definition main_effect : IO unit :=
   bind session_demo                    (fun _ =>   (* prints: 42 *)
   bind adder_demo                      (fun _ =>   (* prints: 42 *)
   bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
-  ret tt))))))))).
+  bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
+  ret tt)))))))))).
 
 Go Main Extraction main "main_effect".
