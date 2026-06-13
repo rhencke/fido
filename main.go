@@ -133,6 +133,30 @@ func Adder_demo() {
 	Adder_client(client_ep)
 }
 
+func Sign_demo(n int64) {
+	if n < 10 {
+		println(n, true)
+	} else {
+		println(n, false)
+	}
+}
+
+func Pick_demo(b bool) {
+	if b {
+		x := 1
+		println(x)
+	} else {
+		x := 2
+		println(x)
+	}
+}
+
+func Control_flow_demo() {
+	Sign_demo(5)
+	Sign_demo(20)
+	Pick_demo(true)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -142,4 +166,5 @@ func main() {
 	Goroutine_demo()
 	Session_demo()
 	Adder_demo()
+	Control_flow_demo()
 }

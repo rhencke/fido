@@ -379,6 +379,12 @@ let collect_app head args =
   in
   go args head
 
+(*s Peel [MLmagic] coercions (inserted by extraction around casts) to reach
+    the underlying node — needed to recognise [MLcase] under a coercion. *)
+let rec strip_magic = function
+  | MLmagic e -> strip_magic e
+  | e         -> e
+
 (*s Unfold a Rocq list literal (MLcons-based) to an OCaml list, or None. *)
 
 let rec unfold_list acc = function
@@ -636,6 +642,13 @@ let pp_io_body state tab env body =
         let vis = List.filter (fun a -> not (is_erased a)) all_args in
         (match head, vis with
          | MLglob r, [m; f] when is_bind_ref r ->
+             (match strip_magic m with
+              (* IO-valued branch: bind distributes over case, so push the
+                 continuation f into every arm.  This turns the match into a
+                 statement (if/switch) rather than a value. *)
+              | MLcase (_, scrut, branches) ->
+                  emit_case tab env scrut branches (fun b -> MLapp (head, [b; f]))
+              | _ ->
              let ids, body = collect_lam f in
              let new_env = List.rev ids @ env in
              (* go_spawn: bind (go_spawn goroutine_body) f → go func(){body}(); f *)
@@ -683,7 +696,7 @@ let pp_io_body state tab env body =
              in
              str tab ++ lhs ++ emit_m ++ fnl () ++
              (if is_terminating m then mt ()
-              else pp_stmts tab new_env body))
+              else pp_stmts tab new_env body)))
          | MLglob r, [_] when is_ret_ref r -> mt ()
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
              let ids, h_body = collect_lam h in
@@ -828,9 +841,45 @@ let pp_io_body state tab env body =
                        else pp_mlident id ++ str " := " in
              str tab ++ lhs ++ pp_expr state env e1 ++ fnl () ++
              pp_stmts tab new_env e2)
+    (* Case analysis in statement position (tail of an IO body). *)
+    | MLcase (_, scrut, branches) ->
+        emit_case tab env scrut branches (fun b -> b)
     | MLcons (_, r, []) when is_unit_tt r -> mt ()
     | e ->
         str tab ++ pp_expr state env e ++ fnl ()
+
+  (* Emit an [MLcase] as Go statements.  [mk_body] transforms each arm's body
+     before it is printed: the identity in tail position, or "wrap in [bind …
+     k]" when a continuation must be threaded into every arm.  Only [bool]
+     matches (i.e. [if]/[else]) are lowered for now; richer inductives and
+     type switches follow. *)
+  and emit_case tab env scrut branches mk_body =
+    let ctor_of (ids, pat, body) =
+      match pat with
+      | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
+      | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
+    in
+    match Array.to_list branches with
+    | [ b1; b2 ] ->
+        let (r1, _, body1) = ctor_of b1 in
+        let (r2, _, body2) = ctor_of b2 in
+        (match r1, r2 with
+         | Some c1, Some c2
+           when (is_bool_true c1 && is_bool_false c2)
+             || (is_bool_false c1 && is_bool_true c2) ->
+             let then_b, else_b =
+               if is_bool_true c1 then body1, body2 else body2, body1 in
+             str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env (mk_body then_b) ++
+             str tab ++ str "} else {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env (mk_body else_b) ++
+             str tab ++ str "}" ++ fnl ()
+         | _ ->
+             str tab ++ str "panic(\"unhandled match\") // TODO: non-bool case"
+             ++ fnl ())
+    | _ ->
+        str tab ++ str "panic(\"unhandled match\") // TODO: non-bool case"
+        ++ fnl ()
   in
   let rec peel_catches tab env b =
     let head, all_args = collect_app b [] in

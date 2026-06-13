@@ -147,6 +147,29 @@ Definition adder_demo : IO unit :=
   bind (go_spawn (adder_server server_ep)) (fun _ =>
   adder_client client_ep)).
 
+(** ---- Control flow: if/else (step 7a) ----
+
+    [if c then _ else _] is Rocq sugar for [match c with true | false]; the
+    plugin lowers it to a Go [if]/[else] statement.  Two positions:
+
+    [sign_demo] uses the branch in tail position (each arm is a statement).
+    [pick_demo] uses it as an IO value feeding a continuation — the plugin
+    threads the continuation into both arms (bind distributes over case). *)
+
+Definition sign_demo (n : int) : IO unit :=
+  if PrimInt63.ltb n 10
+  then println [any n; any true]      (* n < 10  → e.g. "5 true"   *)
+  else println [any n; any false].    (* n >= 10 → e.g. "20 false" *)
+
+Definition pick_demo (b : bool) : IO unit :=
+  bind (if b then ret (1 : int) else ret (2 : int)) (fun x =>
+  println [any x]).                    (* b → 1, else 2 *)
+
+Definition control_flow_demo : IO unit :=
+  bind (sign_demo (5 : int))  (fun _ =>   (* prints: 5 true  *)
+  bind (sign_demo (20 : int)) (fun _ =>   (* prints: 20 false *)
+  pick_demo true)).                       (* prints: 1 *)
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -156,6 +179,7 @@ Definition main_effect : IO unit :=
   bind goroutine_demo                  (fun _ =>   (* prints: 42 *)
   bind session_demo                    (fun _ =>   (* prints: 42 *)
   bind adder_demo                      (fun _ =>   (* prints: 42 *)
-  ret tt)))))))).
+  bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
+  ret tt))))))))).
 
 Go Main Extraction main "main_effect".
