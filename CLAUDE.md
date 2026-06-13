@@ -6,9 +6,18 @@ edited directly — it is always extracted from `*.v`.
 
 ## The goal
 
-Use Rocq to add safety guarantees to Go programs incrementally, as needed.
-The target is concurrent programs (channels, goroutines) where the
-interesting properties are:
+Be **safer than Go's compiler can prove** — type, memory, and concurrency
+safety lifted to compile time — while still lowering into ordinary Go for the
+primitives we like (channels, goroutines, maps, slices). Those primitives are
+good at runtime but weak *statically*: Go is memory-safe only at runtime
+(bounds checks, GC) and not race-free at all, deferring the rest to panics
+(send-on-closed, nil deref, out-of-bounds) or to the race detector. Fido moves
+those checks into Rocq — proving they cannot fire — and closes Go's specific
+static gaps: nil deref, use-after-close, and data races. Rocq supplies the
+compile-time guarantees; Go supplies the runtime and the primitives.
+
+We add these guarantees incrementally, as needed. The target is concurrent
+programs (channels, goroutines) where the interesting properties are:
 
 - **Protocol compliance** — session types on channels; both ends follow
   the same send/receive sequence, enforced by Rocq's type checker
