@@ -2,7 +2,9 @@
 
 From Fido Require Import preamble.
 From Stdlib Require Import Numbers.Cyclic.Int63.Uint63.
+From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
+From Stdlib Require Import ZArith.
 Require Import Coq.Lists.List.
 Import ListNotations.
 
@@ -16,6 +18,15 @@ Proof. intros n m. unfold add. apply Uint63.add_comm. Qed.
 
 Theorem add_assoc : forall n m p : int, add n (add m p) = add (add n m) p.
 Proof. intros n m p. unfold add. apply Uint63.add_assoc. Qed.
+
+Definition sub (n m : int) : int := PrimInt63.sub n m.
+
+(** Foundational accuracy: [int] is interpreted with SIGNED (Sint63) semantics,
+    matching Go's [int64].  In Go, [2 - 5] is [-3]; the signed model agrees.
+    (The old unsigned reading would wrongly give [2^63 - 3].)  This lemma is
+    machine-checked, so the model provably matches what the extracted Go does. *)
+Example sub_signed_matches_go : Sint63.to_Z (sub 2 5) = (-3)%Z.
+Proof. now vm_compute. Qed.
 
 (** Panic with [n], then recover it and print [n] and [n+1].
     Demonstrates the full panic → catch → type_assert cycle. *)
@@ -157,7 +168,7 @@ Definition adder_demo : IO unit :=
     threads the continuation into both arms (bind distributes over case). *)
 
 Definition sign_demo (n : int) : IO unit :=
-  if PrimInt63.ltb n 10
+  if Sint63.ltb n 10                  (* SIGNED comparison, faithful to Go int64 *)
   then println [any n; any true]      (* n < 10  → e.g. "5 true"   *)
   else println [any n; any false].    (* n >= 10 → e.g. "20 false" *)
 
@@ -165,10 +176,16 @@ Definition pick_demo (b : bool) : IO unit :=
   bind (if b then ret (1 : int) else ret (2 : int)) (fun x =>
   println [any x]).                    (* b → 1, else 2 *)
 
+(** Signed subtraction extracts to Go's [2 - 5] and prints [-3] — the runtime
+    counterpart of [sub_signed_matches_go]. *)
+Definition neg_demo : IO unit :=
+  println [any (sub (2 : int) (5 : int))].   (* Go prints: -3 *)
+
 Definition control_flow_demo : IO unit :=
   bind (sign_demo (5 : int))  (fun _ =>   (* prints: 5 true  *)
   bind (sign_demo (20 : int)) (fun _ =>   (* prints: 20 false *)
-  pick_demo true)).                       (* prints: 1 *)
+  bind (pick_demo true)       (fun _ =>   (* prints: 1 *)
+  neg_demo))).                            (* prints: -3 *)
 
 (** Matching on [map_get_opt] lowers to Go's comma-ok lookup:
     [match map_get_opt k m with Some v => _ | None => _] becomes

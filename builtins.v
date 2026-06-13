@@ -140,10 +140,15 @@ Definition GoAny : Type := {T : Type & T}.
 Notation any x := (@existT Type (fun T : Type => T) _ x).
 
 (** Signed integer types.
-    [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer,
-    which extracts to [int64] in Go (63 usable bits; correct on all 64-bit
-    platforms).  The remaining widths are axioms since Rocq has no native
-    equivalent at those widths. *)
+    [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
+    extracting to Go [int64], interpreted with SIGNED (Sint63) semantics.
+    [+], [-], [*] are two's-complement, shared with the unsigned primitive and
+    matching Go exactly; comparison and division use the signed Sint63
+    operations.  So [2 - 5] is [-3] as in Go — not the unsigned reading
+    [2^63 - 3].  HONEST LIMIT: Rocq's primitive int is 63-bit, so the model is
+    faithful to int64 only within [-2^62, 2^62); the missing top bit (full
+    int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
+    "Known gaps".  The remaining widths are axioms (no native Rocq equivalent). *)
 Axiom GoInt   : Type.   (* int    — platform-width, typically 64-bit *)
 Axiom GoInt8  : Type.   (* int8   — 8-bit  *)
 Axiom GoInt16 : Type.   (* int16  — 16-bit *)

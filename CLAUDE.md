@@ -158,11 +158,16 @@ safe-by-construction principle. Tracked until closed.
    integer `/` or `%`, so the path can't be reached (any use extracts to an
    undefined identifier). Proper fix: a guarded `div` (proof `d <> 0`, or a
    checked form). Float `/` is kept — IEEE, no panic.
-2. **Integer overflow/underflow** — *open, needs a model decision*. `int`
-   (`Uint63`, unsigned, wraps at 2⁶³) maps to Go `int64` (signed, wraps at
-   2⁶⁴); `2 - 5` and large `+`/`*` diverge silently. The "63 usable bits" note
-   acknowledges but does not *enforce* the safe range. Needs a signed bounded
-   int model, or in-range proof obligations on arithmetic.
+2. **Integer model** — *signedness fixed; range still partial*. `int` is now
+   interpreted with SIGNED Sint63 semantics, matching Go's int64: `+`/`-`/`*`
+   are two's-complement (shared with the unsigned primitive), comparison is
+   signed (`ltsb`/`lesb` → Go `<`/`<=`), and `2 - 5` is `-3` — machine-checked
+   by `sub_signed_matches_go`, and the extracted Go prints `-3`. Remaining gap:
+   Rocq's primitive int is 63-bit, so the model is faithful only within
+   `[-2^62, 2^62)`; the full int64 range and its exact overflow point need a
+   Z-based (CompCert-style) model. Overflow is well-defined wrap in Go, so that
+   Z model is the accurate default, with overflow-freedom as an opt-in proof
+   (a "safer than Go" guarantee).
 3. **`slice_get`** — *checked form added*. `slice_at_ok` (CPS, bounds-checked,
    forces handling the OOB case) is now the safe-by-construction default;
    `slice_get` is the escape hatch. Still open: the proof-carrying
