@@ -121,6 +121,19 @@ Proof.
   exact (H1 a w' H0).
 Qed.
 
+(** Sequencing rule for [m >>' n] (run [m], discard its result, run [n]).
+    The intermediate assertion [R] holds after [m] and before [n]. *)
+Lemma hoare_seq : forall {A B} (m : IO A) (n : IO B) P R Q,
+  {{ P }} m {{ fun _ => R }} ->
+  {{ R }} n {{ Q }} ->
+  {{ P }} (m >>' n) {{ Q }}.
+Proof.
+  intros A B m n P R Q Hm Hn.
+  eapply hoare_bind.
+  - exact Hm.
+  - intros a. exact Hn.
+Qed.
+
 (** ---- Types ---- *)
 
 Definition GoAny : Type := {T : Type & T}.
@@ -222,6 +235,17 @@ Definition with_defer {A : Type} (cleanup : IO unit) (m : IO A) : IO A :=
   catch
     (x <-' m ;; cleanup >>' ret x)
     (fun v => cleanup >>' panic v).
+
+(** The semantics claimed above, now proven rather than asserted: when the
+    guarded body panics, the deferred [cleanup] still runs and the original
+    panic propagates afterwards.  Follows from [bind_panic_l] (panic
+    short-circuits the body) and [catch_panic] (the handler fires). *)
+Lemma with_defer_panic : forall {A} (cleanup : IO unit) (v : GoAny),
+  @with_defer A cleanup (panic v) = cleanup >>' panic v.
+Proof.
+  intros A cleanup v. unfold with_defer.
+  rewrite bind_panic_l, catch_panic. reflexivity.
+Qed.
 
 (** Forward declarations so GoTypeTag can reference composite Go types in its
     TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)

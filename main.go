@@ -99,6 +99,40 @@ func Session_demo() {
 	Ping_client(client_ep)
 }
 
+func Adder_server(ep chan any) {
+	_sr_a := <-ep
+	a := _sr_a.(int64)
+	ep1 := ep
+	_sr_b := <-ep1
+	b := _sr_b.(int64)
+	ep2 := ep1
+	ep2 <- Add(a, b)
+	ep3 := ep2
+	_ = ep3
+}
+
+func Adder_client(ep chan any) {
+	ep <- int64(20)
+	ep1 := ep
+	ep1 <- int64(22)
+	ep2 := ep1
+	_sr_sum := <-ep2
+	sum := _sr_sum.(int64)
+	ep3 := ep2
+	_ = ep3
+	println(sum)
+}
+
+func Adder_demo() {
+	_sess_ch := make(chan any)
+	client_ep := _sess_ch
+	server_ep := _sess_ch
+	go func() {
+		Adder_server(server_ep)
+	}()
+	Adder_client(client_ep)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -107,4 +141,5 @@ func main() {
 	Chan_demo()
 	Goroutine_demo()
 	Session_demo()
+	Adder_demo()
 }

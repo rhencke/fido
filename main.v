@@ -121,6 +121,32 @@ Fail Definition bad_close_early (ep : SessEndpoint PingPong) : IO unit :=
 Fail Definition bad_server_sends (ep : SessEndpoint (dual PingPong)) : IO unit :=
   sess_send ep (1 : int) (fun ep' => sess_close ep').
 
+(** A longer protocol: the client sends two numbers, the server replies with
+    their sum.  Exercises consecutive same-direction steps on one channel —
+    two sends in a row (client) and two receives in a row (server) — which
+    ping-pong does not cover. *)
+
+Definition Adder : Proto := PSend int (PSend int (PRecv int PEnd)).
+
+Definition adder_server (ep : SessEndpoint (dual Adder)) : IO unit :=
+  (* dual Adder = PRecv int (PRecv int (PSend int PEnd)) *)
+  sess_recv TInt64 ep  (fun a ep1 =>
+  sess_recv TInt64 ep1 (fun b ep2 =>
+  sess_send ep2 (add a b) (fun ep3 =>
+  sess_close ep3))).
+
+Definition adder_client (ep : SessEndpoint Adder) : IO unit :=
+  sess_send ep (20 : int)  (fun ep1 =>
+  sess_send ep1 (22 : int) (fun ep2 =>
+  sess_recv TInt64 ep2     (fun sum ep3 =>
+  bind (sess_close ep3) (fun _ =>
+  println [any sum])))).     (* prints: 42 *)
+
+Definition adder_demo : IO unit :=
+  make_sess (fun client_ep server_ep =>
+  bind (go_spawn (adder_server server_ep)) (fun _ =>
+  adder_client client_ep)).
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -129,6 +155,7 @@ Definition main_effect : IO unit :=
   bind chan_demo                       (fun _ =>   (* prints: 42 true / 0 false *)
   bind goroutine_demo                  (fun _ =>   (* prints: 42 *)
   bind session_demo                    (fun _ =>   (* prints: 42 *)
-  ret tt))))))).
+  bind adder_demo                      (fun _ =>   (* prints: 42 *)
+  ret tt)))))))).
 
 Go Main Extraction main "main_effect".
