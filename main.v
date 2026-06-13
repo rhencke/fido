@@ -196,6 +196,16 @@ Definition list_demo : IO unit :=
   | cons x rest => println [any x; any (len rest)]   (* head=10, len tail=2 *)
   end.
 
+(** Safe slice access: [slice_at_ok] bounds-checks and forces handling the
+    out-of-bounds case, so it cannot panic — the safe-by-construction default,
+    versus the [slice_get] escape hatch used in [slice_demo] above. *)
+Definition slice_safe_demo : IO unit :=
+  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
+  slice_at_ok TInt64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
+  bind (println [any v; any ok]) (fun _ =>
+  slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* out of bounds → 0 false *)
+  println [any v2; any ok2]))).
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -208,6 +218,7 @@ Definition main_effect : IO unit :=
   bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
   bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
   bind list_demo                       (fun _ =>   (* prints: 10 2 *)
-  ret tt))))))))))).
+  bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
+  ret tt)))))))))))).
 
 Go Main Extraction main "main_effect".

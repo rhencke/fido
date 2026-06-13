@@ -448,11 +448,21 @@ Axiom slice_of_list : forall {A : Type}, GoTypeTag A -> list A -> GoSlice A.
 
 (** Indexed access — returns [IO A] because Go panics on out-of-bounds.
 
-    ESCAPE HATCH: the raw panicking form; use inside [catch] to handle OOB.  The
-    safe-by-construction default — proof-carrying [slice_at xs i (i < len xs)]
-    extracting to [xs[i]] unguarded, or a checked bounds-and-branch form — is a
-    tracked gap (CLAUDE.md "Known gaps"). *)
+    ESCAPE HATCH: the raw panicking form; use inside [catch] to handle OOB.
+    Prefer [slice_at_ok] (below), the safe-by-construction default.  A
+    proof-carrying [slice_at xs i (i < len xs)] → [xs[i]] unguarded is still a
+    tracked gap (needs the int model, CLAUDE.md "Known gaps"). *)
 Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
+
+(** Safe checked index (the safe-by-construction default for slice access).
+    [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in
+    range then [v = xs[i]] and [ok = true]; otherwise [v] is the zero value and
+    [ok = false].  CPS like [recv_ok]; because the caller must handle [ok =
+    false], this form cannot panic out of bounds.  (The index [i : int] is an
+    unsigned 63-bit value, so [i >= 0] always holds — only the upper bound is
+    checked.) *)
+Axiom slice_at_ok : forall {A B : Type},
+  GoTypeTag A -> GoSlice A -> int -> (A -> bool -> IO B) -> IO B.
 
 (** ---- Session types (step 6) ----
 

@@ -145,6 +145,7 @@ let is_append_ref r  = String.equal (global_basename r) "append"
 let is_go_map_type  r = String.equal (global_basename r) "GoMap"
 let is_slice_of_list_ref r = String.equal (global_basename r) "slice_of_list"
 let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
+let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
 let is_map_make_ref       r = String.equal (global_basename r) "map_make"
 let is_map_make_typed_ref r = String.equal (global_basename r) "map_make_typed"
 let is_map_set_ref  r = String.equal (global_basename r) "map_set"
@@ -743,6 +744,40 @@ let pp_io_body state tab env body =
                   pp_stmts tab new_env k_body
               | _ ->
                   str tab ++ str "_, _ = <-" ++ pp_expr state env ch ++ fnl ())
+         (* slice_at_ok tag xs i (fun v ok => body) → bounds-checked index:
+              var v T
+              ok := i < int64(len(xs))   (* i is uint63 >= 0; only upper bound *)
+              if ok { v = xs[i] }
+              body
+            Each binder is emitted only when used; v defaults to its zero value
+            when out of bounds, so no panic is possible. *)
+         | MLglob r, [tag; xs; i; kont] when is_slice_at_ok_ref r ->
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (match ids with
+              | [v_id; ok_id] ->
+                  let go_t = go_type_of_tag tag in
+                  let xs_d = pp_expr state env xs in
+                  let i_d  = pp_expr state env i in
+                  let cond = i_d ++ str " < int64(len(" ++ xs_d ++ str "))" in
+                  let v_decl =
+                    if is_dummy v_id then mt ()
+                    else str tab ++ str "var " ++ pp_mlident v_id ++ str " "
+                         ++ str go_t ++ fnl () in
+                  let ok_bind =
+                    if is_dummy ok_id then mt ()
+                    else str tab ++ pp_mlident ok_id ++ str " := " ++ cond ++ fnl () in
+                  let guard = if is_dummy ok_id then cond else pp_mlident ok_id in
+                  let if_block =
+                    if is_dummy v_id then mt ()
+                    else
+                      str tab ++ str "if " ++ guard ++ str " {" ++ fnl () ++
+                      str (tab ^ "\t") ++ pp_mlident v_id ++ str " = "
+                        ++ xs_d ++ str "[" ++ i_d ++ str "]" ++ fnl () ++
+                      str tab ++ str "}" ++ fnl () in
+                  v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
+              | _ ->
+                  pp_stmts tab new_env k_body)
          (* make_sess (fun ep1 ep2 => body) → ch := make(chan any); ep1 := ch; ep2 := ch
             Both endpoints share one chan any; the continuation is always emitted,
             and each non-dummy endpoint is aliased to the channel. *)
@@ -1034,7 +1069,7 @@ let is_inlined_ref r =
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_go_type_tag_ctor r || is_zero_val_ref r ||
-  is_slice_of_list_ref r || is_slice_get_ref r ||
+  is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r ||

@@ -163,9 +163,11 @@ safe-by-construction principle. Tracked until closed.
    2⁶⁴); `2 - 5` and large `+`/`*` diverge silently. The "63 usable bits" note
    acknowledges but does not *enforce* the safe range. Needs a signed bounded
    int model, or in-range proof obligations on arithmetic.
-3. **`slice_get`** — *open*. Only the raw panicking `IO` form (escape hatch).
-   Needs a safe default: proof-carrying `slice_at xs i (i < len xs)` → `xs[i]`
-   unguarded, or a checked bounds-and-branch form.
+3. **`slice_get`** — *checked form added*. `slice_at_ok` (CPS, bounds-checked,
+   forces handling the OOB case) is now the safe-by-construction default;
+   `slice_get` is the escape hatch. Still open: the proof-carrying
+   `slice_at xs i (i < len xs)` → `xs[i]` unguarded form, which needs the int
+   model (#2).
 4. **`type_assert`** — *open*. Only the raw panicking form. Needs the checked
    two-value `v, ok := x.(T)` form (CPS, like `recv_ok`).
 5. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
