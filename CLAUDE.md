@@ -9,12 +9,16 @@ edited directly — it is always extracted from `*.v`.
 Be **safer than Go's compiler can prove** — type, memory, and concurrency
 safety lifted to compile time — while still lowering into ordinary Go for the
 primitives we like (channels, goroutines, maps, slices). Those primitives are
-good at runtime but weak *statically*: Go is memory-safe only at runtime
-(bounds checks, GC) and not race-free at all, deferring the rest to panics
-(send-on-closed, nil deref, out-of-bounds) or to the race detector. Fido moves
-those checks into Rocq — proving they cannot fire — and closes Go's specific
-static gaps: nil deref, use-after-close, and data races. Rocq supplies the
-compile-time guarantees; Go supplies the runtime and the primitives.
+good at runtime but weak *statically*. Go doesn't *prevent* memory errors so
+much as *contain* them: a nil deref or out-of-bounds access is a real
+violation that Go traps into a panic rather than ruling out. And the
+containment is conditional — under a data race Go isn't memory-safe at all (a
+torn interface or slice header is type confusion, i.e. genuine corruption, not
+a panic), which is why races get a *runtime* detector instead of a static
+check. Fido instead proves these cannot happen — nil deref, use-after-close,
+out-of-bounds, send-on-closed, data races — all ruled out at compile time
+before any Go is emitted. Rocq supplies the compile-time guarantees; Go
+supplies the runtime and the primitives.
 
 We add these guarantees incrementally, as needed. The target is concurrent
 programs (channels, goroutines) where the interesting properties are:
