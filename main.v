@@ -206,6 +206,18 @@ Definition slice_safe_demo : IO unit :=
   slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* out of bounds → 0 false *)
   println [any v2; any ok2]))).
 
+(** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
+    on a type mismatch, the caller handles [ok = false].  Safe-by-construction
+    default versus the [type_assert] escape hatch.  We assert on a recovered
+    panic value [r : GoAny] (a genuine [any], like [panic_and_recover]). *)
+Definition assert_safe_demo (n : int) : IO unit :=
+  catch (@panic unit (any n))
+    (fun r =>
+     type_assert_safe TInt64 r (fun v ok =>        (* r holds int64 → n true *)
+     bind (println [any v; any ok]) (fun _ =>
+     type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
+     println [any b; any ok2])))).
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -219,6 +231,7 @@ Definition main_effect : IO unit :=
   bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
   bind list_demo                       (fun _ =>   (* prints: 10 2 *)
   bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
-  ret tt)))))))))))).
+  bind (assert_safe_demo (7 : int))    (fun _ =>   (* prints: 7 true / false false *)
+  ret tt))))))))))))).
 
 Go Main Extraction main "main_effect".

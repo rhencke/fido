@@ -286,15 +286,22 @@ Inductive GoTypeTag : Type -> Type :=
     Panics (like Go's [v.(T)]) if the runtime type does not match.
 
     ESCAPE HATCH: the raw panicking form, safe only inside [catch] or when the
-    runtime type is already known.  The safe-by-construction default — a checked
-    two-value [v, ok := x.(T)] form (CPS, like [recv_ok]) — is a tracked gap
-    (CLAUDE.md "Known gaps"). *)
+    runtime type is already known.  Prefer [type_assert_safe] (below), the
+    safe-by-construction default. *)
 Axiom type_assert : forall {T : Type}, GoTypeTag T -> GoAny -> IO T.
 
 Axiom type_assert_ok : forall {T} (tag : GoTypeTag T) (x : T),
   type_assert tag (any x) = ret x.
 (* type_assert panics if the runtime type does not match T.
    The precise failure law requires a decidable type equality; add when needed. *)
+
+(** Safe checked assertion (the safe-by-construction default for [GoAny]).
+    [type_assert_safe tag x (fun v ok => body)] lowers to Go's native two-value
+    form [v, ok := x.(T); body]: when the runtime type matches [T], [ok = true]
+    and [v = x]; otherwise [ok = false] and [v] is the zero value.  Because the
+    caller must handle [ok = false], it cannot panic.  CPS like [recv_ok]. *)
+Axiom type_assert_safe : forall {T B : Type},
+  GoTypeTag T -> GoAny -> (T -> bool -> IO B) -> IO B.
 
 (** ---- GoMap ----
 

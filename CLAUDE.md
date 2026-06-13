@@ -168,8 +168,9 @@ safe-by-construction principle. Tracked until closed.
    `slice_get` is the escape hatch. Still open: the proof-carrying
    `slice_at xs i (i < len xs)` → `xs[i]` unguarded form, which needs the int
    model (#2).
-4. **`type_assert`** — *open*. Only the raw panicking form. Needs the checked
-   two-value `v, ok := x.(T)` form (CPS, like `recv_ok`).
+4. **`type_assert`** — *checked form added*. `type_assert_safe` (CPS, Go's
+   native `v, ok := x.(T)`) is the safe-by-construction default; `type_assert`
+   is the escape hatch.
 5. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms

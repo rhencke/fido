@@ -160,6 +160,7 @@ let is_none_ctor r =
   ref_has_suffix r ".Init.Datatypes.None" || String.equal (global_basename r) "None"
 let is_panic_ref         r = String.equal (global_basename r) "panic"
 let is_type_assert_ref   r = String.equal (global_basename r) "type_assert"
+let is_type_assert_safe_ref r = String.equal (global_basename r) "type_assert_safe"
 let is_go_chan_type       r = String.equal (global_basename r) "GoChan"
 let is_make_chan_ref      r = String.equal (global_basename r) "make_chan"
 let is_make_chan_buf_ref  r = String.equal (global_basename r) "make_chan_buf"
@@ -778,6 +779,23 @@ let pp_io_body state tab env body =
                   v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
+         (* type_assert_safe tag x (fun v ok => body) → v, ok := x.(T); body
+            Go's native two-value assertion: ok=false (no panic) on mismatch. *)
+         | MLglob r, [tag; x; kont] when is_type_assert_safe_ref r ->
+             let go_t = go_type_of_tag tag in
+             let inner = match x with
+               | MLcons (_, r2, [a])    when is_existT_ref r2 -> pp_expr state env a
+               | MLcons (_, r2, [_; a]) when is_existT_ref r2 -> pp_expr state env a
+               | _ -> pp_expr state env x in
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (match ids with
+              | [v_id; ok_id] when not (is_dummy v_id && is_dummy ok_id) ->
+                  str tab ++ pp_mlident v_id ++ str ", " ++ pp_mlident ok_id ++
+                  str " := " ++ inner ++ str ".(" ++ str go_t ++ str ")" ++ fnl () ++
+                  pp_stmts tab new_env k_body
+              | _ ->
+                  pp_stmts tab new_env k_body)
          (* make_sess (fun ep1 ep2 => body) → ch := make(chan any); ep1 := ch; ep2 := ch
             Both endpoints share one chan any; the continuation is always emitted,
             and each non-dummy endpoint is aliased to the channel. *)
@@ -1068,7 +1086,8 @@ let is_inlined_ref r =
   is_bool_true r || is_bool_false r ||
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
-  is_type_assert_ref r || is_go_type_tag_ctor r || is_zero_val_ref r ||
+  is_type_assert_ref r || is_type_assert_safe_ref r ||
+  is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
