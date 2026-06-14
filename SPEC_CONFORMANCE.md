@@ -31,19 +31,26 @@ modeled here — see **Constants** below.
 
 ## Constants
 
-### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ⚠ deviation (Known gaps #5)
+### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ✓ representability (fixed-width); ⚠ arbitrary precision
 Spec: "Numeric constants represent **exact values of arbitrary precision and do
-not overflow**."  A constant acquires a type only at use, where "it is an error
-if the constant value cannot be represented as a value of the respective type"
-(a compile-time representability check); integer constants are ≥256-bit, constant
-overflow is a *compile error*, and constant float arithmetic rounds once at the
-typed boundary (`const 0.1+0.2` = `0.3`, not the runtime `0.30000000000000004`).
-Ours: literals are modeled as already-typed fixed-width values (`int` = Sint63,
-`float64` = IEEE double), conflating the untyped and typed layers.  **⚠ deviation,
-tracked**: large/narrow/constant-arith cases are wrong-or-unrepresentable; no
-impact yet (no demo exercises constant arithmetic).  Faithful model: untyped int
-constants as `Z`, untyped floats as exact rationals, with a representability
-proof at use (Go's compile-time check → safe-by-construction).
+not overflow**."  A constant acquires a type only at use, where "**it is an error
+if the constant value cannot be represented as a value of the respective type**"
+(a compile-time representability check); constant overflow is a *compile error*
+(NOT a runtime wrap), and constant float arithmetic rounds once at the typed
+boundary (`const 0.1+0.2` = `0.3`).
+Ours: **REPRESENTABILITY now airtight for the fixed-width types** — `u8_lit`/
+`i8_lit`/`u16_lit`/`i16_lit` DEMAND a proof the constant fits the type's range
+(`u8_lit : forall x, (x <? 256) = true -> GoU8`), discharged by `eq_refl` for an
+in-range literal.  So an out-of-range constant is **unrepresentable** — a compile
+error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
+by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
+The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
+*Remaining for full airtightness (the rest of this section):* `int` (Sint63)
+literals aren't yet representability-checked (ties to wrapping `int` as a distinct
+record + the Z-width model, Tier 2 #4); **arbitrary-precision** constant
+arithmetic (large intermediates like `1<<40 * 1<<40`) needs untyped int constants
+as `Z`; **float constants** need exact rationals (`Q`) rounding once at the typed
+boundary.  ⚠ tracked.
 
 ## Types
 

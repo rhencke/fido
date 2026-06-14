@@ -334,7 +334,7 @@ Fail Definition u8_const_oob : GoU8 := u8_lit 300 eq_refl.
 Record GoI8 := MkI8 { i8raw : int }.
 Definition i8_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
-Definition i8_lit (x : int) : GoI8 := MkI8 (i8_norm x).
+Definition i8_lit (x : int) (_ : (Sint63.leb (-128)%sint63 x && Sint63.ltb x 128)%bool = true) : GoI8 := MkI8 x.
 Definition i8_add (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.add (i8raw a) (i8raw b))).
 Definition i8_sub (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.sub (i8raw a) (i8raw b))).
 Definition i8_mul (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.mul (i8raw a) (i8raw b))).
@@ -346,7 +346,7 @@ Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
     [0x8000]).  Still fully faithful on the 63-bit carrier: a 16-bit product is
     [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)
 Record GoU16 := MkU16 { u16raw : int }.
-Definition u16_lit (x : int) : GoU16 := MkU16 (PrimInt63.land x 65535).
+Definition u16_lit (x : int) (_ : (x <? 65536)%uint63 = true) : GoU16 := MkU16 x.
 Definition u16_add (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.add (u16raw a) (u16raw b)) 65535).
 Definition u16_sub (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.sub (u16raw a) (u16raw b)) 65535).
 Definition u16_mul (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.mul (u16raw a) (u16raw b)) 65535).
@@ -357,7 +357,7 @@ Definition u16_leb (a b : GoU16) : bool := PrimInt63.leb (u16raw a) (u16raw b).
 Record GoI16 := MkI16 { i16raw : int }.
 Definition i16_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
-Definition i16_lit (x : int) : GoI16 := MkI16 (i16_norm x).
+Definition i16_lit (x : int) (_ : (Sint63.leb (-32768)%sint63 x && Sint63.ltb x 32768)%bool = true) : GoI16 := MkI16 x.
 Definition i16_add (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.add (i16raw a) (i16raw b))).
 Definition i16_sub (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.sub (i16raw a) (i16raw b))).
 Definition i16_mul (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.mul (i16raw a) (i16raw b))).
@@ -372,6 +372,12 @@ Fail Definition u16_no_implicit (x : GoU16) : GoU16 := u16_add x (5 : int).
 Fail Definition i16_no_implicit (x : GoI16) : GoI16 := i16_add x (5 : int).
 (* Cross-WIDTH too: [uint8] and [uint16] are distinct types — no implicit widen. *)
 Fail Definition u8_u16_no_mix (x : GoU8) (y : GoU16) : GoU16 := u16_add y x.
+
+(* Build-checked (Go spec "Constants"): out-of-range constants are UNREPRESENTABLE
+   (a compile error), per width — no silent wrap. *)
+Fail Definition i8_const_oob  : GoI8  := i8_lit  200    eq_refl.   (* > 127 *)
+Fail Definition u16_const_oob : GoU16 := u16_lit 70000  eq_refl.   (* >= 2^16 *)
+Fail Definition i16_const_oob : GoI16 := i16_lit 40000  eq_refl.   (* > 32767 *)
 
 (** ---- Builtins ---- *)
 

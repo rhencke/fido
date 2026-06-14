@@ -281,28 +281,28 @@ Definition u8_demo : IO unit :=
 (** int8 (signed): the SAME template extended to two's-complement.  [int8(150)] is
     [-106] (150 sign-extended from 8 bits), and the wrap is machine-checked.  The
     sign-extension is the harder case the model must get right. *)
-Example i8_add_wraps : i8_add (i8_lit 100) (i8_lit 50) = i8_lit (-106).
+Example i8_add_wraps : i8_add (i8_lit 100 eq_refl) (i8_lit 50 eq_refl) = i8_lit (-106) eq_refl.
 Proof. now vm_compute. Qed.                          (* 100+50=150 → -106 *)
-Example i8_sub_wraps : i8_sub (i8_lit (-128)) (i8_lit 1) = i8_lit 127.
+Example i8_sub_wraps : i8_sub (i8_lit (-128) eq_refl) (i8_lit 1 eq_refl) = i8_lit 127 eq_refl.
 Proof. now vm_compute. Qed.                          (* -128 - 1 wraps to 127 *)
 Definition i8_demo : IO unit :=
-  bind (println [any (i8_add (i8_lit 100) (i8_lit 50))])      (fun _ =>   (* -106 *)
-  bind (println [any (i8_sub (i8_lit (-128)) (i8_lit 1))])    (fun _ =>   (* 127  *)
-  bind (println [any (i8_lit (-100))])                        (fun _ =>   (* -100 *)
-  println [any (i8_ltb (i8_lit (-5)) (i8_lit 3))]))).                     (* true *)
+  bind (println [any (i8_add (i8_lit 100 eq_refl) (i8_lit 50 eq_refl))])      (fun _ =>   (* -106 *)
+  bind (println [any (i8_sub (i8_lit (-128) eq_refl) (i8_lit 1 eq_refl))])    (fun _ =>   (* 127  *)
+  bind (println [any (i8_lit (-100) eq_refl)])                                (fun _ =>   (* -100 *)
+  println [any (i8_ltb (i8_lit (-5) eq_refl) (i8_lit 3 eq_refl))]))).                     (* true *)
 
 (** uint16 / int16: the SAME template at width 16, fully faithful on the carrier
     (16-bit products are [< 2^32], far below [2^62], so [mul] is exact).  The
     plugin recognises every [uN_*]/[iN_*] width with one parser — these needed
     only the Rocq definitions, no new plugin code. *)
-Example u16_mul_wraps : u16_mul (u16_lit 1000) (u16_lit 1000) = u16_lit 16960.
+Example u16_mul_wraps : u16_mul (u16_lit 1000 eq_refl) (u16_lit 1000 eq_refl) = u16_lit 16960 eq_refl.
 Proof. now vm_compute. Qed.                    (* 1000000 mod 65536 = 16960 *)
-Example i16_add_wraps : i16_add (i16_lit 30000) (i16_lit 10000) = i16_lit (-25536).
+Example i16_add_wraps : i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl) = i16_lit (-25536) eq_refl.
 Proof. now vm_compute. Qed.                    (* 40000 wraps to -25536 in int16 *)
 Definition u16_demo : IO unit :=
-  bind (println [any (u16_add (u16_lit 60000) (u16_lit 10000))]) (fun _ =>   (* 4464 *)
-  bind (println [any (u16_mul (u16_lit 1000)  (u16_lit 1000))])  (fun _ =>   (* 16960 *)
-  println [any (i16_add (i16_lit 30000) (i16_lit 10000))])).                 (* -25536 *)
+  bind (println [any (u16_add (u16_lit 60000 eq_refl) (u16_lit 10000 eq_refl))]) (fun _ =>   (* 4464 *)
+  bind (println [any (u16_mul (u16_lit 1000 eq_refl)  (u16_lit 1000 eq_refl))])  (fun _ =>   (* 16960 *)
+  println [any (i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl))])).                 (* -25536 *)
 
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
