@@ -120,83 +120,77 @@ Definition goroutine_demo : IO unit :=
   bind (recv TInt64 ch)               (fun x =>
   println [any x]))).                  (* prints: 42 *)
 
-(** Session-typed ping-pong.
-    Protocol (client view): send int → recv int → end.
-    The server sees the dual:   recv int → send int → end.
-    The Rocq type checker statically enforces that each side
-    follows its role — swapping send/recv is a type error. *)
+(** Session-typed ping-pong, with LINEAR sessions (the indexed monad [Sess]).
+    Protocol (client view): send int → recv int → end.  The server realises the
+    dual: recv int → send int → end.  The protocol state lives in the TYPE
+    INDEX, so wrong order/direction/payload AND non-linear misuse (double-send,
+    incomplete protocol) are all Rocq compile-time errors — there is no endpoint
+    value to reuse. *)
 
 Definition PingPong : Proto := PSend int (PRecv int PEnd).
 
-Definition ping_server (ep : SessEndpoint (dual PingPong)) : IO unit :=
-  (* dual PingPong = PRecv int (PSend int PEnd) *)
-  sess_recv TInt64 ep (fun n ep' =>
-  sess_send ep' (add n n) (fun ep'' =>
-  sess_close ep'')).
-
-Definition ping_client (ep : SessEndpoint PingPong) : IO unit :=
-  sess_send ep (21 : int) (fun ep' =>
-  sess_recv TInt64 ep' (fun result ep'' =>
-  bind (sess_close ep'') (fun _ =>
-  println [any result]))).     (* prints: 42 *)
-
+(* Client and server are inlined into [run_session] so the plugin lowers each
+   role's body directly against the shared channel.  Their *types* (below) still
+   pin them to [PingPong] / [dual PingPong] ending at [PEnd], so the linearity
+   guarantee holds; the [Fail] tests cover the rejections. *)
 Definition session_demo : IO unit :=
-  make_sess (fun client_ep server_ep =>
-  bind (go_spawn (ping_server server_ep)) (fun _ =>
-  ping_client client_ep)).
+  run_session
+    (* client : Sess PingPong PEnd unit — send 21, recv, print *)
+    (sbind (ssend (21 : int)) (fun _ =>
+     sbind (srecv TInt64) (fun result =>
+     slift (println [any result]))))          (* prints: 42 *)
+    (* server : Sess (dual PingPong) PEnd unit — recv n, send n+n *)
+    (sbind (srecv TInt64) (fun n =>
+     ssend (add n n))).
 
 (** ---- Protocol compliance is enforced at compile time ----
 
-    Each [Fail] below asserts that the enclosed definition does NOT
-    type-check.  The build runs these: if any protocol violation ever
-    started compiling, [Fail] would error and break the build.  They are
-    machine-checked proofs that the session type discipline rejects misuse,
-    at zero runtime cost. *)
+    Each [Fail] below asserts that the enclosed definition does NOT type-check.
+    The build runs these: if any violation ever started compiling, [Fail] would
+    error and break the build.  They are machine-checked proofs that the session
+    discipline rejects misuse, at zero runtime cost. *)
 
-(* Protocol sends first; receiving first is a type error
-   (PSend ≠ PRecv at the head of the protocol). *)
-Fail Definition bad_recv_first (ep : SessEndpoint PingPong) : IO unit :=
-  sess_recv TInt64 ep (fun _ ep' => sess_close ep').
+(* Receiving first violates the protocol head (PSend ≠ PRecv) — type error. *)
+Fail Definition bad_recv_first : Sess PingPong PEnd unit :=
+  sbind (srecv TInt64) (fun _ => sret tt).
 
-(* Protocol sends an int; sending a bool is a type error
-   (the payload type is pinned to int by the endpoint). *)
-Fail Definition bad_send_type (ep : SessEndpoint PingPong) : IO unit :=
-  sess_send ep true (fun ep' => sess_close ep').
+(* Sending a bool where the protocol pins int — type error. *)
+Fail Definition bad_send_type : Sess PingPong PEnd unit :=
+  sbind (ssend true) (fun _ => sret tt).
 
-(* The protocol is not finished; closing now is a type error
-   (sess_close demands SessEndpoint PEnd). *)
-Fail Definition bad_close_early (ep : SessEndpoint PingPong) : IO unit :=
-  sess_close ep.
+(* Stopping before [PEnd]: the ascribed type demands the protocol be fully
+   consumed, so an incomplete session is a type error. *)
+Fail Definition bad_incomplete : Sess PingPong PEnd unit :=
+  ssend (21 : int).
+
+(* NON-LINEAR double send — the violation the old CPS API silently ACCEPTED.
+   After one [ssend] the state is [PRecv int PEnd]; a second [ssend] needs
+   [PSend] at the head, so it no longer type-checks. *)
+Fail Definition bad_double_send : Sess PingPong PEnd unit :=
+  sbind (ssend (21 : int)) (fun _ =>
+  sbind (ssend (99 : int)) (fun _ => sret tt)).
 
 (* The server's dual receives first; sending first is a type error. *)
-Fail Definition bad_server_sends (ep : SessEndpoint (dual PingPong)) : IO unit :=
-  sess_send ep (1 : int) (fun ep' => sess_close ep').
+Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
+  sbind (ssend (1 : int)) (fun _ => sret tt).
 
 (** A longer protocol: the client sends two numbers, the server replies with
-    their sum.  Exercises consecutive same-direction steps on one channel —
-    two sends in a row (client) and two receives in a row (server) — which
-    ping-pong does not cover. *)
+    their sum.  Exercises consecutive same-direction steps — two sends in a row
+    (client), two receives in a row (server) — which ping-pong does not. *)
 
 Definition Adder : Proto := PSend int (PSend int (PRecv int PEnd)).
 
-Definition adder_server (ep : SessEndpoint (dual Adder)) : IO unit :=
-  (* dual Adder = PRecv int (PRecv int (PSend int PEnd)) *)
-  sess_recv TInt64 ep  (fun a ep1 =>
-  sess_recv TInt64 ep1 (fun b ep2 =>
-  sess_send ep2 (add a b) (fun ep3 =>
-  sess_close ep3))).
-
-Definition adder_client (ep : SessEndpoint Adder) : IO unit :=
-  sess_send ep (20 : int)  (fun ep1 =>
-  sess_send ep1 (22 : int) (fun ep2 =>
-  sess_recv TInt64 ep2     (fun sum ep3 =>
-  bind (sess_close ep3) (fun _ =>
-  println [any sum])))).     (* prints: 42 *)
-
 Definition adder_demo : IO unit :=
-  make_sess (fun client_ep server_ep =>
-  bind (go_spawn (adder_server server_ep)) (fun _ =>
-  adder_client client_ep)).
+  run_session
+    (* client : Sess Adder PEnd unit — send 20, send 22, recv sum, print *)
+    (sbind (ssend (20 : int)) (fun _ =>
+     sbind (ssend (22 : int)) (fun _ =>
+     sbind (srecv TInt64) (fun sum =>
+     slift (println [any sum])))))            (* prints: 42 *)
+    (* server : Sess (dual Adder) PEnd unit — recv a, recv b, send a+b *)
+    (sbind (srecv TInt64) (fun a =>
+     sbind (srecv TInt64) (fun b =>
+     ssend (add a b)))).
 
 (** ---- Control flow: if/else (step 7a) ----
 

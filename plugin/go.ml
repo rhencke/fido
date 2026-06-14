@@ -196,6 +196,14 @@ let is_make_sess_ref = named "make_sess"
 let is_sess_send_ref = named "sess_send"
 let is_sess_recv_ref = named "sess_recv"
 let is_sess_close_ref = named "sess_close"
+(* Indexed-monad (linear) sessions: protocol state in the type index, lowered
+   against an implicit shared channel [_sess_ch]. *)
+let is_run_session_ref = named "run_session"
+let is_sbind_ref = named "sbind"
+let is_sret_ref  = named "sret"
+let is_ssend_ref = named "ssend"
+let is_srecv_ref = named "srecv"
+let is_slift_ref = named "slift"
 
 (* GoTypeTag constructors → Go type names *)
 let go_type_tag_map = [
@@ -1360,6 +1368,20 @@ let pp_io_body state tab env body =
                   pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
+         (* run_session client server → _sess_ch := make(chan any);
+                                        go func(){ <server> }(); <client>
+            The indexed-monad roles share one [chan any]; each role's body is
+            lowered by [pp_sess_stmts].  ([Proto] index is present, so the two
+            roles are the last two visible args.) *)
+         | MLglob r, vis when is_run_session_ref r && List.length vis >= 2 ->
+             let n = List.length vis in
+             let client = List.nth vis (n - 2) in
+             let server = List.nth vis (n - 1) in
+             str tab ++ str "_sess_ch := make(chan any)" ++ fnl () ++
+             str tab ++ str "go func() {" ++ fnl () ++
+             pp_sess_stmts (tab ^ "\t") env server ++
+             str tab ++ str "}()" ++ fnl () ++
+             pp_sess_stmts tab env client
          (* make_sess (fun ep1 ep2 => body) → ch := make(chan any); ep1 := ch; ep2 := ch
             Both endpoints share one chan any; the continuation is always emitted,
             and each non-dummy endpoint is aliased to the channel. *)
@@ -1613,6 +1635,49 @@ let pp_io_body state tab env body =
     str tab ++ hdr ++ pp_expr state env xs ++ str " {" ++ fnl () ++
     pp_stmts (tab ^ "\t") new_env body ++
     str tab ++ str "}" ++ fnl ()
+  (* ---- Indexed-monad (linear) sessions ----
+     A [Sess i j A] fragment lowers to sequential Go against the implicit shared
+     channel [_sess_ch] (declared by [run_session]).  [sbind] is sequencing;
+     [ssend v] → [_sess_ch <- v]; [srecv tag] → typed receive; [slift io] → the
+     IO body; [sret] erases.  The protocol [Proto] index is computationally
+     present (it is a [Type]-sorted inductive, not erased), so the real payload
+     is the LAST visible argument. *)
+  and emit_sess_action tab env ids action =
+    let h, args = collect_app action [] in
+    let vis = List.filter (fun a -> not (is_erased a)) args in
+    let last () = List.nth vis (List.length vis - 1) in
+    match h with
+    | MLglob r when is_ssend_ref r ->
+        str tab ++ str "_sess_ch <- " ++ pp_typed_lit state env (last ()) ++ fnl ()
+    | MLglob r when is_srecv_ref r ->
+        let go_t = go_type_of_tag (last ()) in
+        (match List.filter (fun id -> not (is_dummy id)) ids with
+         (* receive then type-assert in one expression — no temp, so consecutive
+            receives in one scope don't collide on a [:=] re-declaration *)
+         | [x] ->
+             str tab ++ pp_mlident x ++ str (" := (<-_sess_ch).(" ^ go_t ^ ")") ++ fnl ()
+         | _ -> str tab ++ str "<-_sess_ch" ++ fnl ())
+    | MLglob r when is_slift_ref r -> pp_stmts tab env (last ())
+    | MLglob r when is_sret_ref r ->
+        (match List.filter (fun id -> not (is_dummy id)) ids with
+         | [b] -> str tab ++ pp_mlident b ++ str " := " ++ pp_expr state env (last ()) ++ fnl ()
+         | _   -> mt ())
+    | _ -> pp_sess_stmts tab env action
+  and pp_sess_stmts tab env e =
+    let h, args = collect_app e [] in
+    let vis = List.filter (fun a -> not (is_erased a)) args in
+    match h with
+    | MLglob r when is_sbind_ref r && List.length vis >= 2 ->
+        let n = List.length vis in
+        let m = List.nth vis (n - 2) and k = List.nth vis (n - 1) in
+        let ids, body = collect_lam k in
+        let new_env = List.rev ids @ env in
+        emit_sess_action tab env ids m ++ pp_sess_stmts tab new_env body
+    | MLglob r when is_ssend_ref r || is_srecv_ref r || is_sret_ref r ->
+        emit_sess_action tab env [] e
+    | MLglob r when is_slift_ref r ->
+        pp_stmts tab env (List.nth vis (List.length vis - 1))
+    | _ -> str tab ++ pp_expr state env e ++ fnl ()
   in
   let rec peel_catches tab env b =
     let head, all_args = collect_app b [] in
@@ -1697,6 +1762,9 @@ let is_inlined_ref r =
   is_go_spawn_ref r || is_defer_call_ref r ||
   is_sess_endpoint_ref r || is_make_sess_ref r ||
   is_sess_send_ref r || is_sess_recv_ref r || is_sess_close_ref r ||
+  is_run_session_ref r || is_sbind_ref r || is_sret_ref r ||
+  is_ssend_ref r || is_srecv_ref r || is_slift_ref r ||
+  String.equal (global_basename r) "Sess" ||
   is_dual_ref r || is_proto_ctor r || is_proto_type r ||
   is_IO_type r || is_ret_ref r || is_bind_ref r ||
   String.equal (global_basename r) "catch" ||
@@ -1778,6 +1846,7 @@ let pp_decl state decl =
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
     || is_IO_type r || is_go_map_type r || is_go_chan_type r
     || is_sess_endpoint_ref r || is_ref_type r
+    || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice" -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()

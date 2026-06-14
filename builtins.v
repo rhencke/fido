@@ -682,30 +682,49 @@ Proof.
   induction p as [A p' IH | A p' IH |]; simpl; auto.
 Qed.
 
-(** A session endpoint whose remaining protocol is [P].
-    Extracts to [chan any] — both ends of a session share the same channel;
-    the proto index is a proof-only witness. *)
-Axiom SessEndpoint : Proto -> Type.
+(** ---- Linear sessions via an indexed monad ----
 
-(** [make_sess f]: allocate a fresh session channel and call [f] with both
-    endpoints.  One end has protocol [P], the other has [dual P].
-    CPS avoids needing product-type extraction. *)
-Axiom make_sess : forall {B : Type} {P : Proto},
-  (SessEndpoint P -> SessEndpoint (dual P) -> IO B) -> IO B.
+    An earlier CPS endpoint API ([SessEndpoint P], [sess_send ep v k], …)
+    enforced the protocol ORDER but not LINEARITY: it handed the continuation
+    the advanced endpoint while leaving the ORIGINAL [ep] in scope, and Rocq is
+    not substructural, so a double-send (or a silent mid-protocol abandonment)
+    type-checked.  Ordering was enforced; exactly-once use was not.
 
-(** [sess_send ep v f]: send [v] on [ep] (consuming the PSend step), then
-    continue as [f ep'] where [ep' : SessEndpoint P] is the same channel.
-    Extracts to: [ep <- v; ep' := ep; <f-body>]. *)
-Axiom sess_send : forall {A B : Type} {P : Proto},
-  SessEndpoint (PSend A P) -> A -> (SessEndpoint P -> IO B) -> IO B.
+    This indexed (parameterised) monad fixes it by putting the protocol state in
+    the TYPE INDEX, not in a reusable value.  [Sess i j A] is a session fragment
+    that advances the protocol from state [i] to state [j], yielding [A].  There
+    is no endpoint value to reuse; operations consume the head step of the index
+    and [sbind] threads the state; and a *runnable* session must thread from the
+    full protocol [P] all the way to [PEnd] ([Sess P PEnd unit]).  Hence
+    double-use, wrong order/direction/payload, AND incomplete protocols are all
+    Rocq TYPE ERRORS (see the [Fail] tests in main.v). *)
 
-(** [sess_recv tag ep f]: receive a value of type [A] from [ep], then
-    continue as [f v ep'] where [v] is the received value and [ep'] is the
-    same channel advanced past the PRecv step.
-    Extracts to: [_r := <-ep; v := _r.(T); ep' := ep; <f-body>]. *)
-Axiom sess_recv : forall {A B : Type} {P : Proto},
-  GoTypeTag A -> SessEndpoint (PRecv A P) -> (A -> SessEndpoint P -> IO B) -> IO B.
+Axiom Sess : Proto -> Proto -> Type -> Type.
 
-(** End the session.  The endpoint has reached [PEnd] — no more operations.
-    Extracts as a no-op; the channel is garbage-collected. *)
-Axiom sess_close : SessEndpoint PEnd -> IO unit.
+(** Pure value; protocol state unchanged.  Lowers like [ret]. *)
+Axiom sret : forall {P : Proto} {A : Type}, A -> Sess P P A.
+
+(** Sequence: [m] advances [i→j], then [k a] advances [j→k].  Lowers like
+    [bind] (sequential Go statements). *)
+Axiom sbind : forall {P Q R : Proto} {A B : Type},
+  Sess P Q A -> (A -> Sess Q R B) -> Sess P R B.
+
+(** Send: consumes the head [PSend A] step.  No endpoint argument — the channel
+    is implicit, supplied by the enclosing [run_session].
+    Lowers to [_sess_ch <- any(v)]. *)
+Axiom ssend : forall {A : Type} {P : Proto}, A -> Sess (PSend A P) P unit.
+
+(** Receive: consumes the head [PRecv A] step, yielding the received value.
+    Lowers to [_r := <-_sess_ch; _r.(T)]. *)
+Axiom srecv : forall {A : Type} {P : Proto}, GoTypeTag A -> Sess (PRecv A P) P A.
+
+(** Lift an [IO] action into a session at any protocol state (consumes no
+    protocol step) — e.g. to print a received value.  Lowers to the IO body. *)
+Axiom slift : forall {P : Proto} {A : Type}, IO A -> Sess P P A.
+
+(** Run two complementary roles concurrently: the client realises [P] to
+    completion, the server realises [dual P].  Allocates one shared channel,
+    spawns the server, runs the client.
+    Lowers to: [_sess_ch := make(chan any); go func(){ <server> }(); <client>]. *)
+Axiom run_session : forall {P : Proto},
+  Sess P PEnd unit -> Sess (dual P) PEnd unit -> IO unit.

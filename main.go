@@ -74,67 +74,28 @@ func Goroutine_demo() {
 	println(x)
 }
 
-func Ping_server(ep chan any) {
-	_sr_n := <-ep
-	n := _sr_n.(int64)
-	ep_ := ep
-	ep_ <- Add(n, n)
-	ep__ := ep_
-	_ = ep__
-}
-
-func Ping_client(ep chan any) {
-	ep <- int64(21)
-	ep_ := ep
-	_sr_result := <-ep_
-	result := _sr_result.(int64)
-	ep__ := ep_
-	_ = ep__
-	println(result)
-}
-
 func Session_demo() {
 	_sess_ch := make(chan any)
-	client_ep := _sess_ch
-	server_ep := _sess_ch
 	go func() {
-		Ping_server(server_ep)
+		n := (<-_sess_ch).(int64)
+		_sess_ch <- Add(n, n)
 	}()
-	Ping_client(client_ep)
-}
-
-func Adder_server(ep chan any) {
-	_sr_a := <-ep
-	a := _sr_a.(int64)
-	ep1 := ep
-	_sr_b := <-ep1
-	b := _sr_b.(int64)
-	ep2 := ep1
-	ep2 <- Add(a, b)
-	ep3 := ep2
-	_ = ep3
-}
-
-func Adder_client(ep chan any) {
-	ep <- int64(20)
-	ep1 := ep
-	ep1 <- int64(22)
-	ep2 := ep1
-	_sr_sum := <-ep2
-	sum := _sr_sum.(int64)
-	ep3 := ep2
-	_ = ep3
-	println(sum)
+	_sess_ch <- int64(21)
+	result := (<-_sess_ch).(int64)
+	println(result)
 }
 
 func Adder_demo() {
 	_sess_ch := make(chan any)
-	client_ep := _sess_ch
-	server_ep := _sess_ch
 	go func() {
-		Adder_server(server_ep)
+		a := (<-_sess_ch).(int64)
+		b := (<-_sess_ch).(int64)
+		_sess_ch <- Add(a, b)
 	}()
-	Adder_client(client_ep)
+	_sess_ch <- int64(20)
+	_sess_ch <- int64(22)
+	sum := (<-_sess_ch).(int64)
+	println(sum)
 }
 
 func Sign_demo(n int64) {
