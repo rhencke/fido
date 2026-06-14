@@ -35,6 +35,22 @@ let keywords =
   ] in
   List.fold_left (fun s w -> Id.Set.add (Id.of_string w) s) Id.Set.empty kws
 
+(*s Loud failure for unmodeled constructs.
+
+   The one thing the project forbids is shipping Go that *compiles and runs
+   wrong*.  A backend that does not know how to lower a construct must therefore
+   FAIL at extraction, never paper the gap over with a plausible-but-wrong value
+   (a bare [nil], an empty call) that [go build] would happily accept.  Reaching
+   this means one of two honest things: the construct is a real gap to implement,
+   or it is a dead definition to suppress in [is_inlined_ref].  It is never an
+   invitation to emit [nil].  ("It's fine to leave things unmodeled; it's not
+   fine to model them wrong.") *)
+let unsupported what =
+  CErrors.user_err
+    (str ("fido: cannot extract " ^ what ^
+          ": unmodeled Go construct.  Implement its lowering or suppress the \
+           definition (is_inlined_ref) — refusing to emit wrong Go."))
+
 (*s File naming. *)
 
 let file_naming state mp =
@@ -636,7 +652,7 @@ let rec pp_expr state env = function
                 prlist_with_sep (fun () -> str ", ") pp_pa pargs ++
                 str ")"
             | None ->
-                str (fname ^ "(/* dynamic list */)"))
+                unsupported (fname ^ " of a non-literal list (only statically-known argument lists are modeled)"))
        (* negb b → !b.  Unary [!] binds tighter than every binary operator, so
           [pp_atom] parenthesises the operand exactly when needed (e.g. a
           comparison: [!(x < y)]) and never otherwise ([!b]). *)
@@ -693,7 +709,7 @@ let rec pp_expr state env = function
            | MLcons (_, r, []) when is_bool_true r  -> str "true"
            | MLcons (_, r, []) when is_bool_false r -> str "false"
            | MLcons (_, r, []) when is_list_nil r   -> str "nil"
-           | MLcons _ as lst ->
+           | MLcons (_, r, _) as lst ->
                (* Non-empty list literal: emit as append(nil, v1, v2, ...).
                   Go infers the slice element type from the values. *)
                (match unfold_list [] lst with
@@ -702,8 +718,12 @@ let rec pp_expr state env = function
                     prlist_with_sep (fun () -> str ", ")
                       (pp_expr state env) elems ++
                     str ")"
-                | None -> str "nil /* dynamic list */")
-           | _ -> str "nil /* unhandled constructor */")
+                | None when is_list_cons r ->
+                    unsupported "a list with a non-literal spine (cons whose tail is not statically known)"
+                | None ->
+                    unsupported ("constructor " ^ global_basename r ^
+                                 " (only nat/bool/list/option constructors are modeled)"))
+           | _ -> unsupported "a non-constructor value in constructor position")
 
   | MLmagic e -> pp_expr state env e
   | MLdummy _ -> str "_"
@@ -728,7 +748,7 @@ let rec pp_expr state env = function
         then Int64.to_string (Int64.add i64 Int64.min_int)  (* i64 - 2^63 (two's comp.) *)
         else Int64.to_string i64 in
       str s
-  | _         -> str "nil /* TODO */"
+  | _         -> unsupported "this expression (unmodeled MiniML node in value position)"
 
 and pp_atom state env e =
   match e with
@@ -979,7 +999,7 @@ let pp_io_body state tab env body =
                  consumed by the match, so [v] is bound directly from m[k]. *)
               | MLglob r2, [k; mm] when is_map_get_opt_ref r2 ->
                   let fallback () =
-                    str tab ++ str "panic(\"map_get_opt: expected a Some/None match\")" ++ fnl () in
+                    unsupported "a map_get_opt result that is not immediately matched (the option has no Go representation; bind it directly to a Some v / None match)" in
                   (match ids, strip_magic body with
                    | [o_id], MLcase (_, scrut, branches)
                      when (match strip_magic scrut with MLrel 1 -> true | _ -> false) ->
@@ -1578,8 +1598,7 @@ let pp_io_body state tab env body =
       | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
     in
     let unhandled () =
-      str tab ++ str "panic(\"unhandled match\") // TODO: unsupported MLcase"
-      ++ fnl ()
+      unsupported "a match of this shape in statement position (only if/bool, option comma-ok, and list nil/cons are modeled)"
     in
     (* Emit a two-arm if/else; [pre] (e.g. an "x, ok :=" init clause) precedes
        the condition, and [tenv]/[fenv] are the branch environments. *)
