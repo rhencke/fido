@@ -319,6 +319,27 @@ Definition i8_eqb (a b : int) : bool := PrimInt63.eqb a b.
 Definition i8_ltb (a b : int) : bool := Sint63.ltb a b.   (* SIGNED comparison *)
 Definition i8_leb (a b : int) : bool := Sint63.leb a b.
 
+(** [uint16] / [int16] — the same template at width 16 (mask [0xffff]; sign bit
+    [0x8000]).  Still fully faithful on the 63-bit carrier: a 16-bit product is
+    [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)
+Definition u16_lit (x : int) : int := PrimInt63.land x 65535.
+Definition u16_add (a b : int) : int := PrimInt63.land (PrimInt63.add a b) 65535.
+Definition u16_sub (a b : int) : int := PrimInt63.land (PrimInt63.sub a b) 65535.
+Definition u16_mul (a b : int) : int := PrimInt63.land (PrimInt63.mul a b) 65535.
+Definition u16_eqb (a b : int) : bool := PrimInt63.eqb a b.
+Definition u16_ltb (a b : int) : bool := PrimInt63.ltb a b.
+Definition u16_leb (a b : int) : bool := PrimInt63.leb a b.
+
+Definition i16_norm (x : int) : int :=
+  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
+Definition i16_lit (x : int) : int := i16_norm x.
+Definition i16_add (a b : int) : int := i16_norm (PrimInt63.add a b).
+Definition i16_sub (a b : int) : int := i16_norm (PrimInt63.sub a b).
+Definition i16_mul (a b : int) : int := i16_norm (PrimInt63.mul a b).
+Definition i16_eqb (a b : int) : bool := PrimInt63.eqb a b.
+Definition i16_ltb (a b : int) : bool := Sint63.ltb a b.
+Definition i16_leb (a b : int) : bool := Sint63.leb a b.
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

@@ -270,6 +270,19 @@ Definition i8_demo : IO unit :=
   bind (println [any (i8_lit (-100))])                        (fun _ =>   (* -100 *)
   println [any (i8_ltb (i8_lit (-5)) (i8_lit 3))]))).                     (* true *)
 
+(** uint16 / int16: the SAME template at width 16, fully faithful on the carrier
+    (16-bit products are [< 2^32], far below [2^62], so [mul] is exact).  The
+    plugin recognises every [uN_*]/[iN_*] width with one parser — these needed
+    only the Rocq definitions, no new plugin code. *)
+Example u16_mul_wraps : u16_mul (u16_lit 1000) (u16_lit 1000) = u16_lit 16960.
+Proof. now vm_compute. Qed.                    (* 1000000 mod 65536 = 16960 *)
+Example i16_add_wraps : i16_add (i16_lit 30000) (i16_lit 10000) = i16_lit (-25536).
+Proof. now vm_compute. Qed.                    (* 40000 wraps to -25536 in int16 *)
+Definition u16_demo : IO unit :=
+  bind (println [any (u16_add (u16_lit 60000) (u16_lit 10000))]) (fun _ =>   (* 4464 *)
+  bind (println [any (u16_mul (u16_lit 1000)  (u16_lit 1000))])  (fun _ =>   (* 16960 *)
+  println [any (i16_add (i16_lit 30000) (i16_lit 10000))])).                 (* -25536 *)
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -762,6 +775,7 @@ Definition main_effect : IO unit :=
   bind (float_opp_sign_demo 0)         (fun _ =>   (* prints: true (opp made -0 at runtime) *)
   bind u8_demo                         (fun _ =>   (* prints: 44 / 1 / 255 / true *)
   bind i8_demo                         (fun _ =>   (* prints: -106 / 127 / -100 / true *)
+  bind u16_demo                        (fun _ =>   (* prints: 4464 / 16960 / -25536 *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
@@ -795,6 +809,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

@@ -341,22 +341,40 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    masks back to the width, e.g. [u8_add a b] → [((a + b) & 0xff)], matching Go's
    uint8 wrap.  Comparisons go through [binop_of]; the masked arithmetic and the
    literal/normaliser get explicit cases in [pp_expr]. *)
-let is_u8_lit_ref r = named "u8_lit" r
-let is_u8_add_ref r = named "u8_add" r
-let is_u8_sub_ref r = named "u8_sub" r
-let is_u8_mul_ref r = named "u8_mul" r
-let is_u8_eqb_ref r = named "u8_eqb" r
-let is_u8_ltb_ref r = named "u8_ltb" r
-let is_u8_leb_ref r = named "u8_leb" r
-(* int8: like uint8 but the masked result is sign-extended:
-   [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)].  Comparison is SIGNED. *)
-let is_i8_lit_ref r = named "i8_lit" r
-let is_i8_add_ref r = named "i8_add" r
-let is_i8_sub_ref r = named "i8_sub" r
-let is_i8_mul_ref r = named "i8_mul" r
-let is_i8_eqb_ref r = named "i8_eqb" r
-let is_i8_ltb_ref r = named "i8_ltb" r
-let is_i8_leb_ref r = named "i8_leb" r
+(* Parse a fixed-width integer op name [u<W>_op] / [i<W>_op] ([u]=unsigned,
+   [i]=signed) into (signed, width, op).  One parser serves every width, so adding
+   uint16/int16/uint32/… needs only the Rocq definitions — no plugin change.
+   Width is capped at 32 (a 64-bit value exceeds the 63-bit carrier — that needs
+   the Z-based model and is left to fail loud). *)
+let parse_fixed_width n =
+  let len = String.length n in
+  if len < 4 || not (n.[0] = 'u' || n.[0] = 'i') then None
+  else begin
+    let i = ref 1 in
+    while !i < len && n.[!i] >= '0' && n.[!i] <= '9' do incr i done;
+    if !i = 1 || !i >= len || n.[!i] <> '_' then None
+    else
+      let op = String.sub n (!i + 1) (len - !i - 1) in
+      (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
+      if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm"])
+      then None
+      else match int_of_string_opt (String.sub n 1 (!i - 1)) with
+        | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
+        | _ -> None
+  end
+let fixed_width_op r = parse_fixed_width (global_basename r)
+let fw_is r op = match fixed_width_op r with Some (_, _, o) -> String.equal o op | None -> false
+
+(* Emit the width-[w] wrap of [inner]: mask to [w] bits (Go [& 0x..]); for a
+   SIGNED width, additionally sign-extend via [(m ^ 2^(w-1)) - 2^(w-1)].  Matches
+   Go's uintW / intW wrap exactly on the int64 carrier. *)
+let fw_wrap signed width inner =
+  let mask = Printf.sprintf "0x%x" ((1 lsl width) - 1) in
+  let masked = str "(" ++ inner ++ str (" & " ^ mask ^ ")") in
+  if not signed then masked
+  else
+    let sbit = Printf.sprintf "0x%x" (1 lsl (width - 1)) in
+    str "((" ++ masked ++ str (" ^ " ^ sbit ^ ") - " ^ sbit ^ ")")
 
 let classify_float_op r =
   List.find_map
@@ -442,12 +460,11 @@ let is_negb_ref r = named "negb" r
 let binop_of r =
   if is_andb_ref r then Some (2, " && ")
   else if is_orb_ref r then Some (1, " || ")
-  else if is_u8_ltb_ref r then Some (3, " < ")    (* uintN values are in-range, so *)
-  else if is_u8_leb_ref r then Some (3, " <= ")   (* Go's signed int64 </<=/== agree *)
-  else if is_u8_eqb_ref r then Some (3, " == ")   (* with unsigned uint8 comparison *)
-  else if is_i8_ltb_ref r then Some (3, " < ")    (* int8 values are signed; Go int64 *)
-  else if is_i8_leb_ref r then Some (3, " <= ")   (* </<= are signed too → faithful *)
-  else if is_i8_eqb_ref r then Some (3, " == ")
+  (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
+     </<=/== agree with both unsigned and signed fixed-width comparison. *)
+  else if fw_is r "ltb" then Some (3, " < ")
+  else if fw_is r "leb" then Some (3, " <= ")
+  else if fw_is r "eqb" then Some (3, " == ")
   else
   match classify_nat_op r with
   | Some op -> Some (op_prec op, go_infix op)
@@ -728,28 +745,24 @@ let rec pp_expr state env = function
        | MLglob r, [x] when is_float_opp_ref r ->
            str "-" ++ pp_atom state env x
 
-       (* Fixed-width unsigned arithmetic: mask the result back to the width, so
-          the int64 carrier wraps exactly like Go's uintN.  [&] binds tighter than
-          [+]/[-] in Go, so the inner op is parenthesised; the whole is wrapped so
-          it is safe as an operand in any surrounding expression. *)
-       | MLglob r, [x] when is_u8_lit_ref r ->
-           str "(" ++ pp_expr state env x ++ str " & 0xff)"
-       | MLglob r, [a; b] when is_u8_add_ref r ->
-           str "((" ++ pp_expr state env a ++ str " + " ++ pp_expr state env b ++ str ") & 0xff)"
-       | MLglob r, [a; b] when is_u8_sub_ref r ->
-           str "((" ++ pp_expr state env a ++ str " - " ++ pp_expr state env b ++ str ") & 0xff)"
-       | MLglob r, [a; b] when is_u8_mul_ref r ->
-           str "((" ++ pp_expr state env a ++ str " * " ++ pp_expr state env b ++ str ") & 0xff)"
-
-       (* int8: mask to 8 bits then sign-extend [(m ^ 0x80) - 0x80]. *)
-       | MLglob r, [x] when is_i8_lit_ref r ->
-           str "((((" ++ pp_expr state env x ++ str ") & 0xff) ^ 0x80) - 0x80)"
-       | MLglob r, [a; b] when is_i8_add_ref r ->
-           str "((((" ++ pp_expr state env a ++ str " + " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
-       | MLglob r, [a; b] when is_i8_sub_ref r ->
-           str "((((" ++ pp_expr state env a ++ str " - " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
-       | MLglob r, [a; b] when is_i8_mul_ref r ->
-           str "((((" ++ pp_expr state env a ++ str " * " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
+       (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
+          mask the result to the width so the int64 carrier wraps like Go's uintN,
+          and (signed) sign-extend.  [fw_wrap] builds the masked/sign-extended form
+          with the parens Go's precedence needs.  A W-bit MULTIPLY whose product
+          can exceed the 63-bit carrier ([2W > 62]) fails loud — it needs the Z
+          model, not a silently-wrong wrap. *)
+       | MLglob r, [x] when fw_is r "lit" ->
+           let (s, w, _) = Option.get (fixed_width_op r) in
+           fw_wrap s w (pp_atom state env x)
+       | MLglob r, [a; b]
+         when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
+           let (s, w, op) = Option.get (fixed_width_op r) in
+           if String.equal op "mul" && 2 * w > 62 then
+             unsupported (string_of_int w ^ "-bit multiply: the product can exceed the 63-bit carrier; needs the Z-based wide-int model")
+           else
+             let opstr = (match op with "add" -> " + " | "sub" -> " - " | _ -> " * ") in
+             fw_wrap s w
+               (str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")")
 
        (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
@@ -1921,11 +1934,7 @@ let is_inlined_ref r =
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
-  is_u8_lit_ref r || is_u8_add_ref r || is_u8_sub_ref r || is_u8_mul_ref r ||
-  is_u8_eqb_ref r || is_u8_ltb_ref r || is_u8_leb_ref r ||
-  is_i8_lit_ref r || is_i8_add_ref r || is_i8_sub_ref r || is_i8_mul_ref r ||
-  is_i8_eqb_ref r || is_i8_ltb_ref r || is_i8_leb_ref r ||
-  String.equal (global_basename r) "i8_norm" ||
+  Option.has_some (fixed_width_op r) ||  (* all uN_*/iN_* incl. the iN_norm helper *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r ||
