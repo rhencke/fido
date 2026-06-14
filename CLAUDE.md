@@ -157,7 +157,18 @@ separate tracks.
 
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an
-   IIFE. *(Still pending — no demo triggers a value-position match yet.)*
+   IIFE. *(Still pending — no demo triggers a value-position match yet. But it
+   is no longer a SILENT hole: a value-position match now **fails loudly at
+   extraction** via `unsupported` — see "Fail-loud policy" below — rather than
+   emitting a plausible-but-wrong `nil`.  So the gap is honest, not a footgun.)*
+   **Boolean operators are done**: `andb`/`orb`/`negb` lower to Go's `&&`/`||`/`!`
+   (`Bool_op_demo`).  Faithful because the operands are pure, total `bool` values
+   (no effects, no divergence), so Go's short-circuit evaluation is
+   observationally identical to Coq's strict `andb`/`orb`.  Precedence: `||` = 1,
+   `&&` = 2 (in `binop_of`), so `(a || b) && c` parenthesises the looser `||`;
+   `negb` is unary (`!`, binds tighter than any binary op).  The dead standalone
+   `andb`/`orb`/`negb` definitions are suppressed in `is_inlined_ref` (every use
+   is inlined at the call site).
    The **operator-precedence printer (parens) is done**: `binop_of` gives each
    inlined arithmetic/comparison op a Go precedence (`* / %` = 5, `+ -` = 4,
    comparisons = 3), and `pp_prec ctx e` parenthesises a sub-operand only when its
@@ -179,6 +190,20 @@ separate tracks.
 
 Audit (2026-06-13 sweep) of the partial/unsafe primitives against the
 safe-by-construction principle. Tracked until closed.
+
+**Fail-loud policy (the meta-invariant).** No unmodeled construct may extract to
+plausible-but-wrong Go. The plugin's `unsupported what` helper raises a
+`CErrors.user_err` (aborting `make extract`) for every case it cannot lower —
+the catch-all in `pp_expr`/`pp_atom`, an unhandled `MLcase` shape in statement
+position, a non-literal `print`/`println` arg list, an unmodeled constructor
+(`MLcons` that is not nat/bool/list), and a `map_get_opt` result not immediately
+matched. Previously these emitted `nil /* TODO */` / `panic("unhandled match")`,
+which *compiles and runs wrong* — the one thing the project forbids. Now an
+unmodeled construct either gets implemented or gets suppressed in
+`is_inlined_ref` (if the offending definition is dead, as the `andb`/`negb`
+bodies were); it is never papered over. Verified: a value-position match probe
+aborts extraction with `fido: cannot extract this expression …`. This is what
+makes every "still pending" gap below *honest* rather than a silent footgun.
 
 1. **Integer div/mod by zero** — *resolved; evidence-carrying `div_nz`/`mod_nz`*.
    Rocq's `Uint63`/`nat` division is total (`x/0 = 0`), Go's panics, so a raw
