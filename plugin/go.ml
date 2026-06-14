@@ -342,15 +342,26 @@ let classify_float_op r =
     (fun (name, op) -> if is_float_op_ref r name then Some op else None)
     float_op_table
 
+(* Coq [nat] is modelled as Go [uint].  Add/mul/comparison are faithful within
+   the representable range (a [nat] too large for [uint] is unrepresentable
+   either way), but [Nat.sub] is TRUNCATED monus ([3 - 5 = 0]) whereas Go [uint]
+   subtraction WRAPS ([3 - 5 = 2^64 - 2]) — they disagree even on small values.
+   So [Nat.sub] is excluded here; it must NOT lower to a bare Go [-].  ([pp_expr]
+   turns any use into a loud [unsupported] error.)  This is the *Coq nat* path
+   only; [PrimInt63.sub] (signed two's-complement, faithful) goes through
+   [classify_int63_op] and is unaffected. *)
+let is_nat_sub_ref r = is_nat_op_ref r "sub"
 let classify_nat_op r =
   List.find_map
-    (fun (name, op) -> if is_nat_op_ref r name then Some op else None)
+    (fun (name, op) ->
+       if String.equal name "sub" then None
+       else if is_nat_op_ref r name then Some op else None)
     nat_op_names
 
 let classify_int63_op r =
   List.find_map
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
-    nat_op_names  (* same infix table works for int63 *)
+    nat_op_names  (* same infix table works for int63 (incl. faithful sub) *)
 
 (* Signed comparison AND signed division/remainder — where signed and unsigned
    differ ([int] is modelled with signed int64 semantics; the raw +/-/* ops are
@@ -680,6 +691,11 @@ let rec pp_expr state env = function
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
        | MLglob r, [x] when is_float_opp_ref r ->
            str "-" ++ pp_atom state env x
+
+       (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
+          rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
+       | MLglob r, [_; _] when is_nat_sub_ref r ->
+           unsupported "Nat.sub: Coq's truncated subtraction (3 - 5 = 0) does not match Go uint's wrapping minus (3 - 5 = 2^64-2); use int (Sint63) subtraction, or a b<=a-guarded monus"
 
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no

@@ -242,6 +242,17 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
    model is faithful within `[-2^62, 2^62)` — one bit short of int64, fine. No
    Z-model rewrite planned; the `add_wraps_at_boundary` example documents where
    the model wraps.
+   **Coq `nat` (≠ `int`) is mapped to Go `uint`**, used mainly for compile-time
+   indices (e.g. `run_blocks` block labels); runtime integer math is `int`
+   (Sint63). `Nat.add`/`mul`/`eqb`/`ltb`/`leb` lower to the Go operators and are
+   faithful within the representable range (a `nat ≥ 2^64` is unrepresentable in
+   `uint` either way). But **`Nat.sub` is excluded** (`classify_nat_op`): Coq's
+   `Nat.sub` is *truncated monus* (`3 - 5 = 0`) while Go `uint` `-` *wraps*
+   (`3 - 5 = 2^64-2`) — they disagree even on small values, so it would be
+   silently wrong. Using it now **fails loud** (`unsupported`), like the omitted
+   `Nat.div`/`mod`/`pred`. *Open:* a `b <= a`-guarded monus (`a - b` exact when no
+   truncation) or an `if a>=b` form, mirroring `div_nz`. `PrimInt63.sub` (the
+   `int` path, two's-complement) is faithful and unaffected.
 3. **`slice_get`** — *checked form added*. `slice_at_ok` (CPS, bounds-checked,
    forces handling the OOB case) is now the safe-by-construction default;
    `slice_get` is the escape hatch. Still open: the proof-carrying
