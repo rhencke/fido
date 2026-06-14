@@ -243,15 +243,21 @@ safe-by-construction principle. Tracked until closed.
    `var x T` to the dominator of its uses and assign with `=` (avoids `:=`
    re-declaration on loop re-entry and Go's goto-over-declaration rule).
    `ref_set` already emits `=`, not `:=`.
-   *Minimal scope (for the structurer):* place each variable in the **deepest**
-   scope that still dominates all its uses — i.e. introduce a block-local
-   declaration only when *every* use is inside that block (no outer access);
-   any outer access forces it out to the enclosing scope. Hoisting is the
-   correctness floor (dominate all uses); this is the idiom ceiling (don't
-   hoist further than needed). So when the structurer lifts the raw-`goto`
-   `Count_demo` to a `for`, `iv` (used only in the loop) sinks back to
-   loop-local; the function-level `var iv` was an artifact of the unstructured
-   form. Both fall out of one use-set/liveness analysis.
+   *Block scope is a gate, not a transform (for the structurer):* introduce a
+   structured block scope (if/for body) only when every variable defined inside
+   is used **only** inside — no outer access. A variable whose live range
+   *crosses* the block boundary cannot be block-scoped, and **hoisting it to the
+   enclosing scope is not a fix**: a `:=` inside a block (or once per loop
+   iteration) is a *fresh* variable per entry, while an outer `var x T` is one
+   *shared* cell — and the difference is observable under closure capture
+   (goroutine/`defer`) or address-of (Go's loop-variable semantics). So when a
+   variable crosses the boundary, lower that region as `goto` — the complete
+   fallback, which loses nothing, just stays un-prettified. When variables nest
+   cleanly, structure it: lifting `Count_demo` to a `for` sinks `iv` back to
+   loop-local (the function-level `var iv` was only the unstructured spelling).
+   *Caveat:* the current raw-`goto` hoist (`var iv`, shared) is correct only
+   when the temp is not captured/addressed; a captured loop-temp needs
+   fresh-per-iteration memory — a future refinement, not yet handled.
    **No shadowing (by design).** Go permits shadowing — `i := …` nested inside
    `i := …` is a *distinct* variable with its own memory — but we never emit it:
    Rocq alpha-renames binders to unique names, so each name is exactly one
