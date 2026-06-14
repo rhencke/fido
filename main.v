@@ -367,6 +367,29 @@ Definition loopif_demo : IO unit :=
     ret Done                                                        (* block 4: exit *)
   ]).
 
+(** Nested loops: an outer counter [i] (header block 0, tail block 4) wrapping an
+    inner counter [j] (header block 2, tail block 3).  Exercises the relooper
+    nesting one [for] inside another — [loopctx] stacks, so the inner [jv >= 2]
+    exit becomes the inner [break] (to block 4) and the outer [iv >= 2] exit the
+    outer [break] (to block 5).  Two [Ref]s; [j] is reset each outer pass.
+    Prints 0,1 (inner, i=0) then 0,1 (inner, i=1). *)
+Definition nested_loop_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new (0 : int)) (fun j =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
+      if Sint63.ltb iv 2 then ret (Jump 1%nat) else ret (Jump 5%nat)) ;
+    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
+      if Sint63.ltb jv 2 then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 3: inner body *)
+    bind (println [any jv]) (fun _ =>
+    bind (ref_set j (add jv 1)) (fun _ => ret (Jump 2%nat)))) ;
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 4: outer tail *)
+    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat))) ;
+    ret Done                                                        (* block 5: exit *)
+  ])).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -400,10 +423,11 @@ Definition main_effect : IO unit :=
   bind (diamond_demo true)             (fun _ =>   (* prints: 1 / 10 / 99 *)
   bind (diamond_demo false)            (fun _ =>   (* prints: 1 / 20 / 99 *)
   bind loopif_demo                     (fun _ =>   (* prints: 100 / 0 / 1 / 2 *)
+  bind nested_loop_demo                (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".
