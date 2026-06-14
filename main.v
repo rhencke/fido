@@ -29,6 +29,24 @@ Definition sub (n m : int) : int := PrimInt63.sub n m.
 Example sub_signed_matches_go : Sint63.to_Z (sub 2 5) = (-3)%Z.
 Proof. now vm_compute. Qed.
 
+(** WHY the plugin REJECTS [Nat.sub] (Coq nat → Go uint): nat subtraction is
+    TRUNCATED monus, so [3 - 5 = 0] — lowering it to Go uint's WRAPPING [-]
+    ([3 - 5 = 2^64-2]) would be silently wrong.  Machine-checked, so the rejection
+    rests on a fact, not a hunch. *)
+Example nat_sub_is_truncated : Nat.sub 3 5 = 0%nat.
+Proof. reflexivity. Qed.
+
+(** WHY the plugin REJECTS the UNSIGNED [PrimInt63.ltb]/[leb] for [int]: on a
+    high-bit value they disagree with Go's SIGNED int64 [<].  Take [-1]
+    ([PrimInt63.sub 0 1], i.e. the large [2^63-1] unsigned): unsigned [ltb (-1) 0]
+    is [false], but the SIGNED [Sint63.ltb (-1) 0] is [true] — and Go's [-1 < 0]
+    on int64 is [true].  So only the signed form (which [Sint63.ltb] reduces to)
+    matches Go.  Both machine-checked. *)
+Example ltb_unsigned_neg_false : PrimInt63.ltb (PrimInt63.sub 0 1) 0 = false.
+Proof. now vm_compute. Qed.
+Example ltb_signed_neg_true : Sint63.ltb (PrimInt63.sub 0 1) 0 = true.
+Proof. now vm_compute. Qed.
+
 (** OVERFLOW IS PROVABLE — the thing Go cannot do.  Go silently wraps integer
     overflow at runtime and only catches *constant* overflow at compile time.
     Here, "this addition does not overflow" is a Rocq predicate, and when it
