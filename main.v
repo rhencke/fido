@@ -456,6 +456,26 @@ Definition labeled_continue_demo : IO unit :=
     ret Done                                                        (* block 5: exit *)
   ])).
 
+(** Irreducible CFG (a two-entry loop): block 0 jumps into the {1,2} cycle at
+    *either* block 1 or block 2, so neither dominates the other and there is no
+    back-edge to make a loop header.  No structured [for] can express this, so it
+    takes the raw labels+goto fallback — the completeness guarantee that *any*
+    control flow lowers, structured or not.  enter_high ⇒ 2,1,2,1,2 ; else ⇒
+    1,2,1,2. *)
+Definition irreducible_demo (enter_high : bool) : IO unit :=
+  bind (ref_new (0 : int)) (fun n =>
+  run_blocks 0%nat [
+    (if enter_high then ret (Jump 2%nat) else ret (Jump 1%nat)) ;  (* block 0: two-entry *)
+    bind (ref_get TInt64 n) (fun nv =>                             (* block 1 *)
+    bind (println [any (1 : int)]) (fun _ =>
+    bind (ref_set n (add nv 1)) (fun _ => ret (Jump 2%nat)))) ;
+    bind (ref_get TInt64 n) (fun nv =>                             (* block 2 *)
+    bind (println [any (2 : int)]) (fun _ =>
+    bind (ref_set n (add nv 1)) (fun _ =>
+      if Sint63.ltb nv 3 then ret (Jump 1%nat) else ret (Jump 3%nat)))) ;
+    ret Done                                                       (* block 3: exit *)
+  ]).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -493,10 +513,12 @@ Definition main_effect : IO unit :=
   bind early_return_demo               (fun _ =>   (* prints: 0 / 1 *)
   bind labeled_break_demo              (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind labeled_continue_demo           (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
+  bind (irreducible_demo false)        (fun _ =>   (* prints: 1 / 2 / 1 / 2 *)
+  bind (irreducible_demo true)         (fun _ =>   (* prints: 2 / 1 / 2 / 1 / 2 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

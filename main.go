@@ -430,6 +430,32 @@ L0:
 	return
 }
 
+func Irreducible_demo(enter_high bool) {
+	n := int64(0)
+	var nv int64
+	if enter_high {
+		goto block2
+	} else {
+		goto block1
+	}
+block1:
+	nv = n
+	println(1)
+	n = Add(nv, 1)
+	goto block2
+block2:
+	nv = n
+	println(2)
+	n = Add(nv, 1)
+	if nv < 3 {
+		goto block1
+	} else {
+		goto block3
+	}
+block3:
+	return
+}
+
 func Foreach_demo() {
 	xs := []int64{10, 20, 30}
 	for _, x := range xs {
@@ -471,6 +497,8 @@ func main() {
 	Early_return_demo()
 	Labeled_break_demo()
 	Labeled_continue_demo()
+	Irreducible_demo(false)
+	Irreducible_demo(true)
 	Mut_demo()
 	Count_demo()
 	Defer_demo()

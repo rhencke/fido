@@ -1092,11 +1092,30 @@ let pp_io_body state tab env body =
                       (List.mem h (targets_of n)
                        || List.exists (fun e -> List.mem e (targets_of n)) pe))
                       alln in
-                  (* structurable: single entry at 0, ≤1 primary exit per loop
-                     (extra exits are labeled escapes to enclosing loops), loops
-                     properly nested (bodies disjoint or one inside the other) *)
+                  (* Reducibility: removing back-edges (target dominates source)
+                     must leave a DAG.  An irreducible CFG — a cycle with no
+                     dominating back-edge, so no detected loop header — would make
+                     [emit_region] recurse forever (nothing stops the cycle), so
+                     it must take the raw-goto fallback. *)
+                  let forward_succ n =
+                    List.filter (fun t -> t >= 0 && t < nblk && not (dominates t n))
+                      (targets_of n) in
+                  let reducible =
+                    let color = Array.make nblk 0 in
+                    let ok = ref true in
+                    let rec dfs n =
+                      color.(n) <- 1;
+                      List.iter (fun t ->
+                        if color.(t) = 1 then ok := false
+                        else if color.(t) = 0 then dfs t) (forward_succ n);
+                      color.(n) <- 2 in
+                    for n = 0 to nblk - 1 do if color.(n) = 0 then dfs n done;
+                    !ok in
+                  (* structurable: single entry at 0, reducible, ≤1 primary exit
+                     per loop (extra exits are labeled escapes to enclosing loops),
+                     loops properly nested (bodies disjoint or one inside other) *)
                   let structurable =
-                    start_v = 0 &&
+                    start_v = 0 && reducible &&
                     List.for_all (fun h -> List.length (primary_exits h) <= 1) headers &&
                     List.for_all (fun h1 ->
                       List.for_all (fun h2 ->

@@ -270,12 +270,16 @@ safe-by-construction principle. Tracked until closed.
    `run_blocks`, not to whatever block jumped to it); and same-named hoists from
    distinct blocks (Rocq reuses a binder name across closed terms) collapse to
    **one** `var`, since they become one reused, assign-before-read Go variable.
-   The structurer is gated on `structurable` (entry 0, ≤1 primary exit per loop,
-   loops properly nested); anything else falls back to raw labels+goto — always
-   correct, just un-prettified. Golden-guarded: structuring changes the source,
-   never the behaviour. Remaining: irreducible CFGs (no demo generates one yet),
-   and n-ary `switch`/type-switch blocks, which decompose to chained bool `if`s
-   in the goto model rather than a Go `switch` (a printer nicety, not coverage).
+   The structurer is gated on `structurable` (entry 0, **reducible**, ≤1 primary
+   exit per loop, loops properly nested); anything else falls back to raw
+   labels+goto — always correct, just un-prettified. Reducibility (back-edges
+   removed ⇒ a DAG) is required because an irreducible CFG has a cycle with no
+   dominating back-edge, hence no loop header to stop `emit_region`'s recursion;
+   `Irreducible_demo` (a two-entry loop) exercises this fallback and locks the
+   raw-goto path in the golden. Golden-guarded: structuring changes the source,
+   never the behaviour. Remaining nicety (not coverage): n-ary `switch`/type-
+   switch blocks decompose to chained bool `if`s in the goto model rather than a
+   Go `switch`.
 
    **Lowering correctness — the unifying principle.** The goto approach trades
    a single uniform primitive for some subtle correctness obligations; they all
