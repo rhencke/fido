@@ -233,6 +233,16 @@ safe-by-construction principle. Tracked until closed.
    shallow embedding for control flow (a Rocq `if`/Fixpoint *is* the Go
    construct), which cannot express jumps. Biggest build to date; do it
    minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
+   **Scoping-correctness obligation** for the CFG lowering: every variable's
+   declaration must *dominate* all its uses (and not be jumped over). With
+   unique names (Rocq alpha-renames — one decl per name) this is a clean,
+   provable dominance condition (referenced-points ⊆ in-scope-points).
+   Structured lowering gets it by construction (de Bruijn = scope; continuations
+   pushed into branches with `ast_lift`). The CFG needs an explicit
+   **variable-placement** pass: hoist each cross-block/loop-carried var's
+   `var x T` to the dominator of its uses and assign with `=` (avoids `:=`
+   re-declaration on loop re-entry and Go's goto-over-declaration rule).
+   `ref_set` already emits `=`, not `:=`.
 8. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
