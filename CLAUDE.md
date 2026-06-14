@@ -158,14 +158,21 @@ separate tracks.
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an
    IIFE. *(Still pending — no demo triggers a value-position match yet.)*
-   The **operator-precedence printer is done**: `binop_of` gives each inlined
-   arithmetic/comparison op a Go precedence (`* / %` = 5, `+ -` = 4, comparisons
-   = 3), and `pp_prec ctx e` parenthesises a sub-operand only when its operator
-   binds looser than the context requires (left operand at the op's level, right
-   at `+1` for left-associativity) — instead of `pp_atom`'s conservative
-   "parenthesise every non-atom". `Prec_demo` shows `a*b + c` (no parens) and
-   `(a+b) * c` (parens only where needed); existing output is unchanged (those
-   operands were already atoms).
+   The **operator-precedence printer (parens) is done**: `binop_of` gives each
+   inlined arithmetic/comparison op a Go precedence (`* / %` = 5, `+ -` = 4,
+   comparisons = 3), and `pp_prec ctx e` parenthesises a sub-operand only when its
+   operator binds looser than the context requires — instead of `pp_atom`'s
+   conservative "parenthesise every non-atom". **Open: gofmt operator SPACING.**
+   gofmt tightens higher-precedence operators in a mixed expression by a *depth*
+   heuristic (`a * b + c` → `a*b+c`, `(a + b) * c` → `(a+b)*c`), which the printer
+   does not replicate, so nested-arithmetic output is not gofmt-canonical.  We
+   therefore emit **no nested infix yet** (the `prec_demo` that exercised it was
+   removed); single-operator output (`iv < 3`, `n / d`) is gofmt-clean.  Before
+   any program emits nested arithmetic the printer must match gofmt's spacing
+   (replicate go/printer's `binaryExpr` depth/cutoff rule) — until then the
+   pre-commit hook would (correctly) reject the output.  (The hook now runs
+   `gofmt` via Docker when the host lacks it, instead of silently skipping — a
+   missing host `gofmt` had let non-canonical output through.)
 8. **`select`** — non-deterministic choice between ready channels. Needed for
    services/multiplexing/timeouts. Significantly harder semantics than linear
    send/recv; wants control flow (each case is a branch) in place first.

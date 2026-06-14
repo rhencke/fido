@@ -697,7 +697,18 @@ let rec pp_expr state env = function
       str s
   | MLexn s   -> str ("panic(" ^ Printf.sprintf "%S" s ^ ")")
   | MLaxiom s -> str ("panic(\"axiom: " ^ String.escaped s ^ "\")")
-  | MLuint n  -> str (Uint63.to_string n)
+  | MLuint n  ->
+      (* [int] is SIGNED (Sint63): a 63-bit value with its sign bit (bit 62) set
+         — i.e. [>= 2^62] — denotes a NEGATIVE number ([value - 2^63]).  The raw
+         unsigned [Uint63.to_string] would print e.g. [-1] as 9223372036854775807,
+         a different value.  Emit the signed decimal instead.  (Positive literals
+         [< 2^62] are unchanged.) *)
+      let i64 = Uint63.to_int64 n in
+      let s =
+        if Int64.compare i64 0x4000000000000000L >= 0   (* sign bit set (>= 2^62) *)
+        then Int64.to_string (Int64.add i64 Int64.min_int)  (* i64 - 2^63 (two's comp.) *)
+        else Int64.to_string i64 in
+      str s
   | _         -> str "nil /* TODO */"
 
 and pp_atom state env e =

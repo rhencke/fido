@@ -93,14 +93,12 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz 17 5 eq_refl); any (mod_nz 17 5 eq_refl)].   (* prints: 3 2 *)
 
-(** Operator precedence in the printer (step 7b): nested arithmetic prints with
-    Go precedence, parenthesising only where needed.  [a*b + c] needs no parens
-    ([*] binds tighter than [+]); [(a+b) * c] does (the [+] is looser than the
-    surrounding [*]).  Uses the raw [PrimInt63] ops to force infix nesting. *)
-Definition prec_demo : IO unit :=
-  let a := 2%uint63 in let b := 3%uint63 in let c := 4%uint63 in
-  println [ any (PrimInt63.add (PrimInt63.mul a b) c)     (* a*b + c   = 10 *)
-          ; any (PrimInt63.mul (PrimInt63.add a b) c) ].  (* (a+b) * c = 20 *)
+(** Negative integer LITERALS print correctly.  [int] is signed (Sint63) whose
+    underlying representation is unsigned, so a naive printer would emit [-7] as
+    the unsigned 9223372036854775801 — the plugin must emit the signed decimal. *)
+Definition neglit_demo : IO unit :=
+  println [any (-7)%sint63; any (-1)%sint63; any (-2147483648)%sint63].
+  (* prints: -7 -1 -2147483648 *)
 
 (** Panic with [n], then recover it and print [n] and [n+1].
     Demonstrates the full panic → catch → type_assert cycle. *)
@@ -290,7 +288,9 @@ Definition slice_safe_demo : IO unit :=
   bind (println [any v; any ok]) (fun _ =>
   slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
   bind (println [any v2; any ok2]) (fun _ =>
-  slice_at_ok TInt64 xs (-1)%sint63 (fun v3 ok3 =>  (* NEGATIVE (signed) → 0 false *)
+  (* runtime-NEGATIVE index (sub 0 1 = -1) — a *constant* negative index is a Go
+     compile error, so use a computed one; the lower-bound check must reject it. *)
+  slice_at_ok TInt64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
   println [any v3; any ok3]))))).
 
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
@@ -522,7 +522,7 @@ Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
   bind div_demo                        (fun _ =>   (* prints: 3 2 *)
-  bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
+  bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
   bind slice_demo                      (fun _ =>   (* prints: 5 3 / false *)
   bind chan_demo                       (fun _ =>   (* prints: 42 true / 0 false *)

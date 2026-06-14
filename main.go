@@ -22,11 +22,8 @@ func Div_demo() {
 	println(Div_nz(17, 5), Mod_nz(17, 5))
 }
 
-func Prec_demo() {
-	a := 2
-	b := 3
-	c := 4
-	println(a * b + c, (a + b) * c)
+func Neglit_demo() {
+	println(-7, -1, -2147483648)
 }
 
 func Panic_and_recover(n int64) {
@@ -192,9 +189,9 @@ func Slice_safe_demo() {
 	}
 	println(v2, ok2)
 	var v3 int64
-	ok3 := 9223372036854775807 >= 0 && 9223372036854775807 < int64(len(xs))
+	ok3 := Sub(0, 1) >= 0 && Sub(0, 1) < int64(len(xs))
 	if ok3 {
-		v3 = xs[9223372036854775807]
+		v3 = xs[Sub(0, 1)]
 	}
 	println(v3, ok3)
 }
@@ -462,7 +459,7 @@ func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
 	Div_demo()
-	Prec_demo()
+	Neglit_demo()
 	Map_demo()
 	Slice_demo()
 	Chan_demo()

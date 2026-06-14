@@ -17,8 +17,15 @@ if git diff --cached --name-only | grep -qE '\.v$|^plugin/'; then
 fi
 
 # Generated Go must be gofmt-clean (the plugin should emit canonical output).
+# Use host gofmt if present, else the same Go image the build uses — do NOT let
+# a missing host gofmt silently skip the check (that let non-canonical output
+# through historically).
 if ls ./*.go >/dev/null 2>&1; then
-  unformatted=$(gofmt -l ./*.go 2>/dev/null || true)
+  if command -v gofmt >/dev/null 2>&1; then
+    unformatted=$(gofmt -l ./*.go)
+  else
+    unformatted=$(docker run --rm -v "$(pwd)":/w -w /w golang:1.23-alpine gofmt -l ./*.go 2>/dev/null)
+  fi
   if [ -n "$unformatted" ]; then
     echo "fido: ERROR — generated Go is not gofmt-clean:"
     echo "$unformatted"
