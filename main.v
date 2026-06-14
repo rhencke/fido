@@ -368,6 +368,30 @@ Definition convert_demo : IO unit :=
   (* mix distinct types: widen the uint8 into int16 arithmetic via explicit conv *)
   println [ any (i16_add b (i16_of_int (int_of_u8 a))) ]).  (* 1000 + 200 = 1200 *)
 
+(** Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]).
+    Evidence-carrying: the divisor must be proven non-zero (`u8_div_zero` `Fail`).
+    Signed division truncates toward zero (`-7/2 = -3`); the most-negative / `-1`
+    case wraps two's-complement (`int8(-128)/int8(-1) = -128`). *)
+Example spec_u8_div       : u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 28 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_mod       : u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 4  eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_div_trunc : i8_div (i8_lit (-7) eq_refl) (i8_lit 2 eq_refl) eq_refl = i8_lit (-3) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_div_ovf   : i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
+Definition divmod_demo : IO unit :=
+  println [ any (u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 28 *)
+          ; any (u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 4  *)
+          ; any (i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl) ].   (* -128 (overflow) *)
+
+(** uint32 / int32: the same template at width 32 (mul OMITTED — a 32-bit product
+    exceeds the 63-bit carrier, so it fails loud rather than silently wrap).
+    `4e9 + 1e9` wraps mod 2^32 → 705032704; `2e9 + 2e9` wraps int32 → -294967296. *)
+Example spec_u32_add_wrap : u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl) = u32_lit 705032704 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i32_add_wrap : i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl) = i32_lit (-294967296) eq_refl. Proof. now vm_compute. Qed.
+Definition u32_demo : IO unit :=
+  bind (println [ any (u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl))  (* 705032704 *)
+                ; any (i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl)) ])  (* -294967296 *)
+       (fun _ =>
+  println [ any (u32_shl (u32_lit 1 eq_refl) 31 eq_refl) ]).  (* 2147483648 = 2^31 *)
+
 (** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
     "a string value is a (possibly empty) sequence of bytes ... strings are
     immutable.  The length ... can be discovered using len.  A string's bytes can
@@ -906,6 +930,8 @@ Definition main_effect : IO unit :=
   bitwise_demo                  >>'   (* prints: 48 252 204 / 192 15 / -6 -6 *)
   shift_demo                    >>'   (* prints: 8 0 15 / -128 -2 *)
   convert_demo                  >>'   (* prints: 200 232 / 1200 *)
+  divmod_demo                   >>'   (* prints: 28 4 -128 *)
+  u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)

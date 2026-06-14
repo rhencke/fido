@@ -149,7 +149,7 @@ let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
    at runtime.  ([FW_of_int] NARROWS — handled via [fixed_width_op]'s "of_int".) *)
 let is_int_of_fw r =
   List.mem (global_basename r)
-    ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"]
+    ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"; "int_of_u32"; "int_of_i32"]
 
 (*s println / GoAny model recognition. *)
 
@@ -403,7 +403,8 @@ let parse_fixed_width n =
       let op = String.sub n (!i + 1) (len - !i - 1) in
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
       if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
-                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int"])
+                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int";
+                           "div"; "mod"])
       then None
       else match int_of_string_opt (String.sub n 1 (!i - 1)) with
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
@@ -913,6 +914,16 @@ let rec pp_expr state env = function
              (str "(" ++ pp_expr state env x ++ str " << " ++ pp_expr state env k ++ str ")")
        | MLglob r, [x; k] when fw_is r "shr" ->
            str "(" ++ pp_expr state env x ++ str " >> " ++ pp_expr state env k ++ str ")"
+
+       (* fixed-width division / remainder (divisor-non-zero proof erased).
+          [uintN]: non-negative carrier ⇒ Go int64 [/]/[%] is the unsigned result,
+          in range, no mask.  [intN]: signed [/]/[%] wrapped to the width ([fw_wrap])
+          — needed for the [-2^(N-1) / -1] two's-complement overflow. *)
+       | MLglob r, [a; b] when fw_is r "div" || fw_is r "mod" ->
+           let (s, w, op) = Option.get (fixed_width_op r) in
+           let opstr = if String.equal op "div" then " / " else " % " in
+           let raw = str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")" in
+           if s then fw_wrap s w raw else raw
 
        (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)

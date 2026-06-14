@@ -493,6 +493,83 @@ Definition i16_of_int (x : int) : GoI16 := MkI16 (i16_norm x).
    never [u8_of_int y] directly. *)
 Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
 
+(** ---- Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]) ----
+    EVIDENCE-CARRYING like [div_nz]: demand the divisor be non-zero (Go panics on a
+    zero divisor), so the panic is unreachable (safe-by-construction).
+    - [uintN]: the carrier is non-negative, so the SIGNED primitives [divs]/[mods]
+      compute the UNSIGNED quotient/remainder; the result is in range (quotient
+      <= dividend, |remainder| < divisor), no mask.
+    - [intN]: SIGNED div/mod (truncate toward zero), wrapped to the width ([norm]) —
+      this is where the most-negative / [-1] overflow lands: Go [int8(-128)/int8(-1)
+      = -128] (two's-complement wrap), and [norm] gives exactly that. *)
+Definition u8_div  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := MkU8  (PrimInt63.divs (u8raw a) (u8raw b)).
+Definition u8_mod  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := MkU8  (PrimInt63.mods (u8raw a) (u8raw b)).
+Definition i8_div  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := MkI8  (i8_norm (PrimInt63.divs (i8raw a) (i8raw b))).
+Definition i8_mod  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := MkI8  (i8_norm (PrimInt63.mods (i8raw a) (i8raw b))).
+Definition u16_div (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := MkU16 (PrimInt63.divs (u16raw a) (u16raw b)).
+Definition u16_mod (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := MkU16 (PrimInt63.mods (u16raw a) (u16raw b)).
+Definition i16_div (a b : GoI16) (_ : (PrimInt63.eqb (i16raw b) 0) = false) : GoI16 := MkI16 (i16_norm (PrimInt63.divs (i16raw a) (i16raw b))).
+Definition i16_mod (a b : GoI16) (_ : (PrimInt63.eqb (i16raw b) 0) = false) : GoI16 := MkI16 (i16_norm (PrimInt63.mods (i16raw a) (i16raw b))).
+
+(* Build-checked: a ZERO divisor is UNREPRESENTABLE (Go panics on it). *)
+Fail Definition u8_div_zero : GoU8 := u8_div (u8_lit 1 eq_refl) (u8_lit 0 eq_refl) eq_refl.
+
+(** ---- uint32 / int32 — the SAME template at width 32 ----
+
+    Distinct records over the [int] carrier, same as the narrower widths.  Mask
+    [0xffffffff], sign bit [0x80000000].  Every op (add/sub, comparison, bitwise,
+    shift, div/mod, conversions) is faithful on the 63-bit carrier: a 32-bit
+    add/sub/shift/div result is [< 2^33], far below [2^62].
+
+    NOTABLE OMISSION — [u32_mul]/[i32_mul] are NOT defined.  A 32-bit product can
+    reach [(2^32-1)^2 ≈ 2^64], which EXCEEDS the 63-bit carrier — so a masked-
+    product model would SILENTLY WRAP at [2^63] and give the wrong answer.  Per the
+    fail-loud policy we omit it (the plugin already aborts a [>30]-bit fixed-width
+    multiply); 32-bit multiply needs the Z-based wide-int model. *)
+Record GoU32 := MkU32 { u32raw : int }.
+Definition u32_lit (x : int) (_ : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x.
+Definition u32_add (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
+Definition u32_sub (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
+Definition u32_eqb (a b : GoU32) : bool := PrimInt63.eqb (u32raw a) (u32raw b).
+Definition u32_ltb (a b : GoU32) : bool := PrimInt63.ltb (u32raw a) (u32raw b).
+Definition u32_leb (a b : GoU32) : bool := PrimInt63.leb (u32raw a) (u32raw b).
+Definition u32_and    (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (u32raw a) (u32raw b)).
+Definition u32_or     (a b : GoU32) : GoU32 := MkU32 (PrimInt63.lor  (u32raw a) (u32raw b)).
+Definition u32_xor    (a b : GoU32) : GoU32 := MkU32 (PrimInt63.lxor (u32raw a) (u32raw b)).
+Definition u32_andnot (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (u32raw a) (PrimInt63.lxor (u32raw b) 4294967295)).
+Definition u32_not    (a   : GoU32) : GoU32 := MkU32 (PrimInt63.lxor (u32raw a) 4294967295).
+Definition u32_shl (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.lsl (u32raw x) k) 4294967295).
+Definition u32_shr (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := MkU32 (PrimInt63.lsr (u32raw x) k).
+Definition u32_div (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := MkU32 (PrimInt63.divs (u32raw a) (u32raw b)).
+Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := MkU32 (PrimInt63.mods (u32raw a) (u32raw b)).
+Definition int_of_u32 (x : GoU32) : int := u32raw x.
+Definition u32_of_int (x : int) : GoU32 := MkU32 (PrimInt63.land x 4294967295).
+
+Record GoI32 := MkI32 { i32raw : int }.
+Definition i32_norm (x : int) : int :=
+  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
+Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := MkI32 x.
+Definition i32_add (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.add (i32raw a) (i32raw b))).
+Definition i32_sub (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.sub (i32raw a) (i32raw b))).
+Definition i32_eqb (a b : GoI32) : bool := PrimInt63.eqb (i32raw a) (i32raw b).
+Definition i32_ltb (a b : GoI32) : bool := Sint63.ltb (i32raw a) (i32raw b).
+Definition i32_leb (a b : GoI32) : bool := Sint63.leb (i32raw a) (i32raw b).
+Definition i32_and    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.land (i32raw a) (i32raw b))).
+Definition i32_or     (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lor  (i32raw a) (i32raw b))).
+Definition i32_xor    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lxor (i32raw a) (i32raw b))).
+Definition i32_andnot (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.land (i32raw a) (PrimInt63.lxor (i32raw b) 4294967295))).
+Definition i32_not    (a   : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lxor (i32raw a) 4294967295)).
+Definition i32_shl (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := MkI32 (i32_norm (PrimInt63.lsl (i32raw x) k)).
+Definition i32_shr (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := MkI32 (i32_norm (PrimInt63.asr (i32raw x) k)).
+Definition i32_div (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := MkI32 (i32_norm (PrimInt63.divs (i32raw a) (i32raw b))).
+Definition i32_mod (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := MkI32 (i32_norm (PrimInt63.mods (i32raw a) (i32raw b))).
+Definition int_of_i32 (x : GoI32) : int := i32raw x.
+Definition i32_of_int (x : int) : GoI32 := MkI32 (i32_norm x).
+
+(* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
+Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
+Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2^32 *)
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

@@ -638,13 +638,16 @@ resting state.)**
     (`(m ^ 0x80) - 0x80`), comparison via signed `Sint63.ltb`; plugin emits the
     explicit int64 form `((((a + b) & 0xff) ^ 0x80) - 0x80)`.  Machine-checked
     `i8_add_wraps` (`100+50 = -106`), `i8_sub_wraps` (`-128-1 = 127`); `i8_demo`
-    golden `-106 / 127 / -100 / true`.  *Pending (same template):* `uint16`/`int16`
-    (mask `0xffff`) and `uint32`/`int32` (mask `0xffffffff`) — **but `u32_mul`
-    overflows the 63-bit carrier** ((2³²−1)² ≈ 2⁶⁴ > 2⁶²) so 32-bit *multiply*
-    needs the wider model, even though add/sub/cmp are fine; `div`/`mod` (need a
-    non-zero guard like `div_nz`); and **`uint64`/`uint`/`int` full width** (64-bit
-    exceeds the 63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶²
-    limit).  *Cosmetic:* `u8_lit`/`i8_lit` of an in-range literal emits the full
+    golden `-106 / 127 / -100 / true`.  **`uint16`/`int16` AND `uint32`/`int32` done**
+    (same template, masks `0xffff` / `0xffffffff`) — add/sub, comparison, bitwise,
+    shift, div/mod, conversions, all machine-checked (`spec_u32_add_wrap` 4e9+1e9→
+    705032704, `spec_i32_add_wrap` 2e9+2e9→-294967296).  **`div`/`mod` done for every
+    width** — evidence-carrying non-zero divisor (`div_nz` pattern; `u8_div_zero`
+    `Fail`), signed wraps the `-2^(N-1)/-1` overflow via `norm`.  *Still ✗:*
+    **`u32_mul`/`i32_mul`** ((2³²−1)² ≈ 2⁶⁴ > 2⁶² carrier — OMITTED, fails loud, needs
+    the wider model), and **`uint64`/`uint`/`int` full width** (64-bit exceeds the
+    63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶² limit).
+    *Cosmetic:* `u8_lit`/`i8_lit` of an in-range literal emits the full
     mask/sign-extend expression instead of just the literal — correct, just verbose.
     **TYPE DISTINCTNESS — DONE (airtight, Go spec "Numeric types").**  Each
     `uint8`/`int8`/`uint16`/`int16` is its OWN Rocq type — a single-field record

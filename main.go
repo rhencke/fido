@@ -97,6 +97,15 @@ func Convert_demo() {
 	println(((((b + ((((a) & 0xffff) ^ 0x8000) - 0x8000)) & 0xffff) ^ 0x8000) - 0x8000))
 }
 
+func Divmod_demo() {
+	println(((200 & 0xff) / (7 & 0xff)), ((200 & 0xff) % (7 & 0xff)), (((((((-128 & 0xff) ^ 0x80) - 0x80) / (((-1 & 0xff) ^ 0x80) - 0x80)) & 0xff) ^ 0x80) - 0x80))
+}
+
+func U32_demo() {
+	println((((4000000000 & 0xffffffff) + (1000000000 & 0xffffffff)) & 0xffffffff), (((((((2000000000 & 0xffffffff) ^ 0x80000000) - 0x80000000) + (((2000000000 & 0xffffffff) ^ 0x80000000) - 0x80000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000))
+	println((((1 & 0xffffffff) << 31) & 0xffffffff))
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -619,6 +628,8 @@ func main() {
 	Bitwise_demo()
 	Shift_demo()
 	Convert_demo()
+	Divmod_demo()
+	U32_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()

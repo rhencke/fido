@@ -64,19 +64,20 @@ integer is n bits wide and represented using two's complement arithmetic**";
 `byte`=`uint8`, `rune`=`int32`; `int`/`uint` are 32-or-64-bit.  And: "**all
 numeric types are defined types and thus distinct… Explicit conversions are
 required when different numeric types are mixed**."
-Ours: `uint8`/`int8`/`uint16`/`int16` are each their OWN Rocq type (a record over
-the `int` carrier, wrapper erased in extraction) — fully modeled (mask +
-two's-complement sign-extend).  Two's-complement: ✓ (`i8_add_wraps`,
-`i16_add_wraps`).  **DISTINCTNESS now airtight, BY CONSTRUCTION**: Rocq rejects
-mixing types, build-checked by `u8_no_implicit`, `i8_no_implicit`,
-`u16_no_implicit`, `i16_no_implicit`, and the cross-width `u8_u16_no_mix` — exactly
-the spec's "no implicit conversion; the only implicit path is an untyped constant"
-(`u8_lit : int -> GoU8`).  ✓  *Remaining:* `int`=Sint63 (⚠ faithful to int64 only
-within ±2⁶², Tier 2 #4) is not yet wrapped as a distinct record; `uint32`/`int32`
-add/sub/cmp (mul **✗ fails loud** — exceeds carrier), 64-bit **✗ fails loud**
-(needs Z-model); `float32` **✗** (no native Rocq f32).  Note: distinctness makes
-explicit CONVERSIONS (next section) load-bearing — without them you can't use a
-`uint8` where an `int` is wanted (which is correct: it fails loud, not silently).
+Ours: `uint8`/`int8`/`uint16`/`int16`/`uint32`/`int32` are each their OWN Rocq type
+(a record over the `int` carrier, wrapper erased in extraction) — fully modeled
+(mask + two's-complement sign-extend) across add/sub, comparison, bitwise, shift,
+div/mod, conversions.  Two's-complement: ✓ (`i8_add_wraps`, `i16_add_wraps`,
+`spec_i32_add_wrap`).  **DISTINCTNESS airtight, BY CONSTRUCTION**: Rocq rejects
+mixing types, build-checked by `u8_no_implicit`…`u32_no_implicit` and the
+cross-width `u8_u16_no_mix` — exactly the spec's "no implicit conversion; the only
+implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  *Remaining:*
+`int`=Sint63 (⚠ faithful to int64 only within ±2⁶², Tier 2 #4) is not yet wrapped
+as a distinct record; **`u32_mul`/`i32_mul` ✗ fails loud** (32-bit product exceeds
+the carrier — needs Z-model); 64-bit (`uint64`/`uint`/`int`) **✗ fails loud**
+(Z-model); `float32` **✗** (no native Rocq f32).  Note: distinctness makes explicit
+CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
+`int` is wanted (which is correct: it fails loud, not silently).
 
 ### [String types](https://go.dev/ref/spec#String_types) — ✓ byte sequence (rune view deferred)
 Spec: "A string value is a (possibly empty) sequence of **bytes**… The number of
@@ -116,6 +117,12 @@ single-goroutine/non-aliasing use; sub-slice aliasing / in-place append unmodele
 ### [Arithmetic operators](https://go.dev/ref/spec#Arithmetic_operators)
 `+ - * / %` integers: see Integer operators / overflow.  Unary `-x = 0-x` ✓
 (`neg_demo`), `+x = 0+x` ✓.
+**Division `/ %` — ✓ fixed-width.**  `uN_div`/`mod`, `iN_div`/`mod`: evidence-carrying
+non-zero divisor (`div_nz` pattern; `u8_div_zero` `Fail`).  Machine-checked
+(`spec_u8_div`…`spec_i8_div_ovf`): `200/7=28`, `200%7=4`, signed truncates toward
+zero (`-7/2=-3`), and the most-negative/`-1` overflow wraps (`int8(-128)/int8(-1)=
+-128`).  `uintN` via the non-negative carrier (Go int64 `/`=unsigned); `intN` via
+`divs`/`mods`+`norm`.  `divmod_demo` prints `28 4 -128`.
 **Bitwise `& | ^ &^` and unary `^` — ✓ fixed-width (`uintN`/`intN`).**  `uN_and`/
 `or`/`xor`/`andnot`/`not`, `iN_*`: machine-checked (`spec_u8_and`…`spec_i8_andnot`;
 240&60=48, |=252, ^=204, &^=192, `^240`=15, `^int8(5)=-6`, `int8(-1)&^5=-6`).
@@ -185,7 +192,7 @@ Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 ### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width); ✗ rest
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
-**Integer conversions among `{int, uint8, int8, uint16, int16}` — ✓.**  Routed
+**Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
 through the `int` carrier: `int_of_FW` WIDENS (value preserved; lowers to identity)
 and `FW_of_int` NARROWS (truncate — `land` for `uintN`, mask+sign-extend for `intN`
 — exactly Go's `uint8(x)`/`int8(x)`, no representability proof since a conversion
