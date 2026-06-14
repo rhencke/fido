@@ -433,21 +433,24 @@ Axiom map_get_or_miss : forall {K V : Type} (k : K) (default : V) (m : GoMap K V
 Axiom map_set    : forall {K V : Type}, K -> V -> GoMap K V -> IO unit.
 Axiom map_delete : forall {K V : Type}, K -> GoMap K V -> IO unit.
 
-(** Laws — stated in terms of the map value observable via [map_get_opt]
-    after a sequenced write. *)
-Axiom map_get_set_same : forall {K V} (k : K) (v : V) (m : GoMap K V),
-  bind (map_set k v m) (fun _ => ret (map_get_opt k m)) =
-  bind (map_set k v m) (fun _ => ret (Some v)).
+(** [map_get_opt] on the empty map is [None] — a PURE law (no write), faithful
+    and non-degenerate. *)
 Axiom map_get_empty : forall {K V} (k : K),
   map_get_opt k (@map_empty K V) = None.
-Axiom map_get_delete_same : forall {K V} (k : K) (m : GoMap K V),
-  bind (map_delete k m) (fun _ => ret (map_get_opt k m)) =
-  bind (map_delete k m) (fun _ => ret (@None V)).
-(** Setting [k1] does not affect reads at a different key [k2]. *)
-Axiom map_get_set_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V),
-  k1 <> k2 ->
-  bind (map_set k1 v m) (fun _ => ret (map_get_opt k2 m)) =
-  ret (map_get_opt k2 m).
+
+(** GET-AFTER-WRITE LAWS ARE DEFERRED to the heap-in-world model (Correctness
+    debt #2 in CLAUDE.md), NOT asserted here.  Reason: [map_get_opt] is a PURE
+    function of [m], but [map_set] is an effectful [IO] mutation, so a pure read
+    cannot reflect a write.  The natural law
+      [bind (map_set k v m) (fun _ => ret (map_get_opt k m))
+         = bind (map_set k v m) (fun _ => ret (Some v))]
+    is DEGENERATE: machine-checked, it implies [map_set k 0 m] and [map_set k 1 m]
+    cannot both succeed — i.e. it is only consistent in models where [map_set]
+    never returns normally, which makes all map Hoare-reasoning vacuous (the same
+    failure mode as the old total [run_io]).  The faithful fix is a heap in the
+    world with map reads in [IO] ([map_get_opt : ... -> IO (option V)]), so a
+    read can observe prior writes; then these laws become THEOREMS.  Until then we
+    assert no get-after-write law rather than a wrong one. *)
 
 (** ---- GoChan ----
 

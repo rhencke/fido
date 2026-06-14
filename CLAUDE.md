@@ -437,11 +437,17 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    axioms asserted on bind-sequencing intuition, NOT derived from a semantics.
    Consequences: the Hoare logic cannot reason about channels at all; goroutine
    interleaving is absent; race-freedom and deadlock-freedom are unstated; and
-   the channel laws' consistency with `run_io` is unverified.  *Fix:* a concurrent
-   denotational model — a world carrying heap + channel state + a **happens-before
-   relation** (per go.dev/ref/mem) — give `send`/`recv`/`go_spawn` real `run_io`
-   equations, and DERIVE the channel laws instead of asserting them.  This is the
-   substrate the entire concurrency thesis rests on; it is the single biggest gap.
+   the channel laws are not only ungrounded but **over-strong** — `send_recv`
+   asserts `send;recv = value` unconditionally, which is false for an unbuffered
+   channel with no waiting receiver (Go deadlocks there).  They have a model
+   (always-ready/buffered channels) so they are idealisations, not degenerate,
+   and are faithful for the uses the demos make (buffered, or with a complementary
+   goroutine).  *Fix:* a concurrent denotational model — a world carrying heap +
+   channel state + a **happens-before relation** (per go.dev/ref/mem) — give
+   `send`/`recv`/`go_spawn` real `run_io` equations, and DERIVE the channel laws
+   (properly conditioned on buffer space / a ready peer) instead of asserting
+   them.  This is the substrate the whole concurrency thesis rests on — the single
+   biggest gap.
 2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
    a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
    map / slice / `zero_val` axioms are not shown consistent with it.  If the set
@@ -483,12 +489,19 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    slice, `string`↔`[]byte`/`[]rune`) are modelled.  *Fix:* model strings as byte
    sequences with a rune-decoding view (or restrict to the rune view and forbid
    byte indexing), then add the operations.
-8. **Reference-type aliasing (maps, slices).**  Maps and slices are Go reference
-   types; the functional model (`append`→new list, map-as-value) is correct ONLY
-   for single-goroutine, non-aliasing use.  Sub-slicing (`s[a:b]` shares the
-   backing array), append-may-mutate-in-place, and any aliased or concurrent
-   access are not modelled.  *Fix:* move mutating ops fully into `IO` under an
-   ownership/aliasing discipline (ties to Tier 1's concurrency model).
+8. **Reference-type state (maps, slices, refs) needs a heap-in-world model.**
+   Two faces: (a) *aliasing* — maps/slices are Go reference types; the functional
+   model (`append`→new list, map-as-value) is correct only for single-goroutine,
+   non-aliasing use; sub-slicing (`s[a:b]` shares the backing array), in-place
+   append, and aliased/concurrent access are unmodelled.  (b) *get-after-write* —
+   `map_get_opt` is a PURE function, so it cannot reflect an IO `map_set`; the
+   get-after-write laws were **machine-checked degenerate** (they implied
+   `map_set` can never succeed) and have been REMOVED rather than assert a wrong
+   model — only the pure `map_get_empty` and the `map_get_or_hit/miss` laws remain
+   (faithful, non-degenerate).  *Fix:* a heap in the world with map/ref reads in
+   `IO` (`map_get_opt : ... -> IO (option V)`), so reads observe prior writes and
+   the get-after-write laws become THEOREMS; this also re-grounds consistency (#2)
+   and the aliasing discipline (ties to Tier 1's concurrency model).
 9. **Operator coverage is partial.**  Only `==`, `<`, `<=` are emitted; `>`, `>=`,
    `!=`, `&&`, `||` are not in the op tables (must currently be encoded via
    swapped operands / negation).  *Fix:* add them and verify faithfulness — in
