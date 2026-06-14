@@ -583,18 +583,31 @@ let rec nat_value = function
 
 (*s Expression printer. *)
 
-(*s Check whether MLrel 1 appears free in an expression.
-    Used to detect unused bind parameters (the result is discarded). *)
+(*s Check whether a given de Bruijn index appears free in an expression.
+    [dbn_free n e] is "index [n] does NOT occur free in [e]"; the index SHIFTS at
+    every binder (lambda / let / match arm / fix), so an inner binder's own
+    index-1 variable (e.g. the [ok] of a [recv_ok]/[type_assert_safe] CPS
+    continuation [fun v ok => …]) is not mistaken for the outer index.  The old
+    version went under [MLlam] WITHOUT shifting, a false-negative that defeated
+    discard-detection on left-nested [>>'] chains (the action was wrongly kept as
+    a value [x := Bind(…)]).  [db1_free] = "the bind result (index 1) is unused". *)
 
-let rec db1_free = function
-  | MLrel 1             -> false
-  | MLrel _ | MLglob _ | MLuint _ | MLfloat _ | MLdummy _ | MLaxiom _ | MLexn _ -> true
-  | MLapp (h, args)     -> db1_free h && List.for_all db1_free args
-  | MLlam (_, b)        -> db1_free b   (* conservative: may over-suppress inside nested lam *)
-  | MLcons (_, _, args) -> List.for_all db1_free args
-  | MLletin (_, e1, e2) -> db1_free e1 && db1_free e2
-  | MLmagic e           -> db1_free e
+let rec dbn_free n = function
+  | MLrel k             -> k <> n
+  | MLglob _ | MLuint _ | MLfloat _ | MLdummy _ | MLaxiom _ | MLexn _ -> true
+  | MLapp (h, args)     -> dbn_free n h && List.for_all (dbn_free n) args
+  | MLlam (_, b)        -> dbn_free (n + 1) b
+  | MLletin (_, e1, e2) -> dbn_free n e1 && dbn_free (n + 1) e2
+  | MLcons (_, _, args) -> List.for_all (dbn_free n) args
+  | MLcase (_, scrut, branches) ->
+      dbn_free n scrut
+      && Array.for_all (fun (ids, _, b) -> dbn_free (n + List.length ids) b) branches
+  | MLfix (_, names, bodies) ->
+      Array.for_all (dbn_free (n + Array.length names)) bodies
+  | MLmagic e           -> dbn_free n e
   | _                   -> true
+
+let db1_free e = dbn_free 1 e
 
 (*s CFG block terminators ([Next] values).  A block emitter delegates its
     terminator to one of these, so the same emitter prints raw labels+goto or

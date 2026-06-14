@@ -335,13 +335,13 @@ Definition slice_demo : IO unit :=
     First recv: value=42, ok=true  (buffered value still present after close).
     Second recv: value=0,  ok=false (channel drained and closed). *)
 Definition chan_demo : IO unit :=
-  bind (make_chan_buf TInt64 1) (fun ch =>
-  bind (send ch (42 : int))    (fun _ =>
-  bind (close_chan ch)          (fun _ =>
-  recv_ok TInt64 ch             (fun x ok =>
-  bind (println [any x; any ok]) (fun _ =>        (* prints: 42 true *)
-  recv_ok TInt64 ch              (fun x2 ok2 =>
-  println [any x2; any ok2])))))).
+  ch <-' make_chan_buf TInt64 1 ;;
+  send ch (42 : int) >>'
+  close_chan ch >>'
+  recv_ok TInt64 ch (fun x ok =>                   (* prints: 42 true *)
+  println [any x; any ok] >>'
+  recv_ok TInt64 ch (fun x2 ok2 =>
+  println [any x2; any ok2])).
 
 (** Unbuffered channel + goroutine: the goroutine sends while main recvs.
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
@@ -500,18 +500,18 @@ Definition inline_if_demo : IO unit :=
     _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
     value is built. *)
 Definition lookup_demo : IO unit :=
-  bind (map_make_typed TInt64 TInt64) (fun m =>
-  bind (map_set (7 : int) (700 : int) m) (fun _ =>
-  bind (bind (map_get_opt (7 : int) m) (fun o =>   (* present → 700 true *)
-        match o with
-        | Some v => println [any v; any true]
-        | None   => println [any false]
-        end)) (fun _ =>
-  bind (map_get_opt (9 : int) m) (fun o =>          (* absent → false *)
-  match o with
-  | Some v => println [any v; any true]
-  | None   => println [any false]
-  end)))).
+  m <-' map_make_typed TInt64 TInt64 ;;
+  map_set (7 : int) (700 : int) m >>'
+  (o <-' map_get_opt (7 : int) m ;;                 (* present → 700 true *)
+   match o with
+   | Some v => println [any v; any true]
+   | None   => println [any false]
+   end) >>'
+  (o <-' map_get_opt (9 : int) m ;;                 (* absent → false *)
+   match o with
+   | Some v => println [any v; any true]
+   | None   => println [any false]
+   end).
 
 (** List/slice match: [match xs with [] | x :: rest] lowers to
     [if len(xs) == 0 { … } else { x := xs[0]; rest := xs[1:]; … }].
@@ -530,13 +530,13 @@ Definition list_demo : IO unit :=
 Definition slice_safe_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
   slice_at_ok TInt64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
-  bind (println [any v; any ok]) (fun _ =>
+  println [any v; any ok] >>'
   slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
-  bind (println [any v2; any ok2]) (fun _ =>
+  println [any v2; any ok2] >>'
   (* runtime-NEGATIVE index (sub 0 1 = -1) — a *constant* negative index is a Go
      compile error, so use a computed one; the lower-bound check must reject it. *)
   slice_at_ok TInt64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
-  println [any v3; any ok3]))))).
+  println [any v3; any ok3]))).
 
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction
@@ -546,9 +546,9 @@ Definition assert_safe_demo (n : int) : IO unit :=
   catch (@panic unit (any n))
     (fun r =>
      type_assert_safe TInt64 r (fun v ok =>        (* r holds int64 → n true *)
-     bind (println [any v; any ok]) (fun _ =>
+     println [any v; any ok] >>'
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
-     println [any b; any ok2])))).
+     println [any b; any ok2]))).
 
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
