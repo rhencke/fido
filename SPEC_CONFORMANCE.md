@@ -287,6 +287,15 @@ Ours (`Print Assumptions` = *Closed under the global context* — no axioms): `h
 = transitive closure of exactly those edges; `hb_irrefl`+`hb_transitive` (strict
 partial order); `hb_send_before_recv`, `hb_recv_before_send`,
 `unbuffered_rendezvous`, `buffered_sender_runs_ahead` (no over-ordering);
-`data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  ✓  Open: tie
-events to the `run_io` world ops, `go_spawn`'s fork edge, deadlock freedom
-(liveness, needs a non-terminating model).
+`data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  ✓  **Modelled: 3 of
+the 4 channel rules** (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered as
+cap 0).  **Open:** the 4th channel rule — *"the closing of a channel is synchronized
+before a receive that returns a zero value because the channel is closed"* — is NOT
+yet an edge; a naive `Close ⤳ RecvDone n` for all `n` would OVER-ORDER (it would
+order close before receives that completed *before* it), breaking the no-over-order
+property, so it needs the zero-returning-receive distinction (n past the drained
+buffer).  Also open: tie events to the `run_io` world ops; `go_spawn`'s fork edge;
+general N-goroutine/M-channel topologies (the program-order edges currently model one
+sender + one receiver on one channel); deadlock freedom (liveness, needs a
+non-terminating model).  Other sync mechanisms (Mutex, atomic, once) need stdlib
+(imports — out of scope).

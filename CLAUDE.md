@@ -531,9 +531,13 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    message-passing instance (`mp_hb`: A writes `x` then sends; B receives then
    reads `x`) shows the write/read pair `mp_conflict`-s yet is `hb`-ordered through
    the `mp_sync` (= `hbe_send_recv`) edge — `mp_no_race`: it does NOT race.  *Still
-   pending:* whole-PROGRAM race freedom (every shared access ordered — a
-   program-level analysis obligation), tying `ChEvent`/`MPEvent` to the actual
-   `run_io` world ops, and `go_spawn`'s fork edge + deadlock-freedom (liveness,
+   pending:* the **4th go-mem channel rule — close⤳receive-that-returns-zero — is
+   NOT yet an edge** (a blanket `Close ⤳ RecvDone n` would over-order; needs the
+   zero-returning-receive distinction, n past the drained buffer); whole-PROGRAM
+   race freedom (every shared access ordered — a program-level analysis obligation);
+   general N-goroutine/M-channel topologies (the program-order edges model one
+   sender + one receiver on one channel); tying `ChEvent`/`MPEvent` to the actual
+   `run_io` world ops; and `go_spawn`'s fork edge + deadlock-freedom (liveness,
    needs a non-terminating model — Tier 5 #14).  Net: Phase 1 grounds the channel
    laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
    axiom-free or interface-grounded, replacing the old asserted-on-intuition
