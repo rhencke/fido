@@ -419,6 +419,109 @@ longer type-checks; `hoare_panic` depends only on `{run_io, run_panic, World}`;
 primitive-integer kernel axioms), so the overflow result is independent of the
 whole Go-axiom trust base. The `Fail`-test build gate proves the negative cases
 (e.g. `bad_double_send`) genuinely do not type-check.
+
+## Correctness debt — MUST close before module import
+
+A library inherits every subtlety of the primitives it is built on, so each item
+below has to be *correct*, not just present, before we type any imported package.
+"Punt until later" is fine — but it lives here, tracked, until closed.  Audited
+2026-06-14 against the actual code (not from memory).  Ordered by how foundational
+the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); tiers
+4–5 are **unmodelled** (fine under small-scope until a program/library uses them).
+
+### Tier 1 — the model itself is incomplete or ungrounded
+1. **Concurrency has no denotational model.**  `run_io` has equations for
+   `ret`/`bind`/`panic`/`catch` ONLY — there is no `run_io` for `send`/`recv`/
+   `close`/`go_spawn`/sessions.  The channel laws (`send_recv`, `send_recv_ok`,
+   `send_closed_panics`, `double_close_panics`) are free-standing equational
+   axioms asserted on bind-sequencing intuition, NOT derived from a semantics.
+   Consequences: the Hoare logic cannot reason about channels at all; goroutine
+   interleaving is absent; race-freedom and deadlock-freedom are unstated; and
+   the channel laws' consistency with `run_io` is unverified.  *Fix:* a concurrent
+   denotational model — a world carrying heap + channel state + a **happens-before
+   relation** (per go.dev/ref/mem) — give `send`/`recv`/`go_spawn` real `run_io`
+   equations, and DERIVE the channel laws instead of asserting them.  This is the
+   substrate the entire concurrency thesis rests on; it is the single biggest gap.
+2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
+   a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
+   map / slice / `zero_val` axioms are not shown consistent with it.  If the set
+   is inconsistent, every theorem is vacuous.  *Fix:* exhibit one model that
+   validates all axioms at once (or, better, replace axioms with definitions where
+   possible so consistency is by construction).
+3. **Lowering correctness is unproven (the plugin is trusted).**  ~1500 lines of
+   OCaml (incl. the relooper) translate Rocq→Go with NO theorem relating the
+   emitted Go to the source term; golden tests cover only finitely many
+   trajectories.  (See Known gaps #10.)  *Fix:* an operational semantics for the
+   Go fragment in Rocq + a simulation/refinement proof — start with straight-line
+   IO, then control flow, then channels.
+
+### Tier 2 — numeric correctness within the int/float parameters
+4. **`int` is ±2⁶², not full int64.**  One bit short of the int64 parameter; the
+   wrap boundary differs from Go's.  Earlier accepted, but strictly incorrect for
+   int64.  (Known gaps #2.)  *Fix:* a full-width model (Z-based, or a paired
+   63-bit representation) so the range and overflow point match int64 exactly.
+5. **Arithmetic is not overflow-safe by construction.**  `add`/`sub`/`mul` emit
+   `+`/`-`/`*` that silently wrap; overflow is *provable* (`add_no_overflow_exact`)
+   but not *enforced* — the inverse of the safe-by-construction discipline, which
+   wants a proof-carrying `add`/`sub`/`mul` (no-overflow precondition) as the
+   DEFAULT and raw wrap as a labelled opt-in.  `div_nz`/`mod_nz` already show the
+   shape.  *Fix:* guarded `add_nz`/`sub_nz`/`mul_nz` (proof the exact result is in
+   range) and/or a checked form; keep raw `add` as the opt-in wrap.
+6. **Untyped constants modelled wrong.**  Literals are modelled as already-typed
+   fixed-width/IEEE values; Go's *untyped* constants are arbitrary precision and
+   acquire a type (with a representability check) only at use.  So `const 0.1+0.2`
+   should be `0.3` (we give the runtime `0.30000000000000004`), large int
+   constants (`1<<70`) are unrepresentable in 63-bit `int`, and constant overflow
+   is a compile error not a wrap.  (Known gaps #5.)  *Fix:* untyped int constants
+   as `Z`, untyped float as exact rationals; type + representability proof at use.
+
+### Tier 3 — modelled types that are faithful only in a sub-regime
+7. **Strings conflate byte and rune indexing.**  `GoString := list GoRune` maps to
+   Go `string`, but Go `s[i]` yields a *byte* and `len(s)` is the *byte* count,
+   while `range s` yields runes.  The list-of-rune model is the rune view only;
+   byte-level indexing/len would be wrong, and no string ops (index, len, concat,
+   slice, `string`↔`[]byte`/`[]rune`) are modelled.  *Fix:* model strings as byte
+   sequences with a rune-decoding view (or restrict to the rune view and forbid
+   byte indexing), then add the operations.
+8. **Reference-type aliasing (maps, slices).**  Maps and slices are Go reference
+   types; the functional model (`append`→new list, map-as-value) is correct ONLY
+   for single-goroutine, non-aliasing use.  Sub-slicing (`s[a:b]` shares the
+   backing array), append-may-mutate-in-place, and any aliased or concurrent
+   access are not modelled.  *Fix:* move mutating ops fully into `IO` under an
+   ownership/aliasing discipline (ties to Tier 1's concurrency model).
+9. **Operator coverage is partial.**  Only `==`, `<`, `<=` are emitted; `>`, `>=`,
+   `!=`, `&&`, `||` are not in the op tables (must currently be encoded via
+   swapped operands / negation).  *Fix:* add them and verify faithfulness — in
+   particular that `&&`/`||` short-circuit is unobservable here (true only while
+   operands are pure; revisit if a bool operand can have effects).
+
+### Tier 4 — unmodelled operations on (some) modelled types
+10. **Narrow integer types** (`int8/16/32`, `uint`, `uint8/16/32/64`): opaque
+    axioms with no arithmetic and no overflow semantics — and unsigned wrap
+    differs from signed.  Needed before any library does sized/unsigned math.
+11. **Float gaps:** `float32` is an opaque axiom (no native Rocq f32); float
+    comparison (`<`/`<=`/`==`, and NaN's unordered behaviour) is not emitted; and
+    int↔float / float↔float conversions are absent.
+12. **Bit operations** (`<<`, `>>`, `&`, `|`, `^`, `&^`, including negative-shift /
+    over-width-shift behaviour) — entirely unmodelled.
+13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),
+    `string`↔`[]byte`/`[]rune`, interface conversions beyond `type_assert`.
+
+### Tier 5 — semantic edge cases
+14. **Divergence / non-termination.**  `run_io` is total, so the model assumes
+    every computation terminates; infinite loops and deadlocks have no denotation.
+    Liveness and deadlock-freedom proofs need a model that admits non-termination
+    (step-indexed or coinductive).  (Tied to Tier 1.)
+15. **Goroutine panic semantics.**  An unrecovered panic in ANY goroutine crashes
+    the whole program, and `main`'s `recover` cannot catch another goroutine's
+    panic — the current single-thread `catch`/`panic` model does not capture this
+    cross-goroutine crash.
+16. **nil / closed edges, uniformly.**  nil-channel send/recv blocks forever;
+    `close(nil)`, double-close, and send-on-closed panic; `map_set` on a nil
+    (`map_empty`) map panics.  Some are axiomatised, some only made safe by a
+    higher layer (sessions), some are raw escape hatches — the enforcement story
+    should be uniform and each unsafe raw form clearly labelled.
+
 ## Architecture
 
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
