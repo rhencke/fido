@@ -509,6 +509,27 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
   | cons x rest => slice_fold rest (step init x) step
   end.
 
+(** ---- Control flow as a CFG (the goto model) ----
+
+    Every Go control construct is, underneath, a control-flow graph of basic
+    blocks joined by gotos.  We model that directly and completely: a function
+    body is a set of labelled blocks; each block runs its IO effects then
+    transfers control — [Jump n] (goto block n) or [Done] (return).  Any Go
+    control flow, structured or irreducible, is a CFG, so this is complete and
+    [goto] is the native edge.
+
+    [run_blocks start body]: start at label [start]; run [body l] (which does IO
+    and yields a [Next]); follow [Jump]s until [Done].  It lives in [IO] because
+    a backward [Jump] need not terminate.  The plugin does NOT emit a dispatch
+    loop — it emits the blocks as Go labels + [goto], and a structuring pass
+    lifts reducible graphs back to [if]/[for]/[break].  Structured combinators
+    (if, for_each, slice_fold) are patterns that pass recognises, not the model. *)
+Inductive Next : Type :=
+  | Jump : nat -> Next   (* goto block n *)
+  | Done : Next.         (* return from the function *)
+
+Axiom run_blocks : nat -> (nat -> IO Next) -> IO unit.
+
 (** ---- Session types (step 6) ----
 
     [Proto] encodes a typed communication protocol as a sequence of sends

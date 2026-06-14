@@ -218,18 +218,21 @@ safe-by-construction principle. Tracked until closed.
    Go's `for { defer f() }` runs every `f()` at function exit (the classic
    accumulation/leak), whereas `with_defer` runs per iteration. Faithful
    function-scoped defer needs a deferred-call stack unwound at function return.
-7. **`goto`** — *not modelled; FULL support required* (a primitive — see the
-   completeness principle; no partial-semantics punt). Go's `goto` is restricted
-   (cannot jump into a block or over an in-scope var decl) but otherwise general
-   (forward/backward, out of nested loops). The complete faithful model is a
-   **labeled-block / CFG** representation: a function body is labelled blocks,
-   each an IO action ending in a control transfer (`goto L` / branch / return);
-   structured `if`/`for`/`break`/`continue` are *derived sugar*; non-terminating
-   paths live in IO. Extracts to Go labels + `goto`; reasoned about operationally
-   (or via the Hoare logic lifted to blocks). This is a step up from today's
-   *shallow* embedding (a Rocq `if`/Fixpoint *is* the Go construct), which cannot
-   express jumps. The structured labeled-escape case (nested-break) is a useful
-   first increment but **not** the endpoint — full `goto` is required.
+7. **`goto` / unified control-flow model** — *the architecture for all control
+   flow* (a primitive — completeness principle; no partial punt). The semantics
+   is a **goto-CFG**: every function body is a control-flow graph of basic blocks
+   joined by gotos. That is trivially complete — any Go control flow, structured
+   or irreducible, is just a CFG, and `goto` is the native edge; the
+   non-terminating paths live in IO. The extraction is then a **structuring
+   pretty-printer** (Relooper / Stackifier / decompiler-style): it walks the CFG
+   and *lifts* it back to idiomatic `if`/`for`/`break`/`continue` where the graph
+   is reducible, emitting raw Go labels + `goto` only where it is not.
+   **Completeness lives in the model; niceness lives in the printer.** The
+   structured combinators we already have (`if`, `for_each`, `slice_fold`) become
+   *patterns the structurer recognises*, not the foundation. This supersedes the
+   shallow embedding for control flow (a Rocq `if`/Fixpoint *is* the Go
+   construct), which cannot express jumps. Biggest build to date; do it
+   minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
 8. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
