@@ -280,6 +280,13 @@ Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
   for_each xs (fun x => println [any x]).   (* prints 10 / 20 / 30 *)
 
+(** Fold: sum a slice into an accumulator — lowers to an accumulator [for]
+    loop ([total := 0; for _, x := range xs { total = total + x }]). *)
+Definition sum_demo : IO unit :=
+  let xs    := slice_of_list TInt64 [1%uint63; 2%uint63; 3%uint63; 4%uint63] in
+  let total := slice_fold xs (0 : int) (fun acc x => add acc x) in
+  println [any total].   (* 1+2+3+4 = 10 *)
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -295,6 +302,7 @@ Definition main_effect : IO unit :=
   bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
   bind (assert_safe_demo (7 : int))    (fun _ =>   (* prints: 7 true / false false *)
   bind foreach_demo                    (fun _ =>   (* prints: 10 / 20 / 30 *)
-  ret tt)))))))))))))).
+  bind sum_demo                        (fun _ =>   (* prints: 10 *)
+  ret tt))))))))))))))).
 
 Go Main Extraction main "main_effect".

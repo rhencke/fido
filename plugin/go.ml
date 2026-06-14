@@ -147,6 +147,7 @@ let is_slice_of_list_ref r = String.equal (global_basename r) "slice_of_list"
 let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
 let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
 let is_for_each_ref      r = String.equal (global_basename r) "for_each"
+let is_slice_fold_ref    r = String.equal (global_basename r) "slice_fold"
 let is_map_make_ref       r = String.equal (global_basename r) "map_make"
 let is_map_make_typed_ref r = String.equal (global_basename r) "map_make_typed"
 let is_map_set_ref  r = String.equal (global_basename r) "map_set"
@@ -923,6 +924,34 @@ let pp_io_body state tab env body =
              str tab ++ str "\t" ++ lhs ++ str " = _v" ++ fnl () ++
              str tab ++ str "}" ++ fnl () ++
              pp_stmts tab new_env e2
+         (* let acc := slice_fold xs init step in body →
+              acc := init
+              for _, x := range xs { acc = step acc x }
+              body
+            The accumulator reuses the let-bound Go variable [id]; [step]'s two
+            binders map to (acc=id, x=loop var). *)
+         | MLglob r, [xs; init; step] when is_slice_fold_ref r && not (is_dummy id) ->
+             let step_ids, step_body = collect_lam step in
+             (match step_ids with
+              | [_acc; x_id] ->
+                  let acc = pp_mlident id in
+                  let pp_init d = match d with
+                    | MLuint _  -> str "int64(" ++ pp_expr state env d ++ str ")"
+                    | MLfloat _ -> str "float64(" ++ pp_expr state env d ++ str ")"
+                    | _ -> pp_expr state env d in
+                  (* step_body env: MLrel 1 = x, MLrel 2 = acc (= id); any captured
+                     outer vars sit past both binders in [env]. *)
+                  let loop_env = x_id :: id :: env in
+                  str tab ++ acc ++ str " := " ++ pp_init init ++ fnl () ++
+                  str tab ++ str "for _, " ++ pp_mlident x_id ++ str " := range "
+                    ++ pp_expr state env xs ++ str " {" ++ fnl () ++
+                  str (tab ^ "\t") ++ acc ++ str " = "
+                    ++ pp_expr state loop_env step_body ++ fnl () ++
+                  str tab ++ str "}" ++ fnl () ++
+                  pp_stmts tab new_env e2
+              | _ ->
+                  str tab ++ pp_mlident id ++ str " := " ++ pp_expr state env e1
+                    ++ fnl () ++ pp_stmts tab new_env e2)
          | _ ->
              let lhs = if is_dummy id || is_void_call e1 then mt ()
                        else pp_mlident id ++ str " := " in
@@ -1129,7 +1158,7 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
-  is_for_each_ref r ||
+  is_for_each_ref r || is_slice_fold_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r ||

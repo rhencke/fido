@@ -493,6 +493,22 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
   | cons x rest => bind (body x) (fun _ => for_each rest body)
   end.
 
+(** [slice_fold xs init step] is a pure left fold: it threads an accumulator
+    through the slice, [step]ping it with each element.  A total Fixpoint, so
+    its unfolding is provable:
+      [slice_fold nil init step = init]
+      [slice_fold (x :: rest) init step = slice_fold rest (step init x) step]
+    The plugin lowers a [let acc := slice_fold xs init step in …] to an
+    accumulator loop:
+      [acc := init; for _, x := range xs { acc = step acc x }; …]
+    so e.g. summing a slice is a real Go [for] loop, and "the running sum does
+    not overflow" is provable on the model (see [add_no_overflow_exact]). *)
+Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S) : S :=
+  match xs with
+  | nil        => init
+  | cons x rest => slice_fold rest (step init x) step
+  end.
+
 (** ---- Session types (step 6) ----
 
     [Proto] encodes a typed communication protocol as a sequence of sends

@@ -232,6 +232,15 @@ func Foreach_demo() {
 	}
 }
 
+func Sum_demo() {
+	xs := []int64{1, 2, 3, 4}
+	total := int64(0)
+	for _, x := range xs {
+		total = Add(total, x)
+	}
+	println(total)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -247,4 +256,5 @@ func main() {
 	Slice_safe_demo()
 	Assert_safe_demo(7)
 	Foreach_demo()
+	Sum_demo()
 }
