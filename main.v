@@ -347,6 +347,26 @@ Definition diamond_demo (b : bool) : IO unit :=
     bind (println [any (99 : int)]) (fun _ => ret Done)
   ].
 
+(** Loop containing a branch: a counting loop (block 0 header, block 3 the
+    increment/loop tail) whose body has an in-loop one-armed [if] (block 1 → 2).
+    Exercises the relooper nesting a conditional inside a [for]: the header
+    becomes [for { … if iv < 3 { … } else { break } }], and block 1's branch a
+    nested [if … < 1 { println(100) }].  Counter is a [Ref], re-read per block
+    (separate goto-blocks don't share Rocq scope).  Prints 100, 0, 1, 2. *)
+Definition loopif_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
+      if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 4%nat)) ;
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 1: in-loop branch *)
+      if Sint63.ltb iv 1 then ret (Jump 2%nat) else ret (Jump 3%nat)) ;
+    bind (println [any (100 : int)]) (fun _ => ret (Jump 3%nat)) ;  (* block 2: first-iter marker *)
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 3: body, incr, loop *)
+    bind (println [any iv]) (fun _ =>
+    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat)))) ;
+    ret Done                                                        (* block 4: exit *)
+  ]).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -379,10 +399,11 @@ Definition main_effect : IO unit :=
   bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
   bind (diamond_demo true)             (fun _ =>   (* prints: 1 / 10 / 99 *)
   bind (diamond_demo false)            (fun _ =>   (* prints: 1 / 20 / 99 *)
+  bind loopif_demo                     (fun _ =>   (* prints: 100 / 0 / 1 / 2 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

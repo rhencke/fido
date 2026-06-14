@@ -295,6 +295,26 @@ func Diamond_demo(b bool) {
 	return
 }
 
+func Loopif_demo() {
+	i := int64(0)
+	var iv int64
+	for {
+		iv = i
+		if iv < 3 {
+			iv = i
+			if iv < 1 {
+				println(100)
+			}
+			iv = i
+			println(iv)
+			i = Add(iv, 1)
+		} else {
+			break
+		}
+	}
+	return
+}
+
 func Foreach_demo() {
 	xs := []int64{10, 20, 30}
 	for _, x := range xs {
@@ -331,6 +351,7 @@ func main() {
 	Cond_goto_demo(false)
 	Diamond_demo(true)
 	Diamond_demo(false)
+	Loopif_demo()
 	Mut_demo()
 	Count_demo()
 	Defer_demo()

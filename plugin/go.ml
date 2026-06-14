@@ -467,18 +467,6 @@ let raw_term tab next =
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> str tab ++ str "return" ++ fnl ()
 
-(* Inside a structured [for] for loop-header [header] with exit block [exit]:
-   a jump back to the header is the implicit loop-around (emit nothing); a jump
-   to the exit is [break]; anything else falls back to a raw [goto]. *)
-let loop_term header exit tab next =
-  match next with
-  | MLcons (_, c, [n]) when is_jump_ctor c ->
-      (match nat_value n with
-       | Some l when l = header -> mt ()
-       | Some l when l = exit   -> str tab ++ str "break" ++ fnl ()
-       | _ -> raw_term tab next)
-  | _ -> raw_term tab next
-
 let rec pp_expr state env = function
   | MLrel i ->
       pp_rel env i
@@ -837,23 +825,6 @@ and emit_block state hoists term tab env b =
             | _ -> str tab ++ str "return" ++ fnl ())
        | _ -> str tab ++ pp_expr state env b ++ fnl ())
 
-(*s Structuring: recognise a goto-CFG that is a [while] loop and lift it back to
-    an idiomatic Go [for].  Shape: two blocks, entry at 0; block 0 (the header)
-    jumps only to itself (loop around) or to block 1 (exit); block 1 is terminal
-    (no jumps).  This lowers to [for { <block0, loop_term 0 1> } <block1>], where
-    [loop_term] turns the jump-to-header into fall-through and the jump-to-exit
-    into [break] — no labels, no goto.  Anything else stays raw goto. *)
-
-let as_while_loop start_v bs =
-  match bs with
-  | [b0; b1] when start_v = 0 ->
-      let t0 = block_targets b0 [] in
-      let t1 = block_targets b1 [] in
-      if List.for_all (fun n -> n = 0 || n = 1) t0
-         && List.mem 0 t0 && List.mem 1 t0 && t1 = []
-      then Some (b0, b1) else None
-  | _ -> None
-
 (*s IO body emitter — shared by pp_function (for IO-returning fns) and pp_main_body. *)
 
 let pp_io_body state tab env body =
@@ -953,8 +924,17 @@ let pp_io_body state tab env body =
          | MLglob r, [start; blocks] when is_run_blocks_ref r ->
              (match unfold_list [] blocks with
               | Some bs ->
+                  (* Distinct goto-blocks can reuse the same Rocq binder name
+                     (each is a closed term, so Rocq does not alpha-rename across
+                     them); they become one reused Go variable, assigned before
+                     each read, so collapse same-named hoists to a single [var]. *)
                   let hoists =
-                    List.fold_left (fun a b -> block_hoists b a) [] bs in
+                    let raw = List.fold_left (fun a b -> block_hoists b a) [] bs in
+                    let key = function Id v | Tmp v -> Id.to_string v | Dummy -> "_" in
+                    let seen = ref [] in
+                    List.filter (fun (x, _) ->
+                      let k = key x in
+                      if List.mem k !seen then false else (seen := k :: !seen; true)) raw in
                   let start_v = match nat_value start with Some v -> v | None -> 0 in
                   (* hoisted declarations: var x T, dominating every block *)
                   let hoist_doc =
@@ -966,16 +946,9 @@ let pp_io_body state tab env body =
                   let blocks = Array.of_list bs in
                   let nblk = Array.length blocks in
                   let exit_node = nblk in
-                  (* acyclic ⟺ every jump goes strictly forward (a back/self edge
-                     is a loop, handled by [as_while_loop] or the raw fallback). *)
-                  let acyclic =
-                    let ok = ref true in
-                    Array.iteri
-                      (fun i b ->
-                         List.iter (fun t -> if t <= i then ok := false)
-                           (block_targets b []))
-                      blocks;
-                    !ok in
+                  let inter a b = List.filter (fun x -> List.mem x b) a in
+                  let targets_of i =
+                    List.sort_uniq compare (block_targets blocks.(i) []) in
                   (* raw labels + goto: the always-correct fallback.  Only Jump-
                      target labels are emitted (Go rejects unused ones); a label
                      sits one indent left of its block, as gofmt wants. *)
@@ -999,116 +972,230 @@ let pp_io_body state tab env body =
                           emit_all (i + 1) rest
                     in
                     hoist_doc ++ initial ++ emit_all 0 bs in
-                  (match as_while_loop start_v bs with
-                   | Some (b0, b1) ->
-                       (* structured: for { <header> } <exit> — no labels/goto *)
-                       hoist_doc
-                       ++ str tab ++ str "for {" ++ fnl ()
-                       ++ emit_block state hoists (loop_term 0 1) (tab ^ "\t") env b0
-                       ++ str tab ++ str "}" ++ fnl ()
-                       ++ emit_block state hoists raw_term tab env b1
-                   | None when acyclic && start_v = 0 ->
-                       (* General acyclic structurer: lift a forward (loop-free)
-                          CFG to nested if/else.  A conditional's branches are
-                          emitted up to their merge — the immediate post-dominator
-                          — then the merge region is emitted once after the if, so
-                          no block is duplicated.  succ adds an edge to the virtual
-                          exit for every returning block. *)
-                       let succ i =
-                         let ts = List.sort_uniq compare (block_targets blocks.(i) []) in
-                         if block_has_done blocks.(i) then exit_node :: ts else ts in
-                       let inter a b = List.filter (fun x -> List.mem x b) a in
-                       let pdom = Array.make (nblk + 1) [] in
-                       pdom.(exit_node) <- [exit_node];
-                       for i = nblk - 1 downto 0 do
-                         let common = match succ i with
-                           | [] -> [exit_node]
-                           | s0 :: rest ->
-                               List.fold_left (fun acc x -> inter acc pdom.(x))
-                                 pdom.(s0) rest in
-                         pdom.(i) <- i :: common
-                       done;
-                       (* merge of a conditional = least-index block post-
-                          dominating both branches' leaf successors *)
-                       let merge_of tb eb =
-                         let leaves bb =
-                           let ts = List.sort_uniq compare (block_targets bb []) in
-                           if block_has_done bb then exit_node :: ts else ts in
-                         match List.sort_uniq compare (leaves tb @ leaves eb) with
-                         | [] -> exit_node
-                         | s0 :: rest ->
-                             let common =
-                               List.fold_left (fun acc x -> inter acc pdom.(x))
-                                 pdom.(s0) rest in
-                             (match List.sort compare common with
-                              | m :: _ -> m | [] -> exit_node) in
-                       (* a branch that is a bare unconditional jump to j (no
-                          statements): if its target is the merge, the branch is
-                          empty and the [if] is inverted/one-armed. *)
-                       let bare_jump bb =
-                         match collect_app bb [] with
-                         | MLglob r, args when is_ret_ref r ->
-                             (match List.filter (fun a -> not (is_erased a)) args with
-                              | [MLcons (_, c, [nn])] when is_jump_ctor c -> nat_value nn
-                              | _ -> None)
-                         | _ -> None in
-                       let rec emit_dag entry stop tab env =
-                         if entry = stop || entry = exit_node then mt ()
-                         else walk stop tab env blocks.(entry)
-                       and walk stop tab env b =
-                         let h, args = collect_app b [] in
-                         let vis = List.filter (fun a -> not (is_erased a)) args in
-                         match h, vis with
-                         | MLglob r, [action; k] when is_bind_ref r ->
-                             let ids, kbody = collect_lam k in
-                             emit_action state hoists tab env ids action
-                             ++ walk stop tab (List.rev ids @ env) kbody
-                         | MLglob r, [next] when is_ret_ref r ->
-                             (match next with
-                              | MLcons (_, c, [nn]) when is_jump_ctor c ->
-                                  (match nat_value nn with
-                                   | Some j -> emit_dag j stop tab env
-                                   | None -> str tab ++ str "return" ++ fnl ())
-                              | _ -> str tab ++ str "return" ++ fnl ())
-                         | _ ->
-                             (match b with
-                              | MLcase (_, scrut, branches) ->
-                                  (match Array.to_list branches with
-                                   | [ (_, p1, body1); (_, p2, body2) ] ->
-                                       let cref p =
-                                         (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
-                                       (match cref p1, cref p2 with
-                                        | Some c1, Some c2
-                                          when (is_bool_true c1 && is_bool_false c2)
-                                            || (is_bool_false c1 && is_bool_true c2) ->
-                                            let tb, eb =
-                                              if is_bool_true c1 then body1, body2 else body2, body1 in
-                                            let m = merge_of tb eb in
-                                            let then_empty = (bare_jump tb = Some m) in
-                                            let else_empty = (bare_jump eb = Some m) in
-                                            let cond = pp_expr state env scrut in
-                                            let arms =
-                                              if then_empty && not else_empty then
-                                                str tab ++ str "if !" ++ pp_atom state env scrut ++ str " {" ++ fnl ()
-                                                ++ walk m (tab ^ "\t") env eb
-                                                ++ str tab ++ str "}" ++ fnl ()
-                                              else if else_empty && not then_empty then
-                                                str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
-                                                ++ walk m (tab ^ "\t") env tb
-                                                ++ str tab ++ str "}" ++ fnl ()
-                                              else
-                                                str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
-                                                ++ walk m (tab ^ "\t") env tb
-                                                ++ str tab ++ str "} else {" ++ fnl ()
-                                                ++ walk m (tab ^ "\t") env eb
-                                                ++ str tab ++ str "}" ++ fnl () in
-                                            arms ++ emit_dag m stop tab env
-                                        | _ -> str tab ++ str "return" ++ fnl ())
+                  if nblk = 0 then emit_raw () else begin
+                  (* Unified structurer (a relooper).  Build dominators and post-
+                     dominators, identify natural loops, then recursively emit:
+                     - a loop header → [for { <body> }] with back-edges becoming
+                       loop-around (fall-through) or [continue], the single exit
+                       becoming [break];
+                     - a conditional → [if]/[else] whose branches run up to their
+                       merge (the post-dominator), the merge emitted once after.
+                     Anything that breaks the structured assumptions (non-zero
+                     entry, a multi-exit loop, improperly nested loops) falls back
+                     to raw labels+goto, which is always correct. *)
+                  let succ_exit i =
+                    let ts = targets_of i in
+                    if block_has_done blocks.(i) then exit_node :: ts else ts in
+                  (* post-dominators (iterative fixpoint; valid with cycles) *)
+                  let full = Array.to_list (Array.init (nblk + 1) (fun i -> i)) in
+                  let pdom = Array.make (nblk + 1) full in
+                  pdom.(exit_node) <- [exit_node];
+                  let pchanged = ref true in
+                  while !pchanged do
+                    pchanged := false;
+                    for i = nblk - 1 downto 0 do
+                      let common = match succ_exit i with
+                        | [] -> [exit_node]
+                        | s0 :: rest ->
+                            List.fold_left (fun acc x -> inter acc pdom.(x)) pdom.(s0) rest in
+                      let d = List.sort_uniq compare (i :: common) in
+                      if d <> pdom.(i) then (pdom.(i) <- d; pchanged := true)
+                    done
+                  done;
+                  (* dominators (iterative fixpoint) *)
+                  let preds = Array.make nblk [] in
+                  for i = 0 to nblk - 1 do
+                    List.iter (fun t -> if t >= 0 && t < nblk then preds.(t) <- i :: preds.(t))
+                      (targets_of i)
+                  done;
+                  let alln = Array.to_list (Array.init nblk (fun i -> i)) in
+                  let domA = Array.make nblk alln in
+                  if start_v >= 0 && start_v < nblk then domA.(start_v) <- [start_v];
+                  let dchanged = ref true in
+                  while !dchanged do
+                    dchanged := false;
+                    for i = 0 to nblk - 1 do
+                      if i <> start_v then begin
+                        let d = match preds.(i) with
+                          | [] -> domA.(i)
+                          | p0 :: rest ->
+                              List.fold_left (fun acc p -> inter acc domA.(p)) domA.(p0) rest in
+                        let d = List.sort_uniq compare (i :: d) in
+                        if d <> domA.(i) then (domA.(i) <- d; dchanged := true)
+                      end
+                    done
+                  done;
+                  let dominates a b =
+                    a >= 0 && a < nblk && b >= 0 && b < nblk && List.mem a domA.(b) in
+                  (* back-edges (n → h with h dominating n) and natural loops *)
+                  let back_edges = ref [] in
+                  for n = 0 to nblk - 1 do
+                    List.iter (fun h -> if dominates h n then back_edges := (n, h) :: !back_edges)
+                      (targets_of n)
+                  done;
+                  let headers = List.sort_uniq compare (List.map snd !back_edges) in
+                  let loop_body h =
+                    let body = ref [h] in
+                    let stack = ref [] in
+                    List.iter (fun (n, hh) ->
+                      if hh = h && not (List.mem n !body) then (body := n :: !body; stack := n :: !stack))
+                      !back_edges;
+                    while !stack <> [] do
+                      let n = List.hd !stack in stack := List.tl !stack;
+                      List.iter (fun p ->
+                        if not (List.mem p !body) then (body := p :: !body; stack := p :: !stack))
+                        preds.(n)
+                    done;
+                    List.sort_uniq compare !body in
+                  let bodies = List.map (fun h -> (h, loop_body h)) headers in
+                  let body_of h = try List.assoc h bodies with Not_found -> [h] in
+                  let loop_exit_of h =
+                    let b = body_of h in
+                    let ex = ref [] in
+                    List.iter (fun n ->
+                      List.iter (fun t ->
+                        if not (List.mem t b) && not (List.mem t !ex) then ex := t :: !ex)
+                        (targets_of n)) b;
+                    !ex in
+                  (* structurable: single entry at 0, each loop single-exit, loops
+                     properly nested (bodies disjoint or one inside the other) *)
+                  let structurable =
+                    start_v = 0 &&
+                    List.for_all (fun h -> List.length (loop_exit_of h) <= 1) headers &&
+                    List.for_all (fun h1 ->
+                      List.for_all (fun h2 ->
+                        h1 = h2 ||
+                        (let b1 = body_of h1 and b2 = body_of h2 in
+                         inter b1 b2 = []
+                         || List.for_all (fun x -> List.mem x b1) b2
+                         || List.for_all (fun x -> List.mem x b2) b1))
+                        headers) headers in
+                  (* merge of a conditional = the *immediate* (closest) block post-
+                     dominating both branches' leaf successors (exit for returning
+                     leaves).  The common post-dominators form a chain ordered by
+                     post-domination; the immediate one is the [m] that every other
+                     common post-dominator also post-dominates.  (Min-index is wrong
+                     under cycles: a back-edge can make a low-index header appear in
+                     the set even though the real merge is a higher-index block.) *)
+                  let merge_of tb eb =
+                    let leaves bb =
+                      let ts = List.sort_uniq compare (block_targets bb []) in
+                      if block_has_done bb then exit_node :: ts else ts in
+                    match List.sort_uniq compare (leaves tb @ leaves eb) with
+                    | [] -> exit_node
+                    | s0 :: rest ->
+                        let common =
+                          List.fold_left (fun acc x -> inter acc pdom.(x)) pdom.(s0) rest in
+                        (match List.filter
+                                 (fun m -> List.for_all
+                                             (fun x -> x = m || List.mem x pdom.(m)) common)
+                                 common with
+                         | m :: _ -> m
+                         | [] -> exit_node) in
+                  (* a branch that is a bare unconditional jump to j (no statements) *)
+                  let bare_jump bb =
+                    match collect_app bb [] with
+                    | MLglob r, args when is_ret_ref r ->
+                        (match List.filter (fun a -> not (is_erased a)) args with
+                         | [MLcons (_, c, [nn])] when is_jump_ctor c -> nat_value nn
+                         | _ -> None)
+                    | _ -> None in
+                  (* Each block is a separate term in the *call-site* de Bruijn
+                     context [env]; its free variables (e.g. the enclosing [Ref])
+                     are relative to that, not to whatever block we jumped from.
+                     So [emit_region] always (re)starts a block with [env]; only
+                     [walk] extends the environment, and only for that block's own
+                     binders.
+                     [loopctx]: enclosing loops, innermost first, each (header,
+                     exit option).  [tail]: reaching the loop-around here is the
+                     body's natural end (so a back-edge falls through, else it is
+                     an explicit [continue]). *)
+                  let rec emit_region entry stop loopctx tail tab =
+                    if entry = stop || entry = exit_node then mt ()
+                    else if List.mem entry headers then begin
+                      let ex = match loop_exit_of entry with [e] -> Some e | _ -> None in
+                      let bctx = (entry, ex) :: loopctx in
+                      str tab ++ str "for {" ++ fnl ()
+                      ++ walk blocks.(entry) entry bctx true (tab ^ "\t") env
+                      ++ str tab ++ str "}" ++ fnl ()
+                      ++ (match ex with
+                          | Some e -> emit_region e stop loopctx tail tab
+                          | None -> mt ())
+                    end
+                    else walk blocks.(entry) stop loopctx tail tab env
+                  and handle_edge j stop loopctx tail tab =
+                    match loopctx with
+                    | (hd, _) :: _ when j = hd ->
+                        if tail then mt () else str tab ++ str "continue" ++ fnl ()
+                    | (_, Some e) :: _ when j = e -> str tab ++ str "break" ++ fnl ()
+                    | _ ->
+                        if j = stop then mt ()
+                        else emit_region j stop loopctx tail tab
+                  and walk b stop loopctx tail tab benv =
+                    let h, args = collect_app b [] in
+                    let vis = List.filter (fun a -> not (is_erased a)) args in
+                    match h, vis with
+                    | MLglob r, [action; k] when is_bind_ref r ->
+                        let ids, kbody = collect_lam k in
+                        emit_action state hoists tab benv ids action
+                        ++ walk kbody stop loopctx tail tab (List.rev ids @ benv)
+                    | MLglob r, [next] when is_ret_ref r ->
+                        (match next with
+                         | MLcons (_, c, [nn]) when is_jump_ctor c ->
+                             (match nat_value nn with
+                              | Some j -> handle_edge j stop loopctx tail tab
+                              | None -> str tab ++ str "return" ++ fnl ())
+                         | _ -> str tab ++ str "return" ++ fnl ())
+                    | _ ->
+                        (match b with
+                         | MLcase (_, scrut, branches) ->
+                             (match Array.to_list branches with
+                              | [ (_, p1, body1); (_, p2, body2) ] ->
+                                  let cref p =
+                                    (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
+                                  (match cref p1, cref p2 with
+                                   | Some c1, Some c2
+                                     when (is_bool_true c1 && is_bool_false c2)
+                                       || (is_bool_false c1 && is_bool_true c2) ->
+                                       let tb, eb =
+                                         if is_bool_true c1 then body1, body2 else body2, body1 in
+                                       let m_raw = merge_of tb eb in
+                                       let hd = match loopctx with (h, _) :: _ -> Some h | [] -> None in
+                                       let lex = match loopctx with (_, e) :: _ -> e | [] -> None in
+                                       (* a merge that is the loop-around or the loop
+                                          exit is handled by [handle_edge], so there
+                                          is no in-region merge to emit after the if *)
+                                       let m =
+                                         if m_raw = stop then stop
+                                         else if hd = Some m_raw then stop
+                                         else if lex = Some m_raw then stop
+                                         else m_raw in
+                                       let then_empty = bare_jump tb = Some m in
+                                       let else_empty = bare_jump eb = Some m in
+                                       let branch_tail = tail && (m = stop || m = exit_node) in
+                                       let bw bb = walk bb m loopctx branch_tail (tab ^ "\t") benv in
+                                       let cond = pp_expr state benv scrut in
+                                       let arms =
+                                         if then_empty && else_empty then mt ()
+                                         else if then_empty then
+                                           str tab ++ str "if !" ++ pp_atom state benv scrut ++ str " {" ++ fnl ()
+                                           ++ bw eb ++ str tab ++ str "}" ++ fnl ()
+                                         else if else_empty then
+                                           str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
+                                           ++ bw tb ++ str tab ++ str "}" ++ fnl ()
+                                         else
+                                           str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
+                                           ++ bw tb ++ str tab ++ str "} else {" ++ fnl ()
+                                           ++ bw eb ++ str tab ++ str "}" ++ fnl () in
+                                       arms ++ emit_region m stop loopctx tail tab
                                    | _ -> str tab ++ str "return" ++ fnl ())
-                              | _ -> str tab ++ pp_expr state env b ++ fnl ())
-                       in
-                       hoist_doc ++ emit_dag start_v exit_node tab env
-                   | None -> emit_raw ())
+                              | _ -> str tab ++ str "return" ++ fnl ())
+                         | _ -> str tab ++ pp_expr state benv b ++ fnl ())
+                  in
+                  if structurable
+                  then hoist_doc ++ emit_region start_v exit_node [] true tab
+                  else emit_raw ()
+                  end
               | None ->
                   str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->

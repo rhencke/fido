@@ -234,27 +234,35 @@ safe-by-construction principle. Tracked until closed.
    shallow embedding for control flow (a Rocq `if`/Fixpoint *is* the Go
    construct), which cannot express jumps. Biggest build to date; do it
    minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
-   *Status:* CFG IR (`run_blocks`/`Jump`/`Done`) and raw labels+goto are done;
-   the structuring pass now lifts both **loops** and **acyclic branching**:
-   - `as_while_loop` lifts a two-block reducible loop (header jumps only to
-     itself or the single exit) to `for { … break }` (`Count_demo`,
-     `Defer_loop_demo`). The block emitter is parameterised by a *terminator
-     handler* (`raw_term` → `goto`/`return`; `loop_term h x` → fall-through/
-     `break`), so one `emit_block` prints raw or structured form.
-   - a **general acyclic structurer** lifts any loop-free CFG to nested
-     `if`/`else`. It computes post-dominators over the block graph (virtual exit
-     for returning blocks); a conditional's merge is the immediate post-dominator
-     of its branches, so each arm is emitted *up to* the merge and the merge
-     region is emitted once after the `if` — no block duplication. Empty arms
-     collapse to a one-armed `if` (inverted to `if !c` when the *then* arm is the
-     one that jumps straight to the merge). `Cond_goto_demo` → `if !early { … }`;
-     `Diamond_demo` → `if b { … } else { … }` with the merge once.
-   The structurer fires when `as_while_loop` matches, else when the CFG is
-   acyclic; anything else (`start ≠ 0`, irreducible, loop-with-branches) falls
-   back to raw labels+goto — always correct, just un-prettified. Golden-guarded:
-   structuring changes the generated source, never the behaviour. Next: fold
-   loops into the general structurer (loop bodies containing `if`s, `continue`,
-   nested loops), so the two paths above become one reloop.
+   *Status:* CFG IR (`run_blocks`/`Jump`/`Done`) and raw labels+goto are done,
+   and a **unified structurer (relooper)** lifts the goto-CFG back to idiomatic
+   Go — loops *and* branching, arbitrarily nested. It computes dominators and
+   post-dominators (iterative fixpoints, valid with cycles), finds natural loops
+   (back-edge = a jump to a dominator), then recurses:
+   - a **loop header** → `for { <body> }` then the exit region. A `loopctx`
+     (enclosing `(header, exit)` pairs, innermost first) plus a `tail` flag turn
+     each terminator into the right thing: a back-edge to the header is the
+     loop-around (fall-through when it is the body's natural tail, else an
+     explicit `continue`); a jump to the single exit is `break`.
+   - a **conditional** → `if`/`else` whose arms run up to their *merge* — the
+     immediate (closest) common post-dominator, not min-index, which is wrong
+     under cycles — emitted once after the `if`, so no block is duplicated. A
+     merge that is the loop-around or loop exit means there is no in-loop merge
+     (the arms `break`/`continue`/fall through). Empty arms collapse to a
+     one-armed `if`, inverted to `if !c` when the *then* arm jumps to the merge.
+   Demos: `Count_demo`/`Defer_loop_demo` → `for { … break }`; `Cond_goto_demo` →
+   `if !early { … }`; `Diamond_demo` → `if b { … } else { … }`; `Loopif_demo` →
+   a `for` with a nested `if` and the merge after it. Two lowering invariants the
+   relooper respects: every block is re-emitted in the **call-site de Bruijn
+   env** (a block's free `Ref`s are relative to `run_blocks`, not to whatever
+   block jumped to it); and same-named hoists from distinct blocks (Rocq reuses a
+   binder name across closed terms) collapse to **one** `var`, since they become
+   one reused, assign-before-read Go variable. The structurer is gated on
+   `structurable` (entry 0, each loop single-exit, loops properly nested);
+   anything else falls back to raw labels+goto — always correct, just
+   un-prettified. Golden-guarded: structuring changes the source, never the
+   behaviour. Next: multi-exit loops / labeled `break`/`continue` for jumps that
+   escape more than the innermost loop (today these take the raw-goto fallback).
 
    **Lowering correctness — the unifying principle.** The goto approach trades
    a single uniform primitive for some subtle correctness obligations; they all
