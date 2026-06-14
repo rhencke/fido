@@ -203,6 +203,24 @@ Definition float_nan_demo (z : float) : IO unit :=
   bind (println [any (PrimFloat.eqb (PrimFloat.div z z) (PrimFloat.div z z))%float]) (fun _ =>
   println [any (PrimFloat.ltb (PrimFloat.div z z) 1)%float]).   (* NaN==NaN → false ; NaN<1 → false *)
 
+(** Float unary negation [PrimFloat.opp] → Go [-x], IEEE-exact (flips the sign
+    bit), needing no package import.  Ordinary values: [opp 1.5 = -1.5] and
+    [opp (opp 2.0) = 2.0]. *)
+Definition float_opp_demo : IO unit :=
+  bind (println [any (PrimFloat.opp 1.5)%float]) (fun _ =>               (* -1.5 *)
+  println [any (PrimFloat.opp (PrimFloat.opp 2.0))%float]).             (* 2.0 *)
+
+(** The IEEE corner case: [opp] yields NEGATIVE zero, distinct in sign from [+0.0]
+    (even though [-0.0 == +0.0]).  Witnessed by [1 / -0 = -inf < 0] (whereas
+    [1 / +0 = +inf], not [< 0]).  MACHINE-CHECKED on the Coq side; the runtime
+    [float_opp_sign_demo] — with an opaque [z := 0.0], so no untyped-constant
+    folding of [-0.0] to [+0.0] — shows Go agrees. *)
+Example opp_zero_is_neg :
+  PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp 0)) 0 = true.
+Proof. now vm_compute. Qed.
+Definition float_opp_sign_demo (z : float) : IO unit :=
+  println [any (PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp z)) 0)%float].  (* true *)
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -691,6 +709,8 @@ Definition main_effect : IO unit :=
   bind float_demo                      (fun _ =>   (* prints: 3.75 / 0.25 (sci) *)
   bind float_cmp_demo                  (fun _ =>   (* prints: true / true / true / false *)
   bind (float_nan_demo 0)              (fun _ =>   (* prints: false / false (NaN unordered) *)
+  bind float_opp_demo                  (fun _ =>   (* prints: -1.5 / 2.0 *)
+  bind (float_opp_sign_demo 0)         (fun _ =>   (* prints: true (opp made -0 at runtime) *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
@@ -724,6 +744,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

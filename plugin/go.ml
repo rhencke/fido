@@ -331,6 +331,12 @@ let float_op_table = [
 let is_float_op_ref r name =
   ref_has_suffix r (".PrimFloat." ^ name)
 
+(* Float unary negation: [PrimFloat.opp x] → Go [-x].  IEEE-exact (flips the sign
+   bit), so [opp (+0.0) = -0.0] and [opp NaN] stays NaN — matching Go's unary [-]
+   on float64.  Distinct from [sub 0 x], which would give [+0.0] for [x = +0.0].
+   Needs no package import (unlike [abs]/[sqrt], which want [math]). *)
+let is_float_opp_ref r = is_float_op_ref r "opp"
+
 let classify_float_op r =
   List.find_map
     (fun (name, op) -> if is_float_op_ref r name then Some op else None)
@@ -669,6 +675,11 @@ let rec pp_expr state env = function
           comparison: [!(x < y)]) and never otherwise ([!b]). *)
        | MLglob r, [b] when is_negb_ref r ->
            str "!" ++ pp_atom state env b
+
+       (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
+          [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
+       | MLglob r, [x] when is_float_opp_ref r ->
+           str "-" ++ pp_atom state env x
 
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
@@ -1852,6 +1863,7 @@ let is_inlined_ref r =
   String.equal (global_basename r) "with_defer" ||
   is_unit_tt r ||
   is_go_prim_type r || is_float64_type r ||
+  is_float_opp_ref r ||
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   is_existT_ref r || is_sigT_ref r ||
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||

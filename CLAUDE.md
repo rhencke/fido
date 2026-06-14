@@ -575,10 +575,16 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
 10. **Narrow integer types** (`int8/16/32`, `uint`, `uint8/16/32/64`): opaque
     axioms with no arithmetic and no overflow semantics — and unsigned wrap
     differs from signed.  Needed before any library does sized/unsigned math.
-11. **Float gaps — *comparison now done; float32 + conversions still open*.**
-    Float `<`/`<=`/`==` (incl. NaN's unordered behaviour) is now emitted and
-    proven faithful (see #9).  *Still open:* `float32` is an opaque axiom (no
-    native Rocq f32); int↔float / float↔float conversions are absent.
+11. **Float gaps — *comparison + unary negation now done; float32 + conversions +
+    abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered behaviour)
+    and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked
+    `opp_zero_is_neg` + runtime `float_opp_sign_demo`) are now emitted and proven
+    faithful (see #9).  *Still open:* `float32` is an opaque axiom (no native Rocq
+    f32); int↔float / float↔float conversions are absent; and `abs`/`sqrt` are
+    **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
+    are on hold by decision until every no-import builtin is locked down perfect**
+    (an inline `abs` would mishandle `-0.0`, so it must wait for the real
+    `math.Abs`, not a hand-rolled one).
 12. **Bit operations** (`<<`, `>>`, `&`, `|`, `^`, `&^`, including negative-shift /
     over-width-shift behaviour) — entirely unmodelled.
 13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),
@@ -601,6 +607,14 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
 
 ## Architecture
 
+- **Package imports are on hold (decided 2026-06-14).** The plugin emits
+  `package main` with **no** `import` block, and we will not add the import
+  machinery (nor any builtin that needs it — `math.Abs`/`math.Sqrt`,
+  `fmt`/`strings`/stdlib, etc.) **until every no-import builtin is locked down
+  perfect**. Rationale: imports are a frontier of their own (when to emit, dedup,
+  Go's unused-import error); finishing the primitive layer first keeps the trust
+  base small. A builtin that *needs* an import is deferred, not approximated — no
+  hand-rolled `abs` that mishandles `-0.0`.
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
 - `plugin/go.ml` + `plugin/g_go_extraction.mlg` — the Rocq→Go extraction plugin
 - `builtins.v` — Go builtins (always in scope, loaded via `preamble.v`)

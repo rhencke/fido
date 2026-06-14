@@ -50,6 +50,15 @@ func Float_nan_demo(z float64) {
 	println(z/z < 1.0)
 }
 
+func Float_opp_demo() {
+	println(-1.5)
+	println(-(-2.0))
+}
+
+func Float_opp_sign_demo(z float64) {
+	println(1.0/-z < 0.0)
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -546,6 +555,8 @@ func main() {
 	Float_demo()
 	Float_cmp_demo()
 	Float_nan_demo(0.0)
+	Float_opp_demo()
+	Float_opp_sign_demo(0.0)
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
