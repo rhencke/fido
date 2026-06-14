@@ -890,6 +890,56 @@ Qed.
 Theorem mp_no_race : ~ data_race mp_hb mp_acc WriteA ReadB.
 Proof. apply hb_ordered_no_race. exact mp_write_before_read. Qed.
 
+(** ---- Program-level race freedom (the whole-program guarantee) ----
+
+    Lifting the single-pair result to a whole program.  A program is its events,
+    each carrying an access [acc], a goroutine id [gid], and the happens-before
+    order [hb].  A RACE is two events in DIFFERENT goroutines whose accesses
+    conflict and are unordered by [hb] (the [gid e1 <> gid e2] clause also makes
+    an event never race itself, and same-goroutine accesses — program-ordered —
+    never race).  [RaceFree] is the absence of any race.
+
+    [racefree_of_ordered] is the foundational proof rule (axiom-free): to show a
+    whole program race-free, show EVERY cross-goroutine conflicting pair is
+    happens-before ordered.  This is what the package-import and library-boundary
+    layers discharge — for imported modules by composing each module's ordering;
+    at a library boundary by an exclusive-ownership window (next steps).  The
+    message-passing program is the first instance: whole-program race-free. *)
+Definition Race {E} (hb : E -> E -> Prop) (acc : E -> Access) (gid : E -> nat)
+                (e1 e2 : E) : Prop :=
+  gid e1 <> gid e2 /\ conflict (acc e1) (acc e2) /\ ~ hb e1 e2 /\ ~ hb e2 e1.
+
+Definition RaceFree {E} (hb : E -> E -> Prop) (acc : E -> Access) (gid : E -> nat) : Prop :=
+  forall e1 e2, ~ Race hb acc gid e1 e2.
+
+(** Foundational rule: all cross-goroutine conflicts ordered ⇒ race-free.
+    (The converse holds classically; this constructive direction is the one a
+    verification discharges, so it stays axiom-free.) *)
+Theorem racefree_of_ordered {E} (hb : E -> E -> Prop) (acc : E -> Access) (gid : E -> nat) :
+  (forall e1 e2, gid e1 <> gid e2 -> conflict (acc e1) (acc e2) -> hb e1 e2 \/ hb e2 e1) ->
+  RaceFree hb acc gid.
+Proof.
+  intros H e1 e2 [Hg [Hc [H12 H21]]].
+  destruct (H e1 e2 Hg Hc) as [Hhb | Hhb]; [exact (H12 Hhb) | exact (H21 Hhb)].
+Qed.
+
+(** The message-passing PROGRAM (goroutine 0 = {write, send}, goroutine 1 =
+    {recv, read}) is whole-program race-free: its only cross-goroutine conflict
+    (the write/read of [x]) is ordered by the channel handoff. *)
+Definition mp_gid (e : MPEvent) : nat :=
+  match e with WriteA => 0 | SendA => 0 | RecvB => 1 | ReadB => 1 end.
+
+Theorem mp_program_race_free : RaceFree mp_hb mp_acc mp_gid.
+Proof.
+  apply racefree_of_ordered. intros e1 e2 Hg Hc.
+  destruct e1, e2; cbn in *;
+    try (exfalso; apply Hg; reflexivity);
+    try (exfalso; destruct Hc as [Hl _]; discriminate Hl);
+    try (exfalso; destruct Hc as [_ [Hw|Hw]]; discriminate Hw).
+  - left.  exact mp_write_before_read.
+  - right. exact mp_write_before_read.
+Qed.
+
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.
