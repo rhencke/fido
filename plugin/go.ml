@@ -498,18 +498,10 @@ let rec pp_expr state env = function
        (* mutable cells: ref_new v → init value (bound as the Go var by the
           enclosing bind); ref_get r → read the var; ref_set r v → r = v.
           int/float literals are typed so the inferred Go var is int64/float64. *)
-       | MLglob r, [v] when is_ref_new_ref r ->
-           (match v with
-            | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
-            | MLfloat _ -> str "float64(" ++ pp_expr state env v ++ str ")"
-            | _ -> pp_expr state env v)
+       | MLglob r, [v] when is_ref_new_ref r -> pp_typed_lit state env v
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
-           let pp_v = match v with
-             | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
-             | MLfloat _ -> str "float64(" ++ pp_expr state env v ++ str ")"
-             | _ -> pp_expr state env v in
-           pp_expr state env rf ++ str " = " ++ pp_v
+           pp_expr state env rf ++ str " = " ++ pp_typed_lit state env v
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -672,6 +664,15 @@ and pp_atom state env e =
       pp_expr state env e
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
+
+(* An integer/float literal carries no Go type, so where the target type must be
+   fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare
+   literal as [int64(..)] / [float64(..)].  Non-literals already have a type. *)
+and pp_typed_lit state env e =
+  match e with
+  | MLuint _  -> str "int64("   ++ pp_expr state env e ++ str ")"
+  | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
+  | _         -> pp_expr state env e
 
 (*s CFG blocks (the goto model).  A block is an [IO Next]: it does its effects
     then transfers control via [ret (Jump n)] (goto block n) or [ret Done]
@@ -1006,11 +1007,7 @@ let pp_io_body state tab env body =
              let kont = List.nth vis (n - 1) in
              (* chan any requires explicit Go types for literals — untyped constants
                 default to int/float64 which may not match the recv's type assertion. *)
-             let pp_val e = match e with
-               | MLuint n  -> str ("int64(" ^ Uint63.to_string n ^ ")")
-               | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
-               | _ -> pp_expr state env e
-             in
+             let pp_val = pp_typed_lit state env in
              let ids, k_body = collect_lam kont in
              let new_env = List.rev ids @ env in
              (* Alias the advanced endpoint when the continuation binds it; the
@@ -1072,12 +1069,8 @@ let pp_io_body state tab env body =
         (match head1, vis1 with
          | MLglob r, [k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
              let lhs = pp_mlident id in
-             let pp_def d = match d with
-               | MLuint _ -> str "int64(" ++ pp_expr state env d ++ str ")"
-               | MLfloat _ -> str "float64(" ++ pp_expr state env d ++ str ")"
-               | _ -> pp_expr state env d
-             in
-             str tab ++ str "var " ++ lhs ++ str " any = " ++ pp_def def ++ fnl () ++
+             str tab ++ str "var " ++ lhs ++ str " any = "
+               ++ pp_typed_lit state env def ++ fnl () ++
              str tab ++ str "if _v, _ok := " ++ pp_expr state env m ++
              str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
              str tab ++ str "\t" ++ lhs ++ str " = _v" ++ fnl () ++
@@ -1094,14 +1087,10 @@ let pp_io_body state tab env body =
              (match step_ids with
               | [_acc; x_id] ->
                   let acc = pp_mlident id in
-                  let pp_init d = match d with
-                    | MLuint _  -> str "int64(" ++ pp_expr state env d ++ str ")"
-                    | MLfloat _ -> str "float64(" ++ pp_expr state env d ++ str ")"
-                    | _ -> pp_expr state env d in
                   (* step_body env: MLrel 1 = x, MLrel 2 = acc (= id); any captured
                      outer vars sit past both binders in [env]. *)
                   let loop_env = x_id :: id :: env in
-                  str tab ++ acc ++ str " := " ++ pp_init init ++ fnl () ++
+                  str tab ++ acc ++ str " := " ++ pp_typed_lit state env init ++ fnl () ++
                   str tab ++ str "for _, " ++ pp_mlident x_id ++ str " := range "
                     ++ pp_expr state env xs ++ str " {" ++ fnl () ++
                   str (tab ^ "\t") ++ acc ++ str " = "
