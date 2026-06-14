@@ -437,12 +437,14 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    axioms asserted on bind-sequencing intuition, NOT derived from a semantics.
    Consequences: the Hoare logic cannot reason about channels at all; goroutine
    interleaving is absent; race-freedom and deadlock-freedom are unstated; and
-   the channel laws are not only ungrounded but **over-strong** — `send_recv`
-   asserts `send;recv = value` unconditionally, which is false for an unbuffered
-   channel with no waiting receiver (Go deadlocks there).  They have a model
-   (always-ready/buffered channels) so they are idealisations, not degenerate,
-   and are faithful for the uses the demos make (buffered, or with a complementary
-   goroutine).  *Fix:* a concurrent denotational model — a world carrying heap +
+   the channel laws **ignore interleaving**.  `send_recv` (`send;recv = value`)
+   is correctly GATED on the send succeeding — `bind` short-circuits if the send
+   blocks, so it does NOT falsely claim a deadlocking program returns `v` — and
+   `recv` being `IO` (not pure like `map_get_opt`) keeps it non-degenerate.  But
+   it assumes the SAME computation's `recv` gets the value, ignoring a concurrent
+   receiver that could steal it first; so it is faithful for single-goroutine
+   buffered use (what the demos make) and an idealisation under real concurrency.
+   *Fix:* a concurrent denotational model — a world carrying heap +
    channel state + a **happens-before relation** (per go.dev/ref/mem) — give
    `send`/`recv`/`go_spawn` real `run_io` equations, and DERIVE the channel laws
    (properly conditioned on buffer space / a ready peer) instead of asserting
