@@ -243,6 +243,14 @@ safe-by-construction principle. Tracked until closed.
    `var x T` to the dominator of its uses and assign with `=` (avoids `:=`
    re-declaration on loop re-entry and Go's goto-over-declaration rule).
    `ref_set` already emits `=`, not `:=`.
+   **No shadowing (by design).** Go permits shadowing — `i := …` nested inside
+   `i := …` is a *distinct* variable with its own memory — but we never emit it:
+   Rocq alpha-renames binders to unique names, so each name is exactly one
+   variable. This loses no completeness (shadowing is alpha-equivalent to
+   unique-naming; we generate the unique-name form of any behaviour) and is
+   precisely what keeps "declaration dominates use" unambiguous. Shadowing only
+   resurfaces when *importing* existing Go (alpha-rename on import) — a deferred
+   libraries-frontier concern, never a generation one.
 8. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
