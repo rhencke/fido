@@ -105,6 +105,27 @@ the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
 **Deferred (not silently wrong — unmodeled, fails loud):** the **rune view**
 (`range s` UTF-8 decode, `string`↔`[]rune`/`[]byte` — see Conversions ✗), and
 byte-level mutation (Go forbids `s[i] = …` anyway; strings are immutable).
+*Why `[]byte(s)`/`string(b)` is deferred — a representation tension, not difficulty:*
+Go's `[]byte` is `[]uint8`, but our arithmetic-faithful `uint8` erases `GoU8 → int64`
+(int64 + mask), so a byte slice would emit as `[]int64`, incompatible with Go's
+`[]byte`.  Faithful byte conversions need either an element-wise convert or a
+`uint8`-as-native-`uint8` storage representation — a deliberate representation
+decision, tracked.  (The rune view additionally needs a UTF-8 decoder — pure, but
+sequenced after that decision.)
+
+### [Array types](https://go.dev/ref/spec#Array_types) — ✗ deferred (two principled blockers)
+Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
+pass copies the whole array), comparable element-wise (unlike slices).
+Deferred — NOT for difficulty, for two real blockers: **(1) substrate** — `N` lives
+in the *type*, but the extraction IR (MiniML) erases dependent type indices, so we
+cannot faithfully emit `[N]T` in *type positions* (function params, struct fields);
+a substrate limit like the 63-bit int carrier.  (Local arrays, where Go infers
+`[N]T` from the literal, would dodge this.)  **(2) semantics** — the defining
+array-vs-slice distinction is value-copy vs reference-share, which is *unobservable*
+until the aliasing/mutation model exists (the same model slices await, Tier 3 #8a);
+so an array today would be a slice with different syntax, not a faithful array.
+Revisit once aliasing is modeled — then arrays get value semantics + comparability
+(`==`, which slices lack) as the genuine distinction.
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
 Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world
@@ -220,9 +241,19 @@ returning the zero value without blocking.  Ours: `run_recv`; `recv_ok` →
 comma-ok; `recv_ok_closed_empty` (closed+empty ⇒ `(zero,false)`) is a **theorem**.
 ✓  (blocking recv on empty open channel idealised away — a deadlock.)
 
-### [Select statements](https://go.dev/ref/spec#Select_statements) — ✗ not modeled
-Non-deterministic choice; needs control flow + the channel-state model in place
-first.  ✗ fails loud.
+### [Select statements](https://go.dev/ref/spec#Select_statements) — ✓ lowering; ⚠ choice/blocking idealised
+Spec: "if one or more of the communications can proceed, a single one ... is chosen
+via a uniform pseudo-random selection"; `default` runs if none ready; else BLOCKS.
+Ours: `select_recv2` (two recv cases) and `select_recv_default` (recv + `default`,
+the non-blocking form) lower to a faithful, idiomatic Go `select { case x := <-ch:
+… }` — CPS like `recv_ok`.  `select_demo` (ch1 buffered/ready, ch2 empty → picks
+ch1, prints 42) and `select_default_demo` (empty ch → default, prints 99) golden-
+locked.  **⚠ the LOWERING is faithful Go; the denotational CHOICE semantics** (which
+ready case runs, pseudo-random fairness, blocking when none ready) **is idealised
+away** — exactly like `recv`'s blocking / divergence (Tier 5 #14: needs the
+scheduler / non-terminating model).  So `select` is grounded at the lowering level;
+its choice semantics is the tracked incremental frontier.  *Also pending:* send
+cases, N-ary (>2) cases — the same lowering, more arms.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

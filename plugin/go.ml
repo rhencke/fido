@@ -221,6 +221,8 @@ let is_send_ref = named "send"
 let is_recv_ref = named "recv"
 let is_close_chan_ref = named "close_chan"
 let is_recv_ok_ref = named "recv_ok"
+let is_select_recv2_ref = named "select_recv2"
+let is_select_recv_default_ref = named "select_recv_default"
 let is_go_spawn_ref = named "go_spawn"
 let is_defer_call_ref = named "defer_call"
 let is_proto_type r =
@@ -1746,6 +1748,35 @@ let pp_io_body state tab env body =
                   pp_stmts tab new_env k_body
               | _ ->
                   str tab ++ str "_, _ = <-" ++ pp_expr state env ch ++ fnl ())
+         (* select_recv2 ta ch1 k1 tb ch2 k2 → Go select with two recv cases.
+            Each continuation [fun x => body] becomes [case x := <-ch: body].
+            The non-deterministic CHOICE is Go's at runtime (faithful lowering). *)
+         | MLglob r, [_ta; ch1; k1; _tb; ch2; k2] when is_select_recv2_ref r ->
+             let recv_case ch kont =
+               let ids, body = collect_lam kont in
+               let new_env = List.rev ids @ env in
+               let x = match List.filter (fun id -> not (is_dummy id)) ids with
+                 | [id] -> pp_mlident id | _ -> str "_" in
+               str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
+                 ++ pp_expr state env ch ++ str ":" ++ fnl () ++
+               pp_stmts (tab ^ "\t\t") new_env body in
+             str tab ++ str "select {" ++ fnl () ++
+             recv_case ch1 k1 ++ recv_case ch2 k2 ++
+             str tab ++ str "}" ++ fnl ()
+         (* select_recv_default ta ch1 k1 d → Go select with one recv + default
+            (the non-blocking form: recv-and-k1 if ready, else run d). *)
+         | MLglob r, [_ta; ch1; k1; d] when is_select_recv_default_ref r ->
+             let ids, body = collect_lam k1 in
+             let new_env = List.rev ids @ env in
+             let x = match List.filter (fun id -> not (is_dummy id)) ids with
+               | [id] -> pp_mlident id | _ -> str "_" in
+             str tab ++ str "select {" ++ fnl () ++
+             str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
+               ++ pp_expr state env ch1 ++ str ":" ++ fnl () ++
+             pp_stmts (tab ^ "\t\t") new_env body ++
+             str (tab ^ "\t") ++ str "default:" ++ fnl () ++
+             pp_stmts (tab ^ "\t\t") env d ++
+             str tab ++ str "}" ++ fnl ()
          (* slice_at_ok tag xs i (fun v ok => body) → bounds-checked index:
               var v T
               ok := i < int64(len(xs))   (* i is uint63 >= 0; only upper bound *)
@@ -2150,6 +2181,7 @@ let is_inlined_ref r =
   is_map_get_opt_ref r ||
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
+  is_select_recv2_ref r || is_select_recv_default_ref r ||
   is_go_spawn_ref r || is_defer_call_ref r ||
   is_run_session_ref r || is_sbind_ref r || is_sret_ref r ||
   is_ssend_ref r || is_srecv_ref r || is_slift_ref r ||

@@ -170,6 +170,28 @@ func Chan_demo() {
 	println(x2, ok2)
 }
 
+func Select_demo() {
+	ch1 := make(chan int64, 1)
+	ch2 := make(chan int64, 1)
+	ch1 <- 42
+	select {
+	case x := <-ch1:
+		println(x)
+	case y := <-ch2:
+		println(y)
+	}
+}
+
+func Select_default_demo() {
+	ch := make(chan int64, 1)
+	select {
+	case x := <-ch:
+		println(x)
+	default:
+		println(99)
+	}
+}
+
 func Goroutine_demo() {
 	ch := make(chan int64)
 	go func() {
@@ -635,6 +657,8 @@ func main() {
 	Map_demo()
 	Slice_demo()
 	Chan_demo()
+	Select_demo()
+	Select_default_demo()
 	Goroutine_demo()
 	Session_demo()
 	Adder_demo()

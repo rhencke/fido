@@ -195,9 +195,14 @@ separate tracks.
    hook also now runs `gofmt -l` via Docker when the host lacks it, instead of
    silently skipping — a missing host `gofmt` had let non-canonical output
    through.)
-8. **`select`** — non-deterministic choice between ready channels. Needed for
-   services/multiplexing/timeouts. Significantly harder semantics than linear
-   send/recv; wants control flow (each case is a branch) in place first.
+8. **`select`** — non-deterministic choice between ready channels. *Lowering done*
+   (`select_recv2` = two recv cases; `select_recv_default` = recv + `default`, the
+   non-blocking form) → faithful Go `select { case x := <-ch: … }`, CPS like
+   `recv_ok`. `select_demo` prints 42 (ready case), `select_default_demo` prints 99
+   (default); golden-locked. *Frontier:* the denotational CHOICE semantics (which
+   ready case runs, pseudo-random fairness, blocking when none ready) is idealised
+   away like `recv`'s blocking (Tier 5 #14, needs the scheduler/non-terminating
+   model); and send-cases / N-ary (>2) cases are the same lowering with more arms.
 
 ## Known gaps
 

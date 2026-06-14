@@ -832,6 +832,31 @@ Axiom close_chan : forall {A : Type}, GoChan A -> IO unit.
 Axiom recv_ok : forall {A B : Type},
   GoTypeTag A -> GoChan A -> (A -> bool -> IO B) -> IO B.
 
+(** ---- select (Go spec "Select statements") ----
+
+    [select] chooses ONE among several ready communications; "if one or more of
+    the communications can proceed, a single one that can proceed is chosen via a
+    uniform pseudo-random selection"; a [default] case runs when none are ready;
+    with no default and nothing ready, the select BLOCKS.
+
+    [select_recv2 ta ch1 k1 tb ch2 k2] receives from whichever of [ch1]/[ch2] is
+    ready and runs the matching continuation; it lowers to a faithful Go
+    [select { case x := <-ch1: k1; case y := <-ch2: k2 }].
+    [select_recv_default ta ch1 k1 d] is the non-blocking form: receive-and-[k1]
+    if [ch1] is ready, else run [d] — Go's [select { case … : k1; default: d }].
+
+    CPS like [recv_ok] (no tuple/sum extraction needed).  The LOWERING is faithful
+    Go.  The denotational CHOICE / BLOCKING semantics (which ready case runs, the
+    pseudo-random fairness, blocking when none ready) is idealised away for now —
+    exactly like [recv]'s blocking and divergence (Tier 5 #14: needs the
+    non-terminating / scheduler model).  So [select] is grounded at the lowering
+    level today; its choice semantics is the tracked incremental frontier. *)
+Axiom select_recv2 : forall {A B C : Type},
+  GoTypeTag A -> GoChan A -> (A -> IO C) ->
+  GoTypeTag B -> GoChan B -> (B -> IO C) -> IO C.
+Axiom select_recv_default : forall {A C : Type},
+  GoTypeTag A -> GoChan A -> (A -> IO C) -> IO C -> IO C.
+
 (** [go_spawn m] launches [m] as a concurrent goroutine and returns immediately.
     Ownership of any [GoChan] endpoints captured in [m]'s closure transfers to
     the new goroutine at spawn time — the key invariant for race freedom.

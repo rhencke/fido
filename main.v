@@ -466,6 +466,25 @@ Definition chan_demo : IO unit :=
   recv_ok TInt64 ch (fun x2 ok2 =>
   println [any x2; any ok2])).
 
+(** select (Go spec "Select statements"): choose among ready channel ops.  [ch1]
+    is buffered with 42 (ready), [ch2] is empty — so select picks [ch1].  (The
+    choice is Go's at runtime; the demo makes exactly ONE case ready so the golden
+    is stable.)  The lowering is a faithful Go [select { case … }]; the choice /
+    blocking semantics is the tracked frontier (like [recv]'s blocking). *)
+Definition select_demo : IO unit :=
+  ch1 <-' make_chan_buf TInt64 1 ;;
+  ch2 <-' make_chan_buf TInt64 1 ;;
+  send ch1 (42 : int) >>'
+  select_recv2 TInt64 ch1 (fun x => println [any x])     (* ch1 ready → 42 *)
+               TInt64 ch2 (fun y => println [any y]).
+
+(** select with a default (the NON-BLOCKING form): [ch] is empty, so no case is
+    ready and the [default] runs. *)
+Definition select_default_demo : IO unit :=
+  ch <-' make_chan_buf TInt64 1 ;;
+  select_recv_default TInt64 ch (fun x => println [any x])   (* ch empty → default *)
+                      (println [any (99 : int)]).            (* prints: 99 *)
+
 (** Unbuffered channel + goroutine: the goroutine sends while main recvs.
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
 Definition goroutine_demo : IO unit :=
@@ -937,6 +956,8 @@ Definition main_effect : IO unit :=
   map_demo                      >>'   (* prints: 3 999 0 *)
   slice_demo                    >>'   (* prints: 5 3 / false *)
   chan_demo                     >>'   (* prints: 42 true / 0 false *)
+  select_demo                   >>'   (* prints: 42 (ch1 ready) *)
+  select_default_demo           >>'   (* prints: 99 (default, ch empty) *)
   goroutine_demo                >>'   (* prints: 42 *)
   session_demo                  >>'   (* prints: 42 *)
   adder_demo                    >>'   (* prints: 42 *)
