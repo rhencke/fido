@@ -128,6 +128,21 @@ let is_list_cons r =
   ref_has_suffix r ".Init.Datatypes.cons" ||
   String.equal (global_basename r) "cons"
 
+(* Coq [string] (Strings.String) — Go's byte-sequence [string].  The type, its
+   two constructors (String/EmptyString), and the [ascii] byte constructor are
+   recognised so a string LITERAL decodes to a Go string literal (see
+   [decode_go_string]); the type maps to Go [string]. *)
+let is_string_type  r = ref_has_suffix r ".Strings.String.string"
+let is_string_empty r = ref_has_suffix r ".Strings.String.EmptyString"
+let is_string_cons  r = ref_has_suffix r ".Strings.String.String"
+let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
+
+(* String builtins (builtins.v): [str_len s] → [int64(len(s))]; [str_concat a b]
+   → [a + b] (via [binop_of]); [str_at_ok] → bounds-checked byte index. *)
+let is_str_len_ref    r = String.equal (global_basename r) "str_len"
+let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
+let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
+
 (*s println / GoAny model recognition. *)
 
 (* Basename matching is safe here because Go builtin names are unqualified
@@ -483,6 +498,8 @@ let is_negb_ref r = named "negb" r
 let binop_of r =
   if is_andb_ref r then Some (2, " && ")
   else if is_orb_ref r then Some (1, " || ")
+  (* string concatenation: Go [+], same precedence as numeric [+] (level 4) *)
+  else if is_str_concat_ref r then Some (4, " + ")
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
   else if fw_is r "ltb" then Some (3, " < ")
@@ -520,12 +537,12 @@ let rec pp_type state = function
   (* GoMap K V → map[KT]VT *)
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
       str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
-  (* list GoRune = GoString — must come before the general slice case *)
-  | Tglob (r, [Tglob (elem, [])]) when is_list_type r
-    && String.equal (global_basename elem) "GoInt32" -> str "string"
-  (* list A = GoSlice A → []T *)
+  (* list A = GoSlice A → []T  (a rune slice [list GoRune] is just []int32; the
+     byte-sequence string is the distinct Coq [string] type, handled below) *)
   | Tglob (r, [arg]) when is_list_type r ->
       str "[]" ++ pp_type state arg
+  (* Coq [string] (Strings.String) → Go [string] (byte sequence) *)
+  | Tglob (r, []) when is_string_type r -> str "string"
   | Tglob (r, []) when is_float64_type r  -> str "float64"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
@@ -596,6 +613,50 @@ let rec unfold_list acc = function
   | MLcons (_, r, [x; rest]) when is_list_cons r -> unfold_list (x :: acc) rest
   | MLcons (_, r, [])        when is_list_nil r  -> Some (List.rev acc)
   | _ -> None
+
+(*s Decode a Coq [string] literal to its bytes, or None if it is not a literal
+    (e.g. a runtime [String c rest] with a non-constant head — which we do NOT
+    build at runtime; concat lowers to Go [+]).  An [Ascii a0 .. a7] is a byte
+    with [a0] the LEAST-significant bit (matching [Ascii.N_of_ascii]). *)
+let decode_ascii e =
+  match strip_magic e with
+  | MLcons (_, r, bits) when is_ascii_ctor r && List.length bits = 8 ->
+      let rec go i acc = function
+        | [] -> Some acc
+        | b :: rest ->
+            (match strip_magic b with
+             | MLcons (_, rb, []) when is_bool_true rb  -> go (i + 1) (acc lor (1 lsl i)) rest
+             | MLcons (_, rb, []) when is_bool_false rb -> go (i + 1) acc rest
+             | _ -> None)
+      in go 0 0 bits
+  | _ -> None
+
+let rec decode_go_string e =
+  match strip_magic e with
+  | MLcons (_, r, []) when is_string_empty r -> Some []
+  | MLcons (_, r, [a; rest]) when is_string_cons r ->
+      (match decode_ascii a, decode_go_string rest with
+       | Some b, Some bs -> Some (b :: bs)
+       | _ -> None)
+  | _ -> None
+
+(* Render a byte list as a Go double-quoted string literal.  Bytes outside
+   printable ASCII (and backslash / double-quote) use Go's hex byte escape
+   [backslash-x-NN], so the literal denotes EXACTLY those bytes (byte-faithful,
+   like the Coq model). *)
+let go_string_lit bytes =
+  let buf = Buffer.create (List.length bytes + 2) in
+  Buffer.add_char buf '"';
+  List.iter (fun b ->
+    if b = Char.code '"' then Buffer.add_string buf "\\\""
+    else if b = Char.code '\\' then Buffer.add_string buf "\\\\"
+    else if b = Char.code '\n' then Buffer.add_string buf "\\n"
+    else if b = Char.code '\t' then Buffer.add_string buf "\\t"
+    else if b = Char.code '\r' then Buffer.add_string buf "\\r"
+    else if b >= 0x20 && b < 0x7f then Buffer.add_char buf (Char.chr b)
+    else Buffer.add_string buf (Printf.sprintf "\\x%02x" b)) bytes;
+  Buffer.add_char buf '"';
+  Buffer.contents buf
 
 
 (*s Fold a Peano nat literal to an integer, or return None. *)
@@ -751,6 +812,10 @@ let rec pp_expr state env = function
            str "len(" ++ pp_expr state env s ++ str ")"
        | MLglob r, [s] when is_cap_ref r ->
            str "cap(" ++ pp_expr state env s ++ str ")"
+       (* str_len s → int64(len(s)): Go's [len] gives the BYTE count as an [int];
+          cast to int64 for the [int] model (Sint63/int64). *)
+       | MLglob r, [s] when is_str_len_ref r ->
+           str "int64(len(" ++ pp_expr state env s ++ str "))"
        (* append(xs, ys) *)
        | MLglob r, [xs; ys] when is_append_ref r ->
            str "append(" ++ pp_expr state env xs ++ str ", " ++
@@ -856,6 +921,10 @@ let rec pp_expr state env = function
       str "\t" ++ pp_mlident id ++ str " := " ++ pp_expr state env e1 ++ fnl () ++
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
       str "})()"
+
+  | MLcons _ as e when Option.has_some (decode_go_string e) ->
+      (* Coq [string] literal → Go string literal (byte-faithful). *)
+      str (go_string_lit (Option.get (decode_go_string e)))
 
   | MLcons _ as e ->
       (match nat_value e with
@@ -1662,6 +1731,39 @@ let pp_io_body state tab env body =
                   v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
+         (* str_at_ok s i (fun b ok => body) → bounds-checked byte index:
+              var b int64
+              ok := i >= 0 && i < int64(len(s))
+              if ok { b = int64(s[i]) }   (* s[i] is byte; widen to the int64 carrier *)
+              body
+            Mirrors slice_at_ok; the byte is a GoByte (= uint8, GoU8) erased to
+            int64.  Cannot panic out of range (the ok-branch is forced). *)
+         | MLglob r, [s; i; kont] when is_str_at_ok_ref r ->
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (match ids with
+              | [b_id; ok_id] ->
+                  let s_d = pp_expr state env s in
+                  let i_d = pp_expr state env i in
+                  let cond = i_d ++ str " >= 0 && " ++ i_d
+                             ++ str " < int64(len(" ++ s_d ++ str "))" in
+                  let b_decl =
+                    if is_dummy b_id then mt ()
+                    else str tab ++ str "var " ++ pp_mlident b_id ++ str " int64" ++ fnl () in
+                  let ok_bind =
+                    if is_dummy ok_id then mt ()
+                    else str tab ++ pp_mlident ok_id ++ str " := " ++ cond ++ fnl () in
+                  let guard = if is_dummy ok_id then cond else pp_mlident ok_id in
+                  let if_block =
+                    if is_dummy b_id then mt ()
+                    else
+                      str tab ++ str "if " ++ guard ++ str " {" ++ fnl () ++
+                      str (tab ^ "\t") ++ pp_mlident b_id ++ str " = int64("
+                        ++ s_d ++ str "[" ++ i_d ++ str "])" ++ fnl () ++
+                      str tab ++ str "}" ++ fnl () in
+                  b_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
+              | _ ->
+                  pp_stmts tab new_env k_body)
          (* type_assert_safe tag x (fun v ok => body) → v, ok := x.(T); body
             Go's native two-value assertion: ok=false (no panic) on mismatch. *)
          | MLglob r, [tag; x; kont] when is_type_assert_safe_ref r ->
@@ -1985,6 +2087,7 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
+  is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||

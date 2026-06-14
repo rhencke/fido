@@ -566,13 +566,18 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    as `Z`, untyped float as exact rationals; type + representability proof at use.
 
 ### Tier 3 — modelled types that are faithful only in a sub-regime
-7. **Strings conflate byte and rune indexing.**  `GoString := list GoRune` maps to
-   Go `string`, but Go `s[i]` yields a *byte* and `len(s)` is the *byte* count,
-   while `range s` yields runes.  The list-of-rune model is the rune view only;
-   byte-level indexing/len would be wrong, and no string ops (index, len, concat,
-   slice, `string`↔`[]byte`/`[]rune`) are modelled.  *Fix:* model strings as byte
-   sequences with a rune-decoding view (or restrict to the rune view and forbid
-   byte indexing), then add the operations.
+7. **Strings — byte model DONE; rune view deferred.**  `GoString := string` (Coq's
+   `Strings.String`, a genuine **byte** sequence) → Go `string`, replacing the old
+   `list GoRune` (the rune view, which mismodelled `s[i]`/`len`).  Now modelled, all
+   faithful: `str_len` = **byte** count (→ `int64(len(s))`; `str_len "Go" = 2` is a
+   *theorem*), `str_at_ok` = the **safe** byte index (CPS/comma-ok like
+   `slice_at_ok` — forces the OOB branch, cannot panic; `s[i]` widened to the int64
+   carrier), `str_concat` = Go `+` (a *theorem*: `"Go"+"!" = "Go!"`); a string is
+   its own type (`str_no_implicit` `Fail`); literals decode `String`/`Ascii`/
+   `EmptyString` → byte-faithful Go string literal (printable verbatim, else
+   `\xNN`).  *Deferred (unmodeled, fails loud — NOT silently wrong):* the **rune
+   view** (`range s` UTF-8 decode and `string`↔`[]rune`/`[]byte`, Conversions), and
+   byte mutation (Go forbids it — strings immutable).
 8. **Reference-type state (maps, slices, refs).**
    (b) *get-after-write — FIXED for maps via a heap in the world.*  Map reads are
    now in `IO` (`map_get_opt : ... -> IO (option V)`, `map_get_or`, `map_len`);

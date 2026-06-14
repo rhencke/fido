@@ -78,11 +78,32 @@ add/sub/cmp (mul **✗ fails loud** — exceeds carrier), 64-bit **✗ fails lou
 explicit CONVERSIONS (next section) load-bearing — without them you can't use a
 `uint8` where an `int` is wanted (which is correct: it fails loud, not silently).
 
-### [String types](https://go.dev/ref/spec#String_types) — ⚠ deviation (Known gaps #7)
-Spec: a string is bytes; `s[i]` is a **byte**, `len(s)` is the **byte** count;
-`range s` yields runes.  Ours: `GoString` = `list GoRune` — the *rune* view only;
-byte-level index/len would be wrong, and string ops are largely unmodeled.
-**⚠/✗** tracked.
+### [String types](https://go.dev/ref/spec#String_types) — ✓ byte sequence (rune view deferred)
+Spec: "A string value is a (possibly empty) sequence of **bytes**… The number of
+bytes is called the **length**… A string's **bytes** can be accessed by integer
+indices `0` through `len(s)-1`" (`s[i]` is a byte); strings are **immutable**;
+`range s` decodes UTF-8 to runes.
+Ours: `GoString := string` (Coq's `Strings.String`, *itself* a sequence of
+`Ascii.ascii` = bytes) → Go `string`.  This is the faithful byte model, replacing
+the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
+- **`len`** (`str_len`): a computable `int` counting **bytes** → Go `int64(len(s))`;
+  `str_len "Go" = 2` is a **theorem** (`spec_str_len_Go`). ✓
+- **index** (`str_at_ok`): the **safe** byte accessor — CPS/comma-ok like
+  `slice_at_ok`, so it *forces* handling out-of-range (cannot panic).  In range ⇒
+  `b = s[i]` (a `byte` = `GoU8`, widened to the int64 carrier) and `ok = true`;
+  else `0`/`false`.  `i : int` is signed → both ends checked.  Demo: `s[5]` of
+  `"Go"` (len 2) → `0 false`, no panic. ✓
+- **concat** (`str_concat`, spec "Operators"): pure byte append → Go `+`;
+  `str_concat "Go" "!" = "Go!"` is a **theorem** (`spec_str_concat`). ✓
+- **immutability**: free (Coq `string` is a value). ✓
+- **distinctness**: a `string` is its own type — `str_no_implicit` (a `Fail`) is
+  the build-checked proof that an `int` does not implicitly convert in. ✓
+- **literals**: the plugin decodes a Coq `String`/`Ascii`/`EmptyString` literal to
+  a byte-faithful Go string literal (printable ASCII verbatim; other bytes via Go's
+  `\xNN`), so the emitted literal denotes EXACTLY the modelled bytes. ✓
+**Deferred (not silently wrong — unmodeled, fails loud):** the **rune view**
+(`range s` UTF-8 decode, `string`↔`[]rune`/`[]byte` — see Conversions ✗), and
+byte-level mutation (Go forbids `s[i] = …` anyway; strings are immutable).
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
 Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world

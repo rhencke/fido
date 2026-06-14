@@ -6,6 +6,7 @@ From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
+From Stdlib Require Import Strings.String.   (* string-literal scope for the String-types demo *)
 Require Import Coq.Lists.List.
 Import ListNotations.
 
@@ -304,6 +305,20 @@ Definition u16_demo : IO unit :=
   bind (println [any (u16_mul (u16_lit 1000 eq_refl)  (u16_lit 1000 eq_refl))])  (fun _ =>   (* 16960 *)
   println [any (i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl))])).                 (* -25536 *)
 
+(** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
+    "a string value is a (possibly empty) sequence of bytes ... strings are
+    immutable.  The length ... can be discovered using len.  A string's bytes can
+    be accessed by integer indices 0 <= i < len(s)."  We model [string] as Coq's
+    byte-sequence [string], so these are THEOREMS (computable), not assertions:
+    [str_len] is the BYTE count, [str_concat] is byte append, and a string is its
+    OWN type (no implicit conversion from [int], per "Numeric/string distinct"). *)
+Example spec_str_len_Go    : str_len "Go"%string  = 2%uint63. Proof. reflexivity. Qed.
+Example spec_str_len_empty : str_len ""%string    = 0%uint63. Proof. reflexivity. Qed.
+Example spec_str_concat    : str_concat "Go"%string "!"%string = "Go!"%string.
+Proof. reflexivity. Qed.
+(* Build-checked: a string does not implicitly accept an [int] (distinct types). *)
+Fail Definition str_no_implicit : GoString := str_concat "x"%string (5 : int).
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -581,6 +596,19 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2]))).
 
+(** Strings (Go spec "String types"): a byte sequence.  [str_len] is the BYTE
+    count; [str_at_ok] is the safe byte index (forced OOB handling, like
+    [slice_at_ok]); [str_concat] is Go's [+].  Index 5 of "Go" (len 2) is out of
+    range, so it yields the zero byte and [ok = false] — no panic. *)
+Definition string_demo : IO unit :=
+  let s := "Go"%string in
+  println [any (str_len s)] >>'                     (* 2 *)
+  str_at_ok s (0 : int) (fun b ok =>                (* 71 ('G') true *)
+  println [any b; any ok] >>'
+  str_at_ok s (5 : int) (fun b2 ok2 =>              (* out of range → 0 false *)
+  println [any b2; any ok2] >>'
+  println [any (str_concat s "!"%string)])).        (* Go! *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -828,6 +856,7 @@ Definition main_effect : IO unit :=
   list_demo                     >>'   (* prints: 10 2 *)
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   assert_safe_demo (7 : int)    >>'   (* prints: 7 true / false false *)
+  string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
   cond_goto_demo true           >>'   (* prints: 1 / 3 *)

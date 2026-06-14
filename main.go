@@ -320,6 +320,24 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func String_demo() {
+	s := "Go"
+	println(int64(len(s)))
+	var b int64
+	ok := 0 >= 0 && 0 < int64(len(s))
+	if ok {
+		b = int64(s[0])
+	}
+	println(b, ok)
+	var b2 int64
+	ok2 := 5 >= 0 && 5 < int64(len(s))
+	if ok2 {
+		b2 = int64(s[5])
+	}
+	println(b2, ok2)
+	println(s + "!")
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -596,6 +614,7 @@ func main() {
 	List_demo()
 	Slice_safe_demo()
 	Assert_safe_demo(7)
+	String_demo()
 	Foreach_demo()
 	Sum_demo()
 	Cond_goto_demo(true)

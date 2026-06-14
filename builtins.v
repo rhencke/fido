@@ -247,17 +247,28 @@ Axiom GoUint8  : Type.   (* uint8   — 8-bit  *)
 Axiom GoUint16 : Type.   (* uint16  — 16-bit *)
 Axiom GoUint32 : Type.   (* uint32  — 32-bit *)
 Axiom GoUint64 : Type.   (* uint64  — 64-bit *)
-Notation GoByte := GoUint8.  (* byte is an alias for uint8 *)
+(* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
+   the FAITHFUL [GoU8] record rather than the opaque [GoUint8] axiom. *)
 
-(** Go's string type — a sequence of Unicode code points.
-    Modelled as [list GoRune] so Rocq's list theory applies directly.
-    The plugin maps [list GoRune] → [string] in all type positions. *)
-Definition GoString : Type := list GoRune.
+(** Go's string type (Go spec "String types"): "a string value is a (possibly
+    empty) sequence of BYTES; ... strings are immutable".  Modelled as Coq's
+    [string] (Strings.String) — itself a sequence of [Ascii.ascii], i.e. a byte
+    sequence — so [len] is the BYTE count and [s[i]] is the i'th BYTE (a [byte] =
+    [uint8]), exactly as the spec defines.  Immutability is automatic (a pure
+    value).  The plugin maps [string] → Go [string] and decodes a [String]/
+    [Ascii]/[EmptyString] literal to a byte-faithful Go string literal (Go
+    escaping).
+    (The earlier [list GoRune] model was the RUNE view — how [range s] iterates,
+    NOT how Go indexes — so it mismodelled [len]/[s[i]]; the rune view is a
+    separate UTF-8 decode, deferred.) *)
+From Stdlib Require Import Strings.String Strings.Ascii.
+Definition GoString : Type := string.
 
 (** Go's slice type — a resizable sequence of elements.
     Modelled as [list A] so Rocq's list theory applies directly.
-    The plugin maps [list A] → [[]T] for any element type [A].
-    Note: [list GoRune] maps to [string], not [[]int32].
+    The plugin maps [list A] → [[]T] for any element type [A] (so a rune slice
+    [list GoRune] is Go's [[]int32]; the byte-sequence [string] is separate —
+    see [GoString] above).
 
     NOTE — aliasing: like maps, slices are reference types in Go.  The pure
     functional model (append returning a new list) is safe for single-goroutine
@@ -317,6 +328,10 @@ Definition u8_leb (a b : GoU8) : bool := PrimInt63.leb (u8raw a) (u8raw b).
 Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : int).
 (* Build-checked: an out-of-range constant is UNREPRESENTABLE (Go: "overflows uint8"). *)
 Fail Definition u8_const_oob : GoU8 := u8_lit 300 eq_refl.
+
+(* Go's [byte] is a predeclared alias for [uint8] — the faithful [GoU8] record.
+   So [s[i]] (a string byte) and a [uint8] are the SAME type, as in Go. *)
+Notation GoByte := GoU8.
 
 (** ---- Signed fixed-width integers ----
 
@@ -1026,6 +1041,40 @@ Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
     for Go's panic, so it must yield [ok = false], not slip through. *)
 Axiom slice_at_ok : forall {A B : Type},
   GoTypeTag A -> GoSlice A -> int -> (A -> bool -> IO B) -> IO B.
+
+(** ---- String operations (Go spec "String types") ----
+
+    [str_len s] is the BYTE length (Go [len(s)]): a computable [int] that counts
+    the [string]'s bytes, so [str_len "Go" = 2] is a THEOREM.  The plugin lowers
+    it to Go [int64(len(s))] — the byte count in the [int] (Sint63/int64) model.
+
+    [str_at_ok] is the SAFE byte index (spec: "a string's bytes can be accessed
+    by integer indices [0 <= i < len(s)]"; [s[i]] is of type [byte]).  CPS /
+    comma-ok like [slice_at_ok]: it FORCES handling the out-of-range case, so it
+    cannot panic.  In range ⇒ [b = s[i]] (the byte, a [GoByte] = [uint8]) and
+    [ok = true]; else [b = 0], [ok = false].  [i : int] is SIGNED, so the bounds
+    check covers BOTH ends.  Lowers to a bounds-checked [int64(s[i])] (the byte
+    in the int64 carrier), mirroring [slice_at_ok].
+
+    [str_concat] is Go's string [+] (spec "Operators": string concatenation) — a
+    pure, total operation on immutable byte sequences, so [str_concat "ab" "cd" =
+    "abcd"] is a THEOREM.  Defined by its OWN recursion (no [String.append]
+    dependency to drag into extraction); suppressed in the plugin, lowered to Go
+    [a + b]. *)
+Fixpoint str_len (s : GoString) : int :=
+  match s with
+  | EmptyString   => 0%uint63
+  | String _ rest => PrimInt63.add 1%uint63 (str_len rest)
+  end.
+
+Axiom str_at_ok : forall {B : Type},
+  GoString -> int -> (GoByte -> bool -> IO B) -> IO B.
+
+Fixpoint str_concat (a b : GoString) : GoString :=
+  match a with
+  | EmptyString   => b
+  | String c rest => String c (str_concat rest b)
+  end.
 
 (** ---- Mutable local variables ----
 
