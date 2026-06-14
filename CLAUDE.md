@@ -234,6 +234,23 @@ safe-by-construction principle. Tracked until closed.
    shallow embedding for control flow (a Rocq `if`/Fixpoint *is* the Go
    construct), which cannot express jumps. Biggest build to date; do it
    minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
+
+   **Lowering correctness — the unifying principle.** The goto approach trades
+   a single uniform primitive for some subtle correctness obligations; they all
+   collapse to one rule: *preserve each model variable's identity under every
+   way it escapes.* Each variable is either an **immutable binding**
+   (`bind`/`fun x =>` — a value, fresh per evaluation/iteration) or a **`Ref`**
+   (one shared cell). It escapes by **read**, **capture**, or **address**:
+   - immutable value: read → its value; captured → **by value** (`func(x T){…}(x)`,
+     so each iteration's closure fixes its value); address → n/a (not addressable).
+   - `Ref` cell: read → the cell; captured → **by reference** (shared var);
+     address → `&` the cell (future pointers).
+   Our lowering follows this exactly — `block_hoists` collects the immutable
+   temps (hoisted + captured by value) and leaves `Ref`s as shared vars (captured
+   by reference). Plus the two scope clauses below (dominance + no shadowing).
+   This is precisely the statement a lowering-correctness proof discharges: the
+   generated Go denotes the same as the model.
+
    **Scoping-correctness obligation** for the CFG lowering: every variable's
    declaration must *dominate* all its uses (and not be jumped over). With
    unique names (Rocq alpha-renames — one decl per name) this is a clean,
