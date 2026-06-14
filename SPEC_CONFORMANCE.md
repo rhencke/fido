@@ -301,7 +301,20 @@ Assumptions` = *Closed under the global context*):
 - **fork edge** (Phase 4b) — *"a go statement is synchronized before the goroutine's
   execution starts"*: `fork_hb` + `fork_program_race_free` (parent writes `x`, spawns
   a child that reads `x` with NO channel — race-free purely by the fork edge).
-**Still open:** tie events to the `run_io` world ops; general N-goroutine/M-channel
-topologies (the program-order edges model one sender + one receiver per channel);
-deadlock freedom (liveness, needs a non-terminating model).  Other sync mechanisms
-(Mutex, atomic, once) need stdlib (imports — out of scope).
+**Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
+above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
+TRACE — a list of events from interleaving goroutines, synchronisation recorded by
+BACK-POINTERS (a receive carries its matched send's position; a goroutine's first
+step carries its spawn position — what a real run records).  Central theorem
+`hbt_irrefl` (axiom-free): for ANY well-formed trace, happens-before (program order ∪
+synchronisation) is a STRICT PARTIAL ORDER — because the TRACE POSITION is a LINEAR
+EXTENSION (`hbt_forward`: you cannot synchronise with the future).  This generalises
+the bespoke `ev_ts` to arbitrary executions and ANY goroutine/channel topology (no
+longer one-sender/one-receiver).  Race freedom: generic `trace_ordered_no_race` +
+concrete `mp_trace_race_free` (the message-passing program as a real trace).
+**Still open:** prove an extracted program's actual `run_io`/`World` channel ops
+GENERATE a well-formed trace (the final operational-semantics→trace step — `WfTrace`
+becomes a theorem about execution, not a hypothesis); the FIFO refinement (kth
+recv ↔ kth send); deadlock freedom (liveness, needs a non-terminating/scheduler
+model).  Other sync mechanisms (Mutex, atomic, once) need stdlib (imports — out of
+scope).

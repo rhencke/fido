@@ -538,12 +538,19 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `ev_credit_c`, so no over-ordering; irreflexive via `ev_ts_c`).  **Phase 4b adds
    the goroutine FORK edge** (`fork_hb` + `fork_program_race_free`: parent writes `x`,
    spawns a child reading `x` with no channel — race-free by the fork edge alone).
-   Both axiom-free.  *Still pending:* whole-PROGRAM race freedom for arbitrary
-   programs (`racefree_of_ordered` is the rule; only specific instances proven);
-   general N-goroutine/M-channel topologies (program-order edges model one sender +
-   one receiver per channel); tying `ChEvent`/`ChEvC`/`MPEvent` to the actual
-   `run_io` world ops; and deadlock-freedom (liveness, needs a non-terminating
-   model — Tier 5 #14).  Net: Phase 1 grounds the channel
+   Both axiom-free.  **Phase 5 (`concurrency.v`) ties happens-before to ACTUAL
+   EXECUTION TRACES** — a list of events from interleaving goroutines, synchronisation
+   recorded by BACK-POINTERS (a receive carries its matched send's trace position; a
+   goroutine's first step carries its spawn position).  `hbt_irrefl` (axiom-free): for
+   ANY well-formed trace, happens-before is a strict partial order, because the TRACE
+   POSITION is a linear extension (`hbt_forward` — no synchronising with the future).
+   This GENERALISES the bespoke `ev_ts` to arbitrary executions and ANY topology (no
+   longer one-sender/one-receiver); race freedom generic (`trace_ordered_no_race`) +
+   concrete (`mp_trace_race_free`).  *Still pending:* prove an extracted program's
+   actual `run_io`/`World` channel ops GENERATE a well-formed trace (the final
+   operational-semantics→trace step, turning `WfTrace` from hypothesis into theorem);
+   the FIFO refinement (kth recv ↔ kth send); deadlock-freedom (liveness, needs a
+   non-terminating/scheduler model — Tier 5 #14).  Net: Phase 1 grounds the channel
    laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
    axiom-free or interface-grounded, replacing the old asserted-on-intuition
    axioms.
@@ -752,6 +759,9 @@ resting state.)**
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
 - `plugin/go.ml` + `plugin/g_go_extraction.mlg` — the Rocq→Go extraction plugin
 - `builtins.v` — Go builtins (always in scope, loaded via `preamble.v`)
+- `concurrency.v` — proof-only theory (emits no Go): trace-based happens-before for
+  arbitrary executions (`hbt_irrefl`), the bridge from the abstract go-mem rules to
+  actual execution traces.  Listed in `dune` `(modules …)`
 - `preamble.v` — shared preamble; every theory starts with `From Fido Require Import preamble`
 - `dune` / `dune-project` — builds plugin + theories together inside Docker
 - Pre-commit hook (`.githooks/pre-commit`; activate once via `make
