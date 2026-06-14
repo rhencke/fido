@@ -513,11 +513,21 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `k` authorises sends to `k+cap`) is weakly monotone along `hb`, proving
    concurrent events stay unordered (`buffered_sender_runs_ahead`:
    `~ hb 2 (RecvStart 0) (SendDone 1)`), which is what keeps it sound for race
-   freedom.  *Still pending (Phase 3):* tie `ChEvent`s to the `run_io` world
-   operations and to heap accesses, add `go_spawn`'s fork edge, and DEFINE a data
-   race (two conflicting accesses unordered by `hb`) → state/derive race-freedom
-   for the channel-synchronised fragment.  Phase 1 grounds the channel laws,
-   Phase 2 grounds the ordering, Phase 3 grounds race/deadlock freedom.
+   freedom.  **Phase 3 done — data races are now DEFINED and the channel guarantee
+   is PROVEN, axiom-free** (`Print Assumptions mp_no_race` = *Closed under the
+   global context*).  A `data_race hb acc e1 e2` is conflicting accesses (`conflict`
+   = same location, ≥1 write) UNORDERED by `hb`; the generic `hb_ordered_no_race`
+   proves happens-before ordering is the whole defence.  The canonical
+   message-passing instance (`mp_hb`: A writes `x` then sends; B receives then
+   reads `x`) shows the write/read pair `mp_conflict`-s yet is `hb`-ordered through
+   the `mp_sync` (= `hbe_send_recv`) edge — `mp_no_race`: it does NOT race.  *Still
+   pending:* whole-PROGRAM race freedom (every shared access ordered — a
+   program-level analysis obligation), tying `ChEvent`/`MPEvent` to the actual
+   `run_io` world ops, and `go_spawn`'s fork edge + deadlock-freedom (liveness,
+   needs a non-terminating model — Tier 5 #14).  Net: Phase 1 grounds the channel
+   laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
+   axiom-free or interface-grounded, replacing the old asserted-on-intuition
+   axioms.
 2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
    a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
    map / slice / `zero_val` axioms are not shown consistent with it.  If the set

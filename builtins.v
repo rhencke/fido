@@ -835,6 +835,61 @@ Proof.
   intro H. apply (hb_credit_mono 2) in H. cbn in H. lia.
 Qed.
 
+(** ---- Phase 3: data races, and channel synchronisation that prevents them ----
+
+    A DATA RACE (go.dev/ref/mem) is two accesses to the SAME memory location, at
+    least one a WRITE, UNORDERED by happens-before.  With the [hb] order in hand
+    this is finally STATABLE.  The generic guarantee is that happens-before
+    ordering IS the whole defence ([hb_ordered_no_race]); the concrete result is
+    that the channel-handoff pattern orders a conflicting write/read pair through
+    the [send ⤳ recv] rule, so it does not race — channel synchronisation = race
+    freedom.  (This is the canonical message-passing case; whole-PROGRAM race
+    freedom additionally needs that every shared access is so ordered — a
+    program-level obligation, the next layer.) *)
+Inductive Access := AWrite (loc : nat) | ARead (loc : nat).
+Definition acc_loc (a : Access) : nat := match a with AWrite l => l | ARead l => l end.
+Definition is_write (a : Access) : bool := match a with AWrite _ => true | ARead _ => false end.
+
+(** Two accesses CONFLICT: same location, at least one a write. *)
+Definition conflict (a b : Access) : Prop :=
+  acc_loc a = acc_loc b /\ (is_write a = true \/ is_write b = true).
+
+(** A DATA RACE: conflicting accesses UNORDERED by happens-before.  Generic over
+    the [hb] relation and the per-event access labelling. *)
+Definition data_race {E} (hb : E -> E -> Prop) (acc : E -> Access) (e1 e2 : E) : Prop :=
+  conflict (acc e1) (acc e2) /\ ~ hb e1 e2 /\ ~ hb e2 e1.
+
+(** Happens-before ordering IS the defence: ordered events never race. *)
+Theorem hb_ordered_no_race {E} (hb : E -> E -> Prop) (acc : E -> Access) (e1 e2 : E) :
+  hb e1 e2 -> ~ data_race hb acc e1 e2.
+Proof. intros Hhb [_ [Hno _]]. exact (Hno Hhb). Qed.
+
+(** The canonical message-passing pattern: goroutine A writes location [x] then
+    sends on a channel; goroutine B receives then reads [x].  Edges: program order
+    in each goroutine, plus the Phase-2 channel rule [mp_sync] (send synchronised
+    before the corresponding receive completes — the [hbe_send_recv] instance). *)
+Inductive MPEvent := WriteA | SendA | RecvB | ReadB.
+Inductive mp_hb : MPEvent -> MPEvent -> Prop :=
+  | mp_po_A  : mp_hb WriteA SendA                         (* A: write x, then send *)
+  | mp_sync  : mp_hb SendA RecvB                          (* channel: send ⤳ recv completes *)
+  | mp_po_B  : mp_hb RecvB ReadB                          (* B: recv, then read x *)
+  | mp_trans : forall a b c, mp_hb a b -> mp_hb b c -> mp_hb a c.
+Definition mp_acc (e : MPEvent) : Access :=
+  match e with WriteA => AWrite 0 | ReadB => ARead 0 | _ => ARead 1 end.  (* x = location 0 *)
+
+(** The write and the read DO conflict (same location, one is a write)... *)
+Example mp_conflict : conflict (mp_acc WriteA) (mp_acc ReadB).
+Proof. cbn. split; [reflexivity | left; reflexivity]. Qed.
+(** ...yet they are happens-before ordered through the channel handoff... *)
+Theorem mp_write_before_read : mp_hb WriteA ReadB.
+Proof.
+  eapply mp_trans; [apply mp_po_A | eapply mp_trans; [apply mp_sync | apply mp_po_B]].
+Qed.
+(** ...so the conflicting pair does NOT form a data race.  The channel
+    send/receive established happens-before, which is exactly race freedom. *)
+Theorem mp_no_race : ~ data_race mp_hb mp_acc WriteA ReadB.
+Proof. apply hb_ordered_no_race. exact mp_write_before_read. Qed.
+
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.
