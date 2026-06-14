@@ -408,6 +408,31 @@ Definition early_return_demo : IO unit :=
     bind (println [any (999 : int)]) (fun _ => ret Done)           (* block 3: normal exit *)
   ]).
 
+(** Labeled break: from inside the inner loop, block 3 jumps to the *outer*
+    loop's exit (block 6) when [jv] reaches 2 — escaping both loops at once.
+    That is more than the innermost loop can [break], so the relooper labels the
+    outer [for] [L0:] and emits [break L0].  The inner loop is multi-exit (its
+    normal exit is block 5, plus the labeled escape to block 6), which the
+    primary-exit analysis accepts.  Prints 0, 1, 2 then stops entirely. *)
+Definition labeled_break_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new (0 : int)) (fun j =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
+      if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 6%nat)) ;
+    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
+      if Sint63.ltb jv 3 then ret (Jump 3%nat) else ret (Jump 5%nat)) ;
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 3: print; break L0 at 2 *)
+    bind (println [any jv]) (fun _ =>
+      if Sint63.ltb jv 2 then ret (Jump 4%nat) else ret (Jump 6%nat))) ;
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 4: inner tail, j++ *)
+    bind (ref_set j (add jv 1)) (fun _ => ret (Jump 2%nat))) ;
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 5: outer tail, i++ *)
+    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat))) ;
+    ret Done                                                        (* block 6: exit *)
+  ])).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -443,10 +468,11 @@ Definition main_effect : IO unit :=
   bind loopif_demo                     (fun _ =>   (* prints: 100 / 0 / 1 / 2 *)
   bind nested_loop_demo                (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
   bind early_return_demo               (fun _ =>   (* prints: 0 / 1 *)
+  bind labeled_break_demo              (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

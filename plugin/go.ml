@@ -1057,18 +1057,52 @@ let pp_io_body state tab env body =
                         if not (List.mem t b) && not (List.mem t !ex) then ex := t :: !ex)
                         (targets_of n)) b;
                     !ex in
-                  (* structurable: single entry at 0, each loop single-exit, loops
+                  (* Loop nesting.  [a] is an ancestor of [h] when its body
+                     strictly contains h's.  An exit of [h] that targets an
+                     ancestor's header (a labeled [continue]) or an ancestor's
+                     exit (a labeled [break]) escapes the enclosing loop; the one
+                     remaining exit, if any, is h's *primary* exit, emitted after
+                     the [for].  (A jump that escapes more than the innermost loop
+                     is exactly Go's labeled break/continue.) *)
+                  let subset a b = List.for_all (fun x -> List.mem x b) a in
+                  let ancestors_of h =
+                    List.filter (fun a ->
+                      a <> h
+                      && subset (body_of h) (body_of a)
+                      && List.length (body_of a) > List.length (body_of h)) headers in
+                  let ancestor_targets h =
+                    List.concat (List.map (fun a -> a :: loop_exit_of a) (ancestors_of h)) in
+                  let primary_exits h =
+                    List.filter (fun e -> not (List.mem e (ancestor_targets h)))
+                      (loop_exit_of h) in
+                  let deeper_blocks h =
+                    List.concat (List.map (fun h2 ->
+                      if h2 <> h && subset (body_of h2) (body_of h)
+                         && List.length (body_of h2) < List.length (body_of h)
+                      then body_of h2 else []) headers) in
+                  (* a header needs a Go label iff a break/continue from a *nested*
+                     loop targets it (its header, for continue; its primary exit,
+                     for break) *)
+                  let label_of h = "L" ^ string_of_int h in
+                  let needs_label h =
+                    let pe = primary_exits h in
+                    let deeper = deeper_blocks h in
+                    List.exists (fun n ->
+                      List.mem n deeper &&
+                      (List.mem h (targets_of n)
+                       || List.exists (fun e -> List.mem e (targets_of n)) pe))
+                      alln in
+                  (* structurable: single entry at 0, ≤1 primary exit per loop
+                     (extra exits are labeled escapes to enclosing loops), loops
                      properly nested (bodies disjoint or one inside the other) *)
                   let structurable =
                     start_v = 0 &&
-                    List.for_all (fun h -> List.length (loop_exit_of h) <= 1) headers &&
+                    List.for_all (fun h -> List.length (primary_exits h) <= 1) headers &&
                     List.for_all (fun h1 ->
                       List.for_all (fun h2 ->
                         h1 = h2 ||
                         (let b1 = body_of h1 and b2 = body_of h2 in
-                         inter b1 b2 = []
-                         || List.for_all (fun x -> List.mem x b1) b2
-                         || List.for_all (fun x -> List.mem x b2) b1))
+                         inter b1 b2 = [] || subset b1 b2 || subset b2 b1))
                         headers) headers in
                   (* merge of a conditional = the *immediate* (closest) block post-
                      dominating both branches' leaf successors (exit for returning
@@ -1113,9 +1147,17 @@ let pp_io_body state tab env body =
                   let rec emit_region entry stop loopctx tail tab =
                     if entry = stop || entry = exit_node then mt ()
                     else if List.mem entry headers then begin
-                      let ex = match loop_exit_of entry with [e] -> Some e | _ -> None in
+                      let ex = match primary_exits entry with [e] -> Some e | _ -> None in
                       let bctx = (entry, ex) :: loopctx in
-                      str tab ++ str "for {" ++ fnl ()
+                      let lbl_indent =
+                        if String.length tab >= 1
+                        then String.sub tab 0 (String.length tab - 1) else "" in
+                      let lbl =
+                        if needs_label entry
+                        then str lbl_indent ++ str (label_of entry) ++ str ":" ++ fnl ()
+                        else mt () in
+                      lbl
+                      ++ str tab ++ str "for {" ++ fnl ()
                       ++ walk blocks.(entry) entry bctx true (tab ^ "\t") env
                       ++ str tab ++ str "}" ++ fnl ()
                       ++ (match ex with
@@ -1124,11 +1166,24 @@ let pp_io_body state tab env body =
                     end
                     else walk blocks.(entry) stop loopctx tail tab env
                   and handle_edge j stop loopctx tail tab =
-                    match loopctx with
-                    | (hd, _) :: _ when j = hd ->
+                    (* find which enclosing loop this edge targets (innermost
+                       first): the header (continue) or the primary exit (break).
+                       Depth 0 is the innermost loop → unlabeled; deeper → labeled. *)
+                    let rec scan depth = function
+                      | (hd, ex) :: rest ->
+                          if j = hd then Some (`Continue, depth, hd)
+                          else if ex = Some j then Some (`Break, depth, hd)
+                          else scan (depth + 1) rest
+                      | [] -> None in
+                    match scan 0 loopctx with
+                    | Some (`Continue, 0, _) ->
                         if tail then mt () else str tab ++ str "continue" ++ fnl ()
-                    | (_, Some e) :: _ when j = e -> str tab ++ str "break" ++ fnl ()
-                    | _ ->
+                    | Some (`Continue, _, hd) ->
+                        str tab ++ str ("continue " ^ label_of hd) ++ fnl ()
+                    | Some (`Break, 0, _) -> str tab ++ str "break" ++ fnl ()
+                    | Some (`Break, _, hd) ->
+                        str tab ++ str ("break " ^ label_of hd) ++ fnl ()
+                    | None ->
                         if j = stop then mt ()
                         else emit_region j stop loopctx tail tab
                   and walk b stop loopctx tail tab benv =
@@ -1160,16 +1215,15 @@ let pp_io_body state tab env body =
                                        let tb, eb =
                                          if is_bool_true c1 then body1, body2 else body2, body1 in
                                        let m_raw = merge_of tb eb in
-                                       let hd = match loopctx with (h, _) :: _ -> Some h | [] -> None in
-                                       let lex = match loopctx with (_, e) :: _ -> e | [] -> None in
-                                       (* a merge that is the loop-around or the loop
-                                          exit is handled by [handle_edge], so there
-                                          is no in-region merge to emit after the if *)
-                                       let m =
-                                         if m_raw = stop then stop
-                                         else if hd = Some m_raw then stop
-                                         else if lex = Some m_raw then stop
-                                         else m_raw in
+                                       (* a merge that is the loop-around (any
+                                          enclosing header) or an enclosing loop's
+                                          primary exit is reached by [handle_edge]
+                                          as a (labeled) continue/break, so there is
+                                          no in-region merge to emit after the if *)
+                                       let escapes =
+                                         List.exists (fun (hh, ee) -> hh = m_raw || ee = Some m_raw)
+                                           loopctx in
+                                       let m = if m_raw = stop || escapes then stop else m_raw in
                                        let then_empty = bare_jump tb = Some m in
                                        let else_empty = bare_jump eb = Some m in
                                        let branch_tail = tail && (m = stop || m = exit_node) in

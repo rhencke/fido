@@ -250,19 +250,32 @@ safe-by-construction principle. Tracked until closed.
      merge that is the loop-around or loop exit means there is no in-loop merge
      (the arms `break`/`continue`/fall through). Empty arms collapse to a
      one-armed `if`, inverted to `if !c` when the *then* arm jumps to the merge.
+   A jump that escapes **more than the innermost loop** is Go's labeled
+   break/continue: `handle_edge` scans the whole `loopctx` (not just the top), so
+   a jump to an enclosing loop's header is `continue L`, to its primary exit
+   `break L`; the loop gets an `L<h>:` label, emitted only when some nested-loop
+   edge actually targets it (`needs_label`, so no unused labels). Multi-exit
+   loops are fine as long as ≤1 exit is *primary* (emitted after the `for`) — the
+   rest must be these labeled escapes (`primary_exits` = exits minus enclosing
+   loops' headers/exits). The merge-vs-escape test likewise scans all of
+   `loopctx`, so a branch whose post-dominator is an outer exit becomes a
+   (labeled) break rather than an inlined block.
    Demos: `Count_demo`/`Defer_loop_demo` → `for { … break }`; `Cond_goto_demo` →
    `if !early { … }`; `Diamond_demo` → `if b { … } else { … }`; `Loopif_demo` →
-   a `for` with a nested `if` and the merge after it. Two lowering invariants the
-   relooper respects: every block is re-emitted in the **call-site de Bruijn
-   env** (a block's free `Ref`s are relative to `run_blocks`, not to whatever
-   block jumped to it); and same-named hoists from distinct blocks (Rocq reuses a
-   binder name across closed terms) collapse to **one** `var`, since they become
-   one reused, assign-before-read Go variable. The structurer is gated on
-   `structurable` (entry 0, each loop single-exit, loops properly nested);
-   anything else falls back to raw labels+goto — always correct, just
-   un-prettified. Golden-guarded: structuring changes the source, never the
-   behaviour. Next: multi-exit loops / labeled `break`/`continue` for jumps that
-   escape more than the innermost loop (today these take the raw-goto fallback).
+   a `for` with a nested `if`; `Nested_loop_demo` → two nested `for`s;
+   `Early_return_demo` → an in-loop `return` plus post-loop tail;
+   `Labeled_break_demo` → an inner loop with `break L0` escaping the outer.
+   Two lowering invariants the relooper respects: every block is re-emitted in
+   the **call-site de Bruijn env** (a block's free `Ref`s are relative to
+   `run_blocks`, not to whatever block jumped to it); and same-named hoists from
+   distinct blocks (Rocq reuses a binder name across closed terms) collapse to
+   **one** `var`, since they become one reused, assign-before-read Go variable.
+   The structurer is gated on `structurable` (entry 0, ≤1 primary exit per loop,
+   loops properly nested); anything else falls back to raw labels+goto — always
+   correct, just un-prettified. Golden-guarded: structuring changes the source,
+   never the behaviour. Remaining: irreducible CFGs (no demo generates one yet),
+   and n-ary `switch`/type-switch blocks, which decompose to chained bool `if`s
+   in the goto model rather than a Go `switch` (a printer nicety, not coverage).
 
    **Lowering correctness — the unifying principle.** The goto approach trades
    a single uniform primitive for some subtle correctness obligations; they all
