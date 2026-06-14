@@ -943,14 +943,24 @@ let pp_io_body state tab env body =
         (match head, vis with
          | MLglob r, [m; f] when is_bind_ref r ->
              (match strip_magic m with
-              (* IO-valued branch: bind distributes over case, so push the
-                 continuation f into every arm.  This turns the match into a
-                 statement (if/switch) rather than a value. *)
+              (* IO-valued branch: [bind] distributes over the match, turning it
+                 into an if/switch statement rather than a value. *)
               | MLcase (typ, scrut, branches) ->
-                  (* Lift the continuation past each arm's pattern binders so its
-                     de Bruijn indices stay correct inside the branch scope. *)
-                  emit_case tab env typ scrut branches
-                    (fun nb b -> MLapp (head, [b; ast_lift nb f]))
+                  (match collect_lam f with
+                   (* RESULT DISCARDED ([fun _ => rest], bound var unused): the
+                      arms need no continuation — each arm's effects run and both
+                      fall through to [rest], emitted ONCE after the if/else.  This
+                      avoids exponential blow-up: chaining N inline [if]s in one
+                      [bind] otherwise duplicates the tail into 2^(N-1) copies. *)
+                   | ([id], fbody) when is_dummy id || db1_free fbody ->
+                       emit_case tab env typ scrut branches (fun _nb b -> b) ++
+                       pp_stmts tab (id :: env) fbody
+                   (* RESULT USED: thread the continuation into every arm (lifting
+                      it past each arm's pattern binders so its de Bruijn indices
+                      stay correct), so each arm's value flows into it. *)
+                   | _ ->
+                       emit_case tab env typ scrut branches
+                         (fun nb b -> MLapp (head, [b; ast_lift nb f])))
               | _ ->
              let ids, body = collect_lam f in
              let new_env = List.rev ids @ env in

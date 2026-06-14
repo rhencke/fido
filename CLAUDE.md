@@ -154,16 +154,19 @@ separate tracks.
    - design point: an IO-valued branch `bind (match …) k` must thread the
      continuation `k` through every arm — emit each arm's statements then `k`
      in that branch (duplicate, or hoist the result into a var), never a value
-   - **Known wart — inline-`if` continuation duplication (correct, but bloats).**
-     `bind (if c then a else b) k` currently emits `k` *inside both arms* (the
-     duplicate option above), so N chained inline `if`s in one `bind` blow up
-     **exponentially** (2^(N-1) copies of the tail). Behaviour is right; size is
-     not. Today's demos sidestep it by putting each conditional in its own
-     function (`and_cond`/`or_cond`/`not_cond`, like `sign_demo`), so the `bind`
-     tail follows the *call* as a single statement. Real fix: when the matched
-     result is discarded (`fun _ =>`) or hoistable to a `var`, emit the `if`/
-     `switch` then `k` **once** after it (the relooper already does this for the
-     goto-CFG path; the IO-statement `if`-in-`bind` path does not). Tracked.
+   - **Inline-`if` continuation duplication — *fixed for the discard case*.**
+     `bind (if c then a else b) k` used to emit `k` *inside both arms*, so N
+     chained inline `if`s in one `bind` blew up **exponentially** (2^(N-1) copies
+     of the tail). Now, when `k` **discards** the matched result (`fun _ => rest`,
+     bound var unused — the overwhelmingly common sequential-effects case), the
+     arms are emitted with no continuation and `rest` is emitted **once** after
+     the `if`/`else` (both arms fall through to it). `Inline_if_demo` (three
+     chained inline `if`s) lowers to three flat sequential `if/else`s, golden-
+     locked. *Still threaded (duplicated) when the result is USED* — that needs
+     the "hoist the result into a `var`" path (`var x T; if c { … x = v0 } else
+     { … x = v1 }; rest`), which requires the arm's value type; deferred, and rare
+     (a value-producing `if` whose result feeds the continuation). The detection
+     is `db1_free` of the continuation body (de Bruijn index 1 unused).
 
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an

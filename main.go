@@ -201,6 +201,24 @@ func Cond_op_demo() {
 	Not_cond(30)
 }
 
+func Inline_if_demo() {
+	if 3 < 10 {
+		println(1)
+	} else {
+		println(0)
+	}
+	if 30 < 10 {
+		println(1)
+	} else {
+		println(0)
+	}
+	if 5 < 10 {
+		println(1)
+	} else {
+		println(0)
+	}
+}
+
 func Lookup_demo() {
 	m := make(map[int64]int64)
 	m[7] = 700
@@ -525,6 +543,7 @@ func main() {
 	Control_flow_demo()
 	Bool_op_demo(true, false, true)
 	Cond_op_demo()
+	Inline_if_demo()
 	Lookup_demo()
 	List_demo()
 	Slice_safe_demo()

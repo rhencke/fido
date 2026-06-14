@@ -378,6 +378,16 @@ Definition cond_op_demo : IO unit :=
   bind (or_cond 30 4)  (fun _ =>   (* F || T → 1 *)
   not_cond 30)).                   (* !F      → 1 *)
 
+(** Regression for inline-[if] continuation de-duplication: three INLINE [if]s
+    chained in one [bind], each discarding its [unit] result.  Because the result
+    is discarded, the continuation is emitted ONCE after each [if] (both arms fall
+    through) instead of being duplicated into both arms — so this lowers to three
+    flat sequential [if/else]s, not a 2^2-copy tree.  Prints 1 / 0 / 1. *)
+Definition inline_if_demo : IO unit :=
+  bind (if Sint63.ltb 3 10  then println [any (1:int)] else println [any (0:int)]) (fun _ =>
+  bind (if Sint63.ltb 30 10 then println [any (1:int)] else println [any (0:int)]) (fun _ =>
+  if Sint63.ltb 5 10        then println [any (1:int)] else println [any (0:int)])).
+
 (** [map_get_opt] is an IO read; binding it then matching the [option] lowers to
     Go's comma-ok lookup: [bind (map_get_opt k m) (fun o => match o with Some v =>
     _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
@@ -663,6 +673,7 @@ Definition main_effect : IO unit :=
   bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
   bind (bool_op_demo true false true)  (fun _ =>   (* prints: false / true / true / true *)
   bind cond_op_demo                    (fun _ =>   (* prints: 1 / 1 / 1 *)
+  bind inline_if_demo                  (fun _ =>   (* prints: 1 / 0 / 1 *)
   bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
   bind list_demo                       (fun _ =>   (* prints: 10 2 *)
   bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
@@ -684,6 +695,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".
