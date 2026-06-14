@@ -431,6 +431,35 @@ Definition i16_not    (a   : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.lxor (
 (* Build-checked: bitwise ops respect type distinctness too (no implicit mix). *)
 Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : int).
 
+(** ---- Fixed-width shifts (Go spec "Arithmetic operators": [<< >>]) ----
+
+    Left / right shift on the fixed-width types.  Unlike the bitwise ops, a shift
+    can PANIC: Go panics if the count is negative.  So — exactly like [div_nz] —
+    the shift is EVIDENCE-CARRYING: it demands a proof the count is non-negative
+    ([0 <= k], discharged by [eq_refl] for a literal), making the panic
+    unreachable (safe-by-construction).  There is NO upper limit on the count
+    (Go: an over-width shift gives 0 / sign-fill, not UB); the primitives agree —
+    [lsl]/[lsr] give 0 for [k >= width], [asr] fills with the sign bit.
+    - [<<]: [uintN] truncates to the width ([(x<<k) mod 2^N], via [land]); [intN]
+      is two's-complement (sign-extend via [norm]).
+    - [>>]: [uintN] is LOGICAL ([lsr]); [intN] is ARITHMETIC ([asr]) — sign-
+      preserving, truncating toward −∞, NOT toward zero like [/] ([-3>>1 = -2],
+      whereas [-3/2 = -1]).
+    The plugin emits Go [x << k] / [x >> k]: for [>>], the int64 carrier is
+    non-negative for [uintN] (so Go's [>>] is logical) and sign-extended for
+    [intN] (so Go's [>>] is arithmetic) — both correct with no mask. *)
+Definition u8_shl  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := MkU8  (PrimInt63.land (PrimInt63.lsl (u8raw x) k) 255).
+Definition u8_shr  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := MkU8  (PrimInt63.lsr (u8raw x) k).
+Definition i8_shl  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := MkI8  (i8_norm (PrimInt63.lsl (i8raw x) k)).
+Definition i8_shr  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := MkI8  (i8_norm (PrimInt63.asr (i8raw x) k)).
+Definition u16_shl (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.lsl (u16raw x) k) 65535).
+Definition u16_shr (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := MkU16 (PrimInt63.lsr (u16raw x) k).
+Definition i16_shl (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 := MkI16 (i16_norm (PrimInt63.lsl (i16raw x) k)).
+Definition i16_shr (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 := MkI16 (i16_norm (PrimInt63.asr (i16raw x) k)).
+
+(* Build-checked: a NEGATIVE shift count is UNREPRESENTABLE (Go panics on it). *)
+Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_refl.
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

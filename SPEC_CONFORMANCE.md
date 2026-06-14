@@ -127,11 +127,17 @@ carrier is the *64-bit* complement (`^240 = -241`), so it is wrapped back to the
 width (`(^x)&0xff → 15`).  **`int` (Sint63) bitwise: ✗** — the 63-vs-64-bit carrier
 exposes the sign bit, so bitwise on negative `int` would differ from int64; blocked
 on the full-width Z model (Tier 2 #4).
-**Shift `<< >>`: ✗ fails loud** — *honor when modeled:* `>>` truncates toward
-**−∞** (`x>>1 = floor(x/2)`), UNLIKE `/` (toward zero), so `-11/4=-2` but
-`-11>>2=-3`; count must be ≥0 (else panic) ⇒ needs a non-negative-count safety
-form (like `div_nz`); arithmetic shift signed / logical unsigned; no upper limit
-on count.
+**Shift `<< >>` — ✓ fixed-width (`uintN`/`intN`).**  `uN_shl`/`shr`, `iN_shl`/`shr`:
+EVIDENCE-CARRYING like `div_nz` — the count must be proven **non-negative**
+(`eq_refl` for a literal; a negative count is unrepresentable — `u8_shl_neg`, a
+`Fail`), so the run-time panic is unreachable.  Machine-checked (`spec_u8_shl`…
+`spec_i8_shr_neg`): `1<<3=8`, over-width `1<<8=0` (no upper limit on count),
+`255>>4=15`, signed `64<<1=-128` (two's-complement wrap), and `>>` is **arithmetic**
+for signed — `-3>>1=-2` (toward **−∞**, via `PrimInt63.asr`), DISTINCT from `-3/2=-1`
+(toward zero), and `-1>>3=-1` (not 0).  `>>` is logical for `uintN` (`lsr`, the
+non-negative carrier) and arithmetic for `intN` (`asr`, sign-extended).  Plugin emits
+Go `x<<k` / `x>>k`.  **`int` (Sint63) shifts: ✗** (same 63-vs-64-bit carrier issue
+as `int` bitwise — Z model).
 
 ### [Integer operators](https://go.dev/ref/spec#Integer_operators) — ✓ conforms
 `q=x/y`, `r=x%y`: `x=q*y+r`, `|r|<|y|`, **truncated toward zero**; the example

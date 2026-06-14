@@ -395,7 +395,7 @@ let parse_fixed_width n =
       let op = String.sub n (!i + 1) (len - !i - 1) in
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
       if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
-                           "and"; "or"; "xor"; "andnot"; "not"])
+                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"])
       then None
       else match int_of_string_opt (String.sub n 1 (!i - 1)) with
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
@@ -886,6 +886,19 @@ let rec pp_expr state env = function
              let opstr = (match op with "add" -> " + " | "sub" -> " - " | _ -> " * ") in
              fw_wrap s w
                (str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")")
+
+       (* fixed-width shifts.  [shl]: truncate to the width ([fw_wrap]) — uintN
+          wraps mod 2^N, intN sign-extends.  [shr]: bare Go [x >> k] — the int64
+          carrier is non-negative (uintN ⇒ logical shift) or sign-extended (intN ⇒
+          arithmetic shift), both correct without a mask.  The count [k] is a
+          plain [int]; the non-negativity proof was erased.  Over-width counts
+          give 0 / sign-fill, matching Go (no upper limit). *)
+       | MLglob r, [x; k] when fw_is r "shl" ->
+           let (s, w, _) = Option.get (fixed_width_op r) in
+           fw_wrap s w
+             (str "(" ++ pp_expr state env x ++ str " << " ++ pp_expr state env k ++ str ")")
+       | MLglob r, [x; k] when fw_is r "shr" ->
+           str "(" ++ pp_expr state env x ++ str " >> " ++ pp_expr state env k ++ str ")"
 
        (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
@@ -2127,7 +2140,8 @@ let is_inlined_ref r =
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_op_names ||
-  is_int63_op_ref r "land" || is_int63_op_ref r "lor" || is_int63_op_ref r "lxor"  (* inside suppressed uintN/intN bodies *)
+  is_int63_op_ref r "land" || is_int63_op_ref r "lor" || is_int63_op_ref r "lxor" ||
+  is_int63_op_ref r "lsl" || is_int63_op_ref r "lsr" || is_int63_op_ref r "asr"  (* inside suppressed uintN/intN bodies *)
 
 (*s Main-package wrapper. *)
 

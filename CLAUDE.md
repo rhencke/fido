@@ -679,9 +679,13 @@ resting state.)**
     width (Go's int64 `^240` is -241, not the uint8 15).  *Still ✗:* bitwise on
     `int` (Sint63) — the 63-vs-64-bit carrier exposes the sign bit, so negative-`int`
     bitwise would differ from int64 (blocked on the Z model, Tier 2 #4).  *Shifts
-    `<< >>` still ✗ fails loud* — they need a non-negative-count safety form (the
-    count panics if negative; `div_nz`-style), and `>>` truncates toward −∞ (unlike
-    `/`); negative-/over-width-shift behaviour to honor when built.
+    `<< >>`: DONE for fixed-width* (`uN_shl`/`shr`, `iN_shl`/`shr`) — EVIDENCE-CARRYING
+    like `div_nz` (count proven ≥0, so the negative-count panic is unreachable;
+    `u8_shl_neg` `Fail`).  Machine-checked `spec_u8_shl`…`spec_i8_shr_neg`:
+    over-width `1<<8=0` (no upper limit), signed `64<<1=-128` (wrap), `>>` arithmetic
+    for signed via `PrimInt63.asr` (`-3>>1=-2` toward −∞, NOT `-3/2=-1`; `-1>>3=-1`),
+    logical for unsigned via `lsr`.  `shift_demo` prints 8 0 15 / -128 -2.  *`int`
+    (Sint63) shifts still ✗* (same carrier issue as `int` bitwise).
 13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),
     `string`↔`[]byte`/`[]rune`, interface conversions beyond `type_assert`.
 

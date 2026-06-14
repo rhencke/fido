@@ -85,6 +85,11 @@ func Bitwise_demo() {
 	println((((^(((5 & 0xff) ^ 0x80) - 0x80) & 0xff) ^ 0x80) - 0x80), (((-1&0xff)^0x80)-0x80)&^(((5&0xff)^0x80)-0x80))
 }
 
+func Shift_demo() {
+	println((((1 & 0xff) << 3) & 0xff), (((1 & 0xff) << 8) & 0xff), ((255 & 0xff) >> 4))
+	println((((((((64 & 0xff) ^ 0x80) - 0x80) << 1) & 0xff) ^ 0x80) - 0x80), ((((-3 & 0xff) ^ 0x80) - 0x80) >> 1))
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -605,6 +610,7 @@ func main() {
 	I8_demo()
 	U16_demo()
 	Bitwise_demo()
+	Shift_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()

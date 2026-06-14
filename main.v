@@ -327,6 +327,26 @@ Definition bitwise_demo : IO unit :=
   println [ any (i8_not    (i8_lit 5 eq_refl))                                  (* -6  *)
           ; any (i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl)) ])).       (* -6  *)
 
+(** Shifts (Go spec "Arithmetic operators": [<< >>]).  Evidence-carrying: the
+    count must be proven non-negative ([eq_refl] for a literal); a negative count
+    is unrepresentable (`u8_shl_neg`, a `Fail` in builtins.v).  MACHINE-CHECKED:
+    over-width `<<` → 0 (no upper limit); signed `<<` wraps two's-complement;
+    `>>` is ARITHMETIC for signed — `-3>>1 = -2` (toward −∞), distinct from
+    `-3/2 = -1` (toward zero), and `-1>>3 = -1` (NOT 0). *)
+Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) 3 eq_refl = u8_lit 8    eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) 8 eq_refl = u8_lit 0    eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) 4 eq_refl = u8_lit 15   eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) 1 eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) 1 eq_refl = i8_lit (-2) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) 3 eq_refl = i8_lit (-1) eq_refl. Proof. now vm_compute. Qed.
+Definition shift_demo : IO unit :=
+  bind (println [ any (u8_shl (u8_lit 1   eq_refl) 3 eq_refl)      (* 8  *)
+                ; any (u8_shl (u8_lit 1   eq_refl) 8 eq_refl)      (* 0  (over-width) *)
+                ; any (u8_shr (u8_lit 255 eq_refl) 4 eq_refl) ])   (* 15 *)
+       (fun _ =>
+  println [ any (i8_shl (i8_lit 64  eq_refl) 1 eq_refl)           (* -128 (wrap) *)
+          ; any (i8_shr (i8_lit (-3) eq_refl) 1 eq_refl) ]).      (* -2 (arithmetic) *)
+
 (** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
     "a string value is a (possibly empty) sequence of bytes ... strings are
     immutable.  The length ... can be discovered using len.  A string's bytes can
@@ -863,6 +883,7 @@ Definition main_effect : IO unit :=
   i8_demo                       >>'   (* prints: -106 / 127 / -100 / true *)
   u16_demo                      >>'   (* prints: 4464 / 16960 / -25536 *)
   bitwise_demo                  >>'   (* prints: 48 252 204 / 192 15 / -6 -6 *)
+  shift_demo                    >>'   (* prints: 8 0 15 / -128 -2 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)
