@@ -164,6 +164,13 @@ func Control_flow_demo() {
 	Neg_demo()
 }
 
+func Bool_op_demo(a bool, b bool, c bool) {
+	println(a && b)
+	println(a || b)
+	println(!b)
+	println((a || b) && c)
+}
+
 func Lookup_demo() {
 	m := make(map[int64]int64)
 	m[7] = 700
@@ -486,6 +493,7 @@ func main() {
 	Session_demo()
 	Adder_demo()
 	Control_flow_demo()
+	Bool_op_demo(true, false, true)
 	Lookup_demo()
 	List_demo()
 	Slice_safe_demo()

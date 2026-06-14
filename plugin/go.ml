@@ -353,9 +353,22 @@ let op_prec = function
   | NatEqb | NatLtb | NatLeb -> 3
 let float_prec s = if String.equal s " * " || String.equal s " / " then 5 else 4
 
+(* Boolean operators.  Coq's [andb]/[orb] take two already-evaluated [bool]
+   values; Go's [&&]/[||] short-circuit.  This is observationally identical here:
+   the operands are pure, total [bool] values (no effects, no divergence in the
+   model), so whether the right operand is "evaluated" is unobservable.  Go
+   precedence: [||] = 1 (loosest), [&&] = 2, comparisons = 3. *)
+let is_andb_ref r = named "andb" r
+let is_orb_ref  r = named "orb"  r
+let is_negb_ref r = named "negb" r
+
 (* If [r] is a recognised inlined binary operator, its (precedence, Go operator
-   string); covers nat / int63 / signed-int63 / float arithmetic and comparison. *)
+   string); covers boolean / nat / int63 / signed-int63 / float arithmetic and
+   comparison.  ([negb] is unary — handled separately in the expression printer.) *)
 let binop_of r =
+  if is_andb_ref r then Some (2, " && ")
+  else if is_orb_ref r then Some (1, " || ")
+  else
   match classify_nat_op r with
   | Some op -> Some (op_prec op, go_infix op)
   | None ->
@@ -624,11 +637,17 @@ let rec pp_expr state env = function
                 str ")"
             | None ->
                 str (fname ^ "(/* dynamic list */)"))
-       (* Inlined binary operator (float / nat / int63 / signed int63), printed
-          with Go operator precedence.  At top level there is no surrounding
-          operator, so the operands are printed at this op's level (left) and one
-          tighter (right, for left-associativity); [pp_prec] adds parens only
-          where genuinely needed. *)
+       (* negb b → !b.  Unary [!] binds tighter than every binary operator, so
+          [pp_atom] parenthesises the operand exactly when needed (e.g. a
+          comparison: [!(x < y)]) and never otherwise ([!b]). *)
+       | MLglob r, [b] when is_negb_ref r ->
+           str "!" ++ pp_atom state env b
+
+       (* Inlined binary operator (bool / float / nat / int63 / signed int63),
+          printed with Go operator precedence.  At top level there is no
+          surrounding operator, so the operands are printed at this op's level
+          (left) and one tighter (right, for left-associativity); [pp_prec] adds
+          parens only where genuinely needed. *)
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
            pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b
@@ -1770,6 +1789,7 @@ let pp_function state name body typ =
 let is_inlined_ref r =
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
+  is_andb_ref r || is_orb_ref r || is_negb_ref r ||
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r ||
