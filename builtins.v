@@ -10,6 +10,7 @@
 Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
 Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *)
+From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
 
 (** ---- IO monad ----
 
@@ -719,6 +720,120 @@ Theorem recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
   chan_buf ch w = nil -> chan_closed ch w = true ->
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
+
+(** ---- Happens-before: the partial order on channel events (go.dev/ref/mem) ----
+
+    Phase 2 of the concurrency model.  Phase 1 (above) grounded the channel LAWS
+    in buffer state; this grounds the ORDERING that race/deadlock-freedom rest on.
+    An event is the START or COMPLETION of the n-th send / n-th receive on a
+    channel of capacity [cap].  [hb cap] is the transitive closure of the
+    primitive edges: program order within each endpoint, plus the two go-mem
+    channel rules — "a send is synchronised before the corresponding receive
+    completes" and "the k-th receive is synchronised before the (k+cap)-th send
+    completes" (the unbuffered rendezvous is the [cap = 0] case).  Start vs
+    completion events are distinct precisely so the unbuffered case (send⤳recv
+    AND recv⤳send) does not cycle.
+
+    CONSISTENCY IS BY CONSTRUCTION — NO new axioms.  A concrete timestamp [ev_ts]
+    is a linear extension of every edge, so [hb] strictly increases [ev_ts] and is
+    therefore irreflexive (acyclic).  Crucially [hb] is the closure of EXACTLY the
+    real edges — not the total timestamp order — so it adds no spurious ordering,
+    which is what keeps it sound for race freedom (concurrent events stay
+    unordered).  Transitivity is a constructor; the go-mem rules are theorems.
+
+    Scope: this is one channel's event order.  Tying events to the [run_io] world
+    operations and to heap accesses (cross-goroutine visibility + a data-race
+    definition) is Phase 3. *)
+Inductive ChEvent : Type :=
+  | SendStart : nat -> ChEvent | SendDone : nat -> ChEvent
+  | RecvStart : nat -> ChEvent | RecvDone : nat -> ChEvent.
+
+Inductive hb_edge (cap : nat) : ChEvent -> ChEvent -> Prop :=
+  | hbe_send_po   : forall n, hb_edge cap (SendStart n) (SendDone n)         (* a send starts before it completes *)
+  | hbe_recv_po   : forall n, hb_edge cap (RecvStart n) (RecvDone n)
+  | hbe_send_seq  : forall n, hb_edge cap (SendDone n) (SendStart (S n))     (* sender program order *)
+  | hbe_recv_seq  : forall n, hb_edge cap (RecvDone n) (RecvStart (S n))     (* receiver program order *)
+  (* go-mem rule: a send is synchronised before the corresponding receive completes *)
+  | hbe_send_recv : forall n, hb_edge cap (SendStart n) (RecvDone n)
+  (* go-mem rule: the kth receive is synchronised before the (k+cap)th send completes *)
+  | hbe_recv_send : forall k, hb_edge cap (RecvStart k) (SendDone (k + cap)).
+
+Inductive hb (cap : nat) : ChEvent -> ChEvent -> Prop :=
+  | hb_one   : forall a b, hb_edge cap a b -> hb cap a b
+  | hb_seq   : forall a b c, hb cap a b -> hb cap b c -> hb cap a c.
+
+Definition ev_ts (e : ChEvent) : nat :=
+  match e with
+  | SendStart n => 4 * n     | SendDone n => 4 * n + 2
+  | RecvStart n => 4 * n + 1 | RecvDone n => 4 * n + 3
+  end.
+
+Lemma hb_edge_ts : forall cap a b, hb_edge cap a b -> ev_ts a < ev_ts b.
+Proof. intros cap a b H; destruct H; cbn; lia. Qed.
+
+(** Every happens-before edge strictly increases the timestamp — so [ev_ts] is a
+    valid linear extension and [hb] is acyclic. *)
+Theorem hb_ts_increasing : forall cap a b, hb cap a b -> ev_ts a < ev_ts b.
+Proof.
+  intros cap a b H; induction H as [a b Hedge | a b c Hab IHab Hbc IHbc].
+  - exact (hb_edge_ts cap a b Hedge).
+  - lia.
+Qed.
+
+(** Happens-before is a STRICT PARTIAL ORDER: irreflexive (via the linear
+    extension) and transitive (a constructor). *)
+Theorem hb_irrefl : forall cap e, ~ hb cap e e.
+Proof. intros cap e H. apply hb_ts_increasing in H. lia. Qed.
+Theorem hb_transitive : forall cap a b c, hb cap a b -> hb cap b c -> hb cap a c.
+Proof. intros cap a b c Hab Hbc. eapply hb_seq; eassumption. Qed.
+
+(** The go-mem channel ordering rules, as theorems. *)
+Theorem hb_send_before_recv : forall cap n, hb cap (SendStart n) (RecvDone n).
+Proof. intros cap n. apply hb_one. apply hbe_send_recv. Qed.
+Theorem hb_recv_before_send : forall cap k, hb cap (RecvStart k) (SendDone (k + cap)).
+Proof. intros cap k. apply hb_one. apply hbe_recv_send. Qed.
+
+(** UNBUFFERED rendezvous ([cap = 0]): send and receive are mutually ordered
+    across start/completion (the handoff), with NO cycle since [hb] is
+    irreflexive.  This is exactly the pair of edges that would be inconsistent if
+    start and completion were the same event. *)
+Example unbuffered_rendezvous :
+  hb 0 (SendStart 0) (RecvDone 0) /\ hb 0 (RecvStart 0) (SendDone 0).
+Proof.
+  split.
+  - apply hb_send_before_recv.
+  - exact (hb_recv_before_send 0 0).
+Qed.
+
+(** A second invariant captures the CAPACITY relationship: a receive at index [k]
+    authorises sends only up to index [k + cap].  [ev_credit] is WEAKLY increasing
+    along every edge (it is exactly conserved by the capacity edge), so
+    [hb cap a b -> ev_credit a <= ev_credit b].  Unlike [ev_ts] (a linear
+    extension, too coarse to witness NON-order), [ev_credit] separates concurrent
+    events — which is what proves the model does not over-order. *)
+Definition ev_credit (cap : nat) (e : ChEvent) : nat :=
+  match e with
+  | SendStart n => n     | SendDone n => n
+  | RecvStart k => k + cap | RecvDone k => k + cap
+  end.
+
+Lemma hb_credit_mono : forall cap a b, hb cap a b -> ev_credit cap a <= ev_credit cap b.
+Proof.
+  intros cap a b H; induction H as [a b Hedge | a b c Hab IHab Hbc IHbc].
+  - destruct Hedge; cbn; lia.
+  - lia.
+Qed.
+
+(** BUFFERED ([cap = 2]): the sender may complete its 2nd send before the 1st
+    receive — so [RecvStart 0] and [SendDone 1] are CONCURRENT (neither
+    happens-before the other).  The model does NOT over-order them, which is
+    exactly what makes a race-freedom statement on the unsynchronised fragment
+    meaningful. *)
+Example buffered_sender_runs_ahead :
+  ~ hb 2 (RecvStart 0) (SendDone 1).
+Proof.
+  intro H. apply (hb_credit_mono 2) in H. cbn in H. lia.
+Qed.
 
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.

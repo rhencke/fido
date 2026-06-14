@@ -499,13 +499,25 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    inconsistent as an unconditional axiom).  Blocking is idealised away like
    divergence: a `recv` equation is given only for a non-empty buffer (or a closed
    channel); recv on a permanently-empty open channel is a deadlock, no
-   denotation.  *Still pending:* the cross-goroutine **happens-before partial
-   order** (per go.dev/ref/mem) — `chan_buf` gives the sequential/correctly-
-   synchronised slice, but the HB order that (a) makes race-freedom *statable*
-   (two conflicting accesses unordered by HB) and (b) gives the capacity rule
-   (kth recv ⤳ (k+C)th send) and `go_spawn`'s fork edge is the next phase.  This
-   is still the substrate the whole concurrency thesis rests on; Phase 1 grounds
-   the channel laws, the HB order grounds race/deadlock freedom.
+   denotation.  **Phase 2 done — the happens-before partial order** (per
+   go.dev/ref/mem) is now modelled, AXIOM-FREE (`Print Assumptions hb_irrefl` =
+   *Closed under the global context*).  Events are the start/completion of the
+   n-th send / n-th receive on a capacity-`cap` channel (`ChEvent`); `hb cap` is
+   the transitive closure of exactly the real edges — program order + "send ⤳
+   corresponding receive completes" (`hbe_send_recv`) + "kth receive ⤳ (k+cap)th
+   send completes" (`hbe_recv_send`; `cap = 0` is the unbuffered rendezvous,
+   which needs the start/completion distinction not to cycle).  It is a proven
+   STRICT PARTIAL ORDER: irreflexive via a concrete timestamp `ev_ts` that is a
+   linear extension of every edge (`hb_ts_increasing`), transitive by
+   construction.  Crucially it adds NO spurious order — `ev_credit` (a receive at
+   `k` authorises sends to `k+cap`) is weakly monotone along `hb`, proving
+   concurrent events stay unordered (`buffered_sender_runs_ahead`:
+   `~ hb 2 (RecvStart 0) (SendDone 1)`), which is what keeps it sound for race
+   freedom.  *Still pending (Phase 3):* tie `ChEvent`s to the `run_io` world
+   operations and to heap accesses, add `go_spawn`'s fork edge, and DEFINE a data
+   race (two conflicting accesses unordered by `hb`) → state/derive race-freedom
+   for the channel-synchronised fragment.  Phase 1 grounds the channel laws,
+   Phase 2 grounds the ordering, Phase 3 grounds race/deadlock freedom.
 2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
    a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
    map / slice / `zero_val` axioms are not shown consistent with it.  If the set
