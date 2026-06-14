@@ -587,10 +587,31 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    they are losslessly expressible, but a direct `gtb`/`geb`/`neqb` mapping would
    be tidier.
 
-### Tier 4 — unmodelled operations on (some) modelled types
-10. **Narrow integer types** (`int8/16/32`, `uint`, `uint8/16/32/64`): opaque
-    axioms with no arithmetic and no overflow semantics — and unsigned wrap
-    differs from signed.  Needed before any library does sized/unsigned math.
+### Tier 4 — operations to model on the remaining types
+**(There is no "acceptably unmodeled" — decided 2026-06-14.  The point of the
+builtin layer is that it is *precisely modelled*; until a primitive has faithful
+semantics we cannot reason about anything built on it safely.  A type that exists
+only as a type tag with no operations is a hole, tracked here until closed, not a
+resting state.)**
+
+10. **Narrow integer types** — *`uint8` modelled; the rest pending the same
+    template*.  The model: a `uintN` value is an `int` (PrimInt63) kept reduced
+    mod 2^N by masking (`land .. (2^N-1)`) after every op — exactly Go's uintN
+    wrap.  It is a **Definition, not an axiom** (computable: `vm_compute`
+    discharges the wrap; consistency by construction), and the plugin lowers each
+    op to int64 with the explicit mask (`u8_add a b` → `((a + b) & 0xff)`),
+    observationally identical to Go's `uint8` for the in-range values these ops
+    produce.  Done for `uint8`: `u8_lit`/`add`/`sub`/`mul`/`eqb`/`ltb`/`leb`, with
+    machine-checked `u8_add_wraps`/`u8_mul_wraps`/`u8_sub_wraps` and the `u8_demo`
+    golden (`44 / 1 / 255 / true`; note `u8_sub 0 1 = 255` — uint8 *does* wrap,
+    unlike the rejected truncating `Nat.sub`).  *Pending (same template):*
+    `uint16`/`uint32` (masks `0xffff`/`0xffffffff`); `div`/`mod` (need a
+    non-zero guard like `div_nz`); **signed `int8/16/32`** (two's-complement
+    wrap = mask then sign-extend); and **`uint64`/`uint`** (64-bit exceeds the
+    63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶² limit).
+    *Open refinement:* type-level distinctness so a `uint8` can't be silently
+    mixed with an `int` (a separate safety layer; the arithmetic semantics are
+    nailed first).
 11. **Float gaps — *comparison + unary negation now done; float32 + conversions +
     abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered behaviour)
     and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked

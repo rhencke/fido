@@ -239,6 +239,24 @@ Proof. now vm_compute. Qed.
 Definition float_opp_sign_demo (z : float) : IO unit :=
   println [any (PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp z)) 0)%float].  (* true *)
 
+(** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
+    Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.
+    The wrap is MACHINE-CHECKED (the model is just [land]/[add] on PrimInt63, which
+    [vm_compute] reduces) — not asserted.  Note the contrast with [Nat.sub]: uint8
+    subtraction genuinely WRAPS ([0 - 1 = 255]), which we model faithfully, whereas
+    Coq's [Nat.sub] truncates ([0 - 1 = 0]) and is therefore rejected. *)
+Example u8_add_wraps : u8_add (u8_lit 200) (u8_lit 100) = u8_lit 44.
+Proof. now vm_compute. Qed.                                   (* 300 mod 256 = 44 *)
+Example u8_mul_wraps : u8_mul (u8_lit 255) (u8_lit 255) = u8_lit 1.
+Proof. now vm_compute. Qed.                                   (* 65025 mod 256 = 1 *)
+Example u8_sub_wraps : u8_sub (u8_lit 0) (u8_lit 1) = u8_lit 255.
+Proof. now vm_compute. Qed.                                   (* 0 - 1 wraps to 255 *)
+Definition u8_demo : IO unit :=
+  bind (println [any (u8_add (u8_lit 200) (u8_lit 100))]) (fun _ =>   (* 44  *)
+  bind (println [any (u8_mul (u8_lit 255) (u8_lit 255))]) (fun _ =>   (* 1   *)
+  bind (println [any (u8_sub (u8_lit 0)   (u8_lit 1))])   (fun _ =>   (* 255 *)
+  println [any (u8_ltb (u8_lit 10) (u8_lit 20))]))).                  (* true *)
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -729,6 +747,7 @@ Definition main_effect : IO unit :=
   bind (float_nan_demo 0)              (fun _ =>   (* prints: false / false (NaN unordered) *)
   bind float_opp_demo                  (fun _ =>   (* prints: -1.5 / 2.0 *)
   bind (float_opp_sign_demo 0)         (fun _ =>   (* prints: true (opp made -0 at runtime) *)
+  bind u8_demo                         (fun _ =>   (* prints: 44 / 1 / 255 / true *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
@@ -762,6 +781,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

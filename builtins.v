@@ -273,6 +273,30 @@ From Stdlib Require Import Floats.PrimFloat.
 Notation GoFloat64 := float.
 Axiom GoFloat32 : Type.
 
+(** ---- Fixed-width unsigned integers (precise, computable models) ----
+
+    A [uintN] value is carried by an [int] (PrimInt63) kept reduced mod 2^N by
+    masking ([land .. (2^N-1)]) after EVERY operation.  That is EXACTLY Go's
+    uintN arithmetic, which wraps mod 2^N.  Because the value always stays in
+    [0, 2^N) (well below 2^62), the carrier never approaches the int63 boundary,
+    signed and unsigned comparison agree, and the model is faithful to Go.
+
+    These are DEFINITIONS, not axioms — so the model is computable ([vm_compute]
+    discharges concrete wrap facts) and adds nothing to the trust base
+    (consistency by construction).  The plugin recognises each op and lowers it
+    to Go [int64] with the explicit mask, e.g. [u8_add a b] → [(a + b) & 0xff];
+    the masked-int64 result is observationally identical to Go's [uint8] for the
+    in-range values these ops produce.  (Type-level distinctness — forbidding the
+    accidental mixing of a [uint8] with an [int] — is a separate safety layer to
+    add later; this slice nails the *arithmetic* semantics first.) *)
+Definition u8_lit (x : int) : int := PrimInt63.land x 255.
+Definition u8_add (a b : int) : int := PrimInt63.land (PrimInt63.add a b) 255.
+Definition u8_sub (a b : int) : int := PrimInt63.land (PrimInt63.sub a b) 255.
+Definition u8_mul (a b : int) : int := PrimInt63.land (PrimInt63.mul a b) 255.
+Definition u8_eqb (a b : int) : bool := PrimInt63.eqb a b.   (* in-range ⇒ exact *)
+Definition u8_ltb (a b : int) : bool := PrimInt63.ltb a b.   (* in-range ⇒ unsigned = signed *)
+Definition u8_leb (a b : int) : bool := PrimInt63.leb a b.
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

@@ -59,6 +59,13 @@ func Float_opp_sign_demo(z float64) {
 	println(1.0/-z < 0.0)
 }
 
+func U8_demo() {
+	println((((200 & 0xff) + (100 & 0xff)) & 0xff))
+	println((((255 & 0xff) * (255 & 0xff)) & 0xff))
+	println((((0 & 0xff) - (1 & 0xff)) & 0xff))
+	println((10 & 0xff) < (20 & 0xff))
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -557,6 +564,7 @@ func main() {
 	Float_nan_demo(0.0)
 	Float_opp_demo()
 	Float_opp_sign_demo(0.0)
+	U8_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
