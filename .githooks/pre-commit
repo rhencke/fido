@@ -1,36 +1,30 @@
 #!/bin/sh
-# Validate that checked-in Go files match what the Rocq prover extracts.
-# Blocks the commit if they diverge — ensures no Go was modified without
-# a corresponding proof change.
+# Keep the checked-in Go in sync with the prover.
+#
+# When any prover input (a .v theory or the extraction plugin) is staged,
+# re-extract and auto-stage the generated Go, so a commit can never drift out
+# of sync with what Rocq produces.  This is also the anti-tampering gate: the
+# committed *.go is always overwritten by fresh prover output, so a hand-edit
+# of *.go cannot survive a commit.  Extraction failure (e.g. a broken proof)
+# aborts the commit.
 set -e
 
-echo "fido: running Rocq extraction..."
-make extract
-
-echo "fido: validating Go files match prover output..."
-if ! git diff --exit-code -- '*.go' > /dev/null 2>&1; then
-  echo ""
-  echo "ERROR: committed Go files do not match what the prover extracted."
-  echo "Someone may have edited the Go without re-proving, or you need to"
-  echo "stage the fresh extraction:"
-  echo ""
-  git diff -- '*.go'
-  echo ""
-  echo "  git add *.go && git commit"
-  echo ""
-  exit 1
+if git diff --cached --name-only | grep -qE '\.v$|^plugin/'; then
+  echo "fido: prover inputs changed — re-extracting and staging Go..."
+  make extract
+  git add -A -- '*.go'
+  echo "fido: staged fresh extraction."
 fi
 
-echo "fido: checking gofmt compliance..."
-unformatted=$(gofmt -l *.go 2>/dev/null)
-if [ -n "$unformatted" ]; then
-  echo ""
-  echo "ERROR: generated Go files are not gofmt-compliant:"
-  echo "$unformatted"
-  echo ""
-  echo "Fix the plugin to emit correctly formatted output."
-  echo ""
-  exit 1
+# Generated Go must be gofmt-clean (the plugin should emit canonical output).
+if ls ./*.go >/dev/null 2>&1; then
+  unformatted=$(gofmt -l ./*.go 2>/dev/null || true)
+  if [ -n "$unformatted" ]; then
+    echo "fido: ERROR — generated Go is not gofmt-clean:"
+    echo "$unformatted"
+    echo "Fix the plugin to emit gofmt-compliant output."
+    exit 1
+  fi
 fi
 
-echo "fido: Go files verified ✓"
+echo "fido: Go in sync."

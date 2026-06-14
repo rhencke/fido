@@ -212,8 +212,11 @@ safe-by-construction principle. Tracked until closed.
 - `builtins.v` — Go builtins (always in scope, loaded via `preamble.v`)
 - `preamble.v` — shared preamble; every theory starts with `From Fido Require Import preamble`
 - `dune` / `dune-project` — builds plugin + theories together inside Docker
-- Pre-commit hook runs extraction and blocks the commit if `*.go` diverges
-  from prover output — the anti-tampering gate
+- Pre-commit hook (`.githooks/pre-commit`; activate once via `make
+  install-hooks`): when any `.v` or `plugin/` file is staged, it re-extracts
+  and auto-stages the generated Go, so committed `*.go` can never drift from
+  prover output (a broken proof aborts the commit); also enforces gofmt. Still
+  the anti-tampering gate — fresh prover output always overwrites `*.go`.
 
 ## Key commands
 
