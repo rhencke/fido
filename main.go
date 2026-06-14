@@ -225,6 +225,14 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func Mut_demo() {
+	r := int64(10)
+	a := r
+	r = Add(a, 5)
+	b := r
+	println(b)
+}
+
 func Cond_goto_demo(early bool) {
 	println(1)
 	if early {
@@ -274,4 +282,5 @@ func main() {
 	Sum_demo()
 	Cond_goto_demo(true)
 	Cond_goto_demo(false)
+	Mut_demo()
 }

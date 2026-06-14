@@ -275,6 +275,15 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2])))).
 
+(** Mutable local variable: declare, read, reassign, read again — straight-line
+    (no control flow, so trivially scope-correct). *)
+Definition mut_demo : IO unit :=
+  bind (ref_new (10 : int))   (fun r =>      (* r := 10        *)
+  bind (ref_get r)            (fun a =>      (* a := r  (= 10) *)
+  bind (ref_set r (add a 5))  (fun _ =>      (* r = a + 5 (= 15) *)
+  bind (ref_get r)            (fun b =>      (* b := r  (= 15) *)
+  println [any b])))).                        (* prints 15 *)
+
 (** Control flow as a goto-CFG (raw goto, before the structuring pass).
     Three blocks; block 0 conditionally jumps.  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
 Definition cond_goto_demo (early : bool) : IO unit :=
@@ -315,6 +324,7 @@ Definition main_effect : IO unit :=
   bind sum_demo                        (fun _ =>   (* prints: 10 *)
   bind (cond_goto_demo true)           (fun _ =>   (* prints: 1 / 3 *)
   bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
-  ret tt))))))))))))))))).
+  bind mut_demo                        (fun _ =>   (* prints: 15 *)
+  ret tt)))))))))))))))))).
 
 Go Main Extraction main "main_effect".

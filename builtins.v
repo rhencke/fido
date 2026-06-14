@@ -476,6 +476,19 @@ Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
 Axiom slice_at_ok : forall {A B : Type},
   GoTypeTag A -> GoSlice A -> int -> (A -> bool -> IO B) -> IO B.
 
+(** ---- Mutable local variables ----
+
+    [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.
+    Pure [let]-binding is single-assignment and cannot express a value that
+    *changes* (a loop counter, an accumulator updated in place); a [Ref] can.
+    [ref_new v] declares the variable ([x := v]); [ref_get] reads it; [ref_set]
+    assigns ([x = v]).  A local cell extracts to a plain Go variable;
+    cross-function sharing (pointers, [*T]) is a later, separate step. *)
+Axiom Ref     : Type -> Type.
+Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
+Axiom ref_get : forall {A : Type}, Ref A -> IO A.
+Axiom ref_set : forall {A : Type}, Ref A -> A -> IO unit.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

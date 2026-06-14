@@ -148,6 +148,10 @@ let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
 let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
 let is_for_each_ref      r = String.equal (global_basename r) "for_each"
 let is_slice_fold_ref    r = String.equal (global_basename r) "slice_fold"
+let is_ref_type          r = String.equal (global_basename r) "Ref"
+let is_ref_new_ref       r = String.equal (global_basename r) "ref_new"
+let is_ref_get_ref       r = String.equal (global_basename r) "ref_get"
+let is_ref_set_ref       r = String.equal (global_basename r) "ref_set"
 let is_run_blocks_ref    r = String.equal (global_basename r) "run_blocks"
 let is_jump_ctor         r = String.equal (global_basename r) "Jump"
 let is_done_ctor         r = String.equal (global_basename r) "Done"
@@ -336,6 +340,8 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
   (* SessEndpoint P → chan any (both endpoints share one chan any; proto is proof-only) *)
   | Tglob (r, _) when is_sess_endpoint_ref r -> str "chan any"
+  (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
+  | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* GoChan A → chan T *)
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
@@ -475,6 +481,22 @@ let rec pp_expr state env = function
        (* slice_get tag xs i → xs[i] — panics if out of bounds *)
        | MLglob r, [_tag; xs; i] when is_slice_get_ref r ->
            pp_expr state env xs ++ str "[" ++ pp_expr state env i ++ str "]"
+
+       (* mutable cells: ref_new v → init value (bound as the Go var by the
+          enclosing bind); ref_get r → read the var; ref_set r v → r = v.
+          int/float literals are typed so the inferred Go var is int64/float64. *)
+       | MLglob r, [v] when is_ref_new_ref r ->
+           (match v with
+            | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
+            | MLfloat _ -> str "float64(" ++ pp_expr state env v ++ str ")"
+            | _ -> pp_expr state env v)
+       | MLglob r, [rf] when is_ref_get_ref r -> pp_expr state env rf
+       | MLglob r, [rf; v] when is_ref_set_ref r ->
+           let pp_v = match v with
+             | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
+             | MLfloat _ -> str "float64(" ++ pp_expr state env v ++ str ")"
+             | _ -> pp_expr state env v in
+           pp_expr state env rf ++ str " = " ++ pp_v
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -719,6 +741,7 @@ let pp_io_body state tab env body =
     | MLglob r, _ when is_map_set_ref r || is_map_del_ref r -> true
     | MLglob r, _ when is_send_ref r -> true
     | MLglob r, _ when is_close_chan_ref r -> true
+    | MLglob r, _ when is_ref_set_ref r -> true
     | _ -> false
   in
   let is_terminating e =
@@ -1249,6 +1272,7 @@ let is_inlined_ref r =
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
+  is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r ||
@@ -1337,7 +1361,7 @@ let pp_decl state decl =
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
     || is_IO_type r || is_go_map_type r || is_go_chan_type r
-    || is_sess_endpoint_ref r
+    || is_sess_endpoint_ref r || is_ref_type r
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice" -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
