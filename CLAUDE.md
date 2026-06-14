@@ -389,8 +389,23 @@ from *axiom* (assumed) from *tested* (golden) from *asserted* (prose):
    (PRecv A P) P A`, `sess_bind : Sess i j A -> (A -> Sess j k B) -> Sess i k B`.
    There is no endpoint value to reuse, and a runnable session must thread from
    the full protocol to `PEnd`, so double-use and mid-protocol drop are now
-   **type errors** (build-checked `Fail` tests).
+   **type errors** (build-checked `Fail` tests).  The plugin lowers the indexed
+   monad to channel-passing Go (`run_session` → `make(chan any)` + spawn server +
+   run client; `ssend`/`srecv` on the implicit `_sess_ch`); behaviour is
+   unchanged (sessions still print 42).  *Tidy left:* the old plugin session
+   lowering (`make_sess`, `sess_send`, …) is now dead code — the `named
+   "sess_send"` recognizers match nothing since those axioms are gone — harmless,
+   pending removal.
 
+Verification methodology used for #9/#11 (kept honest, not just asserted):
+`Print Assumptions` to read each result's exact axiom base, plus adversarial
+"this must now FAIL to compile" lemmas. Confirmed: the `World -> False` attack no
+longer type-checks; `hoare_panic` depends only on `{run_io, run_panic, World}`;
+`bind_panic_l`/`with_defer_panic` add `{run_bind, run_io_inj(, run_catch)}`; and
+`add_no_overflow_exact` depends on **none** of the IO/session axioms (only Coq's
+primitive-integer kernel axioms), so the overflow result is independent of the
+whole Go-axiom trust base. The `Fail`-test build gate proves the negative cases
+(e.g. `bad_double_send`) genuinely do not type-check.
 ## Architecture
 
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
