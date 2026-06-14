@@ -726,6 +726,24 @@ and block_targets b acc =
            Array.fold_left (fun a (_, _, body) -> block_targets body a) acc branches
        | _ -> acc)
 
+(* Does any tail of this block [ret Done] (return)?  A block can both return on
+   one branch and jump on another, so this is independent of [block_targets].
+   Used to give every returning block an edge to the virtual exit node when
+   computing post-dominators for the structurer. *)
+and block_has_done b =
+  let h, args = collect_app b [] in
+  let vis = List.filter (fun a -> not (is_erased a)) args in
+  match h, vis with
+  | MLglob r, [_action; k] when is_bind_ref r ->
+      let _ids, kbody = collect_lam k in block_has_done kbody
+  | MLglob r, [next] when is_ret_ref r ->
+      (match next with MLcons (_, c, []) when is_done_ctor c -> true | _ -> false)
+  | _ ->
+      (match b with
+       | MLcase (_, _, branches) ->
+           Array.exists (fun (_, _, body) -> block_has_done body) branches
+       | _ -> false)
+
 (* Loop-block-local variables (bound by a [bind] inside a block) are hoisted to
    [var x T] before the blocks so their declaration dominates all uses and is
    never re-run on a backward jump.  Only tagged reads ([ref_get tag r]) are
@@ -753,16 +771,18 @@ and block_hoists b acc =
            Array.fold_left (fun a (_, _, body) -> block_hoists body a) acc branches
        | _ -> acc)
 
-(* [term] handles the block's terminator (a [Next] value) — see [raw_term] /
-   [loop_term].  This is what lets one emitter print raw goto or structured
-   continue/break. *)
-and emit_block state hoists term tab env b =
-  (* A defer/go closure inside a loop block captures the hoisted loop-temps BY
-     VALUE — [kw func(iv T){ body }(iv)] — so each iteration's value is fixed at
-     this point.  Capturing the shared hoisted cell by reference would give
-     every closure the last value (the goto form of Go's loop-variable capture;
-     the structured [for] lowering gets this for free on Go 1.22+).  A closure
-     body is not part of the CFG, so it terminates with [raw_term] (return). *)
+(* Emit one [bind] action (the non-control part of a block) as a Go statement.
+   [ids] are the continuation's binders (for the [x =] lhs of a value read).
+   - a [defer]/[go] closure captures the hoisted loop-temps BY VALUE
+     ([kw func(iv T){ body }(iv)]) so each iteration's value is fixed here;
+     capturing the shared hoisted cell by reference would give every closure the
+     last value (the goto form of Go's loop-variable capture; the structured
+     [for] lowering gets this free on Go 1.22+).  A closure body is not part of
+     the CFG, so it terminates with [raw_term] (return).
+   - a value read ([ref_get]) goes to its hoisted var with [=]; a void action
+     (println / ref_set, whose [fun _] may extract as a named var) is just the
+     statement. *)
+and emit_action state hoists tab env ids action =
   let emit_closure kw body =
     let sep = prlist_with_sep (fun () -> str ", ") (fun x -> x) in
     let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
@@ -771,30 +791,31 @@ and emit_block state hoists term tab env b =
     emit_block state hoists raw_term (tab ^ "\t") env body ++
     str tab ++ str "}(" ++ sep args ++ str ")" ++ fnl ()
   in
+  let ah, aargs = collect_app action [] in
+  let avis = List.filter (fun a -> not (is_erased a)) aargs in
+  match ah, avis with
+  | MLglob rr, [dbody] when is_defer_call_ref rr -> emit_closure "defer" dbody
+  | MLglob rr, [gbody] when is_go_spawn_ref rr -> emit_closure "go" gbody
+  | _ ->
+      let action_is_value =
+        (match ah with MLglob rr -> is_ref_get_ref rr | _ -> false) in
+      let lhs = match List.filter (fun id -> not (is_dummy id)) ids with
+        | [x] when action_is_value -> pp_mlident x ++ str " = "
+        | _   -> mt () in
+      str tab ++ lhs ++ pp_expr state env action ++ fnl ()
+
+(* [term] handles the block's terminator (a [Next] value) — see [raw_term] /
+   [loop_term].  This is what lets one emitter print raw goto or structured
+   continue/break. *)
+and emit_block state hoists term tab env b =
   let h, args = collect_app b [] in
   let vis = List.filter (fun a -> not (is_erased a)) args in
   match h, vis with
   | MLglob r, [action; k] when is_bind_ref r ->
       let ids, kbody = collect_lam k in
       let new_env = List.rev ids @ env in
-      let ah, aargs = collect_app action [] in
-      let avis = List.filter (fun a -> not (is_erased a)) aargs in
-      (match ah, avis with
-       | MLglob rr, [dbody] when is_defer_call_ref rr ->
-           emit_closure "defer" dbody ++ emit_block state hoists term tab new_env kbody
-       | MLglob rr, [gbody] when is_go_spawn_ref rr ->
-           emit_closure "go" gbody ++ emit_block state hoists term tab new_env kbody
-       | _ ->
-           (* a value read ([ref_get]) goes to its hoisted var with [=]; a void
-              action (println / ref_set, whose [fun _] may extract as a named
-              var) is just the statement *)
-           let action_is_value =
-             (match ah with MLglob rr -> is_ref_get_ref rr | _ -> false) in
-           let lhs = match List.filter (fun id -> not (is_dummy id)) ids with
-             | [x] when action_is_value -> pp_mlident x ++ str " = "
-             | _   -> mt () in
-           str tab ++ lhs ++ pp_expr state env action ++ fnl () ++
-           emit_block state hoists term tab new_env kbody)
+      emit_action state hoists tab env ids action
+      ++ emit_block state hoists term tab new_env kbody
   | MLglob r, [next] when is_ret_ref r -> term tab next
   | _ ->
       (match b with
@@ -942,6 +963,42 @@ let pp_io_body state tab env body =
                          str tab ++ str "var " ++ pp_mlident x ++ str " "
                          ++ str t ++ fnl ())
                       (List.rev hoists) in
+                  let blocks = Array.of_list bs in
+                  let nblk = Array.length blocks in
+                  let exit_node = nblk in
+                  (* acyclic ⟺ every jump goes strictly forward (a back/self edge
+                     is a loop, handled by [as_while_loop] or the raw fallback). *)
+                  let acyclic =
+                    let ok = ref true in
+                    Array.iteri
+                      (fun i b ->
+                         List.iter (fun t -> if t <= i then ok := false)
+                           (block_targets b []))
+                      blocks;
+                    !ok in
+                  (* raw labels + goto: the always-correct fallback.  Only Jump-
+                     target labels are emitted (Go rejects unused ones); a label
+                     sits one indent left of its block, as gofmt wants. *)
+                  let emit_raw () =
+                    let targets =
+                      List.fold_left (fun a b -> block_targets b a) [] bs in
+                    let is_target i = List.mem i targets in
+                    let lbl_indent =
+                      if String.length tab >= 1
+                      then String.sub tab 0 (String.length tab - 1) else "" in
+                    let initial =
+                      if start_v = 0 then mt ()
+                      else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
+                    let rec emit_all i = function
+                      | [] -> mt ()
+                      | bi :: rest ->
+                          (if is_target i
+                           then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
+                           else mt ()) ++
+                          emit_block state hoists raw_term tab env bi ++
+                          emit_all (i + 1) rest
+                    in
+                    hoist_doc ++ initial ++ emit_all 0 bs in
                   (match as_while_loop start_v bs with
                    | Some (b0, b1) ->
                        (* structured: for { <header> } <exit> — no labels/goto *)
@@ -950,29 +1007,108 @@ let pp_io_body state tab env body =
                        ++ emit_block state hoists (loop_term 0 1) (tab ^ "\t") env b0
                        ++ str tab ++ str "}" ++ fnl ()
                        ++ emit_block state hoists raw_term tab env b1
-                   | None ->
-                       (* raw labels + goto.  Only Jump-target labels are emitted
-                          (Go rejects unused labels); a label sits one indent left
-                          of its block, as gofmt wants. *)
-                       let targets =
-                         List.fold_left (fun a b -> block_targets b a) [] bs in
-                       let is_target i = List.mem i targets in
-                       let lbl_indent =
-                         if String.length tab >= 1
-                         then String.sub tab 0 (String.length tab - 1) else "" in
-                       let initial =
-                         if start_v = 0 then mt ()
-                         else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
-                       let rec emit_all i = function
-                         | [] -> mt ()
-                         | bi :: rest ->
-                             (if is_target i
-                              then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
-                              else mt ()) ++
-                             emit_block state hoists raw_term tab env bi ++
-                             emit_all (i + 1) rest
+                   | None when acyclic && start_v = 0 ->
+                       (* General acyclic structurer: lift a forward (loop-free)
+                          CFG to nested if/else.  A conditional's branches are
+                          emitted up to their merge — the immediate post-dominator
+                          — then the merge region is emitted once after the if, so
+                          no block is duplicated.  succ adds an edge to the virtual
+                          exit for every returning block. *)
+                       let succ i =
+                         let ts = List.sort_uniq compare (block_targets blocks.(i) []) in
+                         if block_has_done blocks.(i) then exit_node :: ts else ts in
+                       let inter a b = List.filter (fun x -> List.mem x b) a in
+                       let pdom = Array.make (nblk + 1) [] in
+                       pdom.(exit_node) <- [exit_node];
+                       for i = nblk - 1 downto 0 do
+                         let common = match succ i with
+                           | [] -> [exit_node]
+                           | s0 :: rest ->
+                               List.fold_left (fun acc x -> inter acc pdom.(x))
+                                 pdom.(s0) rest in
+                         pdom.(i) <- i :: common
+                       done;
+                       (* merge of a conditional = least-index block post-
+                          dominating both branches' leaf successors *)
+                       let merge_of tb eb =
+                         let leaves bb =
+                           let ts = List.sort_uniq compare (block_targets bb []) in
+                           if block_has_done bb then exit_node :: ts else ts in
+                         match List.sort_uniq compare (leaves tb @ leaves eb) with
+                         | [] -> exit_node
+                         | s0 :: rest ->
+                             let common =
+                               List.fold_left (fun acc x -> inter acc pdom.(x))
+                                 pdom.(s0) rest in
+                             (match List.sort compare common with
+                              | m :: _ -> m | [] -> exit_node) in
+                       (* a branch that is a bare unconditional jump to j (no
+                          statements): if its target is the merge, the branch is
+                          empty and the [if] is inverted/one-armed. *)
+                       let bare_jump bb =
+                         match collect_app bb [] with
+                         | MLglob r, args when is_ret_ref r ->
+                             (match List.filter (fun a -> not (is_erased a)) args with
+                              | [MLcons (_, c, [nn])] when is_jump_ctor c -> nat_value nn
+                              | _ -> None)
+                         | _ -> None in
+                       let rec emit_dag entry stop tab env =
+                         if entry = stop || entry = exit_node then mt ()
+                         else walk stop tab env blocks.(entry)
+                       and walk stop tab env b =
+                         let h, args = collect_app b [] in
+                         let vis = List.filter (fun a -> not (is_erased a)) args in
+                         match h, vis with
+                         | MLglob r, [action; k] when is_bind_ref r ->
+                             let ids, kbody = collect_lam k in
+                             emit_action state hoists tab env ids action
+                             ++ walk stop tab (List.rev ids @ env) kbody
+                         | MLglob r, [next] when is_ret_ref r ->
+                             (match next with
+                              | MLcons (_, c, [nn]) when is_jump_ctor c ->
+                                  (match nat_value nn with
+                                   | Some j -> emit_dag j stop tab env
+                                   | None -> str tab ++ str "return" ++ fnl ())
+                              | _ -> str tab ++ str "return" ++ fnl ())
+                         | _ ->
+                             (match b with
+                              | MLcase (_, scrut, branches) ->
+                                  (match Array.to_list branches with
+                                   | [ (_, p1, body1); (_, p2, body2) ] ->
+                                       let cref p =
+                                         (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
+                                       (match cref p1, cref p2 with
+                                        | Some c1, Some c2
+                                          when (is_bool_true c1 && is_bool_false c2)
+                                            || (is_bool_false c1 && is_bool_true c2) ->
+                                            let tb, eb =
+                                              if is_bool_true c1 then body1, body2 else body2, body1 in
+                                            let m = merge_of tb eb in
+                                            let then_empty = (bare_jump tb = Some m) in
+                                            let else_empty = (bare_jump eb = Some m) in
+                                            let cond = pp_expr state env scrut in
+                                            let arms =
+                                              if then_empty && not else_empty then
+                                                str tab ++ str "if !" ++ pp_atom state env scrut ++ str " {" ++ fnl ()
+                                                ++ walk m (tab ^ "\t") env eb
+                                                ++ str tab ++ str "}" ++ fnl ()
+                                              else if else_empty && not then_empty then
+                                                str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
+                                                ++ walk m (tab ^ "\t") env tb
+                                                ++ str tab ++ str "}" ++ fnl ()
+                                              else
+                                                str tab ++ str "if " ++ cond ++ str " {" ++ fnl ()
+                                                ++ walk m (tab ^ "\t") env tb
+                                                ++ str tab ++ str "} else {" ++ fnl ()
+                                                ++ walk m (tab ^ "\t") env eb
+                                                ++ str tab ++ str "}" ++ fnl () in
+                                            arms ++ emit_dag m stop tab env
+                                        | _ -> str tab ++ str "return" ++ fnl ())
+                                   | _ -> str tab ++ str "return" ++ fnl ())
+                              | _ -> str tab ++ pp_expr state env b ++ fnl ())
                        in
-                       hoist_doc ++ initial ++ emit_all 0 bs)
+                       hoist_doc ++ emit_dag start_v exit_node tab env
+                   | None -> emit_raw ())
               | None ->
                   str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->

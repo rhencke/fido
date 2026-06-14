@@ -277,16 +277,21 @@ func Count_demo() {
 
 func Cond_goto_demo(early bool) {
 	println(1)
-	if early {
-		goto block2
-	} else {
-		goto block1
+	if !early {
+		println(2)
 	}
-block1:
-	println(2)
-	goto block2
-block2:
 	println(3)
+	return
+}
+
+func Diamond_demo(b bool) {
+	println(1)
+	if b {
+		println(10)
+	} else {
+		println(20)
+	}
+	println(99)
 	return
 }
 
@@ -324,6 +329,8 @@ func main() {
 	Sum_demo()
 	Cond_goto_demo(true)
 	Cond_goto_demo(false)
+	Diamond_demo(true)
+	Diamond_demo(false)
 	Mut_demo()
 	Count_demo()
 	Defer_demo()

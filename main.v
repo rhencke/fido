@@ -322,14 +322,29 @@ Definition count_demo : IO unit :=
     ret Done                                       (* block 1 *)
   ]).
 
-(** Control flow as a goto-CFG (raw goto, before the structuring pass).
-    Three blocks; block 0 conditionally jumps.  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
+(** Control flow as a goto-CFG.  Three blocks; block 0 conditionally jumps to
+    the merge (block 2), skipping block 1.  The structurer lifts this to a clean
+    one-armed [if !early { println(2) }] — block 1 runs only when not early.
+    early ⇒ 1,3 ; else ⇒ 1,2,3. *)
 Definition cond_goto_demo (early : bool) : IO unit :=
   run_blocks 0%nat [
     bind (println [any (1 : int)]) (fun _ =>
       if early then ret (Jump 2%nat) else ret (Jump 1%nat)) ;
     bind (println [any (2 : int)]) (fun _ => ret (Jump 2%nat)) ;
     bind (println [any (3 : int)]) (fun _ => ret Done)
+  ].
+
+(** Diamond: block 0 branches to two non-empty arms (blocks 1 and 2) that
+    reconverge at the merge (block 3).  The structurer finds the merge (the
+    immediate post-dominator) and lifts this to [if b { 10 } else { 20 }; 99],
+    emitting the merge once.  b ⇒ 1,10,99 ; else ⇒ 1,20,99. *)
+Definition diamond_demo (b : bool) : IO unit :=
+  run_blocks 0%nat [
+    bind (println [any (1 : int)]) (fun _ =>
+      if b then ret (Jump 1%nat) else ret (Jump 2%nat)) ;
+    bind (println [any (10 : int)]) (fun _ => ret (Jump 3%nat)) ;
+    bind (println [any (20 : int)]) (fun _ => ret (Jump 3%nat)) ;
+    bind (println [any (99 : int)]) (fun _ => ret Done)
   ].
 
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
@@ -362,10 +377,12 @@ Definition main_effect : IO unit :=
   bind sum_demo                        (fun _ =>   (* prints: 10 *)
   bind (cond_goto_demo true)           (fun _ =>   (* prints: 1 / 3 *)
   bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
+  bind (diamond_demo true)             (fun _ =>   (* prints: 1 / 10 / 99 *)
+  bind (diamond_demo false)            (fun _ =>   (* prints: 1 / 20 / 99 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))).
+  ret tt))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

@@ -235,15 +235,26 @@ safe-by-construction principle. Tracked until closed.
    construct), which cannot express jumps. Biggest build to date; do it
    minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
    *Status:* CFG IR (`run_blocks`/`Jump`/`Done`) and raw labels+goto are done;
-   the structuring pass has its **first pattern** — `as_while_loop` lifts a
-   two-block reducible loop (header jumps only to itself or the single exit) to
-   `for { … break }` with no labels/goto (`Count_demo`, `Defer_loop_demo`).
-   The emitter is parameterised by a *terminator handler* (`raw_term` →
-   `goto`/`return`; `loop_term h x` → fall-through/`break`), so one `emit_block`
-   prints raw or structured form; non-matching CFGs (`Cond_goto_demo`) stay raw
-   goto. Golden-guarded: structuring changes the generated source, never the
-   behaviour. Next patterns: forward if-diamond (`cond_goto`), then general
-   reducible reloop.
+   the structuring pass now lifts both **loops** and **acyclic branching**:
+   - `as_while_loop` lifts a two-block reducible loop (header jumps only to
+     itself or the single exit) to `for { … break }` (`Count_demo`,
+     `Defer_loop_demo`). The block emitter is parameterised by a *terminator
+     handler* (`raw_term` → `goto`/`return`; `loop_term h x` → fall-through/
+     `break`), so one `emit_block` prints raw or structured form.
+   - a **general acyclic structurer** lifts any loop-free CFG to nested
+     `if`/`else`. It computes post-dominators over the block graph (virtual exit
+     for returning blocks); a conditional's merge is the immediate post-dominator
+     of its branches, so each arm is emitted *up to* the merge and the merge
+     region is emitted once after the `if` — no block duplication. Empty arms
+     collapse to a one-armed `if` (inverted to `if !c` when the *then* arm is the
+     one that jumps straight to the merge). `Cond_goto_demo` → `if !early { … }`;
+     `Diamond_demo` → `if b { … } else { … }` with the merge once.
+   The structurer fires when `as_while_loop` matches, else when the CFG is
+   acyclic; anything else (`start ≠ 0`, irreducible, loop-with-branches) falls
+   back to raw labels+goto — always correct, just un-prettified. Golden-guarded:
+   structuring changes the generated source, never the behaviour. Next: fold
+   loops into the general structurer (loop bodies containing `if`s, `continue`,
+   nested loops), so the two paths above become one reloop.
 
    **Lowering correctness — the unifying principle.** The goto approach trades
    a single uniform primitive for some subtle correctness obligations; they all
