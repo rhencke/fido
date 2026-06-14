@@ -6,6 +6,10 @@ func Add(n int64, m int64) int64 {
 	return n + m
 }
 
+func Sub(n int64, m int64) int64 {
+	return n - m
+}
+
 func Panic_and_recover(n int64) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -151,10 +155,15 @@ func Pick_demo(b bool) {
 	}
 }
 
+func Neg_demo() {
+	println(Sub(2, 5))
+}
+
 func Control_flow_demo() {
 	Sign_demo(5)
 	Sign_demo(20)
 	Pick_demo(true)
+	Neg_demo()
 }
 
 func Lookup_demo() {
@@ -177,6 +186,45 @@ func Lookup_demo() {
 	}
 }
 
+func List_demo() {
+	xs := []int64{10, 20, 30}
+	if len(xs) == 0 {
+		println(false)
+	} else {
+		x := xs[0]
+		rest := xs[1:]
+		println(x, len(rest))
+	}
+}
+
+func Slice_safe_demo() {
+	xs := []int64{10, 20, 30}
+	var v int64
+	ok := 1 < int64(len(xs))
+	if ok {
+		v = xs[1]
+	}
+	println(v, ok)
+	var v2 int64
+	ok2 := 9 < int64(len(xs))
+	if ok2 {
+		v2 = xs[9]
+	}
+	println(v2, ok2)
+}
+
+func Assert_safe_demo(n int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			v, ok := r.(int64)
+			println(v, ok)
+			b, ok2 := r.(bool)
+			println(b, ok2)
+		}
+	}()
+	panic(n)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -188,4 +236,7 @@ func main() {
 	Adder_demo()
 	Control_flow_demo()
 	Lookup_demo()
+	List_demo()
+	Slice_safe_demo()
+	Assert_safe_demo(7)
 }

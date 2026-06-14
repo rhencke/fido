@@ -5,6 +5,7 @@ From Stdlib Require Import Numbers.Cyclic.Int63.Uint63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
 From Stdlib Require Import ZArith.
+From Stdlib Require Import Lia.
 Require Import Coq.Lists.List.
 Import ListNotations.
 
@@ -26,6 +27,45 @@ Definition sub (n m : int) : int := PrimInt63.sub n m.
     (The old unsigned reading would wrongly give [2^63 - 3].)  This lemma is
     machine-checked, so the model provably matches what the extracted Go does. *)
 Example sub_signed_matches_go : Sint63.to_Z (sub 2 5) = (-3)%Z.
+Proof. now vm_compute. Qed.
+
+(** OVERFLOW IS PROVABLE — the thing Go cannot do.  Go silently wraps integer
+    overflow at runtime and only catches *constant* overflow at compile time.
+    Here, "this addition does not overflow" is a Rocq predicate, and when it
+    holds the machine result equals the EXACT mathematical sum (no wrap). *)
+Definition no_overflow_add (n m : int) : Prop :=
+  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n + Sint63.to_Z m
+                                <= Sint63.to_Z Sint63.max_int)%Z.
+
+Theorem add_no_overflow_exact : forall n m : int,
+  no_overflow_add n m ->
+  Sint63.to_Z (PrimInt63.add n m) = (Sint63.to_Z n + Sint63.to_Z m)%Z.
+Proof.
+  intros n m H. unfold no_overflow_add in H.
+  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
+  rewrite (Sint63.to_Z_cmodwB (PrimInt63.add n m)).
+  rewrite Uint63.add_spec, Sint63.cmod_mod.
+  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n + Uint63.to_Z m)).
+  replace ((Uint63.to_Z n + Uint63.to_Z m) mod wB)%Z
+     with ((Sint63.to_Z n + Sint63.to_Z m) mod wB)%Z by
+    (rewrite (Zplus_mod (Sint63.to_Z n) (Sint63.to_Z m));
+     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
+  rewrite Sint63.cmod_mod.
+  apply Sint63.cmod_small. lia.
+Qed.
+
+(** Concrete instance, machine-checked: 10^12 + 2·10^12 does not overflow and
+    is exactly 3·10^12. *)
+Example add_exact_demo :
+  Sint63.to_Z (PrimInt63.add 1000000000000 2000000000000) = 3000000000000%Z.
+Proof. now vm_compute. Qed.
+
+(** Honest about the limit: at the top of the (62-bit) range, addition wraps —
+    so [no_overflow_add] fails there and [add_no_overflow_exact] does not apply.
+    The model knows exactly where it wraps, which is what makes overflow
+    provable: you prove you stay below the boundary. *)
+Example add_wraps_at_boundary :
+  Sint63.to_Z (PrimInt63.add Sint63.max_int 1) = Sint63.to_Z Sint63.min_int.
 Proof. now vm_compute. Qed.
 
 (** Panic with [n], then recover it and print [n] and [n+1].

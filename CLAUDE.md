@@ -165,16 +165,16 @@ safe-by-construction principle. Tracked until closed.
    integer `/` or `%`, so the path can't be reached (any use extracts to an
    undefined identifier). Proper fix: a guarded `div` (proof `d <> 0`, or a
    checked form). Float `/` is kept — IEEE, no panic.
-2. **Integer model** — *signedness fixed; range still partial*. `int` is now
-   interpreted with SIGNED Sint63 semantics, matching Go's int64: `+`/`-`/`*`
-   are two's-complement (shared with the unsigned primitive), comparison is
-   signed (`ltsb`/`lesb` → Go `<`/`<=`), and `2 - 5` is `-3` — machine-checked
-   by `sub_signed_matches_go`, and the extracted Go prints `-3`. Remaining gap:
-   Rocq's primitive int is 63-bit, so the model is faithful only within
-   `[-2^62, 2^62)`; the full int64 range and its exact overflow point need a
-   Z-based (CompCert-style) model. Overflow is well-defined wrap in Go, so that
-   Z model is the accurate default, with overflow-freedom as an opt-in proof
-   (a "safer than Go" guarantee).
+2. **Integer model** — *resolved; ±2⁶² accepted*. `int` is interpreted with
+   SIGNED Sint63 semantics matching Go's int64: `+`/`-`/`*` are two's-complement
+   (shared with the unsigned primitive), comparison is signed (`ltsb`/`lesb` →
+   Go `<`/`<=`), and `2 - 5` is `-3` (machine-checked `sub_signed_matches_go`;
+   extracted Go prints `-3`). Overflow is **provable**: `add_no_overflow_exact`
+   proves no-overflow → the result is the exact mathematical sum (main.v).
+   Accepted limitation (user signed off): Rocq's primitive int is 63-bit, so the
+   model is faithful within `[-2^62, 2^62)` — one bit short of int64, fine. No
+   Z-model rewrite planned; the `add_wraps_at_boundary` example documents where
+   the model wraps.
 3. **`slice_get`** — *checked form added*. `slice_at_ok` (CPS, bounds-checked,
    forces handling the OOB case) is now the safe-by-construction default;
    `slice_get` is the escape hatch. Still open: the proof-carrying
