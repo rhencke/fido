@@ -367,12 +367,12 @@ Definition PingPong : Proto := PSend int (PRecv int PEnd).
 Definition session_demo : IO unit :=
   run_session
     (* client : Sess PingPong PEnd unit — send 21, recv, print *)
-    (sbind (ssend (21 : int)) (fun _ =>
-     sbind (srecv TInt64) (fun result =>
-     slift (println [any result]))))          (* prints: 42 *)
+    (ssend (21 : int) >>>
+     result <<- srecv TInt64 ;;;
+     slift (println [any result]))            (* prints: 42 *)
     (* server : Sess (dual PingPong) PEnd unit — recv n, send n+n *)
-    (sbind (srecv TInt64) (fun n =>
-     ssend (add n n))).
+    (n <<- srecv TInt64 ;;;
+     ssend (add n n)).
 
 (** ---- Protocol compliance is enforced at compile time ----
 
@@ -414,14 +414,14 @@ Definition Adder : Proto := PSend int (PSend int (PRecv int PEnd)).
 Definition adder_demo : IO unit :=
   run_session
     (* client : Sess Adder PEnd unit — send 20, send 22, recv sum, print *)
-    (sbind (ssend (20 : int)) (fun _ =>
-     sbind (ssend (22 : int)) (fun _ =>
-     sbind (srecv TInt64) (fun sum =>
-     slift (println [any sum])))))            (* prints: 42 *)
+    (ssend (20 : int) >>>
+     ssend (22 : int) >>>
+     sum <<- srecv TInt64 ;;;
+     slift (println [any sum]))               (* prints: 42 *)
     (* server : Sess (dual Adder) PEnd unit — recv a, recv b, send a+b *)
-    (sbind (srecv TInt64) (fun a =>
-     sbind (srecv TInt64) (fun b =>
-     ssend (add a b)))).
+    (a <<- srecv TInt64 ;;;
+     b <<- srecv TInt64 ;;;
+     ssend (add a b)).
 
 (** ---- Control flow: if/else (step 7a) ----
 

@@ -1186,6 +1186,15 @@ Axiom srecv : forall {A : Type} {P : Proto}, GoTypeTag A -> Sess (PRecv A P) P A
     protocol step) — e.g. to print a received value.  Lowers to the IO body. *)
 Axiom slift : forall {P : Proto} {A : Type}, IO A -> Sess P P A.
 
+(** Session sequencing notations (the [sbind] analogues of [>>'] / [<-' ;;]):
+    [>>>] discards the step's result, [<<- … ;;;] binds it.  Right-associative so
+    [a >>> b >>> c] is the natural right-nested [sbind a (fun _ => sbind b …)]
+    that the protocol indices and the plugin's session lowering expect. *)
+Notation "m >>> k" := (sbind m (fun _ => k))
+  (at level 80, right associativity).
+Notation "x <<- m ;;; k" := (sbind m (fun x => k))
+  (at level 80, m at level 90, right associativity).
+
 (** Run two complementary roles concurrently: the client realises [P] to
     completion, the server realises [dual P].  Allocates one shared channel,
     spawns the server, runs the client.
