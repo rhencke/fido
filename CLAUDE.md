@@ -65,6 +65,17 @@ tricky semantics, or silent overflow are not acceptable even in early
 stages. It's fine to leave things unmodeled; it's not fine to model them
 wrong.
 
+**Principle: completeness is the thesis — model *all* of Go, faithfully.** We
+add primitives incrementally (small scope), but the goal is that Go can be
+*fully* modelled in Rocq, and no primitive we model may be left with *partial*
+semantics.  The only acceptable deviations are **principled and bounded** — a
+deliberate safety guarantee (e.g. nil dereference made unrepresentable) or an
+unavoidable limit of the substrate (e.g. one bit of int precision lost to
+Rocq's 63-bit primitive).  Difficulty is **never** a licence for partiality: a
+hard primitive like `goto` must be modelled fully (a labeled-block / CFG
+model), not approximated to a convenient subset.  "It's hard" means "do the
+work", not "model less".
+
 **Principle: partial operations are safe-by-construction or proof-gated.**
 The unsafe primitives — nil deref, out-of-bounds, divide-by-zero,
 send-on-closed, failed type assertion — must be *modelled* (we don't pretend Go
@@ -207,13 +218,18 @@ safe-by-construction principle. Tracked until closed.
    Go's `for { defer f() }` runs every `f()` at function exit (the classic
    accumulation/leak), whereas `with_defer` runs per iteration. Faithful
    function-scoped defer needs a deferred-call stack unwound at function return.
-7. **`goto`** — *not modelled* (a primitive; must be). Go's `goto` is
-   restricted (cannot jump into a block or over an in-scope var decl), i.e.
-   "jump out/forward within block structure". The useful case — escaping nested
-   loops to a label after them — maps to a structured labeled-escape combinator
-   (extracts to `goto done; … done:` or labeled break). Fully general `goto`
-   (arbitrary backward/mid-function jumps) needs a continuation / label-dispatch
-   model. Build the structured-escape case first.
+7. **`goto`** — *not modelled; FULL support required* (a primitive — see the
+   completeness principle; no partial-semantics punt). Go's `goto` is restricted
+   (cannot jump into a block or over an in-scope var decl) but otherwise general
+   (forward/backward, out of nested loops). The complete faithful model is a
+   **labeled-block / CFG** representation: a function body is labelled blocks,
+   each an IO action ending in a control transfer (`goto L` / branch / return);
+   structured `if`/`for`/`break`/`continue` are *derived sugar*; non-terminating
+   paths live in IO. Extracts to Go labels + `goto`; reasoned about operationally
+   (or via the Hoare logic lifted to blocks). This is a step up from today's
+   *shallow* embedding (a Rocq `if`/Fixpoint *is* the Go construct), which cannot
+   express jumps. The structured labeled-escape case (nested-break) is a useful
+   first increment but **not** the endpoint — full `goto` is required.
 8. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
