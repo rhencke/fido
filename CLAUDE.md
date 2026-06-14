@@ -154,6 +154,16 @@ separate tracks.
    - design point: an IO-valued branch `bind (match …) k` must thread the
      continuation `k` through every arm — emit each arm's statements then `k`
      in that branch (duplicate, or hoist the result into a var), never a value
+   - **Known wart — inline-`if` continuation duplication (correct, but bloats).**
+     `bind (if c then a else b) k` currently emits `k` *inside both arms* (the
+     duplicate option above), so N chained inline `if`s in one `bind` blow up
+     **exponentially** (2^(N-1) copies of the tail). Behaviour is right; size is
+     not. Today's demos sidestep it by putting each conditional in its own
+     function (`and_cond`/`or_cond`/`not_cond`, like `sign_demo`), so the `bind`
+     tail follows the *call* as a single statement. Real fix: when the matched
+     result is discarded (`fun _ =>`) or hoistable to a `var`, emit the `if`/
+     `switch` then `k` **once** after it (the relooper already does this for the
+     goto-CFG path; the IO-statement `if`-in-`bind` path does not). Tracked.
 
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an

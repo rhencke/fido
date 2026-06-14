@@ -171,6 +171,36 @@ func Bool_op_demo(a bool, b bool, c bool) {
 	println((a || b) && c)
 }
 
+func And_cond(a int64, b int64) {
+	if a < 10 && b < 10 {
+		println(1)
+	} else {
+		println(0)
+	}
+}
+
+func Or_cond(a int64, b int64) {
+	if a < 10 || b < 10 {
+		println(1)
+	} else {
+		println(0)
+	}
+}
+
+func Not_cond(a int64) {
+	if !(a < 10) {
+		println(1)
+	} else {
+		println(0)
+	}
+}
+
+func Cond_op_demo() {
+	And_cond(3, 4)
+	Or_cond(30, 4)
+	Not_cond(30)
+}
+
 func Lookup_demo() {
 	m := make(map[int64]int64)
 	m[7] = 700
@@ -494,6 +524,7 @@ func main() {
 	Adder_demo()
 	Control_flow_demo()
 	Bool_op_demo(true, false, true)
+	Cond_op_demo()
 	Lookup_demo()
 	List_demo()
 	Slice_safe_demo()

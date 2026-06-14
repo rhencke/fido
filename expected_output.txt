@@ -21,6 +21,9 @@ false
 true
 true
 true
+1
+1
+1
 700 true
 false
 10 2

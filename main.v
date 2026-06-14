@@ -357,6 +357,27 @@ Definition bool_op_demo (a b c : bool) : IO unit :=
   bind (println [any (negb b)])   (fun _ =>          (* !b *)
   println [any (andb (orb a b) c)]))).               (* (a || b) && c *)
 
+(** The primary use of the boolean operators: COMPOUND CONDITIONS in [if].  Each
+    [if] is a match on [bool] whose scrutinee is a compound expression, so the
+    condition lowers to Go's [a && b] / [a || b] / [!a] directly inside the
+    [if (...)].  One conditional per function (mirroring [sign_demo]) so the
+    [bind] continuation follows the call as a single statement — chaining several
+    inline [if]s in one [bind] instead would duplicate the continuation into both
+    arms (see the "inline-if continuation duplication" note in CLAUDE.md). *)
+Definition and_cond (a b : int) : IO unit :=
+  if andb (Sint63.ltb a 10) (Sint63.ltb b 10)         (* a<10 && b<10 *)
+  then println [any (1 : int)] else println [any (0 : int)].
+Definition or_cond (a b : int) : IO unit :=
+  if orb (Sint63.ltb a 10) (Sint63.ltb b 10)          (* a<10 || b<10 *)
+  then println [any (1 : int)] else println [any (0 : int)].
+Definition not_cond (a : int) : IO unit :=
+  if negb (Sint63.ltb a 10)                           (* !(a<10) *)
+  then println [any (1 : int)] else println [any (0 : int)].
+Definition cond_op_demo : IO unit :=
+  bind (and_cond 3 4)  (fun _ =>   (* T && T → 1 *)
+  bind (or_cond 30 4)  (fun _ =>   (* F || T → 1 *)
+  not_cond 30)).                   (* !F      → 1 *)
+
 (** [map_get_opt] is an IO read; binding it then matching the [option] lowers to
     Go's comma-ok lookup: [bind (map_get_opt k m) (fun o => match o with Some v =>
     _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
@@ -641,6 +662,7 @@ Definition main_effect : IO unit :=
   bind adder_demo                      (fun _ =>   (* prints: 42 *)
   bind control_flow_demo               (fun _ =>   (* prints: 5 true / 20 false / 1 *)
   bind (bool_op_demo true false true)  (fun _ =>   (* prints: false / true / true / true *)
+  bind cond_op_demo                    (fun _ =>   (* prints: 1 / 1 / 1 *)
   bind lookup_demo                     (fun _ =>   (* prints: 700 true / false *)
   bind list_demo                       (fun _ =>   (* prints: 10 2 *)
   bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
@@ -662,6 +684,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".
