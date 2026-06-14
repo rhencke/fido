@@ -394,6 +394,43 @@ Fail Definition i8_const_oob  : GoI8  := i8_lit  200    eq_refl.   (* > 127 *)
 Fail Definition u16_const_oob : GoU16 := u16_lit 70000  eq_refl.   (* >= 2^16 *)
 Fail Definition i16_const_oob : GoI16 := i16_lit 40000  eq_refl.   (* > 32767 *)
 
+(** ---- Fixed-width bitwise operators (Go spec "Arithmetic operators": [& | ^ &^],
+    and unary [^] complement) ----
+
+    Bitwise AND / OR / XOR / AND-NOT and unary complement on the fixed-width
+    types.  TOTAL and panic-free (unlike shifts, whose count can panic).
+    Faithful by construction:
+    - [uintN]: AND/OR/XOR of two in-range values stay in [0,2^N), so no mask is
+      needed; AND-NOT and complement flip within the width via [lxor _ (2^N-1)].
+    - [intN]: the sign-extended carrier already makes the raw bitwise op correct,
+      but we re-[norm] (idempotent) so every result is manifestly a valid [intN].
+    Go's [&^] (AND-NOT) and unary [^] (complement) are single operators.  The
+    plugin emits the bare Go infix [& | ^ &^] / unary [^] (no wrap) — faithful
+    because the operands are in range / sign-extended (verified on int64). *)
+Definition u8_and     (a b : GoU8)  : GoU8  := MkU8  (PrimInt63.land (u8raw a) (u8raw b)).
+Definition u8_or      (a b : GoU8)  : GoU8  := MkU8  (PrimInt63.lor  (u8raw a) (u8raw b)).
+Definition u8_xor     (a b : GoU8)  : GoU8  := MkU8  (PrimInt63.lxor (u8raw a) (u8raw b)).
+Definition u8_andnot  (a b : GoU8)  : GoU8  := MkU8  (PrimInt63.land (u8raw a) (PrimInt63.lxor (u8raw b) 255)).
+Definition u8_not     (a   : GoU8)  : GoU8  := MkU8  (PrimInt63.lxor (u8raw a) 255).
+Definition i8_and     (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.land (i8raw a) (i8raw b))).
+Definition i8_or      (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lor  (i8raw a) (i8raw b))).
+Definition i8_xor     (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lxor (i8raw a) (i8raw b))).
+Definition i8_andnot  (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.land (i8raw a) (PrimInt63.lxor (i8raw b) 255))).
+Definition i8_not     (a   : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lxor (i8raw a) 255)).
+Definition u16_and    (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (u16raw a) (u16raw b)).
+Definition u16_or     (a b : GoU16) : GoU16 := MkU16 (PrimInt63.lor  (u16raw a) (u16raw b)).
+Definition u16_xor    (a b : GoU16) : GoU16 := MkU16 (PrimInt63.lxor (u16raw a) (u16raw b)).
+Definition u16_andnot (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (u16raw a) (PrimInt63.lxor (u16raw b) 65535)).
+Definition u16_not    (a   : GoU16) : GoU16 := MkU16 (PrimInt63.lxor (u16raw a) 65535).
+Definition i16_and    (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.land (i16raw a) (i16raw b))).
+Definition i16_or     (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.lor  (i16raw a) (i16raw b))).
+Definition i16_xor    (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.lxor (i16raw a) (i16raw b))).
+Definition i16_andnot (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.land (i16raw a) (PrimInt63.lxor (i16raw b) 65535))).
+Definition i16_not    (a   : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.lxor (i16raw a) 65535)).
+
+(* Build-checked: bitwise ops respect type distinctness too (no implicit mix). *)
+Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : int).
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

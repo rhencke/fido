@@ -394,7 +394,8 @@ let parse_fixed_width n =
     else
       let op = String.sub n (!i + 1) (len - !i - 1) in
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
-      if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm"])
+      if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
+                           "and"; "or"; "xor"; "andnot"; "not"])
       then None
       else match int_of_string_opt (String.sub n 1 (!i - 1)) with
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
@@ -505,6 +506,12 @@ let binop_of r =
   else if fw_is r "ltb" then Some (3, " < ")
   else if fw_is r "leb" then Some (3, " <= ")
   else if fw_is r "eqb" then Some (3, " == ")
+  (* fixed-width bitwise: no wrap needed (in-range / sign-extended results are
+     already correct on int64).  Go precedence: [& &^] = 5, [| ^] = 4. *)
+  else if fw_is r "and"    then Some (5, " & ")
+  else if fw_is r "andnot" then Some (5, " &^ ")
+  else if fw_is r "or"     then Some (4, " | ")
+  else if fw_is r "xor"    then Some (4, " ^ ")
   else
   match classify_nat_op r with
   | Some op -> Some (op_prec op, go_infix op)
@@ -842,6 +849,15 @@ let rec pp_expr state env = function
           comparison: [!(x < y)]) and never otherwise ([!b]). *)
        | MLglob r, [b] when is_negb_ref r ->
            str "!" ++ pp_atom state env b
+
+       (* fixed-width unary complement [uN_not x] / [iN_not x].  Go's unary [^] on
+          the int64 CARRIER is the full 64-bit complement ([^240 = -241]), NOT the
+          width-N complement — so it MUST be wrapped back to the width: unsigned
+          [(^x) & 0xff] ([^240 → 15]); signed additionally sign-extends.  [fw_wrap]
+          builds exactly that (same as the [lit]/[add] forms). *)
+       | MLglob r, [x] when fw_is r "not" ->
+           let (s, w, _) = Option.get (fixed_width_op r) in
+           fw_wrap s w (str "^" ++ pp_atom state env x)
 
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
@@ -2111,7 +2127,7 @@ let is_inlined_ref r =
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_op_names ||
-  is_int63_op_ref r "land" || is_int63_op_ref r "lxor"  (* inside suppressed uintN/intN bodies *)
+  is_int63_op_ref r "land" || is_int63_op_ref r "lor" || is_int63_op_ref r "lxor"  (* inside suppressed uintN/intN bodies *)
 
 (*s Main-package wrapper. *)
 

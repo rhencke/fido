@@ -670,8 +670,18 @@ resting state.)**
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real
     `math.Abs`, not a hand-rolled one).
-12. **Bit operations** (`<<`, `>>`, `&`, `|`, `^`, `&^`, including negative-shift /
-    over-width-shift behaviour) — entirely unmodelled.
+12. **Bit operations.**  *Bitwise `& | ^ &^` and unary `^` (complement): DONE for
+    fixed-width `uintN`/`intN`* (`u8_and`/`or`/`xor`/`andnot`/`not`, `i8_*`,
+    `u16_*`, `i16_*`; machine-checked `spec_u8_and`…`spec_i8_andnot`; `bitwise_demo`
+    prints 48 252 204 / 192 15 / -6 -6).  Faithful: `uintN` results stay in range
+    (no mask); `intN` operands are sign-extended so the raw int64 op is correct;
+    AND-NOT/complement flip within the width; unary `^x` is wrapped back to the
+    width (Go's int64 `^240` is -241, not the uint8 15).  *Still ✗:* bitwise on
+    `int` (Sint63) — the 63-vs-64-bit carrier exposes the sign bit, so negative-`int`
+    bitwise would differ from int64 (blocked on the Z model, Tier 2 #4).  *Shifts
+    `<< >>` still ✗ fails loud* — they need a non-negative-count safety form (the
+    count panics if negative; `div_nz`-style), and `>>` truncates toward −∞ (unlike
+    `/`); negative-/over-width-shift behaviour to honor when built.
 13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),
     `string`↔`[]byte`/`[]rune`, interface conversions beyond `type_assert`.
 

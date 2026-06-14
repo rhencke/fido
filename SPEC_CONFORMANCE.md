@@ -115,11 +115,23 @@ single-goroutine/non-aliasing use; sub-slice aliasing / in-place append unmodele
 
 ### [Arithmetic operators](https://go.dev/ref/spec#Arithmetic_operators)
 `+ - * / %` integers: see Integer operators / overflow.  Unary `-x = 0-x` ✓
-(`neg_demo`), `+x = 0+x` ✓.  Unary `^x` (complement; `m=-1` signed): **✗ fails
-loud**.  Shift `<< >>`: **✗ fails loud** — *honor when modeled:* `>>` truncates
-toward **−∞** (`x>>1 = floor(x/2)`), UNLIKE `/` (toward zero), so `-11/4=-2` but
-`-11>>2=-3`; count must be ≥0 (else panic); arithmetic shift signed / logical
-unsigned; no upper limit on count.
+(`neg_demo`), `+x = 0+x` ✓.
+**Bitwise `& | ^ &^` and unary `^` — ✓ fixed-width (`uintN`/`intN`).**  `uN_and`/
+`or`/`xor`/`andnot`/`not`, `iN_*`: machine-checked (`spec_u8_and`…`spec_i8_andnot`;
+240&60=48, |=252, ^=204, &^=192, `^240`=15, `^int8(5)=-6`, `int8(-1)&^5=-6`).
+Faithful by construction: `uintN` AND/OR/XOR of in-range values stay in `[0,2ⁿ)`
+(no mask); `intN` operands are sign-extended so the raw int64 op is already
+correct; AND-NOT/complement flip within the width (`lxor _ (2ⁿ-1)`).  Go's `&^`
+and unary `^` are single operators.  **Subtlety honored:** unary `^x` on the int64
+carrier is the *64-bit* complement (`^240 = -241`), so it is wrapped back to the
+width (`(^x)&0xff → 15`).  **`int` (Sint63) bitwise: ✗** — the 63-vs-64-bit carrier
+exposes the sign bit, so bitwise on negative `int` would differ from int64; blocked
+on the full-width Z model (Tier 2 #4).
+**Shift `<< >>`: ✗ fails loud** — *honor when modeled:* `>>` truncates toward
+**−∞** (`x>>1 = floor(x/2)`), UNLIKE `/` (toward zero), so `-11/4=-2` but
+`-11>>2=-3`; count must be ≥0 (else panic) ⇒ needs a non-negative-count safety
+form (like `div_nz`); arithmetic shift signed / logical unsigned; no upper limit
+on count.
 
 ### [Integer operators](https://go.dev/ref/spec#Integer_operators) — ✓ conforms
 `q=x/y`, `r=x%y`: `x=q*y+r`, `|r|<|y|`, **truncated toward zero**; the example

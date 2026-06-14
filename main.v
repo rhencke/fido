@@ -305,6 +305,28 @@ Definition u16_demo : IO unit :=
   bind (println [any (u16_mul (u16_lit 1000 eq_refl)  (u16_lit 1000 eq_refl))])  (fun _ =>   (* 16960 *)
   println [any (i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl))])).                 (* -25536 *)
 
+(** Bitwise operators (Go spec "Arithmetic operators": [& | ^ &^] and unary [^]).
+    240 = 0b11110000, 60 = 0b00111100: AND=48, OR=252, XOR=204, AND-NOT=192,
+    complement(240)=15.  Signed: [^int8(5) = -6], [int8(-1) &^ 5 = -6].  The
+    MACHINE-CHECKED proofs below pin the values; this shows Go agreeing at run. *)
+Example spec_u8_and    : u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 48  eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_or     : u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 252 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_xor    : u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 204 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_andnot : u8_andnot (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 192 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_not    : u8_not    (u8_lit 240 eq_refl)                     = u8_lit 15  eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_not    : i8_not    (i8_lit 5 eq_refl)                       = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_andnot : i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl) = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
+Definition bitwise_demo : IO unit :=
+  bind (println [ any (u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl))      (* 48  *)
+                ; any (u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl))      (* 252 *)
+                ; any (u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl)) ])   (* 204 *)
+       (fun _ =>
+  bind (println [ any (u8_andnot (u8_lit 240 eq_refl) (u8_lit 60 eq_refl))      (* 192 *)
+                ; any (u8_not    (u8_lit 240 eq_refl)) ])                       (* 15  *)
+       (fun _ =>
+  println [ any (i8_not    (i8_lit 5 eq_refl))                                  (* -6  *)
+          ; any (i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl)) ])).       (* -6  *)
+
 (** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
     "a string value is a (possibly empty) sequence of bytes ... strings are
     immutable.  The length ... can be discovered using len.  A string's bytes can
@@ -840,6 +862,7 @@ Definition main_effect : IO unit :=
   u8_demo                       >>'   (* prints: 44 / 1 / 255 / true *)
   i8_demo                       >>'   (* prints: -106 / 127 / -100 / true *)
   u16_demo                      >>'   (* prints: 4464 / 16960 / -25536 *)
+  bitwise_demo                  >>'   (* prints: 48 252 204 / 192 15 / -6 -6 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)
