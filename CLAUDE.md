@@ -569,9 +569,14 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    shares the backing array), in-place append, and aliased/concurrent access are
    unmodelled (ties to Tier 1's concurrency model).
 9. **Operator coverage — *boolean + float comparison now done; `>`/`>=`/`!=`
-   still via encoding*.**  Integer `==`/`<`/`<=` (`eqb`/`ltb`/`leb`, signed via
-   `ltsb`/`lesb`) and now **`&&`/`||`/`!`** (`andb`/`orb`/`negb`) and **float
-   `<`/`<=`/`==`** (`PrimFloat.ltb`/`leb`/`eqb`) are all emitted.  `&&`/`||`
+   still via encoding*.**  Integer `==`/`<`/`<=` for `int` go through the SIGNED
+   primitives `eqb`/`ltsb`/`lesb` (→ Go signed `==`/`<`/`<=`); the user-facing
+   `Sint63.ltb`/`leb` reduce to those.  The UNSIGNED `PrimInt63.ltb`/`leb` are
+   **excluded** (own `int63_op_names`, no ltb/leb) — they would mis-map to Go's
+   signed `<`/`<=` and disagree on high-bit values (`ltb (-1) 0` is `false`
+   unsigned, `-1 < 0` is `true` signed), so a raw use now **fails loud** until an
+   unsigned-int model exists.  Now also **`&&`/`||`/`!`** (`andb`/`orb`/`negb`)
+   and **float `<`/`<=`/`==`** (`PrimFloat.ltb`/`leb`/`eqb`) are emitted.  `&&`/`||`
    short-circuit is unobservable because the operands are pure, total `bool`
    values (no effects, no divergence) — revisit only if a bool operand could ever
    have effects.  Float comparison is faithful on IEEE corner cases, not just

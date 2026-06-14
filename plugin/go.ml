@@ -358,10 +358,19 @@ let classify_nat_op r =
        else if is_nat_op_ref r name then Some op else None)
     nat_op_names
 
+(* int63 (the [int] = Sint63 model).  Two's-complement [add]/[sub]/[mul] and
+   bit-equality [eqb] are identical signed/unsigned, so they lower directly.  But
+   the UNSIGNED comparisons [PrimInt63.ltb]/[leb] must NOT map to Go's int64
+   [<]/[<=], which are SIGNED — they disagree once the high bit is set (unsigned
+   [ltb (-1) 0] is false; signed [-1 < 0] is true).  Signed comparison for [int]
+   goes through [ltsb]/[lesb] (classify_sint63_op → Go signed [<]/[<=]); the
+   user-facing [Sint63.ltb]/[leb] reduce to those.  So ltb/leb are excluded here;
+   raw [PrimInt63.ltb]/[leb] fail loud (no unsigned-int model yet to target). *)
+let int63_op_names = [ "add", NatAdd; "sub", NatSub; "mul", NatMul; "eqb", NatEqb ]
 let classify_int63_op r =
   List.find_map
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
-    nat_op_names  (* same infix table works for int63 (incl. faithful sub) *)
+    int63_op_names
 
 (* Signed comparison AND signed division/remainder — where signed and unsigned
    differ ([int] is modelled with signed int64 semantics; the raw +/-/* ops are
@@ -696,6 +705,11 @@ let rec pp_expr state env = function
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
        | MLglob r, [_; _] when is_nat_sub_ref r ->
            unsupported "Nat.sub: Coq's truncated subtraction (3 - 5 = 0) does not match Go uint's wrapping minus (3 - 5 = 2^64-2); use int (Sint63) subtraction, or a b<=a-guarded monus"
+
+       (* PrimInt63.ltb/leb are UNSIGNED comparisons; Go int64 </<= are SIGNED and
+          disagree on high-bit values — fail loud rather than emit a wrong [<]. *)
+       | MLglob r, [_; _] when is_int63_op_ref r "ltb" || is_int63_op_ref r "leb" ->
+           unsupported "PrimInt63.ltb/leb (UNSIGNED comparison): Go int64 </<= are SIGNED and disagree once the high bit is set; use Sint63.ltb/leb (signed) for int"
 
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
