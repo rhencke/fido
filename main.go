@@ -22,6 +22,13 @@ func Div_demo() {
 	println(Div_nz(17, 5), Mod_nz(17, 5))
 }
 
+func Prec_demo() {
+	a := 2
+	b := 3
+	c := 4
+	println(a * b + c, (a + b) * c)
+}
+
 func Panic_and_recover(n int64) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -449,6 +456,7 @@ func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
 	Div_demo()
+	Prec_demo()
 	Map_demo()
 	Slice_demo()
 	Chan_demo()

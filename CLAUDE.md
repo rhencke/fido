@@ -157,10 +157,15 @@ separate tracks.
 
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an
-   IIFE. This stage also adds precedence/associativity to the expression
-   printer: today `pp_atom` parenthesises conservatively (correct but noisy);
-   clean nested arithmetic/boolean output needs real operator levels. Trickier
-   than (a) — hence second.
+   IIFE. *(Still pending — no demo triggers a value-position match yet.)*
+   The **operator-precedence printer is done**: `binop_of` gives each inlined
+   arithmetic/comparison op a Go precedence (`* / %` = 5, `+ -` = 4, comparisons
+   = 3), and `pp_prec ctx e` parenthesises a sub-operand only when its operator
+   binds looser than the context requires (left operand at the op's level, right
+   at `+1` for left-associativity) — instead of `pp_atom`'s conservative
+   "parenthesise every non-atom". `Prec_demo` shows `a*b + c` (no parens) and
+   `(a+b) * c` (parens only where needed); existing output is unchanged (those
+   operands were already atoms).
 8. **`select`** — non-deterministic choice between ready channels. Needed for
    services/multiplexing/timeouts. Significantly harder semantics than linear
    send/recv; wants control flow (each case is a branch) in place first.

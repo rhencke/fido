@@ -93,6 +93,15 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz 17 5 eq_refl); any (mod_nz 17 5 eq_refl)].   (* prints: 3 2 *)
 
+(** Operator precedence in the printer (step 7b): nested arithmetic prints with
+    Go precedence, parenthesising only where needed.  [a*b + c] needs no parens
+    ([*] binds tighter than [+]); [(a+b) * c] does (the [+] is looser than the
+    surrounding [*]).  Uses the raw [PrimInt63] ops to force infix nesting. *)
+Definition prec_demo : IO unit :=
+  let a := 2%uint63 in let b := 3%uint63 in let c := 4%uint63 in
+  println [ any (PrimInt63.add (PrimInt63.mul a b) c)     (* a*b + c   = 10 *)
+          ; any (PrimInt63.mul (PrimInt63.add a b) c) ].  (* (a+b) * c = 20 *)
+
 (** Panic with [n], then recover it and print [n] and [n+1].
     Demonstrates the full panic → catch → type_assert cycle. *)
 Definition panic_and_recover (n : int) : IO unit :=
@@ -511,6 +520,7 @@ Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
   bind div_demo                        (fun _ =>   (* prints: 3 2 *)
+  bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
   bind slice_demo                      (fun _ =>   (* prints: 5 3 / false *)
   bind chan_demo                       (fun _ =>   (* prints: 42 true / 0 false *)
@@ -539,6 +549,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

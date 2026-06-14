@@ -343,6 +343,32 @@ let go_infix = function
   | NatDiv -> " / " | NatMod -> " % "
   | NatEqb -> " == " | NatLtb -> " < " | NatLeb -> " <= "
 
+(* Go binary-operator precedence (higher binds tighter).  Used by the expression
+   printer to parenthesise a sub-operand only when its operator binds looser than
+   the surrounding context requires (instead of the old conservative
+   "parenthesise every non-atom"). *)
+let op_prec = function
+  | NatMul | NatDiv | NatMod -> 5
+  | NatAdd | NatSub          -> 4
+  | NatEqb | NatLtb | NatLeb -> 3
+let float_prec s = if String.equal s " * " || String.equal s " / " then 5 else 4
+
+(* If [r] is a recognised inlined binary operator, its (precedence, Go operator
+   string); covers nat / int63 / signed-int63 / float arithmetic and comparison. *)
+let binop_of r =
+  match classify_nat_op r with
+  | Some op -> Some (op_prec op, go_infix op)
+  | None ->
+  match classify_int63_op r with
+  | Some op -> Some (op_prec op, go_infix op)
+  | None ->
+  match classify_sint63_op r with
+  | Some op -> Some (op_prec op, go_infix op)
+  | None ->
+  match classify_float_op r with
+  | Some s -> Some (float_prec s, s)
+  | None -> None
+
 (*s Type printer. *)
 
 let rec pp_type state = function
@@ -598,21 +624,14 @@ let rec pp_expr state env = function
                 str ")"
             | None ->
                 str (fname ^ "(/* dynamic list */)"))
-       (* Inlined float64 binary operation *)
-       | MLglob r, [a; b] when Option.has_some (classify_float_op r) ->
-           let op = Option.get (classify_float_op r) in
-           pp_atom state env a ++ str op ++ pp_atom state env b
-       (* Inlined nat / int63 binary operation *)
-       | MLglob r, [a; b] when Option.has_some (classify_nat_op r) ->
-           let op = go_infix (Option.get (classify_nat_op r)) in
-           pp_atom state env a ++ str op ++ pp_atom state env b
-       | MLglob r, [a; b] when Option.has_some (classify_int63_op r) ->
-           let op = go_infix (Option.get (classify_int63_op r)) in
-           pp_atom state env a ++ str op ++ pp_atom state env b
-       (* Signed int63 comparison (Sint63) — faithful to Go's int64 < / <= *)
-       | MLglob r, [a; b] when Option.has_some (classify_sint63_op r) ->
-           let op = go_infix (Option.get (classify_sint63_op r)) in
-           pp_atom state env a ++ str op ++ pp_atom state env b
+       (* Inlined binary operator (float / nat / int63 / signed int63), printed
+          with Go operator precedence.  At top level there is no surrounding
+          operator, so the operands are printed at this op's level (left) and one
+          tighter (right, for left-associativity); [pp_prec] adds parens only
+          where genuinely needed. *)
+       | MLglob r, [a; b] when Option.has_some (binop_of r) ->
+           let (p, opstr) = Option.get (binop_of r) in
+           pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b
        | _ ->
            pp_atom state env head ++ str "(" ++
            prlist_with_sep (fun () -> str ", ")
@@ -687,6 +706,26 @@ and pp_atom state env e =
       pp_expr state env e
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
+
+(* Print [e] as an operand inside a binary operator whose context requires
+   precedence [>= ctx].  If [e] is itself a binary operator of lower precedence,
+   wrap it in parens; otherwise emit it bare (atoms and calls bind tightest, so
+   they never need parens — unlike [pp_atom], which parenthesises every non-atom).
+   A binop at the same precedence as [ctx] does NOT need parens on the left (Go's
+   operators are left-associative); the caller passes [p+1] for the right
+   operand to force parens there. *)
+and pp_prec state env ctx e =
+  match strip_magic e with
+  | MLapp (h, args) ->
+      let h2, all = collect_app h args in
+      let vis = List.filter (fun a -> not (is_erased a)) all in
+      (match h2, vis with
+       | MLglob r, [a; b] when Option.has_some (binop_of r) ->
+           let (p, opstr) = Option.get (binop_of r) in
+           let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
+           if p < ctx then str "(" ++ inner ++ str ")" else inner
+       | _ -> pp_expr state env e)
+  | _ -> pp_expr state env e
 
 (* An integer/float literal carries no Go type, so where the target type must be
    fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare
