@@ -243,6 +243,15 @@ safe-by-construction principle. Tracked until closed.
    `var x T` to the dominator of its uses and assign with `=` (avoids `:=`
    re-declaration on loop re-entry and Go's goto-over-declaration rule).
    `ref_set` already emits `=`, not `:=`.
+   *Minimal scope (for the structurer):* place each variable in the **deepest**
+   scope that still dominates all its uses — i.e. introduce a block-local
+   declaration only when *every* use is inside that block (no outer access);
+   any outer access forces it out to the enclosing scope. Hoisting is the
+   correctness floor (dominate all uses); this is the idiom ceiling (don't
+   hoist further than needed). So when the structurer lifts the raw-`goto`
+   `Count_demo` to a `for`, `iv` (used only in the loop) sinks back to
+   loop-local; the function-level `var iv` was an artifact of the unstructured
+   form. Both fall out of one use-set/liveness analysis.
    **No shadowing (by design).** Go permits shadowing — `i := …` nested inside
    `i := …` is a *distinct* variable with its own memory — but we never emit it:
    Rocq alpha-renames binders to unique names, so each name is exactly one
