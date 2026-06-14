@@ -299,7 +299,13 @@ Axiom GoFloat32 : Type.
     compilable BY CONSTRUCTION, no Go-level wrapper.  [u8_no_implicit] (a [Fail])
     is the build-checked proof that mixing is unrepresentable. *)
 Record GoU8 := MkU8 { u8raw : int }.
-Definition u8_lit (x : int) : GoU8 := MkU8 (PrimInt63.land x 255).
+(* Go spec "Constants": a constant is typed at use with a REPRESENTABILITY check —
+   "it is an error if the constant value cannot be represented as a value of the
+   respective type".  So an out-of-range constant is a COMPILE ERROR, NOT a silent
+   wrap.  [u8_lit] demands a proof the constant fits ([x < 256], discharged by
+   [eq_refl] for a literal in range); there is no masking, so [u8_lit 300] is
+   unrepresentable — exactly Go's "constant overflows uint8". *)
+Definition u8_lit (x : int) (_ : (x <? 256)%uint63 = true) : GoU8 := MkU8 x.
 Definition u8_add (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.add (u8raw a) (u8raw b)) 255).
 Definition u8_sub (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.sub (u8raw a) (u8raw b)) 255).
 Definition u8_mul (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.mul (u8raw a) (u8raw b)) 255).
@@ -309,6 +315,8 @@ Definition u8_leb (a b : GoU8) : bool := PrimInt63.leb (u8raw a) (u8raw b).
 
 (* Build-checked: [uint8] and [int] do NOT mix — no implicit conversion. *)
 Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : int).
+(* Build-checked: an out-of-range constant is UNREPRESENTABLE (Go: "overflows uint8"). *)
+Fail Definition u8_const_oob : GoU8 := u8_lit 300 eq_refl.
 
 (** ---- Signed fixed-width integers ----
 
