@@ -257,6 +257,19 @@ Definition u8_demo : IO unit :=
   bind (println [any (u8_sub (u8_lit 0)   (u8_lit 1))])   (fun _ =>   (* 255 *)
   println [any (u8_ltb (u8_lit 10) (u8_lit 20))]))).                  (* true *)
 
+(** int8 (signed): the SAME template extended to two's-complement.  [int8(150)] is
+    [-106] (150 sign-extended from 8 bits), and the wrap is machine-checked.  The
+    sign-extension is the harder case the model must get right. *)
+Example i8_add_wraps : i8_add (i8_lit 100) (i8_lit 50) = i8_lit (-106).
+Proof. now vm_compute. Qed.                          (* 100+50=150 → -106 *)
+Example i8_sub_wraps : i8_sub (i8_lit (-128)) (i8_lit 1) = i8_lit 127.
+Proof. now vm_compute. Qed.                          (* -128 - 1 wraps to 127 *)
+Definition i8_demo : IO unit :=
+  bind (println [any (i8_add (i8_lit 100) (i8_lit 50))])      (fun _ =>   (* -106 *)
+  bind (println [any (i8_sub (i8_lit (-128)) (i8_lit 1))])    (fun _ =>   (* 127  *)
+  bind (println [any (i8_lit (-100))])                        (fun _ =>   (* -100 *)
+  println [any (i8_ltb (i8_lit (-5)) (i8_lit 3))]))).                     (* true *)
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -748,6 +761,7 @@ Definition main_effect : IO unit :=
   bind float_opp_demo                  (fun _ =>   (* prints: -1.5 / 2.0 *)
   bind (float_opp_sign_demo 0)         (fun _ =>   (* prints: true (opp made -0 at runtime) *)
   bind u8_demo                         (fun _ =>   (* prints: 44 / 1 / 255 / true *)
+  bind i8_demo                         (fun _ =>   (* prints: -106 / 127 / -100 / true *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
@@ -781,6 +795,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

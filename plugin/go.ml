@@ -348,6 +348,15 @@ let is_u8_mul_ref r = named "u8_mul" r
 let is_u8_eqb_ref r = named "u8_eqb" r
 let is_u8_ltb_ref r = named "u8_ltb" r
 let is_u8_leb_ref r = named "u8_leb" r
+(* int8: like uint8 but the masked result is sign-extended:
+   [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)].  Comparison is SIGNED. *)
+let is_i8_lit_ref r = named "i8_lit" r
+let is_i8_add_ref r = named "i8_add" r
+let is_i8_sub_ref r = named "i8_sub" r
+let is_i8_mul_ref r = named "i8_mul" r
+let is_i8_eqb_ref r = named "i8_eqb" r
+let is_i8_ltb_ref r = named "i8_ltb" r
+let is_i8_leb_ref r = named "i8_leb" r
 
 let classify_float_op r =
   List.find_map
@@ -436,6 +445,9 @@ let binop_of r =
   else if is_u8_ltb_ref r then Some (3, " < ")    (* uintN values are in-range, so *)
   else if is_u8_leb_ref r then Some (3, " <= ")   (* Go's signed int64 </<=/== agree *)
   else if is_u8_eqb_ref r then Some (3, " == ")   (* with unsigned uint8 comparison *)
+  else if is_i8_ltb_ref r then Some (3, " < ")    (* int8 values are signed; Go int64 *)
+  else if is_i8_leb_ref r then Some (3, " <= ")   (* </<= are signed too → faithful *)
+  else if is_i8_eqb_ref r then Some (3, " == ")
   else
   match classify_nat_op r with
   | Some op -> Some (op_prec op, go_infix op)
@@ -728,6 +740,16 @@ let rec pp_expr state env = function
            str "((" ++ pp_expr state env a ++ str " - " ++ pp_expr state env b ++ str ") & 0xff)"
        | MLglob r, [a; b] when is_u8_mul_ref r ->
            str "((" ++ pp_expr state env a ++ str " * " ++ pp_expr state env b ++ str ") & 0xff)"
+
+       (* int8: mask to 8 bits then sign-extend [(m ^ 0x80) - 0x80]. *)
+       | MLglob r, [x] when is_i8_lit_ref r ->
+           str "((((" ++ pp_expr state env x ++ str ") & 0xff) ^ 0x80) - 0x80)"
+       | MLglob r, [a; b] when is_i8_add_ref r ->
+           str "((((" ++ pp_expr state env a ++ str " + " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
+       | MLglob r, [a; b] when is_i8_sub_ref r ->
+           str "((((" ++ pp_expr state env a ++ str " - " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
+       | MLglob r, [a; b] when is_i8_mul_ref r ->
+           str "((((" ++ pp_expr state env a ++ str " * " ++ pp_expr state env b ++ str ") & 0xff) ^ 0x80) - 0x80)"
 
        (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
@@ -1901,6 +1923,9 @@ let is_inlined_ref r =
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
   is_u8_lit_ref r || is_u8_add_ref r || is_u8_sub_ref r || is_u8_mul_ref r ||
   is_u8_eqb_ref r || is_u8_ltb_ref r || is_u8_leb_ref r ||
+  is_i8_lit_ref r || is_i8_add_ref r || is_i8_sub_ref r || is_i8_mul_ref r ||
+  is_i8_eqb_ref r || is_i8_ltb_ref r || is_i8_leb_ref r ||
+  String.equal (global_basename r) "i8_norm" ||
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r ||
@@ -1929,7 +1954,7 @@ let is_inlined_ref r =
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_op_names ||
-  is_int63_op_ref r "land"  (* used inside the (suppressed) uintN masking bodies *)
+  is_int63_op_ref r "land" || is_int63_op_ref r "lxor"  (* inside suppressed uintN/intN bodies *)
 
 (*s Main-package wrapper. *)
 

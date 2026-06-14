@@ -269,6 +269,7 @@ Definition GoSlice (A : Type) : Type := list A.
     precision, with verified arithmetic semantics in the kernel.
     [GoFloat32] is an axiom; Rocq has no native 32-bit float. *)
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
+From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
 Notation GoFloat64 := float.
 Axiom GoFloat32 : Type.
@@ -296,6 +297,25 @@ Definition u8_mul (a b : int) : int := PrimInt63.land (PrimInt63.mul a b) 255.
 Definition u8_eqb (a b : int) : bool := PrimInt63.eqb a b.   (* in-range ⇒ exact *)
 Definition u8_ltb (a b : int) : bool := PrimInt63.ltb a b.   (* in-range ⇒ unsigned = signed *)
 Definition u8_leb (a b : int) : bool := PrimInt63.leb a b.
+
+(** ---- Signed fixed-width integers ----
+
+    [int8] in [-128, 128).  Go's int8 arithmetic wraps two's-complement.  Model:
+    mask to 8 bits, then SIGN-EXTEND with [(m ^ 0x80) - 0x80] (flip the sign bit,
+    subtract it), taking [m ∈ [0,256)] to [[-128,128)] — exactly what Go's
+    [int8(x)] conversion does.  Comparison is SIGNED (values can be negative), so
+    it uses [Sint63.ltb] → Go's signed int64 [<].  Computable and faithful; the
+    plugin emits the explicit int64 mask + sign-extend, e.g.
+    [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)]. *)
+Definition i8_norm (x : int) : int :=
+  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
+Definition i8_lit (x : int) : int := i8_norm x.
+Definition i8_add (a b : int) : int := i8_norm (PrimInt63.add a b).
+Definition i8_sub (a b : int) : int := i8_norm (PrimInt63.sub a b).
+Definition i8_mul (a b : int) : int := i8_norm (PrimInt63.mul a b).
+Definition i8_eqb (a b : int) : bool := PrimInt63.eqb a b.
+Definition i8_ltb (a b : int) : bool := Sint63.ltb a b.   (* SIGNED comparison *)
+Definition i8_leb (a b : int) : bool := Sint63.leb a b.
 
 (** ---- Builtins ---- *)
 

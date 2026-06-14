@@ -604,14 +604,22 @@ resting state.)**
     produce.  Done for `uint8`: `u8_lit`/`add`/`sub`/`mul`/`eqb`/`ltb`/`leb`, with
     machine-checked `u8_add_wraps`/`u8_mul_wraps`/`u8_sub_wraps` and the `u8_demo`
     golden (`44 / 1 / 255 / true`; note `u8_sub 0 1 = 255` — uint8 *does* wrap,
-    unlike the rejected truncating `Nat.sub`).  *Pending (same template):*
-    `uint16`/`uint32` (masks `0xffff`/`0xffffffff`); `div`/`mod` (need a
-    non-zero guard like `div_nz`); **signed `int8/16/32`** (two's-complement
-    wrap = mask then sign-extend); and **`uint64`/`uint`** (64-bit exceeds the
-    63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶² limit).
-    *Open refinement:* type-level distinctness so a `uint8` can't be silently
-    mixed with an `int` (a separate safety layer; the arithmetic semantics are
-    nailed first).
+    unlike the rejected truncating `Nat.sub`).  **Signed `int8` done too** (proves
+    the template handles two's-complement): mask to 8 bits then SIGN-EXTEND
+    (`(m ^ 0x80) - 0x80`), comparison via signed `Sint63.ltb`; plugin emits the
+    explicit int64 form `((((a + b) & 0xff) ^ 0x80) - 0x80)`.  Machine-checked
+    `i8_add_wraps` (`100+50 = -106`), `i8_sub_wraps` (`-128-1 = 127`); `i8_demo`
+    golden `-106 / 127 / -100 / true`.  *Pending (same template):* `uint16`/`int16`
+    (mask `0xffff`) and `uint32`/`int32` (mask `0xffffffff`) — **but `u32_mul`
+    overflows the 63-bit carrier** ((2³²−1)² ≈ 2⁶⁴ > 2⁶²) so 32-bit *multiply*
+    needs the wider model, even though add/sub/cmp are fine; `div`/`mod` (need a
+    non-zero guard like `div_nz`); and **`uint64`/`uint`/`int` full width** (64-bit
+    exceeds the 63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶²
+    limit).  *Cosmetic:* `u8_lit`/`i8_lit` of an in-range literal emits the full
+    mask/sign-extend expression instead of just the literal — correct, just verbose.
+    *Open refinement:* type-level distinctness so a `uint8` can't be silently mixed
+    with an `int` (a separate safety layer; the arithmetic semantics are nailed
+    first).
 11. **Float gaps — *comparison + unary negation now done; float32 + conversions +
     abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered behaviour)
     and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked

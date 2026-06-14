@@ -66,6 +66,13 @@ func U8_demo() {
 	println((10 & 0xff) < (20 & 0xff))
 }
 
+func I8_demo() {
+	println(((((((((100) & 0xff) ^ 0x80) - 0x80) + ((((50) & 0xff) ^ 0x80) - 0x80)) & 0xff) ^ 0x80) - 0x80))
+	println(((((((((-128) & 0xff) ^ 0x80) - 0x80) - ((((1) & 0xff) ^ 0x80) - 0x80)) & 0xff) ^ 0x80) - 0x80))
+	println(((((-100) & 0xff) ^ 0x80) - 0x80))
+	println(((((-5) & 0xff) ^ 0x80) - 0x80) < ((((3) & 0xff) ^ 0x80) - 0x80))
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -565,6 +572,7 @@ func main() {
 	Float_opp_demo()
 	Float_opp_sign_demo(0.0)
 	U8_demo()
+	I8_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
