@@ -3,8 +3,11 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run extract go-run install-hooks
+.PHONY: builder build bake push run extract go-run install-hooks check golden
 .DEFAULT_GOAL := build
+
+# Run the extracted program (Go's println writes to stderr → capture 2>&1).
+GORUN := docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine go run .
 
 # One-time setup: activate git hooks from .githooks/.
 install-hooks:
@@ -34,6 +37,25 @@ run-local: extract
 # Run the image built for the native platform.
 run: build
 	docker run --rm --platform $(PLATFORM) $(IMAGE):$(TAG)
+
+# Golden-file regression check: run the extracted program and diff its output
+# against expected_output.txt.  Cheap end-to-end check that a Rocq/plugin change
+# did not alter observable behaviour anywhere (not just the demo in focus).
+# Assumes main.go is current (run `make extract` first).
+check:
+	@$(GORUN) > /tmp/fido_out.txt 2>&1 || true; \
+	if diff -u expected_output.txt /tmp/fido_out.txt; then \
+	  echo "fido: output matches golden ✓"; \
+	else \
+	  echo ""; echo "fido: OUTPUT DIFFERS from golden (above)."; \
+	  echo "fido: if the change is intended, run 'make golden' to update."; \
+	  exit 1; \
+	fi
+
+# Regenerate the golden baseline after an intended behaviour change.
+golden:
+	@$(GORUN) > expected_output.txt 2>&1
+	@echo "fido: updated expected_output.txt"
 
 # Multi-platform build (does not load locally — use push to ship).
 bake:

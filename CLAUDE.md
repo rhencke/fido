@@ -268,5 +268,11 @@ make build        # full Docker build → static binary
 make run          # run the image
 make extract      # pull generated Go into the repo
 make run-local    # extract + go run (no Docker)
+make check        # golden check: run program, diff output vs expected_output.txt
+make golden       # update expected_output.txt after an intended behaviour change
 make install-hooks  # activate pre-commit hook (run once after clone)
 ```
+
+`expected_output.txt` is the golden runtime output — a cheap end-to-end check
+that a Rocq/plugin change did not alter observable behaviour *anywhere*. After
+an intended behaviour change, `make golden` and commit the new baseline.
