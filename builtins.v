@@ -476,6 +476,23 @@ Axiom slice_get : forall {A : Type}, GoTypeTag A -> GoSlice A -> int -> IO A.
 Axiom slice_at_ok : forall {A B : Type},
   GoTypeTag A -> GoSlice A -> int -> (A -> bool -> IO B) -> IO B.
 
+(** ---- Bounded iteration (loops, step 8) ----
+
+    [for_each xs body] runs [body] on each element of [xs], in order.  It is a
+    total Fixpoint (structural recursion on the slice), so it always terminates
+    and its unfolding is a provable equation:
+      [for_each nil body = ret tt]
+      [for_each (x :: rest) body = body x >>' for_each rest body]
+    The plugin lowers a call to a Go [for _, x := range xs { body }] loop
+    rather than to recursion, so there is no unbounded stack and the generated
+    code is idiomatic.  (Unbounded [for]/[for cond] loops, which need a
+    non-terminating combinator, come separately.) *)
+Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
+  match xs with
+  | nil        => ret tt
+  | cons x rest => bind (body x) (fun _ => for_each rest body)
+  end.
+
 (** ---- Session types (step 6) ----
 
     [Proto] encodes a typed communication protocol as a sequence of sends

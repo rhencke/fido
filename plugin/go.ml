@@ -146,6 +146,7 @@ let is_go_map_type  r = String.equal (global_basename r) "GoMap"
 let is_slice_of_list_ref r = String.equal (global_basename r) "slice_of_list"
 let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
 let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
+let is_for_each_ref      r = String.equal (global_basename r) "for_each"
 let is_map_make_ref       r = String.equal (global_basename r) "map_make"
 let is_map_make_typed_ref r = String.equal (global_basename r) "map_make_typed"
 let is_map_set_ref  r = String.equal (global_basename r) "map_set"
@@ -693,6 +694,9 @@ let pp_io_body state tab env body =
                   (* Use the endpoint var so Go doesn't complain "declared but not used" *)
                   str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl () ++
                   pp_stmts tab new_env body
+              | MLglob r2, [xs; bodyfn] when is_for_each_ref r2 ->
+                  emit_for_each tab env xs bodyfn ++
+                  pp_stmts tab new_env body
               | _ ->
              let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
              let lhs = match vis_ids with
@@ -727,6 +731,9 @@ let pp_io_body state tab env body =
              (if is_terminating m then mt ()
               else pp_stmts tab new_env body)))
          | MLglob r, [_] when is_ret_ref r -> mt ()
+         (* for_each in tail position (not inside a bind) *)
+         | MLglob r, [xs; bodyfn] when is_for_each_ref r ->
+             emit_for_each tab env xs bodyfn
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
              let ids, h_body = collect_lam h in
              let new_env = List.rev ids @ env in
@@ -1036,6 +1043,18 @@ let pp_io_body state tab env body =
              str tab ++ str "}" ++ fnl ()
          | _ -> unhandled ())
     | _ -> unhandled ()
+
+  (* for_each xs (fun x => body) → for _, x := range xs { body } *)
+  and emit_for_each tab env xs bodyfn =
+    let ids, body = collect_lam bodyfn in
+    let new_env = List.rev ids @ env in
+    let hdr =
+      match List.filter (fun id -> not (is_dummy id)) ids with
+      | [x] -> str "for _, " ++ pp_mlident x ++ str " := range "
+      | _   -> str "for range " in
+    str tab ++ hdr ++ pp_expr state env xs ++ str " {" ++ fnl () ++
+    pp_stmts (tab ^ "\t") new_env body ++
+    str tab ++ str "}" ++ fnl ()
   in
   let rec peel_catches tab env b =
     let head, all_args = collect_app b [] in
@@ -1110,6 +1129,7 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
+  is_for_each_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r ||

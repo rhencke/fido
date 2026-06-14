@@ -225,6 +225,13 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func Foreach_demo() {
+	xs := []int64{10, 20, 30}
+	for _, x := range xs {
+		println(x)
+	}
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -239,4 +246,5 @@ func main() {
 	List_demo()
 	Slice_safe_demo()
 	Assert_safe_demo(7)
+	Foreach_demo()
 }

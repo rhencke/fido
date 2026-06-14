@@ -275,6 +275,11 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2])))).
 
+(** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
+Definition foreach_demo : IO unit :=
+  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
+  for_each xs (fun x => println [any x]).   (* prints 10 / 20 / 30 *)
+
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
@@ -289,6 +294,7 @@ Definition main_effect : IO unit :=
   bind list_demo                       (fun _ =>   (* prints: 10 2 *)
   bind slice_safe_demo                 (fun _ =>   (* prints: 20 true / 0 false *)
   bind (assert_safe_demo (7 : int))    (fun _ =>   (* prints: 7 true / false false *)
-  ret tt))))))))))))).
+  bind foreach_demo                    (fun _ =>   (* prints: 10 / 20 / 30 *)
+  ret tt)))))))))))))).
 
 Go Main Extraction main "main_effect".
