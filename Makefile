@@ -29,6 +29,11 @@ extract:
 	rm -f *.go
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) \
 	  --output type=local,dest=. --target go-src .
+	# Canonicalise with gofmt: the plugin emits valid Go, but gofmt's operator-
+	# spacing heuristic (e.g. tightening `1.5 + 2.25` to `1.5+2.25`) is depth/
+	# operand-dependent and not worth replicating in the plugin.  This guarantees
+	# the committed Go is gofmt-clean regardless.
+	docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine gofmt -w *.go
 
 # Run the extracted Go sources directly without Docker.
 run-local: extract

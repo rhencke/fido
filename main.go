@@ -22,6 +22,17 @@ func Div_demo() {
 	println(Div_nz(17, 5), Mod_nz(17, 5))
 }
 
+func Float_demo() {
+	println(1.5+2.25, 1.0/4.0)
+}
+
+func Prec_demo() {
+	a := 2
+	b := 3
+	c := 4
+	println(a*b+c, (a+b)*c)
+}
+
 func Neglit_demo() {
 	println(-7, -1, -2147483648)
 }
@@ -459,6 +470,8 @@ func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
 	Div_demo()
+	Float_demo()
+	Prec_demo()
 	Neglit_demo()
 	Map_demo()
 	Slice_demo()

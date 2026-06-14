@@ -93,6 +93,23 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz 17 5 eq_refl); any (mod_nz 17 5 eq_refl)].   (* prints: 3 2 *)
 
+(** float64 is Rocq's primitive [PrimFloat] = IEEE 754 double, the same as Go's
+    float64, so arithmetic agrees bit-for-bit.  This exercises the otherwise-
+    unused float primitive end-to-end.  (Go's [println] formats float64 in
+    scientific notation — that is Go's builtin behaviour, captured by the
+    golden.) *)
+Definition float_demo : IO unit :=
+  println [ any (PrimFloat.add 1.5 2.25)%float     (* 3.75 *)
+          ; any (PrimFloat.div 1.0 4.0)%float ].   (* 0.25 (exact in binary) *)
+
+(** Operator-precedence PARENS: nested arithmetic parenthesises only where the
+    precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
+    handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
+Definition prec_demo : IO unit :=
+  let a := 2%uint63 in let b := 3%uint63 in let c := 4%uint63 in
+  println [ any (PrimInt63.add (PrimInt63.mul a b) c)     (* a*b + c   = 10 *)
+          ; any (PrimInt63.mul (PrimInt63.add a b) c) ].  (* (a+b) * c = 20 *)
+
 (** Negative integer LITERALS print correctly.  [int] is signed (Sint63) whose
     underlying representation is unsigned, so a naive printer would emit [-7] as
     the unsigned 9223372036854775801 — the plugin must emit the signed decimal. *)
@@ -522,6 +539,8 @@ Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
   bind div_demo                        (fun _ =>   (* prints: 3 2 *)
+  bind float_demo                      (fun _ =>   (* prints: 3.75 / 0.25 (sci) *)
+  bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
   bind slice_demo                      (fun _ =>   (* prints: 5 3 / false *)
@@ -551,6 +570,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

@@ -162,17 +162,15 @@ separate tracks.
    inlined arithmetic/comparison op a Go precedence (`* / %` = 5, `+ -` = 4,
    comparisons = 3), and `pp_prec ctx e` parenthesises a sub-operand only when its
    operator binds looser than the context requires — instead of `pp_atom`'s
-   conservative "parenthesise every non-atom". **Open: gofmt operator SPACING.**
-   gofmt tightens higher-precedence operators in a mixed expression by a *depth*
-   heuristic (`a * b + c` → `a*b+c`, `(a + b) * c` → `(a+b)*c`), which the printer
-   does not replicate, so nested-arithmetic output is not gofmt-canonical.  We
-   therefore emit **no nested infix yet** (the `prec_demo` that exercised it was
-   removed); single-operator output (`iv < 3`, `n / d`) is gofmt-clean.  Before
-   any program emits nested arithmetic the printer must match gofmt's spacing
-   (replicate go/printer's `binaryExpr` depth/cutoff rule) — until then the
-   pre-commit hook would (correctly) reject the output.  (The hook now runs
-   `gofmt` via Docker when the host lacks it, instead of silently skipping — a
-   missing host `gofmt` had let non-canonical output through.)
+   conservative "parenthesise every non-atom".  `Prec_demo` shows `a*b + c` (no
+   parens) and `(a+b) * c` (parens only where needed).  **gofmt SPACING is solved
+   by canonicalising on extract:** `make extract` runs `gofmt -w` on the output,
+   so the plugin emits valid Go and gofmt tightens the operator spacing (`a * b`
+   → `a*b`) — its depth/operand heuristic is not worth replicating in the plugin.
+   gofmt does not touch parens, so the printer still owns those.  (The pre-commit
+   hook also now runs `gofmt -l` via Docker when the host lacks it, instead of
+   silently skipping — a missing host `gofmt` had let non-canonical output
+   through.)
 8. **`select`** — non-deterministic choice between ready channels. Needed for
    services/multiplexing/timeouts. Significantly harder semantics than linear
    send/recv; wants control flow (each case is a branch) in place first.
