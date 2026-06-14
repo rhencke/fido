@@ -9,6 +9,7 @@
 
 Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
+Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *)
 
 (** ---- IO monad ----
 
@@ -592,35 +593,132 @@ Axiom go_spawn : IO unit -> IO unit.
 (** Every Go type has a zero value (false, 0, 0.0, nil, "", …). *)
 Axiom zero_val : forall {A : Type}, GoTypeTag A -> A.
 
-(** After [send ch v], the next [recv] on [ch] returns [v].
-    The bind sequencing encodes that send completed before recv ran — valid
-    for buffered channels (with space) and for unbuffered channels when a
-    complementary goroutine is blocked in recv. *)
-Axiom send_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A),
-  bind (send ch v) (fun _ => recv tag ch) =
-  bind (send ch v) (fun _ => ret v).
+(** ---- Channels via state in the world (the concurrent denotational model) ----
 
-(** [recv_ok] variant: after [send ch v], [recv_ok] delivers [(v, true)]. *)
-Axiom send_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A)
-    (f : A -> bool -> IO B),
-  bind (send ch v) (fun _ => recv_ok tag ch f) =
-  bind (send ch v) (fun _ => f v true).
+    Channel semantics rest on STATE, not on bind-sequencing intuition.  Each
+    channel has, in the world, a FIFO [chan_buf] (values sent but not yet
+    received; head = next to receive) and a [chan_closed] flag.  Sends/receives/
+    closes are world-updates ([chan_send_upd] enqueues, [chan_recv_upd] dequeues
+    the head, [chan_close_upd] marks closed).  This MIRRORS the map heap model:
+    the interface characterises a standard FIFO + flag, hence is satisfiable
+    (consistent, non-degenerate), and the channel LAWS below are now THEOREMS
+    derived from it — not free-standing axioms asserted on intuition.
 
-(** Sending on a closed channel panics (Go spec). *)
-Axiom send_closed_panics : forall {A} (ch : GoChan A) (v : A),
-  bind (close_chan ch) (fun _ => send ch v) =
-  bind (close_chan ch) (fun _ => @panic unit (any tt)).
+    BLOCKING is idealised away (like divergence / OOM, and matching [run_io]'s
+    totality): a [recv] equation is given only when the buffer is non-empty (or
+    the channel is closed); a [recv] on a permanently-empty open channel blocks
+    forever, which has no denotation here — a deadlock, out of scope.  This is the
+    SEQUENTIAL (single-goroutine, or correctly-synchronised) slice; the
+    cross-goroutine HAPPENS-BEFORE partial order is the next layer. *)
+Axiom chan_buf    : forall {A : Type}, GoChan A -> World -> list A.
+Axiom chan_closed : forall {A : Type}, GoChan A -> World -> bool.
+Axiom chan_send_upd  : forall {A : Type}, GoChan A -> A -> World -> World.
+Axiom chan_recv_upd  : forall {A : Type}, GoChan A -> World -> World.
+Axiom chan_close_upd : forall {A : Type}, GoChan A -> World -> World.
 
-(** Closing an already-closed channel panics (Go spec). *)
-Axiom double_close_panics : forall {A} (ch : GoChan A),
-  bind (close_chan ch) (fun _ => close_chan ch) =
-  bind (close_chan ch) (fun _ => @panic unit (any tt)).
+(** Heap-interface laws: how [chan_buf]/[chan_closed] read after each update. *)
+Axiom chan_buf_send : forall {A} (ch : GoChan A) (v : A) (w : World),
+  chan_buf ch (chan_send_upd ch v w) = chan_buf ch w ++ (v :: nil).   (* enqueue at tail *)
+Axiom chan_buf_recv : forall {A} (ch : GoChan A) (v : A) (rest : list A) (w : World),
+  chan_buf ch w = v :: rest -> chan_buf ch (chan_recv_upd ch w) = rest.  (* dequeue head *)
+Axiom chan_closed_send : forall {A} (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch (chan_send_upd ch v w) = chan_closed ch w.
+Axiom chan_closed_recv : forall {A} (ch : GoChan A) (w : World),
+  chan_closed ch (chan_recv_upd ch w) = chan_closed ch w.
+Axiom chan_closed_close : forall {A} (ch : GoChan A) (w : World),
+  chan_closed ch (chan_close_upd ch w) = true.
 
-(** NOTE: [recv_ok] on a closed, empty channel returns [(zero_val tag, false)],
-    but this cannot be stated as an unconditional axiom: combined with
-    [send_recv_ok] it would require [v = zero_val tag] for all [v], which is
-    inconsistent.  A guarded version — parameterised by a channel-empty
-    predicate — is deferred until the channel-state model arrives in step 5. *)
+(** [run_io] equations — conditioned on channel state.  A send on an OPEN channel
+    enqueues and returns; on a CLOSED channel it panics (Go spec).  A receive,
+    when the buffer has a head, reads it and dequeues; when the buffer is empty
+    and the channel is closed, [recv_ok] yields [(zero, false)].  Close marks the
+    channel closed; a double close panics. *)
+Axiom run_send : forall {A} (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch w = false ->
+  run_io (send ch v) w = ORet tt (chan_send_upd ch v w).
+Axiom run_send_closed : forall {A} (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch w = true ->
+  run_io (send ch v) w = OPanic (any tt) w.
+Axiom run_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
+  chan_buf ch w = v :: rest ->
+  run_io (recv tag ch) w = ORet v (chan_recv_upd ch w).
+Axiom run_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
+    (f : A -> bool -> IO B) (v : A) (rest : list A) (w : World),
+  chan_buf ch w = v :: rest ->
+  run_io (recv_ok tag ch f) w = run_io (f v true) (chan_recv_upd ch w).
+Axiom run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
+    (f : A -> bool -> IO B) (w : World),
+  chan_buf ch w = nil -> chan_closed ch w = true ->
+  run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
+Axiom run_close : forall {A} (ch : GoChan A) (w : World),
+  chan_closed ch w = false ->
+  run_io (close_chan ch) w = ORet tt (chan_close_upd ch w).
+Axiom run_close_closed : forall {A} (ch : GoChan A) (w : World),
+  chan_closed ch w = true ->
+  run_io (close_chan ch) w = OPanic (any tt) w.
+
+(** ---- The channel laws, now DERIVED as theorems ---- *)
+
+(** After [send ch v] into an OPEN, EMPTY channel, the next [recv] returns [v].
+    (Honest conditions the old unconditional axiom hid: send must not panic on a
+    closed channel, and FIFO means [recv] returns [v] only when [v] is at the
+    head — i.e. the buffer was empty before the send.) *)
+Theorem send_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch w = false -> chan_buf ch w = nil ->
+  run_io (bind (send ch v) (fun _ => recv tag ch)) w
+  = ORet v (chan_recv_upd ch (chan_send_upd ch v w)).
+Proof.
+  intros A tag ch v w Hclosed Hempty.
+  rewrite run_bind, (run_send ch v w Hclosed). cbn.
+  apply (run_recv tag ch v nil).
+  rewrite chan_buf_send, Hempty. reflexivity.
+Qed.
+
+(** [recv_ok] variant: after [send ch v] into an open, empty channel, [recv_ok]
+    delivers [(v, true)] and runs the continuation in the dequeued world. *)
+Theorem send_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A)
+    (f : A -> bool -> IO B) (w : World),
+  chan_closed ch w = false -> chan_buf ch w = nil ->
+  run_io (bind (send ch v) (fun _ => recv_ok tag ch f)) w
+  = run_io (f v true) (chan_recv_upd ch (chan_send_upd ch v w)).
+Proof.
+  intros A B tag ch v f w Hclosed Hempty.
+  rewrite run_bind, (run_send ch v w Hclosed). cbn.
+  apply (run_recv_ok tag ch f v nil).
+  rewrite chan_buf_send, Hempty. reflexivity.
+Qed.
+
+(** Sending on a closed channel panics (Go spec): close then send → panic. *)
+Theorem send_closed_panics : forall {A} (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch w = false ->
+  run_io (bind (close_chan ch) (fun _ => send ch v)) w
+  = OPanic (any tt) (chan_close_upd ch w).
+Proof.
+  intros A ch v w Hopen.
+  rewrite run_bind, (run_close ch w Hopen). cbn.
+  exact (run_send_closed ch v (chan_close_upd ch w) (chan_closed_close ch w)).
+Qed.
+
+(** Closing an already-closed channel panics (Go spec): close then close → panic. *)
+Theorem double_close_panics : forall {A} (ch : GoChan A) (w : World),
+  chan_closed ch w = false ->
+  run_io (bind (close_chan ch) (fun _ => close_chan ch)) w
+  = OPanic (any tt) (chan_close_upd ch w).
+Proof.
+  intros A ch w Hopen.
+  rewrite run_bind, (run_close ch w Hopen). cbn.
+  exact (run_close_closed ch (chan_close_upd ch w) (chan_closed_close ch w)).
+Qed.
+
+(** [recv_ok] on a closed, EMPTY channel returns [(zero_val tag, false)] — Go's
+    "receive from a closed channel" rule.  This could NOT be an unconditional
+    axiom (with [send_recv_ok] it forces [v = zero_val tag] for all [v], an
+    inconsistency); conditioning on the channel state makes it sound. *)
+Theorem recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
+    (f : A -> bool -> IO B) (w : World),
+  chan_buf ch w = nil -> chan_closed ch w = true ->
+  run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
+Proof. intros. apply run_recv_ok_closed_empty; assumption. Qed.
 
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.

@@ -484,26 +484,28 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
 4–5 are **unmodelled** (fine under small-scope until a program/library uses them).
 
 ### Tier 1 — the model itself is incomplete or ungrounded
-1. **Concurrency has no denotational model.**  `run_io` has equations for
-   `ret`/`bind`/`panic`/`catch` ONLY — there is no `run_io` for `send`/`recv`/
-   `close`/`go_spawn`/sessions.  The channel laws (`send_recv`, `send_recv_ok`,
-   `send_closed_panics`, `double_close_panics`) are free-standing equational
-   axioms asserted on bind-sequencing intuition, NOT derived from a semantics.
-   Consequences: the Hoare logic cannot reason about channels at all; goroutine
-   interleaving is absent; race-freedom and deadlock-freedom are unstated; and
-   the channel laws **ignore interleaving**.  `send_recv` (`send;recv = value`)
-   is correctly GATED on the send succeeding — `bind` short-circuits if the send
-   blocks, so it does NOT falsely claim a deadlocking program returns `v` — and
-   `recv` being `IO` (not pure like `map_get_opt`) keeps it non-degenerate.  But
-   it assumes the SAME computation's `recv` gets the value, ignoring a concurrent
-   receiver that could steal it first; so it is faithful for single-goroutine
-   buffered use (what the demos make) and an idealisation under real concurrency.
-   *Fix:* a concurrent denotational model — a world carrying heap +
-   channel state + a **happens-before relation** (per go.dev/ref/mem) — give
-   `send`/`recv`/`go_spawn` real `run_io` equations, and DERIVE the channel laws
-   (properly conditioned on buffer space / a ready peer) instead of asserting
-   them.  This is the substrate the whole concurrency thesis rests on — the single
-   biggest gap.
+1. **Concurrency denotational model — *Phase 1 done (channel state); HB partial
+   order + cross-goroutine pending*.**  The channel laws are no longer
+   free-standing axioms asserted on bind-sequencing intuition: `send`/`recv`/
+   `recv_ok`/`close` now have real `run_io` equations over CHANNEL STATE in the
+   world — a per-channel FIFO `chan_buf` + a `chan_closed` flag, with updates
+   `chan_send_upd`/`chan_recv_upd`/`chan_close_upd` and heap-interface laws, the
+   exact shape of the map heap model (a standard FIFO+flag, hence satisfiable /
+   consistent).  `send_recv`, `send_recv_ok`, `send_closed_panics`,
+   `double_close_panics` are now **THEOREMS** derived from that interface
+   (properly conditioned — `send_recv` needs the channel open AND the buffer
+   empty, the honesty the old unconditional axiom hid), and `recv_ok_closed_empty`
+   (receive-from-closed-empty → `(zero,false)`) is now stateable (it was
+   inconsistent as an unconditional axiom).  Blocking is idealised away like
+   divergence: a `recv` equation is given only for a non-empty buffer (or a closed
+   channel); recv on a permanently-empty open channel is a deadlock, no
+   denotation.  *Still pending:* the cross-goroutine **happens-before partial
+   order** (per go.dev/ref/mem) — `chan_buf` gives the sequential/correctly-
+   synchronised slice, but the HB order that (a) makes race-freedom *statable*
+   (two conflicting accesses unordered by HB) and (b) gives the capacity rule
+   (kth recv ⤳ (k+C)th send) and `go_spawn`'s fork edge is the next phase.  This
+   is still the substrate the whole concurrency thesis rests on; Phase 1 grounds
+   the channel laws, the HB order grounds race/deadlock freedom.
 2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
    a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
    map / slice / `zero_val` axioms are not shown consistent with it.  If the set
