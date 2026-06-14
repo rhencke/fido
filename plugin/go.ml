@@ -183,6 +183,7 @@ let is_recv_ref = named "recv"
 let is_close_chan_ref = named "close_chan"
 let is_recv_ok_ref = named "recv_ok"
 let is_go_spawn_ref = named "go_spawn"
+let is_defer_call_ref = named "defer_call"
 let is_proto_type r =
   String.equal (global_basename r) "Proto"
 let is_proto_ctor r =
@@ -819,6 +820,11 @@ let pp_io_body state tab env body =
                   pp_stmts (tab ^ "\t") env goroutine_body ++
                   str tab ++ str "}()" ++ fnl () ++
                   pp_stmts tab new_env body
+              | MLglob r2, [defer_body] when is_defer_call_ref r2 ->
+                  str tab ++ str "defer func() {" ++ fnl () ++
+                  pp_stmts (tab ^ "\t") env defer_body ++
+                  str tab ++ str "}()" ++ fnl () ++
+                  pp_stmts tab new_env body
               | MLglob r2, [sess_ep] when is_sess_close_ref r2 ->
                   (* Use the endpoint var so Go doesn't complain "declared but not used" *)
                   str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl () ++
@@ -920,6 +926,11 @@ let pp_io_body state tab env body =
          | MLglob r, [goroutine_body] when is_go_spawn_ref r ->
              str tab ++ str "go func() {" ++ fnl () ++
              pp_stmts (tab ^ "\t") env goroutine_body ++
+             str tab ++ str "}()" ++ fnl ()
+         (* defer_call f → defer func(){ f }() (function-scoped, like Go's defer) *)
+         | MLglob r, [defer_body] when is_defer_call_ref r ->
+             str tab ++ str "defer func() {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env defer_body ++
              str tab ++ str "}()" ++ fnl ()
          (* recv_ok tag ch (fun x ok => body) → x, ok := <-ch; body *)
          | MLglob r, [_tag; ch; kont] when is_recv_ok_ref r ->
@@ -1318,7 +1329,7 @@ let is_inlined_ref r =
   is_map_get_opt_ref r ||
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
-  is_go_spawn_ref r ||
+  is_go_spawn_ref r || is_defer_call_ref r ||
   is_sess_endpoint_ref r || is_make_sess_ref r ||
   is_sess_send_ref r || is_sess_recv_ref r || is_sess_close_ref r ||
   is_dual_ref r || is_proto_ctor r || is_proto_type r ||

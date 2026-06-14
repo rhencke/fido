@@ -225,6 +225,16 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func Defer_demo() {
+	defer func() {
+		println(1)
+	}()
+	defer func() {
+		println(2)
+	}()
+	println(3)
+}
+
 func Mut_demo() {
 	r := int64(10)
 	a := r
@@ -300,4 +310,5 @@ func main() {
 	Cond_goto_demo(false)
 	Mut_demo()
 	Count_demo()
+	Defer_demo()
 }

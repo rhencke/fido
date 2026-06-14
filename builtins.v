@@ -252,6 +252,14 @@ Proof.
   rewrite bind_panic_l, catch_panic. reflexivity.
 Qed.
 
+(** [defer_call f]: Go's [defer] keyword — schedule [f] to run when the
+    enclosing *function* returns (LIFO across all defers, on both normal and
+    panic exit), and continue immediately.  This is FUNCTION-scoped, unlike the
+    block-scoped [with_defer]: deferred calls in a loop accumulate and all run
+    at function return.  Lowers to [defer func(){ f }()] (Go provides the
+    function-scoping, LIFO ordering, and run-at-return). *)
+Axiom defer_call : IO unit -> IO unit.
+
 (** Forward declarations so GoTypeTag can reference composite Go types in its
     TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
 Axiom GoMap  : Type -> Type -> Type.

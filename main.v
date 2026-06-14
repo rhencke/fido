@@ -275,6 +275,13 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2])))).
 
+(** Function-scoped defer: [defer_call] runs at function return, LIFO across all
+    defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1. *)
+Definition defer_demo : IO unit :=
+  bind (defer_call (println [any (1 : int)])) (fun _ =>   (* runs 3rd (LIFO) *)
+  bind (defer_call (println [any (2 : int)])) (fun _ =>   (* runs 2nd *)
+  println [any (3 : int)])).                               (* runs now *)
+
 (** Mutable local variable: declare, read, reassign, read again — straight-line
     (no control flow, so trivially scope-correct). *)
 Definition mut_demo : IO unit :=
@@ -342,6 +349,7 @@ Definition main_effect : IO unit :=
   bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
-  ret tt))))))))))))))))))).
+  bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
+  ret tt)))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

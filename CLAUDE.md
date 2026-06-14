@@ -211,13 +211,14 @@ safe-by-construction principle. Tracked until closed.
    constant acquires a type only at use, where representability is a proof
    obligation (Go's compile-time check → safe-by-construction). Ties to #2 (the
    Z int model) and to string literals.
-6. **Function-scoped `defer`** — *not modelled*. `with_defer` is **block**-scoped
-   (cleanup runs at the end of the wrapped computation, extracted faithfully as
-   an IIFE + `defer`). Go's `defer` keyword is **function**-scoped: deferred
-   calls accumulate and run LIFO at *function return*. They diverge in a loop —
-   Go's `for { defer f() }` runs every `f()` at function exit (the classic
-   accumulation/leak), whereas `with_defer` runs per iteration. Faithful
-   function-scoped defer needs a deferred-call stack unwound at function return.
+6. **Function-scoped `defer`** — *done*. `defer_call f` is Go's `defer`
+   keyword — function-scoped, LIFO, runs at function return on both normal and
+   panic exit; it lowers to `defer func(){ f }()` (Go provides the scoping,
+   ordering, and run-at-return), mirroring `go_spawn`. Distinct from the
+   **block**-scoped `with_defer` (an IIFE + `defer`, cleanup at end of the
+   wrapped computation). The two now coexist: `defer_call` in a loop accumulates
+   and all run at function exit (faithful to Go's `for { defer f() }`);
+   `with_defer` runs per scope.
 7. **`goto` / unified control-flow model** — *the architecture for all control
    flow* (a primitive — completeness principle; no partial punt). The semantics
    is a **goto-CFG**: every function body is a control-flow graph of basic blocks
