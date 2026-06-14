@@ -560,6 +560,15 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
   and auto-stages the generated Go, so committed `*.go` can never drift from
   prover output (a broken proof aborts the commit); also enforces gofmt. Still
   the anti-tampering gate — fresh prover output always overwrites `*.go`.
+- **`gofmt` is load-bearing, by design.** The plugin emits valid Go but does NOT
+  match gofmt's whitespace (operator spacing is an operand-sensitive
+  depth/cutoff rule; alignment is `text/tabwriter`'s two-pass elastic tabstops).
+  gofmt *is* Go's only definition of canonical surface form — there is no spec to
+  implement independently — so `make extract` runs `gofmt -w` to canonicalise,
+  rather than vendoring a second copy of `go/printer`+`tabwriter`. **Do not remove
+  the `gofmt -w` step**; the hook's `gofmt -l` is only a backstop confirming it
+  ran. (Decided 2026-06-14: a from-scratch canonical emitter would mean
+  maintaining a gofmt clone byte-for-byte forever — the worse trade for cosmetics.)
 
 ## Key commands
 

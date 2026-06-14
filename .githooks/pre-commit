@@ -16,10 +16,13 @@ if git diff --cached --name-only | grep -qE '\.v$|^plugin/'; then
   echo "fido: staged fresh extraction."
 fi
 
-# Generated Go must be gofmt-clean (the plugin should emit canonical output).
-# Use host gofmt if present, else the same Go image the build uses — do NOT let
-# a missing host gofmt silently skip the check (that let non-canonical output
-# through historically).
+# Generated Go must be gofmt-clean.  By design the plugin emits valid-but-not-
+# canonical whitespace and `make extract` canonicalises it with `gofmt -w` (gofmt
+# is Go's only definition of canonical surface form; we don't reimplement it).
+# This check is a BACKSTOP: since `make extract` (above) just ran `gofmt -w`, it
+# should always pass — a failure means the `gofmt -w` step didn't run, not that
+# the plugin is wrong.  Use host gofmt if present, else the build's Go image — do
+# NOT let a missing host gofmt silently skip it (that let bad output through once).
 if ls ./*.go >/dev/null 2>&1; then
   if command -v gofmt >/dev/null 2>&1; then
     unformatted=$(gofmt -l ./*.go)
@@ -27,9 +30,8 @@ if ls ./*.go >/dev/null 2>&1; then
     unformatted=$(docker run --rm -v "$(pwd)":/w -w /w golang:1.23-alpine gofmt -l ./*.go 2>/dev/null)
   fi
   if [ -n "$unformatted" ]; then
-    echo "fido: ERROR — generated Go is not gofmt-clean:"
+    echo "fido: ERROR — generated Go is not gofmt-clean (did 'make extract' run gofmt -w?):"
     echo "$unformatted"
-    echo "Fix the plugin to emit gofmt-compliant output."
     exit 1
   fi
 fi
