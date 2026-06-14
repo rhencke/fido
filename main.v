@@ -473,6 +473,16 @@ Definition control_flow_demo : IO unit :=
   bind (pick_demo true)       (fun _ =>   (* prints: 1 *)
   neg_demo))).                            (* prints: -3 *)
 
+(** Go spec conformance: "Logical operators" (go.dev/ref/spec#Logical_operators)
+    — the SOURCE of &&/||/!.  Spec: [p && q] is "if p then q else false", [p || q]
+    is "if p then true else q", [!p] is "not p".  Coq's [andb]/[orb]/[negb] ARE
+    those definitions — machine-checked by [reflexivity], so the lowering is
+    faithful to the spec phrasing (short-circuit is unobservable: the operands are
+    pure total bools). *)
+Example spec_andb : forall p q, andb p q = if p then q else false. Proof. reflexivity. Qed.
+Example spec_orb  : forall p q, orb  p q = if p then true else q.  Proof. reflexivity. Qed.
+Example spec_negb : forall p,   negb p   = if p then false else true. Proof. reflexivity. Qed.
+
 (** Boolean operators [andb]/[orb]/[negb] lower to Go's [&&]/[||]/[!].  The
     operands are pure, total [bool] values, so Go's short-circuit evaluation is
     observationally identical (no effects, no divergence to skip).  Parameters

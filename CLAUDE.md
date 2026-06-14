@@ -684,6 +684,11 @@ resting state.)**
   Go's unused-import error); finishing the primitive layer first keeps the trust
   base small. A builtin that *needs* an import is deferred, not approximated — no
   hand-rolled `abs` that mishandles `-0.0`.
+- `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger: each spec section we
+  model, the rule (cited), our behavior, status (✓ conforms / ⚠ bounded deviation
+  / ✗ fails loud), and the machine-checked witness. Verify the spec **one section
+  at a time**; when code implements a rule, it cites the section in a comment. A
+  primitive is "done" only when its section is honored there.
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
 - `plugin/go.ml` + `plugin/g_go_extraction.mlg` — the Rocq→Go extraction plugin
 - `builtins.v` — Go builtins (always in scope, loaded via `preamble.v`)
