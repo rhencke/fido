@@ -228,18 +228,17 @@ func Assert_safe_demo(n int64) {
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
-block0:
-	iv = i
-	if iv < 3 {
-		defer func(iv int64) {
-			println(iv)
-		}(iv)
-		i = Add(iv, 1)
-		goto block0
-	} else {
-		goto block1
+	for {
+		iv = i
+		if iv < 3 {
+			defer func(iv int64) {
+				println(iv)
+			}(iv)
+			i = Add(iv, 1)
+		} else {
+			break
+		}
 	}
-block1:
 	return
 }
 
@@ -264,16 +263,15 @@ func Mut_demo() {
 func Count_demo() {
 	i := int64(0)
 	var iv int64
-block0:
-	iv = i
-	if iv < 3 {
-		println(iv)
-		i = Add(iv, 1)
-		goto block0
-	} else {
-		goto block1
+	for {
+		iv = i
+		if iv < 3 {
+			println(iv)
+			i = Add(iv, 1)
+		} else {
+			break
+		}
 	}
-block1:
 	return
 }
 

@@ -455,6 +455,30 @@ let rec db1_free = function
   | MLmagic e           -> db1_free e
   | _                   -> true
 
+(*s CFG block terminators ([Next] values).  A block emitter delegates its
+    terminator to one of these, so the same emitter prints raw labels+goto or
+    structured continue/break depending on context. *)
+
+let raw_term tab next =
+  match next with
+  | MLcons (_, c, [n]) when is_jump_ctor c ->
+      let lbl = match nat_value n with Some v -> v | None -> 0 in
+      str tab ++ str (Printf.sprintf "goto block%d" lbl) ++ fnl ()
+  | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
+  | _ -> str tab ++ str "return" ++ fnl ()
+
+(* Inside a structured [for] for loop-header [header] with exit block [exit]:
+   a jump back to the header is the implicit loop-around (emit nothing); a jump
+   to the exit is [break]; anything else falls back to a raw [goto]. *)
+let loop_term header exit tab next =
+  match next with
+  | MLcons (_, c, [n]) when is_jump_ctor c ->
+      (match nat_value n with
+       | Some l when l = header -> mt ()
+       | Some l when l = exit   -> str tab ++ str "break" ++ fnl ()
+       | _ -> raw_term tab next)
+  | _ -> raw_term tab next
+
 let rec pp_expr state env = function
   | MLrel i ->
       pp_rel env i
@@ -729,18 +753,22 @@ and block_hoists b acc =
            Array.fold_left (fun a (_, _, body) -> block_hoists body a) acc branches
        | _ -> acc)
 
-and emit_block state hoists tab env b =
+(* [term] handles the block's terminator (a [Next] value) — see [raw_term] /
+   [loop_term].  This is what lets one emitter print raw goto or structured
+   continue/break. *)
+and emit_block state hoists term tab env b =
   (* A defer/go closure inside a loop block captures the hoisted loop-temps BY
      VALUE — [kw func(iv T){ body }(iv)] — so each iteration's value is fixed at
      this point.  Capturing the shared hoisted cell by reference would give
      every closure the last value (the goto form of Go's loop-variable capture;
-     the structured [for] lowering gets this for free on Go 1.22+). *)
+     the structured [for] lowering gets this for free on Go 1.22+).  A closure
+     body is not part of the CFG, so it terminates with [raw_term] (return). *)
   let emit_closure kw body =
     let sep = prlist_with_sep (fun () -> str ", ") (fun x -> x) in
     let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
     let args   = List.map (fun (x, _) -> pp_mlident x) hoists in
     str tab ++ str kw ++ str " func(" ++ sep params ++ str ") {" ++ fnl () ++
-    emit_block state hoists (tab ^ "\t") env body ++
+    emit_block state hoists raw_term (tab ^ "\t") env body ++
     str tab ++ str "}(" ++ sep args ++ str ")" ++ fnl ()
   in
   let h, args = collect_app b [] in
@@ -753,9 +781,9 @@ and emit_block state hoists tab env b =
       let avis = List.filter (fun a -> not (is_erased a)) aargs in
       (match ah, avis with
        | MLglob rr, [dbody] when is_defer_call_ref rr ->
-           emit_closure "defer" dbody ++ emit_block state hoists tab new_env kbody
+           emit_closure "defer" dbody ++ emit_block state hoists term tab new_env kbody
        | MLglob rr, [gbody] when is_go_spawn_ref rr ->
-           emit_closure "go" gbody ++ emit_block state hoists tab new_env kbody
+           emit_closure "go" gbody ++ emit_block state hoists term tab new_env kbody
        | _ ->
            (* a value read ([ref_get]) goes to its hoisted var with [=]; a void
               action (println / ref_set, whose [fun _] may extract as a named
@@ -766,15 +794,8 @@ and emit_block state hoists tab env b =
              | [x] when action_is_value -> pp_mlident x ++ str " = "
              | _   -> mt () in
            str tab ++ lhs ++ pp_expr state env action ++ fnl () ++
-           emit_block state hoists tab new_env kbody)
-  | MLglob r, [next] when is_ret_ref r ->
-      (match next with
-       | MLcons (_, c, [n]) when is_jump_ctor c ->
-           let lbl = match nat_value n with Some v -> v | None -> 0 in
-           str tab ++ str (Printf.sprintf "goto block%d" lbl) ++ fnl ()
-       | MLcons (_, c, []) when is_done_ctor c ->
-           str tab ++ str "return" ++ fnl ()
-       | _ -> str tab ++ str "return" ++ fnl ())
+           emit_block state hoists term tab new_env kbody)
+  | MLglob r, [next] when is_ret_ref r -> term tab next
   | _ ->
       (match b with
        | MLcase (_, scrut, branches) ->
@@ -787,13 +808,30 @@ and emit_block state hoists tab env b =
                      || (is_bool_false c1 && is_bool_true c2) ->
                      let tb, eb = if is_bool_true c1 then body1, body2 else body2, body1 in
                      str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
-                     emit_block state hoists (tab ^ "\t") env tb ++
+                     emit_block state hoists term (tab ^ "\t") env tb ++
                      str tab ++ str "} else {" ++ fnl () ++
-                     emit_block state hoists (tab ^ "\t") env eb ++
+                     emit_block state hoists term (tab ^ "\t") env eb ++
                      str tab ++ str "}" ++ fnl ()
                  | _ -> str tab ++ str "return" ++ fnl ())
             | _ -> str tab ++ str "return" ++ fnl ())
        | _ -> str tab ++ pp_expr state env b ++ fnl ())
+
+(*s Structuring: recognise a goto-CFG that is a [while] loop and lift it back to
+    an idiomatic Go [for].  Shape: two blocks, entry at 0; block 0 (the header)
+    jumps only to itself (loop around) or to block 1 (exit); block 1 is terminal
+    (no jumps).  This lowers to [for { <block0, loop_term 0 1> } <block1>], where
+    [loop_term] turns the jump-to-header into fall-through and the jump-to-exit
+    into [break] — no labels, no goto.  Anything else stays raw goto. *)
+
+let as_while_loop start_v bs =
+  match bs with
+  | [b0; b1] when start_v = 0 ->
+      let t0 = block_targets b0 [] in
+      let t1 = block_targets b1 [] in
+      if List.for_all (fun n -> n = 0 || n = 1) t0
+         && List.mem 0 t0 && List.mem 1 t0 && t1 = []
+      then Some (b0, b1) else None
+  | _ -> None
 
 (*s IO body emitter — shared by pp_function (for IO-returning fns) and pp_main_body. *)
 
@@ -894,15 +932,9 @@ let pp_io_body state tab env body =
          | MLglob r, [start; blocks] when is_run_blocks_ref r ->
              (match unfold_list [] blocks with
               | Some bs ->
-                  let targets =
-                    List.fold_left (fun a b -> block_targets b a) [] bs in
                   let hoists =
                     List.fold_left (fun a b -> block_hoists b a) [] bs in
-                  let is_target i = List.mem i targets in
                   let start_v = match nat_value start with Some v -> v | None -> 0 in
-                  let lbl_indent =
-                    if String.length tab >= 1
-                    then String.sub tab 0 (String.length tab - 1) else "" in
                   (* hoisted declarations: var x T, dominating every block *)
                   let hoist_doc =
                     prlist
@@ -910,19 +942,37 @@ let pp_io_body state tab env body =
                          str tab ++ str "var " ++ pp_mlident x ++ str " "
                          ++ str t ++ fnl ())
                       (List.rev hoists) in
-                  let initial =
-                    if start_v = 0 then mt ()
-                    else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
-                  let rec emit_all i = function
-                    | [] -> mt ()
-                    | bi :: rest ->
-                        (if is_target i
-                         then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
-                         else mt ()) ++
-                        emit_block state hoists tab env bi ++
-                        emit_all (i + 1) rest
-                  in
-                  hoist_doc ++ initial ++ emit_all 0 bs
+                  (match as_while_loop start_v bs with
+                   | Some (b0, b1) ->
+                       (* structured: for { <header> } <exit> — no labels/goto *)
+                       hoist_doc
+                       ++ str tab ++ str "for {" ++ fnl ()
+                       ++ emit_block state hoists (loop_term 0 1) (tab ^ "\t") env b0
+                       ++ str tab ++ str "}" ++ fnl ()
+                       ++ emit_block state hoists raw_term tab env b1
+                   | None ->
+                       (* raw labels + goto.  Only Jump-target labels are emitted
+                          (Go rejects unused labels); a label sits one indent left
+                          of its block, as gofmt wants. *)
+                       let targets =
+                         List.fold_left (fun a b -> block_targets b a) [] bs in
+                       let is_target i = List.mem i targets in
+                       let lbl_indent =
+                         if String.length tab >= 1
+                         then String.sub tab 0 (String.length tab - 1) else "" in
+                       let initial =
+                         if start_v = 0 then mt ()
+                         else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
+                       let rec emit_all i = function
+                         | [] -> mt ()
+                         | bi :: rest ->
+                             (if is_target i
+                              then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
+                              else mt ()) ++
+                             emit_block state hoists raw_term tab env bi ++
+                             emit_all (i + 1) rest
+                       in
+                       hoist_doc ++ initial ++ emit_all 0 bs)
               | None ->
                   str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->

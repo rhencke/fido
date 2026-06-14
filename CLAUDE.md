@@ -234,6 +234,16 @@ safe-by-construction principle. Tracked until closed.
    shallow embedding for control flow (a Rocq `if`/Fixpoint *is* the Go
    construct), which cannot express jumps. Biggest build to date; do it
    minimal-faithful-slice first (CFG IR → Go labels+goto), then add the lifting.
+   *Status:* CFG IR (`run_blocks`/`Jump`/`Done`) and raw labels+goto are done;
+   the structuring pass has its **first pattern** — `as_while_loop` lifts a
+   two-block reducible loop (header jumps only to itself or the single exit) to
+   `for { … break }` with no labels/goto (`Count_demo`, `Defer_loop_demo`).
+   The emitter is parameterised by a *terminator handler* (`raw_term` →
+   `goto`/`return`; `loop_term h x` → fall-through/`break`), so one `emit_block`
+   prints raw or structured form; non-matching CFGs (`Cond_goto_demo`) stay raw
+   goto. Golden-guarded: structuring changes the generated source, never the
+   behaviour. Next patterns: forward if-diamond (`cond_goto`), then general
+   reducible reloop.
 
    **Lowering correctness — the unifying principle.** The goto approach trades
    a single uniform primitive for some subtle correctness obligations; they all
@@ -271,8 +281,11 @@ safe-by-construction principle. Tracked until closed.
    (goroutine/`defer`) or address-of (Go's loop-variable semantics). So when a
    variable crosses the boundary, lower that region as `goto` — the complete
    fallback, which loses nothing, just stays un-prettified. When variables nest
-   cleanly, structure it: lifting `Count_demo` to a `for` sinks `iv` back to
-   loop-local (the function-level `var iv` was only the unstructured spelling).
+   cleanly, structure it: `Count_demo` now lifts to a `for { … break }`. (The
+   loop temp `iv` is still hoisted to a function-level `var iv` and assigned with
+   `=` — correct, since it dominates and is rewritten before each read; sinking
+   it to a loop-local `iv := i` inside the `for` body is a pending idiomatic
+   tidy, not a correctness gap.)
    *Capture is handled:* a `defer`/`go` closure inside a loop block captures the
    hoisted temps **by value** — `kw func(iv T){ body }(iv)` — so each closure
    fixes its iteration's value (verified: `defer` in a goto-loop prints 2,1,0,
