@@ -641,9 +641,20 @@ resting state.)**
     exceeds the 63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶²
     limit).  *Cosmetic:* `u8_lit`/`i8_lit` of an in-range literal emits the full
     mask/sign-extend expression instead of just the literal — correct, just verbose.
-    *Open refinement:* type-level distinctness so a `uint8` can't be silently mixed
-    with an `int` (a separate safety layer; the arithmetic semantics are nailed
-    first).
+    **TYPE DISTINCTNESS — DONE (airtight, Go spec "Numeric types").**  Each
+    `uint8`/`int8`/`uint16`/`int16` is its OWN Rocq type — a single-field record
+    `GoU8`/`GoI8`/… `{ u8raw : int }` over the carrier — so Rocq REJECTS mixing a
+    `uint8` with an `int` (no implicit conversion; the only implicit path is the
+    untyped-constant `u8_lit`, per the spec).  Build-checked by the `*_no_implicit`
+    + `u8_u16_no_mix` `Fail` tests.  The wrapper is ERASED in the LOWERING (not by
+    a gate): the plugin recognises `GoU<N>`/`GoI<N>` (→ int64), `MkU<N>` and
+    `<u|i><N>raw` (→ identity, like `existT`/`any`), so a well-typed distinct-type
+    term compiles BY CONSTRUCTION — same int64+mask Go, no wrapper leak.  Principle:
+    a *bad program* is unrepresentable in Rocq (type checker + `Fail` tests);
+    *uncompilable Go* is prevented by a correct lowering, not caught after the fact.
+    *Pending:* wrap `int` itself as a distinct record (tied to the Z-width model);
+    explicit numeric CONVERSIONS (`int(x)`, `uint8(y)`) — now load-bearing, since
+    distinct types can't mix without them (the Conversions spec section).
 11. **Float gaps — *comparison + unary negation now done; float32 + conversions +
     abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered behaviour)
     and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked

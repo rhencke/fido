@@ -51,20 +51,25 @@ proof at use (Go's compile-time check → safe-by-construction).
 Spec: `bool`; comparable; values `true`/`false`.  Ours: Coq `bool` → Go `bool`.
 (Comparison: see Comparison operators.)  ✓
 
-### [Numeric types](https://go.dev/ref/spec#Numeric_types) — ✓ ranges/two's-complement; ⚠ defined-type distinctness
+### [Numeric types](https://go.dev/ref/spec#Numeric_types) — ✓ ranges/two's-complement/**distinctness**; ⚠ `int` width
 Spec: `uint8…uint64`, `int8…int64` with exact ranges; "**the value of an n-bit
 integer is n bits wide and represented using two's complement arithmetic**";
 `byte`=`uint8`, `rune`=`int32`; `int`/`uint` are 32-or-64-bit.  And: "**all
 numeric types are defined types and thus distinct… Explicit conversions are
 required when different numeric types are mixed**."
-Ours: `int`=Sint63 (⚠ faithful to int64 only within ±2⁶², Tier 2 #4); `uint8`/
-`int8`/`uint16`/`int16` fully modeled (mask + two's-complement sign-extend),
-`uint32`/`int32` add/sub/cmp (mul **✗ fails loud** — exceeds carrier), 64-bit
-**✗ fails loud** (needs Z-model); `float64`=`PrimFloat`, `float32` **✗** (no
-native Rocq f32).  Two's-complement: ✓ (`i8_add_wraps`, `i16_add_wraps`).
-**⚠ deviation:** our fixed-width values share the `int` carrier, so the model
-does NOT enforce that `uint8` and `int` are *distinct types requiring explicit
-conversion* — the type-distinctness layer is deferred (CLAUDE.md Tier 4 #10).
+Ours: `uint8`/`int8`/`uint16`/`int16` are each their OWN Rocq type (a record over
+the `int` carrier, wrapper erased in extraction) — fully modeled (mask +
+two's-complement sign-extend).  Two's-complement: ✓ (`i8_add_wraps`,
+`i16_add_wraps`).  **DISTINCTNESS now airtight, BY CONSTRUCTION**: Rocq rejects
+mixing types, build-checked by `u8_no_implicit`, `i8_no_implicit`,
+`u16_no_implicit`, `i16_no_implicit`, and the cross-width `u8_u16_no_mix` — exactly
+the spec's "no implicit conversion; the only implicit path is an untyped constant"
+(`u8_lit : int -> GoU8`).  ✓  *Remaining:* `int`=Sint63 (⚠ faithful to int64 only
+within ±2⁶², Tier 2 #4) is not yet wrapped as a distinct record; `uint32`/`int32`
+add/sub/cmp (mul **✗ fails loud** — exceeds carrier), 64-bit **✗ fails loud**
+(needs Z-model); `float32` **✗** (no native Rocq f32).  Note: distinctness makes
+explicit CONVERSIONS (next section) load-bearing — without them you can't use a
+`uint8` where an `int` is wanted (which is correct: it fails loud, not silently).
 
 ### [String types](https://go.dev/ref/spec#String_types) — ⚠ deviation (Known gaps #7)
 Spec: a string is bytes; `s[i]` is a **byte**, `len(s)` is the **byte** count;

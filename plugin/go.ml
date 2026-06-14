@@ -289,6 +289,29 @@ let is_sigT_ref r =
   ref_has_suffix r ".Init.Specif.sigT" ||
   String.equal (global_basename r) "sigT"
 
+(* Distinct fixed-width numeric types: each [GoU<N>]/[GoI<N>] is a single-field
+   record over the [int] carrier (builtins.v) — DISTINCT in Rocq (mixing a uint8
+   with an int is a type error: Go spec "Numeric types"), but the wrapper is
+   ERASED in extraction (exactly like [existT]/[any]): the type IS its [int64]
+   carrier, and the constructor [MkU<N>] / projection [<u|i><N>raw] are identity.
+   So a well-typed distinct-type term lowers to the same int64+mask Go we already
+   emit — compilable BY CONSTRUCTION, no Go-level wrapper to leak. *)
+let all_digits s = String.length s > 0 && String.for_all (fun c -> c >= '0' && c <= '9') s
+let is_ui_digits s =
+  String.length s >= 2 && (s.[0] = 'U' || s.[0] = 'I')
+  && all_digits (String.sub s 1 (String.length s - 1))
+let str_prefix pre s = String.length s >= String.length pre && String.sub s 0 (String.length pre) = pre
+let str_suffix suf s = let ls = String.length s and lf = String.length suf in
+  ls >= lf && String.sub s (ls - lf) lf = suf
+let is_numint_type r =                      (* GoU8 / GoI16 *)
+  let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
+let is_numint_ctor r =                      (* MkU8 / MkI16 *)
+  let n = global_basename r in str_prefix "Mk" n && is_ui_digits (String.sub n 2 (String.length n - 2))
+let is_numint_proj r =                      (* u8raw / i16raw : (u|i) digits "raw" *)
+  let n = global_basename r in let len = String.length n in
+  len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
+  && all_digits (String.sub n 1 (len - 4))
+
 (*s Nat arithmetic operation recognition. *)
 
 type nat_op = NatAdd | NatSub | NatMul | NatDiv | NatMod
@@ -485,6 +508,8 @@ let rec pp_type state = function
   | Tarr (t1, t2) ->
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
+  (* GoU<N>/GoI<N> erase to their int64 carrier (the wrapper is gone in Go) *)
+  | Tglob (r, _)  when is_numint_type r -> str "int64"
   (* IO A erases to A — the world token has no runtime representation *)
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
   (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
@@ -758,6 +783,10 @@ let rec pp_expr state env = function
        | MLglob r, [x] when is_float_opp_ref r ->
            str "-" ++ pp_atom state env x
 
+       (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)
+       | MLglob r, [g] when is_numint_proj r ->
+           pp_expr state env g
+
        (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
           mask the result to the width so the int64 carrier wraps like Go's uintN,
           and (signed) sign-extend.  [fw_wrap] builds the masked/sign-extended form
@@ -837,6 +866,8 @@ let rec pp_expr state env = function
            | MLcons (_, r, []) when is_bool_true r  -> str "true"
            | MLcons (_, r, []) when is_bool_false r -> str "false"
            | MLcons (_, r, []) when is_list_nil r   -> str "nil"
+           (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
+           | MLcons (_, r, [v]) when is_numint_ctor r -> pp_expr state env v
            | MLcons (_, r, _) as lst ->
                (* Non-empty list literal: emit as append(nil, v1, v2, ...).
                   Go infers the slice element type from the values. *)
@@ -1948,6 +1979,7 @@ let is_inlined_ref r =
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
   Option.has_some (fixed_width_op r) ||  (* all uN_*/iN_* incl. the iN_norm helper *)
+  is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r ||

@@ -286,19 +286,29 @@ Axiom GoFloat32 : Type.
 
     These are DEFINITIONS, not axioms — so the model is computable ([vm_compute]
     discharges concrete wrap facts) and adds nothing to the trust base
-    (consistency by construction).  The plugin recognises each op and lowers it
-    to Go [int64] with the explicit mask, e.g. [u8_add a b] → [(a + b) & 0xff];
-    the masked-int64 result is observationally identical to Go's [uint8] for the
-    in-range values these ops produce.  (Type-level distinctness — forbidding the
-    accidental mixing of a [uint8] with an [int] — is a separate safety layer to
-    add later; this slice nails the *arithmetic* semantics first.) *)
-Definition u8_lit (x : int) : int := PrimInt63.land x 255.
-Definition u8_add (a b : int) : int := PrimInt63.land (PrimInt63.add a b) 255.
-Definition u8_sub (a b : int) : int := PrimInt63.land (PrimInt63.sub a b) 255.
-Definition u8_mul (a b : int) : int := PrimInt63.land (PrimInt63.mul a b) 255.
-Definition u8_eqb (a b : int) : bool := PrimInt63.eqb a b.   (* in-range ⇒ exact *)
-Definition u8_ltb (a b : int) : bool := PrimInt63.ltb a b.   (* in-range ⇒ unsigned = signed *)
-Definition u8_leb (a b : int) : bool := PrimInt63.leb a b.
+    (consistency by construction).
+
+    AIRTIGHT TYPE DISTINCTNESS (Go spec "Numeric types": numeric types are defined
+    and DISTINCT; "explicit conversions are required when different numeric types
+    are mixed").  [GoU8] is its OWN type — a single-field record over the [int]
+    carrier — so Rocq's type checker REJECTS mixing a [uint8] with an [int]; the
+    only way in is [u8_lit] (the untyped-constant conversion).  The wrap proofs
+    stay computable (via [u8raw]), and the plugin ERASES the wrapper in extraction
+    ([GoU8] → its int64 carrier, [MkU8]/[u8raw] → identity), so each op still
+    lowers to int64 + the explicit mask ([u8_add a b] → [(a + b) & 0xff]) —
+    compilable BY CONSTRUCTION, no Go-level wrapper.  [u8_no_implicit] (a [Fail])
+    is the build-checked proof that mixing is unrepresentable. *)
+Record GoU8 := MkU8 { u8raw : int }.
+Definition u8_lit (x : int) : GoU8 := MkU8 (PrimInt63.land x 255).
+Definition u8_add (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.add (u8raw a) (u8raw b)) 255).
+Definition u8_sub (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.sub (u8raw a) (u8raw b)) 255).
+Definition u8_mul (a b : GoU8) : GoU8 := MkU8 (PrimInt63.land (PrimInt63.mul (u8raw a) (u8raw b)) 255).
+Definition u8_eqb (a b : GoU8) : bool := PrimInt63.eqb (u8raw a) (u8raw b).  (* in-range ⇒ exact *)
+Definition u8_ltb (a b : GoU8) : bool := PrimInt63.ltb (u8raw a) (u8raw b).  (* in-range ⇒ unsigned = signed *)
+Definition u8_leb (a b : GoU8) : bool := PrimInt63.leb (u8raw a) (u8raw b).
+
+(* Build-checked: [uint8] and [int] do NOT mix — no implicit conversion. *)
+Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : int).
 
 (** ---- Signed fixed-width integers ----
 
@@ -308,37 +318,52 @@ Definition u8_leb (a b : int) : bool := PrimInt63.leb a b.
     [int8(x)] conversion does.  Comparison is SIGNED (values can be negative), so
     it uses [Sint63.ltb] → Go's signed int64 [<].  Computable and faithful; the
     plugin emits the explicit int64 mask + sign-extend, e.g.
-    [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)]. *)
+    [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)].
+    Each is a DISTINCT record over the [int] carrier (like [GoU8]) — the wrapper
+    is erased in extraction, so the Go is unchanged.  The [*_norm] helpers stay
+    [int -> int] (raw mask + sign-extend); the typed ops wrap with the record
+    constructor. *)
+Record GoI8 := MkI8 { i8raw : int }.
 Definition i8_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
-Definition i8_lit (x : int) : int := i8_norm x.
-Definition i8_add (a b : int) : int := i8_norm (PrimInt63.add a b).
-Definition i8_sub (a b : int) : int := i8_norm (PrimInt63.sub a b).
-Definition i8_mul (a b : int) : int := i8_norm (PrimInt63.mul a b).
-Definition i8_eqb (a b : int) : bool := PrimInt63.eqb a b.
-Definition i8_ltb (a b : int) : bool := Sint63.ltb a b.   (* SIGNED comparison *)
-Definition i8_leb (a b : int) : bool := Sint63.leb a b.
+Definition i8_lit (x : int) : GoI8 := MkI8 (i8_norm x).
+Definition i8_add (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.add (i8raw a) (i8raw b))).
+Definition i8_sub (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.sub (i8raw a) (i8raw b))).
+Definition i8_mul (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.mul (i8raw a) (i8raw b))).
+Definition i8_eqb (a b : GoI8) : bool := PrimInt63.eqb (i8raw a) (i8raw b).
+Definition i8_ltb (a b : GoI8) : bool := Sint63.ltb (i8raw a) (i8raw b).   (* SIGNED comparison *)
+Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
 
 (** [uint16] / [int16] — the same template at width 16 (mask [0xffff]; sign bit
     [0x8000]).  Still fully faithful on the 63-bit carrier: a 16-bit product is
     [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)
-Definition u16_lit (x : int) : int := PrimInt63.land x 65535.
-Definition u16_add (a b : int) : int := PrimInt63.land (PrimInt63.add a b) 65535.
-Definition u16_sub (a b : int) : int := PrimInt63.land (PrimInt63.sub a b) 65535.
-Definition u16_mul (a b : int) : int := PrimInt63.land (PrimInt63.mul a b) 65535.
-Definition u16_eqb (a b : int) : bool := PrimInt63.eqb a b.
-Definition u16_ltb (a b : int) : bool := PrimInt63.ltb a b.
-Definition u16_leb (a b : int) : bool := PrimInt63.leb a b.
+Record GoU16 := MkU16 { u16raw : int }.
+Definition u16_lit (x : int) : GoU16 := MkU16 (PrimInt63.land x 65535).
+Definition u16_add (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.add (u16raw a) (u16raw b)) 65535).
+Definition u16_sub (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.sub (u16raw a) (u16raw b)) 65535).
+Definition u16_mul (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.mul (u16raw a) (u16raw b)) 65535).
+Definition u16_eqb (a b : GoU16) : bool := PrimInt63.eqb (u16raw a) (u16raw b).
+Definition u16_ltb (a b : GoU16) : bool := PrimInt63.ltb (u16raw a) (u16raw b).
+Definition u16_leb (a b : GoU16) : bool := PrimInt63.leb (u16raw a) (u16raw b).
 
+Record GoI16 := MkI16 { i16raw : int }.
 Definition i16_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
-Definition i16_lit (x : int) : int := i16_norm x.
-Definition i16_add (a b : int) : int := i16_norm (PrimInt63.add a b).
-Definition i16_sub (a b : int) : int := i16_norm (PrimInt63.sub a b).
-Definition i16_mul (a b : int) : int := i16_norm (PrimInt63.mul a b).
-Definition i16_eqb (a b : int) : bool := PrimInt63.eqb a b.
-Definition i16_ltb (a b : int) : bool := Sint63.ltb a b.
-Definition i16_leb (a b : int) : bool := Sint63.leb a b.
+Definition i16_lit (x : int) : GoI16 := MkI16 (i16_norm x).
+Definition i16_add (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.add (i16raw a) (i16raw b))).
+Definition i16_sub (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.sub (i16raw a) (i16raw b))).
+Definition i16_mul (a b : GoI16) : GoI16 := MkI16 (i16_norm (PrimInt63.mul (i16raw a) (i16raw b))).
+Definition i16_eqb (a b : GoI16) : bool := PrimInt63.eqb (i16raw a) (i16raw b).
+Definition i16_ltb (a b : GoI16) : bool := Sint63.ltb (i16raw a) (i16raw b).
+Definition i16_leb (a b : GoI16) : bool := Sint63.leb (i16raw a) (i16raw b).
+
+(* Build-checked (Go spec "Numeric types": distinct types, no implicit mixing):
+   neither a typed value of another numeric type nor an [int] may be passed. *)
+Fail Definition i8_no_implicit  (x : GoI8)  : GoI8  := i8_add  x (5 : int).
+Fail Definition u16_no_implicit (x : GoU16) : GoU16 := u16_add x (5 : int).
+Fail Definition i16_no_implicit (x : GoI16) : GoI16 := i16_add x (5 : int).
+(* Cross-WIDTH too: [uint8] and [uint16] are distinct types — no implicit widen. *)
+Fail Definition u8_u16_no_mix (x : GoU8) (y : GoU16) : GoU16 := u16_add y x.
 
 (** ---- Builtins ---- *)
 
