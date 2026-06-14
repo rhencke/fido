@@ -473,13 +473,17 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    wrap boundary differs from Go's.  Earlier accepted, but strictly incorrect for
    int64.  (Known gaps #2.)  *Fix:* a full-width model (Z-based, or a paired
    63-bit representation) so the range and overflow point match int64 exactly.
-5. **Arithmetic is not overflow-safe by construction.**  `add`/`sub`/`mul` emit
-   `+`/`-`/`*` that silently wrap; overflow is *provable* (`add_no_overflow_exact`)
-   but not *enforced* — the inverse of the safe-by-construction discipline, which
-   wants a proof-carrying `add`/`sub`/`mul` (no-overflow precondition) as the
-   DEFAULT and raw wrap as a labelled opt-in.  `div_nz`/`mod_nz` already show the
-   shape.  *Fix:* guarded `add_nz`/`sub_nz`/`mul_nz` (proof the exact result is in
-   range) and/or a checked form; keep raw `add` as the opt-in wrap.
+5. **Overflow-safe arithmetic — DONE (the guarded forms now exist).**
+   `add_nz`/`sub_nz`/`mul_nz` are evidence-carrying: each demands a proof that the
+   exact result is in range (`no_overflow_{add,sub,mul}`, discharged by `now
+   vm_compute` for concrete operands), then extracts to the raw machine op — which
+   the proof has shown does not wrap, so the result equals the exact value
+   (`{add,sub,mul}_no_overflow_exact` theorems, machine-checked).  Raw `add`/`sub`/
+   `mul` (and `PrimInt63.*`) remain the opt-in WRAPPING forms — same shape as
+   `div_nz` vs the raw divide.  `overflow_safe_demo` prints `3000000000000
+   1000000` (proven no wrap).  *Open:* a runtime check-and-branch (comma-ok) form
+   for operands whose range is only known at runtime; and a *boolean*-guard
+   variant so the obligation discharges by `eq_refl` like `div_nz`.
 6. **Untyped constants modelled wrong.**  Literals are modelled as already-typed
    fixed-width/IEEE values; Go's *untyped* constants are arbitrary precision and
    acquire a type (with a representability check) only at use.  So `const 0.1+0.2`

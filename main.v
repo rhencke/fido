@@ -68,6 +68,80 @@ Example add_wraps_at_boundary :
   Sint63.to_Z (PrimInt63.add Sint63.max_int 1) = Sint63.to_Z Sint63.min_int.
 Proof. now vm_compute. Qed.
 
+(** SAFE-BY-CONSTRUCTION ARITHMETIC.  Go's [+]/[-]/[*] silently WRAP on overflow;
+    overflow-freedom is a *provable* property here (above), but raw [add]/[sub]/
+    [mul] don't *force* you to prove it.  [add_nz]/[sub_nz]/[mul_nz] do: each
+    DEMANDS a proof that the exact mathematical result is in range, then extracts
+    to the raw machine op — which the proof has shown does not wrap, so the result
+    equals the exact value (by the [*_no_overflow_exact] theorems).  Raw [add]/
+    [sub]/[mul] remain the opt-in WRAPPING forms (like div_nz vs the raw divide).
+    The in-range proof is discharged by [now vm_compute] for concrete operands. *)
+Definition no_overflow_sub (n m : int) : Prop :=
+  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n - Sint63.to_Z m
+                                <= Sint63.to_Z Sint63.max_int)%Z.
+Definition no_overflow_mul (n m : int) : Prop :=
+  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n * Sint63.to_Z m
+                                <= Sint63.to_Z Sint63.max_int)%Z.
+
+Theorem sub_no_overflow_exact : forall n m : int,
+  no_overflow_sub n m ->
+  Sint63.to_Z (PrimInt63.sub n m) = (Sint63.to_Z n - Sint63.to_Z m)%Z.
+Proof.
+  intros n m H. unfold no_overflow_sub in H.
+  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
+  rewrite (Sint63.to_Z_cmodwB (PrimInt63.sub n m)).
+  rewrite Uint63.sub_spec, Sint63.cmod_mod.
+  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n - Uint63.to_Z m)).
+  replace ((Uint63.to_Z n - Uint63.to_Z m) mod wB)%Z
+     with ((Sint63.to_Z n - Sint63.to_Z m) mod wB)%Z by
+    (rewrite (Zminus_mod (Sint63.to_Z n) (Sint63.to_Z m));
+     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
+  rewrite Sint63.cmod_mod.
+  apply Sint63.cmod_small. lia.
+Qed.
+
+Theorem mul_no_overflow_exact : forall n m : int,
+  no_overflow_mul n m ->
+  Sint63.to_Z (PrimInt63.mul n m) = (Sint63.to_Z n * Sint63.to_Z m)%Z.
+Proof.
+  intros n m H. unfold no_overflow_mul in H.
+  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
+  rewrite (Sint63.to_Z_cmodwB (PrimInt63.mul n m)).
+  rewrite Uint63.mul_spec, Sint63.cmod_mod.
+  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n * Uint63.to_Z m)).
+  replace ((Uint63.to_Z n * Uint63.to_Z m) mod wB)%Z
+     with ((Sint63.to_Z n * Sint63.to_Z m) mod wB)%Z by
+    (rewrite (Zmult_mod (Sint63.to_Z n) (Sint63.to_Z m));
+     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
+  rewrite Sint63.cmod_mod.
+  (* the product is non-linear; abstract it so the bounds are linear for [lia] *)
+  apply Sint63.cmod_small.
+  set (p := (Sint63.to_Z n * Sint63.to_Z m)%Z) in *. lia.
+Qed.
+
+Definition add_nz (n m : int) (_ : no_overflow_add n m) : int := PrimInt63.add n m.
+Definition sub_nz (n m : int) (_ : no_overflow_sub n m) : int := PrimInt63.sub n m.
+Definition mul_nz (n m : int) (_ : no_overflow_mul n m) : int := PrimInt63.mul n m.
+
+(** Machine-checked: the guarded ops give the exact mathematical result.
+    ([now vm_compute] discharges the in-range obligation: [vm_compute] unfolds
+    [Z.le] to a comparison, which [now]'s finisher closes — [lia] cannot, as it
+    no longer sees arithmetic.) *)
+Example add_nz_exact :
+  Sint63.to_Z (add_nz 1000000000000 2000000000000 ltac:(now vm_compute))
+  = 3000000000000%Z.
+Proof. now vm_compute. Qed.
+Example mul_nz_exact :
+  Sint63.to_Z (mul_nz 1000000 1000000 ltac:(now vm_compute)) = 1000000000000%Z.
+Proof. now vm_compute. Qed.
+
+(** Arithmetic you can only call with a proven-in-range result.  Prints
+    10^12 + 2·10^12 = 3·10^12 (proven no wrap) and 1000·1000 = 10^6. *)
+Definition overflow_safe_demo : IO unit :=
+  println [ any (add_nz 1000000000000 2000000000000 ltac:(now vm_compute))
+          ; any (mul_nz 1000 1000 ltac:(now vm_compute)) ].
+  (* prints: 3000000000000 1000000 *)
+
 (** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
     [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
     silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
@@ -543,6 +617,7 @@ Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
   bind div_demo                        (fun _ =>   (* prints: 3 2 *)
+  bind overflow_safe_demo              (fun _ =>   (* prints: 3000000000000 1000000 *)
   bind float_demo                      (fun _ =>   (* prints: 3.75 / 0.25 (sci) *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
@@ -574,6 +649,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

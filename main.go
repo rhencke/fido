@@ -10,6 +10,18 @@ func Sub(n int64, m int64) int64 {
 	return n - m
 }
 
+func Add_nz(n int64, m int64) int64 {
+	return n + m
+}
+
+func Mul_nz(n int64, m int64) int64 {
+	return n * m
+}
+
+func Overflow_safe_demo() {
+	println(Add_nz(1000000000000, 2000000000000), Mul_nz(1000, 1000))
+}
+
 func Div_nz(n int64, d int64) int64 {
 	return n / d
 }
@@ -463,6 +475,7 @@ func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
 	Div_demo()
+	Overflow_safe_demo()
 	Float_demo()
 	Prec_demo()
 	Neglit_demo()
