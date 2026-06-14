@@ -915,8 +915,10 @@ let pp_io_body state tab env body =
               | _ ->
              let ids, body = collect_lam f in
              let new_env = List.rev ids @ env in
-             (* go_spawn: bind (go_spawn goroutine_body) f → go func(){body}(); f *)
-             let h_m, all_m = collect_app m [] in
+             (* go_spawn: bind (go_spawn goroutine_body) f → go func(){body}(); f.
+                Strip [MLmagic] coercions so a wrapped action (e.g. a nested
+                [bind]) is still recognised by its head. *)
+             let h_m, all_m = collect_app (strip_magic m) [] in
              let vis_m = List.filter (fun a -> not (is_erased a)) all_m in
              (match h_m, vis_m with
               | MLglob r2, [goroutine_body] when is_go_spawn_ref r2 ->
@@ -929,9 +931,62 @@ let pp_io_body state tab env body =
                   pp_stmts (tab ^ "\t") env defer_body ++
                   str tab ++ str "}()" ++ fnl () ++
                   pp_stmts tab new_env body
+              (* the action is itself a compound IO computation (a nested [bind],
+                 e.g. a fused map_get_opt/match) whose result is discarded — emit
+                 it as statements, then the continuation.  ([fun _ =>] may extract
+                 as a named-but-unused binder, so check [db1_free], not [is_dummy]). *)
+              | MLglob r2, _ when is_bind_ref r2
+                              && (List.filter (fun id -> not (is_dummy id)) ids = []
+                                  || db1_free body) ->
+                  pp_stmts tab env (strip_magic m) ++ pp_stmts tab new_env body
               | MLglob r2, [xs; bodyfn] when is_for_each_ref r2 ->
                   emit_for_each tab env xs bodyfn ++
                   pp_stmts tab new_env body
+              (* bind (map_get_or k def m) (fun hit => body) → the value at k or
+                 def, via comma-ok.  [hit] takes the default's (typed) value, so
+                 it has the map's value type (not [any]); the if-block overwrites
+                 it on a hit. *)
+              | MLglob r2, [k; def; mm] when is_map_get_or_ref r2 ->
+                  let hit = match List.filter (fun id -> not (is_dummy id)) ids with
+                    | [id] -> pp_mlident id | _ -> str "_g" in
+                  str tab ++ hit ++ str " := " ++ pp_typed_lit state env def ++ fnl () ++
+                  str tab ++ str "if _v, _ok := " ++ pp_expr state env mm ++
+                  str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
+                  str (tab ^ "\t") ++ hit ++ str " = _v" ++ fnl () ++
+                  str tab ++ str "}" ++ fnl () ++
+                  pp_stmts tab new_env body
+              (* bind (map_get_opt k m) (fun o => match o with Some v => A | None => B)
+                 → comma-ok if/else.  No [option] value is built; the bound [o] is
+                 consumed by the match, so [v] is bound directly from m[k]. *)
+              | MLglob r2, [k; mm] when is_map_get_opt_ref r2 ->
+                  let fallback () =
+                    str tab ++ str "panic(\"map_get_opt: expected a Some/None match\")" ++ fnl () in
+                  (match ids, strip_magic body with
+                   | [o_id], MLcase (_, scrut, branches)
+                     when (match strip_magic scrut with MLrel 1 -> true | _ -> false) ->
+                       (match Array.to_list branches with
+                        | [ (bids1, p1, b1); (bids2, p2, b2) ] ->
+                            let cref p = (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
+                            (match cref p1, cref p2 with
+                             | Some c1, Some c2
+                               when (is_some_ctor c1 && is_none_ctor c2)
+                                 || (is_none_ctor c1 && is_some_ctor c2) ->
+                                 let some_ids, some_body, none_body =
+                                   if is_some_ctor c1 then bids1, b1, b2
+                                   else bids2, b2, b1 in
+                                 let v_doc = match some_ids with
+                                   | [vid] when not (is_dummy vid) -> pp_mlident vid
+                                   | _ -> str "_" in
+                                 str tab ++ str "if " ++ v_doc ++ str ", _ok := "
+                                   ++ pp_expr state env mm ++ str "["
+                                   ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
+                                 pp_stmts (tab ^ "\t") (List.rev some_ids @ (o_id :: env)) some_body ++
+                                 str tab ++ str "} else {" ++ fnl () ++
+                                 pp_stmts (tab ^ "\t") (o_id :: env) none_body ++
+                                 str tab ++ str "}" ++ fnl ()
+                             | _ -> fallback ())
+                        | _ -> fallback ())
+                   | _ -> fallback ())
               | _ ->
              let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
              let lhs = match vis_ids with

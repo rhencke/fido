@@ -126,18 +126,19 @@ Definition panic_and_recover (n : int) : IO unit :=
      bind (type_assert TInt64 v) (fun recovered =>
      println [any recovered; any (add recovered 1)])).
 
+(** Map reads are now in [IO] (they observe the map's current contents), so [sz]/
+    [hit]/[mis] are [bind]-sequenced after the writes — and the old box/assert
+    roundtrip is gone ([map_get_or] returns the value directly). *)
 Definition map_demo : IO unit :=
-  bind (map_make_typed TInt64 TInt64) (fun m =>   (* make(map[int64]int64) *)
-  bind (map_set (1:int) (100:int) m) (fun _ =>   (* m[1] = 100 *)
-  bind (map_set (2:int) (200:int) m) (fun _ =>   (* m[2] = 200 *)
-  bind (map_set (3:int) (300:int) m) (fun _ =>   (* m[3] = 300 *)
-  bind (map_set (2:int) (999:int) m) (fun _ =>   (* m[2] = 999  (overwrite) *)
-  let sz  := map_len m in
-  let hit := @map_get_or int int (2:int) (0:int) m in  (* key present → 999 *)
-  let mis := @map_get_or int int (9:int) (0:int) m in  (* key absent  → 0   *)
-  bind (type_assert TInt64 (any hit)) (fun hit64 =>
-  bind (type_assert TInt64 (any mis)) (fun mis64 =>
-  println [any sz; any hit64; any mis64]))))))).  (* prints: 3 999 0 *)
+  bind (map_make_typed TInt64 TInt64) (fun m =>            (* make(map[int64]int64) *)
+  bind (map_set (1:int) (100:int) m) (fun _ =>            (* m[1] = 100 *)
+  bind (map_set (2:int) (200:int) m) (fun _ =>            (* m[2] = 200 *)
+  bind (map_set (3:int) (300:int) m) (fun _ =>            (* m[3] = 300 *)
+  bind (map_set (2:int) (999:int) m) (fun _ =>            (* m[2] = 999  (overwrite) *)
+  bind (map_len m) (fun sz =>
+  bind (@map_get_or int int (2:int) (0:int) m) (fun hit =>  (* key present → 999 *)
+  bind (@map_get_or int int (9:int) (0:int) m) (fun mis =>  (* key absent  → 0   *)
+  println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
 Definition slice_demo : IO unit :=
   let xs := slice_of_list TInt64 [1%uint63; 2%uint63; 3%uint63; 4%uint63; 5%uint63] in
@@ -270,20 +271,23 @@ Definition control_flow_demo : IO unit :=
   bind (pick_demo true)       (fun _ =>   (* prints: 1 *)
   neg_demo))).                            (* prints: -3 *)
 
-(** Matching on [map_get_opt] lowers to Go's comma-ok lookup:
-    [match map_get_opt k m with Some v => _ | None => _] becomes
-    [if v, ok := m[k]; ok { _ } else { _ }] — no [option] value is built. *)
+(** [map_get_opt] is an IO read; binding it then matching the [option] lowers to
+    Go's comma-ok lookup: [bind (map_get_opt k m) (fun o => match o with Some v =>
+    _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
+    value is built. *)
 Definition lookup_demo : IO unit :=
   bind (map_make_typed TInt64 TInt64) (fun m =>
   bind (map_set (7 : int) (700 : int) m) (fun _ =>
-  bind (match map_get_opt (7 : int) m with    (* present → 700 true *)
+  bind (bind (map_get_opt (7 : int) m) (fun o =>   (* present → 700 true *)
+        match o with
         | Some v => println [any v; any true]
         | None   => println [any false]
-        end) (fun _ =>
-  match map_get_opt (9 : int) m with           (* absent → false *)
+        end)) (fun _ =>
+  bind (map_get_opt (9 : int) m) (fun o =>          (* absent → false *)
+  match o with
   | Some v => println [any v; any true]
   | None   => println [any false]
-  end))).
+  end)))).
 
 (** List/slice match: [match xs with [] | x :: rest] lowers to
     [if len(xs) == 0 { … } else { x := xs[0]; rest := xs[1:]; … }].

@@ -405,52 +405,107 @@ Axiom map_make_typed : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> IO (Go
 (** Untyped fallback — loses key/value types to erasure, emits map[any]any. *)
 Axiom map_make   : forall {K V : Type}, IO (GoMap K V).
 
-(** Read — pure for single-goroutine programs.
-    NOTE: map access on a missing key returns the zero value — it never panics.
-    This differs from slice indexing which panics out of bounds.
-    With goroutines, concurrent map reads/writes are a data race in Go
-    (maps are not safe for concurrent use without synchronization).  If
-    goroutines are added, [map_get_opt] and [map_len] should move to [IO]
-    to make the ordering explicit. *)
-Axiom map_get_opt : forall {K V : Type}, K -> GoMap K V -> option V.
-Axiom map_len     : forall {K V : Type}, GoMap K V -> GoInt.
+(** ---- Maps via a heap in the world ----
 
-(** Write — in IO: mutates the map reference in place.
-    IO sequencing prevents aliasing: you cannot fork a map reference since
-    set/delete return [IO unit], not a new map value.  A second set on the
-    same [m] must be sequenced after the first via bind. *)
-(** [map_get_or k default m] returns the value at [k], or [default] if absent.
-    Extracts to: [if v, ok := m[k]; ok { v } else { default }].
-    Full [option]-valued access via [map_get_opt] requires [MLcase] handling
-    in the plugin — deferred until option lowering is implemented. *)
-Axiom map_get_or : forall {K V : Type}, K -> V -> GoMap K V -> V.
+    A Go map read observes the map's CURRENT (mutable) contents, so map reads are
+    in [IO] (world-dependent).  The contents live in the world through an abstract
+    heap interface: [map_sel k m w] is the value at key [k] of map [m] in world
+    [w]; [map_upd] / [map_rem] are the world-updates that [map_set] / [map_delete]
+    perform; [map_size] is the length.  These characterise a STANDARD heap, so
+    they are satisfiable — hence CONSISTENT and non-degenerate — and the
+    get-after-write laws below are THEOREMS derived from them, not asserted.
 
-Axiom map_get_or_hit  : forall {K V : Type} (k : K) (v default : V) (m : GoMap K V),
-  map_get_opt k m = Some v -> map_get_or k default m = v.
-Axiom map_get_or_miss : forall {K V : Type} (k : K) (default : V) (m : GoMap K V),
-  map_get_opt k m = None -> map_get_or k default m = default.
+    Contrast the OLD model: [map_get_opt] was a PURE function of [m], which cannot
+    reflect an IO write, so the get-after-write law was machine-checked DEGENERATE
+    (it forced [map_set] never to succeed).  Making reads [IO] fixes that.
+    Map access never panics: a missing key reads [None] (Go's zero value /
+    [ok=false]); unlike slice indexing, which panics out of bounds. *)
+Axiom map_sel  : forall {K V : Type}, K -> GoMap K V -> World -> option V.
+Axiom map_upd  : forall {K V : Type}, K -> V -> GoMap K V -> World -> World.
+Axiom map_rem  : forall {K V : Type}, K -> GoMap K V -> World -> World.
+Axiom map_size : forall {K V : Type}, GoMap K V -> World -> GoInt.
+
+Axiom map_get_opt : forall {K V : Type}, K -> GoMap K V -> IO (option V).
+Axiom map_len     : forall {K V : Type}, GoMap K V -> IO GoInt.
+(** [map_get_or k default m]: the value at [k], or [default] if absent.
+    Extracts to [if v, ok := m[k]; ok { v } else { default }]. *)
+Axiom map_get_or  : forall {K V : Type}, K -> V -> GoMap K V -> IO V.
 
 Axiom map_set    : forall {K V : Type}, K -> V -> GoMap K V -> IO unit.
 Axiom map_delete : forall {K V : Type}, K -> GoMap K V -> IO unit.
 
-(** [map_get_opt] on the empty map is [None] — a PURE law (no write), faithful
-    and non-degenerate. *)
-Axiom map_get_empty : forall {K V} (k : K),
-  map_get_opt k (@map_empty K V) = None.
+(** [run_io] equations: reads observe [map_sel]/[map_size] and leave the world
+    unchanged; writes update it via [map_upd]/[map_rem] and return normally
+    ([ORet] — so [map_set] is NOT forced to panic, unlike the old degenerate law). *)
+Axiom run_map_get_opt : forall {K V} (k : K) (m : GoMap K V) (w : World),
+  run_io (map_get_opt k m) w = ORet (map_sel k m w) w.
+Axiom run_map_len : forall {K V} (m : GoMap K V) (w : World),
+  run_io (map_len m) w = ORet (map_size m w) w.
+Axiom run_map_get_or : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
+  run_io (map_get_or k default m) w =
+  ORet (match map_sel k m w with Some v => v | None => default end) w.
+Axiom run_map_set : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
+  run_io (map_set k v m) w = ORet tt (map_upd k v m w).
+Axiom run_map_delete : forall {K V} (k : K) (m : GoMap K V) (w : World),
+  run_io (map_delete k m) w = ORet tt (map_rem k m w).
 
-(** GET-AFTER-WRITE LAWS ARE DEFERRED to the heap-in-world model (Correctness
-    debt #2 in CLAUDE.md), NOT asserted here.  Reason: [map_get_opt] is a PURE
-    function of [m], but [map_set] is an effectful [IO] mutation, so a pure read
-    cannot reflect a write.  The natural law
-      [bind (map_set k v m) (fun _ => ret (map_get_opt k m))
-         = bind (map_set k v m) (fun _ => ret (Some v))]
-    is DEGENERATE: machine-checked, it implies [map_set k 0 m] and [map_set k 1 m]
-    cannot both succeed — i.e. it is only consistent in models where [map_set]
-    never returns normally, which makes all map Hoare-reasoning vacuous (the same
-    failure mode as the old total [run_io]).  The faithful fix is a heap in the
-    world with map reads in [IO] ([map_get_opt : ... -> IO (option V)]), so a
-    read can observe prior writes; then these laws become THEOREMS.  Until then we
-    assert no get-after-write law rather than a wrong one. *)
+(** Heap-interface laws — how [map_sel] reads after each update. *)
+Axiom map_sel_upd_same : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
+  map_sel k m (map_upd k v m w) = Some v.
+Axiom map_sel_upd_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
+  k1 <> k2 -> map_sel k1 m (map_upd k2 v m w) = map_sel k1 m w.
+Axiom map_sel_rem : forall {K V} (k : K) (m : GoMap K V) (w : World),
+  map_sel k m (map_rem k m w) = None.
+Axiom map_sel_empty : forall {K V} (k : K) (w : World),
+  map_sel k (@map_empty K V) w = None.
+
+(** GET-AFTER-WRITE laws — now THEOREMS, derived from the heap interface (these
+    were a machine-checked-degenerate axiom under the old pure read). *)
+Lemma map_get_set_same : forall {K V} (k : K) (v : V) (m : GoMap K V),
+  bind (map_set k v m) (fun _ => map_get_opt k m) =
+  bind (map_set k v m) (fun _ => ret (Some v)).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, !run_map_set. cbn.
+  rewrite run_map_get_opt, map_sel_upd_same, run_ret. reflexivity.
+Qed.
+
+Lemma map_get_delete_same : forall {K V} (k : K) (m : GoMap K V),
+  bind (map_delete k m) (fun _ => map_get_opt k m) =
+  bind (map_delete k m) (fun _ => ret (@None V)).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, !run_map_delete. cbn.
+  rewrite run_map_get_opt, map_sel_rem, run_ret. reflexivity.
+Qed.
+
+(** Reading the empty map gives [None]. *)
+Lemma map_get_empty : forall {K V} (k : K),
+  @map_get_opt K V k map_empty = ret None.
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite run_map_get_opt, map_sel_empty, run_ret. reflexivity.
+Qed.
+
+(** Setting key [k2] leaves the read at a different key [k1] unchanged (the value
+    it had before the write, in the post-write world). *)
+Lemma map_get_set_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
+  k1 <> k2 ->
+  run_io (bind (map_set k2 v m) (fun _ => map_get_opt k1 m)) w =
+  ORet (map_sel k1 m w) (map_upd k2 v m w).
+Proof.
+  intros K V k1 k2 v m w Hne.
+  rewrite run_bind, run_map_set. cbn.
+  rewrite run_map_get_opt, map_sel_upd_diff by exact Hne. reflexivity.
+Qed.
+
+(** [map_get_or] hits the stored value when present, falls back when absent. *)
+Lemma map_get_or_hit : forall {K V} (k : K) (v default : V) (m : GoMap K V) (w : World),
+  map_sel k m w = Some v -> run_io (map_get_or k default m) w = ORet v w.
+Proof. intros K V k v default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
+Lemma map_get_or_miss : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
+  map_sel k m w = None -> run_io (map_get_or k default m) w = ORet default w.
+Proof. intros K V k default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
 
 (** ---- GoChan ----
 

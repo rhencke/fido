@@ -54,17 +54,15 @@ func Map_demo() {
 	m[3] = 300
 	m[2] = 999
 	sz := len(m)
-	var hit any = int64(0)
+	hit := int64(0)
 	if _v, _ok := m[2]; _ok {
 		hit = _v
 	}
-	var mis any = int64(0)
+	mis := int64(0)
 	if _v, _ok := m[9]; _ok {
 		mis = _v
 	}
-	hit64 := hit.(int64)
-	mis64 := mis.(int64)
-	println(sz, hit64, mis64)
+	println(sz, hit, mis)
 }
 
 func Slice_demo() {
@@ -159,18 +157,13 @@ func Lookup_demo() {
 	m[7] = 700
 	if v, _ok := m[7]; _ok {
 		println(v, true)
-		if v, _ok := m[9]; _ok {
-			println(v, true)
-		} else {
-			println(false)
-		}
 	} else {
 		println(false)
-		if v, _ok := m[9]; _ok {
-			println(v, true)
-		} else {
-			println(false)
-		}
+	}
+	if v, _ok := m[9]; _ok {
+		println(v, true)
+	} else {
+		println(false)
 	}
 }
 

@@ -496,19 +496,22 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    slice, `string`↔`[]byte`/`[]rune`) are modelled.  *Fix:* model strings as byte
    sequences with a rune-decoding view (or restrict to the rune view and forbid
    byte indexing), then add the operations.
-8. **Reference-type state (maps, slices, refs) needs a heap-in-world model.**
-   Two faces: (a) *aliasing* — maps/slices are Go reference types; the functional
-   model (`append`→new list, map-as-value) is correct only for single-goroutine,
-   non-aliasing use; sub-slicing (`s[a:b]` shares the backing array), in-place
-   append, and aliased/concurrent access are unmodelled.  (b) *get-after-write* —
-   `map_get_opt` is a PURE function, so it cannot reflect an IO `map_set`; the
-   get-after-write laws were **machine-checked degenerate** (they implied
-   `map_set` can never succeed) and have been REMOVED rather than assert a wrong
-   model — only the pure `map_get_empty` and the `map_get_or_hit/miss` laws remain
-   (faithful, non-degenerate).  *Fix:* a heap in the world with map/ref reads in
-   `IO` (`map_get_opt : ... -> IO (option V)`), so reads observe prior writes and
-   the get-after-write laws become THEOREMS; this also re-grounds consistency (#2)
-   and the aliasing discipline (ties to Tier 1's concurrency model).
+8. **Reference-type state (maps, slices, refs).**
+   (b) *get-after-write — FIXED for maps via a heap in the world.*  Map reads are
+   now in `IO` (`map_get_opt : ... -> IO (option V)`, `map_get_or`, `map_len`);
+   the contents live in the world via an abstract heap interface (`map_sel` /
+   `map_upd` / `map_rem` / `map_size`) with `run_io` equations, and the
+   get-after-write laws (`map_get_set_same`, `map_get_delete_same`,
+   `map_get_set_diff`, `map_get_empty`, `map_get_or_hit/miss`) are now **derived
+   THEOREMS**, not a degenerate axiom — `map_set` returns normally, no degeneracy.
+   The plugin lowers the IO reads to the same comma-ok Go (golden unchanged).
+   *Remaining:* the heap interface is still AXIOMATIC (its consistency relies on a
+   concrete heap model that is not yet exhibited — ties to #2); and the SAME
+   treatment should be extended to refs (currently no ref laws) and slices.
+   (a) *aliasing — still open.*  Maps/slices are Go reference types; the model is
+   correct only for single-goroutine, non-aliasing use; sub-slicing (`s[a:b]`
+   shares the backing array), in-place append, and aliased/concurrent access are
+   unmodelled (ties to Tier 1's concurrency model).
 9. **Operator coverage is partial.**  Only `==`, `<`, `<=` are emitted; `>`, `>=`,
    `!=`, `&&`, `||` are not in the op tables (must currently be encoded via
    swapped operands / negation).  *Fix:* add them and verify faithfulness — in
