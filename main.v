@@ -275,6 +275,21 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2])))).
 
+(** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
+    [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
+    return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
+Definition defer_loop_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>
+      if Sint63.ltb iv 3 then
+        bind (defer_call (println [any iv]))  (fun _ =>
+        bind (ref_set i (add iv 1))           (fun _ =>
+        ret (Jump 0%nat)))
+      else ret (Jump 1%nat)) ;
+    ret Done
+  ]).
+
 (** Function-scoped defer: [defer_call] runs at function return, LIFO across all
     defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1. *)
 Definition defer_demo : IO unit :=
@@ -350,6 +365,7 @@ Definition main_effect : IO unit :=
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
-  ret tt)))))))))))))))))))).
+  bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
+  ret tt))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

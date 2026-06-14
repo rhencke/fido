@@ -729,25 +729,44 @@ and block_hoists b acc =
            Array.fold_left (fun a (_, _, body) -> block_hoists body a) acc branches
        | _ -> acc)
 
-and emit_block state tab env b =
+and emit_block state hoists tab env b =
+  (* A defer/go closure inside a loop block captures the hoisted loop-temps BY
+     VALUE — [kw func(iv T){ body }(iv)] — so each iteration's value is fixed at
+     this point.  Capturing the shared hoisted cell by reference would give
+     every closure the last value (the goto form of Go's loop-variable capture;
+     the structured [for] lowering gets this for free on Go 1.22+). *)
+  let emit_closure kw body =
+    let sep = prlist_with_sep (fun () -> str ", ") (fun x -> x) in
+    let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
+    let args   = List.map (fun (x, _) -> pp_mlident x) hoists in
+    str tab ++ str kw ++ str " func(" ++ sep params ++ str ") {" ++ fnl () ++
+    emit_block state hoists (tab ^ "\t") env body ++
+    str tab ++ str "}(" ++ sep args ++ str ")" ++ fnl ()
+  in
   let h, args = collect_app b [] in
   let vis = List.filter (fun a -> not (is_erased a)) args in
   match h, vis with
   | MLglob r, [action; k] when is_bind_ref r ->
       let ids, kbody = collect_lam k in
       let new_env = List.rev ids @ env in
-      (* a value read ([ref_get]) goes to its hoisted var with [=]; a void
-         action (println / ref_set, whose [fun _] may extract as a named var) is
-         just the statement *)
-      let action_is_value =
-        match collect_app action [] with
-        | MLglob rr, _ -> is_ref_get_ref rr
-        | _ -> false in
-      let lhs = match List.filter (fun id -> not (is_dummy id)) ids with
-        | [x] when action_is_value -> pp_mlident x ++ str " = "
-        | _   -> mt () in
-      str tab ++ lhs ++ pp_expr state env action ++ fnl () ++
-      emit_block state tab new_env kbody
+      let ah, aargs = collect_app action [] in
+      let avis = List.filter (fun a -> not (is_erased a)) aargs in
+      (match ah, avis with
+       | MLglob rr, [dbody] when is_defer_call_ref rr ->
+           emit_closure "defer" dbody ++ emit_block state hoists tab new_env kbody
+       | MLglob rr, [gbody] when is_go_spawn_ref rr ->
+           emit_closure "go" gbody ++ emit_block state hoists tab new_env kbody
+       | _ ->
+           (* a value read ([ref_get]) goes to its hoisted var with [=]; a void
+              action (println / ref_set, whose [fun _] may extract as a named
+              var) is just the statement *)
+           let action_is_value =
+             (match ah with MLglob rr -> is_ref_get_ref rr | _ -> false) in
+           let lhs = match List.filter (fun id -> not (is_dummy id)) ids with
+             | [x] when action_is_value -> pp_mlident x ++ str " = "
+             | _   -> mt () in
+           str tab ++ lhs ++ pp_expr state env action ++ fnl () ++
+           emit_block state hoists tab new_env kbody)
   | MLglob r, [next] when is_ret_ref r ->
       (match next with
        | MLcons (_, c, [n]) when is_jump_ctor c ->
@@ -768,9 +787,9 @@ and emit_block state tab env b =
                      || (is_bool_false c1 && is_bool_true c2) ->
                      let tb, eb = if is_bool_true c1 then body1, body2 else body2, body1 in
                      str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
-                     emit_block state (tab ^ "\t") env tb ++
+                     emit_block state hoists (tab ^ "\t") env tb ++
                      str tab ++ str "} else {" ++ fnl () ++
-                     emit_block state (tab ^ "\t") env eb ++
+                     emit_block state hoists (tab ^ "\t") env eb ++
                      str tab ++ str "}" ++ fnl ()
                  | _ -> str tab ++ str "return" ++ fnl ())
             | _ -> str tab ++ str "return" ++ fnl ())
@@ -900,7 +919,7 @@ let pp_io_body state tab env body =
                         (if is_target i
                          then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
                          else mt ()) ++
-                        emit_block state tab env bi ++
+                        emit_block state hoists tab env bi ++
                         emit_all (i + 1) rest
                   in
                   hoist_doc ++ initial ++ emit_all 0 bs

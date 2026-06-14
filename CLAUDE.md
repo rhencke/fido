@@ -256,9 +256,14 @@ safe-by-construction principle. Tracked until closed.
    fallback, which loses nothing, just stays un-prettified. When variables nest
    cleanly, structure it: lifting `Count_demo` to a `for` sinks `iv` back to
    loop-local (the function-level `var iv` was only the unstructured spelling).
-   *Caveat:* the current raw-`goto` hoist (`var iv`, shared) is correct only
-   when the temp is not captured/addressed; a captured loop-temp needs
-   fresh-per-iteration memory — a future refinement, not yet handled.
+   *Capture is handled:* a `defer`/`go` closure inside a loop block captures the
+   hoisted temps **by value** — `kw func(iv T){ body }(iv)` — so each closure
+   fixes its iteration's value (verified: `defer` in a goto-loop prints 2,1,0,
+   not 2,2,2). This is the goto form of Go's loop-variable capture; the
+   structured `for` lowering gets it free on Go 1.22+. *Residual:* taking the
+   *address* of a hoisted temp (`&iv`) across iterations would still alias the
+   shared cell — rare, not yet handled. (The closures currently pass *all*
+   hoisted temps; refining to only-captured via free-var analysis is a tidy.)
    **No shadowing (by design).** Go permits shadowing — `i := …` nested inside
    `i := …` is a *distinct* variable with its own memory — but we never emit it:
    Rocq alpha-renames binders to unique names, so each name is exactly one

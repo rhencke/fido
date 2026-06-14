@@ -225,6 +225,24 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func Defer_loop_demo() {
+	i := int64(0)
+	var iv int64
+block0:
+	iv = i
+	if iv < 3 {
+		defer func(iv int64) {
+			println(iv)
+		}(iv)
+		i = Add(iv, 1)
+		goto block0
+	} else {
+		goto block1
+	}
+block1:
+	return
+}
+
 func Defer_demo() {
 	defer func() {
 		println(1)
@@ -311,4 +329,5 @@ func main() {
 	Mut_demo()
 	Count_demo()
 	Defer_demo()
+	Defer_loop_demo()
 }
