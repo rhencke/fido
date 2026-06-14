@@ -1364,7 +1364,12 @@ let pp_io_body state tab env body =
                   let go_t = go_type_of_tag tag in
                   let xs_d = pp_expr state env xs in
                   let i_d  = pp_expr state env i in
-                  let cond = i_d ++ str " < int64(len(" ++ xs_d ++ str "))" in
+                  (* [int] is SIGNED (Sint63), so a negative index is possible and
+                     Go panics on it — the bounds check must cover BOTH ends, else
+                     a negative [i] passes [i < len] and [xs[i]] panics, breaking
+                     the "cannot panic out of bounds" guarantee. *)
+                  let cond = i_d ++ str " >= 0 && " ++ i_d
+                             ++ str " < int64(len(" ++ xs_d ++ str "))" in
                   let v_decl =
                     if is_dummy v_id then mt ()
                     else str tab ++ str "var " ++ pp_mlident v_id ++ str " "

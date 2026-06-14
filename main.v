@@ -288,8 +288,10 @@ Definition slice_safe_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
   slice_at_ok TInt64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
   bind (println [any v; any ok]) (fun _ =>
-  slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* out of bounds → 0 false *)
-  println [any v2; any ok2]))).
+  slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
+  bind (println [any v2; any ok2]) (fun _ =>
+  slice_at_ok TInt64 xs (-1)%sint63 (fun v3 ok3 =>  (* NEGATIVE (signed) → 0 false *)
+  println [any v3; any ok3]))))).
 
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction

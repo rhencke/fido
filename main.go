@@ -180,17 +180,23 @@ func List_demo() {
 func Slice_safe_demo() {
 	xs := []int64{10, 20, 30}
 	var v int64
-	ok := 1 < int64(len(xs))
+	ok := 1 >= 0 && 1 < int64(len(xs))
 	if ok {
 		v = xs[1]
 	}
 	println(v, ok)
 	var v2 int64
-	ok2 := 9 < int64(len(xs))
+	ok2 := 9 >= 0 && 9 < int64(len(xs))
 	if ok2 {
 		v2 = xs[9]
 	}
 	println(v2, ok2)
+	var v3 int64
+	ok3 := 9223372036854775807 >= 0 && 9223372036854775807 < int64(len(xs))
+	if ok3 {
+		v3 = xs[9223372036854775807]
+	}
+	println(v3, ok3)
 }
 
 func Assert_safe_demo(n int64) {
