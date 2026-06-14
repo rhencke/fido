@@ -191,11 +191,6 @@ let is_proto_ctor r =
   String.equal (global_basename r) "PRecv" ||
   String.equal (global_basename r) "PEnd"
 let is_dual_ref = named "dual"
-let is_sess_endpoint_ref = named "SessEndpoint"
-let is_make_sess_ref = named "make_sess"
-let is_sess_send_ref = named "sess_send"
-let is_sess_recv_ref = named "sess_recv"
-let is_sess_close_ref = named "sess_close"
 (* Indexed-monad (linear) sessions: protocol state in the type index, lowered
    against an implicit shared channel [_sess_ch]. *)
 let is_run_session_ref = named "run_session"
@@ -352,8 +347,6 @@ let rec pp_type state = function
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
   (* IO A erases to A — the world token has no runtime representation *)
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
-  (* SessEndpoint P → chan any (both endpoints share one chan any; proto is proof-only) *)
-  | Tglob (r, _) when is_sess_endpoint_ref r -> str "chan any"
   (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* GoChan A → chan T *)
@@ -882,10 +875,6 @@ let pp_io_body state tab env body =
                   pp_stmts (tab ^ "\t") env defer_body ++
                   str tab ++ str "}()" ++ fnl () ++
                   pp_stmts tab new_env body
-              | MLglob r2, [sess_ep] when is_sess_close_ref r2 ->
-                  (* Use the endpoint var so Go doesn't complain "declared but not used" *)
-                  str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl () ++
-                  pp_stmts tab new_env body
               | MLglob r2, [xs; bodyfn] when is_for_each_ref r2 ->
                   emit_for_each tab env xs bodyfn ++
                   pp_stmts tab new_env body
@@ -1382,86 +1371,6 @@ let pp_io_body state tab env body =
              pp_sess_stmts (tab ^ "\t") env server ++
              str tab ++ str "}()" ++ fnl () ++
              pp_sess_stmts tab env client
-         (* make_sess (fun ep1 ep2 => body) → ch := make(chan any); ep1 := ch; ep2 := ch
-            Both endpoints share one chan any; the continuation is always emitted,
-            and each non-dummy endpoint is aliased to the channel. *)
-         | MLglob r, vis when is_make_sess_ref r ->
-             let f = List.nth vis (List.length vis - 1) in
-             let ids, k_body = collect_lam f in
-             let new_env = List.rev ids @ env in
-             let assigns =
-               List.filter_map
-                 (fun id ->
-                    if is_dummy id then None
-                    else Some (str tab ++ pp_mlident id ++ str " := _sess_ch" ++ fnl ()))
-                 ids
-             in
-             str tab ++ str "_sess_ch := make(chan any)" ++ fnl () ++
-             (if assigns = [] then str tab ++ str "_ = _sess_ch" ++ fnl ()
-              else prlist (fun x -> x) assigns) ++
-             pp_stmts tab new_env k_body
-         (* sess_send ep v (fun ep' => body) → ep <- v; ep' := ep; body
-            Proto index P may precede ep in the arg list (not erased if Proto:Type);
-            take the last 3 visible args as ep, v, kont. *)
-         | MLglob r, vis when is_sess_send_ref r && List.length vis >= 3 ->
-             let n = List.length vis in
-             let ep   = List.nth vis (n - 3) in
-             let v    = List.nth vis (n - 2) in
-             let kont = List.nth vis (n - 1) in
-             (* chan any requires explicit Go types for literals — untyped constants
-                default to int/float64 which may not match the recv's type assertion. *)
-             let pp_val = pp_typed_lit state env in
-             let ids, k_body = collect_lam kont in
-             let new_env = List.rev ids @ env in
-             (* Alias the advanced endpoint when the continuation binds it; the
-                continuation body is always emitted (never dropped). *)
-             let assign =
-               match List.filter (fun id -> not (is_dummy id)) ids with
-               | [ep'_id] ->
-                   str tab ++ pp_mlident ep'_id ++ str " := " ++ pp_expr state env ep ++ fnl ()
-               | _ -> mt ()
-             in
-             str tab ++ pp_expr state env ep ++ str " <- " ++ pp_val v ++ fnl () ++
-             assign ++
-             pp_stmts tab new_env k_body
-         (* sess_recv tag ep (fun v ep' => body) → _r := <-ep; v := _r.(T); ep' := ep; body
-            Proto index P may precede tag; take the last 3 visible args as tag, ep, kont. *)
-         | MLglob r, vis when is_sess_recv_ref r && List.length vis >= 3 ->
-             let n = List.length vis in
-             let tag  = List.nth vis (n - 3) in
-             let ep   = List.nth vis (n - 2) in
-             let kont = List.nth vis (n - 1) in
-             let go_t = go_type_of_tag tag in
-             let ids, k_body = collect_lam kont in
-             let new_env = List.rev ids @ env in
-             (* Continuation binds [v] then [ep']; either may be dummy.  We always
-                emit the receive and the continuation body. *)
-             let v_id, ep_id = match ids with
-               | [a; b] -> a, b
-               | [a]    -> a, Dummy
-               | _      -> Dummy, Dummy
-             in
-             let recv_line =
-               if is_dummy v_id then
-                 (* value discarded — receive and drop, no type assertion needed *)
-                 str tab ++ str "<-" ++ pp_expr state env ep ++ fnl ()
-               else
-                 let nm = match v_id with
-                   | Id v | Tmp v -> go_safe (Id.to_string v)
-                   | Dummy        -> "v"
-                 in
-                 let tmp = "_sr_" ^ nm in
-                 str tab ++ str (tmp ^ " := <-") ++ pp_expr state env ep ++ fnl () ++
-                 str tab ++ pp_mlident v_id ++ str (" := " ^ tmp ^ ".(" ^ go_t ^ ")") ++ fnl ()
-             in
-             let ep_line =
-               if is_dummy ep_id then mt ()
-               else str tab ++ pp_mlident ep_id ++ str " := " ++ pp_expr state env ep ++ fnl ()
-             in
-             recv_line ++ ep_line ++ pp_stmts tab new_env k_body
-         (* sess_close ep → _ = ep; marks endpoint var as used, session is done *)
-         | MLglob r, [sess_ep] when is_sess_close_ref r ->
-             str tab ++ str "_ = " ++ pp_expr state env sess_ep ++ fnl ()
          | _ ->
              str tab ++ pp_expr state env e ++ fnl ())
     | MLletin (id, e1, e2) ->
@@ -1760,8 +1669,6 @@ let is_inlined_ref r =
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
   is_go_spawn_ref r || is_defer_call_ref r ||
-  is_sess_endpoint_ref r || is_make_sess_ref r ||
-  is_sess_send_ref r || is_sess_recv_ref r || is_sess_close_ref r ||
   is_run_session_ref r || is_sbind_ref r || is_sret_ref r ||
   is_ssend_ref r || is_srecv_ref r || is_slift_ref r ||
   String.equal (global_basename r) "Sess" ||
@@ -1845,7 +1752,7 @@ let pp_decl state decl =
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
     || is_IO_type r || is_go_map_type r || is_go_chan_type r
-    || is_sess_endpoint_ref r || is_ref_type r
+    || is_ref_type r
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice" -> mt ()
