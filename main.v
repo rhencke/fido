@@ -1,5 +1,6 @@
 (** Fido entry point.  (Sibling proof theory [concurrency.v] ties happens-before
-    to actual execution traces — see [hbt_irrefl] there; it emits no Go.) *)
+    to actual execution traces — [hbt_irrefl], and [reachable_wf]/[reachable_hb_strict]
+    which earn it from a concurrent operational semantics; it emits no Go.) *)
 
 From Fido Require Import preamble.
 From Stdlib Require Import Numbers.Cyclic.Int63.Uint63.

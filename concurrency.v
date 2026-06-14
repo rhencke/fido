@@ -177,3 +177,188 @@ Proof.
   - apply Hnij. exact mp_trace_hb_0_3.   (* i=0 (write), j=3 (read) *)
   - apply Hnji. exact mp_trace_hb_0_3.   (* i=3 (read),  j=0 (write) *)
 Qed.
+
+(** ============================================================================
+    OPERATIONAL SEMANTICS: well-formed traces are GENERATED, not assumed.
+
+    A fixed pool of goroutines (each a list of channel/memory actions) interleaves;
+    every step APPENDS an event to the trace.  A send records its own trace position
+    in the channel's FIFO buffer; a receive pulls the front position as its
+    back-pointer.  The invariant [BufOk] (every buffered position is an EARLIER send
+    of that channel) is preserved by every step, so EVERY reachable trace is
+    well-formed — turning [WfTrace] from a hypothesis into a THEOREM about execution
+    ([reachable_wf]).  Composed with [hbt_irrefl] ([reachable_hb_strict]): the
+    happens-before of ANY real execution is a strict partial order.  (Goroutine
+    spawning / [KStart] is handled abstractly by [fork_hb] in builtins.v; here the
+    pool is fixed and the focus is channel synchronisation — the FIFO ordering.)
+    ============================================================================ *)
+Inductive PAct := PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat).
+
+Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
+  fun x => if Nat.eqb x k then v else f x.
+
+Lemma upd_same : forall {A} (f : nat -> A) k v, upd f k v k = v.
+Proof. intros A f k v. unfold upd. rewrite Nat.eqb_refl. reflexivity. Qed.
+
+Lemma upd_other : forall {A} (f : nat -> A) k v x, x <> k -> upd f k v x = f x.
+Proof. intros A f k v x H. unfold upd. apply Nat.eqb_neq in H. rewrite H. reflexivity. Qed.
+
+(* Keep [upd] from being unfolded by [cbn]/[simpl] in the proofs below — reason about
+   it only through [upd_same] / [upd_other]. *)
+Global Opaque upd.
+
+Record Config := mkCfg {
+  cfg_prog  : nat -> list PAct;   (* goroutine id -> remaining actions *)
+  cfg_bufs  : nat -> list nat;    (* channel -> FIFO of sender trace-positions *)
+  cfg_trace : Trace               (* events emitted so far, in order *)
+}.
+
+(** One interleaving step: some goroutine runs its head action, appending an event. *)
+Inductive step : Config -> Config -> Prop :=
+  | step_send : forall p b tr tid c rest,
+      p tid = PSend c :: rest ->
+      step (mkCfg p b tr)
+           (mkCfg (upd p tid rest) (upd b c (b c ++ [length tr]))
+                  (tr ++ [mkEv tid (KSend c)]))
+  | step_recv : forall p b tr tid c rest s brest,
+      p tid = PRecv c :: rest -> b c = s :: brest ->
+      step (mkCfg p b tr)
+           (mkCfg (upd p tid rest) (upd b c brest)
+                  (tr ++ [mkEv tid (KRecv c s)]))
+  | step_write : forall p b tr tid l rest,
+      p tid = PWrite l :: rest ->
+      step (mkCfg p b tr)
+           (mkCfg (upd p tid rest) b (tr ++ [mkEv tid (KWrite l)]))
+  | step_read : forall p b tr tid l rest,
+      p tid = PRead l :: rest ->
+      step (mkCfg p b tr)
+           (mkCfg (upd p tid rest) b (tr ++ [mkEv tid (KRead l)])).
+
+Definition BufOk (cfg : Config) : Prop :=
+  forall c s, In s (cfg_bufs cfg c) ->
+    s < length (cfg_trace cfg) /\
+    exists e', nth_error (cfg_trace cfg) s = Some e' /\ e_kind e' = KSend c.
+
+Definition Inv (cfg : Config) : Prop := WfTrace (cfg_trace cfg) /\ BufOk cfg.
+
+Lemma nth_error_app_old : forall (t : Trace) e i,
+  i < length t -> nth_error (t ++ [e]) i = nth_error t i.
+Proof. intros t e i H. rewrite nth_error_app1 by exact H. reflexivity. Qed.
+
+Lemma nth_error_app_new : forall (t : Trace) e,
+  nth_error (t ++ [e]) (length t) = Some e.
+Proof. intros t e. rewrite nth_error_app2 by lia. rewrite Nat.sub_diag. reflexivity. Qed.
+
+(** Appending an event preserves well-formedness, given the new event's own
+    back-pointer (if any) points into the existing trace. *)
+Lemma WfTrace_app : forall t e,
+  WfTrace t ->
+  match e_kind e with
+  | KRecv c from => from < length t /\ exists e', nth_error t from = Some e' /\ e_kind e' = KSend c
+  | KStart parent => parent < length t /\ exists e' ch, nth_error t parent = Some e' /\ e_kind e' = KSpawn ch
+  | _ => True
+  end ->
+  WfTrace (t ++ [e]).
+Proof.
+  intros t e Hwf Hnew i e0 Hi.
+  destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
+  - rewrite nth_error_app_old in Hi by exact Hlt.
+    specialize (Hwf i e0 Hi).
+    destruct (e_kind e0) as [c0|c0 from0|ch0|parent0|l0|l0] eqn:Ek; cbn in Hwf |- *; auto.
+    + destruct Hwf as [Hf [e' [He' Hk']]]. split; [exact Hf|].
+      exists e'. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
+    + destruct Hwf as [Hf [e' [ch [He' Hk']]]]. split; [exact Hf|].
+      exists e', ch. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
+  - rewrite nth_error_app2 in Hi by lia.
+    pose proof (nth_error_lt _ _ _ Hi) as Hb. cbn in Hb.
+    assert (Hzero : i - length t = 0) by lia.
+    assert (Hieq : i = length t) by lia.
+    rewrite Hzero in Hi. cbn in Hi. injection Hi as Hi; subst e0.
+    destruct (e_kind e) as [c0|c0 from0|ch0|parent0|l0|l0] eqn:Ek; cbn in Hnew |- *; auto.
+    + destruct Hnew as [Hf [e' [He' Hk']]]. split; [rewrite Hieq; exact Hf|].
+      exists e'. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
+    + destruct Hnew as [Hf [e' [ch [He' Hk']]]]. split; [rewrite Hieq; exact Hf|].
+      exists e', ch. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
+Qed.
+
+(** Bookkeeping: a buffered position survives a trace-append (still earlier, still a
+    send of its channel). *)
+Lemma BufOk_pos_app : forall tr c s e,
+  s < length tr -> (exists e', nth_error tr s = Some e' /\ e_kind e' = KSend c) ->
+  s < length (tr ++ [e]) /\ exists e', nth_error (tr ++ [e]) s = Some e' /\ e_kind e' = KSend c.
+Proof.
+  intros tr c s e Hlt [e' [He' Hk']].
+  split; [rewrite length_app; cbn; lia |].
+  exists e'. rewrite nth_error_app_old by exact Hlt. split; [exact He'|exact Hk'].
+Qed.
+
+Lemma step_preserves_inv : forall cfg cfg', step cfg cfg' -> Inv cfg -> Inv cfg'.
+Proof.
+  intros cfg cfg' Hstep [Hwf Hbuf]. destruct Hstep; split.
+  (* ---- send ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
+    destruct (Nat.eq_dec c0 c) as [Heq|Hne].
+    + subst c0. rewrite upd_same in Hin. rewrite in_app_iff in Hin.
+      destruct Hin as [Hin | Hin].
+      * destruct (Hbuf c s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+      * destruct Hin as [<- | []].
+        split; [rewrite length_app; cbn; lia |].
+        exists (mkEv tid (KSend c)). rewrite nth_error_app_new. split; reflexivity.
+    + rewrite (upd_other _ _ _ _ Hne) in Hin.
+      destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- recv ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    assert (Hins : In s (b c)) by (rewrite H0; left; reflexivity).
+    destruct (Hbuf c s Hins) as [Hlt [e' [He' Hk']]].
+    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+  - intros c0 s0 Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
+    destruct (Nat.eq_dec c0 c) as [Heq|Hne].
+    + subst c0. rewrite upd_same in Hin.
+      assert (Hin' : In s0 (b c)) by (rewrite H0; right; exact Hin).
+      destruct (Hbuf c s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
+    + rewrite (upd_other _ _ _ _ Hne) in Hin.
+      destruct (Hbuf c0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- write ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
+    destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- read ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
+    destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+Qed.
+
+Inductive steps : Config -> Config -> Prop :=
+  | steps_refl : forall cfg, steps cfg cfg
+  | steps_step : forall a b c, step a b -> steps b c -> steps a c.
+
+Definition init_cfg (p : nat -> list PAct) : Config := mkCfg p (fun _ => []) [].
+
+Lemma init_inv : forall p, Inv (init_cfg p).
+Proof.
+  intros p. split.
+  - intros i e H. apply nth_error_lt in H. cbn in H. lia.
+  - intros c s H. cbn in H. contradiction.
+Qed.
+
+Lemma steps_preserves_inv : forall a b, steps a b -> Inv a -> Inv b.
+Proof.
+  intros a b H. induction H; intros Hinv; [exact Hinv|].
+  apply IHsteps. exact (step_preserves_inv _ _ H Hinv).
+Qed.
+
+(** THE CAPSTONE.  Every reachable execution trace is well-formed... *)
+Theorem reachable_wf : forall p cfg, steps (init_cfg p) cfg -> WfTrace (cfg_trace cfg).
+Proof.
+  intros p cfg H. apply (steps_preserves_inv _ _ H (init_inv p)).
+Qed.
+
+(** ...hence the happens-before of ANY real execution (any program, any reachable
+    configuration) is a STRICT PARTIAL ORDER — the abstract guarantee, now earned by
+    actual execution rather than assumed on a hand-built trace. *)
+Corollary reachable_hb_strict : forall p cfg i,
+  steps (init_cfg p) cfg -> ~ hbt (cfg_trace cfg) i i.
+Proof.
+  intros p cfg i H. apply hbt_irrefl. exact (reachable_wf p cfg H).
+Qed.

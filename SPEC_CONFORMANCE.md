@@ -312,9 +312,17 @@ EXTENSION (`hbt_forward`: you cannot synchronise with the future).  This general
 the bespoke `ev_ts` to arbitrary executions and ANY goroutine/channel topology (no
 longer one-sender/one-receiver).  Race freedom: generic `trace_ordered_no_race` +
 concrete `mp_trace_race_free` (the message-passing program as a real trace).
-**Still open:** prove an extracted program's actual `run_io`/`World` channel ops
-GENERATE a well-formed trace (the final operational-semantics→trace step — `WfTrace`
-becomes a theorem about execution, not a hypothesis); the FIFO refinement (kth
-recv ↔ kth send); deadlock freedom (liveness, needs a non-terminating/scheduler
-model).  Other sync mechanisms (Mutex, atomic, once) need stdlib (imports — out of
-scope).
+**Operational semantics ([concurrency.v]) — well-formed traces are GENERATED, ✓.**  A
+concurrent small-step semantics (a fixed pool of goroutines over FIFO channels;
+every step APPENDS an event, a send records its trace position in the channel
+buffer, a receive pulls the front as its back-pointer) with the invariant `BufOk`
+(buffered positions are earlier sends), preserved by every step (`step_preserves_inv`).
+So `reachable_wf`: EVERY reachable execution trace is well-formed — `WfTrace` is now a
+THEOREM about execution, not a hypothesis.  Composed with `hbt_irrefl`:
+`reachable_hb_strict` — the happens-before of ANY real execution (any program, any
+reachable state) is a strict partial order, EARNED by execution.  All axiom-free.
+**Still open:** tie this operational calculus (`PAct`/`step`) to the actual
+`run_io`/`World` IO model (show extracted IO programs realise it); the FIFO
+refinement (kth recv ↔ kth send pairing); deadlock freedom (liveness, needs a
+non-terminating/scheduler model).  Other sync mechanisms (Mutex, atomic, once) need
+stdlib (imports — out of scope).

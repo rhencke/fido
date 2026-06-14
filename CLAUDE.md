@@ -546,11 +546,18 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    POSITION is a linear extension (`hbt_forward` — no synchronising with the future).
    This GENERALISES the bespoke `ev_ts` to arbitrary executions and ANY topology (no
    longer one-sender/one-receiver); race freedom generic (`trace_ordered_no_race`) +
-   concrete (`mp_trace_race_free`).  *Still pending:* prove an extracted program's
-   actual `run_io`/`World` channel ops GENERATE a well-formed trace (the final
-   operational-semantics→trace step, turning `WfTrace` from hypothesis into theorem);
-   the FIFO refinement (kth recv ↔ kth send); deadlock-freedom (liveness, needs a
-   non-terminating/scheduler model — Tier 5 #14).  Net: Phase 1 grounds the channel
+   concrete (`mp_trace_race_free`).  **Phase 6 (same file) — well-formed traces are
+   GENERATED, not assumed:** a concurrent small-step operational semantics (`step`: a
+   fixed goroutine pool over FIFO channels; each step appends an event, a send records
+   its trace position in the channel buffer, a receive pulls the front as its
+   back-pointer), with invariant `BufOk` preserved by every step
+   (`step_preserves_inv`).  So `reachable_wf`: EVERY reachable trace is well-formed —
+   `WfTrace` is now a THEOREM about execution; and `reachable_hb_strict`: the
+   happens-before of ANY real execution is a strict partial order, EARNED by running.
+   All axiom-free.  *Still pending:* tie this calculus (`PAct`/`step`) to the actual
+   `run_io`/`World` IO model (extracted IO programs realise it); the FIFO refinement
+   (kth recv ↔ kth send); deadlock-freedom (liveness, needs a non-terminating/
+   scheduler model — Tier 5 #14).  Net: Phase 1 grounds the channel
    laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
    axiom-free or interface-grounded, replacing the old asserted-on-intuition
    axioms.
