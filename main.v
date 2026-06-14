@@ -347,6 +347,27 @@ Definition shift_demo : IO unit :=
   println [ any (i8_shl (i8_lit 64  eq_refl) 1 eq_refl)           (* -128 (wrap) *)
           ; any (i8_shr (i8_lit (-3) eq_refl) 1 eq_refl) ]).      (* -2 (arithmetic) *)
 
+(** Numeric conversions (Go spec "Conversions").  Widen ([int_of_*]) preserves the
+    value; narrow ([*_of_int]) TRUNCATES to the width — Go's [uint8(x)]/[int8(x)].
+    Distinct types mix ONLY through an explicit conversion (the type checker
+    rejects implicit mixing — `*_no_implicit`, `u8_of_i16_direct` `Fail`s), so the
+    conversions are what make the distinct numeric types usable together.
+    MACHINE-CHECKED: [uint8(1000)=232] (mod 256), [uint8(-1)=255], [int8(200)=-56]
+    (two's-complement), widen [int(uint8 200)=200], cross-width [int16(uint8 200)]. *)
+Example spec_u8_of_int_trunc : u8_of_int 1000        = u8_lit 232 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_of_int_neg   : u8_of_int (-1)%sint63 = u8_lit 255 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_of_int_wrap  : i8_of_int 200         = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
+Example spec_int_of_u8_widen : int_of_u8 (u8_lit 200 eq_refl) = 200%uint63. Proof. now vm_compute. Qed.
+Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. now vm_compute. Qed.
+Definition convert_demo : IO unit :=
+  let a := u8_lit 200 eq_refl in           (* uint8 200 *)
+  let b := i16_lit 1000 eq_refl in         (* int16 1000 *)
+  bind (println [ any (int_of_u8 a)                      (* 200 (widen u8 → int) *)
+                ; any (u8_of_int (int_of_i16 b)) ])      (* int16 1000 → uint8 = 232 *)
+       (fun _ =>
+  (* mix distinct types: widen the uint8 into int16 arithmetic via explicit conv *)
+  println [ any (i16_add b (i16_of_int (int_of_u8 a))) ]).  (* 1000 + 200 = 1200 *)
+
 (** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
     "a string value is a (possibly empty) sequence of bytes ... strings are
     immutable.  The length ... can be discovered using len.  A string's bytes can
@@ -884,6 +905,7 @@ Definition main_effect : IO unit :=
   u16_demo                      >>'   (* prints: 4464 / 16960 / -25536 *)
   bitwise_demo                  >>'   (* prints: 48 252 204 / 192 15 / -6 -6 *)
   shift_demo                    >>'   (* prints: 8 0 15 / -128 -2 *)
+  convert_demo                  >>'   (* prints: 200 232 / 1200 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)

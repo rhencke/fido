@@ -182,9 +182,23 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✗ not modeled (fails loud)
-int↔float, numeric narrowing, `string`↔`[]byte`/`[]rune`, interface conversions
-beyond `type_assert`.  None modeled; each fails loud.
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width); ✗ rest
+Spec: "When converting between integer types, ... it is then truncated to fit in
+the result type's size."
+**Integer conversions among `{int, uint8, int8, uint16, int16}` — ✓.**  Routed
+through the `int` carrier: `int_of_FW` WIDENS (value preserved; lowers to identity)
+and `FW_of_int` NARROWS (truncate — `land` for `uintN`, mask+sign-extend for `intN`
+— exactly Go's `uint8(x)`/`int8(x)`, no representability proof since a conversion
+truncates rather than rejects).  Cross-width by composition (`uint8(int16val)` =
+`u8_of_int (int_of_i16 x)`, the low 8 bits).  These are also what make the DISTINCT
+numeric types mixable — implicit mixing is rejected (`*_no_implicit`,
+`u8_of_i16_direct` `Fail`s), so a value crosses types only through a conversion.
+Machine-checked (`spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`): `uint8(1000)=232`,
+`uint8(-1)=255`, `int8(200)=-56`, widen `int(uint8 200)=200`, cross `int16(uint8 200)`.
+`convert_demo` prints `200 232 / 1200`.
+**Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float gaps /
+no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); `int`/64-bit
+integer conversions (the Z-width carrier); interface conversions beyond `type_assert`.
 
 ## Statements
 

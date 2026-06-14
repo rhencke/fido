@@ -460,6 +460,39 @@ Definition i16_shr (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 :
 (* Build-checked: a NEGATIVE shift count is UNREPRESENTABLE (Go panics on it). *)
 Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_refl.
 
+(** ---- Numeric conversions (Go spec "Conversions") ----
+
+    "When converting between integer types, if the value is a signed integer, it
+    is sign extended to implicit infinite precision ... It is then truncated to
+    fit in the result type's size."  These are the EXPLICIT conversions the
+    "Numeric types" rule requires to mix distinct types — the type checker rejects
+    implicit mixing (the [*_no_implicit] [Fail]s), so a value crosses types only
+    through one of these.
+
+    Every conversion routes through the [int] carrier, which already holds each
+    fixed-width value's exact mathematical value (sign-extended for [intN],
+    zero-extended for [uintN]):
+    - [int_of_FW] WIDENS to [int] — value preserved (every [uintN]/[intN] fits in
+      [int]); lowers to identity (the carrier is already int64).
+    - [FW_of_int] NARROWS [int] to the width — TRUNCATE ([land] to [uintN], or
+      mask+sign-extend [norm] to [intN]) — exactly Go's [uint8(x)]/[int8(x)].  No
+      representability proof (unlike [*_lit]): a conversion truncates, it does not
+      reject.  Composition handles cross-width ([uint8(int16val)] =
+      [u8_of_int (int_of_i16 x)] = low 8 bits, faithful). *)
+Definition int_of_u8  (x : GoU8)  : int := u8raw x.
+Definition int_of_i8  (x : GoI8)  : int := i8raw x.
+Definition int_of_u16 (x : GoU16) : int := u16raw x.
+Definition int_of_i16 (x : GoI16) : int := i16raw x.
+Definition u8_of_int  (x : int) : GoU8  := MkU8  (PrimInt63.land x 255).
+Definition i8_of_int  (x : int) : GoI8  := MkI8  (i8_norm x).
+Definition u16_of_int (x : int) : GoU16 := MkU16 (PrimInt63.land x 65535).
+Definition i16_of_int (x : int) : GoI16 := MkI16 (i16_norm x).
+
+(* Build-checked: a conversion takes an [int], NOT another fixed-width type — so a
+   cross-type conversion MUST go through [int] (e.g. [u8_of_int (int_of_i16 y)]),
+   never [u8_of_int y] directly. *)
+Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
+
 (** ---- Builtins ---- *)
 
 Axiom print   : list GoAny -> IO unit.

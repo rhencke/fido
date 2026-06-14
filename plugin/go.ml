@@ -143,6 +143,14 @@ let is_str_len_ref    r = String.equal (global_basename r) "str_len"
 let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
 let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
 
+(* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
+   value to [int].  Lowers to identity: the fixed-width carrier is already int64
+   and holds the exact value (sign-/zero-extended), so the conversion is a no-op
+   at runtime.  ([FW_of_int] NARROWS — handled via [fixed_width_op]'s "of_int".) *)
+let is_int_of_fw r =
+  List.mem (global_basename r)
+    ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"]
+
 (*s println / GoAny model recognition. *)
 
 (* Basename matching is safe here because Go builtin names are unqualified
@@ -395,7 +403,7 @@ let parse_fixed_width n =
       let op = String.sub n (!i + 1) (len - !i - 1) in
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
       if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
-                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"])
+                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int"])
       then None
       else match int_of_string_opt (String.sub n 1 (!i - 1)) with
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
@@ -874,9 +882,15 @@ let rec pp_expr state env = function
           with the parens Go's precedence needs.  A W-bit MULTIPLY whose product
           can exceed the 63-bit carrier ([2W > 62]) fails loud — it needs the Z
           model, not a silently-wrong wrap. *)
-       | MLglob r, [x] when fw_is r "lit" ->
+       (* [uN_lit x] (a typed constant) and [uN_of_int x] (a narrowing conversion)
+          both truncate an [int] to the width — [fw_wrap] (mask, + sign-extend for
+          intN), exactly Go's [uint8(x)] / [int8(x)]. *)
+       | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
            fw_wrap s w (pp_atom state env x)
+       (* [int_of_FW x] — widen to [int]: identity (carrier already int64). *)
+       | MLglob r, [x] when is_int_of_fw r ->
+           pp_expr state env x
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
@@ -2117,6 +2131,7 @@ let is_inlined_ref r =
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
+  is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||

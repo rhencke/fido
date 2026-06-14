@@ -686,8 +686,16 @@ resting state.)**
     for signed via `PrimInt63.asr` (`-3>>1=-2` toward −∞, NOT `-3/2=-1`; `-1>>3=-1`),
     logical for unsigned via `lsr`.  `shift_demo` prints 8 0 15 / -128 -2.  *`int`
     (Sint63) shifts still ✗* (same carrier issue as `int` bitwise).
-13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),
-    `string`↔`[]byte`/`[]rune`, interface conversions beyond `type_assert`.
+13. **Conversions.**  *Integer↔integer among `{int,uint8,int8,uint16,int16}`: DONE.*
+    Routed through the `int` carrier — `int_of_FW` widens (value preserved → lowers
+    to identity), `FW_of_int` narrows (truncate: `land` for `uintN`, mask+sign-extend
+    for `intN` — Go's `uint8(x)`/`int8(x)`, no representability proof since it
+    truncates).  Cross-width by composition.  These also make the distinct numeric
+    types mixable (implicit mixing rejected — `u8_of_i16_direct` `Fail`).
+    Machine-checked `spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`; `convert_demo`
+    prints 200 232 / 1200.  *Still ✗:* int↔float / float↔float (float gaps, no f32);
+    `string`↔`[]byte`/`[]rune` (rune view); `int`/64-bit conversions (Z-width model);
+    interface conversions beyond `type_assert`.
 
 ### Tier 5 — semantic edge cases
 14. **Divergence / non-termination.**  `run_io` is total, so the model assumes

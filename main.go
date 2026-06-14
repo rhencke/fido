@@ -90,6 +90,13 @@ func Shift_demo() {
 	println((((((((64 & 0xff) ^ 0x80) - 0x80) << 1) & 0xff) ^ 0x80) - 0x80), ((((-3 & 0xff) ^ 0x80) - 0x80) >> 1))
 }
 
+func Convert_demo() {
+	a := (200 & 0xff)
+	b := (((1000 & 0xffff) ^ 0x8000) - 0x8000)
+	println(a, ((b) & 0xff))
+	println(((((b + ((((a) & 0xffff) ^ 0x8000) - 0x8000)) & 0xffff) ^ 0x8000) - 0x8000))
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -611,6 +618,7 @@ func main() {
 	U16_demo()
 	Bitwise_demo()
 	Shift_demo()
+	Convert_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
