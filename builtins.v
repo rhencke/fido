@@ -35,23 +35,65 @@ Notation "m >>' k"    := (bind m (fun _ => k)) (at level 50, left associativity)
 Notation "x <-' m ;; k" := (bind m (fun x => k))
   (at level 80, m at level 90, right associativity).
 
-(** ---- Denotational semantics (proof-only, never extracted) ---- *)
+(** ---- Types: [GoAny] (Go's [any]/[interface{}]) ----
+    Hoisted up here because [panic]'s argument and the panic-aware denotational
+    semantics below both mention it. *)
+Definition GoAny : Type := {T : Type & T}.
+Notation any x := (@existT Type (fun T : Type => T) _ x).
 
+(** ---- panic / recover ----
+    [panic v] aborts the goroutine with value [v]; it has type [IO A] for any
+    [A] because it never returns a value, it short-circuits.  [catch m h] is the
+    semantics of [defer func(){ if r := recover(); r != nil { h(r) } }()]: run
+    [m]; if it panics with [v], run [h v]; else pass [m]'s result through.
+    Declared here (before [run_io]) so the semantics can give panic a proper
+    *outcome* rather than conflating it with a returned value. *)
+Axiom panic : forall {A : Type}, GoAny -> IO A.
+Axiom catch : forall {A : Type}, IO A -> (GoAny -> IO A) -> IO A.
+
+(** ---- Denotational semantics (proof-only, never extracted) ----
+
+    [run_io m w] gives the meaning of [m] from world [w] as an OUTCOME: either
+    [ORet a w'] (normal completion, result [a], new world [w']) or [OPanic v w']
+    (the goroutine panicked with value [v]).  Modelling panic as an outcome —
+    not as a total [A * World] — is essential.  With the old total type, the law
+    "[panic] satisfies every postcondition" was satisfiable ONLY by making
+    [World] empty (machine-checked: it entailed [World -> False]), which
+    collapsed the whole layer — every [IO A] provably equal, every Hoare triple
+    vacuous.  As an honest outcome, panic leaves [World] inhabited and the Hoare
+    logic meaningful.  DIVERGENCE is idealised away: [run_io] is total, i.e. the
+    model assumes every computation terminates (out of scope, like OOM) — the
+    claim is "given termination and sufficient resources". *)
 Axiom World : Type.
 
-(** [run_io m w] runs computation [m] from world [w], returning the result
-    and the updated world. *)
-Axiom run_io  : forall {A : Type}, IO A -> World -> A * World.
+Inductive Outcome (A : Type) : Type :=
+  | ORet   : A -> World -> Outcome A
+  | OPanic : GoAny -> World -> Outcome A.
+Arguments ORet {A} _ _.
+Arguments OPanic {A} _ _.
+
+Axiom run_io  : forall {A : Type}, IO A -> World -> Outcome A.
 Axiom run_ret : forall {A} (x : A) (w : World),
-  run_io (ret x) w = (x, w).
+  run_io (ret x) w = ORet x w.
 Axiom run_bind : forall {A B} (m : IO A) (f : A -> IO B) (w : World),
   run_io (bind m f) w =
-  let (a, w') := run_io m w in run_io (f a) w'.
-(** Two computations equal if they behave identically on every world. *)
+  match run_io m w with
+  | ORet a w'   => run_io (f a) w'
+  | OPanic v w' => OPanic v w'        (* panic short-circuits the continuation *)
+  end.
+Axiom run_panic : forall {A} (v : GoAny) (w : World),
+  run_io (@panic A v) w = OPanic v w.
+Axiom run_catch : forall {A} (m : IO A) (h : GoAny -> IO A) (w : World),
+  run_io (catch m h) w =
+  match run_io m w with
+  | ORet a w'   => ORet a w'          (* normal: pass through, handler not run *)
+  | OPanic v w' => run_io (h v) w'    (* panic: run the handler on the value *)
+  end.
+(** Two computations are equal if they behave identically on every world. *)
 Axiom run_io_inj : forall {A} (m m' : IO A),
   (forall w, run_io m w = run_io m' w) -> m = m'.
 
-(** Monad laws — now provable lemmas, not axioms. *)
+(** ---- Monad laws — provable lemmas, not axioms. ---- *)
 Lemma bind_ret_l : forall {A B} (x : A) (f : A -> IO B),
   bind (ret x) f = f x.
 Proof.
@@ -63,27 +105,60 @@ Lemma bind_ret_r : forall {A} (m : IO A),
   bind m (@ret A) = m.
 Proof.
   intros. apply run_io_inj. intro w.
-  rewrite run_bind. destruct (run_io m w).
-  rewrite run_ret. reflexivity.
+  rewrite run_bind. destruct (run_io m w) as [a w' | v w'].
+  - rewrite run_ret. reflexivity.
+  - reflexivity.
 Qed.
 
 Lemma bind_assoc : forall {A B C} (m : IO A) (f : A -> IO B) (g : B -> IO C),
   bind (bind m f) g = bind m (fun x => bind (f x) g).
 Proof.
   intros. apply run_io_inj. intro w.
-  case_eq (run_io m w). intros a w' Hmw.
-  rewrite (run_bind (bind m f) g), (run_bind m f), Hmw. simpl.
-  rewrite (run_bind m (fun x => bind (f x) g)), Hmw. simpl.
-  rewrite run_bind. reflexivity.
+  rewrite (run_bind (bind m f) g), (run_bind m f),
+          (run_bind m (fun x => bind (f x) g)).
+  destruct (run_io m w) as [a w' | v w'].
+  - rewrite (run_bind (f a) g). reflexivity.
+  - reflexivity.
 Qed.
 
-(** ---- Hoare logic ---- *)
+(** [panic] short-circuits any continuation — PROVED from [run_panic]
+    (was an axiom). *)
+Lemma bind_panic_l : forall {A B} (x : GoAny) (f : A -> IO B),
+  bind (panic x) f = panic x.
+Proof.
+  intros. apply run_io_inj. intro w.
+  (* the two [panic]s are at different type instances ([IO A] vs [IO B]),
+     so [!run_panic] is needed to rewrite both. *)
+  rewrite run_bind, !run_panic. reflexivity.
+Qed.
 
-(** [{{ P }} m {{ Q }}]: if [P] holds of the world before [m], then [Q]
-    holds of the result and world after [m]. *)
+(** [catch] laws — PROVED from [run_catch] (were axioms). *)
+Lemma catch_ret : forall {A} (x : A) (h : GoAny -> IO A),
+  catch (ret x) h = ret x.
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite run_catch, !run_ret. reflexivity.
+Qed.
+
+Lemma catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
+  catch (panic v) h = h v.
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite run_catch, run_panic. reflexivity.
+Qed.
+
+(** ---- Hoare logic ----
+    [{{ P }} m {{ Q }}] is PARTIAL correctness for NORMAL completion: if [P]
+    holds before and [m] returns normally ([ORet a w']) then [Q a w'].  A panic
+    outcome satisfies the triple trivially ([True]) — honestly, since partial
+    correctness asserts nothing about abnormal exit.  This is [True], NOT
+    [False]: that is exactly what keeps [hoare_panic] from collapsing [World]. *)
 Definition hoare {A : Type} (P : World -> Prop) (m : IO A)
     (Q : A -> World -> Prop) : Prop :=
-  forall w, P w -> let (a, w') := run_io m w in Q a w'.
+  forall w, P w -> match run_io m w with
+                   | ORet a w'  => Q a w'
+                   | OPanic _ _ => True
+                   end.
 
 Notation "{{ P }} m {{ Q }}" :=
   (hoare P m Q)
@@ -94,7 +169,7 @@ Lemma hoare_ret : forall {A} (x : A) (P : World -> Prop),
   {{ P }} ret x {{ fun a w => P w /\ a = x }}.
 Proof.
   intros. unfold hoare. intros w Hw.
-  rewrite run_ret. auto.
+  rewrite run_ret. split; auto.
 Qed.
 
 Lemma hoare_bind : forall {A B} (m : IO A) (f : A -> IO B) P R Q,
@@ -102,11 +177,11 @@ Lemma hoare_bind : forall {A B} (m : IO A) (f : A -> IO B) P R Q,
   (forall a, {{ R a }} f a {{ Q }}) ->
   {{ P }} bind m f {{ Q }}.
 Proof.
-  intros. unfold hoare in *. intros w Hw.
-  rewrite run_bind.
-  specialize (H w Hw).
-  destruct (run_io m w) as [a w'].
-  exact (H0 a w' H).
+  intros A B m f P R Q Hm Hf w Hw. unfold hoare in *.
+  rewrite run_bind. specialize (Hm w Hw).
+  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
+  - exact (Hf a w' Hm).
+  - exact I.
 Qed.
 
 Lemma hoare_consequence : forall {A} (m : IO A) P P' Q Q',
@@ -115,10 +190,11 @@ Lemma hoare_consequence : forall {A} (m : IO A) P P' Q Q',
   (forall a w, Q a w -> Q' a w) ->
   {{ P' }} m {{ Q' }}.
 Proof.
-  intros. unfold hoare in *. intros w Hw.
-  specialize (H0 w (H w Hw)).
-  destruct (run_io m w) as [a w'].
-  exact (H1 a w' H0).
+  intros A m P P' Q Q' HP H HQ w Hw. unfold hoare in *.
+  specialize (H w (HP w Hw)).
+  remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
+  - exact (HQ a w' H).
+  - exact I.
 Qed.
 
 (** Sequencing rule for [m >>' n] (run [m], discard its result, run [n]).
@@ -134,10 +210,17 @@ Proof.
   - intros a. exact Hn.
 Qed.
 
-(** ---- Types ---- *)
+(** panic satisfies any postcondition — PROVED, and WITHOUT collapsing [World]
+    (the panic outcome maps to [True], not [False]). *)
+Lemma hoare_panic : forall {A} (v : GoAny) P (Q : A -> World -> Prop),
+  {{ P }} @panic A v {{ Q }}.
+Proof.
+  intros. unfold hoare. intros w _.
+  rewrite run_panic. exact I.
+Qed.
 
-Definition GoAny : Type := {T : Type & T}.
-Notation any x := (@existT Type (fun T : Type => T) _ x).
+(** ---- Types ---- *)
+(** [GoAny] / [any] are defined up top (the panic semantics need them). *)
 
 (** Signed integer types.
     [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
@@ -195,24 +278,8 @@ Axiom GoFloat32 : Type.
 Axiom print   : list GoAny -> IO unit.
 Axiom println : list GoAny -> IO unit.
 
-(** panic aborts the running goroutine, unwinding the stack.
-    Returns [IO A] for any [A]: in the IO monad this is consistent —
-    panic never produces a value, it just terminates the computation.
-    Law: [bind_panic_l] captures that panic short-circuits all continuations. *)
-Axiom panic        : forall {A : Type}, GoAny -> IO A.
-Axiom bind_panic_l : forall {A B} (x : GoAny) (f : A -> IO B),
-  bind (panic x) f = panic x.
-
-(** panic satisfies any postcondition vacuously — it never returns. *)
-Lemma hoare_panic : forall {A} (v : GoAny) P (Q : A -> World -> Prop),
-  {{ P }} @panic A v {{ Q }}.
-Proof.
-  intros. unfold hoare. intros w _.
-  (* panic never terminates; any Q holds vacuously.
-     We cannot prove this without an axiom about run_io (panic v). *)
-Abort.
-Axiom hoare_panic : forall {A} (v : GoAny) P (Q : A -> World -> Prop),
-  {{ P }} @panic A v {{ Q }}.
+(** [panic], [bind_panic_l], [hoare_panic] are defined up top with the panic-
+    aware semantics; [bind_panic_l] and [hoare_panic] are now proved lemmas. *)
 
 (** ---- panic / recover semantics ----
 
@@ -227,12 +294,8 @@ Axiom hoare_panic : forall {A} (v : GoAny) P (Q : A -> World -> Prop),
     normal exit and panic exit.  If [cleanup] panics mid-panic, the new panic wins —
     also correct Go semantics, again from [catch_panic] + [bind_panic_l]. *)
 
-Axiom catch : forall {A : Type}, IO A -> (GoAny -> IO A) -> IO A.
-
-Axiom catch_ret   : forall {A} (x : A) (h : GoAny -> IO A),
-  catch (ret x) h = ret x.
-Axiom catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
-  catch (panic v) h = h v.
+(** [catch] is declared up top; [catch_ret] and [catch_panic] are now proved
+    lemmas (from [run_catch]), not axioms. *)
 
 (** [with_defer cleanup m]: run [m], then run [cleanup] regardless of outcome.
     If [cleanup] panics, its panic replaces any in-flight panic. *)

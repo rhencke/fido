@@ -343,6 +343,54 @@ safe-by-construction principle. Tracked until closed.
    panic on closed/nil channels — sessions are the safe layer; the raw forms
    are labelled escape hatches.
 
+Pedantic-review findings (2026-06-14), separating *theorem* (machine-checked)
+from *axiom* (assumed) from *tested* (golden) from *asserted* (prose):
+
+9. **`run_io` totality collapsed the semantic layer** — *FIXED*. The old
+   `run_io : IO A -> World -> A * World` was **total**, so the law "panic
+   satisfies every postcondition" (`hoare_panic`) could only be satisfied by
+   making `World` empty.  Machine-checked: from `hoare_panic` one proves
+   `World -> False`, hence (via `run_io_inj`, whose hypothesis becomes vacuous)
+   *every* `m m' : IO A` are equal — `println [any 1] = println [any 2]` was a
+   theorem — and *every* Hoare triple was vacuously true.  Not *inconsistent*
+   (model `World:=∅, IO A:=unit`), but **degenerate**: the denotational layer
+   that justifies the lowering certified nothing.  Pure-data theorems (overflow,
+   `dual_*`, signed-int) were unaffected (they never touch `World`).  *Fix:*
+   `run_io` now returns an **`Outcome A = ORet A World | OPanic GoAny World`**;
+   `bind`/`catch`/`panic` get outcome-aware `run_*` axioms; `hoare` is partial
+   correctness over the *normal* (`ORet`) outcome (panic ⇒ `True`, honestly,
+   *not* `False`).  `World` is no longer collapsible (non-degenerate model:
+   `World:=unit`, `IO A:=World->Outcome A`), and `bind_panic_l`, `catch_ret`,
+   `catch_panic`, **`hoare_panic`** are now *proved lemmas*, not axioms.
+   Divergence stays idealised away (total `run_io` ⇒ all IO terminates), like
+   OOM — documented, not modelled.
+10. **The Rocq→Go translator is unverified and in the TCB** — *open, structural*.
+   "Formally verified Go" = *Go emitted by an unverified ~1500-line OCaml
+   pretty-printer (`plugin/go.ml`, incl. the relooper) from Rocq terms checked
+   against the axioms.*  The theorems constrain the **Rocq term**; no
+   lowering-correctness theorem relates the emitted **Go** to it (this doc
+   repeatedly says "precisely what a lowering-correctness proof discharges" — no
+   such proof exists).  The relooper is justified only by **golden tests**, which
+   exercise finitely many fixed trajectories and cannot witness a CFG-shape bug
+   that does not surface on the chosen inputs.  A real fix needs a Go semantics
+   in Rocq + a simulation proof — out of scope for now; stated here so the
+   guarantee is not overclaimed.  *Down-payment:* keep the model honest and the
+   raw-goto fallback total, so the unverified surface is the *prettifier*, not
+   the *meaning*.
+11. **Session types enforce ordering, not linearity** — *FIXED via indexed
+   monad*.  The old CPS API `sess_send : SessEndpoint (PSend A P) -> A ->
+   (SessEndpoint P -> IO B) -> IO B` left the *original* endpoint in scope in the
+   continuation; Rocq is not substructural, so a **double-send** (or silent
+   abandonment) type-checked — machine-checked with a `fido_double_send` that
+   compiled.  Ordering/direction/payload *were* enforced; exactly-once use was
+   not.  *Fix:* a **parameterised (indexed) session monad** `Sess (i j : Proto)
+   A` carrying the protocol state in the *type index*, not in a reusable value:
+   `sess_send : A -> Sess (PSend A P) P unit`, `sess_recv : tag -> Sess
+   (PRecv A P) P A`, `sess_bind : Sess i j A -> (A -> Sess j k B) -> Sess i k B`.
+   There is no endpoint value to reuse, and a runnable session must thread from
+   the full protocol to `PEnd`, so double-use and mid-protocol drop are now
+   **type errors** (build-checked `Fail` tests).
+
 ## Architecture
 
 - `*.v` and `*.go` are both committed; `*.go` is always re-derivable from `*.v`
