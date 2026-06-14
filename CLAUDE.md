@@ -557,19 +557,28 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    correct only for single-goroutine, non-aliasing use; sub-slicing (`s[a:b]`
    shares the backing array), in-place append, and aliased/concurrent access are
    unmodelled (ties to Tier 1's concurrency model).
-9. **Operator coverage is partial.**  Only `==`, `<`, `<=` are emitted; `>`, `>=`,
-   `!=`, `&&`, `||` are not in the op tables (must currently be encoded via
-   swapped operands / negation).  *Fix:* add them and verify faithfulness — in
-   particular that `&&`/`||` short-circuit is unobservable here (true only while
-   operands are pure; revisit if a bool operand can have effects).
+9. **Operator coverage — *boolean + float comparison now done; `>`/`>=`/`!=`
+   still via encoding*.**  Integer `==`/`<`/`<=` (`eqb`/`ltb`/`leb`, signed via
+   `ltsb`/`lesb`) and now **`&&`/`||`/`!`** (`andb`/`orb`/`negb`) and **float
+   `<`/`<=`/`==`** (`PrimFloat.ltb`/`leb`/`eqb`) are all emitted.  `&&`/`||`
+   short-circuit is unobservable because the operands are pure, total `bool`
+   values (no effects, no divergence) — revisit only if a bool operand could ever
+   have effects.  Float comparison is faithful on IEEE corner cases, not just
+   ordinary values: machine-checked `nan_eqb_false`/`nan_ltb_false` (NaN is
+   unordered) plus the `float_nan_demo` golden show Coq and Go agree.  *Still
+   open:* `>`/`>=` (encode by swapping operands) and `!=` (encode as
+   `negb (eqb …)` → `!(a == b)`) have no *direct* operator — low priority, since
+   they are losslessly expressible, but a direct `gtb`/`geb`/`neqb` mapping would
+   be tidier.
 
 ### Tier 4 — unmodelled operations on (some) modelled types
 10. **Narrow integer types** (`int8/16/32`, `uint`, `uint8/16/32/64`): opaque
     axioms with no arithmetic and no overflow semantics — and unsigned wrap
     differs from signed.  Needed before any library does sized/unsigned math.
-11. **Float gaps:** `float32` is an opaque axiom (no native Rocq f32); float
-    comparison (`<`/`<=`/`==`, and NaN's unordered behaviour) is not emitted; and
-    int↔float / float↔float conversions are absent.
+11. **Float gaps — *comparison now done; float32 + conversions still open*.**
+    Float `<`/`<=`/`==` (incl. NaN's unordered behaviour) is now emitted and
+    proven faithful (see #9).  *Still open:* `float32` is an opaque axiom (no
+    native Rocq f32); int↔float / float↔float conversions are absent.
 12. **Bit operations** (`<<`, `>>`, `&`, `|`, `^`, `&^`, including negative-shift /
     over-width-shift behaviour) — entirely unmodelled.
 13. **Conversions** in general: int↔float, integer narrowing (truncation/wrap),

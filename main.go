@@ -38,6 +38,18 @@ func Float_demo() {
 	println(1.5+2.25, 1.0/4.0)
 }
 
+func Float_cmp_demo() {
+	println(1.5 < 2.5)
+	println(2.5 <= 2.5)
+	println(1.5 == 1.5)
+	println(3.0 < 2.0)
+}
+
+func Float_nan_demo(z float64) {
+	println(z/z == z/z)
+	println(z/z < 1.0)
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -532,6 +544,8 @@ func main() {
 	Div_demo()
 	Overflow_safe_demo()
 	Float_demo()
+	Float_cmp_demo()
+	Float_nan_demo(0.0)
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()

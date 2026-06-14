@@ -176,6 +176,33 @@ Definition float_demo : IO unit :=
   println [ any (PrimFloat.add 1.5 2.25)%float     (* 3.75 *)
           ; any (PrimFloat.div 1.0 4.0)%float ].   (* 0.25 (exact in binary) *)
 
+(** Float COMPARISON lowers to Go's [<]/[<=]/[==] on [float64].  Both Coq's
+    [PrimFloat] and Go follow IEEE 754, so the semantics match exactly — including
+    NaN (every comparison with NaN is false) and signed zero ([0.0 == -0.0]).
+    Comparisons bind looser than arithmetic, so [a + b < c] needs no parens. *)
+Definition float_cmp_demo : IO unit :=
+  bind (println [any (PrimFloat.ltb 1.5 2.5)%float]) (fun _ =>   (* 1.5 < 2.5  → true  *)
+  bind (println [any (PrimFloat.leb 2.5 2.5)%float]) (fun _ =>   (* 2.5 <= 2.5 → true  *)
+  bind (println [any (PrimFloat.eqb 1.5 1.5)%float]) (fun _ =>   (* 1.5 == 1.5 → true  *)
+  println [any (PrimFloat.ltb 3.0 2.0)%float]))).               (* 3.0 < 2.0  → false *)
+
+(** IEEE NaN faithfulness, MACHINE-CHECKED (Coq side): a NaN ([0.0/0.0]) is
+    unordered — [NaN == NaN] and [NaN < x] are both [false].  This is exactly Go's
+    float64 behaviour, so lowering [eqb]/[ltb] to [==]/[<] is faithful on the
+    corner cases, not merely on ordinary values.  ([float_nan_demo] below shows
+    Go agreeing at runtime.) *)
+Example nan_eqb_false : PrimFloat.eqb (PrimFloat.div 0 0) (PrimFloat.div 0 0) = false.
+Proof. now vm_compute. Qed.
+Example nan_ltb_false : PrimFloat.ltb (PrimFloat.div 0 0) 1 = false.
+Proof. now vm_compute. Qed.
+
+(** Runtime witness (Go side) of the same NaN corner cases.  [z] is an opaque
+    [float64] parameter (call site passes [0.0]) so [z/z] is a *runtime* NaN —
+    a literal [0.0/0.0] would be a Go *compile-time* division-by-zero error. *)
+Definition float_nan_demo (z : float) : IO unit :=
+  bind (println [any (PrimFloat.eqb (PrimFloat.div z z) (PrimFloat.div z z))%float]) (fun _ =>
+  println [any (PrimFloat.ltb (PrimFloat.div z z) 1)%float]).   (* NaN==NaN → false ; NaN<1 → false *)
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -662,6 +689,8 @@ Definition main_effect : IO unit :=
   bind div_demo                        (fun _ =>   (* prints: 3 2 *)
   bind overflow_safe_demo              (fun _ =>   (* prints: 3000000000000 1000000 *)
   bind float_demo                      (fun _ =>   (* prints: 3.75 / 0.25 (sci) *)
+  bind float_cmp_demo                  (fun _ =>   (* prints: true / true / true / false *)
+  bind (float_nan_demo 0)              (fun _ =>   (* prints: false / false (NaN unordered) *)
   bind prec_demo                       (fun _ =>   (* prints: 10 20 *)
   bind neglit_demo                     (fun _ =>   (* prints: -7 -1 -2147483648 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
@@ -695,6 +724,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

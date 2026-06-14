@@ -317,8 +317,15 @@ let is_int63_op_ref r name =
   ref_has_suffix r (".PrimInt63." ^ name) ||
   ref_has_suffix r (".Cyclic.Int63.PrimInt63." ^ name)
 
+(* Float arithmetic AND comparison.  Both Coq's [PrimFloat] and Go's [float64]
+   implement IEEE 754 binary64, so these primitives lower directly to the Go
+   operators *with identical semantics, NaN included*: every comparison with a
+   NaN operand is false ([ltb]/[leb]/[eqb]) in both, and [eqb (+0) (-0) = true]
+   in both.  (Float [/] cannot panic — it is IEEE, yielding ±inf / NaN — so unlike
+   integer division it needs no guard.) *)
 let float_op_table = [
   "add", " + "; "sub", " - "; "mul", " * "; "div", " / ";
+  "ltb", " < "; "leb", " <= "; "eqb", " == ";
 ]
 
 let is_float_op_ref r name =
@@ -367,7 +374,11 @@ let op_prec = function
   | NatMul | NatDiv | NatMod -> 5
   | NatAdd | NatSub          -> 4
   | NatEqb | NatLtb | NatLeb -> 3
-let float_prec s = if String.equal s " * " || String.equal s " / " then 5 else 4
+let float_prec s =
+  if String.equal s " * " || String.equal s " / " then 5
+  else if String.equal s " < " || String.equal s " <= " || String.equal s " == "
+  then 3        (* comparisons bind looser than + / -, like the integer ops *)
+  else 4
 
 (* Boolean operators.  Coq's [andb]/[orb] take two already-evaluated [bool]
    values; Go's [&&]/[||] short-circuit.  This is observationally identical here:
