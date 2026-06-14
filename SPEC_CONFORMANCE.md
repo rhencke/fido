@@ -287,15 +287,21 @@ Ours (`Print Assumptions` = *Closed under the global context* — no axioms): `h
 = transitive closure of exactly those edges; `hb_irrefl`+`hb_transitive` (strict
 partial order); `hb_send_before_recv`, `hb_recv_before_send`,
 `unbuffered_rendezvous`, `buffered_sender_runs_ahead` (no over-ordering);
-`data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  ✓  **Modelled: 3 of
-the 4 channel rules** (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered as
-cap 0).  **Open:** the 4th channel rule — *"the closing of a channel is synchronized
-before a receive that returns a zero value because the channel is closed"* — is NOT
-yet an edge; a naive `Close ⤳ RecvDone n` for all `n` would OVER-ORDER (it would
-order close before receives that completed *before* it), breaking the no-over-order
-property, so it needs the zero-returning-receive distinction (n past the drained
-buffer).  Also open: tie events to the `run_io` world ops; `go_spawn`'s fork edge;
-general N-goroutine/M-channel topologies (the program-order edges currently model one
-sender + one receiver on one channel); deadlock freedom (liveness, needs a
-non-terminating model).  Other sync mechanisms (Mutex, atomic, once) need stdlib
-(imports — out of scope).
+`data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  **All 4 channel rules
+✓** + the **goroutine fork edge ✓** — every one a theorem, axiom-free (`Print
+Assumptions` = *Closed under the global context*):
+- rules 1/3/4 (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered = cap 0):
+  the open model `hb cap`.
+- **rule 2** (Phase 4a) — *"closing a channel is synchronized before a receive that
+  returns zero because the channel is closed"*: the finite-stream model `hbc cap
+  nsent` (sender sends `nsent` then closes; `hbc_close_before_zero_recv`: close ⤳
+  `CRecvDone n` for `n ≥ nsent` ONLY).  Faithful: it does NOT order close before the
+  value-receives (`close_not_before_value_recv`), proven via the conserved credit
+  `ev_credit_c`, so no over-ordering; irreflexive via `ev_ts_c`.
+- **fork edge** (Phase 4b) — *"a go statement is synchronized before the goroutine's
+  execution starts"*: `fork_hb` + `fork_program_race_free` (parent writes `x`, spawns
+  a child that reads `x` with NO channel — race-free purely by the fork edge).
+**Still open:** tie events to the `run_io` world ops; general N-goroutine/M-channel
+topologies (the program-order edges model one sender + one receiver per channel);
+deadlock freedom (liveness, needs a non-terminating model).  Other sync mechanisms
+(Mutex, atomic, once) need stdlib (imports — out of scope).

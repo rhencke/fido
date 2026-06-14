@@ -1235,6 +1235,128 @@ Proof.
   - right. exact mp_write_before_read.
 Qed.
 
+(** ---- Phase 4a: the 4th go-mem channel rule — close ⤳ a receive returning zero ----
+
+    The open model ([hb cap]) covers rules 1/3/4 for unbounded communication.  The
+    remaining rule — "the closing of a channel is synchronized before a receive that
+    returns a zero value because the channel is closed" — needs a FINITE scenario:
+    the sender sends [nsent] values then CLOSES; the receiver receives unboundedly.
+    Receive [n < nsent] gets the nth value (rule 1); receive [n >= nsent] returns
+    ZERO (closed + drained) and is synchronised AFTER the close (rule 2).  Its own
+    event type keeps the open model untouched; same axiom-free technique — a
+    timestamp [ev_ts_c] (linear extension ⇒ irreflexive) and a CONSERVED credit
+    [ev_credit_c] (⇒ no over-ordering).  Crucially the close is ordered before the
+    ZERO-returning receives ONLY, never the value-receives, so it adds no spurious
+    order.  Send/recv/recv-send edges carry [< nsent] guards (they exist only for the
+    sends that actually happen). *)
+Inductive ChEvC : Type :=
+  | CSendStart : nat -> ChEvC | CSendDone : nat -> ChEvC
+  | CRecvStart : nat -> ChEvC | CRecvDone : nat -> ChEvC
+  | CClose : ChEvC.
+
+Inductive hbc_edge (cap nsent : nat) : ChEvC -> ChEvC -> Prop :=
+  | hbce_send_po    : forall n, n < nsent     -> hbc_edge cap nsent (CSendStart n) (CSendDone n)
+  | hbce_recv_po    : forall n,                  hbc_edge cap nsent (CRecvStart n) (CRecvDone n)
+  | hbce_send_seq   : forall n, S n < nsent   -> hbc_edge cap nsent (CSendDone n) (CSendStart (S n))
+  | hbce_recv_seq   : forall n,                  hbc_edge cap nsent (CRecvDone n) (CRecvStart (S n))
+  | hbce_send_recv  : forall n, n < nsent     -> hbc_edge cap nsent (CSendStart n) (CRecvDone n)
+  | hbce_recv_send  : forall k, k + cap < nsent -> hbc_edge cap nsent (CRecvStart k) (CSendDone (k + cap))
+  (* sender program order: the close comes after the last send *)
+  | hbce_send_close : forall n, S n = nsent   -> hbc_edge cap nsent (CSendDone n) CClose
+  (* rule 2: close ⤳ every receive that returns zero (index >= nsent) *)
+  | hbce_close_recv : forall n, nsent <= n    -> hbc_edge cap nsent CClose (CRecvDone n).
+
+Inductive hbc (cap nsent : nat) : ChEvC -> ChEvC -> Prop :=
+  | hbc_one : forall a b, hbc_edge cap nsent a b -> hbc cap nsent a b
+  | hbc_seq : forall a b c, hbc cap nsent a b -> hbc cap nsent b c -> hbc cap nsent a c.
+
+Definition ev_ts_c (nsent : nat) (e : ChEvC) : nat :=
+  match e with
+  | CSendStart n => 4 * n     | CSendDone n => 4 * n + 2
+  | CRecvStart n => 4 * n + 1 | CRecvDone n => 4 * n + 3
+  | CClose       => 4 * nsent
+  end.
+
+Lemma hbc_edge_ts : forall cap nsent a b,
+  hbc_edge cap nsent a b -> ev_ts_c nsent a < ev_ts_c nsent b.
+Proof. intros cap nsent a b H; destruct H; cbn; lia. Qed.
+
+Theorem hbc_ts_increasing : forall cap nsent a b,
+  hbc cap nsent a b -> ev_ts_c nsent a < ev_ts_c nsent b.
+Proof.
+  intros cap nsent a b H; induction H as [a b Hedge | a b c Hab IHab Hbc IHbc].
+  - exact (hbc_edge_ts cap nsent a b Hedge).
+  - lia.
+Qed.
+
+Theorem hbc_irrefl : forall cap nsent e, ~ hbc cap nsent e e.
+Proof. intros cap nsent e H. apply hbc_ts_increasing in H. lia. Qed.
+
+(** Rule 2 as a THEOREM: close is synchronised before every zero-returning receive. *)
+Theorem hbc_close_before_zero_recv :
+  forall cap nsent n, nsent <= n -> hbc cap nsent CClose (CRecvDone n).
+Proof. intros cap nsent n H. apply hbc_one. apply hbce_close_recv. exact H. Qed.
+
+(** ...and the close follows the last send (sender program order). *)
+Theorem hbc_send_before_close :
+  forall cap nsent n, S n = nsent -> hbc cap nsent (CSendDone n) CClose.
+Proof. intros cap nsent n H. apply hbc_one. apply hbce_send_close. exact H. Qed.
+
+Definition ev_credit_c (cap nsent : nat) (e : ChEvC) : nat :=
+  match e with
+  | CSendStart n => n       | CSendDone n => n
+  | CRecvStart k => k + cap  | CRecvDone k => k + cap
+  | CClose       => nsent
+  end.
+
+Lemma hbc_credit_mono : forall cap nsent a b,
+  hbc cap nsent a b -> ev_credit_c cap nsent a <= ev_credit_c cap nsent b.
+Proof.
+  intros cap nsent a b H; induction H as [a b Hedge | a b c Hab IHab Hbc IHbc].
+  - destruct Hedge; cbn; lia.
+  - lia.
+Qed.
+
+(** NO OVER-ORDERING: the close is NOT synchronised before a receive that returns a
+    VALUE (index < nsent).  With [nsent = 5], close does not happen-before the 0th
+    receive (which gets a real value) — they are concurrent, exactly as in Go (the
+    receiver may take value 0 before the sender closes). *)
+Example close_not_before_value_recv : ~ hbc 0 5 CClose (CRecvDone 0).
+Proof. intro H. apply (hbc_credit_mono 0 5) in H. cbn in H. lia. Qed.
+
+(** ---- Phase 4b: the goroutine FORK edge ----
+
+    go-mem: "the go statement that starts a new goroutine is synchronized before the
+    start of the goroutine's execution."  So a value the parent writes BEFORE the
+    [go] is visible to the child with NO channel — the fork alone orders it.  The
+    canonical case (parent writes [x] then spawns a child that reads [x]) is
+    whole-program race-free purely by the fork edge.  (Reuses the generic
+    [Race]/[RaceFree]/[racefree_of_ordered] from Phase 3 — axiom-free.) *)
+Inductive ForkEvent := PWrite | PGo | CStartE | CRead.
+Inductive fork_hb : ForkEvent -> ForkEvent -> Prop :=
+  | fk_po_parent : fork_hb PWrite PGo        (* parent: write x, then go *)
+  | fk_fork      : fork_hb PGo CStartE        (* go ⤳ child's start *)
+  | fk_po_child  : fork_hb CStartE CRead       (* child: start, then read x *)
+  | fk_trans : forall a b c, fork_hb a b -> fork_hb b c -> fork_hb a c.
+Definition fork_acc (e : ForkEvent) : Access :=
+  match e with PWrite => AWrite 0 | CRead => ARead 0 | _ => ARead 1 end.  (* x = location 0 *)
+Definition fork_gid (e : ForkEvent) : nat :=
+  match e with PWrite => 0 | PGo => 0 | CStartE => 1 | CRead => 1 end.
+Theorem fork_write_before_read : fork_hb PWrite CRead.
+Proof.
+  eapply fk_trans; [apply fk_po_parent | eapply fk_trans; [apply fk_fork | apply fk_po_child]].
+Qed.
+Theorem fork_program_race_free : RaceFree fork_hb fork_acc fork_gid.
+Proof.
+  apply racefree_of_ordered. intros e1 e2 Hg Hc.
+  destruct e1, e2; cbn in *;
+    try (exfalso; apply Hg; reflexivity);
+    try (exfalso; destruct Hc as [Hl _]; discriminate Hl);
+    try (exfalso; destruct Hc as [_ [Hw|Hw]]; discriminate Hw).
+  - left.  exact fork_write_before_read.
+  - right. exact fork_write_before_read.
+Qed.
+
 Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.

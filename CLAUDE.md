@@ -530,15 +530,20 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    proves happens-before ordering is the whole defence.  The canonical
    message-passing instance (`mp_hb`: A writes `x` then sends; B receives then
    reads `x`) shows the write/read pair `mp_conflict`-s yet is `hb`-ordered through
-   the `mp_sync` (= `hbe_send_recv`) edge — `mp_no_race`: it does NOT race.  *Still
-   pending:* the **4th go-mem channel rule — close⤳receive-that-returns-zero — is
-   NOT yet an edge** (a blanket `Close ⤳ RecvDone n` would over-order; needs the
-   zero-returning-receive distinction, n past the drained buffer); whole-PROGRAM
-   race freedom (every shared access ordered — a program-level analysis obligation);
-   general N-goroutine/M-channel topologies (the program-order edges model one
-   sender + one receiver on one channel); tying `ChEvent`/`MPEvent` to the actual
-   `run_io` world ops; and `go_spawn`'s fork edge + deadlock-freedom (liveness,
-   needs a non-terminating model — Tier 5 #14).  Net: Phase 1 grounds the channel
+   the `mp_sync` (= `hbe_send_recv`) edge — `mp_no_race`: it does NOT race.  **Phase 4a
+   adds the 4th go-mem channel rule** (close⤳receive-returning-zero): the finite
+   model `hbc cap nsent` (sender sends `nsent` then closes), `hbc_close_before_zero_
+   recv` orders close ⤳ `CRecvDone n` for `n ≥ nsent` ONLY — `close_not_before_value_
+   recv` proves it does NOT order close before the value-receives (via the conserved
+   `ev_credit_c`, so no over-ordering; irreflexive via `ev_ts_c`).  **Phase 4b adds
+   the goroutine FORK edge** (`fork_hb` + `fork_program_race_free`: parent writes `x`,
+   spawns a child reading `x` with no channel — race-free by the fork edge alone).
+   Both axiom-free.  *Still pending:* whole-PROGRAM race freedom for arbitrary
+   programs (`racefree_of_ordered` is the rule; only specific instances proven);
+   general N-goroutine/M-channel topologies (program-order edges model one sender +
+   one receiver per channel); tying `ChEvent`/`ChEvC`/`MPEvent` to the actual
+   `run_io` world ops; and deadlock-freedom (liveness, needs a non-terminating
+   model — Tier 5 #14).  Net: Phase 1 grounds the channel
    laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
    axiom-free or interface-grounded, replacing the old asserted-on-intuition
    axioms.
