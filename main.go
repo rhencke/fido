@@ -343,6 +343,28 @@ func Nested_loop_demo() {
 	return
 }
 
+func Early_return_demo() {
+	i := int64(0)
+	var iv int64
+	for {
+		iv = i
+		if iv < 9 {
+			iv = i
+			if iv < 2 {
+				iv = i
+				println(iv)
+				i = Add(iv, 1)
+			} else {
+				return
+			}
+		} else {
+			break
+		}
+	}
+	println(999)
+	return
+}
+
 func Foreach_demo() {
 	xs := []int64{10, 20, 30}
 	for _, x := range xs {
@@ -381,6 +403,7 @@ func main() {
 	Diamond_demo(false)
 	Loopif_demo()
 	Nested_loop_demo()
+	Early_return_demo()
 	Mut_demo()
 	Count_demo()
 	Defer_demo()

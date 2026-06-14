@@ -390,6 +390,24 @@ Definition nested_loop_demo : IO unit :=
     ret Done                                                        (* block 5: exit *)
   ])).
 
+(** Early return from inside a loop: block 1 returns ([Done]) when [iv] reaches 2,
+    mid-loop — distinct from the loop's normal [break] (block 0 → block 3) and the
+    post-loop code.  The relooper emits [return] for the in-loop [Done], [break]
+    for the exit edge, and the block-3 tail after the [for].  Prints 0, 1, then
+    returns (so block 3's 999 is never reached). *)
+Definition early_return_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
+      if Sint63.ltb iv 9 then ret (Jump 1%nat) else ret (Jump 3%nat)) ;
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 1: early return *)
+      if Sint63.ltb iv 2 then ret (Jump 2%nat) else ret Done) ;
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 2: body, incr, loop *)
+    bind (println [any iv]) (fun _ =>
+    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat)))) ;
+    bind (println [any (999 : int)]) (fun _ => ret Done)           (* block 3: normal exit *)
+  ]).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -424,10 +442,11 @@ Definition main_effect : IO unit :=
   bind (diamond_demo false)            (fun _ =>   (* prints: 1 / 20 / 99 *)
   bind loopif_demo                     (fun _ =>   (* prints: 100 / 0 / 1 / 2 *)
   bind nested_loop_demo                (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
+  bind early_return_demo               (fun _ =>   (* prints: 0 / 1 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".
