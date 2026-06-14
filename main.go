@@ -399,6 +399,37 @@ L0:
 	return
 }
 
+func Labeled_continue_demo() {
+	i := int64(0)
+	j := int64(0)
+	var iv int64
+	var jv int64
+L0:
+	for {
+		iv = i
+		i = Add(iv, 1)
+		if iv < 2 {
+			j = int64(0)
+			for {
+				jv = j
+				if jv < 3 {
+					jv = j
+					println(jv)
+					j = Add(jv, 1)
+					if !(jv < 1) {
+						continue L0
+					}
+				} else {
+					break
+				}
+			}
+		} else {
+			break
+		}
+	}
+	return
+}
+
 func Foreach_demo() {
 	xs := []int64{10, 20, 30}
 	for _, x := range xs {
@@ -439,6 +470,7 @@ func main() {
 	Nested_loop_demo()
 	Early_return_demo()
 	Labeled_break_demo()
+	Labeled_continue_demo()
 	Mut_demo()
 	Count_demo()
 	Defer_demo()

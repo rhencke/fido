@@ -433,6 +433,29 @@ Definition labeled_break_demo : IO unit :=
     ret Done                                                        (* block 6: exit *)
   ])).
 
+(** Labeled continue: from inside the inner loop, block 3 jumps to the *outer*
+    header (block 0) once [jv] reaches 1 — abandoning the inner loop to restart
+    the outer one.  That escapes the innermost loop, so it lowers to
+    [continue L0] (the outer [for] is labeled).  The outer header increments [i]
+    so it still terminates.  Prints 0, 1 (inner, i=0) then 0, 1 (i=1). *)
+Definition labeled_continue_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new (0 : int)) (fun j =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header, i++ *)
+    bind (ref_set i (add iv 1)) (fun _ =>
+      if Sint63.ltb iv 2 then ret (Jump 1%nat) else ret (Jump 5%nat))) ;
+    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
+      if Sint63.ltb jv 3 then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
+    bind (ref_get TInt64 j) (fun jv =>                              (* block 3: print; continue L0 *)
+    bind (println [any jv]) (fun _ =>
+    bind (ref_set j (add jv 1)) (fun _ =>
+      if Sint63.ltb jv 1 then ret (Jump 2%nat) else ret (Jump 0%nat)))) ;
+    ret (Jump 0%nat) ;                                              (* block 4: inner exit → outer *)
+    ret Done                                                        (* block 5: exit *)
+  ])).
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -469,10 +492,11 @@ Definition main_effect : IO unit :=
   bind nested_loop_demo                (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
   bind early_return_demo               (fun _ =>   (* prints: 0 / 1 *)
   bind labeled_break_demo              (fun _ =>   (* prints: 0 / 1 / 2 *)
+  bind labeled_continue_demo           (fun _ =>   (* prints: 0 / 1 / 0 / 1 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt))))))))))))))))))))))))))).
+  ret tt)))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".
