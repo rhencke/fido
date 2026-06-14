@@ -200,7 +200,21 @@ safe-by-construction principle. Tracked until closed.
    constant acquires a type only at use, where representability is a proof
    obligation (Go's compile-time check → safe-by-construction). Ties to #2 (the
    Z int model) and to string literals.
-6. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
+6. **Function-scoped `defer`** — *not modelled*. `with_defer` is **block**-scoped
+   (cleanup runs at the end of the wrapped computation, extracted faithfully as
+   an IIFE + `defer`). Go's `defer` keyword is **function**-scoped: deferred
+   calls accumulate and run LIFO at *function return*. They diverge in a loop —
+   Go's `for { defer f() }` runs every `f()` at function exit (the classic
+   accumulation/leak), whereas `with_defer` runs per iteration. Faithful
+   function-scoped defer needs a deferred-call stack unwound at function return.
+7. **`goto`** — *not modelled* (a primitive; must be). Go's `goto` is
+   restricted (cannot jump into a block or over an in-scope var decl), i.e.
+   "jump out/forward within block structure". The useful case — escaping nested
+   loops to a label after them — maps to a structured labeled-escape combinator
+   (extracts to `goto done; … done:` or labeled break). Fully general `goto`
+   (arbitrary backward/mid-function jumps) needs a continuation / label-dispatch
+   model. Build the structured-escape case first.
+8. **Minor** — `map_empty` is a likely-nil map; `map_set` on it would panic
    (use `map_make`/`map_make_typed`, which are non-nil). Raw `send`/`close_chan`
    panic on closed/nil channels — sessions are the safe layer; the raw forms
    are labelled escape hatches.
