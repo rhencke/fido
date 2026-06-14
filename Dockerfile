@@ -63,8 +63,18 @@ COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam dune  ./
 COPY --chown=opam:opam *.v   ./
 
+# The extracted *.go are produced as a SIDE EFFECT of compiling the extraction-driver
+# theories (the `Go Main Extraction` vernac); dune does NOT track them as build
+# outputs.  So with a warm _build cache dune skips recompiling an unchanged driver and
+# never regenerates its *.go — and it has cleaned the stale copy — making `cp` fail (or,
+# worse, ship nothing).  Force every extraction driver to recompile so the *.go are
+# ALWAYS freshly and reproducibly extracted from the current .v sources, while the
+# (heavy) proof libraries stay cached.  Drivers are auto-detected, so adding another
+# `Go Main Extraction` theory needs no change here.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
-    dune build \
+    for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
+    && dune build \
+    && test -n "$(ls _build/default/*.go 2>/dev/null)" \
     && cp -r _build/default/*.go /tmp/
 
 # ── Stage 4: export generated Go sources back to the host ────────────────────

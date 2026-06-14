@@ -771,6 +771,17 @@ resting state.)**
   actual execution traces.  Listed in `dune` `(modules …)`
 - `preamble.v` — shared preamble; every theory starts with `From Fido Require Import preamble`
 - `dune` / `dune-project` — builds plugin + theories together inside Docker
+- **Extraction-driver recompile (build correctness).** The generated `*.go` are a
+  SIDE EFFECT of compiling the extraction-driver theory (`main.v`'s `Go Main
+  Extraction` vernac); dune does NOT track them as build outputs.  So with a warm
+  `_build` cache, an incremental build that does not touch the driver skips
+  recompiling it and never regenerates the `*.go` — and dune has cleaned the stale
+  copy.  The `Dockerfile` prevents this by force-removing every extraction driver's
+  `.vo` before `dune build` (drivers auto-detected via `grep -l 'Go Main
+  Extraction'`), so the `*.go` are ALWAYS freshly/reproducibly extracted while the
+  heavy proof libraries stay cached; a `test -n` guard then fails the build LOUD if
+  no `*.go` was produced.  (Do not "fix" a missing-`.go` build by touching `main.v`
+  — that masks the real cause.)
 - Pre-commit hook (`.githooks/pre-commit`; activate once via `make
   install-hooks`): when any `.v` or `plugin/` file is staged, it re-extracts
   and auto-stages the generated Go, so committed `*.go` can never drift from
