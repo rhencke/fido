@@ -172,12 +172,33 @@ Definition overflow_safe_demo : IO unit :=
 Definition div_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.divs n d.
 Definition mod_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.mods n d.
 
-(** Machine-checked: the guarded division matches Go's truncation toward zero,
-    including the signed case Go and Rocq agree on ([-7 / 2 = -3], [-7 % 2 = -1]
-    — not the flooring [-4], [1]). *)
-Example div_nz_trunc_neg : Sint63.to_Z (div_nz (-7)%sint63 2 eq_refl) = (-3)%Z.
+(** ===== Go spec conformance: "Integer operators" (go.dev/ref/spec#Integer_operators)
+    plus "Integer overflow" (#Integer_overflow) — the SOURCE of div_nz/mod_nz's
+    behavior. =====
+
+    Spec: "the integer quotient q = x / y and remainder r = x % y satisfy
+    x = q*y + r  and  |r| < |y|, with x / y truncated towards zero".  The spec's
+    own example table is reproduced below and machine-checked against our model
+    (so this is conformance, not assertion). *)
+Example spec_div_5_3    : Sint63.to_Z (div_nz 5 3 eq_refl)            = 1%Z.    Proof. now vm_compute. Qed.
+Example spec_mod_5_3    : Sint63.to_Z (mod_nz 5 3 eq_refl)            = 2%Z.    Proof. now vm_compute. Qed.
+Example spec_div_n5_3   : Sint63.to_Z (div_nz (-5)%sint63 3 eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
+Example spec_mod_n5_3   : Sint63.to_Z (mod_nz (-5)%sint63 3 eq_refl)  = (-2)%Z. Proof. now vm_compute. Qed.
+Example spec_div_5_n3   : Sint63.to_Z (div_nz 5 (-3)%sint63 eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
+Example spec_mod_5_n3   : Sint63.to_Z (mod_nz 5 (-3)%sint63 eq_refl)  = 2%Z.    Proof. now vm_compute. Qed.
+Example spec_div_n5_n3  : Sint63.to_Z (div_nz (-5)%sint63 (-3)%sint63 eq_refl) = 1%Z.    Proof. now vm_compute. Qed.
+Example spec_mod_n5_n3  : Sint63.to_Z (mod_nz (-5)%sint63 (-3)%sint63 eq_refl) = (-2)%Z. Proof. now vm_compute. Qed.
+
+(** Spec, the ONE exception: "if the dividend x is the most negative value for the
+    int type of x, the quotient q = x / -1 is equal to x (and r = 0) due to
+    two's-complement integer overflow".  For our [int] = Sint63 the most-negative
+    value is [Sint63.min_int] (= -2^62, the analogue of int64's -2^63); we honor
+    the rule — no panic, wraps to itself. *)
+Example spec_div_minint_neg1 :
+  div_nz Sint63.min_int (-1)%sint63 eq_refl = Sint63.min_int.
 Proof. now vm_compute. Qed.
-Example mod_nz_trunc_neg : Sint63.to_Z (mod_nz (-7)%sint63 2 eq_refl) = (-1)%Z.
+Example spec_mod_minint_neg1 :
+  Sint63.to_Z (mod_nz Sint63.min_int (-1)%sint63 eq_refl) = 0%Z.
 Proof. now vm_compute. Qed.
 
 (** Division you can only call with a proven-nonzero divisor.  Prints 17/5 = 3
