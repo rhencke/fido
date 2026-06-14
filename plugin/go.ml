@@ -323,16 +323,20 @@ let classify_int63_op r =
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
     nat_op_names  (* same infix table works for int63 *)
 
-(* Signed comparison.  [int] is modelled with signed semantics to match Go's
-   [int64]; comparison/division are where signed and unsigned differ (the raw
-   +/-/* ops are shared).  The signed primitives [ltsb]/[lesb] live in
-   [PrimInt63] (same module as add/sub/mul); Go's [<]/[<=] are type-directed
-   (signed on int64), so emitting them is faithful. *)
-let sint63_cmp_names = [ "ltsb", NatLtb; "lesb", NatLeb ]
+(* Signed comparison AND signed division/remainder — where signed and unsigned
+   differ ([int] is modelled with signed int64 semantics; the raw +/-/* ops are
+   shared).  The signed primitives [ltsb]/[lesb]/[divs]/[mods] live in
+   [PrimInt63]; Go's [<]/[<=]/[/]/[%] are type-directed (signed on int64), so
+   emitting them is faithful (both truncate division toward zero).  [divs]/[mods]
+   are reached only via the proof-carrying [div_nz]/[mod_nz] (which demand the
+   divisor be non-zero); raw [PrimInt63.divs] is the escape hatch (Go panics on
+   a zero divisor, mirroring raw send/slice_get). *)
+let sint63_op_names =
+  [ "ltsb", NatLtb; "lesb", NatLeb; "divs", NatDiv; "mods", NatMod ]
 let classify_sint63_op r =
   List.find_map
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
-    sint63_cmp_names
+    sint63_op_names
 
 let go_infix = function
   | NatAdd -> " + " | NatSub -> " - " | NatMul -> " * "
@@ -1682,7 +1686,7 @@ let is_inlined_ref r =
   is_existT_ref r || is_sigT_ref r ||
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) nat_op_names ||
-  List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_cmp_names
+  List.exists (fun (name, _) -> is_int63_op_ref r name) sint63_op_names
 
 (*s Main-package wrapper. *)
 

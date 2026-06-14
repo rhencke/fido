@@ -170,12 +170,20 @@ separate tracks.
 Audit (2026-06-13 sweep) of the partial/unsafe primitives against the
 safe-by-construction principle. Tracked until closed.
 
-1. **Integer div/mod by zero** — *neutralised, real fix pending*. Rocq's
-   `Uint63`/`nat` division is total (`x/0 = 0`), Go's panics, and the plugin
-   used to emit a raw `/` — silently unsound. The plugin no longer emits
-   integer `/` or `%`, so the path can't be reached (any use extracts to an
-   undefined identifier). Proper fix: a guarded `div` (proof `d <> 0`, or a
-   checked form). Float `/` is kept — IEEE, no panic.
+1. **Integer div/mod by zero** — *resolved; evidence-carrying `div_nz`/`mod_nz`*.
+   Rocq's `Uint63`/`nat` division is total (`x/0 = 0`), Go's panics, so a raw
+   `/` is silently unsound.  Fix: the plugin emits no *bare* integer `/`/`%`; the
+   only way to divide is `div_nz`/`mod_nz`, which **demand a proof the divisor is
+   non-zero** (`(d =? 0) = false`, discharged by `eq_refl` for a literal) and
+   only then extract to the unguarded `n / d` / `n % d` — the proof discharged
+   the panic guard (safe-by-construction, same shape as `slice_at_ok`).
+   Underneath they are `PrimInt63.divs`/`mods`, the signed primitives that
+   truncate toward zero exactly like Go's int64 (machine-checked
+   `div_nz_trunc_neg`: `-7/2 = -3`, `mod_nz_trunc_neg`: `-7%2 = -1` — not the
+   flooring `-4`/`1`).  Raw `PrimInt63.divs` stays the escape hatch (Go panics on
+   a zero divisor, mirroring raw `send`/`slice_get`).  Float `/` is kept — IEEE,
+   no panic.  *Open:* a runtime check-and-branch form (comma-ok) for a
+   divisor whose non-zeroness is only known at runtime.
 2. **Integer model** — *resolved; ±2⁶² accepted*. `int` is interpreted with
    SIGNED Sint63 semantics matching Go's int64: `+`/`-`/`*` are two's-complement
    (shared with the unsigned primitive), comparison is signed (`ltsb`/`lesb` →

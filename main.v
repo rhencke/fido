@@ -68,6 +68,31 @@ Example add_wraps_at_boundary :
   Sint63.to_Z (PrimInt63.add Sint63.max_int 1) = Sint63.to_Z Sint63.min_int.
 Proof. now vm_compute. Qed.
 
+(** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
+    [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
+    silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
+    [div_nz]/[mod_nz] are evidence-carrying: they DEMAND a proof that the divisor
+    is non-zero ([(d =? 0) = false], discharged by [eq_refl] for a literal), and
+    only then extract to Go's unguarded [n / d] / [n % d] — the proof has already
+    ruled out the panic.  Underneath they are [PrimInt63.divs]/[mods], the signed
+    primitives that truncate toward zero exactly like Go's int64.  (Raw
+    [PrimInt63.divs] remains the escape hatch — Go panics on a zero divisor.) *)
+Definition div_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.divs n d.
+Definition mod_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.mods n d.
+
+(** Machine-checked: the guarded division matches Go's truncation toward zero,
+    including the signed case Go and Rocq agree on ([-7 / 2 = -3], [-7 % 2 = -1]
+    — not the flooring [-4], [1]). *)
+Example div_nz_trunc_neg : Sint63.to_Z (div_nz (-7)%sint63 2 eq_refl) = (-3)%Z.
+Proof. now vm_compute. Qed.
+Example mod_nz_trunc_neg : Sint63.to_Z (mod_nz (-7)%sint63 2 eq_refl) = (-1)%Z.
+Proof. now vm_compute. Qed.
+
+(** Division you can only call with a proven-nonzero divisor.  Prints 17/5 = 3
+    and 17%5 = 2.  The [eq_refl] discharges [(5 =? 0) = false] at compile time. *)
+Definition div_demo : IO unit :=
+  println [any (div_nz 17 5 eq_refl); any (mod_nz 17 5 eq_refl)].   (* prints: 3 2 *)
+
 (** Panic with [n], then recover it and print [n] and [n+1].
     Demonstrates the full panic → catch → type_assert cycle. *)
 Definition panic_and_recover (n : int) : IO unit :=
@@ -485,6 +510,7 @@ Definition sum_demo : IO unit :=
 Definition main_effect : IO unit :=
   bind (println [any (add 1 2)])       (fun _ =>   (* prints: 3 *)
   bind (panic_and_recover (add 40 2))  (fun _ =>   (* prints: 42 43 *)
+  bind div_demo                        (fun _ =>   (* prints: 3 2 *)
   bind map_demo                        (fun _ =>   (* prints: 3 999 0 *)
   bind slice_demo                      (fun _ =>   (* prints: 5 3 / false *)
   bind chan_demo                       (fun _ =>   (* prints: 42 true / 0 false *)
@@ -513,6 +539,6 @@ Definition main_effect : IO unit :=
   bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
   bind defer_demo                      (fun _ =>   (* prints: 3 / 2 / 1 *)
   bind defer_loop_demo                 (fun _ =>   (* prints: 2 / 1 / 0 *)
-  ret tt)))))))))))))))))))))))))))))).
+  ret tt))))))))))))))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

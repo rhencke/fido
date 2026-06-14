@@ -10,6 +10,18 @@ func Sub(n int64, m int64) int64 {
 	return n - m
 }
 
+func Div_nz(n int64, d int64) int64 {
+	return n / d
+}
+
+func Mod_nz(n int64, d int64) int64 {
+	return n % d
+}
+
+func Div_demo() {
+	println(Div_nz(17, 5), Mod_nz(17, 5))
+}
+
 func Panic_and_recover(n int64) {
 	defer func() {
 		if v := recover(); v != nil {
@@ -436,6 +448,7 @@ func Sum_demo() {
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
+	Div_demo()
 	Map_demo()
 	Slice_demo()
 	Chan_demo()
