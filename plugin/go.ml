@@ -80,6 +80,11 @@ let global_basename r =
   try Id.to_string (Nametab.basename_of_global r.glob)
   with Not_found -> ""
 
+(* A Fido builtin/combinator is matched by its (unqualified) basename — safe
+   because those names are reserved by builtins.v and user theories should not
+   shadow them.  Stdlib refs are package-qualified and use [ref_has_suffix]. *)
+let named n r = String.equal (global_basename r) n
+
 let ref_has_suffix r suffix =
   let p = global_path r in
   let n = String.length p and m = String.length suffix in
@@ -138,58 +143,58 @@ let classify_go_prim_type r =
 
 let is_go_prim_type r = Option.has_some (classify_go_prim_type r)
 
-let is_println_ref r = String.equal (global_basename r) "println"
+let is_println_ref = named "println"
 let is_len_ref    r  = String.equal (global_basename r) "len"
 let is_cap_ref    r  = String.equal (global_basename r) "cap"
 let is_append_ref r  = String.equal (global_basename r) "append"
-let is_go_map_type  r = String.equal (global_basename r) "GoMap"
-let is_slice_of_list_ref r = String.equal (global_basename r) "slice_of_list"
-let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
-let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
-let is_for_each_ref      r = String.equal (global_basename r) "for_each"
-let is_slice_fold_ref    r = String.equal (global_basename r) "slice_fold"
-let is_ref_type          r = String.equal (global_basename r) "Ref"
-let is_ref_new_ref       r = String.equal (global_basename r) "ref_new"
-let is_ref_get_ref       r = String.equal (global_basename r) "ref_get"
-let is_ref_set_ref       r = String.equal (global_basename r) "ref_set"
-let is_run_blocks_ref    r = String.equal (global_basename r) "run_blocks"
-let is_jump_ctor         r = String.equal (global_basename r) "Jump"
-let is_done_ctor         r = String.equal (global_basename r) "Done"
-let is_map_make_ref       r = String.equal (global_basename r) "map_make"
-let is_map_make_typed_ref r = String.equal (global_basename r) "map_make_typed"
-let is_map_set_ref  r = String.equal (global_basename r) "map_set"
-let is_map_del_ref  r = String.equal (global_basename r) "map_delete"
-let is_map_len_ref    r = String.equal (global_basename r) "map_len"
-let is_map_get_or_ref r = String.equal (global_basename r) "map_get_or"
-let is_map_get_opt_ref r = String.equal (global_basename r) "map_get_opt"
+let is_go_map_type = named "GoMap"
+let is_slice_of_list_ref = named "slice_of_list"
+let is_slice_get_ref = named "slice_get"
+let is_slice_at_ok_ref = named "slice_at_ok"
+let is_for_each_ref = named "for_each"
+let is_slice_fold_ref = named "slice_fold"
+let is_ref_type = named "Ref"
+let is_ref_new_ref = named "ref_new"
+let is_ref_get_ref = named "ref_get"
+let is_ref_set_ref = named "ref_set"
+let is_run_blocks_ref = named "run_blocks"
+let is_jump_ctor = named "Jump"
+let is_done_ctor = named "Done"
+let is_map_make_ref = named "map_make"
+let is_map_make_typed_ref = named "map_make_typed"
+let is_map_set_ref = named "map_set"
+let is_map_del_ref = named "map_delete"
+let is_map_len_ref = named "map_len"
+let is_map_get_or_ref = named "map_get_or"
+let is_map_get_opt_ref = named "map_get_opt"
 (* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
 let is_some_ctor r =
   ref_has_suffix r ".Init.Datatypes.Some" || String.equal (global_basename r) "Some"
 let is_none_ctor r =
   ref_has_suffix r ".Init.Datatypes.None" || String.equal (global_basename r) "None"
-let is_panic_ref         r = String.equal (global_basename r) "panic"
-let is_type_assert_ref   r = String.equal (global_basename r) "type_assert"
-let is_type_assert_safe_ref r = String.equal (global_basename r) "type_assert_safe"
-let is_go_chan_type       r = String.equal (global_basename r) "GoChan"
-let is_make_chan_ref      r = String.equal (global_basename r) "make_chan"
-let is_make_chan_buf_ref  r = String.equal (global_basename r) "make_chan_buf"
-let is_send_ref          r = String.equal (global_basename r) "send"
-let is_recv_ref          r = String.equal (global_basename r) "recv"
-let is_close_chan_ref     r = String.equal (global_basename r) "close_chan"
-let is_recv_ok_ref        r = String.equal (global_basename r) "recv_ok"
-let is_go_spawn_ref       r = String.equal (global_basename r) "go_spawn"
+let is_panic_ref = named "panic"
+let is_type_assert_ref = named "type_assert"
+let is_type_assert_safe_ref = named "type_assert_safe"
+let is_go_chan_type = named "GoChan"
+let is_make_chan_ref = named "make_chan"
+let is_make_chan_buf_ref = named "make_chan_buf"
+let is_send_ref = named "send"
+let is_recv_ref = named "recv"
+let is_close_chan_ref = named "close_chan"
+let is_recv_ok_ref = named "recv_ok"
+let is_go_spawn_ref = named "go_spawn"
 let is_proto_type r =
   String.equal (global_basename r) "Proto"
 let is_proto_ctor r =
   String.equal (global_basename r) "PSend" ||
   String.equal (global_basename r) "PRecv" ||
   String.equal (global_basename r) "PEnd"
-let is_dual_ref r = String.equal (global_basename r) "dual"
-let is_sess_endpoint_ref r = String.equal (global_basename r) "SessEndpoint"
-let is_make_sess_ref  r = String.equal (global_basename r) "make_sess"
-let is_sess_send_ref  r = String.equal (global_basename r) "sess_send"
-let is_sess_recv_ref  r = String.equal (global_basename r) "sess_recv"
-let is_sess_close_ref r = String.equal (global_basename r) "sess_close"
+let is_dual_ref = named "dual"
+let is_sess_endpoint_ref = named "SessEndpoint"
+let is_make_sess_ref = named "make_sess"
+let is_sess_send_ref = named "sess_send"
+let is_sess_recv_ref = named "sess_recv"
+let is_sess_close_ref = named "sess_close"
 
 (* GoTypeTag constructors → Go type names *)
 let go_type_tag_map = [
@@ -240,7 +245,7 @@ let zero_of_tag tag =
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
-let is_zero_val_ref r = String.equal (global_basename r) "zero_val"
+let is_zero_val_ref = named "zero_val"
 
 let is_go_type_tag_ctor r =
   Option.has_some (classify_go_type_tag r) ||
@@ -251,8 +256,8 @@ let is_go_type_tag_ctor r =
 (* IO monad — basename matching is acceptable here because these names
    live in builtins.v and user theories should not shadow them. *)
 let is_IO_type  r = String.equal (global_basename r) "IO"
-let is_ret_ref  r = String.equal (global_basename r) "ret"
-let is_bind_ref r = String.equal (global_basename r) "bind"
+let is_ret_ref = named "ret"
+let is_bind_ref = named "bind"
 
 (* existT is the constructor of sigT — used by the [any] notation. *)
 let is_existT_ref r =
