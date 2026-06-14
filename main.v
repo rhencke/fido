@@ -278,11 +278,27 @@ Definition assert_safe_demo (n : int) : IO unit :=
 (** Mutable local variable: declare, read, reassign, read again — straight-line
     (no control flow, so trivially scope-correct). *)
 Definition mut_demo : IO unit :=
-  bind (ref_new (10 : int))   (fun r =>      (* r := 10        *)
-  bind (ref_get r)            (fun a =>      (* a := r  (= 10) *)
-  bind (ref_set r (add a 5))  (fun _ =>      (* r = a + 5 (= 15) *)
-  bind (ref_get r)            (fun b =>      (* b := r  (= 15) *)
-  println [any b])))).                        (* prints 15 *)
+  bind (ref_new (10 : int))        (fun r =>  (* r := 10        *)
+  bind (ref_get TInt64 r)          (fun a =>  (* a := r  (= 10) *)
+  bind (ref_set r (add a 5))       (fun _ =>  (* r = a + 5 (= 15) *)
+  bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
+  println [any b])))).                         (* prints 15 *)
+
+(** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
+    The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
+    its declaration is hoisted to [var iv int64] (dominating the loop) and
+    assigned with [=].  [ref_set] also assigns with [=].  Prints 0,1,2. *)
+Definition count_demo : IO unit :=
+  bind (ref_new (0 : int)) (fun i =>
+  run_blocks 0%nat [
+    bind (ref_get TInt64 i) (fun iv =>            (* block 0: loop header *)
+      if Sint63.ltb iv 3 then
+        bind (println [any iv])      (fun _ =>
+        bind (ref_set i (add iv 1))  (fun _ =>
+        ret (Jump 0%nat)))                        (* goto block0 (backward) *)
+      else ret (Jump 1%nat)) ;                    (* exit *)
+    ret Done                                       (* block 1 *)
+  ]).
 
 (** Control flow as a goto-CFG (raw goto, before the structuring pass).
     Three blocks; block 0 conditionally jumps.  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
@@ -325,6 +341,7 @@ Definition main_effect : IO unit :=
   bind (cond_goto_demo true)           (fun _ =>   (* prints: 1 / 3 *)
   bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
   bind mut_demo                        (fun _ =>   (* prints: 15 *)
-  ret tt)))))))))))))))))).
+  bind count_demo                      (fun _ =>   (* prints: 0 / 1 / 2 *)
+  ret tt))))))))))))))))))).
 
 Go Main Extraction main "main_effect".

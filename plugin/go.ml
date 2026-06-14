@@ -436,6 +436,19 @@ let rec nat_value = function
 
 (*s Expression printer. *)
 
+(*s Check whether MLrel 1 appears free in an expression.
+    Used to detect unused bind parameters (the result is discarded). *)
+
+let rec db1_free = function
+  | MLrel 1             -> false
+  | MLrel _ | MLglob _ | MLuint _ | MLfloat _ | MLdummy _ | MLaxiom _ | MLexn _ -> true
+  | MLapp (h, args)     -> db1_free h && List.for_all db1_free args
+  | MLlam (_, b)        -> db1_free b   (* conservative: may over-suppress inside nested lam *)
+  | MLcons (_, _, args) -> List.for_all db1_free args
+  | MLletin (_, e1, e2) -> db1_free e1 && db1_free e2
+  | MLmagic e           -> db1_free e
+  | _                   -> true
+
 let rec pp_expr state env = function
   | MLrel i ->
       pp_rel env i
@@ -490,7 +503,7 @@ let rec pp_expr state env = function
             | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
             | MLfloat _ -> str "float64(" ++ pp_expr state env v ++ str ")"
             | _ -> pp_expr state env v)
-       | MLglob r, [rf] when is_ref_get_ref r -> pp_expr state env rf
+       | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
            let pp_v = match v with
              | MLuint _  -> str "int64(" ++ pp_expr state env v ++ str ")"
@@ -682,6 +695,33 @@ and block_targets b acc =
            Array.fold_left (fun a (_, _, body) -> block_targets body a) acc branches
        | _ -> acc)
 
+(* Loop-block-local variables (bound by a [bind] inside a block) are hoisted to
+   [var x T] before the blocks so their declaration dominates all uses and is
+   never re-run on a backward jump.  Only tagged reads ([ref_get tag r]) are
+   hoistable here, since that is where the Go type is known. *)
+and block_hoists b acc =
+  let h, args = collect_app b [] in
+  let vis = List.filter (fun a -> not (is_erased a)) args in
+  match h, vis with
+  | MLglob r, [action; k] when is_bind_ref r ->
+      let ids, kbody = collect_lam k in
+      let acc' =
+        (match List.filter (fun id -> not (is_dummy id)) ids with
+         | [x] ->
+             let ah, aargs = collect_app action [] in
+             let avis = List.filter (fun a -> not (is_erased a)) aargs in
+             (match ah, avis with
+              | MLglob rr, [tag; _rf] when is_ref_get_ref rr ->
+                  (x, go_type_of_tag tag) :: acc
+              | _ -> acc)
+         | _ -> acc) in
+      block_hoists kbody acc'
+  | _ ->
+      (match b with
+       | MLcase (_, _, branches) ->
+           Array.fold_left (fun a (_, _, body) -> block_hoists body a) acc branches
+       | _ -> acc)
+
 and emit_block state tab env b =
   let h, args = collect_app b [] in
   let vis = List.filter (fun a -> not (is_erased a)) args in
@@ -689,7 +729,17 @@ and emit_block state tab env b =
   | MLglob r, [action; k] when is_bind_ref r ->
       let ids, kbody = collect_lam k in
       let new_env = List.rev ids @ env in
-      str tab ++ pp_expr state env action ++ fnl () ++
+      (* a value read ([ref_get]) goes to its hoisted var with [=]; a void
+         action (println / ref_set, whose [fun _] may extract as a named var) is
+         just the statement *)
+      let action_is_value =
+        match collect_app action [] with
+        | MLglob rr, _ -> is_ref_get_ref rr
+        | _ -> false in
+      let lhs = match List.filter (fun id -> not (is_dummy id)) ids with
+        | [x] when action_is_value -> pp_mlident x ++ str " = "
+        | _   -> mt () in
+      str tab ++ lhs ++ pp_expr state env action ++ fnl () ++
       emit_block state tab new_env kbody
   | MLglob r, [next] when is_ret_ref r ->
       (match next with
@@ -718,19 +768,6 @@ and emit_block state tab env b =
                  | _ -> str tab ++ str "return" ++ fnl ())
             | _ -> str tab ++ str "return" ++ fnl ())
        | _ -> str tab ++ pp_expr state env b ++ fnl ())
-
-(*s Check whether MLrel 1 appears free in an expression.
-    Used to detect unused bind parameters (the result is discarded). *)
-
-let rec db1_free = function
-  | MLrel 1             -> false
-  | MLrel _ | MLglob _ | MLuint _ | MLfloat _ | MLdummy _ | MLaxiom _ | MLexn _ -> true
-  | MLapp (h, args)     -> db1_free h && List.for_all db1_free args
-  | MLlam (_, b)        -> db1_free b   (* conservative: may over-suppress inside nested lam *)
-  | MLcons (_, _, args) -> List.for_all db1_free args
-  | MLletin (_, e1, e2) -> db1_free e1 && db1_free e2
-  | MLmagic e           -> db1_free e
-  | _                   -> true
 
 (*s IO body emitter — shared by pp_function (for IO-returning fns) and pp_main_body. *)
 
@@ -828,11 +865,20 @@ let pp_io_body state tab env body =
               | Some bs ->
                   let targets =
                     List.fold_left (fun a b -> block_targets b a) [] bs in
+                  let hoists =
+                    List.fold_left (fun a b -> block_hoists b a) [] bs in
                   let is_target i = List.mem i targets in
                   let start_v = match nat_value start with Some v -> v | None -> 0 in
                   let lbl_indent =
                     if String.length tab >= 1
                     then String.sub tab 0 (String.length tab - 1) else "" in
+                  (* hoisted declarations: var x T, dominating every block *)
+                  let hoist_doc =
+                    prlist
+                      (fun (x, t) ->
+                         str tab ++ str "var " ++ pp_mlident x ++ str " "
+                         ++ str t ++ fnl ())
+                      (List.rev hoists) in
                   let initial =
                     if start_v = 0 then mt ()
                     else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
@@ -845,7 +891,7 @@ let pp_io_body state tab env body =
                         emit_block state tab env bi ++
                         emit_all (i + 1) rest
                   in
-                  initial ++ emit_all 0 bs
+                  hoist_doc ++ initial ++ emit_all 0 bs
               | None ->
                   str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->

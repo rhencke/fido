@@ -233,6 +233,22 @@ func Mut_demo() {
 	println(b)
 }
 
+func Count_demo() {
+	i := int64(0)
+	var iv int64
+block0:
+	iv = i
+	if iv < 3 {
+		println(iv)
+		i = Add(iv, 1)
+		goto block0
+	} else {
+		goto block1
+	}
+block1:
+	return
+}
+
 func Cond_goto_demo(early bool) {
 	println(1)
 	if early {
@@ -283,4 +299,5 @@ func main() {
 	Cond_goto_demo(true)
 	Cond_goto_demo(false)
 	Mut_demo()
+	Count_demo()
 }

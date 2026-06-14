@@ -486,7 +486,10 @@ Axiom slice_at_ok : forall {A B : Type},
     cross-function sharing (pointers, [*T]) is a later, separate step. *)
 Axiom Ref     : Type -> Type.
 Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
-Axiom ref_get : forall {A : Type}, Ref A -> IO A.
+(* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
+   block, the lowering knows the Go type to hoist its declaration ([var x T])
+   to a point that dominates the uses (assigning with [=], not [:=]). *)
+Axiom ref_get : forall {A : Type}, GoTypeTag A -> Ref A -> IO A.
 Axiom ref_set : forall {A : Type}, Ref A -> A -> IO unit.
 
 (** ---- Bounded iteration (loops, step 8) ----
