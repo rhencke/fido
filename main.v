@@ -392,6 +392,23 @@ Definition u32_demo : IO unit :=
        (fun _ =>
   println [ any (u32_shl (u32_lit 1 eq_refl) 31 eq_refl) ]).  (* 2147483648 = 2^31 *)
 
+(** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
+    [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
+    [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
+    a theorem, [map_get_clear]). *)
+Example spec_go_min       : go_min 3 5 = 3%uint63. Proof. now vm_compute. Qed.
+Example spec_go_max       : go_max 3 5 = 5%uint63. Proof. now vm_compute. Qed.
+Example spec_go_min_neg   : go_min (-2)%sint63 1 = (-2)%sint63. Proof. now vm_compute. Qed.
+Example spec_slice_make_n : List.length (slice_make TInt64 3) = 3%nat. Proof. reflexivity. Qed.
+Definition builtins_demo : IO unit :=
+  bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 *)
+  bind (println [ any (len (slice_make TInt64 3)) ]) (fun _ =>                                     (* 3 *)
+  bind (map_make_typed TInt64 TInt64) (fun m =>
+  bind (map_set (1 : int) (10 : int) m) (fun _ =>
+  bind (map_clear m) (fun _ =>                                                                     (* clear → empty *)
+  bind (map_len m) (fun n =>
+  println [ any n ])))))).                                                                         (* 0 (cleared) *)
+
 (** ===== Go spec conformance: "String types" (go.dev/ref/spec#String_types):
     "a string value is a (possibly empty) sequence of bytes ... strings are
     immutable.  The length ... can be discovered using len.  A string's bytes can
@@ -951,6 +968,7 @@ Definition main_effect : IO unit :=
   convert_demo                  >>'   (* prints: 200 232 / 1200 *)
   divmod_demo                   >>'   (* prints: 28 4 -128 *)
   u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 *)
+  builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)

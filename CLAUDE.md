@@ -122,7 +122,12 @@ separate tracks.
 ## Incremental ladder
 
 1. **Builtins** (done) — `println`, `print`, `panic`, `any`, primitive types,
-   `GoSlice`, `GoString`, `GoMap`, `type_assert`. Add to `builtins.v` + plugin match
+   `GoSlice`, `GoString`, `GoMap`, `type_assert`, plus the import-free predeclared
+   set: `len`/`cap`/`append`/`delete`/`close`/`recover`, `make` (chan/map/slice
+   `make([]T,n)`), and Go 1.21 `min`/`max`/`clear`. Add to `builtins.v` + plugin
+   match.  *Deferred (non-import prereqs):* `new` (pointers), `copy`/slice-`clear`/
+   `make([]T,len,cap)` (slice-aliasing model), `complex`/`real`/`imag` (no complex
+   type).
 2. **IO monad** (done) — `bind` lowers to sequential Go; world token erases;
    `panic : GoAny -> IO A` is consistent and short-circuits via `bind_panic_l`;
    `catch`/`with_defer` for panic recovery

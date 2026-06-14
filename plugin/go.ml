@@ -206,6 +206,15 @@ let is_map_del_ref = named "map_delete"
 let is_map_len_ref = named "map_len"
 let is_map_get_or_ref = named "map_get_or"
 let is_map_get_opt_ref = named "map_get_opt"
+let is_map_clear_ref = named "map_clear"
+let is_min_ref = named "go_min"
+let is_max_ref = named "go_max"
+let is_slice_make_ref = named "slice_make"
+(* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
+   (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting
+   it would leak an undefined element-type variable. *)
+let is_repeat_ref r =
+  ref_has_suffix r ".Lists.List.repeat" || String.equal (global_basename r) "repeat"
 (* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
 let is_some_ctor r =
   ref_has_suffix r ".Init.Datatypes.Some" || String.equal (global_basename r) "Some"
@@ -820,10 +829,22 @@ let rec pp_expr state env = function
            pp_expr state env v
        | MLglob r, [k; m]    when is_map_del_ref r ->
            str "delete(" ++ pp_expr state env m ++ str ", " ++ pp_expr state env k ++ str ")"
+       (* clear(m) — Go 1.21 builtin, remove all map entries *)
+       | MLglob r, [m]       when is_map_clear_ref r ->
+           str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
        | MLglob r, []        when is_map_make_ref r ->
            str "make(map[any]any)" (* type params erased; real type comes from context *)
+
+       (* min(a, b) / max(a, b) — Go 1.21 builtins (on [int]) *)
+       | MLglob r, [a; b] when is_min_ref r ->
+           str "min(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+       | MLglob r, [a; b] when is_max_ref r ->
+           str "max(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+       (* slice_make tag n → make([]T, n) (fresh zeroed slice) *)
+       | MLglob r, [tag; n] when is_slice_make_ref r ->
+           str ("make([]" ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
 
        (* len(slice) / cap(slice) *)
        | MLglob r, [s] when is_len_ref r ->
@@ -1209,7 +1230,7 @@ let pp_io_body state tab env body =
   let is_void_call e =
     match collect_app e [] with
     | MLglob r, _ when is_print_ref r || is_println_ref r || is_panic_ref r -> true
-    | MLglob r, _ when is_map_set_ref r || is_map_del_ref r -> true
+    | MLglob r, _ when is_map_set_ref r || is_map_del_ref r || is_map_clear_ref r -> true
     | MLglob r, _ when is_send_ref r -> true
     | MLglob r, _ when is_close_chan_ref r -> true
     | MLglob r, _ when is_ref_set_ref r -> true
@@ -2178,7 +2199,8 @@ let is_inlined_ref r =
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
-  is_map_get_opt_ref r ||
+  is_map_get_opt_ref r || is_map_clear_ref r ||
+  is_min_ref r || is_max_ref r || is_slice_make_ref r || is_repeat_ref r ||
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
   is_select_recv2_ref r || is_select_recv_default_ref r ||

@@ -804,6 +804,25 @@ Lemma map_get_or_miss : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : 
   map_sel k m w = None -> run_io (map_get_or k default m) w = ORet default w.
 Proof. intros K V k default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
 
+(** [clear(m)] (Go 1.21): remove ALL entries — like [map_delete] but for every
+    key.  Grounded in the heap ([map_clear_upd] empties the map; [map_sel_clear]
+    says every key reads [None] afterward), so GET-AFTER-CLEAR is a THEOREM. *)
+Axiom map_clear     : forall {K V : Type}, GoMap K V -> IO unit.
+Axiom map_clear_upd : forall {K V : Type}, GoMap K V -> World -> World.
+Axiom run_map_clear : forall {K V} (m : GoMap K V) (w : World),
+  run_io (map_clear m) w = ORet tt (map_clear_upd m w).
+Axiom map_sel_clear : forall {K V} (k : K) (m : GoMap K V) (w : World),
+  map_sel k m (map_clear_upd m w) = None.
+
+Lemma map_get_clear : forall {K V} (k : K) (m : GoMap K V),
+  bind (map_clear m) (fun _ => map_get_opt k m) =
+  bind (map_clear m) (fun _ => ret (@None V)).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, !run_map_clear. cbn.
+  rewrite run_map_get_opt, map_sel_clear, run_ret. reflexivity.
+Qed.
+
 (** ---- GoChan ----
 
     [GoChan A] models Go's [chan T].  [make_chan] allocates an unbuffered
@@ -1220,10 +1239,28 @@ Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
 Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.
 
+(** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
+    two values, by the SIGNED ordering (Go's int [<]), so [go_min] = Go [min(a,b)]
+    and [go_max] = Go [max(a,b)] for the [int] type.  Computable (so [go_min 3 5 =
+    3] is a THEOREM); the plugin lowers the call to Go's builtin.  (Go's [min]/[max]
+    also apply to floats — with NaN/`-0` corner cases — and strings; those follow
+    once those orderings are settled.) *)
+Definition go_min (a b : int) : int := if Sint63.ltb a b then a else b.
+Definition go_max (a b : int) : int := if Sint63.ltb a b then b else a.
+
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)
 Axiom slice_of_list : forall {A : Type}, GoTypeTag A -> list A -> GoSlice A.
+
+(** [make([]T, n)] — a fresh slice of [n] zero values (Go's [make] for slices).
+    Modelled as [repeat (zero_val tag) n] (so [len] is [n], every element the zero
+    value) — a freshly-allocated slice, hence no aliasing concern.  The plugin
+    lowers it to Go [make([]T, n)] (element type from the tag, [n] the length).
+    (The 3-arg [make([]T, len, cap)] and [copy] involve the backing-array /
+    aliasing model — tracked separately, Tier 3 #8a.) *)
+Definition slice_make {A : Type} (tag : GoTypeTag A) (n : nat) : GoSlice A :=
+  List.repeat (zero_val tag) n.
 
 (** Indexed access — returns [IO A] because Go panics on out-of-bounds.
 

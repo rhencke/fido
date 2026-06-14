@@ -260,6 +260,22 @@ Spec: "Sending to or closing a **closed** channel causes a run-time panic.
 Closing the **nil** channel also causes a run-time panic."  Ours:
 `double_close_panics` is a **theorem**; close(nil) panic **✗** (nil channels, #16).
 
+## Built-in functions
+
+### [Built-in functions](https://go.dev/ref/spec#Built-in_functions) — ✓ import-free set; ✗ pointer/aliasing/complex-gated
+Done: `len`, `cap`, `append`, `make` (chan/map ✓; **slice `make([]T,n)`** ✓ — fresh
+zeroed slice, `len`=`n` a theorem), `delete`, `panic`, `print`/`println`, `recover`
+(via `catch`/`with_defer`), `close`, and — Go 1.21 — **`min`/`max`** (on `int`,
+machine-checked `spec_go_min`/`spec_go_max`) and **`clear`** (maps; empties the
+map, get-after-clear is a theorem `map_get_clear`).  `builtins_demo` prints
+`3 5 / 3 / 0`.
+**Deferred — gated on a non-import prerequisite (not difficulty):** `new` (returns
+`*T` — needs the pointer type), `copy` (mutates `dst`'s backing array — needs the
+slice-aliasing/mutation model, Tier 3 #8a), `make([]T,len,cap)` and slice-`clear`
+(same aliasing model), `complex`/`real`/`imag` (need the `complex64`/`complex128`
+types, unmodeled).  `min`/`max` on floats (NaN/`-0` corner cases) and strings follow
+once those orderings are settled.
+
 ## The memory model
 
 ### [Go memory model](https://go.dev/ref/mem) — ✓ partial order + race freedom (axiom-free)

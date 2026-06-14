@@ -106,6 +106,16 @@ func U32_demo() {
 	println((((1 & 0xffffffff) << 31) & 0xffffffff))
 }
 
+func Builtins_demo() {
+	println(min(3, 5), max(3, 5))
+	println(len(make([]int64, 3)))
+	m := make(map[int64]int64)
+	m[1] = 10
+	clear(m)
+	n := len(m)
+	println(n)
+}
+
 func Prec_demo() {
 	a := 2
 	b := 3
@@ -652,6 +662,7 @@ func main() {
 	Convert_demo()
 	Divmod_demo()
 	U32_demo()
+	Builtins_demo()
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
