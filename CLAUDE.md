@@ -37,6 +37,13 @@ programs (channels, goroutines) where the interesting properties are:
   errors*, not panics — the heap is modelled as unbounded and they are out of
   scope.  The claim is "panic-free given sufficient resources", never "never
   crashes".
+- **Overflow freedom (provable)** — integer overflow in Go is *silent*
+  wraparound at runtime (unchecked), and only *constant* overflow is caught,
+  by the compiler.  Fido makes "this arithmetic does not overflow" a Rocq
+  theorem: a no-overflow precondition implies the result equals the exact
+  mathematical value.  Intentional wrap stays available as an opt-in.  We do
+  **not** lean on `go build` or Go's silent runtime wrap — overflow checking is
+  usefully provable in Rocq, which is the whole point.
 
 These concurrency properties rest on a substrate we must model explicitly: the
 **happens-before** relation as documented by the Go memory model
