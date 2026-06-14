@@ -275,6 +275,16 @@ Definition assert_safe_demo (n : int) : IO unit :=
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2])))).
 
+(** Control flow as a goto-CFG (raw goto, before the structuring pass).
+    Three blocks; block 0 conditionally jumps.  early ⇒ 1,3 ; else ⇒ 1,2,3. *)
+Definition cond_goto_demo (early : bool) : IO unit :=
+  run_blocks 0%nat [
+    bind (println [any (1 : int)]) (fun _ =>
+      if early then ret (Jump 2%nat) else ret (Jump 1%nat)) ;
+    bind (println [any (2 : int)]) (fun _ => ret (Jump 2%nat)) ;
+    bind (println [any (3 : int)]) (fun _ => ret Done)
+  ].
+
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
@@ -303,6 +313,8 @@ Definition main_effect : IO unit :=
   bind (assert_safe_demo (7 : int))    (fun _ =>   (* prints: 7 true / false false *)
   bind foreach_demo                    (fun _ =>   (* prints: 10 / 20 / 30 *)
   bind sum_demo                        (fun _ =>   (* prints: 10 *)
-  ret tt))))))))))))))).
+  bind (cond_goto_demo true)           (fun _ =>   (* prints: 1 / 3 *)
+  bind (cond_goto_demo false)          (fun _ =>   (* prints: 1 / 2 / 3 *)
+  ret tt))))))))))))))))).
 
 Go Main Extraction main "main_effect".

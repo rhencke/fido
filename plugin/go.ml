@@ -148,6 +148,9 @@ let is_slice_get_ref     r = String.equal (global_basename r) "slice_get"
 let is_slice_at_ok_ref   r = String.equal (global_basename r) "slice_at_ok"
 let is_for_each_ref      r = String.equal (global_basename r) "for_each"
 let is_slice_fold_ref    r = String.equal (global_basename r) "slice_fold"
+let is_run_blocks_ref    r = String.equal (global_basename r) "run_blocks"
+let is_jump_ctor         r = String.equal (global_basename r) "Jump"
+let is_done_ctor         r = String.equal (global_basename r) "Done"
 let is_map_make_ref       r = String.equal (global_basename r) "map_make"
 let is_map_make_typed_ref r = String.equal (global_basename r) "map_make_typed"
 let is_map_set_ref  r = String.equal (global_basename r) "map_set"
@@ -635,6 +638,65 @@ and pp_atom state env e =
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
 
+(*s CFG blocks (the goto model).  A block is an [IO Next]: it does its effects
+    then transfers control via [ret (Jump n)] (goto block n) or [ret Done]
+    (return).  [block_targets] collects the Jump targets (so only used labels
+    are emitted — Go rejects unused ones); [emit_block] prints one block. *)
+
+and block_targets b acc =
+  let h, args = collect_app b [] in
+  let vis = List.filter (fun a -> not (is_erased a)) args in
+  match h, vis with
+  | MLglob r, [_action; k] when is_bind_ref r ->
+      let _ids, kbody = collect_lam k in block_targets kbody acc
+  | MLglob r, [next] when is_ret_ref r ->
+      (match next with
+       | MLcons (_, c, [n]) when is_jump_ctor c ->
+           (match nat_value n with Some v -> v :: acc | None -> acc)
+       | _ -> acc)
+  | _ ->
+      (match b with
+       | MLcase (_, _, branches) ->
+           Array.fold_left (fun a (_, _, body) -> block_targets body a) acc branches
+       | _ -> acc)
+
+and emit_block state tab env b =
+  let h, args = collect_app b [] in
+  let vis = List.filter (fun a -> not (is_erased a)) args in
+  match h, vis with
+  | MLglob r, [action; k] when is_bind_ref r ->
+      let ids, kbody = collect_lam k in
+      let new_env = List.rev ids @ env in
+      str tab ++ pp_expr state env action ++ fnl () ++
+      emit_block state tab new_env kbody
+  | MLglob r, [next] when is_ret_ref r ->
+      (match next with
+       | MLcons (_, c, [n]) when is_jump_ctor c ->
+           let lbl = match nat_value n with Some v -> v | None -> 0 in
+           str tab ++ str (Printf.sprintf "goto block%d" lbl) ++ fnl ()
+       | MLcons (_, c, []) when is_done_ctor c ->
+           str tab ++ str "return" ++ fnl ()
+       | _ -> str tab ++ str "return" ++ fnl ())
+  | _ ->
+      (match b with
+       | MLcase (_, scrut, branches) ->
+           (match Array.to_list branches with
+            | [ (_, p1, body1); (_, p2, body2) ] ->
+                let cref p = (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
+                (match cref p1, cref p2 with
+                 | Some c1, Some c2
+                   when (is_bool_true c1 && is_bool_false c2)
+                     || (is_bool_false c1 && is_bool_true c2) ->
+                     let tb, eb = if is_bool_true c1 then body1, body2 else body2, body1 in
+                     str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
+                     emit_block state (tab ^ "\t") env tb ++
+                     str tab ++ str "} else {" ++ fnl () ++
+                     emit_block state (tab ^ "\t") env eb ++
+                     str tab ++ str "}" ++ fnl ()
+                 | _ -> str tab ++ str "return" ++ fnl ())
+            | _ -> str tab ++ str "return" ++ fnl ())
+       | _ -> str tab ++ pp_expr state env b ++ fnl ())
+
 (*s Check whether MLrel 1 appears free in an expression.
     Used to detect unused bind parameters (the result is discarded). *)
 
@@ -735,6 +797,34 @@ let pp_io_body state tab env body =
          (* for_each in tail position (not inside a bind) *)
          | MLglob r, [xs; bodyfn] when is_for_each_ref r ->
              emit_for_each tab env xs bodyfn
+         (* run_blocks start [b0; b1; …] → Go labels + goto.  Only Jump-target
+            labels are emitted (Go rejects unused labels); the label sits one
+            indent left of its block, as gofmt wants. *)
+         | MLglob r, [start; blocks] when is_run_blocks_ref r ->
+             (match unfold_list [] blocks with
+              | Some bs ->
+                  let targets =
+                    List.fold_left (fun a b -> block_targets b a) [] bs in
+                  let is_target i = List.mem i targets in
+                  let start_v = match nat_value start with Some v -> v | None -> 0 in
+                  let lbl_indent =
+                    if String.length tab >= 1
+                    then String.sub tab 0 (String.length tab - 1) else "" in
+                  let initial =
+                    if start_v = 0 then mt ()
+                    else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
+                  let rec emit_all i = function
+                    | [] -> mt ()
+                    | bi :: rest ->
+                        (if is_target i
+                         then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
+                         else mt ()) ++
+                        emit_block state tab env bi ++
+                        emit_all (i + 1) rest
+                  in
+                  initial ++ emit_all 0 bs
+              | None ->
+                  str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
              let ids, h_body = collect_lam h in
              let new_env = List.rev ids @ env in
@@ -1158,7 +1248,7 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
-  is_for_each_ref r || is_slice_fold_ref r ||
+  is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r ||

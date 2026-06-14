@@ -225,6 +225,21 @@ func Assert_safe_demo(n int64) {
 	panic(n)
 }
 
+func Cond_goto_demo(early bool) {
+	println(1)
+	if early {
+		goto block2
+	} else {
+		goto block1
+	}
+block1:
+	println(2)
+	goto block2
+block2:
+	println(3)
+	return
+}
+
 func Foreach_demo() {
 	xs := []int64{10, 20, 30}
 	for _, x := range xs {
@@ -257,4 +272,6 @@ func main() {
 	Assert_safe_demo(7)
 	Foreach_demo()
 	Sum_demo()
+	Cond_goto_demo(true)
+	Cond_goto_demo(false)
 }

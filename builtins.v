@@ -528,7 +528,12 @@ Inductive Next : Type :=
   | Jump : nat -> Next   (* goto block n *)
   | Done : Next.         (* return from the function *)
 
-Axiom run_blocks : nat -> (nat -> IO Next) -> IO unit.
+(** [run_blocks start blocks]: the blocks are given as a list (block [n] is the
+    nth entry); start at [start], run each block (IO ending in a [Next]), follow
+    [Jump]s until [Done].  In [IO] because a backward [Jump] need not terminate.
+    The plugin emits the blocks as Go labels + [goto] (only labels that are
+    [Jump] targets are emitted, since Go rejects unused labels). *)
+Axiom run_blocks : nat -> list (IO Next) -> IO unit.
 
 (** ---- Session types (step 6) ----
 
