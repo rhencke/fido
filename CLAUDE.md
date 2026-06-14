@@ -505,9 +505,12 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `map_get_set_diff`, `map_get_empty`, `map_get_or_hit/miss`) are now **derived
    THEOREMS**, not a degenerate axiom — `map_set` returns normally, no degeneracy.
    The plugin lowers the IO reads to the same comma-ok Go (golden unchanged).
+   **Refs get the same treatment** (`ref_sel`/`ref_upd`/`run_ref_get`/
+   `run_ref_set`/`ref_sel_upd_same`), and `ref_get_set_same` (read-after-write)
+   is a THEOREM — no extraction change, since `ref_get`/`ref_set` were already IO.
    *Remaining:* the heap interface is still AXIOMATIC (its consistency relies on a
-   concrete heap model that is not yet exhibited — ties to #2); and the SAME
-   treatment should be extended to refs (currently no ref laws) and slices.
+   concrete heap model that is not yet exhibited — ties to #2); extend to slices;
+   and `ref_new`/`map_make` allocation semantics (fresh location) are not modelled.
    (a) *aliasing — still open.*  Maps/slices are Go reference types; the model is
    correct only for single-goroutine, non-aliasing use; sub-slicing (`s[a:b]`
    shares the backing array), in-place append, and aliased/concurrent access are

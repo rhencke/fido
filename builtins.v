@@ -621,6 +621,29 @@ Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
 Axiom ref_get : forall {A : Type}, GoTypeTag A -> Ref A -> IO A.
 Axiom ref_set : forall {A : Type}, Ref A -> A -> IO unit.
 
+(** A [Ref]'s value lives in the world (same heap discipline as maps): [ref_sel]
+    is the current value, [ref_upd] the [ref_set] update.  [ref_get] is already
+    [IO], so this needs NO extraction change — it only grounds the read-after-
+    write law below as a THEOREM (refs had no laws before). *)
+Axiom ref_sel : forall {A : Type}, Ref A -> World -> A.
+Axiom ref_upd : forall {A : Type}, Ref A -> A -> World -> World.
+Axiom run_ref_get : forall {A} (tag : GoTypeTag A) (r : Ref A) (w : World),
+  run_io (ref_get tag r) w = ORet (ref_sel r w) w.
+Axiom run_ref_set : forall {A} (r : Ref A) (v : A) (w : World),
+  run_io (ref_set r v) w = ORet tt (ref_upd r v w).
+Axiom ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel r (ref_upd r v w) = v.
+
+(** Read-after-write — a THEOREM: after [ref_set r v], [ref_get] returns [v]. *)
+Lemma ref_get_set_same : forall {A} (tag : GoTypeTag A) (r : Ref A) (v : A),
+  bind (ref_set r v) (fun _ => ref_get tag r) =
+  bind (ref_set r v) (fun _ => ret v).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, !run_ref_set. cbn.
+  rewrite run_ref_get, ref_sel_upd_same, run_ret. reflexivity.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
