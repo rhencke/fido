@@ -725,6 +725,29 @@ func Iface_demo() {
 	(Mk_square(5)).Show_shape()
 }
 
+type Light struct {
+	Ticks  int64
+	Serial int64
+}
+
+var Fresh_light Light = Light{0, 7}
+
+func (l Light) Go_green() Light {
+	return Light{Add(l.Ticks, 1), l.Serial}
+}
+
+func (l Light) Go_red() Light {
+	return Light{l.Ticks, l.Serial}
+}
+
+func Typestate_demo() {
+	l0 := Fresh_light
+	l1 := l0.Go_green()
+	l2 := l1.Go_red()
+	println(l2.Ticks)
+	println(l2.Serial)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -785,4 +808,5 @@ func main() {
 	Method_demo()
 	Io_method_demo()
 	Iface_demo()
+	Typestate_demo()
 }

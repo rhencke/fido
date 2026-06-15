@@ -1060,6 +1060,45 @@ Definition iface_demo : IO unit :=
   bind (show_shape (mk_rect 3 4))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
   show_shape (mk_square 5)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
 
+(** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
+    The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
+    index ([Light c]); each transition's type names the legal from/to states, so an
+    illegal transition is a Rocq TYPE ERROR — checked at compile time, never emitted
+    as Go.  The index is erased at runtime (it is compile-time only), so [Light c]
+    lowers to a plain struct and transitions to ordinary methods; what Go runs is
+    ALWAYS a legal trace.
+
+    The index lives in [Prop] so extraction ERASES it (a phantom): [CRed]/[CGreen]
+    carry no runtime data, yet [Light CRed] and [Light CGreen] stay DISTINCT types
+    (constructors are definitionally distinct even in [Prop]), which is exactly what
+    makes the bad transition a type error while both erase to the same Go struct. *)
+Inductive LightColor : Prop := CRed | CGreen.
+(* Two fields keep the record BOXED (Coq unboxes a single-field record), i.e. a
+   genuine Go struct; [serial] is just a second datum so the struct stays a struct. *)
+Record Light (c : LightColor) := MkLight { ticks : int ; serial : int }.
+
+Definition fresh_light : Light CRed := MkLight CRed 0 7.
+Definition go_green (l : Light CRed) : Light CGreen :=
+  MkLight CGreen (add (ticks CRed l) 1) (serial CRed l).
+Definition go_red   (l : Light CGreen) : Light CRed :=
+  MkLight CRed (ticks CGreen l) (serial CGreen l).
+
+Definition typestate_demo : IO unit :=
+  let l0 := fresh_light in        (* Light CRed *)
+  let l1 := go_green l0 in        (* Light CGreen *)
+  let l2 := go_red l1 in          (* Light CRed *)
+  bind (println [any (ticks CRed l2)])    (fun _ =>   (* 1 — one Red→Green→Red cycle *)
+  println [any (serial CRed l2)]).                    (* 7 — carried through unchanged *)
+
+(** The negative tests: a broken FSM does NOT type-check (the build gate proves the
+    bad transitions are unrepresentable).  [go_green] expects [Light CRed], so feeding
+    it a [Light CGreen] — two greens in a row — is a type error; likewise [go_red] on
+    a fresh ([CRed]) light.  These are genuine STATE mismatches: the positive trace
+    [go_red (go_green fresh_light)] type-checks (it is used in [typestate_demo]), so
+    the only reason these fail is the index. *)
+Fail Definition bad_double_green : Light CGreen := go_green (go_green fresh_light).
+Fail Definition bad_red_on_fresh : Light CRed   := go_red fresh_light.
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -1125,6 +1164,7 @@ Definition main_effect : IO unit :=
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
+  typestate_demo                >>'   (* prints: 1 *)
   ret tt.
 
 Go Main Extraction main "main_effect".

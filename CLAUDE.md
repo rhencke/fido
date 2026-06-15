@@ -107,6 +107,18 @@ unmodelled callbacks.
 - **Typestate** — a value advancing through states (File: Open→Readable→Closed;
   Conn: New→Authed→Active→Closed), every method call a provably legal
   transition. Session types for values instead of channels.
+  *First demonstrated (2026-06-15, `typestate_demo` in main.v):* a value carries
+  its FSM state in a PHANTOM type index (`Light c`, `c : LightColor` in **`Prop`**
+  so extraction erases it — `Light CRed` and `Light CGreen` stay DISTINCT types yet
+  both lower to one `type Light struct`). Each transition's type names the legal
+  from/to states (`go_green : Light CRed -> Light CGreen`), so an illegal transition
+  is a Rocq TYPE ERROR — build-gated by `Fail Definition bad_double_green` /
+  `bad_red_on_fresh`. At runtime it is a plain struct + value-receiver methods (the
+  index is compile-time only), so the emitted Go is ALWAYS a legal trace. This is
+  the "an FSM can't compile to a broken transition" property, concretely. *Still
+  open:* the index must be `Prop` AND the record needs ≥2 fields (Coq unboxes a
+  1-field record); generalising to single-field/`Type`-indexed handles needs the
+  phantom-index erasure + curried-return work tracked under ladder 9c.
 - **Representation invariants** — a struct invariant (sorted, balanced, indices
   in range) preserved by every method.
 - **Information flow / taint** — "this secret never reaches a sink", "input is
