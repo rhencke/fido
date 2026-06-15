@@ -980,6 +980,117 @@ Section Keystone.
   Lemma denote_sim_ret : forall w, run_io (ret tt) w = ORet tt w.
   Proof. intro w. apply run_ret. Qed.
 
+  (** ---- End-to-end composition: a WHOLE single-goroutine program ----
+      The per-step lemmas chain into one adequacy theorem.  The frame-free fragment:
+      a SINGLE channel [c], send/recv only (no memory, no spawn — those would need a
+      cross-resource separation law / would leave [run_io]).  [OnChan] is the syntactic
+      restriction; [SimInv] is the invariant carried along the execution. *)
+  Inductive OnChan (c : nat) : Cmd -> Prop :=
+    | OC_ret  : OnChan c CRet
+    | OC_send : forall v k, OnChan c k -> OnChan c (CSend c v k)
+    | OC_recv : forall f, (forall x, OnChan c (f x)) -> OnChan c (CRecv c f).
+
+  Definition SimInv (c : nat) (m0 : IO unit) (w0 : World) (cfg : RConfig) : Prop :=
+    OnChan c (rc_prog cfg 0)
+    /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
+    /\ rc_live cfg = (fun t => Nat.eqb t 0)
+    /\ exists m w, Denotes (rc_prog cfg 0) m
+                   /\ WMatch1 c w cfg
+                   /\ chan_closed (chenv c) w = false
+                   /\ run_io m0 w0 = run_io m w.
+
+  (** One [rstep] preserves the simulation invariant.  Only goroutine 0 is live, so
+      the step is its; by [OnChan] it is a send/recv on [c], handled by the matching
+      per-step lemma; write/read/spawn cannot occur (not [OnChan]). *)
+  Lemma siminv_step : forall c m0 w0 cfg cfg',
+    rstep cfg cfg' -> SimInv c m0 w0 cfg -> SimInv c m0 w0 cfg'.
+  Proof.
+    intros c m0 w0 cfg cfg' Hstep
+           [HOC [Hidle [Hlive [m [w [HD [HM [Hcl Hrun]]]]]]]].
+    destruct Hstep as
+      [ p b h lv tr tid c1 v k Hlv Hp
+      | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    cbn [rc_prog rc_live] in HOC, Hidle, Hlive, HD;
+    rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid; subst lv.
+    - (* send *)
+      rewrite Hp in HOC, HD. inversion HOC as [| v' k' HOCk |]; subst c1.
+      destruct (denote_sim_send _ _ _ _ _ 0 c v k m w HD HM Hcl)
+        as [m' [HDk' [Hrun' HM']]].
+      unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
+      split; [exact HOCk | split; [| split]].
+      + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+      + reflexivity.
+      + exists m', (chan_send_upd (chenv c) (inj v) w).
+        split; [exact HDk' | split; [exact HM' | split]].
+        * rewrite (chan_closed_send (chenv c) (inj v) w). exact Hcl.
+        * rewrite Hrun. exact Hrun'.
+    - (* recv *)
+      rewrite Hp in HOC, HD. inversion HOC as [| | f' HOCf]; subst c1.
+      destruct (denote_sim_recv _ _ _ _ _ 0 c f m w v s brest HD HM Hbc)
+        as [m' [HDk' [Hrun' HM']]].
+      unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
+      split; [exact (HOCf v) | split; [| split]].
+      + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+      + reflexivity.
+      + exists m', (chan_recv_upd (chenv c) w).
+        split; [exact HDk' | split; [exact HM' | split]].
+        * rewrite (chan_closed_recv (chenv c) w). exact Hcl.
+        * rewrite Hrun. exact Hrun'.
+    - (* write — impossible under OnChan *)
+      rewrite Hp in HOC. inversion HOC.
+    - (* read — impossible under OnChan *)
+      rewrite Hp in HOC. inversion HOC.
+    - (* spawn — impossible under OnChan *)
+      rewrite Hp in HOC. inversion HOC.
+  Qed.
+
+  Lemma siminv_steps : forall c m0 w0 cfg cfg',
+    rsteps cfg cfg' -> SimInv c m0 w0 cfg -> SimInv c m0 w0 cfg'.
+  Proof.
+    intros c m0 w0 cfg cfg' H. induction H; intros HS; [exact HS|].
+    apply IHrsteps. exact (siminv_step _ _ _ _ _ H HS).
+  Qed.
+
+  Lemma siminv_init : forall c prog0 m w0,
+    OnChan c prog0 -> Denotes prog0 m ->
+    chan_buf (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
+    SimInv c m w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)).
+  Proof.
+    intros c prog0 m w0 HOC HD Hbuf Hcl.
+    unfold SimInv, rinit_cfg; cbn [rc_prog rc_live].
+    split; [exact HOC | split; [| split]].
+    - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
+        [apply Nat.eqb_eq in E; congruence | reflexivity].
+    - reflexivity.
+    - exists m, w0. split; [exact HD | split; [| split]].
+      + unfold WMatch1, rchan; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
+      + exact Hcl.
+      + reflexivity.
+  Qed.
+
+  (** THE END-TO-END THEOREM.  If the rich calculus runs a single-channel,
+      single-goroutine program to completion ([CRet]), then [run_io] of its
+      DENOTATION also completes — [ORet tt] — at a final world whose channel buffer
+      MATCHES the calculus's.  So the calculus execution and the extracted program's
+      [run_io] meaning AGREE on the whole run, not just per step. *)
+  Theorem denote_adequate : forall c prog0 m w0 cfg_final,
+    OnChan c prog0 -> Denotes prog0 m ->
+    chan_buf (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
+    rsteps (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) cfg_final ->
+    rc_prog cfg_final 0 = CRet ->
+    exists w_final, run_io m w0 = ORet tt w_final /\ WMatch1 c w_final cfg_final.
+  Proof.
+    intros c prog0 m w0 cfg_final HOC HD Hbuf Hcl Hrsteps Hdone.
+    pose proof (siminv_steps _ _ _ _ _ Hrsteps
+                  (siminv_init _ _ _ _ HOC HD Hbuf Hcl)) as HS.
+    destruct HS as [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]].
+    rewrite Hdone in HD'. inversion HD'; subst.
+    exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
+  Qed.
+
 End Keystone.
 
 (** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
@@ -993,4 +1104,12 @@ End Keystone.
     honest statement that the rich calculus (where race-freedom is proven) refines the
     [run_io]/[World] model we extract from, for the sequential channel + memory
     fragment.  (Spawn stays out: [go_spawn] has no [run_io] law — see the section
-    header.) *)
+    header.)
+
+    The WHOLE-PROGRAM theorem [denote_adequate] composes the per-step lemmas: for a
+    single-channel, single-goroutine program, running it in the calculus to [CRet]
+    means [run_io] of its denotation ALSO completes ([ORet tt]) at a world whose
+    channel buffer matches — so calculus execution and [run_io] meaning AGREE on the
+    whole run.  Its trust base ([Print Assumptions]) adds only [run_ret] and the
+    [chan_closed_send]/[chan_closed_recv] frame laws (used to keep the channel open
+    along the run) to the per-step bases — still nothing degenerate. *)

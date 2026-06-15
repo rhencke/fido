@@ -889,9 +889,19 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    (`denote_sim_write`/`denote_sim_read`: `CWrite`/`CRead` → `ref_set`/`ref_get` via
    `run_ref_set`/`run_ref_get` + `ref_sel_upd_same`, with a one-location heap match
    `WHMatch1`) — so the bridge now covers the full sequential channel + MEMORY fragment
-   (memory accesses being exactly what races are about).  *Still open:* multi-channel /
-   multi-location matching (needs a channel/ref-separation/frame law), composing the
-   per-step lemmas into a whole-execution simulation, and the plugin lowering side
+   (memory accesses being exactly what races are about).  **The per-step lemmas COMPOSE
+   into a whole-program theorem** (`denote_adequate`): for a single-channel,
+   single-goroutine program, running it in the calculus to `CRet` means `run_io` of its
+   DENOTATION also completes (`ORet tt`) at a world whose channel buffer matches — so
+   the calculus execution and the extracted program's `run_io` meaning AGREE on the
+   WHOLE run, not just per step.  Proved by a simulation invariant `SimInv` (carrying
+   `OnChan` single-channel well-formedness, the single-goroutine live-set, `Denotes`,
+   the buffer match, channel-open, and the `run_io` equation) preserved across `rsteps`
+   (`siminv_step`/`siminv_steps`), read off at `CRet`.  Trust base: the per-step bases +
+   `run_ret` + `chan_closed_send`/`chan_closed_recv` (channel-open frame) — nothing
+   degenerate.  *Still open:* multi-channel / multi-location matching (a channel/ref
+   separation/frame law, which would also let memory + channels mix and relax the
+   single-goroutine restriction toward true interleaving), and the plugin lowering side
    (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
