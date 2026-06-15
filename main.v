@@ -1099,6 +1099,33 @@ Definition typestate_demo : IO unit :=
 Fail Definition bad_double_green : Light CGreen := go_green (go_green fresh_light).
 Fail Definition bad_red_on_fresh : Light CRed   := go_red fresh_light.
 
+(** ── Representation invariants (a struct invariant every method preserves) ───
+    Another closed-world payoff.  A struct can carry a PROOF of its invariant as an
+    ERASED ([Prop]) field, so the SMART CONSTRUCTOR demands the invariant hold and an
+    out-of-invariant value is unrepresentable.  Here [Sorted2] bundles two ints with
+    a proof [s_a <= s_b]; the proof field erases, so it lowers to a plain
+    [struct { S_a, S_b int64 }] — zero runtime cost — yet the invariant is available
+    to reason with.  [max_of] returns [s_b] directly as the maximum with NO runtime
+    comparison, JUSTIFIED by the carried proof. *)
+Record Sorted2 := MkSorted2 { s_a : int ; s_b : int ; s_ok : Sint63.leb s_a s_b = true }.
+
+Definition min_of (p : Sorted2) : int := s_a p.
+Definition max_of (p : Sorted2) : int := s_b p.
+
+(* The invariant is usable: the max is provably >= the min, from the erased proof. *)
+Example max_ge_min : forall p, Sint63.leb (min_of p) (max_of p) = true.
+Proof. intros [a b ok]. exact ok. Qed.
+
+Definition demo_pair : Sorted2 := MkSorted2 3 7 eq_refl.
+
+Definition repinv_demo : IO unit :=
+  bind (println [any (min_of demo_pair)])   (fun _ =>   (* 3 *)
+  println [any (max_of demo_pair)]).                    (* 7 — the max, no compare *)
+
+(** The negative test: a value VIOLATING the invariant cannot be built — [s_a <= s_b]
+    fails for [7, 3], so [eq_refl] does not type-check and the struct is unconstructible. *)
+Fail Definition bad_unsorted : Sorted2 := MkSorted2 7 3 eq_refl.
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -1164,7 +1191,8 @@ Definition main_effect : IO unit :=
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
-  typestate_demo                >>'   (* prints: 1 *)
+  typestate_demo                >>'   (* prints: 1 / 7 *)
+  repinv_demo                   >>'   (* prints: 3 / 7 *)
   ret tt.
 
 Go Main Extraction main "main_effect".

@@ -748,6 +748,26 @@ func Typestate_demo() {
 	println(l2.Serial)
 }
 
+type Sorted2 struct {
+	S_a int64
+	S_b int64
+}
+
+func (p Sorted2) Min_of() int64 {
+	return p.S_a
+}
+
+func (p Sorted2) Max_of() int64 {
+	return p.S_b
+}
+
+var Demo_pair Sorted2 = Sorted2{3, 7}
+
+func Repinv_demo() {
+	println(Demo_pair.Min_of())
+	println(Demo_pair.Max_of())
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -809,4 +829,5 @@ func main() {
 	Io_method_demo()
 	Iface_demo()
 	Typestate_demo()
+	Repinv_demo()
 }

@@ -121,6 +121,16 @@ unmodelled callbacks.
   phantom-index erasure + curried-return work tracked under ladder 9c.
 - **Representation invariants** — a struct invariant (sorted, balanced, indices
   in range) preserved by every method.
+  *First demonstrated (2026-06-15, `repinv_demo` in main.v):* a struct carries a
+  PROOF of its invariant as an ERASED (`Prop`) field, so the SMART CONSTRUCTOR
+  demands the invariant and an out-of-invariant value is unrepresentable. `Sorted2`
+  bundles two ints with a proof `Sint63.leb s_a s_b = true`; the proof field erases,
+  so it lowers to a plain `struct { S_a, S_b int64 }` (zero runtime cost) yet the
+  invariant is usable — `max_of` returns `s_b` as the maximum with NO runtime
+  comparison, justified by the proof (`max_ge_min` machine-checks
+  `leb (min_of p) (max_of p) = true`). Build-gated negative: `bad_unsorted`
+  (`MkSorted2 7 3 eq_refl`) does not type-check. Same erased-`Prop` mechanism as
+  typestate, but the index is a *proof about the fields* rather than a phantom state.
 - **Information flow / taint** — "this secret never reaches a sink", "input is
   sanitised before the query". Whole-program properties, meaningless open-world.
 - **Value-level ownership** — extend channel-endpoint ownership (race freedom)
