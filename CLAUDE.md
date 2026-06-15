@@ -950,9 +950,13 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    And a genuine deadlock-FREEDOM theorem for a real class: `reachable_recvfree_progress`
    — a RECEIVE-FREE program (sends/writes/reads/spawns, i.e. real concurrency, but no
    receive) NEVER deadlocks; in any reachable state every live unfinished goroutine can
-   step (`RecvFree`/`LiveFin` preserved across `rsteps`).  *Still open:* deadlock-freedom
-   for RECEIVING programs (needs a session/ownership discipline ⇒ "every blocked receive
-   has a guaranteed future send", i.e. no circular wait); and a real heap behind
+   step (`RecvFree`/`LiveFin` preserved across `rsteps`).  And a RECEIVING program is
+   shown deadlock-free too (`sr_never_stuck`): `sr_prog` sends then receives on one
+   channel — it performs a receive yet never deadlocks, because the UNBOUNDED BUFFER
+   lets the send precede the matching receive (proved by exhibiting the reachable shapes
+   `SRShape` and showing each is done-or-can-step).  *Still open:* GENERAL deadlock-
+   freedom for receiving programs (a session/ownership discipline ⇒ "every blocked
+   receive has a guaranteed future send", i.e. no circular wait); and a real heap behind
    `KWrite`/`KRead` (currently abstract events).
 
 **Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting

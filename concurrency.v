@@ -1476,3 +1476,91 @@ Proof.
   destruct (rsteps_recvfree_livefin _ _ Hsteps HRF0 (livefin_init p)) as [HRF HLF].
   exact (recvfree_progress cfg tid (livefin_fresh _ HLF) HRF Hlive Hnret).
 Qed.
+
+(** ----------------------------------------------------------------------------
+    A RECEIVING program that is deadlock-free.  Receive-free is the clean general
+    class; here is the complement — a program that DOES receive yet never deadlocks,
+    because the UNBOUNDED BUFFER lets the send happen before the matching receive.
+    [sr_prog] sends 42 on channel 0, then receives it back.  We exhibit the exact
+    reachable shapes ([SRShape]) and show every reachable config is done-or-can-step.
+    ---------------------------------------------------------------------------- *)
+Definition sr_prog : Cmd := CSend 0 42 (CRecv 0 (fun _ => CRet)).
+Definition sr_init : RConfig := rinit_cfg (fun t => if Nat.eqb t 0 then sr_prog else CRet).
+
+Definition SRShape (cfg : RConfig) : Prop :=
+  rc_live cfg = (fun t => Nat.eqb t 0)
+  /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
+  /\ ( (rc_prog cfg 0 = CSend 0 42 (CRecv 0 (fun _ => CRet)) /\ rc_bufs cfg 0 = [])
+       \/ (rc_prog cfg 0 = CRecv 0 (fun _ => CRet) /\ exists s, rc_bufs cfg 0 = [(42, s)])
+       \/ rc_prog cfg 0 = CRet ).
+
+Lemma sr_init_shape : SRShape sr_init.
+Proof.
+  unfold SRShape, sr_init, rinit_cfg; cbn [rc_live rc_prog rc_bufs].
+  split; [reflexivity | split].
+  - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
+      [apply Nat.eqb_eq in E; congruence | reflexivity].
+  - left. split; reflexivity.
+Qed.
+
+Lemma sr_step_shape : forall cfg cfg', rstep cfg cfg' -> SRShape cfg -> SRShape cfg'.
+Proof.
+  intros cfg cfg' Hstep [Hlive [Hidle Hphase]].
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    cbn [rc_live rc_prog rc_bufs] in *;
+    rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid;
+    destruct Hphase as [[Hp0 Hb0] | [[Hp0 [s0 Hb0]] | Hp0]];
+    rewrite Hp0 in Hp; try discriminate Hp.
+  - (* send rule + send shape -> receive shape *)
+    inversion Hp; subst.
+    unfold SRShape; cbn [rc_live rc_prog rc_bufs].
+    split; [reflexivity | split].
+    + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+    + right; left. split.
+      * rewrite upd_same. reflexivity.
+      * exists (length tr). rewrite upd_same, Hb0. reflexivity.
+  - (* recv rule + receive shape -> finished *)
+    inversion Hp; subst. rewrite Hb0 in Hbc. inversion Hbc; subst.
+    unfold SRShape; cbn [rc_live rc_prog rc_bufs].
+    split; [reflexivity | split].
+    + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+    + right; right. rewrite upd_same. reflexivity.
+Qed.
+
+Lemma sr_steps_shape : forall a b, rsteps a b -> SRShape a -> SRShape b.
+Proof.
+  intros a b H. induction H; intros HS; [exact HS|].
+  apply IHrsteps. exact (sr_step_shape _ _ H HS).
+Qed.
+
+Lemma sr_shape_progress : forall cfg, SRShape cfg -> rdone cfg \/ rcan_step cfg.
+Proof.
+  intros cfg [Hlive [_ Hphase]].
+  assert (Hfresh : FreshAvail cfg) by (exists 1; rewrite Hlive; reflexivity).
+  destruct Hphase as [[Hp0 Hb0] | [[Hp0 [s0 Hb0]] | Hp0]].
+  - right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite Hp0; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp0 in Hpc. discriminate.
+  - right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite Hp0; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc Hbc]]]. rewrite Hp0 in Hpc. congruence.
+  - left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
+    apply Nat.eqb_eq in Hl. subst tid. exact Hp0.
+Qed.
+
+(** Deadlock-free: NO reachable state of [sr_prog] is stuck — it always finishes or
+    makes progress, even though it performs a receive (the buffered channel lets the
+    send precede the receive).  Axiom-free, like the whole deadlock theory. *)
+Theorem sr_never_stuck : forall cfg, rsteps sr_init cfg -> ~ RStuck cfg.
+Proof.
+  intros cfg Hsteps [Hnstep Hndone].
+  pose proof (sr_steps_shape _ _ Hsteps sr_init_shape) as HS.
+  destruct (sr_shape_progress cfg HS) as [Hd | Hc]; [exact (Hndone Hd) | exact (Hnstep Hc)].
+Qed.
