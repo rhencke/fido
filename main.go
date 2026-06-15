@@ -694,6 +694,37 @@ func Io_method_demo() {
 	p.Describe()
 }
 
+type Shape struct {
+	Area  func(int64) int64
+	Perim func(int64) int64
+}
+
+func Mk_rect(w int64, h int64) Shape {
+	return Shape{func(s int64) int64 {
+		return Add(Add(Add(w, h), Add(w, h)), s)
+	}, func(s int64) int64 {
+		return Add(Add(w, h), s)
+	}}
+}
+
+func Mk_square(side int64) Shape {
+	return Shape{func(s int64) int64 {
+		return Add(Add(Add(side, side), Add(side, side)), s)
+	}, func(s int64) int64 {
+		return Add(Add(side, side), s)
+	}}
+}
+
+func (sh Shape) Show_shape() {
+	println(sh.Area(0))
+	println(sh.Perim(1000))
+}
+
+func Iface_demo() {
+	(Mk_rect(3, 4)).Show_shape()
+	(Mk_square(5)).Show_shape()
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -753,4 +784,5 @@ func main() {
 	Labeled_demo()
 	Method_demo()
 	Io_method_demo()
+	Iface_demo()
 }

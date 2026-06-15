@@ -159,6 +159,26 @@ add (px p) d`).  Witnesses: `method_demo` (`func (p Point) Sum_coords() int64` /
 (`func (r *T) M()` — needs the pointer/aliasing model, Tier 3 #8a), method values/
 expressions (`recv.M`, `T.M` as first-class), and `Module`-namespaced method names.
 
+### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
+Spec: an interface is a method set; a value of interface type holds a concrete value
+whose type implements those methods, with the concrete type known only at runtime
+(an existential).  We model it as the method DICTIONARY directly: a Rocq `Record`
+whose fields are the methods, each a closure ALREADY closed over the underlying
+value.  This lowers to a Go struct of function fields (a vtable) — `type Shape struct
+{ Area func(int64) int64; Perim func(int64) int64 }`; the dictionary is built with
+TYPED closures (`func(s int64) int64 { … }`, via `record_ctor_ftypes`), the concrete
+value is CAPTURED by the closures (so it is existential at runtime — a `Shape` cannot
+be turned back into the rectangle it came from), and a method call lowers to dispatch
+`sh.Area(0)`.  Faithful to the *semantics* (Go's interface IS a vtable + an erased
+value); ⚠ deviation: we emit a struct-of-funcs, not the `interface { … }` keyword.
+Satisfaction is checked in Rocq (the dictionary literal demands real methods) and
+dispatch is provable (`dispatch_area`: `area (mk_rect w h) s = …`).  Witness:
+`iface_demo` (`Shape`/`mk_rect`/`mk_square`/`show_shape` → `14/1007/20/1010`).
+✗ not yet: a SINGLE-method interface (Coq unboxes a 1-field record `{m}` ≡ `m`, so it
+needs curried-return lowering — currently leaks the inner lambda, fails `go build`,
+tracked), nullary (unit-thunk) methods (need unit-arg erasure), embedding, and the
+native `interface` keyword with structural satisfaction.
+
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
 Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world
 (get-after-write are *theorems*); channels via state in the world (below).  ✓ for

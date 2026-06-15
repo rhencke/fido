@@ -1016,6 +1016,50 @@ Definition io_method_demo : IO unit :=
   let p := MkPoint 8 9 in
   describe p.   (* prints: 8 / 9 *)
 
+(** ── Interfaces (the method-dictionary model) ───────────────────────────────
+    A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
+    the methods (a vtable) with the concrete type ERASED.  We model that directly —
+    an interface is a Rocq [Record] whose fields are the methods, already CLOSED
+    OVER the underlying value, so the concrete type is hidden inside the closures.
+    It lowers to a Go struct of function fields (the vtable); building it from a
+    concrete value ERASES that value into the closures (existential — a [Shape]
+    cannot be turned back into the rectangle it came from); a method call
+    [area sh x] is dynamic dispatch [sh.Area(x)].  Satisfaction is checked in Rocq:
+    to build a [Shape] you MUST supply real [int -> int] methods, so a value lacking
+    a method cannot be packaged.
+
+    (Two methods, not one: Coq UNBOXES a single-field record — [{m}] ≡ [m] — so a
+    one-method interface would erase to a bare function and need curried-return
+    handling in the lowering; that is a tracked follow-up.  A ≥2-method interface
+    stays a boxed record, i.e. a genuine vtable struct, which is the common case.) *)
+Record Shape := MkShape { area : int -> int ; perim : int -> int }.
+
+(* Two DIFFERENT concrete carriers behind one [Shape] — the existential payoff:
+   [show_shape] dispatches uniformly, never seeing which one it holds.  The methods
+   take a scale [s] (so the dictionary entries are real closures, not bare data);
+   [mk_rect] closes over [w]/[h], [mk_square] over just [side]. *)
+Definition mk_rect (w h : int) : Shape :=
+  MkShape (fun s => add (add (add w h) (add w h)) s)   (* perimeter-ish + scale *)
+          (fun s => add (add w h) s).
+Definition mk_square (side : int) : Shape :=
+  MkShape (fun s => add (add (add side side) (add side side)) s)
+          (fun s => add (add side side) s).
+
+Definition show_shape (sh : Shape) : IO unit :=
+  bind (println [any (area sh 0)])    (fun _ =>   (* the first method, scale 0 *)
+  println [any (perim sh 1000)]).                 (* the second method, scale 1000 *)
+
+(** Dispatch is provable in Rocq — a dictionary entry IS the supplied method, so
+    [area (mk_rect w h) s] computes to the closure [mk_rect] put there. *)
+Example dispatch_area  : forall w h s, area  (mk_rect w h) s = add (add (add w h) (add w h)) s.
+Proof. reflexivity. Qed.
+Example dispatch_perim : forall side s, perim (mk_square side) s = add (add side side) s.
+Proof. reflexivity. Qed.
+
+Definition iface_demo : IO unit :=
+  bind (show_shape (mk_rect 3 4))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
+  show_shape (mk_square 5)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -1080,6 +1124,7 @@ Definition main_effect : IO unit :=
   labeled_demo                  >>'   (* prints: true / 5 *)
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
+  iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   ret tt.
 
 Go Main Extraction main "main_effect".

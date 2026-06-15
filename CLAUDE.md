@@ -246,10 +246,30 @@ separate tracks.
    expressions (`recv.M` as a first-class closure, `T.M`), method-name namespacing
    via Rocq `Module`s (so two types can share a basename like `Area`).
 
-   **c. Interfaces (dictionary model)** — *pending*. Interface satisfaction checked
-   in Rocq (a method dictionary — [[go-interfaces-as-dictionaries]]); dynamic
-   dispatch lowers to a Go native interface. Unlocks typestate / "an FSM can't
-   compile to a broken transition" and behavioral-satisfaction proofs.
+   **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
+   An interface is modelled as a Rocq `Record` whose fields are the methods, each a
+   closure ALREADY CLOSED OVER the underlying value — so the concrete type is hidden
+   inside the closures, which is exactly Go's "method dictionary, existential at
+   runtime" ([[go-interfaces-as-dictionaries]]). It lowers to a Go struct of function
+   fields (a vtable): the type → `type I struct { M func(A) R; … }`; constructing
+   the dictionary → a struct literal of TYPED closures (`pp_typed_closure` uses the
+   field types from `record_ctor_ftypes`, so a method entry is `func(s int64) int64`,
+   not the generic `func(any) any`); the concrete value is captured by the closures
+   (existential — a `Shape` can't be turned back into the rect it came from); a method
+   call `m d a…` → dynamic dispatch `d.M(a…)` (the projection-application arm). The
+   projection defs are suppressed. Satisfaction is checked in Rocq — building the
+   dictionary DEMANDS real `int -> int` methods — and dispatch is provable
+   (`dispatch_area`: `area (mk_rect w h) s = …` by `reflexivity`). Demo: `Shape`
+   with `Area`/`Perim`, two carriers (`mk_rect`/`mk_square`), `show_shape` dispatching
+   `sh.Area(0)`/`sh.Perim(1000)` → `14/1007/20/1010`; golden-locked.
+   *Pending:* a SINGLE-method interface — Coq UNBOXES a one-field record (`{m}` ≡ `m`),
+   so it erases to a bare function and the lowering must emit a curried-return
+   (`func F(p T) func(A)R { return func(a A)R{…} }`) instead of leaking the inner
+   lambda into `F`'s params; tracked. Also pending: nullary (unit-thunk) methods
+   (need unit-arg erasure), and a true Go `interface{…}` keyword form (the vtable
+   struct is the same semantics — Go's interface IS a vtable + erased value).
+   This is the gateway to typestate / "an FSM can't compile to a broken transition"
+   and behavioral-satisfaction proofs.
 
 ## Known gaps
 

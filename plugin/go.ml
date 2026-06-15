@@ -105,6 +105,8 @@ let global_basename r =
 let record_proj_field : (string, string) Hashtbl.t = Hashtbl.create 16  (* proj path -> field name *)
 let record_ctor_names : (string, unit) Hashtbl.t = Hashtbl.create 16    (* constructor basename -> () *)
 let record_typenames  : (string, unit) Hashtbl.t = Hashtbl.create 16    (* record type basename -> () *)
+let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
+  (* constructor basename -> field types (for typed-closure dictionary entries) *)
 (* Methods: a top-level function whose first visible param is a record (struct) is
    lowered as a Go value-receiver method.  [collect_decls] registers each such
    function by its [global_path]; uses then become [recv.Method(rest)]. *)
@@ -930,9 +932,16 @@ let rec pp_expr state env = function
        | MLglob r, [g] when is_numint_proj r ->
            pp_expr state env g
 
-       (* record projection [field x] → Go field access [x.Field] *)
-       | MLglob r, [x] when is_record_proj r ->
-           pp_atom state env x ++ str "." ++ str (proj_field_name r)
+       (* record projection [field recv …] → field access [recv.Field], and when
+          the field is a method dictionary entry (a function), its application
+          [field recv arg…] is dynamic dispatch [recv.Field(arg…)]. *)
+       | MLglob r, (recv :: rest) when is_record_proj r ->
+           let fld = pp_atom state env recv ++ str "." ++ str (proj_field_name r) in
+           (match rest with
+            | [] -> fld
+            | _  -> fld ++ str "(" ++
+                    prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
+                    str ")")
 
        (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
           mask the result to the width so the int64 carrier wraps like Go's uintN,
@@ -1040,10 +1049,22 @@ let rec pp_expr state env = function
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
       str "})()"
 
-  (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}] *)
+  (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}].  A
+     field whose type is a function (an interface METHOD dictionary entry) and
+     whose argument is a lambda is emitted as a TYPED Go closure, so the literal
+     matches the field type [func(A) R] rather than the generic [func(any) any].
+     This is what makes the dictionary's method entries well-typed. *)
   | MLcons (_, r, args) when is_record_ctor r ->
+      let ftypes = (try Hashtbl.find record_ctor_ftypes (global_basename r) with Not_found -> []) in
+      let rec pp_fields ts args = match ts, args with
+        | _, [] -> []
+        | (Tarr _ as t) :: ts', (MLlam _ as a) :: args' ->
+            pp_typed_closure state env t a :: pp_fields ts' args'
+        | _ :: ts', a :: args' -> pp_expr state env a :: pp_fields ts' args'
+        | [],       a :: args' -> pp_expr state env a :: pp_fields [] args'
+      in
       str (record_ctor_tyname r) ++ str "{" ++
-      prlist_with_sep (fun () -> str ", ") (pp_expr state env) args ++ str "}"
+      prlist_with_sep (fun () -> str ", ") (fun x -> x) (pp_fields ftypes args) ++ str "}"
 
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
       (* Coq [string] literal → Go string literal (byte-faithful). *)
@@ -1136,6 +1157,31 @@ and pp_typed_lit state env e =
   | MLuint _  -> str "int64("   ++ pp_expr state env e ++ str ")"
   | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
   | _         -> pp_expr state env e
+
+(* Emit a lambda as a TYPED Go closure [func(x A) R { return body }] using a known
+   function type [A1 -> … -> R] (a method dictionary entry).  Unlike the generic
+   [MLlam] arm (which emits [func(x any) any]), this matches the struct field type,
+   so the dictionary literal type-checks.  The binders stay in the de Bruijn env. *)
+and pp_typed_closure state env ftype lam =
+  let rec split_arrows = function
+    | Tarr (a, b) -> let (args, ret) = split_arrows b in (a :: args, ret)
+    | t -> ([], t)
+  in
+  let argtypes, rettype = split_arrows ftype in
+  let ids, body = collect_lam lam in
+  let rec zip ids ts = match ids, ts with
+    | [], _ -> []
+    | id :: ids', t :: ts' -> (id, t) :: zip ids' ts'
+    | id :: ids', []       -> (id, Tunknown) :: zip ids' []
+  in
+  let pairs = zip ids argtypes in
+  let new_env = List.rev ids @ env in
+  str "func(" ++
+  prlist_with_sep (fun () -> str ", ")
+    (fun (id, t) -> pp_mlident id ++ str " " ++ pp_type state t) pairs ++
+  str ") " ++ pp_type state rettype ++ str " {" ++ fnl () ++
+  str "\treturn " ++ pp_expr state new_env body ++ fnl () ++
+  str "}"
 
 (*s CFG blocks (the goto model).  A block is an [IO Next]: it does its effects
     then transfers control via [ret (Jump n)] (goto block n) or [ret Done]
@@ -2419,8 +2465,11 @@ let collect_decls struc =
              List.iter (function
                | Some g -> Hashtbl.replace record_proj_field (global_path g) (global_basename g)
                | None -> ()) projs;
-             if Array.length pkt.ip_consnames > 0 then
-               Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ()
+             if Array.length pkt.ip_consnames > 0 then begin
+               Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ();
+               let ftypes = (try pkt.ip_types.(0) with _ -> []) in
+               Hashtbl.replace record_ctor_ftypes (Id.to_string pkt.ip_consnames.(0)) ftypes
+             end
          | _ -> ())
     | _ -> ()) decls;
   (* pass 2 — methods (first visible param is a record; projections excluded) *)
