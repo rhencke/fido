@@ -2289,7 +2289,17 @@ let pp_function state name body typ =
 
 (*s Stdlib terms that are inlined at call sites — skip as top-level decls. *)
 
+(* Proof-only world-STATE accessors (abstract heap of the denotational model): they
+   appear only inside the IO ops' bodies, never in real Go, so their decls are
+   suppressed. *)
+let is_proof_only_state r =
+  List.mem (global_basename r)
+    [ "ref_sel"; "ref_upd";
+      "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
+      "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io" ]
+
 let is_inlined_ref r =
+  is_proof_only_state r ||
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||

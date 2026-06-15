@@ -1195,4 +1195,13 @@ Definition main_effect : IO unit :=
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   ret tt.
 
+(** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]
+    stops Coq from inlining their proof-only world-threading bodies, so the plugin
+    still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
+    [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
+Extraction NoInline
+  ret bind panic catch run_io
+  ref_get ref_set
+  send recv close_chan recv_ok select_recv2 select_recv_default go_spawn.
+
 Go Main Extraction main "main_effect".

@@ -4,10 +4,6 @@ package main
 
 type World = any
 
-var Ref_sel func(T1) func(World) T1 = panic("axiom: Fido.builtins.ref_sel")
-
-var Ref_upd func(T1) func(T1) func(World) World = panic("axiom: Fido.builtins.ref_upd")
-
 func Add(n int64, m int64) int64 {
 	return n + m
 }

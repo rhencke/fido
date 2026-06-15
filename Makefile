@@ -46,8 +46,11 @@ run: build
 # Golden-file regression check: run the extracted program and diff its output
 # against expected_output.txt.  Cheap end-to-end check that a Rocq/plugin change
 # did not alter observable behaviour anywhere (not just the demo in focus).
-# Assumes main.go is current (run `make extract` first).
-check:
+# DEPENDS ON [extract]: a stale main.go must be IMPOSSIBLE here — checking
+# against Go that does not reflect current *.v/plugin source would be a false
+# green.  [extract] re-runs the prover (Docker layers cached if unchanged), so
+# this always validates freshly-extracted Go (and fails loud if a proof broke).
+check: extract
 	@$(GORUN) > /tmp/fido_out.txt 2>&1 || true; \
 	if diff -u expected_output.txt /tmp/fido_out.txt; then \
 	  echo "fido: output matches golden ✓"; \
@@ -57,8 +60,9 @@ check:
 	  exit 1; \
 	fi
 
-# Regenerate the golden baseline after an intended behaviour change.
-golden:
+# Regenerate the golden baseline after an intended behaviour change.  Also depends
+# on [extract] so the baseline is captured from freshly-extracted Go, never stale.
+golden: extract
 	@$(GORUN) > expected_output.txt 2>&1
 	@echo "fido: updated expected_output.txt"
 

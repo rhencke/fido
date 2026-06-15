@@ -840,57 +840,10 @@ Qed.
 
 Axiom make_chan     : forall {A : Type}, GoTypeTag A -> IO (GoChan A).
 Axiom make_chan_buf : forall {A : Type}, GoTypeTag A -> int -> IO (GoChan A).
-(** ESCAPE HATCH: raw [send] / [close_chan] panic on a closed (or nil) channel
-    (laws [send_closed_panics], [double_close_panics]).  The safe-by-construction
-    layer is session types ([sess_send] etc.), which make those states
-    unrepresentable.  These raw forms exist for non-session channel use. *)
-Axiom send     : forall {A : Type}, GoChan A -> A -> IO unit.
-Axiom recv     : forall {A : Type}, GoTypeTag A -> GoChan A -> IO A.
-Axiom close_chan : forall {A : Type}, GoChan A -> IO unit.
-
-(** Two-value receive: [recv_ok tag ch (fun x ok => body)] lowers to
-    [x, ok := <-ch; body].  [ok] is [false] when [ch] is closed and empty.
-    Continuation-passing style avoids needing product-type extraction. *)
-Axiom recv_ok : forall {A B : Type},
-  GoTypeTag A -> GoChan A -> (A -> bool -> IO B) -> IO B.
-
-(** ---- select (Go spec "Select statements") ----
-
-    [select] chooses ONE among several ready communications; "if one or more of
-    the communications can proceed, a single one that can proceed is chosen via a
-    uniform pseudo-random selection"; a [default] case runs when none are ready;
-    with no default and nothing ready, the select BLOCKS.
-
-    [select_recv2 ta ch1 k1 tb ch2 k2] receives from whichever of [ch1]/[ch2] is
-    ready and runs the matching continuation; it lowers to a faithful Go
-    [select { case x := <-ch1: k1; case y := <-ch2: k2 }].
-    [select_recv_default ta ch1 k1 d] is the non-blocking form: receive-and-[k1]
-    if [ch1] is ready, else run [d] — Go's [select { case … : k1; default: d }].
-
-    CPS like [recv_ok] (no tuple/sum extraction needed).  The LOWERING is faithful
-    Go.  The denotational CHOICE / BLOCKING semantics (which ready case runs, the
-    pseudo-random fairness, blocking when none ready) is idealised away for now —
-    exactly like [recv]'s blocking and divergence (Tier 5 #14: needs the
-    non-terminating / scheduler model).  So [select] is grounded at the lowering
-    level today; its choice semantics is the tracked incremental frontier. *)
-Axiom select_recv2 : forall {A B C : Type},
-  GoTypeTag A -> GoChan A -> (A -> IO C) ->
-  GoTypeTag B -> GoChan B -> (B -> IO C) -> IO C.
-Axiom select_recv_default : forall {A C : Type},
-  GoTypeTag A -> GoChan A -> (A -> IO C) -> IO C -> IO C.
-
-(** [go_spawn m] launches [m] as a concurrent goroutine and returns immediately.
-    Ownership of any [GoChan] endpoints captured in [m]'s closure transfers to
-    the new goroutine at spawn time — the key invariant for race freedom.
-
-    Laws relating goroutines to channels require a concurrent world model.
-    That model arrives in step 5/6 (session types); for now the axiom is
-    sufficient to extract correct Go and to structure proofs about protocol
-    compliance on individual channels. *)
-Axiom go_spawn : IO unit -> IO unit.
-
-(** Every Go type has a zero value (false, 0, 0.0, nil, "", …). *)
-Axiom zero_val : forall {A : Type}, GoTypeTag A -> A.
+(** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
+    [go_spawn]) are now DEFINITIONS over the abstract channel STATE below (declared
+    after it, so they can reference it); their [run_*] laws are THEOREMS.  Only the
+    state accessors + their laws + the allocators stay axioms — the typed-heap core. *)
 
 (** ---- Channels via state in the world (the concurrent denotational model) ----
 
@@ -940,34 +893,81 @@ Axiom chan_buf_send_frame : forall {A} (ch ch' : GoChan A) (v : A) (w : World),
 Axiom chan_buf_recv_frame : forall {A} (ch ch' : GoChan A) (w : World),
   ch <> ch' -> chan_buf ch' (chan_recv_upd ch w) = chan_buf ch' w.
 
-(** [run_io] equations — conditioned on channel state.  A send on an OPEN channel
-    enqueues and returns; on a CLOSED channel it panics (Go spec).  A receive,
-    when the buffer has a head, reads it and dequeues; when the buffer is empty
-    and the channel is closed, [recv_ok] yields [(zero, false)].  Close marks the
-    channel closed; a double close panics. *)
-Axiom run_send : forall {A} (ch : GoChan A) (v : A) (w : World),
+(** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
+    determines which.  (The default for a [recv] from an empty/closed channel.) *)
+Axiom zero_val : forall {A : Type}, GoTypeTag A -> A.
+
+(** The channel OPERATIONS, DEFINED over the state above.  Extraction lowers each by
+    NAME to Go (the bodies — which mention the proof-only state — are suppressed).
+    BLOCKING is idealised away (like [run_io] totality): a [recv]/[recv_ok]/[select]
+    on an empty OPEN channel returns the zero/default rather than blocking — no proof
+    depends on that case (the laws below cover only the non-empty / closed cases). *)
+Definition send {A} (ch : GoChan A) (v : A) : IO unit :=
+  fun w => if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_send_upd ch v w).
+Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
+  fun w => match chan_buf ch w with
+           | v :: _ => ORet v (chan_recv_upd ch w)
+           | nil    => ORet (zero_val tag) w
+           end.
+Definition close_chan {A} (ch : GoChan A) : IO unit :=
+  fun w => if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_close_upd ch w).
+Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
+  fun w => match chan_buf ch w with
+           | v :: _ => f v true (chan_recv_upd ch w)
+           | nil    => f (zero_val tag) false w
+           end.
+Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
+  fun w => match chan_buf ch1 w with
+           | v :: _ => k1 v (chan_recv_upd ch1 w)
+           | nil    => match chan_buf ch2 w with
+                       | v :: _ => k2 v (chan_recv_upd ch2 w)
+                       | nil    => k1 (zero_val ta) w
+                       end
+           end.
+Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
+                                      (k1 : A -> IO C) (d : IO C) : IO C :=
+  fun w => match chan_buf ch1 w with
+           | v :: _ => k1 v (chan_recv_upd ch1 w)
+           | nil    => d w
+           end.
+(** [go_spawn m]: the SEQUENTIAL approximation — run [m] to completion, keep its world
+    effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
+    holdout #2 (ZERO_AXIOMS_PLAN.md).  No law constrains it; the definition is total. *)
+Definition go_spawn (m : IO unit) : IO unit :=
+  fun w => ORet tt (match m w with ORet _ w' => w' | OPanic _ w' => w' end).
+
+(** The [run_*] laws are now THEOREMS, conditioned on channel state. *)
+Lemma run_send : forall {A} (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = false ->
   run_io (send ch v) w = ORet tt (chan_send_upd ch v w).
-Axiom run_send_closed : forall {A} (ch : GoChan A) (v : A) (w : World),
+Proof. intros A ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
+Lemma run_send_closed : forall {A} (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = true ->
   run_io (send ch v) w = OPanic (any tt) w.
-Axiom run_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
+Proof. intros A ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
+Lemma run_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
   chan_buf ch w = v :: rest ->
   run_io (recv tag ch) w = ORet v (chan_recv_upd ch w).
-Axiom run_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
+Proof. intros A tag ch v rest w H. unfold recv, run_io. rewrite H. reflexivity. Qed.
+Lemma run_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
     (f : A -> bool -> IO B) (v : A) (rest : list A) (w : World),
   chan_buf ch w = v :: rest ->
   run_io (recv_ok tag ch f) w = run_io (f v true) (chan_recv_upd ch w).
-Axiom run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
+Proof. intros A B tag ch f v rest w H. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
+Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A)
     (f : A -> bool -> IO B) (w : World),
   chan_buf ch w = nil -> chan_closed ch w = true ->
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
-Axiom run_close : forall {A} (ch : GoChan A) (w : World),
+Proof. intros A B tag ch f w H _. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
+Lemma run_close : forall {A} (ch : GoChan A) (w : World),
   chan_closed ch w = false ->
   run_io (close_chan ch) w = ORet tt (chan_close_upd ch w).
-Axiom run_close_closed : forall {A} (ch : GoChan A) (w : World),
+Proof. intros A ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
+Lemma run_close_closed : forall {A} (ch : GoChan A) (w : World),
   chan_closed ch w = true ->
   run_io (close_chan ch) w = OPanic (any tt) w.
+Proof. intros A ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
 
 (** ---- The channel laws, now DERIVED as theorems ---- *)
 
