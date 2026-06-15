@@ -980,6 +980,42 @@ Definition labeled_demo : IO unit :=
   bind (println [any (flag r)])   (fun _ =>   (* true *)
   println [any (qty r)]).                     (* 5 *)
 
+(** Methods (value receiver).  A function whose FIRST parameter is a struct
+    lowers to a Go value-receiver method — [sum_coords] → [func (p Point)
+    Sum_coords() int64], [shifted] → [func (p Point) Shifted(dx int64) Point] —
+    and a call [m p …] to [p.M(…)].  This is faithful ([p.M(a)] denotes the same
+    as [M(p, a)]) and idiomatic; the receiver is the SAME de Bruijn binding, only
+    the signature pulls it out front.  (Method↔type association is what Stage C's
+    interfaces will check: the method set of [Point] is every such function.) *)
+Definition sum_coords (p : Point) : int := add (px p) (py p).
+Definition shifted (p : Point) (dx : int) : Point :=
+  MkPoint (add (px p) dx) (add (py p) dx).
+
+(** Method behaviour is provable in Rocq: shifting moves each coordinate by [d].
+    Both hold by computation (the method unfolds to a constructor + projection). *)
+Example shifted_px : forall p d, px (shifted p d) = add (px p) d.
+Proof. reflexivity. Qed.
+Example shifted_py : forall p d, py (shifted p d) = add (py p) d.
+Proof. reflexivity. Qed.
+
+Definition method_demo : IO unit :=
+  let p := MkPoint 3 4 in
+  let q := shifted p 10 in
+  bind (println [any (sum_coords p)])   (fun _ =>   (* 7 *)
+  bind (println [any (px q)])           (fun _ =>   (* 13 *)
+  bind (println [any (py q)])           (fun _ =>   (* 14 *)
+  println [any (sum_coords q)]))).                  (* 27 *)
+
+(** An IO-returning method (a method with effects) — the receiver threads through
+    the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
+    and the statement-position call [describe p] lowers to [p.Describe()]. *)
+Definition describe (p : Point) : IO unit :=
+  bind (println [any (px p)]) (fun _ => println [any (py p)]).
+
+Definition io_method_demo : IO unit :=
+  let p := MkPoint 8 9 in
+  describe p.   (* prints: 8 / 9 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -1042,6 +1078,8 @@ Definition main_effect : IO unit :=
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
   point_demo                    >>'   (* prints: 3 / 4 / 7 *)
   labeled_demo                  >>'   (* prints: true / 5 *)
+  method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
+  io_method_demo                >>'   (* prints: 8 / 9 *)
   ret tt.
 
 Go Main Extraction main "main_effect".

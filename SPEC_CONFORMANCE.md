@@ -127,7 +127,7 @@ so an array today would be a slice with different syntax, not a faithful array.
 Revisit once aliasing is modeled — then arrays get value semantics + comparability
 (`==`, which slices lack) as the genuine distinction.
 
-### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags/methods-here
+### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags
 Spec: a `struct` is a sequence of named fields with types; **value** semantics
 (assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
 constructor inductive with projections, value/copy semantics — so it maps directly:
@@ -139,9 +139,25 @@ fields lower to `int64`, `labeled_demo` mixes a `bool` and an `int` field
 access replaces them).  Struct INVARIANTS are provable in Rocq directly:
 `point_proj_px` machine-checks `px (MkPoint a b) = a`.  Witnesses: `point_demo`
 (`Point{3,4}` → `3 / 4 / 7`), `labeled_demo` (`Labeled{true,5}` → `true / 5`).
-✗ not yet: embedded (anonymous) fields + field promotion, struct tags, and methods
-*declared on* the struct (the next stage — value-receiver methods).  Comparability
+✗ not yet: embedded (anonymous) fields + field promotion, struct tags.  Comparability
 (`==` field-wise) awaits the same operator work as other composite equality.
+Methods declared on the struct → next section.
+
+### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value receiver; ✗ pointer receiver
+Spec: a method binds a function to a receiver of a defined (here, struct) type:
+`func (r T) M(params) results { … }`; the call is `recv.M(args)`.  A Rocq top-level
+function whose FIRST visible parameter is a record (struct) type is lowered as a
+value-receiver method — type-directed, so it is automatic.  Faithful: a value
+receiver gets a COPY (Go's value-receiver semantics), and structs are value types
+here, so `recv.M(a)` denotes exactly `M(recv, a)`; the receiver keeps the same
+de Bruijn binding (only the printed signature pulls it out front).  Projections and
+inlined refs are excluded from method detection.  Pure and IO-returning methods both
+work.  Method behaviour is provable in Rocq (`shifted_px`: `px (shifted p d) =
+add (px p) d`).  Witnesses: `method_demo` (`func (p Point) Sum_coords() int64` /
+`Shifted(dx int64) Point`, calls `p.Sum_coords()` / `p.Shifted(10)` → `7/13/14/27`),
+`io_method_demo` (`func (p Point) Describe()` → `8/9`).  ✗ not yet: pointer receivers
+(`func (r *T) M()` — needs the pointer/aliasing model, Tier 3 #8a), method values/
+expressions (`recv.M`, `T.M` as first-class), and `Module`-namespaced method names.
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
 Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world

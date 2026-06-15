@@ -104,6 +104,11 @@ let global_basename r =
    DEFINITIONS are suppressed (field access replaces them). *)
 let record_proj_field : (string, string) Hashtbl.t = Hashtbl.create 16  (* proj path -> field name *)
 let record_ctor_names : (string, unit) Hashtbl.t = Hashtbl.create 16    (* constructor basename -> () *)
+let record_typenames  : (string, unit) Hashtbl.t = Hashtbl.create 16    (* record type basename -> () *)
+(* Methods: a top-level function whose first visible param is a record (struct) is
+   lowered as a Go value-receiver method.  [collect_decls] registers each such
+   function by its [global_path]; uses then become [recv.Method(rest)]. *)
+let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* method proj path -> () *)
 
 let globref_basename g =
   try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
@@ -111,6 +116,8 @@ let globref_basename g =
 let is_record_proj r = Hashtbl.mem record_proj_field (global_path r)
 let proj_field_name r = go_export (Hashtbl.find record_proj_field (global_path r))
 let is_record_ctor r = Hashtbl.mem record_ctor_names (global_basename r)
+let is_record_typename s = Hashtbl.mem record_typenames s
+let is_method r = Hashtbl.mem method_paths (global_path r)
 let record_ctor_tyname r =
   match r.glob with
   | Names.GlobRef.ConstructRef (ind, _) ->
@@ -993,6 +1000,13 @@ let rec pp_expr state env = function
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
            pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b
+       (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
+          The first visible arg is the receiver, pulled out before the dot. *)
+       | MLglob r, (recv :: rest) when is_method r ->
+           pp_atom state env recv ++ str "." ++ str (go_export (global_basename r)) ++
+           str "(" ++
+           prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
+           str ")"
        | _ ->
            pp_atom state env head ++ str "(" ++
            prlist_with_sep (fun () -> str ", ")
@@ -2173,8 +2187,18 @@ let pp_io_body state tab env body =
 
 (*s Declaration printer. *)
 
+(* A record (struct) type in value position — the receiver test for methods. *)
+let is_record_tglob = function
+  | Tglob (r, _) -> is_record_typename (global_basename r)
+  | _ -> false
+
 (** Emit a top-level function, collecting leading lambdas for the signature
-    and using [typ] for parameter/return type annotations. *)
+    and using [typ] for parameter/return type annotations.
+
+    A function whose first visible parameter is a record (struct) is emitted as a
+    Go value-receiver METHOD [func (recv T) M(rest…)] — faithful (a method call
+    [recv.M(a)] denotes the same as [M(recv, a)]) and idiomatic.  Detection here
+    mirrors [collect_decls]'s, so declaration and call sites agree. *)
 let pp_function state name body typ =
   let ids, inner_body = collect_lam body in
   let param_types, ret_type = collect_tarrs typ in
@@ -2191,11 +2215,16 @@ let pp_function state name body typ =
   let param_pairs = zip_params ids param_types in
   (* env includes all ids (with dummies) for de Bruijn; innermost first. *)
   let full_env = List.rev ids in
+  let pp_param (id, t) = pp_mlident id ++ str " " ++ pp_type state t in
   let fn_sig =
-    str "func " ++ str (go_export name) ++ str "(" ++
-    prlist_with_sep (fun () -> str ", ")
-      (fun (id, t) -> pp_mlident id ++ str " " ++ pp_type state t)
-      param_pairs
+    match param_pairs with
+    | (rid, rt) :: rest when is_record_tglob rt ->     (* value-receiver method *)
+        str "func (" ++ pp_param (rid, rt) ++ str ") " ++
+        str (go_export name) ++ str "(" ++
+        prlist_with_sep (fun () -> str ", ") pp_param rest
+    | _ ->
+        str "func " ++ str (go_export name) ++ str "(" ++
+        prlist_with_sep (fun () -> str ", ") pp_param param_pairs
   in
   (* IO-returning functions use pp_io_body; pure functions use return+expr *)
   match ret_type with
@@ -2353,28 +2382,63 @@ let pp_decl state decl =
 
 (*s Structure printer. *)
 
-(* Gather every record's projections (→ field names) and constructor up front, so
-   uses anywhere in the module lower to [x.Field] / [T{…}]. *)
-let collect_records struc =
-  let do_decl = function
+(* The first visible (non-erased) parameter's [ml_type], if any — mirrors
+   [pp_function]'s [zip_params] for the first pair (skip dummies, advance types). *)
+let first_param_type body typ =
+  let ids, _ = collect_lam body in
+  let param_types, _ = collect_tarrs typ in
+  let rec go ids types =
+    match ids, types with
+    | [], _ -> None
+    | id :: rest, _ when is_dummy id ->
+        go rest (match types with _ :: t -> t | [] -> [])
+    | _ :: _, t :: _ -> Some t
+    | _ :: _, [] -> None
+  in
+  go ids param_types
+
+(* Gather, BEFORE emitting any decl, two things every use site depends on:
+   (1) records — projections (→ field names), constructors, and type names, so a
+       projection lowers to [x.Field] and a constructor to [T{…}];
+   (2) methods — any function whose first visible param is a (already-registered)
+       record, so calls lower to [recv.M(rest)].  Records must be registered first
+       (pass 1) because the method test consults [record_typenames] (pass 2). *)
+let collect_decls struc =
+  let decls = ref [] in
+  List.iter (fun (_, sel) ->
+    List.iter (function (_, SEdecl d) -> decls := d :: !decls | _ -> ()) sel) struc;
+  let decls = List.rev !decls in
+  (* pass 1 — records *)
+  List.iter (function
     | Dind mi ->
         (match mi.ind_kind with
          | Record projs when Array.length mi.ind_packets > 0
              && not (is_numint_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
+             let pkt = mi.ind_packets.(0) in
+             Hashtbl.replace record_typenames (Id.to_string pkt.ip_typename) ();
              List.iter (function
                | Some g -> Hashtbl.replace record_proj_field (global_path g) (global_basename g)
                | None -> ()) projs;
-             let pkt = mi.ind_packets.(0) in
              if Array.length pkt.ip_consnames > 0 then
                Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ()
          | _ -> ())
+    | _ -> ()) decls;
+  (* pass 2 — methods (first visible param is a record; projections excluded) *)
+  let register_method r body typ =
+    match first_param_type body typ with
+    | Some t when is_record_tglob t
+                  && not (is_record_proj r) && not (is_inlined_ref r) ->
+        Hashtbl.replace method_paths (global_path r) ()
     | _ -> ()
   in
-  List.iter (fun (_, sel) ->
-    List.iter (function (_, SEdecl d) -> do_decl d | _ -> ()) sel) struc
+  List.iter (function
+    | Dterm (r, body, typ) -> register_method r body typ
+    | Dfix (refs, bodies, types) ->
+        Array.iteri (fun i r -> register_method r bodies.(i) types.(i)) refs
+    | _ -> ()) decls
 
 let pp_struct state struc =
-  collect_records struc;
+  collect_decls struc;
   let pp_mod (mp, sel) =
     State.with_visibility state mp [] (fun state ->
       prlist

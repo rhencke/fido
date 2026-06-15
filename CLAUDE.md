@@ -228,9 +228,23 @@ separate tracks.
    `true/5`); golden-locked. *Not yet:* embedded fields/promotion, struct tags,
    field-wise `==`.
 
-   **b. Methods (value receiver)** — *pending*. A Rocq function over a struct →
-   a Go method `func (r T) M(…) { … }`; a call → `r.M(args)`. The dictionary
-   groundwork for (c).
+   **b. Methods (value receiver)** — *done*. A top-level function whose FIRST
+   visible parameter is a record (struct) is lowered as a Go value-receiver method:
+   the decl → `func (recv T) M(rest…) ret { … }` (`pp_function` pulls the first
+   param out as the receiver; the body keeps the SAME de Bruijn env, only the
+   signature changes), and a call `m recv a…` → `recv.M(a…)` (the call-site arm in
+   `pp_expr`, before the general-call fallback). Detection is type-directed
+   (`first_param_type` is a registered `record_typename`), so it is automatic and
+   faithful — `recv.M(a)` denotes the same as `M(recv, a)` — and idiomatic;
+   projections and inlined refs are excluded. Both pure and IO-returning methods
+   work (`describe` → `func (p Point) Describe() { … }` through `pp_io_body`).
+   Method behaviour is provable in Rocq (`shifted_px`: `px (shifted p d) =
+   add (px p) d` by `reflexivity`). Demos: `method_demo` (`Sum_coords`/`Shifted`
+   → `7/13/14/27`), `io_method_demo` (`p.Describe()` → `8/9`). The method↔type
+   association (the method SET of `T` = every such function) is what (c) checks.
+   *Not yet:* pointer receivers (need the pointer/aliasing model), method values /
+   expressions (`recv.M` as a first-class closure, `T.M`), method-name namespacing
+   via Rocq `Module`s (so two types can share a basename like `Area`).
 
    **c. Interfaces (dictionary model)** — *pending*. Interface satisfaction checked
    in Rocq (a method dictionary — [[go-interfaces-as-dictionaries]]); dynamic

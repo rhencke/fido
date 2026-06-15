@@ -667,6 +667,33 @@ func Labeled_demo() {
 	println(r.Qty)
 }
 
+func (p Point) Sum_coords() int64 {
+	return Add(p.Px, p.Py)
+}
+
+func (p Point) Shifted(dx int64) Point {
+	return Point{Add(p.Px, dx), Add(p.Py, dx)}
+}
+
+func Method_demo() {
+	p := Point{3, 4}
+	q := p.Shifted(10)
+	println(p.Sum_coords())
+	println(q.Px)
+	println(q.Py)
+	println(q.Sum_coords())
+}
+
+func (p Point) Describe() {
+	println(p.Px)
+	println(p.Py)
+}
+
+func Io_method_demo() {
+	p := Point{8, 9}
+	p.Describe()
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -724,4 +751,6 @@ func main() {
 	Defer_loop_demo()
 	Point_demo()
 	Labeled_demo()
+	Method_demo()
+	Io_method_demo()
 }
