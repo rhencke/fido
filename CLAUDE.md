@@ -939,17 +939,31 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    unreceived send), receives consume sends oldest-first — the exact kth-recv ↔
    kth-send pairing, established by the semantics + the invariant.  (An explicit
    trace-level `from(j1) < from(j2)` theorem would additionally need a recv-event ↔
-   producing-step relationship — a nicety on top.)  *Still open:* deadlock-freedom /
-   progress (representable today, freedom unproven — needs a typing/session
-   discipline + a non-terminating model); and a real heap behind `KWrite`/`KRead`
-   (currently abstract events).
+   producing-step relationship — a nicety on top.)  **Deadlock-freedom — characterized
+   + a real class proven (all axiom-free).**  In the rich calculus, every head is
+   ENABLED except `CRecv` on an empty buffer (and `CSpawn` needs a fresh id, always
+   available — `LiveFin` is a reachable invariant), so `ready_can_step` proves any live
+   goroutine that is neither finished nor blocked CAN step.  Hence the exact DEADLOCK
+   CHARACTERIZATION `rstuck_blocked`: a stuck config has someone unfinished, yet EVERY
+   live goroutine is finished (`CRet`) or blocked receiving on an empty channel ("all
+   waiting to receive, no one sending"); `rblock_stuck` is a concrete rich deadlock.
+   And a genuine deadlock-FREEDOM theorem for a real class: `reachable_recvfree_progress`
+   — a RECEIVE-FREE program (sends/writes/reads/spawns, i.e. real concurrency, but no
+   receive) NEVER deadlocks; in any reachable state every live unfinished goroutine can
+   step (`RecvFree`/`LiveFin` preserved across `rsteps`).  *Still open:* deadlock-freedom
+   for RECEIVING programs (needs a session/ownership discipline ⇒ "every blocked receive
+   has a guaranteed future send", i.e. no circular wait); and a real heap behind
+   `KWrite`/`KRead` (currently abstract events).
 
 **Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting
 the ownership discipline has a strict-partial-order happens-before AND is race-free.
-**Deadlock representability:** unlike the (total, sequential) `run_io`, the
-operational semantics REPRESENTS deadlock — `block_stuck`: a config that cannot step
-yet has a live goroutine with work left (`Stuck`).  Proving deadlock-FREEDOM is the
-open liveness frontier; this is its honest foundation.  All axiom-free.
+**Deadlock representability + freedom:** unlike the (total, sequential) `run_io`, the
+operational semantics REPRESENTS deadlock — `block_stuck`/`rblock_stuck`: a config that
+cannot step yet has a live goroutine with work left (`Stuck`/`RStuck`).  Deadlock is now
+also CHARACTERIZED (`rstuck_blocked`: stuck ⇒ all live goroutines finished or
+empty-channel-recv-blocked) and deadlock-FREEDOM is PROVEN for receive-free programs
+(`reachable_recvfree_progress`).  Disciplined deadlock-freedom for receiving programs is
+the remaining liveness frontier.  All axiom-free.
 
 (Supersedes / extends the open items under "Correctness debt" Tier 1 #1.)
 

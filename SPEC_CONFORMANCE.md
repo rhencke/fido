@@ -386,8 +386,16 @@ the `run_io` `World`, using two channel-SEPARATION (frame) axioms
 model); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
 same execution.  Trust base verified by `Print Assumptions` (the `run_io` laws it
 bridges to + the 2 frame axioms; `Hret`/`chenv_inj` are discharged hypotheses).
+**Deadlock — characterized + freedom for a real class (axiom-free).**  The operational
+semantics represents deadlock (`rblock_stuck`) and now CHARACTERIZES it (`rstuck_blocked`:
+a stuck config has someone unfinished yet every live goroutine is finished or blocked on
+an empty-channel receive — "all waiting to receive, no one sending"); and deadlock-FREEDOM
+is PROVEN for RECEIVE-FREE programs (`reachable_recvfree_progress`: real concurrency via
+spawn/send/write/read but no receive ⇒ every reachable state lets any unfinished goroutine
+step).  Disciplined freedom for receiving programs (a session/no-circular-wait discipline)
+is the remaining liveness frontier.
 **Still open:** the heap analogue of the frame law (ref separation, to mix memory +
 channels under interleaving); the FIFO refinement (kth recv ↔ kth send pairing);
-deadlock freedom (liveness, needs a non-terminating/scheduler model); and the unverified
-plugin lowering (`Cmd` ↔ extracted Go).  Other sync mechanisms (Mutex, atomic, once)
-need stdlib (imports — out of scope).
+disciplined deadlock-freedom for receiving programs; and the unverified plugin lowering
+(`Cmd` ↔ extracted Go).  Other sync mechanisms (Mutex, atomic, once) need stdlib
+(imports — out of scope).

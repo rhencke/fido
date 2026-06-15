@@ -1235,3 +1235,244 @@ Section KeystoneMulti.
   Qed.
 
 End KeystoneMulti.
+
+(** ============================================================================
+    DEADLOCK FREEDOM (progress) for the RICH calculus.
+
+    The operational semantics REPRESENTS deadlock; here we (a) characterize EXACTLY
+    what a deadlock is in this model, and (b) prove a genuine deadlock-FREEDOM theorem
+    for a real class of programs.
+
+    Enabledness in this model: [CSend]/[CWrite]/[CRead] are always enabled; [CSpawn]
+    is enabled given a fresh goroutine id (true for reachable configs — finitely many
+    are live); [CRecv c] is enabled IFF channel [c]'s buffer is non-empty; [CRet] is
+    not enabled (that goroutine is finished).  So the ONLY way to block is a receive on
+    an empty channel — and a deadlock is: someone is unfinished, yet every live
+    goroutine is finished or blocked on such a receive ("all waiting to receive, no one
+    sending").  [rstuck_blocked] proves exactly that characterization.
+    ============================================================================ *)
+
+Definition rcan_step (cfg : RConfig) : Prop := exists cfg', rstep cfg cfg'.
+Definition rdone (cfg : RConfig) : Prop :=
+  forall tid, rc_live cfg tid = true -> rc_prog cfg tid = CRet.
+Definition RStuck (cfg : RConfig) : Prop := ~ rcan_step cfg /\ ~ rdone cfg.
+
+(* A live goroutine BLOCKED: waiting to receive on an empty channel. *)
+Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
+  exists c f, rc_prog cfg tid = CRecv c f /\ rc_bufs cfg c = [].
+
+(* A fresh goroutine id is available — holds for any reachable config (only finitely
+   many goroutines are ever spawned), so [CSpawn] never blocks for lack of an id. *)
+Definition FreshAvail (cfg : RConfig) : Prop := exists cid, rc_live cfg cid = false.
+
+(** PROGRESS: any live goroutine that is neither finished nor blocked can take a step
+    (so the whole config can step).  The heart of deadlock-freedom. *)
+Lemma ready_can_step : forall cfg tid,
+  FreshAvail cfg ->
+  rc_live cfg tid = true ->
+  rc_prog cfg tid <> CRet ->
+  ~ blocked cfg tid ->
+  rcan_step cfg.
+Proof.
+  intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk.
+  unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs] in *.
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k ] eqn:Hp.
+  - congruence.
+  - eexists; eapply rstep_send; eassumption.
+  - destruct (b c) as [ | [v s] rest] eqn:Hb.
+    + exfalso. apply Hnblk. exists c, f. split; [reflexivity | exact Hb].
+    + eexists; eapply rstep_recv; eassumption.
+  - eexists; eapply rstep_write; eassumption.
+  - eexists; eapply rstep_read; eassumption.
+  - eexists; eapply rstep_spawn; eassumption.
+Qed.
+
+(** THE DEADLOCK CHARACTERIZATION: in a stuck config, EVERY live goroutine is either
+    finished ([CRet]) or blocked on an empty-channel receive.  (Contrapositive of
+    progress: if any live goroutine were ready, the config could step.) *)
+Theorem rstuck_blocked : forall cfg,
+  FreshAvail cfg -> RStuck cfg ->
+  forall tid, rc_live cfg tid = true -> rc_prog cfg tid = CRet \/ blocked cfg tid.
+Proof.
+  intros cfg Hfresh [Hnstep _] tid Hlive.
+  (* the non-CRecv heads are all enabled, so they can't occur in a stuck config;
+     a CRecv is blocked iff its buffer is empty — both decidable, no classical logic. *)
+  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k ] eqn:Hp.
+  - left. reflexivity.
+  - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+    + rewrite Hp; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+  - destruct (rc_bufs cfg c) as [ | hd rest ] eqn:Hb.
+    + right. unfold blocked. exists c, f. split; [exact Hp | exact Hb].
+    + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+      * rewrite Hp; discriminate.
+      * unfold blocked. intros [c0 [f0 [Hpc Hbc]]]. rewrite Hp in Hpc.
+        injection Hpc as Hcc Hff. subst c0. rewrite Hb in Hbc. discriminate Hbc.
+  - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+    + rewrite Hp; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+  - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+    + rewrite Hp; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+  - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+    + rewrite Hp; discriminate.
+    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+Qed.
+
+(** Deadlock is REPRESENTABLE in the rich calculus too: one goroutine receiving on an
+    empty channel with no sender is stuck (cf. [block_stuck] for the simple calculus). *)
+Definition rblock_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CRecv 0 (fun _ => CRet) else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+
+Lemma rblock_stuck : RStuck rblock_cfg.
+Proof.
+  split.
+  - intros [cfg' Hstep]. unfold rblock_cfg in Hstep.
+    inversion Hstep; subst; cbn in *;
+      match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+      cbn in *; discriminate.
+  - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
+Qed.
+
+(** ----------------------------------------------------------------------------
+    DEADLOCK FREEDOM for a real class: RECEIVE-FREE programs.
+
+    Only a receive can block, so a program that never receives can never deadlock —
+    yet sends, writes, reads, AND spawns (genuine concurrency) are all allowed.  This
+    is a real, GENERAL deadlock-freedom theorem (over the whole receive-free class),
+    not a per-program argument.
+    ---------------------------------------------------------------------------- *)
+Inductive RecvFree : Cmd -> Prop :=
+  | RF_ret   : RecvFree CRet
+  | RF_send  : forall c v k, RecvFree k -> RecvFree (CSend c v k)
+  | RF_write : forall l v k, RecvFree k -> RecvFree (CWrite l v k)
+  | RF_read  : forall l f, (forall x, RecvFree (f x)) -> RecvFree (CRead l f)
+  | RF_spawn : forall child k, RecvFree child -> RecvFree k -> RecvFree (CSpawn child k).
+
+Definition RecvFreeCfg (cfg : RConfig) : Prop :=
+  forall tid, rc_live cfg tid = true -> RecvFree (rc_prog cfg tid).
+
+(* A receive-free goroutine is never blocked (blocking needs a [CRecv] head). *)
+Lemma recvfree_not_blocked : forall cfg tid,
+  RecvFree (rc_prog cfg tid) -> ~ blocked cfg tid.
+Proof. intros cfg tid HRF [c [f [Hp _]]]. rewrite Hp in HRF. inversion HRF. Qed.
+
+(** PROGRESS for receive-free configs (witness form): while ANY live goroutine has
+    work left, the config can step — i.e. it never deadlocks.  (No need to extract a
+    witness from [~ rdone]: the caller supplies the unfinished goroutine, which exists
+    exactly when the config is not done.) *)
+Lemma recvfree_progress : forall cfg tid,
+  FreshAvail cfg -> RecvFreeCfg cfg ->
+  rc_live cfg tid = true -> rc_prog cfg tid <> CRet ->
+  rcan_step cfg.
+Proof.
+  intros cfg tid Hfresh HRF Hlive Hnret.
+  apply (ready_can_step cfg tid Hfresh Hlive Hnret).
+  apply recvfree_not_blocked. exact (HRF tid Hlive).
+Qed.
+
+(* Receive-freeness of all live goroutines is preserved by every step (the [recv]
+   case is vacuous — a receive-free config has no [CRecv] head to step). *)
+Lemma rstep_recvfree : forall cfg cfg',
+  rstep cfg cfg' -> RecvFreeCfg cfg -> RecvFreeCfg cfg'.
+Proof.
+  intros cfg cfg' Hstep HRF tid'.
+  unfold RecvFreeCfg in HRF.
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    cbn [rc_prog rc_live] in *; intros Hlive';
+    pose proof (HRF tid Hlv) as Ht; rewrite Hp in Ht.
+  - (* send *)
+    destruct (Nat.eq_dec tid' tid) as [->|Hne].
+    + rewrite upd_same. inversion Ht; assumption.
+    + rewrite (upd_other _ _ _ _ Hne). exact (HRF tid' Hlive').
+  - (* recv — vacuous: a receive-free config has no CRecv head to step *)
+    inversion Ht.
+  - (* write *)
+    destruct (Nat.eq_dec tid' tid) as [->|Hne].
+    + rewrite upd_same. inversion Ht; assumption.
+    + rewrite (upd_other _ _ _ _ Hne). exact (HRF tid' Hlive').
+  - (* read *)
+    destruct (Nat.eq_dec tid' tid) as [->|Hne].
+    + rewrite upd_same. inversion Ht; subst.
+      match goal with H : forall x, RecvFree _ |- _ => exact (H (h l)) end.
+    + rewrite (upd_other _ _ _ _ Hne). exact (HRF tid' Hlive').
+  - (* spawn *)
+    inversion Ht; subst.
+    destruct (Nat.eq_dec tid' cid) as [->|Hne1].
+    + rewrite upd_same. assumption.
+    + rewrite (upd_other _ _ _ _ Hne1) in Hlive'.
+      rewrite (upd_other _ _ _ _ Hne1).
+      destruct (Nat.eq_dec tid' tid) as [->|Hne2].
+      * rewrite upd_same. assumption.
+      * rewrite (upd_other _ _ _ _ Hne2). exact (HRF tid' Hlive').
+Qed.
+
+(** A fresh goroutine id always exists — the live set is finite (bounded by some [n]),
+    an invariant preserved by every step (a spawn adds one id).  So [CSpawn] never
+    blocks for lack of an id, and [FreshAvail] holds of every reachable config. *)
+Definition LiveFin (cfg : RConfig) : Prop :=
+  exists n, forall t, n <= t -> rc_live cfg t = false.
+
+Lemma livefin_fresh : forall cfg, LiveFin cfg -> FreshAvail cfg.
+Proof. intros cfg [n Hn]. exists n. apply Hn. apply le_n. Qed.
+
+Lemma livefin_init : forall p, LiveFin (rinit_cfg p).
+Proof.
+  intros p. exists 1. intros t Ht. cbn.
+  destruct t; [inversion Ht | reflexivity].
+Qed.
+
+Lemma rstep_livefin : forall cfg cfg', rstep cfg cfg' -> LiveFin cfg -> LiveFin cfg'.
+Proof.
+  intros cfg cfg' Hstep [n Hn].
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    cbn [rc_live] in *.
+  - exists n; exact Hn.
+  - exists n; exact Hn.
+  - exists n; exact Hn.
+  - exists n; exact Hn.
+  - (* spawn: new id [cid] becomes live; bound grows to [max n (S cid)] *)
+    exists (Nat.max n (S cid)). intros t Ht. cbn [rc_live].
+    destruct (Nat.eq_dec t cid) as [->|Hne].
+    + exfalso. apply (Nat.lt_irrefl cid).
+      apply (Nat.lt_le_trans cid (Nat.max n (S cid)) cid);
+        [apply (Nat.lt_le_trans cid (S cid) (Nat.max n (S cid)));
+           [apply Nat.lt_succ_diag_r | apply Nat.le_max_r] | exact Ht].
+    + rewrite (upd_other _ _ _ _ Hne). apply Hn.
+      apply (Nat.le_trans n (Nat.max n (S cid)) t); [apply Nat.le_max_l | exact Ht].
+Qed.
+
+Lemma rsteps_recvfree_livefin : forall cfg cfg',
+  rsteps cfg cfg' -> RecvFreeCfg cfg -> LiveFin cfg ->
+  RecvFreeCfg cfg' /\ LiveFin cfg'.
+Proof.
+  intros cfg cfg' H. induction H; intros HRF HLF; [split; assumption|].
+  apply IHrsteps;
+    [exact (rstep_recvfree _ _ H HRF) | exact (rstep_livefin _ _ H HLF)].
+Qed.
+
+(** THE DEADLOCK-FREEDOM THEOREM.  In ANY reachable state of a receive-free program,
+    every live UNFINISHED goroutine can step — so the program never deadlocks; it
+    always makes progress while work remains. *)
+Theorem reachable_recvfree_progress : forall p cfg,
+  (forall t, RecvFree (p t)) ->
+  rsteps (rinit_cfg p) cfg ->
+  forall tid, rc_live cfg tid = true -> rc_prog cfg tid <> CRet -> rcan_step cfg.
+Proof.
+  intros p cfg HpRF Hsteps tid Hlive Hnret.
+  assert (HRF0 : RecvFreeCfg (rinit_cfg p)).
+  { intros t _. cbn. apply HpRF. }
+  destruct (rsteps_recvfree_livefin _ _ Hsteps HRF0 (livefin_init p)) as [HRF HLF].
+  exact (recvfree_progress cfg tid (livefin_fresh _ HLF) HRF Hlive Hnret).
+Qed.
