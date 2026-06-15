@@ -1461,23 +1461,27 @@ Fixpoint str_concat (a b : GoString) : GoString :=
     assigns ([x = v]).  A local cell extracts to a plain Go variable;
     cross-function sharing (pointers, [*T]) is a later, separate step. *)
 Axiom Ref     : Type -> Type.
-Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
-(* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
-   block, the lowering knows the Go type to hoist its declaration ([var x T])
-   to a point that dominates the uses (assigning with [=], not [:=]). *)
-Axiom ref_get : forall {A : Type}, GoTypeTag A -> Ref A -> IO A.
-Axiom ref_set : forall {A : Type}, Ref A -> A -> IO unit.
-
-(** A [Ref]'s value lives in the world (same heap discipline as maps): [ref_sel]
-    is the current value, [ref_upd] the [ref_set] update.  [ref_get] is already
-    [IO], so this needs NO extraction change — it only grounds the read-after-
-    write law below as a THEOREM (refs had no laws before). *)
+(** A [Ref]'s value lives in the world: [ref_sel] reads it, [ref_upd] is the
+    [ref_set] update.  These (and allocation [ref_new]) are the abstract heap
+    STATE — the irreducible typed-cell core (a [Ref A] must extract to a Go
+    variable of type [T], so it cannot become a concrete location without
+    breaking extraction; see ZERO_AXIOMS_PLAN.md).  But the OPERATIONS and their
+    [run_*] laws are now DEFINITIONS / THEOREMS, not axioms. *)
 Axiom ref_sel : forall {A : Type}, Ref A -> World -> A.
 Axiom ref_upd : forall {A : Type}, Ref A -> A -> World -> World.
-Axiom run_ref_get : forall {A} (tag : GoTypeTag A) (r : Ref A) (w : World),
+Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
+(* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
+   block, the lowering knows the Go type to hoist its declaration. *)
+Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
+  fun w => ORet (ref_sel r w) w.
+Definition ref_set {A} (r : Ref A) (v : A) : IO unit :=
+  fun w => ORet tt (ref_upd r v w).
+Lemma run_ref_get : forall {A} (tag : GoTypeTag A) (r : Ref A) (w : World),
   run_io (ref_get tag r) w = ORet (ref_sel r w) w.
-Axiom run_ref_set : forall {A} (r : Ref A) (v : A) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_ref_set : forall {A} (r : Ref A) (v : A) (w : World),
   run_io (ref_set r v) w = ORet tt (ref_upd r v w).
+Proof. reflexivity. Qed.
 Axiom ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel r (ref_upd r v w) = v.
 
