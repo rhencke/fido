@@ -1202,6 +1202,7 @@ Definition main_effect : IO unit :=
 Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set
-  send recv close_chan recv_ok select_recv2 select_recv_default go_spawn.
+  send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
+  map_get_opt map_len map_get_or map_set map_delete map_clear.
 
 Go Main Extraction main "main_effect".

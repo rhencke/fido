@@ -725,29 +725,37 @@ Axiom map_upd  : forall {K V : Type}, K -> V -> GoMap K V -> World -> World.
 Axiom map_rem  : forall {K V : Type}, K -> GoMap K V -> World -> World.
 Axiom map_size : forall {K V : Type}, GoMap K V -> World -> GoInt.
 
-Axiom map_get_opt : forall {K V : Type}, K -> GoMap K V -> IO (option V).
-Axiom map_len     : forall {K V : Type}, GoMap K V -> IO GoInt.
-(** [map_get_or k default m]: the value at [k], or [default] if absent.
-    Extracts to [if v, ok := m[k]; ok { v } else { default }]. *)
-Axiom map_get_or  : forall {K V : Type}, K -> V -> GoMap K V -> IO V.
+(** The map OPERATIONS, DEFINED over the abstract heap state above; their [run_*]
+    laws are now THEOREMS.  Extraction lowers each by NAME to Go map syntax (the
+    proof-only [map_sel]/[map_upd]/[map_rem]/[map_size] bodies are suppressed). *)
+Definition map_get_opt {K V} (k : K) (m : GoMap K V) : IO (option V) :=
+  fun w => ORet (map_sel k m w) w.
+Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
+  fun w => ORet (map_size m w) w.
+(** [map_get_or k default m]: the value at [k], or [default] if absent. *)
+Definition map_get_or {K V} (k : K) (default : V) (m : GoMap K V) : IO V :=
+  fun w => ORet (match map_sel k m w with Some v => v | None => default end) w.
+Definition map_set {K V} (k : K) (v : V) (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_upd k v m w).
+Definition map_delete {K V} (k : K) (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_rem k m w).
 
-Axiom map_set    : forall {K V : Type}, K -> V -> GoMap K V -> IO unit.
-Axiom map_delete : forall {K V : Type}, K -> GoMap K V -> IO unit.
-
-(** [run_io] equations: reads observe [map_sel]/[map_size] and leave the world
-    unchanged; writes update it via [map_upd]/[map_rem] and return normally
-    ([ORet] — so [map_set] is NOT forced to panic, unlike the old degenerate law). *)
-Axiom run_map_get_opt : forall {K V} (k : K) (m : GoMap K V) (w : World),
+Lemma run_map_get_opt : forall {K V} (k : K) (m : GoMap K V) (w : World),
   run_io (map_get_opt k m) w = ORet (map_sel k m w) w.
-Axiom run_map_len : forall {K V} (m : GoMap K V) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_map_len : forall {K V} (m : GoMap K V) (w : World),
   run_io (map_len m) w = ORet (map_size m w) w.
-Axiom run_map_get_or : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_map_get_or : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
   run_io (map_get_or k default m) w =
   ORet (match map_sel k m w with Some v => v | None => default end) w.
-Axiom run_map_set : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_map_set : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
   run_io (map_set k v m) w = ORet tt (map_upd k v m w).
-Axiom run_map_delete : forall {K V} (k : K) (m : GoMap K V) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_map_delete : forall {K V} (k : K) (m : GoMap K V) (w : World),
   run_io (map_delete k m) w = ORet tt (map_rem k m w).
+Proof. reflexivity. Qed.
 
 (** Heap-interface laws — how [map_sel] reads after each update. *)
 Axiom map_sel_upd_same : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
@@ -810,10 +818,12 @@ Proof. intros K V k default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
 (** [clear(m)] (Go 1.21): remove ALL entries — like [map_delete] but for every
     key.  Grounded in the heap ([map_clear_upd] empties the map; [map_sel_clear]
     says every key reads [None] afterward), so GET-AFTER-CLEAR is a THEOREM. *)
-Axiom map_clear     : forall {K V : Type}, GoMap K V -> IO unit.
 Axiom map_clear_upd : forall {K V : Type}, GoMap K V -> World -> World.
-Axiom run_map_clear : forall {K V} (m : GoMap K V) (w : World),
+Definition map_clear {K V} (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_clear_upd m w).
+Lemma run_map_clear : forall {K V} (m : GoMap K V) (w : World),
   run_io (map_clear m) w = ORet tt (map_clear_upd m w).
+Proof. reflexivity. Qed.
 Axiom map_sel_clear : forall {K V} (k : K) (m : GoMap K V) (w : World),
   map_sel k m (map_clear_upd m w) = None.
 
