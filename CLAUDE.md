@@ -772,11 +772,21 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    `reachable_wf`/`reachable_hb_strict` re-established, axiom-free.  *Fork EDGE
    (`KStart` back-pointer) deferred* — a two-event step, already proven abstractly by
    `fork_hb`; until then cross-goroutine ordering flows through channels.
-   **(1.2)** generalise per-goroutine programs from straight-line `list PAct` to an
-   IO-shaped command tree (Ret/Bind/Send/Recv/Spawn/Write/Read).
-   **(1.3)** prove the calculus's channel-buffer steps IMPLEMENT the `run_io` channel
-   axioms (`run_send`/`run_recv`/…), transferring `reachable_hb_strict`/race-soundness
-   to actual programs.
+   **(1.2 — DONE)** the RICH calculus (`Cmd`/`RConfig`/`rstep` in concurrency.v):
+   per-goroutine programs are a command TREE (`CRet`/`CSend`/`CRecv`/`CWrite`/`CRead`/
+   `CSpawn`) with value-binding continuations (`nat -> Cmd`) — i.e. `bind`, control
+   branches on received/read VALUES.  Channels carry `(value, send-position)`; the
+   HEAP is real (`rc_heap`).  REUSES the proven infrastructure, so `RInv` is preserved
+   (`rstep_preserves_inv`) and the safety theorems are INHERITED: `reachable_wf_r` →
+   `reachable_hb_strict_r`, `reachable_owned_safe_r`.  `rich_recv_binds`/
+   `rich_read_binds` demo the value flow; `rheap_read_after_write` the real memory.
+   **(1.3 — channel/heap-state refinement DONE; term-level simulation open)**
+   `rchan` (the channel value-FIFO) evolves EXACTLY as the `run_io` axioms specify —
+   `rchan_send_law` = `chan_buf_send` (enqueue value), `rchan_recv_law` =
+   `chan_buf_recv` (dequeue head).  So the calculus soundly models Fido's IO channels.
+   *Open:* a term-level simulation from arbitrary `run_io` IO PROGRAMS into `Cmd`
+   (needs IO deep-embedded or a translation — `Cmd` IS that deep IO syntax, so the gap
+   is the deep↔shallow embedding correspondence + the plugin lowering).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
    ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two

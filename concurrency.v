@@ -756,3 +756,30 @@ Proof. intros b c v s brest H. rewrite upd_same, H. reflexivity. Qed.
 
 Lemma rheap_read_after_write : forall (h : nat -> nat) l v, upd h l v l = v.
 Proof. intros. apply upd_same. Qed.
+
+(** Concrete value flow: a receive BINDS the channel value into the continuation, so
+    control branches on it.  Goroutine 0 runs [CRecv 0 (fun v => CWrite 0 v CRet)];
+    the head buffer entry is [(7, 0)] (value 7, sent at position 0).  After the step
+    the goroutine's program is [CWrite 0 7 CRet] — the received 7 has flowed in. *)
+Example rich_recv_binds : exists cfg',
+  rstep (mkRCfg (fun t => if t =? 0 then CRecv 0 (fun v => CWrite 0 v CRet) else CRet)
+                (fun ch => if ch =? 0 then [(7, 0)] else [])
+                (fun _ => 0) (fun t => t =? 0) [mkEv 5 (KSend 0)]) cfg'
+  /\ rc_prog cfg' 0 = CWrite 0 7 CRet.
+Proof.
+  eexists. split.
+  - apply rstep_recv with (tid := 0) (c := 0); reflexivity.
+  - cbn [rc_prog]. rewrite upd_same. reflexivity.
+Qed.
+
+(** Concrete real memory: a read returns the HEAP value (42 at location 0) and binds
+    it into the continuation — goroutine 0's program becomes [CWrite 1 42 CRet]. *)
+Example rich_read_binds : exists cfg',
+  rstep (mkRCfg (fun t => if t =? 0 then CRead 0 (fun v => CWrite 1 v CRet) else CRet)
+                (fun _ => []) (fun l => if l =? 0 then 42 else 0) (fun t => t =? 0) []) cfg'
+  /\ rc_prog cfg' 0 = CWrite 1 42 CRet.
+Proof.
+  eexists. split.
+  - apply rstep_read with (tid := 0) (l := 0); reflexivity.
+  - cbn [rc_prog]. rewrite upd_same. cbn. reflexivity.
+Qed.
