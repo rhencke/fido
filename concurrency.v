@@ -783,3 +783,50 @@ Proof.
   - apply rstep_read with (tid := 0) (l := 0); reflexivity.
   - cbn [rc_prog]. rewrite upd_same. cbn. reflexivity.
 Qed.
+
+(** The rich calculus also has the exact-FIFO invariant (the send-position component
+    of each buffer is strictly increasing) — completing its property set. *)
+Definition RBufSorted (cfg : RConfig) : Prop := forall c, Incr (map snd (rc_bufs cfg c)).
+
+Lemma rstep_preserves_sorted : forall cfg cfg',
+  rstep cfg cfg' -> RInv cfg -> RBufSorted cfg -> RBufSorted cfg'.
+Proof.
+  intros cfg cfg' Hstep [Hwf Hbuf] Hsort.
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    intros c0; cbn [rc_bufs rc_trace].
+  - destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. rewrite map_app. apply Incr_app.
+      * exact (Hsort c).
+      * intros x Hx. apply in_map_iff in Hx. destruct Hx as [[v' s'] [Heq Hin]].
+        cbn in Heq. subst x. destruct (Hbuf c v' s' Hin) as [Hlt _]. exact Hlt.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. specialize (Hsort c). cbn [rc_bufs] in Hsort.
+      rewrite Hbc in Hsort. cbn in Hsort. apply Incr_tail in Hsort. exact Hsort.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - exact (Hsort c0).
+  - exact (Hsort c0).
+  - exact (Hsort c0).
+Qed.
+
+Lemma rinit_sorted : forall p, RBufSorted (rinit_cfg p).
+Proof. intros p c. cbn. exact I. Qed.
+
+Lemma rsteps_preserves_both : forall a b,
+  rsteps a b -> RInv a -> RBufSorted a -> RInv b /\ RBufSorted b.
+Proof.
+  intros a b H. induction H; intros Hinv Hsort; [split; assumption|].
+  apply IHrsteps.
+  - exact (rstep_preserves_inv _ _ H Hinv).
+  - exact (rstep_preserves_sorted _ _ H Hinv Hsort).
+Qed.
+
+Theorem reachable_sorted_r : forall p cfg, rsteps (rinit_cfg p) cfg -> RBufSorted cfg.
+Proof.
+  intros p cfg H. apply (rsteps_preserves_both _ _ H (rinit_inv p) (rinit_sorted p)).
+Qed.
