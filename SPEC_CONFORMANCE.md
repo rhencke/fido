@@ -373,8 +373,21 @@ So `reachable_wf`: EVERY reachable execution trace is well-formed — `WfTrace` 
 THEOREM about execution, not a hypothesis.  Composed with `hbt_irrefl`:
 `reachable_hb_strict` — the happens-before of ANY real execution (any program, any
 reachable state) is a strict partial order, EARNED by execution.  All axiom-free.
-**Still open:** tie this operational calculus (`PAct`/`step`) to the actual
-`run_io`/`World` IO model (show extracted IO programs realise it); the FIFO
-refinement (kth recv ↔ kth send pairing); deadlock freedom (liveness, needs a
-non-terminating/scheduler model).  Other sync mechanisms (Mutex, atomic, once) need
-stdlib (imports — out of scope).
+**Calculus ↔ `run_io` bridge (`Section Keystone`/`KeystoneMulti`) — ✓ for the
+channel+memory fragment.**  `Cmd` is the DEEP embedding of an IO program; `Denotes`
+relates it to the `run_io` shallow term; `denote_sim_send`/`recv`/`write`/`read` show
+each `rstep` run-reduces the denotation exactly per the `run_io` laws, and
+`denote_adequate` composes them into a whole-program adequacy (single-channel,
+single-goroutine).  For MULTIPLE goroutines — where `run_io`, being sequential, cannot
+sequence the interleaving — the connection is a STATE refinement: `wmatchc_step` proves
+every `rstep` (any goroutine, any channel) keeps the calculus's channel state matched to
+the `run_io` `World`, using two channel-SEPARATION (frame) axioms
+(`chan_buf_send_frame`/`chan_buf_recv_frame`, validated by the per-channel FIFO-map heap
+model); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
+same execution.  Trust base verified by `Print Assumptions` (the `run_io` laws it
+bridges to + the 2 frame axioms; `Hret`/`chenv_inj` are discharged hypotheses).
+**Still open:** the heap analogue of the frame law (ref separation, to mix memory +
+channels under interleaving); the FIFO refinement (kth recv ↔ kth send pairing);
+deadlock freedom (liveness, needs a non-terminating/scheduler model); and the unverified
+plugin lowering (`Cmd` ↔ extracted Go).  Other sync mechanisms (Mutex, atomic, once)
+need stdlib (imports — out of scope).

@@ -1113,3 +1113,125 @@ End Keystone.
     whole run.  Its trust base ([Print Assumptions]) adds only [run_ret] and the
     [chan_closed_send]/[chan_closed_recv] frame laws (used to keep the channel open
     along the run) to the per-step bases — still nothing degenerate. *)
+
+(** ============================================================================
+    MULTI-GOROUTINE STATE REFINEMENT — the frame law at work.
+
+    [run_io] is SEQUENTIAL: it cannot sequence several goroutines, so there is no
+    whole-program [run_io] meaning of a CONCURRENT program (that is the calculus's
+    job).  The honest multi-goroutine connection is therefore a STATE refinement: the
+    calculus's full channel state stays matched to the [run_io] [World] model under
+    ARBITRARY interleaving.  [WMatchC] is the MULTI-channel match (no single-channel
+    restriction); [wmatchc_step] shows EVERY [rstep] — by ANY goroutine, on ANY
+    channel — preserves it, the CHANNEL SEPARATION (frame) law handling the untouched
+    channels.  Crucially this needs NO [Denotes]/[prj]/[Hret]: write/read/spawn do not
+    touch buffers (so the world is unchanged there), leaving only send/recv, whose
+    buffer evolution is the [chan_buf_send]/[chan_buf_recv] laws + the frame law.
+
+    So [reachable_refines]: every reachable state of a MULTI-goroutine, MULTI-channel
+    execution is realized by a [run_io] world — the calculus's state refines the model
+    Fido extracts from, across all interleavings.  Combined with the already-proven
+    race-freedom on the calculus ([reachable_owned_safe_r]), the guarantee now applies
+    to genuinely concurrent programs at the state level.
+    ============================================================================ *)
+Section KeystoneMulti.
+  Variable chenv : nat -> GoChan int.
+  Variable inj : nat -> int.
+  Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
+
+  Definition WMatchC (w : World) (cfg : RConfig) : Prop :=
+    forall c, chan_buf (chenv c) w = map inj (rchan cfg c).
+
+  Lemma chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
+  Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
+
+  (** Every [rstep] — any goroutine, any channel — preserves the multi-channel match.
+      The frame law keeps the untouched channels matched, so this holds for ARBITRARY
+      multi-goroutine interleaving (where race-freedom actually bites). *)
+  Lemma wmatchc_step : forall cfg cfg' w,
+    rstep cfg cfg' -> WMatchC w cfg -> exists w', WMatchC w' cfg'.
+  Proof.
+    intros cfg cfg' w Hstep HM.
+    destruct Hstep as
+      [ p b h lv tr tid c0 v k Hlv Hp
+      | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid ].
+    - (* send: world advances by [chan_send_upd] on channel [c0] *)
+      exists (chan_send_upd (chenv c0) (inj v) w).
+      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+      destruct (Nat.eq_dec c c0) as [->|Hne].
+      + rewrite upd_same, chan_buf_send, HM, !map_app. cbn. reflexivity.
+      + rewrite (upd_other _ _ _ _ Hne),
+          (chan_buf_send_frame (chenv c0) (chenv c) (inj v) w
+             (chenv_neq c0 c (not_eq_sym Hne))).
+        exact HM.
+    - (* recv: world advances by [chan_recv_upd] on channel [c0] *)
+      exists (chan_recv_upd (chenv c0) w).
+      assert (Hbuf : chan_buf (chenv c0) w = inj v :: map inj (map fst brest)).
+      { generalize (HM c0). unfold rchan; cbn [rc_bufs]. rewrite Hbc. cbn. tauto. }
+      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+      destruct (Nat.eq_dec c c0) as [->|Hne].
+      + rewrite upd_same,
+          (chan_buf_recv (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+        reflexivity.
+      + rewrite (upd_other _ _ _ _ Hne),
+          (chan_buf_recv_frame (chenv c0) (chenv c) w
+             (chenv_neq c0 c (not_eq_sym Hne))).
+        exact HM.
+    - (* write: buffers unchanged, so the same world still matches *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
+    - (* read: buffers unchanged *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
+    - (* spawn: buffers unchanged *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
+  Qed.
+
+  Lemma wmatchc_steps : forall cfg cfg' w,
+    rsteps cfg cfg' -> WMatchC w cfg -> exists w', WMatchC w' cfg'.
+  Proof.
+    intros cfg cfg' w H. revert w. induction H; intros w HM; [exists w; exact HM|].
+    destruct (wmatchc_step _ _ _ H HM) as [w' HM']. exact (IHrsteps w' HM').
+  Qed.
+
+  Lemma wmatchc_init : forall p w0,
+    (forall c, chan_buf (chenv c) w0 = []) -> WMatchC w0 (rinit_cfg p).
+  Proof.
+    intros p w0 Hempty c. unfold WMatchC, rchan, rinit_cfg; cbn [rc_bufs].
+    rewrite Hempty. reflexivity.
+  Qed.
+
+  (** THE MULTI-GOROUTINE REFINEMENT.  Every reachable state of a concurrent,
+      multi-channel execution is realized by some [run_io] world matching all its
+      channel buffers — across every interleaving. *)
+  Theorem reachable_refines : forall p cfg w0,
+    (forall c, chan_buf (chenv c) w0 = []) ->
+    rsteps (rinit_cfg p) cfg ->
+    exists w, WMatchC w cfg.
+  Proof.
+    intros p cfg w0 Hempty Hsteps.
+    exact (wmatchc_steps _ _ _ Hsteps (wmatchc_init p w0 Hempty)).
+  Qed.
+
+  (** Capstone: a reachable concurrent state is BOTH realized by a [run_io] world AND
+      (under the ownership discipline) race-free with a strict-partial-order
+      happens-before.  The state refinement (this section) and the race-freedom
+      (proven on the calculus) hold of the SAME reachable execution. *)
+  Theorem reachable_refines_and_safe : forall p cfg w0,
+    (forall c, chan_buf (chenv c) w0 = []) ->
+    rsteps (rinit_cfg p) cfg ->
+    Owned (rc_trace cfg) ->
+    (exists w, WMatchC w cfg) /\
+    TraceRaceFree (rc_trace cfg) /\
+    (forall i, ~ hbt (rc_trace cfg) i i).
+  Proof.
+    intros p cfg w0 Hempty Hsteps HO.
+    split; [exact (reachable_refines p cfg w0 Hempty Hsteps) |].
+    exact (reachable_owned_safe_r p cfg Hsteps HO).
+  Qed.
+
+End KeystoneMulti.

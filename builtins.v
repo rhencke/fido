@@ -924,6 +924,19 @@ Axiom chan_closed_recv : forall {A} (ch : GoChan A) (w : World),
 Axiom chan_closed_close : forall {A} (ch : GoChan A) (w : World),
   chan_closed ch (chan_close_upd ch w) = true.
 
+(** Channel SEPARATION (frame): a send/receive on one channel leaves every OTHER
+    channel's buffer untouched.  This is the standard heap-separation property —
+    distinct cells are independent — validated by the SAME per-channel FIFO-map heap
+    model that validates [chan_buf_send]/[chan_buf_recv] (a [send_upd]/[recv_upd]
+    rewrites only its own channel's slot).  It is what lets a MULTI-channel /
+    MULTI-goroutine execution's state stay matched to the calculus: an operation on
+    one channel does not perturb the others.  (Stated at one carrier type [A]; the
+    keystone's channels are all [GoChan int].) *)
+Axiom chan_buf_send_frame : forall {A} (ch ch' : GoChan A) (v : A) (w : World),
+  ch <> ch' -> chan_buf ch' (chan_send_upd ch v w) = chan_buf ch' w.
+Axiom chan_buf_recv_frame : forall {A} (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_buf ch' (chan_recv_upd ch w) = chan_buf ch' w.
+
 (** [run_io] equations — conditioned on channel state.  A send on an OPEN channel
     enqueues and returns; on a CLOSED channel it panics (Go spec).  A receive,
     when the buffer has a head, reads it and dequeues; when the buffer is empty

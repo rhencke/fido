@@ -899,10 +899,26 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    the buffer match, channel-open, and the `run_io` equation) preserved across `rsteps`
    (`siminv_step`/`siminv_steps`), read off at `CRet`.  Trust base: the per-step bases +
    `run_ret` + `chan_closed_send`/`chan_closed_recv` (channel-open frame) — nothing
-   degenerate.  *Still open:* multi-channel / multi-location matching (a channel/ref
-   separation/frame law, which would also let memory + channels mix and relax the
-   single-goroutine restriction toward true interleaving), and the plugin lowering side
-   (`Cmd` ↔ extracted Go).
+   degenerate.  **MULTI-GOROUTINE state refinement is now done** (`Section KeystoneMulti`,
+   via a CHANNEL SEPARATION/frame law): since `run_io` is SEQUENTIAL it cannot sequence
+   concurrent goroutines, so the honest multi-goroutine connection is a STATE refinement
+   — the calculus's full channel state stays matched to the `run_io` `World` under
+   ARBITRARY interleaving.  `WMatchC` is the MULTI-channel match (no single-channel
+   restriction); `wmatchc_step` proves EVERY `rstep` (any goroutine, any channel)
+   preserves it — the new `chan_buf_send_frame`/`chan_buf_recv_frame` axioms (separation:
+   an op on one channel leaves the others' buffers untouched) handle the untouched
+   channels, and write/read/spawn don't touch buffers (so the world is unchanged there),
+   so NO `Denotes`/`prj`/`Hret` is needed.  `reachable_refines`: every reachable state of
+   a concurrent multi-channel execution is realized by a `run_io` world;
+   `reachable_refines_and_safe` bundles it with the proven race-freedom
+   (`reachable_owned_safe_r`) on the SAME reachable execution — so the guarantee now
+   applies to genuinely concurrent programs at the state level.  Cost: 2 new axioms in
+   builtins.v (the channel-frame laws), validated by the same per-channel FIFO-map heap
+   model as `chan_buf_send`; trust base verified by `Print Assumptions` (exactly the
+   channel laws + the 2 frame axioms; `chenv_inj` is a discharged hypothesis).
+   *Still open:* the HEAP analogue (ref separation, to mix memory + channels — same
+   shape, more axioms), a term-level account of cross-goroutine value flow beyond state,
+   and the plugin lowering side (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
    ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two
