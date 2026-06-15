@@ -29,44 +29,24 @@ From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
     pre/postcondition framework for program verification.  This is the
     foundation on which channel session-type proofs will be built. *)
 
-Axiom IO   : Type -> Type.
-Axiom ret  : forall {A : Type}, A -> IO A.
-Axiom bind : forall {A B : Type}, IO A -> (A -> IO B) -> IO B.
+(** ---- World, [GoAny], outcomes, and the IO monad — a CONCRETE proof-only model. ----
 
-Notation "m >>' k"    := (bind m (fun _ => k)) (at level 50, left associativity).
-Notation "x <-' m ;; k" := (bind m (fun x => k))
-  (at level 80, m at level 90, right associativity).
+    [World] is still abstract HERE; it becomes a concrete record once channels/refs/
+    maps are concretised (it cannot go concrete alone — that would make their laws,
+    e.g. [chan_buf_send], inconsistent).  But [IO A := World -> Outcome A] makes the
+    monad and its [run_*] laws DEFINITIONS / THEOREMS rather than axioms.  Extraction
+    never sees these bodies: the plugin lowers [ret]/[bind]/[panic]/[catch] BY NAME to
+    sequential Go and erases the world token.
 
-(** ---- Types: [GoAny] (Go's [any]/[interface{}]) ----
-    Hoisted up here because [panic]'s argument and the panic-aware denotational
-    semantics below both mention it. *)
+    [run_io m w] is the meaning of [m] from world [w] as an OUTCOME: [ORet a w']
+    (normal completion) or [OPanic v w'] (panicked with [v]).  Panic as an OUTCOME —
+    not a total [A * World] — is essential: with the old total type the law "[panic]
+    satisfies every postcondition" forced [World] empty ([World -> False]), collapsing
+    the layer.  DIVERGENCE is idealised away: [run_io] is total (terminates). *)
+Axiom World : Type.
+
 Definition GoAny : Type := {T : Type & T}.
 Notation any x := (@existT Type (fun T : Type => T) _ x).
-
-(** ---- panic / recover ----
-    [panic v] aborts the goroutine with value [v]; it has type [IO A] for any
-    [A] because it never returns a value, it short-circuits.  [catch m h] is the
-    semantics of [defer func(){ if r := recover(); r != nil { h(r) } }()]: run
-    [m]; if it panics with [v], run [h v]; else pass [m]'s result through.
-    Declared here (before [run_io]) so the semantics can give panic a proper
-    *outcome* rather than conflating it with a returned value. *)
-Axiom panic : forall {A : Type}, GoAny -> IO A.
-Axiom catch : forall {A : Type}, IO A -> (GoAny -> IO A) -> IO A.
-
-(** ---- Denotational semantics (proof-only, never extracted) ----
-
-    [run_io m w] gives the meaning of [m] from world [w] as an OUTCOME: either
-    [ORet a w'] (normal completion, result [a], new world [w']) or [OPanic v w']
-    (the goroutine panicked with value [v]).  Modelling panic as an outcome —
-    not as a total [A * World] — is essential.  With the old total type, the law
-    "[panic] satisfies every postcondition" was satisfiable ONLY by making
-    [World] empty (machine-checked: it entailed [World -> False]), which
-    collapsed the whole layer — every [IO A] provably equal, every Hoare triple
-    vacuous.  As an honest outcome, panic leaves [World] inhabited and the Hoare
-    logic meaningful.  DIVERGENCE is idealised away: [run_io] is total, i.e. the
-    model assumes every computation terminates (out of scope, like OOM) — the
-    claim is "given termination and sufficient resources". *)
-Axiom World : Type.
 
 Inductive Outcome (A : Type) : Type :=
   | ORet   : A -> World -> Outcome A
@@ -74,26 +54,49 @@ Inductive Outcome (A : Type) : Type :=
 Arguments ORet {A} _ _.
 Arguments OPanic {A} _ _.
 
-Axiom run_io  : forall {A : Type}, IO A -> World -> Outcome A.
-Axiom run_ret : forall {A} (x : A) (w : World),
+Definition IO (A : Type) : Type := World -> Outcome A.
+Definition run_io {A} (m : IO A) (w : World) : Outcome A := m w.
+Definition ret {A} (x : A) : IO A := fun w => ORet x w.
+Definition bind {A B} (m : IO A) (f : A -> IO B) : IO B :=
+  fun w => match m w with ORet a w' => f a w' | OPanic v w' => OPanic v w' end.
+(** [panic v] short-circuits; [catch m h] runs [h] only on a panic outcome (Go's
+    [defer func(){ if r := recover(); r != nil { h(r) } }()]). *)
+Definition panic {A} (v : GoAny) : IO A := fun w => OPanic v w.
+Definition catch {A} (m : IO A) (h : GoAny -> IO A) : IO A :=
+  fun w => match m w with ORet a w' => ORet a w' | OPanic v w' => h v w' end.
+
+Notation "m >>' k"    := (bind m (fun _ => k)) (at level 50, left associativity).
+Notation "x <-' m ;; k" := (bind m (fun x => k))
+  (at level 80, m at level 90, right associativity).
+
+(** The [run_*] laws are now THEOREMS (by computation), not axioms. *)
+Lemma run_ret : forall {A} (x : A) (w : World),
   run_io (ret x) w = ORet x w.
-Axiom run_bind : forall {A B} (m : IO A) (f : A -> IO B) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_bind : forall {A B} (m : IO A) (f : A -> IO B) (w : World),
   run_io (bind m f) w =
   match run_io m w with
   | ORet a w'   => run_io (f a) w'
   | OPanic v w' => OPanic v w'        (* panic short-circuits the continuation *)
   end.
-Axiom run_panic : forall {A} (v : GoAny) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_panic : forall {A} (v : GoAny) (w : World),
   run_io (@panic A v) w = OPanic v w.
-Axiom run_catch : forall {A} (m : IO A) (h : GoAny -> IO A) (w : World),
+Proof. reflexivity. Qed.
+Lemma run_catch : forall {A} (m : IO A) (h : GoAny -> IO A) (w : World),
   run_io (catch m h) w =
   match run_io m w with
   | ORet a w'   => ORet a w'          (* normal: pass through, handler not run *)
   | OPanic v w' => run_io (h v) w'    (* panic: run the handler on the value *)
   end.
-(** Two computations are equal if they behave identically on every world. *)
-Axiom run_io_inj : forall {A} (m m' : IO A),
+Proof. reflexivity. Qed.
+(** IO extensionality: equal on every world => equal.  With [IO A := World -> Outcome A]
+    this is functional extensionality — a Coq-STDLIB axiom (EXTERNAL, not one of ours).
+    Restating the builtins-internal laws over observational equality would drop even
+    this; deferred (see ZERO_AXIOMS_PLAN.md, holdout #1). *)
+Lemma run_io_inj : forall {A} (m m' : IO A),
   (forall w, run_io m w = run_io m' w) -> m = m'.
+Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
 
 (** ---- Monad laws — provable lemmas, not axioms. ---- *)
 Lemma bind_ret_l : forall {A B} (x : A) (f : A -> IO B),

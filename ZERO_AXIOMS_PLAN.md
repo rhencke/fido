@@ -126,8 +126,17 @@ Types (B) are independent of everything — ideal warm-up to validate the
 
 ## Status
 
-- [ ] Phase 0 — numeric type carriers (B)
-- [ ] Phase 1 — IO core (A)  ← the spine
+- [~] Phase 0 — numeric type carriers (B) — *not a freebie: opaque placeholders needing
+  a model choice + extraction risk; deferred, not the warm-up.*
+- [x] **Phase 1 — IO core (A) — DONE (2026-06-15).** `IO A := World -> Outcome A`;
+  `ret`/`bind`/`panic`/`catch`/`run_io` are definitions; `run_ret`/`run_bind`/
+  `run_panic`/`run_catch` are `reflexivity` theorems.  **11 of our 12 group-A axioms
+  removed (108 → 97).**  `World` remains abstract (retires in Phases 2–4, as planned).
+  `run_io_inj` is now a lemma via stdlib `functional_extensionality` — so the trust
+  base gained ONE external axiom (`functional_extensionality_dep`) in place of 11 of
+  ours (verified by `Print Assumptions bind_assoc`).  Extraction byte-identical (golden
+  unchanged) — the plugin's name-matching survived the Axiom→Definition switch with no
+  `NoInline`/wrapper needed.  *Later refinement (holdout #1): drop funext via `≈`.*
 - [ ] Phase 2 — channels (H − go_spawn)
 - [ ] Phase 3 — refs (K)
 - [ ] Phase 4 — maps (G)
