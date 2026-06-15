@@ -861,6 +861,7 @@ Qed.
     ============================================================================ *)
 Section Keystone.
   Variable chenv : nat -> GoChan int.    (* calculus channel id -> the IO channel *)
+  Variable locenv : nat -> Ref int.      (* calculus location  -> the IO ref cell *)
   Variable inj : nat -> int.             (* calculus value -> IO value (a coding) *)
   Variable prj : int -> nat.             (* IO value -> calculus value *)
   Hypothesis Hret : forall n, prj (inj n) = n.   (* the coding round-trips *)
@@ -869,11 +870,15 @@ Section Keystone.
      reflecting the HOAS continuation: the IO term [g] must agree with [denote] of
      the calculus continuation [f] at every received value. *)
   Inductive Denotes : Cmd -> IO unit -> Prop :=
-    | D_ret  : Denotes CRet (ret tt)
-    | D_send : forall ch v k m, Denotes k m ->
+    | D_ret   : Denotes CRet (ret tt)
+    | D_send  : forall ch v k m, Denotes k m ->
         Denotes (CSend ch v k) (bind (send (chenv ch) (inj v)) (fun _ => m))
-    | D_recv : forall ch f g, (forall x, Denotes (f (prj x)) (g x)) ->
-        Denotes (CRecv ch f) (bind (recv TInt64 (chenv ch)) g).
+    | D_recv  : forall ch f g, (forall x, Denotes (f (prj x)) (g x)) ->
+        Denotes (CRecv ch f) (bind (recv TInt64 (chenv ch)) g)
+    | D_write : forall l v k m, Denotes k m ->
+        Denotes (CWrite l v k) (bind (ref_set (locenv l) (inj v)) (fun _ => m))
+    | D_read  : forall l f g, (forall x, Denotes (f (prj x)) (g x)) ->
+        Denotes (CRead l f) (bind (ref_get TInt64 (locenv l)) g).
 
   (* World <-> config on one channel [c]: the IO buffer is the calculus buffer, coded.
      (Single channel keeps it frame-free — a send/recv touches only [c]'s buffer, and
@@ -896,7 +901,7 @@ Section Keystone.
                       (tr ++ [mkEv tid (KSend c)])).
   Proof.
     intros p b h lv tr tid c v k m w HD HM Hclosed.
-    inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | ]; subst.
+    inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | | | ]; subst.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_send (chenv c) (inj v) w Hclosed). cbn. reflexivity.
     - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same.
@@ -917,7 +922,7 @@ Section Keystone.
               (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
   Proof.
     intros p b h lv tr tid c f m w v s brest HD HM Hbc.
-    inversion HD as [| | ch0 f0 g HDg Hch Hm]; subst.
+    inversion HD as [| | ch0 f0 g HDg Hch Hm | | ]; subst.
     assert (Hbuf : chan_buf (chenv c) w = inj v :: map inj (map fst brest)).
     { unfold WMatch1, rchan in HM. cbn [rc_bufs] in HM. rewrite Hbc in HM. cbn in HM. exact HM. }
     exists (g (inj v)). split; [| split].
@@ -928,16 +933,64 @@ Section Keystone.
       rewrite (chan_buf_recv (chenv c) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
   Qed.
 
+  (* World <-> config on one location [l]: the IO ref's value is the calculus heap
+     value, coded.  Single location, frame-free, same as [WMatch1] for channels. *)
+  Definition WHMatch1 (l : nat) (w : World) (cfg : RConfig) : Prop :=
+    ref_sel (locenv l) w = inj (rc_heap cfg l).
+
+  (** A WRITE step: the deep [CWrite] run-reduces to its continuation at the world
+      after [ref_upd], the heap match holding by [ref_sel_upd_same] — mirroring
+      [rstep_write].  (No precondition: a write overwrites unconditionally.) *)
+  Lemma denote_sim_write : forall p b h lv tr tid l v k m w,
+    Denotes (CWrite l v k) m ->
+    exists m',
+      Denotes k m' /\
+      run_io m w = run_io m' (ref_upd (locenv l) (inj v) w) /\
+      WHMatch1 l (ref_upd (locenv l) (inj v) w)
+              (mkRCfg (upd p tid k) b (upd h l v) lv (tr ++ [mkEv tid (KWrite l)])).
+  Proof.
+    intros p b h lv tr tid l v k m w HD.
+    inversion HD as [| | | l0 v0 k0 m' HDk Hl Hm | ]; subst.
+    exists m'. split; [exact HDk | split].
+    - rewrite run_bind, (run_ref_set (locenv l) (inj v) w). cbn. reflexivity.
+    - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, ref_sel_upd_same. reflexivity.
+  Qed.
+
+  (** A READ step: the deep [CRead] run-reduces by BINDING the ref value (no world
+      change); [Hret] recovers the calculus heap value so the continuation matches
+      [f (h l)] — mirroring [rstep_read]. *)
+  Lemma denote_sim_read : forall p b h lv tr tid l f m w,
+    Denotes (CRead l f) m ->
+    WHMatch1 l w (mkRCfg p b h lv tr) ->
+    exists m',
+      Denotes (f (h l)) m' /\
+      run_io m w = run_io m' w /\
+      WHMatch1 l w (mkRCfg (upd p tid (f (h l))) b h lv (tr ++ [mkEv tid (KRead l)])).
+  Proof.
+    intros p b h lv tr tid l f m w HD HM.
+    inversion HD as [| | | | l0 f0 g HDg Hl Hm]; subst.
+    unfold WHMatch1 in HM. cbn [rc_heap] in HM.
+    exists (g (inj (h l))). split; [| split].
+    - specialize (HDg (inj (h l))). rewrite Hret in HDg. exact HDg.
+    - rewrite run_bind, (run_ref_get TInt64 (locenv l) w). cbn. rewrite HM. reflexivity.
+    - unfold WHMatch1. cbn [rc_heap]. exact HM.
+  Qed.
+
   (** [CRet] is the terminal: its denotation just returns, no world change. *)
   Lemma denote_sim_ret : forall w, run_io (ret tt) w = ORet tt w.
   Proof. intro w. apply run_ret. Qed.
 
 End Keystone.
 
-(** Trust-base audit (verified via [Print Assumptions], 2026-06-15): [denote_sim_send]
-    rests on exactly [run_bind], [run_send], [chan_buf_send] (+ the carrier/IO types);
-    [denote_sim_recv] on exactly [run_bind], [run_recv], [chan_buf_recv].  Nothing
-    degenerate, and [Hret] is a DISCHARGED HYPOTHESIS, not an axiom — so the bridge
-    rests precisely on the [run_io] channel laws it connects to.  This is the honest
-    statement that the rich calculus (where race-freedom is proven) refines the
-    [run_io]/[World] model we extract from, for the sequential channel fragment. *)
+(** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
+    rests on EXACTLY the [run_io] law for its operation, and nothing degenerate:
+      - [denote_sim_send]  : [run_bind], [run_send],     [chan_buf_send]
+      - [denote_sim_recv]  : [run_bind], [run_recv],     [chan_buf_recv]
+      - [denote_sim_write] : [run_bind], [run_ref_set],  [ref_sel_upd_same]
+      - [denote_sim_read]  : [run_bind], [run_ref_get]
+    (+ the carrier/IO types).  [Hret] is a DISCHARGED HYPOTHESIS, not an axiom.  So the
+    bridge rests precisely on the [run_io] channel AND heap laws it connects to — the
+    honest statement that the rich calculus (where race-freedom is proven) refines the
+    [run_io]/[World] model we extract from, for the sequential channel + memory
+    fragment.  (Spawn stays out: [go_spawn] has no [run_io] law — see the section
+    header.) *)

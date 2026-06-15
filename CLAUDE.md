@@ -864,8 +864,8 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    (`rstep_preserves_inv`) and the safety theorems are INHERITED: `reachable_wf_r` →
    `reachable_hb_strict_r`, `reachable_owned_safe_r`.  `rich_recv_binds`/
    `rich_read_binds` demo the value flow; `rheap_read_after_write` the real memory.
-   **(1.3 — channel/heap-state refinement DONE; channel term-level bridge DONE;
-   heap/multi-channel/composition open)**
+   **(1.3 — channel/heap-state refinement DONE; channel + heap term-level bridge DONE;
+   multi-channel/composition open)**
    `rchan` (the channel value-FIFO) evolves EXACTLY as the `run_io` axioms specify —
    `rchan_send_law` = `chan_buf_send` (enqueue value), `rchan_recv_law` =
    `chan_buf_recv` (dequeue head).  So the calculus soundly models Fido's IO channels.
@@ -885,11 +885,14 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    coded `nat`↔`int` (realizable on the bounded ±2⁶² regime the int model already
    assumes).  **`go_spawn` is deliberately ABSENT from the bridge — it has NO `run_io`
    law because `run_io` is SEQUENTIAL and cannot express interleaving; that is exactly
-   why the calculus is the model for concurrency.**  *Still open:* the heap fragment
-   (`CWrite`/`CRead` → `ref_set`/`ref_get`, the same shape via `run_ref_set`/
-   `run_ref_get`), multi-channel matching (needs a channel-separation/frame law), and
-   composing the per-step lemmas into a whole-execution simulation; plus the plugin
-   lowering side (`Cmd` ↔ extracted Go).
+   why the calculus is the model for concurrency.**  The HEAP fragment is bridged too
+   (`denote_sim_write`/`denote_sim_read`: `CWrite`/`CRead` → `ref_set`/`ref_get` via
+   `run_ref_set`/`run_ref_get` + `ref_sel_upd_same`, with a one-location heap match
+   `WHMatch1`) — so the bridge now covers the full sequential channel + MEMORY fragment
+   (memory accesses being exactly what races are about).  *Still open:* multi-channel /
+   multi-location matching (needs a channel/ref-separation/frame law), composing the
+   per-step lemmas into a whole-execution simulation, and the plugin lowering side
+   (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
    ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two
