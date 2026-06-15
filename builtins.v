@@ -11,6 +11,7 @@ Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
 Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *)
 From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
+From Stdlib Require Import ZArith.   (* Z.to_nat for the slice index *)
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.   (* [int] — hoisted so the numeric
    carrier types can be DEFINED as [int] (they only appear in tags, never in Go). *)
 From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloat32] *)
@@ -674,6 +675,42 @@ Inductive GoTypeTag : Type -> Type :=
   | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
   | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
   | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
+
+(** Decidable tag equality WITH type recovery: if two tags are the same, hand back a
+    proof that their indexed types are equal (so a heterogeneous heap can cast a stored
+    value to the accessor's type).  Provable because [GoTypeTag] is a finite inductive —
+    the foundation for the concrete typed heap and for [type_assert].  (Same-constructor
+    matching suffices: a cell is read with the tag it was written with.) *)
+Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option (A = B) :=
+  match ta in GoTypeTag A', tb in GoTypeTag B' return option (A' = B') with
+  | TBool, TBool       => Some eq_refl
+  | TInt64, TInt64     => Some eq_refl
+  | TFloat64, TFloat64 => Some eq_refl
+  | TString, TString   => Some eq_refl
+  | TAny, TAny         => Some eq_refl
+  | TInt, TInt         => Some eq_refl
+  | TInt8, TInt8       => Some eq_refl
+  | TInt16, TInt16     => Some eq_refl
+  | TInt32, TInt32     => Some eq_refl
+  | TUint, TUint       => Some eq_refl
+  | TUint8, TUint8     => Some eq_refl
+  | TUint16, TUint16   => Some eq_refl
+  | TUint32, TUint32   => Some eq_refl
+  | TUint64, TUint64   => Some eq_refl
+  | TFloat32, TFloat32 => Some eq_refl
+  | TChan a, TChan b   => match tag_eq a b with Some p => Some (f_equal GoChan p) | None => None end
+  | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
+  | TMap ka va, TMap kb vb =>
+      match tag_eq ka kb, tag_eq va vb with
+      | Some p, Some q => Some (f_equal2 GoMap p q)
+      | _, _ => None
+      end
+  | _, _ => None
+  end.
+
+(** Cast a value along a tag match (identity when the tags agree). *)
+Definition tag_coerce {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) (x : B) : option A :=
+  match tag_eq ta tb with Some p => Some (eq_rect B (fun T => T) x A (eq_sym p)) | None => None end.
 
 (** [type_assert tag v] asserts that [v : GoAny] holds a value of Go type [T].
     Panics (like Go's [v.(T)]) if the runtime type does not match.
@@ -1400,8 +1437,10 @@ Proof.
   - right. exact fork_write_before_read.
 Qed.
 
-Axiom len    : forall {A : Type}, GoSlice A -> GoInt.   (* returns GoInt (opaque carrier) *)
-Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
+(* [GoInt] is now [int]; [len] counts elements (lowered to Go [len] — body suppressed). *)
+Fixpoint len {A} (xs : GoSlice A) : GoInt :=
+  match xs with nil => 0%uint63 | _ :: r => PrimInt63.add 1%uint63 (len r) end.
+Definition cap {A} (xs : GoSlice A) : GoInt := len xs.   (* model: cap = len *)
 Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice A = list A *)
 
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of

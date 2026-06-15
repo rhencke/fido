@@ -2296,7 +2296,8 @@ let is_proof_only_state r =
   List.mem (global_basename r)
     [ "ref_sel"; "ref_upd";
       "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
-      "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io" ]
+      "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
+      "tag_eq"; "tag_coerce" ]   (* proof-only typed-heap helpers *)
 
 let is_inlined_ref r =
   is_proof_only_state r ||

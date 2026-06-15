@@ -1204,6 +1204,7 @@ Extraction NoInline
   ref_get ref_set
   send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_get_opt map_len map_get_or map_set map_delete map_clear
-  print println defer_call append slice_of_list.
+  print println defer_call append slice_of_list
+  len cap slice_get.
 
 Go Main Extraction main "main_effect".
