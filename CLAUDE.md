@@ -777,14 +777,19 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    **(1.3)** prove the calculus's channel-buffer steps IMPLEMENT the `run_io` channel
    axioms (`run_send`/`run_recv`/…), transferring `reachable_hb_strict`/race-soundness
    to actual programs.
-2. **General race-freedom under the ownership / session discipline.**  Today race
-   freedom is proven for hand-built instances (`mp_trace_race_free`,
-   `fork_program_race_free`) plus the trivial generic rule.  Goal: a THEOREM "any
-   program respecting the ownership discipline (channel-endpoint ownership transfer,
-   session linearity) has EVERY cross-goroutine conflicting access happens-before
-   ordered, hence is race-free."  Needs the ownership discipline modelled (who owns
-   each location/endpoint when) and a proof that a conflict forces a transfer, and
-   transfers go through channel-sync `hb` edges.
+2. **General race-freedom under the ownership / session discipline — DONE (core
+   theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
+   ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two
+   same-location accesses are directly hb-ordered or separated by an intermediate
+   same-location access, the trace shadow of "only the owner touches it, ownership
+   transfers only via synchronisation") — is `TraceRaceFree`.  Proof: `Owned` lifts
+   locally-ordered accesses to a global hb-chain (`owned_orders_same_loc`, strong
+   induction), so no conflicting pair is unordered.  `mp_trace_owned` shows the
+   message-passing trace satisfies it, so `owned_race_free` re-derives its
+   race-freedom from the GENERAL theorem (subsuming the hand-built
+   `mp_trace_race_free`).  *Remaining:* tie `Owned` to a SYNTACTIC discipline a
+   program can be checked against (channel-endpoint ownership transfer / session
+   linearity ⇒ `Owned`), so it is established by typing rather than as a hypothesis.
 3. **Model completeness — exact FIFO, liveness, real memory.**  Strengthen `WfTrace`
    from "a receive matches SOME earlier send" to the exact kth-recv ↔ kth-send FIFO
    pairing the `step` semantics already enforces; deadlock-freedom / progress

@@ -386,3 +386,93 @@ Corollary reachable_hb_strict : forall p cfg i,
 Proof.
   intros p cfg i H. apply hbt_irrefl. exact (reachable_wf p cfg H).
 Qed.
+
+(** ============================================================================
+    STEP 2 — general race-freedom under an OWNERSHIP discipline.
+
+    Until now race freedom was proven for hand-built traces (mp_trace_race_free).
+    Here it becomes a THEOREM from a structural discipline: if the accesses to each
+    memory location form a happens-before CHAIN — any two same-location accesses
+    are either directly hb-ordered or separated by an intermediate same-location
+    access — then NO conflicting pair is unordered, so the trace is race-free.
+    This is the trace-level shadow of OWNERSHIP: a location is touched only by its
+    current owner, and ownership transfers only through synchronisation (an
+    hb-edge), so accesses to it are serialised by happens-before.
+    ============================================================================ *)
+
+(** The memory location accessed at position [i] (None for non-memory events). *)
+Definition acc_loc_at (t : Trace) (i : nat) : option nat :=
+  match nth_error t i with
+  | Some e => match e_kind e with KWrite l => Some l | KRead l => Some l | _ => None end
+  | None => None
+  end.
+
+Definition same_loc (t : Trace) (i j : nat) : Prop :=
+  exists l, acc_loc_at t i = Some l /\ acc_loc_at t j = Some l.
+
+Lemma acc_loc_at_lt : forall t i l, acc_loc_at t i = Some l -> i < length t.
+Proof.
+  intros t i l H. unfold acc_loc_at in H. destruct (nth_error t i) eqn:E.
+  - apply nth_error_lt in E; exact E.
+  - discriminate.
+Qed.
+
+(** The ownership discipline: accesses to each location form an hb-chain. *)
+Definition Owned (t : Trace) : Prop :=
+  forall i j, i < j -> same_loc t i j ->
+    hbt t i j \/ exists k, i < k < j /\ same_loc t i k /\ same_loc t k j.
+
+(** Under the discipline, EVERY pair of same-location accesses is hb-ordered
+    (the local "consecutive accesses ordered" lifts to a global chain). *)
+Theorem owned_orders_same_loc : forall t,
+  Owned t -> forall i j, i < j -> same_loc t i j -> hbt t i j.
+Proof.
+  intros t HO.
+  assert (Hn : forall n i j, j <= i + n -> i < j -> same_loc t i j -> hbt t i j).
+  { induction n as [|n IHn]; intros i j Hbound Hij Hsl; [lia|].
+    destruct (HO i j Hij Hsl) as [Hhb | [k [[Hik Hkj] [Hsik Hskj]]]]; [exact Hhb|].
+    apply hbt_trans with (j := k).
+    - apply IHn; [lia | exact Hik | exact Hsik].
+    - apply IHn; [lia | exact Hkj | exact Hskj]. }
+  intros i j Hij Hsl. apply (Hn (j - i)); [lia | exact Hij | exact Hsl].
+Qed.
+
+(** Bridge: a memory access [tr_acc] pins the location [acc_loc_at] sees. *)
+Lemma tr_acc_loc : forall t i a, tr_acc t i = Some a -> acc_loc_at t i = Some (acc_loc a).
+Proof.
+  intros t i a H. unfold tr_acc, acc_loc_at in *.
+  destruct (nth_error t i) as [e|]; [|discriminate].
+  destruct (e_kind e); cbn in H; try discriminate; injection H as <-; reflexivity.
+Qed.
+
+(** THE STEP-2 THEOREM: an ownership-disciplined trace is race-free. *)
+Theorem owned_race_free : forall t, Owned t -> TraceRaceFree t.
+Proof.
+  intros t HO i j [Htid [[ai [aj [Hai [Haj Hcon]]]] [Hnij Hnji]]].
+  apply tr_acc_loc in Hai. apply tr_acc_loc in Haj.
+  destruct Hcon as [Hloc _].
+  assert (Hsl : same_loc t i j).
+  { exists (acc_loc ai). split; [exact Hai | rewrite Haj, Hloc; reflexivity]. }
+  destruct (Nat.lt_trichotomy i j) as [Hlt | [Heq | Hgt]].
+  - apply Hnij. exact (owned_orders_same_loc t HO i j Hlt Hsl).
+  - subst j. apply Htid. reflexivity.
+  - apply Hnji. apply (owned_orders_same_loc t HO j i Hgt).
+    destruct Hsl as [l [Hi Hj]]. exists l. split; [exact Hj | exact Hi].
+Qed.
+
+(** The message-passing trace satisfies the discipline (its only same-location pair,
+    the write/read of x, is directly hb-ordered) — so [owned_race_free] re-derives
+    its race-freedom from the GENERAL theorem, subsuming [mp_trace_race_free]. *)
+Lemma mp_trace_owned : Owned mp_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]]. left.
+  pose proof (acc_loc_at_lt _ _ _ Hi) as Hbi.
+  pose proof (acc_loc_at_lt _ _ _ Hj) as Hbj. cbn in Hbi, Hbj.
+  destruct i as [|[|[|[|i]]]]; try lia;
+  destruct j as [|[|[|[|j]]]]; try lia;
+    cbn in Hi, Hj; try discriminate; try lia.
+  exact mp_trace_hb_0_3.
+Qed.
+
+Example mp_trace_race_free_via_owned : TraceRaceFree mp_trace :=
+  owned_race_free mp_trace mp_trace_owned.
