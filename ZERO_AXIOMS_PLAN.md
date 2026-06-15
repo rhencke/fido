@@ -85,11 +85,22 @@ Types (B) are independent of everything — ideal warm-up to validate the
 0. **Phase 0 — warm-up (B, partial): numeric type carriers.** Turn `GoInt`/`GoUintN`/
    `GoIntN` into `Definition … := int`.  No world needed.  Proves the golden-unchanged
    loop end-to-end on the easiest target.  (`GoFloat32` deferred → holdout #3.)
-1. **Phase 1 — IO core (A).** The big one: concrete `World` (record of the heaps + an
-   output log + closed-flags), `Outcome`, `IO A := World → Outcome A`, `ret`/`bind`/
-   `panic`/`catch`/`run_io` as functions; `run_ret`/`run_bind`/`run_panic`/`run_catch`
-   as `reflexivity`-ish theorems; `run_io_inj` restated as `≈` (no funext).  Re-green all
-   downstream proofs (Hoare logic, etc.).
+1. **Phase 1 — IO core (A).** The spine.  **Refined after scoping (2026-06-15):**
+   - `World` stays **abstract** here — concretising it forces channels/refs/maps
+     concrete in the same step (else `chan_buf_send` is inconsistent over an empty
+     world).  So define `IO A := World → Outcome A` over abstract `World`; retire
+     `IO`,`ret`,`bind`,`panic`,`catch`,`run_io` and prove `run_ret`/`run_bind`/
+     `run_panic`/`run_catch` by `reflexivity`.  `World` retires in Phases 2–4.
+   - `run_io_inj` is used **only inside `builtins.v`** (monad/map/ref laws); nothing
+     external needs it.  First cut: prove it via stdlib `functional_extensionality`
+     (an EXTERNAL axiom — our code stays axiom-free, `Print Assumptions` shows stdlib
+     funext, not ours).  Later refinement: restate those internal laws over `≈` to
+     drop funext entirely.
+   - **Extraction hurdle:** `ret`/`bind`/`panic`/`catch` are extracted by NAME; as
+     transparent defs Coq may inline them (and unfold `IO A` → `World → Outcome A`),
+     breaking the plugin's matchers and moving the golden.  Mitigate: `Extraction
+     NoInline ret bind panic catch run_io`; if `IO`-the-type still unfolds, make it a
+     one-field inductive wrapper so the name survives.  **Golden is the gate.**
 2. **Phase 2 — channels (H minus go_spawn).** World channel-heap; the `chan_*` + `run_*`
    laws become theorems by `upd` computation.  `go_spawn` = holdout #2.
 3. **Phase 3 — refs (K).** World ref-heap; `ref_*` laws → theorems.
