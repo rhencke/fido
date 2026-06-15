@@ -790,11 +790,17 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    `mp_trace_race_free`).  *Remaining:* tie `Owned` to a SYNTACTIC discipline a
    program can be checked against (channel-endpoint ownership transfer / session
    linearity ⇒ `Owned`), so it is established by typing rather than as a hypothesis.
-3. **Model completeness — exact FIFO, liveness, real memory.**  Strengthen `WfTrace`
-   from "a receive matches SOME earlier send" to the exact kth-recv ↔ kth-send FIFO
-   pairing the `step` semantics already enforces; deadlock-freedom / progress
-   (representable today, freedom unproven — needs a typing/session discipline);
-   and a real heap behind `KWrite`/`KRead` (currently abstract events).
+3. **Model completeness — exact FIFO (done), liveness, real memory.**  *Exact FIFO —
+   DONE:* `reachable_sorted` (concurrency.v, axiom-free) — every reachable channel
+   buffer is STRICTLY INCREASING in send position (`BufSorted`, via `step_preserves_
+   sorted`).  Since `step_recv` pulls the buffer FRONT (the minimum = oldest
+   unreceived send), receives consume sends oldest-first — the exact kth-recv ↔
+   kth-send pairing, established by the semantics + the invariant.  (An explicit
+   trace-level `from(j1) < from(j2)` theorem would additionally need a recv-event ↔
+   producing-step relationship — a nicety on top.)  *Still open:* deadlock-freedom /
+   progress (representable today, freedom unproven — needs a typing/session
+   discipline + a non-terminating model); and a real heap behind `KWrite`/`KRead`
+   (currently abstract events).
 
 (Supersedes / extends the open items under "Correctness debt" Tier 1 #1.)
 

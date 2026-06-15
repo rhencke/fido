@@ -476,3 +476,76 @@ Qed.
 
 Example mp_trace_race_free_via_owned : TraceRaceFree mp_trace :=
   owned_race_free mp_trace mp_trace_owned.
+
+(** ============================================================================
+    STEP 3a — exact FIFO ordering of channel buffers.
+
+    [WfTrace] only says a receive's back-pointer is SOME earlier send; the [step]
+    semantics actually enforces FIFO (a receive pulls the buffer FRONT — the oldest
+    unreceived send).  Here that is made a THEOREM: in every reachable config the
+    channel buffer is STRICTLY INCREASING in send position ([reachable_sorted]).
+    Since a receive pulls the front (the minimum), receives therefore consume sends
+    in send order — the exact kth-recv ↔ kth-send pairing, at the buffer level.
+    ============================================================================ *)
+
+(** Strictly increasing: each head is below everything after it. *)
+Fixpoint Incr (l : list nat) : Prop :=
+  match l with [] => True | x :: l' => (forall y, In y l' -> x < y) /\ Incr l' end.
+
+Lemma Incr_tail : forall x l, Incr (x :: l) -> Incr l.
+Proof. intros x l H. apply H. Qed.
+
+Lemma Incr_app : forall l y, Incr l -> (forall x, In x l -> x < y) -> Incr (l ++ [y]).
+Proof.
+  induction l as [|a l IH]; intros y Hi Hlt; cbn.
+  - split; [intros z H; destruct H | exact I].
+  - cbn in Hi. destruct Hi as [Ha Hl]. split.
+    + intros z Hz. apply in_app_or in Hz. destruct Hz as [Hz|Hz].
+      * apply Ha; exact Hz.
+      * destruct Hz as [<-|[]]. apply Hlt; left; reflexivity.
+    + apply IH; [exact Hl | intros x Hx; apply Hlt; right; exact Hx].
+Qed.
+
+Definition BufSorted (cfg : Config) : Prop := forall c, Incr (cfg_bufs cfg c).
+
+Lemma step_preserves_sorted : forall cfg cfg',
+  step cfg cfg' -> Inv cfg -> BufSorted cfg -> BufSorted cfg'.
+Proof.
+  intros cfg cfg' Hstep [Hwf Hbuf] Hsort.
+  destruct Hstep as
+    [ p b lv tr tid c rest Hlv Hp
+    | p b lv tr tid c rest s brest Hlv Hp Hbc
+    | p b lv tr tid l rest Hlv Hp
+    | p b lv tr tid l rest Hlv Hp
+    | p b lv tr tid child rest Hlv Hp ];
+    intros c0; cbn [cfg_bufs cfg_trace].
+  - (* send *) destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. apply Incr_app.
+      * exact (Hsort c).
+      * intros x Hx. destruct (Hbuf c x Hx) as [Hlt _]. exact Hlt.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - (* recv *) destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. specialize (Hsort c). cbn [cfg_bufs] in Hsort.
+      rewrite Hbc in Hsort. apply Incr_tail in Hsort. exact Hsort.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - exact (Hsort c0).
+  - exact (Hsort c0).
+  - exact (Hsort c0).
+Qed.
+
+Lemma init_sorted : forall p, BufSorted (init_cfg p).
+Proof. intros p c. cbn. exact I. Qed.
+
+Lemma steps_preserves_both : forall a b,
+  steps a b -> Inv a -> BufSorted a -> Inv b /\ BufSorted b.
+Proof.
+  intros a b H. induction H; intros Hinv Hsort; [split; assumption|].
+  apply IHsteps.
+  - exact (step_preserves_inv _ _ H Hinv).
+  - exact (step_preserves_sorted _ _ H Hinv Hsort).
+Qed.
+
+Theorem reachable_sorted : forall p cfg, steps (init_cfg p) cfg -> BufSorted cfg.
+Proof.
+  intros p cfg H. apply (steps_preserves_both _ _ H (init_inv p) (init_sorted p)).
+Qed.
