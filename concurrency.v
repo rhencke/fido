@@ -549,3 +549,42 @@ Theorem reachable_sorted : forall p cfg, steps (init_cfg p) cfg -> BufSorted cfg
 Proof.
   intros p cfg H. apply (steps_preserves_both _ _ H (init_inv p) (init_sorted p)).
 Qed.
+
+(** ============================================================================
+    Steps 1+2 combined — the safety capstone, and deadlock representability.
+    ============================================================================ *)
+
+(** A REACHABLE execution (any program, any reachable state) that respects the
+    ownership discipline has a strict-partial-order happens-before AND is race-free
+    — step 1 (reachable_wf) and step 2 (owned_race_free), composed. *)
+Corollary reachable_owned_safe : forall p cfg,
+  steps (init_cfg p) cfg -> Owned (cfg_trace cfg) ->
+  TraceRaceFree (cfg_trace cfg) /\ (forall i, ~ hbt (cfg_trace cfg) i i).
+Proof.
+  intros p cfg Hsteps HO. split.
+  - exact (owned_race_free _ HO).
+  - intro i. apply hbt_irrefl. exact (reachable_wf _ _ Hsteps).
+Qed.
+
+(** Unlike the (sequential, total) [run_io] model, this operational semantics
+    REPRESENTS deadlock: a config that cannot step yet has a live goroutine with
+    work left.  Proving deadlock-FREEDOM (progress) is the open liveness frontier;
+    showing deadlock is representable is its honest foundation. *)
+Definition can_step (cfg : Config) : Prop := exists cfg', step cfg cfg'.
+Definition done (cfg : Config) : Prop :=
+  forall tid, cfg_live cfg tid = true -> cfg_prog cfg tid = [].
+Definition Stuck (cfg : Config) : Prop := ~ can_step cfg /\ ~ done cfg.
+
+(** A single goroutine blocked forever on an empty channel with no sender. *)
+Definition block_cfg : Config :=
+  mkCfg (fun t => if Nat.eqb t 0 then [PRecv 0] else [])
+        (fun _ => []) (fun t => Nat.eqb t 0) [].
+
+Lemma block_stuck : Stuck block_cfg.
+Proof.
+  split.
+  - intros [cfg' Hstep]. inversion Hstep; subst; cbn in *;
+      match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+      cbn in *; discriminate.
+  - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
+Qed.

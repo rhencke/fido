@@ -802,6 +802,13 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    discipline + a non-terminating model); and a real heap behind `KWrite`/`KRead`
    (currently abstract events).
 
+**Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting
+the ownership discipline has a strict-partial-order happens-before AND is race-free.
+**Deadlock representability:** unlike the (total, sequential) `run_io`, the
+operational semantics REPRESENTS deadlock — `block_stuck`: a config that cannot step
+yet has a live goroutine with work left (`Stuck`).  Proving deadlock-FREEDOM is the
+open liveness frontier; this is its honest foundation.  All axiom-free.
+
 (Supersedes / extends the open items under "Correctness debt" Tier 1 #1.)
 
 ## Architecture
