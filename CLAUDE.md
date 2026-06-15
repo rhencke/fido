@@ -91,6 +91,26 @@ guarantee, and the panic-freedom proofs flag it. You should never be able to
 *accidentally* write a Rocq program that needs a nil deref or an out-of-bounds
 to work.
 
+**Principle: minimize and track the trust base (axiom discipline).** A theorem is
+only as strong as its weakest assumption.  An **axiom** is a fact Rocq *believes
+without proof* — and one inconsistent axiom is catastrophic: from a contradiction
+you can prove *anything*, so every theorem silently becomes vacuous while still
+compiling.  This is not hypothetical here — a plausible totality axiom on `run_io`
+once entailed `World -> False`, making `println [1] = println [2]` a "theorem" and
+every Hoare triple vacuously true; nothing *looked* broken (Known gaps #9).  So:
+(1) **prefer proving to assuming** — the strongest results are **axiom-free**
+("`Print Assumptions` = *Closed under the global context*"), resting only on the
+kernel; the doc is full of "this was an axiom, now it's a derived theorem", and
+each such move shrinks what we trust.  (2) Axioms are not evil — they are how we
+*model reality* (channels, IO, the heap can't be proved from pure logic); but each
+is a load-bearing **promise** that our model matches Go, hence a place the proof
+can be right about the model yet the model wrong about Go.  Keep them **few**, and
+prefer ones validated by an exhibited model (separation/heap laws) over free-
+standing assertions.  (3) **Always know the base**: run `Print Assumptions` after a
+significant result and state its trust base honestly — never overclaim a guarantee
+whose axioms aren't named.  The open `joint consistency of the ~70 axioms is
+unproven` (Tier 1 #2) is exactly this debt, tracked.
+
 ## Wish list
 
 Further-out proofs that **closed-world reasoning** unlocks once the primitive
