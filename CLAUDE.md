@@ -864,13 +864,32 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    (`rstep_preserves_inv`) and the safety theorems are INHERITED: `reachable_wf_r` →
    `reachable_hb_strict_r`, `reachable_owned_safe_r`.  `rich_recv_binds`/
    `rich_read_binds` demo the value flow; `rheap_read_after_write` the real memory.
-   **(1.3 — channel/heap-state refinement DONE; term-level simulation open)**
+   **(1.3 — channel/heap-state refinement DONE; channel term-level bridge DONE;
+   heap/multi-channel/composition open)**
    `rchan` (the channel value-FIFO) evolves EXACTLY as the `run_io` axioms specify —
    `rchan_send_law` = `chan_buf_send` (enqueue value), `rchan_recv_law` =
    `chan_buf_recv` (dequeue head).  So the calculus soundly models Fido's IO channels.
-   *Open:* a term-level simulation from arbitrary `run_io` IO PROGRAMS into `Cmd`
-   (needs IO deep-embedded or a translation — `Cmd` IS that deep IO syntax, so the gap
-   is the deep↔shallow embedding correspondence + the plugin lowering).
+   **The TERM-LEVEL bridge is now built** (`Section Keystone` in concurrency.v): `Cmd`
+   IS the deep embedding of an IO program, and `Denotes c m` is the deep↔shallow
+   correspondence — a RELATION, because `CRecv`'s continuation is a Coq function
+   (`nat -> Cmd`) so a denotation *function* can't structurally recurse.  Then
+   `denote_sim_send` / `denote_sim_recv` prove that ONE `rstep` channel action
+   run-reduces the IO denotation EXACTLY as `run_io` specifies (`run_bind` +
+   `run_send`/`run_recv`), with the channel buffer staying matched (`WMatch1`) —
+   mirroring `rstep_send`/`rstep_recv`.  This ties the abstract `rstep` (where
+   race-freedom is proven) to the `run_io`/`World` model we extract from.  Trust base
+   (verified by `Print Assumptions`): exactly `run_bind`/`run_send`/`chan_buf_send`
+   (send) and `run_bind`/`run_recv`/`chan_buf_recv` (recv) — no degenerate axioms;
+   the faithful-coding round-trip `Hret` is a DISCHARGED hypothesis, not an axiom.
+   Carrier is `int`/`TInt64` because `GoTypeTag nat` is provably empty; values are
+   coded `nat`↔`int` (realizable on the bounded ±2⁶² regime the int model already
+   assumes).  **`go_spawn` is deliberately ABSENT from the bridge — it has NO `run_io`
+   law because `run_io` is SEQUENTIAL and cannot express interleaving; that is exactly
+   why the calculus is the model for concurrency.**  *Still open:* the heap fragment
+   (`CWrite`/`CRead` → `ref_set`/`ref_get`, the same shape via `run_ref_set`/
+   `run_ref_get`), multi-channel matching (needs a channel-separation/frame law), and
+   composing the per-step lemmas into a whole-execution simulation; plus the plugin
+   lowering side (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
    ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two

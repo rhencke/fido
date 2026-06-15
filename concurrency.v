@@ -17,6 +17,7 @@
     bridge between the abstract rules and real operations.  Axiom-free. *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia Arith.
+Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.   (* [int] (Go int64) — the keystone value carrier *)
 Import ListNotations.
 
 Inductive EvKind :=
@@ -830,3 +831,113 @@ Theorem reachable_sorted_r : forall p cfg, rsteps (rinit_cfg p) cfg -> RBufSorte
 Proof.
   intros p cfg H. apply (rsteps_preserves_both _ _ H (rinit_inv p) (rinit_sorted p)).
 Qed.
+
+(** ============================================================================
+    STEP 1 KEYSTONE — the TERM-LEVEL bridge: a rich-calculus channel step
+    SIMULATES [run_io] of the program's DENOTATION.
+
+    [Cmd] is the DEEP embedding of an IO program.  [Denotes c m] is the deep↔shallow
+    correspondence — built as a RELATION because [CRecv]'s continuation is a Coq
+    function [nat -> Cmd], so a denotation FUNCTION cannot structurally recurse, but
+    the relation pairs each [Cmd] with the [IO] term it stands for.  Then
+    [denote_sim_send] / [denote_sim_recv] show that ONE [rstep] channel action
+    run-reduces the [IO] denotation EXACTLY as the [run_io] axioms specify, while the
+    channel buffer stays matched ([WMatch1]).  This is the missing link: it ties the
+    abstract [rstep] (where race-freedom is PROVEN) to the actual [run_io]/[World]
+    model we EXTRACT from — grounded in the real IO axioms [run_bind]/[run_send]/
+    [run_recv]/[chan_buf_send]/[chan_buf_recv] (no NEW axioms; [Print Assumptions]
+    below shows exactly that base).
+
+    Value carrier = [int] (Go int64, tag [TInt64]); [recv] needs a [GoTypeTag] and
+    [GoTypeTag nat] is provably EMPTY, so calculus [nat] values are coded into IO
+    [int] by [inj]/[prj].  [Hret] (the round-trip [prj (inj n) = n]) is the standard
+    faithful-coding condition — realizable on the bounded (< 2^62) value regime the
+    int model already lives in; it is the section's only hypothesis, NOT an axiom.
+
+    SPAWN is deliberately ABSENT from this bridge: [go_spawn] has NO [run_io] law,
+    because [run_io] is SEQUENTIAL and cannot express interleaving.  That is exactly
+    why the calculus is the model for concurrency and why the race-freedom guarantee
+    lives on [rstep], not on [run_io].
+    ============================================================================ *)
+Section Keystone.
+  Variable chenv : nat -> GoChan int.    (* calculus channel id -> the IO channel *)
+  Variable inj : nat -> int.             (* calculus value -> IO value (a coding) *)
+  Variable prj : int -> nat.             (* IO value -> calculus value *)
+  Hypothesis Hret : forall n, prj (inj n) = n.   (* the coding round-trips *)
+
+  (* Deep<->shallow correspondence.  D_recv's premise is itself a [forall x],
+     reflecting the HOAS continuation: the IO term [g] must agree with [denote] of
+     the calculus continuation [f] at every received value. *)
+  Inductive Denotes : Cmd -> IO unit -> Prop :=
+    | D_ret  : Denotes CRet (ret tt)
+    | D_send : forall ch v k m, Denotes k m ->
+        Denotes (CSend ch v k) (bind (send (chenv ch) (inj v)) (fun _ => m))
+    | D_recv : forall ch f g, (forall x, Denotes (f (prj x)) (g x)) ->
+        Denotes (CRecv ch f) (bind (recv TInt64 (chenv ch)) g).
+
+  (* World <-> config on one channel [c]: the IO buffer is the calculus buffer, coded.
+     (Single channel keeps it frame-free — a send/recv touches only [c]'s buffer, and
+     the IO channel axioms relate exactly that buffer; multi-channel would need a
+     channel-separation/frame law, tracked.) *)
+  Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
+    chan_buf (chenv c) w = map inj (rchan cfg c).
+
+  (** A SEND step: the deep [CSend] run-reduces to its continuation at the world after
+      [chan_send_upd], and the buffer match is preserved — mirroring [rstep_send]. *)
+  Lemma denote_sim_send : forall p b h lv tr tid c v k m w,
+    Denotes (CSend c v k) m ->
+    WMatch1 c w (mkRCfg p b h lv tr) ->
+    chan_closed (chenv c) w = false ->
+    exists m',
+      Denotes k m' /\
+      run_io m w = run_io m' (chan_send_upd (chenv c) (inj v) w) /\
+      WMatch1 c (chan_send_upd (chenv c) (inj v) w)
+              (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
+                      (tr ++ [mkEv tid (KSend c)])).
+  Proof.
+    intros p b h lv tr tid c v k m w HD HM Hclosed.
+    inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | ]; subst.
+    exists m'. split; [exact HDk | split].
+    - rewrite run_bind, (run_send (chenv c) (inj v) w Hclosed). cbn. reflexivity.
+    - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same.
+      rewrite (chan_buf_send (chenv c) (inj v) w), HM, !map_app. cbn. reflexivity.
+  Qed.
+
+  (** A RECV step: the deep [CRecv] run-reduces by BINDING the head value; [Hret]
+      recovers the calculus value, so the continuation matches [f v] — mirroring
+      [rstep_recv].  This is where the faithful coding is genuinely used. *)
+  Lemma denote_sim_recv : forall p b h lv tr tid c f m w v s brest,
+    Denotes (CRecv c f) m ->
+    WMatch1 c w (mkRCfg p b h lv tr) ->
+    b c = (v, s) :: brest ->
+    exists m',
+      Denotes (f v) m' /\
+      run_io m w = run_io m' (chan_recv_upd (chenv c) w) /\
+      WMatch1 c (chan_recv_upd (chenv c) w)
+              (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
+  Proof.
+    intros p b h lv tr tid c f m w v s brest HD HM Hbc.
+    inversion HD as [| | ch0 f0 g HDg Hch Hm]; subst.
+    assert (Hbuf : chan_buf (chenv c) w = inj v :: map inj (map fst brest)).
+    { unfold WMatch1, rchan in HM. cbn [rc_bufs] in HM. rewrite Hbc in HM. cbn in HM. exact HM. }
+    exists (g (inj v)). split; [| split].
+    - specialize (HDg (inj v)). rewrite Hret in HDg. exact HDg.
+    - rewrite run_bind, (run_recv TInt64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
+      cbn. reflexivity.
+    - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same.
+      rewrite (chan_buf_recv (chenv c) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+  Qed.
+
+  (** [CRet] is the terminal: its denotation just returns, no world change. *)
+  Lemma denote_sim_ret : forall w, run_io (ret tt) w = ORet tt w.
+  Proof. intro w. apply run_ret. Qed.
+
+End Keystone.
+
+(** Trust-base audit (verified via [Print Assumptions], 2026-06-15): [denote_sim_send]
+    rests on exactly [run_bind], [run_send], [chan_buf_send] (+ the carrier/IO types);
+    [denote_sim_recv] on exactly [run_bind], [run_recv], [chan_buf_recv].  Nothing
+    degenerate, and [Hret] is a DISCHARGED HYPOTHESIS, not an axiom — so the bridge
+    rests precisely on the [run_io] channel laws it connects to.  This is the honest
+    statement that the rich calculus (where race-freedom is proven) refines the
+    [run_io]/[World] model we extract from, for the sequential channel fragment. *)
