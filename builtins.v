@@ -575,8 +575,11 @@ Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2
 
 (** ---- Builtins ---- *)
 
-Axiom print   : list GoAny -> IO unit.
-Axiom println : list GoAny -> IO unit.
+(** [print]/[println] write to stdout — a real effect, but the proof-only world
+    models no output log, so semantically they are world-passthroughs (no law reasons
+    about output; the real output happens in the extracted Go).  Lowered by NAME. *)
+Definition print   (_ : list GoAny) : IO unit := fun w => ORet tt w.
+Definition println (_ : list GoAny) : IO unit := fun w => ORet tt w.
 
 (** [panic], [bind_panic_l], [hoare_panic] are defined up top with the panic-
     aware semantics; [bind_panic_l] and [hoare_panic] are now proved lemmas. *)
@@ -621,7 +624,9 @@ Qed.
     block-scoped [with_defer]: deferred calls in a loop accumulate and all run
     at function return.  Lowers to [defer func(){ f }()] (Go provides the
     function-scoping, LIFO ordering, and run-at-return). *)
-Axiom defer_call : IO unit -> IO unit.
+(** Proof-only: the deferred effect (run at function return) is idealised away in the
+    sequential world — no law reasons about it; the real [defer] is in the emitted Go. *)
+Definition defer_call (_ : IO unit) : IO unit := fun w => ORet tt w.
 
 (** Forward declarations so GoTypeTag can reference composite Go types in its
     TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
@@ -1383,9 +1388,9 @@ Proof.
   - right. exact fork_write_before_read.
 Qed.
 
-Axiom len    : forall {A : Type}, GoSlice A -> GoInt.
+Axiom len    : forall {A : Type}, GoSlice A -> GoInt.   (* returns GoInt (opaque carrier) *)
 Axiom cap    : forall {A : Type}, GoSlice A -> GoInt.
-Axiom append : forall {A : Type}, GoSlice A -> GoSlice A -> GoSlice A.
+Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice A = list A *)
 
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
     two values, by the SIGNED ordering (Go's int [<]), so [go_min] = Go [min(a,b)]
@@ -1399,7 +1404,7 @@ Definition go_max (a b : int) : int := if Sint63.ltb a b then b else a.
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)
-Axiom slice_of_list : forall {A : Type}, GoTypeTag A -> list A -> GoSlice A.
+Definition slice_of_list {A} (_ : GoTypeTag A) (xs : list A) : GoSlice A := xs.
 
 (** [make([]T, n)] — a fresh slice of [n] zero values (Go's [make] for slices).
     Modelled as [repeat (zero_val tag) n] (so [len] is [n], every element the zero
