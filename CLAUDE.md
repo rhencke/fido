@@ -548,9 +548,10 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    longer one-sender/one-receiver); race freedom generic (`trace_ordered_no_race`) +
    concrete (`mp_trace_race_free`).  **Phase 6 (same file) — well-formed traces are
    GENERATED, not assumed:** a concurrent small-step operational semantics (`step`: a
-   fixed goroutine pool over FIFO channels; each step appends an event, a send records
-   its trace position in the channel buffer, a receive pulls the front as its
-   back-pointer), with invariant `BufOk` preserved by every step
+   DYNAMIC goroutine pool over FIFO channels — spawn via `PSpawn`/`cfg_live`, only
+   spawned goroutines run; each step appends an event, a send records its trace
+   position in the channel buffer, a receive pulls the front as its back-pointer),
+   with invariant `BufOk` preserved by every step
    (`step_preserves_inv`).  So `reachable_wf`: EVERY reachable trace is well-formed —
    `WfTrace` is now a THEOREM about execution; and `reachable_hb_strict`: the
    happens-before of ANY real execution is a strict partial order, EARNED by running.
@@ -766,10 +767,14 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    program.  CORE DIFFICULTY: `run_io` is SEQUENTIAL (no interleaving) and `IO` is
    axiomatic/opaque, so we can't compile it structurally — the keystone needs a
    *concurrent* operational semantics for the IO ops, connected both ways.  Sub-steps:
-   (1.1) add goroutine SPAWN to `step` (dynamic pool + fork edge), re-establish
-   `reachable_wf`; (1.2) generalise per-goroutine programs from straight-line
-   `list PAct` to an IO-shaped command tree (Ret/Bind/Send/Recv/Spawn/Write/Read);
-   (1.3) prove the calculus's channel-buffer steps IMPLEMENT the `run_io` channel
+   **(1.1 — DONE)** goroutine SPAWN added to `step` (`PSpawn`/`step_spawn`, DYNAMIC pool
+   via `cfg_live` — only spawned goroutines run, initially just `main`);
+   `reachable_wf`/`reachable_hb_strict` re-established, axiom-free.  *Fork EDGE
+   (`KStart` back-pointer) deferred* — a two-event step, already proven abstractly by
+   `fork_hb`; until then cross-goroutine ordering flows through channels.
+   **(1.2)** generalise per-goroutine programs from straight-line `list PAct` to an
+   IO-shaped command tree (Ret/Bind/Send/Recv/Spawn/Write/Read).
+   **(1.3)** prove the calculus's channel-buffer steps IMPLEMENT the `run_io` channel
    axioms (`run_send`/`run_recv`/…), transferring `reachable_hb_strict`/race-soundness
    to actual programs.
 2. **General race-freedom under the ownership / session discipline.**  Today race

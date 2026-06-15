@@ -188,11 +188,15 @@ Qed.
     of that channel) is preserved by every step, so EVERY reachable trace is
     well-formed — turning [WfTrace] from a hypothesis into a THEOREM about execution
     ([reachable_wf]).  Composed with [hbt_irrefl] ([reachable_hb_strict]): the
-    happens-before of ANY real execution is a strict partial order.  (Goroutine
-    spawning / [KStart] is handled abstractly by [fork_hb] in builtins.v; here the
-    pool is fixed and the focus is channel synchronisation — the FIFO ordering.)
+    happens-before of ANY real execution is a strict partial order.  Goroutine SPAWN
+    is modelled — [PSpawn]/[step_spawn] grow a DYNAMIC pool tracked by [cfg_live]
+    (only spawned goroutines run; initially just [main]).  (The fork EDGE / [KStart]
+    is a deliberate follow-up — already proven abstractly by [fork_hb] in builtins.v
+    — so cross-goroutine ordering here still flows through channel synchronisation.)
     ============================================================================ *)
-Inductive PAct := PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat).
+Inductive PAct :=
+  | PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat)
+  | PSpawn (child:nat).   (* spawn goroutine [child] (its body pre-registered in cfg_prog) *)
 
 Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
   fun x => if Nat.eqb x k then v else f x.
@@ -210,29 +214,36 @@ Global Opaque upd.
 Record Config := mkCfg {
   cfg_prog  : nat -> list PAct;   (* goroutine id -> remaining actions *)
   cfg_bufs  : nat -> list nat;    (* channel -> FIFO of sender trace-positions *)
+  cfg_live  : nat -> bool;        (* which goroutines have been spawned (are runnable) *)
   cfg_trace : Trace               (* events emitted so far, in order *)
 }.
 
-(** One interleaving step: some goroutine runs its head action, appending an event. *)
+(** One interleaving step: some LIVE goroutine runs its head action, appending an
+    event.  A spawn marks the child live ([upd lv child true]). *)
 Inductive step : Config -> Config -> Prop :=
-  | step_send : forall p b tr tid c rest,
-      p tid = PSend c :: rest ->
-      step (mkCfg p b tr)
-           (mkCfg (upd p tid rest) (upd b c (b c ++ [length tr]))
+  | step_send : forall p b lv tr tid c rest,
+      lv tid = true -> p tid = PSend c :: rest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) (upd b c (b c ++ [length tr])) lv
                   (tr ++ [mkEv tid (KSend c)]))
-  | step_recv : forall p b tr tid c rest s brest,
-      p tid = PRecv c :: rest -> b c = s :: brest ->
-      step (mkCfg p b tr)
-           (mkCfg (upd p tid rest) (upd b c brest)
+  | step_recv : forall p b lv tr tid c rest s brest,
+      lv tid = true -> p tid = PRecv c :: rest -> b c = s :: brest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) (upd b c brest) lv
                   (tr ++ [mkEv tid (KRecv c s)]))
-  | step_write : forall p b tr tid l rest,
-      p tid = PWrite l :: rest ->
-      step (mkCfg p b tr)
-           (mkCfg (upd p tid rest) b (tr ++ [mkEv tid (KWrite l)]))
-  | step_read : forall p b tr tid l rest,
-      p tid = PRead l :: rest ->
-      step (mkCfg p b tr)
-           (mkCfg (upd p tid rest) b (tr ++ [mkEv tid (KRead l)])).
+  | step_write : forall p b lv tr tid l rest,
+      lv tid = true -> p tid = PWrite l :: rest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b lv (tr ++ [mkEv tid (KWrite l)]))
+  | step_read : forall p b lv tr tid l rest,
+      lv tid = true -> p tid = PRead l :: rest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b lv (tr ++ [mkEv tid (KRead l)]))
+  | step_spawn : forall p b lv tr tid child rest,
+      lv tid = true -> p tid = PSpawn child :: rest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b (upd lv child true)
+                  (tr ++ [mkEv tid (KSpawn child)])).
 
 Definition BufOk (cfg : Config) : Prop :=
   forall c s, In s (cfg_bufs cfg c) ->
@@ -294,7 +305,14 @@ Qed.
 
 Lemma step_preserves_inv : forall cfg cfg', step cfg cfg' -> Inv cfg -> Inv cfg'.
 Proof.
-  intros cfg cfg' Hstep [Hwf Hbuf]. destruct Hstep; split.
+  intros cfg cfg' Hstep [Hwf Hbuf].
+  destruct Hstep as
+    [ p b lv tr tid c rest Hlv Hp
+    | p b lv tr tid c rest s brest Hlv Hp Hbc
+    | p b lv tr tid l rest Hlv Hp
+    | p b lv tr tid l rest Hlv Hp
+    | p b lv tr tid child rest Hlv Hp ];
+    split.
   (* ---- send ---- *)
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
   - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
@@ -309,13 +327,13 @@ Proof.
       destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
   (* ---- recv ---- *)
   - apply WfTrace_app; [exact Hwf | cbn].
-    assert (Hins : In s (b c)) by (rewrite H0; left; reflexivity).
+    assert (Hins : In s (b c)) by (rewrite Hbc; left; reflexivity).
     destruct (Hbuf c s Hins) as [Hlt [e' [He' Hk']]].
     split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
   - intros c0 s0 Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
     destruct (Nat.eq_dec c0 c) as [Heq|Hne].
     + subst c0. rewrite upd_same in Hin.
-      assert (Hin' : In s0 (b c)) by (rewrite H0; right; exact Hin).
+      assert (Hin' : In s0 (b c)) by (rewrite Hbc; right; exact Hin).
       destruct (Hbuf c s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
     + rewrite (upd_other _ _ _ _ Hne) in Hin.
       destruct (Hbuf c0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
@@ -327,13 +345,19 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
   - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
     destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- spawn (bufs unchanged; KSpawn has no well-formedness obligation) ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
+    destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
 Qed.
 
 Inductive steps : Config -> Config -> Prop :=
   | steps_refl : forall cfg, steps cfg cfg
   | steps_step : forall a b c, step a b -> steps b c -> steps a c.
 
-Definition init_cfg (p : nat -> list PAct) : Config := mkCfg p (fun _ => []) [].
+(* Initially only [main] (goroutine 0) is live; others start dormant until spawned. *)
+Definition init_cfg (p : nat -> list PAct) : Config :=
+  mkCfg p (fun _ => []) (fun t => Nat.eqb t 0) [].
 
 Lemma init_inv : forall p, Inv (init_cfg p).
 Proof.
