@@ -208,6 +208,34 @@ separate tracks.
    ready case runs, pseudo-random fairness, blocking when none ready) is idealised
    away like `recv`'s blocking (Tier 5 #14, needs the scheduler/non-terminating
    model); and send-cases / N-ary (>2) cases are the same lowering with more arms.
+9. **Structs / methods / interfaces** — the gateway to the closed-world wishlist
+   (typestate, representation invariants, behavioral satisfaction, and the
+   prerequisite for typing libraries). Built in three stages.
+
+   **a. Structs (value-structs from Rocq Records)** — *done*. A Rocq `Record` is a
+   single-constructor inductive with projections and value/copy semantics — exactly
+   a Go value-`struct`. The plugin gathers each record's projections + constructor
+   in a `collect_records` pre-pass (so uses anywhere lower correctly), then: the
+   type → `type T struct { Field Type … }` (`Dind`'s `Record` arm, fields via the
+   general `pp_type`, so not hardcoded — `int`→`int64`, `bool`→`bool`); the
+   constructor → a struct literal `T{…}` (`MLcons` when `is_record_ctor`); each
+   projection → field access `x.Field` (`MLglob` app when `is_record_proj`); the
+   projection *definitions* are suppressed. The numint-wrapper records (`GoU8`…)
+   are excluded by an `is_numint_typename` guard so they keep their int64-erasure.
+   Struct invariants are provable in Rocq directly (`point_proj_px`:
+   `px (MkPoint a b) = a` by `reflexivity`). Demos: `point_demo`
+   (`Point{3,4}` → `3/4/7`), `labeled_demo` (mixed `Flag bool`/`Qty int64` →
+   `true/5`); golden-locked. *Not yet:* embedded fields/promotion, struct tags,
+   field-wise `==`.
+
+   **b. Methods (value receiver)** — *pending*. A Rocq function over a struct →
+   a Go method `func (r T) M(…) { … }`; a call → `r.M(args)`. The dictionary
+   groundwork for (c).
+
+   **c. Interfaces (dictionary model)** — *pending*. Interface satisfaction checked
+   in Rocq (a method dictionary — [[go-interfaces-as-dictionaries]]); dynamic
+   dispatch lowers to a Go native interface. Unlocks typestate / "an FSM can't
+   compile to a broken transition" and behavioral-satisfaction proofs.
 
 ## Known gaps
 

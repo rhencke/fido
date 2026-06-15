@@ -127,6 +127,22 @@ so an array today would be a slice with different syntax, not a faithful array.
 Revisit once aliasing is modeled — then arrays get value semantics + comparability
 (`==`, which slices lack) as the genuine distinction.
 
+### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags/methods-here
+Spec: a `struct` is a sequence of named fields with types; **value** semantics
+(assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
+constructor inductive with projections, value/copy semantics — so it maps directly:
+the type → `type T struct { … }`, the constructor → a struct literal `T{…}` (fields
+in declaration order), each projection → field access `x.Field`.  Field types are
+printed by the general `pp_type`, so they are not hardcoded — `point_demo`'s `int`
+fields lower to `int64`, `labeled_demo` mixes a `bool` and an `int` field
+(`Flag bool` / `Qty int64`).  The projection *definitions* are suppressed (field
+access replaces them).  Struct INVARIANTS are provable in Rocq directly:
+`point_proj_px` machine-checks `px (MkPoint a b) = a`.  Witnesses: `point_demo`
+(`Point{3,4}` → `3 / 4 / 7`), `labeled_demo` (`Labeled{true,5}` → `true / 5`).
+✗ not yet: embedded (anonymous) fields + field promotion, struct tags, and methods
+*declared on* the struct (the next stage — value-receiver methods).  Comparability
+(`==` field-wise) awaits the same operator work as other composite equality.
+
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
 Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world
 (get-after-write are *theorems*); channels via state in the world (below).  ✓ for

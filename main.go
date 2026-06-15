@@ -644,6 +644,29 @@ func Sum_demo() {
 	println(total)
 }
 
+type Point struct {
+	Px int64
+	Py int64
+}
+
+func Point_demo() {
+	p := Point{3, 4}
+	println(p.Px)
+	println(p.Py)
+	println(Add(p.Px, p.Py))
+}
+
+type Labeled struct {
+	Flag bool
+	Qty  int64
+}
+
+func Labeled_demo() {
+	r := Labeled{true, 5}
+	println(r.Flag)
+	println(r.Qty)
+}
+
 func main() {
 	println(Add(1, 2))
 	Panic_and_recover(Add(40, 2))
@@ -699,4 +722,6 @@ func main() {
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()
+	Point_demo()
+	Labeled_demo()
 }

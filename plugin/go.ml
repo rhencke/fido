@@ -96,6 +96,27 @@ let global_basename r =
   try Id.to_string (Nametab.basename_of_global r.glob)
   with Not_found -> ""
 
+(* ---- Record (Go struct) support ----
+   A Rocq Record is a Go value-struct (both have value/copy semantics, so no
+   aliasing model is needed).  A record's [ind_kind] carries its projection refs;
+   [collect_records] gathers them up front.  At use sites a projection becomes
+   [x.Field] and the constructor a struct literal [T{...}]; the projection
+   DEFINITIONS are suppressed (field access replaces them). *)
+let record_proj_field : (string, string) Hashtbl.t = Hashtbl.create 16  (* proj path -> field name *)
+let record_ctor_names : (string, unit) Hashtbl.t = Hashtbl.create 16    (* constructor basename -> () *)
+
+let globref_basename g =
+  try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
+
+let is_record_proj r = Hashtbl.mem record_proj_field (global_path r)
+let proj_field_name r = go_export (Hashtbl.find record_proj_field (global_path r))
+let is_record_ctor r = Hashtbl.mem record_ctor_names (global_basename r)
+let record_ctor_tyname r =
+  match r.glob with
+  | Names.GlobRef.ConstructRef (ind, _) ->
+      go_export (globref_basename (Names.GlobRef.IndRef ind))
+  | _ -> ""
+
 (* A Fido builtin/combinator is matched by its (unqualified) basename — safe
    because those names are reserved by builtins.v and user theories should not
    shadow them.  Stdlib refs are package-qualified and use [ref_has_suffix]. *)
@@ -337,6 +358,8 @@ let is_ui_digits s =
 let str_prefix pre s = String.length s >= String.length pre && String.sub s 0 (String.length pre) = pre
 let str_suffix suf s = let ls = String.length s and lf = String.length suf in
   ls >= lf && String.sub s (ls - lf) lf = suf
+let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric wrappers *)
+  str_prefix "Go" s && String.length s > 2 && is_ui_digits (String.sub s 2 (String.length s - 2))
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
@@ -900,6 +923,10 @@ let rec pp_expr state env = function
        | MLglob r, [g] when is_numint_proj r ->
            pp_expr state env g
 
+       (* record projection [field x] → Go field access [x.Field] *)
+       | MLglob r, [x] when is_record_proj r ->
+           pp_atom state env x ++ str "." ++ str (proj_field_name r)
+
        (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
           mask the result to the width so the int64 carrier wraps like Go's uintN,
           and (signed) sign-extend.  [fw_wrap] builds the masked/sign-extended form
@@ -998,6 +1025,11 @@ let rec pp_expr state env = function
       str "\t" ++ pp_mlident id ++ str " := " ++ pp_expr state env e1 ++ fnl () ++
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
       str "})()"
+
+  (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}] *)
+  | MLcons (_, r, args) when is_record_ctor r ->
+      str (record_ctor_tyname r) ++ str "{" ++
+      prlist_with_sep (fun () -> str ", ") (pp_expr state env) args ++ str "}"
 
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
       (* Coq [string] literal → Go string literal (byte-faithful). *)
@@ -2249,6 +2281,10 @@ let pp_decl state decl =
   | Dterm (r, _, _) when is_inlined_ref r ->
       mt ()
 
+  (* Record projections are emitted as field access at use sites, not as functions. *)
+  | Dterm (r, _, _) when is_record_proj r ->
+      mt ()
+
   (* Suppress top-level definitions whose result type is Proto — protocol
      descriptors are proof-only witnesses with no runtime representation. *)
   | Dterm (_, _, Tglob (rt, _)) when is_proto_type rt ->
@@ -2285,9 +2321,23 @@ let pp_decl state decl =
           (fun i _ -> pp_function state (global_basename refs.(i)) bodies.(i) types.(i))
           refs
 
-  | Dind _ ->
-      (* nat and bool are treated as builtins; other inductives are TODO *)
-      mt ()
+  | Dind mi ->
+      (* A record (single-constructor inductive with projections) → a Go struct;
+         other inductives are still suppressed (nat/bool are builtins). *)
+      (match mi.ind_kind with
+       | Record projs when Array.length mi.ind_packets > 0
+           && not (is_numint_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
+           let pkt = mi.ind_packets.(0) in
+           let ftypes = (try pkt.ip_types.(0) with _ -> []) in
+           let field proj t =
+             let fname = match proj with
+               | Some g -> go_export (global_basename g) | None -> "F" in
+             str "\t" ++ str fname ++ str " " ++ pp_type state t ++ fnl () in
+           str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++
+           str " struct {" ++ fnl () ++
+           prlist (fun x -> x) (List.map2 field projs ftypes) ++
+           str "}" ++ fnl () ++ fnl ()
+       | _ -> mt ())
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
     || is_IO_type r || is_go_map_type r || is_go_chan_type r
@@ -2303,7 +2353,28 @@ let pp_decl state decl =
 
 (*s Structure printer. *)
 
+(* Gather every record's projections (→ field names) and constructor up front, so
+   uses anywhere in the module lower to [x.Field] / [T{…}]. *)
+let collect_records struc =
+  let do_decl = function
+    | Dind mi ->
+        (match mi.ind_kind with
+         | Record projs when Array.length mi.ind_packets > 0
+             && not (is_numint_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
+             List.iter (function
+               | Some g -> Hashtbl.replace record_proj_field (global_path g) (global_basename g)
+               | None -> ()) projs;
+             let pkt = mi.ind_packets.(0) in
+             if Array.length pkt.ip_consnames > 0 then
+               Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ()
+         | _ -> ())
+    | _ -> ()
+  in
+  List.iter (fun (_, sel) ->
+    List.iter (function (_, SEdecl d) -> do_decl d | _ -> ()) sel) struc
+
 let pp_struct state struc =
+  collect_records struc;
   let pp_mod (mp, sel) =
     State.with_visibility state mp [] (fun state ->
       prlist

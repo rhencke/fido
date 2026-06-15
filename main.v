@@ -947,6 +947,39 @@ Definition sum_demo : IO unit :=
   let total := slice_fold xs (0 : int) (fun acc x => add acc x) in
   println [any total].   (* 1+2+3+4 = 10 *)
 
+(** ── Structs (Go value-structs from Rocq Records) ───────────────────────────
+    A Rocq [Record] is a Go value-struct: both have copy/value semantics, so no
+    aliasing model is needed.  The type → a Go [struct], the single constructor →
+    a struct literal [T{…}], each projection → field access [x.Field].  [Point]'s
+    fields are plain [int], so they lower to [int64].  This is the Stage-A gateway
+    to methods, interfaces, typestate, and representation invariants (the
+    closed-world wishlist).
+
+    Because a record is an ordinary Rocq type, struct INVARIANTS are already
+    provable by hand here: [px] of a [MkPoint a b] is definitionally [a]. *)
+Record Point := MkPoint { px : int ; py : int }.
+
+Example point_proj_px : forall a b, px (MkPoint a b) = a.
+Proof. reflexivity. Qed.
+Example point_proj_py : forall a b, py (MkPoint a b) = b.
+Proof. reflexivity. Qed.
+
+Definition point_demo : IO unit :=
+  let p := MkPoint 3 4 in
+  bind (println [any (px p)])           (fun _ =>   (* 3 *)
+  bind (println [any (py p)])           (fun _ =>   (* 4 *)
+  println [any (add (px p) (py p))])).  (* 7 *)
+
+(** Heterogeneous fields prove the struct field-type printer is general, not
+    hardcoded to [int64]: [flag : bool] lowers to a Go [bool] field, [qty : int]
+    to [int64].  (Mixing field types in one struct is the common case.) *)
+Record Labeled := MkLabeled { flag : bool ; qty : int }.
+
+Definition labeled_demo : IO unit :=
+  let r := MkLabeled true 5 in
+  bind (println [any (flag r)])   (fun _ =>   (* true *)
+  println [any (qty r)]).                     (* 5 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -1007,6 +1040,8 @@ Definition main_effect : IO unit :=
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
+  point_demo                    >>'   (* prints: 3 / 4 / 7 *)
+  labeled_demo                  >>'   (* prints: true / 5 *)
   ret tt.
 
 Go Main Extraction main "main_effect".
