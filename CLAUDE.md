@@ -748,6 +748,46 @@ resting state.)**
     higher layer (sessions), some are raw escape hatches — the enforcement story
     should be uniform and each unsafe raw form clearly labelled.
 
+## Concurrency research plan — the road to real race-freedom
+
+Where the concurrency proofs stand (`builtins.v` Phases 1–4, `concurrency.v` Phases
+5–6) and the three steps that turn "an abstract calculus has sound happens-before"
+into "**Fido's extracted programs are race-free**".  Done so far, all axiom-free: the
+4 go-mem channel rules + the fork edge as a strict partial order that does not
+over-order; happens-before for ARBITRARY execution traces (`hbt_irrefl` — the trace
+position is a linear extension); and a concurrent operational semantics whose every
+reachable trace is provably well-formed (`reachable_wf` → `reachable_hb_strict`).
+The honest gaps, IN ORDER, each taken one at a time with careful up-front planning:
+
+1. **Keystone — refine `run_io` to the operational calculus.**  The race-soundness
+   lives on the abstract `PAct`/`step` calculus (`concurrency.v`), DISCONNECTED from
+   the `run_io`/`World` model we actually extract from.  No theorem links `send`/
+   `recv`/`go_spawn` to `step`, so the guarantee does not yet *apply* to a real
+   program.  CORE DIFFICULTY: `run_io` is SEQUENTIAL (no interleaving) and `IO` is
+   axiomatic/opaque, so we can't compile it structurally — the keystone needs a
+   *concurrent* operational semantics for the IO ops, connected both ways.  Sub-steps:
+   (1.1) add goroutine SPAWN to `step` (dynamic pool + fork edge), re-establish
+   `reachable_wf`; (1.2) generalise per-goroutine programs from straight-line
+   `list PAct` to an IO-shaped command tree (Ret/Bind/Send/Recv/Spawn/Write/Read);
+   (1.3) prove the calculus's channel-buffer steps IMPLEMENT the `run_io` channel
+   axioms (`run_send`/`run_recv`/…), transferring `reachable_hb_strict`/race-soundness
+   to actual programs.
+2. **General race-freedom under the ownership / session discipline.**  Today race
+   freedom is proven for hand-built instances (`mp_trace_race_free`,
+   `fork_program_race_free`) plus the trivial generic rule.  Goal: a THEOREM "any
+   program respecting the ownership discipline (channel-endpoint ownership transfer,
+   session linearity) has EVERY cross-goroutine conflicting access happens-before
+   ordered, hence is race-free."  Needs the ownership discipline modelled (who owns
+   each location/endpoint when) and a proof that a conflict forces a transfer, and
+   transfers go through channel-sync `hb` edges.
+3. **Model completeness — exact FIFO, liveness, real memory.**  Strengthen `WfTrace`
+   from "a receive matches SOME earlier send" to the exact kth-recv ↔ kth-send FIFO
+   pairing the `step` semantics already enforces; deadlock-freedom / progress
+   (representable today, freedom unproven — needs a typing/session discipline);
+   and a real heap behind `KWrite`/`KRead` (currently abstract events).
+
+(Supersedes / extends the open items under "Correctness debt" Tier 1 #1.)
+
 ## Architecture
 
 - **Package imports are on hold (decided 2026-06-14).** The plugin emits
