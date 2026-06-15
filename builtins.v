@@ -11,6 +11,9 @@ Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
 Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *)
 From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
+Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.   (* [int] — hoisted so the numeric
+   carrier types can be DEFINED as [int] (they only appear in tags, never in Go). *)
+From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloat32] *)
 
 (** ---- IO monad ----
 
@@ -237,19 +240,24 @@ Qed.
     faithful to int64 only within [-2^62, 2^62); the missing top bit (full
     int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
     "Known gaps".  The remaining widths are axioms (no native Rocq equivalent). *)
-Axiom GoInt   : Type.   (* int    — platform-width, typically 64-bit *)
-Axiom GoInt8  : Type.   (* int8   — 8-bit  *)
-Axiom GoInt16 : Type.   (* int16  — 16-bit *)
-Axiom GoInt32 : Type.   (* int32  — 32-bit *)
+(** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
+    (e.g. [TInt : GoTypeTag GoInt]) — never as a value in extracted Go — so defining
+    them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
+    models are the [GoU8]/[GoI8]/… records below; these carriers exist for the tag's
+    index.  Defined as [int] just to retire the axioms. *)
+Definition GoInt   : Type := int.   (* int    — platform-width, typically 64-bit *)
+Definition GoInt8  : Type := int.   (* int8   — 8-bit  *)
+Definition GoInt16 : Type := int.   (* int16  — 16-bit *)
+Definition GoInt32 : Type := int.   (* int32  — 32-bit *)
 (* GoInt64 = PrimInt63.int, loaded separately via Stdlib *)
 Notation GoRune := GoInt32.  (* rune is an alias for int32 *)
 
 (** Unsigned integer types. *)
-Axiom GoUint   : Type.   (* uint    — platform-width *)
-Axiom GoUint8  : Type.   (* uint8   — 8-bit  *)
-Axiom GoUint16 : Type.   (* uint16  — 16-bit *)
-Axiom GoUint32 : Type.   (* uint32  — 32-bit *)
-Axiom GoUint64 : Type.   (* uint64  — 64-bit *)
+Definition GoUint   : Type := int.   (* uint    — platform-width *)
+Definition GoUint8  : Type := int.   (* uint8   — 8-bit  *)
+Definition GoUint16 : Type := int.   (* uint16  — 16-bit *)
+Definition GoUint32 : Type := int.   (* uint32  — 32-bit *)
+Definition GoUint64 : Type := int.   (* uint64  — 64-bit *)
 (* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
    the FAITHFUL [GoU8] record rather than the opaque [GoUint8] axiom. *)
 
@@ -288,7 +296,11 @@ Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
 Notation GoFloat64 := float.
-Axiom GoFloat32 : Type.
+(** [GoFloat32] has no native Rocq float32 (holdout #1 in ZERO_AXIOMS_PLAN.md).  Modelled
+    here as [float] (= float64): a CRUDE idealisation — no float32 op is modelled and no
+    law mentions it, and the carrier appears only in [TFloat32], never as an extracted
+    value — so this retires the axiom; faithful 32-bit rounding is deferred. *)
+Definition GoFloat32 : Type := float.
 
 (** ---- Fixed-width unsigned integers (precise, computable models) ----
 
