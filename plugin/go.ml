@@ -2299,30 +2299,33 @@ let pp_function state name body typ =
 (* Proof-only world-STATE accessors (abstract heap of the denotational model): they
    appear only inside the IO ops' bodies, never in real Go, so their decls are
    suppressed. *)
-let is_proof_only_state r =
-  List.mem (global_basename r)
-    [ "ref_sel"; "ref_upd";
-      "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
-      "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
-      "map_get_fn"; "map_write"; "key_eqb"; "eqb";  (* map-cell read/write + key equality;
-        [eqb] = stdlib Bool.eqb/String.eqb pulled in by the (proof-only) key_eqb — the
-        float/int comparisons used in real Go lower INLINE (==), so no live code calls it *)
-      "chan_write"; "tl"; "app";  (* chan-cell writer + list tail/append, used by suppressed
-                                     chan_*_upd (the slice [append] builtin lowers by name) *)
-      "tag_eq"; "tag_coerce";     (* proof-only typed-heap helpers *)
-      "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal";
-      "gomap_cong"; "gochan_cong";
-        (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — they
-           are type casts that erase to identity, never real Go (only in suppressed
-           proof-only bodies); the stdlib ones would otherwise leak with type vars *)
-      "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
-      "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
-      "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
-      "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
-        (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
-      "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals (proof-only) *)
-      "go_list_nth"; "ascii_byte"; "go_str_byte" ]  (* self-contained slice/str index
-        helpers — only ever appear in the (suppressed) slice_get/at_ok/str_at_ok bodies *)
+(* Fido-OWNED proof-only names (reserved by builtins.v; suppressing one only ever
+   drops a top-level decl, and a real use fails LOUD at its call site — never silent-
+   wrong).  A module-level list so it is built once, not re-allocated per call. *)
+let proof_only_names =
+  [ "ref_sel"; "ref_upd";
+    "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
+    "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
+    "map_get_fn"; "map_write"; "key_eqb"; "eqb";   (* map-cell read/write + key equality;
+      bare [eqb] suppresses the FIVE stdlib eqb decls pulled into the proof-only key_eqb
+      closure — Bool/String/Ascii/PrimFloat/PrimInt63 — all dead in emitted Go (== lowers
+      inline).  Path-qualifying was tried and rejected: it needs all five enumerated AND
+      re-emits the primitive ones as dead funcs; bare-name is cleaner while no library is
+      imported (the only case a same-named user decl could exist). *)
+    "chan_write"; "tl"; "app";                     (* chan-cell writer + List.tl/app (chan_*_upd) *)
+    "tag_eq"; "tag_coerce";                        (* proof-only typed-heap helpers *)
+    "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal";
+    "gomap_cong"; "gochan_cong";
+      (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — type casts
+         that erase to identity, never real Go; the stdlib ones leak with type vars *)
+    "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
+    "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
+    "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
+    "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
+      (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
+    "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
+    "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
+let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
 let is_inlined_ref r =
   is_proof_only_state r ||

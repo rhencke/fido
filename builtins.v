@@ -19,9 +19,9 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
 (** ---- IO monad ----
 
     [IO A] represents a Go effectful computation.  The type and its
-    combinators are kept abstract (axiomatic) so the extraction plugin
-    continues to lower [bind m f] to sequential Go statements and erase
-    [ret x] to its argument — no world-threading in the generated code.
+    combinators are CONCRETE definitions ([IO A := World -> Outcome A]) that the
+    extraction plugin lowers BY NAME — [bind m f] to sequential Go statements,
+    [ret x] to its argument — erasing the world token in the generated code.
 
     For PROOFS we add a denotational semantics: [run_io m w] gives the
     concrete meaning of [m] as a function from the current world [w] to a
@@ -57,7 +57,8 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     [2^63 - 3].  HONEST LIMIT: Rocq's primitive int is 63-bit, so the model is
     faithful to int64 only within [-2^62, 2^62); the missing top bit (full
     int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
-    "Known gaps".  The remaining widths are axioms (no native Rocq equivalent). *)
+    "Known gaps".  The remaining widths are DEFINED as [int] (placeholders for the
+    faithful fixed-width records below — the carriers exist only for the tag index). *)
 (** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
     (e.g. [TInt : GoTypeTag GoInt]) — never as a value in extracted Go — so defining
     them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
@@ -109,7 +110,8 @@ Definition GoSlice (A : Type) : Type := list A.
 (** Floating-point types.
     [GoFloat64] is Rocq's primitive [PrimFloat.float] — IEEE 754 double
     precision, with verified arithmetic semantics in the kernel.
-    [GoFloat32] is an axiom; Rocq has no native 32-bit float. *)
+    [GoFloat32] is DEFINED as [float] (Rocq has no native 32-bit float; faithful
+    32-bit rounding is a tracked gap — see below). *)
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
@@ -128,7 +130,7 @@ Definition GoFloat32 : Type := float.
     stores a tag).  Keeping them tag-free breaks the cycle, so [GoTypeTag] below can
     reference them freely.  At extraction [GoChan A] → Go [chan T], [GoMap K V] →
     [map[K]V] (the plugin renders by type NAME); the [ch_loc]/[gm_loc] handle and
-    the record wrapper are erased.  (Channel/map STATE ops stay axioms for now, over
+    the record wrapper are erased.  (Channel/map STATE ops are DEFINITIONS over
     these concrete handles.) *)
 Record GoChan (A : Type) : Type := MkChan { ch_loc : int }.
 Record GoMap  (K V : Type) : Type := MkMap { gm_loc : int }.

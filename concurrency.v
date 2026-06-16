@@ -601,7 +601,7 @@ Qed.
     the same axiom-free safety theorems (well-formed traces ⇒ hb a strict partial
     order; ownership ⇒ race-free), reusing [WfTrace]/[hbt]/[Owned]/[owned_race_free].
     And [rchan] (its channel value-FIFO) evolves EXACTLY as the [run_io] [chan_buf]
-    axioms specify, so it is a sound model of Fido's IO channels.
+    laws specify, so it is a sound model of Fido's IO channels.
     ============================================================================ *)
 
 Inductive Cmd : Type :=
@@ -741,7 +741,7 @@ Qed.
 
 (** ---- The refinement: the rich calculus implements the [run_io] channel laws ----
     [rchan] is the channel VALUE-FIFO.  A send ENQUEUES the value (matching the
-    [run_io] axiom [chan_buf_send]: buffer after send = buffer ++ [v]); a receive
+    [run_io] law [chan_buf_send]: buffer after send = buffer ++ [v]); a receive
     DEQUEUES the head (matching [chan_buf_recv]: buffer = v :: rest).  And the HEAP
     gives read-after-write.  So the operational calculus soundly models Fido's IO
     channels and memory — the keystone connection at the state level. *)
@@ -841,10 +841,10 @@ Qed.
     function [nat -> Cmd], so a denotation FUNCTION cannot structurally recurse, but
     the relation pairs each [Cmd] with the [IO] term it stands for.  Then
     [denote_sim_send] / [denote_sim_recv] show that ONE [rstep] channel action
-    run-reduces the [IO] denotation EXACTLY as the [run_io] axioms specify, while the
+    run-reduces the [IO] denotation EXACTLY as the [run_io] laws specify, while the
     channel buffer stays matched ([WMatch1]).  This is the missing link: it ties the
     abstract [rstep] (where race-freedom is PROVEN) to the actual [run_io]/[World]
-    model we EXTRACT from — grounded in the real IO axioms [run_bind]/[run_send]/
+    model we EXTRACT from — grounded in the real IO laws [run_bind]/[run_send]/
     [run_recv]/[chan_buf_send]/[chan_buf_recv] (no NEW axioms; [Print Assumptions]
     below shows exactly that base).
 
@@ -882,7 +882,7 @@ Section Keystone.
 
   (* World <-> config on one channel [c]: the IO buffer is the calculus buffer, coded.
      (Single channel keeps it frame-free — a send/recv touches only [c]'s buffer, and
-     the IO channel axioms relate exactly that buffer; multi-channel would need a
+     the IO channel laws relate exactly that buffer; multi-channel would need a
      channel-separation/frame law, tracked.) *)
   Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
     chan_buf TInt64 (chenv c) w = map inj (rchan cfg c).
