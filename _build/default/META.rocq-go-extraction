@@ -1,8 +1,0 @@
-version = "dev"
-description = "Rocq → Go extraction plugin"
-requires =
-"rocq-runtime.interp rocq-runtime.plugins.extraction rocq-runtime.vernac"
-archive(byte) = "rocq_go_extraction_plugin.cma"
-archive(native) = "rocq_go_extraction_plugin.cmxa"
-plugin(byte) = "rocq_go_extraction_plugin.cma"
-plugin(native) = "rocq_go_extraction_plugin.cmxs"

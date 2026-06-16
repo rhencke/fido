@@ -14,3 +14,4 @@ vendor/
 *.vos
 *.vio
 .coq-native/
+_build/
