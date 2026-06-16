@@ -838,16 +838,16 @@ let rec pp_expr state env = function
        | MLglob r, [tag; n] when is_make_chan_buf_ref r ->
            str ("make(chan " ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
 
-       (* send ch v → ch <- v *)
-       | MLglob r, [ch; v] when is_send_ref r ->
+       (* send tag ch v → ch <- v  (tag is the proof-only element type, dropped) *)
+       | MLglob r, [_tag; ch; v] when is_send_ref r ->
            pp_expr state env ch ++ str " <- " ++ pp_expr state env v
 
        (* recv tag ch → <-ch *)
        | MLglob r, [_tag; ch] when is_recv_ref r ->
            str "<-" ++ pp_expr state env ch
 
-       (* close_chan ch → close(ch) *)
-       | MLglob r, [ch] when is_close_chan_ref r ->
+       (* close_chan tag ch → close(ch)  (tag dropped) *)
+       | MLglob r, [_tag; ch] when is_close_chan_ref r ->
            str "close(" ++ pp_expr state env ch ++ str ")"
 
        (* recv_ok in expression context — handled properly by pp_stmts;
@@ -2307,6 +2307,8 @@ let is_proof_only_state r =
     [ "ref_sel"; "ref_upd";
       "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
       "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
+      "chan_write"; "tl"; "app";  (* chan-cell writer + list tail/append, used by suppressed
+                                     chan_*_upd (the slice [append] builtin lowers by name) *)
       "tag_eq"; "tag_coerce";     (* proof-only typed-heap helpers *)
       "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal";
       "gomap_cong"; "gochan_cong";
@@ -2314,7 +2316,7 @@ let is_proof_only_state r =
            are type casts that erase to identity, never real Go (only in suppressed
            proof-only bodies); the stdlib ones would otherwise leak with type vars *)
       "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
-      "mkWorld"; "w_refs"; "w_next"; "w_raw";  (* World record ctor/projs — proof-only state *)
+      "mkWorld"; "w_refs"; "w_chans"; "w_next"; "w_raw";  (* World record ctor/projs — proof-only state *)
       "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
       "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
         (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
@@ -2453,7 +2455,7 @@ let pp_decl state decl =
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice"
-    || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"] -> mt ()
+    || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"; "ChanCell"; "ChanHeap"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
 
   | Dtype (r, _, typ) ->

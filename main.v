@@ -478,8 +478,8 @@ Definition slice_demo : IO unit :=
     Second recv: value=0,  ok=false (channel drained and closed). *)
 Definition chan_demo : IO unit :=
   ch <-' make_chan_buf TInt64 1 ;;
-  send ch (42 : int) >>'
-  close_chan ch >>'
+  send TInt64 ch (42 : int) >>'
+  close_chan TInt64 ch >>'
   recv_ok TInt64 ch (fun x ok =>                   (* prints: 42 true *)
   println [any x; any ok] >>'
   recv_ok TInt64 ch (fun x2 ok2 =>
@@ -493,7 +493,7 @@ Definition chan_demo : IO unit :=
 Definition select_demo : IO unit :=
   ch1 <-' make_chan_buf TInt64 1 ;;
   ch2 <-' make_chan_buf TInt64 1 ;;
-  send ch1 (42 : int) >>'
+  send TInt64 ch1 (42 : int) >>'
   select_recv2 TInt64 ch1 (fun x => println [any x])     (* ch1 ready → 42 *)
                TInt64 ch2 (fun y => println [any y]).
 
@@ -508,7 +508,7 @@ Definition select_default_demo : IO unit :=
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
 Definition goroutine_demo : IO unit :=
   bind (make_chan TInt64)              (fun ch =>
-  bind (go_spawn (send ch (42 : int))) (fun _ =>
+  bind (go_spawn (send TInt64 ch (42 : int))) (fun _ =>
   bind (recv TInt64 ch)               (fun x =>
   println [any x]))).                  (* prints: 42 *)
 
