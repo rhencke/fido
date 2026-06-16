@@ -738,7 +738,7 @@ Definition string_demo : IO unit :=
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
 Definition defer_loop_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>
       if Sint63.ltb iv 3 then
@@ -759,7 +759,7 @@ Definition defer_demo : IO unit :=
 (** Mutable local variable: declare, read, reassign, read again — straight-line
     (no control flow, so trivially scope-correct). *)
 Definition mut_demo : IO unit :=
-  bind (ref_new (10 : int))        (fun r =>  (* r := 10        *)
+  bind (ref_new TInt64 (10 : int))        (fun r =>  (* r := 10        *)
   bind (ref_get TInt64 r)          (fun a =>  (* a := r  (= 10) *)
   bind (ref_set r (add a 5))       (fun _ =>  (* r = a + 5 (= 15) *)
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
@@ -770,7 +770,7 @@ Definition mut_demo : IO unit :=
     its declaration is hoisted to [var iv int64] (dominating the loop) and
     assigned with [=].  [ref_set] also assigns with [=].  Prints 0,1,2. *)
 Definition count_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>            (* block 0: loop header *)
       if Sint63.ltb iv 3 then
@@ -813,7 +813,7 @@ Definition diamond_demo (b : bool) : IO unit :=
     nested [if … < 1 { println(100) }].  Counter is a [Ref], re-read per block
     (separate goto-blocks don't share Rocq scope).  Prints 100, 0, 1, 2. *)
 Definition loopif_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
       if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 4%nat)) ;
@@ -833,8 +833,8 @@ Definition loopif_demo : IO unit :=
     outer [break] (to block 5).  Two [Ref]s; [j] is reset each outer pass.
     Prints 0,1 (inner, i=0) then 0,1 (inner, i=1). *)
 Definition nested_loop_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
-  bind (ref_new (0 : int)) (fun j =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
       if Sint63.ltb iv 2 then ret (Jump 1%nat) else ret (Jump 5%nat)) ;
@@ -855,7 +855,7 @@ Definition nested_loop_demo : IO unit :=
     for the exit edge, and the block-3 tail after the [for].  Prints 0, 1, then
     returns (so block 3's 999 is never reached). *)
 Definition early_return_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
       if Sint63.ltb iv 9 then ret (Jump 1%nat) else ret (Jump 3%nat)) ;
@@ -874,8 +874,8 @@ Definition early_return_demo : IO unit :=
     normal exit is block 5, plus the labeled escape to block 6), which the
     primary-exit analysis accepts.  Prints 0, 1, 2 then stops entirely. *)
 Definition labeled_break_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
-  bind (ref_new (0 : int)) (fun j =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
       if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 6%nat)) ;
@@ -898,8 +898,8 @@ Definition labeled_break_demo : IO unit :=
     [continue L0] (the outer [for] is labeled).  The outer header increments [i]
     so it still terminates.  Prints 0, 1 (inner, i=0) then 0, 1 (i=1). *)
 Definition labeled_continue_demo : IO unit :=
-  bind (ref_new (0 : int)) (fun i =>
-  bind (ref_new (0 : int)) (fun j =>
+  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (0 : int)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header, i++ *)
     bind (ref_set i (add iv 1)) (fun _ =>
@@ -922,7 +922,7 @@ Definition labeled_continue_demo : IO unit :=
     control flow lowers, structured or not.  enter_high ⇒ 2,1,2,1,2 ; else ⇒
     1,2,1,2. *)
 Definition irreducible_demo (enter_high : bool) : IO unit :=
-  bind (ref_new (0 : int)) (fun n =>
+  bind (ref_new TInt64 (0 : int)) (fun n =>
   run_blocks 0%nat [
     (if enter_high then ret (Jump 2%nat) else ret (Jump 1%nat)) ;  (* block 0: two-entry *)
     bind (ref_get TInt64 n) (fun nv =>                             (* block 1 *)

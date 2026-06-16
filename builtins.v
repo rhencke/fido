@@ -47,10 +47,193 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     not a total [A * World] — is essential: with the old total type the law "[panic]
     satisfies every postcondition" forced [World] empty ([World -> False]), collapsing
     the layer.  DIVERGENCE is idealised away: [run_io] is total (terminates). *)
-Axiom World : Type.
-
 Definition GoAny : Type := {T : Type & T}.
 Notation any x := (@existT Type (fun T : Type => T) _ x).
+
+(** Signed integer types.
+    [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
+    extracting to Go [int64], interpreted with SIGNED (Sint63) semantics.
+    [+], [-], [*] are two's-complement, shared with the unsigned primitive and
+    matching Go exactly; comparison and division use the signed Sint63
+    operations.  So [2 - 5] is [-3] as in Go — not the unsigned reading
+    [2^63 - 3].  HONEST LIMIT: Rocq's primitive int is 63-bit, so the model is
+    faithful to int64 only within [-2^62, 2^62); the missing top bit (full
+    int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
+    "Known gaps".  The remaining widths are axioms (no native Rocq equivalent). *)
+(** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
+    (e.g. [TInt : GoTypeTag GoInt]) — never as a value in extracted Go — so defining
+    them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
+    models are the [GoU8]/[GoI8]/… records below; these carriers exist for the tag's
+    index.  Defined as [int] just to retire the axioms. *)
+Definition GoInt   : Type := int.   (* int    — platform-width, typically 64-bit *)
+Definition GoInt8  : Type := int.   (* int8   — 8-bit  *)
+Definition GoInt16 : Type := int.   (* int16  — 16-bit *)
+Definition GoInt32 : Type := int.   (* int32  — 32-bit *)
+(* GoInt64 = PrimInt63.int, loaded separately via Stdlib *)
+Notation GoRune := GoInt32.  (* rune is an alias for int32 *)
+
+(** Unsigned integer types. *)
+Definition GoUint   : Type := int.   (* uint    — platform-width *)
+Definition GoUint8  : Type := int.   (* uint8   — 8-bit  *)
+Definition GoUint16 : Type := int.   (* uint16  — 16-bit *)
+Definition GoUint32 : Type := int.   (* uint32  — 32-bit *)
+Definition GoUint64 : Type := int.   (* uint64  — 64-bit *)
+(* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
+   the FAITHFUL [GoU8] record rather than the opaque [GoUint8] axiom. *)
+
+(** Go's string type (Go spec "String types"): "a string value is a (possibly
+    empty) sequence of BYTES; ... strings are immutable".  Modelled as Coq's
+    [string] (Strings.String) — itself a sequence of [Ascii.ascii], i.e. a byte
+    sequence — so [len] is the BYTE count and [s[i]] is the i'th BYTE (a [byte] =
+    [uint8]), exactly as the spec defines.  Immutability is automatic (a pure
+    value).  The plugin maps [string] → Go [string] and decodes a [String]/
+    [Ascii]/[EmptyString] literal to a byte-faithful Go string literal (Go
+    escaping).
+    (The earlier [list GoRune] model was the RUNE view — how [range s] iterates,
+    NOT how Go indexes — so it mismodelled [len]/[s[i]]; the rune view is a
+    separate UTF-8 decode, deferred.) *)
+From Stdlib Require Import Strings.String Strings.Ascii.
+Definition GoString : Type := string.
+
+(** Go's slice type — a resizable sequence of elements.
+    Modelled as [list A] so Rocq's list theory applies directly.
+    The plugin maps [list A] → [[]T] for any element type [A] (so a rune slice
+    [list GoRune] is Go's [[]int32]; the byte-sequence [string] is separate —
+    see [GoString] above).
+
+    NOTE — aliasing: like maps, slices are reference types in Go.  The pure
+    functional model (append returning a new list) is safe for single-goroutine
+    sequential programs where there is no aliasing of the underlying array.
+    For concurrent programs or programs that intentionally alias slice headers,
+    [append] should be moved to [IO] (same reasoning as [map_set]/[map_delete]). *)
+Definition GoSlice (A : Type) : Type := list A.
+
+(** Floating-point types.
+    [GoFloat64] is Rocq's primitive [PrimFloat.float] — IEEE 754 double
+    precision, with verified arithmetic semantics in the kernel.
+    [GoFloat32] is an axiom; Rocq has no native 32-bit float. *)
+Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
+From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
+From Stdlib Require Import Floats.PrimFloat.
+Notation GoFloat64 := float.
+(** [GoFloat32] has no native Rocq float32 (holdout #1 in ZERO_AXIOMS_PLAN.md).  Modelled
+    here as [float] (= float64): a CRUDE idealisation — no float32 op is modelled and no
+    law mentions it, and the carrier appears only in [TFloat32], never as an extracted
+    value — so this retires the axiom; faithful 32-bit rounding is deferred. *)
+Definition GoFloat32 : Type := float.
+
+(** Forward declarations so GoTypeTag can reference composite Go types in its
+    TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
+Axiom GoMap  : Type -> Type -> Type.
+Axiom GoChan : Type -> Type.
+
+(** ---- Type assertions ----
+
+    [GoTypeTag T] is a term-level witness encoding the Go type [T].
+    Because it is an inductive (not a type), it survives extraction —
+    the plugin inspects the constructor to emit [v.(T)] with the right type.
+
+    Extend this inductive as new Go types are added to builtins. *)
+
+Inductive GoTypeTag : Type -> Type :=
+  | TBool    : GoTypeTag bool
+  | TInt64   : GoTypeTag int             (* → int64 *)
+  | TFloat64 : GoTypeTag float            (* → float64 *)
+  | TString  : GoTypeTag GoString
+  | TAny     : GoTypeTag GoAny
+  | TInt     : GoTypeTag GoInt
+  | TInt8    : GoTypeTag GoInt8
+  | TInt16   : GoTypeTag GoInt16
+  | TInt32   : GoTypeTag GoInt32
+  | TUint    : GoTypeTag GoUint
+  | TUint8   : GoTypeTag GoUint8
+  | TUint16  : GoTypeTag GoUint16
+  | TUint32  : GoTypeTag GoUint32
+  | TUint64  : GoTypeTag GoUint64
+  | TFloat32 : GoTypeTag GoFloat32
+  (* Composite type tags — carry the element/key/value tags so the plugin can
+     reconstruct the full Go type string recursively. *)
+  | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
+  | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
+  | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
+
+(** A TRANSPARENT 2-ary congruence for [GoMap] — the stdlib [f_equal2] is [Qed]
+    (opaque), so [f_equal2 GoMap eq_refl eq_refl] does NOT reduce to [eq_refl],
+    which breaks [tag_eq_refl]'s [TMap] case.  This direct dependent match DOES
+    reduce (like the transparent [f_equal] used for [TChan]/[TSlice]). *)
+Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V') : GoMap K V = GoMap K' V' :=
+  match p in (_ = K2), q in (_ = V2) return (GoMap K V = GoMap K2 V2) with
+  | eq_refl, eq_refl => eq_refl
+  end.
+
+(** Decidable tag equality WITH type recovery: if two tags are the same, hand back a
+    proof that their indexed types are equal (so a heterogeneous heap can cast a stored
+    value to the accessor's type).  Provable because [GoTypeTag] is a finite inductive —
+    the foundation for the concrete typed heap and for [type_assert].  (Same-constructor
+    matching suffices: a cell is read with the tag it was written with.) *)
+Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option (A = B) :=
+  match ta in GoTypeTag A', tb in GoTypeTag B' return option (A' = B') with
+  | TBool, TBool       => Some eq_refl
+  | TInt64, TInt64     => Some eq_refl
+  | TFloat64, TFloat64 => Some eq_refl
+  | TString, TString   => Some eq_refl
+  | TAny, TAny         => Some eq_refl
+  | TInt, TInt         => Some eq_refl
+  | TInt8, TInt8       => Some eq_refl
+  | TInt16, TInt16     => Some eq_refl
+  | TInt32, TInt32     => Some eq_refl
+  | TUint, TUint       => Some eq_refl
+  | TUint8, TUint8     => Some eq_refl
+  | TUint16, TUint16   => Some eq_refl
+  | TUint32, TUint32   => Some eq_refl
+  | TUint64, TUint64   => Some eq_refl
+  | TFloat32, TFloat32 => Some eq_refl
+  | TChan a, TChan b   => match tag_eq a b with Some p => Some (f_equal GoChan p) | None => None end
+  | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
+  | TMap ka va, TMap kb vb =>
+      match tag_eq ka kb, tag_eq va vb with
+      | Some p, Some q => Some (gomap_cong p q)
+      | _, _ => None
+      end
+  | _, _ => None
+  end.
+
+(** Cast a value along a tag match (identity when the tags agree). *)
+Definition tag_coerce {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) (x : B) : option A :=
+  match tag_eq ta tb with Some p => Some (eq_rect B (fun T => T) x A (eq_sym p)) | None => None end.
+
+(** A tag is equal to itself ([Some eq_refl]) — by induction on the finite tag
+    inductive.  The foundation for the typed-heap read-after-write laws: a cell is
+    read with the SAME tag it was written with, so the coercion is the identity. *)
+Lemma tag_eq_refl : forall {A} (t : GoTypeTag A), tag_eq t t = Some eq_refl.
+Proof.
+  induction t; cbn; try reflexivity.
+  - rewrite IHt; reflexivity.                       (* TChan *)
+  - rewrite IHt; reflexivity.                       (* TSlice *)
+  - rewrite IHt1, IHt2; reflexivity.                (* TMap (gomap_cong reduces) *)
+Qed.
+
+(** [tag_coerce t t x = Some x]: coercing along a tag's reflexive match is the
+    identity (from [tag_eq_refl]). *)
+Lemma tag_coerce_refl : forall {A} (t : GoTypeTag A) (x : A), tag_coerce t t x = Some x.
+Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
+
+(** ---- World: a CONCRETE proof-only state record (no longer an axiom). ----
+
+    [w_refs] is the mutable-cell heap: a location ([int]) -> an optional typed
+    cell that stores the value WITH its [GoTypeTag], so [ref_sel] can coerce the
+    stored value back to the cell's element type.  [w_next] is the next fresh ref
+    location.  [w_raw] is abstract ROOM for the not-yet-concretised channel + map
+    state, keeping the channel/map laws jointly consistent with the concrete ref
+    heap (the product model: refs in [w_refs], channels/maps in [w_raw], two
+    independent components).  [World] is no longer an axiom — only [RawWorld] is,
+    and that shrinks to nothing as channels/maps are concretised.  Extraction
+    erases the whole record (the world token never appears in emitted Go). *)
+Parameter RawWorld : Type.
+Definition RefCell : Type := { T : Type & (GoTypeTag T * T)%type }.
+Definition RefHeap : Type := int -> option RefCell.
+Record World : Type := mkWorld { w_refs : RefHeap ; w_next : int ; w_raw : RawWorld }.
+
 
 Inductive Outcome (A : Type) : Type :=
   | ORet   : A -> World -> Outcome A
@@ -231,77 +414,6 @@ Qed.
 (** ---- Types ---- *)
 (** [GoAny] / [any] are defined up top (the panic semantics need them). *)
 
-(** Signed integer types.
-    [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
-    extracting to Go [int64], interpreted with SIGNED (Sint63) semantics.
-    [+], [-], [*] are two's-complement, shared with the unsigned primitive and
-    matching Go exactly; comparison and division use the signed Sint63
-    operations.  So [2 - 5] is [-3] as in Go — not the unsigned reading
-    [2^63 - 3].  HONEST LIMIT: Rocq's primitive int is 63-bit, so the model is
-    faithful to int64 only within [-2^62, 2^62); the missing top bit (full
-    int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
-    "Known gaps".  The remaining widths are axioms (no native Rocq equivalent). *)
-(** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
-    (e.g. [TInt : GoTypeTag GoInt]) — never as a value in extracted Go — so defining
-    them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
-    models are the [GoU8]/[GoI8]/… records below; these carriers exist for the tag's
-    index.  Defined as [int] just to retire the axioms. *)
-Definition GoInt   : Type := int.   (* int    — platform-width, typically 64-bit *)
-Definition GoInt8  : Type := int.   (* int8   — 8-bit  *)
-Definition GoInt16 : Type := int.   (* int16  — 16-bit *)
-Definition GoInt32 : Type := int.   (* int32  — 32-bit *)
-(* GoInt64 = PrimInt63.int, loaded separately via Stdlib *)
-Notation GoRune := GoInt32.  (* rune is an alias for int32 *)
-
-(** Unsigned integer types. *)
-Definition GoUint   : Type := int.   (* uint    — platform-width *)
-Definition GoUint8  : Type := int.   (* uint8   — 8-bit  *)
-Definition GoUint16 : Type := int.   (* uint16  — 16-bit *)
-Definition GoUint32 : Type := int.   (* uint32  — 32-bit *)
-Definition GoUint64 : Type := int.   (* uint64  — 64-bit *)
-(* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
-   the FAITHFUL [GoU8] record rather than the opaque [GoUint8] axiom. *)
-
-(** Go's string type (Go spec "String types"): "a string value is a (possibly
-    empty) sequence of BYTES; ... strings are immutable".  Modelled as Coq's
-    [string] (Strings.String) — itself a sequence of [Ascii.ascii], i.e. a byte
-    sequence — so [len] is the BYTE count and [s[i]] is the i'th BYTE (a [byte] =
-    [uint8]), exactly as the spec defines.  Immutability is automatic (a pure
-    value).  The plugin maps [string] → Go [string] and decodes a [String]/
-    [Ascii]/[EmptyString] literal to a byte-faithful Go string literal (Go
-    escaping).
-    (The earlier [list GoRune] model was the RUNE view — how [range s] iterates,
-    NOT how Go indexes — so it mismodelled [len]/[s[i]]; the rune view is a
-    separate UTF-8 decode, deferred.) *)
-From Stdlib Require Import Strings.String Strings.Ascii.
-Definition GoString : Type := string.
-
-(** Go's slice type — a resizable sequence of elements.
-    Modelled as [list A] so Rocq's list theory applies directly.
-    The plugin maps [list A] → [[]T] for any element type [A] (so a rune slice
-    [list GoRune] is Go's [[]int32]; the byte-sequence [string] is separate —
-    see [GoString] above).
-
-    NOTE — aliasing: like maps, slices are reference types in Go.  The pure
-    functional model (append returning a new list) is safe for single-goroutine
-    sequential programs where there is no aliasing of the underlying array.
-    For concurrent programs or programs that intentionally alias slice headers,
-    [append] should be moved to [IO] (same reasoning as [map_set]/[map_delete]). *)
-Definition GoSlice (A : Type) : Type := list A.
-
-(** Floating-point types.
-    [GoFloat64] is Rocq's primitive [PrimFloat.float] — IEEE 754 double
-    precision, with verified arithmetic semantics in the kernel.
-    [GoFloat32] is an axiom; Rocq has no native 32-bit float. *)
-Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
-From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
-From Stdlib Require Import Floats.PrimFloat.
-Notation GoFloat64 := float.
-(** [GoFloat32] has no native Rocq float32 (holdout #1 in ZERO_AXIOMS_PLAN.md).  Modelled
-    here as [float] (= float64): a CRUDE idealisation — no float32 op is modelled and no
-    law mentions it, and the carrier appears only in [TFloat32], never as an extracted
-    value — so this retires the axiom; faithful 32-bit rounding is deferred. *)
-Definition GoFloat32 : Type := float.
 
 (** ---- Fixed-width unsigned integers (precise, computable models) ----
 
@@ -641,76 +753,6 @@ Qed.
     sequential world — no law reasons about it; the real [defer] is in the emitted Go. *)
 Definition defer_call (_ : IO unit) : IO unit := fun w => ORet tt w.
 
-(** Forward declarations so GoTypeTag can reference composite Go types in its
-    TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
-Axiom GoMap  : Type -> Type -> Type.
-Axiom GoChan : Type -> Type.
-
-(** ---- Type assertions ----
-
-    [GoTypeTag T] is a term-level witness encoding the Go type [T].
-    Because it is an inductive (not a type), it survives extraction —
-    the plugin inspects the constructor to emit [v.(T)] with the right type.
-
-    Extend this inductive as new Go types are added to builtins. *)
-
-Inductive GoTypeTag : Type -> Type :=
-  | TBool    : GoTypeTag bool
-  | TInt64   : GoTypeTag int             (* → int64 *)
-  | TFloat64 : GoTypeTag float            (* → float64 *)
-  | TString  : GoTypeTag GoString
-  | TAny     : GoTypeTag GoAny
-  | TInt     : GoTypeTag GoInt
-  | TInt8    : GoTypeTag GoInt8
-  | TInt16   : GoTypeTag GoInt16
-  | TInt32   : GoTypeTag GoInt32
-  | TUint    : GoTypeTag GoUint
-  | TUint8   : GoTypeTag GoUint8
-  | TUint16  : GoTypeTag GoUint16
-  | TUint32  : GoTypeTag GoUint32
-  | TUint64  : GoTypeTag GoUint64
-  | TFloat32 : GoTypeTag GoFloat32
-  (* Composite type tags — carry the element/key/value tags so the plugin can
-     reconstruct the full Go type string recursively. *)
-  | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
-  | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
-  | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
-
-(** Decidable tag equality WITH type recovery: if two tags are the same, hand back a
-    proof that their indexed types are equal (so a heterogeneous heap can cast a stored
-    value to the accessor's type).  Provable because [GoTypeTag] is a finite inductive —
-    the foundation for the concrete typed heap and for [type_assert].  (Same-constructor
-    matching suffices: a cell is read with the tag it was written with.) *)
-Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option (A = B) :=
-  match ta in GoTypeTag A', tb in GoTypeTag B' return option (A' = B') with
-  | TBool, TBool       => Some eq_refl
-  | TInt64, TInt64     => Some eq_refl
-  | TFloat64, TFloat64 => Some eq_refl
-  | TString, TString   => Some eq_refl
-  | TAny, TAny         => Some eq_refl
-  | TInt, TInt         => Some eq_refl
-  | TInt8, TInt8       => Some eq_refl
-  | TInt16, TInt16     => Some eq_refl
-  | TInt32, TInt32     => Some eq_refl
-  | TUint, TUint       => Some eq_refl
-  | TUint8, TUint8     => Some eq_refl
-  | TUint16, TUint16   => Some eq_refl
-  | TUint32, TUint32   => Some eq_refl
-  | TUint64, TUint64   => Some eq_refl
-  | TFloat32, TFloat32 => Some eq_refl
-  | TChan a, TChan b   => match tag_eq a b with Some p => Some (f_equal GoChan p) | None => None end
-  | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
-  | TMap ka va, TMap kb vb =>
-      match tag_eq ka kb, tag_eq va vb with
-      | Some p, Some q => Some (f_equal2 GoMap p q)
-      | _, _ => None
-      end
-  | _, _ => None
-  end.
-
-(** Cast a value along a tag match (identity when the tags agree). *)
-Definition tag_coerce {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) (x : B) : option A :=
-  match tag_eq ta tb with Some p => Some (eq_rect B (fun T => T) x A (eq_sym p)) | None => None end.
 
 (** [type_assert tag v] asserts that [v : GoAny] holds a value of Go type [T].
     Panics (like Go's [v.(T)]) if the runtime type does not match.
@@ -1579,19 +1621,53 @@ Fixpoint str_concat (a b : GoString) : GoString :=
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.
     Pure [let]-binding is single-assignment and cannot express a value that
     *changes* (a loop counter, an accumulator updated in place); a [Ref] can.
-    [ref_new v] declares the variable ([x := v]); [ref_get] reads it; [ref_set]
-    assigns ([x = v]).  A local cell extracts to a plain Go variable;
-    cross-function sharing (pointers, [*T]) is a later, separate step. *)
-Axiom Ref     : Type -> Type.
-(** A [Ref]'s value lives in the world: [ref_sel] reads it, [ref_upd] is the
-    [ref_set] update.  These (and allocation [ref_new]) are the abstract heap
-    STATE — the irreducible typed-cell core (a [Ref A] must extract to a Go
-    variable of type [T], so it cannot become a concrete location without
-    breaking extraction; see ZERO_AXIOMS_PLAN.md).  But the OPERATIONS and their
-    [run_*] laws are now DEFINITIONS / THEOREMS, not axioms. *)
-Axiom ref_sel : forall {A : Type}, Ref A -> World -> A.
-Axiom ref_upd : forall {A : Type}, Ref A -> A -> World -> World.
-Axiom ref_new : forall {A : Type}, A -> IO (Ref A).
+    [ref_new tag v] declares the variable ([x := v]); [ref_get] reads it;
+    [ref_set] assigns ([x = v]).  A local cell extracts to a plain Go variable;
+    cross-function sharing (pointers, [*T]) is a later, separate step.
+
+    [Ref A] is now a CONCRETE typed-cell HANDLE (no longer an axiom): a location
+    [r_loc] into the world's [w_refs] heap, plus the element [GoTypeTag] [r_tag]
+    (so a read can coerce the stored cell back to [A]).  The OPERATIONS are
+    DEFINITIONS over the heap and [ref_sel_upd_same] (read-after-write) is now a
+    THEOREM.  At extraction a [Ref A] is a plain Go variable — [ref_new] lowers to
+    [x := v], [ref_get] to a read, [ref_set] to [x = v] — and the [r_loc]/[r_tag]
+    fields and the heap are proof-only (erased). *)
+Record Ref (A : Type) : Type := mkRef { r_loc : int ; r_tag : GoTypeTag A }.
+Arguments mkRef {A} _ _.
+Arguments r_loc {A} _.
+Arguments r_tag {A} _.
+
+(** [ref_sel r w]: read [r]'s cell from [w_refs] and coerce it to [A] via the
+    ref's tag.  A well-typed program always reads the cell it wrote, so the stored
+    tag matches [r_tag] and the coercion succeeds; the mismatch / empty-cell cases
+    default to the type's zero value (totality). *)
+Definition ref_sel {A : Type} (r : Ref A) (w : World) : A :=
+  match w_refs w (r_loc r) with
+  | Some (existT _ _ (tag0, x0)) =>
+      match tag_coerce (r_tag r) tag0 x0 with
+      | Some a => a
+      | None   => zero_val (r_tag r)
+      end
+  | None => zero_val (r_tag r)
+  end.
+
+(** [ref_upd r v w]: write [v] (tagged with [r]'s own tag) at [r]'s location. *)
+Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
+  mkWorld (fun l => if PrimInt63.eqb l (r_loc r)
+                    then Some (existT _ A (r_tag r, v))
+                    else w_refs w l)
+          (w_next w) (w_raw w).
+
+(** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
+    write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
+    (lowers to [x := v]; the tag and location are erased). *)
+Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
+  fun w => let l := w_next w in
+           ORet (mkRef l tag)
+                (mkWorld (fun k => if PrimInt63.eqb k l
+                                   then Some (existT _ A (tag, v))
+                                   else w_refs w k)
+                         (PrimInt63.add l 1%uint63) (w_raw w)).
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
@@ -1604,8 +1680,17 @@ Proof. reflexivity. Qed.
 Lemma run_ref_set : forall {A} (r : Ref A) (v : A) (w : World),
   run_io (ref_set r v) w = ORet tt (ref_upd r v w).
 Proof. reflexivity. Qed.
-Axiom ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
+
+(** Read-after-write at the STATE level — now a THEOREM (was an axiom): [ref_upd]
+    tags the cell with [r]'s own tag, so the subsequent [ref_sel]'s [tag_coerce]
+    is reflexive ([tag_coerce_refl]) and the location lookup hits ([eqb_refl]). *)
+Lemma ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel r (ref_upd r v w) = v.
+Proof.
+  intros A r v w. unfold ref_sel, ref_upd. cbn.
+  rewrite (Uint63.eqb_refl (r_loc r)).
+  rewrite tag_coerce_refl. reflexivity.
+Qed.
 
 (** Read-after-write — a THEOREM: after [ref_set r v], [ref_get] returns [v]. *)
 Lemma ref_get_set_same : forall {A} (tag : GoTypeTag A) (r : Ref A) (v : A),

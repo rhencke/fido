@@ -375,7 +375,8 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
    indices; the ops lower by name).  Their type decl, constructor, and projection are
    all suppressed; uses are recognised by operation name. *)
 let is_erased_record_typename s =
-  is_numint_typename s || String.equal s "Sess"
+  is_numint_typename s || String.equal s "Sess" || String.equal s "World"
+  || String.equal s "Ref"
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
@@ -819,10 +820,12 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; xs; i] when is_slice_get_ref r ->
            pp_expr state env xs ++ str "[" ++ pp_expr state env i ++ str "]"
 
-       (* mutable cells: ref_new v → init value (bound as the Go var by the
+       (* mutable cells: ref_new tag v → init value (bound as the Go var by the
           enclosing bind); ref_get r → read the var; ref_set r v → r = v.
-          int/float literals are typed so the inferred Go var is int64/float64. *)
-       | MLglob r, [v] when is_ref_new_ref r -> pp_typed_lit state env v
+          int/float literals are typed so the inferred Go var is int64/float64.
+          [ref_new] now carries a leading [GoTypeTag] (the cell's element type, for
+          the typed-heap model); it is proof-only, dropped at the call site. *)
+       | MLglob r, [_tag; v] when is_ref_new_ref r -> pp_typed_lit state env v
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
            pp_expr state env rf ++ str " = " ++ pp_typed_lit state env v
@@ -2305,7 +2308,13 @@ let is_proof_only_state r =
       "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
       "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
       "tag_eq"; "tag_coerce";     (* proof-only typed-heap helpers *)
+      "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal"; "gomap_cong";
+        (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — they
+           are type casts that erase to identity, never real Go (only in suppressed
+           proof-only bodies); the stdlib ones would otherwise leak with type vars *)
       "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
+      "mkWorld"; "w_refs"; "w_next"; "w_raw";  (* World record ctor/projs — proof-only state *)
+      "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
       "go_list_nth"; "ascii_byte"; "go_str_byte" ]  (* self-contained slice/str index
         helpers — only ever appear in the (suppressed) slice_get/at_ok/str_at_ok bodies *)
 
@@ -2440,7 +2449,8 @@ let pp_decl state decl =
     || is_ref_type r
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
-    || String.equal (global_basename r) "GoSlice" -> mt ()
+    || String.equal (global_basename r) "GoSlice"
+    || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
 
   | Dtype (r, _, typ) ->

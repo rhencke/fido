@@ -2,8 +2,6 @@
 
 package main
 
-type World = any
-
 func Add(n int64, m int64) int64 {
 	return n + m
 }
