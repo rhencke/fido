@@ -806,7 +806,14 @@ Axiom type_assert_safe : forall {T B : Type},
     [map_get_opt] returns [option V]; its extraction is deferred until we
     handle [option] lowering properly. *)
 
-Axiom map_empty  : forall {K V : Type}, GoMap K V.
+(** The allocators are now DEFINITIONS (not axioms): a [GoMap]/[GoChan] is a
+    concrete location handle, so they simply mint one.  [map_empty] is the nil map
+    (a fixed [MkMap 0] handle — [map_set] on it would panic, like Go's nil map);
+    the [IO] allocators take a fresh location from [w_next] and bump it.  The map
+    CONTENTS still live in the abstract [w_raw] state (the [map_sel]/[map_upd] laws
+    are unchanged), so this only retires the constructors.  Lowered by name
+    ([make(map[K]V)] / nil), the bodies are proof-only. *)
+Definition map_empty {K V : Type} : GoMap K V := MkMap 0%uint63.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
     The [GoTypeTag] witnesses survive extraction so the plugin can emit
@@ -816,10 +823,14 @@ Axiom map_empty  : forall {K V : Type}, GoMap K V.
     NOTE: Go map access never panics on a missing key — it returns the zero
     value (two-value form gives [false] for [ok]).  This differs from slice
     indexing, which DOES panic out of bounds. *)
-Axiom map_make_typed : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> IO (GoMap K V).
+Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : IO (GoMap K V) :=
+  fun w => ORet (MkMap (w_next w))
+                (mkWorld (w_refs w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
 
 (** Untyped fallback — loses key/value types to erasure, emits map[any]any. *)
-Axiom map_make   : forall {K V : Type}, IO (GoMap K V).
+Definition map_make {K V : Type} : IO (GoMap K V) :=
+  fun w => ORet (MkMap (w_next w))
+                (mkWorld (w_refs w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
 
 (** ---- Maps via a heap in the world ----
 
@@ -964,8 +975,17 @@ Qed.
     Session-type proofs (step 6) will enforce protocol compliance at the Rocq
     type level, with zero runtime cost. *)
 
-Axiom make_chan     : forall {A : Type}, GoTypeTag A -> IO (GoChan A).
-Axiom make_chan_buf : forall {A : Type}, GoTypeTag A -> int -> IO (GoChan A).
+(** The channel allocators are now DEFINITIONS (not axioms): a [GoChan] is a
+    concrete location handle, minted from a fresh [w_next] location.  The channel
+    STATE (buffer / closed flag) still lives in the abstract [w_raw] (the
+    [chan_buf]/[chan_send_upd] laws are unchanged), so this only retires the two
+    constructors.  Lowered by name to [make(chan T)] / [make(chan T, n)]. *)
+Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
+  fun w => ORet (MkChan (w_next w))
+                (mkWorld (w_refs w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
+Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : int) : IO (GoChan A) :=
+  fun w => ORet (MkChan (w_next w))
+                (mkWorld (w_refs w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
     [go_spawn]) are now DEFINITIONS over the abstract channel STATE below (declared
     after it, so they can reference it); their [run_*] laws are THEOREMS.  Only the
