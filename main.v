@@ -406,8 +406,8 @@ Definition builtins_demo : IO unit :=
   bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 *)
   bind (println [ any (len (slice_make TInt64 3)) ]) (fun _ =>                                     (* 3 *)
   bind (map_make_typed TInt64 TInt64) (fun m =>
-  bind (map_set (1 : int) (10 : int) m) (fun _ =>
-  bind (map_clear m) (fun _ =>                                                                     (* clear → empty *)
+  bind (map_set TInt64 TInt64 (1 : int) (10 : int) m) (fun _ =>
+  bind (map_clear TInt64 TInt64 m) (fun _ =>                                                                     (* clear → empty *)
   bind (map_len m) (fun n =>
   println [ any n ])))))).                                                                         (* 0 (cleared) *)
 
@@ -454,13 +454,13 @@ Definition panic_and_recover (n : int) : IO unit :=
     roundtrip is gone ([map_get_or] returns the value directly). *)
 Definition map_demo : IO unit :=
   bind (map_make_typed TInt64 TInt64) (fun m =>            (* make(map[int64]int64) *)
-  bind (map_set (1:int) (100:int) m) (fun _ =>            (* m[1] = 100 *)
-  bind (map_set (2:int) (200:int) m) (fun _ =>            (* m[2] = 200 *)
-  bind (map_set (3:int) (300:int) m) (fun _ =>            (* m[3] = 300 *)
-  bind (map_set (2:int) (999:int) m) (fun _ =>            (* m[2] = 999  (overwrite) *)
+  bind (map_set TInt64 TInt64 (1:int) (100:int) m) (fun _ =>            (* m[1] = 100 *)
+  bind (map_set TInt64 TInt64 (2:int) (200:int) m) (fun _ =>            (* m[2] = 200 *)
+  bind (map_set TInt64 TInt64 (3:int) (300:int) m) (fun _ =>            (* m[3] = 300 *)
+  bind (map_set TInt64 TInt64 (2:int) (999:int) m) (fun _ =>            (* m[2] = 999  (overwrite) *)
   bind (map_len m) (fun sz =>
-  bind (@map_get_or int int (2:int) (0:int) m) (fun hit =>  (* key present → 999 *)
-  bind (@map_get_or int int (9:int) (0:int) m) (fun mis =>  (* key absent  → 0   *)
+  bind (@map_get_or int int TInt64 TInt64 (2:int) (0:int) m) (fun hit =>  (* key present → 999 *)
+  bind (@map_get_or int int TInt64 TInt64 (9:int) (0:int) m) (fun mis =>  (* key absent  → 0   *)
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
 Definition slice_demo : IO unit :=
@@ -672,13 +672,13 @@ Definition inline_if_demo : IO unit :=
     value is built. *)
 Definition lookup_demo : IO unit :=
   m <-' map_make_typed TInt64 TInt64 ;;
-  map_set (7 : int) (700 : int) m >>'
-  (o <-' map_get_opt (7 : int) m ;;                 (* present → 700 true *)
+  map_set TInt64 TInt64 (7 : int) (700 : int) m >>'
+  (o <-' map_get_opt TInt64 TInt64 (7 : int) m ;;                 (* present → 700 true *)
    match o with
    | Some v => println [any v; any true]
    | None   => println [any false]
    end) >>'
-  (o <-' map_get_opt (9 : int) m ;;                 (* absent → false *)
+  (o <-' map_get_opt TInt64 TInt64 (9 : int) m ;;                 (* absent → false *)
    match o with
    | Some v => println [any v; any true]
    | None   => println [any false]

@@ -238,18 +238,51 @@ Qed.
 Lemma tag_coerce_refl : forall {A} (t : GoTypeTag A) (x : A), tag_coerce t t x = Some x.
 Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
 
+(** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
+
+    Go map keys are restricted to comparable types (the spec: "the comparison
+    operators == and != must be fully defined for operands of the key type").
+    [key_eqb tag] is that comparison, recovered from the key's [GoTypeTag]: the
+    scalar carriers ([int]) use [PrimInt63.eqb], [bool]/[string]/[float] their own
+    [eqb], a channel/map handle compares its location.  Slices and [GoAny] are NOT
+    comparable key types — Go rejects them — so they get a sentinel ([false]); a
+    well-typed program never keys a map on them.  [Comparable tag] is the proof
+    that [key_eqb tag] decides Leibniz equality (it holds for the scalar key
+    types; NOT for floats, since [NaN <> NaN]). *)
+Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
+  match t in GoTypeTag K' return K' -> K' -> bool with
+  | TBool    => Bool.eqb
+  | TInt64   => PrimInt63.eqb | TInt    => PrimInt63.eqb | TInt8  => PrimInt63.eqb
+  | TInt16   => PrimInt63.eqb | TInt32  => PrimInt63.eqb
+  | TUint    => PrimInt63.eqb | TUint8  => PrimInt63.eqb | TUint16 => PrimInt63.eqb
+  | TUint32  => PrimInt63.eqb | TUint64 => PrimInt63.eqb
+  | TString  => String.eqb
+  | TFloat64 => PrimFloat.eqb | TFloat32 => PrimFloat.eqb
+  | TAny     => fun _ _ => false
+  | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
+  | TSlice _ => fun _ _ => false
+  | TMap _ _ => fun a b => PrimInt63.eqb (gm_loc a) (gm_loc b)
+  end.
+
+(** [Comparable t]: [key_eqb t] decides equality on [K] — the typing side
+    condition Go imposes on map keys, made explicit. *)
+Definition Comparable {K} (t : GoTypeTag K) : Prop :=
+  forall a b : K, key_eqb t a b = true <-> a = b.
+
+(** The scalar key types ARE comparable (used by every map demo: int keys). *)
+Lemma comparable_TInt64 : Comparable TInt64.
+Proof. intros a b. cbn. apply Uint63.eqb_spec. Qed.
+
 (** ---- World: a CONCRETE proof-only state record (no longer an axiom). ----
 
-    [w_refs] is the mutable-cell heap: a location ([int]) -> an optional typed
-    cell that stores the value WITH its [GoTypeTag], so [ref_sel] can coerce the
-    stored value back to the cell's element type.  [w_next] is the next fresh ref
-    location.  [w_raw] is abstract ROOM for the not-yet-concretised channel + map
-    state, keeping the channel/map laws jointly consistent with the concrete ref
-    heap (the product model: refs in [w_refs], channels/maps in [w_raw], two
-    independent components).  [World] is no longer an axiom — only [RawWorld] is,
-    and that shrinks to nothing as channels/maps are concretised.  Extraction
-    erases the whole record (the world token never appears in emitted Go). *)
-Parameter RawWorld : Type.
+    [World] is FULLY CONCRETE — no abstract residue.  [w_refs]/[w_chans]/[w_maps]
+    are the mutable-cell / channel / map heaps (each a location [int] -> an
+    optional typed cell that stores the value WITH its [GoTypeTag], so an accessor
+    can coerce it back to its own view's type), and [w_next] is the next fresh
+    location.  Every state primitive (ref/channel/map) is now a DEFINITION over
+    these fields, and their laws are THEOREMS — there is no [RawWorld] axiom left.
+    Extraction erases the whole record (the world token never appears in emitted
+    Go). *)
 Definition RefCell : Type := { T : Type & (GoTypeTag T * T)%type }.
 Definition RefHeap : Type := int -> option RefCell.
 (** A channel cell: the element type [E] with its [GoTypeTag], the FIFO buffer
@@ -258,8 +291,15 @@ Definition RefHeap : Type := int -> option RefCell.
     construction; [tag_eq] recovers the proof). *)
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * bool))%type }.
 Definition ChanHeap : Type := int -> option ChanCell.
+(** A map cell: the key type [K] + its tag, then existentially the value type [V]
+    + its tag, then the contents as a finite-support function [K -> option V].
+    Like the channel cell, the stored tags let an accessor coerce back to its own
+    [K]/[V] view (equal by construction). *)
+Definition MapCell : Type :=
+  { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type }.
+Definition MapHeap : Type := int -> option MapCell.
 Record World : Type := mkWorld
-  { w_refs : RefHeap ; w_chans : ChanHeap ; w_next : int ; w_raw : RawWorld }.
+  { w_refs : RefHeap ; w_chans : ChanHeap ; w_maps : MapHeap ; w_next : int }.
 
 
 Inductive Outcome (A : Type) : Type :=
@@ -831,13 +871,21 @@ Definition map_empty {K V : Type} : GoMap K V := MkMap 0%uint63.
     value (two-value form gives [false] for [ok]).  This differs from slice
     indexing, which DOES panic out of bounds. *)
 Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : IO (GoMap K V) :=
-  fun w => ORet (MkMap (w_next w))
-                (mkWorld (w_refs w) (w_chans w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
+  fun w => let l := w_next w in
+           ORet (MkMap l)
+                (mkWorld (w_refs w) (w_chans w)
+                         (fun k => if PrimInt63.eqb k l
+                                   then Some (existT _ K (kt, existT _ V (vt, fun _ => None)))
+                                   else w_maps w k)
+                         (PrimInt63.add l 1%uint63)).
 
-(** Untyped fallback — loses key/value types to erasure, emits map[any]any. *)
+(** Untyped fallback — loses key/value types to erasure, emits map[any]any.  No
+    tags to seed a cell, so it just mints the handle (the first [map_set] creates
+    the typed cell; an unwritten read is [None], Go's empty-map behaviour). *)
 Definition map_make {K V : Type} : IO (GoMap K V) :=
   fun w => ORet (MkMap (w_next w))
-                (mkWorld (w_refs w) (w_chans w) (PrimInt63.add (w_next w) 1%uint63) (w_raw w)).
+                (mkWorld (w_refs w) (w_chans w) (w_maps w)
+                         (PrimInt63.add (w_next w) 1%uint63)).
 
 (** ---- Maps via a heap in the world ----
 
@@ -854,116 +902,210 @@ Definition map_make {K V : Type} : IO (GoMap K V) :=
     (it forced [map_set] never to succeed).  Making reads [IO] fixes that.
     Map access never panics: a missing key reads [None] (Go's zero value /
     [ok=false]); unlike slice indexing, which panics out of bounds. *)
-Axiom map_sel  : forall {K V : Type}, K -> GoMap K V -> World -> option V.
-Axiom map_upd  : forall {K V : Type}, K -> V -> GoMap K V -> World -> World.
-Axiom map_rem  : forall {K V : Type}, K -> GoMap K V -> World -> World.
-Axiom map_size : forall {K V : Type}, GoMap K V -> World -> GoInt.
+(** The map STATE accessors/updates are now DEFINITIONS over [w_maps] (no longer
+    axioms).  Like channels, [GoMap] carries no tag, so the accessors THREAD the
+    key + value [GoTypeTag]s; they coerce the cell's stored contents (a function
+    [K' -> option V']) to the caller's [K -> option V] view (equal by construction,
+    [tag_eq] recovers the proofs).  Each update REWRITES the cell with the caller's
+    tags, so a read round-trips via [tag_eq_refl] (just as for channels). *)
+Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                       (m : GoMap K V) (w : World) : K -> option V :=
+  match w_maps w (gm_loc m) with
+  | Some (existT _ _ (kt', existT _ _ (vt', f))) =>
+      match tag_eq kt kt', tag_eq vt vt' with
+      | Some pk, Some pv =>
+          fun k => eq_rect _ (fun Y : Type => option Y)
+                           (f (eq_rect _ (fun X : Type => X) k _ pk)) _ (eq_sym pv)
+      | _, _ => fun _ => None
+      end
+  | None => fun _ => None
+  end.
+Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                      (m : GoMap K V) (f : K -> option V) (w : World) : World :=
+  mkWorld (w_refs w) (w_chans w)
+          (fun l => if PrimInt63.eqb l (gm_loc m)
+                    then Some (existT _ K (kt, existT _ V (vt, f)))
+                    else w_maps w l)
+          (w_next w).
+Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                   (k : K) (m : GoMap K V) (w : World) : option V :=
+  map_get_fn kt vt m w k.
+Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                   (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
+  map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k') w.
+Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                   (k : K) (m : GoMap K V) (w : World) : World :=
+  map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k') w.
+(** [map_size] is proof-only (the plugin lowers [map_len] by name to Go [len(m)]);
+    its value is never observed, so a placeholder suffices. *)
+Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt := 0%uint63.
+
+(** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
+    the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
+    coercions become identities, then eta). *)
+Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f w,
+  map_get_fn kt vt m (map_write kt vt m f w) = f.
+Proof.
+  intros K V kt vt m f w. unfold map_get_fn, map_write. cbn.
+  rewrite (Uint63.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
+Qed.
 
 (** The map OPERATIONS, DEFINED over the abstract heap state above; their [run_*]
     laws are now THEOREMS.  Extraction lowers each by NAME to Go map syntax (the
     proof-only [map_sel]/[map_upd]/[map_rem]/[map_size] bodies are suppressed). *)
-Definition map_get_opt {K V} (k : K) (m : GoMap K V) : IO (option V) :=
-  fun w => ORet (map_sel k m w) w.
+Definition map_get_opt {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO (option V) :=
+  fun w => ORet (map_sel kt vt k m w) w.
 Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
   fun w => ORet (map_size m w) w.
 (** [map_get_or k default m]: the value at [k], or [default] if absent. *)
-Definition map_get_or {K V} (k : K) (default : V) (m : GoMap K V) : IO V :=
-  fun w => ORet (match map_sel k m w with Some v => v | None => default end) w.
-Definition map_set {K V} (k : K) (v : V) (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_upd k v m w).
-Definition map_delete {K V} (k : K) (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_rem k m w).
+Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) : IO V :=
+  fun w => ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
+Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_upd kt vt k v m w).
+Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_rem kt vt k m w).
 
-Lemma run_map_get_opt : forall {K V} (k : K) (m : GoMap K V) (w : World),
-  run_io (map_get_opt k m) w = ORet (map_sel k m w) w.
+Lemma run_map_get_opt : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  run_io (map_get_opt kt vt k m) w = ORet (map_sel kt vt k m w) w.
 Proof. reflexivity. Qed.
 Lemma run_map_len : forall {K V} (m : GoMap K V) (w : World),
   run_io (map_len m) w = ORet (map_size m w) w.
 Proof. reflexivity. Qed.
-Lemma run_map_get_or : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
-  run_io (map_get_or k default m) w =
-  ORet (match map_sel k m w with Some v => v | None => default end) w.
+Lemma run_map_get_or : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) (w : World),
+  run_io (map_get_or kt vt k default m) w =
+  ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
 Proof. reflexivity. Qed.
-Lemma run_map_set : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
-  run_io (map_set k v m) w = ORet tt (map_upd k v m w).
+Lemma run_map_set : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
 Proof. reflexivity. Qed.
-Lemma run_map_delete : forall {K V} (k : K) (m : GoMap K V) (w : World),
-  run_io (map_delete k m) w = ORet tt (map_rem k m w).
+Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
+  run_io (map_delete kt vt k m) w = ORet tt (map_rem kt vt k m w).
 Proof. reflexivity. Qed.
 
-(** Heap-interface laws — how [map_sel] reads after each update. *)
-Axiom map_sel_upd_same : forall {K V} (k : K) (v : V) (m : GoMap K V) (w : World),
-  map_sel k m (map_upd k v m w) = Some v.
-Axiom map_sel_upd_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  k1 <> k2 -> map_sel k1 m (map_upd k2 v m w) = map_sel k1 m w.
-Axiom map_sel_rem : forall {K V} (k : K) (m : GoMap K V) (w : World),
-  map_sel k m (map_rem k m w) = None.
-Axiom map_sel_empty : forall {K V} (k : K) (w : World),
-  map_sel k (@map_empty K V) w = None.
+(** Heap-interface laws — how [map_sel] reads after each update — now THEOREMS.
+    The hypotheses make explicit the side conditions Go imposes (and that the old
+    unconditional axioms silently assumed): the key must be self-equal under
+    [key_eqb] (true for comparable keys, FALSE for a [NaN] float key — which Go's
+    map genuinely does not round-trip), and [_diff] needs the key type Comparable
+    (so distinct keys compare false).  The demos discharge them via
+    [comparable_TInt64]. *)
+Theorem map_sel_upd_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (v : V) (m : GoMap K V) (w : World),
+  key_eqb kt k k = true ->
+  map_sel kt vt k m (map_upd kt vt k v m w) = Some v.
+Proof.
+  intros K V kt vt k v m w Hk. unfold map_sel, map_upd.
+  rewrite map_get_fn_write_same. cbn. rewrite Hk. reflexivity.
+Qed.
+Theorem map_sel_upd_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
+  Comparable kt -> k1 <> k2 ->
+  map_sel kt vt k1 m (map_upd kt vt k2 v m w) = map_sel kt vt k1 m w.
+Proof.
+  intros K V kt vt k1 k2 v m w Hcmp Hne. unfold map_sel, map_upd.
+  rewrite map_get_fn_write_same. cbn.
+  destruct (key_eqb kt k2 k1) eqn:E.
+  - exfalso. apply Hne. symmetry. apply Hcmp. exact E.
+  - reflexivity.
+Qed.
+Theorem map_sel_rem : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (m : GoMap K V) (w : World),
+  key_eqb kt k k = true ->
+  map_sel kt vt k m (map_rem kt vt k m w) = None.
+Proof.
+  intros K V kt vt k m w Hk. unfold map_sel, map_rem.
+  rewrite map_get_fn_write_same. cbn. rewrite Hk. reflexivity.
+Qed.
+Theorem map_sel_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
+  w_maps w 0%uint63 = None ->
+  map_sel kt vt k (@map_empty K V) w = None.
+Proof.
+  intros K V kt vt k w Hw. unfold map_sel, map_get_fn, map_empty. cbn.
+  rewrite Hw. reflexivity.
+Qed.
 
 (** GET-AFTER-WRITE laws — now THEOREMS, derived from the heap interface (these
     were a machine-checked-degenerate axiom under the old pure read). *)
-Lemma map_get_set_same : forall {K V} (k : K) (v : V) (m : GoMap K V),
-  bind (map_set k v m) (fun _ => map_get_opt k m) =
-  bind (map_set k v m) (fun _ => ret (Some v)).
+(** A comparable key is self-equal under [key_eqb] (the [_same]/[_rem] side
+    condition, discharged from [Comparable]). *)
+Lemma comparable_key_refl : forall {K} (t : GoTypeTag K) (k : K),
+  Comparable t -> key_eqb t k k = true.
+Proof. intros K t k Hc. apply (proj2 (Hc k k)). reflexivity. Qed.
+
+Lemma map_get_set_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (v : V) (m : GoMap K V),
+  Comparable kt ->
+  bind (map_set kt vt k v m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_set kt vt k v m) (fun _ => ret (Some v)).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros K V kt vt k v m Hcmp. apply run_io_inj. intro w.
   rewrite !run_bind, !run_map_set. cbn.
-  rewrite run_map_get_opt, map_sel_upd_same, run_ret. reflexivity.
+  rewrite run_map_get_opt, map_sel_upd_same by (apply comparable_key_refl; exact Hcmp).
+  rewrite run_ret. reflexivity.
 Qed.
 
-Lemma map_get_delete_same : forall {K V} (k : K) (m : GoMap K V),
-  bind (map_delete k m) (fun _ => map_get_opt k m) =
-  bind (map_delete k m) (fun _ => ret (@None V)).
+Lemma map_get_delete_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (m : GoMap K V),
+  Comparable kt ->
+  bind (map_delete kt vt k m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_delete kt vt k m) (fun _ => ret (@None V)).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros K V kt vt k m Hcmp. apply run_io_inj. intro w.
   rewrite !run_bind, !run_map_delete. cbn.
-  rewrite run_map_get_opt, map_sel_rem, run_ret. reflexivity.
+  rewrite run_map_get_opt, map_sel_rem by (apply comparable_key_refl; exact Hcmp).
+  rewrite run_ret. reflexivity.
 Qed.
 
-(** Reading the empty map gives [None]. *)
-Lemma map_get_empty : forall {K V} (k : K),
-  @map_get_opt K V k map_empty = ret None.
+(** Reading the empty (nil) map gives [None] — in a world where its location is
+    unallocated (Go's nil map reads the zero value for every key). *)
+Lemma map_get_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
+  w_maps w 0%uint63 = None ->
+  run_io (@map_get_opt K V kt vt k map_empty) w = ORet None w.
 Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite run_map_get_opt, map_sel_empty, run_ret. reflexivity.
+  intros K V kt vt k w Hw. rewrite run_map_get_opt, map_sel_empty by exact Hw. reflexivity.
 Qed.
 
-(** Setting key [k2] leaves the read at a different key [k1] unchanged (the value
-    it had before the write, in the post-write world). *)
-Lemma map_get_set_diff : forall {K V} (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  k1 <> k2 ->
-  run_io (bind (map_set k2 v m) (fun _ => map_get_opt k1 m)) w =
-  ORet (map_sel k1 m w) (map_upd k2 v m w).
+(** Setting key [k2] leaves the read at a different key [k1] unchanged. *)
+Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
+  Comparable kt -> k1 <> k2 ->
+  run_io (bind (map_set kt vt k2 v m) (fun _ => map_get_opt kt vt k1 m)) w =
+  ORet (map_sel kt vt k1 m w) (map_upd kt vt k2 v m w).
 Proof.
-  intros K V k1 k2 v m w Hne.
+  intros K V kt vt k1 k2 v m w Hcmp Hne.
   rewrite run_bind, run_map_set. cbn.
-  rewrite run_map_get_opt, map_sel_upd_diff by exact Hne. reflexivity.
+  rewrite run_map_get_opt, map_sel_upd_diff by assumption. reflexivity.
 Qed.
 
 (** [map_get_or] hits the stored value when present, falls back when absent. *)
-Lemma map_get_or_hit : forall {K V} (k : K) (v default : V) (m : GoMap K V) (w : World),
-  map_sel k m w = Some v -> run_io (map_get_or k default m) w = ORet v w.
-Proof. intros K V k v default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
-Lemma map_get_or_miss : forall {K V} (k : K) (default : V) (m : GoMap K V) (w : World),
-  map_sel k m w = None -> run_io (map_get_or k default m) w = ORet default w.
-Proof. intros K V k default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
+Lemma map_get_or_hit : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (v default : V) (m : GoMap K V) (w : World),
+  map_sel kt vt k m w = Some v -> run_io (map_get_or kt vt k default m) w = ORet v w.
+Proof. intros K V kt vt k v default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
+Lemma map_get_or_miss : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (default : V) (m : GoMap K V) (w : World),
+  map_sel kt vt k m w = None -> run_io (map_get_or kt vt k default m) w = ORet default w.
+Proof. intros K V kt vt k default m w H. rewrite run_map_get_or, H. reflexivity. Qed.
 
-(** [clear(m)] (Go 1.21): remove ALL entries — like [map_delete] but for every
-    key.  Grounded in the heap ([map_clear_upd] empties the map; [map_sel_clear]
-    says every key reads [None] afterward), so GET-AFTER-CLEAR is a THEOREM. *)
-Axiom map_clear_upd : forall {K V : Type}, GoMap K V -> World -> World.
-Definition map_clear {K V} (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_clear_upd m w).
-Lemma run_map_clear : forall {K V} (m : GoMap K V) (w : World),
-  run_io (map_clear m) w = ORet tt (map_clear_upd m w).
+(** [clear(m)] (Go 1.21): remove ALL entries — write the everywhere-[None]
+    function.  [map_sel_clear] (every key reads [None]) is now a THEOREM, so
+    GET-AFTER-CLEAR is too. *)
+Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+                         (m : GoMap K V) (w : World) : World :=
+  map_write kt vt m (fun _ => None) w.
+Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
+  fun w => ORet tt (map_clear_upd kt vt m w).
+Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
+  run_io (map_clear kt vt m) w = ORet tt (map_clear_upd kt vt m w).
 Proof. reflexivity. Qed.
-Axiom map_sel_clear : forall {K V} (k : K) (m : GoMap K V) (w : World),
-  map_sel k m (map_clear_upd m w) = None.
+Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k : K) (m : GoMap K V) (w : World),
+  map_sel kt vt k m (map_clear_upd kt vt m w) = None.
+Proof. intros. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same. reflexivity. Qed.
 
-Lemma map_get_clear : forall {K V} (k : K) (m : GoMap K V),
-  bind (map_clear m) (fun _ => map_get_opt k m) =
-  bind (map_clear m) (fun _ => ret (@None V)).
+Lemma map_get_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V),
+  bind (map_clear kt vt m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_clear kt vt m) (fun _ => ret (@None V)).
 Proof.
   intros. apply run_io_inj. intro w.
   rewrite !run_bind, !run_map_clear. cbn.
@@ -994,7 +1136,7 @@ Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
                          (fun k => if PrimInt63.eqb k l
                                    then Some (existT _ A (tag, (nil, false)))
                                    else w_chans w k)
-                         (PrimInt63.add l 1%uint63) (w_raw w)).
+                         (w_maps w) (PrimInt63.add l 1%uint63)).
 Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : int) : IO (GoChan A) :=
   fun w => let l := w_next w in
            ORet (MkChan l)
@@ -1002,7 +1144,7 @@ Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : int) : IO (GoChan A
                          (fun k => if PrimInt63.eqb k l
                                    then Some (existT _ A (tag, (nil, false)))
                                    else w_chans w k)
-                         (PrimInt63.add l 1%uint63) (w_raw w)).
+                         (w_maps w) (PrimInt63.add l 1%uint63)).
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
     [go_spawn]) are now DEFINITIONS over the abstract channel STATE below (declared
     after it, so they can reference it); their [run_*] laws are THEOREMS.  Only the
@@ -1052,7 +1194,7 @@ Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
           (fun k => if PrimInt63.eqb k (ch_loc ch)
                     then Some (existT _ A (tag, (buf, cl)))
                     else w_chans w k)
-          (w_next w) (w_raw w).
+          (w_maps w) (w_next w).
 Definition chan_send_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World) : World :=
   chan_write tag ch (chan_buf tag ch w ++ (v :: nil)) (chan_closed ch w) w.
 Definition chan_recv_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : World :=
@@ -1808,7 +1950,7 @@ Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
   mkWorld (fun l => if PrimInt63.eqb l (r_loc r)
                     then Some (existT _ A (r_tag r, v))
                     else w_refs w l)
-          (w_chans w) (w_next w) (w_raw w).
+          (w_chans w) (w_maps w) (w_next w).
 
 (** [ref_new tag v]: allocate the fresh location [w_next], seed [r_tag := tag],
     write [v], bump the allocator.  Carries the [GoTypeTag] so the cell is tagged
@@ -1819,7 +1961,7 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
                 (mkWorld (fun k => if PrimInt63.eqb k l
                                    then Some (existT _ A (tag, v))
                                    else w_refs w k)
-                         (w_chans w) (PrimInt63.add l 1%uint63) (w_raw w)).
+                         (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63)).
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=

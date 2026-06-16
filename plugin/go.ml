@@ -865,14 +865,14 @@ let rec pp_expr state env = function
 
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
-       (* map operations *)
-       | MLglob r, [k; v; m] when is_map_set_ref r ->
+       (* map operations — the leading key/value [GoTypeTag]s are proof-only, dropped *)
+       | MLglob r, [_kt; _vt; k; v; m] when is_map_set_ref r ->
            pp_expr state env m ++ str "[" ++ pp_expr state env k ++ str "] = " ++
            pp_expr state env v
-       | MLglob r, [k; m]    when is_map_del_ref r ->
+       | MLglob r, [_kt; _vt; k; m]    when is_map_del_ref r ->
            str "delete(" ++ pp_expr state env m ++ str ", " ++ pp_expr state env k ++ str ")"
        (* clear(m) — Go 1.21 builtin, remove all map entries *)
-       | MLglob r, [m]       when is_map_clear_ref r ->
+       | MLglob r, [_kt; _vt; m]       when is_map_clear_ref r ->
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
@@ -1402,7 +1402,7 @@ let pp_io_body state tab env body =
                  def, via comma-ok.  [hit] takes the default's (typed) value, so
                  it has the map's value type (not [any]); the if-block overwrites
                  it on a hit. *)
-              | MLglob r2, [k; def; mm] when is_map_get_or_ref r2 ->
+              | MLglob r2, [_kt; _vt; k; def; mm] when is_map_get_or_ref r2 ->
                   let hit = match List.filter (fun id -> not (is_dummy id)) ids with
                     | [id] -> pp_mlident id | _ -> str "_g" in
                   str tab ++ hit ++ str " := " ++ pp_typed_lit state env def ++ fnl () ++
@@ -1414,7 +1414,7 @@ let pp_io_body state tab env body =
               (* bind (map_get_opt k m) (fun o => match o with Some v => A | None => B)
                  → comma-ok if/else.  No [option] value is built; the bound [o] is
                  consumed by the match, so [v] is bound directly from m[k]. *)
-              | MLglob r2, [k; mm] when is_map_get_opt_ref r2 ->
+              | MLglob r2, [_kt; _vt; k; mm] when is_map_get_opt_ref r2 ->
                   let fallback () =
                     unsupported "a map_get_opt result that is not immediately matched (the option has no Go representation; bind it directly to a Some v / None match)" in
                   (match ids, strip_magic body with
@@ -2011,7 +2011,7 @@ let pp_io_body state tab env body =
         let head1, all_args1 = collect_app e1 [] in
         let vis1 = List.filter (fun a -> not (is_erased a)) all_args1 in
         (match head1, vis1 with
-         | MLglob r, [k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
+         | MLglob r, [_kt; _vt; k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
              let lhs = pp_mlident id in
              str tab ++ str "var " ++ lhs ++ str " any = "
                ++ pp_typed_lit state env def ++ fnl () ++
@@ -2122,7 +2122,7 @@ let pp_io_body state tab env body =
              let sh, sargs = collect_app (strip_magic scrut) [] in
              let svis = List.filter (fun a -> not (is_erased a)) sargs in
              (match sh, svis with
-              | MLglob r, [k; m] when is_map_get_opt_ref r ->
+              | MLglob r, [_kt; _vt; k; m] when is_map_get_opt_ref r ->
                   let v_doc = match some_ids with
                     | [id] when not (is_dummy id) -> pp_mlident id
                     | _ -> str "_" in
@@ -2307,6 +2307,9 @@ let is_proof_only_state r =
     [ "ref_sel"; "ref_upd";
       "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
       "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
+      "map_get_fn"; "map_write"; "key_eqb"; "eqb";  (* map-cell read/write + key equality;
+        [eqb] = stdlib Bool.eqb/String.eqb pulled in by the (proof-only) key_eqb — the
+        float/int comparisons used in real Go lower INLINE (==), so no live code calls it *)
       "chan_write"; "tl"; "app";  (* chan-cell writer + list tail/append, used by suppressed
                                      chan_*_upd (the slice [append] builtin lowers by name) *)
       "tag_eq"; "tag_coerce";     (* proof-only typed-heap helpers *)
@@ -2316,7 +2319,7 @@ let is_proof_only_state r =
            are type casts that erase to identity, never real Go (only in suppressed
            proof-only bodies); the stdlib ones would otherwise leak with type vars *)
       "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
-      "mkWorld"; "w_refs"; "w_chans"; "w_next"; "w_raw";  (* World record ctor/projs — proof-only state *)
+      "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next"; "w_raw";  (* World record ctor/projs *)
       "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
       "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
         (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
@@ -2456,7 +2459,8 @@ let pp_decl state decl =
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice"
-    || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"; "ChanCell"; "ChanHeap"] -> mt ()
+    || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"; "ChanCell"; "ChanHeap";
+                                      "MapCell"; "MapHeap"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
 
   | Dtype (r, _, typ) ->
