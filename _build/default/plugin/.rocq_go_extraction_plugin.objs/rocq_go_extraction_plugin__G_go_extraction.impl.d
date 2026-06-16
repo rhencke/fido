@@ -1,0 +1,1 @@
+plugin/g_go_extraction.ml: Attributes Common DirPath Extend Extract_env Feedback Genarg Go Id InfvInst Libnames List Miniml Modutil Names Nametab Pp Smartlocate State Stdarg String Vernacextend Vernactypes

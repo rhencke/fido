@@ -1,0 +1,1 @@
+../../../../default/plugin/go.ml

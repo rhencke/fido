@@ -1,0 +1,63 @@
+(lang dune 3.22)
+(name rocq-go-extraction)
+(version dev)
+(sections (lib .) (libexec .))
+(files
+ (lib
+  (META
+   dune-package
+   g_go_extraction.ml
+   go.ml
+   opam
+   rocq_go_extraction_plugin.a
+   rocq_go_extraction_plugin.cma
+   rocq_go_extraction_plugin.cmi
+   rocq_go_extraction_plugin.cmt
+   rocq_go_extraction_plugin.cmx
+   rocq_go_extraction_plugin.cmxa
+   rocq_go_extraction_plugin.ml
+   rocq_go_extraction_plugin__G_go_extraction.cmi
+   rocq_go_extraction_plugin__G_go_extraction.cmt
+   rocq_go_extraction_plugin__G_go_extraction.cmx
+   rocq_go_extraction_plugin__Go.cmi
+   rocq_go_extraction_plugin__Go.cmt
+   rocq_go_extraction_plugin__Go.cmx))
+ (libexec (rocq_go_extraction_plugin.cmxs)))
+(library
+ (name rocq-go-extraction)
+ (kind normal)
+ (synopsis "Rocq → Go extraction plugin")
+ (archives
+  (byte rocq_go_extraction_plugin.cma)
+  (native rocq_go_extraction_plugin.cmxa))
+ (plugins
+  (byte rocq_go_extraction_plugin.cma)
+  (native rocq_go_extraction_plugin.cmxs))
+ (native_archives rocq_go_extraction_plugin.a)
+ (requires
+  rocq-runtime.plugins.extraction
+  rocq-runtime.interp
+  rocq-runtime.vernac)
+ (main_module_name Rocq_go_extraction_plugin)
+ (modes byte native)
+ (modules
+  (wrapped
+   (group
+    (alias
+     (obj_name rocq_go_extraction_plugin)
+     (visibility public)
+     (kind alias)
+     (source
+      (path Rocq_go_extraction_plugin)
+      (impl (path rocq_go_extraction_plugin.ml-gen))))
+    (name Rocq_go_extraction_plugin)
+    (modules
+     (module
+      (obj_name rocq_go_extraction_plugin__G_go_extraction)
+      (visibility public)
+      (source (path G_go_extraction) (impl (path g_go_extraction.ml))))
+     (module
+      (obj_name rocq_go_extraction_plugin__Go)
+      (visibility public)
+      (source (path Go) (impl (path go.ml))))))
+   (wrapped true))))
