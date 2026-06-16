@@ -10,8 +10,46 @@ the closed world.
 = 0, with the honest holdouts (below) either modeled or reclassified as an explicit
 external boundary, and `make check` (golden) **unchanged at every step**.
 
-**Current state (2026-06-15).** 108 axioms, *all* in `builtins.v`.  `concurrency.v`,
-`main.v`, `preamble.v` are already axiom-free.  So the entire target is `builtins.v`.
+**Current state (2026-06-16).** **3 axioms** (down from 108 — a 97% reduction), all in
+`builtins.v`: `type_assert`, `type_assert_ok`, `type_assert_safe`.  `concurrency.v`,
+`main.v`, `preamble.v` remain axiom-free.
+
+### What got concretized (108 → 3), all golden-byte-identical + Docker-verified
+
+- **IO monad / Hoare / refs** — `World` is now a FULLY CONCRETE record
+  `{ w_refs ; w_chans ; w_maps ; w_next }` of typed heaps; `ref_*` are definitions,
+  read-after-write a theorem.  No `RawWorld`, no abstract residue.
+- **Sessions** (7) — rigid protocol-indexed records; linearity `Fail` tests still hold.
+- **Slices / strings** (3) — definitions with self-contained, stdlib-free index helpers.
+- **GoChan / GoMap / zero_val** (3) — concrete phantom-location records + recursive zero.
+- **Channel state** (12) — `chan_buf`/`chan_send_upd`/… + the 7 channel laws are now
+  definitions + THEOREMS over `w_chans`; the element tag is threaded (GoChan can't carry
+  it — universe inconsistency).  **The proven race-freedom in `concurrency.v` survives**
+  the tag-threading (TInt64 through ~45 proof sites) and now rests on PROVEN channel laws.
+- **Map state** (10) — definitions + THEOREMS over `w_maps`, with Go's COMPARABLE-KEY
+  side conditions made HONEST (key reflexivity — false for a NaN key; `Comparable` for
+  the distinct-key law), discharged by `comparable_TInt64` for the int-keyed demos.
+- **run_blocks** (1) — fueled definition (the divergence idealization, like `run_io`'s
+  totality); plugin still lowers it to labels+goto.
+- **Allocators** (5) and **RawWorld** (1) — gone.
+
+### The remaining 3 — `type_assert` — a genuine architectural boundary
+
+`type_assert : GoTypeTag T -> GoAny -> IO T` must recover a value's DYNAMIC type from a
+`GoAny`.  Our `GoAny = {T & T}` carries no type tag, so the recovery is unprovable —
+exactly Go's runtime: an `interface{}` IS a (type, value) pair, so the faithful fix is a
+TAGGED `GoAny = {T & GoTypeTag T * T}`.  But `any` is used **184×** (every `println`/
+`panic`), and the printed values include the faithful numint wrappers (`GoU8`/`GoI8`/…)
+which have NO `GoTypeTag` (only the carriers do).  So tagging `GoAny` requires expanding
+`GoTypeTag` with ~7 new constructors (`TU8`…`TUnit`) + full ripple (`tag_eq`/`zero_val`/
+`key_eqb`), a `Tagged` typeclass for inference, AND a change to the plugin's golden-
+sensitive `any`/print erasure.  That is a large, high-risk change disproportionate to 3
+axioms and threatening the verified 97% — so it is a **tracked, principled holdout**:
+"type assertion needs the runtime type tag Go's interface carries", not an internal
+shortcut.  The tagged-`any` redesign is the path when taken as a dedicated effort.
+
+----
+(historical plan below)
 
 ## The library-import caveat (deliberate, separate category)
 
