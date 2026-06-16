@@ -348,6 +348,18 @@ let is_existT_ref r =
   ref_has_suffix r ".Init.Specif.existT" ||
   String.equal (global_basename r) "existT"
 
+(* [pair] — the prod constructor.  [GoAny] is now a TAGGED pair: [any x] is
+   [existT _ _ (pair x tag)], so the existT's payload is [pair value tag].  We emit
+   only the VALUE (the runtime tag is erased), so unwrap a payload that is a pair to
+   its FIRST component. *)
+let is_pair_ref r =
+  ref_has_suffix r ".Init.Datatypes.pair" || String.equal (global_basename r) "pair"
+let any_payload v =
+  match v with
+  | MLcons (_, r, [a; _])       when is_pair_ref r -> a   (* type params erased *)
+  | MLcons (_, r, [_; _; a; _]) when is_pair_ref r -> a   (* type params present *)
+  | _ -> v
+
 (* sigT / GoAny — map to Go's [any] type. *)
 let is_sigT_ref r =
   ref_has_suffix r ".Init.Specif.sigT" ||
@@ -377,6 +389,7 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
   || String.equal s "Ref" || String.equal s "GoChan" || String.equal s "GoMap"
+  || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
@@ -790,8 +803,8 @@ let rec pp_expr state env = function
            let go_type = go_type_of_tag tag in
            let inner =
              match v with
-             | MLcons (_, r2, [x])    when is_existT_ref r2 -> pp_expr state env x
-             | MLcons (_, r2, [_; x]) when is_existT_ref r2 -> pp_expr state env x
+             | MLcons (_, r2, [x])    when is_existT_ref r2 -> pp_expr state env (any_payload x)
+             | MLcons (_, r2, [_; x]) when is_existT_ref r2 -> pp_expr state env (any_payload x)
              | _ -> pp_expr state env v
            in
            inner ++ str ".(" ++ str go_type ++ str ")"
@@ -800,8 +813,8 @@ let rec pp_expr state env = function
        | MLglob r, [x] when is_panic_ref r ->
            let pp_pa e =
              match e with
-             | MLcons (_, r2, [v])    when is_existT_ref r2 -> pp_expr state env v
-             | MLcons (_, r2, [_; v]) when is_existT_ref r2 -> pp_expr state env v
+             | MLcons (_, r2, [v])    when is_existT_ref r2 -> pp_expr state env (any_payload v)
+             | MLcons (_, r2, [_; v]) when is_existT_ref r2 -> pp_expr state env (any_payload v)
              | _ -> pp_expr state env e
            in
            str "panic(" ++ pp_pa x ++ str ")"
@@ -907,8 +920,8 @@ let rec pp_expr state env = function
            let fname = global_basename r in
            let pp_pa e =
              match e with
-             | MLcons (_, r, [v])    when is_existT_ref r -> pp_expr state env v
-             | MLcons (_, r, [_; v]) when is_existT_ref r -> pp_expr state env v
+             | MLcons (_, r, [v])    when is_existT_ref r -> pp_expr state env (any_payload v)
+             | MLcons (_, r, [_; v]) when is_existT_ref r -> pp_expr state env (any_payload v)
              | _ -> pp_expr state env e
            in
            (match unfold_list [] lst with
@@ -1977,8 +1990,8 @@ let pp_io_body state tab env body =
          | MLglob r, [tag; x; kont] when is_type_assert_safe_ref r ->
              let go_t = go_type_of_tag tag in
              let inner = match x with
-               | MLcons (_, r2, [a])    when is_existT_ref r2 -> pp_expr state env a
-               | MLcons (_, r2, [_; a]) when is_existT_ref r2 -> pp_expr state env a
+               | MLcons (_, r2, [a])    when is_existT_ref r2 -> pp_expr state env (any_payload a)
+               | MLcons (_, r2, [_; a]) when is_existT_ref r2 -> pp_expr state env (any_payload a)
                | _ -> pp_expr state env x in
              let ids, k_body = collect_lam kont in
              let new_env = List.rev ids @ env in
@@ -2329,6 +2342,10 @@ let is_proof_only_state r =
 
 let is_inlined_ref r =
   is_proof_only_state r ||
+  (* GoAny type-tag typeclass: the [Tagged_*] instances (bodies are GoTypeTag
+     constructors) and the [the_tag] projection are proof-only — the runtime tag is
+     erased from every [any] payload. *)
+  str_prefix "Tagged" (global_basename r) || String.equal (global_basename r) "the_tag" ||
   is_nat_zero r || is_nat_succ r ||
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
@@ -2460,7 +2477,7 @@ let pp_decl state decl =
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice"
     || List.mem (global_basename r) ["RawWorld"; "RefCell"; "RefHeap"; "ChanCell"; "ChanHeap";
-                                      "MapCell"; "MapHeap"] -> mt ()
+                                      "MapCell"; "MapHeap"; "Tagged"; "GoTypeTag"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
 
   | Dtype (r, _, typ) ->

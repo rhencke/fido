@@ -47,8 +47,6 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     not a total [A * World] — is essential: with the old total type the law "[panic]
     satisfies every postcondition" forced [World] empty ([World -> False]), collapsing
     the layer.  DIVERGENCE is idealised away: [run_io] is total (terminates). *)
-Definition GoAny : Type := {T : Type & T}.
-Notation any x := (@existT Type (fun T : Type => T) _ x).
 
 (** Signed integer types.
     [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
@@ -147,12 +145,23 @@ Arguments gm_loc {K V} _.
 
     Extend this inductive as new Go types are added to builtins. *)
 
+(* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
+Record GoU8 := MkU8 { u8raw : int }.
+Record GoI8 := MkI8 { i8raw : int }.
+Record GoU16 := MkU16 { u16raw : int }.
+Record GoI16 := MkI16 { i16raw : int }.
+Record GoU32 := MkU32 { u32raw : int }.
+Record GoI32 := MkI32 { i32raw : int }.
+
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
   | TInt64   : GoTypeTag int             (* → int64 *)
   | TFloat64 : GoTypeTag float            (* → float64 *)
   | TString  : GoTypeTag GoString
-  | TAny     : GoTypeTag GoAny
+  | TU8  : GoTypeTag GoU8  | TI8  : GoTypeTag GoI8
+  | TU16 : GoTypeTag GoU16 | TI16 : GoTypeTag GoI16
+  | TU32 : GoTypeTag GoU32 | TI32 : GoTypeTag GoI32
+  | TUnit : GoTypeTag unit
   | TInt     : GoTypeTag GoInt
   | TInt8    : GoTypeTag GoInt8
   | TInt16   : GoTypeTag GoInt16
@@ -197,7 +206,10 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TInt64, TInt64     => Some eq_refl
   | TFloat64, TFloat64 => Some eq_refl
   | TString, TString   => Some eq_refl
-  | TAny, TAny         => Some eq_refl
+  | TU8, TU8   => Some eq_refl | TI8, TI8   => Some eq_refl
+  | TU16, TU16 => Some eq_refl | TI16, TI16 => Some eq_refl
+  | TU32, TU32 => Some eq_refl | TI32, TI32 => Some eq_refl
+  | TUnit, TUnit => Some eq_refl
   | TInt, TInt         => Some eq_refl
   | TInt8, TInt8       => Some eq_refl
   | TInt16, TInt16     => Some eq_refl
@@ -238,6 +250,76 @@ Qed.
 Lemma tag_coerce_refl : forall {A} (t : GoTypeTag A) (x : A), tag_coerce t t x = Some x.
 Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
 
+(** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
+    determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
+    is total precisely because [GoTypeTag] enumerates exactly the Go types and each
+    has a concrete zero (the composite [GoChan]/[GoMap] zeros use the nil-location
+    handle [MkChan 0]/[MkMap 0]; a slice's is [nil]).  The plugin lowers a
+    [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
+    affects only proofs, never the emitted Go.  (The default for a [recv] from an
+    empty/closed channel, an out-of-range index, etc.) *)
+Fixpoint zero_val {A : Type} (t : GoTypeTag A) : A :=
+  match t in GoTypeTag A' return A' with
+  | TBool    => false
+  | TInt64   => 0%uint63
+  | TFloat64 => 0%float
+  | TString  => EmptyString
+  | TU8  => MkU8 0%uint63  | TI8  => MkI8 0%uint63
+  | TU16 => MkU16 0%uint63 | TI16 => MkI16 0%uint63
+  | TU32 => MkU32 0%uint63 | TI32 => MkI32 0%uint63
+  | TUnit => tt
+  | TInt     => 0%uint63
+  | TInt8    => 0%uint63
+  | TInt16   => 0%uint63
+  | TInt32   => 0%uint63
+  | TUint    => 0%uint63
+  | TUint8   => 0%uint63
+  | TUint16  => 0%uint63
+  | TUint32  => 0%uint63
+  | TUint64  => 0%uint63
+  | TFloat32 => 0%float
+  | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
+  | TSlice _ => nil                   (* empty slice *)
+  | TMap _ _ => MkMap 0%uint63        (* nil map *)
+  end.
+
+(** ---- [GoAny] / [any] — Go's [interface{}], now a TAGGED (type, value) pair ----
+
+    Go's [interface{}] carries its value's DYNAMIC TYPE at runtime, which is exactly
+    what a type assertion [v.(T)] inspects.  So [GoAny] is a [{A & GoTypeTag A * A}]:
+    the value [A] PLUS its runtime [GoTypeTag].  (It must be DEFINED here, after
+    [GoTypeTag] — and [GoTypeTag] no longer has a [TAny] constructor, because a tagged
+    [GoAny] referenced by [TAny : GoTypeTag GoAny] is UNIVERSE-INCONSISTENT, the same
+    wall as a tag-carrying [GoChan].  This is sound: a value's dynamic type is always a
+    CONCRETE type — Go flattens nested interfaces — so [GoTypeTag GoAny] is never the
+    actual runtime type of any value.  The only thing lost is "assert TO [any]" / typed
+    [chan any]/[[]any] containers; tracked, fail-loud, not an axiom.)
+
+    [Tagged A] is the typeclass that supplies the runtime tag, so the [any x] notation
+    INFERS it (the existing [any x] sites are unchanged); [anyt tag x] gives it
+    explicitly (for a generic value type, where no instance can be resolved). *)
+Definition GoAny : Type := { A : Type & (A * GoTypeTag A)%type }.
+Class Tagged (A : Type) : Type := the_tag : GoTypeTag A.
+Arguments the_tag A {_}.
+(* [anyt] stores the VALUE first so that, in [any x], [x] pins the type [A] BEFORE
+   [the_tag _] triggers [Tagged A] resolution (otherwise the instance is searched
+   against an unknown [A] and mis-resolves). *)
+Notation anyt t x := (@existT Type (fun A : Type => (A * GoTypeTag A)%type) _ (pair x t)).
+Notation any x := (anyt (the_tag _) x).
+
+(** Tag instances for every type put into an [any] (printed / panicked / asserted). *)
+#[global] Instance Tagged_bool   : Tagged bool     := TBool.
+#[global] Instance Tagged_int    : Tagged int      := TInt64.
+#[global] Instance Tagged_float  : Tagged float    := TFloat64.
+#[global] Instance Tagged_string : Tagged GoString := TString.
+#[global] Instance Tagged_unit   : Tagged unit     := TUnit.
+#[global] Instance Tagged_GoU8   : Tagged GoU8     := TU8.
+#[global] Instance Tagged_GoI8   : Tagged GoI8     := TI8.
+#[global] Instance Tagged_GoU16  : Tagged GoU16    := TU16.
+#[global] Instance Tagged_GoI16  : Tagged GoI16    := TI16.
+#[global] Instance Tagged_GoU32  : Tagged GoU32    := TU32.
+#[global] Instance Tagged_GoI32  : Tagged GoI32    := TI32.
+
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
     Go map keys are restricted to comparable types (the spec: "the comparison
@@ -258,7 +340,13 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TUint32  => PrimInt63.eqb | TUint64 => PrimInt63.eqb
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => PrimFloat.eqb
-  | TAny     => fun _ _ => false
+  | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
+  | TI8  => fun a b => PrimInt63.eqb (i8raw a) (i8raw b)
+  | TU16 => fun a b => PrimInt63.eqb (u16raw a) (u16raw b)
+  | TI16 => fun a b => PrimInt63.eqb (i16raw a) (i16raw b)
+  | TU32 => fun a b => PrimInt63.eqb (u32raw a) (u32raw b)
+  | TI32 => fun a b => PrimInt63.eqb (i32raw a) (i32raw b)
+  | TUnit => fun _ _ => true
   | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
   | TMap _ _ => fun a b => PrimInt63.eqb (gm_loc a) (gm_loc b)
@@ -504,7 +592,6 @@ Qed.
     lowers to int64 + the explicit mask ([u8_add a b] → [(a + b) & 0xff]) —
     compilable BY CONSTRUCTION, no Go-level wrapper.  [u8_no_implicit] (a [Fail])
     is the build-checked proof that mixing is unrepresentable. *)
-Record GoU8 := MkU8 { u8raw : int }.
 (* Go spec "Constants": a constant is typed at use with a REPRESENTABILITY check —
    "it is an error if the constant value cannot be represented as a value of the
    respective type".  So an out-of-range constant is a COMPILE ERROR, NOT a silent
@@ -541,7 +628,6 @@ Notation GoByte := GoU8.
     is erased in extraction, so the Go is unchanged.  The [*_norm] helpers stay
     [int -> int] (raw mask + sign-extend); the typed ops wrap with the record
     constructor. *)
-Record GoI8 := MkI8 { i8raw : int }.
 Definition i8_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
 Definition i8_lit (x : int) (_ : (Sint63.leb (-128)%sint63 x && Sint63.ltb x 128)%bool = true) : GoI8 := MkI8 x.
@@ -555,7 +641,6 @@ Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
 (** [uint16] / [int16] — the same template at width 16 (mask [0xffff]; sign bit
     [0x8000]).  Still fully faithful on the 63-bit carrier: a 16-bit product is
     [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)
-Record GoU16 := MkU16 { u16raw : int }.
 Definition u16_lit (x : int) (_ : (x <? 65536)%uint63 = true) : GoU16 := MkU16 x.
 Definition u16_add (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.add (u16raw a) (u16raw b)) 65535).
 Definition u16_sub (a b : GoU16) : GoU16 := MkU16 (PrimInt63.land (PrimInt63.sub (u16raw a) (u16raw b)) 65535).
@@ -564,7 +649,6 @@ Definition u16_eqb (a b : GoU16) : bool := PrimInt63.eqb (u16raw a) (u16raw b).
 Definition u16_ltb (a b : GoU16) : bool := PrimInt63.ltb (u16raw a) (u16raw b).
 Definition u16_leb (a b : GoU16) : bool := PrimInt63.leb (u16raw a) (u16raw b).
 
-Record GoI16 := MkI16 { i16raw : int }.
 Definition i16_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
 Definition i16_lit (x : int) (_ : (Sint63.leb (-32768)%sint63 x && Sint63.ltb x 32768)%bool = true) : GoI16 := MkI16 x.
@@ -721,7 +805,6 @@ Fail Definition u8_div_zero : GoU8 := u8_div (u8_lit 1 eq_refl) (u8_lit 0 eq_ref
     product model would SILENTLY WRAP at [2^63] and give the wrong answer.  Per the
     fail-loud policy we omit it (the plugin already aborts a [>30]-bit fixed-width
     multiply); 32-bit multiply needs the Z-based wide-int model. *)
-Record GoU32 := MkU32 { u32raw : int }.
 Definition u32_lit (x : int) (_ : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x.
 Definition u32_add (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
 Definition u32_sub (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
@@ -740,7 +823,6 @@ Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : Go
 Definition int_of_u32 (x : GoU32) : int := u32raw x.
 Definition u32_of_int (x : int) : GoU32 := MkU32 (PrimInt63.land x 4294967295).
 
-Record GoI32 := MkI32 { i32raw : int }.
 Definition i32_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
 Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := MkI32 x.
@@ -826,21 +908,50 @@ Definition defer_call (_ : IO unit) : IO unit := fun w => ORet tt w.
 
     ESCAPE HATCH: the raw panicking form, safe only inside [catch] or when the
     runtime type is already known.  Prefer [type_assert_safe] (below), the
-    safe-by-construction default. *)
-Axiom type_assert : forall {T : Type}, GoTypeTag T -> GoAny -> IO T.
+    safe-by-construction default.
 
-Axiom type_assert_ok : forall {T} (tag : GoTypeTag T) (x : T),
-  type_assert tag (any x) = ret x.
-(* type_assert panics if the runtime type does not match T.
-   The precise failure law requires a decidable type equality; add when needed. *)
+    Now a DEFINITION (not an axiom): the tagged [GoAny] carries the value's runtime
+    [GoTypeTag], so [tag_coerce] checks it against the target [tag] and recovers the
+    value when they agree; a mismatch PANICS, exactly Go's [v.(T)].  Lowered by NAME
+    to [v.(T)] (body suppressed). *)
+Definition type_assert {T : Type} (tag : GoTypeTag T) (a : GoAny) : IO T :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce tag atag x with
+      | Some t => ret t
+      | None   => panic (anyt TUnit tt)   (* runtime-type mismatch: Go panics *)
+      end
+  end.
 
-(** Safe checked assertion (the safe-by-construction default for [GoAny]).
-    [type_assert_safe tag x (fun v ok => body)] lowers to Go's native two-value
-    form [v, ok := x.(T); body]: when the runtime type matches [T], [ok = true]
-    and [v = x]; otherwise [ok = false] and [v] is the zero value.  Because the
-    caller must handle [ok = false], it cannot panic.  CPS like [recv_ok]. *)
-Axiom type_assert_safe : forall {T B : Type},
-  GoTypeTag T -> GoAny -> (T -> bool -> IO B) -> IO B.
+(** Read-after-assert: asserting [anyt tag x] to its OWN tag returns [x] — a THEOREM
+    (was an axiom), from [tag_coerce_refl]. *)
+Theorem type_assert_ok : forall {T} (tag : GoTypeTag T) (x : T),
+  type_assert tag (anyt tag x) = ret x.
+Proof. intros T tag x. unfold type_assert. rewrite tag_coerce_refl. reflexivity. Qed.
+
+(** Safe checked assertion (the safe-by-construction default for [GoAny]) — now a
+    DEFINITION.  [type_assert_safe tag a (fun v ok => body)] lowers to Go's native
+    two-value form [v, ok := a.(T); body]: when the runtime tag matches [T], [ok =
+    true] and [v] is the value; otherwise [ok = false] and [v = zero_val tag].
+    Because the caller must handle [ok = false], it cannot panic.  CPS like [recv_ok]. *)
+Definition type_assert_safe {T B : Type}
+  (tag : GoTypeTag T) (a : GoAny) (k : T -> bool -> IO B) : IO B :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce tag atag x with
+      | Some t => k t true
+      | None   => k (zero_val tag) false
+      end
+  end.
+
+(** Build-checked: a WRONG-type assertion does NOT silently return the value — the
+    coercion is [None], so the result is a panic / [ok = false], never [ret x]. *)
+Example type_assert_safe_ok : forall {B} (x : int) (k : int -> bool -> IO B),
+  type_assert_safe TInt64 (anyt TInt64 x) k = k x true.
+Proof. intros B x k. unfold type_assert_safe. rewrite tag_coerce_refl. reflexivity. Qed.
+Example type_assert_safe_mismatch : forall {B} (x : int) (k : bool -> bool -> IO B),
+  type_assert_safe TBool (anyt TInt64 x) k = k false false.
+Proof. intros B x k. reflexivity. Qed.
 
 (** ---- GoMap ----
 
@@ -1265,35 +1376,6 @@ Proof.
   rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
 Qed.
 
-(** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
-    determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
-    is total precisely because [GoTypeTag] enumerates exactly the Go types and each
-    has a concrete zero (the composite [GoChan]/[GoMap] zeros use the nil-location
-    handle [MkChan 0]/[MkMap 0]; a slice's is [nil]).  The plugin lowers a
-    [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
-    affects only proofs, never the emitted Go.  (The default for a [recv] from an
-    empty/closed channel, an out-of-range index, etc.) *)
-Fixpoint zero_val {A : Type} (t : GoTypeTag A) : A :=
-  match t in GoTypeTag A' return A' with
-  | TBool    => false
-  | TInt64   => 0%uint63
-  | TFloat64 => 0%float
-  | TString  => EmptyString
-  | TAny     => existT (fun T : Type => T) unit tt
-  | TInt     => 0%uint63
-  | TInt8    => 0%uint63
-  | TInt16   => 0%uint63
-  | TInt32   => 0%uint63
-  | TUint    => 0%uint63
-  | TUint8   => 0%uint63
-  | TUint16  => 0%uint63
-  | TUint32  => 0%uint63
-  | TUint64  => 0%uint63
-  | TFloat32 => 0%float
-  | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
-  | TSlice _ => nil                   (* empty slice *)
-  | TMap _ _ => MkMap 0%uint63        (* nil map *)
-  end.
 
 (** The channel OPERATIONS, DEFINED over the state above.  Extraction lowers each by
     NAME to Go (the bodies — which mention the proof-only state — are suppressed).

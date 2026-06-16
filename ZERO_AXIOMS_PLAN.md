@@ -10,9 +10,30 @@ the closed world.
 = 0, with the honest holdouts (below) either modeled or reclassified as an explicit
 external boundary, and `make check` (golden) **unchanged at every step**.
 
-**Current state (2026-06-16).** **3 axioms** (down from 108 — a 97% reduction), all in
-`builtins.v`: `type_assert`, `type_assert_ok`, `type_assert_safe`.  `concurrency.v`,
-`main.v`, `preamble.v` remain axiom-free.
+**DONE (2026-06-16). ZERO axioms — 108 → 0.** `grep -cE "^Axiom |^Parameter " *.v` = 0
+across every theory; no `Admitted`.  `Print Assumptions` on the headline results
+(`type_assert_ok`, `chan_buf_send`, `map_sel_upd_same`, `ref_sel_upd_same`) reports a
+trust base of ONLY the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat`
+primitives (+ `Uint63` `eqb_refl`) and stdlib `functional_extensionality`.  Golden
+byte-identical at every step; Docker `make check` green.
+
+### The final 3 (`type_assert`) — how the universe wall was crossed
+
+`GoAny` is now Go's `interface{}` faithfully: a TAGGED pair `{A & A * GoTypeTag A}`
+carrying the value AND its runtime `GoTypeTag`.  `type_assert tag a` recovers the value
+via `tag_coerce` (match → return; mismatch → panic); `type_assert_ok` is a THEOREM
+(`tag_coerce_refl`), and adversarial checks (`type_assert_safe_mismatch`: wrong type →
+`false`, never the value) are build-gated.  The wall — a tagged `GoAny` referenced by
+`TAny : GoTypeTag GoAny` is universe-inconsistent (same as a tag-carrying `GoChan`) — was
+crossed by REMOVING `TAny`: a value's dynamic type is always concrete (Go flattens nested
+interfaces), so `GoTypeTag GoAny` is never an actual runtime type.  The only thing given
+up is typed `chan any`/`[]any` containers and "assert TO any" — a tracked, fail-loud
+modeling gap, NOT an axiom.  `GoTypeTag` gained the distinct numint-wrapper tags
+(`TU8`…`TI32`,`TUnit`) so every `any`-printed value is taggable; a `Tagged` typeclass
+infers the tag so the ~180 existing `any x` sites are unchanged; the plugin erases the
+tag from each `any` payload (emitting only the value).
+
+**The original `(historical plan below)` is kept for the record.**
 
 ### What got concretized (108 → 3), all golden-byte-identical + Docker-verified
 
