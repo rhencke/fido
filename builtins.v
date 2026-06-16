@@ -258,7 +258,7 @@ Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
     [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
     affects only proofs, never the emitted Go.  (The default for a [recv] from an
     empty/closed channel, an out-of-range index, etc.) *)
-Fixpoint zero_val {A : Type} (t : GoTypeTag A) : A :=
+Definition zero_val {A : Type} (t : GoTypeTag A) : A :=
   match t in GoTypeTag A' return A' with
   | TBool    => false
   | TInt64   => 0%uint63
@@ -968,9 +968,9 @@ Proof. intros B x k. reflexivity. Qed.
     concrete location handle, so they simply mint one.  [map_empty] is the nil map
     (a fixed [MkMap 0] handle — [map_set] on it would panic, like Go's nil map);
     the [IO] allocators take a fresh location from [w_next] and bump it.  The map
-    CONTENTS still live in the abstract [w_raw] state (the [map_sel]/[map_upd] laws
-    are unchanged), so this only retires the constructors.  Lowered by name
-    ([make(map[K]V)] / nil), the bodies are proof-only. *)
+    CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are
+    DEFINITIONS and the map laws are THEOREMS.  Lowered by name ([make(map[K]V)] /
+    nil), the bodies are proof-only. *)
 Definition map_empty {K V : Type} : GoMap K V := MkMap 0%uint63.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
@@ -1248,18 +1248,16 @@ Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
                                    then Some (existT _ A (tag, (nil, false)))
                                    else w_chans w k)
                          (w_maps w) (PrimInt63.add l 1%uint63)).
+(** Buffering is idealised away in the proof model (capacity has no denotation
+    here — only the FIFO + closed flag), so a buffered channel is created exactly
+    like an unbuffered one; the capacity [n] survives only in the plugin lowering
+    ([make(chan T, n)]). *)
 Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : int) : IO (GoChan A) :=
-  fun w => let l := w_next w in
-           ORet (MkChan l)
-                (mkWorld (w_refs w)
-                         (fun k => if PrimInt63.eqb k l
-                                   then Some (existT _ A (tag, (nil, false)))
-                                   else w_chans w k)
-                         (w_maps w) (PrimInt63.add l 1%uint63)).
+  make_chan tag.
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
-    [go_spawn]) are now DEFINITIONS over the abstract channel STATE below (declared
-    after it, so they can reference it); their [run_*] laws are THEOREMS.  Only the
-    state accessors + their laws + the allocators stay axioms — the typed-heap core. *)
+    [go_spawn]) are DEFINITIONS over the concrete channel STATE below (declared
+    after it, so they can reference it); their [run_*] laws and the channel laws
+    are THEOREMS — the whole typed-heap channel layer is axiom-free. *)
 
 (** ---- Channels via state in the world (the concurrent denotational model) ----
 
