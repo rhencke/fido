@@ -144,3 +144,30 @@ Types (B) are independent of everything — ideal warm-up to validate the
 - [ ] Phase 6 — slices/string/zero_val/type_assert (J, I, F)
 - [ ] Phase 7 — sessions/CFG/carriers (M, L, E)
 - [ ] Phase 8 — holdouts (go_spawn, GoFloat32); final count = 0
+
+## Status update (2026-06-16): 108 → 50, then genuine walls
+
+Cleanly removed (all committed, golden byte-identical): IO core, ref ops, channel
+ops, map ops, print/println/defer, append/slice_of_list, numeric carriers, len/cap.
+Built `tag_eq` (decidable GoTypeTag equality with type recovery) and fixed the
+`make check` staleness bug.  **108 → 50 (54%).**
+
+The remaining ~50 are NOT more of the same — they hit type-theoretic WALLS for the
+concrete typed heap:
+- **`GoChan` ↔ `GoTypeTag` circularity.**  A typed channel buffer needs the channel
+  to carry its tag, but `GoTypeTag` already references `GoChan` (`TChan`).  Tagged
+  channels need the two MUTUALLY defined (or a separate value-tag universe).
+- **Map arbitrary keys.**  `map_sel`/`map_upd` over arbitrary `K` need decidable key
+  equality; `map[any]` has none.  Needs a comparable-key universe (Go requires
+  comparable keys anyway), with `GoAny` keys the sticking point.
+- **`GoAny` unbox.**  `type_assert`/sessions can't recover a type from `{T & T}`;
+  needs `any` to carry a (typeclass-inferred) tag everywhere — pervasive.
+- **Divergence.**  `run_blocks` models non-terminating control flow; no total Coq
+  function is it — needs fuel or coinduction (an API change).
+- `slice_get`/`slice_at_ok`/`str_at_ok` need a plugin fix for value-position `option`
+  matches.
+
+Each is solvable in principle but is a REDESIGN, and partial versions tend to
+RELOCATE axioms into abstract sub-heaps rather than remove them, while touching the
+proven results in `concurrency.v`.  So 50 is the honest CLEAN floor; literal 0 is a
+research-grade reformulation, to be taken one wall at a time with care, not a grind.
