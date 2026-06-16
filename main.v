@@ -1205,7 +1205,7 @@ Extraction NoInline
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
-  print println defer_call append slice_of_list
+  print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
   sret sbind ssend srecv slift run_session.
 

@@ -1910,8 +1910,35 @@ Inductive Next : Type :=
     nth entry); start at [start], run each block (IO ending in a [Next]), follow
     [Jump]s until [Done].  In [IO] because a backward [Jump] need not terminate.
     The plugin emits the blocks as Go labels + [goto] (only labels that are
-    [Jump] targets are emitted, since Go rejects unused labels). *)
-Axiom run_blocks : nat -> list (IO Next) -> IO unit.
+    [Jump] targets are emitted, since Go rejects unused labels).
+
+    Now a DEFINITION (not an axiom).  This is the ONE genuinely non-terminating
+    combinator — a backward [Jump] is an unbounded loop — so a TOTAL Coq function
+    must idealise divergence away, exactly as [run_io] is total (OOM / divergence
+    are out of scope by decision).  We do so with FUEL: [run_blocks_fuel] follows
+    [Jump]s up to [block_fuel] steps, treating exhaustion as [Done].  This affects
+    only PROOFS: the plugin lowers [run_blocks] BY NAME to Go labels + [goto] (the
+    real, unbounded semantics), so the fuel never reaches the emitted Go, and no
+    theorem constrains [run_blocks]'s computational behaviour. *)
+Fixpoint block_nth (blocks : list (IO Next)) (n : nat) : IO Next :=
+  match blocks, n with
+  | b :: _,    O   => b
+  | _ :: rest, S k => block_nth rest k
+  | nil,       _   => ret Done
+  end.
+Fixpoint run_blocks_fuel (fuel start : nat) (blocks : list (IO Next)) : IO unit :=
+  match fuel with
+  | O   => ret tt
+  | S f => bind (block_nth blocks start)
+                (fun nx => match nx with
+                           | Jump n => run_blocks_fuel f n blocks
+                           | Done   => ret tt
+                           end)
+  end.
+(** The divergence-idealisation cap (proof-only; never computed nor extracted). *)
+Definition block_fuel : nat := 1000.
+Definition run_blocks (start : nat) (blocks : list (IO Next)) : IO unit :=
+  run_blocks_fuel block_fuel start blocks.
 
 (** ---- Session types (step 6) ----
 

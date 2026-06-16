@@ -2320,6 +2320,7 @@ let is_proof_only_state r =
       "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
       "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
         (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
+      "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals (proof-only) *)
       "go_list_nth"; "ascii_byte"; "go_str_byte" ]  (* self-contained slice/str index
         helpers — only ever appear in the (suppressed) slice_get/at_ok/str_at_ok bodies *)
 
