@@ -122,10 +122,22 @@ Notation GoFloat64 := float.
     value — so this retires the axiom; faithful 32-bit rounding is deferred. *)
 Definition GoFloat32 : Type := float.
 
-(** Forward declarations so GoTypeTag can reference composite Go types in its
-    TChan, TSlice, and TMap constructors.  Full axiomatisation follows below. *)
-Axiom GoMap  : Type -> Type -> Type.
-Axiom GoChan : Type -> Type.
+(** [GoChan]/[GoMap] are CONCRETE phantom-LOCATION records (no longer axioms): a
+    [GoChan A] is a handle [{ ch_loc : int }] into the world's channel state, the
+    element type [A] carried only PHANTOM (in the type, never as a field).  They do
+    NOT carry their [GoTypeTag] — that would make [GoTypeTag] (which references them
+    via [TChan]/[TMap]) UNIVERSE-INCONSISTENT (a tag indexing over a type that
+    stores a tag).  Keeping them tag-free breaks the cycle, so [GoTypeTag] below can
+    reference them freely.  At extraction [GoChan A] → Go [chan T], [GoMap K V] →
+    [map[K]V] (the plugin renders by type NAME); the [ch_loc]/[gm_loc] handle and
+    the record wrapper are erased.  (Channel/map STATE ops stay axioms for now, over
+    these concrete handles.) *)
+Record GoChan (A : Type) : Type := MkChan { ch_loc : int }.
+Record GoMap  (K V : Type) : Type := MkMap { gm_loc : int }.
+Arguments MkChan {A} _.
+Arguments ch_loc {A} _.
+Arguments MkMap {K V} _.
+Arguments gm_loc {K V} _.
 
 (** ---- Type assertions ----
 
@@ -157,12 +169,20 @@ Inductive GoTypeTag : Type -> Type :=
   | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
   | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
 
-(** A TRANSPARENT 2-ary congruence for [GoMap] — the stdlib [f_equal2] is [Qed]
-    (opaque), so [f_equal2 GoMap eq_refl eq_refl] does NOT reduce to [eq_refl],
-    which breaks [tag_eq_refl]'s [TMap] case.  This direct dependent match DOES
-    reduce (like the transparent [f_equal] used for [TChan]/[TSlice]). *)
-Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V') : GoMap K V = GoMap K' V' :=
-  match p in (_ = K2), q in (_ = V2) return (GoMap K V = GoMap K2 V2) with
+(** TRANSPARENT congruences for the now-CONCRETE [GoChan]/[GoMap] records, forced
+    to live at [@eq Type].  Two reasons they are not the stdlib [f_equal]/[f_equal2]:
+    (1) [f_equal2] is [Qed] (opaque) so [f_equal2 GoMap eq_refl eq_refl] does NOT
+    reduce to [eq_refl], breaking [tag_eq_refl]; (2) since [GoChan A]/[GoMap K V] are
+    records over [int : Set] they land in [Set], so a bare [f_equal GoChan] yields an
+    [@eq Set] proof — but [tag_eq]'s result [option (A = B)] is at [@eq Type] (the
+    [GoTypeTag] index universe).  Annotating the return as [@eq Type] (valid by
+    cumulativity, [Set ⊆ Type]) produces a proof at the right universe, and the
+    direct dependent match reduces on [eq_refl]. *)
+Definition gochan_cong {A A'} (p : A = A') : @eq Type (GoChan A) (GoChan A') :=
+  match p in (_ = X) return (@eq Type (GoChan A) (GoChan X)) with eq_refl => eq_refl end.
+Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V')
+  : @eq Type (GoMap K V) (GoMap K' V') :=
+  match p in (_ = K2), q in (_ = V2) return (@eq Type (GoMap K V) (GoMap K2 V2)) with
   | eq_refl, eq_refl => eq_refl
   end.
 
@@ -188,7 +208,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TUint32, TUint32   => Some eq_refl
   | TUint64, TUint64   => Some eq_refl
   | TFloat32, TFloat32 => Some eq_refl
-  | TChan a, TChan b   => match tag_eq a b with Some p => Some (f_equal GoChan p) | None => None end
+  | TChan a, TChan b   => match tag_eq a b with Some p => Some (gochan_cong p) | None => None end
   | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
   | TMap ka va, TMap kb vb =>
       match tag_eq ka kb, tag_eq va vb with
@@ -1000,8 +1020,34 @@ Axiom chan_buf_recv_frame : forall {A} (ch ch' : GoChan A) (w : World),
   ch <> ch' -> chan_buf ch' (chan_recv_upd ch w) = chan_buf ch' w.
 
 (** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
-    determines which.  (The default for a [recv] from an empty/closed channel.) *)
-Axiom zero_val : forall {A : Type}, GoTypeTag A -> A.
+    determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
+    is total precisely because [GoTypeTag] enumerates exactly the Go types and each
+    has a concrete zero (the composite [GoChan]/[GoMap] zeros use the nil-location
+    handle [MkChan 0]/[MkMap 0]; a slice's is [nil]).  The plugin lowers a
+    [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
+    affects only proofs, never the emitted Go.  (The default for a [recv] from an
+    empty/closed channel, an out-of-range index, etc.) *)
+Fixpoint zero_val {A : Type} (t : GoTypeTag A) : A :=
+  match t in GoTypeTag A' return A' with
+  | TBool    => false
+  | TInt64   => 0%uint63
+  | TFloat64 => 0%float
+  | TString  => EmptyString
+  | TAny     => existT (fun T : Type => T) unit tt
+  | TInt     => 0%uint63
+  | TInt8    => 0%uint63
+  | TInt16   => 0%uint63
+  | TInt32   => 0%uint63
+  | TUint    => 0%uint63
+  | TUint8   => 0%uint63
+  | TUint16  => 0%uint63
+  | TUint32  => 0%uint63
+  | TUint64  => 0%uint63
+  | TFloat32 => 0%float
+  | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
+  | TSlice _ => nil                   (* empty slice *)
+  | TMap _ _ => MkMap 0%uint63        (* nil map *)
+  end.
 
 (** The channel OPERATIONS, DEFINED over the state above.  Extraction lowers each by
     NAME to Go (the bodies — which mention the proof-only state — are suppressed).

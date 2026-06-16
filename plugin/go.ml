@@ -376,7 +376,7 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
    all suppressed; uses are recognised by operation name. *)
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
-  || String.equal s "Ref"
+  || String.equal s "Ref" || String.equal s "GoChan" || String.equal s "GoMap"
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
@@ -2308,13 +2308,16 @@ let is_proof_only_state r =
       "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
       "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
       "tag_eq"; "tag_coerce";     (* proof-only typed-heap helpers *)
-      "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal"; "gomap_cong";
+      "eq_rect"; "eq_rec"; "eq_ind"; "eq_sym"; "eq_trans"; "f_equal";
+      "gomap_cong"; "gochan_cong";
         (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — they
            are type casts that erase to identity, never real Go (only in suppressed
            proof-only bodies); the stdlib ones would otherwise leak with type vars *)
       "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
       "mkWorld"; "w_refs"; "w_next"; "w_raw";  (* World record ctor/projs — proof-only state *)
       "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
+      "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
+        (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
       "go_list_nth"; "ascii_byte"; "go_str_byte" ]  (* self-contained slice/str index
         helpers — only ever appear in the (suppressed) slice_get/at_ok/str_at_ok bodies *)
 
