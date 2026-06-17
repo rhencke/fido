@@ -118,11 +118,24 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
     swap; Z is axiom-free), `hbt_irrefl` = Closed.  No new/degenerate axioms.  Emits no
     Go (proof-only), golden unchanged.  `inj`/`prj` realizable across the WHOLE int64
     range now (`inj n := MkI64 (Z.of_nat n)`), not just `< 2^62`.
-  - **A4.2 — user-facing default integer type → `GoI64`/`GoU64`** (pending): ergonomic
-    notations (literals + arithmetic) so the full-width types are as usable as `int`;
-    convert the integer demos; prove `GoI64`/`GoU64` `Comparable` (map-key capable);
-    reframe primitive `int` (Sint63) as the bounded proof-layer/index integer in the
-    docs/spec, no longer the Go-int64 claim.
+  - **A4.2a — ergonomic surface (DONE, 2026-06-17).**  `Notation int64 := GoI64` /
+    `uint64 := GoU64` (the canonical names); range-checked `Number Notation` so
+    `42%i64` / `42%u64` are int64/uint64 LITERALS whose representability is checked AT
+    PARSE TIME (out-of-range numeral → `None` → parse error = Go's untyped-constant
+    overflow; `i64_lit_oob` / `u64_lit_oob` `Fail` tests — closes A5 for int64/uint64
+    *literals*, constant *arithmetic* still A5); scoped arithmetic (`+`/`-`/`*`/`=?`/
+    `<?`/`<=?` in `i64_scope`/`u64_scope`).  Demos `i64_demo`/`u64_demo` converted to
+    `(a + b)%i64` form — golden BYTE-IDENTICAL (the `MkI64`/`MkU64` literal lowers
+    through the numint-ctor erasure to the same bare Go int).  Plugin: a dedicated
+    `MkU64 z` arm prints UNSIGNED (`%Lu`) — the Number-Notation literal form would
+    otherwise hit the signed bare-`Z` arm and render `[2^63,2^64)` negative.  The four
+    parse helpers (`i64_of_Z`/`Z_of_i64`/`u64_of_Z`/`Z_of_u64`) are parse-time only,
+    suppressed in `is_inlined_ref`.  No new axioms (Number Notation is parsing, not
+    proof).
+  - **A4.2b — close-out** (pending): prove `GoI64`/`GoU64` `Comparable` (map-key
+    capable) + a demo flowing int64 through a channel and a map (full-pipeline proof);
+    reframe primitive `int` (Sint63) as the bounded proof-layer/index integer in
+    CLAUDE.md / SPEC_CONFORMANCE; retire Tier 2 #4.
 - **A5 — untyped integer constants as `Z`** with representability checked at use
   (`Fail` test for the compile-error analog).
 
@@ -253,7 +266,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration: A4.1 concurrency-bridge carrier → `GoI64` ✓ (axiom-free preserved); A4.2 user-facing default + ergonomic notations pending; A5 `Z` constants pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration: A4.1 concurrency-bridge carrier → `GoI64` ✓, A4.2a ergonomic notation (range-checked `%i64`/`%u64` literals + scoped arith) ✓; A4.2b (Comparable + pipeline demo + `int` reframing) pending; A5 `Z` constant *arithmetic* pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

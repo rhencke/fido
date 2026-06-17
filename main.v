@@ -428,9 +428,11 @@ Qed.
    than the runtime int64 wrap [i64_add] models — exactly the untyped-constant gap
    (PRE_IMPORT_PLAN A5 / Known gaps #5).  [i64_add] models RUNTIME int64 addition,
    faithful for non-constant operands; the demo keeps its constant results in range. *)
+(* Ergonomic full-width int64: range-checked [%i64] literals + scoped arithmetic
+   (A4.2).  Reads like ordinary integer code, but is the faithful [Z]-carried int64. *)
 Definition i64_demo : IO unit :=
-  println [ any (i64_add (i64_lit 9000000000000000000 eq_refl) (i64_lit 200000000000000000 eq_refl))  (* 9200000000000000000 (> 2^62) *)
-          ; any (i64_mul (i64_lit 3000000000 eq_refl) (i64_lit 3000000000 eq_refl)) ].  (* 9000000000000000000 (> 2^62) *)
+  println [ any (9000000000000000000 + 200000000000000000)%i64  (* 9200000000000000000 (> 2^62) *)
+          ; any (3000000000 * 3000000000)%i64 ].  (* 9000000000000000000 (> 2^62) *)
 
 (** int64 div/mod (truncate toward zero — NOT Coq's floor), bitwise, and shifts —
     all at the full width.  Machine-checked corner cases: [-7/2 = -3] (trunc, not the
@@ -473,8 +475,8 @@ Example spec_u64_beyond63 : u64raw (u64_add (u64_lit 5000000000000000000%Z eq_re
     (PRE_IMPORT_PLAN A5 / Known gaps #5).  The wrapping corner cases above are
     proof witnesses only (proof-only path never emitted). *)
 Definition u64_demo : IO unit :=
-  println [ any (u64_add (u64_lit 5000000000000000000%Z eq_refl) (u64_lit 3000000000000000000%Z eq_refl))  (* 8000000000000000000 (> 2^62) *)
-          ; any (u64_mul (u64_lit 3000000000%Z eq_refl) (u64_lit 3000000000%Z eq_refl)) ].               (* 9000000000000000000 *)
+  println [ any (5000000000000000000 + 3000000000000000000)%u64  (* 8000000000000000000 (> 2^62) *)
+          ; any (3000000000 * 3000000000)%u64 ].               (* 9000000000000000000 *)
 
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;

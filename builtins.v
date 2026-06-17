@@ -993,6 +993,55 @@ Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : int).
 Fail Definition u64_div_zero : GoU64 := u64_div (u64_lit 1%Z eq_refl) (u64_lit 0%Z eq_refl) eq_refl.
 Fail Definition u64_shl_neg  : GoU64 := u64_shl (u64_lit 1%Z eq_refl) (-1)%Z eq_refl.
 
+(** ---- A4.2: GoI64 / GoU64 are THE canonical Go int64 / uint64 ----
+
+    [GoI64]/[GoU64] (the [Z]-carried full-width types) are the faithful models of
+    Go's [int64]/[uint64] (Go spec "Numeric types"); the bounded [Sint63] [int] is
+    relegated to proof-layer / compile-time-index use.  These abbreviations + scopes
+    make the full-width types as ERGONOMIC as a primitive: [42%i64] is a range-checked
+    int64 literal, [(a + b)%i64] is full-width addition.
+
+    The literal parser ([i64_of_Z]/[u64_of_Z]) RANGE-CHECKS at PARSE TIME, returning
+    [None] for an out-of-range numeral — so an over-wide literal is REJECTED by the
+    parser, exactly Go's untyped-constant overflow compile error (the A5 gap, closed
+    for int64/uint64 LITERALS here; constant ARITHMETIC at arbitrary precision is still
+    A5).  This is why the literal builds the raw [MkI64]/[MkU64]: the parser's range
+    check is the proof, so no separate [_lit] obligation is needed. *)
+Notation int64  := GoI64.
+Notation uint64 := GoU64.
+
+Definition i64_of_Z (z : Z) : option GoI64 := if in_i64 z then Some (MkI64 z) else None.
+Definition Z_of_i64 (x : GoI64) : Z := i64raw x.
+Definition u64_of_Z (z : Z) : option GoU64 := if in_u64 z then Some (MkU64 z) else None.
+Definition Z_of_u64 (x : GoU64) : Z := u64raw x.
+
+Declare Scope i64_scope.
+Delimit Scope i64_scope with i64.
+Bind Scope i64_scope with GoI64.
+Number Notation GoI64 i64_of_Z Z_of_i64 : i64_scope.
+Infix "+"  := i64_add : i64_scope.
+Infix "-"  := i64_sub : i64_scope.
+Infix "*"  := i64_mul : i64_scope.
+Infix "=?" := i64_eqb : i64_scope.
+Infix "<?" := i64_ltb : i64_scope.
+Infix "<=?" := i64_leb : i64_scope.
+
+Declare Scope u64_scope.
+Delimit Scope u64_scope with u64.
+Bind Scope u64_scope with GoU64.
+Number Notation GoU64 u64_of_Z Z_of_u64 : u64_scope.
+Infix "+"  := u64_add : u64_scope.
+Infix "-"  := u64_sub : u64_scope.
+Infix "*"  := u64_mul : u64_scope.
+Infix "=?" := u64_eqb : u64_scope.
+Infix "<?" := u64_ltb : u64_scope.
+Infix "<=?" := u64_leb : u64_scope.
+
+(* Build-checked: an out-of-range literal is REJECTED AT PARSE (Go untyped-constant
+   overflow).  [2^63] overflows int64 (max [2^63-1]); [2^64] overflows uint64. *)
+Fail Definition i64_lit_oob : GoI64 := (9223372036854775808)%i64.   (* = 2^63 *)
+Fail Definition u64_lit_oob : GoU64 := (18446744073709551616)%u64.  (* = 2^64 *)
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world

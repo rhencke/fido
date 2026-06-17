@@ -1216,6 +1216,15 @@ let rec pp_expr state env = function
       (* Coq [string] literal → Go string literal (byte-faithful). *)
       str (go_string_lit (Option.get (decode_go_string e)))
 
+  (* [MkU64 z] — an unsigned full-width literal (e.g. from the [%u64] Number
+     Notation, which builds the raw [MkU64] constructor after its parse-time range
+     check).  Print its [Z] as UNSIGNED decimal: [Int64.to_string] would render a
+     value in [2^63, 2^64) as negative.  Must precede the generic numint-ctor
+     erasure (which would fall through to the signed bare-[Z] arm below). *)
+  | MLcons (_, r, [z]) when String.equal (global_basename r) "MkU64"
+                           && Option.has_some (z_value z) ->
+      str (Printf.sprintf "%Lu" (Option.get (z_value z)))
+
   | MLcons _ as e when Option.has_some (z_value e) ->
       (* Coq [Z] literal (e.g. inside an erased [MkI64 z]) → decimal int64. *)
       str (Int64.to_string (Option.get (z_value e)))
@@ -2467,6 +2476,7 @@ let proof_only_names =
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
     "wrap64"; "in_i64";            (* GoI64 normaliser / range check — proof-only (Z) *)
     "wrapU64"; "in_u64";           (* GoU64 normaliser / range check — proof-only (Z) *)
+    "i64_of_Z"; "Z_of_i64"; "u64_of_Z"; "Z_of_u64";  (* Number-Notation parsers — parse-time only *)
     "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
 let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
