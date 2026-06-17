@@ -1331,11 +1331,9 @@ and emit_block state hoists term tab env b =
 let pp_io_body state tab env body =
   let is_void_call e =
     match collect_app e [] with
-    | MLglob r, _ when is_print_ref r || is_println_ref r || is_panic_ref r -> true
-    | MLglob r, _ when is_map_set_ref r || is_map_del_ref r || is_map_clear_ref r -> true
-    | MLglob r, _ when is_send_ref r -> true
-    | MLglob r, _ when is_close_chan_ref r -> true
-    | MLglob r, _ when is_ref_set_ref r -> true
+    | MLglob r, _ when is_print_ref r || is_println_ref r || is_panic_ref r
+                       || is_map_set_ref r || is_map_del_ref r || is_map_clear_ref r
+                       || is_send_ref r || is_close_chan_ref r || is_ref_set_ref r -> true
     | _ -> false
   in
   let is_terminating e =
@@ -2085,8 +2083,9 @@ let pp_io_body state tab env body =
       pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
       str tab ++ str "}" ++ fnl ()
     in
-    (* [list GoRune] = string; the slice lowering (xs[0], xs[1:]) is byte-wise
-       and wrong for runes, so a string match is excluded from the list case. *)
+    (* [GoString] is a BYTE sequence ([string]), DISTINCT from a [list GoRune]
+       ([]int32); the byte-wise slice lowering (xs[0], xs[1:]) is wrong for a rune
+       slice, so a string match is excluded from the list case. *)
     let is_string_list =
       match typ with
       | Tglob (r, [Tglob (elem, [])]) ->
@@ -2131,7 +2130,7 @@ let pp_io_body state tab env body =
                     (none_body, 0, env)
               | _ -> unhandled ())
          (* list / slice: [match xs with [] | x :: rest] → len / index / reslice.
-            Slices only — string (list GoRune) matches are excluded above. *)
+            Slices only — a [GoString] (byte sequence) match is excluded above. *)
          | Some c1, Some c2
            when ((is_list_nil c1 && is_list_cons c2)
               || (is_list_cons c1 && is_list_nil c2))
