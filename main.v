@@ -867,6 +867,18 @@ Definition ptr_safe_demo : IO unit :=
   ptr_get_ok TI64 (ptr_nil TI64) (fun v2 ok2 =>     (* nil → v2=0, ok2=false, NO panic *)
   println [any v2; any ok2])))).                     (* prints 0 false *)
 
+(** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
+    a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
+    through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
+    [s[1]], read back as 99 — impossible for the value (list-based) slice model. *)
+Definition slice_alias_demo : IO unit :=
+  bind (slice_make_h TI64 (3:int)) (fun s =>                                  (* s := make([]int64, 3) *)
+  bind (slice_idx_set s (0:int) (10)%i64) (fun _ =>                           (* s[0] = 10 *)
+  bind (slice_idx_set s (1:int) (20)%i64) (fun _ =>                           (* s[1] = 20 *)
+  bind (slice_idx_set (subslice s (1:int) (3:int)) (0:int) (99)%i64) (fun _ =>  (* s[1:3][0] = 99 (= s[1]) *)
+  bind (slice_idx_get TI64 s (1:int)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
+  println [any v]))))).                                                        (* prints 99 *)
+
 (** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
     The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
     its declaration is hoisted to [var iv int64] (dominating the loop) and
@@ -1294,6 +1306,7 @@ Definition main_effect : IO unit :=
   mut_demo                      >>'   (* prints: 15 *)
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
+  slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
@@ -1314,6 +1327,7 @@ Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
+  slice_make_h slice_idx_get slice_idx_set subslice
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear

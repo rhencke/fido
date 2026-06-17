@@ -500,6 +500,15 @@ func Ptr_safe_demo() {
 	println(v2, ok2)
 }
 
+func Slice_alias_demo() {
+	s := make([]int64, 3)
+	s[0] = int64(10)
+	s[1] = int64(20)
+	(s[1:3])[0] = int64(99)
+	v := s[1]
+	println(v)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -897,6 +906,7 @@ func main() {
 	Mut_demo()
 	Ptr_demo()
 	Ptr_safe_demo()
+	Slice_alias_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()

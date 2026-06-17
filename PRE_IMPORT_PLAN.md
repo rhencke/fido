@@ -200,9 +200,21 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
 - **B2 — Pointer receivers** (pending; needs B1): methods with a `*T` receiver that
   MUTATE the receiver — exclude `Ptr` from the value-receiver method detection, lower
   to `func (recv *T) M(...)`.
-- **B3 — Slice aliasing** (pending; the big one): `GoSlice` becomes a backing-array
-  handle `(backing-id, offset, len, cap)`; sub-slice `s[a:b]` shares the array;
-  in-place `append`; rewrites the current list-based slice model.
+- **B3 — Slice aliasing** (the big one): a faithful aliasing-handle slice model.
+  - **B3a — aliasing handles (DONE, 2026-06-17).**  `SliceH A` = an aliasing handle
+    `(base, offset, len, cap, tag)` that REUSES the `w_refs` cell heap — element `i` is
+    the cell at `base + (offset + i)`.  `slice_make_h` (alloc `n` fresh zeroed cells),
+    `slice_idx_get`/`slice_idx_set` (`s[i]` / `s[i] = v`), `subslice s a b` (`s[a:b]` —
+    shifts `offset` over the SAME cells).  THEOREMS (no new heap/axiom, from
+    `ref_sel_upd_same`): `subslice_shares_cell` (sub-slice elem `j` IS parent elem
+    `a+j`), `subslice_alias` (a write through a sub-slice seen through the parent),
+    `slice_idx_get_set_same`.  Lowers to native Go `[]T` (`make`/index/`[a:b]`), which
+    IS the aliasing handle, so runtime aliases correctly.  `slice_alias_demo`:
+    `(s[1:3])[0] = 99` then `s[1]` reads 99, golden-locked.  The list-based `GoSlice`
+    (value, no aliasing) coexists for immutable uses.
+  - **B3b — append** (pending): within-`cap` aliases (write at `base+offset+len`,
+    `len++`); past-`cap` reallocates (fresh backing, copy — no aliasing).
+  - **B3c — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending).
 - **B4 — Arrays** (pending): value semantics distinct from slices.
 - **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).
 

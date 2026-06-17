@@ -2406,6 +2406,81 @@ Lemma ptr_get_ok_nonnil : forall {A B} (tag : GoTypeTag A) (p : Ptr A)
   ptr_get_ok tag p k w = k (ref_sel (ptr_as_ref p) w) true w.
 Proof. intros A B tag p k w Hnn. unfold ptr_get_ok. rewrite Hnn. reflexivity. Qed.
 
+(** ---- Slices as ALIASING HANDLES (Go spec "Slice types", Phase B3) ----
+
+    A Go slice is NOT a value — it is a HANDLE [(backing-array, offset, len, cap)] that
+    SHARES its backing array, so sub-slicing and writes ALIAS.  The list-based [GoSlice]
+    (a value, no aliasing) stays for the immutable cases; [SliceH] is the faithful
+    aliasing model.  Backing arrays REUSE the [w_refs] cell heap: element [i] of a
+    [SliceH] is the cell at [base + offset + i].  Sub-slicing shifts [offset] over the
+    SAME cells, so [sub-slice[j] = parent[a+j]] is the SAME cell — aliasing is then the
+    `ref_sel_upd_same` theorem, no new heap, no new axiom.  Lowers to Go [[]T] (which
+    IS this handle) with native [make]/index/sub-slice. *)
+Record SliceH (A : Type) : Type := mkSliceH
+  { sh_base : int ; sh_off : int ; sh_len : int ; sh_cap : int ; sh_tag : GoTypeTag A }.
+Arguments mkSliceH {A} _ _ _ _ _.
+Arguments sh_base {A} _.  Arguments sh_off {A} _.  Arguments sh_len {A} _.
+Arguments sh_cap {A} _.   Arguments sh_tag {A} _.
+
+(* Element [i]'s cell = [base + (off + i)] — grouped so the sub-slice alias is one
+   [add_assoc].  [sh_cell] is the [Ref] view into the shared heap. *)
+Definition sh_loc {A} (s : SliceH A) (i : int) : int :=
+  PrimInt63.add (sh_base s) (PrimInt63.add (sh_off s) i).
+Definition sh_cell {A} (s : SliceH A) (i : int) : Ref A := mkRef (sh_loc s i) (sh_tag s).
+
+(* [make([]T, n)]: allocate [n] fresh consecutive zeroed cells, return the handle. *)
+Definition slice_make_h {A} (tag : GoTypeTag A) (n : int) : IO (SliceH A) :=
+  fun w => let base := w_next w in
+           ORet (mkSliceH base 0 n n tag)
+                (mkWorld (fun k => if (PrimInt63.leb base k
+                                       && PrimInt63.ltb k (PrimInt63.add base n))%bool
+                                   then Some (existT _ A (tag, zero_val tag))
+                                   else w_refs w k)
+                         (w_chans w) (w_maps w) (PrimInt63.add base n)).
+(* [s[i]] read / [s[i] = v] write, through the shared backing cell. *)
+Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) : IO A :=
+  fun w => ORet (ref_sel (sh_cell s i) w) w.
+Definition slice_idx_set {A} (s : SliceH A) (i : int) (v : A) : IO unit :=
+  fun w => ORet tt (ref_upd (sh_cell s i) v w).
+Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (w : World),
+  run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s i) w) w.
+Proof. reflexivity. Qed.
+Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
+  run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s i) v w).
+Proof. reflexivity. Qed.
+(* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells. *)
+Definition subslice {A} (s : SliceH A) (a b : int) : SliceH A :=
+  mkSliceH (sh_base s) (PrimInt63.add (sh_off s) a)
+           (PrimInt63.sub b a) (PrimInt63.sub (sh_cap s) a) (sh_tag s).
+
+(** Sub-slice element [j] IS parent element [a+j] — the SAME backing cell. *)
+Lemma subslice_shares_cell : forall {A} (s : SliceH A) (a b j : int),
+  sh_cell (subslice s a b) j = sh_cell s (PrimInt63.add a j).
+Proof.
+  intros A s a b j. unfold sh_cell, sh_loc, subslice. cbn.
+  rewrite (Uint63.add_assoc (sh_off s) a j). reflexivity.
+Qed.
+
+(** ALIASING — the defining slice property, a THEOREM: a write through a SUB-SLICE is
+    observed through the PARENT (they share the backing array).  Write [sub[j]] (=
+    [parent[a+j]]), read [parent[a+j]] → the written value. *)
+Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : int) (v : A) (w : World),
+  ref_sel (sh_cell s (PrimInt63.add a j))
+          (ref_upd (sh_cell (subslice s a b) j) v w) = v.
+Proof.
+  intros A s a b j v w. rewrite subslice_shares_cell. apply ref_sel_upd_same.
+Qed.
+
+(** Read-after-write at an index — a THEOREM (from the shared heap). *)
+Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (v : A),
+  bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =
+  bind (slice_idx_set s i v) (fun _ => ret v).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, run_slice_idx_set. cbn.
+  rewrite run_slice_idx_get, ref_sel_upd_same, run_ret. reflexivity.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

@@ -254,6 +254,12 @@ let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
 let is_ptr_as_ref_ref = named "ptr_as_ref"
 let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
+(* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
+let is_sliceh_type = named "SliceH"
+let is_slice_make_h_ref = named "slice_make_h"
+let is_slice_idx_get_ref = named "slice_idx_get"
+let is_slice_idx_set_ref = named "slice_idx_set"
+let is_subslice_ref = named "subslice"
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -422,7 +428,8 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
    all suppressed; uses are recognised by operation name. *)
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
-  || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "GoChan" || String.equal s "GoMap"
+  || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
+  || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
@@ -721,6 +728,8 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
+  (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
+  | Tglob (r, [arg]) when is_sliceh_type r -> str "[]" ++ pp_type state arg
   (* GoChan A → chan T *)
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
@@ -986,6 +995,21 @@ let rec pp_expr state env = function
           safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)
        | MLglob r, [tag] when is_ptr_nil_ref r ->
            str "(*" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")(nil)"
+
+       (* Slices as aliasing handles (Phase B3).  SliceH lowers to Go []T (which IS
+          the aliasing handle), so the ops are native: [make([]T,n)], [s[i]],
+          [s[i] = v], [s[a:b]] (a sub-slice that SHARES the backing array). *)
+       | MLglob r, [tag; n] when is_slice_make_h_ref r ->
+           str "make([]" ++ str (go_type_of_tag (strip_magic tag)) ++ str ", "
+           ++ pp_expr state env n ++ str ")"
+       | MLglob r, [_tag; s; i] when is_slice_idx_get_ref r ->
+           pp_atom state env s ++ str "[" ++ pp_expr state env i ++ str "]"
+       | MLglob r, [s; i; v] when is_slice_idx_set_ref r ->
+           pp_atom state env s ++ str "[" ++ pp_expr state env i ++ str "] = "
+           ++ pp_typed_lit state env v
+       | MLglob r, [s; a; b] when is_subslice_ref r ->
+           pp_atom state env s ++ str "[" ++ pp_expr state env a ++ str ":"
+           ++ pp_expr state env b ++ str "]"
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -2579,6 +2603,7 @@ let proof_only_names =
     "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
     "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref"; "ptr_is_nil";  (* Ptr ctor/projs/views — proof-only *)
+    "mkSliceH"; "sh_base"; "sh_off"; "sh_len"; "sh_cap"; "sh_tag"; "sh_loc"; "sh_cell";  (* SliceH internals — proof-only *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
@@ -2613,6 +2638,8 @@ let is_inlined_ref r =
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
+  is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
+  is_slice_idx_set_ref r || is_subslice_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||
