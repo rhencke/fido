@@ -563,13 +563,13 @@ Definition u64_pipeline_demo : IO unit :=
 Example spec_go_min       : go_min 3 5 = 3%uint63. Proof. now vm_compute. Qed.
 Example spec_go_max       : go_max 3 5 = 5%uint63. Proof. now vm_compute. Qed.
 Example spec_go_min_neg   : go_min (-2)%sint63 1 = (-2)%sint63. Proof. now vm_compute. Qed.
-Example spec_slice_make_n : List.length (slice_make TInt64 3) = 3%nat. Proof. reflexivity. Qed.
+Example spec_slice_make_n : List.length (slice_make TI64 3) = 3%nat. Proof. reflexivity. Qed.
 Definition builtins_demo : IO unit :=
-  bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 *)
-  bind (println [ any (len (slice_make TInt64 3)) ]) (fun _ =>                                     (* 3 *)
-  bind (map_make_typed TInt64 TInt64) (fun m =>
-  bind (map_set TInt64 TInt64 (1 : int) (10 : int) m) (fun _ =>
-  bind (map_clear TInt64 TInt64 m) (fun _ =>                                                                     (* clear → empty *)
+  bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 — go_min/max are the min/max BUILTIN demo, kept on int *)
+  bind (println [ any (len (slice_make TI64 3)) ]) (fun _ =>                                     (* 3 *)
+  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_set TI64 TI64 (1)%i64 (10)%i64 m) (fun _ =>
+  bind (map_clear TI64 TI64 m) (fun _ =>                                                                     (* clear → empty *)
   bind (map_len m) (fun n =>
   println [ any n ])))))).                                                                         (* 0 (cleared) *)
 
@@ -626,12 +626,12 @@ Definition map_demo : IO unit :=
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
 Definition slice_demo : IO unit :=
-  let xs := slice_of_list TInt64 [1%uint63; 2%uint63; 3%uint63; 4%uint63; 5%uint63] in
+  let xs := slice_of_list TI64 [(1)%i64; (2)%i64; (3)%i64; (4)%i64; (5)%i64] in
   let n  := len xs in
-  bind (slice_get TInt64 xs (2:int)) (fun v =>   (* xs[2] = 3, valid *)
+  bind (slice_get TI64 xs (2:int)) (fun v =>   (* xs[2] = 3, valid (index is Go int) *)
   println [any n; any v] >>'                      (* prints: 5 3 *)
   catch
-    (bind (@slice_get int TInt64 xs (9:int)) (fun _ =>  (* xs[9] panics — OOB *)
+    (bind (@slice_get GoI64 TI64 xs (9:int)) (fun _ =>  (* xs[9] panics — OOB *)
      ret tt))
     (fun _ => println [any false])).              (* caught: prints false *)
 
@@ -850,7 +850,7 @@ Definition lookup_demo : IO unit :=
     The [cons] arm binds two variables (head and tail) — a two-binder case the
     earlier matches did not exercise. *)
 Definition list_demo : IO unit :=
-  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
+  let xs := slice_of_list TI64 [(10)%i64; (20)%i64; (30)%i64] in
   match xs with
   | nil         => println [any false]
   | cons x rest => println [any x; any (len rest)]   (* head=10, len tail=2 *)
@@ -860,24 +860,25 @@ Definition list_demo : IO unit :=
     out-of-bounds case, so it cannot panic — the safe-by-construction default,
     versus the [slice_get] escape hatch used in [slice_demo] above. *)
 Definition slice_safe_demo : IO unit :=
-  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
-  slice_at_ok TInt64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
+  let xs := slice_of_list TI64 [(10)%i64; (20)%i64; (30)%i64] in
+  slice_at_ok TI64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
   println [any v; any ok] >>'
-  slice_at_ok TInt64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
+  slice_at_ok TI64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
   println [any v2; any ok2] >>'
   (* runtime-NEGATIVE index (sub 0 1 = -1) — a *constant* negative index is a Go
-     compile error, so use a computed one; the lower-bound check must reject it. *)
-  slice_at_ok TInt64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
+     compile error, so use a computed one; the lower-bound check must reject it.
+     The index is a Go [int], so [sub] (Sint63) is kept for index arithmetic. *)
+  slice_at_ok TI64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
   println [any v3; any ok3]))).
 
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction
     default versus the [type_assert] escape hatch.  We assert on a recovered
     panic value [r : GoAny] (a genuine [any], like [panic_and_recover]). *)
-Definition assert_safe_demo (n : int) : IO unit :=
+Definition assert_safe_demo (n : GoI64) : IO unit :=
   catch (@panic unit (any n))
     (fun r =>
-     type_assert_safe TInt64 r (fun v ok =>        (* r holds int64 → n true *)
+     type_assert_safe TI64 r (fun v ok =>        (* r holds int64 → n true *)
      println [any v; any ok] >>'
      type_assert_safe TBool r (fun b ok2 =>        (* r is not a bool → false false *)
      println [any b; any ok2]))).
@@ -1104,8 +1105,8 @@ Definition foreach_demo : IO unit :=
 (** Fold: sum a slice into an accumulator — lowers to an accumulator [for]
     loop ([total := 0; for _, x := range xs { total = total + x }]). *)
 Definition sum_demo : IO unit :=
-  let xs    := slice_of_list TInt64 [1%uint63; 2%uint63; 3%uint63; 4%uint63] in
-  let total := slice_fold xs (0 : int) (fun acc x => add acc x) in
+  let xs    := slice_of_list TI64 [(1)%i64; (2)%i64; (3)%i64; (4)%i64] in
+  let total := slice_fold xs (0)%i64 (fun acc x => i64_add acc x) in
   println [any total].   (* 1+2+3+4 = 10 *)
 
 (** ── Structs (Go value-structs from Rocq Records) ───────────────────────────
@@ -1334,7 +1335,7 @@ Definition main_effect : IO unit :=
   lookup_demo                   >>'   (* prints: 700 true / false *)
   list_demo                     >>'   (* prints: 10 2 *)
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
-  assert_safe_demo (7 : int)    >>'   (* prints: 7 true / false false *)
+  assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)

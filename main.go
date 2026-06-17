@@ -678,7 +678,7 @@ func Sum_demo() {
 	xs := []int64{1, 2, 3, 4}
 	total := int64(0)
 	for _, x := range xs {
-		total = Add(total, x)
+		total = total + x
 	}
 	println(total)
 }
