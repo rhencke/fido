@@ -435,7 +435,7 @@ let is_i64_op r name = String.equal (global_basename r) ("i64_" ^ name)
 let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
-    ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
+    ["lit"; "add"; "sub"; "mul"; "add_nz"; "sub_nz"; "mul_nz"; "eqb"; "ltb"; "leb";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
@@ -637,6 +637,11 @@ let binop_of r =
   else if is_i64_op r "add"    then Some (4, " + ")
   else if is_i64_op r "sub"    then Some (4, " - ")
   else if is_i64_op r "mul"    then Some (5, " * ")
+  (* overflow-safe forms: the no-overflow proof is erased, so [i64_add_nz a b] is the
+     same bare Go op as [i64_add a b] (the proof showed it does not wrap). *)
+  else if is_i64_op r "add_nz" then Some (4, " + ")
+  else if is_i64_op r "sub_nz" then Some (4, " - ")
+  else if is_i64_op r "mul_nz" then Some (5, " * ")
   else if is_i64_op r "div"    then Some (5, " / ")
   else if is_i64_op r "mod"    then Some (5, " % ")
   else if is_i64_op r "and"    then Some (5, " & ")

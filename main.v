@@ -158,10 +158,51 @@ Proof. now vm_compute. Qed.
 
 (** Arithmetic you can only call with a proven-in-range result.  Prints
     10^12 + 2·10^12 = 3·10^12 (proven no wrap) and 1000·1000 = 10^6. *)
+(** OVERFLOW-SAFE ARITHMETIC AT THE FULL WIDTH (A4.3: the int model migrated off the
+    bounded [Sint63] onto the faithful [GoI64]).  Fido's signature property — "this
+    arithmetic does not overflow" as a Rocq THEOREM — now holds on the TRUE int64, not
+    just [±2^62].  Each guarded op DEMANDS a proof the exact result is representable
+    ([in_i64 (exact) = true], dischargeable by [eq_refl] for concrete operands — the
+    same shape as [div_nz], and Go's untyped-constant-overflow analog), then the
+    wrapping machine op is EXACT (no wrap), by the [*_no_overflow_exact] theorems.  Raw
+    [i64_add]/[i64_sub]/[i64_mul] stay the opt-in WRAPPING forms. *)
+Theorem i64_sub_no_overflow_exact : forall a b : GoI64,
+  in_i64 (i64raw a - i64raw b)%Z = true -> i64raw (i64_sub a b) = (i64raw a - i64raw b)%Z.
+Proof.
+  intros [a] [b]. unfold in_i64, i64_sub, wrap64. cbn. intros H.
+  apply andb_prop in H. destruct H as [H1 H2].
+  apply Z.leb_le in H1. apply Z.ltb_lt in H2.
+  rewrite Z.mod_small by lia. lia.
+Qed.
+Theorem i64_mul_no_overflow_exact : forall a b : GoI64,
+  in_i64 (i64raw a * i64raw b)%Z = true -> i64raw (i64_mul a b) = (i64raw a * i64raw b)%Z.
+Proof.
+  intros [a] [b]. unfold in_i64, i64_mul, wrap64. cbn. intros H.
+  apply andb_prop in H. destruct H as [H1 H2].
+  apply Z.leb_le in H1. apply Z.ltb_lt in H2.
+  rewrite Z.mod_small by lia. lia.
+Qed.
+
+Definition i64_no_overflow_add (a b : GoI64) : Prop := in_i64 (i64raw a + i64raw b) = true.
+Definition i64_no_overflow_sub (a b : GoI64) : Prop := in_i64 (i64raw a - i64raw b) = true.
+Definition i64_no_overflow_mul (a b : GoI64) : Prop := in_i64 (i64raw a * i64raw b) = true.
+Definition i64_add_nz (a b : GoI64) (_ : i64_no_overflow_add a b) : GoI64 := i64_add a b.
+Definition i64_sub_nz (a b : GoI64) (_ : i64_no_overflow_sub a b) : GoI64 := i64_sub a b.
+Definition i64_mul_nz (a b : GoI64) (_ : i64_no_overflow_mul a b) : GoI64 := i64_mul a b.
+
+(** The guarded ops give the EXACT result — proof discharged by [eq_refl] (the in-range
+    obligation is a decidable [bool] equation that computes). *)
+Example i64_add_nz_exact :
+  i64raw (i64_add_nz (1000000000000)%i64 (2000000000000)%i64 eq_refl) = 3000000000000%Z.
+Proof. now vm_compute. Qed.
+Example i64_mul_nz_exact :
+  i64raw (i64_mul_nz (1000000)%i64 (1000000)%i64 eq_refl) = 1000000000000%Z.
+Proof. now vm_compute. Qed.
+
 Definition overflow_safe_demo : IO unit :=
-  println [ any (add_nz 1000000000000 2000000000000 ltac:(now vm_compute))
-          ; any (mul_nz 1000 1000 ltac:(now vm_compute)) ].
-  (* prints: 3000000000000 1000000 *)
+  println [ any (i64_add_nz (1000000000000)%i64 (2000000000000)%i64 eq_refl)
+          ; any (i64_mul_nz (1000)%i64 (1000)%i64 eq_refl) ].
+  (* prints: 3000000000000 1000000 — full-width GoI64, proven no wrap *)
 
 (** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
     [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
@@ -428,6 +469,7 @@ Qed.
    than the runtime int64 wrap [i64_add] models — exactly the untyped-constant gap
    (PRE_IMPORT_PLAN A5 / Known gaps #5).  [i64_add] models RUNTIME int64 addition,
    faithful for non-constant operands; the demo keeps its constant results in range. *)
+
 (* Ergonomic full-width int64: range-checked [%i64] literals + scoped arithmetic
    (A4.2).  Reads like ordinary integer code, but is the faithful [Z]-carried int64. *)
 Definition i64_demo : IO unit :=
@@ -1333,7 +1375,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
-  i64_lit i64_add i64_sub i64_mul i64_eqb i64_ltb i64_leb
+  i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
