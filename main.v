@@ -1118,7 +1118,7 @@ Definition sum_demo : IO unit :=
 
     Because a record is an ordinary Rocq type, struct INVARIANTS are already
     provable by hand here: [px] of a [MkPoint a b] is definitionally [a]. *)
-Record Point := MkPoint { px : int ; py : int }.
+Record Point := MkPoint { px : GoI64 ; py : GoI64 }.
 
 Example point_proj_px : forall a b, px (MkPoint a b) = a.
 Proof. reflexivity. Qed.
@@ -1126,18 +1126,18 @@ Example point_proj_py : forall a b, py (MkPoint a b) = b.
 Proof. reflexivity. Qed.
 
 Definition point_demo : IO unit :=
-  let p := MkPoint 3 4 in
+  let p := MkPoint (3)%i64 (4)%i64 in
   bind (println [any (px p)])           (fun _ =>   (* 3 *)
   bind (println [any (py p)])           (fun _ =>   (* 4 *)
-  println [any (add (px p) (py p))])).  (* 7 *)
+  println [any (i64_add (px p) (py p))])).  (* 7 *)
 
 (** Heterogeneous fields prove the struct field-type printer is general, not
     hardcoded to [int64]: [flag : bool] lowers to a Go [bool] field, [qty : int]
     to [int64].  (Mixing field types in one struct is the common case.) *)
-Record Labeled := MkLabeled { flag : bool ; qty : int }.
+Record Labeled := MkLabeled { flag : bool ; qty : GoI64 }.
 
 Definition labeled_demo : IO unit :=
-  let r := MkLabeled true 5 in
+  let r := MkLabeled true (5)%i64 in
   bind (println [any (flag r)])   (fun _ =>   (* true *)
   println [any (qty r)]).                     (* 5 *)
 
@@ -1148,20 +1148,20 @@ Definition labeled_demo : IO unit :=
     as [M(p, a)]) and idiomatic; the receiver is the SAME de Bruijn binding, only
     the signature pulls it out front.  (Method↔type association is what Stage C's
     interfaces will check: the method set of [Point] is every such function.) *)
-Definition sum_coords (p : Point) : int := add (px p) (py p).
-Definition shifted (p : Point) (dx : int) : Point :=
-  MkPoint (add (px p) dx) (add (py p) dx).
+Definition sum_coords (p : Point) : GoI64 := i64_add (px p) (py p).
+Definition shifted (p : Point) (dx : GoI64) : Point :=
+  MkPoint (i64_add (px p) dx) (i64_add (py p) dx).
 
 (** Method behaviour is provable in Rocq: shifting moves each coordinate by [d].
     Both hold by computation (the method unfolds to a constructor + projection). *)
-Example shifted_px : forall p d, px (shifted p d) = add (px p) d.
+Example shifted_px : forall p d, px (shifted p d) = i64_add (px p) d.
 Proof. reflexivity. Qed.
-Example shifted_py : forall p d, py (shifted p d) = add (py p) d.
+Example shifted_py : forall p d, py (shifted p d) = i64_add (py p) d.
 Proof. reflexivity. Qed.
 
 Definition method_demo : IO unit :=
-  let p := MkPoint 3 4 in
-  let q := shifted p 10 in
+  let p := MkPoint (3)%i64 (4)%i64 in
+  let q := shifted p (10)%i64 in
   bind (println [any (sum_coords p)])   (fun _ =>   (* 7 *)
   bind (println [any (px q)])           (fun _ =>   (* 13 *)
   bind (println [any (py q)])           (fun _ =>   (* 14 *)
@@ -1174,7 +1174,7 @@ Definition describe (p : Point) : IO unit :=
   bind (println [any (px p)]) (fun _ => println [any (py p)]).
 
 Definition io_method_demo : IO unit :=
-  let p := MkPoint 8 9 in
+  let p := MkPoint (8)%i64 (9)%i64 in
   describe p.   (* prints: 8 / 9 *)
 
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
@@ -1193,18 +1193,18 @@ Definition io_method_demo : IO unit :=
     one-method interface would erase to a bare function and need curried-return
     handling in the lowering; that is a tracked follow-up.  A ≥2-method interface
     stays a boxed record, i.e. a genuine vtable struct, which is the common case.) *)
-Record Shape := MkShape { area : int -> int ; perim : int -> int }.
+Record Shape := MkShape { area : GoI64 -> GoI64 ; perim : GoI64 -> GoI64 }.
 
 (* Two DIFFERENT concrete carriers behind one [Shape] — the existential payoff:
    [show_shape] dispatches uniformly, never seeing which one it holds.  The methods
    take a scale [s] (so the dictionary entries are real closures, not bare data);
    [mk_rect] closes over [w]/[h], [mk_square] over just [side]. *)
-Definition mk_rect (w h : int) : Shape :=
-  MkShape (fun s => add (add (add w h) (add w h)) s)   (* perimeter-ish + scale *)
-          (fun s => add (add w h) s).
-Definition mk_square (side : int) : Shape :=
-  MkShape (fun s => add (add (add side side) (add side side)) s)
-          (fun s => add (add side side) s).
+Definition mk_rect (w h : GoI64) : Shape :=
+  MkShape (fun s => i64_add (i64_add (i64_add w h) (i64_add w h)) s)   (* perimeter-ish + scale *)
+          (fun s => i64_add (i64_add w h) s).
+Definition mk_square (side : GoI64) : Shape :=
+  MkShape (fun s => i64_add (i64_add (i64_add side side) (i64_add side side)) s)
+          (fun s => i64_add (i64_add side side) s).
 
 Definition show_shape (sh : Shape) : IO unit :=
   bind (println [any (area sh 0)])    (fun _ =>   (* the first method, scale 0 *)
@@ -1212,14 +1212,14 @@ Definition show_shape (sh : Shape) : IO unit :=
 
 (** Dispatch is provable in Rocq — a dictionary entry IS the supplied method, so
     [area (mk_rect w h) s] computes to the closure [mk_rect] put there. *)
-Example dispatch_area  : forall w h s, area  (mk_rect w h) s = add (add (add w h) (add w h)) s.
+Example dispatch_area  : forall w h s, area  (mk_rect w h) s = i64_add (i64_add (i64_add w h) (i64_add w h)) s.
 Proof. reflexivity. Qed.
-Example dispatch_perim : forall side s, perim (mk_square side) s = add (add side side) s.
+Example dispatch_perim : forall side s, perim (mk_square side) s = i64_add (i64_add side side) s.
 Proof. reflexivity. Qed.
 
 Definition iface_demo : IO unit :=
-  bind (show_shape (mk_rect 3 4))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
-  show_shape (mk_square 5)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
+  bind (show_shape (mk_rect (3)%i64 (4)%i64))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
+  show_shape (mk_square (5)%i64)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
 
 (** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
     The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
@@ -1236,11 +1236,11 @@ Definition iface_demo : IO unit :=
 Inductive LightColor : Prop := CRed | CGreen.
 (* Two fields keep the record BOXED (Coq unboxes a single-field record), i.e. a
    genuine Go struct; [serial] is just a second datum so the struct stays a struct. *)
-Record Light (c : LightColor) := MkLight { ticks : int ; serial : int }.
+Record Light (c : LightColor) := MkLight { ticks : GoI64 ; serial : GoI64 }.
 
-Definition fresh_light : Light CRed := MkLight CRed 0 7.
+Definition fresh_light : Light CRed := MkLight CRed (0)%i64 (7)%i64.
 Definition go_green (l : Light CRed) : Light CGreen :=
-  MkLight CGreen (add (ticks CRed l) 1) (serial CRed l).
+  MkLight CGreen (i64_add (ticks CRed l) (1)%i64) (serial CRed l).
 Definition go_red   (l : Light CGreen) : Light CRed :=
   MkLight CRed (ticks CGreen l) (serial CGreen l).
 
@@ -1268,16 +1268,16 @@ Fail Definition bad_red_on_fresh : Light CRed   := go_red fresh_light.
     [struct { S_a, S_b int64 }] — zero runtime cost — yet the invariant is available
     to reason with.  [max_of] returns [s_b] directly as the maximum with NO runtime
     comparison, JUSTIFIED by the carried proof. *)
-Record Sorted2 := MkSorted2 { s_a : int ; s_b : int ; s_ok : Sint63.leb s_a s_b = true }.
+Record Sorted2 := MkSorted2 { s_a : GoI64 ; s_b : GoI64 ; s_ok : i64_leb s_a s_b = true }.
 
-Definition min_of (p : Sorted2) : int := s_a p.
-Definition max_of (p : Sorted2) : int := s_b p.
+Definition min_of (p : Sorted2) : GoI64 := s_a p.
+Definition max_of (p : Sorted2) : GoI64 := s_b p.
 
 (* The invariant is usable: the max is provably >= the min, from the erased proof. *)
-Example max_ge_min : forall p, Sint63.leb (min_of p) (max_of p) = true.
+Example max_ge_min : forall p, i64_leb (min_of p) (max_of p) = true.
 Proof. intros [a b ok]. exact ok. Qed.
 
-Definition demo_pair : Sorted2 := MkSorted2 3 7 eq_refl.
+Definition demo_pair : Sorted2 := MkSorted2 (3)%i64 (7)%i64 eq_refl.
 
 Definition repinv_demo : IO unit :=
   bind (println [any (min_of demo_pair)])   (fun _ =>   (* 3 *)
@@ -1285,7 +1285,7 @@ Definition repinv_demo : IO unit :=
 
 (** The negative test: a value VIOLATING the invariant cannot be built — [s_a <= s_b]
     fails for [7, 3], so [eq_refl] does not type-check and the struct is unconstructible. *)
-Fail Definition bad_unsorted : Sorted2 := MkSorted2 7 3 eq_refl.
+Fail Definition bad_unsorted : Sorted2 := MkSorted2 (7)%i64 (3)%i64 eq_refl.
 
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep

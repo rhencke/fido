@@ -692,7 +692,7 @@ func Point_demo() {
 	p := Point{3, 4}
 	println(p.Px)
 	println(p.Py)
-	println(Add(p.Px, p.Py))
+	println(p.Px + p.Py)
 }
 
 type Labeled struct {
@@ -707,11 +707,11 @@ func Labeled_demo() {
 }
 
 func (p Point) Sum_coords() int64 {
-	return Add(p.Px, p.Py)
+	return p.Px + p.Py
 }
 
 func (p Point) Shifted(dx int64) Point {
-	return Point{Add(p.Px, dx), Add(p.Py, dx)}
+	return Point{p.Px + dx, p.Py + dx}
 }
 
 func Method_demo() {
@@ -740,17 +740,17 @@ type Shape struct {
 
 func Mk_rect(w int64, h int64) Shape {
 	return Shape{func(s int64) int64 {
-		return Add(Add(Add(w, h), Add(w, h)), s)
+		return w + h + (w + h) + s
 	}, func(s int64) int64 {
-		return Add(Add(w, h), s)
+		return w + h + s
 	}}
 }
 
 func Mk_square(side int64) Shape {
 	return Shape{func(s int64) int64 {
-		return Add(Add(Add(side, side), Add(side, side)), s)
+		return side + side + (side + side) + s
 	}, func(s int64) int64 {
-		return Add(Add(side, side), s)
+		return side + side + s
 	}}
 }
 
@@ -772,7 +772,7 @@ type Light struct {
 var Fresh_light Light = Light{0, 7}
 
 func (l Light) Go_green() Light {
-	return Light{Add(l.Ticks, 1), l.Serial}
+	return Light{l.Ticks + 1, l.Serial}
 }
 
 func (l Light) Go_red() Light {
