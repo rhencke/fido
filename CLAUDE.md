@@ -734,13 +734,23 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `3000000000000 1000000` (proven no wrap).  The bounded Sint63 `add_nz`/`no_overflow_*`
    were REMOVED in the int-model migration.  *Open:* a runtime check-and-branch
    (comma-ok) form for operands whose range is only known at runtime.
-6. **Untyped constants modelled wrong.**  Literals are modelled as already-typed
-   fixed-width/IEEE values; Go's *untyped* constants are arbitrary precision and
-   acquire a type (with a representability check) only at use.  So `const 0.1+0.2`
-   should be `0.3` (we give the runtime `0.30000000000000004`), large int
-   constants (`1<<70`) are unrepresentable in 63-bit `int`, and constant overflow
-   is a compile error not a wrap.  (Known gaps #5.)  *Fix:* untyped int constants
-   as `Z`, untyped float as exact rationals; type + representability proof at use.
+6. **Untyped constants — *INTEGER side DONE (A5, 2026-06-17); float side open*.**
+   Go's *untyped* constants are arbitrary precision and acquire a type (with a
+   representability check) only at use; a constant that does not fit is a *compile
+   error*, not a runtime wrap.  *Integer fix delivered:* an untyped int constant is
+   modelled as `Z`, constant arithmetic is `Z` arithmetic (exact), and the type-at-use
+   conversion is the `i64c`/`u64c` notations — each `vm_compute`-evaluates the closed
+   `Z` expression at ELABORATION (real bignums, so an INTERMEDIATE may exceed the
+   target, e.g. `1<<70`) then converts via `i64_lit`/`u64_lit` demanding `in_i64`/
+   `in_u64`.  An out-of-range constant FAILS to elaborate (the representability proof
+   cannot be built) = Go's untyped-constant overflow.  No plugin change — the
+   arbitrary precision lives in `vm_compute`; the resulting literal lowers via the
+   existing fold.  Witnesses (axiom-free): `const_intermediate_exceeds` (`(1<<70)>>8
+   = 2^62`), `const_exact_arith` (`10^12`), `const_u64_upper` (`2^63` fits uint64 not
+   int64), `const_oob_i64`/`const_oob_u64` `Fail`; `const_demo` golden-locked.  *Still
+   open (float side):* `const 0.1+0.2` should be `0.3` (we give the runtime
+   `0.30000000000000004`) — untyped FLOAT constants as exact rationals (`Q`), tied to
+   the float work (Phase D).
 
 ### Tier 3 — modelled types that are faithful only in a sub-regime
 7. **Strings — byte model DONE; rune view deferred.**  `GoString := string` (Coq's

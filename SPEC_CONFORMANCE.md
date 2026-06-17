@@ -40,7 +40,7 @@ modeled here — see **Constants** below.
 
 ## Constants
 
-### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ✓ representability (fixed-width); ⚠ arbitrary precision
+### [Constants](https://go.dev/ref/spec#Constants) / [Constant expressions](https://go.dev/ref/spec#Constant_expressions) — ✓ representability + arbitrary-precision INTEGER; ⚠ float
 Spec: "Numeric constants represent **exact values of arbitrary precision and do
 not overflow**."  A constant acquires a type only at use, where "**it is an error
 if the constant value cannot be represented as a value of the respective type**"
@@ -54,12 +54,18 @@ in-range literal.  So an out-of-range constant is **unrepresentable** — a comp
 error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
 by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
 The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
-*Remaining for full airtightness (the rest of this section):* `int` (Sint63)
-literals aren't yet representability-checked (ties to wrapping `int` as a distinct
-record + the Z-width model, Tier 2 #4); **arbitrary-precision** constant
-arithmetic (large intermediates like `1<<40 * 1<<40`) needs untyped int constants
-as `Z`; **float constants** need exact rationals (`Q`) rounding once at the typed
-boundary.  ⚠ tracked.
+**Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
+untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
+evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may
+exceed the target, e.g. `1<<70`), then converted via `i64_lit`/`u64_lit` demanding
+`in_i64`/`in_u64`.  An out-of-range constant FAILS to elaborate — exactly "constant
+overflows", NOT a wrap.  ✓ witnesses `const_intermediate_exceeds` (`(1<<70)>>8 =
+2^62`), `const_exact_arith`, `const_u64_upper` (`2^63` fits uint64 not int64),
+`const_oob_i64`/`const_oob_u64` (`Fail`); the `Z` precision lives in `vm_compute`,
+no plugin change.  *Remaining:* the fixed-width narrow `_lit` take an `int` (not
+`Z`) argument, so a narrow constant's arbitrary-precision arithmetic still routes
+through the bounded carrier (low priority); and **float constants** need exact
+rationals (`Q`) rounding once at the typed boundary (Phase D).  ⚠ float tracked.
 
 ## Types
 
