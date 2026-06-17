@@ -103,10 +103,26 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
   arithmetic at the bit level; comparison/division differ but Go's unsigned
   `<`/`/` match the Z model on non-negative operands).  `TU64 → "uint64"` in
   go_type_tag_map.  `u64_demo` golden-locked.
-- **A4 — migrate the default `int`/`int64` (`TInt`/`TInt64`/`GoInt`) to the
-  full-width type**, *or* keep `Sint63` as an explicit "bounded int" and make
-  `GoI64`/`GoU64` the faithful full-width pair. Touches concurrency.v's `TInt64`
-  channel-carrier and the int demos — the invasive decision; scope it then.
+- **A4 — migrate the default `int`/`int64` to the full-width type** (DECISION
+  2026-06-17: FULL MIGRATION — make `GoI64`/`GoU64` THE canonical Go int64/uint64,
+  not the bounded `Sint63`).  Done in sub-steps:
+  - **A4.1 — concurrency.v bridge value carrier (DONE, 2026-06-17).**  The
+    Keystone / KeystoneMulti deep↔shallow bridge now carries `GoI64` (tag `TI64`)
+    values, NOT `int`/`TInt64` — so the modeled channel/heap values are the faithful
+    full-width int64.  Mechanical: the bridge proofs use only the POLYMORPHIC IO laws
+    (`run_send`/`recv`/`chan_buf_send`/`recv`/`ref_*` + the frame laws), never any
+    `int`-specific computation, so swapping the carrier tag is sound by construction.
+    Verified: build green; `Print Assumptions denote_adequate`/`reachable_refines_and_safe`/
+    `denote_sim_recv` = exactly the Coq primitive kernel axioms (`int`/`eqb`/`eqb_refl`/
+    `eqb_correct`/`PrimFloat.float` — from channel/location plumbing, UNCHANGED by the
+    swap; Z is axiom-free), `hbt_irrefl` = Closed.  No new/degenerate axioms.  Emits no
+    Go (proof-only), golden unchanged.  `inj`/`prj` realizable across the WHOLE int64
+    range now (`inj n := MkI64 (Z.of_nat n)`), not just `< 2^62`.
+  - **A4.2 — user-facing default integer type → `GoI64`/`GoU64`** (pending): ergonomic
+    notations (literals + arithmetic) so the full-width types are as usable as `int`;
+    convert the integer demos; prove `GoI64`/`GoU64` `Comparable` (map-key capable);
+    reframe primitive `int` (Sint63) as the bounded proof-layer/index integer in the
+    docs/spec, no longer the Go-int64 claim.
 - **A5 — untyped integer constants as `Z`** with representability checked at use
   (`Fail` test for the compile-error analog).
 
@@ -237,7 +253,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓ (full op set: arith/compare/div/mod/bitwise/shifts); A3 `GoU64` ✓ (full op set, axiom-free); A4 default-`int` migration, A5 `Z` constants pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration: A4.1 concurrency-bridge carrier → `GoI64` ✓ (axiom-free preserved); A4.2 user-facing default + ergonomic notations pending; A5 `Z` constants pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

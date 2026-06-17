@@ -848,11 +848,13 @@ Qed.
     [run_recv]/[chan_buf_send]/[chan_buf_recv] (no NEW axioms; [Print Assumptions]
     below shows exactly that base).
 
-    Value carrier = [int] (Go int64, tag [TInt64]); [recv] needs a [GoTypeTag] and
-    [GoTypeTag nat] is provably EMPTY, so calculus [nat] values are coded into IO
-    [int] by [inj]/[prj].  [Hret] (the round-trip [prj (inj n) = n]) is the standard
-    faithful-coding condition — realizable on the bounded (< 2^62) value regime the
-    int model already lives in; it is the section's only hypothesis, NOT an axiom.
+    Value carrier = [GoI64] (the FULL-WIDTH Go int64, tag [TI64], [Z]-carried — NOT
+    the bounded [Sint63] [int]); [recv] needs a [GoTypeTag] and [GoTypeTag nat] is
+    provably EMPTY, so calculus [nat] values are coded into IO [GoI64] by [inj]/[prj].
+    [Hret] (the round-trip [prj (inj n) = n]) is the standard faithful-coding
+    condition — realizable across the WHOLE int64 range (e.g. [inj n := MkI64 (Z.of_nat
+    n)], [prj (MkI64 z) := Z.to_nat z]); it is the section's only hypothesis, NOT an
+    axiom.  (A4: the bridge carrier is now the faithful full-width int64.)
 
     SPAWN is deliberately ABSENT from this bridge: [go_spawn] has NO [run_io] law,
     because [run_io] is SEQUENTIAL and cannot express interleaving.  That is exactly
@@ -860,10 +862,10 @@ Qed.
     lives on [rstep], not on [run_io].
     ============================================================================ *)
 Section Keystone.
-  Variable chenv : nat -> GoChan int.    (* calculus channel id -> the IO channel *)
-  Variable locenv : nat -> Ref int.      (* calculus location  -> the IO ref cell *)
-  Variable inj : nat -> int.             (* calculus value -> IO value (a coding) *)
-  Variable prj : int -> nat.             (* IO value -> calculus value *)
+  Variable chenv : nat -> GoChan GoI64.    (* calculus channel id -> the IO channel *)
+  Variable locenv : nat -> Ref GoI64.      (* calculus location  -> the IO ref cell *)
+  Variable inj : nat -> GoI64.             (* calculus value -> IO value (a coding) *)
+  Variable prj : GoI64 -> nat.             (* IO value -> calculus value *)
   Hypothesis Hret : forall n, prj (inj n) = n.   (* the coding round-trips *)
 
   (* Deep<->shallow correspondence.  D_recv's premise is itself a [forall x],
@@ -872,20 +874,20 @@ Section Keystone.
   Inductive Denotes : Cmd -> IO unit -> Prop :=
     | D_ret   : Denotes CRet (ret tt)
     | D_send  : forall ch v k m, Denotes k m ->
-        Denotes (CSend ch v k) (bind (send TInt64 (chenv ch) (inj v)) (fun _ => m))
+        Denotes (CSend ch v k) (bind (send TI64 (chenv ch) (inj v)) (fun _ => m))
     | D_recv  : forall ch f g, (forall x, Denotes (f (prj x)) (g x)) ->
-        Denotes (CRecv ch f) (bind (recv TInt64 (chenv ch)) g)
+        Denotes (CRecv ch f) (bind (recv TI64 (chenv ch)) g)
     | D_write : forall l v k m, Denotes k m ->
         Denotes (CWrite l v k) (bind (ref_set (locenv l) (inj v)) (fun _ => m))
     | D_read  : forall l f g, (forall x, Denotes (f (prj x)) (g x)) ->
-        Denotes (CRead l f) (bind (ref_get TInt64 (locenv l)) g).
+        Denotes (CRead l f) (bind (ref_get TI64 (locenv l)) g).
 
   (* World <-> config on one channel [c]: the IO buffer is the calculus buffer, coded.
      (Single channel keeps it frame-free — a send/recv touches only [c]'s buffer, and
      the IO channel laws relate exactly that buffer; multi-channel would need a
      channel-separation/frame law, tracked.) *)
   Definition WMatch1 (c : nat) (w : World) (cfg : RConfig) : Prop :=
-    chan_buf TInt64 (chenv c) w = map inj (rchan cfg c).
+    chan_buf TI64 (chenv c) w = map inj (rchan cfg c).
 
   (** A SEND step: the deep [CSend] run-reduces to its continuation at the world after
       [chan_send_upd], and the buffer match is preserved — mirroring [rstep_send]. *)
@@ -895,17 +897,17 @@ Section Keystone.
     chan_closed (chenv c) w = false ->
     exists m',
       Denotes k m' /\
-      run_io m w = run_io m' (chan_send_upd TInt64 (chenv c) (inj v) w) /\
-      WMatch1 c (chan_send_upd TInt64 (chenv c) (inj v) w)
+      run_io m w = run_io m' (chan_send_upd TI64 (chenv c) (inj v) w) /\
+      WMatch1 c (chan_send_upd TI64 (chenv c) (inj v) w)
               (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
                       (tr ++ [mkEv tid (KSend c)])).
   Proof.
     intros p b h lv tr tid c v k m w HD HM Hclosed.
     inversion HD as [| ch0 v0 k0 m' HDk Hch Hm | | | ]; subst.
     exists m'. split; [exact HDk | split].
-    - rewrite run_bind, (run_send TInt64 (chenv c) (inj v) w Hclosed). cbn. reflexivity.
+    - rewrite run_bind, (run_send TI64 (chenv c) (inj v) w Hclosed). cbn. reflexivity.
     - unfold WMatch1, rchan in *. cbn [rc_bufs] in *. rewrite upd_same.
-      rewrite (chan_buf_send TInt64 (chenv c) (inj v) w), HM, !map_app. cbn. reflexivity.
+      rewrite (chan_buf_send TI64 (chenv c) (inj v) w), HM, !map_app. cbn. reflexivity.
   Qed.
 
   (** A RECV step: the deep [CRecv] run-reduces by BINDING the head value; [Hret]
@@ -917,20 +919,20 @@ Section Keystone.
     b c = (v, s) :: brest ->
     exists m',
       Denotes (f v) m' /\
-      run_io m w = run_io m' (chan_recv_upd TInt64 (chenv c) w) /\
-      WMatch1 c (chan_recv_upd TInt64 (chenv c) w)
+      run_io m w = run_io m' (chan_recv_upd TI64 (chenv c) w) /\
+      WMatch1 c (chan_recv_upd TI64 (chenv c) w)
               (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
   Proof.
     intros p b h lv tr tid c f m w v s brest HD HM Hbc.
     inversion HD as [| | ch0 f0 g HDg Hch Hm | | ]; subst.
-    assert (Hbuf : chan_buf TInt64 (chenv c) w = inj v :: map inj (map fst brest)).
+    assert (Hbuf : chan_buf TI64 (chenv c) w = inj v :: map inj (map fst brest)).
     { unfold WMatch1, rchan in HM. cbn [rc_bufs] in HM. rewrite Hbc in HM. cbn in HM. exact HM. }
     exists (g (inj v)). split; [| split].
     - specialize (HDg (inj v)). rewrite Hret in HDg. exact HDg.
-    - rewrite run_bind, (run_recv TInt64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
+    - rewrite run_bind, (run_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
       cbn. reflexivity.
     - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same.
-      rewrite (chan_buf_recv TInt64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+      rewrite (chan_buf_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
   Qed.
 
   (* World <-> config on one location [l]: the IO ref's value is the calculus heap
@@ -972,7 +974,7 @@ Section Keystone.
     unfold WHMatch1 in HM. cbn [rc_heap] in HM.
     exists (g (inj (h l))). split; [| split].
     - specialize (HDg (inj (h l))). rewrite Hret in HDg. exact HDg.
-    - rewrite run_bind, (run_ref_get TInt64 (locenv l) w). cbn. rewrite HM. reflexivity.
+    - rewrite run_bind, (run_ref_get TI64 (locenv l) w). cbn. rewrite HM. reflexivity.
     - unfold WHMatch1. cbn [rc_heap]. exact HM.
   Qed.
 
@@ -1023,9 +1025,9 @@ Section Keystone.
       split; [exact HOCk | split; [| split]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
-      + exists m', (chan_send_upd TInt64 (chenv c) (inj v) w).
+      + exists m', (chan_send_upd TI64 (chenv c) (inj v) w).
         split; [exact HDk' | split; [exact HM' | split]].
-        * rewrite (chan_closed_send TInt64 (chenv c) (inj v) w). exact Hcl.
+        * rewrite (chan_closed_send TI64 (chenv c) (inj v) w). exact Hcl.
         * rewrite Hrun. exact Hrun'.
     - (* recv *)
       rewrite Hp in HOC, HD. inversion HOC as [| | f' HOCf]; subst c1.
@@ -1035,9 +1037,9 @@ Section Keystone.
       split; [exact (HOCf v) | split; [| split]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
-      + exists m', (chan_recv_upd TInt64 (chenv c) w).
+      + exists m', (chan_recv_upd TI64 (chenv c) w).
         split; [exact HDk' | split; [exact HM' | split]].
-        * rewrite (chan_closed_recv TInt64 (chenv c) w). exact Hcl.
+        * rewrite (chan_closed_recv TI64 (chenv c) w). exact Hcl.
         * rewrite Hrun. exact Hrun'.
     - (* write — impossible under OnChan *)
       rewrite Hp in HOC. inversion HOC.
@@ -1056,7 +1058,7 @@ Section Keystone.
 
   Lemma siminv_init : forall c prog0 m w0,
     OnChan c prog0 -> Denotes prog0 m ->
-    chan_buf TInt64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
+    chan_buf TI64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
     SimInv c m w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)).
   Proof.
     intros c prog0 m w0 HOC HD Hbuf Hcl.
@@ -1078,7 +1080,7 @@ Section Keystone.
       [run_io] meaning AGREE on the whole run, not just per step. *)
   Theorem denote_adequate : forall c prog0 m w0 cfg_final,
     OnChan c prog0 -> Denotes prog0 m ->
-    chan_buf TInt64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
+    chan_buf TI64 (chenv c) w0 = [] -> chan_closed (chenv c) w0 = false ->
     rsteps (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) cfg_final ->
     rc_prog cfg_final 0 = CRet ->
     exists w_final, run_io m w0 = ORet tt w_final /\ WMatch1 c w_final cfg_final.
@@ -1135,12 +1137,12 @@ End Keystone.
     to genuinely concurrent programs at the state level.
     ============================================================================ *)
 Section KeystoneMulti.
-  Variable chenv : nat -> GoChan int.
-  Variable inj : nat -> int.
+  Variable chenv : nat -> GoChan GoI64.
+  Variable inj : nat -> GoI64.
   Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
 
   Definition WMatchC (w : World) (cfg : RConfig) : Prop :=
-    forall c, chan_buf TInt64 (chenv c) w = map inj (rchan cfg c).
+    forall c, chan_buf TI64 (chenv c) w = map inj (rchan cfg c).
 
   Lemma chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
   Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
@@ -1159,25 +1161,25 @@ Section KeystoneMulti.
       | p b h lv tr tid l f Hlv Hp
       | p b h lv tr tid child k cid Hlv Hp Hcid ].
     - (* send: world advances by [chan_send_upd] on channel [c0] *)
-      exists (chan_send_upd TInt64 (chenv c0) (inj v) w).
+      exists (chan_send_upd TI64 (chenv c0) (inj v) w).
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
       destruct (Nat.eq_dec c c0) as [->|Hne].
       + rewrite upd_same, chan_buf_send, HM, !map_app. cbn. reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
-          (chan_buf_send_frame TInt64 (chenv c0) (chenv c) (inj v) w
+          (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w
              (chenv_neq c0 c (not_eq_sym Hne))).
         exact HM.
     - (* recv: world advances by [chan_recv_upd] on channel [c0] *)
-      exists (chan_recv_upd TInt64 (chenv c0) w).
-      assert (Hbuf : chan_buf TInt64 (chenv c0) w = inj v :: map inj (map fst brest)).
+      exists (chan_recv_upd TI64 (chenv c0) w).
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest)).
       { generalize (HM c0). unfold rchan; cbn [rc_bufs]. rewrite Hbc. cbn. tauto. }
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
       destruct (Nat.eq_dec c c0) as [->|Hne].
       + rewrite upd_same,
-          (chan_buf_recv TInt64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
         reflexivity.
       + rewrite (upd_other _ _ _ _ Hne),
-          (chan_buf_recv_frame TInt64 (chenv c0) (chenv c) w
+          (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
              (chenv_neq c0 c (not_eq_sym Hne))).
         exact HM.
     - (* write: buffers unchanged, so the same world still matches *)
@@ -1199,7 +1201,7 @@ Section KeystoneMulti.
   Qed.
 
   Lemma wmatchc_init : forall p w0,
-    (forall c, chan_buf TInt64 (chenv c) w0 = []) -> WMatchC w0 (rinit_cfg p).
+    (forall c, chan_buf TI64 (chenv c) w0 = []) -> WMatchC w0 (rinit_cfg p).
   Proof.
     intros p w0 Hempty c. unfold WMatchC, rchan, rinit_cfg; cbn [rc_bufs].
     rewrite Hempty. reflexivity.
@@ -1209,7 +1211,7 @@ Section KeystoneMulti.
       multi-channel execution is realized by some [run_io] world matching all its
       channel buffers — across every interleaving. *)
   Theorem reachable_refines : forall p cfg w0,
-    (forall c, chan_buf TInt64 (chenv c) w0 = []) ->
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     rsteps (rinit_cfg p) cfg ->
     exists w, WMatchC w cfg.
   Proof.
@@ -1222,7 +1224,7 @@ Section KeystoneMulti.
       happens-before.  The state refinement (this section) and the race-freedom
       (proven on the calculus) hold of the SAME reachable execution. *)
   Theorem reachable_refines_and_safe : forall p cfg w0,
-    (forall c, chan_buf TInt64 (chenv c) w0 = []) ->
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     rsteps (rinit_cfg p) cfg ->
     Owned (rc_trace cfg) ->
     (exists w, WMatchC w cfg) /\
