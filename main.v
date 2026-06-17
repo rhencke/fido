@@ -902,6 +902,21 @@ Definition slice_makecap_demo : IO unit :=
   bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
+(** Phase B3c: [clear] zeros a slice's elements; [copy] copies elements src→dst. *)
+Definition slice_clear_demo : IO unit :=
+  bind (slice_make_h TI64 (2:int)) (fun s =>
+  bind (slice_idx_set s (0:int) (5)%i64) (fun _ =>        (* s[0] = 5 *)
+  bind (slice_clear_h TI64 s) (fun _ =>                   (* clear(s) → all zero *)
+  bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] = 0 *)
+  println [any v])))).                                     (* prints 0 *)
+Definition slice_copy_demo : IO unit :=
+  bind (slice_make_h TI64 (2:int)) (fun dst =>
+  bind (slice_make_h TI64 (2:int)) (fun src =>
+  bind (slice_idx_set src (0:int) (7)%i64) (fun _ =>       (* src[0] = 7 *)
+  bind (slice_copy TI64 dst src) (fun _n =>               (* copy(dst, src) *)
+  bind (slice_idx_get TI64 dst (0:int)) (fun v =>          (* v := dst[0] = 7 *)
+  println [any v]))))).                                    (* prints 7 *)
+
 (** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
     The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
     its declaration is hoisted to [var iv int64] (dominating the loop) and
@@ -1332,6 +1347,8 @@ Definition main_effect : IO unit :=
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
+  slice_clear_demo              >>'   (* prints: 0 (clear zeros the slice) *)
+  slice_copy_demo               >>'   (* prints: 7 (copy src→dst) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
@@ -1353,6 +1370,7 @@ Extraction NoInline
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
+  slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear

@@ -2559,6 +2559,35 @@ Proof.
   apply slice_append_incap. exact Hlt.
 Qed.
 
+(* Element [i]'s cell is [sh_start s + i] (= [sh_loc s i] by [add_assoc]); the
+   clear/copy ranges are the interval [[sh_start s, sh_start s + len)]. *)
+Definition sh_start {A} (s : SliceH A) : int := PrimInt63.add (sh_base s) (sh_off s).
+
+(** [clear(s)] (Go 1.21, Phase B3c): zero [s]'s [len] elements.  A single declarative
+    heap update — the cells in [s]'s range map to the zero value, the rest unchanged. *)
+Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
+  fun w => ORet tt
+    (mkWorld (fun k => if (PrimInt63.leb (sh_start s) k
+                           && PrimInt63.ltb k (PrimInt63.add (sh_start s) (sh_len s)))%bool
+                       then Some (existT _ A (tag, zero_val tag))
+                       else w_refs w k)
+             (w_chans w) (w_maps w) (w_next w)).
+
+(** [copy(dst, src)] (Phase B3c): copy [min(len dst, len src)] elements [src → dst],
+    return the count.  A single declarative heap update — each [dst] cell in range takes
+    the corresponding [src] value ([src]'s cell at the same relative index). *)
+Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
+  fun w => let n := if PrimInt63.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
+           ORet n
+    (mkWorld (fun k => if (PrimInt63.leb (sh_start dst) k
+                           && PrimInt63.ltb k (PrimInt63.add (sh_start dst) n))%bool
+                       then Some (existT _ A
+                              (tag, ref_sel (mkRef (PrimInt63.add (sh_start src)
+                                                      (PrimInt63.sub k (sh_start dst)))
+                                                   (sh_tag src)) w))
+                       else w_refs w k)
+             (w_chans w) (w_maps w) (w_next w)).
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

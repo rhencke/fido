@@ -262,6 +262,8 @@ let is_slice_idx_set_ref = named "slice_idx_set"
 let is_subslice_ref = named "subslice"
 let is_slice_append_h_ref = named "slice_append"   (* append(s, v); cap decides realloc *)
 let is_slice_make_lc_ref = named "slice_make_lc"   (* make([]T, len, cap) *)
+let is_slice_clear_h_ref = named "slice_clear_h"   (* clear(s) *)
+let is_slice_copy_ref = named "slice_copy"         (* copy(dst, src) *)
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -1020,6 +1022,10 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; s; v] when is_slice_append_h_ref r ->
            str "append(" ++ pp_expr state env s ++ str ", "
            ++ pp_typed_lit state env v ++ str ")"
+       | MLglob r, [_tag; s] when is_slice_clear_h_ref r ->
+           str "clear(" ++ pp_expr state env s ++ str ")"
+       | MLglob r, [_tag; dst; src] when is_slice_copy_ref r ->
+           str "copy(" ++ pp_expr state env dst ++ str ", " ++ pp_expr state env src ++ str ")"
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -2613,7 +2619,7 @@ let proof_only_names =
     "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
     "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref"; "ptr_is_nil";  (* Ptr ctor/projs/views — proof-only *)
-    "mkSliceH"; "sh_base"; "sh_off"; "sh_len"; "sh_cap"; "sh_tag"; "sh_loc"; "sh_cell";  (* SliceH internals — proof-only *)
+    "mkSliceH"; "sh_base"; "sh_off"; "sh_len"; "sh_cap"; "sh_tag"; "sh_loc"; "sh_cell"; "sh_start";  (* SliceH internals — proof-only *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
@@ -2650,7 +2656,7 @@ let is_inlined_ref r =
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||
-  is_slice_make_lc_ref r ||
+  is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||

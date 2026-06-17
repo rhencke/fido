@@ -223,14 +223,18 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
     a full slice reallocates, `s2[2] = 9` (the appended element), golden-locked.
     *Past-cap NON-aliasing as a theorem needs a world invariant (all live cells <
     `w_next`) — a follow-up.*
-  - **B3c — `make([]T,len,cap)` (DONE, 2026-06-17); `copy`/slice-`clear` pending.**
+  - **B3c — `make([]T,len,cap)` / `copy` / `clear` (DONE, 2026-06-17).**
     `slice_make_lc tag len cap` → `make([]T, len, cap)` (allocate `cap` zeroed cells,
-    handle has `len`/`cap`), so a slice has spare capacity.  `make_lc_append_inplace`
-    THEOREM (`len < cap` ⇒ append is the in-place cell update).  `slice_makecap_demo`
-    RUNTIME-demonstrates the B3b in-place-append aliasing: `make([]int64,1,3)`; `append`
-    is in place (shares backing); `s2[0] = 77` is seen through `s[0]` → prints `77`,
-    golden-locked.  *`copy(dst,src)` and `clear(s)` (both modelable as declarative
-    heap updates over the cell range — no loop) are the remaining B3c ops.*
+    handle has `len`/`cap`), so a slice has spare capacity; `make_lc_append_inplace`
+    THEOREM (`len < cap` ⇒ append is the in-place cell update); `slice_makecap_demo`
+    RUNTIME-demonstrates the B3b in-place-append aliasing (`make([]int64,1,3)`, append in
+    place shares backing, `s2[0]=77` seen through `s[0]` → `77`).  `slice_clear_h` →
+    `clear(s)` and `slice_copy` → `copy(dst,src)` are single DECLARATIVE heap updates over
+    the cell range (the clear zeros, the copy takes `src`'s value at each relative index;
+    no loop).  `slice_clear_demo` → `0`, `slice_copy_demo` → `7`, golden-locked.
+    **Phase B3 (slice aliasing) is COMPLETE** — aliasing handles, sub-slice sharing,
+    append (in-place/realloc), make-with-cap, copy, clear; all golden-locked and the
+    aliasing theorems inherited axiom-free from `ref_sel_upd_same`.
 - **B4 — Arrays** (pending): value semantics distinct from slices.
 - **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).
 

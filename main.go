@@ -526,6 +526,23 @@ func Slice_makecap_demo() {
 	println(v)
 }
 
+func Slice_clear_demo() {
+	s := make([]int64, 2)
+	s[0] = int64(5)
+	clear(s)
+	v := s[0]
+	println(v)
+}
+
+func Slice_copy_demo() {
+	dst := make([]int64, 2)
+	src := make([]int64, 2)
+	src[0] = int64(7)
+	copy(dst, src)
+	v := dst[0]
+	println(v)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -926,6 +943,8 @@ func main() {
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
+	Slice_clear_demo()
+	Slice_copy_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()
