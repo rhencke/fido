@@ -260,6 +260,7 @@ let is_slice_make_h_ref = named "slice_make_h"
 let is_slice_idx_get_ref = named "slice_idx_get"
 let is_slice_idx_set_ref = named "slice_idx_set"
 let is_subslice_ref = named "subslice"
+let is_slice_append_h_ref = named "slice_append"   (* append(s, v); cap decides realloc *)
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -1010,6 +1011,11 @@ let rec pp_expr state env = function
        | MLglob r, [s; a; b] when is_subslice_ref r ->
            pp_atom state env s ++ str "[" ++ pp_expr state env a ++ str ":"
            ++ pp_expr state env b ++ str "]"
+       (* slice_append tag s v → append(s, v) — Go's native append makes the
+          within-cap (in-place, aliases) vs past-cap (reallocate) choice itself. *)
+       | MLglob r, [_tag; s; v] when is_slice_append_h_ref r ->
+           str "append(" ++ pp_expr state env s ++ str ", "
+           ++ pp_typed_lit state env v ++ str ")"
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -2639,7 +2645,7 @@ let is_inlined_ref r =
   is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
-  is_slice_idx_set_ref r || is_subslice_ref r ||
+  is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||

@@ -509,6 +509,14 @@ func Slice_alias_demo() {
 	println(v)
 }
 
+func Slice_append_demo() {
+	s := make([]int64, 2)
+	s[0] = int64(5)
+	s2 := append(s, int64(9))
+	v := s2[2]
+	println(v)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -907,6 +915,7 @@ func main() {
 	Ptr_demo()
 	Ptr_safe_demo()
 	Slice_alias_demo()
+	Slice_append_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()

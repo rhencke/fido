@@ -212,8 +212,17 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
     IS the aliasing handle, so runtime aliases correctly.  `slice_alias_demo`:
     `(s[1:3])[0] = 99` then `s[1]` reads 99, golden-locked.  The list-based `GoSlice`
     (value, no aliasing) coexists for immutable uses.
-  - **B3b — append** (pending): within-`cap` aliases (write at `base+offset+len`,
-    `len++`); past-`cap` reallocates (fresh backing, copy — no aliasing).
+  - **B3b — append (DONE, 2026-06-17).**  `slice_append tag s v` models Go's subtle
+    `append`: WITHIN cap (`len < cap`) it writes the cell at index `len` IN PLACE and
+    returns a `len+1` handle over the SAME backing (ALIASES); PAST cap (`len = cap`) it
+    REALLOCATES a fresh DISJOINT backing (at `w_next`), copies the old elements (via
+    `ref_sel`), appends `v` (no aliasing).  Lowers to native Go `append(s, v)` (which
+    makes the cap choice itself).  THEOREMS: `slice_append_incap` (within-cap = the
+    in-place cell update) + `slice_append_incap_aliases` (the appended element is
+    written into the shared backing, from `ref_sel_upd_same`).  `slice_append_demo`:
+    a full slice reallocates, `s2[2] = 9` (the appended element), golden-locked.
+    *Past-cap NON-aliasing as a theorem needs a world invariant (all live cells <
+    `w_next`) — a follow-up.*
   - **B3c — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending).
 - **B4 — Arrays** (pending): value semantics distinct from slices.
 - **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).

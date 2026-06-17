@@ -2481,6 +2481,55 @@ Proof.
   rewrite run_slice_idx_get, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
 
+(** [append(s, v)] (Phase B3b) — the SUBTLE Go semantics:
+    - WITHIN cap ([len < cap]): writes the cell at index [len] IN PLACE and returns a
+      [len+1] handle over the SAME backing — so it ALIASES the original (and any
+      sub-slice sharing those cells).
+    - PAST cap ([len = cap]): REALLOCATES a fresh backing of [len+1] cells (at the
+      fresh [w_next], DISJOINT from the old), copies the old elements, appends [v] —
+      so the result does NOT alias the original.
+    Lowers to Go's native [append(s, v)] (which makes exactly this choice on [cap]). *)
+Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (SliceH A) :=
+  fun w =>
+    if (sh_len s <? sh_cap s)%uint63
+    then (* in place: write index len, len+1, SAME base/off/cap *)
+      ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+           (ref_upd (sh_cell s (sh_len s)) v w)
+    else (* reallocate: fresh disjoint backing of len+1, copy old, append v *)
+      let base' := w_next w in
+      let n := sh_len s in
+      ORet (mkSliceH base' 0 (PrimInt63.add n 1) (PrimInt63.add n 1) tag)
+           (mkWorld (fun k =>
+              if (PrimInt63.leb base' k
+                  && PrimInt63.ltb k (PrimInt63.add base' (PrimInt63.add n 1)))%bool
+              then (let j := PrimInt63.sub k base' in
+                    if PrimInt63.eqb j n
+                    then Some (existT _ A (tag, v))                         (* the appended element *)
+                    else Some (existT _ A (tag, ref_sel (sh_cell s j) w)))  (* a copy of old s[j] *)
+              else w_refs w k)
+              (w_chans w) (w_maps w) (PrimInt63.add base' (PrimInt63.add n 1))).
+
+(** WITHIN-cap append is IN PLACE: it updates exactly [s]'s cell at index [len], so the
+    new element is written into the SHARED backing — a THEOREM.  (Reading [result[len]]
+    or [parent[off+len]] sees [v].) *)
+Lemma slice_append_incap : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+  (sh_len s <? sh_cap s)%uint63 = true ->
+  run_io (slice_append tag s v) w
+    = ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+           (ref_upd (sh_cell s (sh_len s)) v w).
+Proof. intros A tag s v w Hlt. unfold slice_append, run_io. rewrite Hlt. reflexivity. Qed.
+
+(** ...and that in-place write is OBSERVED through the parent backing: reading the cell
+    at index [len] after the append returns [v] (the appended element aliases). *)
+Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
+  (sh_len s <? sh_cap s)%uint63 = true ->
+  ref_sel (sh_cell s (sh_len s))
+          (match run_io (slice_append tag s v) w with ORet _ w' => w' | OPanic _ w' => w' end) = v.
+Proof.
+  intros A tag s v w Hlt. rewrite slice_append_incap by exact Hlt. cbn.
+  apply ref_sel_upd_same.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
