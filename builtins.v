@@ -2530,6 +2530,35 @@ Proof.
   apply ref_sel_upd_same.
 Qed.
 
+(** [make([]T, len, cap)] (Phase B3c): allocate [cap] fresh zeroed cells; the handle
+    has length [len] and capacity [cap] (so it has [cap - len] spare slots — appending
+    within them is IN PLACE, [slice_append_incap]).  Same heap shape as [slice_make_h]
+    (which is the [len = cap] case), but distinguishes len from cap. *)
+Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : int) : IO (SliceH A) :=
+  fun w => let base := w_next w in
+           ORet (mkSliceH base 0 len cap tag)
+                (mkWorld (fun k => if (PrimInt63.leb base k
+                                       && PrimInt63.ltb k (PrimInt63.add base cap))%bool
+                                   then Some (existT _ A (tag, zero_val tag))
+                                   else w_refs w k)
+                         (w_chans w) (w_maps w) (PrimInt63.add base cap)).
+
+(** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
+    result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
+    writes the cell at index [len] of the ORIGINAL handle. *)
+Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : int) (v : A) (w : World),
+  (len <? cap)%uint63 = true ->
+  forall s w0, run_io (slice_make_lc tag len cap) w = ORet s w0 ->
+  run_io (slice_append tag s v) w0
+    = ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+           (ref_upd (sh_cell s (sh_len s)) v w0).
+Proof.
+  intros A tag len cap v w Hlt s w0 Hmk.
+  (* the handle from make_lc has sh_len = len, sh_cap = cap, so len < cap ⇒ in place *)
+  unfold slice_make_lc, run_io in Hmk. injection Hmk as Hs _. subst s.
+  apply slice_append_incap. exact Hlt.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

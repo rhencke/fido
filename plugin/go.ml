@@ -261,6 +261,7 @@ let is_slice_idx_get_ref = named "slice_idx_get"
 let is_slice_idx_set_ref = named "slice_idx_set"
 let is_subslice_ref = named "subslice"
 let is_slice_append_h_ref = named "slice_append"   (* append(s, v); cap decides realloc *)
+let is_slice_make_lc_ref = named "slice_make_lc"   (* make([]T, len, cap) *)
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -1003,6 +1004,9 @@ let rec pp_expr state env = function
        | MLglob r, [tag; n] when is_slice_make_h_ref r ->
            str "make([]" ++ str (go_type_of_tag (strip_magic tag)) ++ str ", "
            ++ pp_expr state env n ++ str ")"
+       | MLglob r, [tag; len; cap] when is_slice_make_lc_ref r ->
+           str "make([]" ++ str (go_type_of_tag (strip_magic tag)) ++ str ", "
+           ++ pp_expr state env len ++ str ", " ++ pp_expr state env cap ++ str ")"
        | MLglob r, [_tag; s; i] when is_slice_idx_get_ref r ->
            pp_atom state env s ++ str "[" ++ pp_expr state env i ++ str "]"
        | MLglob r, [s; i; v] when is_slice_idx_set_ref r ->
@@ -2646,6 +2650,7 @@ let is_inlined_ref r =
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||
+  is_slice_make_lc_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||

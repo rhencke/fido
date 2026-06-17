@@ -890,6 +890,18 @@ Definition slice_append_demo : IO unit :=
   bind (slice_idx_get TI64 s2 (2:int)) (fun v =>         (* v := s2[2] = 9 (the appended element) *)
   println [any v])))).                                    (* prints 9 *)
 
+(** Phase B3c: [make([]T, len, cap)] gives a slice SPARE capacity, so [append] is
+    IN PLACE and KEEPS the backing shared — the in-place-append aliasing of B3b, shown
+    at runtime.  [s] has len 1, cap 3; [append] writes index 1 in place (no realloc), so
+    [s2] shares [s]'s backing — writing [s2[0]] is seen through [s[0]]. *)
+Definition slice_makecap_demo : IO unit :=
+  bind (slice_make_lc TI64 (1:int) (3:int)) (fun s =>    (* make([]int64, 1, 3): len=1, cap=3 *)
+  bind (slice_idx_set s (0:int) (5)%i64) (fun _ =>        (* s[0] = 5 *)
+  bind (slice_append TI64 s (8)%i64) (fun s2 =>           (* s2 := append(s, 8) — IN PLACE (len<cap), shares backing *)
+  bind (slice_idx_set s2 (0:int) (77)%i64) (fun _ =>      (* s2[0] = 77 *)
+  bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
+  println [any v]))))).                                    (* prints 77 *)
+
 (** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
     The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
     its declaration is hoisted to [var iv int64] (dominating the loop) and
@@ -1319,6 +1331,7 @@ Definition main_effect : IO unit :=
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
+  slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
@@ -1339,7 +1352,7 @@ Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
-  slice_make_h slice_idx_get slice_idx_set subslice slice_append
+  slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear

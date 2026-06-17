@@ -517,6 +517,15 @@ func Slice_append_demo() {
 	println(v)
 }
 
+func Slice_makecap_demo() {
+	s := make([]int64, 1, 3)
+	s[0] = int64(5)
+	s2 := append(s, int64(8))
+	s2[0] = int64(77)
+	v := s[0]
+	println(v)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -916,6 +925,7 @@ func main() {
 	Ptr_safe_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
+	Slice_makecap_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()

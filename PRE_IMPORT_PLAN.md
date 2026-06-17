@@ -223,7 +223,14 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
     a full slice reallocates, `s2[2] = 9` (the appended element), golden-locked.
     *Past-cap NON-aliasing as a theorem needs a world invariant (all live cells <
     `w_next`) — a follow-up.*
-  - **B3c — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending).
+  - **B3c — `make([]T,len,cap)` (DONE, 2026-06-17); `copy`/slice-`clear` pending.**
+    `slice_make_lc tag len cap` → `make([]T, len, cap)` (allocate `cap` zeroed cells,
+    handle has `len`/`cap`), so a slice has spare capacity.  `make_lc_append_inplace`
+    THEOREM (`len < cap` ⇒ append is the in-place cell update).  `slice_makecap_demo`
+    RUNTIME-demonstrates the B3b in-place-append aliasing: `make([]int64,1,3)`; `append`
+    is in place (shares backing); `s2[0] = 77` is seen through `s[0]` → prints `77`,
+    golden-locked.  *`copy(dst,src)` and `clear(s)` (both modelable as declarative
+    heap updates over the cell range — no loop) are the remaining B3c ops.*
 - **B4 — Arrays** (pending): value semantics distinct from slices.
 - **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).
 
