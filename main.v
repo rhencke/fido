@@ -843,6 +843,19 @@ Definition mut_demo : IO unit :=
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
   println [any b])))).                         (* prints 15 *)
 
+(** Phase B1: POINTERS (Go spec "Pointer types").  [ptr_new] allocates a fresh
+    [*int64] holding 10; [*p] reads it; [*p = v] writes through it.  Distinct from a
+    [Ref] (a local var): a [Ptr] lowers to Go [*T], so a COPY of the pointer aliases
+    the SAME cell — the [ptr_alias] THEOREM (builtins.v) proves a write through one
+    handle is seen through another.  Read-after-write is [ptr_get_set_same]. *)
+Definition ptr_demo : IO unit :=
+  bind (ptr_new TI64 (10)%i64) (fun p =>      (* p := new(int64) ← 10 *)
+  bind (ptr_get TI64 p)        (fun a =>      (* a := *p  (= 10) *)
+  bind (println [any a])       (fun _ =>      (* prints 10 *)
+  bind (ptr_set p (99)%i64)    (fun _ =>      (* *p = 99 *)
+  bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
+  println [any b]))))).                        (* prints 99 *)
+
 (** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
     The read [iv := ref_get i] cannot use [:=] (it re-runs each iteration), so
     its declaration is hoisted to [var iv int64] (dominating the loop) and
@@ -1268,6 +1281,7 @@ Definition main_effect : IO unit :=
   irreducible_demo false        >>'   (* prints: 1 / 2 / 1 / 2 *)
   irreducible_demo true         >>'   (* prints: 2 / 1 / 2 / 1 / 2 *)
   mut_demo                      >>'   (* prints: 15 *)
+  ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
@@ -1287,6 +1301,7 @@ Definition main_effect : IO unit :=
 Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
+  ptr_get ptr_set ptr_new ptr_nil
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear

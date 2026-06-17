@@ -177,6 +177,29 @@ concurrent access (Tier 1 #1).
 past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics ·
 `*p` after `*p = v` · pointer-receiver method mutates the receiver.
 
+**Sub-phases:**
+- **B1 — Pointers (DONE, 2026-06-17).**  `Ptr A` — a typed heap LOCATION sharing the
+  `w_refs` cell heap with `Ref`, but lowering to Go `*T` (so a COPIED pointer ALIASES
+  the same cell, the defining pointer behaviour) and nil-able (`ptr_nil`, loc 0).
+  `ptr_new tag v` (Go `p := new(T); *p = v`, emitted as the single-expression IIFE
+  `func(_v T) *T { return &_v }(v)` since Go forbids `&expr`), `ptr_get tag p` → `*p`,
+  `ptr_set p v` → `*p = v`.  Read-after-write `ptr_get_set_same` and the ALIASING
+  theorem `ptr_alias` (a write through one handle seen through another — inherited from
+  the axiom-free `ref_sel_upd_same`, NO new heap/axiom).  Plugin: `Ptr A` → `*T`
+  (`pp_type`); ops by name; `mkPtr`/`p_loc`/`p_tag`/`ptr_as_ref` suppressed.  `ptr_demo`
+  prints `10`/`99`, golden-locked.  *Raw deref panics on nil (escape hatch); the safe
+  comma-ok `ptr_get_ok` is B1b.*
+- **B1b — nil-deref safety** (pending): a checked/evidence-carrying deref so a nil
+  pointer cannot be dereferenced by accident (the safe-by-construction default).
+- **B2 — Pointer receivers** (pending; needs B1): methods with a `*T` receiver that
+  MUTATE the receiver — exclude `Ptr` from the value-receiver method detection, lower
+  to `func (recv *T) M(...)`.
+- **B3 — Slice aliasing** (pending; the big one): `GoSlice` becomes a backing-array
+  handle `(backing-id, offset, len, cap)`; sub-slice `s[a:b]` shares the array;
+  in-place `append`; rewrites the current list-based slice model.
+- **B4 — Arrays** (pending): value semantics distinct from slices.
+- **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).
+
 ----
 
 ## The rest (smaller, mostly independent)

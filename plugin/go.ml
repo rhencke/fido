@@ -246,6 +246,13 @@ let is_ref_type = named "Ref"
 let is_ref_new_ref = named "ref_new"
 let is_ref_get_ref = named "ref_get"
 let is_ref_set_ref = named "ref_set"
+(* Pointers (Phase B1): [Ptr A] → Go [*T]; ops deref through the cell heap. *)
+let is_ptr_type = named "Ptr"
+let is_ptr_new_ref = named "ptr_new"
+let is_ptr_get_ref = named "ptr_get"
+let is_ptr_set_ref = named "ptr_set"
+let is_ptr_nil_ref = named "ptr_nil"
+let is_ptr_as_ref_ref = named "ptr_as_ref"
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -414,7 +421,7 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
    all suppressed; uses are recognised by operation name. *)
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
-  || String.equal s "Ref" || String.equal s "GoChan" || String.equal s "GoMap"
+  || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
@@ -711,6 +718,8 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
   (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
+  (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
+  | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
   (* GoChan A → chan T *)
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
@@ -958,6 +967,21 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
            pp_expr state env rf ++ str " = " ++ pp_typed_lit state env v
+
+       (* Pointers (Phase B1).  [ptr_new tag v] → a fresh [*T] initialised to [v],
+          emitted as the single-expression IIFE [func(_v T) *T { return &_v }(v)] (Go
+          forbids [&expr]); the enclosing bind binds it as the Go pointer var.
+          [ptr_get tag p] → [*p] (deref read); [ptr_set p v] → [*p = v] (deref write);
+          [ptr_nil tag] → [nil]. *)
+       | MLglob r, [tag; v] when is_ptr_new_ref r ->
+           let t = go_type_of_tag (strip_magic tag) in
+           str "func(_v " ++ str t ++ str ") *" ++ str t ++ str " { return &_v }(" ++
+           pp_typed_lit state env v ++ str ")"
+       | MLglob r, [_tag; p] when is_ptr_get_ref r ->
+           str "*" ++ pp_atom state env p
+       | MLglob r, [p; v] when is_ptr_set_ref r ->
+           str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
+       | MLglob r, [_tag] when is_ptr_nil_ref r -> str "nil"
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -2517,6 +2541,7 @@ let proof_only_names =
     "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
     "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
+    "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref";  (* Ptr ctor/projs + the Ref view — proof-only *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
@@ -2549,6 +2574,8 @@ let is_inlined_ref r =
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
+  is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
+  is_ptr_nil_ref r || is_ptr_as_ref_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||

@@ -2310,6 +2310,70 @@ Proof.
   rewrite run_ref_get, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
 
+(** ---- Pointers (Go spec "Pointer types", Phase B1) ----
+
+    A Go pointer [*T] is a typed heap LOCATION.  It shares the [w_refs] cell heap with
+    [Ref] — both are heap locations — but lowers DIFFERENTLY: a [Ref] is a local Go
+    variable (one cell, no aliasing across copies), whereas a [Ptr] lowers to Go [*T],
+    so COPYING a pointer makes two handles to the SAME cell (aliasing — the defining
+    pointer behaviour).  A [Ptr] may be nil ([ptr_nil], location 0); dereferencing nil
+    panics (Go's nil-pointer panic) — the raw [ptr_get]/[ptr_set] are the escape hatch,
+    [ptr_get_ok] (below) the safe-by-construction comma-ok form.
+
+    [Ptr A] is its own record so it is a DISTINCT type the plugin renders [*T]; its ops
+    go through the SAME [ref_sel]/[ref_upd] (via [ptr_as_ref]), so read-after-write and
+    aliasing are inherited from [ref_sel_upd_same] — no new heap, no new axiom. *)
+Record Ptr (A : Type) : Type := mkPtr { p_loc : int ; p_tag : GoTypeTag A }.
+Arguments mkPtr {A} _ _.
+Arguments p_loc {A} _.
+Arguments p_tag {A} _.
+
+Definition ptr_as_ref {A} (p : Ptr A) : Ref A := mkRef (p_loc p) (p_tag p).
+Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0%uint63 tag.
+
+(** [ptr_new tag v]: Go [p := new(T); *p = v] — allocate a FRESH (nonzero) location,
+    store [v], bump the allocator, return the pointer.  Fresh ⇒ never nil. *)
+Definition ptr_new {A} (tag : GoTypeTag A) (v : A) : IO (Ptr A) :=
+  fun w => let l := w_next w in
+           ORet (mkPtr l tag)
+                (mkWorld (fun k => if PrimInt63.eqb k l then Some (existT _ A (tag, v))
+                                   else w_refs w k)
+                         (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63)).
+(** [ptr_get tag p] = [*p] (deref read); [ptr_set p v] = [*p = v] (deref write). *)
+Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
+  fun w => ORet (ref_sel (ptr_as_ref p) w) w.
+Definition ptr_set {A} (p : Ptr A) (v : A) : IO unit :=
+  fun w => ORet tt (ref_upd (ptr_as_ref p) v w).
+Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
+  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref p) w) w.
+Proof. reflexivity. Qed.
+Lemma run_ptr_set : forall {A} (p : Ptr A) (v : A) (w : World),
+  run_io (ptr_set p v) w = ORet tt (ref_upd (ptr_as_ref p) v w).
+Proof. reflexivity. Qed.
+
+(** Read-after-write THROUGH a pointer — a THEOREM (inherited from the shared heap):
+    after [ptr_set p v], [ptr_get p] returns [v]. *)
+Lemma ptr_get_set_same : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A),
+  bind (ptr_set p v) (fun _ => ptr_get tag p) =
+  bind (ptr_set p v) (fun _ => ret v).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, !run_ptr_set. cbn.
+  rewrite run_ptr_get, ref_sel_upd_same, run_ret. reflexivity.
+Qed.
+
+(** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
+    location ([p] and a copy [q]) see each other's writes.  A write through [q] is
+    observed by a read through [p] — impossible for a non-aliasing [Ref] var. *)
+Lemma ptr_alias : forall {A} (tag : GoTypeTag A) (p q : Ptr A) (v : A) (w : World),
+  p_loc p = p_loc q -> p_tag p = p_tag q ->
+  ref_sel (ptr_as_ref p) (ref_upd (ptr_as_ref q) v w) = v.
+Proof.
+  intros A tag p q v w Hl Ht.
+  unfold ptr_as_ref. rewrite Hl, Ht.
+  apply (ref_sel_upd_same (mkRef (p_loc q) (p_tag q)) v w).
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

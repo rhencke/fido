@@ -475,6 +475,15 @@ func Mut_demo() {
 	println(b)
 }
 
+func Ptr_demo() {
+	p := func(_v int64) *int64 { return &_v }(int64(10))
+	a := *p
+	println(a)
+	*p = int64(99)
+	b := *p
+	println(b)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -870,6 +879,7 @@ func main() {
 	Irreducible_demo(false)
 	Irreducible_demo(true)
 	Mut_demo()
+	Ptr_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()
