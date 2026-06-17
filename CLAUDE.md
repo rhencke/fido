@@ -346,16 +346,19 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
    a zero divisor, mirroring raw `send`/`slice_get`).  Float `/` is kept — IEEE,
    no panic.  *Open:* a runtime check-and-branch form (comma-ok) for a
    divisor whose non-zeroness is only known at runtime.
-2. **Integer model** — *resolved; ±2⁶² accepted*. `int` is interpreted with
-   SIGNED Sint63 semantics matching Go's int64: `+`/`-`/`*` are two's-complement
-   (shared with the unsigned primitive), comparison is signed (`ltsb`/`lesb` →
-   Go `<`/`<=`), and `2 - 5` is `-3` (machine-checked `sub_signed_matches_go`;
-   extracted Go prints `-3`). Overflow is **provable**: `add_no_overflow_exact`
-   proves no-overflow → the result is the exact mathematical sum (main.v).
-   Accepted limitation (user signed off): Rocq's primitive int is 63-bit, so the
-   model is faithful within `[-2^62, 2^62)` — one bit short of int64, fine. No
-   Z-model rewrite planned; the `add_wraps_at_boundary` example documents where
-   the model wraps.
+2. **Integer model** — *RESOLVED: migrated to full-width `GoI64` (A4.3, 2026-06-17)*.
+   The canonical Go `int64`/`uint64` are now `GoI64`/`GoU64` (`Z`-carried, faithful
+   across the whole 64-bit range, wrapping at the true 2⁶³); `2 - 5 = -3` is
+   `neg_demo` (`i64_sub`), overflow-freedom is the THEOREM `i64_add_no_overflow_exact`
+   (no-overflow → exact, axiom-free), and the evidence-carrying `i64_add_nz`/`sub_nz`/
+   `mul_nz` are the guarded forms.  ALL int64 VALUE arithmetic + value/payload/struct
+   demos use `GoI64`; the old Sint63 VALUE-overflow theory (`add_nz`/`no_overflow_*`/
+   `*_no_overflow_exact`/`sub_signed_matches_go`/`add_wraps_at_boundary`) was REMOVED.
+   The primitive `Sint63` `int` survives ONLY as **index arithmetic** — loop counters
+   and computed slice indices (`sub 0 1`), the Go `int` index type — with its signed
+   `+`/`-`/comparison (`Sint63.ltb` → Go `<`; `ltb_signed_neg_true` still justifies it).
+   **Coq `nat` (≠ `int`) is mapped to Go `uint`**, used mainly for compile-time
+   indices (e.g. `run_blocks` block labels); runtime integer math is `int`
    **Coq `nat` (≠ `int`) is mapped to Go `uint`**, used mainly for compile-time
    indices (e.g. `run_blocks` block labels); runtime integer math is `int`
    (Sint63). `Nat.add`/`mul`/`eqb`/`ltb`/`leb` lower to the Go operators and are
@@ -583,9 +586,9 @@ Verification methodology used for #9/#11 (kept honest, not just asserted):
 "this must now FAIL to compile" lemmas. Confirmed: the `World -> False` attack no
 longer type-checks; `hoare_panic` depends only on `{run_io, run_panic, World}`;
 `bind_panic_l`/`with_defer_panic` add `{run_bind, run_io_inj(, run_catch)}`; and
-`add_no_overflow_exact` depends on **none** of the IO/session axioms (only Coq's
-primitive-integer kernel axioms), so the overflow result is independent of the
-whole Go-axiom trust base. The `Fail`-test build gate proves the negative cases
+`i64_add_no_overflow_exact` depends on **none** of the IO/session axioms (it is
+axiom-free — only `Z` inductives + `lia`), so the overflow result is independent of
+the whole Go-axiom trust base. The `Fail`-test build gate proves the negative cases
 (e.g. `bad_double_send`) genuinely do not type-check.
 
 ## Correctness debt — MUST close before module import
@@ -713,22 +716,24 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `u64_pipeline_demo`, golden-locked).  The plugin renders an erased full-width
    literal sign-aware (a `Zpos` whose 64-bit pattern is negative-as-`Int64` is a
    `uint64 ≥ 2^63` → `%Lu`; else signed) and pins bare literals in typed slots via the
-   value tag (`pp_typed_lit_tagged`).  *Coexistence (deliberate):* the primitive
-   `Sint63` `int` REMAINS (→ Go `int64`) as a bounded convenience for compile-time
-   indices, `nat`-coding, and the many small-value demos — faithful in range; reach for
-   `GoI64`/`GoU64` when the 2⁶³ boundary or the upper `uint64` half matters.  The 78
-   incidental `(n:int)` demo sites were NOT churned (no fidelity gain for small values).
-5. **Overflow-safe arithmetic — DONE (the guarded forms now exist).**
-   `add_nz`/`sub_nz`/`mul_nz` are evidence-carrying: each demands a proof that the
-   exact result is in range (`no_overflow_{add,sub,mul}`, discharged by `now
-   vm_compute` for concrete operands), then extracts to the raw machine op — which
-   the proof has shown does not wrap, so the result equals the exact value
-   (`{add,sub,mul}_no_overflow_exact` theorems, machine-checked).  Raw `add`/`sub`/
-   `mul` (and `PrimInt63.*`) remain the opt-in WRAPPING forms — same shape as
-   `div_nz` vs the raw divide.  `overflow_safe_demo` prints `3000000000000
-   1000000` (proven no wrap).  *Open:* a runtime check-and-branch (comma-ok) form
-   for operands whose range is only known at runtime; and a *boolean*-guard
-   variant so the obligation discharges by `eq_refl` like `div_nz`.
+   value tag (`pp_typed_lit_tagged`).  **A4.3 (2026-06-17) completed the migration:**
+   ALL int64 VALUE demos (channels, maps, sessions, conditionals, structs/methods/
+   interfaces/typestate/repinv, slices, arithmetic) were converted to `GoI64`/`%i64`,
+   and the Sint63 VALUE-overflow theory removed.  The primitive `Sint63` `int` now
+   survives ONLY as **index arithmetic** — loop counters and computed slice indices
+   (the Go `int` index type) — plus `nat`-coding and `go_min`/`go_max` (the min/max
+   builtin demo).  All conversions were golden-IDENTICAL (`GoI64` and `int` both lower
+   to Go `int64`).
+5. **Overflow-safe arithmetic — DONE, at the FULL int64 width (`GoI64`, A4.3).**
+   `i64_add_nz`/`i64_sub_nz`/`i64_mul_nz` are evidence-carrying: each demands a proof
+   the exact result is representable (`i64_no_overflow_{add,sub,mul}` = `in_i64
+   (exact) = true`, discharged by `eq_refl` for concrete operands — a decidable bool
+   equation, cleaner than the old `now vm_compute`), then extracts to the raw machine
+   op, exact by `i64_{add,sub,mul}_no_overflow_exact` (axiom-free).  Raw `i64_add`/
+   `sub`/`mul` remain the opt-in WRAPPING forms.  `overflow_safe_demo` prints
+   `3000000000000 1000000` (proven no wrap).  The bounded Sint63 `add_nz`/`no_overflow_*`
+   were REMOVED in the int-model migration.  *Open:* a runtime check-and-branch
+   (comma-ok) form for operands whose range is only known at runtime.
 6. **Untyped constants modelled wrong.**  Literals are modelled as already-typed
    fixed-width/IEEE values; Go's *untyped* constants are arbitrary precision and
    acquire a type (with a representability check) only at use.  So `const 0.1+0.2`

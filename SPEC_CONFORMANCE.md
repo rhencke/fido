@@ -269,11 +269,12 @@ most-negative = `Sint63.min_int` = -2⁶²).  ✓
 Spec: unsigned `+ - * <<` = **mod 2ⁿ**; signed `+ - * / <<` overflow is
 deterministic two's-complement, no panic.
 Ours (unsigned): `uintN` mask = mod 2ⁿ — `u8_add_wraps` (300→44), `u8_mul_wraps`
-(65025→1), `u8_sub_wraps` (0-1→255), `u16_mul_wraps`.  ✓  (signed): `int`/`intN`
-two's-complement — `i8_add_wraps` (-106), `i16_add_wraps` (-25536),
-`add_wraps_at_boundary`.  ✓ — but `int` wraps at **2⁶²**, not int64's 2⁶³.
-⚠ bounded (Tier 2 #4).  32-bit multiply ✓ (`spec_u32_mul_wrap`/`spec_i32_mul_wrap`,
-mask keeps the exact low 32 bits); only a ≥63-bit-wide multiply **✗ fails loud**.
+(65025→1), `u8_sub_wraps` (0-1→255), `u16_mul_wraps`.  ✓  (signed): `intN`
+two's-complement — `i8_add_wraps` (-106), `i16_add_wraps` (-25536).  Full-width
+`int64`/`uint64` wrap at the TRUE 2⁶³/2⁶⁴ via `GoI64`/`GoU64` (`spec_i64_add_wrap`,
+`spec_u64_add_wrap`) — the canonical int model (A4.3).  The legacy `Sint63` `int`
+(wraps at 2⁶², ⚠ Tier 2 #4) survives only for indices.  32-bit multiply ✓
+(`spec_u32_mul_wrap`/`spec_i32_mul_wrap`, mask keeps the exact low 32 bits).
 
 ### [Floating-point operators](https://go.dev/ref/spec#Floating-point_operators) — ✓ ops; ⚠ FMA fusion
 Spec: `+x=x`, `-x`=negation; div-by-zero "not specified beyond IEEE 754…
