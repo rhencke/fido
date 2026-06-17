@@ -170,7 +170,7 @@ func Panic_and_recover(n int64) {
 	defer func() {
 		if v := recover(); v != nil {
 			recovered := v.(int64)
-			println(recovered, Add(recovered, 1))
+			println(recovered, recovered+1)
 		}
 	}()
 	panic(n)
@@ -254,7 +254,7 @@ func Session_demo() {
 	_sess_ch := make(chan any)
 	go func() {
 		n := (<-_sess_ch).(int64)
-		_sess_ch <- Add(n, n)
+		_sess_ch <- n + n
 	}()
 	_sess_ch <- int64(21)
 	result := (<-_sess_ch).(int64)
@@ -266,7 +266,7 @@ func Adder_demo() {
 	go func() {
 		a := (<-_sess_ch).(int64)
 		b := (<-_sess_ch).(int64)
-		_sess_ch <- Add(a, b)
+		_sess_ch <- a + b
 	}()
 	_sess_ch <- int64(20)
 	_sess_ch <- int64(22)
@@ -293,7 +293,7 @@ func Pick_demo(b bool) {
 }
 
 func Neg_demo() {
-	println(Sub(2, 5))
+	println(2 - 5)
 }
 
 func Control_flow_demo() {
@@ -809,7 +809,7 @@ func Repinv_demo() {
 
 func main() {
 	println(Add(1, 2))
-	Panic_and_recover(Add(40, 2))
+	Panic_and_recover(40 + 2)
 	Div_demo()
 	Overflow_safe_demo()
 	Float_demo()

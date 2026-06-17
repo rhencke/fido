@@ -604,25 +604,25 @@ Definition neglit_demo : IO unit :=
 
 (** Panic with [n], then recover it and print [n] and [n+1].
     Demonstrates the full panic → catch → type_assert cycle. *)
-Definition panic_and_recover (n : int) : IO unit :=
+Definition panic_and_recover (n : GoI64) : IO unit :=
   catch
     (@panic unit (any n))
     (fun v =>
-     bind (type_assert TInt64 v) (fun recovered =>
-     println [any recovered; any (add recovered 1)])).
+     bind (type_assert TI64 v) (fun recovered =>
+     println [any recovered; any (i64_add recovered (1)%i64)])).
 
 (** Map reads are now in [IO] (they observe the map's current contents), so [sz]/
     [hit]/[mis] are [bind]-sequenced after the writes — and the old box/assert
     roundtrip is gone ([map_get_or] returns the value directly). *)
 Definition map_demo : IO unit :=
-  bind (map_make_typed TInt64 TInt64) (fun m =>            (* make(map[int64]int64) *)
-  bind (map_set TInt64 TInt64 (1:int) (100:int) m) (fun _ =>            (* m[1] = 100 *)
-  bind (map_set TInt64 TInt64 (2:int) (200:int) m) (fun _ =>            (* m[2] = 200 *)
-  bind (map_set TInt64 TInt64 (3:int) (300:int) m) (fun _ =>            (* m[3] = 300 *)
-  bind (map_set TInt64 TInt64 (2:int) (999:int) m) (fun _ =>            (* m[2] = 999  (overwrite) *)
+  bind (map_make_typed TI64 TI64) (fun m =>            (* make(map[int64]int64) *)
+  bind (map_set TI64 TI64 (1)%i64 (100)%i64 m) (fun _ =>            (* m[1] = 100 *)
+  bind (map_set TI64 TI64 (2)%i64 (200)%i64 m) (fun _ =>            (* m[2] = 200 *)
+  bind (map_set TI64 TI64 (3)%i64 (300)%i64 m) (fun _ =>            (* m[3] = 300 *)
+  bind (map_set TI64 TI64 (2)%i64 (999)%i64 m) (fun _ =>            (* m[2] = 999  (overwrite) *)
   bind (map_len m) (fun sz =>
-  bind (@map_get_or int int TInt64 TInt64 (2:int) (0:int) m) (fun hit =>  (* key present → 999 *)
-  bind (@map_get_or int int TInt64 TInt64 (9:int) (0:int) m) (fun mis =>  (* key absent  → 0   *)
+  bind (@map_get_or GoI64 GoI64 TI64 TI64 (2)%i64 (0)%i64 m) (fun hit =>  (* key present → 999 *)
+  bind (@map_get_or GoI64 GoI64 TI64 TI64 (9)%i64 (0)%i64 m) (fun mis =>  (* key absent  → 0   *)
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
 Definition slice_demo : IO unit :=
@@ -639,12 +639,12 @@ Definition slice_demo : IO unit :=
     First recv: value=42, ok=true  (buffered value still present after close).
     Second recv: value=0,  ok=false (channel drained and closed). *)
 Definition chan_demo : IO unit :=
-  ch <-' make_chan_buf TInt64 1 ;;
-  send TInt64 ch (42 : int) >>'
-  close_chan TInt64 ch >>'
-  recv_ok TInt64 ch (fun x ok =>                   (* prints: 42 true *)
+  ch <-' make_chan_buf TI64 1 ;;
+  send TI64 ch (42)%i64 >>'
+  close_chan TI64 ch >>'
+  recv_ok TI64 ch (fun x ok =>                   (* prints: 42 true *)
   println [any x; any ok] >>'
-  recv_ok TInt64 ch (fun x2 ok2 =>
+  recv_ok TI64 ch (fun x2 ok2 =>
   println [any x2; any ok2])).
 
 (** select (Go spec "Select statements"): choose among ready channel ops.  [ch1]
@@ -653,25 +653,25 @@ Definition chan_demo : IO unit :=
     is stable.)  The lowering is a faithful Go [select { case … }]; the choice /
     blocking semantics is the tracked frontier (like [recv]'s blocking). *)
 Definition select_demo : IO unit :=
-  ch1 <-' make_chan_buf TInt64 1 ;;
-  ch2 <-' make_chan_buf TInt64 1 ;;
-  send TInt64 ch1 (42 : int) >>'
-  select_recv2 TInt64 ch1 (fun x => println [any x])     (* ch1 ready → 42 *)
-               TInt64 ch2 (fun y => println [any y]).
+  ch1 <-' make_chan_buf TI64 1 ;;
+  ch2 <-' make_chan_buf TI64 1 ;;
+  send TI64 ch1 (42)%i64 >>'
+  select_recv2 TI64 ch1 (fun x => println [any x])     (* ch1 ready → 42 *)
+               TI64 ch2 (fun y => println [any y]).
 
 (** select with a default (the NON-BLOCKING form): [ch] is empty, so no case is
     ready and the [default] runs. *)
 Definition select_default_demo : IO unit :=
-  ch <-' make_chan_buf TInt64 1 ;;
-  select_recv_default TInt64 ch (fun x => println [any x])   (* ch empty → default *)
-                      (println [any (99 : int)]).            (* prints: 99 *)
+  ch <-' make_chan_buf TI64 1 ;;
+  select_recv_default TI64 ch (fun x => println [any x])   (* ch empty → default *)
+                      (println [any (99)%i64]).            (* prints: 99 *)
 
 (** Unbuffered channel + goroutine: the goroutine sends while main recvs.
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
 Definition goroutine_demo : IO unit :=
-  bind (make_chan TInt64)              (fun ch =>
-  bind (go_spawn (send TInt64 ch (42 : int))) (fun _ =>
-  bind (recv TInt64 ch)               (fun x =>
+  bind (make_chan TI64)              (fun ch =>
+  bind (go_spawn (send TI64 ch (42)%i64)) (fun _ =>
+  bind (recv TI64 ch)               (fun x =>
   println [any x]))).                  (* prints: 42 *)
 
 (** Session-typed ping-pong, with LINEAR sessions (the indexed monad [Sess]).
@@ -681,7 +681,7 @@ Definition goroutine_demo : IO unit :=
     incomplete protocol) are all Rocq compile-time errors — there is no endpoint
     value to reuse. *)
 
-Definition PingPong : Proto := PSend int (PRecv int PEnd).
+Definition PingPong : Proto := PSend GoI64 (PRecv GoI64 PEnd).
 
 (* Client and server are inlined into [run_session] so the plugin lowers each
    role's body directly against the shared channel.  Their *types* (below) still
@@ -690,12 +690,12 @@ Definition PingPong : Proto := PSend int (PRecv int PEnd).
 Definition session_demo : IO unit :=
   run_session
     (* client : Sess PingPong PEnd unit — send 21, recv, print *)
-    (ssend (21 : int) >>>
-     result <<- srecv TInt64 ;;;
+    (ssend (21)%i64 >>>
+     result <<- srecv TI64 ;;;
      slift (println [any result]))            (* prints: 42 *)
     (* server : Sess (dual PingPong) PEnd unit — recv n, send n+n *)
-    (n <<- srecv TInt64 ;;;
-     ssend (add n n)).
+    (n <<- srecv TI64 ;;;
+     ssend (i64_add n n)).
 
 (** ---- Protocol compliance is enforced at compile time ----
 
@@ -706,7 +706,7 @@ Definition session_demo : IO unit :=
 
 (* Receiving first violates the protocol head (PSend ≠ PRecv) — type error. *)
 Fail Definition bad_recv_first : Sess PingPong PEnd unit :=
-  sbind (srecv TInt64) (fun _ => sret tt).
+  sbind (srecv TI64) (fun _ => sret tt).
 
 (* Sending a bool where the protocol pins int — type error. *)
 Fail Definition bad_send_type : Sess PingPong PEnd unit :=
@@ -715,36 +715,36 @@ Fail Definition bad_send_type : Sess PingPong PEnd unit :=
 (* Stopping before [PEnd]: the ascribed type demands the protocol be fully
    consumed, so an incomplete session is a type error. *)
 Fail Definition bad_incomplete : Sess PingPong PEnd unit :=
-  ssend (21 : int).
+  ssend (21)%i64.
 
 (* NON-LINEAR double send — the violation the old CPS API silently ACCEPTED.
    After one [ssend] the state is [PRecv int PEnd]; a second [ssend] needs
    [PSend] at the head, so it no longer type-checks. *)
 Fail Definition bad_double_send : Sess PingPong PEnd unit :=
-  sbind (ssend (21 : int)) (fun _ =>
-  sbind (ssend (99 : int)) (fun _ => sret tt)).
+  sbind (ssend (21)%i64) (fun _ =>
+  sbind (ssend (99)%i64) (fun _ => sret tt)).
 
 (* The server's dual receives first; sending first is a type error. *)
 Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
-  sbind (ssend (1 : int)) (fun _ => sret tt).
+  sbind (ssend (1)%i64) (fun _ => sret tt).
 
 (** A longer protocol: the client sends two numbers, the server replies with
     their sum.  Exercises consecutive same-direction steps — two sends in a row
     (client), two receives in a row (server) — which ping-pong does not. *)
 
-Definition Adder : Proto := PSend int (PSend int (PRecv int PEnd)).
+Definition Adder : Proto := PSend GoI64 (PSend GoI64 (PRecv GoI64 PEnd)).
 
 Definition adder_demo : IO unit :=
   run_session
     (* client : Sess Adder PEnd unit — send 20, send 22, recv sum, print *)
-    (ssend (20 : int) >>>
-     ssend (22 : int) >>>
-     sum <<- srecv TInt64 ;;;
+    (ssend (20)%i64 >>>
+     ssend (22)%i64 >>>
+     sum <<- srecv TI64 ;;;
      slift (println [any sum]))               (* prints: 42 *)
     (* server : Sess (dual Adder) PEnd unit — recv a, recv b, send a+b *)
-    (a <<- srecv TInt64 ;;;
-     b <<- srecv TInt64 ;;;
-     ssend (add a b)).
+    (a <<- srecv TI64 ;;;
+     b <<- srecv TI64 ;;;
+     ssend (i64_add a b)).
 
 (** ---- Control flow: if/else (step 7a) ----
 
@@ -755,23 +755,22 @@ Definition adder_demo : IO unit :=
     [pick_demo] uses it as an IO value feeding a continuation — the plugin
     threads the continuation into both arms (bind distributes over case). *)
 
-Definition sign_demo (n : int) : IO unit :=
-  if Sint63.ltb n 10                  (* SIGNED comparison, faithful to Go int64 *)
+Definition sign_demo (n : GoI64) : IO unit :=
+  if (n <? 10)%i64                    (* SIGNED comparison, faithful to Go int64 *)
   then println [any n; any true]      (* n < 10  → e.g. "5 true"   *)
   else println [any n; any false].    (* n >= 10 → e.g. "20 false" *)
 
 Definition pick_demo (b : bool) : IO unit :=
-  bind (if b then ret (1 : int) else ret (2 : int)) (fun x =>
+  bind (if b then ret (1)%i64 else ret (2)%i64) (fun x =>
   println [any x]).                    (* b → 1, else 2 *)
 
-(** Signed subtraction extracts to Go's [2 - 5] and prints [-3] — the runtime
-    counterpart of [sub_signed_matches_go]. *)
+(** Signed subtraction extracts to Go's [2 - 5] and prints [-3] — full-width [GoI64]. *)
 Definition neg_demo : IO unit :=
-  println [any (sub (2 : int) (5 : int))].   (* Go prints: -3 *)
+  println [any (i64_sub (2)%i64 (5)%i64)].   (* Go prints: -3 *)
 
 Definition control_flow_demo : IO unit :=
-  bind (sign_demo (5 : int))  (fun _ =>   (* prints: 5 true  *)
-  bind (sign_demo (20 : int)) (fun _ =>   (* prints: 20 false *)
+  bind (sign_demo (5)%i64)  (fun _ =>   (* prints: 5 true  *)
+  bind (sign_demo (20)%i64) (fun _ =>   (* prints: 20 false *)
   bind (pick_demo true)       (fun _ =>   (* prints: 1 *)
   neg_demo))).                            (* prints: -3 *)
 
@@ -804,19 +803,19 @@ Definition bool_op_demo (a b c : bool) : IO unit :=
     [bind] continuation follows the call as a single statement — chaining several
     inline [if]s in one [bind] instead would duplicate the continuation into both
     arms (see the "inline-if continuation duplication" note in CLAUDE.md). *)
-Definition and_cond (a b : int) : IO unit :=
-  if andb (Sint63.ltb a 10) (Sint63.ltb b 10)         (* a<10 && b<10 *)
-  then println [any (1 : int)] else println [any (0 : int)].
-Definition or_cond (a b : int) : IO unit :=
-  if orb (Sint63.ltb a 10) (Sint63.ltb b 10)          (* a<10 || b<10 *)
-  then println [any (1 : int)] else println [any (0 : int)].
-Definition not_cond (a : int) : IO unit :=
-  if negb (Sint63.ltb a 10)                           (* !(a<10) *)
-  then println [any (1 : int)] else println [any (0 : int)].
+Definition and_cond (a b : GoI64) : IO unit :=
+  if andb (a <? 10)%i64 (b <? 10)%i64                 (* a<10 && b<10 *)
+  then println [any (1)%i64] else println [any (0)%i64].
+Definition or_cond (a b : GoI64) : IO unit :=
+  if orb (a <? 10)%i64 (b <? 10)%i64                  (* a<10 || b<10 *)
+  then println [any (1)%i64] else println [any (0)%i64].
+Definition not_cond (a : GoI64) : IO unit :=
+  if negb (a <? 10)%i64                               (* !(a<10) *)
+  then println [any (1)%i64] else println [any (0)%i64].
 Definition cond_op_demo : IO unit :=
-  bind (and_cond 3 4)  (fun _ =>   (* T && T → 1 *)
-  bind (or_cond 30 4)  (fun _ =>   (* F || T → 1 *)
-  not_cond 30)).                   (* !F      → 1 *)
+  bind (and_cond (3)%i64 (4)%i64)  (fun _ =>   (* T && T → 1 *)
+  bind (or_cond (30)%i64 (4)%i64)  (fun _ =>   (* F || T → 1 *)
+  not_cond (30)%i64)).                   (* !F      → 1 *)
 
 (** Regression for inline-[if] continuation de-duplication: three INLINE [if]s
     chained in one [bind], each discarding its [unit] result.  Because the result
@@ -833,14 +832,14 @@ Definition inline_if_demo : IO unit :=
     _ | None => _)] becomes [if v, ok := m[k]; ok { _ } else { _ }] — no [option]
     value is built. *)
 Definition lookup_demo : IO unit :=
-  m <-' map_make_typed TInt64 TInt64 ;;
-  map_set TInt64 TInt64 (7 : int) (700 : int) m >>'
-  (o <-' map_get_opt TInt64 TInt64 (7 : int) m ;;                 (* present → 700 true *)
+  m <-' map_make_typed TI64 TI64 ;;
+  map_set TI64 TI64 (7)%i64 (700)%i64 m >>'
+  (o <-' map_get_opt TI64 TI64 (7)%i64 m ;;                 (* present → 700 true *)
    match o with
    | Some v => println [any v; any true]
    | None   => println [any false]
    end) >>'
-  (o <-' map_get_opt TInt64 TInt64 (9 : int) m ;;                 (* absent → false *)
+  (o <-' map_get_opt TI64 TI64 (9)%i64 m ;;                 (* absent → false *)
    match o with
    | Some v => println [any v; any true]
    | None   => println [any false]
@@ -1295,7 +1294,7 @@ Fail Definition bad_unsorted : Sorted2 := MkSorted2 7 3 eq_refl.
     plugin flattens it to the same straight-line Go.) *)
 Definition main_effect : IO unit :=
   println [any (add 1 2)]       >>'   (* prints: 3 *)
-  panic_and_recover (add 40 2)  >>'   (* prints: 42 43 *)
+  panic_and_recover (i64_add (40)%i64 (2)%i64)  >>'   (* prints: 42 43 *)
   div_demo                      >>'   (* prints: 3 2 *)
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
   float_demo                    >>'   (* prints: 3.75 / 0.25 (sci) *)
