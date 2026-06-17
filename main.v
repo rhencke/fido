@@ -402,6 +402,36 @@ Definition u32_demo : IO unit :=
   println [ any (u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl))   (* 1410065408 *)
           ; any (i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl)) ])).  (* -2147479015 *)
 
+(** int64 — FULL-WIDTH signed 64-bit (Go spec "Numeric types"), the genuine
+    Z-carried model.  Faithful across the WHOLE int64 range and wrapping at the TRUE
+    2^63 — unlike the [Sint63] [int], which is faithful only within [-2^62, 2^62).
+    [2^63-1 + 1] wraps to [-2^63]; [-2^63 - 1] wraps to [2^63-1]; [2^32 * 2^32 = 2^64]
+    wraps to 0.  And a sum the OLD 2^62 model could not even represent is now exact. *)
+Example spec_i64_add_wrap : i64_add (i64_lit 9223372036854775807 eq_refl) (i64_lit 1 eq_refl) = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_sub_wrap : i64_sub (i64_lit (-9223372036854775808) eq_refl) (i64_lit 1 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_mul_wrap : i64_mul (i64_lit 4294967296 eq_refl) (i64_lit 4294967296 eq_refl) = i64_lit 0 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_beyond62 : i64_add (i64_lit 4611686018427387904 eq_refl) (i64_lit 4611686018427387903 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
+(* No-overflow ⇒ EXACT, now at the TRUE int64 width (cf. [add_no_overflow_exact] at 2^62). *)
+Theorem i64_add_no_overflow_exact : forall a b : GoI64,
+  in_i64 (i64raw a + i64raw b)%Z = true -> i64raw (i64_add a b) = (i64raw a + i64raw b)%Z.
+Proof.
+  intros [a] [b]. unfold in_i64, i64_add, wrap64. cbn. intros H.
+  apply andb_prop in H. destruct H as [H1 H2].
+  apply Z.leb_le in H1. apply Z.ltb_lt in H2.
+  rewrite Z.mod_small by lia. lia.
+Qed.
+(* The demo shows full-width arithmetic on values that EXCEED the old [Sint63] [int]
+   range ([2^62 ≈ 4.6e18]) yet fit int64 — impossible to even represent before.  The
+   2^63 WRAP itself is proven by the witnesses above (machine-checked [vm_compute]),
+   NOT re-shown at runtime: an extracted [MAX + 1] is a Go *untyped-constant*
+   expression, so Go applies its COMPILE-TIME overflow check (a compile error) rather
+   than the runtime int64 wrap [i64_add] models — exactly the untyped-constant gap
+   (PRE_IMPORT_PLAN A5 / Known gaps #5).  [i64_add] models RUNTIME int64 addition,
+   faithful for non-constant operands; the demo keeps its constant results in range. *)
+Definition i64_demo : IO unit :=
+  println [ any (i64_add (i64_lit 9000000000000000000 eq_refl) (i64_lit 200000000000000000 eq_refl))  (* 9200000000000000000 (> 2^62) *)
+          ; any (i64_mul (i64_lit 3000000000 eq_refl) (i64_lit 3000000000 eq_refl)) ].  (* 9000000000000000000 (> 2^62) *)
+
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
@@ -1156,7 +1186,8 @@ Definition main_effect : IO unit :=
   shift_demo                    >>'   (* prints: 8 0 15 / -128 -2 *)
   convert_demo                  >>'   (* prints: 200 232 / 1200 *)
   divmod_demo                   >>'   (* prints: 28 4 -128 *)
-  u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 *)
+  u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 / 1410065408 -2147479015 *)
+  i64_demo                      >>'   (* prints: -9223372036854775808 0 *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
@@ -1215,6 +1246,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
+  i64_lit i64_add i64_sub i64_mul i64_eqb i64_ltb i64_leb
   sret sbind ssend srecv slift run_session.
 
 Go Main Extraction main "main_effect".

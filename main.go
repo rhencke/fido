@@ -107,6 +107,10 @@ func U32_demo() {
 	println((((100000 & 0xffffffff) * (100000 & 0xffffffff)) & 0xffffffff), (((((((46341 & 0xffffffff) ^ 0x80000000) - 0x80000000) * (((46341 & 0xffffffff) ^ 0x80000000) - 0x80000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000))
 }
 
+func I64_demo() {
+	println(9000000000000000000+200000000000000000, 3000000000*3000000000)
+}
+
 func Builtins_demo() {
 	println(min(3, 5), max(3, 5))
 	println(len(make([]int64, 3)))
@@ -787,6 +791,7 @@ func main() {
 	Convert_demo()
 	Divmod_demo()
 	U32_demo()
+	I64_demo()
 	Builtins_demo()
 	Prec_demo()
 	Neglit_demo()

@@ -680,10 +680,24 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    IO, then control flow, then channels.
 
 ### Tier 2 — numeric correctness within the int/float parameters
-4. **`int` is ±2⁶², not full int64.**  One bit short of the int64 parameter; the
-   wrap boundary differs from Go's.  Earlier accepted, but strictly incorrect for
-   int64.  (Known gaps #2.)  *Fix:* a full-width model (Z-based, or a paired
-   63-bit representation) so the range and overflow point match int64 exactly.
+4. **`int` is ±2⁶², not full int64 — *full-width `GoI64` now exists (signed);
+   default-`int` migration pending*.**  The 63-bit primitive `int` (Sint63) is one
+   bit short of int64, so its wrap boundary differs from Go's.  *Fix delivered for
+   signed int64:* `GoI64`, a distinct record carried by **`Z`** (not `int`),
+   normalised mod 2⁶⁴ into the signed range after every op (`wrap64`).  Faithful
+   across the WHOLE int64 range and wrapping at the true 2⁶³ — `spec_i64_add_wrap`
+   (2⁶³−1+1→−2⁶³), `spec_i64_beyond62` (a sum unrepresentable in the old ±2⁶²
+   model), `i64_add_no_overflow_exact` — all **axiom-free** (`Print Assumptions` =
+   *Closed under the global context*).  Erases to a Go `int64` (wraps natively at
+   2⁶⁴, so the emitted op is bare `a + b`, no mask); the `Z` arithmetic helpers
+   extraction drags in (`Z.modulo`/`CompOpp`/…) are proof-only and suppressed by
+   module, never emitted.  *Bounded caveat:* a CONSTANT `MAX+1` in extracted Go hits
+   Go's untyped-constant compile-time overflow check (a compile error), not the
+   runtime wrap `i64_add` models — that is Tier 2 #6 (untyped constants), and the
+   wrap is faithful for runtime operands / witness-proven.  *Remaining:* migrate the
+   DEFAULT `int`/`int64` (`TInt`/`TInt64`/`GoInt`) onto `GoI64` — it still uses the
+   Sint63 carrier and is entangled with concurrency.v's `TInt64` channel model
+   (PRE_IMPORT_PLAN A4); and the unsigned `GoU64` analogue (A3).
 5. **Overflow-safe arithmetic — DONE (the guarded forms now exist).**
    `add_nz`/`sub_nz`/`mul_nz` are evidence-carrying: each demands a proof that the
    exact result is in range (`no_overflow_{add,sub,mul}`, discharged by `now

@@ -68,10 +68,19 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
   relaxed to the true limit (`W≥63`).  Witnesses `spec_u32_mul_wrap` (100000²→
   1410065408), `spec_u32_mul_max` ((2³²−1)²→1), `spec_i32_mul_wrap` (46341²→
   -2147479015); `u32_demo` golden-locked.  No Z model needed.
-- **A2 — `GoI64` full-width signed type.** Z-record; literals (representability
-  proof), add/sub/mul wrapping at the true 2⁶³, the no-overflow-exact theorems at
-  2⁶³, signed comparison, div/mod (truncating, MININT/−1 wrap), bitwise, shifts
-  (arithmetic). Plugin lowering + demo. **The keystone build.**
+- **A2 — `GoI64` full-width signed type (arithmetic+comparison DONE, 2026-06-17).**
+  Distinct record over `Z` (`MkI64 { i64raw : Z }`), normalised mod 2⁶⁴ by `wrap64`;
+  `i64_lit` (representability proof; `i64_const_oob` Fail), `i64_add`/`sub`/`mul`
+  (wrap at the true 2⁶³), `i64_eqb`/`ltb`/`leb` (signed Z compare).  Witnesses
+  `spec_i64_add_wrap`/`sub_wrap`/`mul_wrap`/`beyond62` + `i64_add_no_overflow_exact`,
+  all **axiom-free**.  Plugin: rides the numint erasure (type→int64, ctor/proj
+  erased) since `is_ui_digits "I64"`; ops route through `binop_of` (BARE Go int64,
+  no mask); `i64_lit` folds its `Z` literal (`z_value` via `Int64`); the `Z`/`Pos`
+  arith helpers are suppressed by module (`is_zarith_helper`).  `i64_demo`
+  golden-locked.  *Surfaced:* Go constant-folds `MAX+1` → untyped-constant compile
+  error (the A5 gap), so the demo shows in-range >2⁶² values; the wrap is
+  witness-proven.  *Still TODO in A2:* `i64_div`/`mod` (truncating, MININT/−1 wrap),
+  bitwise `& | ^ &^ ^`, shifts `<< >>` (the int bitwise/shift this phase unblocks).
 - **A3 — `GoU64` full-width unsigned type.** Same template, unsigned wrap at 2⁶⁴.
 - **A4 — migrate the default `int`/`int64` (`TInt`/`TInt64`/`GoInt`) to the
   full-width type**, *or* keep `Sint63` as an explicit "bounded int" and make
@@ -207,7 +216,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓ done; A2–A5 (GoI64/GoU64 Z-record, default-int migration, Z constants) pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` arith+compare ✓ (div/mod/bitwise/shifts pending); A3 `GoU64`, A4 default-`int` migration, A5 `Z` constants pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

@@ -115,6 +115,11 @@ Definition GoSlice (A : Type) : Type := list A.
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
+(* [BinInt] gives [Z] for the FULL-WIDTH [GoI64] model below (the 63-bit primitive
+   [int] is one bit short of int64).  Required WITHOUT [Open Scope Z_scope] so the
+   existing [%uint63]/[%sint63] defaults are untouched — all [Z] use is qualified
+   ([Z.add]/[Z.modulo]/…) with explicit [%Z] literals. *)
+From Stdlib Require Import BinInt.
 Notation GoFloat64 := float.
 (** [GoFloat32] has no native Rocq float32 (holdout #1 in ZERO_AXIOMS_PLAN.md).  Modelled
     here as [float] (= float64): a CRUDE idealisation — no float32 op is modelled and no
@@ -154,6 +159,13 @@ Record GoU16 := MkU16 { u16raw : int }.
 Record GoI16 := MkI16 { i16raw : int }.
 Record GoU32 := MkU32 { u32raw : int }.
 Record GoI32 := MkI32 { i32raw : int }.
+(* FULL-WIDTH signed int64 (Go spec "Numeric types": [int64] is the set of all
+   signed 64-bit integers).  Carried by [Z] — NOT the 63-bit [int] — so the model
+   is faithful across the WHOLE int64 range and wraps at the true [2^63], unlike
+   the [Sint63] [int] carrier (faithful only within [-2^62, 2^62)).  The wrapper
+   ERASES at extraction (like [GoU8]); a [GoI64] value is a Go [int64], which wraps
+   natively at [2^64], so the emitted ops need no mask. *)
+Record GoI64 := MkI64 { i64raw : Z }.
 
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
@@ -163,6 +175,7 @@ Inductive GoTypeTag : Type -> Type :=
   | TU8  : GoTypeTag GoU8  | TI8  : GoTypeTag GoI8
   | TU16 : GoTypeTag GoU16 | TI16 : GoTypeTag GoI16
   | TU32 : GoTypeTag GoU32 | TI32 : GoTypeTag GoI32
+  | TI64 : GoTypeTag GoI64               (* → int64 (full-width Z-carried) *)
   | TUnit : GoTypeTag unit
   | TInt     : GoTypeTag GoInt
   | TInt8    : GoTypeTag GoInt8
@@ -211,6 +224,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TU8, TU8   => Some eq_refl | TI8, TI8   => Some eq_refl
   | TU16, TU16 => Some eq_refl | TI16, TI16 => Some eq_refl
   | TU32, TU32 => Some eq_refl | TI32, TI32 => Some eq_refl
+  | TI64, TI64 => Some eq_refl
   | TUnit, TUnit => Some eq_refl
   | TInt, TInt         => Some eq_refl
   | TInt8, TInt8       => Some eq_refl
@@ -269,6 +283,7 @@ Definition zero_val {A : Type} (t : GoTypeTag A) : A :=
   | TU8  => MkU8 0%uint63  | TI8  => MkI8 0%uint63
   | TU16 => MkU16 0%uint63 | TI16 => MkI16 0%uint63
   | TU32 => MkU32 0%uint63 | TI32 => MkI32 0%uint63
+  | TI64 => MkI64 0%Z
   | TUnit => tt
   | TInt     => 0%uint63
   | TInt8    => 0%uint63
@@ -321,6 +336,7 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoI16  : Tagged GoI16    := TI16.
 #[global] Instance Tagged_GoU32  : Tagged GoU32    := TU32.
 #[global] Instance Tagged_GoI32  : Tagged GoI32    := TI32.
+#[global] Instance Tagged_GoI64  : Tagged GoI64    := TI64.
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -348,6 +364,7 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TI16 => fun a b => PrimInt63.eqb (i16raw a) (i16raw b)
   | TU32 => fun a b => PrimInt63.eqb (u32raw a) (u32raw b)
   | TI32 => fun a b => PrimInt63.eqb (i32raw a) (i32raw b)
+  | TI64 => fun a b => Z.eqb (i64raw a) (i64raw b)
   | TUnit => fun _ _ => true
   | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
@@ -852,6 +869,38 @@ Definition i32_of_int (x : int) : GoI32 := MkI32 (i32_norm x).
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
 Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
 Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2^32 *)
+
+(** ---- int64 — FULL-WIDTH signed 64-bit (Go spec "Numeric types") ----
+
+    The faithful model of Go's [int64] / (64-bit) [int].  Unlike the narrow
+    [GoU8]…[GoI32] records (masked [int] carriers, exact because the width fits the
+    63-bit primitive), int64 needs the WHOLE 64-bit range — one bit MORE than the
+    63-bit [int] — so it is carried by [Z] and normalised mod [2^64] into the signed
+    range after every op.  [wrap64] is the two's-complement wrap; it is the IDENTITY
+    on in-range values (so a no-overflow op equals the exact mathematical result —
+    [i64_add_no_overflow_exact] in main.v), and at the boundary [2^63-1 + 1] wraps to
+    [-2^63] exactly like Go ([spec_i64_add_wrap]).  Extraction erases the wrapper and
+    emits BARE Go int64 ops ([a + b], …): Go's int64 wraps natively at [2^64], so the
+    mask the narrow widths need is here unnecessary.  Comparison is signed [Z]
+    comparison — valid because every stored value is normalised into [-2^63, 2^63). *)
+Definition wrap64 (z : Z) : Z :=
+  (Z.modulo (z + 9223372036854775808) 18446744073709551616 - 9223372036854775808)%Z.
+Definition in_i64 (z : Z) : bool :=
+  andb (-9223372036854775808 <=? z)%Z (z <? 9223372036854775808)%Z.
+(* Smart literal: DEMANDS the constant fit int64 (Go's compile-time representability
+   check); an out-of-range literal is unrepresentable ([i64_const_oob] Fail). *)
+Definition i64_lit (z : Z) (_ : in_i64 z = true) : GoI64 := MkI64 z.
+Definition i64_add (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a + i64raw b)).
+Definition i64_sub (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a - i64raw b)).
+Definition i64_mul (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a * i64raw b)).
+Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
+Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
+Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
+
+(* Build-checked: a constant that does not fit int64 is UNREPRESENTABLE (Go's
+   constant-overflow compile error), and int64 does not implicitly mix with [int]. *)
+Fail Definition i64_const_oob : GoI64 := i64_lit 9223372036854775808%Z eq_refl.  (* = 2^63 *)
+Fail Definition i64_no_implicit (x : GoI64) : GoI64 := i64_add x (5 : int).
 
 (** ---- Builtins ---- *)
 

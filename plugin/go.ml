@@ -136,6 +136,24 @@ let ref_has_suffix r suffix =
   let n = String.length p and m = String.length suffix in
   n >= m && String.equal suffix (String.sub p (n - m) m)
 
+let path_contains r sub =
+  let p = global_path r in
+  let lp = String.length p and ls = String.length sub in
+  let rec scan i = i + ls <= lp && (String.equal (String.sub p i ls) sub || scan (i + 1)) in
+  ls > 0 && scan 0
+
+(* [Z]/[positive]/[N] arithmetic helpers (BinInt.Z.*, BinPos.Pos.*, …) pulled in by
+   the FULL-WIDTH int64 model's bodies ([wrap64] = [Z.modulo]…).  Those bodies are
+   PROOF-ONLY (the ops lower to bare Go int64 by name), so the [Z] helpers are never
+   referenced by emitted Go — but extraction still drags their (recursive, match-on-
+   constructor) decls into the program.  Suppress them by module so the printer never
+   tries to lower a [Z] eliminator.  Safe: nothing in the EMITTED Go calls them. *)
+let is_zarith_helper r =
+  List.exists (path_contains r) ["BinInt"; "BinPos"; "BinNat"; "BinNums"; "PArith"; "NArith"]
+  (* [comparison] eliminators (CompOpp, …) leak from [Z.compare]/[Pos.compare] used
+     inside [Z.modulo]; they live in [Corelib.Init.Datatypes], so match by basename. *)
+  || List.mem (global_basename r) ["CompOpp"; "comparison"]
+
 (*s Standard-library type and constructor recognition. *)
 
 let is_unit_type   r = ref_has_suffix r ".Init.Datatypes.unit"
@@ -295,6 +313,7 @@ let go_type_tag_map = [
   "TUint16",  "uint16";
   "TUint32",  "uint32";
   "TUint64",  "uint64";
+  "TI64",     "int64";    (* full-width Z-carried int64 (GoI64) *)
   "TFloat32", "float32";
 ]
 
@@ -398,10 +417,21 @@ let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
   let n = global_basename r in str_prefix "Mk" n && is_ui_digits (String.sub n 2 (String.length n - 2))
-let is_numint_proj r =                      (* u8raw / i16raw : (u|i) digits "raw" *)
+let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) digits "raw" *)
   let n = global_basename r in let len = String.length n in
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
   && all_digits (String.sub n 1 (len - 4))
+
+(* Full-width int64 ops ([i64_add]/[i64_lit]/…).  [GoI64]/[MkI64]/[i64raw] already
+   ride the numint machinery above (erased type/ctor/proj, rendered int64), but the
+   OPS are NOT masked (a [GoI64] is a real Go int64, wrapping natively at 2^64): the
+   arithmetic/comparison ops lower to BARE Go operators via [binop_of], and [i64_lit]
+   folds its [Z] literal.  The width-64 op names fall through [parse_fixed_width]
+   (capped at 32), so they never get the narrow masked treatment. *)
+let is_i64_op r name = String.equal (global_basename r) ("i64_" ^ name)
+let is_i64_lit r = is_i64_op r "lit"
+let is_any_i64_op r =
+  List.exists (is_i64_op r) ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"]
 
 (*s Nat arithmetic operation recognition. *)
 
@@ -578,6 +608,14 @@ let binop_of r =
   else if is_orb_ref r then Some (1, " || ")
   (* string concatenation: Go [+], same precedence as numeric [+] (level 4) *)
   else if is_str_concat_ref r then Some (4, " + ")
+  (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so add/sub/mul
+     lower to BARE Go operators (no mask) and comparison is signed int64 </<=/==. *)
+  else if is_i64_op r "add" then Some (4, " + ")
+  else if is_i64_op r "sub" then Some (4, " - ")
+  else if is_i64_op r "mul" then Some (5, " * ")
+  else if is_i64_op r "ltb" then Some (3, " < ")
+  else if is_i64_op r "leb" then Some (3, " <= ")
+  else if is_i64_op r "eqb" then Some (3, " == ")
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
   else if fw_is r "ltb" then Some (3, " < ")
@@ -749,6 +787,27 @@ let rec nat_value = function
   | MLcons (_, r, [])  when is_nat_zero r -> Some 0
   | MLcons (_, r, [n]) when is_nat_succ r ->
       (match nat_value n with Some v -> Some (v + 1) | None -> None)
+  | _ -> None
+
+(*s Fold a Coq [Z] literal to its value as an [Int64], or None if not a literal.
+    [Z] = Z0 | Zpos positive | Zneg positive; [positive] = xH | xO p | xI p (LSB-
+    recursive: [xO p = 2p], [xI p = 2p+1], [xH = 1]).  [Int64] is exactly the int64
+    range, so a constant the smart [i64_lit] admits (proved [in_i64], i.e. in
+    [[-2^63, 2^63)]) is represented faithfully — the lone [-2^63] case folds its
+    magnitude [2^63] to [Int64.min_int] by two's-complement wrap, and negating
+    [min_int] is [min_int], the correct value.  Non-literals fail loud upstream. *)
+let rec pos_value = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "xH" -> Some 1L
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xO" ->
+      (match pos_value p with Some v -> Some (Int64.mul 2L v) | None -> None)
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "xI" ->
+      (match pos_value p with Some v -> Some (Int64.add (Int64.mul 2L v) 1L) | None -> None)
+  | _ -> None
+let z_value = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "Z0"   -> Some 0L
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zpos" -> pos_value p
+  | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
+      (match pos_value p with Some v -> Some (Int64.neg v) | None -> None)
   | _ -> None
 
 (*s Expression printer. *)
@@ -1012,6 +1071,13 @@ let rec pp_expr state env = function
        | MLglob r, [_; _] when is_int63_op_ref r "ltb" || is_int63_op_ref r "leb" ->
            unsupported "PrimInt63.ltb/leb (UNSIGNED comparison): Go int64 </<= are SIGNED and disagree once the high bit is set; use Sint63.ltb/leb (signed) for int"
 
+       (* [i64_lit z] — a full-width int64 constant: fold its [Z] literal to the
+          decimal int64 (the proof arg was erased).  The smart constructor demanded
+          [in_i64 z], so the value fits int64. *)
+       | MLglob r, [z] when is_i64_lit r ->
+           (match z_value z with
+            | Some v -> str (Int64.to_string v)
+            | None   -> unsupported "i64_lit of a non-literal Z (only statically-known int64 constants are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
           surrounding operator, so the operands are printed at this op's level
@@ -1080,6 +1146,10 @@ let rec pp_expr state env = function
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
       (* Coq [string] literal → Go string literal (byte-faithful). *)
       str (go_string_lit (Option.get (decode_go_string e)))
+
+  | MLcons _ as e when Option.has_some (z_value e) ->
+      (* Coq [Z] literal (e.g. inside an erased [MkI64 z]) → decimal int64. *)
+      str (Int64.to_string (Option.get (z_value e)))
 
   | MLcons _ as e ->
       (match nat_value e with
@@ -2326,6 +2396,7 @@ let proof_only_names =
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
+    "wrap64"; "in_i64";            (* GoI64 normaliser / range check — proof-only (Z) *)
     "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
 let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
@@ -2339,6 +2410,8 @@ let is_inlined_ref r =
   is_bool_true r || is_bool_false r ||
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
   Option.has_some (fixed_width_op r) ||  (* all uN_*/iN_* incl. the iN_norm helper *)
+  is_any_i64_op r ||  (* full-width int64 ops — lowered via binop_of / i64_lit fold *)
+  is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||

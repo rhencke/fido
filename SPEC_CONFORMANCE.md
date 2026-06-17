@@ -81,11 +81,22 @@ div/mod, conversions.  Two's-complement: ✓ (`i8_add_wraps`, `i16_add_wraps`,
 mixing types, build-checked by `u8_no_implicit`…`u32_no_implicit` and the
 cross-width `u8_u16_no_mix` — exactly the spec's "no implicit conversion; the only
 implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  *Remaining:*
-`int`=Sint63 (⚠ faithful to int64 only within ±2⁶², Tier 2 #4) is not yet wrapped
-as a distinct record; **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product
-may exceed the 63-bit carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
-`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); 64-bit (`uint64`/`uint`/`int`) **✗ fails
-loud** (a ≥63-bit-wide product needs the Z-model); `float32` **✗** (no native Rocq
+**`int64` (full width) ✓ — `GoI64`**, a distinct record carried by `Z` (not the
+63-bit `int`), faithful across the WHOLE int64 range and wrapping at the true 2⁶³:
+`spec_i64_add_wrap` (2⁶³−1+1→−2⁶³), `spec_i64_sub_wrap`, `spec_i64_mul_wrap`,
+`spec_i64_beyond62` (an exact sum the old ±2⁶² model could not represent), and the
+no-overflow-exact theorem `i64_add_no_overflow_exact` — all **axiom-free** (Z
+inductives + `lia`).  The wrapper erases to a Go `int64` (wraps natively at 2⁶⁴, no
+mask).  ⚠ ONE bounded caveat: a CONSTANT `MAX+1` in extracted Go is an untyped-
+constant expression, so Go's COMPILE-TIME overflow check fires (a compile error)
+instead of the runtime wrap `i64_add` models — that is the untyped-constant gap
+(Constants section / Tier 2 #6), not an int64 defect; the wrap is faithful for
+runtime operands and is witness-proven.  *Remaining:* the legacy `int`=Sint63
+(⚠ ±2⁶², Tier 2 #4) is not yet migrated onto `GoI64` (default `int` still Sint63);
+**`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
+carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
+`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); `uint64`/`uint` (unsigned full width)
+**✗** (the `GoU64` analogue, pending); `float32` **✗** (no native Rocq
 f32).  Note: distinctness makes explicit
 CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
 `int` is wanted (which is correct: it fails loud, not silently).
