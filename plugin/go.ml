@@ -316,6 +316,7 @@ let go_type_tag_map = [
   "TUint32",  "uint32";
   "TUint64",  "uint64";
   "TI64",     "int64";    (* full-width Z-carried int64 (GoI64) *)
+  "TU64",     "uint64";   (* full-width Z-carried uint64 (GoU64) *)
   "TFloat32", "float32";
 ]
 
@@ -434,6 +435,22 @@ let is_i64_op r name = String.equal (global_basename r) ("i64_" ^ name)
 let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
+    ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
+     "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
+
+(* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
+   ride the numint machinery (erased type/ctor/proj, rendered uint64), but the
+   OPS are NOT masked (a [GoU64] is a real Go uint64, wrapping unsigned-natively
+   at 2^64): arithmetic/comparison ops lower to BARE Go operators via [binop_of],
+   and [u64_lit] folds its [Z] literal.  The width-64 names fall through
+   [parse_fixed_width] (capped at 32), so they never get the narrow masked treatment.
+   For literals, [Printf.sprintf "%Lu"] gives unsigned decimal for all [Int64.t]
+   values, including those that are "negative" when interpreted as signed
+   (i.e. u64 values in [2^63, 2^64)). *)
+let is_u64_op r name = String.equal (global_basename r) ("u64_" ^ name)
+let is_u64_lit r = is_u64_op r "lit"
+let is_any_u64_op r =
+  List.exists (is_u64_op r)
     ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
@@ -631,6 +648,25 @@ let binop_of r =
   else if is_i64_op r "ltb"    then Some (3, " < ")
   else if is_i64_op r "leb"    then Some (3, " <= ")
   else if is_i64_op r "eqb"    then Some (3, " == ")
+  (* full-width uint64 (GoU64): same bare Go operators as i64 — Go uint64 wraps
+     unsigned-natively at 2^64, arithmetic / bitwise / shift lower identically.
+     Comparison is unsigned uint64 </<=/==, which matches [Z.ltb]/[Z.leb] on the
+     non-negative [u64raw] values.  Go uint64 [/] is truncating-non-negative,
+     matching [Z.div] on non-negative operands. *)
+  else if is_u64_op r "add"    then Some (4, " + ")
+  else if is_u64_op r "sub"    then Some (4, " - ")
+  else if is_u64_op r "mul"    then Some (5, " * ")
+  else if is_u64_op r "div"    then Some (5, " / ")
+  else if is_u64_op r "mod"    then Some (5, " % ")
+  else if is_u64_op r "and"    then Some (5, " & ")
+  else if is_u64_op r "andnot" then Some (5, " &^ ")
+  else if is_u64_op r "shl"    then Some (5, " << ")
+  else if is_u64_op r "shr"    then Some (5, " >> ")
+  else if is_u64_op r "or"     then Some (4, " | ")
+  else if is_u64_op r "xor"    then Some (4, " ^ ")
+  else if is_u64_op r "ltb"    then Some (3, " < ")
+  else if is_u64_op r "leb"    then Some (3, " <= ")
+  else if is_u64_op r "eqb"    then Some (3, " == ")
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
   else if fw_is r "ltb" then Some (3, " < ")
@@ -662,8 +698,10 @@ let rec pp_type state = function
   | Tarr (t1, t2) ->
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
-  (* GoU<N>/GoI<N> erase to their int64 carrier (the wrapper is gone in Go) *)
-  | Tglob (r, _)  when is_numint_type r -> str "int64"
+  (* GoU<N>/GoI<N> erase to their int64 carrier (the wrapper is gone in Go).
+     Exception: GoU64 uses the unsigned uint64 carrier so it can represent [2^63, 2^64). *)
+  | Tglob (r, _)  when is_numint_type r ->
+      if String.equal (global_basename r) "GoU64" then str "uint64" else str "int64"
   (* IO A erases to A — the world token has no runtime representation *)
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
   (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
@@ -1010,6 +1048,10 @@ let rec pp_expr state env = function
           int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask. *)
        | MLglob r, [x] when is_i64_op r "not" ->
            str "^" ++ pp_atom state env x
+       (* full-width uint64 unary complement [u64_not x] → [^x].  Go's [^] on a
+          uint64 gives the 64-bit bitwise complement, exactly [2^64-1-x] = the model. *)
+       | MLglob r, [x] when is_u64_op r "not" ->
+           str "^" ++ pp_atom state env x
 
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
@@ -1097,6 +1139,14 @@ let rec pp_expr state env = function
            (match z_value z with
             | Some v -> str (Int64.to_string v)
             | None   -> unsupported "i64_lit of a non-literal Z (only statically-known int64 constants are modeled)")
+       (* [u64_lit z] — a full-width uint64 constant: fold its [Z] literal to the
+          UNSIGNED decimal ([Printf.sprintf "%Lu"] handles values in [2^63, 2^64)
+          that are "negative" in OCaml's signed [Int64.t] — they print as the
+          correct positive decimal). *)
+       | MLglob r, [z] when is_u64_lit r ->
+           (match z_value z with
+            | Some v -> str (Printf.sprintf "%Lu" v)
+            | None   -> unsupported "u64_lit of a non-literal Z (only statically-known uint64 constants are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
           surrounding operator, so the operands are printed at this op's level
@@ -2416,6 +2466,7 @@ let proof_only_names =
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
     "wrap64"; "in_i64";            (* GoI64 normaliser / range check — proof-only (Z) *)
+    "wrapU64"; "in_u64";           (* GoU64 normaliser / range check — proof-only (Z) *)
     "go_list_nth"; "ascii_byte"; "go_str_byte" ]   (* self-contained slice/str index helpers *)
 let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
@@ -2430,7 +2481,8 @@ let is_inlined_ref r =
   is_andb_ref r || is_orb_ref r || is_negb_ref r ||
   Option.has_some (fixed_width_op r) ||  (* all uN_*/iN_* incl. the iN_norm helper *)
   is_any_i64_op r ||  (* full-width int64 ops — lowered via binop_of / i64_lit fold *)
-  is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64 bodies — never emitted *)
+  is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
+  is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||

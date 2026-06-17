@@ -166,6 +166,13 @@ Record GoI32 := MkI32 { i32raw : int }.
    ERASES at extraction (like [GoU8]); a [GoI64] value is a Go [int64], which wraps
    natively at [2^64], so the emitted ops need no mask. *)
 Record GoI64 := MkI64 { i64raw : Z }.
+(* FULL-WIDTH unsigned 64-bit integer (Go spec "Numeric types": [uint64] is the
+   set of all unsigned 64-bit integers, range [0, 2^64)).  Carried by [Z] — NOT
+   the 63-bit [int] — so the model is faithful across the whole uint64 range and
+   wraps at [2^64].  The wrapper ERASES at extraction (like [GoI64]); a [GoU64]
+   value is a Go [uint64], which wraps natively at [2^64], so the emitted ops
+   need no mask. *)
+Record GoU64 := MkU64 { u64raw : Z }.
 
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
@@ -175,7 +182,8 @@ Inductive GoTypeTag : Type -> Type :=
   | TU8  : GoTypeTag GoU8  | TI8  : GoTypeTag GoI8
   | TU16 : GoTypeTag GoU16 | TI16 : GoTypeTag GoI16
   | TU32 : GoTypeTag GoU32 | TI32 : GoTypeTag GoI32
-  | TI64 : GoTypeTag GoI64               (* → int64 (full-width Z-carried) *)
+  | TI64 : GoTypeTag GoI64               (* → int64 (full-width Z-carried signed) *)
+  | TU64 : GoTypeTag GoU64               (* → uint64 (full-width Z-carried unsigned) *)
   | TUnit : GoTypeTag unit
   | TInt     : GoTypeTag GoInt
   | TInt8    : GoTypeTag GoInt8
@@ -225,6 +233,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TU16, TU16 => Some eq_refl | TI16, TI16 => Some eq_refl
   | TU32, TU32 => Some eq_refl | TI32, TI32 => Some eq_refl
   | TI64, TI64 => Some eq_refl
+  | TU64, TU64 => Some eq_refl
   | TUnit, TUnit => Some eq_refl
   | TInt, TInt         => Some eq_refl
   | TInt8, TInt8       => Some eq_refl
@@ -284,6 +293,7 @@ Definition zero_val {A : Type} (t : GoTypeTag A) : A :=
   | TU16 => MkU16 0%uint63 | TI16 => MkI16 0%uint63
   | TU32 => MkU32 0%uint63 | TI32 => MkI32 0%uint63
   | TI64 => MkI64 0%Z
+  | TU64 => MkU64 0%Z
   | TUnit => tt
   | TInt     => 0%uint63
   | TInt8    => 0%uint63
@@ -337,6 +347,7 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoU32  : Tagged GoU32    := TU32.
 #[global] Instance Tagged_GoI32  : Tagged GoI32    := TI32.
 #[global] Instance Tagged_GoI64  : Tagged GoI64    := TI64.
+#[global] Instance Tagged_GoU64  : Tagged GoU64    := TU64.
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -365,6 +376,7 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TU32 => fun a b => PrimInt63.eqb (u32raw a) (u32raw b)
   | TI32 => fun a b => PrimInt63.eqb (i32raw a) (i32raw b)
   | TI64 => fun a b => Z.eqb (i64raw a) (i64raw b)
+  | TU64 => fun a b => Z.eqb (u64raw a) (u64raw b)
   | TUnit => fun _ _ => true
   | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
@@ -924,6 +936,62 @@ Fail Definition i64_no_implicit (x : GoI64) : GoI64 := i64_add x (5 : int).
 (* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE (Go panics). *)
 Fail Definition i64_div_zero : GoI64 := i64_div (i64_lit 1%Z eq_refl) (i64_lit 0%Z eq_refl) eq_refl.
 Fail Definition i64_shl_neg  : GoI64 := i64_shl (i64_lit 1%Z eq_refl) (-1)%Z eq_refl.
+
+(** ---- GoU64: FULL-WIDTH unsigned 64-bit integer (Go spec "Numeric types") ----
+
+    Carried by [Z], normalised into [[0, 2^64)] after every op by [wrapU64]
+    (always non-negative — Z.modulo of a positive modulus is non-negative).
+    Extraction erases the wrapper; a [GoU64] value is a Go [uint64], which wraps
+    unsigned-natively at [2^64], so the emitted ops need no mask.
+
+    Comparison uses [Z.ltb]/[Z.leb] on non-negative operands, which gives the
+    unsigned order (Z order agrees with unsigned order for non-negative values).
+
+    Division: [Z.div]/[Z.modulo] (floored) agree with Go's truncating uint64
+    division since both dividend and divisor are non-negative (floor = truncate
+    for non-negative).
+
+    Bitwise: [Z.land]/[Z.lor]/[Z.lxor] on non-negative operands stay in
+    [[0, 2^64)] — no mask needed.  [Z.lnot n = -(n+1)] is negative, so
+    [wrapU64] brings it back to [2^64-1-n] (the 64-bit bitwise complement).
+    [Z.land n (Z.lnot m)] for n ≥ 0 stays ≥ 0 (and < 2^64) — no wrap needed.
+
+    Shifts: [<<] wraps mod [2^64] via [wrapU64 . Z.shiftl]; [>>] is LOGICAL
+    (for unsigned, arithmetic = logical), so [Z.shiftr n k] is exact for n ≥ 0. *)
+Definition wrapU64 (z : Z) : Z :=
+  Z.modulo z 18446744073709551616%Z.
+Definition in_u64 (z : Z) : bool :=
+  andb (0 <=? z)%Z (z <? 18446744073709551616)%Z.
+(* [u64_lit z _]: a uint64 constant; the proof is a representability check
+   (must be in [0, 2^64)); an out-of-range literal is unrepresentable. *)
+Definition u64_lit (z : Z) (_ : in_u64 z = true) : GoU64 := MkU64 z.
+Definition u64_add (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a + u64raw b)).
+Definition u64_sub (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a - u64raw b)).
+Definition u64_mul (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a * u64raw b)).
+Definition u64_eqb (a b : GoU64) : bool := Z.eqb (u64raw a) (u64raw b).
+Definition u64_ltb (a b : GoU64) : bool := Z.ltb (u64raw a) (u64raw b).
+Definition u64_leb (a b : GoU64) : bool := Z.leb (u64raw a) (u64raw b).
+(* DIVISION: evidence-carrying non-zero divisor (Go panics on /0).  [Z.div] and
+   [Z.modulo] are used here (floored) — for non-negative values they agree with
+   Go's truncating division, so the result is exact.  No wrap needed: both
+   results stay in [[0, 2^64)]. *)
+Definition u64_div (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := MkU64 (Z.div    (u64raw a) (u64raw b)).
+Definition u64_mod (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := MkU64 (Z.modulo (u64raw a) (u64raw b)).
+Definition u64_and    (a b : GoU64) : GoU64 := MkU64 (Z.land (u64raw a) (u64raw b)).
+Definition u64_or     (a b : GoU64) : GoU64 := MkU64 (Z.lor  (u64raw a) (u64raw b)).
+Definition u64_xor    (a b : GoU64) : GoU64 := MkU64 (Z.lxor (u64raw a) (u64raw b)).
+Definition u64_andnot (a b : GoU64) : GoU64 := MkU64 (Z.land (u64raw a) (Z.lnot (u64raw b))).
+Definition u64_not    (a   : GoU64) : GoU64 := MkU64 (wrapU64 (Z.lnot (u64raw a))).
+Definition u64_shl (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := MkU64 (wrapU64 (Z.shiftl (u64raw x) k)).
+Definition u64_shr (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := MkU64 (Z.shiftr (u64raw x) k).
+
+(* Build-checked: a constant >= 2^64 is UNREPRESENTABLE; uint64 does not
+   implicitly mix with [int], [GoI64], or other types. *)
+Fail Definition u64_const_oob : GoU64 := u64_lit 18446744073709551616%Z eq_refl.  (* = 2^64 *)
+Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : int).
+(* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE. *)
+Fail Definition u64_div_zero : GoU64 := u64_div (u64_lit 1%Z eq_refl) (u64_lit 0%Z eq_refl) eq_refl.
+Fail Definition u64_shl_neg  : GoU64 := u64_shl (u64_lit 1%Z eq_refl) (-1)%Z eq_refl.
 
 (** ---- Builtins ---- *)
 

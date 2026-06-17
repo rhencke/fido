@@ -116,6 +116,10 @@ func I64_ops_demo() {
 	println(-1&4294967295, ^(5))
 }
 
+func U64_demo() {
+	println(5000000000000000000+3000000000000000000, 3000000000*3000000000)
+}
+
 func Builtins_demo() {
 	println(min(3, 5), max(3, 5))
 	println(len(make([]int64, 3)))
@@ -798,6 +802,7 @@ func main() {
 	U32_demo()
 	I64_demo()
 	I64_ops_demo()
+	U64_demo()
 	Builtins_demo()
 	Prec_demo()
 	Neglit_demo()

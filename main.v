@@ -450,6 +450,32 @@ Definition i64_ops_demo : IO unit :=
   println [ any (i64_and (i64_lit (-1) eq_refl) (i64_lit 4294967295 eq_refl))   (* 4294967295 *)
           ; any (i64_not (i64_lit 5 eq_refl)) ]).  (* -6 *)
 
+(** ===== GoU64: FULL-WIDTH unsigned 64-bit integer =====
+    Machine-checked witnesses:
+    - [spec_u64_add_wrap]: 2^63 + 2^63 = 0 (mod 2^64) — the true unsigned wrap boundary.
+    - [spec_u64_sub_wrap]: 0 - 1 = 2^64-1 — unsigned underflow wraps to max.
+    - [spec_u64_not]:      ~0 = 2^64-1 (all 64 bits set).
+    - [spec_u64_shr]:      8 >> 1 = 4 (logical right shift, not arithmetic).
+    - [spec_u64_beyond63]: value > 2^62 unrepresentable in the old Sint63 model.
+    All axiom-free (Print Assumptions = Closed under the global context). *)
+Example spec_u64_add_wrap : u64_add (u64_lit 9223372036854775808%Z eq_refl) (u64_lit 9223372036854775808%Z eq_refl)
+                            = u64_lit 0%Z eq_refl. Proof. now vm_compute. Qed.
+Example spec_u64_sub_wrap : u64_sub (u64_lit 0%Z eq_refl) (u64_lit 1%Z eq_refl)
+                            = u64_lit 18446744073709551615%Z eq_refl. Proof. now vm_compute. Qed.
+Example spec_u64_not      : u64_not (u64_lit 0%Z eq_refl) = u64_lit 18446744073709551615%Z eq_refl. Proof. now vm_compute. Qed.
+Example spec_u64_shr      : u64_shr (u64_lit 8%Z eq_refl) 1 eq_refl = u64_lit 4%Z eq_refl. Proof. now vm_compute. Qed.
+Example spec_u64_beyond63 : u64raw (u64_add (u64_lit 5000000000000000000%Z eq_refl)
+                                            (u64_lit 5000000000000000000%Z eq_refl))
+                            = 10000000000000000000%Z. Proof. now vm_compute. Qed.
+
+(** Runtime demo: two values > 2^62 (unrepresentable in the old Sint63 carrier);
+    their sum and product both fit in Go's int64, so no untyped-constant issue
+    (PRE_IMPORT_PLAN A5 / Known gaps #5).  The wrapping corner cases above are
+    proof witnesses only (proof-only path never emitted). *)
+Definition u64_demo : IO unit :=
+  println [ any (u64_add (u64_lit 5000000000000000000%Z eq_refl) (u64_lit 3000000000000000000%Z eq_refl))  (* 8000000000000000000 (> 2^62) *)
+          ; any (u64_mul (u64_lit 3000000000%Z eq_refl) (u64_lit 3000000000%Z eq_refl)) ].               (* 9000000000000000000 *)
+
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
@@ -1207,6 +1233,7 @@ Definition main_effect : IO unit :=
   u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 / 1410065408 -2147479015 *)
   i64_demo                      >>'   (* prints: 9200000000000000000 9000000000000000000 *)
   i64_ops_demo                  >>'   (* prints: 1285714285714285714 1099511627776 / 4294967295 -6 *)
+  u64_demo                      >>'   (* prints: 8000000000000000000 9000000000000000000 *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
@@ -1267,6 +1294,8 @@ Extraction NoInline
   len cap slice_get slice_at_ok str_at_ok
   i64_lit i64_add i64_sub i64_mul i64_eqb i64_ltb i64_leb
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
+  u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
+  u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session.
 
 Go Main Extraction main "main_effect".

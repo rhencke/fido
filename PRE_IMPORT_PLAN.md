@@ -87,7 +87,22 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
   `i64_demo`/`i64_ops_demo` golden-locked.  *Surfaced:* Go constant-folds `MAX+1` →
   untyped-constant compile error (the A5 gap), so the demos show in-range values; the
   wrap/overflow corner cases are witness-proven.
-- **A3 — `GoU64` full-width unsigned type.** Same template, unsigned wrap at 2⁶⁴.
+- **A3 — `GoU64` full-width unsigned type (DONE, 2026-06-17).**  Distinct record over
+  `Z` (`MkU64 { u64raw : Z }`), normalised by `wrapU64` (mod 2⁶⁴, always non-negative).
+  Full op set: `u64_lit` (representability proof; `u64_const_oob` Fail),
+  `add`/`sub`/`mul` (unsigned wrap at 2⁶⁴), `eqb`/`ltb`/`leb` (Z compare on
+  non-negative — unsigned order), `div`/`mod` (Z.div/Z.modulo, floored = truncated
+  for non-negative; evidence-carrying non-zero divisor, `u64_div_zero` Fail), bitwise
+  `and`/`or`/`xor`/`andnot`/`not` (lnot + wrapU64), shifts `shl`/`shr` (<<wraps,
+  >>logical via Z.shiftr on non-negative; `u64_shl_neg` Fail).  Witnesses
+  `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/`beyond63`, all axiom-free.  Plugin:
+  numint erasure gives free type/ctor/proj suppression; type is `uint64` (exception
+  to `int64` default — explicit check on `"GoU64"` in `pp_type`); `u64_lit` uses
+  `Printf.sprintf "%Lu"` for unsigned decimal (handles [2⁶³,2⁶⁴) correctly);
+  ops route through `binop_of` as bare Go uint64 ops (unsigned arithmetic = signed
+  arithmetic at the bit level; comparison/division differ but Go's unsigned
+  `<`/`/` match the Z model on non-negative operands).  `TU64 → "uint64"` in
+  go_type_tag_map.  `u64_demo` golden-locked.
 - **A4 — migrate the default `int`/`int64` (`TInt`/`TInt64`/`GoInt`) to the
   full-width type**, *or* keep `Sint63` as an explicit "bounded int" and make
   `GoI64`/`GoU64` the faithful full-width pair. Touches concurrency.v's `TInt64`
@@ -222,7 +237,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓ (full op set: arith/compare/div/mod/bitwise/shifts); A3 `GoU64`, A4 default-`int` migration, A5 `Z` constants pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓ (full op set: arith/compare/div/mod/bitwise/shifts); A3 `GoU64` ✓ (full op set, axiom-free); A4 default-`int` migration, A5 `Z` constants pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

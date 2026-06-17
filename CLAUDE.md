@@ -697,7 +697,12 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    wrap is faithful for runtime operands / witness-proven.  *Remaining:* migrate the
    DEFAULT `int`/`int64` (`TInt`/`TInt64`/`GoInt`) onto `GoI64` — it still uses the
    Sint63 carrier and is entangled with concurrency.v's `TInt64` channel model
-   (PRE_IMPORT_PLAN A4); and the unsigned `GoU64` analogue (A3).
+   (PRE_IMPORT_PLAN A4).  **`GoU64` — unsigned full-width uint64 — is now DONE
+   (A3, 2026-06-17):** same Z template, unsigned mod-2⁶⁴ wrap (`wrapU64`), all ops
+   (arith/compare/div/mod/bitwise/shifts/not); plugin emits `uint64` type (exception
+   to the `int64`-default numint erasure) and unsigned decimal literals
+   (`Printf.sprintf "%Lu"`); witnesses `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/
+   `beyond63` all axiom-free.  *Remaining:* default-`int` migration (A4).
 5. **Overflow-safe arithmetic — DONE (the guarded forms now exist).**
    `add_nz`/`sub_nz`/`mul_nz` are evidence-carrying: each demands a proof that the
    exact result is in range (`no_overflow_{add,sub,mul}`, discharged by `now
@@ -851,7 +856,9 @@ resting state.)**
     unsigned via `lsr`.  `shift_demo` prints 8 0 15 / -128 -2.  **Full-width int64
     shifts DONE via `GoI64`** (`i64_shl`/`shr`, evidence-carrying ≥0 count;
     `spec_i64_shl_wrap` `1<<63 = MININT`, `spec_i64_shr_arith` `-8>>1 = -4`).
-    *Legacy `int` (Sint63) shifts still ✗* (same carrier issue — use `GoI64`).
+    **Full-width uint64 shifts also DONE via `GoU64`** (`u64_shl`/`shr`;
+    `>>` is logical for unsigned — `Z.shiftr` on non-negative values; `spec_u64_shr`
+    `8>>1=4`). *Legacy `int` (Sint63) shifts still ✗* (same carrier issue — use `GoI64`).
 13. **Conversions.**  *Integer↔integer among `{int,uint8,int8,uint16,int16}`: DONE.*
     Routed through the `int` carrier — `int_of_FW` widens (value preserved → lowers
     to identity), `FW_of_int` narrows (truncate: `land` for `uintN`, mask+sign-extend
