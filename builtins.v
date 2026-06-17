@@ -2315,7 +2315,7 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
     accumulator loop:
       [acc := init; for _, x := range xs { acc = step acc x }; …]
     so e.g. summing a slice is a real Go [for] loop, and "the running sum does
-    not overflow" is provable on the model (see [add_no_overflow_exact]). *)
+    not overflow" is provable on the model (see [i64_add_no_overflow_exact] in main.v). *)
 Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S) : S :=
   match xs with
   | nil        => init

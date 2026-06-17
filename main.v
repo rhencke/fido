@@ -15,22 +15,13 @@ Import ListNotations.
 Open Scope uint63_scope.
 Open Scope float_scope.
 
+(** [add]/[sub] over the [Sint63] [int] survive ONLY as INDEX arithmetic (loop
+    counters, computed slice indices like [sub 0 1]) — the Go [int] index type.
+    All int64 VALUE arithmetic was migrated to the full-width [GoI64] (A4.3); the
+    Sint63 VALUE-overflow theory ([add_nz]/[no_overflow_*]/[*_no_overflow_exact]/
+    the signed-value conformance) is gone, replaced by the [GoI64] versions below. *)
 Definition add (n m : int) : int := PrimInt63.add n m.
-
-Theorem add_comm : forall n m : int, add n m = add m n.
-Proof. intros n m. unfold add. apply Uint63.add_comm. Qed.
-
-Theorem add_assoc : forall n m p : int, add n (add m p) = add (add n m) p.
-Proof. intros n m p. unfold add. apply Uint63.add_assoc. Qed.
-
 Definition sub (n m : int) : int := PrimInt63.sub n m.
-
-(** Foundational accuracy: [int] is interpreted with SIGNED (Sint63) semantics,
-    matching Go's [int64].  In Go, [2 - 5] is [-3]; the signed model agrees.
-    (The old unsigned reading would wrongly give [2^63 - 3].)  This lemma is
-    machine-checked, so the model provably matches what the extracted Go does. *)
-Example sub_signed_matches_go : Sint63.to_Z (sub 2 5) = (-3)%Z.
-Proof. now vm_compute. Qed.
 
 (** WHY the plugin REJECTS [Nat.sub] (Coq nat → Go uint): nat subtraction is
     TRUNCATED monus, so [3 - 5 = 0] — lowering it to Go uint's WRAPPING [-]
@@ -50,114 +41,6 @@ Proof. now vm_compute. Qed.
 Example ltb_signed_neg_true : Sint63.ltb (PrimInt63.sub 0 1) 0 = true.
 Proof. now vm_compute. Qed.
 
-(** OVERFLOW IS PROVABLE — the thing Go cannot do.  Go silently wraps integer
-    overflow at runtime and only catches *constant* overflow at compile time.
-    Here, "this addition does not overflow" is a Rocq predicate, and when it
-    holds the machine result equals the EXACT mathematical sum (no wrap). *)
-Definition no_overflow_add (n m : int) : Prop :=
-  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n + Sint63.to_Z m
-                                <= Sint63.to_Z Sint63.max_int)%Z.
-
-Theorem add_no_overflow_exact : forall n m : int,
-  no_overflow_add n m ->
-  Sint63.to_Z (PrimInt63.add n m) = (Sint63.to_Z n + Sint63.to_Z m)%Z.
-Proof.
-  intros n m H. unfold no_overflow_add in H.
-  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
-  rewrite (Sint63.to_Z_cmodwB (PrimInt63.add n m)).
-  rewrite Uint63.add_spec, Sint63.cmod_mod.
-  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n + Uint63.to_Z m)).
-  replace ((Uint63.to_Z n + Uint63.to_Z m) mod wB)%Z
-     with ((Sint63.to_Z n + Sint63.to_Z m) mod wB)%Z by
-    (rewrite (Zplus_mod (Sint63.to_Z n) (Sint63.to_Z m));
-     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
-  rewrite Sint63.cmod_mod.
-  apply Sint63.cmod_small. lia.
-Qed.
-
-(** Concrete instance, machine-checked: 10^12 + 2·10^12 does not overflow and
-    is exactly 3·10^12. *)
-Example add_exact_demo :
-  Sint63.to_Z (PrimInt63.add 1000000000000 2000000000000) = 3000000000000%Z.
-Proof. now vm_compute. Qed.
-
-(** Honest about the limit: at the top of the (62-bit) range, addition wraps —
-    so [no_overflow_add] fails there and [add_no_overflow_exact] does not apply.
-    The model knows exactly where it wraps, which is what makes overflow
-    provable: you prove you stay below the boundary. *)
-Example add_wraps_at_boundary :
-  Sint63.to_Z (PrimInt63.add Sint63.max_int 1) = Sint63.to_Z Sint63.min_int.
-Proof. now vm_compute. Qed.
-
-(** SAFE-BY-CONSTRUCTION ARITHMETIC.  Go's [+]/[-]/[*] silently WRAP on overflow;
-    overflow-freedom is a *provable* property here (above), but raw [add]/[sub]/
-    [mul] don't *force* you to prove it.  [add_nz]/[sub_nz]/[mul_nz] do: each
-    DEMANDS a proof that the exact mathematical result is in range, then extracts
-    to the raw machine op — which the proof has shown does not wrap, so the result
-    equals the exact value (by the [*_no_overflow_exact] theorems).  Raw [add]/
-    [sub]/[mul] remain the opt-in WRAPPING forms (like div_nz vs the raw divide).
-    The in-range proof is discharged by [now vm_compute] for concrete operands. *)
-Definition no_overflow_sub (n m : int) : Prop :=
-  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n - Sint63.to_Z m
-                                <= Sint63.to_Z Sint63.max_int)%Z.
-Definition no_overflow_mul (n m : int) : Prop :=
-  (Sint63.to_Z Sint63.min_int <= Sint63.to_Z n * Sint63.to_Z m
-                                <= Sint63.to_Z Sint63.max_int)%Z.
-
-Theorem sub_no_overflow_exact : forall n m : int,
-  no_overflow_sub n m ->
-  Sint63.to_Z (PrimInt63.sub n m) = (Sint63.to_Z n - Sint63.to_Z m)%Z.
-Proof.
-  intros n m H. unfold no_overflow_sub in H.
-  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
-  rewrite (Sint63.to_Z_cmodwB (PrimInt63.sub n m)).
-  rewrite Uint63.sub_spec, Sint63.cmod_mod.
-  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n - Uint63.to_Z m)).
-  replace ((Uint63.to_Z n - Uint63.to_Z m) mod wB)%Z
-     with ((Sint63.to_Z n - Sint63.to_Z m) mod wB)%Z by
-    (rewrite (Zminus_mod (Sint63.to_Z n) (Sint63.to_Z m));
-     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
-  rewrite Sint63.cmod_mod.
-  apply Sint63.cmod_small. lia.
-Qed.
-
-Theorem mul_no_overflow_exact : forall n m : int,
-  no_overflow_mul n m ->
-  Sint63.to_Z (PrimInt63.mul n m) = (Sint63.to_Z n * Sint63.to_Z m)%Z.
-Proof.
-  intros n m H. unfold no_overflow_mul in H.
-  rewrite Sint63.to_Z_min, Sint63.to_Z_max in H.
-  rewrite (Sint63.to_Z_cmodwB (PrimInt63.mul n m)).
-  rewrite Uint63.mul_spec, Sint63.cmod_mod.
-  rewrite <- (Sint63.cmod_mod (Uint63.to_Z n * Uint63.to_Z m)).
-  replace ((Uint63.to_Z n * Uint63.to_Z m) mod wB)%Z
-     with ((Sint63.to_Z n * Sint63.to_Z m) mod wB)%Z by
-    (rewrite (Zmult_mod (Sint63.to_Z n) (Sint63.to_Z m));
-     rewrite !Sint63.to_Z_mod_Uint63to_Z; reflexivity).
-  rewrite Sint63.cmod_mod.
-  (* the product is non-linear; abstract it so the bounds are linear for [lia] *)
-  apply Sint63.cmod_small.
-  set (p := (Sint63.to_Z n * Sint63.to_Z m)%Z) in *. lia.
-Qed.
-
-Definition add_nz (n m : int) (_ : no_overflow_add n m) : int := PrimInt63.add n m.
-Definition sub_nz (n m : int) (_ : no_overflow_sub n m) : int := PrimInt63.sub n m.
-Definition mul_nz (n m : int) (_ : no_overflow_mul n m) : int := PrimInt63.mul n m.
-
-(** Machine-checked: the guarded ops give the exact mathematical result.
-    ([now vm_compute] discharges the in-range obligation: [vm_compute] unfolds
-    [Z.le] to a comparison, which [now]'s finisher closes — [lia] cannot, as it
-    no longer sees arithmetic.) *)
-Example add_nz_exact :
-  Sint63.to_Z (add_nz 1000000000000 2000000000000 ltac:(now vm_compute))
-  = 3000000000000%Z.
-Proof. now vm_compute. Qed.
-Example mul_nz_exact :
-  Sint63.to_Z (mul_nz 1000000 1000000 ltac:(now vm_compute)) = 1000000000000%Z.
-Proof. now vm_compute. Qed.
-
-(** Arithmetic you can only call with a proven-in-range result.  Prints
-    10^12 + 2·10^12 = 3·10^12 (proven no wrap) and 1000·1000 = 10^6. *)
 (** OVERFLOW-SAFE ARITHMETIC AT THE FULL WIDTH (A4.3: the int model migrated off the
     bounded [Sint63] onto the faithful [GoI64]).  Fido's signature property — "this
     arithmetic does not overflow" as a Rocq THEOREM — now holds on the TRUE int64, not
@@ -452,7 +335,8 @@ Example spec_i64_add_wrap : i64_add (i64_lit 9223372036854775807 eq_refl) (i64_l
 Example spec_i64_sub_wrap : i64_sub (i64_lit (-9223372036854775808) eq_refl) (i64_lit 1 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
 Example spec_i64_mul_wrap : i64_mul (i64_lit 4294967296 eq_refl) (i64_lit 4294967296 eq_refl) = i64_lit 0 eq_refl. Proof. now vm_compute. Qed.
 Example spec_i64_beyond62 : i64_add (i64_lit 4611686018427387904 eq_refl) (i64_lit 4611686018427387903 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
-(* No-overflow ⇒ EXACT, now at the TRUE int64 width (cf. [add_no_overflow_exact] at 2^62). *)
+(* No-overflow ⇒ EXACT, at the TRUE int64 width (the canonical overflow theorem;
+   the bounded Sint63 version was removed when the int model migrated to GoI64). *)
 Theorem i64_add_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a + i64raw b)%Z = true -> i64raw (i64_add a b) = (i64raw a + i64raw b)%Z.
 Proof.
@@ -591,15 +475,15 @@ Fail Definition str_no_implicit : GoString := str_concat "x"%string (5 : int).
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
 Definition prec_demo : IO unit :=
-  let a := 2%uint63 in let b := 3%uint63 in let c := 4%uint63 in
-  println [ any (PrimInt63.add (PrimInt63.mul a b) c)     (* a*b + c   = 10 *)
-          ; any (PrimInt63.mul (PrimInt63.add a b) c) ].  (* (a+b) * c = 20 *)
+  let a := (2)%i64 in let b := (3)%i64 in let c := (4)%i64 in
+  println [ any (a * b + c)%i64        (* a*b + c   = 10 *)
+          ; any ((a + b) * c)%i64 ].   (* (a+b) * c = 20 *)
 
-(** Negative integer LITERALS print correctly.  [int] is signed (Sint63) whose
-    underlying representation is unsigned, so a naive printer would emit [-7] as
-    the unsigned 9223372036854775801 — the plugin must emit the signed decimal. *)
+(** Negative [int64] LITERALS print correctly.  A [GoI64] is [Z]-carried, so a
+    negative is a genuine [Zneg]; the plugin emits its signed decimal (the bare-[Z]
+    arm distinguishes a real negative from a [uint64 >= 2^63]). *)
 Definition neglit_demo : IO unit :=
-  println [any (-7)%sint63; any (-1)%sint63; any (-2147483648)%sint63].
+  println [any (-7)%i64; any (-1)%i64; any (-2147483648)%i64].
   (* prints: -7 -1 -2147483648 *)
 
 (** Panic with [n], then recover it and print [n] and [n+1].
@@ -1294,7 +1178,7 @@ Fail Definition bad_unsorted : Sorted2 := MkSorted2 (7)%i64 (3)%i64 eq_refl.
     left-associative; monad associativity makes the grouping irrelevant, and the
     plugin flattens it to the same straight-line Go.) *)
 Definition main_effect : IO unit :=
-  println [any (add 1 2)]       >>'   (* prints: 3 *)
+  println [any (i64_add (1)%i64 (2)%i64)]       >>'   (* prints: 3 *)
   panic_and_recover (i64_add (40)%i64 (2)%i64)  >>'   (* prints: 42 43 *)
   div_demo                      >>'   (* prints: 3 2 *)
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)

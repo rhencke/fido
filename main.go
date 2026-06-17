@@ -808,7 +808,7 @@ func Repinv_demo() {
 }
 
 func main() {
-	println(Add(1, 2))
+	println(1 + 2)
 	Panic_and_recover(40 + 2)
 	Div_demo()
 	Overflow_safe_demo()
