@@ -1533,8 +1533,10 @@ let pp_io_body state tab env body =
                     in
                     hoist_doc ++ initial ++ emit_all 0 bs in
                   if nblk = 0 then emit_raw () else begin
-                  (* Unified structurer (a relooper).  Build dominators and post-
-                     dominators, identify natural loops, then recursively emit:
+                  (* Unified structurer (a relooper) — lifts the goto-CFG back to
+                     Go spec "If statements" / "For statements" / "Break/Continue" /
+                     "Goto statements" / "Return statements".  Build dominators and
+                     post-dominators, identify natural loops, then recursively emit:
                      - a loop header → [for { <body> }] with back-edges becoming
                        loop-around (fall-through) or [continue], the single exit
                        becoming [break];

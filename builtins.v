@@ -894,8 +894,8 @@ Proof.
   rewrite bind_panic_l, catch_panic. reflexivity.
 Qed.
 
-(** [defer_call f]: Go's [defer] keyword — schedule [f] to run when the
-    enclosing *function* returns (LIFO across all defers, on both normal and
+(** [defer_call f] (Go spec "Defer statements"): Go's [defer] keyword — schedule
+    [f] to run when the enclosing *function* returns (LIFO across all defers, on both normal and
     panic exit), and continue immediately.  This is FUNCTION-scoped, unlike the
     block-scoped [with_defer]: deferred calls in a loop accumulate and all run
     at function return.  Lowers to [defer func(){ f }()] (Go provides the
@@ -905,8 +905,9 @@ Qed.
 Definition defer_call (_ : IO unit) : IO unit := fun w => ORet tt w.
 
 
-(** [type_assert tag v] asserts that [v : GoAny] holds a value of Go type [T].
-    Panics (like Go's [v.(T)]) if the runtime type does not match.
+(** [type_assert tag v] (Go spec "Type assertions") asserts that [v : GoAny] holds
+    a value of Go type [T].  Panics (like Go's [v.(T)]) if the runtime type does not
+    match.
 
     ESCAPE HATCH: the raw panicking form, safe only inside [catch] or when the
     runtime type is already known.  Prefer [type_assert_safe] (below), the
@@ -1411,7 +1412,7 @@ Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
            | nil    => d w
            end.
-(** [go_spawn m]: the SEQUENTIAL approximation — run [m] to completion, keep its world
+(** [go_spawn m] (Go spec "Go statements"): the SEQUENTIAL approximation — run [m] to completion, keep its world
     effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
     holdout #2 (ZERO_AXIOMS_PLAN.md).  No law constrains it; the definition is total. *)
 Definition go_spawn (m : IO unit) : IO unit :=
@@ -1884,7 +1885,7 @@ Definition slice_of_list {A} (_ : GoTypeTag A) (xs : list A) : GoSlice A := xs.
 Definition slice_make {A : Type} (tag : GoTypeTag A) (n : nat) : GoSlice A :=
   List.repeat (zero_val tag) n.
 
-(** Indexed access — returns [IO A] because Go panics on out-of-bounds.
+(** Indexed access (Go spec "Index expressions") — returns [IO A] because Go panics on out-of-bounds.
 
     ESCAPE HATCH: the raw panicking form; use inside [catch] to handle OOB.
     Prefer [slice_at_ok] (below), the safe-by-construction default.  A
@@ -1992,7 +1993,7 @@ Fixpoint str_concat (a b : GoString) : GoString :=
   | String c rest => String c (str_concat rest b)
   end.
 
-(** ---- Mutable local variables ----
+(** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.
     Pure [let]-binding is single-assignment and cannot express a value that
@@ -2111,7 +2112,8 @@ Fixpoint slice_fold {A S : Type} (xs : GoSlice A) (init : S) (step : S -> A -> S
   | cons x rest => slice_fold rest (step init x) step
   end.
 
-(** ---- Control flow as a CFG (the goto model) ----
+(** ---- Control flow as a CFG (the goto model)
+    (Go spec "If statements" / "For statements" / "Goto statements" / "Return statements") ----
 
     Every Go control construct is, underneath, a control-flow graph of basic
     blocks joined by gotos.  We model that directly and completely: a function
