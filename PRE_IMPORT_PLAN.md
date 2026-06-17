@@ -68,19 +68,25 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
   relaxed to the true limit (`W≥63`).  Witnesses `spec_u32_mul_wrap` (100000²→
   1410065408), `spec_u32_mul_max` ((2³²−1)²→1), `spec_i32_mul_wrap` (46341²→
   -2147479015); `u32_demo` golden-locked.  No Z model needed.
-- **A2 — `GoI64` full-width signed type (arithmetic+comparison DONE, 2026-06-17).**
-  Distinct record over `Z` (`MkI64 { i64raw : Z }`), normalised mod 2⁶⁴ by `wrap64`;
-  `i64_lit` (representability proof; `i64_const_oob` Fail), `i64_add`/`sub`/`mul`
-  (wrap at the true 2⁶³), `i64_eqb`/`ltb`/`leb` (signed Z compare).  Witnesses
-  `spec_i64_add_wrap`/`sub_wrap`/`mul_wrap`/`beyond62` + `i64_add_no_overflow_exact`,
-  all **axiom-free**.  Plugin: rides the numint erasure (type→int64, ctor/proj
-  erased) since `is_ui_digits "I64"`; ops route through `binop_of` (BARE Go int64,
-  no mask); `i64_lit` folds its `Z` literal (`z_value` via `Int64`); the `Z`/`Pos`
-  arith helpers are suppressed by module (`is_zarith_helper`).  `i64_demo`
-  golden-locked.  *Surfaced:* Go constant-folds `MAX+1` → untyped-constant compile
-  error (the A5 gap), so the demo shows in-range >2⁶² values; the wrap is
-  witness-proven.  *Still TODO in A2:* `i64_div`/`mod` (truncating, MININT/−1 wrap),
-  bitwise `& | ^ &^ ^`, shifts `<< >>` (the int bitwise/shift this phase unblocks).
+- **A2 — `GoI64` full-width signed type (DONE, 2026-06-17).**
+  Distinct record over `Z` (`MkI64 { i64raw : Z }`), normalised mod 2⁶⁴ by `wrap64`.
+  Full op set: `i64_lit` (representability proof; `i64_const_oob` Fail),
+  `add`/`sub`/`mul` (wrap at the true 2⁶³), `eqb`/`ltb`/`leb` (signed Z compare),
+  `div`/`mod` (truncate toward zero via `Z.quot`/`Z.rem` — NOT Coq's floor; MININT/−1
+  wraps; evidence-carrying non-zero divisor, `i64_div_zero` Fail), bitwise
+  `and`/`or`/`xor`/`andnot`/`not`, shifts `shl`/`shr` (`<<` wraps, `>>` arithmetic;
+  evidence-carrying non-negative count, `i64_shl_neg` Fail).  Witnesses
+  `spec_i64_add_wrap`/`sub_wrap`/`mul_wrap`/`beyond62`/`div_trunc`/`mod_sign`/
+  `div_ovf`/`shl_wrap`/`shr_arith`/`and`/`not` + `i64_add_no_overflow_exact`, all
+  **axiom-free** (`Print Assumptions` = *Closed under the global context*).  Plugin:
+  rides the numint erasure (type→int64, ctor/proj erased) since `is_ui_digits "I64"`;
+  ops route through `binop_of` (BARE Go int64 ops — Go's `/` truncates and `>>` is
+  arithmetic, matching the model; no mask); `i64_lit` folds its `Z` literal
+  (`z_value` via `Int64`); the `Z`/`Pos` arith helpers + the generic eliminators they
+  drag in (`CompOpp`/`fst`/`snd`) are suppressed (`is_zarith_helper`), never emitted.
+  `i64_demo`/`i64_ops_demo` golden-locked.  *Surfaced:* Go constant-folds `MAX+1` →
+  untyped-constant compile error (the A5 gap), so the demos show in-range values; the
+  wrap/overflow corner cases are witness-proven.
 - **A3 — `GoU64` full-width unsigned type.** Same template, unsigned wrap at 2⁶⁴.
 - **A4 — migrate the default `int`/`int64` (`TInt`/`TInt64`/`GoInt`) to the
   full-width type**, *or* keep `Sint63` as an explicit "bounded int" and make
@@ -216,7 +222,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` arith+compare ✓ (div/mod/bitwise/shifts pending); A3 `GoU64`, A4 default-`int` migration, A5 `Z` constants pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓ (full op set: arith/compare/div/mod/bitwise/shifts); A3 `GoU64`, A4 default-`int` migration, A5 `Z` constants pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

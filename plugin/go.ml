@@ -150,9 +150,11 @@ let path_contains r sub =
    tries to lower a [Z] eliminator.  Safe: nothing in the EMITTED Go calls them. *)
 let is_zarith_helper r =
   List.exists (path_contains r) ["BinInt"; "BinPos"; "BinNat"; "BinNums"; "PArith"; "NArith"]
-  (* [comparison] eliminators (CompOpp, …) leak from [Z.compare]/[Pos.compare] used
-     inside [Z.modulo]; they live in [Corelib.Init.Datatypes], so match by basename. *)
-  || List.mem (global_basename r) ["CompOpp"; "comparison"]
+  (* Generic eliminators leaked from the [Z] bodies but living in
+     [Corelib.Init.Datatypes] (so not caught by module): [CompOpp] (from
+     [Z.compare]), [fst]/[snd] (from [Z.quotrem], the truncating div/mod).  Only ever
+     reachable from the suppressed [GoI64] bodies, so never emitted. *)
+  || List.mem (global_basename r) ["CompOpp"; "comparison"; "fst"; "snd"]
 
 (*s Standard-library type and constructor recognition. *)
 
@@ -431,7 +433,9 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
 let is_i64_op r name = String.equal (global_basename r) ("i64_" ^ name)
 let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
-  List.exists (is_i64_op r) ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"]
+  List.exists (is_i64_op r)
+    ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
+     "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (*s Nat arithmetic operation recognition. *)
 
@@ -608,14 +612,25 @@ let binop_of r =
   else if is_orb_ref r then Some (1, " || ")
   (* string concatenation: Go [+], same precedence as numeric [+] (level 4) *)
   else if is_str_concat_ref r then Some (4, " + ")
-  (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so add/sub/mul
-     lower to BARE Go operators (no mask) and comparison is signed int64 </<=/==. *)
-  else if is_i64_op r "add" then Some (4, " + ")
-  else if is_i64_op r "sub" then Some (4, " - ")
-  else if is_i64_op r "mul" then Some (5, " * ")
-  else if is_i64_op r "ltb" then Some (3, " < ")
-  else if is_i64_op r "leb" then Some (3, " <= ")
-  else if is_i64_op r "eqb" then Some (3, " == ")
+  (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
+     bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
+     int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
+     Go int64 [/] truncates toward zero and [>>] is arithmetic — matching [Z.quot]/
+     [Z.shiftr] in the model. *)
+  else if is_i64_op r "add"    then Some (4, " + ")
+  else if is_i64_op r "sub"    then Some (4, " - ")
+  else if is_i64_op r "mul"    then Some (5, " * ")
+  else if is_i64_op r "div"    then Some (5, " / ")
+  else if is_i64_op r "mod"    then Some (5, " % ")
+  else if is_i64_op r "and"    then Some (5, " & ")
+  else if is_i64_op r "andnot" then Some (5, " &^ ")
+  else if is_i64_op r "shl"    then Some (5, " << ")
+  else if is_i64_op r "shr"    then Some (5, " >> ")
+  else if is_i64_op r "or"     then Some (4, " | ")
+  else if is_i64_op r "xor"    then Some (4, " ^ ")
+  else if is_i64_op r "ltb"    then Some (3, " < ")
+  else if is_i64_op r "leb"    then Some (3, " <= ")
+  else if is_i64_op r "eqb"    then Some (3, " == ")
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
   else if fw_is r "ltb" then Some (3, " < ")
@@ -991,6 +1006,10 @@ let rec pp_expr state env = function
        | MLglob r, [x] when fw_is r "not" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
            fw_wrap s w (str "^" ++ pp_atom state env x)
+       (* full-width int64 unary complement [i64_not x] → [^x].  Go's [^] on an
+          int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask. *)
+       | MLglob r, [x] when is_i64_op r "not" ->
+           str "^" ++ pp_atom state env x
 
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)

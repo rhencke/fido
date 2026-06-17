@@ -86,8 +86,12 @@ implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  *Remaining
 `spec_i64_add_wrap` (2⁶³−1+1→−2⁶³), `spec_i64_sub_wrap`, `spec_i64_mul_wrap`,
 `spec_i64_beyond62` (an exact sum the old ±2⁶² model could not represent), and the
 no-overflow-exact theorem `i64_add_no_overflow_exact` — all **axiom-free** (Z
-inductives + `lia`).  The wrapper erases to a Go `int64` (wraps natively at 2⁶⁴, no
-mask).  ⚠ ONE bounded caveat: a CONSTANT `MAX+1` in extracted Go is an untyped-
+inductives + `lia`).  Full op set: `add`/`sub`/`mul`, `eqb`/`ltb`/`leb`, `div`/`mod`
+(truncate toward zero via `Z.quot`/`Z.rem` — NOT Coq's floor; `spec_i64_div_trunc`
+`-7/2=-3`, MININT/−1 wraps), bitwise `and`/`or`/`xor`/`andnot`/`not`, shifts
+`shl`/`shr` (`<<` wraps, `>>` arithmetic; `spec_i64_shr_arith` `-8>>1=-4`); div and
+shift are evidence-carrying (`i64_div_zero`/`i64_shl_neg` Fail).  The wrapper erases
+to a Go `int64` (wraps natively at 2⁶⁴, no mask).  ⚠ ONE bounded caveat: a CONSTANT `MAX+1` in extracted Go is an untyped-
 constant expression, so Go's COMPILE-TIME overflow check fires (a compile error)
 instead of the runtime wrap `i64_add` models — that is the untyped-constant gap
 (Constants section / Tier 2 #6), not an int64 defect; the wrap is faithful for

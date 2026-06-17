@@ -836,16 +836,22 @@ resting state.)**
     prints 48 252 204 / 192 15 / -6 -6).  Faithful: `uintN` results stay in range
     (no mask); `intN` operands are sign-extended so the raw int64 op is correct;
     AND-NOT/complement flip within the width; unary `^x` is wrapped back to the
-    width (Go's int64 `^240` is -241, not the uint8 15).  *Still ✗:* bitwise on
-    `int` (Sint63) — the 63-vs-64-bit carrier exposes the sign bit, so negative-`int`
-    bitwise would differ from int64 (blocked on the Z model, Tier 2 #4).  *Shifts
-    `<< >>`: DONE for fixed-width* (`uN_shl`/`shr`, `iN_shl`/`shr`) — EVIDENCE-CARRYING
-    like `div_nz` (count proven ≥0, so the negative-count panic is unreachable;
-    `u8_shl_neg` `Fail`).  Machine-checked `spec_u8_shl`…`spec_i8_shr_neg`:
-    over-width `1<<8=0` (no upper limit), signed `64<<1=-128` (wrap), `>>` arithmetic
-    for signed via `PrimInt63.asr` (`-3>>1=-2` toward −∞, NOT `-3/2=-1`; `-1>>3=-1`),
-    logical for unsigned via `lsr`.  `shift_demo` prints 8 0 15 / -128 -2.  *`int`
-    (Sint63) shifts still ✗* (same carrier issue as `int` bitwise).
+    width (Go's int64 `^240` is -241, not the uint8 15).  **Full-width signed int64
+    bitwise DONE via `GoI64`** (`i64_and`/`or`/`xor`/`andnot`/`not`): the `Z` carrier
+    has the real 64-bit sign bit, so `Z.land`/`lor`/`lxor`/`lnot` agree with Go int64
+    `& | ^ &^ ^` on negatives (`spec_i64_and` `-1 & 255 = 255`, `spec_i64_not`
+    `^5 = -6`); axiom-free.  *Still ✗:* bitwise on the LEGACY `int` (Sint63) — the
+    63-vs-64-bit carrier exposes the sign bit (use `GoI64` instead; legacy-`int`
+    migration is Tier 2 #4 / PRE_IMPORT_PLAN A4).  *Shifts `<< >>`: DONE for
+    fixed-width* (`uN_shl`/`shr`, `iN_shl`/`shr`) — EVIDENCE-CARRYING like `div_nz`
+    (count proven ≥0, so the negative-count panic is unreachable; `u8_shl_neg`
+    `Fail`).  Machine-checked `spec_u8_shl`…`spec_i8_shr_neg`: over-width `1<<8=0` (no
+    upper limit), signed `64<<1=-128` (wrap), `>>` arithmetic for signed via
+    `PrimInt63.asr` (`-3>>1=-2` toward −∞, NOT `-3/2=-1`; `-1>>3=-1`), logical for
+    unsigned via `lsr`.  `shift_demo` prints 8 0 15 / -128 -2.  **Full-width int64
+    shifts DONE via `GoI64`** (`i64_shl`/`shr`, evidence-carrying ≥0 count;
+    `spec_i64_shl_wrap` `1<<63 = MININT`, `spec_i64_shr_arith` `-8>>1 = -4`).
+    *Legacy `int` (Sint63) shifts still ✗* (same carrier issue — use `GoI64`).
 13. **Conversions.**  *Integer↔integer among `{int,uint8,int8,uint16,int16}`: DONE.*
     Routed through the `int` carrier — `int_of_FW` widens (value preserved → lowers
     to identity), `FW_of_int` narrows (truncate: `land` for `uintN`, mask+sign-extend

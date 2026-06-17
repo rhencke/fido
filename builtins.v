@@ -896,11 +896,34 @@ Definition i64_mul (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a * i64raw b))
 Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
 Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
+(* DIV/MOD: Go truncates toward ZERO ([Z.quot]/[Z.rem]) — NOT Coq's flooring
+   [Z.div]/[Z.modulo] (which give [-7/2 = -4]).  Evidence-carrying non-zero divisor
+   (Go panics on /0).  [wrap64] lands the lone overflow case [MININT / -1 = MININT]
+   (the exact quotient [2^63] wraps to [-2^63], Go's two's-complement behaviour). *)
+Definition i64_div (a b : GoI64) (_ : Z.eqb (i64raw b) 0%Z = false) : GoI64 := MkI64 (wrap64 (Z.quot (i64raw a) (i64raw b))).
+Definition i64_mod (a b : GoI64) (_ : Z.eqb (i64raw b) 0%Z = false) : GoI64 := MkI64 (wrap64 (Z.rem (i64raw a) (i64raw b))).
+(* BITWISE: Go int64 [& | ^ &^] and unary [^] on the 64-bit two's-complement value.
+   [Z.land]/[lor]/[lxor]/[lnot] use infinite two's complement, which agrees on the
+   low 64 bits; the result of in-range operands stays in range, so [wrap64] is the
+   identity here (kept for uniformity).  Unary [^x = -x-1]. *)
+Definition i64_and    (a b : GoI64) : GoI64 := MkI64 (wrap64 (Z.land (i64raw a) (i64raw b))).
+Definition i64_or     (a b : GoI64) : GoI64 := MkI64 (wrap64 (Z.lor  (i64raw a) (i64raw b))).
+Definition i64_xor    (a b : GoI64) : GoI64 := MkI64 (wrap64 (Z.lxor (i64raw a) (i64raw b))).
+Definition i64_andnot (a b : GoI64) : GoI64 := MkI64 (wrap64 (Z.land (i64raw a) (Z.lnot (i64raw b)))).
+Definition i64_not    (a   : GoI64) : GoI64 := MkI64 (wrap64 (Z.lnot (i64raw a))).
+(* SHIFTS: [<<] wraps mod 2^64 ([wrap64 . Z.shiftl]); [>>] is ARITHMETIC (sign-
+   filling) for signed = [Z.shiftr] (floor toward -inf, in range).  Evidence-
+   carrying non-negative count (Go panics on a negative shift). *)
+Definition i64_shl (x : GoI64) (k : Z) (_ : (0 <=? k)%Z = true) : GoI64 := MkI64 (wrap64 (Z.shiftl (i64raw x) k)).
+Definition i64_shr (x : GoI64) (k : Z) (_ : (0 <=? k)%Z = true) : GoI64 := MkI64 (Z.shiftr (i64raw x) k).
 
 (* Build-checked: a constant that does not fit int64 is UNREPRESENTABLE (Go's
    constant-overflow compile error), and int64 does not implicitly mix with [int]. *)
 Fail Definition i64_const_oob : GoI64 := i64_lit 9223372036854775808%Z eq_refl.  (* = 2^63 *)
 Fail Definition i64_no_implicit (x : GoI64) : GoI64 := i64_add x (5 : int).
+(* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE (Go panics). *)
+Fail Definition i64_div_zero : GoI64 := i64_div (i64_lit 1%Z eq_refl) (i64_lit 0%Z eq_refl) eq_refl.
+Fail Definition i64_shl_neg  : GoI64 := i64_shl (i64_lit 1%Z eq_refl) (-1)%Z eq_refl.
 
 (** ---- Builtins ---- *)
 

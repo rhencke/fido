@@ -432,6 +432,24 @@ Definition i64_demo : IO unit :=
   println [ any (i64_add (i64_lit 9000000000000000000 eq_refl) (i64_lit 200000000000000000 eq_refl))  (* 9200000000000000000 (> 2^62) *)
           ; any (i64_mul (i64_lit 3000000000 eq_refl) (i64_lit 3000000000 eq_refl)) ].  (* 9000000000000000000 (> 2^62) *)
 
+(** int64 div/mod (truncate toward zero — NOT Coq's floor), bitwise, and shifts —
+    all at the full width.  Machine-checked corner cases: [-7/2 = -3] (trunc, not the
+    flooring [-4]); [-7%2 = -1] (sign of dividend); [MININT/-1 = MININT] (two's-
+    complement overflow wraps); [1<<63 = MININT]; [-8>>1 = -4] (arithmetic shift). *)
+Example spec_i64_div_trunc : i64_div (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-3) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_mod_sign  : i64_mod (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-1) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_div_ovf   : i64_div (i64_lit (-9223372036854775808) eq_refl) (i64_lit (-1) eq_refl) eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_shl_wrap  : i64_shl (i64_lit 1 eq_refl) 63 eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_shr_arith : i64_shr (i64_lit (-8) eq_refl) 1 eq_refl = i64_lit (-4) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_and       : i64_and (i64_lit (-1) eq_refl) (i64_lit 255 eq_refl) = i64_lit 255 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_not       : i64_not (i64_lit 5 eq_refl) = i64_lit (-6) eq_refl. Proof. now vm_compute. Qed.
+Definition i64_ops_demo : IO unit :=
+  bind (println [ any (i64_div (i64_lit 9000000000000000000 eq_refl) (i64_lit 7 eq_refl) eq_refl)  (* 1285714285714285714 *)
+                ; any (i64_shl (i64_lit 1 eq_refl) 40 eq_refl) ])  (* 1099511627776 = 2^40 *)
+       (fun _ =>
+  println [ any (i64_and (i64_lit (-1) eq_refl) (i64_lit 4294967295 eq_refl))   (* 4294967295 *)
+          ; any (i64_not (i64_lit 5 eq_refl)) ]).  (* -6 *)
+
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
@@ -1187,7 +1205,8 @@ Definition main_effect : IO unit :=
   convert_demo                  >>'   (* prints: 200 232 / 1200 *)
   divmod_demo                   >>'   (* prints: 28 4 -128 *)
   u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 / 1410065408 -2147479015 *)
-  i64_demo                      >>'   (* prints: -9223372036854775808 0 *)
+  i64_demo                      >>'   (* prints: 9200000000000000000 9000000000000000000 *)
+  i64_ops_demo                  >>'   (* prints: 1285714285714285714 1099511627776 / 4294967295 -6 *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
@@ -1247,6 +1266,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
   i64_lit i64_add i64_sub i64_mul i64_eqb i64_ltb i64_leb
+  i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   sret sbind ssend srecv slift run_session.
 
 Go Main Extraction main "main_effect".
