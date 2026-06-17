@@ -483,6 +483,14 @@ Definition u64_demo : IO unit :=
     arithmetic).  A [> 2^62] value is sent on a [chan int64], received, then stored
     under an int64 key in a [map[int64]int64] and read back.  [comparable_TI64]
     justifies the int64 map key. *)
+(** Regression: [recv_ok] with the value USED but the ok-flag UNUSED ([fun x _ =>])
+    must lower to [x, _ := <-ch], not the uncompilable [x, x := <-ch] (an unused
+    binder the extractor left named).  Detected by de Bruijn freeness in the plugin. *)
+Definition recv_unused_ok_demo : IO unit :=
+  ch <-' make_chan_buf TI64 1 ;;
+  send TI64 ch (77)%i64 >>'
+  recv_ok TI64 ch (fun x _ => println [ any x ]).   (* prints: 77 *)
+
 Definition i64_pipeline_demo : IO unit :=
   ch <-' make_chan_buf TI64 1 ;;
   send TI64 ch (9000000000000000001)%i64 >>'
@@ -1266,6 +1274,7 @@ Definition main_effect : IO unit :=
   u64_demo                      >>'   (* prints: 8000000000000000000 9000000000000000000 *)
   i64_pipeline_demo             >>'   (* prints: 9000000000000000001 (int64 through chan + map) *)
   u64_pipeline_demo             >>'   (* prints: 18000000000000000000 (uint64 >= 2^63 through chan + map) *)
+  recv_unused_ok_demo           >>'   (* prints: 77 (recv_ok with unused ok-flag) *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)

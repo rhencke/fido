@@ -120,6 +120,13 @@ func U64_demo() {
 	println(5000000000000000000+3000000000000000000, 3000000000*3000000000)
 }
 
+func Recv_unused_ok_demo() {
+	ch := make(chan int64, 1)
+	ch <- 77
+	x, _ := <-ch
+	println(x)
+}
+
 func I64_pipeline_demo() {
 	ch := make(chan int64, 1)
 	ch <- 9000000000000000001
@@ -831,6 +838,7 @@ func main() {
 	U64_demo()
 	I64_pipeline_demo()
 	U64_pipeline_demo()
+	Recv_unused_ok_demo()
 	Builtins_demo()
 	Prec_demo()
 	Neglit_demo()

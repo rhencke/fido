@@ -2039,16 +2039,26 @@ let pp_io_body state tab env body =
              str tab ++ str "defer func() {" ++ fnl () ++
              pp_stmts (tab ^ "\t") env defer_body ++
              str tab ++ str "}()" ++ fnl ()
-         (* recv_ok tag ch (fun x ok => body) → x, ok := <-ch; body *)
+         (* recv_ok tag ch (fun x ok => body) → x, ok := <-ch; body.  An UNUSED
+            result slot is rendered "_", detected by de Bruijn FREENESS of the body
+            (NOT by [is_dummy]/name): the extractor may leave an unused binder named —
+            e.g. it reuses the value binder's name for an anonymous [ok], which would
+            emit the uncompilable [x, x := <-ch].  [ok] is the innermost binder
+            (de Bruijn 1 in the body), [x] the next (de Bruijn 2). *)
          | MLglob r, [_tag; ch; kont] when is_recv_ok_ref r ->
              let ids, k_body = collect_lam kont in
              let new_env = List.rev ids @ env in
-             let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
-             (match vis_ids with
+             (match ids with
               | [x_id; ok_id] ->
-                  str tab ++ pp_mlident x_id ++ str ", " ++ pp_mlident ok_id ++
-                  str " := <-" ++ pp_expr state env ch ++ fnl () ++
-                  pp_stmts tab new_env k_body
+                  let x_unused  = dbn_free 2 k_body in
+                  let ok_unused = dbn_free 1 k_body in
+                  let x  = if x_unused  then str "_" else pp_mlident x_id in
+                  let ok = if ok_unused then str "_" else pp_mlident ok_id in
+                  (if x_unused && ok_unused
+                   then str tab ++ str "<-" ++ pp_expr state env ch ++ fnl ()
+                   else str tab ++ x ++ str ", " ++ ok ++ str " := <-"
+                          ++ pp_expr state env ch ++ fnl ())
+                  ++ pp_stmts tab new_env k_body
               | _ ->
                   str tab ++ str "_, _ = <-" ++ pp_expr state env ch ++ fnl ())
          (* select_recv2 ta ch1 k1 tb ch2 k2 → Go select with two recv cases.
