@@ -422,13 +422,17 @@ once those orderings are settled.
 ## The memory model
 
 ### [Go memory model](https://go.dev/ref/mem) — ✓ partial order + race freedom (axiom-free)
-Spec: happens-before is a strict partial order; a send is synchronized before the
-corresponding receive **completes**; the kth receive on a cap-C channel is
-synchronized before the (k+C)th send completes (C=0 = unbuffered rendezvous); a
-data race is two conflicting accesses unordered by happens-before.
+Spec: "sequenced before" and "synchronized before" are each a **partial order**
+(the 2022-revised text says "partial order", NOT "strict"); happens-before is the
+transitive closure of their union; a send is synchronized before the corresponding
+receive **completes**; the kth receive on a cap-C channel is synchronized before the
+(k+C)th send completes (C=0 = unbuffered rendezvous); a data race is two conflicting
+accesses unordered by happens-before.
 Ours (`Print Assumptions` = *Closed under the global context* — no axioms): `hb`
-= transitive closure of exactly those edges; `hb_irrefl`+`hb_transitive` (strict
-partial order); `hb_send_before_recv`, `hb_recv_before_send`,
+= transitive closure of exactly those edges; `hb_irrefl`+`hb_transitive` — we prove
+the STRONGER **strict** partial order (irreflexive + transitive — the correct reading
+for an order where no event happens-before itself; the spec's looser "partial order"
+is implied by it); `hb_send_before_recv`, `hb_recv_before_send`,
 `unbuffered_rendezvous`, `buffered_sender_runs_ahead` (no over-ordering);
 `data_race`/`RaceFree`; `mp_no_race` + `mp_program_race_free`.  **All 4 channel rules
 ✓** + the **goroutine fork edge ✓** — every one a theorem, axiom-free (`Print
@@ -489,8 +493,34 @@ is PROVEN for RECEIVE-FREE programs (`reachable_recvfree_progress`: real concurr
 spawn/send/write/read but no receive ⇒ every reachable state lets any unfinished goroutine
 step).  Disciplined freedom for receiving programs (a session/no-circular-wait discipline)
 is the remaining liveness frontier.
-**Still open:** the heap analogue of the frame law (ref separation, to mix memory +
-channels under interleaving); the FIFO refinement (kth recv ↔ kth send pairing);
-disciplined deadlock-freedom for receiving programs; and the unverified plugin lowering
-(`Cmd` ↔ extracted Go).  Other sync mechanisms (Mutex, atomic, once) need stdlib
-(imports — out of scope).
+**Other "Synchronization" subsections of go.dev/ref/mem (honestly scoped):**
+- **Initialization** (`init` ⤳ `main.main`; imported package's `init` ⤳ importer's):
+  N/A — we emit a single `package main` with no imports and no user `init`, so there
+  is no init-ordering edge to model.  ✗ (not applicable under the no-imports scope).
+- **Goroutine destruction** — the spec MANDATES that a goroutine's exit is NOT
+  synchronized before any event (deliberately **no** edge — "an aggressive compiler
+  might delete the go statement").  We add only the fork edge and no exit edge, so the
+  model is faithful BY OMISSION; ✓ (the absence is deliberate, matching the non-guarantee).
+- **Locks (Mutex/RWMutex), Once, Atomic values** — need `sync`/`sync/atomic` stdlib
+  imports → out of scope (imports on hold).  ✗ deferred.
+
+**Still open (the honest formal gaps the model does NOT yet cover):**
+- **The READ-OBSERVATION rule (Requirement 3 / the write-map `W(r)`, "visible") — the
+  spec's CORE memory semantics — is ✗ unmodeled.**  We prove the race-freedom COROLLARY
+  (`hb`-ordered ⇒ no race) but not *which* write a read observes: there is no `W(r)`, no
+  "visible write" (`w` hb `r`, and `w` hb no other write to `x` that hb `r`).  So the
+  guarantee proven is "races are absent under the ownership discipline", not "a read
+  returns the latest hb-preceding write" — the spec's actual definition of memory.
+- **Implementation Restrictions (no-out-of-thin-air; word-tearing of multi-word
+  interface/slice/map/string headers) — ✗ unmodeled.**  These are bounded-race
+  guarantees for *racy* programs; we reason only about race-FREE programs, so they are
+  out of the modeled fragment (tracked).
+- **`sequenced before` is modeled as a TOTAL per-goroutine order** (same goroutine,
+  earlier trace position), STRONGER than the spec's *partial* sequenced-before (which
+  inherits the language spec's evaluation-order, leaving some intra-goroutine operations
+  unordered).  Sound for the straight-line traces we generate; a faithful partial
+  sequenced-before is a tracked refinement.
+- the heap analogue of the frame law (ref separation, to mix memory + channels under
+  interleaving); the FIFO refinement (kth recv ↔ kth send pairing); disciplined
+  deadlock-freedom for receiving programs; and the unverified plugin lowering
+  (`Cmd` ↔ extracted Go).
