@@ -6,6 +6,15 @@ section at a time.  Our Rocq is meant to follow this order too, so each spec
 section maps to a region of the model.  Each entry: the spec rule (the SOURCE of
 our behavior, cited), our model, status, and the machine-checked witness.
 
+**The entire model is AXIOM-FREE.**  `grep -cE '^Axiom |^Parameter ' *.v` = 0
+across `builtins.v`/`main.v`/`concurrency.v`/`preamble.v`; no `Admitted`.  So every
+✓ below rests on a `Definition`/`Theorem` over a CONCRETE model (the `World` is a
+concrete record of typed heaps), and `Print Assumptions` of any result reports only
+the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat` primitives and
+stdlib `functional_extensionality` (the 108→0 axiom elimination).  Conformance
+witnesses that used to rest on a `run_io`/channel/map *axiom interface* now rest on
+the proven laws of that concrete model.
+
 Status legend:
 - **✓ conforms** — verified, ideally a machine-checked witness (an `Example`/
   `Theorem` whose proof IS the conformance check).
@@ -280,7 +289,89 @@ Machine-checked (`spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`): `uint8(1000)=
 no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); `int`/64-bit
 integer conversions (the Z-width carrier); interface conversions beyond `type_assert`.
 
+## Expressions — primary
+
+### [Index expressions](https://go.dev/ref/spec#Index_expressions) — ✓ slices/strings/maps (single-goroutine)
+Spec: `a[x]` indexes; an out-of-range slice/string index PANICS; a map index `m[k]`
+never panics (`v, ok := m[k]`).  Ours: `slice_get` (raw, OOB ⇒ panic, escape hatch)
+and the safe `slice_at_ok`/`str_at_ok` (CPS/comma-ok — FORCE handling OOB, cannot
+panic, signed-index both-ends check) → `xs[i]`/`int64(s[i])`; map `m[k]` via the
+comma-ok `map_get_opt`/`map_get_or` → Go's two-value lookup.  ✓ (the panicking form
+is proof-gated where range is statically known; aliasing of a sub-slice unmodeled,
+Tier 3 #8a).
+
+### [Composite literals](https://go.dev/ref/spec#Composite_literals) / [Function literals](https://go.dev/ref/spec#Function_literals) / [Calls](https://go.dev/ref/spec#Calls) — ✓ for the modeled forms
+Struct literal `T{…}` (fields in declaration order) and slice literal `[]T{…}` via
+`slice_of_list`; closures (Go func literals) carry the interface-dictionary methods
+and the `go`/`defer` bodies; a function call `f(a)` / method call `recv.M(args)` lowers
+directly (see Struct/Method/Interface above).  ✓ for what's modeled.
+
+### [Type assertions](https://go.dev/ref/spec#Type_assertions) — ✓ (tagged-`GoAny`, axiom-free); ✗ assert-to-`any`
+Spec: `x.(T)` asserts the DYNAMIC type of interface value `x` is `T`; the single-value
+form PANICS on mismatch; the comma-ok form `v, ok := x.(T)` yields `ok = false` and the
+zero value, no panic.  Ours: `GoAny` is now a TAGGED pair `{A & A * GoTypeTag A}` — Go's
+`interface{}` carrying its value's runtime type — so `type_assert tag a` recovers the
+value via `tag_coerce` (tag match ⇒ value; mismatch ⇒ panic) and `type_assert_safe` is
+the comma-ok form (match ⇒ `(v, true)`; mismatch ⇒ `(zero_val tag, false)`).  Witnesses:
+`type_assert_ok` (**theorem**: asserting `anyt tag x` to its own tag = `ret x`, via
+`tag_coerce_refl`), `type_assert_safe_ok` (match ⇒ `(x, true)`), and the ADVERSARIAL
+`type_assert_safe_mismatch` (**Example**: an `int`-tagged value asserted to `TBool` ⇒
+`(false, false)` — never the value; this is the soundness check).  Plugin lowers to Go's
+native `v.(T)` / `v, ok := x.(T)`.  Demos: `panic_and_recover` (panic→`catch`→
+`type_assert TInt64` ⇒ 42), `assert_safe_demo` (`TInt64` ⇒ `n true`, `TBool` ⇒
+`false false`).  ✓  **✗ deviation (tracked, fail-loud, not an axiom):** "assert TO
+`any`" and typed `chan any`/`[]any` containers — removing the `TAny` tag is what breaks
+the `GoTypeTag GoAny` universe cycle, sound because a value's dynamic type is always a
+CONCRETE type (Go flattens nested interfaces), so `GoTypeTag GoAny` is never an actual
+runtime type.
+
 ## Statements
+
+### [Variables](https://go.dev/ref/spec#Variables) / [Assignment statements](https://go.dev/ref/spec#Assignment_statements) — ✓ mutable locals
+Spec: a variable holds a value; assignment `x = v` stores; declaration `x := v`.  Ours:
+`ref_new`/`ref_get`/`ref_set` (a `Ref A` = a concrete typed cell in `w_refs`) → `var x T`
+/ read / `x = v`; read-after-write is a **theorem** (`ref_sel_upd_same`, `ref_get_set_same`).
+Demo: `mut_demo`.  ✓  (The CFG variable-placement discipline — declaration dominates use,
+no shadowing — is part of the control-flow lowering below; pointers/`&x` ✗, Tier 3 #8a.)
+
+### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the goto-CFG relooper; ⚠ native `switch`
+Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
+`break`/`continue`/labeled, `goto`, `return`).  Ours: ALL control flow is one complete
+primitive — a goto-CFG (`run_blocks`/`Jump`/`Done`, each function body a set of labelled
+basic blocks) — lifted back to idiomatic Go by a STRUCTURING relooper (computes
+dominators / post-dominators as iterative fixpoints, finds natural loops by back-edges,
+recurses to emit `if`/`for`/`break`/`continue`/labeled-break, falling back to raw labels
++ `goto` only where the graph is irreducible).  Completeness lives in the CFG model;
+niceness in the printer.  All demos golden-locked:
+- **`if`** (match on `bool`) → `if c { … } else { … }`: `sign_demo`, `pick_demo`,
+  `cond_op_demo`, `inline_if_demo`, `diamond_demo` (`if b {…} else {…}`), `cond_goto_demo`
+  (`if !early {…}`).  ✓
+- **`for`** (+ range): `for { … break }`, nested `for`s, in-loop `if`, labeled escapes —
+  `count_demo`, `loopif_demo`, `nested_loop_demo`, `labeled_break_demo` (`break L0`),
+  `labeled_continue_demo`; `for_each`/`slice_fold` → `for _, x := range xs`
+  (`foreach_demo`, `sum_demo`).  ✓
+- **`return`** (in-loop): `early_return_demo`.  ✓
+- **`goto`** (irreducible CFG): raw Go labels + `goto`, the always-correct fallback —
+  `irreducible_demo` (a two-entry loop) golden-locks it.  ✓
+- **`switch`**: ⚠ an n-ary `switch`/type-switch block decomposes to chained `bool` `if`s
+  in the goto model (faithful behaviour); the native Go `switch` keyword is a printer
+  nicety, not yet emitted.
+Lowering correctness (each variable's identity preserved under read/capture/address;
+declaration dominates use; no shadowing) is the CFG discipline — golden-guarded, the
+unverified plugin surface (Known gap #10).
+
+### [Go statements](https://go.dev/ref/spec#Go_statements) — ✓ lowering; choice/scheduler idealised
+Spec: `go f()` starts `f` in a new goroutine.  Ours: `go_spawn m` → `go func(){ … }()`;
+demo `goroutine_demo`.  The goroutine FORK happens-before edge (`go` ⤳ goroutine start)
+is PROVEN race-free (`fork_program_race_free`, see the memory model).  ✓ at the lowering
++ ordering level; the scheduler / interleaving is idealised away (Tier 5 #14).
+
+### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓
+Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit.
+Ours: `defer_call f` → `defer func(){ f }()` (function-scoped, LIFO, run-at-return — Go
+provides the scoping/ordering); the block-scoped `with_defer` (IIFE + `defer`) coexists.
+Demos: `defer_demo`, `defer_loop_demo` (a `defer` in a loop captures each iteration's
+value — prints 2,1,0, not 2,2,2).  ✓
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking
 Spec: send on a **closed** channel ⇒ panic; send on **nil** blocks forever.
@@ -381,11 +472,15 @@ each `rstep` run-reduces the denotation exactly per the `run_io` laws, and
 single-goroutine).  For MULTIPLE goroutines — where `run_io`, being sequential, cannot
 sequence the interleaving — the connection is a STATE refinement: `wmatchc_step` proves
 every `rstep` (any goroutine, any channel) keeps the calculus's channel state matched to
-the `run_io` `World`, using two channel-SEPARATION (frame) axioms
-(`chan_buf_send_frame`/`chan_buf_recv_frame`, validated by the per-channel FIFO-map heap
-model); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
-same execution.  Trust base verified by `Print Assumptions` (the `run_io` laws it
-bridges to + the 2 frame axioms; `Hret`/`chenv_inj` are discharged hypotheses).
+the `run_io` `World`, using the two channel-SEPARATION (frame) LAWS
+(`chan_buf_send_frame`/`chan_buf_recv_frame` — now THEOREMS, derived from
+`chan_read_write_frame` over the concrete per-channel heap; once axioms, eliminated in the
+108→0 work); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
+same execution.  Trust base verified by `Print Assumptions`: the whole model is now
+AXIOM-FREE (`grep -cE '^Axiom |^Parameter ' *.v` = 0), so `Print Assumptions` of these
+keystone results = *Closed under the global context* modulo Coq's kernel primitives
+(`PrimInt63`/`PrimFloat`) and stdlib `functional_extensionality`; `Hret`/`chenv_inj` are
+discharged hypotheses.
 **Deadlock — characterized + freedom for a real class (axiom-free).**  The operational
 semantics represents deadlock (`rblock_stuck`) and now CHARACTERIZES it (`rstuck_blocked`:
 a stuck config has someone unfinished yet every live goroutine is finished or blocked on
