@@ -253,6 +253,7 @@ let is_ptr_get_ref = named "ptr_get"
 let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
 let is_ptr_as_ref_ref = named "ptr_as_ref"
+let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
 let is_run_blocks_ref = named "run_blocks"
 let is_jump_ctor = named "Jump"
 let is_done_ctor = named "Done"
@@ -981,7 +982,10 @@ let rec pp_expr state env = function
            str "*" ++ pp_atom state env p
        | MLglob r, [p; v] when is_ptr_set_ref r ->
            str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
-       | MLglob r, [_tag] when is_ptr_nil_ref r -> str "nil"
+       (* a TYPED nil pointer conversion to *T — so a [p != nil] comparison (in the
+          safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)
+       | MLglob r, [tag] when is_ptr_nil_ref r ->
+           str "(*" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")(nil)"
 
        (* make_chan tag → make(chan T) *)
        | MLglob r, [tag] when is_make_chan_ref r ->
@@ -2158,6 +2162,39 @@ let pp_io_body state tab env body =
                   v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
+         (* ptr_get_ok tag p (fun v ok => body) → nil-checked deref (Phase B1b):
+              var v T
+              ok := p != nil
+              if ok { v = *p }
+              body
+            Mirrors slice_at_ok; [v] defaults to the zero value when [p] is nil, and
+            the deref [*p] runs only in the [ok] branch — so the nil-deref panic is
+            unreachable (the ok=false case is forced on the caller). *)
+         | MLglob r, [tag; p; kont] when is_ptr_get_ok_ref r ->
+             let ids, k_body = collect_lam kont in
+             let new_env = List.rev ids @ env in
+             (match ids with
+              | [v_id; ok_id] ->
+                  let go_t = go_type_of_tag (strip_magic tag) in
+                  let p_d = pp_atom state env p in
+                  let cond = p_d ++ str " != nil" in
+                  let v_decl =
+                    if is_dummy v_id then mt ()
+                    else str tab ++ str "var " ++ pp_mlident v_id ++ str " "
+                         ++ str go_t ++ fnl () in
+                  let ok_bind =
+                    if is_dummy ok_id then mt ()
+                    else str tab ++ pp_mlident ok_id ++ str " := " ++ cond ++ fnl () in
+                  let guard = if is_dummy ok_id then cond else pp_mlident ok_id in
+                  let if_block =
+                    if is_dummy v_id then mt ()
+                    else
+                      str tab ++ str "if " ++ guard ++ str " {" ++ fnl () ++
+                      str (tab ^ "\t") ++ pp_mlident v_id ++ str " = *" ++ p_d ++ fnl () ++
+                      str tab ++ str "}" ++ fnl () in
+                  v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
+              | _ ->
+                  pp_stmts tab new_env k_body)
          (* str_at_ok s i (fun b ok => body) → bounds-checked byte index:
               var b int64
               ok := i >= 0 && i < int64(len(s))
@@ -2541,7 +2578,7 @@ let proof_only_names =
     "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
     "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
-    "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref";  (* Ptr ctor/projs + the Ref view — proof-only *)
+    "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref"; "ptr_is_nil";  (* Ptr ctor/projs/views — proof-only *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
@@ -2575,7 +2612,7 @@ let is_inlined_ref r =
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
-  is_ptr_nil_ref r || is_ptr_as_ref_ref r ||
+  is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||

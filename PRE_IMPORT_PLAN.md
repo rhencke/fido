@@ -189,8 +189,14 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
   (`pp_type`); ops by name; `mkPtr`/`p_loc`/`p_tag`/`ptr_as_ref` suppressed.  `ptr_demo`
   prints `10`/`99`, golden-locked.  *Raw deref panics on nil (escape hatch); the safe
   comma-ok `ptr_get_ok` is B1b.*
-- **B1b — nil-deref safety** (pending): a checked/evidence-carrying deref so a nil
-  pointer cannot be dereferenced by accident (the safe-by-construction default).
+- **B1b — nil-deref safety (DONE, 2026-06-17).**  `ptr_get_ok tag p (fun v ok => …)`
+  — the safe-by-construction default: a comma-ok CPS form (like `slice_at_ok`/
+  `recv_ok`) that BRANCHES on `p != nil` (`var v T; ok := p != nil; if ok { v = *p }`),
+  so the nil-deref panic is UNREACHABLE.  `ptr_get_ok_nil` (nil → the safe `ok=false`
+  branch, `v=zero`, a THEOREM) + `ptr_get_ok_nonnil` (live pointer reads through).  Raw
+  `ptr_get`/`ptr_set` stay the escape hatch.  `ptr_nil` lowers to a TYPED `(*T)(nil)`
+  so the `p != nil` comparison type-checks.  `ptr_safe_demo` prints `42 true` / `0
+  false`, golden-locked.
 - **B2 — Pointer receivers** (pending; needs B1): methods with a `*T` receiver that
   MUTATE the receiver — exclude `Ptr` from the value-receiver method detection, lower
   to `func (recv *T) M(...)`.

@@ -2374,6 +2374,38 @@ Proof.
   apply (ref_sel_upd_same (mkRef (p_loc q) (p_tag q)) v w).
 Qed.
 
+(** ---- nil-deref SAFETY (Phase B1b) ----
+
+    Dereferencing a nil pointer PANICS in Go.  The raw [ptr_get]/[ptr_set] are the
+    escape hatch; [ptr_get_ok] is the safe-by-construction default — a comma-ok CPS
+    form (like [slice_at_ok]/[recv_ok]) that BRANCHES on [p ≠ nil]: non-nil ⇒
+    [v = *p, ok = true]; nil ⇒ [v = zero, ok = false].  Because the caller must handle
+    [ok = false], the nil-deref panic is UNREACHABLE.  (A [Ptr] is nil iff its location
+    is the 0 sentinel — [ptr_nil].  The value is in the world heap, so [ptr_get_ok]
+    threads [w]; a read leaves [w] unchanged.) *)
+Definition ptr_is_nil {A} (p : Ptr A) : bool := PrimInt63.eqb (p_loc p) 0%uint63.
+
+Definition ptr_get_ok {A B} (tag : GoTypeTag A) (p : Ptr A) (k : A -> bool -> IO B) : IO B :=
+  fun w => if ptr_is_nil p
+           then k (zero_val tag) false w
+           else k (ref_sel (ptr_as_ref p) w) true w.
+
+(** Dereferencing a NIL pointer takes the SAFE branch ([ok = false], [v = zero]) —
+    never the panic; the nil case is forced on the caller.  A THEOREM. *)
+Lemma ptr_get_ok_nil : forall {A B} (tag : GoTypeTag A) (k : A -> bool -> IO B),
+  ptr_get_ok tag (ptr_nil tag) k = k (zero_val tag) false.
+Proof.
+  intros A B tag k. unfold ptr_get_ok, ptr_is_nil, ptr_nil. reflexivity.
+Qed.
+
+(** A pointer from [ptr_new] is NON-nil, so [ptr_get_ok] reads through it
+    ([ok = true]) and returns the stored value: safe deref of a live pointer. *)
+Lemma ptr_get_ok_nonnil : forall {A B} (tag : GoTypeTag A) (p : Ptr A)
+    (k : A -> bool -> IO B) (w : World),
+  ptr_is_nil p = false ->
+  ptr_get_ok tag p k w = k (ref_sel (ptr_as_ref p) w) true w.
+Proof. intros A B tag p k w Hnn. unfold ptr_get_ok. rewrite Hnn. reflexivity. Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a

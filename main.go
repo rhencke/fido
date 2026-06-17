@@ -484,6 +484,22 @@ func Ptr_demo() {
 	println(b)
 }
 
+func Ptr_safe_demo() {
+	p := func(_v int64) *int64 { return &_v }(int64(42))
+	var v int64
+	ok := p != nil
+	if ok {
+		v = *p
+	}
+	println(v, ok)
+	var v2 int64
+	ok2 := ((*int64)(nil)) != nil
+	if ok2 {
+		v2 = *((*int64)(nil))
+	}
+	println(v2, ok2)
+}
+
 func Count_demo() {
 	i := int64(0)
 	var iv int64
@@ -880,6 +896,7 @@ func main() {
 	Irreducible_demo(true)
 	Mut_demo()
 	Ptr_demo()
+	Ptr_safe_demo()
 	Count_demo()
 	Defer_demo()
 	Defer_loop_demo()
