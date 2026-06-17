@@ -392,6 +392,23 @@ Definition Comparable {K} (t : GoTypeTag K) : Prop :=
 Lemma comparable_TInt64 : Comparable TInt64.
 Proof. intros a b. cbn. apply Uint63.eqb_spec. Qed.
 
+(** The full-width [GoI64]/[GoU64] are comparable too (A4.2b): [key_eqb] decides
+    equality via [Z.eqb] on the carrier, so they are first-class MAP KEY types —
+    [int64]/[uint64] keys, exactly like Go.  (Single-field record: equality of the
+    [Z] carrier is equality of the value.) *)
+Lemma comparable_TI64 : Comparable TI64.
+Proof.
+  intros [za] [zb]. cbn. split.
+  - intro H. apply Z.eqb_eq in H. subst. reflexivity.
+  - intro H. injection H as ->. apply Z.eqb_refl.
+Qed.
+Lemma comparable_TU64 : Comparable TU64.
+Proof.
+  intros [za] [zb]. cbn. split.
+  - intro H. apply Z.eqb_eq in H. subst. reflexivity.
+  - intro H. injection H as ->. apply Z.eqb_refl.
+Qed.
+
 (** ---- World: a CONCRETE proof-only state record (no longer an axiom). ----
 
     [World] is FULLY CONCRETE — no abstract residue.  [w_refs]/[w_chans]/[w_maps]

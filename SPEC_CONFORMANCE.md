@@ -95,12 +95,23 @@ to a Go `int64` (wraps natively at 2⁶⁴, no mask).  ⚠ ONE bounded caveat: a
 constant expression, so Go's COMPILE-TIME overflow check fires (a compile error)
 instead of the runtime wrap `i64_add` models — that is the untyped-constant gap
 (Constants section / Tier 2 #6), not an int64 defect; the wrap is faithful for
-runtime operands and is witness-proven.  *Remaining:* the legacy `int`=Sint63
-(⚠ ±2⁶², Tier 2 #4) is not yet migrated onto `GoI64` (default `int` still Sint63);
+runtime operands and is witness-proven.  **`GoI64`/`GoU64` are the CANONICAL int64/
+uint64 (A4, 2026-06-17):** `Notation int64 := GoI64` / `uint64 := GoU64`; range-checked
+`Number Notation` so `42%i64`/`42%u64` are literals whose representability is checked AT
+PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_oob`/
+`u64_lit_oob` Fail); scoped arithmetic `(a+b)%i64`; `comparable_TI64`/`comparable_TU64`
+make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
+and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
+bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
+`Sint63` `int` (⚠ ±2⁶², Tier 2 #4) COEXISTS (→ Go `int64`) as a bounded convenience for
+indices / `nat`-coding / small-value demos — faithful in range; use `GoI64`/`GoU64` for
+the full width.
 **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
 carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
-`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); `uint64`/`uint` (unsigned full width)
-**✗** (the `GoU64` analogue, pending); `float32` **✗** (no native Rocq
+`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z
+template, unsigned mod-2⁶⁴ wrap; `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/`beyond63`,
+axiom-free; emits Go `uint64`, unsigned literals via `%Lu`, sign-aware even for erased
+literals); `float32` **✗** (no native Rocq
 f32).  Note: distinctness makes explicit
 CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
 `int` is wanted (which is correct: it fails loud, not silently).

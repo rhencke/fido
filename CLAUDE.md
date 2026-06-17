@@ -680,10 +680,11 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    IO, then control flow, then channels.
 
 ### Tier 2 — numeric correctness within the int/float parameters
-4. **`int` is ±2⁶², not full int64 — *full-width `GoI64` now exists (signed);
-   default-`int` migration pending*.**  The 63-bit primitive `int` (Sint63) is one
-   bit short of int64, so its wrap boundary differs from Go's.  *Fix delivered for
-   signed int64:* `GoI64`, a distinct record carried by **`Z`** (not `int`),
+4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical
+   full-width int64/uint64; primitive `int` kept as a bounded convenience*.**  The
+   63-bit primitive `int` (Sint63) is one bit short of int64, so its wrap boundary
+   differs from Go's.  *Fix delivered for signed int64:* `GoI64`, a distinct record
+   carried by **`Z`** (not `int`),
    normalised mod 2⁶⁴ into the signed range after every op (`wrap64`).  Faithful
    across the WHOLE int64 range and wrapping at the true 2⁶³ — `spec_i64_add_wrap`
    (2⁶³−1+1→−2⁶³), `spec_i64_beyond62` (a sum unrepresentable in the old ±2⁶²
@@ -694,15 +695,29 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    module, never emitted.  *Bounded caveat:* a CONSTANT `MAX+1` in extracted Go hits
    Go's untyped-constant compile-time overflow check (a compile error), not the
    runtime wrap `i64_add` models — that is Tier 2 #6 (untyped constants), and the
-   wrap is faithful for runtime operands / witness-proven.  *Remaining:* migrate the
-   DEFAULT `int`/`int64` (`TInt`/`TInt64`/`GoInt`) onto `GoI64` — it still uses the
-   Sint63 carrier and is entangled with concurrency.v's `TInt64` channel model
-   (PRE_IMPORT_PLAN A4).  **`GoU64` — unsigned full-width uint64 — is now DONE
-   (A3, 2026-06-17):** same Z template, unsigned mod-2⁶⁴ wrap (`wrapU64`), all ops
-   (arith/compare/div/mod/bitwise/shifts/not); plugin emits `uint64` type (exception
-   to the `int64`-default numint erasure) and unsigned decimal literals
-   (`Printf.sprintf "%Lu"`); witnesses `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/
-   `beyond63` all axiom-free.  *Remaining:* default-`int` migration (A4).
+   wrap is faithful for runtime operands / witness-proven.  **`GoU64` — unsigned
+   full-width uint64 — DONE (A3, 2026-06-17):** same Z template, unsigned mod-2⁶⁴ wrap
+   (`wrapU64`), all ops (arith/compare/div/mod/bitwise/shifts/not); plugin emits
+   `uint64` type (exception to the `int64`-default numint erasure) and unsigned decimal
+   literals; witnesses `spec_u64_add_wrap`/`sub_wrap`/`not`/`shr`/`beyond63` all
+   axiom-free.  **A4 (default-int migration) DONE (2026-06-17) — `GoI64`/`GoU64` are
+   now THE canonical Go `int64`/`uint64`:** (A4.1) the concurrency.v bridge value
+   carrier migrated `int`/`TInt64` → `GoI64`/`TI64` (mechanical — the bridge uses only
+   polymorphic IO laws; axiom-free preserved, `Print Assumptions` unchanged), so the
+   modeled channel/heap values are full-width; (A4.2a) `Notation int64 := GoI64` /
+   `uint64 := GoU64` + range-checked `Number Notation` (`42%i64`/`42%u64`, out-of-range
+   numeral REJECTED at parse = Go's untyped-constant overflow; `i64_lit_oob`/
+   `u64_lit_oob` `Fail`) + scoped arithmetic (`(a+b)%i64`); (A4.2b) `comparable_TI64`/
+   `comparable_TU64` (int64/uint64 map keys) + end-to-end pipelines flowing int64 and a
+   `≥2^63` uint64 through a typed channel AND map (`i64_pipeline_demo`/
+   `u64_pipeline_demo`, golden-locked).  The plugin renders an erased full-width
+   literal sign-aware (a `Zpos` whose 64-bit pattern is negative-as-`Int64` is a
+   `uint64 ≥ 2^63` → `%Lu`; else signed) and pins bare literals in typed slots via the
+   value tag (`pp_typed_lit_tagged`).  *Coexistence (deliberate):* the primitive
+   `Sint63` `int` REMAINS (→ Go `int64`) as a bounded convenience for compile-time
+   indices, `nat`-coding, and the many small-value demos — faithful in range; reach for
+   `GoI64`/`GoU64` when the 2⁶³ boundary or the upper `uint64` half matters.  The 78
+   incidental `(n:int)` demo sites were NOT churned (no fidelity gain for small values).
 5. **Overflow-safe arithmetic — DONE (the guarded forms now exist).**
    `add_nz`/`sub_nz`/`mul_nz` are evidence-carrying: each demands a proof that the
    exact result is in range (`no_overflow_{add,sub,mul}`, discharged by `now

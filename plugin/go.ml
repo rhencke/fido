@@ -862,6 +862,13 @@ let z_value = function
   | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
       (match pos_value p with Some v -> Some (Int64.neg v) | None -> None)
   | _ -> None
+(* Source-[Z] sign: a [Z0]/[Zpos] is non-negative.  Used to tell a [uint64] literal
+   in [2^63, 2^64) (a [Zpos] whose 64-bit pattern looks negative as a signed [Int64])
+   apart from a genuine [int64] negative (a [Zneg]). *)
+let z_is_nonneg = function
+  | MLcons (_, r, [])  when String.equal (global_basename r) "Z0"   -> true
+  | MLcons (_, r, [_]) when String.equal (global_basename r) "Zpos" -> true
+  | _ -> false
 
 (*s Expression printer. *)
 
@@ -1216,18 +1223,18 @@ let rec pp_expr state env = function
       (* Coq [string] literal → Go string literal (byte-faithful). *)
       str (go_string_lit (Option.get (decode_go_string e)))
 
-  (* [MkU64 z] — an unsigned full-width literal (e.g. from the [%u64] Number
-     Notation, which builds the raw [MkU64] constructor after its parse-time range
-     check).  Print its [Z] as UNSIGNED decimal: [Int64.to_string] would render a
-     value in [2^63, 2^64) as negative.  Must precede the generic numint-ctor
-     erasure (which would fall through to the signed bare-[Z] arm below). *)
-  | MLcons (_, r, [z]) when String.equal (global_basename r) "MkU64"
-                           && Option.has_some (z_value z) ->
-      str (Printf.sprintf "%Lu" (Option.get (z_value z)))
-
   | MLcons _ as e when Option.has_some (z_value e) ->
-      (* Coq [Z] literal (e.g. inside an erased [MkI64 z]) → decimal int64. *)
-      str (Int64.to_string (Option.get (z_value e)))
+      (* Coq [Z] literal (a full-width [GoI64]/[GoU64] literal erases its single-field
+         wrapper to this bare [Z]).  [z_value] preserves the 64-bit pattern but
+         [Int64.to_string] reads it SIGNED.  Discriminate by the SOURCE Z's sign: a
+         [Zpos] whose 64-bit value has the high bit set (negative as [Int64]) cannot be
+         an [int64] (its range stops at 2^63-1), so it is an unsigned [uint64] value in
+         [2^63, 2^64) and must print via [%Lu]; everything else (incl. genuine [Zneg]
+         int64 negatives) prints signed. *)
+      let v = Option.get (z_value e) in
+      if z_is_nonneg e && Int64.compare v 0L < 0
+      then str (Printf.sprintf "%Lu" v)
+      else str (Int64.to_string v)
 
   | MLcons _ as e ->
       (match nat_value e with
@@ -1312,10 +1319,30 @@ and pp_prec state env ctx e =
    fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare
    literal as [int64(..)] / [float64(..)].  Non-literals already have a type. *)
 and pp_typed_lit state env e =
-  match e with
+  match strip_magic e with
   | MLuint _  -> str "int64("   ++ pp_expr state env e ++ str ")"
   | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
+  (* A full-width [GoI64]/[GoU64] LITERAL erases (single-field record) to a bare [Z]
+     decimal, which Go defaults to [int]; in a typed position it mismatches the
+     [int64]/[uint64] context, so pin the type.  Signedness from the source-[Z] sign
+     (same discrimination as the bare-[Z] value arm): a [Zpos] >= 2^63 is [uint64].
+     (When the tag is known — e.g. a map default — [pp_typed_lit_tagged] is preferred.) *)
+  | MLcons _ as z when Option.has_some (z_value z) ->
+      let v = Option.get (z_value z) in
+      let goty = if z_is_nonneg z && Int64.compare v 0L < 0 then "uint64" else "int64" in
+      str goty ++ str "(" ++ pp_expr state env e ++ str ")"
   | _         -> pp_expr state env e
+
+(* Like [pp_typed_lit] but the target Go type is KNOWN (from a [GoTypeTag] in the
+   caller, e.g. a map's value tag): pin a bare literal to exactly that type, so a
+   [uint64] default reads [uint64(0)], not the [int64(0)] [pp_typed_lit] would guess.
+   A non-literal already carries its type, so it is emitted unwrapped. *)
+and pp_typed_lit_tagged state env tagdoc e =
+  match strip_magic e with
+  | MLuint _ | MLfloat _ -> tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
+  | MLcons _ as z when Option.has_some (z_value z) ->
+      tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
+  | _ -> pp_expr state env e
 
 (* Emit a lambda as a TYPED Go closure [func(x A) R { return body }] using a known
    function type [A1 -> … -> R] (a method dictionary entry).  Unlike the generic
@@ -1552,7 +1579,11 @@ let pp_io_body state tab env body =
               | MLglob r2, [_kt; _vt; k; def; mm] when is_map_get_or_ref r2 ->
                   let hit = match List.filter (fun id -> not (is_dummy id)) ids with
                     | [id] -> pp_mlident id | _ -> str "_g" in
-                  str tab ++ hit ++ str " := " ++ pp_typed_lit state env def ++ fnl () ++
+                  (* pin the default to the map's VALUE type (from [_vt]) — for a
+                     bare full-width literal that would otherwise default to Go [int]
+                     and mismatch an [int64]/[uint64] value slot. *)
+                  str tab ++ hit ++ str " := " ++
+                  pp_typed_lit_tagged state env (str (go_type_of_tag (strip_magic _vt))) def ++ fnl () ++
                   str tab ++ str "if _v, _ok := " ++ pp_expr state env mm ++
                   str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
                   str (tab ^ "\t") ++ hit ++ str " = _v" ++ fnl () ++

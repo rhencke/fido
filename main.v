@@ -478,6 +478,34 @@ Definition u64_demo : IO unit :=
   println [ any (5000000000000000000 + 3000000000000000000)%u64  (* 8000000000000000000 (> 2^62) *)
           ; any (3000000000 * 3000000000)%u64 ].               (* 9000000000000000000 *)
 
+(** A4.2b: int64 flows through the FULL pipeline — a buffered CHANNEL and a MAP —
+    proving [GoI64] is first-class in every position [int] occupies (not just
+    arithmetic).  A [> 2^62] value is sent on a [chan int64], received, then stored
+    under an int64 key in a [map[int64]int64] and read back.  [comparable_TI64]
+    justifies the int64 map key. *)
+Definition i64_pipeline_demo : IO unit :=
+  ch <-' make_chan_buf TI64 1 ;;
+  send TI64 ch (9000000000000000001)%i64 >>'
+  bind (recv TI64 ch) (fun x =>                                 (* x = 9000000000000000001 *)
+  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_set TI64 TI64 (42)%i64 x m) (fun _ =>               (* m[int64(42)] = x *)
+  bind (@map_get_or GoI64 GoI64 TI64 TI64 (42)%i64 (0)%i64 m) (fun hit =>
+  println [ any hit ])))).                                      (* prints: 9000000000000000001 *)
+
+(** A4.2b: a uint64 in the UPPER HALF ([>= 2^63], unrepresentable as signed int64)
+    flows through a typed pipeline — proving the full uint64 range is faithful end to
+    end, not just in arithmetic.  [18000000000000000000 > 2^63]; it is rendered
+    UNSIGNED ([%Lu]) and pinned to [uint64] by the channel / map element types
+    (the map default [(0)%u64] pins [uint64(0)] via the value tag). *)
+Definition u64_pipeline_demo : IO unit :=
+  ch <-' make_chan_buf TU64 1 ;;
+  send TU64 ch (18000000000000000000)%u64 >>'
+  bind (recv TU64 ch) (fun x =>                                 (* x = 18000000000000000000 *)
+  bind (map_make_typed TU64 TU64) (fun m =>
+  bind (map_set TU64 TU64 (7)%u64 x m) (fun _ =>                (* m[uint64(7)] = x *)
+  bind (@map_get_or GoU64 GoU64 TU64 TU64 (7)%u64 (0)%u64 m) (fun hit =>
+  println [ any hit ])))).                                      (* prints: 18000000000000000000 *)
+
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
@@ -1236,6 +1264,8 @@ Definition main_effect : IO unit :=
   i64_demo                      >>'   (* prints: 9200000000000000000 9000000000000000000 *)
   i64_ops_demo                  >>'   (* prints: 1285714285714285714 1099511627776 / 4294967295 -6 *)
   u64_demo                      >>'   (* prints: 8000000000000000000 9000000000000000000 *)
+  i64_pipeline_demo             >>'   (* prints: 9000000000000000001 (int64 through chan + map) *)
+  u64_pipeline_demo             >>'   (* prints: 18000000000000000000 (uint64 >= 2^63 through chan + map) *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)

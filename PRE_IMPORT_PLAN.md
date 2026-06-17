@@ -132,10 +132,21 @@ wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps 
     parse helpers (`i64_of_Z`/`Z_of_i64`/`u64_of_Z`/`Z_of_u64`) are parse-time only,
     suppressed in `is_inlined_ref`.  No new axioms (Number Notation is parsing, not
     proof).
-  - **A4.2b — close-out** (pending): prove `GoI64`/`GoU64` `Comparable` (map-key
-    capable) + a demo flowing int64 through a channel and a map (full-pipeline proof);
-    reframe primitive `int` (Sint63) as the bounded proof-layer/index integer in
-    CLAUDE.md / SPEC_CONFORMANCE; retire Tier 2 #4.
+  - **A4.2b — close-out (DONE, 2026-06-17).**  `comparable_TI64`/`comparable_TU64`
+    (axiom-free in the project sense — only the primitive `key_eqb` boundary) make
+    int64/uint64 first-class MAP KEYS.  `i64_pipeline_demo` flows a `>2^62` int64
+    through a buffered channel AND a `map[int64]int64`; `u64_pipeline_demo` flows a
+    `≥2^63` uint64 (the upper half, unrepresentable as signed) through `chan uint64` +
+    `map[uint64]uint64` — golden-locked, proving the full-width types are first-class in
+    EVERY position `int` occupies, not just arithmetic.  Plugin correctness for erased
+    literals: the bare-`Z` arm is now SIGN-AWARE (a `Zpos` whose 64-bit pattern is
+    negative-as-`Int64` is a `uint64 ≥ 2^63` → `%Lu`; else signed), and bare literals in
+    typed slots are pinned via the value tag (`pp_typed_lit_tagged`, e.g. a map's
+    `uint64(0)` default).  Docs reframed: `GoI64`/`GoU64` are the canonical int64/uint64;
+    primitive `Sint63` `int` COEXISTS (→ Go `int64`) as a bounded convenience.  *Scope
+    note:* the 78 incidental `(n:int)` demo sites were deliberately NOT churned — they
+    model small int64 values faithfully in range, and converting them changes each
+    demo's focus without a fidelity gain.
 - **A5 — untyped integer constants as `Z`** with representability checked at use
   (`Fail` test for the compile-error analog).
 
@@ -266,7 +277,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration: A4.1 concurrency-bridge carrier → `GoI64` ✓, A4.2a ergonomic notation (range-checked `%i64`/`%u64` literals + scoped arith) ✓; A4.2b (Comparable + pipeline demo + `int` reframing) pending; A5 `Z` constant *arithmetic* pending
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration ✓ (A4.1 concurrency-bridge carrier → `GoI64`; A4.2a ergonomic range-checked `%i64`/`%u64` literals + scoped arith; A4.2b Comparable + int64/uint64 chan+map pipelines + `int` reframing — `GoI64`/`GoU64` are now THE canonical int64/uint64); A5 untyped-constant *arithmetic* pending (literals already range-checked at parse)
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

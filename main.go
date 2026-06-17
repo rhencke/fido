@@ -120,6 +120,32 @@ func U64_demo() {
 	println(5000000000000000000+3000000000000000000, 3000000000*3000000000)
 }
 
+func I64_pipeline_demo() {
+	ch := make(chan int64, 1)
+	ch <- 9000000000000000001
+	x := <-ch
+	m := make(map[int64]int64)
+	m[42] = x
+	hit := int64(0)
+	if _v, _ok := m[42]; _ok {
+		hit = _v
+	}
+	println(hit)
+}
+
+func U64_pipeline_demo() {
+	ch := make(chan uint64, 1)
+	ch <- 18000000000000000000
+	x := <-ch
+	m := make(map[uint64]uint64)
+	m[7] = x
+	hit := uint64(0)
+	if _v, _ok := m[7]; _ok {
+		hit = _v
+	}
+	println(hit)
+}
+
 func Builtins_demo() {
 	println(min(3, 5), max(3, 5))
 	println(len(make([]int64, 3)))
@@ -803,6 +829,8 @@ func main() {
 	I64_demo()
 	I64_ops_demo()
 	U64_demo()
+	I64_pipeline_demo()
+	U64_pipeline_demo()
 	Builtins_demo()
 	Prec_demo()
 	Neglit_demo()
