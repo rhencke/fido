@@ -956,9 +956,10 @@ let rec pp_expr state env = function
        (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
           mask the result to the width so the int64 carrier wraps like Go's uintN,
           and (signed) sign-extend.  [fw_wrap] builds the masked/sign-extended form
-          with the parens Go's precedence needs.  A W-bit MULTIPLY whose product
-          can exceed the 63-bit carrier ([2W > 62]) fails loud — it needs the Z
-          model, not a silently-wrong wrap. *)
+          with the parens Go's precedence needs.  A W-bit MULTIPLY is exact for any
+          [W < 63]: the product may exceed the 63-bit carrier, but the masked LOW W
+          bits survive ([2^W | 2^63], so [(a*b mod 2^63) mod 2^W = a*b mod 2^W]).
+          Only a [W >= 63]-wide product needs the Z model — it fails loud. *)
        (* [uN_lit x] (a typed constant) and [uN_of_int x] (a narrowing conversion)
           both truncate an [int] to the width — [fw_wrap] (mask, + sign-extend for
           intN), exactly Go's [uint8(x)] / [int8(x)]. *)
@@ -971,8 +972,8 @@ let rec pp_expr state env = function
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
-           if String.equal op "mul" && 2 * w > 62 then
-             unsupported (string_of_int w ^ "-bit multiply: the product can exceed the 63-bit carrier; needs the Z-based wide-int model")
+           if String.equal op "mul" && w >= 63 then
+             unsupported (string_of_int w ^ "-bit multiply: a >=63-bit-wide product exceeds the 63-bit carrier; needs the Z-based wide-int model")
            else
              let opstr = (match op with "add" -> " + " | "sub" -> " - " | _ -> " * ") in
              fw_wrap s w

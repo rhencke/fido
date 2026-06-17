@@ -781,10 +781,15 @@ resting state.)**
     shift, div/mod, conversions, all machine-checked (`spec_u32_add_wrap` 4e9+1e9→
     705032704, `spec_i32_add_wrap` 2e9+2e9→-294967296).  **`div`/`mod` done for every
     width** — evidence-carrying non-zero divisor (`div_nz` pattern; `u8_div_zero`
-    `Fail`), signed wraps the `-2^(N-1)/-1` overflow via `norm`.  *Still ✗:*
-    **`u32_mul`/`i32_mul`** ((2³²−1)² ≈ 2⁶⁴ > 2⁶² carrier — OMITTED, fails loud, needs
-    the wider model), and **`uint64`/`uint`/`int` full width** (64-bit exceeds the
-    63-bit carrier — needs the Z-based int model, like `int64`'s ±2⁶² limit).
+    `Fail`), signed wraps the `-2^(N-1)/-1` overflow via `norm`.  **`u32_mul`/`i32_mul`
+    DONE** (mask-after-multiply): the product can reach `(2³²−1)² ≈ 2⁶⁴ > 2⁶³` carrier,
+    but the masked LOW 32 bits are EXACT — `PrimInt63.mul` is mod 2⁶³ and `2³²∣2⁶³`, so
+    `(a*b mod 2⁶³) mod 2³² = a*b mod 2³²` (losing the carrier's high bits never disturbs
+    the low `w<63` bits the mask keeps); machine-checked `spec_u32_mul_wrap` (100000²→
+    1410065408), `spec_i32_mul_wrap` (46341²→-2147479015).  The earlier omission was
+    over-conservative — only a **≥63-bit-WIDE** product genuinely needs the wider model.
+    *Still ✗:* **`uint64`/`uint`/`int` full width** (64-bit exceeds the 63-bit carrier —
+    needs the Z-based int model, like `int64`'s ±2⁶² limit).
     *Cosmetic:* `u8_lit`/`i8_lit` of an in-range literal emits the full
     mask/sign-extend expression instead of just the literal — correct, just verbose.
     **TYPE DISTINCTNESS — DONE (airtight, Go spec "Numeric types").**  Each

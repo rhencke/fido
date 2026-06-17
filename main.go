@@ -104,6 +104,7 @@ func Divmod_demo() {
 func U32_demo() {
 	println((((4000000000 & 0xffffffff) + (1000000000 & 0xffffffff)) & 0xffffffff), (((((((2000000000 & 0xffffffff) ^ 0x80000000) - 0x80000000) + (((2000000000 & 0xffffffff) ^ 0x80000000) - 0x80000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000))
 	println((((1 & 0xffffffff) << 31) & 0xffffffff))
+	println((((100000 & 0xffffffff) * (100000 & 0xffffffff)) & 0xffffffff), (((((((46341 & 0xffffffff) ^ 0x80000000) - 0x80000000) * (((46341 & 0xffffffff) ^ 0x80000000) - 0x80000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000))
 }
 
 func Builtins_demo() {

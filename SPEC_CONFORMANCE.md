@@ -82,9 +82,11 @@ mixing types, build-checked by `u8_no_implicit`…`u32_no_implicit` and the
 cross-width `u8_u16_no_mix` — exactly the spec's "no implicit conversion; the only
 implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  *Remaining:*
 `int`=Sint63 (⚠ faithful to int64 only within ±2⁶², Tier 2 #4) is not yet wrapped
-as a distinct record; **`u32_mul`/`i32_mul` ✗ fails loud** (32-bit product exceeds
-the carrier — needs Z-model); 64-bit (`uint64`/`uint`/`int`) **✗ fails loud**
-(Z-model); `float32` **✗** (no native Rocq f32).  Note: distinctness makes explicit
+as a distinct record; **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product
+may exceed the 63-bit carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
+`spec_u32_mul_wrap`/`spec_i32_mul_wrap`); 64-bit (`uint64`/`uint`/`int`) **✗ fails
+loud** (a ≥63-bit-wide product needs the Z-model); `float32` **✗** (no native Rocq
+f32).  Note: distinctness makes explicit
 CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
 `int` is wanted (which is correct: it fails loud, not silently).
 
@@ -244,7 +246,8 @@ Ours (unsigned): `uintN` mask = mod 2ⁿ — `u8_add_wraps` (300→44), `u8_mul_
 (65025→1), `u8_sub_wraps` (0-1→255), `u16_mul_wraps`.  ✓  (signed): `int`/`intN`
 two's-complement — `i8_add_wraps` (-106), `i16_add_wraps` (-25536),
 `add_wraps_at_boundary`.  ✓ — but `int` wraps at **2⁶²**, not int64's 2⁶³.
-⚠ bounded (Tier 2 #4); 64-bit/`u32_mul` **✗ fails loud**.
+⚠ bounded (Tier 2 #4).  32-bit multiply ✓ (`spec_u32_mul_wrap`/`spec_i32_mul_wrap`,
+mask keeps the exact low 32 bits); only a ≥63-bit-wide multiply **✗ fails loud**.
 
 ### [Floating-point operators](https://go.dev/ref/spec#Floating-point_operators) — ✓ ops; ⚠ FMA fusion
 Spec: `+x=x`, `-x`=negation; div-by-zero "not specified beyond IEEE 754…

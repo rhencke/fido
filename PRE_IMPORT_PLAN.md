@@ -45,23 +45,43 @@ These gate the widest set of downstream items.  Do them first; everything in
 ### A — Full-width 64-bit integer model
 
 **Problem.** `int` is Rocq `Sint63` (63-bit), faithful only on `[-2⁶², 2⁶²)` —
-one bit short of Go int64.  This single gap is *why* several things fail loud
-today.
+one bit short of Go int64.  The genuine blocker is the **64-bit width** only:
+anything narrower already works on the 63-bit carrier (see A1 below — the 32-bit
+multiply was a *false* blocker).
 
-**Unblocks:** `uint64`/`uint`/`int64`/`int` at full width · `u32_mul`/`i32_mul`
-(product exceeds the 63-bit carrier — currently omitted, fail loud) · `int`
-bitwise (`& | ^ &^ ^`) and shifts (sign bit at 62 not 63) · untyped **integer
-constants** as `Z` with a representability check at use (Known gap #5 / spec
-"Constants"; `1<<70` is unrepresentable today).
+**Unblocks:** `uint64`/`uint`/`int64`/`int` at full width · `int` bitwise
+(`& | ^ &^ ^`) and shifts (the sign bit at 62 not 63) on the full-width type ·
+untyped **integer constants** as `Z` with a representability check at use (Known
+gap #5 / spec "Constants"; `1<<70` is unrepresentable today).
 
-**Approach.** A Z-based or paired-63-bit representation for the 64-bit carrier;
-keep the existing fixed-width template (mask + sign-extend) on top.  The numint
-records (`GoU8`…`GoI32`) already prove the template handles distinct types and
-two's-complement; this extends the carrier, not the pattern.
+**Approach.** A Z-based wrapper record (`GoI64`/`GoU64` over `Z`, normalized into
+the int64/uint64 range after each op) — the SAME proven numint template, just a
+`Z` carrier instead of a masked `int`, at the full width.  Plugin erases the
+wrapper (like `GoU8`…) and emits native Go int64/uint64 ops (Go already wraps at
+2⁶⁴, so the emitted Go needs no mask — the wraparound is free).
 
-**Witnesses to add:** `int64` add/sub/mul wrap at the true 2⁶³ boundary;
-`u32_mul`/`i32_mul` wrap; `int` bitwise/shift on negatives match int64;
-`spec_const_*` representability (compile-error analog → `Fail` test).
+**Sub-phases (dependency order within A):**
+- **A1 — `u32_mul`/`i32_mul` (DONE, 2026-06-17).** Was a *false* blocker: a 32-bit
+  product can exceed the 63-bit carrier, but the masked LOW 32 bits are EXACT
+  (`PrimInt63.mul` is mod 2⁶³, `2³²∣2⁶³`, so `(a*b mod 2⁶³) mod 2³² = a*b mod 2³²`).
+  Defined via mask-after-multiply; the over-conservative plugin guard (`2W>62`)
+  relaxed to the true limit (`W≥63`).  Witnesses `spec_u32_mul_wrap` (100000²→
+  1410065408), `spec_u32_mul_max` ((2³²−1)²→1), `spec_i32_mul_wrap` (46341²→
+  -2147479015); `u32_demo` golden-locked.  No Z model needed.
+- **A2 — `GoI64` full-width signed type.** Z-record; literals (representability
+  proof), add/sub/mul wrapping at the true 2⁶³, the no-overflow-exact theorems at
+  2⁶³, signed comparison, div/mod (truncating, MININT/−1 wrap), bitwise, shifts
+  (arithmetic). Plugin lowering + demo. **The keystone build.**
+- **A3 — `GoU64` full-width unsigned type.** Same template, unsigned wrap at 2⁶⁴.
+- **A4 — migrate the default `int`/`int64` (`TInt`/`TInt64`/`GoInt`) to the
+  full-width type**, *or* keep `Sint63` as an explicit "bounded int" and make
+  `GoI64`/`GoU64` the faithful full-width pair. Touches concurrency.v's `TInt64`
+  channel-carrier and the int demos — the invasive decision; scope it then.
+- **A5 — untyped integer constants as `Z`** with representability checked at use
+  (`Fail` test for the compile-error analog).
+
+**Witnesses to add (A2+):** `int64` add/sub/mul wrap at the true 2⁶³ boundary;
+`int` bitwise/shift on negatives match int64; `spec_const_*` representability.
 
 ### B — Aliasing / mutation / pointer model
 
@@ -145,9 +165,9 @@ Direct `>`/`>=`/`!=` operators (currently encoded) · composite `==` · native
 The two keystones first because they unblock C/D/E; the cross-cutting tracks
 (F/G/H) run in parallel and gate nothing by themselves; tidiness (I) is filler.
 
-1. **Phase A — full-width int model.**  Carrier rewrite + extend the fixed-width
-   template; unblock `u32_mul`/`i32_mul`, `int` bitwise/shift, 64-bit types,
-   untyped int constants (`Z`).
+1. **Phase A — full-width int model.**  A1 (`u32_mul`/`i32_mul`) DONE; then the
+   `GoI64`/`GoU64` Z-record carrier (A2/A3), the default-`int` migration (A4), and
+   untyped int constants as `Z` (A5).
 2. **Phase B — aliasing / mutation / pointers.**  Backing-store heap; slices as
    aliasing handles; arrays; pointers; pointer receivers.  Deepest build.
 3. **Phase C — structs/methods/interfaces completion.**  Pointer receivers land
@@ -187,7 +207,7 @@ trust debt that imports do not depend on but the guarantee does.
 ## Status
 
 Keystones:
-- [ ] **A — full-width int model** (unblocks u32/i32_mul, int bitwise/shift, 64-bit, Z constants)
+- [~] **A — full-width int model** — A1 (u32/i32_mul) ✓ done; A2–A5 (GoI64/GoU64 Z-record, default-int migration, Z constants) pending
 - [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
 
 The rest:

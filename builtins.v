@@ -802,14 +802,17 @@ Fail Definition u8_div_zero : GoU8 := u8_div (u8_lit 1 eq_refl) (u8_lit 0 eq_ref
     shift, div/mod, conversions) is faithful on the 63-bit carrier: a 32-bit
     add/sub/shift/div result is [< 2^33], far below [2^62].
 
-    NOTABLE OMISSION — [u32_mul]/[i32_mul] are NOT defined.  A 32-bit product can
-    reach [(2^32-1)^2 ≈ 2^64], which EXCEEDS the 63-bit carrier — so a masked-
-    product model would SILENTLY WRAP at [2^63] and give the wrong answer.  Per the
-    fail-loud policy we omit it (the plugin already aborts a [>30]-bit fixed-width
-    multiply); 32-bit multiply needs the Z-based wide-int model. *)
+    [u32_mul]/[i32_mul] ARE defined (mask-after-multiply).  A 32-bit product can
+    reach [(2^32-1)^2 ≈ 2^64], exceeding the 63-bit carrier — but the masked LOW 32
+    bits are still EXACT, so no Z model is needed here.  [PrimInt63.mul] reduces mod
+    [2^63] and [2^32 | 2^63], hence [(a*b mod 2^63) mod 2^32 = a*b mod 2^32]: losing
+    the carrier's high bits never disturbs the low [w < 63] bits the mask keeps.
+    (Only a 63-/64-bit-WIDE product genuinely needs the Z-based wide-int model.)
+    Machine-checked: [spec_u32_mul_wrap]/[spec_i32_mul_wrap] in main.v. *)
 Definition u32_lit (x : int) (_ : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x.
 Definition u32_add (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
 Definition u32_sub (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
+Definition u32_mul (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.mul (u32raw a) (u32raw b)) 4294967295).  (* low 32 bits exact: 2^32 | 2^63 *)
 Definition u32_eqb (a b : GoU32) : bool := PrimInt63.eqb (u32raw a) (u32raw b).
 Definition u32_ltb (a b : GoU32) : bool := PrimInt63.ltb (u32raw a) (u32raw b).
 Definition u32_leb (a b : GoU32) : bool := PrimInt63.leb (u32raw a) (u32raw b).
@@ -830,6 +833,7 @@ Definition i32_norm (x : int) : int :=
 Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := MkI32 x.
 Definition i32_add (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.add (i32raw a) (i32raw b))).
 Definition i32_sub (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.sub (i32raw a) (i32raw b))).
+Definition i32_mul (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.mul (i32raw a) (i32raw b))).  (* low 32 bits exact, then sign-extend *)
 Definition i32_eqb (a b : GoI32) : bool := PrimInt63.eqb (i32raw a) (i32raw b).
 Definition i32_ltb (a b : GoI32) : bool := Sint63.ltb (i32raw a) (i32raw b).
 Definition i32_leb (a b : GoI32) : bool := Sint63.leb (i32raw a) (i32raw b).

@@ -383,16 +383,24 @@ Definition divmod_demo : IO unit :=
           ; any (u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 4  *)
           ; any (i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl) ].   (* -128 (overflow) *)
 
-(** uint32 / int32: the same template at width 32 (mul OMITTED — a 32-bit product
-    exceeds the 63-bit carrier, so it fails loud rather than silently wrap).
-    `4e9 + 1e9` wraps mod 2^32 → 705032704; `2e9 + 2e9` wraps int32 → -294967296. *)
+(** uint32 / int32: the same template at width 32.  `4e9 + 1e9` wraps mod 2^32 →
+    705032704; `2e9 + 2e9` wraps int32 → -294967296.  MULTIPLY is exact too: a
+    32-bit product can exceed the 63-bit carrier, but the masked LOW 32 bits survive
+    ([2^32 | 2^63]), so no Z model is needed — `100000*100000 = 1e10` wraps mod 2^32
+    → 1410065408; `46341^2 = 2147488281 > 2^31` wraps int32 → -2147479015. *)
 Example spec_u32_add_wrap : u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl) = u32_lit 705032704 eq_refl. Proof. now vm_compute. Qed.
 Example spec_i32_add_wrap : i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl) = i32_lit (-294967296) eq_refl. Proof. now vm_compute. Qed.
+Example spec_u32_mul_wrap : u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl) = u32_lit 1410065408 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u32_mul_max  : u32_mul (u32_lit 4294967295 eq_refl) (u32_lit 4294967295 eq_refl) = u32_lit 1 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i32_mul_wrap : i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl) = i32_lit (-2147479015) eq_refl. Proof. now vm_compute. Qed.
 Definition u32_demo : IO unit :=
   bind (println [ any (u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl))  (* 705032704 *)
                 ; any (i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl)) ])  (* -294967296 *)
        (fun _ =>
-  println [ any (u32_shl (u32_lit 1 eq_refl) 31 eq_refl) ]).  (* 2147483648 = 2^31 *)
+  bind (println [ any (u32_shl (u32_lit 1 eq_refl) 31 eq_refl) ])  (* 2147483648 = 2^31 *)
+       (fun _ =>
+  println [ any (u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl))   (* 1410065408 *)
+          ; any (i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl)) ])).  (* -2147479015 *)
 
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
