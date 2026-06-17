@@ -145,6 +145,10 @@ func U64_pipeline_demo() {
 	println(hit)
 }
 
+func Const_demo() {
+	println(1000000000000, 4611686018427387904)
+}
+
 func Builtins_demo() {
 	println(min(3, 5), max(3, 5))
 	println(len(make([]int64, 3)))
@@ -830,6 +834,7 @@ func main() {
 	U64_demo()
 	I64_pipeline_demo()
 	U64_pipeline_demo()
+	Const_demo()
 	Recv_unused_ok_demo()
 	Builtins_demo()
 	Prec_demo()

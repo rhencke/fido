@@ -1059,6 +1059,27 @@ Infix "<=?" := u64_leb : u64_scope.
 Fail Definition i64_lit_oob : GoI64 := (9223372036854775808)%i64.   (* = 2^63 *)
 Fail Definition u64_lit_oob : GoU64 := (18446744073709551616)%u64.  (* = 2^64 *)
 
+(** ---- A5: untyped INTEGER constants (Go spec "Constants") ----
+
+    A Go untyped constant is ARBITRARY-PRECISION: constant arithmetic is exact (no
+    width, no wrap), and the constant acquires a fixed-width TYPE only at the point of
+    USE, where a representability check fires — a constant that does not fit is a
+    COMPILE ERROR, not a runtime wrap.  We model an untyped int constant as [Z], its
+    arithmetic as [Z] arithmetic (exact), and the type-at-use conversion as
+    [i64c]/[u64c]: each EVALUATES the closed [Z] expression with [vm_compute] (real
+    bignums, so an INTERMEDIATE may exceed the target width — e.g. [1 << 70] — as long
+    as the final value fits) to a literal, then converts demanding [in_i64]/[in_u64].
+    An out-of-range constant FAILS to elaborate (the [now vm_compute] proof of
+    representability cannot be built) — the analog of Go's untyped-constant overflow.
+    The literal the notation produces lowers via the existing [i64_lit]/[u64_lit] fold;
+    no plugin change — the arbitrary precision lives entirely in [vm_compute]. *)
+Notation i64c e :=
+  (i64_lit ltac:(let v := eval vm_compute in (e : Z) in exact v) ltac:(now vm_compute))
+  (only parsing).
+Notation u64c e :=
+  (u64_lit ltac:(let v := eval vm_compute in (e : Z) in exact v) ltac:(now vm_compute))
+  (only parsing).
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world

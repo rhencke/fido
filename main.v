@@ -440,6 +440,38 @@ Definition u64_pipeline_demo : IO unit :=
   bind (@map_get_or GoU64 GoU64 TU64 TU64 (7)%u64 (0)%u64 m) (fun hit =>
   println [ any hit ])))).                                      (* prints: 18000000000000000000 *)
 
+(** ===== A5: untyped INTEGER constants (Go spec "Constants") =====
+    [i64c]/[u64c] take a closed [Z] constant EXPRESSION, evaluate it at arbitrary
+    precision ([vm_compute]) and acquire the fixed-width type at use, demanding
+    representability.  Witnesses:
+    - constant arithmetic is EXACT and an INTERMEDIATE may exceed the target as long
+      as the final value fits: [(1<<70) >> 8 = 2^62] — the [1<<70] intermediate is far
+      past int64, yet the result is a valid int64 ([const_intermediate_exceeds]).
+    - the type is acquired at USE: [2^63] fits uint64 but NOT int64 ([const_u64_upper]).
+    - an out-of-range constant FAILS to elaborate = Go's untyped-constant overflow
+      compile error ([const_oob_i64]/[const_oob_u64] `Fail`). *)
+Example const_intermediate_exceeds :
+  i64c (Z.shiftr (Z.shiftl 1 70) 8) = i64_lit 4611686018427387904 eq_refl.
+Proof. reflexivity. Qed.
+Example const_exact_arith :
+  i64raw (i64c (1000 * 1000 * 1000 * 1000)%Z) = 1000000000000%Z.
+Proof. reflexivity. Qed.
+Example const_u64_upper :
+  u64raw (u64c (Z.shiftl 1 63)) = 9223372036854775808%Z.
+Proof. reflexivity. Qed.
+(* OUT-OF-RANGE untyped constants — do NOT elaborate (the representability proof
+   cannot be built): Go's untyped-constant overflow. *)
+Fail Definition const_oob_i64 : GoI64 := i64c (Z.shiftl 1 70).   (* 2^70 > int64 max *)
+Fail Definition const_oob_u64 : GoU64 := u64c (Z.shiftl 1 64).   (* 2^64 > uint64 max *)
+
+(** Runtime demo: two int64 constants built by arbitrary-precision constant
+    arithmetic.  10^12 is exact; [(1<<70)>>8 = 2^62] has an intermediate ([1<<70])
+    that overflows int64, yet the result is in range.  Both < 2^63, so they also fit
+    Go's untyped-constant default [int] in [println]. *)
+Definition const_demo : IO unit :=
+  println [ any (i64c (1000 * 1000 * 1000 * 1000)%Z)      (* 1000000000000 *)
+          ; any (i64c (Z.shiftr (Z.shiftl 1 70) 8)) ].    (* 4611686018427387904 = 2^62 *)
+
 (** Predeclared builtins (Go spec "Built-in functions"): [min]/[max] (Go 1.21) on
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
@@ -1200,6 +1232,7 @@ Definition main_effect : IO unit :=
   u64_demo                      >>'   (* prints: 8000000000000000000 9000000000000000000 *)
   i64_pipeline_demo             >>'   (* prints: 9000000000000000001 (int64 through chan + map) *)
   u64_pipeline_demo             >>'   (* prints: 18000000000000000000 (uint64 >= 2^63 through chan + map) *)
+  const_demo                    >>'   (* prints: 1000000000000 4611686018427387904 (untyped const arithmetic) *)
   recv_unused_ok_demo           >>'   (* prints: 77 (recv_ok with unused ok-flag) *)
   builtins_demo                 >>'   (* prints: 3 5 / 3 / 0 *)
   prec_demo                     >>'   (* prints: 10 20 *)
