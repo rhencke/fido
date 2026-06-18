@@ -261,10 +261,11 @@ B3, which was backwards):**
     FIELD ops `sptr_get_field`/`sptr_set_field` (Go `p.Field` / `p.Field = v`).  THEOREMS
     (reduced to Bs.1, axiom-free over the heap interface): `sptr_field_get_set` (field
     read-after-write through the pointer = `hfield_get_set_same`), `sptr_field_alias` (two
-    handles to the same base see each other's writes = `hstruct_alias`).  *Deferred:* the
-    whole-struct `sptr_deref`-after-`sptr_assign` round-trip (reassemble via `sr2_eta` across
-    both cells) — true, but its proof needs fiddlier nested-`run_bind` sequencing; the
-    field-level laws already capture the mutation/aliasing substance.
+    handles to the same base see each other's writes = `hstruct_alias`), and the WHOLE-STRUCT
+    `sptr_deref_assign` (after `sptr_assign p v`, `sptr_deref p` reassembles `v` — field 0
+    survives the field-1 write by `ref_sel_upd_diff`, field 1 by `ref_sel_upd_same`, `sr2_eta`
+    rebuilds; DONE 2026-06-18 with `Local Opaque ref_sel/ref_upd/hfield_cell` so `cbn` reduces
+    only the monadic structure, leaving the heap terms for the final rewrites).
   - **Bs.2b — lowering (DONE, 2026-06-18).**  A heap-backed struct ↔ Go `*R` with field
     read/write, runtime-demonstrated.  `SPtr R` → `*R` (type arm); `sptr_new rep v` → `&v`
     (composite literals are addressable in Go — no IIFE, no tag needed); `sptr_deref p` →

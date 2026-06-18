@@ -2993,6 +2993,30 @@ Proof.
   intros R F p q idx ftag v w Hb. apply hstruct_alias. unfold sptr_hs. cbn. exact Hb.
 Qed.
 
+(** WHOLE-STRUCT deref-after-assign — a THEOREM: after [sptr_assign p v], [sptr_deref p]
+    reassembles [v].  Field 0 survives the field-1 write (distinct cells, [ref_sel_upd_diff]),
+    field 1 read sees its write ([ref_sel_upd_same]), and [sr2_eta] rebuilds [v].  The
+    field-cell distinctness ([base+0 ≠ base+1]) is the same hypothesis [hfield_independent]
+    takes — true for every base, immediate by [vm_compute] for any concrete pointer.
+    ([ref_sel]/[ref_upd]/[hfield_cell] are kept opaque so [cbn] reduces only the monadic
+    [match]/[bind] structure, leaving the heap terms intact for the final rewrites.) *)
+Local Opaque ref_sel ref_upd hfield_cell.
+Lemma sptr_deref_assign : forall {R} (p : SPtr R) (v : R),
+  r_loc (hfield_cell (sptr_hs p) 0%uint63 TI64) <> r_loc (hfield_cell (sptr_hs p) 1%uint63 TI64) ->
+  bind (sptr_assign p v) (fun _ => sptr_deref p) =
+  bind (sptr_assign p v) (fun _ => ret v).
+Proof.
+  intros R p v Hne. apply run_io_inj. intro w.
+  unfold sptr_assign, sptr_deref.
+  repeat (rewrite ?run_bind, ?run_hfield_set, ?run_hfield_get, ?run_ret; cbn).
+  rewrite (ref_sel_upd_diff (hfield_cell (sptr_hs p) 1%uint63 TI64)
+                            (hfield_cell (sptr_hs p) 0%uint63 TI64))
+    by (apply not_eq_sym; exact Hne).
+  rewrite !ref_sel_upd_same.
+  rewrite (sr2_eta (sp_rep p) v). reflexivity.
+Qed.
+Local Transparent ref_sel ref_upd hfield_cell.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
