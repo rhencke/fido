@@ -352,6 +352,24 @@ Definition convert_demo : IO unit :=
   (* mix distinct types: widen the uint8 into int16 arithmetic via explicit conv *)
   println [ any (i16_add b (i16_of_int (int_of_u8 a))) ]).  (* 1000 + 200 = 1200 *)
 
+(** Narrow -> int64 WIDENING (Go [int64(x)]): value-PRESERVING (a byte/short fits
+    int64), so the byte/short value lands unchanged in the canonical [GoI64].
+    Unsigned narrows stay non-negative; a signed narrow keeps its sign
+    ([int64(int8 -5) = -5]).  MODELED + machine-checked across signed/unsigned and
+    small/large widths.  *Runtime lowering deferred (would be IDENTITY — the narrow
+    already erases to a Go int64 holding exactly this value):* the faithful Coq body
+    crosses the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
+    ([Sint63Axioms.to_Z] -> [Uint63.ltb] …) includes the DELIBERATELY-REJECTED unsigned
+    [Uint63.ltb] (Tier 3 #9), so extracting it fights clean suppression.  Kept
+    proof-only (no demo, not reachable from [main_effect] → not extracted), like
+    [f64_of_i64]; a runtime form needs an int63->Z that drags no match-bodied stdlib
+    decls (or a narrow-stored-in-Z model). *)
+Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
+Example widen_i8  : i64_of_i8  (i8_of_int (-5)%sint63)      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
+Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.
+Example widen_u32 : i64_of_u32 (u32_lit 4000000000 eq_refl) = (4000000000)%i64. Proof. vm_compute. reflexivity. Qed.
+Example widen_i32 : i64_of_i32 (i32_of_int (-7)%sint63)     = (-7)%i64.         Proof. vm_compute. reflexivity. Qed.
+
 (** Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]).
     Evidence-carrying: the divisor must be proven non-zero (`u8_div_zero` `Fail`).
     Signed division truncates toward zero (`-7/2 = -3`); the most-negative / `-1`

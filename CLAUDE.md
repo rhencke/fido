@@ -946,9 +946,18 @@ resting state.)**
     applies to the parameter VARIABLE, sidestepping Go's rejection of `uint64(-1)` on an
     untyped CONSTANT.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`)/`conv_i64_of_max`
     (`2⁶⁴-1 → -1`)/`conv_roundtrip`; `conv64_demo` → `18446744073709551615 -1 255`,
-    golden-locked.  *Still ✗:* int↔float / float↔float (float gaps, no f32);
-    `string`↔`[]byte`/`[]rune` (rune view); narrow↔`{int64,uint64}` (same template,
-    pending); interface conversions beyond `type_assert`.
+    golden-locked.  **Narrow → `int64` widening MODELED, lowering deferred (proof-only,
+    2026-06-18):** `i64_of_u8`…`i64_of_i32` are value-preserving widens (a byte/short
+    fits int64), machine-checked (`widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/
+    `widen_i32`).  The lowering WOULD be identity (the narrow already erases to a Go
+    int64 holding the value), but the faithful body crosses the PrimInt63→`Z` carrier
+    via `Sint63.to_Z`, whose stdlib chain (`Sint63Axioms.to_Z` → the deliberately-
+    REJECTED unsigned `Uint63.ltb`, Tier 3 #9) fights clean extraction-suppression — so
+    kept proof-only (not reachable from `main_effect`, not extracted), like `f64_of_i64`.
+    A runtime form needs an int63→`Z` that drags no match-bodied stdlib decls (or a
+    narrow-stored-in-`Z` model).  *Still ✗:* int↔float / float↔float (float gaps, no
+    f32); `string`↔`[]byte`/`[]rune` (rune view); narrow → `uint64` and `int64`→narrow
+    (same carrier-bridge issue); interface conversions beyond `type_assert`.
 
 ### Tier 5 — semantic edge cases
 14. **Divergence / non-termination.**  `run_io` is total, so the model assumes

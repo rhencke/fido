@@ -341,9 +341,15 @@ applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONS
 accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),
 `conv_i64_of_max` (`2⁶⁴-1 → -1`), `conv_roundtrip`; `conv64_demo` prints
 `18446744073709551615 -1 255`.
+**Narrow → `int64` widening — MODELED, lowering deferred (proof-only).**
+`i64_of_u8`…`i64_of_i32` are value-preserving widens, machine-checked
+(`widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/`widen_i32`).  The lowering would be
+identity, but the faithful body crosses the PrimInt63→`Z` carrier via `Sint63.to_Z`,
+whose stdlib chain pulls in the deliberately-REJECTED unsigned `Uint63.ltb` (Tier 3
+#9) — so kept proof-only (not extracted), like `f64_of_i64`.
 **Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float gaps /
-no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); narrow↔
-`{int64,uint64}` (same reinterpret template, pending); interface conversions beyond
+no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); narrow →
+`uint64` and `int64`→narrow (same carrier-bridge); interface conversions beyond
 `type_assert`.
 
 ## Expressions — primary

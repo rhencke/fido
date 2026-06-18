@@ -820,6 +820,29 @@ Definition i16_of_int (x : int) : GoI16 := MkI16 (i16_norm x).
    never [u8_of_int y] directly. *)
 Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
 
+(** ---- Narrow -> full-width int64 WIDENING (Go [int64(x)]) ----
+    Widen a fixed-width [uintN]/[intN] to the CANONICAL [int64] ([GoI64]).  The
+    value is PRESERVED: an unsigned narrow ([0..2^N-1]) and a signed narrow
+    ([-2^(N-1)..2^(N-1)-1]) both fit int64 exactly, so [Sint63.to_Z] of the carrier
+    (the value's SIGNED [Z] reading — correct for both, since the unsigned narrows
+    are [< 2^32 < 2^62] and the signed narrows hold their sign-extended value) is in
+    range and lands unchanged in [GoI64].  Distinct from the narrow [int_of_FW]
+    (which targets the index-[int]); these target the value-[int64].
+    MODELED + machine-checked (witnesses in main.v).  *Runtime lowering DEFERRED,
+    proof-only for now (no demo, not reachable from [main_effect] so not extracted):*
+    the lowering WOULD be identity (the narrow already erases to a Go [int64] holding
+    exactly this value, so [int64(x)] is a no-op cast), but the faithful body crosses
+    the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
+    ([Sint63Axioms.to_Z] -> the DELIBERATELY-REJECTED unsigned [Uint63.ltb], Tier 3 #9)
+    fights clean extraction-suppression.  A runtime form needs an int63 -> Z that drags
+    no match-bodied stdlib decls.  Mirrors [f64_of_i64] (modeled, lowering deferred). *)
+Definition i64_of_u8  (a : GoU8)  : GoI64 := MkI64 (Sint63.to_Z (u8raw  a)).
+Definition i64_of_i8  (a : GoI8)  : GoI64 := MkI64 (Sint63.to_Z (i8raw  a)).
+Definition i64_of_u16 (a : GoU16) : GoI64 := MkI64 (Sint63.to_Z (u16raw a)).
+Definition i64_of_i16 (a : GoI16) : GoI64 := MkI64 (Sint63.to_Z (i16raw a)).
+Definition i64_of_u32 (a : GoU32) : GoI64 := MkI64 (Sint63.to_Z (u32raw a)).
+Definition i64_of_i32 (a : GoI32) : GoI64 := MkI64 (Sint63.to_Z (i32raw a)).
+
 (** ---- Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]) ----
     EVIDENCE-CARRYING like [div_nz]: demand the divisor be non-zero (Go panics on a
     zero divisor), so the panic is unreachable (safe-by-construction).
