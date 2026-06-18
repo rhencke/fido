@@ -211,9 +211,21 @@ separate tracks.
    - `if`/`else` (match on `bool`) → `if c { … } else { … }` — the core case
    - `switch` (match on a simple inductive) → Go `switch`/if-chain on the
      constructor; also unblocks `option`, so `map_get_opt` can finally lower
-   - type switch (`switch v := x.(type)`) — a separate combinator dispatching
-     on a `GoAny`'s runtime type, built on the existing `GoTypeTag` /
-     `type_assert` machinery, *not* on `MLcase`
+   - type switch (`switch v := x.(type)`) — *DONE (2026-06-18)*. `type_switch2` is a
+     combinator dispatching on a `GoAny`'s runtime type, built on the existing
+     `tag_coerce`/`GoTypeTag` machinery (*not* `MLcase`) — so it is **axiom-free** (the
+     same basis as `type_assert_safe`). Each case tries its tag via `tag_coerce`; the
+     first match runs that arm's continuation with the recovered, correctly-typed value,
+     else the default. Machine-checked dispatch (`type_switch2_first` runs the matching
+     arm with the value; `type_switch2_default` falls through on a type matching neither).
+     Lowers to Go's native `switch _tsv := a.(type) { case T: v := _tsv; … default: … }`
+     — each arm rebinds the case-typed value from the shared guard `_tsv` (distinct
+     binder names need no env renaming); the guard is omitted if no arm uses its value.
+     Two general plugin fixes it needed: `any v` (existT) now erases to its payload in
+     *general* value position (e.g. a direct func arg), not only inside the `type_assert`
+     arms; and the `GoAny` Definition-alias renders as Go `any` as a signature type.
+     `tsw_demo` → `true 1` / `go 2` / `9` (bool/string/default), golden-locked. *Not yet:*
+     N-ary (>2 cases) is the same lowering with more arms; a `case T1, T2:` multi-type arm.
    - design point: an IO-valued branch `bind (match …) k` must thread the
      continuation `k` through every arm — emit each arm's statements then `k`
      in that branch (duplicate, or hoist the result into a var), never a value
