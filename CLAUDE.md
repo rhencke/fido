@@ -385,10 +385,14 @@ separate tracks.
    bare `p.Shifted` (a method value) instead of a call, full-arity calls unchanged (no
    regression).  `method_value_demo` passes `p.Shifted` to a HOF `call_shift10(f func(int64)
    Point)` (func-typed param via the `Tarr` arm) → `11 12`; faithful (Go's `p.M` binds the
-   value receiver at evaluation = the partial application).  *Not yet:* pointer receiver on a
-   struct WIDER than 2 int64 fields (generalise `StructRep2` → N heterogeneous fields); the
-   method-EXPRESSION form `T.M` (unbound, receiver becomes the first arg); method-name
-   namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
+   value receiver at evaluation = the partial application).  **METHOD EXPRESSIONS `T.M` DONE
+   (2026-06-18):** a value-receiver method referenced UNBOUND (a bare method glob, 0 args) is
+   Go's method expression — a `func(T, …) …` whose first arg is the receiver.  The plugin
+   records the receiver type name (`method_recvtype`) and emits `Point.Sum_coords` for the
+   bare glob; `method_expr_demo` passes it to a HOF `apply_pt(f func(Point) GoI64, p Point)`
+   → `11`.  *Not yet:* pointer receiver on a struct WIDER than 2 int64 fields (generalise
+   `StructRep2` → N heterogeneous fields); pointer-receiver method expressions `(*T).M`;
+   method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a
