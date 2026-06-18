@@ -252,9 +252,53 @@ B3, which was backwards):**
     even with different field TYPES), `hstruct_alias` (two pointers to the same `base` see
     each other's field writes — the aliasing a `*T` receiver relies on).  Emits no Go
     (the storage MODEL); the idiomatic lowering is Bs.2.
-  - **Bs.2 — lowering (pending):** a heap-backed struct ↔ Go `*Struct` with `c.Field`
-    access (the plugin maps a field op to its struct's field name), so a runtime demo
-    + B2 can build on it.
+  - **Bs.2 — lowering (pending; DESIGN below, 2026-06-18).**  Goal: a heap-backed struct
+    ↔ Go `*Struct` with `c.Field` read/write, runtime-demonstrated, that B2 builds on.
+    The hard part is ENTIRELY the lowering (the proof model is Bs.1); two routes, with
+    the findings that constrain them:
+
+    **Route A — whole-struct `Ref`, idiomatic field ops (per-struct tag).**  Store the
+    WHOLE struct in one `Ref R`, reusing the existing `Ptr`/`Ref` lowering (`*R`, `&R{…}`).
+    Field read `c.Field` = project the read-back struct (`proj (ptr_get p)` → `p.Field`,
+    Go auto-deref); field write `c.Field = v` = whole-struct read-modify-write in the
+    MODEL (`ptr_set p (MkR … v …)`) but lowers to the idiomatic `p.Field = v` (observably
+    identical — the other fields are unchanged either way).  *Blocker:* `Ref R` needs
+    `GoTypeTag R`, and the wall forbids it for an arbitrary struct.  A NULLARY per-struct
+    tag (`TBox : GoTypeTag Box`) DOES satisfy `tag_eq` (no function components, unlike the
+    generic record tag), but (1) it must live in `builtins.v` where `GoTypeTag` is defined,
+    so it only works for structs declared there, NOT user structs in `main.v` (cross-file
+    wall), and (2) it touches the core `GoTypeTag`/`tag_eq`/`zero_val`/`tag_coerce` matches
+    (add a case each).  ⇒ Good for a PROOF-OF-CONCEPT demo (a builtins-side struct), bounded
+    by per-struct + core-touch; not the general answer.
+
+    **Route B — field-cell bundle, generic (the real answer).**  Use Bs.1's `HStruct`
+    (each field its own scalar cell — sidesteps the struct-tag wall entirely, works for ANY
+    struct).  A typed `SPtr R` wraps the base; ops read/write field cells.  *Findings:*
+    (i) `SPtr R` must SURVIVE extraction as `Tglob(SPtr,[R])` so the plugin can read `R` and
+    emit `*R` — but a SINGLE-field record UNBOXES (`SPtr R ≡ its field`, losing `R`), so
+    `SPtr` needs ≥2 (proof-only, erased) fields, the same workaround nested structs use.
+    (ii) The field op must resolve to the Go field NAME.  Pass the PROJECTION
+    (`sptr_get p proj ftag`): the plugin already maps a projection→field name
+    (`record_proj_field`), so `sptr_get p bx _` → `p.Bx` with no new index→name table; the
+    MODEL maps the projection→cell index via a small per-record table (or an explicit index
+    arg alongside the projection).  (iii) `sptr_new (MkR a b)` → `&R{a, b}` (allocate); the
+    plugin reads the record ctor's field list (`record_ctor_ftypes`) for the literal.
+    (iv) the MODEL of `sptr_new`/deref must DECOMPOSE a struct value into its field cells
+    and RECONSTRUCT it (`sptr_deref p = MkR (hfield_get p 0 _) (hfield_get p 1 _)`), which
+    is per-record (the ctor + projections) — Coq has no generic record reflection, so this
+    needs a small `StructRep R` abstraction (a typeclass/record carrying the field tags +
+    constructor + projections, instantiated per user struct).  That instance is the one
+    bit of per-struct boilerplate Route B cannot avoid; it is DATA only (no function-typed
+    `GoTypeTag` field), so it does NOT reintroduce the `tag_eq` wall.  ⇒ Generic and
+    idiomatic; more plugin work (SPtr type arm → `*R`, the projection-in-pointer-context
+    arm, the allocation arm) + the per-struct `StructRep` instance.
+
+    **Decomposition (each independently green):** (1) Route-A POC demo on a builtins-side
+    struct — proves the field read/write LOWERING end-to-end fastest.  (2) Route-B `SPtr R`
+    type + `sptr_new`/`&R{…}` allocation + deref-read lowering (`*p` / `p.Field`).  (3)
+    Route-B field WRITE (`p.Field = v`) + a mutation-through-pointer demo (caller observes
+    it).  (4) B2 pointer-receiver methods on top.  Land 1–4 over successive iterations;
+    prefer Route B for the durable model, keep Route A only if a quick POC is wanted first.
 - **B2 — Pointer receivers** (PENDING; needs **Bs**, hence AFTER B3): a method whose
   receiver is a `Ptr Struct` (a `*T`) and MUTATES the receiver — read the struct via the
   pointer (field-cells), update a field, write back.  Plugin: detect a `Ptr (record)`
