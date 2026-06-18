@@ -2680,6 +2680,26 @@ Example complex_eqb_components : forall a b,
   complex_eqb a b = andb (PrimFloat.eqb (go_real a) (go_real b)) (PrimFloat.eqb (go_imag a) (go_imag b)).
 Proof. reflexivity. Qed.
 
+(** Complex MULTIPLY — Go's [*] on complex128.  The Go spec underspecifies the rounding of
+    complex multiply, and the gc compiler inlines the NAIVE cross-product formula
+    [(ac − bd) + (ad + bc)i] (it does NOT implement C99 Annex G's Inf/NaN recovery — only
+    DIVISION calls a runtime helper).  This model uses exactly that naive formula, so it
+    matches gc bit-for-bit including the Inf/NaN corners (both are naive IEEE), and lowers
+    to the native Go [*].  *([/] is still DEFERRED: gc's [runtime.complex128div] uses
+    Smith's scaling algorithm — a different computation a faithful model must port exactly.)* *)
+Definition complex_mul (a b : GoComplex128) : GoComplex128 :=
+  MkComplex128
+    (PrimFloat.sub (PrimFloat.mul (c_re a) (c_re b)) (PrimFloat.mul (c_im a) (c_im b)))
+    (PrimFloat.add (PrimFloat.mul (c_re a) (c_im b)) (PrimFloat.mul (c_im a) (c_re b))).
+
+(** Build-checked: the real/imag parts are exactly gc's naive cross products. *)
+Example complex_mul_components : forall a b,
+  go_real (complex_mul a b)
+    = PrimFloat.sub (PrimFloat.mul (go_real a) (go_real b)) (PrimFloat.mul (go_imag a) (go_imag b))
+  /\ go_imag (complex_mul a b)
+    = PrimFloat.add (PrimFloat.mul (go_real a) (go_imag b)) (PrimFloat.mul (go_imag a) (go_real b)).
+Proof. intros. split; reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

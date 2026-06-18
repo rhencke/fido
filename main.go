@@ -587,6 +587,13 @@ func Complex_arith_demo() {
 	println(real(s), imag(s), real(d), imag(d))
 }
 
+func Complex_mul_demo() {
+	a := complex(1.0, 2.0)
+	b := complex(3.0, 4.0)
+	p := a * b
+	println(real(p), imag(p))
+}
+
 func Complex_cmp_demo() {
 	a := complex(1.0, 2.0)
 	b := complex(1.0, 2.0)
@@ -1182,6 +1189,7 @@ func main() {
 	Str_sw_demo("z")
 	Complex_demo()
 	Complex_arith_demo()
+	Complex_mul_demo()
 	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()

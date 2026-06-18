@@ -745,6 +745,7 @@ let binop_of r =
   (* complex128 arithmetic: component-wise [+]/[-] → native Go operators (float +/-) *)
   else if String.equal (global_basename r) "complex_add"  then Some (4, " + ")
   else if String.equal (global_basename r) "complex_sub"  then Some (4, " - ")
+  else if String.equal (global_basename r) "complex_mul"  then Some (5, " * ")
   (* complex128 comparison: component-wise [==]/[!=] → native Go operators *)
   else if String.equal (global_basename r) "complex_eqb"  then Some (3, " == ")
   else if String.equal (global_basename r) "complex_neqb" then Some (3, " != ")
@@ -2957,7 +2958,7 @@ let is_inlined_ref r =
   is_struct_eqb_ref r || is_val_switch_ref r ||
   List.mem (global_basename r)
     ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
-     "complex_add"; "complex_sub"; "complex_eqb"; "complex_neqb"] ||
+     "complex_add"; "complex_sub"; "complex_mul"; "complex_eqb"; "complex_neqb"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
