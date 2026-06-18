@@ -492,7 +492,7 @@ The rest:
 - [ ] F — concurrency completion (read-observation rule, liveness/deadlock, goroutine panic, keystone refinement)
 - [ ] G — panic-freedom discipline (Hoare preconditions to call sites)
 - [ ] H — lowering correctness (Go semantics + simulation proof; the trust frontier)
-- [~] I — tidiness (direct >/>=/!= ✓; composite struct == ✓ [struct_eqb → native `a == b`, evidence-carrying]; native scalar switch pending)
+- [x] I — tidiness (direct >/>=/!= ✓; composite struct == ✓ [struct_eqb → native `a == b`, evidence-carrying]; native switch ✓ [type_switchN → `switch v := x.(type)`; int_switch2 → native expression `switch x { case v: … }`])
 
 **Critical path to imports:** A → B → C → D → E (with F/G alongside).  H is the
 standing trust debt; it does not gate imports but the guarantee's honesty
