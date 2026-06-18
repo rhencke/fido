@@ -1305,6 +1305,43 @@ Example type_assert_safe_mismatch : forall {B} (x : int) (k : bool -> bool -> IO
   type_assert_safe TBool (anyt TInt64 x) k = k false false.
 Proof. intros B x k. reflexivity. Qed.
 
+(** ---- Type switch ----  (Go spec: "Type switches")
+
+    Go's [switch v := x.(type) { case T1: …; case T2: …; default: … }] dispatches on
+    the RUNTIME type of an interface value [x].  We model it on the SAME [tag_coerce]
+    machinery as [type_assert_safe] (so it is axiom-free): try each case's tag against
+    the value's tag; the first match runs that case's continuation with the recovered,
+    correctly-typed value, otherwise the default runs.  Lowers to Go's native type
+    switch.  N-ary (>2 cases) is the same shape with more arms. *)
+Definition type_switch2 {A1 A2 B : Type} (a : GoAny)
+  (t1 : GoTypeTag A1) (k1 : A1 -> IO B)
+  (t2 : GoTypeTag A2) (k2 : A2 -> IO B)
+  (d : IO B) : IO B :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce t1 atag x with
+      | Some v1 => k1 v1
+      | None =>
+          match tag_coerce t2 atag x with
+          | Some v2 => k2 v2
+          | None => d
+          end
+      end
+  end.
+
+(** Build-checked dispatch: a value tagged [t1] runs the first arm with the recovered
+    value (never a wrong arm or the default)… *)
+Example type_switch2_first : forall {A1 A2 B} (t1 : GoTypeTag A1) (t2 : GoTypeTag A2)
+    (x : A1) (k1 : A1 -> IO B) k2 d,
+  type_switch2 (anyt t1 x) t1 k1 t2 k2 d = k1 x.
+Proof. intros. unfold type_switch2. rewrite tag_coerce_refl. reflexivity. Qed.
+
+(** …and a value whose type matches NEITHER case falls through to the default — the
+    coercions are both [None], so no arm can fire on a type mismatch. *)
+Example type_switch2_default : forall {B} (x : int) k1 k2 (d : IO B),
+  type_switch2 (anyt TInt64 x) TBool k1 TString k2 d = d.
+Proof. intros. reflexivity. Qed.
+
 (** ---- GoMap ----
 
     [GoMap K V] models Go's [map[K]V].  Operations are modelled as pure

@@ -355,6 +355,7 @@ let is_proto_ctor r =
 let is_dual_ref = named "dual"
 (* Indexed-monad (linear) sessions: protocol state in the type index, lowered
    against an implicit shared channel [_sess_ch]. *)
+let is_type_switch2_ref = named "type_switch2"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -451,7 +452,10 @@ let rec any_payload v =
 (* sigT / GoAny — map to Go's [any] type. *)
 let is_sigT_ref r =
   ref_has_suffix r ".Init.Specif.sigT" ||
-  String.equal (global_basename r) "sigT"
+  String.equal (global_basename r) "sigT" ||
+  (* [GoAny] is a Definition alias for [sigT …]; as a signature param/return type it
+     stays a named [Tglob GoAny] (not unfolded), so map it to [any] here too. *)
+  String.equal (global_basename r) "GoAny"
 
 (* Distinct fixed-width numeric types: each [GoU<N>]/[GoI<N>] is a single-field
    record over the [int] carrier (builtins.v) — DISTINCT in Rocq (mixing a uint8
@@ -1449,6 +1453,10 @@ let rec pp_expr state env = function
            | MLcons (_, r, []) when is_bool_true r  -> str "true"
            | MLcons (_, r, []) when is_bool_false r -> str "false"
            | MLcons (_, r, []) when is_list_nil r   -> str "nil"
+           (* [any v] (existT) in value position → its payload [v], which Go boxes to
+              [any] from the surrounding context (a func arg / slot of interface type).
+              [any_payload] strips the existT (and any nested pair) to the value. *)
+           | MLcons (_, r, _) when is_existT_ref r -> pp_expr state env (any_payload e)
            (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
            | MLcons (_, r, [v]) when is_numint_ctor r -> pp_expr state env v
            | MLcons (_, r, _) as lst ->
@@ -2413,6 +2421,39 @@ let pp_io_body state tab env body =
                   pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
+         (* type_switch2 a t1 k1 t2 k2 d → Go's native type switch:
+              switch _tsv := <a>.(type) {
+              case T1: v1 := _tsv; <k1 body>
+              case T2: v2 := _tsv; <k2 body>
+              default: <d> }
+            CPS like type_assert_safe but multi-case.  Each kᵢ binds the case-typed
+            value, rebound from the shared guard [_tsv] (so distinct binder names need
+            no env renaming).  The guard var is omitted entirely if no case uses its
+            value (else Go errors "_tsv declared but not used"). *)
+         | MLglob r, [a; t1; k1; t2; k2; d] when is_type_switch2_ref r ->
+             let payload = pp_expr state env (any_payload a) in
+             let case_used kont =
+               match collect_lam kont with ([v], _) -> not (is_dummy v) | _ -> false in
+             let any_used = case_used k1 || case_used k2 in
+             let emit_case tagd kont =
+               let go_t = go_type_of_tag tagd in
+               let ids, kbody = collect_lam kont in
+               (match ids with
+                | [v_id] ->
+                    str tab ++ str "case " ++ str go_t ++ str ":" ++ fnl () ++
+                    (if is_dummy v_id then mt ()
+                     else str (tab ^ "\t") ++ pp_mlident v_id ++ str " := _tsv" ++ fnl ()) ++
+                    pp_stmts (tab ^ "\t") (v_id :: env) kbody
+                | _ -> unsupported "type_switch2 case (expected exactly one value binder)")
+             in
+             str tab ++ str "switch " ++
+             (if any_used then str "_tsv := " else mt ()) ++
+             payload ++ str ".(type) {" ++ fnl () ++
+             emit_case t1 k1 ++
+             emit_case t2 k2 ++
+             str tab ++ str "default:" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env d ++
+             str tab ++ str "}" ++ fnl ()
          (* run_session client server → _sess_ch := make(chan any);
                                         go func(){ <server> }(); <client>
             The indexed-monad roles share one [chan any]; each role's body is
@@ -2829,7 +2870,7 @@ let is_inlined_ref r =
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
-  is_type_assert_ref r || is_type_assert_safe_ref r ||
+  is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch2_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

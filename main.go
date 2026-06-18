@@ -525,6 +525,19 @@ func Str_cmp_demo() {
 	println("Go" == "Go", "Go" == "No", "abc" < "abd", "b" < "a")
 }
 
+func Tsw_demo(a any) {
+	switch _tsv := a.(type) {
+	case bool:
+		b := _tsv
+		println(b, 1)
+	case string:
+		s := _tsv
+		println(s, 2)
+	default:
+		println(9)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1078,6 +1091,9 @@ func main() {
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()
+	Tsw_demo(true)
+	Tsw_demo("go")
+	Tsw_demo(5)
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()
