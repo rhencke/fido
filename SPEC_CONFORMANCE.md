@@ -471,9 +471,14 @@ Closing the **nil** channel also causes a run-time panic."  Ours:
 ### [Built-in functions](https://go.dev/ref/spec#Built-in_functions) — ✓ import-free set; ✗ pointer/aliasing/complex-gated
 Done: `len`, `cap`, `append`, `make` (chan/map ✓; **slice `make([]T,n)`** ✓ — fresh
 zeroed slice, `len`=`n` a theorem), `delete`, `panic`, `print`/`println`, `recover`
-(via `catch`/`with_defer`), `close`, and — Go 1.21 — **`min`/`max`** (on `int`,
-machine-checked `spec_go_min`/`spec_go_max`) and **`clear`** (maps; empties the
-map, get-after-clear is a theorem `map_get_clear`).  `builtins_demo` prints
+(via `catch`/`with_defer`), `close`, and — Go 1.21 — **`min`/`max`** (on `int`
+via `go_min`/`go_max`, and on the canonical full-width `int64`/`uint64` via
+`i64_min`/`i64_max` [SIGNED order] / `u64_min`/`u64_max` [UNSIGNED order] — each
+lowers to Go's `min(a,b)`/`max(a,b)`; machine-checked `spec_go_min`/`spec_go_max`,
+`spec_i64_min`/`spec_i64_max`, and `spec_u64_max_high`/`spec_u64_min_high` — the
+last two pin the UNSIGNED order at `2^64-1` where a signed order would disagree;
+`minmax64_demo` prints `-2 1 18446744073709551615`) and **`clear`** (maps; empties
+the map, get-after-clear is a theorem `map_get_clear`).  `builtins_demo` prints
 `3 5 / 3 / 0`.
 **Deferred — gated on a non-import prerequisite (not difficulty):** `new` (returns
 `*T` — needs the pointer type), `copy` (mutates `dst`'s backing array — needs the

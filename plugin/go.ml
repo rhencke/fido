@@ -289,8 +289,11 @@ let is_map_len_ref = named "map_len"
 let is_map_get_or_ref = named "map_get_or"
 let is_map_get_opt_ref = named "map_get_opt"
 let is_map_clear_ref = named "map_clear"
-let is_min_ref = named "go_min"
-let is_max_ref = named "go_max"
+(* Go 1.21 [min]/[max] builtins: on [int] ([go_min]/[go_max]) and on the canonical
+   full-width [int64]/[uint64] ([i64_min]/[i64_max] use the SIGNED order, [u64_min]/
+   [u64_max] the UNSIGNED order — both exactly Go's [min]/[max] on that type). *)
+let is_min_ref r = List.mem (global_basename r) ["go_min"; "i64_min"; "u64_min"]
+let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max"]
 let is_slice_make_ref = named "slice_make"
 (* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
    (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting

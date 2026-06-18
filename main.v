@@ -555,6 +555,26 @@ Definition const_demo : IO unit :=
 Example spec_go_min       : go_min 3 5 = 3%uint63. Proof. now vm_compute. Qed.
 Example spec_go_max       : go_max 3 5 = 5%uint63. Proof. now vm_compute. Qed.
 Example spec_go_min_neg   : go_min (-2)%sint63 1 = (-2)%sint63. Proof. now vm_compute. Qed.
+(** [min]/[max] on the canonical full-width types: int64 (SIGNED — so a negative is
+    the min) and uint64 (UNSIGNED — so a value >= 2^63 is LARGER than a small one,
+    NOT negative).  [u64_max] of [2^64-1] and [1] is [2^64-1] (unsigned), the case
+    that distinguishes the uint64 order from a signed one.  All theorems. *)
+Example spec_i64_min      : i64_min (-2)%i64 (1)%i64 = (-2)%i64. Proof. vm_compute. reflexivity. Qed.
+Example spec_i64_max      : i64_max (-2)%i64 (1)%i64 = (1)%i64.  Proof. vm_compute. reflexivity. Qed.
+Example spec_u64_max_high : u64_max (18446744073709551615)%u64 (1)%u64 = (18446744073709551615)%u64.
+Proof. vm_compute. reflexivity. Qed.
+Example spec_u64_min_high : u64_min (18446744073709551615)%u64 (1)%u64 = (1)%u64.
+Proof. vm_compute. reflexivity. Qed.
+
+(** [min]/[max] on int64/uint64 → Go's builtins.  The uint64 [max] uses a RUNTIME
+    [2^64-1] ([u64_of_i64 (-1)], a function call, NOT a constant) — both so it prints
+    as a typed uint64 (a constant [>= 2^63] would overflow [println]'s default [int])
+    AND so it isn't constant-folded under the SIGNED reading: the genuine unsigned
+    [max(2^64-1, 1) = 2^64-1] is the case a signed order would get wrong. *)
+Definition minmax64_demo : IO unit :=
+  println [ any (i64_min (-2)%i64 (1)%i64)                        (* -2 *)
+          ; any (i64_max (-2)%i64 (1)%i64)                        (* 1 *)
+          ; any (u64_max (u64_of_i64 (-1)%i64) (1)%u64) ].        (* 18446744073709551615 (unsigned: big > 1) *)
 Example spec_slice_make_n : List.length (slice_make TI64 3) = 3%nat. Proof. reflexivity. Qed.
 Definition builtins_demo : IO unit :=
   bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 — go_min/max are the min/max BUILTIN demo, kept on int *)
@@ -1417,6 +1437,7 @@ Definition main_effect : IO unit :=
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
+  minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   float_demo                    >>'   (* prints: 3.75 / 0.25 (sci) *)
   float_cmp_demo                >>'   (* prints: true / true / true / false *)
   float_nan_demo 0              >>'   (* prints: false / false (NaN unordered) *)
@@ -1509,7 +1530,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
-  i64_abs u64_of_i64 i64_of_u64
+  i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr

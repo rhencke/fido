@@ -173,6 +173,10 @@ func Const_demo() {
 	println(1000000000000, 4611686018427387904)
 }
 
+func Minmax64_demo() {
+	println(min(-2, 1), max(-2, 1), max(U64_of_i64(-1), 1))
+}
+
 func Builtins_demo() {
 	println(min(3, 5), max(3, 5))
 	println(len(make([]int64, 3)))
@@ -940,6 +944,7 @@ func main() {
 	Overflow_safe_demo()
 	I64_abs_demo()
 	Conv64_demo()
+	Minmax64_demo()
 	Float_demo()
 	Float_cmp_demo()
 	Float_nan_demo(0.0)

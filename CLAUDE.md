@@ -165,8 +165,10 @@ separate tracks.
 
 1. **Builtins** (done) — `println`, `print`, `panic`, `any`, primitive types,
    `GoSlice`, `GoString`, `GoMap`, `type_assert`, plus the import-free predeclared
-   set: `len`/`cap`/`append`/`delete`/`close`/`recover`, `make` (chan/map/slice
-   `make([]T,n)`), and Go 1.21 `min`/`max`/`clear`. Add to `builtins.v` + plugin
+   `make([]T,n)`), and Go 1.21 `min`/`max`/`clear`. `min`/`max` cover `int`
+   (`go_min`/`go_max`) AND the canonical `int64`/`uint64` (`i64_min`/`i64_max` signed,
+   `u64_min`/`u64_max` unsigned) → Go `min(a,b)`/`max(a,b)` (`minmax64_demo` →
+   `-2 1 18446744073709551615`). Add to `builtins.v` + plugin
    match.  *Deferred (non-import prereqs):* `new` (pointers), `copy`/slice-`clear`/
    `make([]T,len,cap)` (slice-aliasing model), `complex`/`real`/`imag` (no complex
    type).

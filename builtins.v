@@ -2173,6 +2173,15 @@ Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice 
 Definition go_min (a b : int) : int := if Sint63.ltb a b then a else b.
 Definition go_max (a b : int) : int := if Sint63.ltb a b then b else a.
 
+(** [min]/[max] on the CANONICAL full-width types: [int64] ([GoI64], SIGNED order via
+    [i64_ltb]) and [uint64] ([GoU64], UNSIGNED order via [u64_ltb]) — each exactly Go's
+    [min(a,b)]/[max(a,b)] for that type.  Computable theorems; the plugin lowers each
+    call to the Go builtin.  No carrier bridge (the comparison is the type's own [<]). *)
+Definition i64_min (a b : GoI64) : GoI64 := if i64_ltb a b then a else b.
+Definition i64_max (a b : GoI64) : GoI64 := if i64_ltb a b then b else a.
+Definition u64_min (a b : GoU64) : GoU64 := if u64_ltb a b then a else b.
+Definition u64_max (a b : GoU64) : GoU64 := if u64_ltb a b then b else a.
+
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)
