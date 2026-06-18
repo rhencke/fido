@@ -36,4 +36,16 @@ if ls ./*.go >/dev/null 2>&1; then
   fi
 fi
 
+# Anti-axiom gate.  The headline guarantee is ZERO Fido axioms: the emitted-Go layer
+# (builtins.v) and the extraction driver (main.v) must rest only on Rocq's own machine
+# primitives (verified by `Print Assumptions main_effect` = int/float + PrimInt63/PrimFloat
+# ops).  Fail loud if a global Axiom/Parameter/Conjecture or an Admitted creeps in.
+# (concurrency.v is proof-only theory and may use parameterised SECTION hypotheses; it is
+# not part of any extracted program's trust base, so it is excluded here.)
+if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture|Hypothesis)[[:space:]]|Admitted' builtins.v main.v 2>/dev/null; then
+  echo "fido: ERROR — a Fido axiom / Admitted was introduced in builtins.v or main.v."
+  echo "fido: the 0-axiom guarantee forbids this; model the construct as a Definition instead."
+  exit 1
+fi
+
 echo "fido: Go in sync."

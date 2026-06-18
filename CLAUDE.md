@@ -108,8 +108,20 @@ can be right about the model yet the model wrong about Go.  Keep them **few**, a
 prefer ones validated by an exhibited model (separation/heap laws) over free-
 standing assertions.  (3) **Always know the base**: run `Print Assumptions` after a
 significant result and state its trust base honestly — never overclaim a guarantee
-whose axioms aren't named.  The open `joint consistency of the ~70 axioms is
-unproven` (Tier 1 #2) is exactly this debt, tracked.
+whose axioms aren't named.
+
+**CURRENT TRUST BASE (verified 2026-06-18, `Print Assumptions main_effect`): ZERO Fido
+axioms.**  `builtins.v` and `main.v` declare NO `Axiom`/`Parameter`/`Admitted`; the IO /
+heap / channel / session model is `Definition`s over a concrete `World`/`Outcome`, and
+every law (`run_bind`, channel & heap get-after-put, `ref_sel_upd_same`, …) is a DERIVED
+THEOREM.  The extracted program rests on EXACTLY Rocq's own machine primitives — `int :
+Set`, `float : Set`, and the `PrimInt63.*` / `PrimFloat.*` operations — and nothing else.
+The only assumptions anywhere are two `concurrency.v` SECTION hypotheses (the abstract-
+calculus ↔ IO coding round-trip) — proof-only, parameterised (discharged at section
+close), emit no Go, NOT in the extracted program's trust base.  So the old "~70 axioms /
+joint consistency unproven" debt is CLOSED: there is no Fido axiom set to be jointly
+consistent.  The discipline now is to PRESERVE this — add no `Axiom` for any new builtin
+(model it as a `Definition`, even hard cases like a soft-float `float32`).
 
 ## Wish list
 
@@ -718,12 +730,18 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    laws, Phase 2 the ordering, Phase 3 the race-freedom guarantee — all three
    axiom-free or interface-grounded, replacing the old asserted-on-intuition
    axioms.
-2. **Joint consistency of the ~70 axioms is unproven.**  The pure-IO fragment has
-   a model (`World:=unit`, `IO A:=World->Outcome A`), but the channel / session /
-   map / slice / `zero_val` axioms are not shown consistent with it.  If the set
-   is inconsistent, every theorem is vacuous.  *Fix:* exhibit one model that
-   validates all axioms at once (or, better, replace axioms with definitions where
-   possible so consistency is by construction).
+2. **Joint consistency — CLOSED (2026-06-18): there is no Fido axiom set.**  The
+   "better" fix the original entry called for ("replace axioms with definitions where
+   possible so consistency is by construction") is DONE across the board.  The whole
+   IO / channel / session / map / slice / `zero_val` model is now `Definition`s over a
+   concrete `World` (`{ w_refs ; w_chans ; w_maps ; w_next }`) and `Outcome`, so every
+   law is a derived theorem — vacuity is impossible without inconsistency in Rocq's own
+   kernel.  Verified by `Print Assumptions main_effect`: the trust base is EXACTLY Rocq's
+   `int`/`float` primitives, zero Fido axioms (see "axiom discipline" above).  *Residual,
+   narrower:* the two `concurrency.v` section hypotheses (the calculus↔IO coding round-
+   trip) — proof-only, parameterised, not in any extracted program; discharging them with
+   a concrete coding is the remaining bridge nicety (Tier 1 #1's keystone), not a
+   consistency risk.
 3. **Lowering correctness is unproven (the plugin is trusted).**  ~1500 lines of
    OCaml (incl. the relooper) translate Rocq→Go with NO theorem relating the
    emitted Go to the source term; golden tests cover only finitely many
