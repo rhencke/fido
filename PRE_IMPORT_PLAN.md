@@ -360,8 +360,9 @@ B3, which was backwards):**
   → Go `==`, field-wise — arrays are `==`, slices are NOT); and VALUE-COPY (`b := a; mutate
   b; a unchanged`) — the last needs the functional-update/mutation step, a later slice.
   Build order: (1) `arr_lit` + `arr_get_ok` (read-only) — DONE; (2a) `arr_eqb` (comparability)
-  — DONE; (2b) value-copy via a functional element-update — PENDING; (3) route (i) type-level
-  `N` for non-local arrays — PENDING.
+  — DONE; (2b) value-copy (`arr_set` → copy-mutate-return IIFE `func(_a [n]T) [n]T { _a[i] = v;
+  return _a }(a)`, size `n` passed explicitly; `a` UNCHANGED) — DONE; (3) route (i) type-level
+  `N` for non-local arrays (array-typed params/fields/returns) — PENDING.
 
   **Piece 1 DONE (B4.1, 2026-06-18).**  `GoArray A` (size-erased, recognized-erased type;
   an array-typed annotation fails loud with a clear message), `arr_lit tag l` → `[len l]T{…}`

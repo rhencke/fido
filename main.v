@@ -987,6 +987,20 @@ Definition arr_eq_demo : IO unit :=
   let c := arr_lit TI64 [(1)%i64; (2)%i64; (9)%i64] in
   println [any (arr_eqb a b); any (arr_eqb a c)].   (* true false *)
 
+(** Array VALUE-COPY (the defining array-vs-slice distinction): [arr_set a i v] is a
+    FUNCTIONAL update (a copy-mutate-return IIFE), so [a] is UNCHANGED — a slice would
+    share the backing.  The size [3] is passed explicitly (it is erased from the Coq
+    type).  Machine-checked that the update lands and the original is untouched. *)
+Example arr_set_copy :
+  arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (0:int) (99)%i64)
+  = [(99)%i64;(20)%i64;(30)%i64].
+Proof. reflexivity. Qed.
+Definition arr_copy_demo : IO unit :=
+  let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in
+  let b := arr_set 3 TI64 a (0:int) (99)%i64 in   (* b = a with [0]=99; a UNCHANGED (value-copy) *)
+  println [ any (arr_eqb a (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]))    (* a STILL [10,20,30] → true *)
+          ; any (arr_eqb b (arr_lit TI64 [(99)%i64;(20)%i64;(30)%i64])) ]. (* b IS [99,20,30] → true *)
+
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction
     default versus the [type_assert] escape hatch.  We assert on a recovered
@@ -1606,6 +1620,7 @@ Definition main_effect : IO unit :=
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   arr_demo                      >>'   (* prints: 20 true / 0 false ([3]int64 array index) *)
   arr_eq_demo                   >>'   (* prints: true false (array == is field-wise) *)
+  arr_copy_demo                 >>'   (* prints: 10 99 (value-copy: a unchanged by arr_set) *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
@@ -1663,7 +1678,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  arr_lit arr_get_ok arr_eqb
+  arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max

@@ -481,6 +481,12 @@ func Arr_eq_demo() {
 	println(a == b, a == c)
 }
 
+func Arr_copy_demo() {
+	a := [3]int64{10, 20, 30}
+	b := func(_a [3]int64) [3]int64 { _a[0] = int64(99); return _a }(a)
+	println(a == [3]int64{10, 20, 30}, b == [3]int64{99, 20, 30})
+}
+
 func Assert_safe_demo(n int64) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1057,6 +1063,7 @@ func main() {
 	Slice_safe_demo()
 	Arr_demo()
 	Arr_eq_demo()
+	Arr_copy_demo()
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()

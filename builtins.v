@@ -2349,6 +2349,22 @@ Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
   end.
 Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
 
+(** Array VALUE-COPY (the defining array-vs-slice distinction): [b := arr_set a i v] is
+    [a] with element [i] replaced — a FUNCTIONAL update, so [a] is UNCHANGED (value
+    semantics; a slice would share the backing).  Lowers to the copy-mutate-return IIFE
+    [func(_a [n]T) [n]T { _a[i] = v; return _a }(a)] — Go copies [a] into the value
+    parameter, mutates the COPY, and returns it, leaving [a] untouched.  [n] (the size,
+    erased from the Coq type) is passed explicitly (the author knows it — the
+    size-in-construction principle), so the plugin can emit the [n]T] annotation. *)
+Fixpoint go_list_set {A} (xs : list A) (i : int) (v : A) : list A :=
+  match xs with
+  | nil => nil
+  | x :: xs' => if PrimInt63.eqb i 0%uint63 then v :: xs'
+                else x :: go_list_set xs' (PrimInt63.sub i 1%uint63) v
+  end.
+Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : int) (v : A) : GoArray A :=
+  mkArray (go_list_set (arr_data a) i v).
+
 (** ---- String operations (Go spec "String types") ----
 
     [str_len s] is the BYTE length (Go [len(s)]): a computable [int] that counts

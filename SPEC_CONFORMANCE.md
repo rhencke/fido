@@ -163,7 +163,7 @@ Go's `[]byte` is `[]uint8`, but our arithmetic-faithful `uint8` erases `GoU8 →
 decision, tracked.  (The rune view additionally needs a UTF-8 decoder — pure, but
 sequenced after that decision.)
 
-### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays + comparability (B4.1–2); ✗ array-typed positions / value-copy (later pieces)
+### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays (literal, index, comparability, value-copy); ✗ array-typed positions (type-level N)
 Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
 pass copies the whole array), comparable element-wise (unlike slices).
 **Piece 1 DONE (B4.1, 2026-06-18) — local fixed-size arrays.**  `N` lives in the *type*,
@@ -177,11 +177,14 @@ Go STATICALLY bounds-checks a CONSTANT array index (`a[5]` on `[3]int64` is a CO
 — a STRONGER guarantee than a slice's runtime panic), so the runtime-OOB demo uses a
 COMPUTED index.  **Comparability DONE (B4.2):** `arr_eqb` → Go field-wise `==` (arrays are
 comparable, slices are NOT — only `== nil`); machine-checked `arr_eqb_t`/`arr_eqb_f`,
-`arr_eq_demo` → `true false`.  **✗ still:** array-typed *positions* (param / field / return /
-typed var) need an explicit `[N]T` and are refused fail-loud (the type-level-`N` route —
-phantom `AS`/`AZ` chain the plugin decodes — deferred); and VALUE-COPY (`b := a` copies the
-whole array — the other genuine array-vs-slice distinction) needs the functional element-
-update / mutation step (later B4 piece).
+`arr_eq_demo` → `true false`.  **VALUE-COPY DONE (B4.2b):** `arr_set a i v` is a FUNCTIONAL
+update — `a` is UNCHANGED (a slice would share the backing) — lowering to the copy-mutate-
+return IIFE `func(_a [n]T) [n]T { _a[i] = v; return _a }(a)` (Go copies `a` into the value
+param, mutates the copy, returns it); the size `n` is passed explicitly (size-in-construction,
+since it is erased from the Coq type).  `arr_copy_demo`: `a` stays `[10,20,30]`, `b` becomes
+`[99,20,30]` → `true true`; machine-checked `arr_set_copy`.  **✗ still:** array-typed
+*positions* (param / field / return / typed var) need an explicit `[N]T` and are refused
+fail-loud — the type-level-`N` route (phantom `AS`/`AZ` chain the plugin decodes), deferred.
 
 ### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags
 Spec: a `struct` is a sequence of named fields with types; **value** semantics

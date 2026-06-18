@@ -264,6 +264,7 @@ let is_slice_at_ok_ref r = named "slice_at_ok" r || named "arr_get_ok" r
 let is_arr_type = named "GoArray"
 let is_arr_lit_ref = named "arr_lit"
 let is_arr_eqb_ref = named "arr_eqb"   (* array == (field-wise; arrays comparable, slices not) *)
+let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutate-return IIFE *)
 let is_for_each_ref = named "for_each"
 let is_slice_fold_ref = named "slice_fold"
 let is_ref_type = named "Ref"
@@ -1061,6 +1062,16 @@ let rec pp_expr state env = function
                 prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
                 str "}"
             | None -> unsupported "arr_lit of a non-literal list (an array's size must be statically known)")
+       (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
+          func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
+       | MLglob r, [size; tag; a; i; v] when is_arr_set_ref r ->
+           let n = (match nat_value (strip_magic size) with
+             | Some n -> n
+             | None -> unsupported "arr_set with a non-literal size (the array size must be statically known)") in
+           let t = go_type_of_tag (strip_magic tag) in
+           let arrty = Printf.sprintf "[%d]%s" n t in
+           str ("func(_a " ^ arrty ^ ") " ^ arrty ^ " { _a[") ++ pp_expr state env i ++
+           str "] = " ++ pp_typed_lit state env v ++ str "; return _a }(" ++ pp_atom state env a ++ str ")"
 
        (* slice_get tag xs i → xs[i] — panics if out of bounds *)
        | MLglob r, [_tag; xs; i] when is_slice_get_ref r ->
@@ -2814,8 +2825,8 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
-  is_arr_lit_ref r || is_arr_eqb_ref r ||
-  List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"] ||
+  is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
+  List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
