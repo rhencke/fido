@@ -500,7 +500,7 @@ let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
     ["lit"; "add"; "sub"; "mul"; "add_nz"; "sub_nz"; "mul_nz"; "eqb"; "ltb"; "leb";
-     "gtb"; "geb"; "neqb";
+     "gtb"; "geb"; "neqb"; "neg";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
@@ -517,7 +517,7 @@ let is_u64_lit r = is_u64_op r "lit"
 let is_any_u64_op r =
   List.exists (is_u64_op r)
     ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
-     "gtb"; "geb"; "neqb";
+     "gtb"; "geb"; "neqb"; "neg";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (*s Nat arithmetic operation recognition. *)
@@ -1260,6 +1260,9 @@ let rec pp_expr state env = function
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
        | MLglob r, [x] when is_float_opp_ref r ->
+           str "-" ++ pp_atom state env x
+       (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
+       | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
            str "-" ++ pp_atom state env x
 
        (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)

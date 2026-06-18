@@ -106,6 +106,17 @@ Definition i64_abs_demo : IO unit :=
           ; any (i64_abs (-9223372036854775808)%i64) ].
   (* prints: 7 7 -9223372036854775808  (|MININT| wraps to MININT) *)
 
+(** Unary integer negation (Go's unary [-]): the DIRECT prefix [-x], not the encoded
+    [0 - x].  Faithful incl. the wrap corners ([-MININT = MININT], [-1 = 2^64-1] for
+    uint64) — machine-checked. *)
+Example i64_neg_5      : i64_neg (5)%i64 = (-5)%i64.   Proof. vm_compute. reflexivity. Qed.
+Example i64_neg_minint : i64_neg (-9223372036854775808)%i64 = (-9223372036854775808)%i64.
+Proof. vm_compute. reflexivity. Qed.
+Example u64_neg_1      : u64_neg (1)%u64 = (18446744073709551615)%u64. Proof. vm_compute. reflexivity. Qed.
+Definition neg_op_demo : IO unit :=
+  println [ any (i64_neg (5)%i64)                       (* -5 *)
+          ; any (i64_neg (i64_sub (0)%i64 (7)%i64)) ].  (* -(0 - 7) = 7 *)
+
 (** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
     two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
     [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
@@ -1577,6 +1588,7 @@ Definition main_effect : IO unit :=
   div_demo                      >>'   (* prints: 3 2 *)
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
+  neg_op_demo                   >>'   (* prints: -5 7 (unary -x) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)
@@ -1684,7 +1696,7 @@ Extraction NoInline
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
-  i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
+  i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb

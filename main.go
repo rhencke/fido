@@ -34,6 +34,10 @@ func I64_abs_demo() {
 	println(I64_abs(-7), I64_abs(7), I64_abs(-9223372036854775808))
 }
 
+func Neg_op_demo() {
+	println(-5, -(0 - 7))
+}
+
 func Conv64_demo() {
 	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
@@ -1017,6 +1021,7 @@ func main() {
 	Div_demo()
 	Overflow_safe_demo()
 	I64_abs_demo()
+	Neg_op_demo()
 	Conv64_demo()
 	Minmax64_demo()
 	Cmp_ops_demo()

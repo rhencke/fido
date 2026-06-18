@@ -973,6 +973,9 @@ Definition i64_lit (z : Z) (_ : in_i64 z = true) : GoI64 := MkI64 z.
 Definition i64_add (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a + i64raw b)).
 Definition i64_sub (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a - i64raw b)).
 Definition i64_mul (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a * i64raw b)).
+(* Unary negation (Go's unary [-]): [-x] = [0 - x] with the same two's-complement wrap
+   (so [-MININT = MININT]).  Lowers to the DIRECT prefix [-x], not the encoded [0 - x]. *)
+Definition i64_neg (a : GoI64) : GoI64 := MkI64 (wrap64 (Z.opp (i64raw a))).
 Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
 Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
@@ -1046,6 +1049,8 @@ Definition in_u64 (z : Z) : bool :=
 Definition u64_lit (z : Z) (_ : in_u64 z = true) : GoU64 := MkU64 z.
 Definition u64_add (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a + u64raw b)).
 Definition u64_sub (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a - u64raw b)).
+(* Unary negation: [-x] mod 2^64 (so [-1 = 2^64-1]).  Lowers to the prefix [-x]. *)
+Definition u64_neg (a : GoU64) : GoU64 := MkU64 (wrapU64 (Z.opp (u64raw a))).
 Definition u64_mul (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a * u64raw b)).
 Definition u64_eqb (a b : GoU64) : bool := Z.eqb (u64raw a) (u64raw b).
 Definition u64_ltb (a b : GoU64) : bool := Z.ltb (u64raw a) (u64raw b).
