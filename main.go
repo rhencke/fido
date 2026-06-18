@@ -454,6 +454,22 @@ func Slice_safe_demo() {
 	println(v3, ok3)
 }
 
+func Arr_demo() {
+	a := [3]int64{10, 20, 30}
+	var v int64
+	ok := 1 >= 0 && 1 < int64(len(a))
+	if ok {
+		v = a[1]
+	}
+	println(v, ok)
+	var v2 int64
+	ok2 := Sub(10, 5) >= 0 && Sub(10, 5) < int64(len(a))
+	if ok2 {
+		v2 = a[Sub(10, 5)]
+	}
+	println(v2, ok2)
+}
+
 func Assert_safe_demo(n int64) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1027,6 +1043,7 @@ func main() {
 	Lookup_demo()
 	List_demo()
 	Slice_safe_demo()
+	Arr_demo()
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()

@@ -163,19 +163,23 @@ Go's `[]byte` is `[]uint8`, but our arithmetic-faithful `uint8` erases `GoU8 →
 decision, tracked.  (The rune view additionally needs a UTF-8 decoder — pure, but
 sequenced after that decision.)
 
-### [Array types](https://go.dev/ref/spec#Array_types) — ✗ deferred (two principled blockers)
+### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays (B4.1); ✗ array-typed positions / value-copy / comparability (later pieces)
 Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
 pass copies the whole array), comparable element-wise (unlike slices).
-Deferred — NOT for difficulty, for two real blockers: **(1) substrate** — `N` lives
-in the *type*, but the extraction IR (MiniML) erases dependent type indices, so we
-cannot faithfully emit `[N]T` in *type positions* (function params, struct fields);
-a substrate limit like the 63-bit int carrier.  (Local arrays, where Go infers
-`[N]T` from the literal, would dodge this.)  **(2) semantics** — the defining
-array-vs-slice distinction is value-copy vs reference-share, which is *unobservable*
-until the aliasing/mutation model exists (the same model slices await, Tier 3 #8a);
-so an array today would be a slice with different syntax, not a faithful array.
-Revisit once aliasing is modeled — then arrays get value semantics + comparability
-(`==`, which slices lack) as the genuine distinction.
+**Piece 1 DONE (B4.1, 2026-06-18) — local fixed-size arrays.**  `N` lives in the *type*,
+but the extraction IR (MiniML) erases dependent type indices, so it is unrecoverable
+from the extracted type.  Way around it for LOCAL arrays: keep `N` OUT of the Coq type
+(`GoArray A`, size-erased) and in the CONSTRUCTION — `arr_lit l` → `[len(l)]T{…}` (size
+read off the list), so a local `a := arr_lit […]` has its Go type INFERRED from the
+literal (`a := [3]int64{…}`), never an explicit `[N]T`.  `arr_get_ok` is the bounds-checked
+read (identical lowering to `slice_at_ok`).  `arr_demo` → `20 true` / `0 false`.  *Finding:*
+Go STATICALLY bounds-checks a CONSTANT array index (`a[5]` on `[3]int64` is a COMPILE error
+— a STRONGER guarantee than a slice's runtime panic), so the runtime-OOB demo uses a
+COMPUTED index.  **✗ still:** array-typed *positions* (param / field / return / typed var)
+need an explicit `[N]T` and are refused fail-loud (that is the type-level-`N` route — phantom
+`AS`/`AZ` chain the plugin decodes — deferred); and value-copy + comparability (`==`, which
+slices lack) — the genuine array-vs-slice distinction — are later B4 pieces (value-copy needs
+the functional element-update / mutation step).
 
 ### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags
 Spec: a `struct` is a sequence of named fields with types; **value** semantics

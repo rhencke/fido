@@ -2293,6 +2293,36 @@ Definition slice_at_ok {A B : Type}
   then k (go_list_nth xs i (zero_val tag)) true
   else k (zero_val tag) false.
 
+(** ---- Arrays (Go spec "Array types"): a FIXED-SIZE [N]T VALUE (Phase B4.1) ----
+    Go's [N]T carries the size [N] in the TYPE, but Coq extraction ERASES value-level
+    type indices, so [N] is unrecoverable from the extracted type.  The way around it
+    for LOCAL arrays: keep the size OUT of the Coq type ([GoArray A], size-erased) and
+    put it in the CONSTRUCTION — [arr_lit l] lowers to [[len(l)]T{…}] (the size read off
+    the list, exactly as [slice_of_list] reads it for [[]T{…}]).  A local [a := arr_lit …]
+    then has its Go type INFERRED from the literal, so the plugin never emits a bare
+    [[N]T] annotation.  Distinct from a slice: VALUE semantics, fixed length (an
+    array-typed param/field/return — needing an explicit [N]T — is refused, fail-loud;
+    that is the type-level-[N] route, deferred).  [GoArray A = list A] under the hood,
+    but the ops are recognized BY NAME and lower to native array Go. *)
+Record GoArray (A : Type) := mkArray { arr_data : list A }.
+Arguments mkArray {A} _.  Arguments arr_data {A} _.
+
+Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
+
+(** Safe indexed read (CPS / comma-ok like [slice_at_ok] — Go arrays panic on OOB too):
+    in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
+    Lowers IDENTICALLY to [slice_at_ok] (array and slice both index [a[i]] with [len(a)]),
+    so the plugin reuses that arm. *)
+Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : int) (k : A -> bool -> IO B) : IO B :=
+  if (Sint63.leb 0 i && Sint63.ltb i (len (arr_data a)))%bool
+  then k (go_list_nth (arr_data a) i (zero_val tag)) true
+  else k (zero_val tag) false.
+
+(* The construction round-trips: [arr_lit]'s data IS the given list (so [arr_get_ok]
+   reads the i'th element placed). *)
+Lemma arr_data_lit : forall {A} (tag : GoTypeTag A) (l : list A), arr_data (arr_lit tag l) = l.
+Proof. reflexivity. Qed.
+
 (** ---- String operations (Go spec "String types") ----
 
     [str_len s] is the BYTE length (Go [len(s)]): a computable [int] that counts

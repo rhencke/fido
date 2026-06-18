@@ -359,9 +359,20 @@ B3, which was backwards):**
   *Distinct-from-slice properties to demo:* the `[N]T{…}` literal; COMPARABILITY (`arr_eqb`
   → Go `==`, field-wise — arrays are `==`, slices are NOT); and VALUE-COPY (`b := a; mutate
   b; a unchanged`) — the last needs the functional-update/mutation step, a later slice.
-  Build order: (1) `arr_lit` + `arr_get_ok` + `arr_eqb` (read-only + comparable); (2)
+  Build order: (1) `arr_lit` + `arr_get_ok` (read-only); (2) `arr_eqb` (comparability) +
   value-copy via a functional element-update; (3) route (i) type-level `N` for non-local
   arrays.
+
+  **Piece 1 DONE (B4.1, 2026-06-18).**  `GoArray A` (size-erased, recognized-erased type;
+  an array-typed annotation fails loud with a clear message), `arr_lit tag l` → `[len l]T{…}`
+  (the `slice_of_list` arm with an `[N]` prefix), `arr_get_ok` (the SAME arm/recognizer/
+  suppression as `slice_at_ok` — array and slice both index `a[i]` with `len(a)`).
+  `arr_demo` → `a := [3]int64{10, 20, 30}; … a[1] … a[Sub(10,5)] …` prints `20 true` /
+  `0 false`, golden-locked; `arr_data_lit` is the round-trip theorem.  *Finding:* Go
+  STATICALLY bounds-checks a CONSTANT array index (`a[5]` on `[3]int64` is a COMPILE error,
+  unlike a slice's runtime panic — a STRONGER guarantee), so the runtime-OOB demo needs a
+  COMPUTED index (`sub 10 5` → a runtime `Sub(10,5)`); `arr_get_ok`'s guard then rejects it
+  at runtime.
 
 ----
 

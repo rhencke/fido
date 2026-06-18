@@ -257,7 +257,12 @@ let is_append_ref r  = String.equal (global_basename r) "append"
 let is_go_map_type = named "GoMap"
 let is_slice_of_list_ref = named "slice_of_list"
 let is_slice_get_ref = named "slice_get"
-let is_slice_at_ok_ref = named "slice_at_ok"
+(* [arr_get_ok] (Phase B4) is a bounds-checked array read — IDENTICAL lowering to
+   [slice_at_ok] (array and slice both index [a[i]] with [len(a)]), so it rides the
+   same recognizer/arm/suppression. *)
+let is_slice_at_ok_ref r = named "slice_at_ok" r || named "arr_get_ok" r
+let is_arr_type = named "GoArray"
+let is_arr_lit_ref = named "arr_lit"
 let is_for_each_ref = named "for_each"
 let is_slice_fold_ref = named "slice_fold"
 let is_ref_type = named "Ref"
@@ -470,6 +475,7 @@ let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
   || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
+  || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
@@ -788,6 +794,8 @@ let rec pp_type state = function
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
   | Tglob (r, [arg]) when is_sptr_type r -> str "*" ++ pp_type state arg
+  | Tglob (r, _) when is_arr_type r ->
+      unsupported "an array type in a position needing an explicit [N]T (param / field / return / typed var decl); only LOCAL arrays are supported — write `a := arr_lit […]` so Go infers the size from the literal (the size lives in the construction, not the Coq type)"
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
   | Tglob (r, [arg]) when is_sliceh_type r -> str "[]" ++ pp_type state arg
   (* GoChan A → chan T *)
@@ -1035,6 +1043,17 @@ let rec pp_expr state env = function
                 prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
                 str "}"
             | None -> str ("[]" ^ go_elem ^ "(nil)"))
+       (* arr_lit tag list → [N]T{v1, …, vN} — a FIXED-SIZE array literal (B4); the
+          size N is the list length (read off the construction, NOT the type), so a
+          local [a := arr_lit …] has its Go type inferred from this literal. *)
+       | MLglob r, [tag; lst] when is_arr_lit_ref r ->
+           let go_elem = go_type_of_tag tag in
+           (match unfold_list [] lst with
+            | Some elems ->
+                str ("[" ^ string_of_int (List.length elems) ^ "]" ^ go_elem ^ "{") ++
+                prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
+                str "}"
+            | None -> unsupported "arr_lit of a non-literal list (an array's size must be statically known)")
 
        (* slice_get tag xs i → xs[i] — panics if out of bounds *)
        | MLglob r, [_tag; xs; i] when is_slice_get_ref r ->
@@ -2788,6 +2807,7 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
+  is_arr_lit_ref r || List.mem (global_basename r) ["mkArray"; "arr_data"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)

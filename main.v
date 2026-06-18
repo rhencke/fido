@@ -947,6 +947,21 @@ Definition slice_safe_demo : IO unit :=
   slice_at_ok TI64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
   println [any v3; any ok3]))).
 
+(** Array (Go spec "Array types"): a FIXED-SIZE [3]int64 VALUE.  [arr_lit] lowers to
+    the [[3]int64{…}] literal (the size from the list length, not the Coq type), bound
+    to a local whose Go type is INFERRED.  [arr_get_ok] is the bounds-checked read (Go
+    arrays panic on OOB), identical lowering to [slice_at_ok].  Distinct from a slice:
+    a fixed-size [N]T value (value-copy + comparability are later B4 pieces). *)
+Definition arr_demo : IO unit :=
+  let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in   (* [3]int64{10,20,30} *)
+  arr_get_ok TI64 a (1 : int) (fun v ok =>        (* a[1] in bounds → 20 true *)
+  println [any v; any ok] >>'
+  (* a CONSTANT out-of-range index on an array is a Go COMPILE error (arrays are
+     statically bounds-checked, unlike slices), so use a COMPUTED index [sub 10 5 = 5]
+     (lowers to a runtime [Sub(10,5)]); [arr_get_ok]'s guard then rejects it at runtime *)
+  arr_get_ok TI64 a (sub 10 5) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
+  println [any v2; any ok2])).
+
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction
     default versus the [type_assert] escape hatch.  We assert on a recovered
@@ -1563,6 +1578,7 @@ Definition main_effect : IO unit :=
   lookup_demo                   >>'   (* prints: 700 true / false *)
   list_demo                     >>'   (* prints: 10 2 *)
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
+  arr_demo                      >>'   (* prints: 20 true / 0 false ([3]int64 array index) *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
@@ -1620,6 +1636,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
+  arr_lit arr_get_ok
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
