@@ -177,7 +177,11 @@ concurrent access (Tier 1 #1).
 past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics ·
 `*p` after `*p = v` · pointer-receiver method mutates the receiver.
 
-**Sub-phases:**
+**Sub-phases (LISTED IN DEPENDENCY ORDER; the letter labels are historical — assigned
+as each piece was discovered, NOT a strict sequence.  In particular B2 (pointer
+receivers) needs struct-in-storage, which builds on B3's cell heap, so its true position
+is AFTER B3 + the struct substrate, recorded here — earlier drafts mis-listed it before
+B3, which was backwards):**
 - **B1 — Pointers (DONE, 2026-06-17).**  `Ptr A` — a typed heap LOCATION sharing the
   `w_refs` cell heap with `Ref`, but lowering to Go `*T` (so a COPIED pointer ALIASES
   the same cell, the defining pointer behaviour) and nil-able (`ptr_nil`, loc 0).
@@ -197,9 +201,6 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
   `ptr_get`/`ptr_set` stay the escape hatch.  `ptr_nil` lowers to a TYPED `(*T)(nil)`
   so the `p != nil` comparison type-checks.  `ptr_safe_demo` prints `42 true` / `0
   false`, golden-locked.
-- **B2 — Pointer receivers** (pending; needs B1): methods with a `*T` receiver that
-  MUTATE the receiver — exclude `Ptr` from the value-receiver method detection, lower
-  to `func (recv *T) M(...)`.
 - **B3 — Slice aliasing** (the big one): a faithful aliasing-handle slice model.
   - **B3a — aliasing handles (DONE, 2026-06-17).**  `SliceH A` = an aliasing handle
     `(base, offset, len, cap, tag)` that REUSES the `w_refs` cell heap — element `i` is
@@ -235,8 +236,26 @@ past `cap` reallocates (no aliasing) vs within `cap` aliases · `copy` semantics
     **Phase B3 (slice aliasing) is COMPLETE** — aliasing handles, sub-slice sharing,
     append (in-place/realloc), make-with-cap, copy, clear; all golden-locked and the
     aliasing theorems inherited axiom-free from `ref_sel_upd_same`.
-- **B4 — Arrays** (pending): value semantics distinct from slices.
-- **B5 — `copy` / `make([]T,len,cap)` / slice-`clear`** (pending; needs B3).
+- **Bs — struct-storage substrate** (PENDING; the prerequisite **B2 needs**, BUILDS ON
+  B3's cell heap).  A user struct cannot be a `w_refs` cell directly — `GoTypeTag` has no
+  struct constructor and `tag_eq`'s decidable type-equality can't produce the `A = B`
+  proof for opaque struct types (the wall found 2026-06-17).  The principled model: a
+  struct value in storage is a BUNDLE of scalar FIELD-CELLS in the cell heap (only the
+  scalar field tags are needed — sidesteps the un-decidable struct tag), the same shape
+  as `SliceH`'s consecutive cells.  ALSO unblocks structs-in-`any` / channel / map (all
+  blocked by the same wall).  Witnesses: a per-field write/read through a struct handle;
+  field-cell read-after-write from `ref_sel_upd_same`.
+- **B2 — Pointer receivers** (PENDING; needs **Bs**, hence AFTER B3): a method whose
+  receiver is a `Ptr Struct` (a `*T`) and MUTATES the receiver — read the struct via the
+  pointer (field-cells), update a field, write back.  Plugin: detect a `Ptr (record)`
+  first param → emit `func (recv *T) M(...)` (and a call `m p …` → `p.M(…)`), excluding
+  `Ptr` from the existing value-receiver detection.  Witness: a pointer-receiver method
+  mutates the receiver, observed by the caller.
+- **B4 — Arrays** (PENDING; independent of B2/Bs): VALUE semantics distinct from slices —
+  `[N]T` COPIES on assign/pass (mutable elements within one array, but `b := a; b[0]=9`
+  leaves `a[0]` unchanged).  Not the cell-heap handle model (that is reference/aliasing);
+  a fresh backing per array value, or a functional-update value model.  `copy`/
+  `make([]T,len,cap)`/slice-`clear` already landed in **B3c** (the old "B5" — removed).
 
 ----
 
@@ -339,7 +358,13 @@ trust debt that imports do not depend on but the guarantee does.
 
 Keystones:
 - [x] **A — full-width int model** — A1 (u32/i32_mul) ✓; A2 signed `GoI64` ✓; A3 `GoU64` ✓; A4 default-`int` migration ✓ (A4.1 concurrency-bridge carrier → `GoI64`; A4.2a ergonomic range-checked `%i64`/`%u64` literals + scoped arith; A4.2b Comparable + int64/uint64 chan+map pipelines; A4.3a overflow-safe arithmetic on full-width `GoI64`; **A4.3b FULL int-model migration — ALL value/payload/struct/interface/typestate/repinv/slice/arithmetic demos converted to `GoI64`, and the Sint63 VALUE-overflow theory removed**).  `GoI64`/`GoU64` are THE canonical Go int64/uint64.  Primitive `Sint63` `int` survives ONLY as index arithmetic (loop counters, computed slice indices), `nat`-coding, and the `go_min`/`go_max` builtin demo.  All conversions golden-IDENTICAL (`GoI64` and `int` both → Go `int64`).  **A5 — untyped INTEGER constants as `Z` (DONE):** `i64c`/`u64c` notations `vm_compute`-evaluate a closed `Z` constant expression at elaboration (arbitrary precision — an intermediate like `1<<70` may exceed the target), then convert demanding representability; out-of-range fails to elaborate (= Go's untyped-constant overflow).  No plugin change.  Witnesses `const_intermediate_exceeds`/`const_exact_arith`/`const_u64_upper` + `Fail` `const_oob_*`; `const_demo` golden-locked.  *Untyped FLOAT constants (exact rationals) → Phase D.*
-- [ ] **B — aliasing / mutation / pointers** (unblocks slices/arrays/pointers/pointer-receivers)
+- [~] **B — aliasing / mutation / pointers** — B1 pointers ✓, B1b nil-deref safety ✓,
+  **B3 slice aliasing ✓ COMPLETE** (handles over the cell heap, sub-slice sharing, append
+  in-place/realloc, make-with-cap, copy, clear — all golden-locked, aliasing theorems
+  axiom-free from `ref_sel_upd_same`).  PENDING (in dependency order): **Bs** struct-storage
+  substrate (struct = bundle of scalar field-cells — the prerequisite B2 needs, also
+  unblocks structs-in-`any`/chan/map) → **B2** pointer receivers (needs Bs) → **B4** arrays
+  (value semantics, independent).
 
 The rest:
 - [ ] C — structs/methods/interfaces completion (pointer receivers, type switch, embedded, comparability, interface gaps)
