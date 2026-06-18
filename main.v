@@ -561,6 +561,17 @@ Proof. reflexivity. Qed.
 (* Build-checked: a string does not implicitly accept an [int] (distinct types). *)
 Fail Definition str_no_implicit : GoString := str_concat "x"%string (5 : int).
 
+(** String COMPARISON (Go [==] / [<]): byte-sequence equality and LEXICOGRAPHIC
+    byte-order — both THEOREMS.  Equality decides same/different bytes; ordering
+    compares byte-by-byte with a proper prefix ordered before the longer string
+    (["ab" < "abc"]) and by byte value at the first difference (["abc" < "abd"]). *)
+Example spec_str_eq_same  : str_eqb "Go"%string "Go"%string = true.   Proof. reflexivity. Qed.
+Example spec_str_eq_diff  : str_eqb "Go"%string "No"%string = false.  Proof. reflexivity. Qed.
+Example spec_str_lt_byte  : str_ltb "abc"%string "abd"%string = true. Proof. reflexivity. Qed.
+Example spec_str_lt_prefix: str_ltb "ab"%string "abc"%string = true.  Proof. reflexivity. Qed.
+Example spec_str_lt_false : str_ltb "b"%string "a"%string = false.    Proof. reflexivity. Qed.
+Example spec_str_lt_eq    : str_ltb "Go"%string "Go"%string = false.  Proof. reflexivity. Qed.
+
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
     handles the spacing (it tightens to [a*b+c]); the printer handles the parens. *)
@@ -869,6 +880,14 @@ Definition string_demo : IO unit :=
   str_at_ok s (5 : int) (fun b2 ok2 =>              (* out of range → 0 false *)
   println [any b2; any ok2] >>'
   println [any (str_concat s "!"%string)])).        (* Go! *)
+
+(** String COMPARISON (Go [==] / [<]): byte-sequence equality and lexicographic
+    byte ordering.  Lowers to the bare Go operators on string operands. *)
+Definition str_cmp_demo : IO unit :=
+  println [ any (str_eqb "Go"%string "Go"%string)    (* true  *)
+          ; any (str_eqb "Go"%string "No"%string)    (* false *)
+          ; any (str_ltb "abc"%string "abd"%string)  (* true  *)
+          ; any (str_ltb "b"%string "a"%string) ].   (* false *)
 
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
@@ -1420,6 +1439,7 @@ Definition main_effect : IO unit :=
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
+  str_cmp_demo                  >>'   (* prints: true false true false *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
   cond_goto_demo true           >>'   (* prints: 1 / 3 *)
@@ -1469,7 +1489,7 @@ Extraction NoInline
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
-  len cap slice_get slice_at_ok str_at_ok
+  len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr

@@ -192,6 +192,8 @@ let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
 let is_str_len_ref    r = String.equal (global_basename r) "str_len"
 let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
 let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
+let is_str_eqb_ref    r = String.equal (global_basename r) "str_eqb"
+let is_str_ltb_ref    r = String.equal (global_basename r) "str_ltb"
 
 (* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
    value to [int].  Lowers to identity: the fixed-width carrier is already int64
@@ -660,6 +662,9 @@ let binop_of r =
   else if is_orb_ref r then Some (1, " || ")
   (* string concatenation: Go [+], same precedence as numeric [+] (level 4) *)
   else if is_str_concat_ref r then Some (4, " + ")
+  (* string comparison: Go [==] / [<] (lexicographic), comparison precedence (level 3) *)
+  else if is_str_eqb_ref r then Some (3, " == ")
+  else if is_str_ltb_ref r then Some (3, " < ")
   (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
      bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
      int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
@@ -2718,6 +2723,7 @@ let is_inlined_ref r =
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
+  is_str_eqb_ref r || is_str_ltb_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||

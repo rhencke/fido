@@ -796,9 +796,14 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    carrier), `str_concat` = Go `+` (a *theorem*: `"Go"+"!" = "Go!"`); a string is
    its own type (`str_no_implicit` `Fail`); literals decode `String`/`Ascii`/
    `EmptyString` → byte-faithful Go string literal (printable verbatim, else
-   `\xNN`).  *Deferred (unmodeled, fails loud — NOT silently wrong):* the **rune
-   view** (`range s` UTF-8 decode and `string`↔`[]rune`/`[]byte`, Conversions), and
-   byte mutation (Go forbids it — strings immutable).
+   `\xNN`).  **Comparison DONE (2026-06-18):** `str_eqb` = Go `==` (byte equality,
+   `String.eqb`), `str_ltb` = Go `<` (LEXICOGRAPHIC by byte value — byte-by-byte,
+   proper prefix `<` longer, first difference decides; reuses the suppressed
+   `ascii_byte` decoder, no `nat_of_ascii` drag) — both *theorems*
+   (`spec_str_eq_*`/`spec_str_lt_*`); `str_cmp_demo` → `true false true false`,
+   golden-locked.  *Deferred (unmodeled, fails loud — NOT silently wrong):* the
+   **rune view** (`range s` UTF-8 decode and `string`↔`[]rune`/`[]byte`, Conversions),
+   and byte mutation (Go forbids it — strings immutable).
 8. **Reference-type state (maps, slices, refs).**
    (b) *get-after-write — FIXED for maps via a heap in the world.*  Map reads are
    now in `IO` (`map_get_opt : ... -> IO (option V)`, `map_get_or`, `map_len`);

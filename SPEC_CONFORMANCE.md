@@ -139,6 +139,13 @@ the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
   `"Go"` (len 2) → `0 false`, no panic. ✓
 - **concat** (`str_concat`, spec "Operators"): pure byte append → Go `+`;
   `str_concat "Go" "!" = "Go!"` is a **theorem** (`spec_str_concat`). ✓
+- **comparison** (`str_eqb`/`str_ltb`, spec "Comparison operators": strings are
+  comparable AND ordered) → Go `==` / `<`.  `str_eqb` is byte-sequence equality
+  (`String.eqb`); `str_ltb` is LEXICOGRAPHIC by byte value (compare byte-by-byte,
+  proper prefix `<` longer, first differing byte decides — reusing the suppressed
+  `ascii_byte` decoder, no `nat_of_ascii` drag).  Both **theorems**
+  (`spec_str_eq_same`/`spec_str_eq_diff`/`spec_str_lt_byte`/`spec_str_lt_prefix`/
+  `spec_str_lt_false`); `str_cmp_demo` → `true false true false`. ✓
 - **immutability**: free (Coq `string` is a value). ✓
 - **distinctness**: a `string` is its own type — `str_no_implicit` (a `Fail`) is
   the build-checked proof that an `int` does not implicitly convert in. ✓
@@ -298,7 +305,9 @@ Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal
 iff both true/both false.  Ours (int): SIGNED `ltsb`/`lesb` → Go signed `</<=`;
 unsigned `PrimInt63.ltb`/`leb` **rejected** for `int` (disagree on high bit) —
 `ltb_unsigned_neg_false`/`ltb_signed_neg_true`.  (float): `PrimFloat.ltb`/`leb`/
-`eqb`, IEEE incl. NaN unordered — `nan_eqb_false`, `nan_ltb_false`.  ✓
+`eqb`, IEEE incl. NaN unordered — `nan_eqb_false`, `nan_ltb_false`.  (string):
+`str_eqb` → Go `==` (byte equality), `str_ltb` → Go `<` (lexicographic by byte
+value) — both theorems (see String types).  ✓
 (`> >= !=` via swap / `negb(eqb…)` — tidiness gap, not conformance.)
 
 ### [Logical operators](https://go.dev/ref/spec#Logical_operators) — ✓ conforms

@@ -2272,6 +2272,29 @@ Fixpoint str_concat (a b : GoString) : GoString :=
   | String c rest => String c (str_concat rest b)
   end.
 
+(** String COMPARISON (Go spec "Comparison operators": strings are comparable AND
+    ordered).  [str_eqb] is Go [==] — byte-sequence equality (a THEOREM via
+    [String.eqb]).  [str_ltb] is Go [<] — LEXICOGRAPHIC by BYTE VALUE, exactly Go's
+    string ordering: compare byte-by-byte (unsigned 0..255), the first differing byte
+    decides, and a proper prefix is [<] the longer string.  Both are pure, total
+    operations on immutable byte sequences; the bodies are suppressed and each lowers
+    to the bare Go operator ([a == b] / [a < b]).  [str_ltb] reuses the already-
+    suppressed [ascii_byte] decoder (so it drags in no [nat_of_ascii]). *)
+Definition str_eqb (a b : GoString) : bool := String.eqb a b.
+
+Fixpoint str_ltb (a b : GoString) : bool :=
+  match a, b with
+  | EmptyString,  EmptyString  => false   (* equal — not [<] *)
+  | EmptyString,  String _ _   => true    (* "" < non-empty (prefix) *)
+  | String _ _,   EmptyString  => false   (* non-empty not < "" *)
+  | String ca ra, String cb rb =>
+      let na := u8raw (ascii_byte ca) in  (* byte value 0..255 *)
+      let nb := u8raw (ascii_byte cb) in
+      if PrimInt63.ltb na nb then true
+      else if PrimInt63.ltb nb na then false
+      else str_ltb ra rb
+  end.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

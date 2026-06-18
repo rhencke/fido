@@ -464,6 +464,10 @@ func String_demo() {
 	println(s + "!")
 }
 
+func Str_cmp_demo() {
+	println("Go" == "Go", "Go" == "No", "abc" < "abd", "b" < "a")
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -976,6 +980,7 @@ func main() {
 	Slice_safe_demo()
 	Assert_safe_demo(7)
 	String_demo()
+	Str_cmp_demo()
 	Foreach_demo()
 	Sum_demo()
 	Cond_goto_demo(true)
