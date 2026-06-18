@@ -187,8 +187,19 @@ separate tracks.
    and `complex`/`real`/`imag` are all now DONE (the last 2026-06-18: `GoComplex128` is a
    2-field float record rendered as native `complex128`, with `go_complex`/`go_real`/
    `go_imag` → `complex(re,im)`/`real(c)`/`imag(c)`; struct decl/ctor/projections
-   suppressed, recognised by name; axiom-free, `complex_demo` golden-locked.  *Complex
-   arithmetic via native operators is a clean follow-up.*)
+   suppressed, recognised by name; axiom-free, `complex_demo` golden-locked).  **Complex
+   ARITHMETIC is also done (2026-06-18):** `+`/`-` (component-wise), `*` (gc's naive
+   cross-product — faithful since gc inlines naive, no Annex G), unary `-` (sign-flip),
+   `==`/`!=` (component-wise float `==`, faithful incl. the NaN corner) — all lower to the
+   native Go operators (`binop_of` / the unary arm), axiom-free, golden-locked.  *Only
+   complex `/` remains, deferred: gc's `runtime.complex128div` uses Smith's scaling
+   algorithm, which a faithful model must port exactly.*
+   **MILESTONE (2026-06-18): every Go PREDECLARED BUILTIN FUNCTION is now modeled** —
+   append, cap, clear, close, complex, copy, delete, imag, len, make, max, min, new, panic,
+   print, println, real, recover.  The remaining no-import work is all LANGUAGE FEATURES
+   (control flow done; pending: single-method interfaces, method values, the rune/UTF-8
+   string view, `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational
+   float constants, multiple return values, complex `/`), tracked in the ladder + Tiers.
 2. **IO monad** (done) — `bind` lowers to sequential Go; world token erases;
    `panic : GoAny -> IO A` is consistent and short-circuits via `bind_panic_l`;
    `catch`/`with_defer` for panic recovery
