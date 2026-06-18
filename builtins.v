@@ -2627,6 +2627,23 @@ Example str_switch2_default : forall {B} (k1 k2 d : IO B),
   str_switch2 "z"%string "a"%string k1 "b"%string k2 d = d.
 Proof. reflexivity. Qed.
 
+(** ---- Complex numbers (Go spec "Complex numbers"; the predeclared [complex]/[real]/
+    [imag] builtins) ----  A [complex128] is a pair of [float64] components.  We model it
+    as a 2-field record over [float]; the plugin renders the type as Go's native
+    [complex128] and lowers [go_complex]/[go_real]/[go_imag] to the predeclared builtins
+    [complex(re, im)] / [real(c)] / [imag(c)] (the record's struct decl, constructor, and
+    projections are all suppressed — recognised by operation name, like the numint
+    wrappers).  Construction/extraction are PROVABLE ([go_real (go_complex re im) = re]). *)
+Record GoComplex128 : Type := MkComplex128 { c_re : float ; c_im : float }.
+Definition go_complex (re im : float) : GoComplex128 := MkComplex128 re im.
+Definition go_real (c : GoComplex128) : float := c_re c.
+Definition go_imag (c : GoComplex128) : float := c_im c.
+
+Example go_real_complex : forall re im, go_real (go_complex re im) = re.
+Proof. reflexivity. Qed.
+Example go_imag_complex : forall re im, go_imag (go_complex re im) = im.
+Proof. reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

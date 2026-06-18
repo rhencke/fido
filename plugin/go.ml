@@ -371,6 +371,12 @@ let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2
 (* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
    witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
 let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
+(* Complex numbers: [GoComplex128] → Go [complex128]; [go_complex re im] / [go_real c] /
+   [go_imag c] → the predeclared builtins [complex(re,im)] / [real(c)] / [imag(c)]. *)
+let is_complex_type r   = String.equal (global_basename r) "GoComplex128"
+let is_go_complex_ref r = String.equal (global_basename r) "go_complex"
+let is_go_real_ref r    = String.equal (global_basename r) "go_real"
+let is_go_imag_ref r    = String.equal (global_basename r) "go_imag"
 (* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
    default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
    count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
@@ -502,6 +508,7 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
    all suppressed; uses are recognised by operation name. *)
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
+  || String.equal s "GoComplex128"   (* complex128: rendered native, ops by name *)
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
   || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
@@ -846,6 +853,7 @@ let rec pp_type state = function
   (* Coq [string] (Strings.String) → Go [string] (byte sequence) *)
   | Tglob (r, []) when is_string_type r -> str "string"
   | Tglob (r, []) when is_float64_type r  -> str "float64"
+  | Tglob (r, []) when is_complex_type r  -> str "complex128"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
   | Tglob (r, []) when is_uint63_type r -> str "int64"
@@ -1396,6 +1404,13 @@ let rec pp_expr state env = function
           witness [eqb] is dropped (it discharged the side condition).  Comparison level 3. *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
            pp_prec state env 3 a ++ str " == " ++ pp_prec state env 4 b
+       (* complex-number builtins → Go's predeclared [complex]/[real]/[imag] *)
+       | MLglob r, [re; im] when is_go_complex_ref r ->
+           str "complex(" ++ pp_expr state env re ++ str ", " ++ pp_expr state env im ++ str ")"
+       | MLglob r, [c] when is_go_real_ref r ->
+           str "real(" ++ pp_expr state env c ++ str ")"
+       | MLglob r, [c] when is_go_imag_ref r ->
+           str "imag(" ++ pp_expr state env c ++ str ")"
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -2934,6 +2949,8 @@ let is_inlined_ref r =
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
   is_struct_eqb_ref r || is_val_switch_ref r ||
+  List.mem (global_basename r)
+    ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
