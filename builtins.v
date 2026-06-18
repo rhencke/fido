@@ -2700,6 +2700,18 @@ Example complex_mul_components : forall a b,
     = PrimFloat.add (PrimFloat.mul (go_real a) (go_imag b)) (PrimFloat.mul (go_imag a) (go_real b)).
 Proof. intros. split; reflexivity. Qed.
 
+(** Complex unary NEGATION — Go's [-c] on complex128.  Negates BOTH components, each a
+    single IEEE float sign-flip [PrimFloat.opp], so faithful including signed zero — note
+    [-c] (sign-flip) differs from [(0+0i) - c] on a zero component ([opp (+0) = -0] but
+    [0 - (+0) = +0]); we use the sign-flip, matching Go's unary [-].  Lowers to native [-c]. *)
+Definition complex_neg (c : GoComplex128) : GoComplex128 :=
+  MkComplex128 (PrimFloat.opp (c_re c)) (PrimFloat.opp (c_im c)).
+
+Example complex_neg_components : forall c,
+  go_real (complex_neg c) = PrimFloat.opp (go_real c)
+  /\ go_imag (complex_neg c) = PrimFloat.opp (go_imag c).
+Proof. intros. split; reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

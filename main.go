@@ -587,6 +587,12 @@ func Complex_arith_demo() {
 	println(real(s), imag(s), real(d), imag(d))
 }
 
+func Complex_neg_demo() {
+	c := complex(3.0, 4.0)
+	n := -c
+	println(real(n), imag(n))
+}
+
 func Complex_mul_demo() {
 	a := complex(1.0, 2.0)
 	b := complex(3.0, 4.0)
@@ -1190,6 +1196,7 @@ func main() {
 	Complex_demo()
 	Complex_arith_demo()
 	Complex_mul_demo()
+	Complex_neg_demo()
 	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()

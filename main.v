@@ -1101,6 +1101,12 @@ Definition complex_arith_demo : IO unit :=
   let d := complex_sub a b in
   println [any (go_real s); any (go_imag s); any (go_real d); any (go_imag d)].
 
+(** Complex unary [-] (component-wise sign-flip, native operator): -(3+4i) = -3-4i. *)
+Definition complex_neg_demo : IO unit :=
+  let c := go_complex (3.0)%float (4.0)%float in
+  let n := complex_neg c in
+  println [any (go_real n); any (go_imag n)].   (* -3 -4 *)
+
 (** Complex [*] (gc's naive cross-product, native operator): (1+2i)*(3+4i) = -5+10i. *)
 Definition complex_mul_demo : IO unit :=
   let a := go_complex (1.0)%float (2.0)%float in
@@ -1752,6 +1758,7 @@ Definition main_effect : IO unit :=
   complex_demo                      >>'   (* prints: the two components of complex(1.5, 2.5) *)
   complex_arith_demo                >>'   (* prints: 4 6 -2 -2 components of the sum/difference *)
   complex_mul_demo                  >>'   (* prints: -5 10 (complex multiply) *)
+  complex_neg_demo                  >>'   (* prints: -3 -4 (complex unary negation) *)
   complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
@@ -1810,7 +1817,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
-  go_complex go_real go_imag complex_add complex_sub complex_mul complex_eqb complex_neqb
+  go_complex go_real go_imag complex_add complex_sub complex_mul complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

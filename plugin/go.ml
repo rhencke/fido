@@ -377,6 +377,7 @@ let is_complex_type r   = String.equal (global_basename r) "GoComplex128"
 let is_go_complex_ref r = String.equal (global_basename r) "go_complex"
 let is_go_real_ref r    = String.equal (global_basename r) "go_real"
 let is_go_imag_ref r    = String.equal (global_basename r) "go_imag"
+let is_complex_neg_ref r = String.equal (global_basename r) "complex_neg"
 (* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
    default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
    count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
@@ -1309,6 +1310,9 @@ let rec pp_expr state env = function
        (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
        | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
            str "-" ++ pp_atom state env x
+       (* complex_neg c → unary [-c] (component-wise sign-flip; native complex negation) *)
+       | MLglob r, [c] when is_complex_neg_ref r ->
+           str "-" ++ pp_atom state env c
 
        (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)
        | MLglob r, [g] when is_numint_proj r ->
@@ -2958,7 +2962,8 @@ let is_inlined_ref r =
   is_struct_eqb_ref r || is_val_switch_ref r ||
   List.mem (global_basename r)
     ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
-     "complex_add"; "complex_sub"; "complex_mul"; "complex_eqb"; "complex_neqb"] ||
+     "complex_add"; "complex_sub"; "complex_mul"; "complex_neg";
+     "complex_eqb"; "complex_neqb"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
