@@ -879,6 +879,19 @@ func Nested_struct_demo() {
 	println((o.W_inner).Iv, o.Wz)
 }
 
+type Cell struct {
+	Cx int64
+	Cy int64
+}
+
+func Sptr_demo() {
+	p := &Cell{3, 4}
+	p.Cx = int64(7)
+	a := p.Cx
+	b := p.Cy
+	println(a, b)
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -1036,6 +1049,7 @@ func main() {
 	Io_method_demo()
 	Struct_eq_demo()
 	Nested_struct_demo()
+	Sptr_demo()
 	Iface_demo()
 	Typestate_demo()
 	Repinv_demo()

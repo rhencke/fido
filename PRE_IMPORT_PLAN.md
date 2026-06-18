@@ -265,8 +265,18 @@ B3, which was backwards):**
     whole-struct `sptr_deref`-after-`sptr_assign` round-trip (reassemble via `sr2_eta` across
     both cells) — true, but its proof needs fiddlier nested-`run_bind` sequencing; the
     field-level laws already capture the mutation/aliasing substance.
-  - **Bs.2b — lowering (pending).**  Goal: a heap-backed struct
-    ↔ Go `*Struct` with `c.Field` read/write, runtime-demonstrated, that B2 builds on.
+  - **Bs.2b — lowering (DONE, 2026-06-18).**  A heap-backed struct ↔ Go `*R` with field
+    read/write, runtime-demonstrated.  `SPtr R` → `*R` (type arm); `sptr_new rep v` → `&v`
+    (composite literals are addressable in Go — no IIFE, no tag needed); `sptr_deref p` →
+    `*p`; `sptr_get_field p idx proj _` → `p.Field` / `sptr_set_field … v` → `p.Field = v`
+    (the field NAME read off the passed projection via the same `record_proj_field` map
+    that `x.Field` uses — the lowering NEVER touches the proof-only rep).  All the
+    machinery (SPtr/StructRep2 types, the `sptr_*`/`sr2_*`/`sp_*` defs, AND the Bs.1
+    `hfield_*`/`HStruct` substrate they drag in) is suppressed.  `sptr_demo` lowers to
+    `p := &Cell{3, 4}; p.Cx = 7; a := p.Cx; b := p.Cy; println(a, b)` and prints `7 4` —
+    a genuine MUTATION through the pointer, golden-locked.  *Pending niceties:* the IIFE
+    form for a non-addressable `sptr_new` arg (function-call result); the whole-struct
+    `*p` / `*p = R{…}` runtime demo (the ops + lowering exist; just no demo yet).
     The hard part is ENTIRELY the lowering (the proof model is Bs.1); two routes, with
     the findings that constrain them:
 

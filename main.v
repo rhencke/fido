@@ -1368,6 +1368,22 @@ Definition nested_struct_demo : IO unit :=
   let o := MkWrap (MkInner (5)%i64 (1)%i64) (9)%i64 in
   println [any (iv (w_inner o)); any (wz o)].   (* 5 9 (chained: o.W_inner.Iv, o.Wz) *)
 
+(** Struct POINTER (Phase Bs.2): a heap-backed [*Cell] with mutation THROUGH the
+    pointer.  [sptr_new] → [&Cell{…}]; [sptr_set_field p cx … 7] → [p.Cx = 7] (mutate);
+    [sptr_get_field p cx …] → [p.Cx] (read back the new value).  The [StructRep]
+    ([mkSR2 …]) is proof-only (decomposes/reconstructs the struct across field cells —
+    it gives the read-after-write/aliasing THEOREMS [sptr_field_get_set]/
+    [sptr_field_alias]); the lowering emits native Go pointer syntax, never the rep. *)
+Record Cell := MkCell { cx : GoI64 ; cy : GoI64 }.
+Lemma cell_eta : forall v, MkCell (cx v) (cy v) = v.
+Proof. intros [a b]; reflexivity. Qed.
+Definition sptr_demo : IO unit :=
+  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
+  bind (sptr_set_field p 0%uint63 cx TI64 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
+  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>            (* a := p.Cx → 7 *)
+  bind (sptr_get_field p 1%uint63 cy TI64) (fun b =>            (* b := p.Cy → 4 *)
+  println [any a; any b])))).                                   (* prints: 7 4 *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1566,6 +1582,7 @@ Definition main_effect : IO unit :=
   io_method_demo                >>'   (* prints: 8 / 9 *)
   struct_eq_demo                >>'   (* prints: true false (struct ==) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
+  sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
@@ -1579,6 +1596,7 @@ Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
+  sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn

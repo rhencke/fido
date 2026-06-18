@@ -272,6 +272,21 @@ let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
 let is_ptr_as_ref_ref = named "ptr_as_ref"
 let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
+(* Struct pointers (Phase Bs.2): SPtr R → Go *R; ops lower to native pointer syntax,
+   reusing the same shapes as Ptr.  The StructRep/field-cell machinery is proof-only
+   (the lowering never touches the rep) — all of it is suppressed as decls. *)
+let is_sptr_type = named "SPtr"
+let is_sptr_new_ref       = named "sptr_new"
+let is_sptr_deref_ref     = named "sptr_deref"
+let is_sptr_get_field_ref = named "sptr_get_field"
+let is_sptr_set_field_ref = named "sptr_set_field"
+let is_sptr_machinery r =          (* every proof-side struct-pointer name → suppress decl *)
+  List.mem (global_basename r)
+    ["sptr_new"; "sptr_deref"; "sptr_assign"; "sptr_get_field"; "sptr_set_field";
+     "sptr_hs"; "mkSPtr"; "sp_base"; "sp_rep";
+     "mkSR2"; "sr2_f0"; "sr2_f1"; "sr2_mk"; "sr2_eta";
+     (* Bs.1 field-cell substrate (proof-only; dragged in by the sptr op bodies) *)
+     "hfield_cell"; "hfield_get"; "hfield_set"; "mkHStruct"; "hs_base"]
 (* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
 let is_sliceh_type = named "SliceH"
 let is_slice_make_h_ref = named "slice_make_h"
@@ -454,6 +469,7 @@ let is_numint_typename s =                   (* "GoU8" / "GoI16" — the numeric
 let is_erased_record_typename s =
   is_numint_typename s || String.equal s "Sess" || String.equal s "World"
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
+  || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
@@ -771,6 +787,7 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
+  | Tglob (r, [arg]) when is_sptr_type r -> str "*" ++ pp_type state arg
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
   | Tglob (r, [arg]) when is_sliceh_type r -> str "[]" ++ pp_type state arg
   (* GoChan A → chan T *)
@@ -1046,6 +1063,25 @@ let rec pp_expr state env = function
            str "*" ++ pp_atom state env p
        | MLglob r, [p; v] when is_ptr_set_ref r ->
            str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
+       (* Struct pointers (Phase Bs.2).  The rep arg is proof-only (ignored here):
+          [sptr_new rep v] → [&v] (composite literals are addressable in Go);
+          [sptr_deref p] → [*p]; [sptr_get_field p idx proj _] → [p.Field] and
+          [sptr_set_field p idx proj _ v] → [p.Field = v], the field NAME read off the
+          passed projection (the same [record_proj_field] map [x.Field] uses). *)
+       | MLglob r, [_rep; v] when is_sptr_new_ref r ->
+           str "&" ++ pp_atom state env v
+       | MLglob r, [p] when is_sptr_deref_ref r ->
+           str "*" ++ pp_atom state env p
+       | MLglob r, [p; _idx; proj; _ftag] when is_sptr_get_field_ref r ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a struct-pointer field read whose field arg is not a projection") in
+           pp_atom state env p ++ str "." ++ str fld
+       | MLglob r, [p; _idx; proj; _ftag; v] when is_sptr_set_field_ref r ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a struct-pointer field write whose field arg is not a projection") in
+           pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
        (* a TYPED nil pointer conversion to *T — so a [p != nil] comparison (in the
           safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)
        | MLglob r, [tag] when is_ptr_nil_ref r ->
@@ -2751,6 +2787,7 @@ let is_inlined_ref r =
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
+  is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
