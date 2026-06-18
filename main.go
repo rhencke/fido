@@ -945,6 +945,13 @@ func Struct_eq_demo() {
 	println(p.Point_eqb(q), p.Point_eqb(r))
 }
 
+func Struct_eq_native_demo() {
+	p := Point{3, 4}
+	q := Point{3, 4}
+	r := Point{3, 5}
+	println(p == q, p == r)
+}
+
 type Inner struct {
 	Iv    int64
 	Ikind int64
@@ -1156,6 +1163,7 @@ func main() {
 	Method_demo()
 	Io_method_demo()
 	Struct_eq_demo()
+	Struct_eq_native_demo()
 	Nested_struct_demo()
 	Sptr_demo()
 	Ptr_method_demo()

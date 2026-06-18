@@ -364,6 +364,9 @@ let is_type_switch_ref r =
 (* Multi-type case [case T1, T2:] — a distinct shape (two tags, one value-less thunk,
    default), so its own recognizer/arm; the prefix above still suppresses its decl. *)
 let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2"
+(* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
+   witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
+let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -1378,6 +1381,10 @@ let rec pp_expr state env = function
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
            pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b
+       (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
+          witness [eqb] is dropped (it discharged the side condition).  Comparison level 3. *)
+       | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
+           pp_prec state env 3 a ++ str " == " ++ pp_prec state env 4 b
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -2896,6 +2903,7 @@ let is_inlined_ref r =
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
+  is_struct_eqb_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

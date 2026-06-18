@@ -1445,7 +1445,7 @@ Definition io_method_demo : IO unit :=
     comparison — it lowers via the existing [&&]/[==]/projection ops (no value-position
     [if], no new lowering), so it is faithful to Go's [p == q].  [point_eqb_spec] proves
     it DECIDES Point equality (the comparability guarantee).  *(The idiomatic direct
-    [p == q] would need the plugin to recognise a struct equality → `==`; tidiness.)* *)
+    [p == q] is now also modeled — see [struct_eqb] / [struct_eq_native_demo] below.)* *)
 Definition point_eqb (a b : Point) : bool :=
   andb (i64_eqb (px a) (px b)) (i64_eqb (py a) (py b)).
 Lemma point_eqb_spec : forall a b, point_eqb a b = true <-> a = b.
@@ -1462,6 +1462,19 @@ Definition struct_eq_demo : IO unit :=
   let q := MkPoint (3)%i64 (4)%i64 in
   let r := MkPoint (3)%i64 (5)%i64 in
   println [any (point_eqb p q); any (point_eqb p r)].   (* true false *)
+
+(** NATIVE struct equality — Go's [a == b] OPERATOR (not the field-wise emulation).
+    [struct_eqb] is evidence-carrying: it demands the comparability witness [point_eqb]
+    (Go requires the struct be comparable to use [==]) and lowers to the bare Go [p == q].
+    [struct_eqb_native_spec] proves the native form STILL decides Point equality — same
+    guarantee as [point_eqb], now via the actual operator. *)
+Lemma struct_eqb_native_spec : forall a b, struct_eqb point_eqb a b = true <-> a = b.
+Proof. intros. unfold struct_eqb. apply point_eqb_spec. Qed.
+Definition struct_eq_native_demo : IO unit :=
+  let p := MkPoint (3)%i64 (4)%i64 in
+  let q := MkPoint (3)%i64 (4)%i64 in
+  let r := MkPoint (3)%i64 (5)%i64 in
+  println [any (struct_eqb point_eqb p q); any (struct_eqb point_eqb p r)].   (* true false *)
 
 (** NESTED struct fields (Go struct composition): a struct with a field whose type is
     another struct.  Tests that the field-type printer handles a struct-typed field and
@@ -1714,7 +1727,8 @@ Definition main_effect : IO unit :=
   labeled_demo                  >>'   (* prints: true / 5 *)
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
-  struct_eq_demo                >>'   (* prints: true false (struct ==) *)
+  struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
+  struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
@@ -1739,7 +1753,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2
+  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

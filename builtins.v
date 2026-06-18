@@ -409,6 +409,16 @@ Proof.
   - intro H. injection H as ->. apply Z.eqb_refl.
 Qed.
 
+(** Native struct equality — Go's [a == b] on a comparable struct (spec "Comparison
+    operators": struct values are comparable iff all fields are, and [==] is field-wise).
+    EVIDENCE-CARRYING and safe-by-construction: it DEMANDS a decision procedure [eqb] —
+    the comparability witness Go requires before you may write [==] — and only then lowers
+    to the bare native [a == b] (the witness having discharged the comparability side
+    condition, exactly as [div_nz] discharges the non-zero-divisor guard).  [struct_eqb
+    eqb a b] is definitionally [eqb a b], so when [eqb] decides equality so does [==]
+    (proved at the use site from the field-wise [eqb]'s spec). *)
+Definition struct_eqb {R : Type} (eqb : R -> R -> bool) (a b : R) : bool := eqb a b.
+
 (** ---- World: a CONCRETE proof-only state record (no longer an axiom). ----
 
     [World] is FULLY CONCRETE — no abstract residue.  [w_refs]/[w_chans]/[w_maps]
