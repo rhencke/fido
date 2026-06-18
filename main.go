@@ -989,6 +989,15 @@ func Method_value_demo() {
 	println(q.Px, q.Py)
 }
 
+func Apply_pt(f func(Point) int64, p Point) int64 {
+	return f(p)
+}
+
+func Method_expr_demo() {
+	p := Point{5, 6}
+	println(Apply_pt(Point.Sum_coords, p))
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -1238,6 +1247,7 @@ func main() {
 	Labeled_demo()
 	Method_demo()
 	Method_value_demo()
+	Method_expr_demo()
 	Io_method_demo()
 	Struct_eq_demo()
 	Struct_eq_native_demo()

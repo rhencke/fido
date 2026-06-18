@@ -112,6 +112,7 @@ let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
    function by its [global_path]; uses then become [recv.Method(rest)]. *)
 let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* method proj path -> () *)
 let method_arity      : (string, int) Hashtbl.t  = Hashtbl.create 16    (* method path -> visible param count (incl. receiver) *)
+let method_recvtype   : (string, string) Hashtbl.t = Hashtbl.create 16  (* method path -> Go receiver type name (for method expressions T.M) *)
 
 let globref_basename g =
   try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
@@ -1456,7 +1457,11 @@ let rec pp_expr state env = function
       if is_bool_true r     then str "true"
       else if is_bool_false r then str "false"
       else if is_map_make_ref r || is_map_make_typed_ref r then str "make(map[any]any)"
-      else str (go_export (global_basename r))
+      (* a method used as a BARE value (no application) is Go's method EXPRESSION [T.M]
+         (a [func(T, …) …] whose first arg is the receiver) — emit [RecvType.Method]. *)
+      else (match (if is_method r then Hashtbl.find_opt method_recvtype (global_path r) else None) with
+            | Some recvty -> str recvty ++ str "." ++ str (go_export (global_basename r))
+            | None -> str (go_export (global_basename r)))
 
   | MLfix (i, names, _) ->
       str (go_export (go_safe (Id.to_string names.(i))))
@@ -3165,7 +3170,13 @@ let collect_decls struc =
            site applying fewer than this many args is a method VALUE, not a full call. *)
         let ids, _ = collect_lam body in
         let arity = List.length (List.filter (fun i -> not (is_dummy i)) ids) in
-        Hashtbl.replace method_arity (global_path r) arity
+        Hashtbl.replace method_arity (global_path r) arity ;
+        (* receiver Go type name, for a method EXPRESSION [T.M] used as a bare value —
+           value-receiver (record) only: the type is the record name. *)
+        (match t with
+         | Tglob (rt, _) when is_record_tglob t ->
+             Hashtbl.replace method_recvtype (global_path r) (go_export (global_basename rt))
+         | _ -> ())
     | _ -> ()
   in
   List.iter (function

@@ -1493,6 +1493,15 @@ Definition method_value_demo : IO unit :=
   let q := call_shift10 (shifted p) in   (* call_shift10(p.Shifted) = p.Shifted(10) = (11,12) *)
   println [any (px q); any (py q)].       (* 11 12 *)
 
+(** METHOD EXPRESSION (Go's [T.M]): the method [Sum_coords] referenced UNBOUND — a
+    [func(Point) GoI64] whose first argument is the receiver.  In Coq it is the method
+    used bare (no application at all); the plugin emits [Point.Sum_coords].  [apply_pt]
+    applies it to [p]. *)
+Definition apply_pt (f : Point -> GoI64) (p : Point) : GoI64 := f p.
+Definition method_expr_demo : IO unit :=
+  let p := MkPoint (5)%i64 (6)%i64 in
+  println [any (apply_pt sum_coords p)].   (* Point.Sum_coords(p) = 5+6 = 11 *)
+
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
     and the statement-position call [describe p] lowers to [p.Describe()]. *)
@@ -1801,6 +1810,7 @@ Definition main_effect : IO unit :=
   labeled_demo                  >>'   (* prints: true / 5 *)
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   method_value_demo             >>'   (* prints: 11 12 (method value p.Shifted passed to a HOF) *)
+  method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
@@ -1817,7 +1827,7 @@ Definition main_effect : IO unit :=
     still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
     [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
 Extraction NoInline
-  call_shift10
+  call_shift10 apply_pt
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
