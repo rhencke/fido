@@ -183,6 +183,10 @@ let is_list_cons r =
    recognised so a string LITERAL decodes to a Go string literal (see
    [decode_go_string]); the type maps to Go [string]. *)
 let is_string_type  r = ref_has_suffix r ".Strings.String.string"
+                        (* [GoString] is a Definition alias for [string]; as a signature
+                           param/return type it stays a named [Tglob GoString], so map it
+                           to Go [string] here too (cf. [GoAny] → [any]). *)
+                        || String.equal (global_basename r) "GoString"
 let is_string_empty r = ref_has_suffix r ".Strings.String.EmptyString"
 let is_string_cons  r = ref_has_suffix r ".Strings.String.String"
 let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
@@ -367,11 +371,13 @@ let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2
 (* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
    witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
 let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
-(* Native expression switch [int_switchN x v1 k1 … d] → Go [switch x { case v: …; default: … }];
-   args after the scrutinee are (value, body) PAIRS then the default (odd count ≥ 3). *)
-let is_int_switch_ref r =
+(* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
+   default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
+   count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
+let is_val_switch_ref r =
   let s = global_basename r in
-  String.length s >= 10 && String.sub s 0 10 = "int_switch"
+  let pre p = String.length s >= String.length p && String.sub s 0 (String.length p) = p in
+  pre "int_switch" || pre "str_switch"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -2479,12 +2485,12 @@ let pp_io_body state tab env body =
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++
              str tab ++ str "}" ++ fnl ()
-         (* int_switchN x v1 k1 … vN kN d → Go's native EXPRESSION switch:
+         (* {int,str}_switchN x v1 k1 … vN kN d → Go's native EXPRESSION switch:
               switch <x> { case v1: <k1> … case vN: <kN> default: <d> }
             args after the scrutinee are (value, body) PAIRS then the default (odd count
             ≥ 3); each case body is a plain thunk (no binder), so [pp_stmts] directly. *)
          | MLglob r, (x :: rest)
-            when is_int_switch_ref r
+            when is_val_switch_ref r
                  && List.length rest >= 3 && List.length rest mod 2 = 1 ->
              let scrut = pp_expr state env x in
              let n = List.length rest in
@@ -2927,7 +2933,7 @@ let is_inlined_ref r =
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
-  is_struct_eqb_ref r || is_int_switch_ref r ||
+  is_struct_eqb_ref r || is_val_switch_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

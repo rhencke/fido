@@ -2605,6 +2605,28 @@ Definition str_gtb  (a b : GoString) : bool := str_ltb b a.
 Definition str_geb  (a b : GoString) : bool := negb (str_ltb a b).
 Definition str_neqb (a b : GoString) : bool := negb (str_eqb a b).
 
+(** Expression switch on a STRING scrutinee — Go's [switch s { case "a": …; default: … }].
+    Same shape as [int_switch2] but the equality is [str_eqb] (byte equality); the plugin
+    arm is SHARED (it emits the scrutinee and each case value verbatim, Go doing the [==]),
+    so int64 and string scrutinees lower identically. *)
+Definition str_switch2 {B : Type} (x : GoString)
+  (v1 : GoString) (k1 : IO B)
+  (v2 : GoString) (k2 : IO B)
+  (d : IO B) : IO B :=
+  if str_eqb x v1 then k1
+  else if str_eqb x v2 then k2
+  else d.
+
+Example str_switch2_first : forall {B} (k1 k2 d : IO B),
+  str_switch2 "a"%string "a"%string k1 "b"%string k2 d = k1.
+Proof. reflexivity. Qed.
+Example str_switch2_second : forall {B} (k1 k2 d : IO B),
+  str_switch2 "b"%string "a"%string k1 "b"%string k2 d = k2.
+Proof. reflexivity. Qed.
+Example str_switch2_default : forall {B} (k1 k2 d : IO B),
+  str_switch2 "z"%string "a"%string k1 "b"%string k2 d = d.
+Proof. reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

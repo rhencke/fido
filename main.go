@@ -574,6 +574,17 @@ func Int_sw_demo(x int64) {
 	}
 }
 
+func Str_sw_demo(x string) {
+	switch x {
+	case "a":
+		println(1)
+	case "b":
+		println(2)
+	default:
+		println(9)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1146,6 +1157,9 @@ func main() {
 	Int_sw_demo(1)
 	Int_sw_demo(2)
 	Int_sw_demo(5)
+	Str_sw_demo("a")
+	Str_sw_demo("b")
+	Str_sw_demo("z")
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()

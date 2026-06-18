@@ -1085,6 +1085,13 @@ Definition int_sw_demo (x : GoI64) : IO unit :=
     (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
     (println [any (99)%i64]).           (* default → 99 *)
 
+(** Expression switch on a STRING (Go's [switch s { case "a": …; default: … }]). *)
+Definition str_sw_demo (x : GoString) : IO unit :=
+  str_switch2 x
+    "a"%string (println [any (1)%i64])   (* case "a" → 1 *)
+    "b"%string (println [any (2)%i64])   (* case "b" → 2 *)
+    (println [any (9)%i64]).             (* default  → 9 *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -1708,6 +1715,9 @@ Definition main_effect : IO unit :=
   int_sw_demo (1)%i64               >>'   (* prints: 10 (case 1, native expression switch) *)
   int_sw_demo (2)%i64               >>'   (* prints: 20 (case 2) *)
   int_sw_demo (5)%i64               >>'   (* prints: 99 (default) *)
+  str_sw_demo "a"%string            >>'   (* prints: 1 (case "a", string expression switch) *)
+  str_sw_demo "b"%string            >>'   (* prints: 2 (case "b") *)
+  str_sw_demo "z"%string            >>'   (* prints: 9 (default) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -1764,7 +1774,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2
+  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
