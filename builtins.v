@@ -1454,6 +1454,24 @@ Example int_switch2_default : forall {B} (k1 k2 d : IO B),
   int_switch2 (9)%i64 (1)%i64 k1 (2)%i64 k2 d = d.
 Proof. reflexivity. Qed.
 
+(** N-ary expression switch — three cases here; same generalised plugin arm as
+    [int_switch2] (it takes any number of (value, body) pairs). *)
+Definition int_switch3 {B : Type} (x : GoI64)
+  (v1 : GoI64) (k1 : IO B)
+  (v2 : GoI64) (k2 : IO B)
+  (v3 : GoI64) (k3 : IO B)
+  (d : IO B) : IO B :=
+  if i64_eqb x v1 then k1
+  else if i64_eqb x v2 then k2
+  else if i64_eqb x v3 then k3
+  else d.
+Example int_switch3_third : forall {B} (k1 k2 k3 d : IO B),
+  int_switch3 (3)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 d = k3.
+Proof. reflexivity. Qed.
+Example int_switch3_default : forall {B} (k1 k2 k3 d : IO B),
+  int_switch3 (9)%i64 (1)%i64 k1 (2)%i64 k2 (3)%i64 k3 d = d.
+Proof. reflexivity. Qed.
+
 (** ---- GoMap ----
 
     [GoMap K V] models Go's [map[K]V].  Operations are modelled as pure

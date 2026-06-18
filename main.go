@@ -583,6 +583,19 @@ func Int_sw_demo(x int64) {
 	}
 }
 
+func Int_sw3_demo(x int64) {
+	switch x {
+	case 1:
+		println(10)
+	case 2:
+		println(20)
+	case 3:
+		println(30)
+	default:
+		println(99)
+	}
+}
+
 func Complex_demo() {
 	c := complex(1.5, 2.5)
 	println(real(c), imag(c))
@@ -1258,6 +1271,8 @@ func main() {
 	Int_sw_demo(1)
 	Int_sw_demo(2)
 	Int_sw_demo(5)
+	Int_sw3_demo(3)
+	Int_sw3_demo(8)
 	Str_sw_demo("a")
 	Str_sw_demo("b")
 	Str_sw_demo("z")

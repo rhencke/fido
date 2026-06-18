@@ -1100,6 +1100,14 @@ Definition int_sw_demo (x : GoI64) : IO unit :=
     (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
     (println [any (99)%i64]).           (* default → 99 *)
 
+(** N-ary expression switch (3 cases) — confirms the generalised arm lowers >2 cases. *)
+Definition int_sw3_demo (x : GoI64) : IO unit :=
+  int_switch3 x
+    (1)%i64 (println [any (10)%i64])    (* case 1 → 10 *)
+    (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
+    (3)%i64 (println [any (30)%i64])    (* case 3 → 30 *)
+    (println [any (99)%i64]).           (* default → 99 *)
+
 (** Complex numbers (Go's predeclared [complex]/[real]/[imag]): build a [complex128] from
     two float64 components, then extract them.  [go_real (go_complex re im) = re] holds by
     [reflexivity] (see builtins.v); lowers to native [complex(…)]/[real(…)]/[imag(…)]. *)
@@ -1833,6 +1841,8 @@ Definition main_effect : IO unit :=
   int_sw_demo (1)%i64               >>'   (* prints: 10 (case 1, native expression switch) *)
   int_sw_demo (2)%i64               >>'   (* prints: 20 (case 2) *)
   int_sw_demo (5)%i64               >>'   (* prints: 99 (default) *)
+  int_sw3_demo (3)%i64              >>'   (* prints: 30 (case 3, 3-case expression switch) *)
+  int_sw3_demo (8)%i64              >>'   (* prints: 99 (default) *)
   str_sw_demo "a"%string            >>'   (* prints: 1 (case "a", string expression switch) *)
   str_sw_demo "b"%string            >>'   (* prints: 2 (case "b") *)
   str_sw_demo "z"%string            >>'   (* prints: 9 (default) *)
@@ -1903,7 +1913,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes
-  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 str_switch2
+  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
