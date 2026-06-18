@@ -187,6 +187,19 @@ Proof. now vm_compute. Qed.
 Definition float_opp_sign_demo (z : float) : IO unit :=
   println [any (PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp z)) 0)%float].  (* true *)
 
+(** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
+    checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
+    the sign over [PrimFloat.of_uint63]; >= 2^53 rounds exactly like Go).  *Runtime
+    lowering deferred:* the sign-split makes [f64_of_i64]'s body a value-position [if],
+    which the plugin cannot yet lower (the ladder-7b value-position-match gap) -- so it
+    is a proof-only model for now (no demo).  *float64 -> int64 truncation:* a BOUNDARY
+    -- [PrimFloat] has no truncation primitive (like [math.Abs]/[math.Sqrt]). *)
+Example f64_of_i64_pos : PrimFloat.eqb (f64_of_i64 (7)%i64) 7%float = true.
+Proof. now vm_compute. Qed.
+Example f64_of_i64_neg : PrimFloat.eqb (f64_of_i64 (-3)%i64) (PrimFloat.opp 3%float) = true.
+Proof. now vm_compute. Qed.
+
+
 (** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
     Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.
     The wrap is MACHINE-CHECKED (the model is just [land]/[add] on PrimInt63, which

@@ -1080,6 +1080,22 @@ Notation u64c e :=
   (u64_lit ltac:(let v := eval vm_compute in (e : Z) in exact v) ltac:(now vm_compute))
   (only parsing).
 
+(** ---- int64 → float64 conversion (Go spec "Conversions", Phase D) ----
+
+    Go [float64(i)] converts an [int64] to an IEEE double; values past 2^53 ROUND (the
+    double's mantissa), exactly as Go does.  [PrimFloat.of_uint63] converts a uint63
+    MAGNITUDE to a double; the [Z]-carried signed [GoI64] splits the sign.  *PROOF-ONLY*
+    (machine-checked by [f64_of_i64_pos]/[f64_of_i64_neg] in main.v): the sign-split makes
+    the body a value-position [if], which the plugin cannot yet lower (the ladder-7b
+    value-position-match gap), so it is NOT extracted — the intended lowering is Go
+    [float64(i)] once that gap closes.  *Boundary:* float64→int64 TRUNCATION — [PrimFloat]
+    has no truncation primitive, so [int64(f)] cannot be modeled here (a [math.Abs]/
+    [math.Sqrt]-style boundary). *)
+Definition f64_of_i64 (a : GoI64) : float :=
+  if Z.leb 0 (i64raw a)
+  then PrimFloat.of_uint63 (Uint63.of_Z (i64raw a))
+  else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (i64raw a)))).
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world
