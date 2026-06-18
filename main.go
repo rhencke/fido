@@ -805,6 +805,17 @@ func Io_method_demo() {
 	p.Describe()
 }
 
+func (a Point) Point_eqb(b Point) bool {
+	return a.Px == b.Px && a.Py == b.Py
+}
+
+func Struct_eq_demo() {
+	p := Point{3, 4}
+	q := Point{3, 4}
+	r := Point{3, 5}
+	println(p.Point_eqb(q), p.Point_eqb(r))
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -952,6 +963,7 @@ func main() {
 	Labeled_demo()
 	Method_demo()
 	Io_method_demo()
+	Struct_eq_demo()
 	Iface_demo()
 	Typestate_demo()
 	Repinv_demo()

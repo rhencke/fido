@@ -267,8 +267,15 @@ separate tracks.
    Struct invariants are provable in Rocq directly (`point_proj_px`:
    `px (MkPoint a b) = a` by `reflexivity`). Demos: `point_demo`
    (`Point{3,4}` → `3/4/7`), `labeled_demo` (mixed `Flag bool`/`Qty int64` →
-   `true/5`); golden-locked. *Not yet:* embedded fields/promotion, struct tags,
-   field-wise `==`.
+   `true/5`); golden-locked. **Struct COMPARABILITY done (2026-06-18):** Go's struct
+   `==` is FIELD-WISE, so `point_eqb a b := (a.Px==b.Px) && (a.Py==b.Py)` (via the
+   existing `&&`/`==`/projection ops — no value-position `if`, no new lowering) is
+   faithful to `p == q`; `point_eqb_spec` PROVES it decides `Point` equality (the
+   comparability guarantee, from `comparable_TI64` + record injectivity).  It lowers as
+   a value-receiver method `func (a Point) Point_eqb(b Point) bool { return a.Px ==
+   b.Px && a.Py == b.Py }`; `struct_eq_demo` → `true false`, golden-locked.  *Not yet:*
+   embedded fields/promotion, struct tags, the IDIOMATIC direct `p == q` (recognising a
+   struct-equality fn → `==`; tidiness — the field-wise form is already faithful).
 
    **b. Methods (value receiver)** — *done*. A top-level function whose FIRST
    visible parameter is a record (struct) is lowered as a Go value-receiver method:

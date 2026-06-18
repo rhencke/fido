@@ -1181,6 +1181,29 @@ Definition io_method_demo : IO unit :=
   let p := MkPoint (8)%i64 (9)%i64 in
   describe p.   (* prints: 8 / 9 *)
 
+(** Struct COMPARABILITY (Go spec "Comparison operators": struct values are comparable
+    if all fields are; [a == b] is FIELD-WISE).  [point_eqb] is exactly that field-wise
+    comparison — it lowers via the existing [&&]/[==]/projection ops (no value-position
+    [if], no new lowering), so it is faithful to Go's [p == q].  [point_eqb_spec] proves
+    it DECIDES Point equality (the comparability guarantee).  *(The idiomatic direct
+    [p == q] would need the plugin to recognise a struct equality → `==`; tidiness.)* *)
+Definition point_eqb (a b : Point) : bool :=
+  andb (i64_eqb (px a) (px b)) (i64_eqb (py a) (py b)).
+Lemma point_eqb_spec : forall a b, point_eqb a b = true <-> a = b.
+Proof.
+  intros [xa ya] [xb yb]. unfold point_eqb. cbn. split.
+  - intro H. apply andb_prop in H. destruct H as [Hx Hy].
+    apply (comparable_TI64 xa xb) in Hx. apply (comparable_TI64 ya yb) in Hy.
+    subst. reflexivity.
+  - intro H. injection H as -> ->.
+    unfold i64_eqb. rewrite !Z.eqb_refl. reflexivity.
+Qed.
+Definition struct_eq_demo : IO unit :=
+  let p := MkPoint (3)%i64 (4)%i64 in
+  let q := MkPoint (3)%i64 (4)%i64 in
+  let r := MkPoint (3)%i64 (5)%i64 in
+  println [any (point_eqb p q); any (point_eqb p r)].   (* true false *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1369,6 +1392,7 @@ Definition main_effect : IO unit :=
   labeled_demo                  >>'   (* prints: true / 5 *)
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
+  struct_eq_demo                >>'   (* prints: true false (struct ==) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
