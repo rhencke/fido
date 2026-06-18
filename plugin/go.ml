@@ -2629,6 +2629,14 @@ let is_record_tglob = function
   | Tglob (r, _) -> is_record_typename (global_basename r)
   | _ -> false
 
+(* A POINTER receiver (Phase B2): first param is [SPtr R] with R a record.  Lowers the
+   method to [func (recv *R) M(…)] — [pp_type (SPtr R)] is already [*R] — and a call
+   [m p …] to [p.M(…)], exactly the value-receiver path but THROUGH a pointer, so the
+   method can MUTATE its receiver (observed by the caller). *)
+let is_sptr_record_tglob = function
+  | Tglob (r, [arg]) when is_sptr_type r -> is_record_tglob arg
+  | _ -> false
+
 (* Pure (non-IO) function body that RETURNS via a tail-position match.  Go has no
    conditional expression, so a [match]/[if] in value position can't be inlined as
    one; in TAIL position (the whole function body, possibly nested) it lowers to an
@@ -2689,7 +2697,7 @@ let pp_function state name body typ =
   let pp_param (id, t) = pp_mlident id ++ str " " ++ pp_type state t in
   let fn_sig =
     match param_pairs with
-    | (rid, rt) :: rest when is_record_tglob rt ->     (* value-receiver method *)
+    | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
         str "func (" ++ pp_param (rid, rt) ++ str ") " ++
         str (go_export name) ++ str "(" ++
         prlist_with_sep (fun () -> str ", ") pp_param rest
@@ -2964,7 +2972,7 @@ let collect_decls struc =
   (* pass 2 — methods (first visible param is a record; projections excluded) *)
   let register_method r body typ =
     match first_param_type body typ with
-    | Some t when is_record_tglob t
+    | Some t when (is_record_tglob t || is_sptr_record_tglob t)
                   && not (is_record_proj r) && not (is_inlined_ref r) ->
         Hashtbl.replace method_paths (global_path r) ()
     | _ -> ()

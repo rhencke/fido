@@ -322,12 +322,15 @@ B3, which was backwards):**
     Route-B field WRITE (`p.Field = v`) + a mutation-through-pointer demo (caller observes
     it).  (4) B2 pointer-receiver methods on top.  Land 1–4 over successive iterations;
     prefer Route B for the durable model, keep Route A only if a quick POC is wanted first.
-- **B2 — Pointer receivers** (PENDING; needs **Bs**, hence AFTER B3): a method whose
-  receiver is a `Ptr Struct` (a `*T`) and MUTATES the receiver — read the struct via the
-  pointer (field-cells), update a field, write back.  Plugin: detect a `Ptr (record)`
-  first param → emit `func (recv *T) M(...)` (and a call `m p …` → `p.M(…)`), excluding
-  `Ptr` from the existing value-receiver detection.  Witness: a pointer-receiver method
-  mutates the receiver, observed by the caller.
+- **B2 — Pointer receivers** (DONE, 2026-06-18; on **Bs.2**): a method whose receiver is
+  a `SPtr Struct` (a `*T`) and MUTATES the receiver.  The plugin detects a `SPtr (record)`
+  first param → `func (recv *T) M(...)` (the SAME signature/detection path as the value
+  receiver — `is_sptr_record_tglob` added beside `is_record_tglob` in both `pp_function`
+  and `register_method` — since `pp_type (SPtr R) = *R`), and a call `m p …` → `p.M(…)`.
+  `cell_incx` → `func (p *Cell) Cell_incx() { a := p.Cx; p.Cx = a + 1 }`; `ptr_method_demo`
+  mutates a `*Cell` through the method and prints `11`, observed by the caller — backed by
+  `sptr_field_get_set`.  *Pending:* a receiver struct wider than the 2-int64-field
+  `StructRep2` (generalise to N heterogeneous fields).
 - **B4 — Arrays** (PENDING; independent of B2/Bs): VALUE semantics distinct from slices —
   `[N]T` COPIES on assign/pass (mutable elements within one array, but `b := a; b[0]=9`
   leaves `a[0]` unchanged).  Not the cell-heap handle model (that is reference/aliasing);

@@ -892,6 +892,18 @@ func Sptr_demo() {
 	println(a, b)
 }
 
+func (p *Cell) Cell_incx() {
+	a := p.Cx
+	p.Cx = a + 1
+}
+
+func Ptr_method_demo() {
+	p := &Cell{10, 20}
+	p.Cell_incx()
+	a := p.Cx
+	println(a)
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -1050,6 +1062,7 @@ func main() {
 	Struct_eq_demo()
 	Nested_struct_demo()
 	Sptr_demo()
+	Ptr_method_demo()
 	Iface_demo()
 	Typestate_demo()
 	Repinv_demo()

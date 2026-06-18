@@ -320,15 +320,18 @@ separate tracks.
    add (px p) d` by `reflexivity`). Demos: `method_demo` (`Sum_coords`/`Shifted`
    → `7/13/14/27`), `io_method_demo` (`p.Describe()` → `8/9`). The method↔type
    association (the method SET of `T` = every such function) is what (c) checks.
-   *Not yet:* pointer-RECEIVER methods (`func (p *T) M()` that mutates) — but the
-   **struct-pointer substrate they need is now DONE (Bs.2, 2026-06-18):** a heap-backed
-   `SPtr R` → Go `*R` with mutation through the pointer (`sptr_new`→`&R{…}`,
-   `sptr_set_field`→`p.Field = v`, `sptr_get_field`→`p.Field`), backed by field-cell
-   read-after-write + aliasing THEOREMS (`sptr_field_get_set`/`sptr_field_alias`,
-   axiom-free over the heap), sidestepping the `GoTypeTag` struct-tag wall via a
-   data-only `StructRep`; `sptr_demo` mutates a `*Cell` and prints `7 4`.  Pointer
-   receivers = detect a `SPtr (record)` first param → `func (p *T) M(…)` (the same
-   shape as the value-receiver lowering).  Also not yet: method values /
+   **Pointer-RECEIVER methods DONE (B2, 2026-06-18)**, on the struct-pointer substrate
+   (**Bs.2**): a heap-backed `SPtr R` → Go `*R` with mutation through the pointer
+   (`sptr_new`→`&R{…}`, `sptr_set_field`→`p.Field = v`, `sptr_get_field`→`p.Field`),
+   backed by field-cell read-after-write + aliasing THEOREMS (`sptr_field_get_set`/
+   `sptr_field_alias`, axiom-free over the heap), sidestepping the `GoTypeTag` struct-tag
+   wall via a data-only `StructRep`.  A method whose first param is `SPtr (record)` lowers
+   to `func (p *T) M(…)` (the SAME detection/signature path as the value-receiver method,
+   since `pp_type (SPtr R) = *R`), and a call `m p …` → `p.M(…)`; the method MUTATES its
+   receiver, observed by the caller.  `cell_incx` → `func (p *Cell) Cell_incx() { a := p.Cx;
+   p.Cx = a + 1 }`; `ptr_method_demo` mutates a `*Cell` via the method and prints `11`
+   (`sptr_demo` → `7 4`).  *Not yet:* pointer receiver on a struct WIDER than 2 int64
+   fields (generalise `StructRep2` → N heterogeneous fields); method values /
    expressions (`recv.M` as a first-class closure, `T.M`), method-name namespacing
    via Rocq `Module`s (so two types can share a basename like `Area`).
 

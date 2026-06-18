@@ -1384,6 +1384,21 @@ Definition sptr_demo : IO unit :=
   bind (sptr_get_field p 1%uint63 cy TI64) (fun b =>            (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
+(** POINTER-RECEIVER method (Phase B2): a method whose first param is [SPtr Cell] (a
+    [*Cell]) and MUTATES the receiver.  The plugin detects the [SPtr (record)] first
+    param → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] → [p.Cell_incx()]),
+    exactly the value-receiver path but through a pointer.  The mutation is observed by
+    the CALLER (the defining pointer-receiver behaviour), backed by [sptr_field_get_set]. *)
+Definition cell_incx (p : SPtr Cell) : IO unit :=
+  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* read p.Cx *)
+        sptr_set_field p 0%uint63 cx TI64 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
+
+Definition ptr_method_demo : IO unit :=
+  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (10)%i64 (20)%i64)) (fun p =>
+  bind (cell_incx p) (fun _ =>                                (* p.Cell_incx() — mutates p.Cx *)
+  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 11 *)
+  println [any a]))).                                          (* prints: 11 *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1583,6 +1598,7 @@ Definition main_effect : IO unit :=
   struct_eq_demo                >>'   (* prints: true false (struct ==) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
+  ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
@@ -1596,7 +1612,7 @@ Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
-  sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field
+  sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field cell_incx
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
