@@ -183,9 +183,12 @@ separate tracks.
    NaN-propagation and signed-zero corners) → Go `min(a,b)`/`max(a,b)`
    (`minmax64_demo` → `-2 1 18446744073709551615`; `fminmax_demo` floats). Add to
    `builtins.v` + plugin
-   match.  *Deferred (non-import prereqs):* `new` (pointers), `copy`/slice-`clear`/
-   `make([]T,len,cap)` (slice-aliasing model), `complex`/`real`/`imag` (no complex
-   type).
+   match.  `new` (pointers), `copy`/slice-`clear`/`make([]T,len,cap)` (slice aliasing),
+   and `complex`/`real`/`imag` are all now DONE (the last 2026-06-18: `GoComplex128` is a
+   2-field float record rendered as native `complex128`, with `go_complex`/`go_real`/
+   `go_imag` → `complex(re,im)`/`real(c)`/`imag(c)`; struct decl/ctor/projections
+   suppressed, recognised by name; axiom-free, `complex_demo` golden-locked.  *Complex
+   arithmetic via native operators is a clean follow-up.*)
 2. **IO monad** (done) — `bind` lowers to sequential Go; world token erases;
    `panic : GoAny -> IO A` is consistent and short-circuits via `bind_panic_l`;
    `catch`/`with_defer` for panic recovery
