@@ -1022,6 +1022,20 @@ Definition u64_mul (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a * u64raw b)
 Definition u64_eqb (a b : GoU64) : bool := Z.eqb (u64raw a) (u64raw b).
 Definition u64_ltb (a b : GoU64) : bool := Z.ltb (u64raw a) (u64raw b).
 Definition u64_leb (a b : GoU64) : bool := Z.leb (u64raw a) (u64raw b).
+
+(** Direct [>] / [>=] / [!=] completing Go's six comparison operators for the
+    canonical [int64]/[uint64].  We already emit [== < <=] directly; [>]/[>=] are the
+    swapped [</<=] and [!=] is [negb (==)] — SEMANTICALLY identical to the encodings a
+    program would otherwise write, but each is recognized by name and lowered to the
+    DIRECT Go operator ([a > b], not [b < a]), so the emitted Go matches the source
+    operator.  (The [int64] order is signed, the [uint64] order unsigned, inherited
+    from [i64_ltb]/[u64_ltb].) *)
+Definition i64_gtb  (a b : GoI64) : bool := i64_ltb b a.
+Definition i64_geb  (a b : GoI64) : bool := i64_leb b a.
+Definition i64_neqb (a b : GoI64) : bool := negb (i64_eqb a b).
+Definition u64_gtb  (a b : GoU64) : bool := u64_ltb b a.
+Definition u64_geb  (a b : GoU64) : bool := u64_leb b a.
+Definition u64_neqb (a b : GoU64) : bool := negb (u64_eqb a b).
 (* DIVISION: evidence-carrying non-zero divisor (Go panics on /0).  [Z.div] and
    [Z.modulo] are used here (floored) — for non-negative values they agree with
    Go's truncating division, so the result is exact.  No wrap needed: both

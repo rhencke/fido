@@ -472,6 +472,7 @@ let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
     ["lit"; "add"; "sub"; "mul"; "add_nz"; "sub_nz"; "mul_nz"; "eqb"; "ltb"; "leb";
+     "gtb"; "geb"; "neqb";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
@@ -488,6 +489,7 @@ let is_u64_lit r = is_u64_op r "lit"
 let is_any_u64_op r =
   List.exists (is_u64_op r)
     ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb";
+     "gtb"; "geb"; "neqb";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
 (*s Nat arithmetic operation recognition. *)
@@ -692,6 +694,9 @@ let binop_of r =
   else if is_i64_op r "ltb"    then Some (3, " < ")
   else if is_i64_op r "leb"    then Some (3, " <= ")
   else if is_i64_op r "eqb"    then Some (3, " == ")
+  else if is_i64_op r "gtb"    then Some (3, " > ")
+  else if is_i64_op r "geb"    then Some (3, " >= ")
+  else if is_i64_op r "neqb"   then Some (3, " != ")
   (* full-width uint64 (GoU64): same bare Go operators as i64 — Go uint64 wraps
      unsigned-natively at 2^64, arithmetic / bitwise / shift lower identically.
      Comparison is unsigned uint64 </<=/==, which matches [Z.ltb]/[Z.leb] on the
@@ -711,6 +716,9 @@ let binop_of r =
   else if is_u64_op r "ltb"    then Some (3, " < ")
   else if is_u64_op r "leb"    then Some (3, " <= ")
   else if is_u64_op r "eqb"    then Some (3, " == ")
+  else if is_u64_op r "gtb"    then Some (3, " > ")
+  else if is_u64_op r "geb"    then Some (3, " >= ")
+  else if is_u64_op r "neqb"   then Some (3, " != ")
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
   else if fw_is r "ltb" then Some (3, " < ")

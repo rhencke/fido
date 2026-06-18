@@ -38,6 +38,10 @@ func Conv64_demo() {
 	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
 
+func Cmp_ops_demo() {
+	println(5 > 3, 5 >= 5, 5 != 3, 18446744073709551615 > 1)
+}
+
 func Div_nz(n int64, d int64) int64 {
 	return n / d
 }
@@ -949,6 +953,7 @@ func main() {
 	I64_abs_demo()
 	Conv64_demo()
 	Minmax64_demo()
+	Cmp_ops_demo()
 	Float_demo()
 	Float_cmp_demo()
 	Float_nan_demo(0.0)

@@ -126,6 +126,22 @@ Definition conv64_demo : IO unit :=
           ; any (i64_of_u64 (18446744073709551615)%u64)     (* int64(2^64-1) = -1 *)
           ; any (u64_of_i64 (255)%i64) ].                   (* uint64(255)   = 255 *)
 
+(** Direct [>] / [>=] / [!=] (completing Go's six comparison operators for
+    int64/uint64) — each lowers to the DIRECT Go operator, not a swapped encoding.
+    [u64_gtb] uses the UNSIGNED order ([2^64-1 > 1] is true). *)
+Example i64_gtb_t     : i64_gtb  (5)%i64 (3)%i64 = true.   Proof. reflexivity. Qed.
+Example i64_geb_t     : i64_geb  (5)%i64 (5)%i64 = true.   Proof. reflexivity. Qed.
+Example i64_neqb_t    : i64_neqb (5)%i64 (3)%i64 = true.   Proof. reflexivity. Qed.
+Example i64_neqb_f    : i64_neqb (5)%i64 (5)%i64 = false.  Proof. reflexivity. Qed.
+Example u64_gtb_high  : u64_gtb (18446744073709551615)%u64 (1)%u64 = true.  Proof. reflexivity. Qed.
+Example u64_geb_eq    : u64_geb (7)%u64 (7)%u64 = true.    Proof. reflexivity. Qed.
+
+Definition cmp_ops_demo : IO unit :=
+  println [ any (i64_gtb (5)%i64 (3)%i64)                        (* true *)
+          ; any (i64_geb (5)%i64 (5)%i64)                        (* true *)
+          ; any (i64_neqb (5)%i64 (3)%i64)                       (* true *)
+          ; any (u64_gtb (18446744073709551615)%u64 (1)%u64) ].  (* true (unsigned) *)
+
 (** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
     [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
     silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
@@ -1457,6 +1473,7 @@ Definition main_effect : IO unit :=
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
+  cmp_ops_demo                  >>'   (* prints: true true true true *)
   float_demo                    >>'   (* prints: 3.75 / 0.25 (sci) *)
   float_cmp_demo                >>'   (* prints: true / true / true / false *)
   float_nan_demo 0              >>'   (* prints: false / false (NaN unordered) *)
@@ -1551,6 +1568,7 @@ Extraction NoInline
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
+  i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
