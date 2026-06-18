@@ -196,10 +196,14 @@ separate tracks.
    algorithm, which a faithful model must port exactly.*
    **MILESTONE (2026-06-18): every Go PREDECLARED BUILTIN FUNCTION is now modeled** —
    append, cap, clear, close, complex, copy, delete, imag, len, make, max, min, new, panic,
-   print, println, real, recover.  The remaining no-import work is all LANGUAGE FEATURES
-   (control flow done; pending: single-method interfaces, method values, the rune/UTF-8
-   string view, `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational
-   float constants, multiple return values, complex `/`), tracked in the ladder + Tiers.
+   print, println, real, recover.  The remaining no-import work is all LANGUAGE FEATURES;
+   **method values (`p.M`), method expressions (`T.M`), and MULTIPLE RETURN VALUES are now
+   done too** (2026-06-18) — a pair-returning function lowers to a Go multi-value return
+   `(A, B)` / `return a, b` and the caller's destructuring `let '(x,y) :=` to `x, y := f(…)`
+   (`multiret_demo` → `4 3`, axiom-free, golden-locked).  *Still pending:* single-method
+   interfaces (curried-return — blocked by Coq 1-field unboxing), the rune/UTF-8 string view,
+   `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational float constants,
+   complex `/` (Smith's algorithm), N-field struct pointers.  Tracked in the ladder + Tiers.
 2. **IO monad** (done) — `bind` lowers to sequential Go; world token erases;
    `panic : GoAny -> IO A` is consistent and short-circuits via `bind_panic_l`;
    `catch`/`with_defer` for panic recovery
