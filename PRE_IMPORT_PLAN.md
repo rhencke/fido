@@ -337,6 +337,32 @@ B3, which was backwards):**
   a fresh backing per array value, or a functional-update value model.  `copy`/
   `make([]T,len,cap)`/slice-`clear` already landed in **B3c** (the old "B5" — removed).
 
+  **DESIGN (2026-06-18) — the size-in-type problem and the way around it.**  Go `[N]T`
+  carries `N` in the TYPE, but Coq extraction ERASES value-level type indices (a
+  `nat`-indexed array or `Vector.t A n` loses `n`), so `[N]` cannot be recovered from the
+  extracted type — the fundamental blocker.  *Two routes:*
+  (i) **Type-level `N` (general).**  Encode the size as a TYPE, not a value — phantom
+  `AZ : Type` / `AS : Type -> Type`, so `[3]T = arr (AS (AS (AS AZ))) T`; the size SURVIVES
+  extraction (they're types), and the plugin decodes the `AS`-chain to count → `[3]T`.
+  General (any position) but elaborate (the phantom nat + plugin chain-decoder).
+  (ii) **Size-in-LITERAL (minimal, the recommended first slice).**  Keep the size OUT of
+  the Coq type (`GoArray A`, size-erased) and put it in the CONSTRUCTION: `arr_lit (l :
+  list A)` lowers to `[len(l)]T{…}` (the size read off the list, exactly as `slice_of_list`
+  reads it for `[]T{…}`).  A local `a := arr_lit […]` then has its Go type INFERRED from
+  the literal (`a := [3]int64{…}`), so the plugin NEVER emits a bare `[N]T` annotation —
+  the hard part is sidestepped.  *Bounded restriction (fail-loud, principled):* arrays may
+  only appear as local `:=` + index; an array-typed PARAM / FIELD / RETURN (which needs an
+  explicit `[N]T`) is refused — that is exactly route (i)'s job, deferred.  `GoArray` is a
+  recognized-erased type (no struct decl); `arr_lit`/`arr_get_ok`(bounds-checked index,
+  CPS like `slice_at_ok` — arrays panic on OOB too)/`arr_eqb` are recognized BY NAME, so
+  the unboxing of a 1-field wrapper is irrelevant (the ops never go through the type).
+  *Distinct-from-slice properties to demo:* the `[N]T{…}` literal; COMPARABILITY (`arr_eqb`
+  → Go `==`, field-wise — arrays are `==`, slices are NOT); and VALUE-COPY (`b := a; mutate
+  b; a unchanged`) — the last needs the functional-update/mutation step, a later slice.
+  Build order: (1) `arr_lit` + `arr_get_ok` + `arr_eqb` (read-only + comparable); (2)
+  value-copy via a functional element-update; (3) route (i) type-level `N` for non-local
+  arrays.
+
 ----
 
 ## The rest (smaller, mostly independent)
