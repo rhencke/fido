@@ -414,12 +414,17 @@ separate tracks.
    (`dispatch_area`: `area (mk_rect w h) s = …` by `reflexivity`). Demo: `Shape`
    with `Area`/`Perim`, two carriers (`mk_rect`/`mk_square`), `show_shape` dispatching
    `sh.Area(0)`/`sh.Perim(1000)` → `14/1007/20/1010`; golden-locked.
-   *Pending:* a SINGLE-method interface — Coq UNBOXES a one-field record (`{m}` ≡ `m`),
-   so it erases to a bare function and the lowering must emit a curried-return
-   (`func F(p T) func(A)R { return func(a A)R{…} }`) instead of leaking the inner
-   lambda into `F`'s params; tracked. Also pending: nullary (unit-thunk) methods
-   (need unit-arg erasure), and a true Go `interface{…}` keyword form (the vtable
-   struct is the same semantics — Go's interface IS a vtable + erased value).
+   **SINGLE-method interface DONE (2026-06-18)** — Coq UNBOXES a one-field record (`{m}` ≡
+   `m`), erasing the struct.  Rather than the curried-return, we keep it a real dictionary
+   by carrying the underlying value as an explicit SECOND field (`gr_self : GoAny`) — which
+   sidesteps the unboxing AND is more faithful (a Go interface value IS a (method-table,
+   value) pair, and it's consistent with our multi-method dictionary model).  `Greeter
+   { greet : GoI64→GoI64 ; gr_self : GoAny }`, `mk_adder base` → method adds `base` +
+   stashes it; dispatch `greet g x` → `(g).Greet(x)`; `single_iface_demo` → `15`.  No
+   NoInline / extraction quirk (mirrors the `Shape` demo).  *Still pending:* a true 1-FIELD
+   model (the curried-return work); nullary (unit-thunk) methods (need unit-arg erasure);
+   and a true Go `interface{…}` keyword form (the vtable struct is the same semantics —
+   Go's interface IS a vtable + erased value).
    This is the gateway to typestate / "an FSM can't compile to a broken transition"
    and behavioral-satisfaction proofs.
 
