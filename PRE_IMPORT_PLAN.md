@@ -252,7 +252,20 @@ B3, which was backwards):**
     even with different field TYPES), `hstruct_alias` (two pointers to the same `base` see
     each other's field writes — the aliasing a `*T` receiver relies on).  Emits no Go
     (the storage MODEL); the idiomatic lowering is Bs.2.
-  - **Bs.2 — lowering (pending; DESIGN below, 2026-06-18).**  Goal: a heap-backed struct
+  - **Bs.2a — Coq MODEL (DONE, proof-only, 2026-06-18).**  Route B implemented:
+    `StructRep2 R` (a 2-field, int64-fielded record's projections + constructor + the
+    `sr2_eta` record law — DATA only, no `GoTypeTag` field, so NO `tag_eq` wall), `SPtr R`
+    (carries `sp_base` + the rep, so `R` survives extraction for the eventual `*R` lowering),
+    and the ops `sptr_new` (fresh base via `w_next`, write field cells), `sptr_deref` (read
+    cells + reconstruct via `sr2_mk`), `sptr_assign` (whole-struct write), plus the idiomatic
+    FIELD ops `sptr_get_field`/`sptr_set_field` (Go `p.Field` / `p.Field = v`).  THEOREMS
+    (reduced to Bs.1, axiom-free over the heap interface): `sptr_field_get_set` (field
+    read-after-write through the pointer = `hfield_get_set_same`), `sptr_field_alias` (two
+    handles to the same base see each other's writes = `hstruct_alias`).  *Deferred:* the
+    whole-struct `sptr_deref`-after-`sptr_assign` round-trip (reassemble via `sr2_eta` across
+    both cells) — true, but its proof needs fiddlier nested-`run_bind` sequencing; the
+    field-level laws already capture the mutation/aliasing substance.
+  - **Bs.2b — lowering (pending).**  Goal: a heap-backed struct
     ↔ Go `*Struct` with `c.Field` read/write, runtime-demonstrated, that B2 builds on.
     The hard part is ENTIRELY the lowering (the proof model is Bs.1); two routes, with
     the findings that constrain them:

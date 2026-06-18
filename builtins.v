@@ -2819,6 +2819,92 @@ Proof.
   apply (ref_sel_upd_same (mkRef (PrimInt63.add (hs_base h') k) tag) v w).
 Qed.
 
+(** ---- Struct POINTERS (Phase Bs.2): a heap-backed struct ↔ Go [*R] ----
+
+    A [*R] is the [base] of the struct's field-cell bundle (Bs.1) PLUS a [StructRep]
+    — the per-record DATA (its field projections + constructor + the record eta law)
+    that lets the generic ops DECOMPOSE a struct value into field cells and RECONSTRUCT
+    it.  Coq has no generic record reflection, so [StructRep] is the one bit of
+    per-struct data; it is DATA-only (the function fields are plain projections, NOT
+    [GoTypeTag] — so it does NOT reintroduce the [tag_eq] wall).  [SPtr R] carries the
+    [StructRep] in a field so the type parameter [R] survives extraction (the plugin
+    needs it to emit [*R], the same trick [Ptr] uses with [p_tag]).  This is the model
+    for a 2-field, [int64]-fielded struct; wider/heterogeneous reps generalise it.
+    Lowers (Bs.2 lowering, separate): [SPtr R] → [*R], [sptr_new] → [&R{…}],
+    [sptr_deref] → [*p], [sptr_assign] → [*p = R{…}], reusing the [Ptr] arms. *)
+Record StructRep2 (R : Type) := mkSR2 {
+  sr2_f0 : R -> GoI64 ;                                   (* field 0 projection *)
+  sr2_f1 : R -> GoI64 ;                                   (* field 1 projection *)
+  sr2_mk : GoI64 -> GoI64 -> R ;                          (* constructor *)
+  sr2_eta : forall v, sr2_mk (sr2_f0 v) (sr2_f1 v) = v ;  (* the record eta law *)
+}.
+Arguments mkSR2 {R} _ _ _ _.
+Arguments sr2_f0 {R} _ _.  Arguments sr2_f1 {R} _ _.
+Arguments sr2_mk {R} _ _ _.  Arguments sr2_eta {R} _ _.
+
+Record SPtr (R : Type) := mkSPtr { sp_base : int ; sp_rep : StructRep2 R }.
+Arguments mkSPtr {R} _ _.
+Arguments sp_base {R} _.  Arguments sp_rep {R} _.
+
+Definition sptr_hs {R} (p : SPtr R) : HStruct := mkHStruct (sp_base p).
+
+(** [sptr_new rep v] — Go [p := &R{…}]: allocate a FRESH base, write each field cell
+    from [v]'s projections, bump the allocator by the field count (2), return the
+    pointer carrying [rep]. *)
+Definition sptr_new {R} (rep : StructRep2 R) (v : R) : IO (SPtr R) :=
+  fun w =>
+    let l := w_next w in
+    let p := mkSPtr l rep in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) in  (* bump allocator *)
+    let w0 := ref_upd (hfield_cell (sptr_hs p) 0%uint63 TI64) (sr2_f0 rep v) wa in
+    let w1 := ref_upd (hfield_cell (sptr_hs p) 1%uint63 TI64) (sr2_f1 rep v) w0 in
+    ORet p w1.
+
+(** [sptr_deref p] — Go [*p]: read both field cells, RECONSTRUCT the struct via [rep]. *)
+Definition sptr_deref {R} (p : SPtr R) : IO R :=
+  bind (hfield_get (sptr_hs p) 0%uint63 TI64) (fun a =>
+  bind (hfield_get (sptr_hs p) 1%uint63 TI64) (fun b =>
+  ret (sr2_mk (sp_rep p) a b))).
+
+(** [sptr_assign p v] — Go [*p = R{…}]: write both field cells from [v] (whole-struct
+    write through the pointer; mutation is observed by any handle to the same base). *)
+Definition sptr_assign {R} (p : SPtr R) (v : R) : IO unit :=
+  bind (hfield_set (sptr_hs p) 0%uint63 TI64 (sr2_f0 (sp_rep p) v)) (fun _ =>
+        hfield_set (sptr_hs p) 1%uint63 TI64 (sr2_f1 (sp_rep p) v)).
+
+(** FIELD-level access through the pointer — Go [p.Field] / [p.Field = v] (the idiomatic
+    form the Bs.2 lowering targets).  [idx] selects the field cell, [proj] names it (for
+    the plugin's [proj → field-name] map) and SPECIFIES the read (it equals [proj] of the
+    pointee).  Built directly on the field-cell substrate. *)
+Definition sptr_get_field {R F} (p : SPtr R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+  hfield_get (sptr_hs p) idx ftag.
+Definition sptr_set_field {R F} (p : SPtr R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+  hfield_set (sptr_hs p) idx ftag v.
+
+(** Field read-after-write THROUGH the pointer — a THEOREM: after [sptr_set_field p idx
+    proj ftag v], reading the SAME field returns [v].  The mutation-through-pointer that
+    a [*T] receiver relies on, reduced directly to [hfield_get_set_same]. *)
+Lemma sptr_field_get_set : forall {R F} (p : SPtr R) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (v : F),
+  bind (sptr_set_field p idx proj ftag v) (fun _ => sptr_get_field p idx proj ftag) =
+  bind (sptr_set_field p idx proj ftag v) (fun _ => ret v).
+Proof.
+  intros. unfold sptr_set_field, sptr_get_field. apply hfield_get_set_same.
+Qed.
+
+(** Two handles to the SAME pointer (same base) see each other's field writes — the
+    ALIASING a [*T] receiver relies on, reduced to [hstruct_alias].  (The whole-struct
+    [sptr_deref]-after-[sptr_assign] round-trip — reassembling via [sr2_eta] across both
+    field cells — follows from this + field independence; deferred, fiddlier [run_bind]
+    sequencing.) *)
+Lemma sptr_field_alias : forall {R F} (p q : SPtr R) (idx : int)
+    (ftag : GoTypeTag F) (v : F) (w : World),
+  sp_base p = sp_base q ->
+  ref_sel (hfield_cell (sptr_hs p) idx ftag) (ref_upd (hfield_cell (sptr_hs q) idx ftag) v w) = v.
+Proof.
+  intros R F p q idx ftag v w Hb. apply hstruct_alias. unfold sptr_hs. cbn. exact Hb.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
