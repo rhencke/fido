@@ -1204,6 +1204,15 @@ Definition struct_eq_demo : IO unit :=
   let r := MkPoint (3)%i64 (5)%i64 in
   println [any (point_eqb p q); any (point_eqb p r)].   (* true false *)
 
+(** NESTED struct fields (Go struct composition): a struct with a field whose type is
+    another struct.  Tests that the field-type printer handles a struct-typed field and
+    that chained projections lower to chained Go field access [o.W_inner.Iv]. *)
+Record Inner := MkInner { iv : GoI64 ; ikind : GoI64 }.   (* 2 fields: avoid Coq's single-field unboxing *)
+Record Wrap  := MkWrap { w_inner : Inner ; wz : GoI64 }.
+Definition nested_struct_demo : IO unit :=
+  let o := MkWrap (MkInner (5)%i64 (1)%i64) (9)%i64 in
+  println [any (iv (w_inner o)); any (wz o)].   (* 5 9 (chained: o.W_inner.Iv, o.Wz) *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1393,6 +1402,7 @@ Definition main_effect : IO unit :=
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   struct_eq_demo                >>'   (* prints: true false (struct ==) *)
+  nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)

@@ -816,6 +816,21 @@ func Struct_eq_demo() {
 	println(p.Point_eqb(q), p.Point_eqb(r))
 }
 
+type Inner struct {
+	Iv    int64
+	Ikind int64
+}
+
+type Wrap struct {
+	W_inner Inner
+	Wz      int64
+}
+
+func Nested_struct_demo() {
+	o := Wrap{Inner{5, 1}, 9}
+	println((o.W_inner).Iv, o.Wz)
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -964,6 +979,7 @@ func main() {
 	Method_demo()
 	Io_method_demo()
 	Struct_eq_demo()
+	Nested_struct_demo()
 	Iface_demo()
 	Typestate_demo()
 	Repinv_demo()

@@ -273,9 +273,18 @@ separate tracks.
    faithful to `p == q`; `point_eqb_spec` PROVES it decides `Point` equality (the
    comparability guarantee, from `comparable_TI64` + record injectivity).  It lowers as
    a value-receiver method `func (a Point) Point_eqb(b Point) bool { return a.Px ==
-   b.Px && a.Py == b.Py }`; `struct_eq_demo` → `true false`, golden-locked.  *Not yet:*
-   embedded fields/promotion, struct tags, the IDIOMATIC direct `p == q` (recognising a
-   struct-equality fn → `==`; tidiness — the field-wise form is already faithful).
+   b.Px && a.Py == b.Py }`; `struct_eq_demo` → `true false`, golden-locked.  **NESTED
+   struct fields done (2026-06-18):** a struct with a struct-typed field composes — `Wrap
+   { w_inner : Inner ; wz }` lowers to `type Wrap struct { W_inner Inner; Wz int64 }`, the
+   nested literal `MkWrap (MkInner 5 1) 9` → `Wrap{Inner{5, 1}, 9}`, and the chained
+   projection `iv (w_inner o)` → `(o.W_inner).Iv` — compiles; `nested_struct_demo` → `5 9`,
+   golden-locked.  ⚠ **single-field-record FAIL-LOUD GAP (found 2026-06-18):** a 1-field
+   user record (`Inner { iv }`) is UNBOXED by Coq (`Inner ≡ GoI64`), but the plugin still
+   emits a `W_inner Inner` field referencing the now-nonexistent type → UNCOMPILABLE Go
+   (`undefined: Inner`) — a meta-invariant (fail-loud) violation, NOT yet refused at
+   extraction (the plugin can't see Coq's unboxing).  Workaround: use ≥2 fields (the
+   demo does).  *Not yet:* embedded fields/promotion (anonymous), struct tags, the
+   single-field-struct distinctness (ladder 9c), the IDIOMATIC direct `p == q` (tidiness).
 
    **b. Methods (value receiver)** — *done*. A top-level function whose FIRST
    visible parameter is a record (struct) is lowered as a Go value-receiver method:
