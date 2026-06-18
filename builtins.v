@@ -2182,6 +2182,35 @@ Definition i64_max (a b : GoI64) : GoI64 := if i64_ltb a b then b else a.
 Definition u64_min (a b : GoU64) : GoU64 := if u64_ltb a b then a else b.
 Definition u64_max (a b : GoU64) : GoU64 := if u64_ltb a b then b else a.
 
+(** [min]/[max] on FLOAT (Go spec "min and max" — the float rules).  A naive
+    [if a < b] is WRONG on two IEEE corners that Go's builtin handles, so we model
+    them faithfully (the body is suppressed; each call lowers to Go's [min]/[max],
+    which does the same):
+    - NaN PROPAGATION: if either argument is a NaN, the result is a NaN.  Detected by
+      [eqb x x = false] (only NaN is unequal to itself).
+    - SIGNED ZERO: when the two are numerically EQUAL and are [±0], [max] yields [+0]
+      and [min] yields [-0] (Go treats [+0 > -0]).  Detected by [eqb a 0] (both are
+      [±0]) and [1/a < 0] (a is the negative zero, since [1 / -0 = -inf]).
+    Otherwise the smaller / larger by [ltb].  Machine-checked on all these corners. *)
+Definition f64_min (a b : float) : float :=
+  if negb (PrimFloat.eqb a a) then a            (* a is NaN → NaN *)
+  else if negb (PrimFloat.eqb b b) then b       (* b is NaN → NaN *)
+  else if PrimFloat.ltb a b then a
+  else if PrimFloat.ltb b a then b
+  else (* numerically equal (incl. ±0) *)
+    if PrimFloat.eqb a 0
+    then (if PrimFloat.ltb (PrimFloat.div 1 a) 0 then a else b)   (* min wants -0 *)
+    else a.
+Definition f64_max (a b : float) : float :=
+  if negb (PrimFloat.eqb a a) then a            (* a is NaN → NaN *)
+  else if negb (PrimFloat.eqb b b) then b       (* b is NaN → NaN *)
+  else if PrimFloat.ltb a b then b
+  else if PrimFloat.ltb b a then a
+  else (* numerically equal (incl. ±0) *)
+    if PrimFloat.eqb a 0
+    then (if PrimFloat.ltb (PrimFloat.div 1 a) 0 then b else a)   (* max wants +0 *)
+    else a.
+
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)

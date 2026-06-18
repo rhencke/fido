@@ -226,6 +226,25 @@ Proof. now vm_compute. Qed.
 Definition float_opp_sign_demo (z : float) : IO unit :=
   println [any (PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp z)) 0)%float].  (* true *)
 
+(** Float [min]/[max] (Go 1.21 builtins, float rules) → Go [min(a,b)]/[max(a,b)].
+    Faithful on the two IEEE corners Go's builtin handles: NaN PROPAGATION (a NaN arg
+    gives a NaN result — witnessed via [eqb r r = false]) and SIGNED ZERO
+    ([min(-0,+0) = -0], [max(-0,+0) = +0] — witnessed via [1/r], which is [-inf < 0]
+    iff [r] is [-0]).  Plus the ordinary smaller/larger. *)
+Example f64_min_ord     : f64_min 3 5 = 3%float. Proof. now vm_compute. Qed.
+Example f64_max_ord     : f64_max 3 5 = 5%float. Proof. now vm_compute. Qed.
+Example f64_min_nan     : PrimFloat.eqb (f64_min (PrimFloat.div 0 0) 1) (f64_min (PrimFloat.div 0 0) 1) = false.
+Proof. now vm_compute. Qed.
+Example f64_max_nan_b   : PrimFloat.eqb (f64_max 1 (PrimFloat.div 0 0)) (f64_max 1 (PrimFloat.div 0 0)) = false.
+Proof. now vm_compute. Qed.
+Example f64_min_negzero : PrimFloat.ltb (PrimFloat.div 1 (f64_min (PrimFloat.opp 0) 0)) 0 = true.
+Proof. now vm_compute. Qed.
+Example f64_max_poszero : PrimFloat.ltb (PrimFloat.div 1 (f64_max (PrimFloat.opp 0) 0)) 0 = false.
+Proof. now vm_compute. Qed.
+
+Definition fminmax_demo : IO unit :=
+  println [ any (f64_min 3 5)%float ; any (f64_max 3 5)%float ].   (* min/max of two floats *)
+
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
     checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
     the sign over [PrimFloat.of_uint63]; >= 2^53 rounds exactly like Go).  *Runtime
@@ -1443,6 +1462,7 @@ Definition main_effect : IO unit :=
   float_nan_demo 0              >>'   (* prints: false / false (NaN unordered) *)
   float_opp_demo                >>'   (* prints: -1.5 / 2.0 *)
   float_opp_sign_demo 0         >>'   (* prints: true (opp made -0 at runtime) *)
+  fminmax_demo                  >>'   (* prints: min/max of 3.0 5.0 *)
   u8_demo                       >>'   (* prints: 44 / 1 / 255 / true *)
   i8_demo                       >>'   (* prints: -106 / 127 / -100 / true *)
   u16_demo                      >>'   (* prints: 4464 / 16960 / -25536 *)
@@ -1530,7 +1550,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
-  i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max
+  i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr

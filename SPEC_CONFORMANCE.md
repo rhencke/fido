@@ -477,9 +477,13 @@ via `go_min`/`go_max`, and on the canonical full-width `int64`/`uint64` via
 lowers to Go's `min(a,b)`/`max(a,b)`; machine-checked `spec_go_min`/`spec_go_max`,
 `spec_i64_min`/`spec_i64_max`, and `spec_u64_max_high`/`spec_u64_min_high` — the
 last two pin the UNSIGNED order at `2^64-1` where a signed order would disagree;
-`minmax64_demo` prints `-2 1 18446744073709551615`) and **`clear`** (maps; empties
-the map, get-after-clear is a theorem `map_get_clear`).  `builtins_demo` prints
-`3 5 / 3 / 0`.
+`minmax64_demo` prints `-2 1 18446744073709551615`; and on **`float`** via
+`f64_min`/`f64_max` — faithful on the two IEEE corners Go's builtin handles: NaN
+PROPAGATION (`f64_min_nan`/`f64_max_nan_b`: a NaN arg gives a NaN result) and
+SIGNED ZERO (`f64_min_negzero`/`f64_max_poszero`: `min(-0,+0)=-0`, `max(-0,+0)=+0`),
+which a naive `if a<b` gets wrong; `fminmax_demo` prints `+3.000000e+000
++5.000000e+000`) and **`clear`** (maps; empties the map, get-after-clear is a
+theorem `map_get_clear`).  `builtins_demo` prints `3 5 / 3 / 0`.
 **Deferred — gated on a non-import prerequisite (not difficulty):** `new` (returns
 `*T` — needs the pointer type), `copy` (mutates `dst`'s backing array — needs the
 slice-aliasing/mutation model, Tier 3 #8a), `make([]T,len,cap)` and slice-`clear`

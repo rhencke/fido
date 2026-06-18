@@ -166,9 +166,11 @@ separate tracks.
 1. **Builtins** (done) — `println`, `print`, `panic`, `any`, primitive types,
    `GoSlice`, `GoString`, `GoMap`, `type_assert`, plus the import-free predeclared
    `make([]T,n)`), and Go 1.21 `min`/`max`/`clear`. `min`/`max` cover `int`
-   (`go_min`/`go_max`) AND the canonical `int64`/`uint64` (`i64_min`/`i64_max` signed,
-   `u64_min`/`u64_max` unsigned) → Go `min(a,b)`/`max(a,b)` (`minmax64_demo` →
-   `-2 1 18446744073709551615`). Add to `builtins.v` + plugin
+   (`go_min`/`go_max`), the canonical `int64`/`uint64` (`i64_min`/`i64_max` signed,
+   `u64_min`/`u64_max` unsigned), AND `float` (`f64_min`/`f64_max` — faithful on the
+   NaN-propagation and signed-zero corners) → Go `min(a,b)`/`max(a,b)`
+   (`minmax64_demo` → `-2 1 18446744073709551615`; `fminmax_demo` floats). Add to
+   `builtins.v` + plugin
    match.  *Deferred (non-import prereqs):* `new` (pointers), `copy`/slice-`clear`/
    `make([]T,len,cap)` (slice-aliasing model), `complex`/`real`/`imag` (no complex
    type).
@@ -896,11 +898,16 @@ resting state.)**
     *Pending:* wrap `int` itself as a distinct record (tied to the Z-width model);
     explicit numeric CONVERSIONS (`int(x)`, `uint8(y)`) — now load-bearing, since
     distinct types can't mix without them (the Conversions spec section).
-11. **Float gaps — *comparison + unary negation now done; float32 + conversions +
-    abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered behaviour)
-    and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked
+11. **Float gaps — *comparison + unary negation + min/max now done; float32 +
+    conversions + abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered
+    behaviour) and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked
     `opp_zero_is_neg` + runtime `float_opp_sign_demo`) are now emitted and proven
-    faithful (see #9).  *Still open:* `float32` is an opaque axiom (no native Rocq
+    faithful (see #9).  **`min`/`max` on float DONE (2026-06-18):** `f64_min`/`f64_max`
+    → Go `min(a,b)`/`max(a,b)`, faithful on the two IEEE corners Go's builtin handles —
+    NaN PROPAGATION (a NaN arg → NaN result) and SIGNED ZERO (`min(-0,+0)=-0`,
+    `max(-0,+0)=+0`), which a naive `if a<b` gets wrong; machine-checked
+    `f64_min_nan`/`f64_max_nan_b`/`f64_min_negzero`/`f64_max_poszero`, `fminmax_demo`.
+    *Still open:* `float32` is an opaque axiom (no native Rocq
     f32); int↔float / float↔float conversions are absent; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
