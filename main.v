@@ -1129,6 +1129,14 @@ Definition complex_mul_demo : IO unit :=
   let p := complex_mul a b in
   println [any (go_real p); any (go_imag p)].   (* -5 10 *)
 
+(** Complex [/] (Smith's algorithm = gc's runtime.complex128div, native operator):
+    (1+2i)/(3+4i) = 0.44 + 0.08i. *)
+Definition complex_div_demo : IO unit :=
+  let a := go_complex (1.0)%float (2.0)%float in
+  let b := go_complex (3.0)%float (4.0)%float in
+  let q := complex_div a b in
+  println [any (go_real q); any (go_imag q)].   (* 0.44 0.08 *)
+
 (** Complex [==] / [!=] (component-wise, native operators): equal complexes compare equal,
     a differing imaginary part makes them unequal. *)
 Definition complex_cmp_demo : IO unit :=
@@ -1831,6 +1839,7 @@ Definition main_effect : IO unit :=
   complex_demo                      >>'   (* prints: the two components of complex(1.5, 2.5) *)
   complex_arith_demo                >>'   (* prints: 4 6 -2 -2 components of the sum/difference *)
   complex_mul_demo                  >>'   (* prints: -5 10 (complex multiply) *)
+  complex_div_demo                  >>'   (* prints: 0.44 0.08 (complex divide, Smith's) *)
   complex_neg_demo                  >>'   (* prints: -3 -4 (complex unary negation) *)
   complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
@@ -1895,7 +1904,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 str_switch2
-  go_complex go_real go_imag complex_add complex_sub complex_mul complex_neg complex_eqb complex_neqb
+  go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

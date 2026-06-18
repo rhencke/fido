@@ -2760,6 +2760,31 @@ Example complex_neg_components : forall c,
   /\ go_imag (complex_neg c) = PrimFloat.opp (go_imag c).
 Proof. intros. split; reflexivity. Qed.
 
+(** Complex DIVIDE — Go's [/] on complex128.  Unlike [*] (a naive inline), gc lowers [/]
+    to [runtime.complex128div], which uses SMITH'S scaling algorithm (divide through by the
+    larger-magnitude denominator component, for numerical stability).  This model is exactly
+    that algorithm — operand-for-operand the gc source — so it matches Go for FINITE
+    divisors, and it lowers to the native Go [/].  *(Go's runtime ALSO has an Annex-G-style
+    Inf/NaN recovery postamble for DEGENERATE divisors — zero / Inf / NaN denominators; the
+    native lowering gets that for free at runtime, but this Coq MODEL does not replicate it,
+    a documented model gap on degenerate inputs.)* *)
+Definition complex_div (n m : GoComplex128) : GoComplex128 :=
+  let nr := c_re n in let ni := c_im n in
+  let mr := c_re m in let mi := c_im m in
+  (* branch on which denominator component is larger in magnitude — Go uses
+     [|mr| >= |mi|]; we use the squared form [mi² <= mr²], equivalent for finite values
+     and avoiding [PrimFloat.abs] (an extraction-axiom). *)
+  if PrimFloat.leb (PrimFloat.mul mi mi) (PrimFloat.mul mr mr) then
+    let ratio := PrimFloat.div mi mr in
+    let denom := PrimFloat.add mr (PrimFloat.mul ratio mi) in
+    MkComplex128 (PrimFloat.div (PrimFloat.add nr (PrimFloat.mul ni ratio)) denom)
+                 (PrimFloat.div (PrimFloat.sub ni (PrimFloat.mul nr ratio)) denom)
+  else
+    let ratio := PrimFloat.div mr mi in
+    let denom := PrimFloat.add mi (PrimFloat.mul ratio mr) in
+    MkComplex128 (PrimFloat.div (PrimFloat.add (PrimFloat.mul nr ratio) ni) denom)
+                 (PrimFloat.div (PrimFloat.sub (PrimFloat.mul ni ratio) nr) denom).
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.
