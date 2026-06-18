@@ -918,6 +918,22 @@ Definition i32_mul (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.mul (i32r
 Definition i32_eqb (a b : GoI32) : bool := PrimInt63.eqb (i32raw a) (i32raw b).
 Definition i32_ltb (a b : GoI32) : bool := Sint63.ltb (i32raw a) (i32raw b).
 Definition i32_leb (a b : GoI32) : bool := Sint63.leb (i32raw a) (i32raw b).
+
+(** Direct [>] / [>=] / [!=] for the remaining fixed widths (u16/i16/u32/i32),
+    completing Go's six comparison operators for EVERY integer type.  Same trivial
+    pattern as u8/i8 (swapped [</<=], [negb (==)]) recognized by the generic [fw_is]. *)
+Definition u16_gtb  (a b : GoU16) : bool := u16_ltb b a.
+Definition u16_geb  (a b : GoU16) : bool := u16_leb b a.
+Definition u16_neqb (a b : GoU16) : bool := negb (u16_eqb a b).
+Definition i16_gtb  (a b : GoI16) : bool := i16_ltb b a.
+Definition i16_geb  (a b : GoI16) : bool := i16_leb b a.
+Definition i16_neqb (a b : GoI16) : bool := negb (i16_eqb a b).
+Definition u32_gtb  (a b : GoU32) : bool := u32_ltb b a.
+Definition u32_geb  (a b : GoU32) : bool := u32_leb b a.
+Definition u32_neqb (a b : GoU32) : bool := negb (u32_eqb a b).
+Definition i32_gtb  (a b : GoI32) : bool := i32_ltb b a.
+Definition i32_geb  (a b : GoI32) : bool := i32_leb b a.
+Definition i32_neqb (a b : GoI32) : bool := negb (i32_eqb a b).
 Definition i32_and    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.land (i32raw a) (i32raw b))).
 Definition i32_or     (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lor  (i32raw a) (i32raw b))).
 Definition i32_xor    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lxor (i32raw a) (i32raw b))).

@@ -327,10 +327,13 @@ Definition i8_demo : IO unit :=
 Example u8_gtb_t  : u8_gtb (u8_lit 200 eq_refl) (u8_lit 100 eq_refl) = true. Proof. now vm_compute. Qed.
 Example i8_geb_eq : i8_geb (i8_lit 5 eq_refl) (i8_lit 5 eq_refl) = true.     Proof. now vm_compute. Qed.
 Example i8_neqb_t : i8_neqb (i8_lit 5 eq_refl) (i8_lit (-5) eq_refl) = true. Proof. now vm_compute. Qed.
+Example u32_gtb_t : u32_gtb (u32_lit 4000000000 eq_refl) (u32_lit 1 eq_refl) = true. Proof. now vm_compute. Qed.
+Example i16_neqb_t: i16_neqb (i16_lit 5 eq_refl) (i16_lit (-5) eq_refl) = true. Proof. now vm_compute. Qed.
 Definition fw_cmp_demo : IO unit :=
   println [ any (u8_gtb (u8_lit 200 eq_refl) (u8_lit 100 eq_refl))   (* 200 > 100 → true *)
           ; any (i8_geb (i8_lit 5 eq_refl) (i8_lit 5 eq_refl))       (* 5 >= 5 → true *)
-          ; any (i8_neqb (i8_lit 5 eq_refl) (i8_lit (-5) eq_refl)) ].  (* 5 != -5 → true *)
+          ; any (i8_neqb (i8_lit 5 eq_refl) (i8_lit (-5) eq_refl))   (* 5 != -5 → true *)
+          ; any (u32_gtb (u32_lit 4000000000 eq_refl) (u32_lit 1 eq_refl)) ].  (* big > 1 → true *)
 
 (** uint16 / int16: the SAME template at width 16, fully faithful on the carrier
     (16-bit products are [< 2^32], far below [2^62], so [mul] is exact).  The
@@ -1684,6 +1687,8 @@ Extraction NoInline
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
+  u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb
+  u32_gtb u32_geb u32_neqb i32_gtb i32_geb i32_neqb
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr

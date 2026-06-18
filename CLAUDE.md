@@ -860,10 +860,10 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    SWAPPED `leb b a`, NOT `¬(<)`** — with a NaN operand `a >= b` is FALSE but `¬(a<b)`
    would be TRUE (machine-checked `f64_geb_nan = false`, `f64_neqb_nan = true`).
    Strings have a total order, so `str_geb = ¬(<)` is fine.  **Narrow fixed widths DONE
-   too (2026-06-18):** `u8_gtb`/`geb`/`neqb`, `i8_*` (the plugin's `fw_is` + `parse_fixed_width`
-   recognize the op on EVERY width, so `u16`/`i16`/`u32`/`i32` are identical Rocq one-liners
-   away); `fw_cmp_demo` → `true true true`.  So the six comparison operators now emit
-   DIRECTLY for every integer / string / float type.
+   too (2026-06-18):** `u8`/`i8`/`u16`/`i16`/`u32`/`i32` all have `_gtb`/`_geb`/`_neqb`
+   (the plugin's `fw_is` + `parse_fixed_width` recognize the op on EVERY width);
+   `fw_cmp_demo` → `true true true true`.  So all six comparison operators now emit
+   DIRECTLY for EVERY integer / string / float type — the comparison surface is COMPLETE.
 
 ### Tier 4 — operations to model on the remaining types
 **(There is no "acceptably unmodeled" — decided 2026-06-14.  The point of the
