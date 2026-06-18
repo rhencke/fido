@@ -230,8 +230,12 @@ separate tracks.
      after the scrutinee as (tag, continuation) PAIRS then the default, so higher arities
      need no new plugin code.  `tsw3_demo` → `true 1` / `hi 2` / `5 3` (bool/string/int64;
      the int64 case driven by a typed func return so it boxes as `int64`, a faithful
-     int-vs-int64 distinction).  *Not yet:* a `case T1, T2:` multi-type arm (binds the
-     value at the interface type, not narrowed).
+     int-vs-int64 distinction).  **Multi-type `case T1, T2:` DONE (2026-06-18):**
+     `type_switch_or2` — one arm matching EITHER of two tags; in Go the value is not
+     narrowed (keeps the interface type) so it's a value-less thunk `k : IO B`, run when
+     the type is `t1` OR `t2`; machine-checked first/second/default; lowers to native
+     `case bool, string:`.  `tsw_or_demo` → `1` / `1` / `0`.  **Type switches are now
+     complete** (2-case, N-ary, multi-type).
    - design point: an IO-valued branch `bind (match …) k` must thread the
      continuation `k` through every arm — emit each arm's statements then `k`
      in that branch (duplicate, or hoist the result into a var), never a value
