@@ -1070,6 +1070,27 @@ Infix "<=?" := u64_leb : u64_scope.
 Fail Definition i64_lit_oob : GoI64 := (9223372036854775808)%i64.   (* = 2^63 *)
 Fail Definition u64_lit_oob : GoU64 := (18446744073709551616)%u64.  (* = 2^64 *)
 
+(** ---- Full-width int64 <-> uint64 CONVERSIONS (Go spec "Conversions") ----
+    Go's [uint64(x)] / [int64(x)] between the two 64-bit integer types REINTERPRET
+    the same 64-bit two's-complement pattern: the value is unchanged when it fits
+    the target, otherwise it is the mod-2^64 representative (a negative int64 maps to
+    its 2^64-complement uint64; a uint64 >= 2^63 maps to a negative int64).  The
+    Z-carried model makes this EXACT — re-normalise the raw [Z] into the target's
+    range — with NO rounding or loss (unlike int<->float).  [int_of_FW]/[FW_of_int]
+    cover the NARROW widths; these are the full-width pair (distinct because [GoU64]
+    lowers to a real Go [uint64], not [int64]). *)
+Definition u64_of_i64 (a : GoI64) : GoU64 := MkU64 (wrapU64 (i64raw a)).
+Definition i64_of_u64 (a : GoU64) : GoI64 := MkI64 (wrap64  (u64raw a)).
+
+(* Reinterpret is mod-2^64 on both sides, so the two normalisers AGREE after a
+   round-trip: [wrap64 (wrapU64 z) = wrap64 z] (both reduce mod 2^64 first). *)
+Lemma wrap64_wrapU64 : forall z, wrap64 (wrapU64 z) = wrap64 z.
+Proof.
+  intro z. unfold wrap64, wrapU64.
+  rewrite Zplus_mod_idemp_l.   (* (z mod 2^64 + 2^63) mod 2^64 = (z + 2^63) mod 2^64 *)
+  reflexivity.
+Qed.
+
 (** ---- A5: untyped INTEGER constants (Go spec "Constants") ----
 
     A Go untyped constant is ARBITRARY-PRECISION: constant arithmetic is exact (no

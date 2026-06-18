@@ -106,6 +106,26 @@ Definition i64_abs_demo : IO unit :=
           ; any (i64_abs (-9223372036854775808)%i64) ].
   (* prints: 7 7 -9223372036854775808  (|MININT| wraps to MININT) *)
 
+(** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
+    two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
+    [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
+    machine-checked below; faithful by [wrap64_wrapU64] (the two normalisers agree
+    mod 2^64).  Lowers to a small NAMED function
+    [func U64_of_i64(a int64) uint64 { return uint64(a) }] so the cast applies to the
+    parameter VARIABLE -- Go rejects [uint64(-1)] on an untyped CONSTANT but accepts it
+    on an int64-typed value, so the demo's literals work directly. *)
+Example conv_u64_of_neg1 : u64_of_i64 (-1)%i64 = (18446744073709551615)%u64.
+Proof. vm_compute. reflexivity. Qed.
+Example conv_i64_of_max  : i64_of_u64 (18446744073709551615)%u64 = (-1)%i64.
+Proof. vm_compute. reflexivity. Qed.
+Example conv_roundtrip   : i64_of_u64 (u64_of_i64 (-12345)%i64) = (-12345)%i64.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition conv64_demo : IO unit :=
+  println [ any (u64_of_i64 (-1)%i64)                       (* uint64(-1)    = 18446744073709551615 *)
+          ; any (i64_of_u64 (18446744073709551615)%u64)     (* int64(2^64-1) = -1 *)
+          ; any (u64_of_i64 (255)%i64) ].                   (* uint64(255)   = 255 *)
+
 (** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
     [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
     silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
@@ -1359,6 +1379,7 @@ Definition main_effect : IO unit :=
   div_demo                      >>'   (* prints: 3 2 *)
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
+  conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   float_demo                    >>'   (* prints: 3.75 / 0.25 (sci) *)
   float_cmp_demo                >>'   (* prints: true / true / true / false *)
   float_nan_demo 0              >>'   (* prints: false / false (NaN unordered) *)
@@ -1450,7 +1471,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
-  i64_abs
+  i64_abs u64_of_i64 i64_of_u64
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr

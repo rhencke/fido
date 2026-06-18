@@ -930,9 +930,20 @@ resting state.)**
     truncates).  Cross-width by composition.  These also make the distinct numeric
     types mixable (implicit mixing rejected — `u8_of_i16_direct` `Fail`).
     Machine-checked `spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`; `convert_demo`
-    prints 200 232 / 1200.  *Still ✗:* int↔float / float↔float (float gaps, no f32);
-    `string`↔`[]byte`/`[]rune` (rune view); `int`/64-bit conversions (Z-width model);
-    interface conversions beyond `type_assert`.
+    prints 200 232 / 1200.  **Full-width `int64`↔`uint64` DONE (2026-06-18):**
+    `u64_of_i64`/`i64_of_u64` are Go's `uint64(x)`/`int64(x)` — a two's-complement
+    REINTERPRET, EXACT (no rounding, unlike int↔float): the Z carrier re-normalises mod
+    2⁶⁴ (`MkU64 (wrapU64 (i64raw a))` / `MkI64 (wrap64 (u64raw a))`), faithful by
+    `wrap64_wrapU64` (the two normalisers agree mod 2⁶⁴, axiom-free).  Distinct from the
+    narrow widths (which erase to int64, so a widen is identity) because `GoU64` lowers
+    to a real Go `uint64`.  Emitted as a small NAMED function `func U64_of_i64(a int64)
+    uint64 { return uint64(a) }` (pp_function special-case) — NOT inlined — so the cast
+    applies to the parameter VARIABLE, sidestepping Go's rejection of `uint64(-1)` on an
+    untyped CONSTANT.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`)/`conv_i64_of_max`
+    (`2⁶⁴-1 → -1`)/`conv_roundtrip`; `conv64_demo` → `18446744073709551615 -1 255`,
+    golden-locked.  *Still ✗:* int↔float / float↔float (float gaps, no f32);
+    `string`↔`[]byte`/`[]rune` (rune view); narrow↔`{int64,uint64}` (same template,
+    pending); interface conversions beyond `type_assert`.
 
 ### Tier 5 — semantic edge cases
 14. **Divergence / non-termination.**  `run_io` is total, so the model assumes

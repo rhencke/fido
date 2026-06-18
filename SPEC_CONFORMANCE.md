@@ -307,7 +307,7 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width); ✗ rest
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64); ✗ float, strings, interfaces
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
@@ -321,9 +321,21 @@ numeric types mixable — implicit mixing is rejected (`*_no_implicit`,
 Machine-checked (`spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`): `uint8(1000)=232`,
 `uint8(-1)=255`, `int8(200)=-56`, widen `int(uint8 200)=200`, cross `int16(uint8 200)`.
 `convert_demo` prints `200 232 / 1200`.
+**Full-width `int64`↔`uint64` — ✓ (2026-06-18).**  `u64_of_i64`/`i64_of_u64` are Go's
+`uint64(x)`/`int64(x)`: a two's-complement REINTERPRET of the 64-bit pattern, EXACT (no
+rounding).  The Z carrier re-normalises mod 2⁶⁴ (`MkU64 (wrapU64 (i64raw a))` /
+`MkI64 (wrap64 (u64raw a))`), faithful by `wrap64_wrapU64` (the int64 and uint64
+normalisers agree mod 2⁶⁴ — axiom-free).  Distinct from the narrow widths (which erase
+to int64, so widen = identity) because `GoU64` lowers to a real Go `uint64`.  Emitted as
+a small NAMED function `func U64_of_i64(a int64) uint64 { return uint64(a) }` so the cast
+applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONSTANT but
+accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),
+`conv_i64_of_max` (`2⁶⁴-1 → -1`), `conv_roundtrip`; `conv64_demo` prints
+`18446744073709551615 -1 255`.
 **Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float gaps /
-no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); `int`/64-bit
-integer conversions (the Z-width carrier); interface conversions beyond `type_assert`.
+no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); narrow↔
+`{int64,uint64}` (same reinterpret template, pending); interface conversions beyond
+`type_assert`.
 
 ## Expressions — primary
 

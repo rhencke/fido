@@ -10,6 +10,14 @@ func I64_abs(a int64) int64 {
 	}
 }
 
+func U64_of_i64(a int64) uint64 {
+	return uint64(a)
+}
+
+func I64_of_u64(a uint64) int64 {
+	return int64(a)
+}
+
 func Add(n int64, m int64) int64 {
 	return n + m
 }
@@ -24,6 +32,10 @@ func Overflow_safe_demo() {
 
 func I64_abs_demo() {
 	println(I64_abs(-7), I64_abs(7), I64_abs(-9223372036854775808))
+}
+
+func Conv64_demo() {
+	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
 
 func Div_nz(n int64, d int64) int64 {
@@ -923,6 +935,7 @@ func main() {
 	Div_demo()
 	Overflow_safe_demo()
 	I64_abs_demo()
+	Conv64_demo()
 	Float_demo()
 	Float_cmp_demo()
 	Float_nan_demo(0.0)

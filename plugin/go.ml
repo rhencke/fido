@@ -201,6 +201,18 @@ let is_int_of_fw r =
   List.mem (global_basename r)
     ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"; "int_of_u32"; "int_of_i32"]
 
+(* Full-width int64 <-> uint64 conversions.  Unlike the narrow widths (which erase
+   to int64, so a widen is identity), [GoU64] lowers to a real Go [uint64], so the
+   reinterpret is an actual Go type conversion [uint64(x)] / [int64(x)].  Emitted as
+   a small NAMED function [func U64_of_i64(a int64) uint64 { return uint64(a) }] (see
+   [pp_function]), NOT inlined at call sites — so the conversion always applies to the
+   parameter VARIABLE, never an untyped constant (Go rejects [uint64(-1)] on a constant
+   but accepts it on an int64-typed value). *)
+let fullwidth_conv_name = function
+  | "u64_of_i64" -> Some "uint64"
+  | "i64_of_u64" -> Some "int64"
+  | _            -> None
+
 (*s println / GoAny model recognition. *)
 
 (* Basename matching is safe here because Go builtin names are unqualified
@@ -2623,6 +2635,17 @@ let pp_function state name body typ =
         prlist_with_sep (fun () -> str ", ") pp_param param_pairs
   in
   (* IO-returning functions use pp_io_body; pure functions use return+expr *)
+  match fullwidth_conv_name name with
+  | Some conv ->
+      (* Full-width int64<->uint64 reinterpret: emit the canonical one-liner
+         [func Name(a int64) uint64 { return uint64(a) }].  The body's Z-arith
+         (wrapU64/i64raw) is proof-only and would not lower; the conversion is the
+         Go type-cast on the parameter variable. *)
+      let arg = (match param_pairs with (id, _) :: _ -> pp_mlident id | [] -> str "_") in
+      fn_sig ++ str ") " ++ pp_type state ret_type ++ str " {" ++ fnl () ++
+      str "\treturn " ++ str conv ++ str "(" ++ arg ++ str ")" ++ fnl () ++
+      str "}" ++ fnl ()
+  | None ->
   match ret_type with
   | Tglob (r, [inner]) when is_IO_type r ->
       let go_ret = match inner with
