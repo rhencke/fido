@@ -308,12 +308,14 @@ unsigned `PrimInt63.ltb`/`leb` **rejected** for `int` (disagree on high bit) —
 `eqb`, IEEE incl. NaN unordered — `nan_eqb_false`, `nan_ltb_false`.  (string):
 `str_eqb` → Go `==` (byte equality), `str_ltb` → Go `<` (lexicographic by byte
 value) — both theorems (see String types).  ✓
-(int64/uint64): `i64_gtb`/`i64_geb`/`i64_neqb`, `u64_gtb`/`u64_geb`/`u64_neqb` now
-emit the DIRECT Go `>`/`>=`/`!=` (semantically the swapped `</<=` and `negb(==)`, but
-the emitted Go matches the source operator); `cmp_ops_demo` prints `true true true
-true`.  Machine-checked incl. the unsigned `u64_gtb (2⁶⁴-1) 1 = true`.  ✓  (Direct
-`>`/`>=`/`!=` for the narrow widths / string / float follow the same trivial pattern,
-pending.)
+(int64/uint64/string/float): `i64_gtb`/`i64_geb`/`i64_neqb`, `u64_*`, `str_gtb`/
+`str_geb`/`str_neqb`, `f64_gtb`/`f64_geb`/`f64_neqb` now emit the DIRECT Go
+`>`/`>=`/`!=` (the emitted Go matches the source operator, not a swapped encoding);
+`cmp_ops_demo`/`scmp_demo`/`fcmp_demo` print `true …`.  Machine-checked incl. the
+unsigned `u64_gtb (2⁶⁴-1) 1 = true` and the FLOAT NaN corner — `f64_geb` is the
+swapped `leb b a` (NOT `¬(<)`), so `NaN >= 1` is `false` (`f64_geb_nan`) and
+`NaN != 1` is `true` (`f64_neqb_nan`), matching IEEE/Go.  ✓  (Direct `>`/`>=`/`!=`
+for the narrow fixed widths follow the same trivial pattern, pending.)
 
 ### [Logical operators](https://go.dev/ref/spec#Logical_operators) — ✓ conforms
 Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",

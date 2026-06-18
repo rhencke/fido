@@ -17,6 +17,7 @@ false
 +2.000000e+000
 true
 +3.000000e+000 +5.000000e+000
+true true true
 44
 1
 255
@@ -89,6 +90,7 @@ false false
 0 false
 Go!
 true false true false
+true true true
 10
 20
 30

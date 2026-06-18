@@ -83,6 +83,10 @@ func Fminmax_demo() {
 	println(min(3.0, 5.0), max(3.0, 5.0))
 }
 
+func Fcmp_demo() {
+	println(5.0 > 3.0, 3.0 >= 3.0, 5.0 != 3.0)
+}
+
 func U8_demo() {
 	println((((200 & 0xff) + (100 & 0xff)) & 0xff))
 	println((((255 & 0xff) * (255 & 0xff)) & 0xff))
@@ -193,6 +197,10 @@ func Builtins_demo() {
 	clear(m)
 	n := len(m)
 	println(n)
+}
+
+func Scmp_demo() {
+	println("b" > "a", "a" >= "a", "a" != "b")
 }
 
 func Prec_demo() {
@@ -960,6 +968,7 @@ func main() {
 	Float_opp_demo()
 	Float_opp_sign_demo(0.0)
 	Fminmax_demo()
+	Fcmp_demo()
 	U8_demo()
 	I8_demo()
 	U16_demo()
@@ -996,6 +1005,7 @@ func main() {
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()
+	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()
 	Cond_goto_demo(true)

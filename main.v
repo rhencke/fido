@@ -261,6 +261,17 @@ Proof. now vm_compute. Qed.
 Definition fminmax_demo : IO unit :=
   println [ any (f64_min 3 5)%float ; any (f64_max 3 5)%float ].   (* min/max of two floats *)
 
+(** Direct float [>] / [>=] / [!=] (completing the operator set).  Ordinary values
+    plus the NaN corners: [NaN >= 1] is FALSE (the reason [f64_geb] is [leb b a], not
+    [¬(<)], which would be true), and [NaN != 1] is TRUE. *)
+Example f64_gtb_t   : f64_gtb 5 3 = true.   Proof. now vm_compute. Qed.
+Example f64_geb_eq  : f64_geb 3 3 = true.   Proof. now vm_compute. Qed.
+Example f64_geb_nan : f64_geb (PrimFloat.div 0 0) 1 = false. Proof. now vm_compute. Qed.
+Example f64_neqb_nan: f64_neqb (PrimFloat.div 0 0) 1 = true. Proof. now vm_compute. Qed.
+
+Definition fcmp_demo : IO unit :=
+  println [ any (f64_gtb 5 3) ; any (f64_geb 3 3) ; any (f64_neqb 5 3) ]%float.  (* true true true *)
+
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
     checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
     the sign over [PrimFloat.of_uint63]; >= 2^53 rounds exactly like Go).  *Runtime
@@ -644,6 +655,13 @@ Example spec_str_lt_byte  : str_ltb "abc"%string "abd"%string = true. Proof. ref
 Example spec_str_lt_prefix: str_ltb "ab"%string "abc"%string = true.  Proof. reflexivity. Qed.
 Example spec_str_lt_false : str_ltb "b"%string "a"%string = false.    Proof. reflexivity. Qed.
 Example spec_str_lt_eq    : str_ltb "Go"%string "Go"%string = false.  Proof. reflexivity. Qed.
+(* Direct >/>=/!= for strings (lexicographic total order). *)
+Example spec_str_gt       : str_gtb  "b"%string "a"%string = true.   Proof. reflexivity. Qed.
+Example spec_str_ge_eq    : str_geb  "a"%string "a"%string = true.   Proof. reflexivity. Qed.
+Example spec_str_ne       : str_neqb "a"%string "b"%string = true.   Proof. reflexivity. Qed.
+Definition scmp_demo : IO unit :=
+  println [ any (str_gtb "b"%string "a"%string) ; any (str_geb "a"%string "a"%string)
+          ; any (str_neqb "a"%string "b"%string) ].   (* true true true *)
 
 (** Operator-precedence PARENS: nested arithmetic parenthesises only where the
     precedence requires it ([a*b + c] no parens; [(a+b) * c] needs them).  gofmt
@@ -1480,6 +1498,7 @@ Definition main_effect : IO unit :=
   float_opp_demo                >>'   (* prints: -1.5 / 2.0 *)
   float_opp_sign_demo 0         >>'   (* prints: true (opp made -0 at runtime) *)
   fminmax_demo                  >>'   (* prints: min/max of 3.0 5.0 *)
+  fcmp_demo                     >>'   (* prints: true true true *)
   u8_demo                       >>'   (* prints: 44 / 1 / 255 / true *)
   i8_demo                       >>'   (* prints: -106 / 127 / -100 / true *)
   u16_demo                      >>'   (* prints: 4464 / 16960 / -25536 *)
@@ -1516,6 +1535,7 @@ Definition main_effect : IO unit :=
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
+  scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
   cond_goto_demo true           >>'   (* prints: 1 / 3 *)
@@ -1566,6 +1586,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
+  str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb

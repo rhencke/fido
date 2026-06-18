@@ -841,13 +841,15 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    have effects.  Float comparison is faithful on IEEE corner cases, not just
    ordinary values: machine-checked `nan_eqb_false`/`nan_ltb_false` (NaN is
    unordered) plus the `float_nan_demo` golden show Coq and Go agree.
-   **Direct `>`/`>=`/`!=` DONE for int64/uint64 (2026-06-18):** `i64_gtb`/`i64_geb`/
-   `i64_neqb`, `u64_gtb`/`u64_geb`/`u64_neqb` (defined as the swapped `</<=` and
-   `negb(==)`, but recognized by name and lowered to the DIRECT Go operator, so the
-   emitted Go matches the source — `cmp_ops_demo` → `true true true true`,
-   machine-checked incl. unsigned `u64_gtb (2⁶⁴-1) 1`).  *Still open:* the same direct
-   `gtb`/`geb`/`neqb` for the narrow widths / string / float (same trivial pattern,
-   pending).
+   **Direct `>`/`>=`/`!=` DONE for int64/uint64/string/float (2026-06-18):**
+   `i64_gtb`/`i64_geb`/`i64_neqb`, `u64_gtb`/…, `str_gtb`/`str_geb`/`str_neqb`,
+   `f64_gtb`/`f64_geb`/`f64_neqb` (defined as the swapped `</<=` and `negb(==)`, but
+   recognized by name and lowered to the DIRECT Go operator, so the emitted Go matches
+   the source — `cmp_ops_demo`/`scmp_demo`/`fcmp_demo` → `true …`).  **Float `>=` is the
+   SWAPPED `leb b a`, NOT `¬(<)`** — with a NaN operand `a >= b` is FALSE but `¬(a<b)`
+   would be TRUE (machine-checked `f64_geb_nan = false`, `f64_neqb_nan = true`).
+   Strings have a total order, so `str_geb = ¬(<)` is fine.  *Still open:* direct
+   `gtb`/`geb`/`neqb` for the narrow fixed widths (same trivial pattern, low priority).
 
 ### Tier 4 — operations to model on the remaining types
 **(There is no "acceptably unmodeled" — decided 2026-06-14.  The point of the

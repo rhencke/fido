@@ -194,6 +194,10 @@ let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
 let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
 let is_str_eqb_ref    r = String.equal (global_basename r) "str_eqb"
 let is_str_ltb_ref    r = String.equal (global_basename r) "str_ltb"
+(* direct >/>=/!= for strings and float64 (completing Go's six comparison operators);
+   each is a Fido wrapper recognized by name and lowered to the bare Go operator. *)
+let is_str_cmp_ref    r = List.mem (global_basename r) ["str_gtb"; "str_geb"; "str_neqb"]
+let is_f64_cmp_ref    r = List.mem (global_basename r) ["f64_gtb"; "f64_geb"; "f64_neqb"]
 
 (* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
    value to [int].  Lowers to identity: the fixed-width carrier is already int64
@@ -670,6 +674,13 @@ let binop_of r =
   (* string comparison: Go [==] / [<] (lexicographic), comparison precedence (level 3) *)
   else if is_str_eqb_ref r then Some (3, " == ")
   else if is_str_ltb_ref r then Some (3, " < ")
+  (* direct >/>=/!= for string and float64 (recognized by basename) *)
+  else if String.equal (global_basename r) "str_gtb"  then Some (3, " > ")
+  else if String.equal (global_basename r) "str_geb"  then Some (3, " >= ")
+  else if String.equal (global_basename r) "str_neqb" then Some (3, " != ")
+  else if String.equal (global_basename r) "f64_gtb"  then Some (3, " > ")
+  else if String.equal (global_basename r) "f64_geb"  then Some (3, " >= ")
+  else if String.equal (global_basename r) "f64_neqb" then Some (3, " != ")
   (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
      bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
      int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
@@ -2734,7 +2745,7 @@ let is_inlined_ref r =
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
-  is_str_eqb_ref r || is_str_ltb_ref r ||
+  is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||

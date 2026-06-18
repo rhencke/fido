@@ -2225,6 +2225,15 @@ Definition f64_max (a b : float) : float :=
     then (if PrimFloat.ltb (PrimFloat.div 1 a) 0 then b else a)   (* max wants +0 *)
     else a.
 
+(** Direct [>] / [>=] / [!=] for float64.  CRUCIAL NaN subtlety: [>=] is NOT
+    [¬(<)] — with a NaN operand, [a >= b] is FALSE (Go/IEEE), whereas [¬(a < b)]
+    would be TRUE.  So [f64_geb] is the SWAPPED [leb] ([b <= a]), and [f64_gtb] the
+    swapped [ltb] — both correctly false on NaN.  [f64_neqb] IS [negb (eqb)] (a NaN
+    compares UNEQUAL to everything, so [a != b] is true — matching [negb false]). *)
+Definition f64_gtb  (a b : float) : bool := PrimFloat.ltb b a.
+Definition f64_geb  (a b : float) : bool := PrimFloat.leb b a.
+Definition f64_neqb (a b : float) : bool := negb (PrimFloat.eqb a b).
+
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
     correct element type instead of falling back to [append(nil, ...)]. *)
@@ -2369,6 +2378,12 @@ Fixpoint str_ltb (a b : GoString) : bool :=
       else if PrimInt63.ltb nb na then false
       else str_ltb ra rb
   end.
+
+(** Direct [>] / [>=] / [!=] for strings (total lexicographic order, no NaN, so
+    [>=] is [¬(<)]).  Recognized by name and lowered to the direct Go operator. *)
+Definition str_gtb  (a b : GoString) : bool := str_ltb b a.
+Definition str_geb  (a b : GoString) : bool := negb (str_ltb a b).
+Definition str_neqb (a b : GoString) : bool := negb (str_eqb a b).
 
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
