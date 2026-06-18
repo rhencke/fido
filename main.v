@@ -1502,6 +1502,17 @@ Definition method_expr_demo : IO unit :=
   let p := MkPoint (5)%i64 (6)%i64 in
   println [any (apply_pt sum_coords p)].   (* Point.Sum_coords(p) = 5+6 = 11 *)
 
+(** MULTIPLE RETURN VALUES (Go's [func f() (A, B)] + [x, y := f()]): a function returning
+    a PAIR lowers to a Go multi-value return [(int64, int64)] / [return b, a]; the caller's
+    destructuring [let '(x,y) := …] lowers to [x, y := Swap2(…)].  [swap2_spec] proves the
+    swap. *)
+Definition swap2 (a b : GoI64) : GoI64 * GoI64 := (b, a).
+Lemma swap2_spec : forall a b, swap2 a b = (b, a).
+Proof. reflexivity. Qed.
+Definition multiret_demo : IO unit :=
+  let '(x, y) := swap2 (3)%i64 (4)%i64 in   (* (4, 3) *)
+  println [any x; any y].                    (* 4 3 *)
+
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
     and the statement-position call [describe p] lowers to [p.Describe()]. *)
@@ -1811,6 +1822,7 @@ Definition main_effect : IO unit :=
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
   method_value_demo             >>'   (* prints: 11 12 (method value p.Shifted passed to a HOF) *)
   method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
+  multiret_demo                 >>'   (* prints: 4 3 (multiple return values + destructure) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
@@ -1827,7 +1839,7 @@ Definition main_effect : IO unit :=
     still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
     [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
 Extraction NoInline
-  call_shift10 apply_pt
+  call_shift10 apply_pt swap2
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new

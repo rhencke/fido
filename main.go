@@ -998,6 +998,15 @@ func Method_expr_demo() {
 	println(Apply_pt(Point.Sum_coords, p))
 }
 
+func Swap2(a int64, b int64) (int64, int64) {
+	return b, a
+}
+
+func Multiret_demo() {
+	x, y := Swap2(3, 4)
+	println(x, y)
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -1248,6 +1257,7 @@ func main() {
 	Method_demo()
 	Method_value_demo()
 	Method_expr_demo()
+	Multiret_demo()
 	Io_method_demo()
 	Struct_eq_demo()
 	Struct_eq_native_demo()

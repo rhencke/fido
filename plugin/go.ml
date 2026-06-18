@@ -468,6 +468,10 @@ let is_existT_ref r =
    its FIRST component. *)
 let is_pair_ref r =
   ref_has_suffix r ".Init.Datatypes.pair" || String.equal (global_basename r) "pair"
+(* [prod A B] as a TYPE → Go's multiple-return tuple [(A, B)] (only valid in a return
+   signature; a pair value is otherwise only a [return a, b] or an [x, y :=] destructure). *)
+let is_prod_type r =
+  ref_has_suffix r ".Init.Datatypes.prod" || String.equal (global_basename r) "prod"
 (* Peel an [any x] = [existT _ _ (pair x tag)] down to the emitted VALUE [x]:
    strip the [existT] layer(s) then take the pair's first component.  Falls through
    to [v] for anything that is not an [any], so call sites can apply it
@@ -864,6 +868,8 @@ let rec pp_type state = function
   | Tglob (r, []) when is_string_type r -> str "string"
   | Tglob (r, []) when is_float64_type r  -> str "float64"
   | Tglob (r, []) when is_complex_type r  -> str "complex128"
+  | Tglob (r, [a; b]) when is_prod_type r ->   (* multiple return values: (A, B) *)
+      str "(" ++ pp_type state a ++ str ", " ++ pp_type state b ++ str ")"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
   | Tglob (r, []) when is_uint63_type r -> str "int64"
@@ -1761,6 +1767,15 @@ and emit_block state hoists term tab env b =
       (match b with
        | MLcase (_, scrut, branches) ->
            (match Array.to_list branches with
+            (* multiple-return DESTRUCTURE: [let '(x,y) := f … in body] (single pair
+               branch, 2 binders) → [x, y := f(…)] then the rest. *)
+            | [ (ids, pat, body1) ]
+              when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+                   && List.length ids = 2 ->
+                let new_env = List.rev ids @ env in
+                str tab ++ pp_mlident (List.nth ids 0) ++ str ", " ++ pp_mlident (List.nth ids 1)
+                ++ str " := " ++ pp_expr state env scrut ++ fnl ()
+                ++ emit_block state hoists term tab new_env body1
             | [ (_, p1, body1); (_, p2, body2) ] ->
                 let cref p = (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
                 (match cref p1, cref p2 with
@@ -2615,7 +2630,17 @@ let pp_io_body state tab env body =
              pp_stmts tab new_env e2)
     (* Case analysis in statement position (tail of an IO body). *)
     | MLcase (typ, scrut, branches) ->
-        emit_case tab env typ scrut branches (fun _nb b -> b)
+        (match Array.to_list branches with
+         (* multiple-return DESTRUCTURE [let '(x,y) := f … in body] (single pair branch,
+            2 binders) → [x, y := f(…)] then the rest. *)
+         | [ (ids, pat, body1) ]
+           when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+                && List.length ids = 2 ->
+             let new_env = List.rev ids @ env in
+             str tab ++ pp_mlident (List.nth ids 0) ++ str ", " ++ pp_mlident (List.nth ids 1)
+             ++ str " := " ++ pp_expr state env scrut ++ fnl ()
+             ++ pp_stmts tab new_env body1
+         | _ -> emit_case tab env typ scrut branches (fun _nb b -> b))
     | MLcons (_, r, []) when is_unit_tt r -> mt ()
     (* Bare nullary IO function in tail position — needs () to be a call,
        not a function value. *)
@@ -2853,6 +2878,11 @@ let rec pp_pure_tail state tab env e =
            pp_pure_tail state (tab ^ "\t") env else_b ++
            str tab ++ str "}" ++ fnl ()
        | _ -> return_fallback ())
+  (* multiple return values: a pair body → [return a, b] (the two components; the pair
+     constructor carries 2 args type-erased, or 4 with the type params present). *)
+  | MLcons (_, r, args) when is_pair_ref r && (List.length args = 2 || List.length args = 4) ->
+      let a, b = (match args with [a; b] -> a, b | [_; _; a; b] -> a, b | _ -> assert false) in
+      str tab ++ str "return " ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ fnl ()
   | _ -> return_fallback ()
 
 (** Emit a top-level function, collecting leading lambdas for the signature
