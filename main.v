@@ -1651,6 +1651,21 @@ Definition iface_demo : IO unit :=
   bind (show_shape (mk_rect (3)%i64 (4)%i64))   (fun _ =>   (* area: 2*(3+4)+0=14 ; perim: 7+1000=1007 *)
   show_shape (mk_square (5)%i64)).                     (* area: 2*(5+5)+0=20 ; perim: 10+1000=1010 *)
 
+(** SINGLE-METHOD interface (Go's [interface { Greet(int64) int64 }]).  A 1-method
+    dictionary record would be UNBOXED by Coq ([{m} ≡ m]), erasing the struct; we keep it
+    a real dictionary by carrying the underlying value as an explicit SECOND field
+    [gr_self : GoAny].  This both sidesteps the unboxing AND is more faithful — a Go
+    interface value IS a (method-table, value) pair.  [mk_adder base] builds a [Greeter]
+    whose method adds [base] (and stashes [base] as the hidden value); dispatch
+    [greet g x] → [g.Greet(x)], never seeing the concrete carrier. *)
+Record Greeter := MkGreeter { greet : GoI64 -> GoI64 ; gr_self : GoAny }.
+Definition mk_adder (base : GoI64) : Greeter :=
+  MkGreeter (fun x => i64_add base x) (any base).
+Example dispatch_greet : forall base x, greet (mk_adder base) x = i64_add base x.
+Proof. reflexivity. Qed.
+Definition single_iface_demo : IO unit :=
+  println [any (greet (mk_adder (5)%i64) (10)%i64)].   (* 5 + 10 = 15 *)
+
 (** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
     The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
     index ([Light c]); each transition's type names the legal from/to states, so an
@@ -1839,6 +1854,7 @@ Definition main_effect : IO unit :=
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
+  single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   ret tt.

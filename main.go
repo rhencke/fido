@@ -1111,6 +1111,21 @@ func Iface_demo() {
 	(Mk_square(5)).Show_shape()
 }
 
+type Greeter struct {
+	Greet   func(int64) int64
+	Gr_self any
+}
+
+func Mk_adder(base int64) Greeter {
+	return Greeter{func(x int64) int64 {
+		return base + x
+	}, base}
+}
+
+func Single_iface_demo() {
+	println((Mk_adder(5)).Greet(10))
+}
+
 type Light struct {
 	Ticks  int64
 	Serial int64
@@ -1271,6 +1286,7 @@ func main() {
 	Sptr_demo()
 	Ptr_method_demo()
 	Iface_demo()
+	Single_iface_demo()
 	Typestate_demo()
 	Repinv_demo()
 }
