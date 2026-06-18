@@ -538,6 +538,22 @@ func Tsw_demo(a any) {
 	}
 }
 
+func Tsw3_demo(a any) {
+	switch _tsv := a.(type) {
+	case bool:
+		b := _tsv
+		println(b, 1)
+	case string:
+		s := _tsv
+		println(s, 2)
+	case int64:
+		n := _tsv
+		println(n, 3)
+	default:
+		println(9)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1094,6 +1110,9 @@ func main() {
 	Tsw_demo(true)
 	Tsw_demo("go")
 	Tsw_demo(5)
+	Tsw3_demo(true)
+	Tsw3_demo("hi")
+	Tsw3_demo(I64_abs(5))
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()

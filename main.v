@@ -1060,6 +1060,16 @@ Definition tsw_demo (a : GoAny) : IO unit :=
     TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
     (println [any (9)%i64]).                              (* default     → 9   *)
 
+(** N-ary type switch (3 cases): same combinator, one more arm.  The int64 case is
+    driven by a value of Go type [int64] (a function RETURN, [i64_abs]) so it boxes as
+    [int64] and matches — a bare int literal would box as Go [int] and miss it. *)
+Definition tsw3_demo (a : GoAny) : IO unit :=
+  type_switch3 a
+    TBool   (fun b => println [any b; any (1)%i64])      (* case bool   → b, 1 *)
+    TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
+    TI64    (fun n => println [any n; any (3)%i64])        (* case int64  → n, 3 *)
+    (println [any (9)%i64]).                              (* default     → 9   *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -1661,6 +1671,9 @@ Definition main_effect : IO unit :=
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
+  tsw3_demo (any true)              >>'   (* prints: true 1 (bool case, 3-case switch) *)
+  tsw3_demo (any "hi"%string)       >>'   (* prints: hi 2 (string case) *)
+  tsw3_demo (any (i64_abs (5)%i64)) >>'   (* prints: 5 3 (int64 case; typed via func return) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -1716,7 +1729,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  type_assert type_assert_safe type_switch2
+  type_assert type_assert_safe type_switch2 type_switch3
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

@@ -355,7 +355,12 @@ let is_proto_ctor r =
 let is_dual_ref = named "dual"
 (* Indexed-monad (linear) sessions: protocol state in the type index, lowered
    against an implicit shared channel [_sess_ch]. *)
-let is_type_switch2_ref = named "type_switch2"
+(* Type switch of ANY arity: type_switch2, type_switch3, … all lower through one
+   generalised arm (a list of (tag, continuation) pairs then the default).  [str_prefix]
+   is defined further down, so the prefix test is inlined here. *)
+let is_type_switch_ref r =
+  let s = global_basename r in
+  String.length s >= 11 && String.sub s 0 11 = "type_switch"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -2421,21 +2426,27 @@ let pp_io_body state tab env body =
                   pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
-         (* type_switch2 a t1 k1 t2 k2 d → Go's native type switch:
+         (* type_switchN a t1 k1 … tN kN d → Go's native type switch:
               switch _tsv := <a>.(type) {
-              case T1: v1 := _tsv; <k1 body>
-              case T2: v2 := _tsv; <k2 body>
+              case T1: v1 := _tsv; <k1 body>   …   case TN: vN := _tsv; <kN body>
               default: <d> }
-            CPS like type_assert_safe but multi-case.  Each kᵢ binds the case-typed
-            value, rebound from the shared guard [_tsv] (so distinct binder names need
-            no env renaming).  The guard var is omitted entirely if no case uses its
-            value (else Go errors "_tsv declared but not used"). *)
-         | MLglob r, [a; t1; k1; t2; k2; d] when is_type_switch2_ref r ->
+            CPS like type_assert_safe but multi-case, ANY arity: the visible args after
+            [a] are (tag, continuation) PAIRS then the default [d] (so an odd count ≥ 3).
+            Each kᵢ binds the case-typed value, rebound from the shared guard [_tsv] (so
+            distinct binder names need no env renaming).  The guard var is omitted if no
+            case uses its value (else Go errors "_tsv declared but not used"). *)
+         | MLglob r, (a :: rest)
+            when is_type_switch_ref r
+                 && List.length rest >= 3 && List.length rest mod 2 = 1 ->
              let payload = pp_expr state env (any_payload a) in
+             let n = List.length rest in
+             let d = List.nth rest (n - 1) in
+             let rec chunk = function t :: k :: tl -> (t, k) :: chunk tl | _ -> [] in
+             let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
              let case_used kont =
                match collect_lam kont with ([v], _) -> not (is_dummy v) | _ -> false in
-             let any_used = case_used k1 || case_used k2 in
-             let emit_case tagd kont =
+             let any_used = List.exists (fun (_, k) -> case_used k) pairs in
+             let emit_case (tagd, kont) =
                let go_t = go_type_of_tag tagd in
                let ids, kbody = collect_lam kont in
                (match ids with
@@ -2444,13 +2455,12 @@ let pp_io_body state tab env body =
                     (if is_dummy v_id then mt ()
                      else str (tab ^ "\t") ++ pp_mlident v_id ++ str " := _tsv" ++ fnl ()) ++
                     pp_stmts (tab ^ "\t") (v_id :: env) kbody
-                | _ -> unsupported "type_switch2 case (expected exactly one value binder)")
+                | _ -> unsupported "type_switch case (expected exactly one value binder)")
              in
              str tab ++ str "switch " ++
              (if any_used then str "_tsv := " else mt ()) ++
              payload ++ str ".(type) {" ++ fnl () ++
-             emit_case t1 k1 ++
-             emit_case t2 k2 ++
+             prlist emit_case pairs ++
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++
              str tab ++ str "}" ++ fnl ()
@@ -2870,7 +2880,7 @@ let is_inlined_ref r =
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
-  is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch2_ref r ||
+  is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

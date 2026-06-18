@@ -1342,6 +1342,35 @@ Example type_switch2_default : forall {B} (x : int) k1 k2 (d : IO B),
   type_switch2 (anyt TInt64 x) TBool k1 TString k2 d = d.
 Proof. intros. reflexivity. Qed.
 
+(** N-ary type switch is the same shape with more arms — here three cases.  (The plugin
+    lowers any arity through one generalised arm, so [type_switch4]… would work the same.) *)
+Definition type_switch3 {A1 A2 A3 B : Type} (a : GoAny)
+  (t1 : GoTypeTag A1) (k1 : A1 -> IO B)
+  (t2 : GoTypeTag A2) (k2 : A2 -> IO B)
+  (t3 : GoTypeTag A3) (k3 : A3 -> IO B)
+  (d : IO B) : IO B :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce t1 atag x with
+      | Some v1 => k1 v1
+      | None =>
+          match tag_coerce t2 atag x with
+          | Some v2 => k2 v2
+          | None =>
+              match tag_coerce t3 atag x with
+              | Some v3 => k3 v3
+              | None => d
+              end
+          end
+      end
+  end.
+
+(** Build-checked: the THIRD case fires for an [int64]-tagged value — the first two
+    coercions miss (different tags), the third matches and runs [k3] with the value. *)
+Example type_switch3_third : forall {B} (x : GoI64) k1 k2 (k3 : GoI64 -> IO B) d,
+  type_switch3 (anyt TI64 x) TBool k1 TString k2 TI64 k3 d = k3 x.
+Proof. intros. unfold type_switch3. rewrite tag_coerce_refl. reflexivity. Qed.
+
 (** ---- GoMap ----
 
     [GoMap K V] models Go's [map[K]V].  Operations are modelled as pure
