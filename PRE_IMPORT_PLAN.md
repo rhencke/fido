@@ -236,15 +236,25 @@ B3, which was backwards):**
     **Phase B3 (slice aliasing) is COMPLETE** — aliasing handles, sub-slice sharing,
     append (in-place/realloc), make-with-cap, copy, clear; all golden-locked and the
     aliasing theorems inherited axiom-free from `ref_sel_upd_same`.
-- **Bs — struct-storage substrate** (PENDING; the prerequisite **B2 needs**, BUILDS ON
-  B3's cell heap).  A user struct cannot be a `w_refs` cell directly — `GoTypeTag` has no
-  struct constructor and `tag_eq`'s decidable type-equality can't produce the `A = B`
-  proof for opaque struct types (the wall found 2026-06-17).  The principled model: a
-  struct value in storage is a BUNDLE of scalar FIELD-CELLS in the cell heap (only the
-  scalar field tags are needed — sidesteps the un-decidable struct tag), the same shape
-  as `SliceH`'s consecutive cells.  ALSO unblocks structs-in-`any` / channel / map (all
-  blocked by the same wall).  Witnesses: a per-field write/read through a struct handle;
-  field-cell read-after-write from `ref_sel_upd_same`.
+- **Bs — struct-storage substrate** (the prerequisite **B2 needs**, BUILDS ON B3's cell
+  heap).  A user struct cannot be a `w_refs` cell directly — `GoTypeTag` has no struct
+  constructor and `tag_eq`'s decidable type-equality can't produce the `A = B` proof for
+  opaque struct types (the wall, 2026-06-17).  The principled model: a struct value in
+  storage is a BUNDLE of scalar FIELD-CELLS in the cell heap (only the scalar field tags
+  are needed — sidesteps the un-decidable struct tag), the same shape as `SliceH`'s
+  consecutive cells.  ALSO unblocks structs-in-`any`/channel/map (all blocked by the same
+  wall).
+  - **Bs.1 — proof foundation (DONE, 2026-06-17).**  `HStruct` = a base location; field
+    `k` is the cell at `base + k`, tagged with its OWN scalar tag (`hfield_cell`/
+    `hfield_get`/`hfield_set`).  THEOREMS (proof-only, axiom-free, all from
+    `ref_sel_upd_same`/`ref_sel_upd_diff`): `hfield_get_set_same` (field read-after-write),
+    `hfield_independent` (writing field `k` leaves field `k'` at a distinct cell alone —
+    even with different field TYPES), `hstruct_alias` (two pointers to the same `base` see
+    each other's field writes — the aliasing a `*T` receiver relies on).  Emits no Go
+    (the storage MODEL); the idiomatic lowering is Bs.2.
+  - **Bs.2 — lowering (pending):** a heap-backed struct ↔ Go `*Struct` with `c.Field`
+    access (the plugin maps a field op to its struct's field name), so a runtime demo
+    + B2 can build on it.
 - **B2 — Pointer receivers** (PENDING; needs **Bs**, hence AFTER B3): a method whose
   receiver is a `Ptr Struct` (a `*T`) and MUTATES the receiver — read the struct via the
   pointer (field-cells), update a field, write back.  Plugin: detect a `Ptr (record)`

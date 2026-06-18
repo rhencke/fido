@@ -2588,6 +2588,76 @@ Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w)).
 
+(** ---- Heap-backed STRUCTS as field-cell bundles (Phase Bs) ----
+
+    A user struct cannot be a single [w_refs] cell: [GoTypeTag] has no struct
+    constructor (and [tag_eq]'s decidable type-equality cannot produce the [A = B] proof
+    for opaque struct types — the wall).  The principled model: a struct value in storage
+    is a BUNDLE of scalar FIELD-CELLS — field [k] lives at cell [base + k], tagged with
+    its OWN scalar [GoTypeTag] — so only the scalar field tags are ever needed,
+    sidestepping the wall (the same consecutive-cell shape as [SliceH], but the fields
+    are HETEROGENEOUS).  A struct POINTER is just the [base] location.  This is the
+    SUBSTRATE that [B2] (pointer receivers) needs; it ALSO unblocks structs in
+    [any]/channels/maps (all blocked by the same wall).  Every law is inherited from
+    [ref_sel_upd_same] — NO new heap, NO new axiom. *)
+Record HStruct := mkHStruct { hs_base : int }.
+Definition hfield_cell {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : Ref A :=
+  mkRef (PrimInt63.add (hs_base h) k) tag.
+Definition hfield_get {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : IO A :=
+  fun w => ORet (ref_sel (hfield_cell h k tag) w) w.
+Definition hfield_set {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) : IO unit :=
+  fun w => ORet tt (ref_upd (hfield_cell h k tag) v w).
+Lemma run_hfield_get : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (w : World),
+  run_io (hfield_get h k tag) w = ORet (ref_sel (hfield_cell h k tag) w) w.
+Proof. reflexivity. Qed.
+Lemma run_hfield_set : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) (w : World),
+  run_io (hfield_set h k tag v) w = ORet tt (ref_upd (hfield_cell h k tag) v w).
+Proof. reflexivity. Qed.
+
+(** A [ref_sel] at a DIFFERENT location is unaffected by a [ref_upd] — the foundation
+    for field INDEPENDENCE (writing one field leaves the others alone). *)
+Lemma ref_sel_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : A) (w : World),
+  r_loc r <> r_loc r' -> ref_sel r' (ref_upd r v w) = ref_sel r' w.
+Proof.
+  intros A B r r' v w Hne. unfold ref_sel, ref_upd. cbn.
+  destruct (PrimInt63.eqb (r_loc r') (r_loc r)) eqn:E; [|reflexivity].
+  apply Uint63.eqb_spec in E. congruence.
+Qed.
+
+(** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
+    returns [v] (from [ref_sel_upd_same]). *)
+Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A),
+  bind (hfield_set h k tag v) (fun _ => hfield_get h k tag) =
+  bind (hfield_set h k tag v) (fun _ => ret v).
+Proof.
+  intros. apply run_io_inj. intro w.
+  rewrite !run_bind, run_hfield_set. cbn.
+  rewrite run_hfield_get, ref_sel_upd_same, run_ret. reflexivity.
+Qed.
+
+(** DIFFERENT fields are INDEPENDENT — writing field [k] does NOT change field [k']
+    (distinct field CELLS), even when the fields have DIFFERENT types.  A THEOREM.
+    (Stated on the field-cell LOCATIONS being distinct, which holds for distinct field
+    indices [k ≠ k']; the index ⇒ location step is [add]-injectivity on [Uint63], a
+    [to_Z] modular-cancellation — left as a routine follow-up, immediate by [vm_compute]
+    for any concrete index pair.) *)
+Lemma hfield_independent : forall {A B} (h : HStruct) (k k' : int)
+    (ta : GoTypeTag A) (tb : GoTypeTag B) (v : A) (w : World),
+  PrimInt63.add (hs_base h) k <> PrimInt63.add (hs_base h) k' ->
+  ref_sel (hfield_cell h k' tb) (ref_upd (hfield_cell h k ta) v w)
+    = ref_sel (hfield_cell h k' tb) w.
+Proof. intros A B h k k' ta tb v w Hne. apply ref_sel_upd_diff. cbn. exact Hne. Qed.
+
+(** Two pointers to the SAME struct (same [base]) see each other's field writes — the
+    aliasing a [*T] receiver relies on.  A THEOREM. *)
+Lemma hstruct_alias : forall {A} (h h' : HStruct) (k : int) (tag : GoTypeTag A) (v : A) (w : World),
+  hs_base h = hs_base h' ->
+  ref_sel (hfield_cell h k tag) (ref_upd (hfield_cell h' k tag) v w) = v.
+Proof.
+  intros A h h' k tag v w Hb. unfold hfield_cell. rewrite Hb.
+  apply (ref_sel_upd_same (mkRef (PrimInt63.add (hs_base h') k) tag) v w).
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
