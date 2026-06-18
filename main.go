@@ -569,6 +569,12 @@ func Ptr_demo() {
 	println(b)
 }
 
+func New_demo() {
+	p := new(int64)
+	v := *p
+	println(v)
+}
+
 func Ptr_safe_demo() {
 	p := func(_v int64) *int64 { return &_v }(int64(42))
 	var v int64
@@ -1088,6 +1094,7 @@ func main() {
 	Irreducible_demo(true)
 	Mut_demo()
 	Ptr_demo()
+	New_demo()
 	Ptr_safe_demo()
 	Slice_alias_demo()
 	Slice_append_demo()

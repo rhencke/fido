@@ -2593,6 +2593,11 @@ Definition ptr_new {A} (tag : GoTypeTag A) (v : A) : IO (Ptr A) :=
                 (mkWorld (fun k => if PrimInt63.eqb k l then Some (existT _ A (tag, v))
                                    else w_refs w k)
                          (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63)).
+(** [new(T)] (Go's predeclared [new]): allocate a FRESH [*T] pointing to the ZERO value
+    of [T], return it.  = [ptr_new tag (zero_val tag)] — fresh, hence never nil; the
+    pointee reads as the zero value.  Lowers to Go [new(T)]. *)
+Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val tag).
+
 (** [ptr_get tag p] = [*p] (deref read); [ptr_set p v] = [*p = v] (deref write). *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
   fun w => ORet (ref_sel (ptr_as_ref p) w) w.

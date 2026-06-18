@@ -274,6 +274,7 @@ let is_ref_set_ref = named "ref_set"
 (* Pointers (Phase B1): [Ptr A] → Go [*T]; ops deref through the cell heap. *)
 let is_ptr_type = named "Ptr"
 let is_ptr_new_ref = named "ptr_new"
+let is_go_new_ref = named "go_new"   (* new(T): a fresh *T pointing to the zero value *)
 let is_ptr_get_ref = named "ptr_get"
 let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
@@ -1096,6 +1097,9 @@ let rec pp_expr state env = function
            let t = go_type_of_tag (strip_magic tag) in
            str "func(_v " ++ str t ++ str ") *" ++ str t ++ str " { return &_v }(" ++
            pp_typed_lit state env v ++ str ")"
+       (* go_new tag → new(T): a fresh *T pointing to the zero value *)
+       | MLglob r, [tag] when is_go_new_ref r ->
+           str "new(" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")"
        | MLglob r, [_tag; p] when is_ptr_get_ref r ->
            str "*" ++ pp_atom state env p
        | MLglob r, [p; v] when is_ptr_set_ref r ->
@@ -2835,7 +2839,7 @@ let is_inlined_ref r =
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
-  is_ptr_type r || is_ptr_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
+  is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||

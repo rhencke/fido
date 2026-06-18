@@ -1092,6 +1092,13 @@ Definition ptr_demo : IO unit :=
   bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
   println [any b]))))).                        (* prints 99 *)
 
+(** [new(T)] (Go's predeclared builtin): a fresh [*int64] pointing to the ZERO value;
+    dereferencing it reads 0.  Now unblocked by the pointer model (B1). *)
+Definition new_demo : IO unit :=
+  bind (go_new TI64) (fun p =>          (* p := new(int64) *)
+  bind (ptr_get TI64 p) (fun v =>       (* v := *p  (= 0, the zero value) *)
+  println [any v])).                     (* prints 0 *)
+
 (** Phase B1b: SAFE (nil-checked) deref.  [ptr_get_ok] is the safe-by-construction
     default — it BRANCHES on [p != nil], forcing the nil case, so the nil-deref panic
     is unreachable ([ptr_get_ok_nil] THEOREM).  A live pointer reads through ([ok=true]);
@@ -1655,6 +1662,7 @@ Definition main_effect : IO unit :=
   irreducible_demo true         >>'   (* prints: 2 / 1 / 2 / 1 / 2 *)
   mut_demo                      >>'   (* prints: 15 *)
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
+  new_demo                      >>'   (* prints: 0 (new(int64) → zero) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
@@ -1684,7 +1692,7 @@ Definition main_effect : IO unit :=
 Extraction NoInline
   ret bind panic catch run_io
   ref_get ref_set ref_new
-  ptr_get ptr_set ptr_new ptr_nil ptr_get_ok
+  ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
   sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field cell_incx
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
