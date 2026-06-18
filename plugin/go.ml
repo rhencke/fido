@@ -111,6 +111,7 @@ let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
    lowered as a Go value-receiver method.  [collect_decls] registers each such
    function by its [global_path]; uses then become [recv.Method(rest)]. *)
 let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* method proj path -> () *)
+let method_arity      : (string, int) Hashtbl.t  = Hashtbl.create 16    (* method path -> visible param count (incl. receiver) *)
 
 let globref_basename g =
   try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
@@ -1425,10 +1426,15 @@ let rec pp_expr state env = function
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
-           pp_atom state env recv ++ str "." ++ str (go_export (global_basename r)) ++
-           str "(" ++
-           prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
-           str ")"
+           let dot = pp_atom state env recv ++ str "." ++ str (go_export (global_basename r)) in
+           let applied = 1 + List.length rest in
+           let arity = match Hashtbl.find_opt method_arity (global_path r) with
+                       | Some a -> a | None -> applied in
+           (* under-applied (only the receiver, not the full args) → a Go METHOD VALUE
+              [recv.M] (a first-class closure with the receiver bound); else a full call. *)
+           if applied < arity then dot
+           else dot ++ str "(" ++
+                prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++ str ")"
        | _ ->
            pp_atom state env head ++ str "(" ++
            prlist_with_sep (fun () -> str ", ")
@@ -3154,7 +3160,12 @@ let collect_decls struc =
     match first_param_type body typ with
     | Some t when (is_record_tglob t || is_sptr_record_tglob t)
                   && not (is_record_proj r) && not (is_inlined_ref r) ->
-        Hashtbl.replace method_paths (global_path r) ()
+        Hashtbl.replace method_paths (global_path r) () ;
+        (* visible param count (incl. receiver) — non-dummy lambda binders — so a call
+           site applying fewer than this many args is a method VALUE, not a full call. *)
+        let ids, _ = collect_lam body in
+        let arity = List.length (List.filter (fun i -> not (is_dummy i)) ids) in
+        Hashtbl.replace method_arity (global_path r) arity
     | _ -> ()
   in
   List.iter (function

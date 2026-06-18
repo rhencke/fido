@@ -979,6 +979,16 @@ func Method_demo() {
 	println(q.Sum_coords())
 }
 
+func Call_shift10(f func(int64) Point) Point {
+	return f(10)
+}
+
+func Method_value_demo() {
+	p := Point{1, 2}
+	q := Call_shift10(p.Shifted)
+	println(q.Px, q.Py)
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -1227,6 +1237,7 @@ func main() {
 	Point_demo()
 	Labeled_demo()
 	Method_demo()
+	Method_value_demo()
 	Io_method_demo()
 	Struct_eq_demo()
 	Struct_eq_native_demo()

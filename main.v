@@ -1482,6 +1482,17 @@ Definition method_demo : IO unit :=
   bind (println [any (py q)])           (fun _ =>   (* 14 *)
   println [any (sum_coords q)]))).                  (* 27 *)
 
+(** METHOD VALUE (Go's [p.M] as a first-class closure): [shifted p] is the method
+    [Shifted] with its receiver [p] already bound — a [func(int64) Point] passed to a
+    higher-order function.  The plugin detects the under-application (only the receiver,
+    not the full args) and emits the bare [p.Shifted] (a method value), not a call.
+    [call_shift10] then invokes it with [10]. *)
+Definition call_shift10 (f : GoI64 -> Point) : Point := f (10)%i64.
+Definition method_value_demo : IO unit :=
+  let p := MkPoint (1)%i64 (2)%i64 in
+  let q := call_shift10 (shifted p) in   (* call_shift10(p.Shifted) = p.Shifted(10) = (11,12) *)
+  println [any (px q); any (py q)].       (* 11 12 *)
+
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
     and the statement-position call [describe p] lowers to [p.Describe()]. *)
@@ -1789,6 +1800,7 @@ Definition main_effect : IO unit :=
   point_demo                    >>'   (* prints: 3 / 4 / 7 *)
   labeled_demo                  >>'   (* prints: true / 5 *)
   method_demo                   >>'   (* prints: 7 / 13 / 14 / 27 *)
+  method_value_demo             >>'   (* prints: 11 12 (method value p.Shifted passed to a HOF) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
@@ -1805,6 +1817,7 @@ Definition main_effect : IO unit :=
     still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
     [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
 Extraction NoInline
+  call_shift10
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
