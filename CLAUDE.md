@@ -224,8 +224,14 @@ separate tracks.
      Two general plugin fixes it needed: `any v` (existT) now erases to its payload in
      *general* value position (e.g. a direct func arg), not only inside the `type_assert`
      arms; and the `GoAny` Definition-alias renders as Go `any` as a signature type.
-     `tsw_demo` → `true 1` / `go 2` / `9` (bool/string/default), golden-locked. *Not yet:*
-     N-ary (>2 cases) is the same lowering with more arms; a `case T1, T2:` multi-type arm.
+     `tsw_demo` → `true 1` / `go 2` / `9` (bool/string/default), golden-locked.  **N-ary
+     DONE (2026-06-18):** `type_switch3` (and any `type_switchN`) lowers through one
+     GENERALISED plugin arm — it matches `type_switch` by name prefix and treats the args
+     after the scrutinee as (tag, continuation) PAIRS then the default, so higher arities
+     need no new plugin code.  `tsw3_demo` → `true 1` / `hi 2` / `5 3` (bool/string/int64;
+     the int64 case driven by a typed func return so it boxes as `int64`, a faithful
+     int-vs-int64 distinction).  *Not yet:* a `case T1, T2:` multi-type arm (binds the
+     value at the interface type, not narrowed).
    - design point: an IO-valued branch `bind (match …) k` must thread the
      continuation `k` through every arm — emit each arm's statements then `k`
      in that branch (duplicate, or hoist the result into a var), never a value
