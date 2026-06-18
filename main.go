@@ -563,6 +563,15 @@ func Tsw_or_demo(a any) {
 	}
 }
 
+func Tsw_or3_demo(a any) {
+	switch a.(type) {
+	case bool, string, int64:
+		println(1)
+	default:
+		println(0)
+	}
+}
+
 func Int_sw_demo(x int64) {
 	switch x {
 	case 1:
@@ -1236,6 +1245,9 @@ func main() {
 	Tsw_or_demo(true)
 	Tsw_or_demo("x")
 	Tsw_or_demo(5)
+	Tsw_or3_demo(true)
+	Tsw_or3_demo("z")
+	Tsw_or3_demo(5)
 	Int_sw_demo(1)
 	Int_sw_demo(2)
 	Int_sw_demo(5)

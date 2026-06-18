@@ -1408,6 +1408,28 @@ Example type_switch_or2_default : forall {B} (x : int) (k d : IO B),
   type_switch_or2 (anyt TInt64 x) TBool TString k d = d.
 Proof. intros. reflexivity. Qed.
 
+(** N-type multi-case — three types here (Go's [case T1, T2, T3:]); same shape as
+    [type_switch_or2], one more tag.  The plugin lowers any arity through one generalised
+    arm. *)
+Definition type_switch_or3 {A1 A2 A3 B : Type} (a : GoAny)
+  (t1 : GoTypeTag A1) (t2 : GoTypeTag A2) (t3 : GoTypeTag A3) (k : IO B) (d : IO B) : IO B :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce t1 atag x with
+      | Some _ => k
+      | None => match tag_coerce t2 atag x with
+                | Some _ => k
+                | None => match tag_coerce t3 atag x with Some _ => k | None => d end
+                end
+      end
+  end.
+Example type_switch_or3_third : forall {B} (x : GoI64) (k d : IO B),
+  type_switch_or3 (anyt TI64 x) TBool TString TI64 k d = k.
+Proof. intros. unfold type_switch_or3. rewrite tag_coerce_refl. reflexivity. Qed.
+Example type_switch_or3_default : forall {B} (x : int) (k d : IO B),
+  type_switch_or3 (anyt TInt64 x) TBool TString TFloat64 k d = d.
+Proof. intros. reflexivity. Qed.
+
 (** Native EXPRESSION switch — Go's [switch x { case v1: …; case v2: …; default: … }]
     on an int64 scrutinee.  Semantically an equality if-chain (faithful: Go's expression
     switch compares the scrutinee to each case value with [==], first match wins) but

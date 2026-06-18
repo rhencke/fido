@@ -369,7 +369,11 @@ let is_type_switch_ref r =
   String.length s >= 11 && String.sub s 0 11 = "type_switch"
 (* Multi-type case [case T1, T2:] — a distinct shape (two tags, one value-less thunk,
    default), so its own recognizer/arm; the prefix above still suppresses its decl. *)
-let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2"
+(* Multi-type case [case T1, … , TN:] of ANY arity (type_switch_or2, or3, …): the value is
+   not narrowed, so it's N tags then one value-less thunk then the default. *)
+let is_type_switch_or_ref r =
+  let s = global_basename r in
+  String.length s >= 14 && String.sub s 0 14 = "type_switch_or"
 (* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
    witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
 let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
@@ -2514,7 +2518,7 @@ let pp_io_body state tab env body =
             distinct binder names need no env renaming).  The guard var is omitted if no
             case uses its value (else Go errors "_tsv declared but not used"). *)
          | MLglob r, (a :: rest)
-            when is_type_switch_ref r
+            when is_type_switch_ref r && not (is_type_switch_or_ref r)
                  && List.length rest >= 3 && List.length rest mod 2 = 1 ->
              let payload = pp_expr state env (any_payload a) in
              let n = List.length rest in
@@ -2561,14 +2565,21 @@ let pp_io_body state tab env body =
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++
              str tab ++ str "}" ++ fnl ()
-         (* type_switch_or2 a t1 t2 k d → multi-type case (Go's [case T1, T2:]).  The
-            value is not narrowed, so no guard var and no per-case rebind: the body [k]
-            is a plain thunk run when the type is T1 OR T2. *)
-         | MLglob r, [a; t1; t2; k; d] when is_type_switch_or2_ref r ->
+         (* type_switch_orN a t1 … tN k d → multi-type case (Go's [case T1, …, TN:]).  The
+            value is not narrowed, so no guard var / per-case rebind: the body [k] is a
+            plain thunk run when the type is T1 OR … OR TN.  Args after [a] are the N tags
+            (N ≥ 2), then the thunk, then the default. *)
+         | MLglob r, (a :: rest)
+            when is_type_switch_or_ref r && List.length rest >= 4 ->
              let payload = pp_expr state env (any_payload a) in
+             let n = List.length rest in
+             let k = List.nth rest (n - 2) in
+             let d = List.nth rest (n - 1) in
+             let tags = List.filteri (fun i _ -> i < n - 2) rest in
              str tab ++ str "switch " ++ payload ++ str ".(type) {" ++ fnl () ++
-             str tab ++ str "case " ++ str (go_type_of_tag t1) ++ str ", " ++
-               str (go_type_of_tag t2) ++ str ":" ++ fnl () ++
+             str tab ++ str "case " ++
+             prlist_with_sep (fun () -> str ", ")
+               (fun t -> str (go_type_of_tag t)) tags ++ str ":" ++ fnl () ++
              pp_stmts (tab ^ "\t") env k ++
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++

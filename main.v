@@ -1083,6 +1083,15 @@ Definition tsw_or_demo (a : GoAny) : IO unit :=
     (println [any (1)%i64])      (* case bool, string → 1 *)
     (println [any (0)%i64]).     (* default           → 0 *)
 
+(** N-type multi-case (Go's [case T1, T2, T3:]): one arm matching ANY of three types.
+    [type_switch_or3] runs the thunk when the type is bool OR string OR int64 (the int64
+    case is machine-checked by [type_switch_or3_third]; an int LITERAL boxes as Go [int],
+    distinct from [int64], so it hits the default). *)
+Definition tsw_or3_demo (a : GoAny) : IO unit :=
+  type_switch_or3 a TBool TString TI64
+    (println [any (1)%i64])      (* case bool, string, int64 → 1 *)
+    (println [any (0)%i64]).     (* default                  → 0 *)
+
 (** Native EXPRESSION switch (Go's [switch x { case 1: …; case 2: …; default: … }]) on an
     int64 value.  [int_switch2] is an equality if-chain (faithful) lowered to native Go. *)
 Definition int_sw_demo (x : GoI64) : IO unit :=
@@ -1810,6 +1819,9 @@ Definition main_effect : IO unit :=
   tsw_or_demo (any true)            >>'   (* prints: 1 (bool matches case bool, string) *)
   tsw_or_demo (any "x"%string)      >>'   (* prints: 1 (string also matches the multi-type case) *)
   tsw_or_demo (any (5)%i64)         >>'   (* prints: 0 (default; neither bool nor string) *)
+  tsw_or3_demo (any true)           >>'   (* prints: 1 (bool matches case bool, string, int64) *)
+  tsw_or3_demo (any "z"%string)     >>'   (* prints: 1 (string also matches) *)
+  tsw_or3_demo (any (5)%i64)        >>'   (* prints: 0 (default; int literal boxes as int) *)
   int_sw_demo (1)%i64               >>'   (* prints: 10 (case 1, native expression switch) *)
   int_sw_demo (2)%i64               >>'   (* prints: 20 (case 2) *)
   int_sw_demo (5)%i64               >>'   (* prints: 99 (default) *)
@@ -1882,7 +1894,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes
-  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
+  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 str_switch2
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
