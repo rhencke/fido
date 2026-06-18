@@ -430,10 +430,16 @@ Definition convert_demo : IO unit :=
     already erases to a Go int64 holding exactly this value):* the faithful Coq body
     crosses the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
     ([Sint63Axioms.to_Z] -> [Uint63.ltb] …) includes the DELIBERATELY-REJECTED unsigned
-    [Uint63.ltb] (Tier 3 #9), so extracting it fights clean suppression.  Kept
-    proof-only (no demo, not reachable from [main_effect] → not extracted), like
-    [f64_of_i64]; a runtime form needs an int63->Z that drags no match-bodied stdlib
-    decls (or a narrow-stored-in-Z model). *)
+    [Uint63.ltb] (Tier 3 #9), so extracting the body drags a banned decl.  Kept proof-only.
+    *Two runtime-lowering attempts (2026-06-18) both FAILED for the same reason:* (a)
+    recognise [i64_of_u8] → identity at the call site + suppress its decl; (b) emit it as a
+    named no-op conversion func [func I64_of_u8(a int64) int64 { return int64(a) }] via
+    [fullwidth_conv_name].  BOTH abort because [i64_of_u8] is INLINED at the call site
+    despite [Extraction NoInline i64_of_u8] (which DOES work for [u64_of_i64] right beside it
+    in the same list!), so the [to_Z] body leaks regardless of how the decl is handled.
+    Why [NoInline] is ignored for THIS definition specifically is an open Coq-extraction
+    puzzle.  The robust fix is the **narrow-stored-in-Z model** (re-base [GoU8]… on [Z] like
+    [GoI64], so widening never crosses carriers) — a real refactor, deferred. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
 Example widen_i8  : i64_of_i8  (i8_of_int (-5)%sint63)      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
 Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.
