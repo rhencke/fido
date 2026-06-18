@@ -618,6 +618,11 @@ func Str_sw_demo(x string) {
 	}
 }
 
+func Bytes_demo() {
+	b := []byte("Hi")
+	println(string(b))
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1206,6 +1211,7 @@ func main() {
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()
+	Bytes_demo()
 	Tsw_demo(true)
 	Tsw_demo("go")
 	Tsw_demo(5)

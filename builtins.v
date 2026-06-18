@@ -2564,6 +2564,32 @@ Fixpoint go_str_byte (s : GoString) (i : int) : GoByte :=
   | String c rest => if PrimInt63.eqb i 0%uint63 then ascii_byte c
                      else go_str_byte rest (PrimInt63.sub i 1%uint63)
   end.
+
+(** ---- [[]byte] / [string] conversions (Go spec "Conversions to and from a string
+    type") ----  [[]byte(s)] is the BYTE sequence of [s] (no UTF-8 decoding); [string(b)]
+    reconstructs it.  [GoString] IS a byte sequence ([list ascii]), so these are faithful
+    byte-for-byte.  [str_to_bytes] maps each char to its [GoByte] via the suppressed
+    [ascii_byte]; [byte_ascii] is its inverse (reconstruct the 8 bits, again no
+    [nat_of_ascii]).  Both lower BY NAME to the native [[]byte(s)] / [string(b)] (bodies
+    suppressed + NoInline, so they affect only proofs).  [str_to_bytes_length] proves the
+    byte count is preserved ([len([]byte(s)) == len(s)]); the value round-trip is golden. *)
+Definition byte_ascii (b : GoByte) : ascii :=
+  let n := u8raw b in
+  let bit (k : int) : bool := PrimInt63.eqb (PrimInt63.land (PrimInt63.lsr n k) 1%uint63) 1%uint63 in
+  Ascii (bit 0%uint63) (bit 1%uint63) (bit 2%uint63) (bit 3%uint63)
+        (bit 4%uint63) (bit 5%uint63) (bit 6%uint63) (bit 7%uint63).
+Fixpoint str_to_bytes (s : GoString) : list GoByte :=
+  match s with
+  | EmptyString   => nil
+  | String c rest => ascii_byte c :: str_to_bytes rest
+  end.
+Fixpoint str_from_bytes (b : list GoByte) : GoString :=
+  match b with
+  | nil       => EmptyString
+  | x :: rest => String (byte_ascii x) (str_from_bytes rest)
+  end.
+Lemma str_to_bytes_length : forall s, Datatypes.length (str_to_bytes s) = String.length s.
+Proof. induction s as [|c rest IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 Definition str_at_ok {B : Type}
   (s : GoString) (i : int) (k : GoByte -> bool -> IO B) : IO B :=
   if (Sint63.leb 0 i && Sint63.ltb i (str_len s))%bool

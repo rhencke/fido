@@ -1129,6 +1129,14 @@ Definition str_sw_demo (x : GoString) : IO unit :=
     "b"%string (println [any (2)%i64])   (* case "b" → 2 *)
     (println [any (9)%i64]).             (* default  → 9 *)
 
+(** [[]byte] / [string] conversions (Go's byte-slice interop): [[]byte("Hi")] is the
+    byte sequence, [string(b)] reconstructs the string.  Round-trips "Hi" → bytes → "Hi"
+    (value round-trip golden-checked; byte-count preservation is the theorem
+    [str_to_bytes_length]). *)
+Definition bytes_demo : IO unit :=
+  let b := str_to_bytes "Hi"%string in   (* []byte("Hi") *)
+  println [any (str_from_bytes b)].        (* string(b) → "Hi" *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -1771,6 +1779,7 @@ Definition main_effect : IO unit :=
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
+  bytes_demo                    >>'   (* prints: Hi ([]byte / string round-trip) *)
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
@@ -1850,7 +1859,7 @@ Extraction NoInline
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
-  len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
+  len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
