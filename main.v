@@ -1092,6 +1092,15 @@ Definition complex_demo : IO unit :=
   let c := go_complex (1.5)%float (2.5)%float in
   println [any (go_real c); any (go_imag c)].   (* the two components (Go float format) *)
 
+(** Complex [+] / [-] (component-wise, native Go operators): (1+2i)+(3+4i) = 4+6i,
+    (1+2i)-(3+4i) = -2-2i.  Extract each component to print. *)
+Definition complex_arith_demo : IO unit :=
+  let a := go_complex (1.0)%float (2.0)%float in
+  let b := go_complex (3.0)%float (4.0)%float in
+  let s := complex_add a b in
+  let d := complex_sub a b in
+  println [any (go_real s); any (go_imag s); any (go_real d); any (go_imag d)].
+
 (** Expression switch on a STRING (Go's [switch s { case "a": …; default: … }]). *)
 Definition str_sw_demo (x : GoString) : IO unit :=
   str_switch2 x
@@ -1726,6 +1735,7 @@ Definition main_effect : IO unit :=
   str_sw_demo "b"%string            >>'   (* prints: 2 (case "b") *)
   str_sw_demo "z"%string            >>'   (* prints: 9 (default) *)
   complex_demo                      >>'   (* prints: the two components of complex(1.5, 2.5) *)
+  complex_arith_demo                >>'   (* prints: 4 6 -2 -2 components of the sum/difference *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -1783,7 +1793,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
-  go_complex go_real go_imag
+  go_complex go_real go_imag complex_add complex_sub
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

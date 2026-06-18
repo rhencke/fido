@@ -2644,6 +2644,28 @@ Proof. reflexivity. Qed.
 Example go_imag_complex : forall re im, go_imag (go_complex re im) = im.
 Proof. reflexivity. Qed.
 
+(** Complex ARITHMETIC — Go's [+] / [-] on complex128.  These are COMPONENT-WISE (each
+    component is a single IEEE float add/sub), so the model is faithful including the
+    Inf/NaN corners, and it lowers to the native Go [+] / [-].  *([*] and [/] are DEFERRED:
+    Go's complex multiply/divide carry rounding-order subtleties — naive cross-products for
+    [*], Smith's scaling algorithm for [/] in the runtime — that a faithful model must match
+    exactly; a careful follow-up, not approximated here.)* *)
+Definition complex_add (a b : GoComplex128) : GoComplex128 :=
+  MkComplex128 (PrimFloat.add (c_re a) (c_re b)) (PrimFloat.add (c_im a) (c_im b)).
+Definition complex_sub (a b : GoComplex128) : GoComplex128 :=
+  MkComplex128 (PrimFloat.sub (c_re a) (c_re b)) (PrimFloat.sub (c_im a) (c_im b)).
+
+(** Build-checked: each component of the sum/difference is the float add/sub of the
+    corresponding components (so the native [a + b] computes exactly what Go does). *)
+Example complex_add_components : forall a b,
+  go_real (complex_add a b) = PrimFloat.add (go_real a) (go_real b)
+  /\ go_imag (complex_add a b) = PrimFloat.add (go_imag a) (go_imag b).
+Proof. intros. split; reflexivity. Qed.
+Example complex_sub_components : forall a b,
+  go_real (complex_sub a b) = PrimFloat.sub (go_real a) (go_real b)
+  /\ go_imag (complex_sub a b) = PrimFloat.sub (go_imag a) (go_imag b).
+Proof. intros. split; reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.

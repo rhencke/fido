@@ -742,6 +742,9 @@ let binop_of r =
   else if String.equal (global_basename r) "f64_gtb"  then Some (3, " > ")
   else if String.equal (global_basename r) "f64_geb"  then Some (3, " >= ")
   else if String.equal (global_basename r) "f64_neqb" then Some (3, " != ")
+  (* complex128 arithmetic: component-wise [+]/[-] → native Go operators (float +/-) *)
+  else if String.equal (global_basename r) "complex_add" then Some (4, " + ")
+  else if String.equal (global_basename r) "complex_sub" then Some (4, " - ")
   (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
      bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
      int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
@@ -2950,7 +2953,8 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
   is_struct_eqb_ref r || is_val_switch_ref r ||
   List.mem (global_basename r)
-    ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im"] ||
+    ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
+     "complex_add"; "complex_sub"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
