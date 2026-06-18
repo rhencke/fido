@@ -1200,12 +1200,22 @@ the remaining liveness frontier.  All axiom-free.
 make build        # full Docker build → static binary
 make run          # run the image
 make extract      # pull generated Go into the repo
-make run-local    # extract + go run (no Docker)
-make check        # golden check: run program, diff output vs expected_output.txt
-make golden       # update expected_output.txt after an intended behaviour change
+make run-local    # extract + go run (no Docker; needs a host Go)
+make run-extracted # extract + run (Dockerised) — guarded ad-hoc run, no diff
+make check        # extract + run + diff output vs expected_output.txt (the verify step)
+make golden       # extract + SHOW the delta (committed → new) + bless expected_output.txt
 make install-hooks  # activate pre-commit hook (run once after clone)
 ```
 
 `expected_output.txt` is the golden runtime output — a cheap end-to-end check
-that a Rocq/plugin change did not alter observable behaviour *anywhere*. After
-an intended behaviour change, `make golden` and commit the new baseline.
+that a Rocq/plugin change did not alter observable behaviour *anywhere*.
+
+**Run/verify ONLY through these targets — never a bare `go run` / `docker run …
+go run`** (that bypasses extraction and can validate stale Go).  `check`, `golden`,
+`run-local`, and `run-extracted` ALL declare `extract` as a prerequisite, so the
+program you run/diff always reflects current `*.v`/plugin source.  Verify-then-bless
+workflow after an intended change: **`make check`** (re-extracts, runs, prints the
+diff vs the golden — review that the delta is exactly what you intended) → **`make
+golden`** (re-extracts, *re-shows* the delta, then blesses) → commit.  The diff
+check lives in the Makefile (both `check` and `golden` surface it); do not diff by
+hand.

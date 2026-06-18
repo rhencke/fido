@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run extract go-run install-hooks check golden
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -39,6 +39,15 @@ extract:
 run-local: extract
 	go run .
 
+# Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
+# ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can
+# NEVER use stale Go.  This (or [check]) is the ONLY sanctioned way to run the program —
+# a bare `go run` / `docker run … go run` bypasses extraction and is forbidden.  For
+# VERIFYING a change, prefer [check] (runs AND diffs against the golden); use this only
+# when you want the raw output with no diff.
+run-extracted: extract
+	@$(GORUN)
+
 # Run the image built for the native platform.
 run: build
 	docker run --rm --platform $(PLATFORM) $(IMAGE):$(TAG)
@@ -60,11 +69,18 @@ check: extract
 	  exit 1; \
 	fi
 
-# Regenerate the golden baseline after an intended behaviour change.  Also depends
-# on [extract] so the baseline is captured from freshly-extracted Go, never stale.
+# Regenerate the golden baseline after an intended behaviour change.  Depends on
+# [extract] so the baseline is captured from freshly-extracted Go, never stale, AND
+# SHOWS THE DELTA it is about to bless (old golden → new output) before overwriting —
+# so blessing can never happen blind: the diff check is part of the bless, not a manual
+# step done beside it.  Review the printed delta; if it is more than you intended, your
+# change had an unexpected effect somewhere.
 golden: extract
-	@$(GORUN) > expected_output.txt 2>&1
-	@echo "fido: updated expected_output.txt"
+	@$(GORUN) > /tmp/fido_new.txt 2>&1 || true; \
+	echo "fido: golden delta (committed → new), review before blessing:"; \
+	diff -u expected_output.txt /tmp/fido_new.txt || true; \
+	cp /tmp/fido_new.txt expected_output.txt; \
+	echo "fido: updated expected_output.txt"
 
 # Multi-platform build (does not load locally — use push to ship).
 bake:
