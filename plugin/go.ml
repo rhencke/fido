@@ -753,7 +753,19 @@ let rec pp_type state = function
   | Tglob (r, []) when is_nat_type r    -> str "uint"
   | Tglob (r, []) when is_bool_type r   -> str "bool"
   | Tglob (r, args) ->
-      str (go_export (global_basename r)) ++
+      (* A user record reaches here only if it was registered (collect_decls
+         pass 1) and hence has a `type T struct {…}` decl emitted.  A Tglob that
+         is NOT a registered record has no type decl — emitting its bare name
+         would dangle.  The canonical offender is a SINGLE-FIELD Record: Coq
+         unboxes it (`Inner {iv}` ≡ its field type), so no struct is emitted yet
+         a field still references `Inner`.  Fail loud rather than emit wrong Go
+         (meta-invariant); give such a record ≥2 fields. *)
+      let bn = global_basename r in
+      if not (is_record_typename bn) then
+        unsupported (Printf.sprintf
+          "type '%s' (no struct decl emitted — a single-field Record is unboxed \
+           by Coq; give it >= 2 fields)" (go_export bn));
+      str (go_export bn) ++
       (if args = [] then mt ()
        else
          str "[" ++

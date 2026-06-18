@@ -278,12 +278,16 @@ separate tracks.
    { w_inner : Inner ; wz }` lowers to `type Wrap struct { W_inner Inner; Wz int64 }`, the
    nested literal `MkWrap (MkInner 5 1) 9` → `Wrap{Inner{5, 1}, 9}`, and the chained
    projection `iv (w_inner o)` → `(o.W_inner).Iv` — compiles; `nested_struct_demo` → `5 9`,
-   golden-locked.  ⚠ **single-field-record FAIL-LOUD GAP (found 2026-06-18):** a 1-field
-   user record (`Inner { iv }`) is UNBOXED by Coq (`Inner ≡ GoI64`), but the plugin still
-   emits a `W_inner Inner` field referencing the now-nonexistent type → UNCOMPILABLE Go
-   (`undefined: Inner`) — a meta-invariant (fail-loud) violation, NOT yet refused at
-   extraction (the plugin can't see Coq's unboxing).  Workaround: use ≥2 fields (the
-   demo does).  *Not yet:* embedded fields/promotion (anonymous), struct tags, the
+   golden-locked.  **single-field-record gap — now FAIL-LOUD (fixed 2026-06-18):** a 1-field
+   user record (`Inner { iv }`) is UNBOXED by Coq (`Inner ≡ GoI64`, no `Dind`/struct decl
+   emitted), so a `W_inner Inner` field would reference a now-nonexistent type → previously
+   UNCOMPILABLE Go (`undefined: Inner`), a meta-invariant violation.  Now the plugin's
+   generic `Tglob` type arm REFUSES any type that is not a registered (emitted) record:
+   `cannot extract type 'Inner' (no struct decl emitted — a single-field Record is unboxed
+   by Coq; give it >= 2 fields)`, aborting `make extract` instead of emitting dangling Go
+   (verified both directions: 2-field extracts; 1-field aborts).  Workaround stays ≥2 fields
+   (the demo does); proper single-field support needs the curried/erasure work (ladder 9c).
+   *Not yet:* embedded fields/promotion (anonymous), struct tags, the
    single-field-struct distinctness (ladder 9c), the IDIOMATIC direct `p == q` (tidiness).
 
    **b. Methods (value receiver)** — *done*. A top-level function whose FIRST
@@ -339,8 +343,10 @@ plausible-but-wrong Go. The plugin's `unsupported what` helper raises a
 `CErrors.user_err` (aborting `make extract`) for every case it cannot lower —
 the catch-all in `pp_expr`/`pp_atom`, an unhandled `MLcase` shape in statement
 position, a non-literal `print`/`println` arg list, an unmodeled constructor
-(`MLcons` that is not nat/bool/list), and a `map_get_opt` result not immediately
-matched. Previously these emitted `nil /* TODO */` / `panic("unhandled match")`,
+(`MLcons` that is not nat/bool/list), a `map_get_opt` result not immediately
+matched, and a `Tglob` type that is not a registered record (no struct decl
+emitted — the single-field-record-unboxing dangling reference, 2026-06-18).
+Previously these emitted `nil /* TODO */` / `panic("unhandled match")`,
 which *compiles and runs wrong* — the one thing the project forbids. Now an
 unmodeled construct either gets implemented or gets suppressed in
 `is_inlined_ref` (if the offending definition is dead, as the `andb`/`negb`
