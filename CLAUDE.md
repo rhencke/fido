@@ -217,10 +217,22 @@ separate tracks.
 
    **b. Expressions second** — `MLcase` in value position. Go has no
    conditional expression, so pure `if`/`match` lowers via hoisting or an
-   IIFE. *(Still pending — no demo triggers a value-position match yet. But it
-   is no longer a SILENT hole: a value-position match now **fails loudly at
-   extraction** via `unsupported` — see "Fail-loud policy" below — rather than
-   emitting a plausible-but-wrong `nil`.  So the gap is honest, not a footgun.)*
+   IIFE. *The TAIL case is now DONE (2026-06-18):* when the `if`/`match` is the
+   whole pure-function BODY (tail position), `pp_pure_tail` lowers it to a Go
+   `if`/`else` whose arms each `return` — the idiomatic form — recursing so
+   nested `if`s chain. Only a 2-arm **bool** match is modeled; a non-bool / non-
+   tail value-position match still **fails loudly at extraction** via
+   `unsupported` (the `return` fallback routes it to `pp_expr`'s catch-all —
+   see "Fail-loud policy" below — rather than emitting a plausible-but-wrong
+   `nil`). Demo: `i64_abs` (Go has no integer `abs` builtin, so it is written
+   with exactly such an `if`) lowers to `func I64_abs(a int64) int64 { if a < 0
+   { return 0 - a } else { return a } }`; faithful across the full int64 range
+   incl. the `MININT` corner (`0 - a` wraps, so `|MININT| = MININT` — machine-
+   checked `i64_abs_minint`), golden-locked (`7 7 -9223372036854775808`). The
+   callee must be `NoInline` so the `if` stays in tail position rather than
+   being inlined into a call-site value slot. *Still pending:* the general
+   value-position match as a SUBexpression (IIFE / hoist-to-var, needs the arm's
+   value type).
    **Boolean operators are done**: `andb`/`orb`/`negb` lower to Go's `&&`/`||`/`!`
    (`Bool_op_demo`).  Faithful because the operands are pure, total `bool` values
    (no effects, no divergence), so Go's short-circuit evaluation is

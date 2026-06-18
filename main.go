@@ -2,6 +2,14 @@
 
 package main
 
+func I64_abs(a int64) int64 {
+	if a < 0 {
+		return 0 - a
+	} else {
+		return a
+	}
+}
+
 func Add(n int64, m int64) int64 {
 	return n + m
 }
@@ -12,6 +20,10 @@ func Sub(n int64, m int64) int64 {
 
 func Overflow_safe_demo() {
 	println(1000000000000+2000000000000, 1000*1000)
+}
+
+func I64_abs_demo() {
+	println(I64_abs(-7), I64_abs(7), I64_abs(-9223372036854775808))
 }
 
 func Div_nz(n int64, d int64) int64 {
@@ -910,6 +922,7 @@ func main() {
 	Panic_and_recover(40 + 2)
 	Div_demo()
 	Overflow_safe_demo()
+	I64_abs_demo()
 	Float_demo()
 	Float_cmp_demo()
 	Float_nan_demo(0.0)

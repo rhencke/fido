@@ -87,6 +87,25 @@ Definition overflow_safe_demo : IO unit :=
           ; any (i64_mul_nz (1000)%i64 (1000)%i64 eq_refl) ].
   (* prints: 3000000000000 1000000 — full-width GoI64, proven no wrap *)
 
+(** PURE-FUNCTION TAIL-MATCH LOWERING (ladder 7b — value-position [if], tail case).
+    Go has no conditional EXPRESSION, so an [if] in value position cannot be inlined
+    as one.  But when the [if]/[match] is the whole function BODY (tail position),
+    it lowers to a Go [if]/[else] whose arms each [return] — the idiomatic form.
+    [i64_abs] is the canonical demo: Go has no integer [abs] builtin, so it is
+    written by hand with exactly such an [if].  Faithful across the FULL int64
+    range, INCLUDING the [MININT] corner ([|MININT| = MININT], the [0 - a]
+    two's-complement overflow Go also exhibits) — machine-checked below. *)
+Example i64_abs_pos    : i64_abs (7)%i64 = (7)%i64.   Proof. vm_compute. reflexivity. Qed.
+Example i64_abs_neg    : i64_abs (-7)%i64 = (7)%i64.  Proof. vm_compute. reflexivity. Qed.
+Example i64_abs_minint :
+  i64_abs (-9223372036854775808)%i64 = (-9223372036854775808)%i64.
+Proof. vm_compute. reflexivity. Qed.
+
+Definition i64_abs_demo : IO unit :=
+  println [ any (i64_abs (-7)%i64) ; any (i64_abs (7)%i64)
+          ; any (i64_abs (-9223372036854775808)%i64) ].
+  (* prints: 7 7 -9223372036854775808  (|MININT| wraps to MININT) *)
+
 (** SAFE-BY-CONSTRUCTION DIVISION (closes the div-by-zero gap).  Go panics on
     [n / 0]; Rocq's division is total ([_ / 0 = 0]).  Emitting a raw [/] would be
     silently unsound, so the plugin emits no bare integer [/]/[%].  Instead
@@ -190,10 +209,16 @@ Definition float_opp_sign_demo (z : float) : IO unit :=
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
     checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
     the sign over [PrimFloat.of_uint63]; >= 2^53 rounds exactly like Go).  *Runtime
-    lowering deferred:* the sign-split makes [f64_of_i64]'s body a value-position [if],
-    which the plugin cannot yet lower (the ladder-7b value-position-match gap) -- so it
-    is a proof-only model for now (no demo).  *float64 -> int64 truncation:* a BOUNDARY
-    -- [PrimFloat] has no truncation primitive (like [math.Abs]/[math.Sqrt]). *)
+    lowering still deferred, but no longer for the if-reason:* the ladder-7b value-
+    position-[if] gap is now CLOSED for the tail case (see [i64_abs] above), so a pure
+    function whose body is an [if] DOES extract.  What [f64_of_i64] still needs is a
+    Go int->float CONVERSION primitive: its body uses [Z.leb]/[PrimFloat.of_uint63]
+    (no Go lowering), and the [of_uint63] sign-split cannot represent [|MININT| = 2^63]
+    (uint63 caps at 2^63-1).  The clean path is a dedicated [i64_to_f64] lowering to
+    Go's native [float64(x)] (which handles the sign and the [MININT] corner directly),
+    NOT extracting this proof-only sign-split body -- so it stays proof-only for now.
+    *float64 -> int64 truncation:* a BOUNDARY -- [PrimFloat] has no truncation
+    primitive (like [math.Abs]/[math.Sqrt]). *)
 Example f64_of_i64_pos : PrimFloat.eqb (f64_of_i64 (7)%i64) 7%float = true.
 Proof. now vm_compute. Qed.
 Example f64_of_i64_neg : PrimFloat.eqb (f64_of_i64 (-3)%i64) (PrimFloat.opp 3%float) = true.
@@ -1333,6 +1358,7 @@ Definition main_effect : IO unit :=
   panic_and_recover (i64_add (40)%i64 (2)%i64)  >>'   (* prints: 42 43 *)
   div_demo                      >>'   (* prints: 3 2 *)
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
+  i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   float_demo                    >>'   (* prints: 3.75 / 0.25 (sci) *)
   float_cmp_demo                >>'   (* prints: true / true / true / false *)
   float_nan_demo 0              >>'   (* prints: false / false (NaN unordered) *)
@@ -1424,6 +1450,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
+  i64_abs
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr

@@ -925,6 +925,17 @@ Definition i64_mul (a b : GoI64) : GoI64 := MkI64 (wrap64 (i64raw a * i64raw b))
 Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
 Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
+(* Integer absolute value.  Go has NO abs builtin for ints (only [math.Abs] for
+   floats — and that needs an import), so it is written by hand with an [if] in
+   VALUE position: [|a| = if a < 0 then -a else a].  Faithful across the WHOLE
+   int64 range INCLUDING the [MININT] corner: [0 - MININT] is the exact [2^63],
+   which [wrap64] lands back at [MININT] — exactly Go's two's-complement
+   [0 - a] (the classic [abs(math.MinInt64) = math.MinInt64] overflow).  This is
+   the canonical demo of the pure-function tail-match lowering (ladder 7b): the
+   body's [if] is a value-position match, lowered to an [if]/[else] whose arms
+   each [return]. *)
+Definition i64_abs (a : GoI64) : GoI64 :=
+  if i64_ltb a (MkI64 0) then i64_sub (MkI64 0) a else a.
 (* DIV/MOD: Go truncates toward ZERO ([Z.quot]/[Z.rem]) — NOT Coq's flooring
    [Z.div]/[Z.modulo] (which give [-7/2 = -4]).  Evidence-carrying non-zero divisor
    (Go panics on /0).  [wrap64] lands the lone overflow case [MININT / -1 = MININT]

@@ -2554,6 +2554,40 @@ let is_record_tglob = function
   | Tglob (r, _) -> is_record_typename (global_basename r)
   | _ -> false
 
+(* Pure (non-IO) function body that RETURNS via a tail-position match.  Go has no
+   conditional expression, so a [match]/[if] in value position can't be inlined as
+   one; in TAIL position (the whole function body, possibly nested) it lowers to an
+   [if]/[else] where each arm RETURNS its value (ladder 7b — expressions, tail
+   case).  Only a 2-arm BOOL match (i.e. [if]/[else]) is modeled; the arms recurse
+   so nested ifs chain, and a leaf arm emits [return <expr>].  A non-bool / non-tail
+   value-position match still fails loud via [pp_expr]'s catch-all (the [return]
+   fallback below routes it there).  This is what lets a pure function whose body is
+   an [if] (e.g. [i64_abs]) extract instead of aborting. *)
+let rec pp_pure_tail state tab env e =
+  let return_fallback () = str tab ++ str "return " ++ pp_expr state env e ++ fnl () in
+  match strip_magic e with
+  | MLcase (_typ, scrut, branches) when Array.length branches = 2 ->
+      let ctor_of (ids, pat, body) =
+        match pat with
+        | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
+        | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
+      in
+      let (r1, _, body1) = ctor_of branches.(0) in
+      let (r2, _, body2) = ctor_of branches.(1) in
+      (match r1, r2 with
+       | Some c1, Some c2
+         when (is_bool_true c1 && is_bool_false c2)
+           || (is_bool_false c1 && is_bool_true c2) ->
+           let then_b, else_b =
+             if is_bool_true c1 then body1, body2 else body2, body1 in
+           str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
+           pp_pure_tail state (tab ^ "\t") env then_b ++
+           str tab ++ str "} else {" ++ fnl () ++
+           pp_pure_tail state (tab ^ "\t") env else_b ++
+           str tab ++ str "}" ++ fnl ()
+       | _ -> return_fallback ())
+  | _ -> return_fallback ()
+
 (** Emit a top-level function, collecting leading lambdas for the signature
     and using [typ] for parameter/return type annotations.
 
@@ -2600,7 +2634,7 @@ let pp_function state name body typ =
       str "}" ++ fnl ()
   | _ ->
       fn_sig ++ str ") " ++ pp_type state ret_type ++ str " {" ++ fnl () ++
-      str "\treturn " ++ pp_expr state full_env inner_body ++ fnl () ++
+      pp_pure_tail state "\t" full_env inner_body ++
       str "}" ++ fnl ()
 
 (*s Stdlib terms that are inlined at call sites — skip as top-level decls. *)
