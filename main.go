@@ -587,6 +587,13 @@ func Complex_arith_demo() {
 	println(real(s), imag(s), real(d), imag(d))
 }
 
+func Complex_cmp_demo() {
+	a := complex(1.0, 2.0)
+	b := complex(1.0, 2.0)
+	c := complex(1.0, 3.0)
+	println(a == b, a == c, a != c)
+}
+
 func Str_sw_demo(x string) {
 	switch x {
 	case "a":
@@ -1175,6 +1182,7 @@ func main() {
 	Str_sw_demo("z")
 	Complex_demo()
 	Complex_arith_demo()
+	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()

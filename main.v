@@ -1101,6 +1101,14 @@ Definition complex_arith_demo : IO unit :=
   let d := complex_sub a b in
   println [any (go_real s); any (go_imag s); any (go_real d); any (go_imag d)].
 
+(** Complex [==] / [!=] (component-wise, native operators): equal complexes compare equal,
+    a differing imaginary part makes them unequal. *)
+Definition complex_cmp_demo : IO unit :=
+  let a := go_complex (1.0)%float (2.0)%float in
+  let b := go_complex (1.0)%float (2.0)%float in
+  let c := go_complex (1.0)%float (3.0)%float in
+  println [any (complex_eqb a b); any (complex_eqb a c); any (complex_neqb a c)].  (* true false true *)
+
 (** Expression switch on a STRING (Go's [switch s { case "a": …; default: … }]). *)
 Definition str_sw_demo (x : GoString) : IO unit :=
   str_switch2 x
@@ -1736,6 +1744,7 @@ Definition main_effect : IO unit :=
   str_sw_demo "z"%string            >>'   (* prints: 9 (default) *)
   complex_demo                      >>'   (* prints: the two components of complex(1.5, 2.5) *)
   complex_arith_demo                >>'   (* prints: 4 6 -2 -2 components of the sum/difference *)
+  complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -1793,7 +1802,7 @@ Extraction NoInline
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2 str_switch2
-  go_complex go_real go_imag complex_add complex_sub
+  go_complex go_real go_imag complex_add complex_sub complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

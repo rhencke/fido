@@ -2666,6 +2666,20 @@ Example complex_sub_components : forall a b,
   /\ go_imag (complex_sub a b) = PrimFloat.sub (go_imag a) (go_imag b).
 Proof. intros. split; reflexivity. Qed.
 
+(** Complex COMPARISON — Go's [==] / [!=] on complex128.  Two complex values are equal iff
+    BOTH components are equal (Go spec "Comparison operators"); float [==] is EXACT, so this
+    is faithful including the NaN corner ([NaN != NaN] ⇒ a complex with a NaN component is
+    never [==] itself).  Lowers to the native Go [==] / [!=]. *)
+Definition complex_eqb (a b : GoComplex128) : bool :=
+  andb (PrimFloat.eqb (c_re a) (c_re b)) (PrimFloat.eqb (c_im a) (c_im b)).
+Definition complex_neqb (a b : GoComplex128) : bool := negb (complex_eqb a b).
+
+(** Build-checked: equality is the component-wise float-[==] conjunction (so the native
+    [a == b] decides exactly what Go's complex [==] does). *)
+Example complex_eqb_components : forall a b,
+  complex_eqb a b = andb (PrimFloat.eqb (go_real a) (go_real b)) (PrimFloat.eqb (go_imag a) (go_imag b)).
+Proof. reflexivity. Qed.
+
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
     [Ref A] is a mutable cell holding an [A] — Go's mutable local variable.
