@@ -1371,6 +1371,33 @@ Example type_switch3_third : forall {B} (x : GoI64) k1 k2 (k3 : GoI64 -> IO B) d
   type_switch3 (anyt TI64 x) TBool k1 TString k2 TI64 k3 d = k3 x.
 Proof. intros. unfold type_switch3. rewrite tag_coerce_refl. reflexivity. Qed.
 
+(** Multi-type case — Go's [case T1, T2:].  A single case matching EITHER of two types;
+    in Go the bound value is NOT narrowed (it keeps the interface type), so the body
+    commonly ignores it — we model it as a thunk [k : IO B] (no value binder), run when
+    the value's type is [t1] OR [t2].  Same [tag_coerce] basis (axiom-free); lowers to
+    Go's [case T1, T2:]. *)
+Definition type_switch_or2 {A1 A2 B : Type} (a : GoAny)
+  (t1 : GoTypeTag A1) (t2 : GoTypeTag A2) (k : IO B) (d : IO B) : IO B :=
+  match a with
+  | existT _ _ (x, atag) =>
+      match tag_coerce t1 atag x with
+      | Some _ => k
+      | None => match tag_coerce t2 atag x with Some _ => k | None => d end
+      end
+  end.
+
+(** Build-checked: the multi-type case fires for EITHER tag (here the first and the
+    second), and a value matching neither falls through to the default. *)
+Example type_switch_or2_first : forall {A1 A2 B} (t1 : GoTypeTag A1) (t2 : GoTypeTag A2)
+    (x : A1) (k d : IO B), type_switch_or2 (anyt t1 x) t1 t2 k d = k.
+Proof. intros. unfold type_switch_or2. rewrite tag_coerce_refl. reflexivity. Qed.
+Example type_switch_or2_second : forall {B} (x : GoString) (k d : IO B),
+  type_switch_or2 (anyt TString x) TBool TString k d = k.
+Proof. intros. unfold type_switch_or2. rewrite tag_coerce_refl. reflexivity. Qed.
+Example type_switch_or2_default : forall {B} (x : int) (k d : IO B),
+  type_switch_or2 (anyt TInt64 x) TBool TString k d = d.
+Proof. intros. reflexivity. Qed.
+
 (** ---- GoMap ----
 
     [GoMap K V] models Go's [map[K]V].  Operations are modelled as pure

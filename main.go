@@ -554,6 +554,15 @@ func Tsw3_demo(a any) {
 	}
 }
 
+func Tsw_or_demo(a any) {
+	switch a.(type) {
+	case bool, string:
+		println(1)
+	default:
+		println(0)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1113,6 +1122,9 @@ func main() {
 	Tsw3_demo(true)
 	Tsw3_demo("hi")
 	Tsw3_demo(I64_abs(5))
+	Tsw_or_demo(true)
+	Tsw_or_demo("x")
+	Tsw_or_demo(5)
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()

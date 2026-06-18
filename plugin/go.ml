@@ -361,6 +361,9 @@ let is_dual_ref = named "dual"
 let is_type_switch_ref r =
   let s = global_basename r in
   String.length s >= 11 && String.sub s 0 11 = "type_switch"
+(* Multi-type case [case T1, T2:] — a distinct shape (two tags, one value-less thunk,
+   default), so its own recognizer/arm; the prefix above still suppresses its decl. *)
+let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -2461,6 +2464,18 @@ let pp_io_body state tab env body =
              (if any_used then str "_tsv := " else mt ()) ++
              payload ++ str ".(type) {" ++ fnl () ++
              prlist emit_case pairs ++
+             str tab ++ str "default:" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env d ++
+             str tab ++ str "}" ++ fnl ()
+         (* type_switch_or2 a t1 t2 k d → multi-type case (Go's [case T1, T2:]).  The
+            value is not narrowed, so no guard var and no per-case rebind: the body [k]
+            is a plain thunk run when the type is T1 OR T2. *)
+         | MLglob r, [a; t1; t2; k; d] when is_type_switch_or2_ref r ->
+             let payload = pp_expr state env (any_payload a) in
+             str tab ++ str "switch " ++ payload ++ str ".(type) {" ++ fnl () ++
+             str tab ++ str "case " ++ str (go_type_of_tag t1) ++ str ", " ++
+               str (go_type_of_tag t2) ++ str ":" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env k ++
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++
              str tab ++ str "}" ++ fnl ()
