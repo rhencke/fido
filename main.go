@@ -101,6 +101,10 @@ func I8_demo() {
 	println((((-5 & 0xff) ^ 0x80) - 0x80) < (((3 & 0xff) ^ 0x80) - 0x80))
 }
 
+func Fw_cmp_demo() {
+	println((200&0xff) > (100&0xff), (((5&0xff)^0x80)-0x80) >= (((5&0xff)^0x80)-0x80), (((5&0xff)^0x80)-0x80) != (((-5&0xff)^0x80)-0x80))
+}
+
 func U16_demo() {
 	println((((60000 & 0xffff) + (10000 & 0xffff)) & 0xffff))
 	println((((1000 & 0xffff) * (1000 & 0xffff)) & 0xffff))
@@ -1018,6 +1022,7 @@ func main() {
 	Fminmax_demo()
 	Fcmp_demo()
 	U8_demo()
+	Fw_cmp_demo()
 	I8_demo()
 	U16_demo()
 	Bitwise_demo()

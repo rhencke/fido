@@ -686,6 +686,18 @@ Definition i8_eqb (a b : GoI8) : bool := PrimInt63.eqb (i8raw a) (i8raw b).
 Definition i8_ltb (a b : GoI8) : bool := Sint63.ltb (i8raw a) (i8raw b).   (* SIGNED comparison *)
 Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
 
+(** Direct [>] / [>=] / [!=] for the fixed-width types, completing Go's six comparison
+    operators (here for [uint8]/[int8] — representative; the plugin's [fw_is] recognizes
+    the same op on EVERY width, so [u16]/[i16]/[u32]/[i32] are identical one-liners).
+    Defined as the swapped [</<=] and [negb (==)] but recognized by name and lowered to
+    the DIRECT Go operator. *)
+Definition u8_gtb  (a b : GoU8) : bool := u8_ltb b a.
+Definition u8_geb  (a b : GoU8) : bool := u8_leb b a.
+Definition u8_neqb (a b : GoU8) : bool := negb (u8_eqb a b).
+Definition i8_gtb  (a b : GoI8) : bool := i8_ltb b a.
+Definition i8_geb  (a b : GoI8) : bool := i8_leb b a.
+Definition i8_neqb (a b : GoI8) : bool := negb (i8_eqb a b).
+
 (** [uint16] / [int16] — the same template at width 16 (mask [0xffff]; sign bit
     [0x8000]).  Still fully faithful on the 63-bit carrier: a 16-bit product is
     [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)

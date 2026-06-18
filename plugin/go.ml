@@ -587,6 +587,7 @@ let parse_fixed_width n =
       let op = String.sub n (!i + 1) (len - !i - 1) in
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
       if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
+                           "gtb"; "geb"; "neqb";
                            "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int";
                            "div"; "mod"])
       then None
@@ -760,6 +761,9 @@ let binop_of r =
   else if fw_is r "ltb" then Some (3, " < ")
   else if fw_is r "leb" then Some (3, " <= ")
   else if fw_is r "eqb" then Some (3, " == ")
+  else if fw_is r "gtb" then Some (3, " > ")
+  else if fw_is r "geb" then Some (3, " >= ")
+  else if fw_is r "neqb" then Some (3, " != ")
   (* fixed-width bitwise: no wrap needed (in-range / sign-extended results are
      already correct on int64).  Go precedence: [& &^] = 5, [| ^] = 4. *)
   else if fw_is r "and"    then Some (5, " & ")

@@ -859,8 +859,11 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    the source — `cmp_ops_demo`/`scmp_demo`/`fcmp_demo` → `true …`).  **Float `>=` is the
    SWAPPED `leb b a`, NOT `¬(<)`** — with a NaN operand `a >= b` is FALSE but `¬(a<b)`
    would be TRUE (machine-checked `f64_geb_nan = false`, `f64_neqb_nan = true`).
-   Strings have a total order, so `str_geb = ¬(<)` is fine.  *Still open:* direct
-   `gtb`/`geb`/`neqb` for the narrow fixed widths (same trivial pattern, low priority).
+   Strings have a total order, so `str_geb = ¬(<)` is fine.  **Narrow fixed widths DONE
+   too (2026-06-18):** `u8_gtb`/`geb`/`neqb`, `i8_*` (the plugin's `fw_is` + `parse_fixed_width`
+   recognize the op on EVERY width, so `u16`/`i16`/`u32`/`i32` are identical Rocq one-liners
+   away); `fw_cmp_demo` → `true true true`.  So the six comparison operators now emit
+   DIRECTLY for every integer / string / float type.
 
 ### Tier 4 — operations to model on the remaining types
 **(There is no "acceptably unmodeled" — decided 2026-06-14.  The point of the
