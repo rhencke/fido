@@ -190,10 +190,12 @@ separate tracks.
    suppressed, recognised by name; axiom-free, `complex_demo` golden-locked).  **Complex
    ARITHMETIC is also done (2026-06-18):** `+`/`-` (component-wise), `*` (gc's naive
    cross-product — faithful since gc inlines naive, no Annex G), unary `-` (sign-flip),
-   `==`/`!=` (component-wise float `==`, faithful incl. the NaN corner) — all lower to the
-   native Go operators (`binop_of` / the unary arm), axiom-free, golden-locked.  *Only
-   complex `/` remains, deferred: gc's `runtime.complex128div` uses Smith's scaling
-   algorithm, which a faithful model must port exactly.*
+   `==`/`!=` (component-wise float `==`, faithful incl. the NaN corner), and **`/` (DONE
+   2026-06-18: Smith's scaling algorithm = gc's `runtime.complex128div`, faithful for FINITE
+   divisors; the degenerate Inf/NaN/zero-denominator Annex-G recovery applies at runtime via
+   the native lowering but is a documented Coq-model gap; branch test uses the squared-
+   magnitude form to dodge the `PrimFloat.abs` extraction-axiom)** — all lower to the native
+   Go operators, axiom-free, golden-locked.  **Complex arithmetic is now COMPLETE.**
    **MILESTONE (2026-06-18): every Go PREDECLARED BUILTIN FUNCTION is now modeled** —
    append, cap, clear, close, complex, copy, delete, imag, len, make, max, min, new, panic,
    print, println, real, recover.  The remaining no-import work is all LANGUAGE FEATURES;
