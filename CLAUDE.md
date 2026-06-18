@@ -378,10 +378,17 @@ separate tracks.
    since `pp_type (SPtr R) = *R`), and a call `m p …` → `p.M(…)`; the method MUTATES its
    receiver, observed by the caller.  `cell_incx` → `func (p *Cell) Cell_incx() { a := p.Cx;
    p.Cx = a + 1 }`; `ptr_method_demo` mutates a `*Cell` via the method and prints `11`
-   (`sptr_demo` → `7 4`).  *Not yet:* pointer receiver on a struct WIDER than 2 int64
-   fields (generalise `StructRep2` → N heterogeneous fields); method values /
-   expressions (`recv.M` as a first-class closure, `T.M`), method-name namespacing
-   via Rocq `Module`s (so two types can share a basename like `Area`).
+   (`sptr_demo` → `7 4`).  **METHOD VALUES DONE (2026-06-18):** `recv.M` as a first-class
+   closure — a value-receiver method applied to ONLY its receiver (`shifted p`) is the
+   under-application Go writes `p.M` for.  The plugin records each method's visible arity at
+   registration (`method_arity`); a call site applying fewer than that many args emits the
+   bare `p.Shifted` (a method value) instead of a call, full-arity calls unchanged (no
+   regression).  `method_value_demo` passes `p.Shifted` to a HOF `call_shift10(f func(int64)
+   Point)` (func-typed param via the `Tarr` arm) → `11 12`; faithful (Go's `p.M` binds the
+   value receiver at evaluation = the partial application).  *Not yet:* pointer receiver on a
+   struct WIDER than 2 int64 fields (generalise `StructRep2` → N heterogeneous fields); the
+   method-EXPRESSION form `T.M` (unbound, receiver becomes the first arg); method-name
+   namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a
