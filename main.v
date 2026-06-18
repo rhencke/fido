@@ -1077,6 +1077,14 @@ Definition tsw_or_demo (a : GoAny) : IO unit :=
     (println [any (1)%i64])      (* case bool, string → 1 *)
     (println [any (0)%i64]).     (* default           → 0 *)
 
+(** Native EXPRESSION switch (Go's [switch x { case 1: …; case 2: …; default: … }]) on an
+    int64 value.  [int_switch2] is an equality if-chain (faithful) lowered to native Go. *)
+Definition int_sw_demo (x : GoI64) : IO unit :=
+  int_switch2 x
+    (1)%i64 (println [any (10)%i64])    (* case 1 → 10 *)
+    (2)%i64 (println [any (20)%i64])    (* case 2 → 20 *)
+    (println [any (99)%i64]).           (* default → 99 *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -1697,6 +1705,9 @@ Definition main_effect : IO unit :=
   tsw_or_demo (any true)            >>'   (* prints: 1 (bool matches case bool, string) *)
   tsw_or_demo (any "x"%string)      >>'   (* prints: 1 (string also matches the multi-type case) *)
   tsw_or_demo (any (5)%i64)         >>'   (* prints: 0 (default; neither bool nor string) *)
+  int_sw_demo (1)%i64               >>'   (* prints: 10 (case 1, native expression switch) *)
+  int_sw_demo (2)%i64               >>'   (* prints: 20 (case 2) *)
+  int_sw_demo (5)%i64               >>'   (* prints: 99 (default) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -1753,7 +1764,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb
+  type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 struct_eqb int_switch2
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb

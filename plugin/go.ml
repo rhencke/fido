@@ -367,6 +367,11 @@ let is_type_switch_or2_ref r = String.equal (global_basename r) "type_switch_or2
 (* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
    witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
 let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
+(* Native expression switch [int_switchN x v1 k1 … d] → Go [switch x { case v: …; default: … }];
+   args after the scrutinee are (value, body) PAIRS then the default (odd count ≥ 3). *)
+let is_int_switch_ref r =
+  let s = global_basename r in
+  String.length s >= 10 && String.sub s 0 10 = "int_switch"
 let is_run_session_ref = named "run_session"
 let is_sbind_ref = named "sbind"
 let is_sret_ref  = named "sret"
@@ -2474,6 +2479,25 @@ let pp_io_body state tab env body =
              str tab ++ str "default:" ++ fnl () ++
              pp_stmts (tab ^ "\t") env d ++
              str tab ++ str "}" ++ fnl ()
+         (* int_switchN x v1 k1 … vN kN d → Go's native EXPRESSION switch:
+              switch <x> { case v1: <k1> … case vN: <kN> default: <d> }
+            args after the scrutinee are (value, body) PAIRS then the default (odd count
+            ≥ 3); each case body is a plain thunk (no binder), so [pp_stmts] directly. *)
+         | MLglob r, (x :: rest)
+            when is_int_switch_ref r
+                 && List.length rest >= 3 && List.length rest mod 2 = 1 ->
+             let scrut = pp_expr state env x in
+             let n = List.length rest in
+             let d = List.nth rest (n - 1) in
+             let rec chunk = function v :: k :: tl -> (v, k) :: chunk tl | _ -> [] in
+             let pairs = chunk (List.filteri (fun i _ -> i < n - 1) rest) in
+             str tab ++ str "switch " ++ scrut ++ str " {" ++ fnl () ++
+             prlist (fun (v, k) ->
+               str tab ++ str "case " ++ pp_expr state env v ++ str ":" ++ fnl () ++
+               pp_stmts (tab ^ "\t") env k) pairs ++
+             str tab ++ str "default:" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env d ++
+             str tab ++ str "}" ++ fnl ()
          (* type_switch_or2 a t1 t2 k d → multi-type case (Go's [case T1, T2:]).  The
             value is not narrowed, so no guard var and no per-case rebind: the body [k]
             is a plain thunk run when the type is T1 OR T2. *)
@@ -2903,7 +2927,7 @@ let is_inlined_ref r =
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||
-  is_struct_eqb_ref r ||
+  is_struct_eqb_ref r || is_int_switch_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

@@ -563,6 +563,17 @@ func Tsw_or_demo(a any) {
 	}
 }
 
+func Int_sw_demo(x int64) {
+	switch x {
+	case 1:
+		println(10)
+	case 2:
+		println(20)
+	default:
+		println(99)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1132,6 +1143,9 @@ func main() {
 	Tsw_or_demo(true)
 	Tsw_or_demo("x")
 	Tsw_or_demo(5)
+	Int_sw_demo(1)
+	Int_sw_demo(2)
+	Int_sw_demo(5)
 	Scmp_demo()
 	Foreach_demo()
 	Sum_demo()

@@ -1408,6 +1408,30 @@ Example type_switch_or2_default : forall {B} (x : int) (k d : IO B),
   type_switch_or2 (anyt TInt64 x) TBool TString k d = d.
 Proof. intros. reflexivity. Qed.
 
+(** Native EXPRESSION switch — Go's [switch x { case v1: …; case v2: …; default: … }]
+    on an int64 scrutinee.  Semantically an equality if-chain (faithful: Go's expression
+    switch compares the scrutinee to each case value with [==], first match wins) but
+    lowered to the native Go [switch].  Axiom-free (built on [i64_eqb]); N-ary is the same
+    shape (the plugin arm is generalised over the (value, body) pairs). *)
+Definition int_switch2 {B : Type} (x : GoI64)
+  (v1 : GoI64) (k1 : IO B)
+  (v2 : GoI64) (k2 : IO B)
+  (d : IO B) : IO B :=
+  if i64_eqb x v1 then k1
+  else if i64_eqb x v2 then k2
+  else d.
+
+(** Build-checked dispatch: the scrutinee selects the first matching case, else default. *)
+Example int_switch2_first : forall {B} (k1 k2 d : IO B),
+  int_switch2 (1)%i64 (1)%i64 k1 (2)%i64 k2 d = k1.
+Proof. reflexivity. Qed.
+Example int_switch2_second : forall {B} (k1 k2 d : IO B),
+  int_switch2 (2)%i64 (1)%i64 k1 (2)%i64 k2 d = k2.
+Proof. reflexivity. Qed.
+Example int_switch2_default : forall {B} (k1 k2 d : IO B),
+  int_switch2 (9)%i64 (1)%i64 k1 (2)%i64 k2 d = d.
+Proof. reflexivity. Qed.
+
 (** ---- GoMap ----
 
     [GoMap K V] models Go's [map[K]V].  Operations are modelled as pure
