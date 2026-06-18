@@ -2323,6 +2323,20 @@ Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : int) (k : A
 Lemma arr_data_lit : forall {A} (tag : GoTypeTag A) (l : list A), arr_data (arr_lit tag l) = l.
 Proof. reflexivity. Qed.
 
+(** Array COMPARABILITY (Go spec "Comparison operators": arrays are comparable iff the
+    element type is — unlike SLICES, which are NOT comparable).  Go's array [==] is
+    FIELD-WISE; [arr_eqb] decides it element-by-element (here for [int64] arrays), so it
+    is a THEOREM that it decides array equality.  Lowers to the bare Go [a == b].  Go
+    requires the two arrays be the SAME type (same length) for [==] — different lengths
+    are a Go COMPILE error, so only same-length arrays are compared. *)
+Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
+  match xs, ys with
+  | nil, nil => true
+  | x :: xs', y :: ys' => andb (i64_eqb x y) (goi64_list_eqb xs' ys')
+  | _, _ => false
+  end.
+Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
+
 (** ---- String operations (Go spec "String types") ----
 
     [str_len s] is the BYTE length (Go [len(s)]): a computable [int] that counts

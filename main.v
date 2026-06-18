@@ -962,6 +962,21 @@ Definition arr_demo : IO unit :=
   arr_get_ok TI64 a (sub 10 5) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
   println [any v2; any ok2])).
 
+(** Array COMPARABILITY (Go [==], field-wise): arrays are comparable (slices are NOT).
+    [arr_eqb] decides array equality element-wise — a THEOREM — and lowers to the bare
+    Go [a == b].  Distinct from slices, which support only [== nil]. *)
+Example arr_eqb_t : arr_eqb (arr_lit TI64 [(1)%i64;(2)%i64;(3)%i64])
+                            (arr_lit TI64 [(1)%i64;(2)%i64;(3)%i64]) = true.
+Proof. reflexivity. Qed.
+Example arr_eqb_f : arr_eqb (arr_lit TI64 [(1)%i64;(2)%i64;(3)%i64])
+                            (arr_lit TI64 [(1)%i64;(2)%i64;(9)%i64]) = false.
+Proof. reflexivity. Qed.
+Definition arr_eq_demo : IO unit :=
+  let a := arr_lit TI64 [(1)%i64; (2)%i64; (3)%i64] in
+  let b := arr_lit TI64 [(1)%i64; (2)%i64; (3)%i64] in
+  let c := arr_lit TI64 [(1)%i64; (2)%i64; (9)%i64] in
+  println [any (arr_eqb a b); any (arr_eqb a c)].   (* true false *)
+
 (** Safe type assertion: [type_assert_safe] is Go's [v, ok := x.(T)] — no panic
     on a type mismatch, the caller handles [ok = false].  Safe-by-construction
     default versus the [type_assert] escape hatch.  We assert on a recovered
@@ -1579,6 +1594,7 @@ Definition main_effect : IO unit :=
   list_demo                     >>'   (* prints: 10 2 *)
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   arr_demo                      >>'   (* prints: 20 true / 0 false ([3]int64 array index) *)
+  arr_eq_demo                   >>'   (* prints: true false (array == is field-wise) *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
@@ -1636,7 +1652,7 @@ Extraction NoInline
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb
-  arr_lit arr_get_ok
+  arr_lit arr_get_ok arr_eqb
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max

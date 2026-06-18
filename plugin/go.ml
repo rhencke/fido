@@ -263,6 +263,7 @@ let is_slice_get_ref = named "slice_get"
 let is_slice_at_ok_ref r = named "slice_at_ok" r || named "arr_get_ok" r
 let is_arr_type = named "GoArray"
 let is_arr_lit_ref = named "arr_lit"
+let is_arr_eqb_ref = named "arr_eqb"   (* array == (field-wise; arrays comparable, slices not) *)
 let is_for_each_ref = named "for_each"
 let is_slice_fold_ref = named "slice_fold"
 let is_ref_type = named "Ref"
@@ -696,6 +697,8 @@ let binop_of r =
   (* string comparison: Go [==] / [<] (lexicographic), comparison precedence (level 3) *)
   else if is_str_eqb_ref r then Some (3, " == ")
   else if is_str_ltb_ref r then Some (3, " < ")
+  (* array comparison: Go field-wise [==] (arrays are comparable, slices are not) *)
+  else if is_arr_eqb_ref r then Some (3, " == ")
   (* direct >/>=/!= for string and float64 (recognized by basename) *)
   else if String.equal (global_basename r) "str_gtb"  then Some (3, " > ")
   else if String.equal (global_basename r) "str_geb"  then Some (3, " >= ")
@@ -2807,7 +2810,8 @@ let is_inlined_ref r =
   is_type_assert_ref r || is_type_assert_safe_ref r ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
-  is_arr_lit_ref r || List.mem (global_basename r) ["mkArray"; "arr_data"] ||
+  is_arr_lit_ref r || is_arr_eqb_ref r ||
+  List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)

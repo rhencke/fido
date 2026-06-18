@@ -163,7 +163,7 @@ Go's `[]byte` is `[]uint8`, but our arithmetic-faithful `uint8` erases `GoU8 →
 decision, tracked.  (The rune view additionally needs a UTF-8 decoder — pure, but
 sequenced after that decision.)
 
-### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays (B4.1); ✗ array-typed positions / value-copy / comparability (later pieces)
+### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays + comparability (B4.1–2); ✗ array-typed positions / value-copy (later pieces)
 Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
 pass copies the whole array), comparable element-wise (unlike slices).
 **Piece 1 DONE (B4.1, 2026-06-18) — local fixed-size arrays.**  `N` lives in the *type*,
@@ -175,11 +175,13 @@ literal (`a := [3]int64{…}`), never an explicit `[N]T`.  `arr_get_ok` is the b
 read (identical lowering to `slice_at_ok`).  `arr_demo` → `20 true` / `0 false`.  *Finding:*
 Go STATICALLY bounds-checks a CONSTANT array index (`a[5]` on `[3]int64` is a COMPILE error
 — a STRONGER guarantee than a slice's runtime panic), so the runtime-OOB demo uses a
-COMPUTED index.  **✗ still:** array-typed *positions* (param / field / return / typed var)
-need an explicit `[N]T` and are refused fail-loud (that is the type-level-`N` route — phantom
-`AS`/`AZ` chain the plugin decodes — deferred); and value-copy + comparability (`==`, which
-slices lack) — the genuine array-vs-slice distinction — are later B4 pieces (value-copy needs
-the functional element-update / mutation step).
+COMPUTED index.  **Comparability DONE (B4.2):** `arr_eqb` → Go field-wise `==` (arrays are
+comparable, slices are NOT — only `== nil`); machine-checked `arr_eqb_t`/`arr_eqb_f`,
+`arr_eq_demo` → `true false`.  **✗ still:** array-typed *positions* (param / field / return /
+typed var) need an explicit `[N]T` and are refused fail-loud (the type-level-`N` route —
+phantom `AS`/`AZ` chain the plugin decodes — deferred); and VALUE-COPY (`b := a` copies the
+whole array — the other genuine array-vs-slice distinction) needs the functional element-
+update / mutation step (later B4 piece).
 
 ### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags
 Spec: a `struct` is a sequence of named fields with types; **value** semantics

@@ -470,6 +470,13 @@ func Arr_demo() {
 	println(v2, ok2)
 }
 
+func Arr_eq_demo() {
+	a := [3]int64{1, 2, 3}
+	b := [3]int64{1, 2, 3}
+	c := [3]int64{1, 2, 9}
+	println(a == b, a == c)
+}
+
 func Assert_safe_demo(n int64) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -1044,6 +1051,7 @@ func main() {
 	List_demo()
 	Slice_safe_demo()
 	Arr_demo()
+	Arr_eq_demo()
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()

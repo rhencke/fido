@@ -359,9 +359,9 @@ B3, which was backwards):**
   *Distinct-from-slice properties to demo:* the `[N]T{…}` literal; COMPARABILITY (`arr_eqb`
   → Go `==`, field-wise — arrays are `==`, slices are NOT); and VALUE-COPY (`b := a; mutate
   b; a unchanged`) — the last needs the functional-update/mutation step, a later slice.
-  Build order: (1) `arr_lit` + `arr_get_ok` (read-only); (2) `arr_eqb` (comparability) +
-  value-copy via a functional element-update; (3) route (i) type-level `N` for non-local
-  arrays.
+  Build order: (1) `arr_lit` + `arr_get_ok` (read-only) — DONE; (2a) `arr_eqb` (comparability)
+  — DONE; (2b) value-copy via a functional element-update — PENDING; (3) route (i) type-level
+  `N` for non-local arrays — PENDING.
 
   **Piece 1 DONE (B4.1, 2026-06-18).**  `GoArray A` (size-erased, recognized-erased type;
   an array-typed annotation fails loud with a clear message), `arr_lit tag l` → `[len l]T{…}`
