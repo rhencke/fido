@@ -1497,11 +1497,15 @@ func Mk_counts(m map[string]int64) Counts {
 	return Counts(m)
 }
 
+func (c Counts) Co_size() int {
+	return len(map[string]int64(c))
+}
+
 func Gmap_deftype_demo() {
 	m := make(map[string]int64)
 	m["a"] = 1
 	m["b"] = 2
-	n := len(map[string]int64(Mk_counts(m)))
+	n := (Mk_counts(m)).Co_size()
 	println(n)
 }
 

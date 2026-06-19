@@ -260,10 +260,11 @@ the phantom for a func underlying, the projection cast is parenthesised and CALL
 work too — underlying tag `TSlice`, cast `[]int64(l)` (valid Go without parens), `func (l IntList)
 Il_len() int { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  MAP underlyings work too —
 `type Counts map[string]int64`, ctor `Counts(m)`, projection cast `map[string]int64(c)`,
-`gmap_deftype_demo` → `2` (no IO-value method: a map read is `IO` and an IO-value-returning method
-hits the `pp_io_body`-no-`return` gap; the slice method worked because slice `len` is pure).  ✗ not yet:
+with an IO-value method `func (c Counts) Co_size() int { return len(map[string]int64(c)) }` (lowers
+now that `pp_io_body` returns a value-returning IO tail), `gmap_deftype_demo` → `2`.  ✗ not yet:
 defined types used as map KEYS (the phantom breaks equality), `Module`-namespaced method names, defined
-types over a STRUCT underlying (mechanical), and IO-value-returning methods/functions.
+types over a STRUCT underlying (mechanical), and IO-value methods whose tail is a BIND-chain (only the
+single-expression tail — `ret v` / clean read — is returned so far).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

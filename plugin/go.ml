@@ -1977,7 +1977,7 @@ and emit_block state hoists term tab env b =
 
 (*s IO body emitter — shared by pp_function (for IO-returning fns) and pp_main_body. *)
 
-let pp_io_body state tab env body =
+let pp_io_body ?(ret_val=false) state tab env body =
   let is_void_call e =
     match collect_app e [] with
     | MLglob r, _ when is_print_ref r || is_println_ref r || is_panic_ref r
@@ -3051,7 +3051,23 @@ let pp_io_body state tab env body =
         peel_catches tab env m
     | _ -> pp_stmts tab env b
   in
-  peel_catches tab env body
+  (* A value-returning IO function ([func … V], V ≠ unit) must [return] its tail value.
+     [pp_stmts] emits IO as VOID statements (no return) — correct for [IO unit], but an
+     IO method/function that yields a value needs [return].  The COMMON single-expression
+     tails are handled here: [ret v] → [return v], and a clean value-read ([map_len]/[len]/
+     [cap]) → [return <expr>].  Bind-chains / control-flow value tails are NOT yet handled
+     (they fall through to the void emission, which go build rejects — loud, not silent). *)
+  let ret_tail =
+    if not ret_val then None
+    else match collect_app body [] with
+      | MLglob r, [v] when is_ret_ref r -> Some (pp_expr state env v)
+      | MLglob r, _ when is_map_len_ref r || is_len_ref r || is_cap_ref r ->
+          Some (pp_expr state env body)
+      | _ -> None
+  in
+  match ret_tail with
+  | Some d -> str tab ++ str "return " ++ d ++ fnl ()
+  | None   -> peel_catches tab env body
 
 (*s Declaration printer. *)
 
@@ -3174,12 +3190,12 @@ let pp_function state name body typ =
   | None ->
   match ret_type with
   | Tglob (r, [inner]) when is_IO_type r ->
-      let go_ret = match inner with
-        | Tglob (r2, []) when is_unit_type r2 -> mt ()   (* IO unit → void *)
-        | t -> str " " ++ pp_type state t
-      in
+      let ret_val = match inner with
+        | Tglob (r2, []) when is_unit_type r2 -> false   (* IO unit → void *)
+        | _ -> true in
+      let go_ret = if ret_val then str " " ++ pp_type state inner else mt () in
       fn_sig ++ str ")" ++ go_ret ++ str " {" ++ fnl () ++
-      pp_io_body state "\t" full_env inner_body ++
+      pp_io_body ~ret_val state "\t" full_env inner_body ++
       str "}" ++ fnl ()
   | _ ->
       fn_sig ++ str ") " ++ pp_type state ret_type ++ str " {" ++ fnl () ++

@@ -488,11 +488,21 @@ separate tracks.
    phantom breaks equality), `Module`-namespaced method names.  **MAP underlyings DONE
    (2026-06-19)** — `type Counts map[string]int64`: `GoMap` is already name-recognised in `pp_type`
    (so no `GoSlice`-style fix needed), the ctor is `Counts(m)`, the projection cast `map[string]
-   int64(c)` (valid Go without parens, like a slice).  `gmap_deftype_demo` reads `len` through the
-   cast → `2`.  No IO-VALUE METHOD on it though: a map read is `IO` (heap-backed) and an IO-value-
-   returning method hits a separate gap — `pp_io_body` emits the tail without `return` (slice
-   `il_len` worked only because slice `len` is PURE).  *Still pending:* defined types over a STRUCT
-   underlying (mechanical), and the IO-value-method gap (see below).
+   int64(c)` (valid Go without parens, like a slice).  `co_size` is an IO-VALUE-returning METHOD
+   (`func (c Counts) Co_size() int { return len(map[string]int64(c)) }`) — it lowers now that
+   `pp_io_body` `return`s a value-returning IO tail (see below); `gmap_deftype_demo` → `2`.  *Still
+   pending:* defined types over a STRUCT underlying (mechanical).
+
+   **IO-VALUE-returning methods/functions (`func … V`, V ≠ unit) — single-tail case DONE
+   (2026-06-19):** `pp_io_body` emits IO as VOID statements (right for `IO unit`), so a value-
+   returning IO function used to drop its `return` (uncompilable, caught by go build).  Now
+   `pp_function`'s IO arm passes `~ret_val` (true iff the inner type ≠ unit) and `pp_io_body`
+   `return`s the COMMON single-expression tail — `ret v` → `return v`, a clean value-read
+   (`map_len`/`len`/`cap`) → `return <expr>`.  Zero-regression: only fires for value-returning IO
+   functions (which were broken before); void IO funcs (`Describe()`) stay void-bodied.  *Still
+   pending:* bind-chain / control-flow value tails (`bind a (λx. … ret v)`) — would need a `ret_val`
+   thread through `pp_stmts`'s ~40 recursive sites (with false in goroutine/defer bodies); they
+   currently fall through to the void emission (loud-broken, not silent-wrong).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

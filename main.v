@@ -2058,17 +2058,17 @@ Definition gstruct_demo : IO unit :=
     the composite-underlying axis (primitive/string/func/slice/MAP).  [GoMap] is already
     recognised by name in [pp_type] (unlike [GoSlice]), so no plugin change: the underlying
     renders [map[string]int64], the ctor is the cast [Counts(m)], and the projection cast
-    [map[string]int64(c)] (valid Go without parens, like a slice).  The projection is read
-    here in the demo body — a map READ is [IO] (heap-backed), and an IO-VALUE-returning METHOD
-    is a separate gap (pp_io_body emits the tail without [return]); the slice [il_len] worked
-    only because slice [len] is PURE.  So this exercises the type + both casts faithfully. *)
+    [map[string]int64(c)] (valid Go without parens, like a slice).  [co_size] is an IO-VALUE-
+    returning METHOD ([func (c Counts) Co_size() int]); it lowers now that pp_io_body [return]s
+    a value-returning IO tail (here the single read [map_len (co_val c)] → [return len(…)]). *)
 Record Counts := MkCounts { co_val : GoMap GoString GoI64 ; co_tag : GoTypeTag (GoMap GoString GoI64) }.
 Definition mk_counts (m : GoMap GoString GoI64) : Counts := MkCounts m (TMap TString TI64).
+Definition co_size (c : Counts) : IO GoInt := map_len (co_val c).   (* IO-value method → return len(…) *)
 Definition gmap_deftype_demo : IO unit :=
   bind (map_make_typed TString TI64)              (fun m =>
   bind (map_set TString TI64 "a"%string (1)%i64 m) (fun _ =>
   bind (map_set TString TI64 "b"%string (2)%i64 m) (fun _ =>
-  bind (map_len (co_val (mk_counts m)))           (fun n =>   (* read len THROUGH the [map[string]int64(c)] cast *)
+  bind (co_size (mk_counts m))                    (fun n =>   (* method call → (Mk_counts(m)).Co_size() *)
   println [any n])))).   (* 2 keys *)
 
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
