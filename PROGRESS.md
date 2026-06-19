@@ -239,10 +239,15 @@ separate tracks.
    pending:* constraints beyond `any` (`comparable`/interface — would map a Coq typeclass dict to a Go
    constraint); generic struct used as a map value/key; an unused non-erased value param mis-names
    (the `_:B` → duplicate-name artifact, a latent dummy-binder bug, sidestepped by naming params).
-   *Still pending:* single-method
-   interfaces (curried-return — blocked by Coq 1-field unboxing), the rune/UTF-8 string view,
-   `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational float constants,
-   complex `/` (Smith's algorithm), N-field struct pointers.  Tracked in the ladder + Tiers.
+   *Cross-project status (this list was STALE — reconciled 2026-06-19, each verified in the
+   committed Go):* **DONE** — single-method + nullary interfaces (NOT blocked: the `gr_self`/
+   `sg_self` second field makes a 2-field record modelling Go's (vtable, value) pair, which both
+   sidesteps Coq's 1-field unboxing AND is more faithful — `Greeter{Greet: func(x int64) int64 {
+   return base + x }, Gr_self: base}`, dispatch `g.Greet(10)`; closures capturing locals lower
+   too); the rune/UTF-8 string view; `float32` soft-float (full: arith / compare / all
+   conversions); the int↔float and narrow↔64 conversions (the whole width-typed integer matrix +
+   `float64`↔`int64`); complex `/` (Smith's); N-field struct pointers (`StructRep3`).  **Still
+   open** — exact-rational / untyped float constants only.  Tracked in the ladder + Tiers.
 2. **IO monad** (done) — `bind` lowers to sequential Go; world token erases;
    `panic : GoAny -> IO A` is consistent and short-circuits via `bind_panic_l`;
    `catch`/`with_defer` for panic recovery
