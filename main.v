@@ -2015,6 +2015,27 @@ Definition embed_demo : IO unit :=
   bind (println [any (species (animal (mk_dog "canine"%string "lab"%string)))])  (fun _ =>   (* canine *)
   println [any (speak (animal (mk_dog "canine"%string "lab"%string)))]).                   (* canine *)
 
+(** GO GENERICS (type parameters, Go 1.18+).  Rocq's parametric polymorphism maps directly
+    to a Go generic: a function's type VARIABLES become a [func F[T1 any, …]] type-parameter
+    list (constraint [any] — parametric polymorphism imposes no operations on the type), and
+    call sites rely on Go's type inference (no explicit type args).  [gid] is the identity;
+    [glen] is generic OVER A SLICE (the canonical use — Go's [len] works for any [[]T]),
+    instantiated at BOTH [[]int64] and [[]string] (one generic reused at two types); [gfirst]
+    shows TWO type parameters.  Dispatch is provable in Rocq directly (parametricity). *)
+Definition gid {A : Type} (x : A) : A := x.
+Definition glen {A : Type} (xs : GoSlice A) : GoInt := len xs.
+Definition gfirst {A B : Type} (x : A) (y : B) : A := x.
+Example gid_spec    : forall A (x : A), gid x = x.            Proof. reflexivity. Qed.
+Example gfirst_spec : forall A B (x : A) (y : B), gfirst x y = x. Proof. reflexivity. Qed.
+(* Faithful instantiation: string literals / typed slices pin the Go type arg.  (A BARE
+   untyped-int literal like [gid 7] would have Go infer [int], not our [int64] model — the
+   untyped-constant gap (Tier 2 #6); typed operands avoid it.) *)
+Definition generics_demo : IO unit :=
+  bind (println [any (gid "go"%string)])             (fun _ =>   (* gid @ string → go *)
+  bind (println [any (glen (slice_make TI64 3))])    (fun _ =>   (* glen @ []int64 → 3 *)
+  bind (println [any (glen (slice_make TString 2))]) (fun _ =>   (* glen @ []string → 2 (same generic) *)
+  println [any (gfirst "first"%string true)]))).                 (* gfirst @ (string,bool) → first *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2169,6 +2190,7 @@ Definition main_effect : IO unit :=
   named_func_demo               >>'   (* prints: 42 (named func type, type Handler func(int64) int64) *)
   deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
   embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
+  generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

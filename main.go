@@ -1449,6 +1449,25 @@ func Embed_demo() {
 	println((Mk_dog("canine", "lab")).Speak())
 }
 
+func Gid[T1 any](x T1) T1 {
+	return x
+}
+
+func Glen[T1 any](xs []T1) int {
+	return len(xs)
+}
+
+func Gfirst[T1 any, T2 any](x T1, y T2) T1 {
+	return x
+}
+
+func Generics_demo() {
+	println(Gid("go"))
+	println(Glen(make([]int64, 3)))
+	println(Glen(make([]string, 2)))
+	println(Gfirst("first", true))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1598,4 +1617,5 @@ func main() {
 	Named_func_demo()
 	Deftype_slice_demo()
 	Embed_demo()
+	Generics_demo()
 }

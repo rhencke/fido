@@ -249,3 +249,7 @@ Hi, fido
 3
 canine
 canine
+go
+3
+2
+first

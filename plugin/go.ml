@@ -990,6 +990,15 @@ let rec collect_tarrs = function
   | Tarr (t, rest) -> let ts, ret = collect_tarrs rest in t :: ts, ret
   | t              -> [], t
 
+(* The distinct TYPE VARIABLES of an ml_type, in first-seen order — for a Go generic
+   function's type-parameter list [func F[T1 any, …]].  [pp_type] renders [Tvar i] /
+   [Tvar' i] both as [T<i>], so they share the index space here. *)
+let rec collect_tvars acc = function
+  | Tvar i | Tvar' i  -> if List.mem i acc then acc else acc @ [i]
+  | Tarr (a, b)       -> collect_tvars (collect_tvars acc a) b
+  | Tglob (_, args)   -> List.fold_left collect_tvars acc args
+  | Tmeta _ | Tdummy _ | Tunknown | Taxiom -> acc
+
 let is_erased = function MLdummy _ -> true | _ -> false
 
 (*s De Bruijn environment.
@@ -3117,6 +3126,21 @@ let pp_function state name body typ =
     | Tglob (r, [inner]) when is_variadic_type r ->
         pp_mlident id ++ str " ..." ++ pp_type state inner
     | _ -> pp_mlident id ++ str " " ++ pp_type state t in
+  (* Go GENERICS: a parametric-polymorphic function's TYPE VARIABLES become a
+     type-parameter list [T1 any, …] after the name (constraint [any] — Coq parametric
+     polymorphism imposes no operations on the type).  Call sites rely on Go's type
+     inference, so they need no change.  NOT emitted for a method: Go forbids a method
+     from introducing its own type parameters (a generic method's params come from a
+     generic receiver type — the generic-struct feature, not yet modeled). *)
+  let tvars =
+    let fp = List.fold_left (fun acc (_, t) -> collect_tvars acc t) [] param_pairs in
+    collect_tvars fp ret_type in
+  let tparams_doc =
+    if tvars = [] then mt ()
+    else str "[" ++
+         prlist_with_sep (fun () -> str ", ")
+           (fun i -> str ("T" ^ string_of_int i) ++ str " any") tvars ++
+         str "]" in
   let fn_sig =
     match param_pairs with
     | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
@@ -3124,7 +3148,7 @@ let pp_function state name body typ =
         str (go_export name) ++ str "(" ++
         prlist_with_sep (fun () -> str ", ") pp_param rest
     | _ ->
-        str "func " ++ str (go_export name) ++ str "(" ++
+        str "func " ++ str (go_export name) ++ tparams_doc ++ str "(" ++
         prlist_with_sep (fun () -> str ", ") pp_param param_pairs
   in
   (* IO-returning functions use pp_io_body; pure functions use return+expr *)

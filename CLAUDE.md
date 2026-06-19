@@ -210,7 +210,22 @@ separate tracks.
    single-field-unbox blocker (which sinks the 1-method interface / GoI64-2-field) does NOT
    apply here because a variadic param needs no `Comparable`/equality, so the phantom is free.
    `variadic_demo`: `Sum_print(xs ...int64)` called `Sum_print(xs...)` → `7 / 8 / 9`, axiom-free,
-   golden-locked.  *Still pending:* single-method
+   golden-locked.  **GO GENERICS (type parameters) DONE (2026-06-19):** Rocq's parametric
+   polymorphism maps directly to a Go generic — a function's distinct type VARIABLES (kept by
+   extraction as `Tvar`, rendered `T<i>`) become a `func F[T1 any, …]` type-parameter list
+   (`pp_function` collects them via `collect_tvars`; constraint `any` because parametric
+   polymorphism imposes no operations on the type).  Call sites need NO change — Go infers the
+   type args (`Gid("go")`, `Glen(make([]int64,3))`).  Emitted only for FUNCTIONS, not methods (Go
+   forbids a method introducing its own type params — that needs a generic receiver/struct, not yet
+   modeled).  `generics_demo`: `Gid[T1 any](x T1) T1`, `Glen[T1 any](xs []T1) int` reused at
+   `[]int64` AND `[]string`, `Gfirst[T1 any, T2 any]` → `go / 3 / 2 / first`, axiom-free,
+   golden-locked.  Faithfulness caveat: a BARE untyped-int literal arg (`gid 7`) has Go infer `int`
+   not our `int64` (the untyped-constant gap, Tier 2 #6); typed operands (string lits / typed slices)
+   pin the arg, so the demo is faithful.  *Still pending:* generic STRUCTS/types (`type Stack[T]`)
+   and methods on them; constraints beyond `any` (`comparable`/interface — would map a Coq typeclass
+   dict to a Go constraint); an unused non-erased value param mis-names (the `_:B` → duplicate-name
+   artifact, a latent dummy-binder bug, sidestepped by naming params).
+   *Still pending:* single-method
    interfaces (curried-return — blocked by Coq 1-field unboxing), the rune/UTF-8 string view,
    `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational float constants,
    complex `/` (Smith's algorithm), N-field struct pointers.  Tracked in the ladder + Tiers.
