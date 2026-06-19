@@ -3468,6 +3468,54 @@ Lemma sptr3_field_get_set : forall {R F} (p : SPtr3 R) (idx : int) (proj : R -> 
   bind (sptr3_set_field p idx proj ftag v) (fun _ => ret v).
 Proof. intros. unfold sptr3_set_field, sptr3_get_field. apply hfield_get_set_same. Qed.
 
+(** ---- HETEROGENEOUS 2-field struct pointer ([SPtrH R A B]) ----
+    The common real-Go case: a pointer to a struct whose fields have DIFFERENT types
+    (e.g. [*struct{ N int64; B bool }]).  The field-cell heap ([hfield_cell]) is already
+    GENERIC over the field type (it takes a [GoTypeTag]), so this only generalises the rep
+    to carry per-field types [A], [B] and their tags; the field read/write THEOREM is again
+    the 2-field/[hfield_get_set_same] proof verbatim.  Lowers exactly like [SPtr]/[SPtr3]
+    ([*R], [&R{…}], [p.Field]); the only plugin change is taking the FIRST type arg of the
+    3-arg [SPtrH R A B] (vs [SPtr R]'s single arg). *)
+Record StructRep2H (R A B : Type) := mkSR2H {
+  sr2h_f0 : R -> A ;                                       (* field 0 projection (type A) *)
+  sr2h_f1 : R -> B ;                                       (* field 1 projection (type B) *)
+  sr2h_ta : GoTypeTag A ;                                  (* field 0 type tag *)
+  sr2h_tb : GoTypeTag B ;                                  (* field 1 type tag *)
+  sr2h_mk : A -> B -> R ;                                  (* constructor *)
+  sr2h_eta : forall v, sr2h_mk (sr2h_f0 v) (sr2h_f1 v) = v ;
+}.
+Arguments mkSR2H {R A B} _ _ _ _ _ _.
+Arguments sr2h_f0 {R A B} _ _.  Arguments sr2h_f1 {R A B} _ _.
+Arguments sr2h_ta {R A B} _.    Arguments sr2h_tb {R A B} _.
+Arguments sr2h_mk {R A B} _ _ _.  Arguments sr2h_eta {R A B} _ _.
+
+Record SPtrH (R A B : Type) := mkSPtrH { sph_base : int ; sph_rep : StructRep2H R A B }.
+Arguments mkSPtrH {R A B} _ _.
+Arguments sph_base {R A B} _.  Arguments sph_rep {R A B} _.
+
+Definition sptrh_hs {R A B} (p : SPtrH R A B) : HStruct := mkHStruct (sph_base p).
+
+(** [sptrh_new rep v] — Go [p := &R{…}]: write field 0 at tag [A], field 1 at tag [B]. *)
+Definition sptrh_new {R A B} (rep : StructRep2H R A B) (v : R) : IO (SPtrH R A B) :=
+  fun w =>
+    let l := w_next w in
+    let p := mkSPtrH l rep in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) in
+    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0%uint63 (sr2h_ta rep)) (sr2h_f0 rep v) wa in
+    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1%uint63 (sr2h_tb rep)) (sr2h_f1 rep v) w0 in
+    ORet p w1.
+
+Definition sptrh_get_field {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+  hfield_get (sptrh_hs p) idx ftag.
+Definition sptrh_set_field {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+  hfield_set (sptrh_hs p) idx ftag v.
+
+Lemma sptrh_field_get_set : forall {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (v : F),
+  bind (sptrh_set_field p idx proj ftag v) (fun _ => sptrh_get_field p idx proj ftag) =
+  bind (sptrh_set_field p idx proj ftag v) (fun _ => ret v).
+Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_same. Qed.
+
 (** WHOLE-STRUCT deref-after-assign — a THEOREM: after [sptr_assign p v], [sptr_deref p]
     reassembles [v].  Field 0 survives the field-1 write (distinct cells, [ref_sel_upd_diff]),
     field 1 read sees its write ([ref_sel_upd_same]), and [sr2_eta] rebuilds [v].  The

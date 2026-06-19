@@ -1168,6 +1168,24 @@ func Nfield_ptr_demo() {
 	println(z)
 }
 
+type Pair struct {
+	P_n int64
+	P_b bool
+}
+
+func (p *Pair) Pair_bump() {
+	n := p.P_n
+	p.P_n = n + 1
+}
+
+func Het_ptr_demo() {
+	p := &Pair{10, true}
+	p.Pair_bump()
+	n := p.P_n
+	b := p.P_b
+	println(n, b)
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -1402,6 +1420,7 @@ func main() {
 	Sptr_demo()
 	Ptr_method_demo()
 	Nfield_ptr_demo()
+	Het_ptr_demo()
 	Iface_demo()
 	Single_iface_demo()
 	Nullary_iface_demo()

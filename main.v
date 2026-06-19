@@ -1702,6 +1702,23 @@ Definition nfield_ptr_demo : IO unit :=
   bind (sptr3_get_field p 2%uint63 c3z TI64) (fun z =>          (* z := p.C3z → 31 *)
   println [any z]))).                                           (* prints: 31 *)
 
+(** HETEROGENEOUS struct pointer: a [*Pair] whose two fields have DIFFERENT types
+    ([N int64], [B bool]) — the common real-Go case.  Same generic field-cell substrate
+    ([sptrh_field_get_set] backs the mutation); the rep just carries the per-field types
+    and tags.  The pointer-receiver method bumps the int64 field, leaving the bool. *)
+Record Pair := MkPair { p_n : GoI64 ; p_b : bool }.
+Lemma pair_eta : forall v, MkPair (p_n v) (p_b v) = v.
+Proof. intros [a b]; reflexivity. Qed.
+Definition pair_bump (p : SPtrH Pair GoI64 bool) : IO unit :=
+  bind (sptrh_get_field p 0%uint63 p_n TI64) (fun n =>          (* read p.P_n *)
+        sptrh_set_field p 0%uint63 p_n TI64 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
+Definition het_ptr_demo : IO unit :=
+  bind (sptrh_new (mkSR2H p_n p_b TI64 TBool MkPair pair_eta) (MkPair (10)%i64 true)) (fun p =>
+  bind (pair_bump p) (fun _ =>                                  (* p.Pair_bump() — mutates p.P_n *)
+  bind (sptrh_get_field p 0%uint63 p_n TI64) (fun n =>          (* n := p.P_n → 11 *)
+  bind (sptrh_get_field p 1%uint63 p_b TBool) (fun b =>         (* b := p.P_b → true *)
+  println [any n; any b])))).                                  (* prints: 11 true *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1974,6 +1991,7 @@ Definition main_effect : IO unit :=
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   nfield_ptr_demo               >>'   (* prints: 31 (pointer-receiver method mutates 3-field *Cell3) *)
+  het_ptr_demo                  >>'   (* prints: 11 true (pointer method mutates heterogeneous *Pair) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
   nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
@@ -1992,6 +2010,7 @@ Extraction NoInline
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
   sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field cell_incx
   sptr3_new sptr3_get_field sptr3_set_field cell3_inc_z
+  sptrh_new sptrh_get_field sptrh_set_field pair_bump
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn

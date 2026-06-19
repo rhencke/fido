@@ -294,11 +294,15 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
    (the lowering never touches the rep) — all of it is suppressed as decls. *)
 (* struct pointers — the 2-field [SPtr]/[sptr_*] AND the 3-field [SPtr3]/[sptr3_*]; both
    lower identically (the lowering is generic: [&v], [p.Field] via the projection). *)
-let is_sptr_type r = let n = global_basename r in n = "SPtr" || n = "SPtr3"
-let is_sptr_new_ref r       = let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"
-let is_sptr_deref_ref r     = let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"
-let is_sptr_get_field_ref r = let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field"
-let is_sptr_set_field_ref r = let n = global_basename r in n = "sptr_set_field" || n = "sptr3_set_field"
+(* SPtrH = the HETEROGENEOUS 2-field struct pointer ([SPtrH R A B], fields of types A, B);
+   shares the same field-cell substrate and pointer lowering as the homogeneous SPtr/SPtr3,
+   only the field TYPES differ.  Its [Tglob] carries 3 type args ([R; A; B]) vs SPtr's 1, so
+   the record-type extractors below take the FIRST arg ([arg :: _]). *)
+let is_sptr_type r = let n = global_basename r in n = "SPtr" || n = "SPtr3" || n = "SPtrH"
+let is_sptr_new_ref r       = let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"       || n = "sptrh_new"
+let is_sptr_deref_ref r     = let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"     || n = "sptrh_deref"
+let is_sptr_get_field_ref r = let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field" || n = "sptrh_get_field"
+let is_sptr_set_field_ref r = let n = global_basename r in n = "sptr_set_field" || n = "sptr3_set_field" || n = "sptrh_set_field"
 let is_sptr_machinery r =          (* every proof-side struct-pointer name → suppress decl *)
   List.mem (global_basename r)
     ["sptr_new"; "sptr_deref"; "sptr_assign"; "sptr_get_field"; "sptr_set_field";
@@ -307,6 +311,9 @@ let is_sptr_machinery r =          (* every proof-side struct-pointer name → s
      (* 3-field variants *)
      "sptr3_new"; "sptr3_get_field"; "sptr3_set_field"; "sptr3_hs"; "mkSPtr3";
      "sp3_base"; "sp3_rep"; "mkSR3"; "sr3_f0"; "sr3_f1"; "sr3_f2"; "sr3_mk"; "sr3_eta";
+     (* heterogeneous 2-field variant ([SPtrH R A B]) *)
+     "sptrh_new"; "sptrh_deref"; "sptrh_get_field"; "sptrh_set_field"; "sptrh_hs"; "mkSPtrH";
+     "sph_base"; "sph_rep"; "mkSR2H"; "sr2h_f0"; "sr2h_f1"; "sr2h_ta"; "sr2h_tb"; "sr2h_mk"; "sr2h_eta";
      (* Bs.1 field-cell substrate (proof-only; dragged in by the sptr op bodies) *)
      "hfield_cell"; "hfield_get"; "hfield_set"; "mkHStruct"; "hs_base"]
 (* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
@@ -531,6 +538,7 @@ let is_erased_record_typename s =
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
   || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
   || String.equal s "SPtr3" || String.equal s "StructRep3"  (* 3-field variant *)
+  || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
@@ -867,7 +875,7 @@ let rec pp_type state = function
   | Tglob (r, [arg]) when is_ref_type r -> pp_type state arg
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
-  | Tglob (r, [arg]) when is_sptr_type r -> str "*" ++ pp_type state arg
+  | Tglob (r, arg :: _) when is_sptr_type r -> str "*" ++ pp_type state arg  (* SPtr R / SPtrH R A B → *R *)
   | Tglob (r, _) when is_arr_type r ->
       unsupported "an array type in a position needing an explicit [N]T (param / field / return / typed var decl); only LOCAL arrays are supported — write `a := arr_lit […]` so Go infers the size from the literal (the size lives in the construction, not the Coq type)"
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
@@ -2917,7 +2925,7 @@ let is_record_tglob = function
    [m p …] to [p.M(…)], exactly the value-receiver path but THROUGH a pointer, so the
    method can MUTATE its receiver (observed by the caller). *)
 let is_sptr_record_tglob = function
-  | Tglob (r, [arg]) when is_sptr_type r -> is_record_tglob arg
+  | Tglob (r, arg :: _) when is_sptr_type r -> is_record_tglob arg  (* receiver record = first type arg *)
   | _ -> false
 
 (* Pure (non-IO) function body that RETURNS via a tail-position match.  Go has no

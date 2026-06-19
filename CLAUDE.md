@@ -402,9 +402,15 @@ separate tracks.
    (`is_sptr_type`/`is_sptr_*_ref`/`is_erased_record_typename`) match `SPtr3`/`StructRep3` too,
    so `cell3_inc_z (p : SPtr3 Cell3)` → `func (p *Cell3) Cell3_inc_z()` mutating `p.C3z`;
    `nfield_ptr_demo` → `31`, golden-locked, axiom-free (`Print Assumptions main_effect`
-   unchanged).  *Not yet:* HETEROGENEOUS field types in one struct-pointer (all `GoI64` so far);
-   the same template at arbitrary N (4+) is mechanical; pointer-receiver method expressions
-   `(*T).M`; method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
+   unchanged).  **HETEROGENEOUS field types DONE (2026-06-19):** `StructRep2H`/`SPtrH R A B`
+   carry per-field types + tags, so a `*Pair{ N int64; B bool }` mutates through the pointer
+   (`pair_bump` → `func (p *Pair) Pair_bump()` bumps the int64 field, bool preserved); the
+   field-cell heap was already generic over the field type, so `sptrh_field_get_set` is again
+   the `hfield_get_set_same` proof verbatim.  The only plugin change: the record-type
+   extractors take the FIRST type arg of the 3-arg `SPtrH R A B` (`arg :: _` vs `SPtr R`'s
+   `[arg]`).  `het_ptr_demo` → `11 true`, golden-locked, axiom-free.  *Not yet:* the same
+   template at arbitrary N (4+, mechanical); pointer-receiver method expressions `(*T).M`;
+   method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a
