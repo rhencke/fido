@@ -892,9 +892,13 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    proper prefix `<` longer, first difference decides; reuses the suppressed
    `ascii_byte` decoder, no `nat_of_ascii` drag) — both *theorems*
    (`spec_str_eq_*`/`spec_str_lt_*`); `str_cmp_demo` → `true false true false`,
-   golden-locked.  *Deferred (unmodeled, fails loud — NOT silently wrong):* the
-   **rune view** (`range s` UTF-8 decode and `string`↔`[]rune`/`[]byte`, Conversions),
-   and byte mutation (Go forbids it — strings immutable).
+   golden-locked.  **`string`↔`[]byte` DONE (2026-06-18)** and **`string`↔`[]rune` DONE
+   (2026-06-19): the rune/UTF-8 view** — `str_to_runes`/`runes_to_str` lower to native
+   `[]rune(s)`/`string(rs)` (runtime does the real UTF-8); the Coq bodies are a full 1–4
+   byte UTF-8 codec (suppressed), VERIFIED by round-trip examples for ASCII and a 3-byte CJK
+   point (`rune_roundtrip_ascii`/`_cjk`, 中=U+4E2D).  `rune_demo` → `Go`, golden-locked.
+   *Still deferred:* `range s` (the ITERATING form — a loop), and byte mutation (Go forbids
+   it — strings immutable).
 8. **Reference-type state (maps, slices, refs).**
    (b) *get-after-write — FIXED for maps via a heap in the world.*  Map reads are
    now in `IO` (`map_get_opt : ... -> IO (option V)`, `map_get_or`, `map_len`);
