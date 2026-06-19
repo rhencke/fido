@@ -243,12 +243,16 @@ func I64_ops_demo() {
 
 var Uc_bignum int64 = 1099511627781
 
+var Uc_mask int64 = 1048575
+
+var Uc_product int64 = 1000000000000
+
 var Uc_100_i64 int64 = 100
 
 var Uc_100_u8 int64 = (100 & 0xff)
 
 func Uconst_demo() {
-	println(Uc_bignum, Uc_100_i64, Uc_100_u8)
+	println(Uc_bignum, Uc_mask, Uc_product, Uc_100_i64, Uc_100_u8)
 }
 
 func U64_demo() {

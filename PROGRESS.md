@@ -721,11 +721,16 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
    (one constant, many types); and overflow REJECTED at compile time — `in_i64 (2^63) = false`
    and `300 <? 256 = false`, so the literal cannot be built and the unsafe Go never extracts
    (`uc_i64_overflow`/`uc_u8_overflow`).
-   - *Still open — constant EXPRESSIONS:* `i64_lit (Z.shiftl 1 40 + 5)` does NOT extract — the
-     plugin folds only a LITERAL `Z`, not an arithmetic expression (it fails loud: "i64_lit of a
-     non-literal Z").  A faithful folder must use ARBITRARY PRECISION (Go folds `(1<<70)>>10`
-     exactly, with intermediates exceeding the target before narrowing — an `Int64` folder would
-     be wrong); a plugin bignum (zarith) constant-folder is the fix.
+   - *Constant EXPRESSIONS — DONE (2026-06-19).*  The plugin's `z_eval` folds a closed `Z`
+     expression — `Z.add`/`sub`/`mul`/`opp`/`shiftl`/`land`/`lor`/`lxor` of constants — to its
+     int64 value, so `i64_lit (Z.shiftl 1 40 + 5)` / `(1<<20)-1` / `10^6 * 10^6` now extract
+     (`uc_bignum`/`uc_mask`/`uc_product` → `1099511627781 1048575 1000000000000`).  Faithful to
+     Go's ARBITRARY-PRECISION constant fold via checked int64: every op detects overflow and
+     fails LOUD (an intermediate exceeding int64 — e.g. `(1<<62)+(1<<62)-(1<<62)` = 2^62, fits,
+     but the `+` overflows — is rejected, never silently wrapped).  *(A bignum folder would also
+     ACCEPT such over-int64-intermediate constants; the checked-int64 form instead bounds them
+     fail-loud, which is faithful-or-fail, not wrong.)*  Still: `u64_lit` expressions (only its
+     literals fold), and float-side below.
    - *Still open — float side:* Go does constant float arithmetic at arbitrary precision, rounding
      ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas runtime `float64` rounds each
      step (`0.30000000000000004`).  Faithful model: untyped float constants as exact rationals,

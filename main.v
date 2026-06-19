@@ -691,23 +691,26 @@ Definition i64_ops_demo : IO unit :=
   println [ any (i64_and (i64_lit (-1) eq_refl) (i64_lit 4294967295 eq_refl))   (* 4294967295 *)
           ; any (i64_not (i64_lit 5 eq_refl)) ]).  (* -6 *)
 
-(** UNTYPED CONSTANTS (Go: a literal is ARBITRARY-PRECISION and untyped until it lands in a typed
-    context, where it must be REPRESENTABLE there — else a COMPILE ERROR).  Fido models this:
-    a literal's argument is an exact [Z]/[uint63] value, and the constructor's FIT-PROOF *is* Go's
-    representability check.  (1) arbitrary precision — a >32-bit value at [int64]; (2) ONE constant,
-    MANY types — [100] is typeable at [int64] AND [uint8]; (3) overflow REJECTED at "compile time" —
-    [2^63] has no [in_i64] proof (not an [int64]) and [300] has no [<256] proof (not a [uint8]), so
-    neither literal can be BUILT and the unsafe Go never extracts.  *(Scope: untyped INTEGER
-    constant VALUES.  Constant EXPRESSIONS — `(1<<40)+5` as arithmetic, where Go folds at arbitrary
-    precision possibly exceeding the target before narrowing — need a bignum folder in the plugin;
-    plus default types and untyped float/rune constants.  All tracked.)* *)
-Definition uc_bignum  : GoI64 := i64_lit 1099511627781 eq_refl.   (* (1<<40)+5 = 2^40+5: >32-bit, fits int64 *)
+(** UNTYPED CONSTANTS (Go: a literal/constant EXPRESSION is ARBITRARY-PRECISION and untyped until
+    it lands in a typed context, where it must be REPRESENTABLE there — else a COMPILE ERROR).
+    Fido models this: a constant's argument is an exact [Z] expression and the constructor's
+    FIT-PROOF *is* Go's representability check.  (1) CONSTANT EXPRESSIONS fold — [(1<<40)+5],
+    [(1<<20)-1], [10^6 * 10^6] extract to their values (plugin [z_eval], checked-int64 with
+    OVERFLOW = fail-loud, so an intermediate exceeding int64 never silently wraps — matching Go's
+    arbitrary-precision constant fold); (2) ONE constant, MANY types — [100] at [int64] AND
+    [uint8]; (3) overflow REJECTED at "compile time" — [2^63] has no [in_i64] proof, [300] no
+    [<256] proof, so the literal can't be built and unsafe Go never extracts.  *(Scope: untyped
+    INTEGER constants; default types and untyped float/rune constants remain.)* *)
+Definition uc_bignum  : GoI64 := i64_lit (Z.shiftl 1 40 + 5) eq_refl.   (* (1<<40)+5 = 1099511627781 *)
+Definition uc_mask    : GoI64 := i64_lit (Z.shiftl 1 20 - 1) eq_refl.   (* (1<<20)-1 = 1048575 (0xFFFFF) *)
+Definition uc_product : GoI64 := i64_lit (1000000 * 1000000) eq_refl.   (* 10^12 = 1000000000000 *)
 Definition uc_100_i64 : GoI64 := i64_lit 100 eq_refl.
 Definition uc_100_u8  : GoU8  := u8_lit 100 eq_refl.              (* the SAME 100, typed uint8 *)
 Example uc_i64_overflow : in_i64 9223372036854775808 = false. Proof. now vm_compute. Qed.  (* 2^63 ∉ int64 *)
 Example uc_u8_overflow  : (300 <? 256)%uint63 = false.        Proof. now vm_compute. Qed.  (* 300 ∉ uint8 *)
 Definition uconst_demo : IO unit :=
-  println [ any uc_bignum ; any uc_100_i64 ; any uc_100_u8 ].   (* 1099511627781 100 100 *)
+  println [ any uc_bignum ; any uc_mask ; any uc_product ; any uc_100_i64 ; any uc_100_u8 ].
+  (* 1099511627781 1048575 1000000000000 100 100 *)
 
 (** ===== GoU64: FULL-WIDTH unsigned 64-bit integer =====
     Machine-checked witnesses:

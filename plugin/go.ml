@@ -1191,6 +1191,47 @@ let z_value = function
   | MLcons (_, r, [p]) when String.equal (global_basename r) "Zneg" ->
       (match pos_value p with Some v -> Some (Int64.neg v) | None -> None)
   | _ -> None
+
+(* Checked signed-int64 arithmetic for CONSTANT-EXPRESSION folding: [None] on overflow, so a
+   constant whose INTERMEDIATE exceeds int64 fails loud rather than silently wrapping — Go folds
+   constants at arbitrary precision, so `(1<<62)+(1<<62)-(1<<62)` (= 2^62, fits) must NOT wrap at
+   the `+`.  The final value is in-range ([in_i64] proven), but intermediates need not be. *)
+let chk_add a b = let s = Int64.add a b in
+  if Int64.logxor a b >= 0L && Int64.logxor a s < 0L then None else Some s
+let chk_sub a b = let s = Int64.sub a b in
+  if Int64.logxor a b < 0L && Int64.logxor a s < 0L then None else Some s
+let chk_mul a b =
+  if a = 0L || b = 0L then Some 0L
+  else if (a = Int64.min_int && b = -1L) || (b = Int64.min_int && a = -1L) then None
+  else let p = Int64.mul a b in if Int64.div p a = b then Some p else None
+let chk_shl a n =
+  if n < 0L || n >= 64L || a < 0L then None
+  else let s = Int64.shift_left a (Int64.to_int n) in
+       if Int64.shift_right_logical s (Int64.to_int n) = a then Some s else None
+
+(* Fold a CONSTANT [Z] EXPRESSION (a literal, or [Z.add]/[sub]/[mul]/[opp]/[shiftl]/[land]/[lor]/
+   [lxor] of constants) to its int64 value — [None] if not a closed constant or an intermediate
+   overflows.  Lets a Go untyped CONSTANT EXPRESSION ([i64_lit (1<<40 + 5)]) extract, not just a
+   pre-folded literal.  ([Z] ops matched by basename + a [BinInt] module path.) *)
+let rec z_eval e =
+  match z_value e with
+  | Some v -> Some v
+  | None ->
+    let is_zop name h = match h with
+      | MLglob r -> String.equal (global_basename r) name && path_contains r "BinInt"
+      | _ -> false in
+    let bin f a b = match z_eval a, z_eval b with Some x, Some y -> f x y | _ -> None in
+    match e with
+    | MLapp (h, [a; b]) when is_zop "add"    h -> bin chk_add a b
+    | MLapp (h, [a; b]) when is_zop "sub"    h -> bin chk_sub a b
+    | MLapp (h, [a; b]) when is_zop "mul"    h -> bin chk_mul a b
+    | MLapp (h, [a; b]) when is_zop "shiftl" h -> bin chk_shl a b
+    | MLapp (h, [a; b]) when is_zop "land"   h -> bin (fun x y -> Some (Int64.logand x y)) a b
+    | MLapp (h, [a; b]) when is_zop "lor"    h -> bin (fun x y -> Some (Int64.logor  x y)) a b
+    | MLapp (h, [a; b]) when is_zop "lxor"   h -> bin (fun x y -> Some (Int64.logxor x y)) a b
+    | MLapp (h, [a])    when is_zop "opp"    h ->
+        (match z_eval a with Some x when x <> Int64.min_int -> Some (Int64.neg x) | _ -> None)
+    | _ -> None
 (* Source-[Z] sign: a [Z0]/[Zpos] is non-negative.  Used to tell a [uint64] literal
    in [2^63, 2^64) (a [Zpos] whose 64-bit pattern looks negative as a signed [Int64])
    apart from a genuine [int64] negative (a [Zneg]). *)
@@ -1612,9 +1653,9 @@ let rec pp_expr state env = function
           decimal int64 (the proof arg was erased).  The smart constructor demanded
           [in_i64 z], so the value fits int64. *)
        | MLglob r, [z] when is_i64_lit r ->
-           (match z_value z with
+           (match z_eval z with
             | Some v -> str (Int64.to_string v)
-            | None   -> unsupported "i64_lit of a non-literal Z (only statically-known int64 constants are modeled)")
+            | None   -> unsupported "i64_lit of a non-constant Z (only statically-known int64 constant expressions are modeled)")
        (* [u64_lit z] — a full-width uint64 constant: fold its [Z] literal to the
           UNSIGNED decimal ([Printf.sprintf "%Lu"] handles values in [2^63, 2^64)
           that are "negative" in OCaml's signed [Int64.t] — they print as the
