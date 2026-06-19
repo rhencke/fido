@@ -1239,8 +1239,15 @@ resting state.)**
     and `To_Z`'s value-position-match body is dropped by the `Sint63`/`Int63` module suppression.
     `i64_of_narrow_demo` → `200 -5 60000` (u8/i8-signed/u16 widened), golden-locked, axiom-free.
     So ALL the previously-drag-blocked conversions now lower: float32 arith, `float64`→`int64`
-    truncation, narrow→`int64` widening.  *Still open:* float32 comparisons / literals beyond the
-    demo, and `float↔float`; and `abs`/`sqrt` are
+    truncation, narrow→`int64` widening.  **float32 ↔ float64 LOWERED too (2026-06-19):**
+    `f64_of_f32` (widen, EXACT — a binary32 value is exactly a binary64) → `float64(x)`, identity
+    model; `f32_of_f64` (narrow, ROUNDS to binary32) → `float32(x)`, modelled `SF2Prim (SFmul 24
+    128 (Prim2SF a) (Prim2SF 1))` — NOTE `SFadd …(Prim2SF 0)` does NOT round (SpecFloat special-
+    cases a zero operand and returns it unrounded, assuming operands are already at the format),
+    so rounding-by-`+0` is wrong; multiply-by-1 rounds the product.  Machine-checked
+    `f32_of_f64_rounds`: `2^24 + 1` → `2^24` in binary32; `floatconv_demo` → `+1.677722e+007`
+    (16777216 as float32) `/ +7.500000e+000` (round-trip 7.5).  *Still open:* float32 comparisons
+    / literals beyond the demo; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real

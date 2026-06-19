@@ -1288,6 +1288,13 @@ Definition f32_sub (a b : GoFloat32) : GoFloat32 := SF2Prim (SFsub 24 128 (Prim2
 Definition f32_mul (a b : GoFloat32) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF b)).
 Definition f32_div (a b : GoFloat32) : GoFloat32 := SF2Prim (SFdiv 24 128 (Prim2SF a) (Prim2SF b)).
 
+(** float32 ↔ float64 conversions (Go [float64(f32)] / [float32(f64)]).  Widening is EXACT (a
+    binary32 value is exactly a binary64) — modelled as identity, lowered to [float64(x)].
+    Narrowing ROUNDS to binary32 (round-nearest-even) — modelled by the SpecFloat round
+    ([SFadd 24 128 … (Prim2SF 0)] = round-to-binary32 of [a+0]), lowered to [float32(x)]. *)
+Definition f64_of_f32 (a : GoFloat32) : GoFloat64 := a.
+Definition f32_of_f64 (a : GoFloat64) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF 1%float)).
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world

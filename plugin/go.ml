@@ -685,7 +685,10 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    widening fails exactly here, returning the record [GoI64]).  The body's leaf primitives
    ([of_uint63]) and Z↔int63 conversion helpers ([of_Z]/[of_pos]) have their own decls
    suppressed; the [Z]/[positive] arithmetic is already covered by [is_zarith_helper]. *)
-let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64"
+let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32"
+(* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
+   The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
+let is_f64_to_f32_ref r = String.equal (global_basename r) "f32_of_f64"
 (* [i64_of_f64 f] — float64 → int64 TRUNCATION (toward zero): Go's native [int64(f)].  The
    model's [f64_trunc_Z]/[Prim2SF] body is proof-only (suppressed by name/module); recognised
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
@@ -1530,6 +1533,9 @@ let rec pp_expr state env = function
        (* narrow → int64 widening → the operand (identity; the narrow already erases to int64) *)
        | MLglob r, [x] when is_i64_of_narrow_ref r ->
            pp_expr state env x
+       (* float64 → float32 narrowing (round-nearest-even) → [float32(x)] *)
+       | MLglob r, [x] when is_f64_to_f32_ref r ->
+           str "float32(" ++ pp_expr state env x ++ str ")"
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
@@ -3446,6 +3452,7 @@ let is_inlined_ref r =
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
+  is_f64_to_f32_ref r ||  (* float64→float32 narrowing → float32(x); SpecFloat round body suppressed by module *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   Option.has_some (classify_f32_op r) ||   (* f32_add/sub/mul/div: SpecFloat body suppressed by module, call site → Go [+]/[-]/[*]/[/] *)
   is_existT_ref r || is_sigT_ref r ||

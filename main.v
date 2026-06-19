@@ -338,6 +338,17 @@ Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (-5)%sint63))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
+
+(** float32 ↔ float64 conversions LOWERED.  Widening [f64_of_f32] → [float64(x)] (exact);
+    narrowing [f32_of_f64] → [float32(x)] (rounds to binary32).  Machine-checked that the
+    narrow really rounds: [2^24 + 1] is unrepresentable in binary32, so it rounds to [2^24]. *)
+Example f32_of_f64_rounds : PrimFloat.eqb (f32_of_f64 16777217) 16777216 = true.
+Proof. vm_compute. reflexivity. Qed.
+Definition narrow32 (x : GoFloat64) : GoFloat32 := f32_of_f64 x.
+Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
+Definition floatconv_demo : IO unit :=
+  bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
+  println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
 (** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
     zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
@@ -2339,6 +2350,7 @@ Definition main_effect : IO unit :=
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
+  floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
@@ -2370,7 +2382,7 @@ Extraction NoInline
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int f64_of_i64
-  dir_name f32_combine trunc64
+  dir_name f32_combine trunc64 narrow32 widen64
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb
