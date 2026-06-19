@@ -274,6 +274,7 @@ let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutat
 let is_for_each_ref = named "for_each"
 let is_str_range_ref = named "str_range"        (* for i, r := range s (string range, byte index + rune) *)
 let is_for_each_idx_ref = named "for_each_idx"   (* for i, x := range xs (slice range, index + element) *)
+let is_int_range_ref = named "int_range"         (* for i := range n (Go 1.22 integer range) *)
 let is_slice_fold_ref = named "slice_fold"
 let is_ref_type = named "Ref"
 let is_ref_new_ref = named "ref_new"
@@ -1902,6 +1903,9 @@ let pp_io_body state tab env body =
               | MLglob r2, [xs; bodyfn] when is_for_each_idx_ref r2 ->
                   emit_range2 tab env xs bodyfn ++
                   pp_stmts tab new_env body
+              | MLglob r2, [n; bodyfn] when is_int_range_ref r2 ->
+                  emit_range2 tab env n bodyfn ++
+                  pp_stmts tab new_env body
               (* bind (map_get_or k def m) (fun hit => body) → the value at k or
                  def, via comma-ok.  [hit] takes the default's (typed) value, so
                  it has the map's value type (not [any]); the if-block overwrites
@@ -1993,6 +1997,8 @@ let pp_io_body state tab env body =
              emit_range2 tab env s bodyfn
          | MLglob r, [xs; bodyfn] when is_for_each_idx_ref r ->
              emit_range2 tab env xs bodyfn
+         | MLglob r, [n; bodyfn] when is_int_range_ref r ->
+             emit_range2 tab env n bodyfn
          (* run_blocks start [b0; b1; …] → Go labels + goto.  Only Jump-target
             labels are emitted (Go rejects unused labels); the label sits one
             indent left of its block, as gofmt wants. *)
@@ -3076,7 +3082,7 @@ let is_inlined_ref r =
      "str_to_bytes"; "str_from_bytes"; "byte_ascii";
      "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
      "str_range"; "rune_width"; "runes_with_offsets"; "for_each_pairs";
-     "for_each_idx"; "for_each_idx_from"] ||
+     "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

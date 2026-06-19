@@ -3551,6 +3551,20 @@ Fixpoint for_each_idx_from {A : Type} (i : int) (xs : GoSlice A) (body : int -> 
 Definition for_each_idx {A : Type} (xs : GoSlice A) (body : int -> A -> IO unit) : IO unit :=
   for_each_idx_from 0%uint63 xs body.
 
+(** ---- Integer [range] (Go 1.22, spec "For statements: For range" over an integer): [for i := range n] ----
+    Produces [i = 0, 1, …, n-1] (and runs zero times when [n = 0], exactly Go's rule).
+    The bound [n] is the iteration COUNT (a [nat] — non-negative, and the structural-recursion
+    fuel, so termination is by construction with no carrier conversion); the produced index
+    [i] is the Go [int] index type ([Sint63]).  Recognized by name + decl suppressed, so the
+    lowering is the native [for i := range n] (the [nat] count renders as the bound). *)
+Fixpoint int_range_aux (i : int) (n : nat) (body : int -> IO unit) : IO unit :=
+  match n with
+  | O    => ret tt
+  | S f  => bind (body i) (fun _ => int_range_aux (PrimInt63.add i 1%uint63) f body)
+  end.
+Definition int_range (n : nat) (body : int -> IO unit) : IO unit :=
+  int_range_aux 0%uint63 n body.
+
 (** [slice_fold xs init step] is a pure left fold: it threads an accumulator
     through the slice, [step]ping it with each element.  A total Fixpoint, so
     its unfolding is provable:
