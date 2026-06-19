@@ -289,16 +289,21 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
 (* Struct pointers (Phase Bs.2): SPtr R → Go *R; ops lower to native pointer syntax,
    reusing the same shapes as Ptr.  The StructRep/field-cell machinery is proof-only
    (the lowering never touches the rep) — all of it is suppressed as decls. *)
-let is_sptr_type = named "SPtr"
-let is_sptr_new_ref       = named "sptr_new"
-let is_sptr_deref_ref     = named "sptr_deref"
-let is_sptr_get_field_ref = named "sptr_get_field"
-let is_sptr_set_field_ref = named "sptr_set_field"
+(* struct pointers — the 2-field [SPtr]/[sptr_*] AND the 3-field [SPtr3]/[sptr3_*]; both
+   lower identically (the lowering is generic: [&v], [p.Field] via the projection). *)
+let is_sptr_type r = let n = global_basename r in n = "SPtr" || n = "SPtr3"
+let is_sptr_new_ref r       = let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"
+let is_sptr_deref_ref r     = let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"
+let is_sptr_get_field_ref r = let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field"
+let is_sptr_set_field_ref r = let n = global_basename r in n = "sptr_set_field" || n = "sptr3_set_field"
 let is_sptr_machinery r =          (* every proof-side struct-pointer name → suppress decl *)
   List.mem (global_basename r)
     ["sptr_new"; "sptr_deref"; "sptr_assign"; "sptr_get_field"; "sptr_set_field";
      "sptr_hs"; "mkSPtr"; "sp_base"; "sp_rep";
      "mkSR2"; "sr2_f0"; "sr2_f1"; "sr2_mk"; "sr2_eta";
+     (* 3-field variants *)
+     "sptr3_new"; "sptr3_get_field"; "sptr3_set_field"; "sptr3_hs"; "mkSPtr3";
+     "sp3_base"; "sp3_rep"; "mkSR3"; "sr3_f0"; "sr3_f1"; "sr3_f2"; "sr3_mk"; "sr3_eta";
      (* Bs.1 field-cell substrate (proof-only; dragged in by the sptr op bodies) *)
      "hfield_cell"; "hfield_get"; "hfield_set"; "mkHStruct"; "hs_base"]
 (* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
@@ -522,6 +527,7 @@ let is_erased_record_typename s =
   || String.equal s "GoComplex128"   (* complex128: rendered native, ops by name *)
   || String.equal s "Ref" || String.equal s "Ptr" || String.equal s "SliceH"
   || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
+  || String.equal s "SPtr3" || String.equal s "StructRep3"  (* 3-field variant *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)

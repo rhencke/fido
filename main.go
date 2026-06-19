@@ -1131,6 +1131,24 @@ func Ptr_method_demo() {
 	println(a)
 }
 
+type Cell3 struct {
+	C3x int64
+	C3y int64
+	C3z int64
+}
+
+func (p *Cell3) Cell3_inc_z() {
+	z := p.C3z
+	p.C3z = z + 1
+}
+
+func Nfield_ptr_demo() {
+	p := &Cell3{10, 20, 30}
+	p.Cell3_inc_z()
+	z := p.C3z
+	println(z)
+}
+
 type Shape struct {
 	Area  func(int64) int64
 	Perim func(int64) int64
@@ -1361,6 +1379,7 @@ func main() {
 	Nested_struct_demo()
 	Sptr_demo()
 	Ptr_method_demo()
+	Nfield_ptr_demo()
 	Iface_demo()
 	Single_iface_demo()
 	Nullary_iface_demo()

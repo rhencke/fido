@@ -1657,6 +1657,21 @@ Definition ptr_method_demo : IO unit :=
   bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
+(** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
+    a field.  Same generic field-cell substrate as the 2-field case ([sptr3_field_get_set]
+    backs the mutation); shows the pointer story is not limited to 2 fields. *)
+Record Cell3 := MkCell3 { c3x : GoI64 ; c3y : GoI64 ; c3z : GoI64 }.
+Lemma cell3_eta : forall v, MkCell3 (c3x v) (c3y v) (c3z v) = v.
+Proof. intros [a b c]; reflexivity. Qed.
+Definition cell3_inc_z (p : SPtr3 Cell3) : IO unit :=
+  bind (sptr3_get_field p 2%uint63 c3z TI64) (fun z =>          (* read p.C3z *)
+        sptr3_set_field p 2%uint63 c3z TI64 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
+Definition nfield_ptr_demo : IO unit :=
+  bind (sptr3_new (mkSR3 c3x c3y c3z MkCell3 cell3_eta) (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
+  bind (cell3_inc_z p) (fun _ =>                                (* p.Cell3_inc_z() — mutates p.C3z *)
+  bind (sptr3_get_field p 2%uint63 c3z TI64) (fun z =>          (* z := p.C3z → 31 *)
+  println [any z]))).                                           (* prints: 31 *)
+
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
     the methods (a vtable) with the concrete type ERASED.  We model that directly —
@@ -1925,6 +1940,7 @@ Definition main_effect : IO unit :=
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
+  nfield_ptr_demo               >>'   (* prints: 31 (pointer-receiver method mutates 3-field *Cell3) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
   nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
@@ -1942,6 +1958,7 @@ Extraction NoInline
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
   sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field cell_incx
+  sptr3_new sptr3_get_field sptr3_set_field cell3_inc_z
   slice_make_h slice_make_lc slice_idx_get slice_idx_set subslice slice_append
   slice_clear_h slice_copy
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn

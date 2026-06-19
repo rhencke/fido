@@ -396,9 +396,15 @@ separate tracks.
    Go's method expression — a `func(T, …) …` whose first arg is the receiver.  The plugin
    records the receiver type name (`method_recvtype`) and emits `Point.Sum_coords` for the
    bare glob; `method_expr_demo` passes it to a HOF `apply_pt(f func(Point) GoI64, p Point)`
-   → `11`.  *Not yet:* pointer receiver on a struct WIDER than 2 int64 fields (generalise
-   `StructRep2` → N heterogeneous fields); pointer-receiver method expressions `(*T).M`;
-   method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
+   → `11`.  **N-FIELD pointer receiver DONE (2026-06-19):** `StructRep3`/`SPtr3` generalise the
+   2-field substrate to a 3-field `*Cell3` (same GENERIC `hfield_cell`/`hfield_get_set_same`
+   heap, so `sptr3_field_get_set` reuses the 2-field proof); the plugin recognizers
+   (`is_sptr_type`/`is_sptr_*_ref`/`is_erased_record_typename`) match `SPtr3`/`StructRep3` too,
+   so `cell3_inc_z (p : SPtr3 Cell3)` → `func (p *Cell3) Cell3_inc_z()` mutating `p.C3z`;
+   `nfield_ptr_demo` → `31`, golden-locked, axiom-free (`Print Assumptions main_effect`
+   unchanged).  *Not yet:* HETEROGENEOUS field types in one struct-pointer (all `GoI64` so far);
+   the same template at arbitrary N (4+) is mechanical; pointer-receiver method expressions
+   `(*T).M`; method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

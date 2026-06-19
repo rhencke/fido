@@ -3431,6 +3431,43 @@ Proof.
   intros R F p q idx ftag v w Hb. apply hstruct_alias. unfold sptr_hs. cbn. exact Hb.
 Qed.
 
+(** ---- N-FIELD struct pointers (THREE fields) ----  The same field-cell substrate,
+    generalised from [StructRep2]/[SPtr] to a third field.  Field access ([sptr3_get_field]/
+    [sptr3_set_field]) and the read-after-write THEOREM are the SAME generic [hfield] ops
+    (so no new heap reasoning) — only the rep and the allocation widen by one field.  A
+    function whose first param is [SPtr3 R] becomes a pointer-receiver method on a 3-field
+    [*R], exactly like the 2-field case. *)
+Record StructRep3 (R : Type) := mkSR3 {
+  sr3_f0 : R -> GoI64 ; sr3_f1 : R -> GoI64 ; sr3_f2 : R -> GoI64 ;
+  sr3_mk : GoI64 -> GoI64 -> GoI64 -> R ;
+  sr3_eta : forall v, sr3_mk (sr3_f0 v) (sr3_f1 v) (sr3_f2 v) = v ;
+}.
+Arguments mkSR3 {R} _ _ _ _ _.
+Arguments sr3_f0 {R} _ _.  Arguments sr3_f1 {R} _ _.  Arguments sr3_f2 {R} _ _.
+Arguments sr3_mk {R} _ _ _ _.
+Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : int ; sp3_rep : StructRep3 R }.
+Arguments mkSPtr3 {R} _ _.
+Arguments sp3_base {R} _.  Arguments sp3_rep {R} _.
+Definition sptr3_hs {R} (p : SPtr3 R) : HStruct := mkHStruct (sp3_base p).
+Definition sptr3_new {R} (rep : StructRep3 R) (v : R) : IO (SPtr3 R) :=
+  fun w =>
+    let l := w_next w in
+    let p := mkSPtr3 l rep in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 3) in  (* bump by 3 *)
+    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0%uint63 TI64) (sr3_f0 rep v) wa in
+    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1%uint63 TI64) (sr3_f1 rep v) w0 in
+    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2%uint63 TI64) (sr3_f2 rep v) w1 in
+    ORet p w2.
+Definition sptr3_get_field {R F} (p : SPtr3 R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+  hfield_get (sptr3_hs p) idx ftag.
+Definition sptr3_set_field {R F} (p : SPtr3 R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+  hfield_set (sptr3_hs p) idx ftag v.
+Lemma sptr3_field_get_set : forall {R F} (p : SPtr3 R) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (v : F),
+  bind (sptr3_set_field p idx proj ftag v) (fun _ => sptr3_get_field p idx proj ftag) =
+  bind (sptr3_set_field p idx proj ftag v) (fun _ => ret v).
+Proof. intros. unfold sptr3_set_field, sptr3_get_field. apply hfield_get_set_same. Qed.
+
 (** WHOLE-STRUCT deref-after-assign — a THEOREM: after [sptr_assign p v], [sptr_deref p]
     reassembles [v].  Field 0 survives the field-1 write (distinct cells, [ref_sel_upd_diff]),
     field 1 read sees its write ([ref_sel_upd_same]), and [sr2_eta] rebuilds [v].  The
