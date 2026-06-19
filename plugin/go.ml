@@ -3147,7 +3147,35 @@ let is_sptr_record_tglob = function
    an [if] (e.g. [i64_abs]) extract instead of aborting. *)
 let rec pp_pure_tail state tab env e =
   let return_fallback () = str tab ++ str "return " ++ pp_expr state env e ++ fnl () in
+  let ctor_of0 (ids, pat, body) =
+    match pat with
+    | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
+    | Pwild | Prel _ | Ptuple _ -> (None, ids, body) in
   match strip_magic e with
+  (* VALUE-position ENUM match → a Go [switch] each of whose arms [return]s (e.g. a
+     [func (d Direction) String() string]).  Mirrors the statement-position enum switch. *)
+  | MLcase (_typ, scrut, branches)
+    when Array.length branches >= 2
+      && Array.for_all (fun b -> match ctor_of0 b with
+           | (Some c, _, _) -> is_enum_ctor c | _ -> false) branches ->
+      (* Go requires a value-returning function to return on every path, and does NOT treat
+         a [default]-less switch as exhaustive — so the LAST arm (the last constructor, in
+         constructor order) is emitted as [default:].  Faithful: the match is total and the
+         other constructors are matched above, so [default] catches exactly the last one. *)
+      let rec emit = function
+        | [] -> mt ()
+        | [b] ->
+            let (_, _, body) = ctor_of0 b in
+            str tab ++ str "default:" ++ fnl () ++
+            pp_pure_tail state (tab ^ "\t") env body
+        | b :: rest ->
+            let (rc, _ids, body) = ctor_of0 b in
+            let cname = match rc with Some c -> go_export (global_basename c) | None -> "_" in
+            str tab ++ str "case " ++ str cname ++ str ":" ++ fnl () ++
+            pp_pure_tail state (tab ^ "\t") env body ++ emit rest in
+      str tab ++ str "switch " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
+      emit (Array.to_list branches) ++
+      str tab ++ str "}" ++ fnl ()
   | MLcase (_typ, scrut, branches) when Array.length branches = 2 ->
       let ctor_of (ids, pat, body) =
         match pat with

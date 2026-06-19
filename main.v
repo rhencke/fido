@@ -2122,6 +2122,14 @@ Definition dir_io (d : Direction) : IO unit :=
   end.
 Definition enum_demo : IO unit := dir_io East.   (* switch picks the East case → 2 *)
 
+(* VALUE-position enum match — the [func (d Direction) String() string] idiom: a switch each
+   arm of which RETURNs (pp_pure_tail enum arm).  [NoInline] keeps the match in tail position. *)
+Definition dir_name (d : Direction) : GoString :=
+  match d with
+  | North => "N"%string | South => "S"%string | East => "E"%string | West => "W"%string
+  end.
+Definition enum_value_demo : IO unit := println [any (dir_name West)].   (* W *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2283,6 +2291,7 @@ Definition main_effect : IO unit :=
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
+  enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]
@@ -2310,6 +2319,7 @@ Extraction NoInline
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int f64_of_i64
+  dir_name
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb

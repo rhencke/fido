@@ -1602,6 +1602,23 @@ func Enum_demo() {
 	Dir_io(East)
 }
 
+func Dir_name(d Direction) string {
+	switch d {
+	case North:
+		return "N"
+	case South:
+		return "S"
+	case East:
+		return "E"
+	default:
+		return "W"
+	}
+}
+
+func Enum_value_demo() {
+	println(Dir_name(West))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1758,4 +1775,5 @@ func main() {
 	Pure_rec_demo()
 	Mutual_rec_demo()
 	Enum_demo()
+	Enum_value_demo()
 }

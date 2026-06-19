@@ -269,9 +269,15 @@ separate tracks.
      N-arm match in STATEMENT position → a Go `switch d { case North: … }` (a new
      `emit_case` arm, checked before the 2-arm shapes so a 2-value enum switches too).
      `pp_type` accepts the enum typename; registered in `collect_decls` pass 1.
-     `enum_demo` (`dir_io East`) → `2`, golden-locked, axiom-free.  *Still pending:* the
-     VALUE-position enum match (`func (d Direction) String() string { switch … }`) — needs
-     a `pp_pure_tail` enum-switch arm (switch with `return`s); and a `default` arm.
+     `enum_demo` (`dir_io East`) → `2`, golden-locked, axiom-free.  **VALUE-position enum
+     match DONE too (2026-06-19):** a `pp_pure_tail` enum-switch arm emits `func (d Direction)
+     String() string { switch d { case North: return "N"; … } }`.  Go does NOT treat a
+     `default`-less switch as exhaustive (→ "missing return"), so the LAST arm (the last
+     constructor, in constructor order) is emitted as `default:` — faithful, since the match is
+     total and the others are matched above, so `default` catches exactly the last constructor.
+     `dir_name` needs `NoInline` (keep the match in tail position); `enum_value_demo` → `W`.
+     *Still pending:* a genuine `default`/`_` arm in the source (non-exhaustive match), and enum
+     values as map keys / `==` comparison.
    - **`nat` match (`O` / `S k`) → `if n == 0 { … } else { k := n - 1; … }` — DONE
      (2026-06-19), enabling USER RECURSION** (a Coq `Fixpoint` → a self-calling Go
      func).  The probe was the lesson: "recursion" was never the wall — a `Fixpoint`
