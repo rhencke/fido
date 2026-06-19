@@ -2720,6 +2720,13 @@ Example rune_roundtrip_cjk :
   str_to_runes (runes_to_str (MkI32 20013%uint63 :: nil)) = MkI32 20013%uint63 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 
+(** Single rune → string (Go's [string(rune)]): the 1-code-point UTF-8 string.  Reuses the
+    [rune_bytes] encoder; lowers to the native [string(rune(r))] (the explicit [rune] cast
+    keeps it out of the deprecated [string(int)] form). *)
+Definition rune_to_str (r : GoI32) : GoString := rune_bytes r.
+Example rune_to_str_ascii : rune_to_str (MkI32 65%uint63) = "A"%string.
+Proof. vm_compute. reflexivity. Qed.
+
 (** String COMPARISON (Go spec "Comparison operators": strings are comparable AND
     ordered).  [str_eqb] is Go [==] — byte-sequence equality (a THEOREM via
     [String.eqb]).  [str_ltb] is Go [<] — LEXICOGRAPHIC by BYTE VALUE, exactly Go's

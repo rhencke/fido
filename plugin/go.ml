@@ -1445,6 +1445,9 @@ let rec pp_expr state env = function
            str "[]rune(" ++ pp_expr state env s ++ str ")"
        | MLglob r, [rs] when String.equal (global_basename r) "runes_to_str" ->
            str "string(" ++ pp_expr state env rs ++ str ")"
+       (* single rune → string: [string(rune(r))] (explicit rune cast, not [string(int)]) *)
+       | MLglob r, [c] when String.equal (global_basename r) "rune_to_str" ->
+           str "string(rune(" ++ pp_expr state env c ++ str "))"
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -3028,7 +3031,7 @@ let is_inlined_ref r =
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
      "str_to_bytes"; "str_from_bytes"; "byte_ascii";
-     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"] ||
+     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

@@ -670,6 +670,10 @@ func Rune_demo() {
 	println(string(rs))
 }
 
+func Rune_to_str_demo() {
+	println(string(rune(65)))
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1275,6 +1279,7 @@ func main() {
 	Str_cmp_demo()
 	Bytes_demo()
 	Rune_demo()
+	Rune_to_str_demo()
 	Tsw_demo(true)
 	Tsw_demo("go")
 	Tsw_demo(5)
