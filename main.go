@@ -217,6 +217,10 @@ func Builtins_demo() {
 	println(n)
 }
 
+func Str_slice_demo() {
+	println("Hello, world"[7:12])
+}
+
 func Scmp_demo() {
 	println("b" > "a", "a" >= "a", "a" != "b")
 }
@@ -1359,6 +1363,7 @@ func main() {
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()
+	Str_slice_demo()
 	Bytes_demo()
 	Rune_demo()
 	Rune_to_str_demo()

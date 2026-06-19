@@ -198,6 +198,7 @@ let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
 let is_str_len_ref    r = String.equal (global_basename r) "str_len"
 let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
 let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
+let is_str_slice_ref  r = String.equal (global_basename r) "str_slice"   (* s[a:b] (proof-gated) *)
 let is_str_eqb_ref    r = String.equal (global_basename r) "str_eqb"
 let is_str_ltb_ref    r = String.equal (global_basename r) "str_ltb"
 (* direct >/>=/!= for strings and float64 (completing Go's six comparison operators);
@@ -1311,6 +1312,11 @@ let rec pp_expr state env = function
           cast to int64 for the [int] model (Sint63/int64). *)
        | MLglob r, [s] when is_str_len_ref r ->
            str "int64(len(" ++ pp_expr state env s ++ str "))"
+       (* str_slice s a b (proof erased) → Go's slice expression s[a:b] (the proof
+          discharged the bounds check, so this cannot panic). *)
+       | MLglob r, [s; a; b] when is_str_slice_ref r ->
+           pp_atom state env s ++ str "[" ++ pp_expr state env a ++ str ":" ++
+           pp_expr state env b ++ str "]"
        (* append(xs, ys) *)
        | MLglob r, [xs; ys] when is_append_ref r ->
            str "append(" ++ pp_expr state env xs ++ str ", " ++
@@ -3112,6 +3118,7 @@ let is_inlined_ref r =
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
+  is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||

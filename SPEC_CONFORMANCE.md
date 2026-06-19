@@ -139,6 +139,11 @@ the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
   `"Go"` (len 2) → `0 false`, no panic. ✓
 - **concat** (`str_concat`, spec "Operators"): pure byte append → Go `+`;
   `str_concat "Go" "!" = "Go!"` is a **theorem** (`spec_str_concat`). ✓
+- **slice** (`str_slice`, spec "Slice expressions"): the byte-substring `s[a:b]` →
+  native Go `s[a:b]`, **proof-gated** (demands `a <= b <= len(s)`, so it cannot panic — the
+  bounds proof discharged Go's check, like `div_nz`).  `s[7:12]` of `"Hello, world"` is
+  `"world"` (theorem `spec_str_slice`); out-of-range bounds do not type-check
+  (`str_slice_oob`, a `Fail`).  `nat` indices keep the body conversion-free. ✓
 - **comparison** (`str_eqb`/`str_ltb`, spec "Comparison operators": strings are
   comparable AND ordered) → Go `==` / `<`.  `str_eqb` is byte-sequence equality
   (`String.eqb`); `str_ltb` is LEXICOGRAPHIC by byte value (compare byte-by-byte,

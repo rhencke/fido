@@ -2657,6 +2657,18 @@ Fixpoint str_concat (a b : GoString) : GoString :=
   | String c rest => String c (str_concat rest b)
   end.
 
+(** String slicing [s[a:b]] (Go spec "Slice expressions": for a string, the result is the
+    BYTE-substring [a, b)).  EVIDENCE-CARRYING / safe-by-construction: it DEMANDS a proof
+    that [a <= b <= len(s)] (in bytes), so the emitted [s[a:b]] cannot panic — the bounds
+    proof discharged Go's slice-bounds check (same discipline as [div_nz]).  Indices are
+    [nat] (a string length/offset is non-negative; this also keeps the body conversion-free
+    — no [Sint63.to_Z] to bridge).  The body [String.substring a (b-a) s] is recognized
+    away to the native [s[a:b]] (decl + [substring] suppressed).  [eq_refl] discharges the
+    proof for literal bounds. *)
+Definition str_slice (s : GoString) (a b : nat)
+  (_ : (Nat.leb a b && Nat.leb b (String.length s))%bool = true) : GoString :=
+  String.substring a (b - a) s.
+
 (** ---- Rune view: [[]rune(s)] / [string([]rune)] (Go spec "Conversions to and from a
     string type") ----  A [rune] is an int32 code point.  [[]rune(s)] UTF-8-DECODES the
     byte sequence to code points; [string(rs)] UTF-8-ENCODES them back.  Both lower BY NAME

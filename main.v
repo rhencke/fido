@@ -699,6 +699,15 @@ Proof. reflexivity. Qed.
 (* Build-checked: a string does not implicitly accept an [int] (distinct types). *)
 Fail Definition str_no_implicit : GoString := str_concat "x"%string (5 : int).
 
+(** String slicing [s[a:b]] (the byte-substring) — proof-gated, so it cannot panic.  THEOREM:
+    [s[7:12]] of "Hello, world" is "world".  Build-checked negative: out-of-range bounds
+    ([13 > len]) do NOT type-check (the bounds proof cannot be built). *)
+Example spec_str_slice : str_slice "Hello, world"%string 7 12 eq_refl = "world"%string.
+Proof. reflexivity. Qed.
+Fail Definition str_slice_oob : GoString := str_slice "Hello"%string 0 13 eq_refl.
+Definition str_slice_demo : IO unit :=
+  println [ any (str_slice "Hello, world"%string 7 12 eq_refl) ].   (* prints: world *)
+
 (** String COMPARISON (Go [==] / [<]): byte-sequence equality and LEXICOGRAPHIC
     byte-order — both THEOREMS.  Equality decides same/different bytes; ordering
     compares byte-by-byte with a proper prefix ordered before the longer string
@@ -1940,6 +1949,7 @@ Definition main_effect : IO unit :=
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
+  str_slice_demo                >>'   (* prints: world (s[a:b] string slice) *)
   bytes_demo                    >>'   (* prints: Hi ([]byte / string round-trip) *)
   rune_demo                     >>'   (* prints: Go ([]rune / string round-trip, UTF-8) *)
   rune_to_str_demo              >>'   (* prints: A (string(rune(65))) *)
@@ -2039,7 +2049,7 @@ Extraction NoInline
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks str_range for_each_idx int_range
-  len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
+  len cap slice_get slice_at_ok str_at_ok str_slice str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2 str_switch3
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set
