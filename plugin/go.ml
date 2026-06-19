@@ -126,6 +126,8 @@ let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* metho
 let method_arity      : (string, int) Hashtbl.t  = Hashtbl.create 16    (* method path -> visible param count (incl. receiver) *)
 let method_recvtype   : (string, string) Hashtbl.t = Hashtbl.create 16  (* method path -> Go receiver type name (for method expressions T.M) *)
 let embedded_proj     : (string, unit) Hashtbl.t = Hashtbl.create 16    (* embedded-field projection path -> () (Go struct embedding) *)
+let enum_typenames    : (string, unit) Hashtbl.t = Hashtbl.create 16    (* enum type basename -> () (a nullary-ctor inductive → Go [type T int] + iota consts) *)
+let enum_ctors        : (string, unit) Hashtbl.t = Hashtbl.create 16    (* enum ctor basename -> () (emit as the const name) *)
 
 let globref_basename g =
   try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
@@ -135,6 +137,8 @@ let proj_field_name r = go_export (Hashtbl.find record_proj_field (global_path r
 let is_record_ctor r = Hashtbl.mem record_ctor_names (global_basename r)
 let is_record_typename s = Hashtbl.mem record_typenames s
 let is_method r = Hashtbl.mem method_paths (global_path r)
+let is_enum_typename s = Hashtbl.mem enum_typenames s
+let is_enum_ctor r = Hashtbl.mem enum_ctors (global_basename r)
 let is_embedded_proj r = Hashtbl.mem embedded_proj (global_path r)
 (* Go EMBEDDING PROMOTION: a member access through an embedded field —
    [member (embed_proj d)] — promotes to [d.member] (skip the [.Embedded] hop), which
@@ -964,7 +968,7 @@ let rec pp_type state = function
          a field still references `Inner`.  Fail loud rather than emit wrong Go
          (meta-invariant); give such a record ≥2 fields. *)
       let bn = global_basename r in
-      if not (is_record_typename bn) then
+      if not (is_record_typename bn || is_enum_typename bn) then
         unsupported (Printf.sprintf
           "type '%s' (no struct decl emitted — a single-field Record is unboxed \
            by Coq; give it >= 2 fields)" (go_export bn));
@@ -1701,6 +1705,8 @@ let rec pp_expr state env = function
            | MLcons (_, r, []) when is_bool_true r  -> str "true"
            | MLcons (_, r, []) when is_bool_false r -> str "false"
            | MLcons (_, r, []) when is_list_nil r   -> str "nil"
+           (* nullary ENUM constructor → the iota const name *)
+           | MLcons (_, r, []) when is_enum_ctor r  -> str (go_export (global_basename r))
            (* [any v] (existT) in value position → its payload [v], which Go boxes to
               [any] from the surrounding context (a func arg / slot of interface type).
               [any_payload] strips the existT (and any nested pair) to the value. *)
@@ -2902,7 +2908,21 @@ let pp_io_body ?(ret_val=false) state tab env body =
           is_list_type r && String.equal (global_basename elem) "GoInt32"
       | _ -> false
     in
+    (* ENUM match (all arms are nullary enum constructors, any arity ≥ 2) → Go [switch].
+       Checked before the 2-arm shapes so a 2-value enum also switches. *)
+    let all_enum_arms brs =
+      List.length brs >= 2 &&
+      List.for_all (fun b -> match ctor_of b with
+        | (Some c, _, _) -> is_enum_ctor c | _ -> false) brs in
     match Array.to_list branches with
+    | brs when all_enum_arms brs ->
+        str tab ++ str "switch " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
+        prlist (fun b ->
+          let (rc, ids, body) = ctor_of b in
+          let cname = match rc with Some c -> go_export (global_basename c) | None -> "_" in
+          str tab ++ str "case " ++ str cname ++ str ":" ++ fnl () ++
+          pp_stmts (tab ^ "\t") env (mk_body (List.length ids) body)) brs ++
+        str tab ++ str "}" ++ fnl ()
     | [ b1; b2 ] ->
         let (r1, ids1, body1) = ctor_of b1 in
         let (r2, ids2, body2) = ctor_of b2 in
@@ -3473,6 +3493,20 @@ let pp_decl state decl =
            str " struct {" ++ fnl () ++
            prlist (fun x -> x) (List.map2 field projs ftypes) ++
            str "}" ++ fnl () ++ fnl ())
+       (* ENUM (nullary-ctor inductive) → [type T int] + an iota const block. *)
+       | _ when Array.length mi.ind_packets > 0
+             && is_enum_typename (Id.to_string mi.ind_packets.(0).ip_typename) ->
+           let pkt = mi.ind_packets.(0) in
+           let tn = go_export (Id.to_string pkt.ip_typename) in
+           let ctors = Array.to_list pkt.ip_consnames in
+           str "type " ++ str tn ++ str " int" ++ fnl () ++ fnl () ++
+           str "const (" ++ fnl () ++
+           (match ctors with
+            | [] -> mt ()
+            | c0 :: rest ->
+                str "\t" ++ str (go_export (Id.to_string c0)) ++ str " " ++ str tn ++ str " = iota" ++ fnl () ++
+                prlist (fun c -> str "\t" ++ str (go_export (Id.to_string c)) ++ fnl ()) rest) ++
+           str ")" ++ fnl () ++ fnl ()
        | _ -> mt ())
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
@@ -3545,6 +3579,24 @@ let collect_decls struc =
                      | Some g :: _ -> Hashtbl.replace defined_prim_proj (global_path g) vt
                      | _ -> ())
                 | None -> ())
+             end
+         (* ENUM: a non-record inductive whose constructors are ALL NULLARY (≥2 of them) →
+            Go [type T int] + iota consts.  Excludes [bool] (a builtin, handled specially);
+            nat/list/option are excluded automatically (they have non-nullary constructors). *)
+         | _ when Array.length mi.ind_packets = 1 ->
+             let pkt = mi.ind_packets.(0) in
+             let ncons = Array.length pkt.ip_consnames in
+             let all_nullary =
+               ncons >= 2 &&
+               Array.for_all (fun ts -> ts = []) pkt.ip_types in
+             let is_bool =
+               ncons >= 1 &&
+               (let c0 = pkt.ip_consnames.(0) in
+                let s = Id.to_string c0 in String.equal s "true" || String.equal s "false") in
+             if all_nullary && not is_bool then begin
+               Hashtbl.replace enum_typenames (Id.to_string pkt.ip_typename) () ;
+               Array.iter (fun c -> Hashtbl.replace enum_ctors (Id.to_string c) ())
+                 pkt.ip_consnames
              end
          | _ -> ())
     | _ -> ()) decls;

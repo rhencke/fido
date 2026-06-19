@@ -261,6 +261,17 @@ separate tracks.
    - `if`/`else` (match on `bool`) → `if c { … } else { … }` — the core case
    - `switch` (match on a simple inductive) → Go `switch`/if-chain on the
      constructor; also unblocks `option`, so `map_get_opt` can finally lower
+   - **CUSTOM ENUMS DONE (2026-06-19), the first real `switch` emission.** A nullary-
+     constructor user `Inductive` (≥2 ctors, all 0-arg; `bool` excluded as a builtin,
+     nat/list/option auto-excluded by their non-nullary ctors) → Go's iota-enum idiom:
+     `type Direction int` + a `const ( North Direction = iota; South; East; West )` block
+     (Dind arm), each constructor emits its const name (`MLcons` nullary arm), and an
+     N-arm match in STATEMENT position → a Go `switch d { case North: … }` (a new
+     `emit_case` arm, checked before the 2-arm shapes so a 2-value enum switches too).
+     `pp_type` accepts the enum typename; registered in `collect_decls` pass 1.
+     `enum_demo` (`dir_io East`) → `2`, golden-locked, axiom-free.  *Still pending:* the
+     VALUE-position enum match (`func (d Direction) String() string { switch … }`) — needs
+     a `pp_pure_tail` enum-switch arm (switch with `return`s); and a `default` arm.
    - **`nat` match (`O` / `S k`) → `if n == 0 { … } else { k := n - 1; … }` — DONE
      (2026-06-19), enabling USER RECURSION** (a Coq `Fixpoint` → a self-calling Go
      func).  The probe was the lesson: "recursion" was never the wall — a `Fixpoint`

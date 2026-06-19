@@ -2,6 +2,14 @@
 
 package main
 
+type Comparison int
+
+const (
+	Eq Comparison = iota
+	Lt
+	Gt
+)
+
 var Size uint = 63
 
 func I64_abs(a int64) int64 {
@@ -1568,6 +1576,32 @@ func Mutual_rec_demo() {
 	println(Is_odd(4))
 }
 
+type Direction int
+
+const (
+	North Direction = iota
+	South
+	East
+	West
+)
+
+func Dir_io(d Direction) {
+	switch d {
+	case North:
+		println(0)
+	case South:
+		println(1)
+	case East:
+		println(2)
+	case West:
+		println(3)
+	}
+}
+
+func Enum_demo() {
+	Dir_io(East)
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1723,4 +1757,5 @@ func main() {
 	Recursion_demo()
 	Pure_rec_demo()
 	Mutual_rec_demo()
+	Enum_demo()
 }
