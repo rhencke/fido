@@ -373,11 +373,15 @@ separate tracks.
    needs ≥2 fields (a 1-field record is unboxed).  Access is through the embedded field —
    `species (animal d)` → `(d.Animal).Species`, promoted method `speak (animal d)` →
    `(d.Animal).Speak()` (both valid/faithful; Rocq has no implicit subtyping, so the explicit
-   projection is how a well-typed term reaches the embedded member).  `embed_demo` → `canine /
-   canine`, golden-locked, axiom-free.  *Not yet:* the promoted SHORTHAND `d.Speak()`/`d.Name`
-   (a peephole on `member (embed_proj d)` → `d.Member`, cosmetic — same emitted semantics);
-   embedding a non-struct/pointer type; struct tags; the
-   single-field-struct distinctness (ladder 9c), the IDIOMATIC direct `p == q` (tidiness).
+   projection is how a well-typed term reaches the embedded member).  The PROMOTED SHORTHAND is
+   emitted too: a member access through an embedded field `member (animal d)` lowers to the
+   idiomatic `d.Species` / `d.Speak()` (a `peel_embedded` peephole strips the `.Animal` hop in
+   the projection + method-call arms) — which compiles ONLY because Go promotes through the
+   embedded field, so it genuinely exercises promotion.  Safe with no shadowing check: Coq
+   projection names are globally unique, so `d.Member` is unambiguous; non-embedded nested access
+   (`(o.W_inner).Iv`) is left explicit (the peephole is selective).  `embed_demo` → `canine /
+   canine`, golden-locked, axiom-free.  *Not yet:* embedding a non-struct/pointer type; struct
+   tags; the single-field-struct distinctness (ladder 9c), the IDIOMATIC direct `p == q` (tidiness).
 
    **b. Methods (value receiver)** — *done*. A top-level function whose FIRST
    visible parameter is a record (struct) is lowered as a Go value-receiver method:

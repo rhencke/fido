@@ -1445,8 +1445,8 @@ func Mk_dog(sp string, br string) Dog {
 }
 
 func Embed_demo() {
-	println(((Mk_dog("canine", "lab")).Animal).Species)
-	println(((Mk_dog("canine", "lab")).Animal).Speak())
+	println((Mk_dog("canine", "lab")).Species)
+	println((Mk_dog("canine", "lab")).Speak())
 }
 
 func main() {

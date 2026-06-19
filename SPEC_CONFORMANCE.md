@@ -209,10 +209,12 @@ access replaces them).  Struct INVARIANTS are provable in Rocq directly:
 **Embedding DONE (2026-06-19):** `type Dog struct { Animal; Breed string }` — a record field
 whose exported name equals its record type's name is emitted as an ANONYMOUS embedded field, so
 the Go struct genuinely embeds and Go promotes the embedded method set; access is through the
-embedded field (`species (animal d)` → `(d.Animal).Species`, promoted method `(d.Animal).Speak()`).
-The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo` → `canine / canine`.
-✗ not yet: the promoted SHORTHAND `d.Speak()` (cosmetic peephole), embedding non-struct/pointer
-types, struct tags.  Methods declared on the struct → next section.
+embedded field, emitted in the PROMOTED SHORTHAND `species (animal d)` → `d.Species` and promoted
+method `speak (animal d)` → `d.Speak()` (a `peel_embedded` peephole, which compiles only because Go
+promotes through the embedded field — genuinely exercising promotion; safe since Coq projection names
+are unique, so no shadowing).  The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo`
+→ `canine / canine`.  ✗ not yet: embedding non-struct/pointer types, struct tags.  Methods declared on
+the struct → next section.
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:

@@ -125,6 +125,7 @@ let deftype_under_of_ftypes ftypes =   (* Some <value field type> if [val_t; GoT
 let method_paths      : (string, unit) Hashtbl.t = Hashtbl.create 16    (* method proj path -> () *)
 let method_arity      : (string, int) Hashtbl.t  = Hashtbl.create 16    (* method path -> visible param count (incl. receiver) *)
 let method_recvtype   : (string, string) Hashtbl.t = Hashtbl.create 16  (* method path -> Go receiver type name (for method expressions T.M) *)
+let embedded_proj     : (string, unit) Hashtbl.t = Hashtbl.create 16    (* embedded-field projection path -> () (Go struct embedding) *)
 
 let globref_basename g =
   try Id.to_string (Nametab.basename_of_global g) with Not_found -> ""
@@ -134,6 +135,15 @@ let proj_field_name r = go_export (Hashtbl.find record_proj_field (global_path r
 let is_record_ctor r = Hashtbl.mem record_ctor_names (global_basename r)
 let is_record_typename s = Hashtbl.mem record_typenames s
 let is_method r = Hashtbl.mem method_paths (global_path r)
+let is_embedded_proj r = Hashtbl.mem embedded_proj (global_path r)
+(* Go EMBEDDING PROMOTION: a member access through an embedded field —
+   [member (embed_proj d)] — promotes to [d.member] (skip the [.Embedded] hop), which
+   is exactly the Go a programmer writes.  Peel the embedded projection off the receiver.
+   No shadowing risk: Coq projection names are globally unique, so [d.Member] is
+   unambiguous (the embedded type's member is the only one with that name). *)
+let peel_embedded = function
+  | MLapp (MLglob ep, [d]) when is_embedded_proj ep -> d
+  | e -> e
 let record_ctor_tyname r =
   match r.glob with
   | Names.GlobRef.ConstructRef (ind, _) ->
@@ -1440,7 +1450,7 @@ let rec pp_expr state env = function
                     prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
                     str ")")
        | MLglob r, (recv :: rest) when is_record_proj r ->
-           let fld = pp_atom state env recv ++ str "." ++ str (proj_field_name r) in
+           let fld = pp_atom state env (peel_embedded recv) ++ str "." ++ str (proj_field_name r) in
            (match rest with
             | [] -> fld
             | _  -> fld ++ str "(" ++
@@ -1559,7 +1569,7 @@ let rec pp_expr state env = function
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
-           let dot = pp_atom state env recv ++ str "." ++ str (go_export (global_basename r)) in
+           let dot = pp_atom state env (peel_embedded recv) ++ str "." ++ str (go_export (global_basename r)) in
            let applied = 1 + List.length rest in
            let arity = match Hashtbl.find_opt method_arity (global_path r) with
                        | Some a -> a | None -> applied in
@@ -3424,6 +3434,28 @@ let collect_decls struc =
                      | _ -> ())
                 | None -> ())
              end
+         | _ -> ())
+    | _ -> ()) decls;
+  (* pass 1b — embedded fields: a projection whose exported name equals its (record) field
+     type's name is a Go EMBEDDED (anonymous) field; record it so member access through it
+     PROMOTES.  Runs after pass 1 so the field type is already a registered record. *)
+  List.iter (function
+    | Dind mi ->
+        (match mi.ind_kind with
+         | Record projs when Array.length mi.ind_packets > 0
+             && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
+             let pkt = mi.ind_packets.(0) in
+             let ftypes = (try pkt.ip_types.(0) with _ -> []) in
+             (try
+                List.iter2 (fun proj t ->
+                  match proj, t with
+                  | Some g, Tglob (r, []) ->
+                      let bn = global_basename r in
+                      if String.equal (go_export (global_basename g)) (go_export bn)
+                         && is_record_typename bn then
+                        Hashtbl.replace embedded_proj (global_path g) ()
+                  | _ -> ()) projs ftypes
+              with Invalid_argument _ -> ())
          | _ -> ())
     | _ -> ()) decls;
   (* pass 2 — methods (first visible param is a record; projections excluded) *)
