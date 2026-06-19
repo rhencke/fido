@@ -616,6 +616,7 @@ let is_erased_record_typename s =
   || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || arr_n_of_name "GoArr" "" s <> None    (* GoArr<N>: fixed-size [N]T array, rendered [N]T, ops by name *)
+  || String.equal s "FConst"    (* untyped float constant: folds to a Go float literal, never a struct *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
@@ -1281,6 +1282,28 @@ let rec zu_eval e =
     | MLapp (h, [a; b]) when is_zop "lor"    h -> bin (fun x y -> Some (Int64.logor  x y)) a b
     | MLapp (h, [a; b]) when is_zop "lxor"   h -> bin (fun x y -> Some (Int64.logxor x y)) a b
     | _ -> None
+
+(* Fold a CONSTANT [FConst] expression ([mkFC num den] / [fc_add]/[fc_sub]/[fc_mul]) to its exact
+   rational as an int64 (num, den) pair — [None] if not a closed constant or an intermediate
+   overflows int64 (checked arithmetic).  Backs [f64_of_fconst]'s lowering. *)
+let rec fc_eval e =
+  match e with
+  | MLcons (_, r, [num; den]) when named "mkFC" r ->   (* the record CONSTRUCTOR is an MLcons *)
+      (match z_eval num, z_eval den with Some n, Some d -> Some (n, d) | _ -> None)
+  | MLapp (MLglob r, [a; b]) when named "fc_mul" r ->
+      (match fc_eval a, fc_eval b with
+       | Some (na, da), Some (nb, db) ->
+           (match chk_mul na nb, chk_mul da db with Some n, Some d -> Some (n, d) | _ -> None)
+       | _ -> None)
+  | MLapp (MLglob r, [a; b]) when named "fc_add" r || named "fc_sub" r ->
+      (match fc_eval a, fc_eval b with
+       | Some (na, da), Some (nb, db) ->
+           let cross = if named "fc_add" r then chk_add else chk_sub in
+           (match chk_mul na db, chk_mul nb da, chk_mul da db with
+            | Some x, Some y, Some d -> (match cross x y with Some n -> Some (n, d) | None -> None)
+            | _ -> None)
+       | _ -> None)
+  | _ -> None
 (* Source-[Z] sign: a [Z0]/[Zpos] is non-negative.  Used to tell a [uint64] literal
    in [2^63, 2^64) (a [Zpos] whose 64-bit pattern looks negative as a signed [Int64])
    apart from a genuine [int64] negative (a [Zneg]). *)
@@ -1649,6 +1672,18 @@ let rec pp_expr state env = function
        (* [f64_of_int i] / [f64_of_i64 a] — int / int64 → float64: Go's native cast. *)
        | MLglob r, [x] when is_int_to_f64_ref r ->
            str "float64(" ++ pp_expr state env x ++ str ")"
+       (* [f64_of_fconst c] — an untyped FLOAT CONSTANT: fold the exact rational [num/den] and emit
+          [(float64(num) / float64(den))], which Go RE-FOLDS at compile time to the correctly-
+          rounded constant (single rounding) — exactly the Go-constant answer.  Guarded to
+          [|num|,den < 2^53] so both endpoints are exact (else the lone division is not the only
+          rounding → fail loud rather than emit a double-rounded value). *)
+       | MLglob r, [fc] when named "f64_of_fconst" r ->
+           (match fc_eval fc with
+            | Some (num, den) when den <> 0L
+                && Int64.abs num < 9007199254740992L && Int64.abs den < 9007199254740992L ->
+                str (Printf.sprintf "(float64(%Ld) / float64(%Ld))" num den)
+            | Some _ -> unsupported "f64_of_fconst: endpoint exceeds 2^53 (faithful single-rounding needs |num|,den < 2^53) or den=0"
+            | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
        | MLglob r, [x] when is_f64_to_i64_ref r ->
            str "int64(" ++ pp_expr state env x ++ str ")"
@@ -3565,6 +3600,7 @@ let is_inlined_ref r =
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
     || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
+  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "f64_of_fconst"] ||  (* FConst machinery: folded by name *)
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)

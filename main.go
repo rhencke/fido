@@ -148,6 +148,10 @@ func Floatconv_demo() {
 	println(Widen64(Narrow32(7.5)))
 }
 
+func Fconst_demo() {
+	println((float64(30) / float64(100)), (float64(3) / float64(8)))
+}
+
 func F32_cmp_demo() {
 	println(F32_combine(1.5, 0.0, 2.0) < F32_combine(5.0, 0.0, 2.0), F32_combine(5.0, 0.0, 2.0) >= F32_combine(1.5, 0.0, 2.0), F32_combine(1.5, 0.0, 2.0) != F32_combine(5.0, 0.0, 2.0))
 }
@@ -1942,6 +1946,7 @@ func main() {
 	I64_to_narrow_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
+	Fconst_demo()
 	F32_cmp_demo()
 	I64_of_f64_demo()
 	U64conv_demo()

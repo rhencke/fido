@@ -740,8 +740,14 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
      `f64_of_fconst` rounds to `float64` exactly once (IEEE divide of the two integer endpoints,
      correctly-rounded while `|num|,den < 2^53`).  Machine-checked: `fconst_exact`
      (`(1/10)+(2/10) → 0.3`), `fconst_runtime` (runtime `0.1+0.2 ≠ 0.3`), `fconst_mul`
-     (`(3/2)·(1/4) = 0.375`).  *Lowering (a plugin FConst-fold → Go `float64(num)/float64(den)`,
-     which Go re-folds to the same constant) is the deferred follow-on.*
+     (`(3/2)·(1/4) = 0.375`).  **LOWERED (2026-06-19):** the plugin's `fc_eval` folds the FConst
+     expression to its `(num, den)` (checked int64, overflow + `≥2^53`-endpoint = fail-loud) and
+     emits `(float64(num) / float64(den))`, which Go RE-FOLDS at compile time to the same
+     correctly-rounded constant; `fconst_demo` → `(float64(30)/float64(100))`,
+     `(float64(3)/float64(8))` → `+3.000000e-001 +3.750000e-001` (0.3, 0.375), golden-locked.  So
+     untyped float constants are now done model + proof + lowering — the last real faithfulness gap
+     closed end-to-end.  (A decimal `Number Notation` so `0.1` parses straight to `1#10` is the
+     only polish left — currently the rational is written `mkFC 1 10`.)
 6. **Function-scoped `defer`** — *done*. `defer_call f` is Go's `defer`
    keyword — function-scoped, LIFO, runs at function return on both normal and
    panic exit; it lowers to `defer func(){ f }()` (Go provides the scoping,

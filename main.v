@@ -401,6 +401,11 @@ Example fconst_runtime : PrimFloat.eqb (PrimFloat.add 0.1 0.2) 0.3 = false.   (*
 Proof. vm_compute. reflexivity. Qed.
 Example fconst_mul     : PrimFloat.eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 0.375 = true.  (* 3/2·1/4 = 3/8 = 0.375 *)
 Proof. vm_compute. reflexivity. Qed.
+(** LOWERED: [f64_of_fconst] folds the exact rational and emits [(float64(num) / float64(den))],
+    which Go RE-FOLDS at compile time to the same correctly-rounded constant. *)
+Definition fconst_demo : IO unit :=
+  println [ any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
+          ; any (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) ].   (* (3/2)·(1/4) = 0.375 *)
 (** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
     Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
     is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)
@@ -2521,6 +2526,7 @@ Definition main_effect : IO unit :=
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
+  fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
@@ -2563,7 +2569,8 @@ Extraction NoInline
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
-  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb vec2_eqb.
+  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb vec2_eqb
+  fc_add fc_sub fc_mul f64_of_fconst.
 
 Print Assumptions main_effect.
 
