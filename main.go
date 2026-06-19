@@ -1535,6 +1535,18 @@ func Recursion_demo() {
 	Countdown(3, 3)
 }
 
+func Pow2(n uint) int64 {
+	if n == 0 {
+		return 1
+	} else {
+		k := n - 1
+		return 2 * Pow2(k)
+	}
+}
+func Pure_rec_demo() {
+	println(Pow2(4))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1688,4 +1700,5 @@ func main() {
 	Gstruct_demo()
 	Gmap_deftype_demo()
 	Recursion_demo()
+	Pure_rec_demo()
 }

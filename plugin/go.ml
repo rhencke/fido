@@ -3134,8 +3134,8 @@ let rec pp_pure_tail state tab env e =
         | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
         | Pwild | Prel _ | Ptuple _ -> (None, ids, body)
       in
-      let (r1, _, body1) = ctor_of branches.(0) in
-      let (r2, _, body2) = ctor_of branches.(1) in
+      let (r1, ids1, body1) = ctor_of branches.(0) in
+      let (r2, ids2, body2) = ctor_of branches.(1) in
       (match r1, r2 with
        | Some c1, Some c2
          when (is_bool_true c1 && is_bool_false c2)
@@ -3146,6 +3146,25 @@ let rec pp_pure_tail state tab env e =
            pp_pure_tail state (tab ^ "\t") env then_b ++
            str tab ++ str "} else {" ++ fnl () ++
            pp_pure_tail state (tab ^ "\t") env else_b ++
+           str tab ++ str "}" ++ fnl ()
+       (* nat in VALUE/tail position → [if n == 0 { return a } else { k := n - 1; return b }],
+          enabling PURE (value-returning) structural recursion (e.g. [Fixpoint pow2]).  Mirrors
+          the statement-position nat case; [k := n - 1] is reachable only when n != 0. *)
+       | Some c1, Some c2
+         when (is_nat_zero c1 && is_nat_succ c2)
+           || (is_nat_succ c1 && is_nat_zero c2) ->
+           let zero_body, succ_ids, succ_body =
+             if is_nat_zero c1 then body1, ids2, body2 else body2, ids1, body1 in
+           let pred_id = match succ_ids with [k] -> k | _ -> Dummy in
+           let n = pp_expr state env scrut in
+           let prefix =
+             if is_dummy pred_id then mt ()
+             else str (tab ^ "\t") ++ pp_mlident pred_id ++ str " := " ++ n ++ str " - 1" ++ fnl () in
+           str tab ++ str "if " ++ n ++ str " == 0 {" ++ fnl () ++
+           pp_pure_tail state (tab ^ "\t") env zero_body ++
+           str tab ++ str "} else {" ++ fnl () ++
+           prefix ++
+           pp_pure_tail state (tab ^ "\t") (List.rev succ_ids @ env) succ_body ++
            str tab ++ str "}" ++ fnl ()
        | _ -> return_fallback ())
   (* multiple return values: a pair body → [return a, b] (the two components; the pair

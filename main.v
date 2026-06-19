@@ -2090,6 +2090,16 @@ Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
   end.
 Definition recursion_demo : IO unit := countdown 3 (3)%i64.   (* 3 / 2 / 1 *)
 
+(** PURE (value-returning) recursion — the nat match in VALUE/tail position.  [pow2] returns
+    a [GoI64], so its body's nat match lowers through [pp_pure_tail] (now nat-aware): each arm
+    [return]s, and the recursive call [pow2 k] is the self-call [Pow2(k)] in an expression. *)
+Fixpoint pow2 (n : nat) : GoI64 :=
+  match n with
+  | O => (1)%i64
+  | S k => i64_mul (2)%i64 (pow2 k)
+  end.
+Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2248,6 +2258,7 @@ Definition main_effect : IO unit :=
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
+  pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

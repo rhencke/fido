@@ -272,9 +272,14 @@ separate tracks.
      `n != 0` so the `uint` subtraction never underflows).  `countdown (n : nat) (v : GoI64)`
      (nat fuel + a `GoI64` accumulator) → `func Countdown(n uint, v int64) { if n == 0 {} else
      { k := n - 1; println(v); Countdown(k, v-1) } }`, `recursion_demo` → `3 / 2 / 1`, golden-
-     locked, axiom-free.  *Still pending:* the VALUE-position `nat` match (pure recursion
-     returning a value, e.g. `Fixpoint pow2`) — needs the general value-position-match work
-     (the tail `pp_pure_tail` only models a 2-arm bool match).
+     locked, axiom-free.  **VALUE-position `nat` match DONE too (2026-06-19):** `pp_pure_tail`
+     is now nat-aware (the same mirror, in tail position — `if n == 0 { return a } else { k :=
+     n - 1; return b }`), so PURE value-returning recursion lowers: `Fixpoint pow2 (n : nat) :
+     GoI64` → `func Pow2(n uint) int64 { if n == 0 { return 1 } else { k := n - 1; return 2 *
+     Pow2(k) } }`, the self-call `Pow2(k)` in expression position; `pure_rec_demo` → `16`.  So
+     recursion is complete in BOTH IO (statement) and pure (value) positions.  *Still pending:*
+     a GENERAL value-position match on richer inductives / >2 arms (the nat & bool tail cases
+     are special-cased; an arbitrary value-position match still needs the IIFE/hoist work).
    - type switch (`switch v := x.(type)`) — *DONE (2026-06-18)*. `type_switch2` is a
      combinator dispatching on a `GoAny`'s runtime type, built on the existing
      `tag_coerce`/`GoTypeTag` machinery (*not* `MLcase`) — so it is **axiom-free** (the
