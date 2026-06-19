@@ -1551,12 +1551,20 @@ func Ceq_i64(a int64, b int64) bool {
 	return Ceqb(a, b)
 }
 
+func Ceq_u64(a uint64, b uint64) bool {
+	return Ceqb(a, b)
+}
+
 func Ceq_str(a string, b string) bool {
 	return Ceqb(a, b)
 }
 
+func (a Point) Ceq_point(b Point) bool {
+	return Ceqb(a, b)
+}
+
 func Comparable_demo() {
-	println(Ceq_i64(5, 5), Ceq_i64(5, 6), Ceq_str("go", "go"))
+	println(Ceq_i64(5, 5), Ceq_u64(9, 9), Ceq_str("go", "hi"), Point{Px: 1, Py: 2}.Ceq_point(Point{Px: 1, Py: 2}))
 }
 
 type Box[T1 any] struct {

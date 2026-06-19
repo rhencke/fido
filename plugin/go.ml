@@ -396,9 +396,14 @@ let is_comparablew_type = function
   | Tglob (r, _) -> String.equal (global_basename r) "ComparableW"
   | _ -> false
 let is_cw_eqb_ref r = String.equal (global_basename r) "cw_eqb"
-let is_comparable_witness_inst r = List.mem (global_basename r) ["cw_i64"; "cw_str"]
-(* fn global-path -> the visible param indices that are [ComparableW] witnesses (to DROP). *)
+(* Comparable-constraint registries (populated by [collect_decls]): [comparable_witness] maps a
+   function's global-path to the visible param indices that are [ComparableW] witnesses (DROPPED
+   at decl + call sites); [comparable_inst] holds every witness INSTANCE value (a def of type
+   [ComparableW K]), which is suppressed since it only ever appears as a dropped argument.  Both
+   are GENERAL — a new instance ([cw_u64], [cw_point], …) needs no plugin edit. *)
 let comparable_witness : (string, int list) Hashtbl.t = Hashtbl.create 16
+let comparable_inst    : (string, unit)     Hashtbl.t = Hashtbl.create 16
+let is_comparable_witness_inst r = Hashtbl.mem comparable_inst (global_path r)
 let is_slice_make_ref = named "slice_make"
 (* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
    (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting
@@ -3791,7 +3796,10 @@ let collect_decls struc =
   (* pass 3 — comparable-constraint functions: record which visible param indices are
      [ComparableW] equality witnesses, so they are DROPPED at the decl and at every call site. *)
   let register_comparable r typ =
-    let param_types, _ = collect_tarrs typ in
+    let param_types, ret = collect_tarrs typ in
+    (* a value (no params) of type [ComparableW K] is a witness INSTANCE → suppress its decl *)
+    if param_types = [] && is_comparablew_type ret then
+      Hashtbl.replace comparable_inst (global_path r) () ;
     let idxs =
       List.mapi (fun i t -> (i, t)) param_types
       |> List.filter (fun (_, t) -> is_comparablew_type t)

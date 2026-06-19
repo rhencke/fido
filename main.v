@@ -2163,16 +2163,27 @@ Definition generics_demo : IO unit :=
     computational in Rocq (so the witnesses below reduce) but ERASED by the plugin — [ceqb] lowers
     to [func Ceqb[K comparable](a, b K) bool { return a == b }], and each call drops the witness.
     Instantiated at [int64] AND [string] (one generic, two comparable types). *)
-Definition ceq_i64 (a b : GoI64)    : bool := ceqb cw_i64 a b.
-Definition ceq_str (a b : GoString) : bool := ceqb cw_str a b.
-Example ceq_i64_t : ceq_i64 (5)%i64 (5)%i64        = true.  Proof. now vm_compute. Qed.
-Example ceq_i64_f : ceq_i64 (5)%i64 (6)%i64        = false. Proof. now vm_compute. Qed.
-Example ceq_str_t : ceq_str "go"%string "go"%string = true. Proof. now vm_compute. Qed.
-Example ceq_str_f : ceq_str "go"%string "hi"%string = false. Proof. now vm_compute. Qed.
+(** ONE generic [ceqb] over EVERY Go-comparable type kind — scalar ([int64], [uint64]), [string],
+    and STRUCT (field-wise [==]).  Each carries its own [ComparableW] witness (computational in
+    Rocq, erased by the plugin); all lower to the same [func Ceqb[K comparable]] with native [==].
+    The witness instances ([cw_i64]/[cw_u64]/[cw_str]/[cw_point]) are auto-suppressed (any
+    [ComparableW]-typed def). *)
+Definition ceq_i64   (a b : GoI64)   : bool := ceqb cw_i64   a b.
+Definition ceq_u64   (a b : GoU64)   : bool := ceqb cw_u64   a b.
+Definition ceq_str   (a b : GoString): bool := ceqb cw_str   a b.
+Definition cw_point  : ComparableW Point := MkComparableW point_eqb.  (* struct comparable via field-wise [==] *)
+Definition ceq_point (a b : Point)   : bool := ceqb cw_point a b.
+Example ceq_i64_t   : ceq_i64 (5)%i64 (5)%i64         = true.  Proof. now vm_compute. Qed.
+Example ceq_i64_f   : ceq_i64 (5)%i64 (6)%i64         = false. Proof. now vm_compute. Qed.
+Example ceq_str_t   : ceq_str "go"%string "go"%string = true.  Proof. now vm_compute. Qed.
+Example ceq_u64_t   : ceq_u64 (9)%u64 (9)%u64         = true.  Proof. now vm_compute. Qed.
+Example ceq_point_t : ceq_point (MkPoint (1)%i64 (2)%i64) (MkPoint (1)%i64 (2)%i64) = true.  Proof. now vm_compute. Qed.
+Example ceq_point_f : ceq_point (MkPoint (1)%i64 (2)%i64) (MkPoint (1)%i64 (9)%i64) = false. Proof. now vm_compute. Qed.
 Definition comparable_demo : IO unit :=
-  println [ any (ceq_i64 (5)%i64 (5)%i64)              (* int64: 5 == 5 → true  *)
-          ; any (ceq_i64 (5)%i64 (6)%i64)              (* int64: 5 == 6 → false *)
-          ; any (ceq_str "go"%string "go"%string) ].   (* string: "go" == "go" → true *)
+  println [ any (ceq_i64   (5)%i64 (5)%i64)                                          (* int64  → true  *)
+          ; any (ceq_u64   (9)%u64 (9)%u64)                                          (* uint64 → true  *)
+          ; any (ceq_str   "go"%string "hi"%string)                                  (* string → false *)
+          ; any (ceq_point (MkPoint (1)%i64 (2)%i64) (MkPoint (1)%i64 (2)%i64)) ].    (* struct → true  *)
 
 (** GENERIC STRUCTS / TYPES (Go's [type Box[T any] struct {…}]).  A PARAMETERIZED Rocq
     [Record] maps to a Go generic struct: the type variables in the field types become the
@@ -2434,7 +2445,7 @@ Definition main_effect : IO unit :=
   deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
   embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
-  comparable_demo               >>'   (* prints: true false true (generic [K comparable] → native ==) *)
+  comparable_demo               >>'   (* prints: true true false true (generic [K comparable]: int64/uint64/string/struct → native ==) *)
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
@@ -2487,7 +2498,7 @@ Extraction NoInline
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
-  ceqb ceq_i64 ceq_str.
+  ceqb ceq_i64 ceq_u64 ceq_str ceq_point.
 
 Print Assumptions main_effect.
 

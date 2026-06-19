@@ -2912,6 +2912,7 @@ Arguments MkComparableW {K} _.
 Arguments cw_eqb {K} _.
 Definition ceqb {K} (w : ComparableW K) (a b : K) : bool := cw_eqb w a b.
 Definition cw_i64 : ComparableW GoI64    := MkComparableW i64_eqb.
+Definition cw_u64 : ComparableW GoU64    := MkComparableW u64_eqb.
 Definition cw_str : ComparableW GoString := MkComparableW str_eqb.
 
 Fixpoint str_ltb (a b : GoString) : bool :=

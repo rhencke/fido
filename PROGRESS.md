@@ -627,9 +627,14 @@ essentially complete**.  Verified present + extracting:
    `comparable_witness` drop arm), the type var is emitted `[K comparable]` (not `any`), and
    `cw_eqb w a b` lowers to native `a == b`.  Result: `func Ceqb[T1 comparable](a, b T1) bool {
    return a == b }`, instantiated at `int64` AND `string` (`Ceq_i64`/`Ceq_str` drop the witness,
-   Go infers K); `comparable_demo` → `true false true`, golden-locked, axiom-free, no witness
-   struct leaks.  *(Interface-typed constraints — a generic over `K` bounded by a method set —
-   would reuse the same erasure with the dictionary record in place of `ComparableW`; not yet.)*
+   Go infers K); golden-locked, axiom-free, no witness struct leaks.  **Generalised (2026-06-19):**
+   the witness-instance suppression is now a `collect_decls` registry (any `ComparableW`-typed def
+   is auto-suppressed — no per-instance plugin edit), and `ceqb` is exercised over EVERY Go
+   comparable kind — `int64`, `uint64`, `string`, and a STRUCT (`Point`, field-wise `==`) — all
+   lowering to the one `Ceqb[K comparable]`; `comparable_demo` → `true true false true`.
+   *(Interface-typed constraints — a generic over `K` bounded by a method set — would reuse the
+   same erasure with the dictionary record in place of `ComparableW`; the open subtlety is name
+   alignment between the dict field, the emitted `interface` method, and the concrete method.)*
 2. *Untyped constants* (Go's arbitrary-precision, default-typed literal system) — foundational.
 3. *Enum `==` / enums as map keys* — idiomatic `==` needs plugin recognition (enums are Rocq
    inductives, no int projection); a nested-match `eqb` is faithful but non-idiomatic.
