@@ -1255,7 +1255,23 @@ resting state.)**
     machine-checked: `f32_geb` is the SWAPPED `leb` so `x >= NaN` is FALSE (`f32_geb_nan`),
     matching Go — `¬(x < NaN)` would wrongly be true; `f32_cmp_demo` → `true true true`,
     golden-locked, axiom-free (the `PrimFloat` compares were already in the trust base).  *Still
-    open:* float32 literals beyond the demo; and `abs`/`sqrt` are
+    open:* float32 literals beyond the demo.
+
+    **int64 → narrow TRUNCATION DONE (2026-06-19):** `u8_of_i64`/`i8_of_i64`/`u16`/`i16`/`u32`/
+    `i32_of_i64` → the SAME native mask / sign-extend the `uN_of_int` narrows already emit
+    (`(x & 0xFF)` for `uN`; `((x & 0xFF) ^ 0x80) - 0x80` for `iN`), because `GoI64` and the narrow
+    types share the int64 carrier — so the lowering arm is literally the existing `of_int` arm
+    plus an `of_i64` alias (`parse_fixed_width` op-list + one `||` at the lowering site; the decl
+    is auto-suppressed by `fixed_width_op`).  The model crosses `GoI64`'s `Z` carrier into the
+    int63 carrier via `Uint63.of_Z` then masks — faithful for `W < 63` since `2^W | 2^63`, so the
+    low `W` bits agree — and the `of_Z`-match body never reaches the emitted Go (the op stays a
+    NAMED call the recognizer fires on; `of_Z` is already module-suppressed).  **The feared
+    carrier-crossing wall was false** (same lesson as float32): no force-inline, no `to_Z`/`of_Z`
+    leak, no carrier-in-Z refactor needed.  Machine-checked `i64_to_u8_trunc`/`i64_to_i8_signed`/
+    `i64_to_u8_neg` (`uint8(-1)=255`) / `i64_to_i32_wide`; `i64_to_narrow_demo` →
+    `52 -56 4464 705032704`, golden-locked, axiom-free.  *Still open:* narrow ↔ uint64.
+
+    Note: `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real

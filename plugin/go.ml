@@ -727,7 +727,7 @@ let parse_fixed_width n =
       (* only the KNOWN fixed-width ops — else [u8_demo] etc. would falsely match *)
       if not (List.mem op ["lit"; "add"; "sub"; "mul"; "eqb"; "ltb"; "leb"; "norm";
                            "gtb"; "geb"; "neqb";
-                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int";
+                           "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"; "of_int"; "of_i64";
                            "div"; "mod"])
       then None
       else match int_of_string_opt (String.sub n 1 (!i - 1)) with
@@ -1527,7 +1527,7 @@ let rec pp_expr state env = function
        (* [uN_lit x] (a typed constant) and [uN_of_int x] (a narrowing conversion)
           both truncate an [int] to the width — [fw_wrap] (mask, + sign-extend for
           intN), exactly Go's [uint8(x)] / [int8(x)]. *)
-       | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" ->
+       | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" || fw_is r "of_i64" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
            fw_wrap s w (pp_atom state env x)
        (* [int_of_FW x] — widen to [int]: identity (carrier already int64). *)

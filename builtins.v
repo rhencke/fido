@@ -1230,6 +1230,23 @@ Definition f64_of_i64 (a : GoI64) : float :=
   then PrimFloat.of_uint63 (Uint63.of_Z (i64raw a))
   else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (i64raw a)))).
 
+(** int64 → narrow (Go [uint8(x)] / [int8(x)] / … / [int32(x)]): TRUNCATE to the low W bits.
+    A [GoU8]/[GoI8]/… erases to the same int64 carrier as a [GoI64], so the conversion is
+    EXACTLY the narrow-from-int truncation ([fw_wrap]: mask to W bits, sign-extend for [iN]) —
+    lowered to Go's native [(x & 0xFF)] / sign-extended form, identical to [uN_of_int].  The
+    model crosses the [Z] carrier of [GoI64] into the int63 carrier via [Uint63.of_Z], then
+    masks: since [2^W | 2^63] the low W bits of [(i64raw a) mod 2^63] ARE [(i64raw a) mod 2^W]
+    (faithful for W < 63).  The [of_Z]-match body never reaches the emitted Go — the op is
+    recognized by name (`fw_is r "of_i64"`) and its decl suppressed (`fixed_width_op`), exactly
+    as the [of_int] narrows are.  Mirrors each [uN_of_int]/[iN_of_int] structure so it stays a
+    NAMED call the recognizer fires on (not force-inlined). *)
+Definition u8_of_i64  (a : GoI64) : GoU8  := MkU8  (PrimInt63.land (Uint63.of_Z (i64raw a)) 255).
+Definition i8_of_i64  (a : GoI64) : GoI8  := MkI8  (i8_norm  (Uint63.of_Z (i64raw a))).
+Definition u16_of_i64 (a : GoI64) : GoU16 := MkU16 (PrimInt63.land (Uint63.of_Z (i64raw a)) 65535).
+Definition i16_of_i64 (a : GoI64) : GoI16 := MkI16 (i16_norm (Uint63.of_Z (i64raw a))).
+Definition u32_of_i64 (a : GoI64) : GoU32 := MkU32 (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
+Definition i32_of_i64 (a : GoI64) : GoI32 := MkI32 (i32_norm (Uint63.of_Z (i64raw a))).
+
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for
     |i| < 2^53, rounds beyond — exactly Go's rule).  [PrimFloat.of_uint63] converts the
     unsigned MAGNITUDE; the sign-split handles negatives ([0 - i] is the two's-complement

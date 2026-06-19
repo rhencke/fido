@@ -338,6 +338,25 @@ Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (-5)%sint63))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
+(** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
+    sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
+    since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful
+    (widened back via [i64_of_uN]/[i64_of_iN] so the [Z] is inspectable): unsigned drops the
+    high bits, signed sign-extends the low byte, and a NEGATIVE input truncates by its
+    two's-complement low byte ([uint8(-1) = 255]). *)
+Example i64_to_u8_trunc  : i64raw (i64_of_u8  (u8_of_i64  (i64_lit 4660 eq_refl)))       = 52%Z.        (* uint8(4660) *)
+Proof. vm_compute. reflexivity. Qed.
+Example i64_to_i8_signed : i64raw (i64_of_i8  (i8_of_i64  (i64_lit 200 eq_refl)))        = (-56)%Z.     (* int8(200) wraps negative *)
+Proof. vm_compute. reflexivity. Qed.
+Example i64_to_u8_neg    : i64raw (i64_of_u8  (u8_of_i64  (i64_lit (-1) eq_refl)))       = 255%Z.       (* uint8(-1): low byte of 2's-complement *)
+Proof. vm_compute. reflexivity. Qed.
+Example i64_to_i32_wide  : i64raw (i64_of_i32 (i32_of_i64 (i64_lit 5000000000 eq_refl))) = 705032704%Z. (* int32(5e9) *)
+Proof. vm_compute. reflexivity. Qed.
+Definition i64_to_narrow_demo : IO unit :=
+  println [ any (u8_of_i64  (i64_lit 4660 eq_refl))         (* uint8(4660)   = 52   *)
+          ; any (i8_of_i64  (i64_lit 200 eq_refl))          (* int8(200)     = -56  *)
+          ; any (u16_of_i64 (i64_lit 70000 eq_refl))        (* uint16(70000) = 4464 *)
+          ; any (i32_of_i64 (i64_lit 5000000000 eq_refl)) ]. (* int32(5e9)    = 705032704 *)
 
 (** float32 ↔ float64 conversions LOWERED.  Widening [f64_of_f32] → [float64(x)] (exact);
     narrowing [f32_of_f64] → [float32(x)] (rounds to binary32).  Machine-checked that the
@@ -2365,6 +2384,7 @@ Definition main_effect : IO unit :=
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
+  i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
