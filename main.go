@@ -343,6 +343,20 @@ func Map_demo() {
 	println(sz, hit, mis)
 }
 
+func Map_put(m map[int64]int64) {
+	m[7] = 77
+}
+
+func Map_alias_demo() {
+	m := make(map[int64]int64)
+	Map_put(m)
+	v := int64(0)
+	if _v, _ok := m[7]; _ok {
+		v = _v
+	}
+	println(v)
+}
+
 func Slice_demo() {
 	xs := []int64{1, 2, 3, 4, 5}
 	n := len(xs)
@@ -1767,6 +1781,7 @@ func main() {
 	Prec_demo()
 	Neglit_demo()
 	Map_demo()
+	Map_alias_demo()
 	Slice_demo()
 	Chan_demo()
 	Select_demo()

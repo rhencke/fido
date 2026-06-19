@@ -901,6 +901,19 @@ Definition map_demo : IO unit :=
   bind (@map_get_or GoI64 GoI64 TI64 TI64 (9)%i64 (0)%i64 m) (fun mis =>  (* key absent  → 0   *)
   println [any sz; any hit; any mis])))))))).             (* prints: 3 999 0 *)
 
+(** MAP REFERENCE SEMANTICS (aliasing): a [GoMap] passed to a function and mutated THERE is
+    observed by the caller — Go maps are reference types (the heap model threads the write
+    through the [World], so a callee's [map_set] persists).  [map_put] writes [m[7]=77]; the
+    caller then reads [77].  A struct param would instead copy.  This exhibits at the FUNCTION
+    BOUNDARY what [map_get_set_same] (builtins.v) proves about the heap; parallels
+    [slice_alias_demo] / [ptr_alias_demo]. *)
+Definition map_put (m : GoMap GoI64 GoI64) : IO unit := map_set TI64 TI64 (7)%i64 (77)%i64 m.
+Definition map_alias_demo : IO unit :=
+  bind (map_make_typed TI64 TI64) (fun m =>
+  bind (map_put m) (fun _ =>                                              (* mutate via a function call *)
+  bind (@map_get_or GoI64 GoI64 TI64 TI64 (7)%i64 (0)%i64 m) (fun v =>    (* caller observes the write *)
+  println [any v]))).                                                     (* 77 *)
+
 Definition slice_demo : IO unit :=
   let xs := slice_of_list TI64 [(1)%i64; (2)%i64; (3)%i64; (4)%i64; (5)%i64] in
   let n  := len xs in
@@ -2334,6 +2347,7 @@ Definition main_effect : IO unit :=
   prec_demo                     >>'   (* prints: 10 20 *)
   neglit_demo                   >>'   (* prints: -7 -1 -2147483648 *)
   map_demo                      >>'   (* prints: 3 999 0 *)
+  map_alias_demo                >>'   (* prints: 77 (map reference semantics: callee's write seen by caller) *)
   slice_demo                    >>'   (* prints: 5 3 / false *)
   chan_demo                     >>'   (* prints: 42 true / 0 false *)
   select_demo                   >>'   (* prints: 42 (ch1 ready) *)
@@ -2498,7 +2512,7 @@ Extraction NoInline
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
-  ceqb ceq_i64 ceq_u64 ceq_str ceq_point.
+  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put.
 
 Print Assumptions main_effect.
 

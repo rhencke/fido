@@ -1135,10 +1135,15 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    *Remaining:* the heap interface is still AXIOMATIC (its consistency relies on a
    concrete heap model that is not yet exhibited — ties to #2); extend to slices;
    and `ref_new`/`map_make` allocation semantics (fresh location) are not modelled.
-   (a) *aliasing — still open.*  Maps/slices are Go reference types; the model is
-   correct only for single-goroutine, non-aliasing use; sub-slicing (`s[a:b]`
-   shares the backing array), in-place append, and aliased/concurrent access are
-   unmodelled (ties to Tier 1's concurrency model).
+   (a) *aliasing — SINGLE-GOROUTINE aliasing now DONE (note was stale; reconciled 2026-06-19).*
+   Reference-type sharing is modelled on the concrete heap and PROVEN + EXHIBITED: sub-slicing
+   (`s[a:b]` shares the backing array) — `subslice_alias` THEOREM + `slice_alias_demo`
+   (`s[1:3][0]=99` seen through `s[1]`); in-place append aliases / realloc-on-full —
+   `slice_append_incap_aliases` THEOREM + `append_demo`; pointer aliasing — `ptr_alias` THEOREM +
+   `ptr_alias_demo`; and MAP reference semantics across a function boundary —
+   `map_alias_demo` (a callee's `m[7]=77` observed by the caller; rests on `map_get_set_same`).
+   *Still open:* CONCURRENT aliased access (cross-goroutine visibility of a shared map/slice
+   write) — that is the happens-before GUARANTEE (Tier 1 concurrency), not a construct gap.
 9. **Operator coverage — *boolean + float comparison now done; `>`/`>=`/`!=`
    still via encoding*.**  Integer `==`/`<`/`<=` for `int` go through the SIGNED
    primitives `eqb`/`ltsb`/`lesb` (→ Go signed `==`/`<`/`<=`); the user-facing
