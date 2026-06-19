@@ -2136,7 +2136,17 @@ let pp_io_body ?(ret_val=false) state tab env body =
              str tab ++ lhs ++ emit_m ++ fnl () ++
              (if is_terminating m then mt ()
               else pp_stmts tab new_env body)))
-         | MLglob r, [_] when is_ret_ref r -> mt ()
+         | MLglob r, [v] when is_ret_ref r ->
+             (* TAIL [ret v].  The [ret] case is only reached at a tail (an intermediate
+                [ret] is the action of a [bind], emitted via [emit_m]); and a tail's [ret]
+                argument is [tt] (unit) IFF the enclosing scope is void.  So [ret tt] → no
+                statement (the function/goroutine is void), and [ret <non-unit>] → [return v]
+                (a value-returning IO function's tail) — NO ret-mode threading needed, since
+                the value distinguishes the two.  (Bare value-OP tails, not wrapped in [ret],
+                are handled by pp_io_body's top-level [ret_tail].) *)
+             (match strip_magic v with
+              | MLcons (_, r2, []) when is_unit_tt r2 -> mt ()
+              | v' -> str tab ++ str "return " ++ pp_expr state env v' ++ fnl ())
          (* for_each in tail position (not inside a bind) *)
          | MLglob r, [xs; bodyfn] when is_for_each_ref r ->
              emit_for_each tab env xs bodyfn

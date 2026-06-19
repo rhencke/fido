@@ -499,10 +499,17 @@ separate tracks.
    `pp_function`'s IO arm passes `~ret_val` (true iff the inner type ≠ unit) and `pp_io_body`
    `return`s the COMMON single-expression tail — `ret v` → `return v`, a clean value-read
    (`map_len`/`len`/`cap`) → `return <expr>`.  Zero-regression: only fires for value-returning IO
-   functions (which were broken before); void IO funcs (`Describe()`) stay void-bodied.  *Still
-   pending:* bind-chain / control-flow value tails (`bind a (λx. … ret v)`) — would need a `ret_val`
-   thread through `pp_stmts`'s ~40 recursive sites (with false in goroutine/defer bodies); they
-   currently fall through to the void emission (loud-broken, not silent-wrong).
+   functions (which were broken before); void IO funcs (`Describe()`) stay void-bodied.
+   **BIND-CHAIN tail DONE (2026-06-19), no threading needed:** the key insight — the `pp_stmts`
+   `ret` case is only ever reached at a TAIL (an intermediate `ret` is the action of a `bind`,
+   emitted via `emit_m`), and a tail's `ret` argument is `tt` (unit) IFF the enclosing scope is
+   void.  So `ret tt` → no statement (void func/goroutine), `ret <non-unit>` → `return v` (a
+   value-returning IO function's tail) — the VALUE distinguishes the two, so no `ret_val` thread
+   through the ~50 sites is required.  `co_sum` (two `map_get_or` comma-ok reads then
+   `ret (i64_add a b)`) → `…; return a + b`; `gmap_deftype_demo` → `2 / 3`, golden-locked, void
+   funcs unchanged.  *Still pending:* a bare value-OP tail INSIDE a bind chain (not wrapped in
+   `ret`, e.g. `bind a (λ_. map_len m)` — rare; only the whole-body single-op tail is caught), and
+   value returns through the run_blocks/goto structurer (exotic; bare `return`, loud-broken).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

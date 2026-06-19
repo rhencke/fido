@@ -1501,12 +1501,26 @@ func (c Counts) Co_size() int {
 	return len(map[string]int64(c))
 }
 
+func (c Counts) Co_sum() int64 {
+	a := int64(0)
+	if _v, _ok := map[string]int64(c)["a"]; _ok {
+		a = _v
+	}
+	b := int64(0)
+	if _v, _ok := map[string]int64(c)["b"]; _ok {
+		b = _v
+	}
+	return a + b
+}
+
 func Gmap_deftype_demo() {
 	m := make(map[string]int64)
 	m["a"] = 1
 	m["b"] = 2
 	n := (Mk_counts(m)).Co_size()
 	println(n)
+	s := (Mk_counts(m)).Co_sum()
+	println(s)
 }
 
 func main() {

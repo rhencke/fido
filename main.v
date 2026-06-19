@@ -2063,13 +2063,20 @@ Definition gstruct_demo : IO unit :=
     a value-returning IO tail (here the single read [map_len (co_val c)] → [return len(…)]). *)
 Record Counts := MkCounts { co_val : GoMap GoString GoI64 ; co_tag : GoTypeTag (GoMap GoString GoI64) }.
 Definition mk_counts (m : GoMap GoString GoI64) : Counts := MkCounts m (TMap TString TI64).
-Definition co_size (c : Counts) : IO GoInt := map_len (co_val c).   (* IO-value method → return len(…) *)
+Definition co_size (c : Counts) : IO GoInt := map_len (co_val c).   (* IO-value method, single tail → return len(…) *)
+(* IO-value method whose tail is a BIND-CHAIN ending in [ret] — exercises the smarter ret case *)
+Definition co_sum (c : Counts) : IO GoI64 :=
+  bind (map_get_or TString TI64 "a"%string (0)%i64 (co_val c)) (fun a =>
+  bind (map_get_or TString TI64 "b"%string (0)%i64 (co_val c)) (fun b =>
+  ret (i64_add a b))).
 Definition gmap_deftype_demo : IO unit :=
   bind (map_make_typed TString TI64)              (fun m =>
   bind (map_set TString TI64 "a"%string (1)%i64 m) (fun _ =>
   bind (map_set TString TI64 "b"%string (2)%i64 m) (fun _ =>
   bind (co_size (mk_counts m))                    (fun n =>   (* method call → (Mk_counts(m)).Co_size() *)
-  println [any n])))).   (* 2 keys *)
+  bind (println [any n])                          (fun _ =>   (* 2 (size) *)
+  bind (co_sum (mk_counts m))                     (fun s =>   (* bind-chain IO-value method *)
+  println [any s])))))).   (* 3 (a+b) *)
 
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
