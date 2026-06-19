@@ -207,7 +207,7 @@ access replaces them).  Struct INVARIANTS are provable in Rocq directly:
 (`==` field-wise) awaits the same operator work as other composite equality.
 Methods declared on the struct → next section.
 
-### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value receiver; ✗ pointer receiver
+### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:
 `func (r T) M(params) results { … }`; the call is `recv.M(args)`.  A Rocq top-level
 function whose FIRST visible parameter is a record (struct) type is lowered as a
@@ -219,9 +219,14 @@ inlined refs are excluded from method detection.  Pure and IO-returning methods 
 work.  Method behaviour is provable in Rocq (`shifted_px`: `px (shifted p d) =
 add (px p) d`).  Witnesses: `method_demo` (`func (p Point) Sum_coords() int64` /
 `Shifted(dx int64) Point`, calls `p.Sum_coords()` / `p.Shifted(10)` → `7/13/14/27`),
-`io_method_demo` (`func (p Point) Describe()` → `8/9`).  ✗ not yet: pointer receivers
-(`func (r *T) M()` — needs the pointer/aliasing model, Tier 3 #8a), method values/
-expressions (`recv.M`, `T.M` as first-class), and `Module`-namespaced method names.
+`io_method_demo` (`func (p Point) Describe()` → `8/9`).  **POINTER receivers DONE** (on the
+struct-pointer substrate): a first param of type `SPtr R` (a `*R`) → `func (r *T) M()` that
+MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Cell_incx()`;
+`cell3_inc_z` on a 3-field `*Cell3`; `pair_bump` on a HETEROGENEOUS `*Pair{ N int64; B bool }`).
+**Method VALUES** (`p.M` as a closure → `method_value_demo` passes `p.Shifted` to a HOF) and
+**method EXPRESSIONS** (`T.M` unbound → `method_expr_demo` passes `Point.Sum_coords`) are DONE
+too.  ✗ not yet: pointer-receiver method expressions `(*T).M`, methods on defined types over
+primitives (`type MyInt int`), and `Module`-namespaced method names (two types sharing a basename).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

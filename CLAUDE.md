@@ -1098,9 +1098,30 @@ resting state.)**
     REJECTED unsigned `Uint63.ltb`, Tier 3 #9) fights clean extraction-suppression — so
     kept proof-only (not reachable from `main_effect`, not extracted), like `f64_of_i64`.
     A runtime form needs an int63→`Z` that drags no match-bodied stdlib decls (or a
-    narrow-stored-in-`Z` model).  *Still ✗:* int↔float / float↔float (float gaps, no
-    f32); `string`↔`[]byte`/`[]rune` (rune view); narrow → `uint64` and `int64`→narrow
-    (same carrier-bridge issue); interface conversions beyond `type_assert`.
+    narrow-stored-in-`Z` model).  **int↔float: int→`float64` DONE both ways** (`f64_of_int`/
+    `f64_of_i64` → native `float64(x)`, 2026-06-19) — they return `float` (a PRIMITIVE), so
+    recognize-and-suppress works.  **`float64`→`int64` truncation: MODELED + machine-checked,
+    lowering deferred** (`i64_of_f64` via verified `Prim2SF`, 2026-06-19).  `string`↔`[]byte`/
+    `[]rune` DONE (rune view).  *Still ✗:* `float↔float` / `float32` (no native f32); narrow →
+    `uint64` and `int64`→narrow; interface conversions beyond `type_assert`.
+
+    **THE RECORD-RESULT FUSION BLOCKER (shared, highest-leverage unblock — 2026-06-19).** Two
+    proven-but-unextracted conversions — the narrow→`int64` widening (`i64_of_u8`…) and the
+    `float64`→`int64` truncation (`i64_of_f64`) — fail to LOWER for ONE reason: they return
+    `GoI64`, a SINGLE-FIELD record, which Coq UNBOXES.  After unboxing, `MkI64 (<Z computation>)`
+    is either a bare renaming (the widening ≡ `Sint63.to_Z`, eliminated regardless of `NoInline`)
+    or a match-of-match that Coq's CASE-OF-CASE FUSION inlines into VALUE position — so the
+    function never stays a NAMED call the plugin can recognize → cast.  (The int→float casts lower
+    precisely because they return `float`, a primitive, NOT a record.)  *The unblock:* make
+    `GoI64`/`GoU64` NOT unbox by giving each a SECOND (kept) field — `Record GoI64 := MkI64c
+    { i64raw : Z ; i64ph : unit }` + `Notation MkI64 z := (MkI64c z tt)` (the notation keeps all
+    ~31 `MkI64` construction sites unchanged, and no code pattern-matches `MkI64`).  Then `MkI64c
+    (…) tt` is a 2-arg ctor application (non-renaming, non-fusing) → the conversion stays named →
+    recognized → cast.  Plugin work (mapped): teach `is_numint_ctor`/the ctor-erasure arm + the
+    `Z`-literal arms to handle the 2-arg `MkI64c`/`MkU64c` (drop the `tt`), keeping the narrow
+    1-field ctors as-is.  Proofs should survive (the notation is transparent; `vm_compute`
+    handles `tt`).  An intricate, multi-spot mini-refactor — deserves a dedicated focused pass;
+    unblocks BOTH conversion families at once.
 
 ### Tier 5 — semantic edge cases
 14. **Divergence / non-termination.**  `run_io` is total, so the model assumes
