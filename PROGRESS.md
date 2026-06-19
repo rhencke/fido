@@ -729,8 +729,10 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
      fails LOUD (an intermediate exceeding int64 — e.g. `(1<<62)+(1<<62)-(1<<62)` = 2^62, fits,
      but the `+` overflows — is rejected, never silently wrapped).  *(A bignum folder would also
      ACCEPT such over-int64-intermediate constants; the checked-int64 form instead bounds them
-     fail-loud, which is faithful-or-fail, not wrong.)*  Still: `u64_lit` expressions (only its
-     literals fold), and float-side below.
+     fail-loud, which is faithful-or-fail, not wrong.)*  `u64_lit` expressions fold too (2026-06-19,
+     `zu_eval` — same ops with UNSIGNED overflow checks via `Int64.unsigned_*`; `uc_u64_hi` = `1<<63`
+     = 9223372036854775808, beyond int64 max, and `(1<<32)-1`).  So INTEGER constant expressions are
+     complete for both signed and unsigned int64.  Remaining: float-side below.
    - *Still open — float side:* Go does constant float arithmetic at arbitrary precision, rounding
      ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas runtime `float64` rounds each
      step (`0.30000000000000004`).  Faithful model: untyped float constants as exact rationals,

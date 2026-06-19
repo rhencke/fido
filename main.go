@@ -251,8 +251,12 @@ var Uc_100_i64 int64 = 100
 
 var Uc_100_u8 int64 = (100 & 0xff)
 
+var Uc_u64_hi uint64 = 9223372036854775808
+
+var Uc_u64_msk uint64 = 4294967295
+
 func Uconst_demo() {
-	println(Uc_bignum, Uc_mask, Uc_product, Uc_100_i64, Uc_100_u8)
+	println(Uc_bignum, Uc_mask, Uc_product, Uc_100_i64, Uc_100_u8, Uc_u64_hi, Uc_u64_msk)
 }
 
 func U64_demo() {

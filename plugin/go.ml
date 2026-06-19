@@ -1232,6 +1232,38 @@ let rec z_eval e =
     | MLapp (h, [a])    when is_zop "opp"    h ->
         (match z_eval a with Some x when x <> Int64.min_int -> Some (Int64.neg x) | _ -> None)
     | _ -> None
+
+(* UNSIGNED constant folding for [u64_lit] — same as [z_eval] but with uint64 semantics: ops
+   compute on the int64 BIT PATTERN (two's-complement add/mul = unsigned mod 2^64), and overflow
+   (a result exceeding 2^64, or a subtraction going below 0 — not a valid uint64 constant) FAILS
+   LOUD via the unsigned comparisons.  No [opp] (a uint64 constant is never negative). *)
+let chk_uadd a b = let s = Int64.add a b in
+  if Int64.unsigned_compare s a < 0 then None else Some s
+let chk_usub a b = if Int64.unsigned_compare a b < 0 then None else Some (Int64.sub a b)
+let chk_umul a b =
+  if a = 0L then Some 0L
+  else let p = Int64.mul a b in if Int64.unsigned_div p a = b then Some p else None
+let chk_ushl a n =
+  if n < 0L || n >= 64L then None
+  else let s = Int64.shift_left a (Int64.to_int n) in
+       if Int64.shift_right_logical s (Int64.to_int n) = a then Some s else None
+let rec zu_eval e =
+  match z_value e with
+  | Some v -> Some v
+  | None ->
+    let is_zop name h = match h with
+      | MLglob r -> String.equal (global_basename r) name && path_contains r "BinInt"
+      | _ -> false in
+    let bin f a b = match zu_eval a, zu_eval b with Some x, Some y -> f x y | _ -> None in
+    match e with
+    | MLapp (h, [a; b]) when is_zop "add"    h -> bin chk_uadd a b
+    | MLapp (h, [a; b]) when is_zop "sub"    h -> bin chk_usub a b
+    | MLapp (h, [a; b]) when is_zop "mul"    h -> bin chk_umul a b
+    | MLapp (h, [a; b]) when is_zop "shiftl" h -> bin chk_ushl a b
+    | MLapp (h, [a; b]) when is_zop "land"   h -> bin (fun x y -> Some (Int64.logand x y)) a b
+    | MLapp (h, [a; b]) when is_zop "lor"    h -> bin (fun x y -> Some (Int64.logor  x y)) a b
+    | MLapp (h, [a; b]) when is_zop "lxor"   h -> bin (fun x y -> Some (Int64.logxor x y)) a b
+    | _ -> None
 (* Source-[Z] sign: a [Z0]/[Zpos] is non-negative.  Used to tell a [uint64] literal
    in [2^63, 2^64) (a [Zpos] whose 64-bit pattern looks negative as a signed [Int64])
    apart from a genuine [int64] negative (a [Zneg]). *)
@@ -1661,9 +1693,9 @@ let rec pp_expr state env = function
           that are "negative" in OCaml's signed [Int64.t] — they print as the
           correct positive decimal). *)
        | MLglob r, [z] when is_u64_lit r ->
-           (match z_value z with
+           (match zu_eval z with
             | Some v -> str (Printf.sprintf "%Lu" v)
-            | None   -> unsupported "u64_lit of a non-literal Z (only statically-known uint64 constants are modeled)")
+            | None   -> unsupported "u64_lit of a non-constant Z (only statically-known uint64 constant expressions are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
           surrounding operator, so the operands are printed at this op's level

@@ -706,11 +706,15 @@ Definition uc_mask    : GoI64 := i64_lit (Z.shiftl 1 20 - 1) eq_refl.   (* (1<<2
 Definition uc_product : GoI64 := i64_lit (1000000 * 1000000) eq_refl.   (* 10^12 = 1000000000000 *)
 Definition uc_100_i64 : GoI64 := i64_lit 100 eq_refl.
 Definition uc_100_u8  : GoU8  := u8_lit 100 eq_refl.              (* the SAME 100, typed uint8 *)
+Definition uc_u64_hi  : GoU64 := u64_lit (Z.shiftl 1 63) eq_refl.     (* 2^63: a uint64 CONSTANT EXPRESSION beyond int64 max *)
+Definition uc_u64_msk : GoU64 := u64_lit (Z.shiftl 1 32 - 1) eq_refl. (* (1<<32)-1 = 4294967295 *)
 Example uc_i64_overflow : in_i64 9223372036854775808 = false. Proof. now vm_compute. Qed.  (* 2^63 ∉ int64 *)
 Example uc_u8_overflow  : (300 <? 256)%uint63 = false.        Proof. now vm_compute. Qed.  (* 300 ∉ uint8 *)
+Example uc_u64_hi_val   : u64raw uc_u64_hi = 9223372036854775808%Z. Proof. now vm_compute. Qed.
 Definition uconst_demo : IO unit :=
-  println [ any uc_bignum ; any uc_mask ; any uc_product ; any uc_100_i64 ; any uc_100_u8 ].
-  (* 1099511627781 1048575 1000000000000 100 100 *)
+  println [ any uc_bignum ; any uc_mask ; any uc_product ; any uc_100_i64 ; any uc_100_u8
+          ; any uc_u64_hi ; any uc_u64_msk ].
+  (* 1099511627781 1048575 1000000000000 100 100 9223372036854775808 4294967295 *)
 
 (** ===== GoU64: FULL-WIDTH unsigned 64-bit integer =====
     Machine-checked witnesses:
