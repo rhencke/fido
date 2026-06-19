@@ -1105,23 +1105,27 @@ resting state.)**
     `[]rune` DONE (rune view).  *Still ✗:* `float↔float` / `float32` (no native f32); narrow →
     `uint64` and `int64`→narrow; interface conversions beyond `type_assert`.
 
-    **THE RECORD-RESULT FUSION BLOCKER (shared, highest-leverage unblock — 2026-06-19).** Two
-    proven-but-unextracted conversions — the narrow→`int64` widening (`i64_of_u8`…) and the
-    `float64`→`int64` truncation (`i64_of_f64`) — fail to LOWER for ONE reason: they return
-    `GoI64`, a SINGLE-FIELD record, which Coq UNBOXES.  After unboxing, `MkI64 (<Z computation>)`
-    is either a bare renaming (the widening ≡ `Sint63.to_Z`, eliminated regardless of `NoInline`)
-    or a match-of-match that Coq's CASE-OF-CASE FUSION inlines into VALUE position — so the
-    function never stays a NAMED call the plugin can recognize → cast.  (The int→float casts lower
-    precisely because they return `float`, a primitive, NOT a record.)  *The unblock:* make
-    `GoI64`/`GoU64` NOT unbox by giving each a SECOND (kept) field — `Record GoI64 := MkI64c
-    { i64raw : Z ; i64ph : unit }` + `Notation MkI64 z := (MkI64c z tt)` (the notation keeps all
-    ~31 `MkI64` construction sites unchanged, and no code pattern-matches `MkI64`).  Then `MkI64c
-    (…) tt` is a 2-arg ctor application (non-renaming, non-fusing) → the conversion stays named →
-    recognized → cast.  Plugin work (mapped): teach `is_numint_ctor`/the ctor-erasure arm + the
-    `Z`-literal arms to handle the 2-arg `MkI64c`/`MkU64c` (drop the `tt`), keeping the narrow
-    1-field ctors as-is.  Proofs should survive (the notation is transparent; `vm_compute`
-    handles `tt`).  An intricate, multi-spot mini-refactor — deserves a dedicated focused pass;
-    unblocks BOTH conversion families at once.
+    **THE VALUE-POSITION MATCH BLOCKER (shared; the GoI64-2-field "fix" was TRIED and FAILED —
+    2026-06-19).** Two proven-but-unextracted conversions — the narrow→`int64` widening
+    (`i64_of_u8`…, body `MkI64 (Sint63.to_Z (u8raw a))`) and the `float64`→`int64` truncation
+    (`i64_of_f64`, body via `Prim2SF`/`wrap64`) — fail to LOWER because their faithful body
+    contains a MATCH (`Sint63.to_Z`'s sign `if`; `Prim2SF`/`wrap64`'s branches) that Coq's
+    extraction optimizer (NOT gated by `NoInline`) inlines + pushes the surrounding `MkI64` ctor
+    INTO, leaving a `match` in VALUE position — so the conversion never stays a NAMED call the
+    plugin can recognize → cast.  (The int→float casts lower because their body's leaf is a
+    PRIMITIVE `of_uint63`, no match.)  *Hypothesis tried and REJECTED (this date):* "give
+    `GoI64`/`GoU64` a 2nd field so Coq doesn't unbox, then the ctor app is non-renaming."  Built
+    it end-to-end (2-field record + `Notation MkI64 z := (MkI64c z tt)`, plugin `z_value`
+    see-through, `comparable_TI64` proof fixed) — the existing i64 layer stayed GREEN (golden
+    unchanged), but the widening STILL leaked `to_Z`'s match into value position.  Root causes:
+    (a) a `unit` phantom is ERASED by extraction → the record unboxes anyway; (b) a `bool` phantom
+    is kept but makes `GoI64` NON-`Comparable` (two values, equal `i64raw`, differ in the bool —
+    `key_eqb` would lie), losing the int64/uint64 map-KEY types; and (c) MORE FUNDAMENTALLY, the
+    blocker is the `to_Z`/`Prim2SF` MATCH inlining, which unboxing-prevention does NOT touch.  *The
+    real unblocks:* for the widening, the **narrow-stored-in-`Z`** carrier refactor (re-base
+    `GoU8`… on `Z`, so `i64_of_u8 a = MkI64 (u8raw a)` is pure identity — NO `to_Z`, no match);
+    for `float64`→`int64`, a value-position-match lowering (IIFE/hoist) OR a primitive-only
+    truncation path.  Both proven faithful TODAY (machine-checked); only the extraction is gated.
 
 ### Tier 5 — semantic edge cases
 14. **Divergence / non-termination.**  `run_io` is total, so the model assumes
