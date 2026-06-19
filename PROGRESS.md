@@ -1246,8 +1246,16 @@ resting state.)**
     cases a zero operand and returns it unrounded, assuming operands are already at the format),
     so rounding-by-`+0` is wrong; multiply-by-1 rounds the product.  Machine-checked
     `f32_of_f64_rounds`: `2^24 + 1` → `2^24` in binary32; `floatconv_demo` → `+1.677722e+007`
-    (16777216 as float32) `/ +7.500000e+000` (round-trip 7.5).  *Still open:* float32 comparisons
-    / literals beyond the demo; and `abs`/`sqrt` are
+    (16777216 as float32) `/ +7.500000e+000` (round-trip 7.5).  **COMPARISON DONE (2026-06-19):**
+    `f32_ltb`/`leb`/`eqb`/`gtb`/`geb`/`neqb` → native Go `float32` `<`/`<=`/`==`/`>`/`>=`/`!=`
+    (operands are `float32`).  Faithful: a `GoFloat32` holds a binary32-representable value and a
+    comparison does NO rounding, so binary32 and binary64 ordering agree on representable operands —
+    hence `PrimFloat.ltb`/`leb`/`eqb` on the carrier ARE the float32 comparisons (recognized → the
+    direct operator, decls suppressed via `is_f32_cmp_ref`, mirroring the f64 set).  NaN corner
+    machine-checked: `f32_geb` is the SWAPPED `leb` so `x >= NaN` is FALSE (`f32_geb_nan`),
+    matching Go — `¬(x < NaN)` would wrongly be true; `f32_cmp_demo` → `true true true`,
+    golden-locked, axiom-free (the `PrimFloat` compares were already in the trust base).  *Still
+    open:* float32 literals beyond the demo; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real
