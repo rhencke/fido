@@ -119,6 +119,10 @@ func F32_demo() {
 	println(F32_combine(1.5, 2.25, 2.0))
 }
 
+func I64_of_narrow_demo() {
+	println((200 & 0xff), (((-5 & 0xff) ^ 0x80) - 0x80), (60000 & 0xffff))
+}
+
 func Trunc64(x float64) int64 {
 	return int64(x)
 }
@@ -1819,6 +1823,7 @@ func main() {
 	Pure_rec_demo()
 	Mutual_rec_demo()
 	F32_demo()
+	I64_of_narrow_demo()
 	I64_of_f64_demo()
 	Enum_demo()
 	Enum_value_demo()

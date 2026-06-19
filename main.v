@@ -331,6 +331,13 @@ Proof. vm_compute. reflexivity. Qed.
     call-site constants pin to [float32]. *)
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
 Definition f32_demo : IO unit := println [ any (f32_combine 1.5 2.25 2) ].   (* (1.5+2.25)*2 = 7.5 *)
+(** narrow → int64 WIDENING LOWERED: [i64_of_u8]…[i64_of_i32] → IDENTITY (the narrow already
+    erases to a Go int64 holding the value; the widen is value-preserving).  The faithful
+    [to_Z]-crossing body is suppressed; the op is recognised as identity. *)
+Definition i64_of_narrow_demo : IO unit :=
+  println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
+          ; any (i64_of_i8  (i8_of_int (-5)%sint63))      (* -5  (signed widen keeps sign) *)
+          ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
 (** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
     zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
@@ -2331,6 +2338,7 @@ Definition main_effect : IO unit :=
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
+  i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)

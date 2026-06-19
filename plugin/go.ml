@@ -691,6 +691,13 @@ let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
    [int64(3.7)] on an untyped float constant) — demoed through a typed-param wrapper. *)
 let is_f64_to_i64_ref r = String.equal (global_basename r) "i64_of_f64"
+(* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, and the narrow type
+   already erases to a Go [int64] holding exactly this value, so the widen is IDENTITY — emit
+   the operand.  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-position
+   match would otherwise drag/fail; recognising the widen as identity sidesteps it.) *)
+let is_i64_of_narrow_ref r =
+  List.mem (global_basename r)
+    ["i64_of_u8"; "i64_of_i8"; "i64_of_u16"; "i64_of_i16"; "i64_of_u32"; "i64_of_i32"]
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
 let is_int63_of_z_ref r = let n = global_basename r in n = "of_Z" || n = "of_pos" || n = "of_pos_rec"
 
@@ -1520,6 +1527,9 @@ let rec pp_expr state env = function
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
        | MLglob r, [x] when is_f64_to_i64_ref r ->
            str "int64(" ++ pp_expr state env x ++ str ")"
+       (* narrow → int64 widening → the operand (identity; the narrow already erases to int64) *)
+       | MLglob r, [x] when is_i64_of_narrow_ref r ->
+           pp_expr state env x
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
@@ -3435,6 +3445,7 @@ let is_inlined_ref r =
   is_float_opp_ref r ||
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
+  is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   Option.has_some (classify_f32_op r) ||   (* f32_add/sub/mul/div: SpecFloat body suppressed by module, call site → Go [+]/[-]/[*]/[/] *)
   is_existT_ref r || is_sigT_ref r ||

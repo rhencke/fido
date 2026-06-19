@@ -1232,10 +1232,15 @@ resting state.)**
     GoFloat64) → func Trunc64(x float64) int64 { return int64(x) }`) because Go rejects
     `int64(3.7)` on a CONSTANT (truncation error) — the wrapper makes the operand a variable.
     `i64_of_f64_demo` → `3 -2` (= `int64(3.7)`, `int64(-2.9)`), golden-locked, axiom-free.
-    *Still open:* the narrow→int64 widenings (`i64_of_u8`…) — same module suppression should help,
-    but those additionally η-reduce to a `to_Z` renaming Coq force-inlines into value position (to
-    probe); float32 comparisons / literals beyond the demo,
-    `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
+    **narrow → int64 WIDENING LOWERED too (2026-06-19):** the probe corrected the force-inline
+    fear — `i64_of_u8` is NOT force-inlined; it extracts to a real decl `func I64_of_u8(a int64)
+    int64 { return To_Z(a) }`.  Since the widen is value-preserving and the narrow already erases
+    to a Go `int64`, it lowers to IDENTITY — `i64_of_u8`…`i64_of_i32` recognised → the operand,
+    and `To_Z`'s value-position-match body is dropped by the `Sint63`/`Int63` module suppression.
+    `i64_of_narrow_demo` → `200 -5 60000` (u8/i8-signed/u16 widened), golden-locked, axiom-free.
+    So ALL the previously-drag-blocked conversions now lower: float32 arith, `float64`→`int64`
+    truncation, narrow→`int64` widening.  *Still open:* float32 comparisons / literals beyond the
+    demo, and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real
