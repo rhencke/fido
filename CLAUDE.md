@@ -419,6 +419,22 @@ separate tracks.
    `[arg]`).  `het_ptr_demo` → `11 true`, golden-locked, axiom-free.  *Not yet:* the same
    template at arbitrary N (4+, mechanical); pointer-receiver method expressions `(*T).M`;
    method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
+   **DEFINED TYPES over a primitive with methods DONE (2026-06-19)** — Go's `type MyI64 int64`
+   (a distinct named type with the primitive's representation, carrying methods).  Modeled as a
+   2-field record whose 2nd field is a `GoTypeTag` PHANTOM: extraction KEEPS that field, so Coq does
+   NOT unbox the single value field, keeping the type a distinct method-receiver — the recurring
+   single-field-unboxing wall beaten again (free here because a defined type needs no `Comparable`,
+   same trick as the variadic wrapper).  The plugin registers a record whose 2nd field is a
+   `GoTypeTag` as a defined-primitive-type and emits `type MyI64 int64` (NOT a struct — the phantom
+   never renders), the ctor as the cast `MyI64(v)`, the value projection as `int64(x)`; methods are
+   detected as usual (`func (m MyI64) Myi64_double() MyI64`).  The underlying is GENERIC (`pp_type` of
+   the value field), so it works over a **string** too (`type Greeting string`, casts `Greeting(s)`/
+   `string(x)`, `deftype_str_demo` → `Hi, fido`), and a defined type can **satisfy an INTERFACE**
+   (`type Celsius int64`'s method `Reading` wired into a `Measurable` dictionary whose closure
+   dispatches `c.Reading()` — behavioral satisfaction for a defined type; `deftype_iface_demo` → `120`).
+   `deftype_demo` → `42`; all golden-locked, axiom-free.  *Not yet:* defined types as map KEYS (the
+   phantom breaks equality), `Module`-namespaced method names, defined types over func/arrow underlyings
+   (no `GoTypeTag` constructor for arrows — would need a broader marker).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

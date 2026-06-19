@@ -239,8 +239,15 @@ receiver (the recurring single-field-unboxing wall, beaten again because a defin
 `Comparable`).  The plugin emits `type MyI64 int64` (NOT a struct; the phantom field is never
 rendered), the ctor as the cast `MyI64(v)`, the value projection as `int64(x)`, and methods on it
 are detected as usual: `func (m MyI64) Myi64_double() MyI64 { return Mk_myi64(int64(m) + int64(m)) }`,
-`deftype_demo` → `42`, golden-locked, axiom-free.  ✗ not yet: defined types used as map KEYS (the
-phantom breaks equality), and `Module`-namespaced method names (two types sharing a basename).
+`deftype_demo` → `42`, golden-locked, axiom-free.  The underlying is GENERIC (computed via `pp_type`
+of the value field), so a defined type over a **string** works identically — `type Greeting string`,
+ctor `Greeting(s)`, projection `string(x)`, method `func (g Greeting) Greeting_with(who string)
+string { return string(g) + who }` (`deftype_str_demo` → `Hi, fido`).  And a defined type **satisfies
+an INTERFACE**: `type Celsius int64` with method `Reading` is wired into a `Measurable` dictionary
+(`func (c Celsius) Celsius_measurable() Measurable { return Measurable{Measure: func() int64 { return
+c.Reading() }, …} }`) — behavioral satisfaction for a defined type, the dictionary closure dispatching
+the defined type's own method (`deftype_iface_demo` → `120`).  ✗ not yet: defined types used as map
+KEYS (the phantom breaks equality), and `Module`-namespaced method names (two types sharing a basename).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

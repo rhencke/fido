@@ -1355,6 +1355,45 @@ func Deftype_demo() {
 	println(int64((Mk_myi64(21)).Myi64_double()))
 }
 
+type Greeting string
+
+func Mk_greeting(s string) Greeting {
+	return Greeting(s)
+}
+
+func (g Greeting) Greeting_with(who string) string {
+	return string(g) + who
+}
+
+func Deftype_str_demo() {
+	println((Mk_greeting("Hi, ")).Greeting_with("fido"))
+}
+
+type Celsius int64
+
+func Mk_celsius(v int64) Celsius {
+	return Celsius(v)
+}
+
+func (c Celsius) Reading() int64 {
+	return int64(c) + 100
+}
+
+type Measurable struct {
+	Measure   func() int64
+	Meas_self any
+}
+
+func (c Celsius) Celsius_measurable() Measurable {
+	return Measurable{Measure: func() int64 {
+		return c.Reading()
+	}, Meas_self: int64(c)}
+}
+
+func Deftype_iface_demo() {
+	println(((Mk_celsius(20)).Celsius_measurable()).Measure())
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1499,4 +1538,6 @@ func main() {
 	Typestate_demo()
 	Repinv_demo()
 	Deftype_demo()
+	Deftype_str_demo()
+	Deftype_iface_demo()
 }

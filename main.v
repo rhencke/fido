@@ -1933,14 +1933,40 @@ Definition repinv_demo : IO unit :=
     fails for [7, 3], so [eq_refl] does not type-check and the struct is unconstructible. *)
 Fail Definition bad_unsorted : Sorted2 := MkSorted2 (7)%i64 (3)%i64 eq_refl.
 
-(** PROBE: a DEFINED TYPE over a primitive (Go [type MyI64 int64]) with a method.  The
-    [GoTypeTag] phantom field is meant to stop Coq unboxing the single value field, keeping
-    [MyI64] a distinct method-receiver type.  (Probing whether the marker keeps it distinct.) *)
+(** A DEFINED TYPE over a primitive (Go [type MyI64 int64]) with a method.  The
+    [GoTypeTag] phantom field stops Coq unboxing the single value field, keeping
+    [MyI64] a distinct method-receiver type (the same trick as the variadic wrapper). *)
 Record MyI64 := MkMyI64 { my_val : GoI64 ; my_tag : GoTypeTag GoI64 }.
 Definition mk_myi64 (v : GoI64) : MyI64 := MkMyI64 v TI64.
 Definition myi64_double (m : MyI64) : MyI64 := mk_myi64 (i64_add (my_val m) (my_val m)).
 Definition deftype_demo : IO unit :=
   println [any (my_val (myi64_double (mk_myi64 (21)%i64)))].   (* 42 *)
+
+(** The defined-type underlying is GENERIC (computed via [pp_type] of the value field),
+    so a defined type over a STRING works the same: [type Greeting string], ctor cast
+    [Greeting(s)], projection cast [string(x)].  [greeting_with] is a value-receiver
+    method whose body concatenates ([str_concat] → Go [+]). *)
+Record Greeting := MkGreeting { gr_text : GoString ; gr_tag : GoTypeTag GoString }.
+Definition mk_greeting (s : GoString) : Greeting := MkGreeting s TString.
+Definition greeting_with (g : Greeting) (who : GoString) : GoString :=
+  str_concat (gr_text g) who.
+Definition deftype_str_demo : IO unit :=
+  println [any (greeting_with (mk_greeting "Hi, "%string) "fido"%string)].   (* "Hi, fido" *)
+
+(** A DEFINED TYPE satisfying an INTERFACE — behavioral satisfaction for a defined type
+    (the closed-world wishlist's gateway, now reachable here).  [type Celsius int64] carries
+    a value-receiver method [reading]; [celsius_measurable] wires that method into a
+    [Measurable] dictionary, so the defined type's method IS what satisfies the contract.
+    Dispatch [measure d tt] → [d.Measure()] runs the captured [c.Reading()]. *)
+Record Celsius := MkCelsius { c_val : GoI64 ; c_tag : GoTypeTag GoI64 }.
+Definition mk_celsius (v : GoI64) : Celsius := MkCelsius v TI64.
+Definition reading (c : Celsius) : GoI64 := i64_add (c_val c) (100)%i64.   (* a real method, +100 offset *)
+
+Record Measurable := MkMeasurable { measure : unit -> GoI64 ; meas_self : GoAny }.
+Definition celsius_measurable (c : Celsius) : Measurable :=
+  MkMeasurable (fun _ => reading c) (any (c_val c)).   (* self stashes the underlying repr *)
+Definition deftype_iface_demo : IO unit :=
+  println [any (measure (celsius_measurable (mk_celsius (20)%i64)) tt)].   (* 120 *)
 
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
@@ -2091,6 +2117,8 @@ Definition main_effect : IO unit :=
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   deftype_demo                  >>'   (* prints: 42 (defined type with method) *)
+  deftype_str_demo              >>'   (* prints: Hi, fido (defined type over string) *)
+  deftype_iface_demo            >>'   (* prints: 120 (defined type satisfies an interface) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]
