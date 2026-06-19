@@ -309,6 +309,20 @@ Example f64_of_int_pos : PrimFloat.eqb (f64_of_int 5%sint63) 5%float = true.
 Proof. now vm_compute. Qed.
 Example f64_of_int_neg : PrimFloat.eqb (f64_of_int (-3)%sint63) (PrimFloat.opp 3%float) = true.
 Proof. now vm_compute. Qed.
+
+(** FLOAT32 faithfulness witnesses (the SpecFloat-based binary32 model).  The decisive one:
+    [2^24 + 1] is NOT representable in binary32 (24-bit significand), so [f32_add] rounds it
+    back to [2^24] — whereas float64 keeps [16777217].  This proves the model really rounds at
+    binary32, not binary64.  Exact cases ([1.5+2.25], [1.5*2.0]) confirm the SpecFloat path
+    computes the ordinary results. *)
+Example f32_add_rounds : PrimFloat.eqb (f32_add 16777216 1) 16777216 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_f64_differ : PrimFloat.eqb (16777216 + 1)%float 16777217 = true.  (* float64 KEEPS the bit *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_add_exact  : PrimFloat.eqb (f32_add 1.5 2.25) 3.75 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_mul_exact  : PrimFloat.eqb (f32_mul 1.5 2) 3 = true.
+Proof. vm_compute. reflexivity. Qed.
 Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)

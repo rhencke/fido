@@ -1184,9 +1184,22 @@ resting state.)**
     (2026-06-19):** `f64_of_i64` → native `float64(i)`, same recognize-and-suppress; its `Z`
     carrier additionally drags the Z→int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed
     alongside the already-suppressed `Z`/`positive` arithmetic (`f64_of_i64_demo` →
-    `+7.000000e+000 -3.000000e+000`).  *Still open:* `float64` → `int`
-    (truncation — `PrimFloat` has no to-int primitive); `float32` (no native
-    Rocq f32) and `float↔float`; and `abs`/`sqrt` are
+    `+7.000000e+000 -3.000000e+000`).  **FLOAT32 ARITHMETIC MODELED (2026-06-19) — the
+    "soft-float is intractable" wall dissolved by a probe.**  `SpecFloat` (already imported for
+    `Prim2SF`) provides PRECISION-PARAMETERIZED arithmetic, so `f32_add a b := SF2Prim (SFadd
+    24 128 (Prim2SF a) (Prim2SF b))` (binary32 = prec 24, emax 128) is a FAITHFUL float32 add —
+    the SpecFloat round-to-nearest-even at binary32 is the SAME rounding Go's hardware does, NOT
+    a float64 idealisation (so no hand-rolled soft-float, the thing I'd wrongly assumed was
+    required).  `f32_add`/`f32_sub`/`f32_mul`/`f32_div` all modeled; machine-checked: the
+    decisive `f32_add_rounds` (`2^24 + 1` rounds back to `2^24` in binary32) contrasted with
+    `f32_f64_differ` (float64 KEEPS `16777217`) PROVES it really rounds at binary32; exact cases
+    `f32_add_exact`/`f32_mul_exact` confirm ordinary results.  *Lowering deferred (proof-only,
+    like `i64_of_f64`):* the body's `SFadd`/`Prim2SF` drag the SpecFloat definitional tree into
+    extraction, so the native lowering (`GoFloat32` → `float32`, `f32_add` → Go `+`, recognized-
+    and-suppressed) needs that tree suppressed — a follow-on; the MODEL (the hard part) is done.
+    *Still open:* `float64` → `int`
+    (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
+    `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real

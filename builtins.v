@@ -1272,6 +1272,21 @@ Definition f64_trunc_Z (f : float) : Z :=
    match-of-match to inline, and [i64_of_f64] stays a NAMED call the recognizer fires on. *)
 Definition i64_of_f64 (f : float) : GoI64 := MkI64 (wrap64 (f64_trunc_Z f)).
 
+(** FLOAT32 — faithful binary32 arithmetic via [SpecFloat] (already imported).  A [GoFloat32]
+    is carried as a [float] (binary64) holding a binary32-representable value; each op rounds
+    to binary32 = format (prec 24, emax 128) via [SFadd]/[SFsub]/[SFmul]/[SFdiv], exactly Go's
+    [float32] arithmetic (single round-to-nearest-even at binary32).  The SpecFloat round is
+    the SAME correct rounding Go's hardware does, so this is faithful — NOT a float64 idealisation.
+    *Lowering deferred (proof-only, like [i64_of_f64]):* the body's [SFadd]/[Prim2SF] drag the
+    SpecFloat definitional tree into extraction; the native lowering ([float32] + Go [+]) needs
+    that tree suppressed.  The MODEL (the hard part — faithful rounding) is now done; that the
+    rounding was tractable at all dissolves the old "float32 needs a hand-rolled soft-float"
+    blocker. *)
+Definition f32_add (a b : GoFloat32) : GoFloat32 := SF2Prim (SFadd 24 128 (Prim2SF a) (Prim2SF b)).
+Definition f32_sub (a b : GoFloat32) : GoFloat32 := SF2Prim (SFsub 24 128 (Prim2SF a) (Prim2SF b)).
+Definition f32_mul (a b : GoFloat32) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF b)).
+Definition f32_div (a b : GoFloat32) : GoFloat32 := SF2Prim (SFdiv 24 128 (Prim2SF a) (Prim2SF b)).
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world
