@@ -195,8 +195,11 @@ fail-loud — the type-level-`N` route (phantom `AS`/`AZ` chain the plugin decod
 Spec: a `struct` is a sequence of named fields with types; **value** semantics
 (assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
 constructor inductive with projections, value/copy semantics — so it maps directly:
-the type → `type T struct { … }`, the constructor → a struct literal `T{…}` (fields
-in declaration order), each projection → field access `x.Field`.  Field types are
+the type → `type T struct { … }`, the constructor → a KEYED struct literal `T{Field: v, …}`
+(field-order-independent and self-documenting — Go style's preference; the field names come
+from the record's projections, recursively, so nested/heterogeneous/pointer/interface-dict
+literals are all keyed, e.g. `Wrap{W_inner: Inner{Iv: 5, …}, Wz: 9}`, `Pair{P_n: 10, P_b: true}`),
+each projection → field access `x.Field`.  Field types are
 printed by the general `pp_type`, so they are not hardcoded — `point_demo`'s `int`
 fields lower to `int64`, `labeled_demo` mixes a `bool` and an `int` field
 (`Flag bool` / `Qty int64`).  The projection *definitions* are suppressed (field

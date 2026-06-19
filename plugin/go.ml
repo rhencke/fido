@@ -107,6 +107,8 @@ let record_ctor_names : (string, unit) Hashtbl.t = Hashtbl.create 16    (* const
 let record_typenames  : (string, unit) Hashtbl.t = Hashtbl.create 16    (* record type basename -> () *)
 let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
   (* constructor basename -> field types (for typed-closure dictionary entries) *)
+let record_ctor_fields : (string, string list) Hashtbl.t = Hashtbl.create 16
+  (* constructor basename -> ordered Go field names (for KEYED struct literals T{F: v}) *)
 (* Methods: a top-level function whose first visible param is a record (struct) is
    lowered as a Go value-receiver method.  [collect_decls] registers each such
    function by its [global_path]; uses then become [recv.Method(rest)]. *)
@@ -1555,15 +1557,23 @@ let rec pp_expr state env = function
      This is what makes the dictionary's method entries well-typed. *)
   | MLcons (_, r, args) when is_record_ctor r ->
       let ftypes = (try Hashtbl.find record_ctor_ftypes (global_basename r) with Not_found -> []) in
-      let rec pp_fields ts args = match ts, args with
+      let fields = (try Hashtbl.find record_ctor_fields (global_basename r) with Not_found -> []) in
+      let rec pp_vals ts args = match ts, args with
         | _, [] -> []
         | (Tarr _ as t) :: ts', (MLlam _ as a) :: args' ->
-            pp_typed_closure state env t a :: pp_fields ts' args'
-        | _ :: ts', a :: args' -> pp_expr state env a :: pp_fields ts' args'
-        | [],       a :: args' -> pp_expr state env a :: pp_fields [] args'
+            pp_typed_closure state env t a :: pp_vals ts' args'
+        | _ :: ts', a :: args' -> pp_expr state env a :: pp_vals ts' args'
+        | [],       a :: args' -> pp_expr state env a :: pp_vals [] args'
       in
+      let vals = pp_vals ftypes args in
+      (* KEYED struct literal [T{Field: v, …}] (field-order-independent, self-documenting —
+         what Go style prefers) when a field name is known per value; positional fallback. *)
+      let entries =
+        if List.length fields = List.length vals
+        then List.map2 (fun f v -> str f ++ str ": " ++ v) fields vals
+        else vals in
       str (record_ctor_tyname r) ++ str "{" ++
-      prlist_with_sep (fun () -> str ", ") (fun x -> x) (pp_fields ftypes args) ++ str "}"
+      prlist_with_sep (fun () -> str ", ") (fun x -> x) entries ++ str "}"
 
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
       (* Coq [string] literal → Go string literal (byte-faithful). *)
@@ -3304,7 +3314,11 @@ let collect_decls struc =
              if Array.length pkt.ip_consnames > 0 then begin
                Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ();
                let ftypes = (try pkt.ip_types.(0) with _ -> []) in
-               Hashtbl.replace record_ctor_ftypes (Id.to_string pkt.ip_consnames.(0)) ftypes
+               Hashtbl.replace record_ctor_ftypes (Id.to_string pkt.ip_consnames.(0)) ftypes ;
+               (* ordered Go field names, for keyed struct literals — from the projections *)
+               let fields = List.filter_map
+                 (function Some g -> Some (go_export (global_basename g)) | None -> None) projs in
+               Hashtbl.replace record_ctor_fields (Id.to_string pkt.ip_consnames.(0)) fields
              end
          | _ -> ())
     | _ -> ()) decls;

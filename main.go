@@ -1034,7 +1034,7 @@ type Point struct {
 }
 
 func Point_demo() {
-	p := Point{3, 4}
+	p := Point{Px: 3, Py: 4}
 	println(p.Px)
 	println(p.Py)
 	println(p.Px + p.Py)
@@ -1046,7 +1046,7 @@ type Labeled struct {
 }
 
 func Labeled_demo() {
-	r := Labeled{true, 5}
+	r := Labeled{Flag: true, Qty: 5}
 	println(r.Flag)
 	println(r.Qty)
 }
@@ -1056,11 +1056,11 @@ func (p Point) Sum_coords() int64 {
 }
 
 func (p Point) Shifted(dx int64) Point {
-	return Point{p.Px + dx, p.Py + dx}
+	return Point{Px: p.Px + dx, Py: p.Py + dx}
 }
 
 func Method_demo() {
-	p := Point{3, 4}
+	p := Point{Px: 3, Py: 4}
 	q := p.Shifted(10)
 	println(p.Sum_coords())
 	println(q.Px)
@@ -1073,7 +1073,7 @@ func Call_shift10(f func(int64) Point) Point {
 }
 
 func Method_value_demo() {
-	p := Point{1, 2}
+	p := Point{Px: 1, Py: 2}
 	q := Call_shift10(p.Shifted)
 	println(q.Px, q.Py)
 }
@@ -1083,7 +1083,7 @@ func Apply_pt(f func(Point) int64, p Point) int64 {
 }
 
 func Method_expr_demo() {
-	p := Point{5, 6}
+	p := Point{Px: 5, Py: 6}
 	println(Apply_pt(Point.Sum_coords, p))
 }
 
@@ -1102,7 +1102,7 @@ func (p Point) Describe() {
 }
 
 func Io_method_demo() {
-	p := Point{8, 9}
+	p := Point{Px: 8, Py: 9}
 	p.Describe()
 }
 
@@ -1111,16 +1111,16 @@ func (a Point) Point_eqb(b Point) bool {
 }
 
 func Struct_eq_demo() {
-	p := Point{3, 4}
-	q := Point{3, 4}
-	r := Point{3, 5}
+	p := Point{Px: 3, Py: 4}
+	q := Point{Px: 3, Py: 4}
+	r := Point{Px: 3, Py: 5}
 	println(p.Point_eqb(q), p.Point_eqb(r))
 }
 
 func Struct_eq_native_demo() {
-	p := Point{3, 4}
-	q := Point{3, 4}
-	r := Point{3, 5}
+	p := Point{Px: 3, Py: 4}
+	q := Point{Px: 3, Py: 4}
+	r := Point{Px: 3, Py: 5}
 	println(p == q, p == r)
 }
 
@@ -1135,7 +1135,7 @@ type Wrap struct {
 }
 
 func Nested_struct_demo() {
-	o := Wrap{Inner{5, 1}, 9}
+	o := Wrap{W_inner: Inner{Iv: 5, Ikind: 1}, Wz: 9}
 	println((o.W_inner).Iv, o.Wz)
 }
 
@@ -1145,7 +1145,7 @@ type Cell struct {
 }
 
 func Sptr_demo() {
-	p := &Cell{3, 4}
+	p := &Cell{Cx: 3, Cy: 4}
 	p.Cx = int64(7)
 	a := p.Cx
 	b := p.Cy
@@ -1158,7 +1158,7 @@ func (p *Cell) Cell_incx() {
 }
 
 func Ptr_method_demo() {
-	p := &Cell{10, 20}
+	p := &Cell{Cx: 10, Cy: 20}
 	p.Cell_incx()
 	a := p.Cx
 	println(a)
@@ -1169,7 +1169,7 @@ func Apply_cell(f func(*Cell), p *Cell) {
 }
 
 func Ptr_method_expr_demo() {
-	p := &Cell{5, 6}
+	p := &Cell{Cx: 5, Cy: 6}
 	Apply_cell((*Cell).Cell_incx, p)
 	a := p.Cx
 	println(a)
@@ -1187,7 +1187,7 @@ func (p *Cell3) Cell3_inc_z() {
 }
 
 func Nfield_ptr_demo() {
-	p := &Cell3{10, 20, 30}
+	p := &Cell3{C3x: 10, C3y: 20, C3z: 30}
 	p.Cell3_inc_z()
 	z := p.C3z
 	println(z)
@@ -1204,7 +1204,7 @@ func (p *Pair) Pair_bump() {
 }
 
 func Het_ptr_demo() {
-	p := &Pair{10, true}
+	p := &Pair{P_n: 10, P_b: true}
 	p.Pair_bump()
 	n := p.P_n
 	b := p.P_b
@@ -1217,17 +1217,17 @@ type Shape struct {
 }
 
 func Mk_rect(w int64, h int64) Shape {
-	return Shape{func(s int64) int64 {
+	return Shape{Area: func(s int64) int64 {
 		return w + h + (w + h) + s
-	}, func(s int64) int64 {
+	}, Perim: func(s int64) int64 {
 		return w + h + s
 	}}
 }
 
 func Mk_square(side int64) Shape {
-	return Shape{func(s int64) int64 {
+	return Shape{Area: func(s int64) int64 {
 		return side + side + (side + side) + s
-	}, func(s int64) int64 {
+	}, Perim: func(s int64) int64 {
 		return side + side + s
 	}}
 }
@@ -1248,9 +1248,9 @@ type Greeter struct {
 }
 
 func Mk_adder(base int64) Greeter {
-	return Greeter{func(x int64) int64 {
+	return Greeter{Greet: func(x int64) int64 {
 		return base + x
-	}, base}
+	}, Gr_self: base}
 }
 
 func Single_iface_demo() {
@@ -1263,9 +1263,9 @@ type Stringer struct {
 }
 
 func Mk_namer(nm string) Stringer {
-	return Stringer{func() string {
+	return Stringer{Sg_str: func() string {
 		return nm
-	}, nm}
+	}, Sg_self: nm}
 }
 
 func Nullary_iface_demo() {
@@ -1277,14 +1277,14 @@ type Light struct {
 	Serial int64
 }
 
-var Fresh_light Light = Light{0, 7}
+var Fresh_light Light = Light{Ticks: 0, Serial: 7}
 
 func (l Light) Go_green() Light {
-	return Light{l.Ticks + 1, l.Serial}
+	return Light{Ticks: l.Ticks + 1, Serial: l.Serial}
 }
 
 func (l Light) Go_red() Light {
-	return Light{l.Ticks, l.Serial}
+	return Light{Ticks: l.Ticks, Serial: l.Serial}
 }
 
 func Typestate_demo() {
@@ -1308,7 +1308,7 @@ func (p Sorted2) Max_of() int64 {
 	return p.S_b
 }
 
-var Demo_pair Sorted2 = Sorted2{3, 7}
+var Demo_pair Sorted2 = Sorted2{S_a: 3, S_b: 7}
 
 func Repinv_demo() {
 	println(Demo_pair.Min_of())
