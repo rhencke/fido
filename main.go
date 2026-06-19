@@ -1426,6 +1426,29 @@ func Deftype_slice_demo() {
 	println((Mk_intlist(make([]int64, 3))).Il_len())
 }
 
+type Animal struct {
+	Species string
+	Legs    int64
+}
+
+func (a Animal) Speak() string {
+	return a.Species
+}
+
+type Dog struct {
+	Animal
+	Breed string
+}
+
+func Mk_dog(sp string, br string) Dog {
+	return Dog{Animal: Animal{Species: sp, Legs: 4}, Breed: br}
+}
+
+func Embed_demo() {
+	println(((Mk_dog("canine", "lab")).Animal).Species)
+	println(((Mk_dog("canine", "lab")).Animal).Speak())
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1574,4 +1597,5 @@ func main() {
 	Deftype_iface_demo()
 	Named_func_demo()
 	Deftype_slice_demo()
+	Embed_demo()
 }

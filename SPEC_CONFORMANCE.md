@@ -206,9 +206,13 @@ fields lower to `int64`, `labeled_demo` mixes a `bool` and an `int` field
 access replaces them).  Struct INVARIANTS are provable in Rocq directly:
 `point_proj_px` machine-checks `px (MkPoint a b) = a`.  Witnesses: `point_demo`
 (`Point{3,4}` → `3 / 4 / 7`), `labeled_demo` (`Labeled{true,5}` → `true / 5`).
-✗ not yet: embedded (anonymous) fields + field promotion, struct tags.  Comparability
-(`==` field-wise) awaits the same operator work as other composite equality.
-Methods declared on the struct → next section.
+**Embedding DONE (2026-06-19):** `type Dog struct { Animal; Breed string }` — a record field
+whose exported name equals its record type's name is emitted as an ANONYMOUS embedded field, so
+the Go struct genuinely embeds and Go promotes the embedded method set; access is through the
+embedded field (`species (animal d)` → `(d.Animal).Species`, promoted method `(d.Animal).Speak()`).
+The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo` → `canine / canine`.
+✗ not yet: the promoted SHORTHAND `d.Speak()` (cosmetic peephole), embedding non-struct/pointer
+types, struct tags.  Methods declared on the struct → next section.
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:

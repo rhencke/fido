@@ -1997,6 +1997,24 @@ Definition il_len (l : IntList) : GoInt := len (il_val l).
 Definition deftype_slice_demo : IO unit :=
   println [any (il_len (mk_intlist (slice_make TI64 3)))].   (* 3 *)
 
+(** STRUCT EMBEDDING (Go's [type Dog struct { Animal; Breed string }]) — composition with
+    field/method PROMOTION.  Modeled as a record field whose name EQUALS its (record) type's
+    name ([animal : Animal]); the plugin emits it as an ANONYMOUS embedded field, so the Go
+    struct genuinely embeds [Animal] and Go promotes its method set.  [Animal] needs >= 2
+    fields (a 1-field record is unboxed by Coq).  Accessing the embedded type's field/method
+    is through the embedded field — [species (animal d)] → [(d.Animal).Species], and the
+    promoted method [speak (animal d)] → [(d.Animal).Speak()] — both valid, faithful Go. *)
+Record Animal := MkAnimal { species : GoString ; legs : GoI64 }.
+Definition speak (a : Animal) : GoString := species a.   (* a value-receiver method on Animal *)
+Record Dog := MkDog { animal : Animal ; breed : GoString }.   (* field name = type name → embedded *)
+Definition mk_dog (sp br : GoString) : Dog := MkDog (MkAnimal sp (4)%i64) br.
+(* the embedded type's method is reachable on the composite (its method set is promoted) *)
+Example embed_speak : forall sp br, speak (animal (mk_dog sp br)) = sp.
+Proof. reflexivity. Qed.
+Definition embed_demo : IO unit :=
+  bind (println [any (species (animal (mk_dog "canine"%string "lab"%string)))])  (fun _ =>   (* canine *)
+  println [any (speak (animal (mk_dog "canine"%string "lab"%string)))]).                   (* canine *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2150,6 +2168,7 @@ Definition main_effect : IO unit :=
   deftype_iface_demo            >>'   (* prints: 120 (defined type satisfies an interface) *)
   named_func_demo               >>'   (* prints: 42 (named func type, type Handler func(int64) int64) *)
   deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
+  embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

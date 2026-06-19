@@ -365,7 +365,18 @@ separate tracks.
    by Coq; give it >= 2 fields)`, aborting `make extract` instead of emitting dangling Go
    (verified both directions: 2-field extracts; 1-field aborts).  Workaround stays ≥2 fields
    (the demo does); proper single-field support needs the curried/erasure work (ladder 9c).
-   *Not yet:* embedded fields/promotion (anonymous), struct tags, the
+   **STRUCT EMBEDDING DONE (2026-06-19)** — Go's `type Dog struct { Animal; Breed string }`
+   (composition with field/method PROMOTION).  Modeled as a record field whose exported name
+   EQUALS its (record) type's name (`animal : Animal`); the plugin emits it as an ANONYMOUS
+   embedded field (the `field` helper checks `fname = go_export typename && is_record_typename`),
+   so the Go struct genuinely embeds `Animal` and Go promotes its method set.  The embedded type
+   needs ≥2 fields (a 1-field record is unboxed).  Access is through the embedded field —
+   `species (animal d)` → `(d.Animal).Species`, promoted method `speak (animal d)` →
+   `(d.Animal).Speak()` (both valid/faithful; Rocq has no implicit subtyping, so the explicit
+   projection is how a well-typed term reaches the embedded member).  `embed_demo` → `canine /
+   canine`, golden-locked, axiom-free.  *Not yet:* the promoted SHORTHAND `d.Speak()`/`d.Name`
+   (a peephole on `member (embed_proj d)` → `d.Member`, cosmetic — same emitted semantics);
+   embedding a non-struct/pointer type; struct tags; the
    single-field-struct distinctness (ladder 9c), the IDIOMATIC direct `p == q` (tidiness).
 
    **b. Methods (value receiver)** — *done*. A top-level function whose FIRST

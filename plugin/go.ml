@@ -3335,7 +3335,18 @@ let pp_decl state decl =
            let field proj t =
              let fname = match proj with
                | Some g -> go_export (global_basename g) | None -> "F" in
-             str "\t" ++ str fname ++ str " " ++ pp_type state t ++ fnl () in
+             (* Go struct EMBEDDING (spec "Struct types"): an ANONYMOUS field — written as
+                just the type name — promotes the embedded type's fields and methods.  We
+                model it as a record field whose exported name EQUALS its (record) type's
+                name; emit it anonymous so the Go struct genuinely embeds (and Go promotes
+                the embedded method set). *)
+             let embedded = match t with
+               | Tglob (r, []) ->
+                   let bn = global_basename r in
+                   String.equal fname (go_export bn) && is_record_typename bn
+               | _ -> false in
+             if embedded then str "\t" ++ pp_type state t ++ fnl ()
+             else str "\t" ++ str fname ++ str " " ++ pp_type state t ++ fnl () in
            str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++
            str " struct {" ++ fnl () ++
            prlist (fun x -> x) (List.map2 field projs ftypes) ++
