@@ -2693,6 +2693,24 @@ Example str_switch2_default : forall {B} (k1 k2 d : IO B),
   str_switch2 "z"%string "a"%string k1 "b"%string k2 d = d.
 Proof. reflexivity. Qed.
 
+(** N-ary string expression switch (3 cases) — same generalised plugin arm as
+    [str_switch2]/[int_switch2]; completes the >2-case coverage for both scrutinee types. *)
+Definition str_switch3 {B : Type} (x : GoString)
+  (v1 : GoString) (k1 : IO B)
+  (v2 : GoString) (k2 : IO B)
+  (v3 : GoString) (k3 : IO B)
+  (d : IO B) : IO B :=
+  if str_eqb x v1 then k1
+  else if str_eqb x v2 then k2
+  else if str_eqb x v3 then k3
+  else d.
+Example str_switch3_third : forall {B} (k1 k2 k3 d : IO B),
+  str_switch3 "c"%string "a"%string k1 "b"%string k2 "c"%string k3 d = k3.
+Proof. reflexivity. Qed.
+Example str_switch3_default : forall {B} (k1 k2 k3 d : IO B),
+  str_switch3 "z"%string "a"%string k1 "b"%string k2 "c"%string k3 d = d.
+Proof. reflexivity. Qed.
+
 (** ---- Complex numbers (Go spec "Complex numbers"; the predeclared [complex]/[real]/
     [imag] builtins) ----  A [complex128] is a pair of [float64] components.  We model it
     as a 2-field record over [float]; the plugin renders the type as Go's native

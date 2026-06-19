@@ -647,6 +647,19 @@ func Str_sw_demo(x string) {
 	}
 }
 
+func Str_sw3_demo(x string) {
+	switch x {
+	case "a":
+		println(1)
+	case "b":
+		println(2)
+	case "c":
+		println(3)
+	default:
+		println(9)
+	}
+}
+
 func Bytes_demo() {
 	b := []byte("Hi")
 	println(string(b))
@@ -1276,6 +1289,8 @@ func main() {
 	Str_sw_demo("a")
 	Str_sw_demo("b")
 	Str_sw_demo("z")
+	Str_sw3_demo("c")
+	Str_sw3_demo("z")
 	Complex_demo()
 	Complex_arith_demo()
 	Complex_mul_demo()
