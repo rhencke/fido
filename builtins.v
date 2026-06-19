@@ -368,6 +368,7 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoI32  : Tagged GoI32    := TI32.
 #[global] Instance Tagged_GoI64  : Tagged GoI64    := TI64.
 #[global] Instance Tagged_GoU64  : Tagged GoU64    := TU64.
+#[global] Instance Tagged_GoFloat32 : Tagged GoFloat32 := TFloat32.
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 

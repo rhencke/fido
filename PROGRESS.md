@@ -1209,29 +1209,25 @@ resting state.)**
     `binop_of`); (3) avoid the float32 LITERAL-typing issue by demoing through a typed-param
     function (`f32_sum (a b : GoFloat32)` → `func F32_sum(a, b float32) float32`, so the call-site
     consts pin to `float32`); (4) `println`/`any` of a `GoFloat32` (needs a `Tagged GoFloat32`
-    check).  **Suppress-the-tree ATTEMPTED and ABANDONED (2026-06-19):** the decl-naming abort
-    made the grind iterable (~12 SpecFloat/Z decls suppressed one per build — `get_sign`, `to_Z`,
-    `to_Z_rec`, `Zdigits2`, `shr_*`, `shl_align`, `binary_normalize`, `prec`/`emax`/`emin`/`fexp`,
-    `digits2_pos`, `cond_Zopp`, …), but the drag is DEEPER and TANGLED than the closure suggested:
-    (a) it reaches the PrimFloat PRIMITIVE layer (`frshiftexp`/`normfr_mantissa`/`ldshiftexp`/
-    `abs`/`infinity`/`nan`) which the plugin emits as `panic("axiom: …")` STUBS — extraction PASSES
-    but Go won't compile (worse than fail-loud); and (b) the Z helpers COLLIDE with user names —
-    SpecFloat's parity `is_even` redeclares the mutual-recursion demo's `is_even` (with uint-vs-
-    int64 type confusion).  So suppress-the-tree does NOT cleanly work.  **`Extract Constant` ALSO
-    TRIED and does NOT prune (2026-06-19):** `Extract Constant f32_add => …` on the ops did not
-    keep the SpecFloat body out of extraction — `get_sign` still dragged (and it is reachable ONLY
-    via the f32 path, since the committed model-only state is green).  Coq's standard
-    `mono_environment` (which the `Go Main Extraction` driver uses) normally honours `Extract
-    Constant`, so the driver evidently still pulls a realized constant's original body-deps into the
-    structure.  So BOTH clean mechanisms fail.  **CONCLUSION: float32 LOWERING is blocked by the
-    extraction architecture** — the only paths left are deeper: teach the `Go Main Extraction`
-    driver to genuinely drop a recognized-native op's body+deps (an opaque-decl pass), or re-base
-    the model so the rounding has no definitional tree (no such primitive exists).  Both are
-    architectural; deferred.  The float32 MODEL (faithful, machine-checked) is the deliverable and
-    stands; the native lowering waits on the driver change.  (Same root blocker as the proof-only
-    conversions `i64_of_f64` / narrow→int64 — they all drag a stdlib definitional tree.)
+    check).  **float32 LOWERING DONE (2026-06-19) — by MODULE suppression.**  Two earlier
+    approaches failed: suppress-the-tree BY BASENAME (the SpecFloat drag reaches PrimFloat
+    primitives that emit as `panic("axiom: …")` stubs, AND its parity `is_even` collides with the
+    user mutual-recursion `is_even`), and `Extract Constant` (the `Go Main Extraction` driver still
+    pulls a realized constant's body-deps in).  The clean fix was already in the plugin for `Z`:
+    `is_zarith_helper` suppresses proof-only stdlib decls BY MODULE.  Extending it with
+    `SpecFloat`/`FloatOps`/`FloatLemmas`/`PrimFloat`/`Sint63`/`Int63`/`Cyclic` drops the ENTIRE
+    rounding closure at the source — and being module-qualified it drops SpecFloat's `is_even`
+    while KEEPING the user's (collision gone).  One stdlib RECORD type (`shr_record`) is suppressed
+    by name in the Dind arm (types don't collide).  Then `classify_f32_op` recognises `f32_add`/… →
+    Go `+`/`-`/`*`/`/`, demoed through a typed-param function (`f32_combine (a b c : GoFloat32)` →
+    `func F32_combine(a, b, c float32) float32 { return (a+b)*c }`) so call-site consts pin to
+    `float32`.  `f32_demo` → `+7.500000e+000` (= (1.5+2.25)*2 in float32), golden-locked,
+    **trust base still ZERO Fido axioms** (the SpecFloat machinery in `main_effect`'s proof base is
+    only Rocq's `PrimFloat.*` primitives).  So float32 is a COMPLETE Go type: faithful binary32
+    model + native lowering.  The same `is_zarith_helper` module suppression now also unblocks the
+    proof-only conversions `i64_of_f64` / narrow→int64 (same drag) — a follow-on.
     *Still open:* `float64` → `int`
-    (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
+    (truncation — `PrimFloat` has no to-int primitive); float32 comparisons / literals beyond the demo,
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**

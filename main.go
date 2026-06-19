@@ -2,6 +2,18 @@
 
 package main
 
+func Xorb(b1 bool, b2 bool) bool {
+	if b1 {
+		if b2 {
+			return false
+		} else {
+			return true
+		}
+	} else {
+		return b2
+	}
+}
+
 type Comparison int
 
 const (
@@ -9,8 +21,6 @@ const (
 	Lt
 	Gt
 )
-
-var Size uint = 63
 
 func I64_abs(a int64) int64 {
 	if a < 0 {
@@ -99,6 +109,14 @@ func Fminmax_demo() {
 
 func Fcmp_demo() {
 	println(5.0 > 3.0, 3.0 >= 3.0, 5.0 != 3.0)
+}
+
+func F32_combine(a float32, b float32, c float32) float32 {
+	return (a + b) * c
+}
+
+func F32_demo() {
+	println(F32_combine(1.5, 2.25, 2.0))
 }
 
 func F64_of_int_demo() {
@@ -1792,6 +1810,7 @@ func main() {
 	Recursion_demo()
 	Pure_rec_demo()
 	Mutual_rec_demo()
+	F32_demo()
 	Enum_demo()
 	Enum_value_demo()
 	Enum_default_demo()

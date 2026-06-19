@@ -182,7 +182,14 @@ let path_contains r sub =
    constructor) decls into the program.  Suppress them by module so the printer never
    tries to lower a [Z] eliminator.  Safe: nothing in the EMITTED Go calls them. *)
 let is_zarith_helper r =
-  List.exists (path_contains r) ["BinInt"; "BinPos"; "BinNat"; "BinNums"; "PArith"; "NArith"]
+  List.exists (path_contains r)
+    ["BinInt"; "BinPos"; "BinNat"; "BinNums"; "PArith"; "NArith";
+     (* SpecFloat binary32/64 rounding machinery + the Sint63→Z helper, dragged in by the
+        PROOF-ONLY float32 op bodies ([f32_add] = [SF2Prim (SFadd …)]).  Suppressed BY MODULE
+        (not by basename — that collided: SpecFloat's parity [is_even] vs a user [is_even]).
+        The float ops lower to native Go [float32]/[float64] by name, so nothing emitted calls
+        these.  ([Sint63] also carries [to_Z], the narrow→int64 widening's blocker.) *)
+     "SpecFloat"; "FloatOps"; "FloatLemmas"; "PrimFloat"; "Sint63"; "Int63"; "Cyclic"]
   (* Generic eliminators leaked from the [Z] bodies but living in
      [Corelib.Init.Datatypes] (so not caught by module): [CompOpp] (from
      [Z.compare]), [fst]/[snd] (from [Z.quotrem], the truncating div/mod).  Only ever
@@ -729,6 +736,14 @@ let classify_float_op r =
     (fun (name, op) -> if is_float_op_ref r name then Some op else None)
     float_op_table
 
+(* float32 arithmetic (Fido [f32_add]/… defs, modelled via SpecFloat): recognized BY NAME →
+   the native Go [float32] operator.  The SpecFloat body lowers to nothing — its whole drag
+   closure is suppressed by module via [is_zarith_helper]. *)
+let f32_op_table = [ "f32_add", " + "; "f32_sub", " - "; "f32_mul", " * "; "f32_div", " / " ]
+let classify_f32_op r =
+  let bn = global_basename r in
+  List.find_map (fun (name, op) -> if String.equal bn name then Some op else None) f32_op_table
+
 (* Coq [nat] is modelled as Go [uint].  Add/mul/comparison are faithful within
    the representable range (a [nat] too large for [uint] is unrepresentable
    either way), but [Nat.sub] is TRUNCATED monus ([3 - 5 = 0]) whereas Go [uint]
@@ -904,6 +919,9 @@ let binop_of r =
   | Some op -> Some (op_prec op, go_infix op)
   | None ->
   match classify_float_op r with
+  | Some s -> Some (float_prec s, s)
+  | None ->
+  match classify_f32_op r with
   | Some s -> Some (float_prec s, s)
   | None -> None
 
@@ -3409,6 +3427,7 @@ let is_inlined_ref r =
   is_float_opp_ref r ||
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
+  Option.has_some (classify_f32_op r) ||   (* f32_add/sub/mul/div: SpecFloat body suppressed by module, call site → Go [+]/[-]/[*]/[/] *)
   is_existT_ref r || is_sigT_ref r ||
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||
   List.exists (fun (name, _) -> is_int63_op_ref r name) nat_op_names ||
@@ -3494,7 +3513,10 @@ let pp_decl state decl =
          other inductives are still suppressed (nat/bool are builtins). *)
       (match mi.ind_kind with
        | Record projs when Array.length mi.ind_packets > 0
-           && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
+           && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename))
+           (* a proof-only stdlib RECORD type (SpecFloat's [shr_record], fields are [Z]) is
+              suppressed — safe to match by name (no user type shares these names). *)
+           && not (List.mem (Id.to_string mi.ind_packets.(0).ip_typename) ["shr_record"]) ->
            let pkt = mi.ind_packets.(0) in
            let ftypes = (try pkt.ip_types.(0) with _ -> []) in
            (match Hashtbl.find_opt defined_prim_under (go_export (Id.to_string pkt.ip_typename)) with

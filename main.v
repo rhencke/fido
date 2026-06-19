@@ -323,6 +323,15 @@ Example f32_add_exact  : PrimFloat.eqb (f32_add 1.5 2.25) 3.75 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_mul_exact  : PrimFloat.eqb (f32_mul 1.5 2) 3 = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(** float32 LOWERED to native Go [float32].  The SpecFloat model body lowers to nothing — its
+    whole drag closure (the binary32 rounding machinery, plus the colliding [Sint63]/[Z]
+    helpers) is suppressed BY MODULE (`is_zarith_helper`), so the plugin emits [f32_add]/… →
+    Go [+]/[-]/[*]/[/] on real [float32] values.  Demoed through a typed-param function so the
+    call-site constants pin to [float32]. *)
+Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
+Definition f32_demo : IO unit := println [ any (f32_combine 1.5 2.25 2) ].   (* (1.5+2.25)*2 = 7.5 *)
+
 Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)
@@ -2315,6 +2324,7 @@ Definition main_effect : IO unit :=
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
+  f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
   enum_default_demo             >>'   (* prints: 1 / 0 (enum switch with a default arm) *)
@@ -2345,7 +2355,7 @@ Extraction NoInline
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int f64_of_i64
-  dir_name
+  dir_name f32_combine
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb
