@@ -712,23 +712,24 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
 4. **`type_assert`** — *checked form added*. `type_assert_safe` (CPS, Go's
    native `v, ok := x.(T)`) is the safe-by-construction default; `type_assert`
    is the escape hatch.
-5. **Untyped constants** — *open, not yet modelled*. Go integer/float literals
-   are *untyped* and arbitrary-precision: constant arithmetic is exact and a
-   constant gets a type (with a compile-time representability check) only at the
-   point of use. We model literals as already-typed fixed-width values
-   (`int` = Sint63, `float64` = IEEE double), conflating the two layers:
-   - integer: a constant overflowing its target type is a *compile error* in Go,
-     not a runtime wrap; and large constants (`1 << 70`) aren't representable in
-     63-bit `int` at all.
-   - float: Go does constant float arithmetic at arbitrary precision and rounds
-     once at the typed boundary (`const 0.1 + 0.2` = `0.3`), whereas runtime
-     `float64` rounds each step (`0.30000000000000004`). Modelling literals as
-     IEEE doubles matches the *runtime* answer, not the constant one.
-   No impact yet (no large/narrow/constant-arithmetic cases). Accurate model:
-   untyped int constants as `Z`, untyped float constants as exact rationals; a
-   constant acquires a type only at use, where representability is a proof
-   obligation (Go's compile-time check → safe-by-construction). Ties to #2 (the
-   Z int model) and to string literals.
+5. **Untyped constants** — *integer VALUES DONE + exhibited (2026-06-19); constant
+   EXPRESSIONS and the float side open.*  Go literals are untyped + arbitrary-precision; a
+   constant gets a type — with a compile-time REPRESENTABILITY check — only at use.  Fido's
+   typed-literal-with-fit-proof IS that model: the literal's argument is an exact `Z`/`uint63`
+   VALUE and the `eq_refl` fit-proof is Go's representability check.  `uconst_demo` (main.v)
+   exhibits it: a >32-bit value at `int64`; the SAME `100` typed at both `int64` AND `uint8`
+   (one constant, many types); and overflow REJECTED at compile time — `in_i64 (2^63) = false`
+   and `300 <? 256 = false`, so the literal cannot be built and the unsafe Go never extracts
+   (`uc_i64_overflow`/`uc_u8_overflow`).
+   - *Still open — constant EXPRESSIONS:* `i64_lit (Z.shiftl 1 40 + 5)` does NOT extract — the
+     plugin folds only a LITERAL `Z`, not an arithmetic expression (it fails loud: "i64_lit of a
+     non-literal Z").  A faithful folder must use ARBITRARY PRECISION (Go folds `(1<<70)>>10`
+     exactly, with intermediates exceeding the target before narrowing — an `Int64` folder would
+     be wrong); a plugin bignum (zarith) constant-folder is the fix.
+   - *Still open — float side:* Go does constant float arithmetic at arbitrary precision, rounding
+     ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas runtime `float64` rounds each
+     step (`0.30000000000000004`).  Faithful model: untyped float constants as exact rationals,
+     rounded once at use.  (Ties to the float32 soft-float `SpecFloat` machinery.)
 6. **Function-scoped `defer`** — *done*. `defer_call f` is Go's `defer`
    keyword — function-scoped, LIFO, runs at function return on both normal and
    panic exit; it lowers to `defer func(){ f }()` (Go provides the scoping,

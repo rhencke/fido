@@ -241,6 +241,16 @@ func I64_ops_demo() {
 	println(-1&4294967295, ^(5))
 }
 
+var Uc_bignum int64 = 1099511627781
+
+var Uc_100_i64 int64 = 100
+
+var Uc_100_u8 int64 = (100 & 0xff)
+
+func Uconst_demo() {
+	println(Uc_bignum, Uc_100_i64, Uc_100_u8)
+}
+
 func U64_demo() {
 	println(5000000000000000000+3000000000000000000, 3000000000*3000000000)
 }
@@ -1772,6 +1782,7 @@ func main() {
 	U32_demo()
 	I64_demo()
 	I64_ops_demo()
+	Uconst_demo()
 	U64_demo()
 	I64_pipeline_demo()
 	U64_pipeline_demo()

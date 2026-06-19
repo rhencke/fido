@@ -691,6 +691,24 @@ Definition i64_ops_demo : IO unit :=
   println [ any (i64_and (i64_lit (-1) eq_refl) (i64_lit 4294967295 eq_refl))   (* 4294967295 *)
           ; any (i64_not (i64_lit 5 eq_refl)) ]).  (* -6 *)
 
+(** UNTYPED CONSTANTS (Go: a literal is ARBITRARY-PRECISION and untyped until it lands in a typed
+    context, where it must be REPRESENTABLE there — else a COMPILE ERROR).  Fido models this:
+    a literal's argument is an exact [Z]/[uint63] value, and the constructor's FIT-PROOF *is* Go's
+    representability check.  (1) arbitrary precision — a >32-bit value at [int64]; (2) ONE constant,
+    MANY types — [100] is typeable at [int64] AND [uint8]; (3) overflow REJECTED at "compile time" —
+    [2^63] has no [in_i64] proof (not an [int64]) and [300] has no [<256] proof (not a [uint8]), so
+    neither literal can be BUILT and the unsafe Go never extracts.  *(Scope: untyped INTEGER
+    constant VALUES.  Constant EXPRESSIONS — `(1<<40)+5` as arithmetic, where Go folds at arbitrary
+    precision possibly exceeding the target before narrowing — need a bignum folder in the plugin;
+    plus default types and untyped float/rune constants.  All tracked.)* *)
+Definition uc_bignum  : GoI64 := i64_lit 1099511627781 eq_refl.   (* (1<<40)+5 = 2^40+5: >32-bit, fits int64 *)
+Definition uc_100_i64 : GoI64 := i64_lit 100 eq_refl.
+Definition uc_100_u8  : GoU8  := u8_lit 100 eq_refl.              (* the SAME 100, typed uint8 *)
+Example uc_i64_overflow : in_i64 9223372036854775808 = false. Proof. now vm_compute. Qed.  (* 2^63 ∉ int64 *)
+Example uc_u8_overflow  : (300 <? 256)%uint63 = false.        Proof. now vm_compute. Qed.  (* 300 ∉ uint8 *)
+Definition uconst_demo : IO unit :=
+  println [ any uc_bignum ; any uc_100_i64 ; any uc_100_u8 ].   (* 1099511627781 100 100 *)
+
 (** ===== GoU64: FULL-WIDTH unsigned 64-bit integer =====
     Machine-checked witnesses:
     - [spec_u64_add_wrap]: 2^63 + 2^63 = 0 (mod 2^64) — the true unsigned wrap boundary.
@@ -2338,6 +2356,7 @@ Definition main_effect : IO unit :=
   u32_demo                      >>'   (* prints: 705032704 -294967296 / 2147483648 / 1410065408 -2147479015 *)
   i64_demo                      >>'   (* prints: 9200000000000000000 9000000000000000000 *)
   i64_ops_demo                  >>'   (* prints: 1285714285714285714 1099511627776 / 4294967295 -6 *)
+  uconst_demo                   >>'   (* prints: 1099511627781 100 100 (untyped constants: arbitrary precision, typed-at-use) *)
   u64_demo                      >>'   (* prints: 8000000000000000000 9000000000000000000 *)
   i64_pipeline_demo             >>'   (* prints: 9000000000000000001 (int64 through chan + map) *)
   u64_pipeline_demo             >>'   (* prints: 18000000000000000000 (uint64 >= 2^63 through chan + map) *)
