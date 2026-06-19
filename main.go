@@ -91,6 +91,10 @@ func Fcmp_demo() {
 	println(5.0 > 3.0, 3.0 >= 3.0, 5.0 != 3.0)
 }
 
+func F64_of_int_demo() {
+	println(float64(5), float64(-3))
+}
+
 func U8_demo() {
 	println((((200 & 0xff) + (100 & 0xff)) & 0xff))
 	println((((255 & 0xff) * (255 & 0xff)) & 0xff))
@@ -1306,6 +1310,7 @@ func main() {
 	Float_opp_demo()
 	Float_opp_sign_demo(0.0)
 	Fminmax_demo()
+	F64_of_int_demo()
 	Fcmp_demo()
 	U8_demo()
 	Fw_cmp_demo()

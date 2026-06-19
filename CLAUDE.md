@@ -1029,8 +1029,17 @@ resting state.)**
     NaN PROPAGATION (a NaN arg → NaN result) and SIGNED ZERO (`min(-0,+0)=-0`,
     `max(-0,+0)=+0`), which a naive `if a<b` gets wrong; machine-checked
     `f64_min_nan`/`f64_max_nan_b`/`f64_min_negzero`/`f64_max_poszero`, `fminmax_demo`.
-    *Still open:* `float32` is an opaque axiom (no native Rocq
-    f32); int↔float / float↔float conversions are absent; and `abs`/`sqrt` are
+    **`int` → `float64` DONE (2026-06-19):** `f64_of_int` → native `float64(i)` — modeled by
+    the Rocq primitive `PrimFloat.of_uint63` (unsigned magnitude) + a sign-split, recognized
+    by name → cast with the body suppressed (machine-checked `f64_of_int_pos`/`_neg`;
+    `f64_of_int_demo` → `+5.000000e+000 -3.000000e+000`).  It SUCCEEDS where the narrow→int64
+    widening fails for one reason: `f64_of_int` returns `float` (a primitive, NOT a single-
+    field record), so there is no unbox-η-collapse to a renaming — it stays a NAMED call the
+    recognizer fires on.  Adds `PrimFloat.of_uint63` to the trust base — a Rocq `float`
+    PRIMITIVE (like `PrimFloat.add`), NOT a Fido axiom.  *Still open:* `float64` → `int`
+    (truncation — `PrimFloat` has no to-int primitive); `f64_of_i64` lowering (`GoI64`→float,
+    modeled but its `Z` carrier needs the match-bodied `Uint63.of_Z`); `float32` (no native
+    Rocq f32) and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
     (an inline `abs` would mishandle `-0.0`, so it must wait for the real

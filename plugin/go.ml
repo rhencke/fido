@@ -630,6 +630,14 @@ let is_float_op_ref r name =
    Needs no package import (unlike [abs]/[sqrt], which want [math]). *)
 let is_float_opp_ref r = is_float_op_ref r "opp"
 
+(* [f64_of_int i] — int (Sint63) → float64: Go's native [float64(i)] (the int64 carrier
+   converts directly to the nearest double; Go does the rounding).  The faithful Coq body
+   (sign-split + [PrimFloat.of_uint63]) is recognized away — only [of_uint63], a leaf
+   primitive, sits in it, and the conversion erases to a plain cast.  [of_uint63]'s own decl
+   is suppressed (it is never CALLED in emitted code; the body is recognized → cast). *)
+let is_f64_of_int_ref r = String.equal (global_basename r) "f64_of_int"
+let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
+
 (* Fixed-width unsigned integer ops (builtins.v).  Carrier is int64; each op
    masks back to the width, e.g. [u8_add a b] → [((a + b) & 0xff)], matching Go's
    uint8 wrap.  Comparisons go through [binop_of]; the masked arithmetic and the
@@ -1379,6 +1387,9 @@ let rec pp_expr state env = function
        (* [int_of_FW x] — widen to [int]: identity (carrier already int64). *)
        | MLglob r, [x] when is_int_of_fw r ->
            pp_expr state env x
+       (* [f64_of_int i] — int → float64: Go's native cast [float64(i)]. *)
+       | MLglob r, [x] when is_f64_of_int_ref r ->
+           str "float64(" ++ pp_expr state env x ++ str ")"
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
@@ -3124,6 +3135,7 @@ let is_inlined_ref r =
   is_unit_tt r ||
   is_go_prim_type r || is_float64_type r ||
   is_float_opp_ref r ||
+  is_f64_of_int_ref r || is_of_uint63_ref r ||  (* int→float cast: recognized → float64(i); body + of_uint63 primitive suppressed *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   is_existT_ref r || is_sigT_ref r ||
   List.exists (fun (name, _) -> is_nat_op_ref r name) nat_op_names ||

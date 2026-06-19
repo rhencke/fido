@@ -1208,6 +1208,21 @@ Definition f64_of_i64 (a : GoI64) : float :=
   then PrimFloat.of_uint63 (Uint63.of_Z (i64raw a))
   else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (i64raw a)))).
 
+(** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for
+    |i| < 2^53, rounds beyond — exactly Go's rule).  [PrimFloat.of_uint63] converts the
+    unsigned MAGNITUDE; the sign-split handles negatives ([0 - i] is the two's-complement
+    magnitude of a negative [i], then negate the float).  Unlike [f64_of_i64] (whose [Z]
+    carrier needs the match-bodied [Uint63.of_Z]), the index [int] (Sint63) IS already an
+    int63, so it passes STRAIGHT to [of_uint63] — only that one leaf primitive sits in the
+    body.  Recognized by name → native [float64(i)]; the body (the sign-split + [of_uint63])
+    is suppressed, so it never reaches the emitted Go.  Machine-checked by [f64_of_int_pos]/
+    [f64_of_int_neg] (main.v).  Returns [float] (not a record), so no unbox-renaming collapse
+    — it stays a NAMED call the recognizer fires on. *)
+Definition f64_of_int (i : int) : float :=
+  if Sint63.ltb i 0%sint63
+  then PrimFloat.opp (PrimFloat.of_uint63 (PrimInt63.sub 0%uint63 i))
+  else PrimFloat.of_uint63 i.
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world

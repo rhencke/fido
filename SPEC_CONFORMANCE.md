@@ -364,9 +364,15 @@ identity, but the faithful body crosses the PrimInt63→`Z` carrier via `Sint63.
 whose stdlib chain pulls in the deliberately-REJECTED unsigned `Uint63.ltb` (Tier 3
 #9) — so kept proof-only (not extracted), like `f64_of_i64`.
 `string`↔`[]byte`/`[]rune` and `string(rune)` are DONE (the rune view — see String
-types).  **Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float
-gaps / no native f32); narrow → `uint64` and `int64`→narrow (same carrier-bridge);
-interface conversions beyond `type_assert`.
+types).  **`int` → `float64` DONE (2026-06-19):** `f64_of_int` → native `float64(i)` (the
+nearest double, exact for `|i| < 2^53`); modeled by `PrimFloat.of_uint63` + a sign-split
+(machine-checked `f64_of_int_pos`/`_neg`), recognized → cast with the body suppressed.  This
+adds the Rocq PRIMITIVE `PrimFloat.of_uint63` to the trust base — a kernel `float` op (like
+`PrimFloat.add`), NOT a Fido axiom.  **Still ✗ (fails loud):** `float64` → `int`
+(truncation — `PrimFloat` has no to-int primitive); `f64_of_i64` (the `GoI64`→float case,
+modeled but its `Z` carrier needs the match-bodied `Uint63.of_Z`); `float↔float` (no native
+f32); narrow → `uint64` and `int64`→narrow (carrier-bridge); interface conversions beyond
+`type_assert`.
 
 ## Expressions — primary
 
