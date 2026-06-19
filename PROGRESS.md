@@ -1217,12 +1217,19 @@ resting state.)**
     `abs`/`infinity`/`nan`) which the plugin emits as `panic("axiom: …")` STUBS — extraction PASSES
     but Go won't compile (worse than fail-loud); and (b) the Z helpers COLLIDE with user names —
     SpecFloat's parity `is_even` redeclares the mutual-recursion demo's `is_even` (with uint-vs-
-    int64 type confusion).  So suppress-the-tree does NOT cleanly work.  **The clean path is
-    `Extract Constant` on the `f32_*` ops:** that makes Coq treat them as external and NOT extract
-    their bodies, so the whole SpecFloat closure is pruned at the EXTRACTION phase (no drag, no
-    collisions) — while the Coq `Definition`s stay for the proofs (the model is unaffected; only
-    extraction changes).  Then the existing `classify_f32_op` recognition emits `f32_add` → Go
-    `+`.  A fresh attempt; the suppress-the-tree experiment is reverted (model stays proof-only).
+    int64 type confusion).  So suppress-the-tree does NOT cleanly work.  **`Extract Constant` ALSO
+    TRIED and does NOT prune (2026-06-19):** `Extract Constant f32_add => …` on the ops did not
+    keep the SpecFloat body out of extraction — `get_sign` still dragged (and it is reachable ONLY
+    via the f32 path, since the committed model-only state is green).  Coq's standard
+    `mono_environment` (which the `Go Main Extraction` driver uses) normally honours `Extract
+    Constant`, so the driver evidently still pulls a realized constant's original body-deps into the
+    structure.  So BOTH clean mechanisms fail.  **CONCLUSION: float32 LOWERING is blocked by the
+    extraction architecture** — the only paths left are deeper: teach the `Go Main Extraction`
+    driver to genuinely drop a recognized-native op's body+deps (an opaque-decl pass), or re-base
+    the model so the rounding has no definitional tree (no such primitive exists).  Both are
+    architectural; deferred.  The float32 MODEL (faithful, machine-checked) is the deliverable and
+    stands; the native lowering waits on the driver change.  (Same root blocker as the proof-only
+    conversions `i64_of_f64` / narrow→int64 — they all drag a stdlib definitional tree.)
     *Still open:* `float64` → `int`
     (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
