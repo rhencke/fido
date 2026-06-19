@@ -485,8 +485,14 @@ separate tracks.
    bare; the one fix was teaching `pp_type` to recognise the `GoSlice` NAME (a Fido `Definition := list`
    that a record field keeps unexpanded — parallel to `GoMap`/`GoChan`).  `func (l IntList) Il_len() int
    { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  *Not yet:* defined types as map KEYS (the
-   phantom breaks equality), `Module`-namespaced method names, defined types over map/struct underlyings
-   (mechanical — same bare cast as slices).
+   phantom breaks equality), `Module`-namespaced method names.  **MAP underlyings DONE
+   (2026-06-19)** — `type Counts map[string]int64`: `GoMap` is already name-recognised in `pp_type`
+   (so no `GoSlice`-style fix needed), the ctor is `Counts(m)`, the projection cast `map[string]
+   int64(c)` (valid Go without parens, like a slice).  `gmap_deftype_demo` reads `len` through the
+   cast → `2`.  No IO-VALUE METHOD on it though: a map read is `IO` (heap-backed) and an IO-value-
+   returning method hits a separate gap — `pp_io_body` emits the tail without `return` (slice
+   `il_len` worked only because slice `len` is PURE).  *Still pending:* defined types over a STRUCT
+   underlying (mechanical), and the IO-value-method gap (see below).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

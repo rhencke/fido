@@ -2054,6 +2054,23 @@ Definition gstruct_demo : IO unit :=
   bind (println [any (box_get (make_box true))])         (fun _ =>   (* Box[bool] → true (same generic) *)
   println [any (box_tag (make_box "x"%string))])).                   (* non-generic field → 1 *)
 
+(** A DEFINED TYPE over a MAP underlying (Go's [type Counts map[string]int64]) — completing
+    the composite-underlying axis (primitive/string/func/slice/MAP).  [GoMap] is already
+    recognised by name in [pp_type] (unlike [GoSlice]), so no plugin change: the underlying
+    renders [map[string]int64], the ctor is the cast [Counts(m)], and the projection cast
+    [map[string]int64(c)] (valid Go without parens, like a slice).  The projection is read
+    here in the demo body — a map READ is [IO] (heap-backed), and an IO-VALUE-returning METHOD
+    is a separate gap (pp_io_body emits the tail without [return]); the slice [il_len] worked
+    only because slice [len] is PURE.  So this exercises the type + both casts faithfully. *)
+Record Counts := MkCounts { co_val : GoMap GoString GoI64 ; co_tag : GoTypeTag (GoMap GoString GoI64) }.
+Definition mk_counts (m : GoMap GoString GoI64) : Counts := MkCounts m (TMap TString TI64).
+Definition gmap_deftype_demo : IO unit :=
+  bind (map_make_typed TString TI64)              (fun m =>
+  bind (map_set TString TI64 "a"%string (1)%i64 m) (fun _ =>
+  bind (map_set TString TI64 "b"%string (2)%i64 m) (fun _ =>
+  bind (map_len (co_val (mk_counts m)))           (fun n =>   (* read len THROUGH the [map[string]int64(c)] cast *)
+  println [any n])))).   (* 2 keys *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2210,6 +2227,7 @@ Definition main_effect : IO unit :=
   embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
+  gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

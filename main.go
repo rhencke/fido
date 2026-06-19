@@ -1491,6 +1491,20 @@ func Gstruct_demo() {
 	println((Make_box("x")).Box_tag())
 }
 
+type Counts map[string]int64
+
+func Mk_counts(m map[string]int64) Counts {
+	return Counts(m)
+}
+
+func Gmap_deftype_demo() {
+	m := make(map[string]int64)
+	m["a"] = 1
+	m["b"] = 2
+	n := len(map[string]int64(Mk_counts(m)))
+	println(n)
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1642,4 +1656,5 @@ func main() {
 	Embed_demo()
 	Generics_demo()
 	Gstruct_demo()
+	Gmap_deftype_demo()
 }
