@@ -349,6 +349,21 @@ Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
 Definition floatconv_demo : IO unit :=
   bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
   println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
+(** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
+    Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
+    is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)
+Example f32_lt_ex   : f32_ltb  (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2) = true.   (* 3 < 10  *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_ge_ex   : f32_geb  (f32_combine 5.0 0.0 2) (f32_combine 1.5 0.0 2) = true.   (* 10 >= 3 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_geb_nan : f32_geb  (f32_combine 1.0 0.0 1) PrimFloat.nan = false.            (* x >= NaN false *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_neq_ex  : f32_neqb (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2) = true.   (* 3 != 10 *)
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_cmp_demo : IO unit :=
+  println [ any (f32_ltb  (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2))    (* 3 < 10  → true *)
+          ; any (f32_geb  (f32_combine 5.0 0.0 2) (f32_combine 1.5 0.0 2))    (* 10 >= 3 → true *)
+          ; any (f32_neqb (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2)) ]. (* 3 != 10 → true *)
 (** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
     zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
@@ -2351,6 +2366,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
+  f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)

@@ -243,6 +243,8 @@ let is_str_ltb_ref    r = String.equal (global_basename r) "str_ltb"
    each is a Fido wrapper recognized by name and lowered to the bare Go operator. *)
 let is_str_cmp_ref    r = List.mem (global_basename r) ["str_gtb"; "str_geb"; "str_neqb"]
 let is_f64_cmp_ref    r = List.mem (global_basename r) ["f64_gtb"; "f64_geb"; "f64_neqb"]
+let is_f32_cmp_ref    r = List.mem (global_basename r)
+                            ["f32_ltb"; "f32_leb"; "f32_eqb"; "f32_gtb"; "f32_geb"; "f32_neqb"]
 
 (* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
    value to [int].  Lowers to identity: the fixed-width carrier is already int64
@@ -852,6 +854,13 @@ let binop_of r =
   else if String.equal (global_basename r) "f64_gtb"  then Some (3, " > ")
   else if String.equal (global_basename r) "f64_geb"  then Some (3, " >= ")
   else if String.equal (global_basename r) "f64_neqb" then Some (3, " != ")
+  (* float32 comparison: same direct operators, on [float32] operands *)
+  else if String.equal (global_basename r) "f32_ltb"  then Some (3, " < ")
+  else if String.equal (global_basename r) "f32_leb"  then Some (3, " <= ")
+  else if String.equal (global_basename r) "f32_eqb"  then Some (3, " == ")
+  else if String.equal (global_basename r) "f32_gtb"  then Some (3, " > ")
+  else if String.equal (global_basename r) "f32_geb"  then Some (3, " >= ")
+  else if String.equal (global_basename r) "f32_neqb" then Some (3, " != ")
   (* complex128 arithmetic: component-wise [+]/[-] → native Go operators (float +/-) *)
   else if String.equal (global_basename r) "complex_add"  then Some (4, " + ")
   else if String.equal (global_basename r) "complex_sub"  then Some (4, " - ")
@@ -3421,7 +3430,7 @@ let is_inlined_ref r =
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
-  is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r ||
+  is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r || is_f32_cmp_ref r ||
   is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||

@@ -136,6 +136,10 @@ func Floatconv_demo() {
 	println(Widen64(Narrow32(7.5)))
 }
 
+func F32_cmp_demo() {
+	println(F32_combine(1.5, 0.0, 2.0) < F32_combine(5.0, 0.0, 2.0), F32_combine(5.0, 0.0, 2.0) >= F32_combine(1.5, 0.0, 2.0), F32_combine(1.5, 0.0, 2.0) != F32_combine(5.0, 0.0, 2.0))
+}
+
 func Trunc64(x float64) int64 {
 	return int64(x)
 }
@@ -1838,6 +1842,7 @@ func main() {
 	F32_demo()
 	I64_of_narrow_demo()
 	Floatconv_demo()
+	F32_cmp_demo()
 	I64_of_f64_demo()
 	Enum_demo()
 	Enum_value_demo()

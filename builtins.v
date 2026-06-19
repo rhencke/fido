@@ -1288,6 +1288,20 @@ Definition f32_sub (a b : GoFloat32) : GoFloat32 := SF2Prim (SFsub 24 128 (Prim2
 Definition f32_mul (a b : GoFloat32) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF b)).
 Definition f32_div (a b : GoFloat32) : GoFloat32 := SF2Prim (SFdiv 24 128 (Prim2SF a) (Prim2SF b)).
 
+(** float32 COMPARISON.  A [GoFloat32] is the [float] carrier holding a binary32-representable
+    value, and a comparison performs NO rounding, so on representable operands binary32 and
+    binary64 ordering agree exactly — hence [PrimFloat.ltb]/[leb]/[eqb] on the carrier ARE the
+    float32 comparisons.  Lowered to native Go [float32] [<]/[<=]/[==]/[>]/[>=]/[!=] (the
+    operands are [float32]).  Same NaN subtlety as float64: [f32_geb]/[f32_gtb] are the SWAPPED
+    [leb]/[ltb] (so a NaN operand makes [>=]/[>] FALSE, matching Go/IEEE — [¬(<)] would be true),
+    while [f32_neqb] is [negb (eqb)] (NaN compares unequal to everything). *)
+Definition f32_ltb  (a b : GoFloat32) : bool := PrimFloat.ltb a b.
+Definition f32_leb  (a b : GoFloat32) : bool := PrimFloat.leb a b.
+Definition f32_eqb  (a b : GoFloat32) : bool := PrimFloat.eqb a b.
+Definition f32_gtb  (a b : GoFloat32) : bool := PrimFloat.ltb b a.
+Definition f32_geb  (a b : GoFloat32) : bool := PrimFloat.leb b a.
+Definition f32_neqb (a b : GoFloat32) : bool := negb (PrimFloat.eqb a b).
+
 (** float32 ↔ float64 conversions (Go [float64(f32)] / [float32(f64)]).  Widening is EXACT (a
     binary32 value is exactly a binary64) — modelled as identity, lowered to [float64(x)].
     Narrowing ROUNDS to binary32 (round-nearest-even) — modelled by the SpecFloat round
