@@ -29,6 +29,32 @@ code implements a rule, it cites the section in a comment.
 
 ---
 
+## Reconciliation (2026-06-19) — markers below that are now SUPERSEDED
+
+Several per-section ✗/⚠ markers predate later work and OVERSTATE the gaps (verified against
+the committed code).  The status now:
+
+- **`float32` — ✓ DONE** (not "✗ no native Rocq f32").  Faithful binary32 via `SpecFloat`
+  (prec 24, emax 128): arithmetic, comparisons, and ALL conversions (`float32↔float64`,
+  `float32↔int64`, narrow↔`int64`) lower to native Go `float32`.  Supersedes the `float32 ✗`
+  notes in *Numeric types*, *Floating-point operators*, *Conversions*.
+- **Conversions — ✓ float included.**  `float64↔int64`, `float64↔uint64` (round-to-odd),
+  `float32↔float64`, the full width-typed integer matrix (narrow↔`int64`↔`uint64`) all lower
+  to native casts.  Supersedes "✗ float" + the "lowering deferred (proof-only)" notes.
+- **Interface types — ✓ single-method + nullary DONE** via the `gr_self`/`sg_self` second
+  field (a 2-field record = Go's (vtable, value) pair).  Supersedes "✗ 1-method interface".
+- **Constant expressions — ✓ INTEGER done** (signed + unsigned): the plugin's `z_eval`/`zu_eval`
+  fold `Z.add/sub/mul/opp/shiftl/land/lor/lxor` with overflow = fail-loud.  ⚠ float-constant
+  arithmetic still open (needs exact-rational `Q`, round-once).
+- **Generics — ✓ `comparable` constraint** added (witness-erasure → `[K comparable]`, `==`).
+
+Genuinely still open (per honest survey): float-constant exact-rational arithmetic; FMA fusion
+(bounded deviation); array-TYPED positions (type-level `N`); struct tags / embedding non-struct
+types; the `interface` keyword surface (we emit dict-structs — a deviation, not a gap); native
+`switch` emission (cosmetic); and the concurrency GUARANTEE over real programs (research).
+
+---
+
 ## Lexical elements
 
 ### [Integer literals](https://go.dev/ref/spec#Integer_literals) / [Floating-point literals](https://go.dev/ref/spec#Floating-point_literals) — ⚠ (typed/fixed-width view)
@@ -355,7 +381,9 @@ Ours: `float64`=`PrimFloat` (IEEE binary64); `+ - * /`, `opp`, comparisons lower
 to Go natives; float `/` unguarded (IEEE ±inf/NaN, no panic) — conforms.
 `float_demo`, `float_opp_demo`.  **⚠ deviation:** we round EACH op (no fusion);
 Go MAY FMA `a*b+c`, giving a more precise result — a fused expression can differ
-from our per-op-rounded value.  `float32` **✗** (no native Rocq f32).
+from our per-op-rounded value (Go does not GUARANTEE fusion, so this is bounded).
+`float32` — **✓ DONE** (faithful binary32 via `SpecFloat`; arithmetic + comparisons →
+native Go `float32` `+ - * /` `< <= == > >= !=`; see the Reconciliation note up top).
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal
