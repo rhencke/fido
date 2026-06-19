@@ -1269,7 +1269,20 @@ resting state.)**
     carrier-crossing wall was false** (same lesson as float32): no force-inline, no `to_Z`/`of_Z`
     leak, no carrier-in-Z refactor needed.  Machine-checked `i64_to_u8_trunc`/`i64_to_i8_signed`/
     `i64_to_u8_neg` (`uint8(-1)=255`) / `i64_to_i32_wide`; `i64_to_narrow_demo` →
-    `52 -56 4464 705032704`, golden-locked, axiom-free.  *Still open:* narrow ↔ uint64.
+    `52 -56 4464 705032704`, golden-locked, axiom-free.
+
+    **narrow ↔ uint64 CLOSED via the int64 HUB (2026-06-19), zero new ops.**  Every integer
+    conversion factors through `GoI64`: narrow→uint64 = `u64_of_i64 ∘ i64_of_narrow` (widen
+    identity, then the `uint64(x)` reinterpret); uint64→narrow = `<narrow>_of_i64 ∘ i64_of_u64`
+    (`int64(x)` reinterpret, then the mask/sign-extend just landed).  Each leg already lowers,
+    and the NAMED hub functions `U64_of_i64`/`I64_of_u64` apply the cast to a VARIABLE — so the
+    signed corners a bare cast would reject (Go forbids `uint64(-1)` on a *constant*) emit valid
+    Go.  Machine-checked: `u64_of_u8_widen` (value preserved), `u64_of_i8_reinterp`
+    (`uint64(int8 -1) = 2^64-1`), `u8_of_u64_trunc` (`uint8(uint64 511) = 255`), `i8_of_u64_signed`
+    (`int8(uint64 255) = -1`); `narrow_u64_demo` → `200 18446744073709551615 255 -1`, golden-
+    locked.  **With this the integer-conversion matrix {int, uintN/intN (N≤32), int64, uint64} is
+    complete** — all pairs route through the int64 hub, each leg faithful + lowering.  (A bare
+    cast would need a different rule per signedness/constness; the hub funnels them to one place.)
 
     Note: `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports

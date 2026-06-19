@@ -127,6 +127,10 @@ func I64_to_narrow_demo() {
 	println(((4660) & 0xff), ((((200) & 0xff) ^ 0x80) - 0x80), ((70000) & 0xffff), ((((5000000000) & 0xffffffff) ^ 0x80000000) - 0x80000000))
 }
 
+func Narrow_u64_demo() {
+	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), ((I64_of_u64(511)) & 0xff), ((((I64_of_u64(255)) & 0xff) ^ 0x80) - 0x80))
+}
+
 func Narrow32(x float64) float32 {
 	return float32(x)
 }
@@ -1846,6 +1850,7 @@ func main() {
 	F32_demo()
 	I64_of_narrow_demo()
 	I64_to_narrow_demo()
+	Narrow_u64_demo()
 	Floatconv_demo()
 	F32_cmp_demo()
 	I64_of_f64_demo()
