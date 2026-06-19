@@ -225,7 +225,10 @@ MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Ce
 `cell3_inc_z` on a 3-field `*Cell3`; `pair_bump` on a HETEROGENEOUS `*Pair{ N int64; B bool }`).
 **Method VALUES** (`p.M` as a closure → `method_value_demo` passes `p.Shifted` to a HOF) and
 **method EXPRESSIONS** (`T.M` unbound → `method_expr_demo` passes `Point.Sum_coords`) are DONE
-too.  ✗ not yet: pointer-receiver method expressions `(*T).M`, methods on defined types over
+too — INCLUDING the **pointer-receiver method expression `(*T).M`** (`ptr_method_expr_demo`
+passes `(*Cell).Cell_incx` — a `func(*Cell)` — to a HOF; the receiver type is recorded
+parenthesized, and a func returning `IO unit` now renders VOID so it type-checks against the
+method's void signature).  ✗ not yet: methods on defined types over
 primitives (`type MyInt int`), and `Module`-namespaced method names (two types sharing a basename).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword

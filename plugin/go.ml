@@ -876,6 +876,14 @@ let rec pp_type state = function
      in an interface dictionary (e.g. [String() string]). *)
   | Tarr (t1, t2) when (match t1 with Tglob (r, []) -> is_unit_type r | _ -> false) ->
       str "func() " ++ pp_type state t2
+  (* a func returning [IO unit] / [unit] is VOID — emit func with NO result type, matching a
+     void method's signature, so a pointer-receiver method expression of an IO-unit method
+     type-checks against the HOF param. *)
+  | Tarr (t1, t2) when (match t2 with
+        | Tglob (r, []) -> is_unit_type r
+        | Tglob (r, [Tglob (u, [])]) -> is_IO_type r && is_unit_type u
+        | _ -> false) ->
+      str "func(" ++ pp_type state t1 ++ str ")"
   | Tarr (t1, t2) ->
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
@@ -3311,11 +3319,16 @@ let collect_decls struc =
         let ids, _ = collect_lam body in
         let arity = List.length (List.filter (fun i -> not (is_dummy i)) ids) in
         Hashtbl.replace method_arity (global_path r) arity ;
-        (* receiver Go type name, for a method EXPRESSION [T.M] used as a bare value —
-           value-receiver (record) only: the type is the record name. *)
+        (* receiver Go type name, for a method EXPRESSION used as a bare value: value-receiver
+           (record) -> T.M (Point.Sum_coords); pointer-receiver (SPtr R = pointer to R) -> the
+           PARENTHESIZED pointer form, Go's syntax for a pointer-receiver method expression
+           (e.g. Cell_incx -> the parenthesized-star-Cell dot form).  The receiver type is the
+           FIRST type arg of the SPtr R / SPtr3 R / SPtrH R A B glob. *)
         (match t with
          | Tglob (rt, _) when is_record_tglob t ->
              Hashtbl.replace method_recvtype (global_path r) (go_export (global_basename rt))
+         | Tglob (_, (Tglob (rt, _) :: _)) when is_sptr_record_tglob t ->
+             Hashtbl.replace method_recvtype (global_path r) ("(*" ^ go_export (global_basename rt) ^ ")")
          | _ -> ())
     | _ -> ()
   in

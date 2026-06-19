@@ -1164,6 +1164,17 @@ func Ptr_method_demo() {
 	println(a)
 }
 
+func Apply_cell(f func(*Cell), p *Cell) {
+	f(p)
+}
+
+func Ptr_method_expr_demo() {
+	p := &Cell{5, 6}
+	Apply_cell((*Cell).Cell_incx, p)
+	a := p.Cx
+	println(a)
+}
+
 type Cell3 struct {
 	C3x int64
 	C3y int64
@@ -1436,6 +1447,7 @@ func main() {
 	Nested_struct_demo()
 	Sptr_demo()
 	Ptr_method_demo()
+	Ptr_method_expr_demo()
 	Nfield_ptr_demo()
 	Het_ptr_demo()
 	Iface_demo()

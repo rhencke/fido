@@ -1731,6 +1731,17 @@ Definition ptr_method_demo : IO unit :=
   bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
+(** POINTER-receiver method EXPRESSION (the parenthesized-star-Cell dot Cell_incx form) — the
+    pointer-receiver method referenced UNBOUND is Go's [func] taking a [*Cell] receiver.
+    Passed to a HOF [apply_cell] taking that func; the plugin records the receiver type as the
+    PARENTHESIZED pointer form (vs the value-receiver [Point.Sum_coords]). *)
+Definition apply_cell (f : SPtr Cell -> IO unit) (p : SPtr Cell) : IO unit := f p.
+Definition ptr_method_expr_demo : IO unit :=
+  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (5)%i64 (6)%i64)) (fun p =>
+  bind (apply_cell cell_incx p) (fun _ =>                     (* pointer-receiver method expr via the HOF — mutates p.Cx *)
+  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 6 *)
+  println [any a]))).                                          (* prints: 6 *)
+
 (** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
     a field.  Same generic field-cell substrate as the 2-field case ([sptr3_field_get_set]
     backs the mutation); shows the pointer story is not limited to 2 fields. *)
@@ -2037,6 +2048,7 @@ Definition main_effect : IO unit :=
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
+  ptr_method_expr_demo          >>'   (* prints: 6 (pointer-receiver method expression) *)
   nfield_ptr_demo               >>'   (* prints: 31 (pointer-receiver method mutates 3-field *Cell3) *)
   het_ptr_demo                  >>'   (* prints: 11 true (pointer method mutates heterogeneous *Pair) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
@@ -2051,7 +2063,7 @@ Definition main_effect : IO unit :=
     still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
     [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
 Extraction NoInline
-  call_shift10 apply_pt swap2
+  call_shift10 apply_pt apply_cell swap2
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
