@@ -390,6 +390,17 @@ Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
 Definition floatconv_demo : IO unit :=
   bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
   println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
+(** UNTYPED FLOAT CONSTANTS (model): a constant float expression is EXACT (rational) until typed,
+    then rounded ONCE.  [0.1 + 0.2] as a CONSTANT is [float64(3/10) = 0.3] exactly; the RUNTIME
+    add ([PrimFloat.add 0.1 0.2]) rounds each operand first → [0.30000000000000004].  Both
+    machine-checked, proving the model captures the constant-vs-runtime distinction Go makes.
+    (Proof-only: lowering of [f64_of_fconst] to Go is the deferred follow-on.) *)
+Example fconst_exact   : PrimFloat.eqb (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) 0.3 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example fconst_runtime : PrimFloat.eqb (PrimFloat.add 0.1 0.2) 0.3 = false.   (* runtime ≠ the constant 0.3 *)
+Proof. vm_compute. reflexivity. Qed.
+Example fconst_mul     : PrimFloat.eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 0.375 = true.  (* 3/2·1/4 = 3/8 = 0.375 *)
+Proof. vm_compute. reflexivity. Qed.
 (** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
     Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
     is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)

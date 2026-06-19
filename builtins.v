@@ -1310,6 +1310,26 @@ Definition f64_of_u64 (a : GoU64) : float :=
          (PrimFloat.of_uint63 (Uint63.of_Z (Z.lor (Z.shiftr (u64raw a) 1) (Z.land (u64raw a) 1))))
          2.
 
+(** UNTYPED FLOAT CONSTANTS — exact rationals, rounded ONCE at the typed boundary.  Go folds
+    constant float arithmetic at ARBITRARY precision, rounding only when the constant acquires a
+    type: [const x float64 = 0.1 + 0.2] is [float64(3/10) = 0.3] EXACTLY, NOT the runtime
+    [0.1+0.2 = 0.30000000000000004] (which rounds each operand THEN adds).  Fido's runtime floats
+    ([PrimFloat]) give the runtime answer; this models the CONSTANT one.  An [FConst] is an exact
+    rational [num/den]; [fc_add]/[fc_sub]/[fc_mul] are EXACT ([Q]-style cross-multiply, no
+    rounding); [f64_of_fconst] rounds to [float64] exactly ONCE — an IEEE divide of the two
+    integer endpoints, which is correctly-rounded while [|num|, den < 2^53] (both endpoints exact,
+    so the single division carries the only rounding).  *MODEL + machine-checked; LOWERING (a
+    plugin FConst-fold → Go [float64(num)/float64(den)], which Go re-folds to the same constant)
+    is the deferred follow-on.* *)
+Record FConst := mkFC { fc_num : Z ; fc_den : Z }.
+Definition fc_add (a b : FConst) : FConst :=
+  mkFC (fc_num a * fc_den b + fc_num b * fc_den a) (fc_den a * fc_den b).
+Definition fc_sub (a b : FConst) : FConst :=
+  mkFC (fc_num a * fc_den b - fc_num b * fc_den a) (fc_den a * fc_den b).
+Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (fc_den a * fc_den b).
+Definition f64_of_fconst (a : FConst) : float :=
+  PrimFloat.div (f64_of_i64 (MkI64 (fc_num a))) (f64_of_i64 (MkI64 (fc_den a))).
+
 (** FLOAT32 — faithful binary32 arithmetic via [SpecFloat] (already imported).  A [GoFloat32]
     is carried as a [float] (binary64) holding a binary32-representable value; each op rounds
     to binary32 = format (prec 24, emax 128) via [SFadd]/[SFsub]/[SFmul]/[SFdiv], exactly Go's

@@ -733,10 +733,15 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
      `zu_eval` — same ops with UNSIGNED overflow checks via `Int64.unsigned_*`; `uc_u64_hi` = `1<<63`
      = 9223372036854775808, beyond int64 max, and `(1<<32)-1`).  So INTEGER constant expressions are
      complete for both signed and unsigned int64.  Remaining: float-side below.
-   - *Still open — float side:* Go does constant float arithmetic at arbitrary precision, rounding
-     ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas runtime `float64` rounds each
-     step (`0.30000000000000004`).  Faithful model: untyped float constants as exact rationals,
-     rounded once at use.  (Ties to the float32 soft-float `SpecFloat` machinery.)
+   - *Float side — MODEL DONE (2026-06-19), lowering deferred.*  Go does constant float arithmetic
+     at arbitrary precision, rounding ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas
+     runtime `float64` rounds each step (`0.30000000000000004`).  Modeled: `FConst` = an exact
+     rational `num/den`; `fc_add`/`fc_sub`/`fc_mul` are EXACT (cross-multiply, no rounding);
+     `f64_of_fconst` rounds to `float64` exactly once (IEEE divide of the two integer endpoints,
+     correctly-rounded while `|num|,den < 2^53`).  Machine-checked: `fconst_exact`
+     (`(1/10)+(2/10) → 0.3`), `fconst_runtime` (runtime `0.1+0.2 ≠ 0.3`), `fconst_mul`
+     (`(3/2)·(1/4) = 0.375`).  *Lowering (a plugin FConst-fold → Go `float64(num)/float64(den)`,
+     which Go re-folds to the same constant) is the deferred follow-on.*
 6. **Function-scoped `defer`** — *done*. `defer_call f` is Go's `defer`
    keyword — function-scoped, LIFO, runs at function return on both normal and
    panic exit; it lowers to `defer func(){ f }()` (Go provides the scoping,
