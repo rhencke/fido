@@ -263,6 +263,18 @@ separate tracks.
    - `if`/`else` (match on `bool`) → `if c { … } else { … }` — the core case
    - `switch` (match on a simple inductive) → Go `switch`/if-chain on the
      constructor; also unblocks `option`, so `map_get_opt` can finally lower
+   - **`nat` match (`O` / `S k`) → `if n == 0 { … } else { k := n - 1; … }` — DONE
+     (2026-06-19), enabling USER RECURSION** (a Coq `Fixpoint` → a self-calling Go
+     func).  The probe was the lesson: "recursion" was never the wall — a `Fixpoint`
+     extracts fine; the blocker was the `nat` STRUCTURAL match (`O`/`S k`) being
+     unmodeled in statement position.  Modeled as a mirror of the list nil/cons case
+     (`O` = the zero test, `S k` binds the predecessor `k := n - 1`, reachable only when
+     `n != 0` so the `uint` subtraction never underflows).  `countdown (n : nat) (v : GoI64)`
+     (nat fuel + a `GoI64` accumulator) → `func Countdown(n uint, v int64) { if n == 0 {} else
+     { k := n - 1; println(v); Countdown(k, v-1) } }`, `recursion_demo` → `3 / 2 / 1`, golden-
+     locked, axiom-free.  *Still pending:* the VALUE-position `nat` match (pure recursion
+     returning a value, e.g. `Fixpoint pow2`) — needs the general value-position-match work
+     (the tail `pp_pure_tail` only models a 2-arm bool match).
    - type switch (`switch v := x.(type)`) — *DONE (2026-06-18)*. `type_switch2` is a
      combinator dispatching on a `GoAny`'s runtime type, built on the existing
      `tag_coerce`/`GoTypeTag` machinery (*not* `MLcase`) — so it is **axiom-free** (the

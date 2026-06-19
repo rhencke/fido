@@ -2078,6 +2078,18 @@ Definition gmap_deftype_demo : IO unit :=
   bind (co_sum (mk_counts m))                     (fun s =>   (* bind-chain IO-value method *)
   println [any s])))))).   (* 3 (a+b) *)
 
+(** USER RECURSION (a Coq [Fixpoint] → a self-calling Go func).  Structural recursion needs a
+    [nat] match ([O] / [S k]) — modeled in STATEMENT position as [if n == 0 { … } else { k :=
+    n - 1; … }] (mirroring the list nil/cons case), so the [O] base case and [S k] recursive
+    step lower, and the self-call [countdown k …] emits as [Countdown(k, …)].  [n : nat] is the
+    decreasing fuel (→ Go [uint]); a [GoI64] accumulator [v] carries the printed value. *)
+Fixpoint countdown (n : nat) (v : GoI64) {struct n} : IO unit :=
+  match n with
+  | O => ret tt
+  | S k => bind (println [any v]) (fun _ => countdown k (i64_sub v (1)%i64))
+  end.
+Definition recursion_demo : IO unit := countdown 3 (3)%i64.   (* 3 / 2 / 1 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2235,6 +2247,7 @@ Definition main_effect : IO unit :=
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
+  recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

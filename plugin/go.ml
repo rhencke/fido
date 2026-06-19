@@ -2939,6 +2939,28 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     (some_body, List.length some_ids, List.rev some_ids @ env)
                     (none_body, 0, env)
               | _ -> unhandled ())
+         (* nat: [match n with O => … | S k => …] → [if n == 0 { … } else { k := n - 1; … }].
+            Enables structural recursion (a self-calling Go func) and nat case analysis.  [n]
+            is a nat → Go [uint]; [O] is the zero test, [S k] binds the predecessor [k := n - 1]
+            (reachable only when n != 0, so the [uint] subtraction never underflows). *)
+         | Some c1, Some c2
+           when (is_nat_zero c1 && is_nat_succ c2)
+             || (is_nat_succ c1 && is_nat_zero c2) ->
+             let zero_body, succ_ids, succ_body =
+               if is_nat_zero c1 then body1, ids2, body2
+               else body2, ids1, body1 in
+             let pred_id = match succ_ids with [k] -> k | _ -> Dummy in
+             let n = pp_expr state env scrut in
+             let prefix =
+               if is_dummy pred_id then mt ()
+               else str (tab ^ "\t") ++ pp_mlident pred_id ++ str " := " ++ n ++ str " - 1" ++ fnl () in
+             str tab ++ str "if " ++ n ++ str " == 0 {" ++ fnl () ++
+             pp_stmts (tab ^ "\t") env (mk_body 0 zero_body) ++
+             str tab ++ str "} else {" ++ fnl () ++
+             prefix ++
+             pp_stmts (tab ^ "\t") (List.rev succ_ids @ env)
+               (mk_body (List.length succ_ids) succ_body) ++
+             str tab ++ str "}" ++ fnl ()
          (* list / slice: [match xs with [] | x :: rest] → len / index / reslice.
             Slices only — a [GoString] (byte sequence) match is excluded above. *)
          | Some c1, Some c2

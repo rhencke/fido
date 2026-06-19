@@ -1523,6 +1523,18 @@ func Gmap_deftype_demo() {
 	println(s)
 }
 
+func Countdown(n uint, v int64) {
+	if n == 0 {
+	} else {
+		k := n - 1
+		println(v)
+		Countdown(k, v-1)
+	}
+}
+func Recursion_demo() {
+	Countdown(3, 3)
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1675,4 +1687,5 @@ func main() {
 	Generics_demo()
 	Gstruct_demo()
 	Gmap_deftype_demo()
+	Recursion_demo()
 }
