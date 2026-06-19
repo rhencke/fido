@@ -2130,6 +2130,17 @@ Definition dir_name (d : Direction) : GoString :=
   end.
 Definition enum_value_demo : IO unit := println [any (dir_name West)].   (* W *)
 
+(* ENUM match with a `_` WILDCARD arm: Coq EXPANDS the `_` into the missing constructors
+   (South/East/West all get the `0` body), so it lowers to the all-cases switch with no
+   plugin change — the wildcard never reaches the plugin as a [Pwild] for a finite enum. *)
+Definition dir_sign (d : Direction) : IO unit :=
+  match d with
+  | North => println [any (1)%i64]
+  | _     => println [any (0)%i64]
+  end.
+Definition enum_default_demo : IO unit :=
+  bind (dir_sign North) (fun _ => dir_sign South).   (* 1 (North) / 0 (the expanded South) *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2292,6 +2303,7 @@ Definition main_effect : IO unit :=
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
+  enum_default_demo             >>'   (* prints: 1 / 0 (enum switch with a default arm) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

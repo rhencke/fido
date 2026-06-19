@@ -276,8 +276,10 @@ separate tracks.
      constructor, in constructor order) is emitted as `default:` — faithful, since the match is
      total and the others are matched above, so `default` catches exactly the last constructor.
      `dir_name` needs `NoInline` (keep the match in tail position); `enum_value_demo` → `W`.
-     *Still pending:* a genuine `default`/`_` arm in the source (non-exhaustive match), and enum
-     values as map keys / `==` comparison.
+     A source `_` WILDCARD arm needs no special handling (confirmed 2026-06-19): Coq EXPANDS
+     it into the missing constructors (so `North => 1 | _ => 0` lowers to the all-cases
+     switch), so it never reaches the plugin as a `Pwild` for a finite enum; `enum_default_demo`
+     → `1 / 0`.  *Still pending:* enum values as map keys / `==` comparison.
    - **`nat` match (`O` / `S k`) → `if n == 0 { … } else { k := n - 1; … }` — DONE
      (2026-06-19), enabling USER RECURSION** (a Coq `Fixpoint` → a self-calling Go
      func).  The probe was the lesson: "recursion" was never the wall — a `Fixpoint`

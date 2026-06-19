@@ -2909,7 +2909,9 @@ let pp_io_body ?(ret_val=false) state tab env body =
       | _ -> false
     in
     (* ENUM match (all arms are nullary enum constructors, any arity ≥ 2) → Go [switch].
-       Checked before the 2-arm shapes so a 2-value enum also switches. *)
+       Checked before the 2-arm shapes so a 2-value enum also switches.  A source `_`
+       wildcard needs no special handling: Coq EXPANDS it into the missing constructors
+       (→ an all-cases switch), so it never reaches the plugin as a [Pwild] for an enum. *)
     let all_enum_arms brs =
       List.length brs >= 2 &&
       List.for_all (fun b -> match ctor_of b with
