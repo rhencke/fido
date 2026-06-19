@@ -1933,6 +1933,15 @@ Definition repinv_demo : IO unit :=
     fails for [7, 3], so [eq_refl] does not type-check and the struct is unconstructible. *)
 Fail Definition bad_unsorted : Sorted2 := MkSorted2 (7)%i64 (3)%i64 eq_refl.
 
+(** PROBE: a DEFINED TYPE over a primitive (Go [type MyI64 int64]) with a method.  The
+    [GoTypeTag] phantom field is meant to stop Coq unboxing the single value field, keeping
+    [MyI64] a distinct method-receiver type.  (Probing whether the marker keeps it distinct.) *)
+Record MyI64 := MkMyI64 { my_val : GoI64 ; my_tag : GoTypeTag GoI64 }.
+Definition mk_myi64 (v : GoI64) : MyI64 := MkMyI64 v TI64.
+Definition myi64_double (m : MyI64) : MyI64 := mk_myi64 (i64_add (my_val m) (my_val m)).
+Definition deftype_demo : IO unit :=
+  println [any (my_val (myi64_double (mk_myi64 (21)%i64)))].   (* 42 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2081,6 +2090,7 @@ Definition main_effect : IO unit :=
   nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
+  deftype_demo                  >>'   (* prints: 42 (defined type with method) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

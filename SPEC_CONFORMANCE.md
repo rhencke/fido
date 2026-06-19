@@ -231,8 +231,16 @@ MUTATES the receiver, observed by the caller (`cell_incx` → `func (p *Cell) Ce
 too — INCLUDING the **pointer-receiver method expression `(*T).M`** (`ptr_method_expr_demo`
 passes `(*Cell).Cell_incx` — a `func(*Cell)` — to a HOF; the receiver type is recorded
 parenthesized, and a func returning `IO unit` now renders VOID so it type-checks against the
-method's void signature).  ✗ not yet: methods on defined types over
-primitives (`type MyInt int`), and `Module`-namespaced method names (two types sharing a basename).
+method's void signature).  **DEFINED TYPES over a primitive with methods DONE (2026-06-19):**
+`type MyT <prim>` — a distinct named type with the primitive's representation, carrying methods.
+Modeled as a 2-field record whose 2nd field is a `GoTypeTag` PHANTOM, which is KEPT by extraction
+so Coq does NOT unbox the single value field — that is what keeps the type a distinct method-
+receiver (the recurring single-field-unboxing wall, beaten again because a defined type needs no
+`Comparable`).  The plugin emits `type MyI64 int64` (NOT a struct; the phantom field is never
+rendered), the ctor as the cast `MyI64(v)`, the value projection as `int64(x)`, and methods on it
+are detected as usual: `func (m MyI64) Myi64_double() MyI64 { return Mk_myi64(int64(m) + int64(m)) }`,
+`deftype_demo` → `42`, golden-locked, axiom-free.  ✗ not yet: defined types used as map KEYS (the
+phantom breaks equality), and `Module`-namespaced method names (two types sharing a basename).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

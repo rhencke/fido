@@ -1341,6 +1341,20 @@ func Repinv_demo() {
 	println(Demo_pair.Max_of())
 }
 
+type MyI64 int64
+
+func Mk_myi64(v int64) MyI64 {
+	return MyI64(v)
+}
+
+func (m MyI64) Myi64_double() MyI64 {
+	return Mk_myi64(int64(m) + int64(m))
+}
+
+func Deftype_demo() {
+	println(int64((Mk_myi64(21)).Myi64_double()))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1484,4 +1498,5 @@ func main() {
 	Nullary_iface_demo()
 	Typestate_demo()
 	Repinv_demo()
+	Deftype_demo()
 }

@@ -109,6 +109,16 @@ let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
   (* constructor basename -> field types (for typed-closure dictionary entries) *)
 let record_ctor_fields : (string, string list) Hashtbl.t = Hashtbl.create 16
   (* constructor basename -> ordered Go field names (for KEYED struct literals T{F: v}) *)
+(* DEFINED TYPE over a primitive (Go [type MyT <prim>]): a 2-field record whose 2nd field is a
+   [GoTypeTag] PHANTOM (kept by extraction so Coq does NOT unbox the single value field, which
+   keeps the type a distinct method-receiver).  We emit [type <Name> <under>] (NOT a struct),
+   the ctor as a cast [<Name>(v)], and the value projection as a cast [<under>(x)]. *)
+let defined_prim_under : (string, ml_type) Hashtbl.t = Hashtbl.create 16  (* record typename -> underlying ml_type *)
+let defined_prim_proj  : (string, ml_type) Hashtbl.t = Hashtbl.create 16  (* value-proj path -> underlying ml_type *)
+let deftype_under_of_ftypes ftypes =   (* Some <value field type> if [val_t; GoTypeTag _], else None *)
+  match ftypes with
+  | [vt; Tglob (r, _)] when String.equal (global_basename r) "GoTypeTag" -> Some vt
+  | _ -> None
 (* Methods: a top-level function whose first visible param is a record (struct) is
    lowered as a Go value-receiver method.  [collect_decls] registers each such
    function by its [global_path]; uses then become [recv.Method(rest)]. *)
@@ -1404,6 +1414,12 @@ let rec pp_expr state env = function
        (* record projection [field recv …] → field access [recv.Field], and when
           the field is a method dictionary entry (a function), its application
           [field recv arg…] is dynamic dispatch [recv.Field(arg…)]. *)
+       (* DEFINED-TYPE value projection [my_val x] → the cast [<under>(x)] (recover the
+          underlying primitive from the named defined type), before the field-access arm. *)
+       | MLglob r, [recv] when is_record_proj r
+             && Hashtbl.mem defined_prim_proj (global_path r) ->
+           pp_type state (Hashtbl.find defined_prim_proj (global_path r)) ++
+           str "(" ++ pp_expr state env recv ++ str ")"
        | MLglob r, (recv :: rest) when is_record_proj r ->
            let fld = pp_atom state env recv ++ str "." ++ str (proj_field_name r) in
            (match rest with
@@ -1580,6 +1596,12 @@ let rec pp_expr state env = function
            prlist_with_sep (fun () -> str ", ") (pp_expr state env)
              (Option.get (unfold_list [] lst))
        | _ -> pp_expr state env xs ++ str "...")
+
+  (* DEFINED-TYPE ctor [MkMyT v _tag] → the cast [MyT(v)] (the value field cast to the named
+     defined type; the GoTypeTag phantom arg is dropped).  Before the struct-literal arm. *)
+  | MLcons (_, r, (v :: _)) when is_record_ctor r
+        && Hashtbl.mem defined_prim_under (record_ctor_tyname r) ->
+      str (record_ctor_tyname r) ++ str "(" ++ pp_expr state env v ++ str ")"
 
   (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}].  A
      field whose type is a function (an interface METHOD dictionary entry) and
@@ -3284,6 +3306,13 @@ let pp_decl state decl =
            && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
            let pkt = mi.ind_packets.(0) in
            let ftypes = (try pkt.ip_types.(0) with _ -> []) in
+           (match Hashtbl.find_opt defined_prim_under (go_export (Id.to_string pkt.ip_typename)) with
+            (* DEFINED TYPE over a primitive → [type Name <under>] (NOT a struct; the GoTypeTag
+               phantom field is never rendered) *)
+            | Some under ->
+                str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++ str " " ++
+                pp_type state under ++ fnl () ++ fnl ()
+            | None ->
            let field proj t =
              let fname = match proj with
                | Some g -> go_export (global_basename g) | None -> "F" in
@@ -3291,7 +3320,7 @@ let pp_decl state decl =
            str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++
            str " struct {" ++ fnl () ++
            prlist (fun x -> x) (List.map2 field projs ftypes) ++
-           str "}" ++ fnl () ++ fnl ()
+           str "}" ++ fnl () ++ fnl ())
        | _ -> mt ())
 
   | Dtype (r, _, _) when is_uint63_type r || is_go_prim_type r || is_float64_type r
@@ -3354,7 +3383,16 @@ let collect_decls struc =
                (* ordered Go field names, for keyed struct literals — from the projections *)
                let fields = List.filter_map
                  (function Some g -> Some (go_export (global_basename g)) | None -> None) projs in
-               Hashtbl.replace record_ctor_fields (Id.to_string pkt.ip_consnames.(0)) fields
+               Hashtbl.replace record_ctor_fields (Id.to_string pkt.ip_consnames.(0)) fields ;
+               (* defined-primitive-type? (2 fields, 2nd a GoTypeTag phantom) — record its
+                  underlying type for the special [type T <under>] emission + the value cast *)
+               (match deftype_under_of_ftypes ftypes with
+                | Some vt ->
+                    Hashtbl.replace defined_prim_under (go_export (Id.to_string pkt.ip_typename)) vt ;
+                    (match projs with
+                     | Some g :: _ -> Hashtbl.replace defined_prim_proj (global_path g) vt
+                     | _ -> ())
+                | None -> ())
              end
          | _ -> ())
     | _ -> ()) decls;
