@@ -1209,10 +1209,20 @@ resting state.)**
     `binop_of`); (3) avoid the float32 LITERAL-typing issue by demoing through a typed-param
     function (`f32_sum (a b : GoFloat32)` → `func F32_sum(a, b float32) float32`, so the call-site
     consts pin to `float32`); (4) `println`/`any` of a `GoFloat32` (needs a `Tagged GoFloat32`
-    check).  A dedicated follow-on, now ITERABLE: the `unsupported` abort NAMES the offending
-    decl (e.g. `(while emitting ``get_sign``)` — a SpecFloat helper the `Recursive Extraction`
-    grep had even missed), so the suppression set can be grown one named decl per build instead
-    of guessing.
+    check).  **Suppress-the-tree ATTEMPTED and ABANDONED (2026-06-19):** the decl-naming abort
+    made the grind iterable (~12 SpecFloat/Z decls suppressed one per build — `get_sign`, `to_Z`,
+    `to_Z_rec`, `Zdigits2`, `shr_*`, `shl_align`, `binary_normalize`, `prec`/`emax`/`emin`/`fexp`,
+    `digits2_pos`, `cond_Zopp`, …), but the drag is DEEPER and TANGLED than the closure suggested:
+    (a) it reaches the PrimFloat PRIMITIVE layer (`frshiftexp`/`normfr_mantissa`/`ldshiftexp`/
+    `abs`/`infinity`/`nan`) which the plugin emits as `panic("axiom: …")` STUBS — extraction PASSES
+    but Go won't compile (worse than fail-loud); and (b) the Z helpers COLLIDE with user names —
+    SpecFloat's parity `is_even` redeclares the mutual-recursion demo's `is_even` (with uint-vs-
+    int64 type confusion).  So suppress-the-tree does NOT cleanly work.  **The clean path is
+    `Extract Constant` on the `f32_*` ops:** that makes Coq treat them as external and NOT extract
+    their bodies, so the whole SpecFloat closure is pruned at the EXTRACTION phase (no drag, no
+    collisions) — while the Coq `Definition`s stay for the proofs (the model is unaffected; only
+    extraction changes).  Then the existing `classify_f32_op` recognition emits `f32_add` → Go
+    `+`.  A fresh attempt; the suppress-the-tree experiment is reverted (model stays proof-only).
     *Still open:* `float64` → `int`
     (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
