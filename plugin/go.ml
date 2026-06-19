@@ -928,8 +928,11 @@ let rec pp_type state = function
   | Tglob (r, [kt; vt]) when is_go_map_type r ->
       str "map[" ++ pp_type state kt ++ str "]" ++ pp_type state vt
   (* list A = GoSlice A → []T  (a rune slice [list GoRune] is just []int32; the
-     byte-sequence string is the distinct Coq [string] type, handled below) *)
-  | Tglob (r, [arg]) when is_list_type r ->
+     byte-sequence string is the distinct Coq [string] type, handled below).  [GoSlice]
+     is a Fido [Definition := list]; in most positions extraction unfolds it to [list],
+     but a RECORD FIELD type keeps it unexpanded — so recognise the [GoSlice] name too
+     (parallel to [GoMap]/[GoChan]), e.g. a defined type [type IntList []int64]. *)
+  | Tglob (r, [arg]) when is_list_type r || String.equal (global_basename r) "GoSlice" ->
       str "[]" ++ pp_type state arg
   (* Coq [string] (Strings.String) → Go [string] (byte sequence) *)
   | Tglob (r, []) when is_string_type r -> str "string"

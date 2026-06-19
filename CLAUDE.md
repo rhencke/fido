@@ -440,9 +440,14 @@ separate tracks.
    projection cast PARENTHESISES a composite (func) underlying and CALLS THROUGH it when applied —
    `func (h Handler) Handler_run(x int64) int64 { return (func(int64) int64)(h)(x) }` — so a method on
    the named func type calls the wrapped func; `mk_handler` → `Handler(f)`, `named_func_demo` → `42`.
-   *Not yet:* defined types as map KEYS (the phantom breaks equality), `Module`-namespaced method names,
-   defined types over slice/map/struct underlyings (same parenthesised-cast path, no call-through — easy
-   follow-on).
+   **SLICE underlyings DONE (2026-06-19)** — `type IntList []int64` (the `sort.Interface` `type ByLen
+   []T` idiom): the underlying tag is the existing `TSlice`, no call-through, and a slice conversion
+   `[]int64(l)` is valid Go WITHOUT parens (only `*`/`<-`/`func` need them), so `pp_cast_type` leaves it
+   bare; the one fix was teaching `pp_type` to recognise the `GoSlice` NAME (a Fido `Definition := list`
+   that a record field keeps unexpanded — parallel to `GoMap`/`GoChan`).  `func (l IntList) Il_len() int
+   { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  *Not yet:* defined types as map KEYS (the
+   phantom breaks equality), `Module`-namespaced method names, defined types over map/struct underlyings
+   (mechanical — same bare cast as slices).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

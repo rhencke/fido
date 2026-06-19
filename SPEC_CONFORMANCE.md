@@ -250,9 +250,11 @@ the defined type's own method (`deftype_iface_demo` → `120`).  **NAMED FUNC TY
 func(int64) int64`, the `http.HandlerFunc` idiom) work too: a `TArrow` `GoTypeTag` constructor carries
 the phantom for a func underlying, the projection cast is parenthesised and CALLED THROUGH when applied
 (`func (h Handler) Handler_run(x int64) int64 { return (func(int64) int64)(h)(x) }`), `named_func_demo`
-→ `42`.  ✗ not yet: defined types used as map KEYS (the phantom breaks equality), `Module`-namespaced
-method names (two types sharing a basename), defined types over slice/map/struct underlyings (mechanical
-follow-on — same parenthesised cast, no call-through).
+→ `42`.  **SLICE underlyings** (`type IntList []int64`, the `sort.Interface` `type ByLen []T` idiom)
+work too — underlying tag `TSlice`, cast `[]int64(l)` (valid Go without parens), `func (l IntList)
+Il_len() int { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  ✗ not yet: defined types used as
+map KEYS (the phantom breaks equality), `Module`-namespaced method names (two types sharing a basename),
+defined types over map/struct underlyings (mechanical — same bare cast as slices).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

@@ -1412,6 +1412,20 @@ func Named_func_demo() {
 	println((Mk_handler(Hinc)).Handler_run(41))
 }
 
+type IntList []int64
+
+func Mk_intlist(s []int64) IntList {
+	return IntList(s)
+}
+
+func (l IntList) Il_len() int {
+	return len([]int64(l))
+}
+
+func Deftype_slice_demo() {
+	println((Mk_intlist(make([]int64, 3))).Il_len())
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1559,4 +1573,5 @@ func main() {
 	Deftype_str_demo()
 	Deftype_iface_demo()
 	Named_func_demo()
+	Deftype_slice_demo()
 }

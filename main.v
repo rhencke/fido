@@ -1985,6 +1985,18 @@ Proof. reflexivity. Qed.
 Definition named_func_demo : IO unit :=
   println [any (handler_run (mk_handler hinc) (41)%i64)].   (* 42 *)
 
+(** A DEFINED TYPE over a SLICE underlying (Go's [type IntList []int64] — the
+    [sort.Interface] [type ByLen []T] idiom).  No new plugin work: the underlying
+    [GoTypeTag] is the existing [TSlice], and a slice conversion [[]int64(l)] is valid Go
+    WITHOUT parens (only [*]/[<-]/[func] types need them — cf. the canonical [[]byte(s)]),
+    so the projection cast emits fine and there is no call-through.  [il_len] is a
+    value-receiver method projecting the slice and taking its [len]. *)
+Record IntList := MkIntList { il_val : GoSlice GoI64 ; il_tag : GoTypeTag (GoSlice GoI64) }.
+Definition mk_intlist (s : GoSlice GoI64) : IntList := MkIntList s (TSlice TI64).
+Definition il_len (l : IntList) : GoInt := len (il_val l).
+Definition deftype_slice_demo : IO unit :=
+  println [any (il_len (mk_intlist (slice_make TI64 3)))].   (* 3 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2137,6 +2149,7 @@ Definition main_effect : IO unit :=
   deftype_str_demo              >>'   (* prints: Hi, fido (defined type over string) *)
   deftype_iface_demo            >>'   (* prints: 120 (defined type satisfies an interface) *)
   named_func_demo               >>'   (* prints: 42 (named func type, type Handler func(int64) int64) *)
+  deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]
