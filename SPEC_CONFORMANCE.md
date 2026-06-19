@@ -49,9 +49,12 @@ the committed code).  The status now:
 - **Generics — ✓ `comparable` constraint** added (witness-erasure → `[K comparable]`, `==`).
 
 Genuinely still open (per honest survey): float-constant exact-rational arithmetic; FMA fusion
-(bounded deviation); array-TYPED positions (type-level `N`); struct tags / embedding non-struct
-types; the `interface` keyword surface (we emit dict-structs — a deviation, not a gap); native
-`switch` emission (cosmetic); and the concurrency GUARANTEE over real programs (research).
+(bounded deviation); array-TYPED positions for ARBITRARY `N` (size 3 now DONE — `GoArr3` → Go
+`[3]T`, a function param / typed var of array type, `arrN_demo`; other fixed sizes are their own
+concrete type, type-level-`N` chain deferred); struct tags / embedding non-struct types; the
+`interface` keyword surface (we emit dict-structs — a deviation, not a gap); native `switch`
+emission (cosmetic); and the concurrency GUARANTEE over real programs (research, largely proven —
+`denote_sim_*` simulation lemmas connect the calculus to real IO reductions).
 
 ---
 

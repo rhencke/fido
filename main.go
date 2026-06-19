@@ -603,6 +603,18 @@ func Arr_demo() {
 	println(v2, ok2)
 }
 
+var VecN_a [3]int64 = [3]int64{10, 20, 30}
+
+var VecN_b [3]int64 = [3]int64{10, 20, 99}
+
+func Vec3_eqb(a [3]int64, b [3]int64) bool {
+	return a == b
+}
+
+func ArrN_demo() {
+	println(Vec3_eqb(VecN_a, VecN_a), Vec3_eqb(VecN_a, VecN_b))
+}
+
 func Arr_eq_demo() {
 	a := [3]int64{1, 2, 3}
 	b := [3]int64{1, 2, 3}
@@ -1816,6 +1828,7 @@ func main() {
 	List_demo()
 	Slice_safe_demo()
 	Arr_demo()
+	ArrN_demo()
 	Arr_eq_demo()
 	Arr_copy_demo()
 	Assert_safe_demo(7)

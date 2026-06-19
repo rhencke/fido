@@ -2659,6 +2659,17 @@ Arguments mkArray {A} _.  Arguments arr_data {A} _.
 
 Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
 
+(** Fixed-size array in a TYPED POSITION (struct field / param / return / typed var) — Go's
+    [[N]T], where [N] is part of the TYPE.  [GoArray] above SIZE-ERASES [N] (fine for LOCAL
+    arrays where Go infers the size from the literal), but a typed position needs [N] back.  First
+    cut: the canonical small size 3 (a 3-vector) as a CONCRETE type [GoArr3], rendered by the
+    plugin as [[3]T].  Its constructor takes EXACTLY THREE elements, so the length is 3 BY
+    CONSTRUCTION — no proof obligation, and no uncompilable wrong-length literal can arise.
+    (Other fixed sizes are their own type; arbitrary type-level [N] is a deferred route.) *)
+Record GoArr3 (A : Type) := mkArr3 { arr3_data : list A }.
+Arguments mkArr3 {A} _.  Arguments arr3_data {A} _.
+Definition arr3_lit {A} (_ : GoTypeTag A) (x y z : A) : GoArr3 A := mkArr3 (x :: y :: z :: nil).
+
 (** Safe indexed read (CPS / comma-ok like [slice_at_ok] — Go arrays panic on OOB too):
     in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
     Lowers IDENTICALLY to [slice_at_ok] (array and slice both index [a[i]] with [len(a)]),
@@ -2686,6 +2697,7 @@ Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
   | _, _ => false
   end.
 Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
+Definition arr3_eqb (a b : GoArr3 GoI64) : bool := goi64_list_eqb (arr3_data a) (arr3_data b).
 
 (** Array VALUE-COPY (the defining array-vs-slice distinction): [b := arr_set a i v] is
     [a] with element [i] replaced — a FUNCTIONAL update, so [a] is UNCHANGED (value

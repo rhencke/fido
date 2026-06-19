@@ -1200,6 +1200,17 @@ Definition arr_demo : IO unit :=
   arr_get_ok TI64 a (sub 10 5) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
   println [any v2; any ok2])).
 
+(** Array in a TYPED POSITION (the previously fail-loud case): [GoArr3 GoI64] = Go [[3]int64], the
+    size carried in the TYPE.  [vecN_a]/[vecN_b] emit [var … [3]int64 = [3]int64{…}]; [vec3_eqb]'s
+    PARAMETERS are [[3]int64] — a typed position that previously ABORTED extraction — and the
+    comparison lowers to field-wise [==].  The constructor takes exactly 3 elements, so length 3
+    is guaranteed (no wrong-length literal). *)
+Definition vecN_a : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (30)%i64.
+Definition vecN_b : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (99)%i64.
+Definition vec3_eqb (a b : GoArr3 GoI64) : bool := arr3_eqb a b.  (* params lower to [3]int64 *)
+Definition arrN_demo : IO unit :=
+  println [ any (vec3_eqb vecN_a vecN_a) ; any (vec3_eqb vecN_a vecN_b) ].   (* true false *)
+
 (** Array COMPARABILITY (Go [==], field-wise): arrays are comparable (slices are NOT).
     [arr_eqb] decides array equality element-wise — a THEOREM — and lowers to the bare
     Go [a == b].  Distinct from slices, which support only [== nil]. *)
@@ -2389,6 +2400,7 @@ Definition main_effect : IO unit :=
   list_demo                     >>'   (* prints: 10 2 *)
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   arr_demo                      >>'   (* prints: 20 true / 0 false ([3]int64 array index) *)
+  arrN_demo                     >>'   (* prints: true false (array in a TYPED position: [3]int64 param) *)
   arr_eq_demo                   >>'   (* prints: true false (array == is field-wise) *)
   arr_copy_demo                 >>'   (* prints: 10 99 (value-copy: a unchanged by arr_set) *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
@@ -2538,7 +2550,7 @@ Extraction NoInline
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
-  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put.
+  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb.
 
 Print Assumptions main_effect.
 
