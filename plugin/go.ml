@@ -1295,6 +1295,11 @@ let rec fc_eval e =
        | Some (na, da), Some (nb, db) ->
            (match chk_mul na nb, chk_mul da db with Some n, Some d -> Some (n, d) | _ -> None)
        | _ -> None)
+  | MLapp (MLglob r, [a; b]) when named "fc_div" r ->   (* (na/da)/(nb/db) = (na·db)/(da·nb) *)
+      (match fc_eval a, fc_eval b with
+       | Some (na, da), Some (nb, db) ->
+           (match chk_mul na db, chk_mul da nb with Some n, Some d -> Some (n, d) | _ -> None)
+       | _ -> None)
   | MLapp (MLglob r, [a; b]) when named "fc_add" r || named "fc_sub" r ->
       (match fc_eval a, fc_eval b with
        | Some (na, da), Some (nb, db) ->
@@ -3600,7 +3605,7 @@ let is_inlined_ref r =
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
     || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
-  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "f64_of_fconst"] ||  (* FConst machinery: folded by name *)
+  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"] ||  (* FConst machinery: folded by name *)
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)

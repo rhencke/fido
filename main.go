@@ -149,7 +149,7 @@ func Floatconv_demo() {
 }
 
 func Fconst_demo() {
-	println((float64(30) / float64(100)), (float64(3) / float64(8)))
+	println((float64(30) / float64(100)), (float64(3) / float64(8)), (float64(1) / float64(4)))
 }
 
 func F32_cmp_demo() {

@@ -736,7 +736,7 @@ makes every "still pending" gap below *honest* rather than a silent footgun.
    - *Float side — MODEL DONE (2026-06-19), lowering deferred.*  Go does constant float arithmetic
      at arbitrary precision, rounding ONCE at the typed boundary (`const 0.1 + 0.2 = 0.3`), whereas
      runtime `float64` rounds each step (`0.30000000000000004`).  Modeled: `FConst` = an exact
-     rational `num/den`; `fc_add`/`fc_sub`/`fc_mul` are EXACT (cross-multiply, no rounding);
+     rational `num/den`; `fc_add`/`fc_sub`/`fc_mul`/`fc_div` are EXACT (cross-multiply, no rounding);
      `f64_of_fconst` rounds to `float64` exactly once (IEEE divide of the two integer endpoints,
      correctly-rounded while `|num|,den < 2^53`).  Machine-checked: `fconst_exact`
      (`(1/10)+(2/10) → 0.3`), `fconst_runtime` (runtime `0.1+0.2 ≠ 0.3`), `fconst_mul`

@@ -1327,6 +1327,7 @@ Definition fc_add (a b : FConst) : FConst :=
 Definition fc_sub (a b : FConst) : FConst :=
   mkFC (fc_num a * fc_den b - fc_num b * fc_den a) (fc_den a * fc_den b).
 Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (fc_den a * fc_den b).
+Definition fc_div (a b : FConst) : FConst := mkFC (fc_num a * fc_den b) (fc_den a * fc_num b).  (* (a/b)/(c/d) = ad/bc *)
 Definition f64_of_fconst (a : FConst) : float :=
   PrimFloat.div (f64_of_i64 (MkI64 (fc_num a))) (f64_of_i64 (MkI64 (fc_den a))).
 
