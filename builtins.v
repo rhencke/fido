@@ -2087,6 +2087,40 @@ Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
            | nil    => d w
            end.
+
+(** ── Toward a UNIFIED control-flow substrate: select as SENTINEL + goto (2026-06-19) ──
+    [select] factors into a runtime WAIT that returns WHICH case fired plus a pure CFG DISPATCH
+    (goto) on that index — no bespoke select control-flow node is needed in the substrate.
+    [select_wait2] is the SENTINEL: it blocks until a channel is ready, atomically recvs, and
+    returns [(index, value)] (idealised non-blocking like the others: ch1 priority, both-empty →
+    [(0, zero)]).  [select2] is the canonical DESUGAR — [bind select_wait2] then a [match] (goto)
+    on the index — and is PROVABLY the current [select_recv2], so the desugar is faithful.  *Next:
+    teach the relooper to LIFT the [select_wait2] sentinel + dispatch back to Go [select{}] (error
+    otherwise), making the goto-CFG the single static-control-flow substrate.*  Validity is
+    by-construction: [select2] is the only producer of the sentinel, so the lifted shape is always
+    a valid select — the strictness lives here in Rocq, not in the trusted relooper. *)
+Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
+  fun w => match chan_buf ta ch1 w with
+           | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
+           | nil    => match chan_buf ta ch2 w with
+                       | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
+                       | nil    => ORet (0, zero_val ta) w
+                       end
+           end.
+Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
+  bind (select_wait2 ta ch1 ch2)
+       (fun iv => match fst iv with O => k1 (snd iv) | _ => k2 (snd iv) end).
+
+(** The desugar is FAITHFUL: select-via-(wait + index-goto) IS the current select. *)
+Theorem select2_eq_recv2 :
+  forall {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C),
+    select2 ta ch1 ch2 k1 k2 = select_recv2 ta ch1 k1 ta ch2 k2.
+Proof.
+  intros A C ta ch1 ch2 k1 k2. apply run_io_inj. intro w.
+  unfold select2, select_recv2, select_wait2, bind, run_io.
+  destruct (chan_buf ta ch1 w) as [|v1 r1];
+    [ destruct (chan_buf ta ch2 w); reflexivity | reflexivity ].
+Qed.
 (** [go_spawn m] (Go spec "Go statements"): the SEQUENTIAL approximation — run [m] to completion, keep its world
     effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
     holdout #2 (ZERO_AXIOMS_PLAN.md).  No law constrains it; the definition is total. *)
