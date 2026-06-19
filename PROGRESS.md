@@ -1280,9 +1280,13 @@ resting state.)**
     Go.  Machine-checked: `u64_of_u8_widen` (value preserved), `u64_of_i8_reinterp`
     (`uint64(int8 -1) = 2^64-1`), `u8_of_u64_trunc` (`uint8(uint64 511) = 255`), `i8_of_u64_signed`
     (`int8(uint64 255) = -1`); `narrow_u64_demo` → `200 18446744073709551615 255 -1`, golden-
-    locked.  **With this the integer-conversion matrix {int, uintN/intN (N≤32), int64, uint64} is
-    complete** — all pairs route through the int64 hub, each leg faithful + lowering.  (A bare
-    cast would need a different rule per signedness/constness; the hub funnels them to one place.)
+    locked.  **With this the WIDTH-TYPED integer-conversion matrix {uintN/intN (N≤32), int64,
+    uint64} is complete** — all pairs route through the int64 hub, each leg faithful + lowering.
+    (Go's machine `int`/`uint` ARE `GoI64`/`GoU64` here; the `Sint63` "int" is internal index
+    plumbing that connects only to the narrows via `uN_of_int`/`int_of_uN`, not a user-facing
+    width.)  A bare cast would need a different rule per signedness/constness; the hub funnels
+    them to one place.  *Numeric conversion still open:* float ↔ uint64 (the `≥2^63` range, where
+    `float64(uint64)` ≠ `float64(int64(·))`) — a distinct op, not hub-reducible.
 
     Note: `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
