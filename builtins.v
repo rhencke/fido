@@ -1290,6 +1290,26 @@ Definition f64_trunc_Z (f : float) : Z :=
    match-of-match to inline, and [i64_of_f64] stays a NAMED call the recognizer fires on. *)
 Definition i64_of_f64 (f : float) : GoI64 := MkI64 (wrap64 (f64_trunc_Z f)).
 
+(** float64 → uint64 (Go [uint64(f)]): TRUNCATE toward zero — the exact parallel of [i64_of_f64],
+    only wrapping into the unsigned range.  In-range ([0 <= trunc f < 2^64]) it is faithful (the
+    verified [f64_trunc_Z]); out of range is Go-implementation-defined, where the defined wrap is
+    an acceptable choice.  Lowered to native [uint64(f)]; the [Prim2SF]-match body suppressed. *)
+Definition u64_of_f64 (f : float) : GoU64 := MkU64 (wrapU64 (f64_trunc_Z f)).
+
+(** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  [PrimFloat.of_uint63] only
+    takes a 63-bit input, so values in [[2^63, 2^64)] cannot go through it directly.  The standard
+    round-to-odd trick handles them EXACTLY: halve ([v >> 1], now < 2^63) but OR the lost bit back
+    in ([| (v & 1)]) as a sticky bit, round THAT to binary64, then double (exact — a power-of-two
+    scale, no second rounding).  The sticky low bit makes the single rounding of [v>>1|v&1] land
+    the same way a direct rounding of [v] would (round-nearest-even preserved).  Below 2^63 it is
+    the plain [of_uint63].  Lowered to native [float64(v)]; the split/trick body suppressed. *)
+Definition f64_of_u64 (a : GoU64) : float :=
+  if Z.ltb (u64raw a) 9223372036854775808%Z   (* < 2^63 ⇒ fits the 63-bit [of_uint63] directly *)
+  then PrimFloat.of_uint63 (Uint63.of_Z (u64raw a))
+  else PrimFloat.mul
+         (PrimFloat.of_uint63 (Uint63.of_Z (Z.lor (Z.shiftr (u64raw a) 1) (Z.land (u64raw a) 1))))
+         2.
+
 (** FLOAT32 — faithful binary32 arithmetic via [SpecFloat] (already imported).  A [GoFloat32]
     is carried as a [float] (binary64) holding a binary32-representable value; each op rounds
     to binary32 = format (prec 24, emax 128) via [SFadd]/[SFsub]/[SFmul]/[SFdiv], exactly Go's

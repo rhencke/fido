@@ -412,6 +412,25 @@ Definition f32_cmp_demo : IO unit :=
 Definition trunc64 (x : GoFloat64) : GoI64 := i64_of_f64 x.
 Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc64 (PrimFloat.opp 2.9)) ].   (* 3 / -2 *)
 
+(** float ↔ uint64 LOWERED — the UNSIGNED counterparts.  [u64_of_f64] → native [uint64(f)]
+    (truncate toward zero, parallel to [i64_of_f64]); [f64_of_u64] → native [float64(v)]
+    (correctly rounded — the model's round-to-odd split for the [>= 2^63] range is suppressed).
+    These cover what [i64↔f64] cannot: a uint64 ABOVE [2^63] is a large POSITIVE double, not the
+    negative an int64 reinterpret would give.  Machine-checked: low range exact ([255]); the
+    uint64 MAX rounds to [2^64] (the round-to-odd trick is correct, not off-by-rounding); and
+    [float64 2^63 → uint64] succeeds where [int64] would overflow. *)
+Example f64_of_u64_lo  : PrimFloat.eqb (f64_of_u64 (u64_lit 255 eq_refl)) 255 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f64_of_u64_max : PrimFloat.eqb (f64_of_u64 (u64_lit 18446744073709551615 eq_refl)) 18446744073709551616 = true.  (* → 2^64 *)
+Proof. vm_compute. reflexivity. Qed.
+Example u64_of_f64_big : u64raw (u64_of_f64 9223372036854775808) = 9223372036854775808%Z.  (* 2^63, beyond int64 *)
+Proof. vm_compute. reflexivity. Qed.
+Definition u64_trunc  (x : GoFloat64) : GoU64    := u64_of_f64 x.
+Definition u64_to_f64 (x : GoU64)     : GoFloat64 := f64_of_u64 x.
+Definition u64conv_demo : IO unit :=
+  println [ any (u64_to_f64 (u64_lit 18446744073709551615 eq_refl))                    (* uint64 max → +1.844674e+019 (POSITIVE) *)
+          ; any (u64_trunc (u64_to_f64 (u64_lit 13835058055282163712 eq_refl))) ].      (* round-trip 1.5·2^63 (exact) *)
+
 Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)
@@ -2411,6 +2430,7 @@ Definition main_effect : IO unit :=
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
+  u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
   enum_default_demo             >>'   (* prints: 1 / 0 (enum switch with a default arm) *)

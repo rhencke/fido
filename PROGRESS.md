@@ -1290,8 +1290,19 @@ resting state.)**
     (Go's machine `int`/`uint` ARE `GoI64`/`GoU64` here; the `Sint63` "int" is internal index
     plumbing that connects only to the narrows via `uN_of_int`/`int_of_uN`, not a user-facing
     width.)  A bare cast would need a different rule per signedness/constness; the hub funnels
-    them to one place.  *Numeric conversion still open:* float ↔ uint64 (the `≥2^63` range, where
-    `float64(uint64)` ≠ `float64(int64(·))`) — a distinct op, not hub-reducible.
+    them to one place.
+
+    **float ↔ uint64 DONE (2026-06-19) — the numeric layer is now COMPLETE.**  `u64_of_f64` →
+    native `uint64(f)` (truncate toward zero; exact parallel of `i64_of_f64`, reusing the verified
+    `f64_trunc_Z`).  `f64_of_u64` → native `float64(v)`, correctly rounded: since `of_uint63` is
+    63-bit, the `≥2^63` range uses the round-to-odd trick — halve (`v>>1`, now <2^63), OR the lost
+    bit back as STICKY (`| v&1`), round to binary64, then double (exact power-of-two scale) — which
+    reproduces round-nearest-even on the full value.  Both bodies suppressed; the casts apply to a
+    variable (typed wrappers) so neither hits Go's constant-cast rejection.  Machine-checked
+    `f64_of_u64_lo` (255 exact), `f64_of_u64_max` (uint64 MAX rounds to exactly `2^64` — the trick
+    is off-by-nothing), `u64_of_f64_big` (`float64 2^63 → uint64`, which `int64` would overflow);
+    `u64conv_demo` → `+1.844674e+019 13835058055282163712` (uint64 max is a large POSITIVE double,
+    and 1.5·2^63 round-trips exactly).  Axiom-free.
 
     Note: `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports

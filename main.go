@@ -156,6 +156,18 @@ func I64_of_f64_demo() {
 	println(Trunc64(3.7000000000000002), Trunc64(-2.8999999999999999))
 }
 
+func U64_trunc(x float64) uint64 {
+	return uint64(x)
+}
+
+func U64_to_f64(x uint64) float64 {
+	return float64(x)
+}
+
+func U64conv_demo() {
+	println(U64_to_f64(18446744073709551615), U64_trunc(U64_to_f64(13835058055282163712)))
+}
+
 func F64_of_int_demo() {
 	println(float64(5), float64(-3))
 }
@@ -1854,6 +1866,7 @@ func main() {
 	Floatconv_demo()
 	F32_cmp_demo()
 	I64_of_f64_demo()
+	U64conv_demo()
 	Enum_demo()
 	Enum_value_demo()
 	Enum_default_demo()

@@ -687,7 +687,7 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    widening fails exactly here, returning the record [GoI64]).  The body's leaf primitives
    ([of_uint63]) and Z↔int63 conversion helpers ([of_Z]/[of_pos]) have their own decls
    suppressed; the [Z]/[positive] arithmetic is already covered by [is_zarith_helper]. *)
-let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32"
+let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64"
 (* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
    The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
 let is_f64_to_f32_ref r = String.equal (global_basename r) "f32_of_f64"
@@ -696,6 +696,7 @@ let is_f64_to_f32_ref r = String.equal (global_basename r) "f32_of_f64"
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
    [int64(3.7)] on an untyped float constant) — demoed through a typed-param wrapper. *)
 let is_f64_to_i64_ref r = String.equal (global_basename r) "i64_of_f64"
+let is_f64_to_u64_ref r = String.equal (global_basename r) "u64_of_f64"
 (* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, and the narrow type
    already erases to a Go [int64] holding exactly this value, so the widen is IDENTITY — emit
    the operand.  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-position
@@ -1539,6 +1540,9 @@ let rec pp_expr state env = function
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
        | MLglob r, [x] when is_f64_to_i64_ref r ->
            str "int64(" ++ pp_expr state env x ++ str ")"
+       (* [u64_of_f64 f] → [uint64(f)] (float64 → uint64 truncation toward zero) *)
+       | MLglob r, [x] when is_f64_to_u64_ref r ->
+           str "uint64(" ++ pp_expr state env x ++ str ")"
        (* narrow → int64 widening → the operand (identity; the narrow already erases to int64) *)
        | MLglob r, [x] when is_i64_of_narrow_ref r ->
            pp_expr state env x
@@ -3460,6 +3464,7 @@ let is_inlined_ref r =
   is_float_opp_ref r ||
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
+  is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing → float32(x); SpecFloat round body suppressed by module *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
