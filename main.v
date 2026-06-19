@@ -2100,6 +2100,14 @@ Fixpoint pow2 (n : nat) : GoI64 :=
   end.
 Definition pure_rec_demo : IO unit := println [any (pow2 4)].   (* 2^4 = 16 *)
 
+(** MUTUAL RECURSION — two `Fixpoint`s calling each other (a mutual `Dfix`).  No plugin work:
+    the `Dfix` arm already emits each function via `pp_function`, and a cross-call is an
+    ordinary call; with value-position nat matches now lowering, the bodies emit too. *)
+Fixpoint is_even (n : nat) : bool := match n with O => true  | S k => is_odd  k end
+with     is_odd  (n : nat) : bool := match n with O => false | S k => is_even k end.
+Definition mutual_rec_demo : IO unit :=
+  bind (println [any (is_even 4)]) (fun _ => println [any (is_odd 4)]).   (* true / false *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2259,6 +2267,7 @@ Definition main_effect : IO unit :=
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
+  mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

@@ -275,9 +275,13 @@ separate tracks.
      n - 1; return b }`), so PURE value-returning recursion lowers: `Fixpoint pow2 (n : nat) :
      GoI64` → `func Pow2(n uint) int64 { if n == 0 { return 1 } else { k := n - 1; return 2 *
      Pow2(k) } }`, the self-call `Pow2(k)` in expression position; `pure_rec_demo` → `16`.  So
-     recursion is complete in BOTH IO (statement) and pure (value) positions.  *Still pending:*
-     a GENERAL value-position match on richer inductives / >2 arms (the nat & bool tail cases
-     are special-cased; an arbitrary value-position match still needs the IIFE/hoist work).
+     recursion is complete in BOTH IO (statement) and pure (value) positions.  **MUTUAL
+     RECURSION works too (2026-06-19), no plugin change:** a mutual `Dfix` already emits each
+     function via `pp_function` and a cross-call is an ordinary call, so `Fixpoint is_even … with
+     is_odd …` → two cross-calling `func Is_even(n uint) bool` / `func Is_odd(n uint) bool`;
+     `mutual_rec_demo` → `true / false`.  *Still pending:* a GENERAL value-position match on
+     richer inductives / >2 arms (the nat & bool tail cases are special-cased; an arbitrary
+     value-position match still needs the IIFE/hoist work).
    - type switch (`switch v := x.(type)`) — *DONE (2026-06-18)*. `type_switch2` is a
      combinator dispatching on a `GoAny`'s runtime type, built on the existing
      `tag_coerce`/`GoTypeTag` machinery (*not* `MLcase`) — so it is **axiom-free** (the

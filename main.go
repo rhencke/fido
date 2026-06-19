@@ -1547,6 +1547,27 @@ func Pure_rec_demo() {
 	println(Pow2(4))
 }
 
+func Is_even(n uint) bool {
+	if n == 0 {
+		return true
+	} else {
+		k := n - 1
+		return Is_odd(k)
+	}
+}
+func Is_odd(n uint) bool {
+	if n == 0 {
+		return false
+	} else {
+		k := n - 1
+		return Is_even(k)
+	}
+}
+func Mutual_rec_demo() {
+	println(Is_even(4))
+	println(Is_odd(4))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1701,4 +1722,5 @@ func main() {
 	Gmap_deftype_demo()
 	Recursion_demo()
 	Pure_rec_demo()
+	Mutual_rec_demo()
 }
