@@ -316,11 +316,20 @@ let is_slice_get_ref = named "slice_get"
 let is_slice_at_ok_ref r = named "slice_at_ok" r || named "arr_get_ok" r
 let is_arr_type = named "GoArray"
 let is_arr_lit_ref = named "arr_lit"
-(* Fixed-size array in a TYPED position: [GoArr3 A] renders as Go [[3]T] (the size is in the
-   type); [arr3_lit tag x y z] builds [[3]T{x,y,z}]; [arr3_eqb] is array [==]. *)
-let is_arr3_type = named "GoArr3"
-let is_arr3_lit_ref = named "arr3_lit"
-let is_arr_eqb_ref r = named "arr_eqb" r || named "arr3_eqb" r   (* array == (field-wise; arrays comparable, slices not) *)
+(* Fixed-size array in a TYPED position: a type named [GoArr<N>] renders as Go [[N]T] (the size N
+   is in the type NAME, so it survives erasure); [arr<N>_lit tag e1 … eN] builds [[N]T{e1,…,eN}];
+   [arr<N>_eqb] is array [==].  Works for ANY N the user declares a [GoArr<N>]/[arr<N>_lit] for —
+   no per-size plugin code.  [GoArray] (size-erased local arrays) is NOT [GoArr<digits>], so it is
+   unaffected. *)
+let arr_n_of_name prefix suffix s =
+  let pl = String.length prefix and sl = String.length suffix and ls = String.length s in
+  if ls > pl + sl && String.sub s 0 pl = prefix && String.sub s (ls - sl) sl = suffix
+  then int_of_string_opt (String.sub s pl (ls - pl - sl)) else None
+let arrN_size_of_type r = arr_n_of_name "GoArr" "" (global_basename r)
+let arrN_lit_size   r = arr_n_of_name "arr"   "_lit" (global_basename r)
+let is_arrN_type r = arrN_size_of_type r <> None
+let is_arrN_lit_ref r = arrN_lit_size r <> None
+let is_arr_eqb_ref r = named "arr_eqb" r || arr_n_of_name "arr" "_eqb" (global_basename r) <> None   (* array == (field-wise; arrays comparable, slices not) *)
 let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutate-return IIFE *)
 let is_for_each_ref = named "for_each"
 let is_str_range_ref = named "str_range"        (* for i, r := range s (string range, byte index + rune) *)
@@ -606,7 +615,7 @@ let is_erased_record_typename s =
   || String.equal s "SPtr3" || String.equal s "StructRep3"  (* 3-field variant *)
   || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
-  || String.equal s "GoArr3"    (* fixed-size [3]T array: rendered [3]T, ops by name *)
+  || arr_n_of_name "GoArr" "" s <> None    (* GoArr<N>: fixed-size [N]T array, rendered [N]T, ops by name *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
@@ -1000,8 +1009,9 @@ let rec pp_type state = function
   (* Ptr A → *T (a first-class Go pointer; copies alias the same cell) *)
   | Tglob (r, [arg]) when is_ptr_type r -> str "*" ++ pp_type state arg
   | Tglob (r, arg :: _) when is_sptr_type r -> str "*" ++ pp_type state arg  (* SPtr R / SPtrH R A B → *R *)
-  (* GoArr3 A → [3]T — a fixed-size array in a typed position (size is in the type) *)
-  | Tglob (r, [a]) when is_arr3_type r -> str "[3]" ++ pp_type state a
+  (* GoArr<N> A → [N]T — a fixed-size array in a typed position (size N from the type name) *)
+  | Tglob (r, [a]) when is_arrN_type r ->
+      str (Printf.sprintf "[%d]" (Option.get (arrN_size_of_type r))) ++ pp_type state a
   | Tglob (r, _) when is_arr_type r ->
       unsupported "an array type in a position needing an explicit [N]T (param / field / return / typed var decl); only LOCAL arrays are supported — write `a := arr_lit […]` so Go infers the size from the literal (the size lives in the construction, not the Coq type)"
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
@@ -1359,11 +1369,12 @@ let rec pp_expr state env = function
                 prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
                 str "}"
             | None -> unsupported "arr_lit of a non-literal list (an array's size must be statically known)")
-       (* arr3_lit tag x y z → [3]T{x, y, z} — a fixed-size array literal in a typed position *)
-       | MLglob r, [tag; x; y; z] when is_arr3_lit_ref r ->
+       (* arr<N>_lit tag e1 … eN → [N]T{e1, …, eN} — a fixed-size array literal in a typed position *)
+       | MLglob r, (tag :: elems) when is_arrN_lit_ref r ->
+           let n = Option.get (arrN_lit_size r) in
            let go_elem = go_type_of_tag tag in
-           str ("[3]" ^ go_elem ^ "{") ++
-           prlist_with_sep (fun () -> str ", ") (pp_expr state env) [x; y; z] ++ str "}"
+           str (Printf.sprintf "[%d]%s{" n go_elem) ++
+           prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++ str "}"
        (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
           func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
        | MLglob r, [size; tag; a; i; v] when is_arr_set_ref r ->
@@ -3552,7 +3563,8 @@ let is_inlined_ref r =
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
-  is_arr3_lit_ref r || named "mkArr3" r || named "arr3_data" r ||  (* fixed-[3] array machinery (decl-suppressed; recognized by name) *)
+  is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
+    || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)

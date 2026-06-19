@@ -1208,8 +1208,10 @@ Definition arr_demo : IO unit :=
 Definition vecN_a : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (30)%i64.
 Definition vecN_b : GoArr3 GoI64 := arr3_lit TI64 (10)%i64 (20)%i64 (99)%i64.
 Definition vec3_eqb (a b : GoArr3 GoI64) : bool := arr3_eqb a b.  (* params lower to [3]int64 *)
+Definition pairN  : GoArr2 GoI64 := arr2_lit TI64 (7)%i64 (8)%i64.  (* GoArr2 → [2]int64 (any N works) *)
+Definition vec2_eqb (a b : GoArr2 GoI64) : bool := arr2_eqb a b.
 Definition arrN_demo : IO unit :=
-  println [ any (vec3_eqb vecN_a vecN_a) ; any (vec3_eqb vecN_a vecN_b) ].   (* true false *)
+  println [ any (vec3_eqb vecN_a vecN_a) ; any (vec3_eqb vecN_a vecN_b) ; any (vec2_eqb pairN pairN) ].   (* true false true *)
 
 (** Array COMPARABILITY (Go [==], field-wise): arrays are comparable (slices are NOT).
     [arr_eqb] decides array equality element-wise — a THEOREM — and lowers to the bare
@@ -2550,7 +2552,7 @@ Extraction NoInline
   u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
-  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb.
+  ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb vec2_eqb.
 
 Print Assumptions main_effect.
 

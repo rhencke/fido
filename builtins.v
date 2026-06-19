@@ -2669,6 +2669,10 @@ Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
 Record GoArr3 (A : Type) := mkArr3 { arr3_data : list A }.
 Arguments mkArr3 {A} _.  Arguments arr3_data {A} _.
 Definition arr3_lit {A} (_ : GoTypeTag A) (x y z : A) : GoArr3 A := mkArr3 (x :: y :: z :: nil).
+(* Another size — the plugin handles ANY [GoArr<N>] generically (N parsed from the name). *)
+Record GoArr2 (A : Type) := mkArr2 { arr2_data : list A }.
+Arguments mkArr2 {A} _.  Arguments arr2_data {A} _.
+Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y :: nil).
 
 (** Safe indexed read (CPS / comma-ok like [slice_at_ok] — Go arrays panic on OOB too):
     in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
@@ -2698,6 +2702,7 @@ Fixpoint goi64_list_eqb (xs ys : list GoI64) : bool :=
   end.
 Definition arr_eqb (a b : GoArray GoI64) : bool := goi64_list_eqb (arr_data a) (arr_data b).
 Definition arr3_eqb (a b : GoArr3 GoI64) : bool := goi64_list_eqb (arr3_data a) (arr3_data b).
+Definition arr2_eqb (a b : GoArr2 GoI64) : bool := goi64_list_eqb (arr2_data a) (arr2_data b).
 
 (** Array VALUE-COPY (the defining array-vs-slice distinction): [b := arr_set a i v] is
     [a] with element [i] replaced — a FUNCTIONAL update, so [a] is UNCHANGED (value

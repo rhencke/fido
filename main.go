@@ -611,8 +611,14 @@ func Vec3_eqb(a [3]int64, b [3]int64) bool {
 	return a == b
 }
 
+var PairN [2]int64 = [2]int64{7, 8}
+
+func Vec2_eqb(a [2]int64, b [2]int64) bool {
+	return a == b
+}
+
 func ArrN_demo() {
-	println(Vec3_eqb(VecN_a, VecN_a), Vec3_eqb(VecN_a, VecN_b))
+	println(Vec3_eqb(VecN_a, VecN_a), Vec3_eqb(VecN_a, VecN_b), Vec2_eqb(PairN, PairN))
 }
 
 func Arr_eq_demo() {
