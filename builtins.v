@@ -3538,6 +3538,19 @@ Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO un
 Definition str_range (s : GoString) (body : int -> GoI32 -> IO unit) : IO unit :=
   for_each_pairs (runes_with_offsets 0%uint63 (str_to_runes s)) body.
 
+(** ---- Indexed [range] over a slice (Go spec "For statements: For range"): [for i, x := range xs] ----
+    [i] is the element INDEX (0, 1, 2, …), [x] the element — the indexed counterpart of
+    [for_each] (which discards the index).  The index is the Go [int] index type ([Sint63]).
+    Lowers to the native two-variable [for i, x := range xs]; the accumulator model below is
+    proof-only (recognized by name, decl suppressed). *)
+Fixpoint for_each_idx_from {A : Type} (i : int) (xs : GoSlice A) (body : int -> A -> IO unit) : IO unit :=
+  match xs with
+  | nil         => ret tt
+  | cons x rest => bind (body i x) (fun _ => for_each_idx_from (PrimInt63.add i 1%uint63) rest body)
+  end.
+Definition for_each_idx {A : Type} (xs : GoSlice A) (body : int -> A -> IO unit) : IO unit :=
+  for_each_idx_from 0%uint63 xs body.
+
 (** [slice_fold xs init step] is a pure left fold: it threads an accumulator
     through the slice, [step]ping it with each element.  A total Fixpoint, so
     its unfolding is provable:

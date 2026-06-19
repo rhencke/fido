@@ -428,7 +428,9 @@ niceness in the printer.  All demos golden-locked:
 - **`for`** (+ range): `for { … break }`, nested `for`s, in-loop `if`, labeled escapes —
   `count_demo`, `loopif_demo`, `nested_loop_demo`, `labeled_break_demo` (`break L0`),
   `labeled_continue_demo`; `for_each`/`slice_fold` → `for _, x := range xs`
-  (`foreach_demo`, `sum_demo`).  ✓
+  (`foreach_demo`, `sum_demo`); the indexed `for_each_idx` → `for i, x := range xs`
+  (`foreach_idx_demo` → `0 10 / 1 20 / 2 30`); `str_range` → `for i, r := range s` (byte
+  offset + rune).  ✓
 - **`return`** (in-loop): `early_return_demo`.  ✓
 - **`goto`** (irreducible CFG): raw Go labels + `goto`, the always-correct fallback —
   `irreducible_demo` (a two-entry loop) golden-locks it.  ✓

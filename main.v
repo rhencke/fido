@@ -1493,6 +1493,12 @@ Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
   for_each xs (fun x => println [any x]).   (* prints 10 / 20 / 30 *)
 
+(** Indexed slice range: [for i, x := range xs] — [i] the element index, [x] the element
+    (the indexed counterpart of [for_each]); lowers to the native two-variable range loop. *)
+Definition foreach_idx_demo : IO unit :=
+  let xs := slice_of_list TI64 [(10)%i64; (20)%i64; (30)%i64] in
+  for_each_idx xs (fun i x => println [any i; any x]).   (* prints 0 10 / 1 20 / 2 30 *)
+
 (** Fold: sum a slice into an accumulator — lowers to an accumulator [for]
     loop ([total := 0; for _, x := range xs { total = total + x }]). *)
 Definition sum_demo : IO unit :=
@@ -1924,6 +1930,7 @@ Definition main_effect : IO unit :=
   complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
+  foreach_idx_demo              >>'   (* prints: 0 10 / 1 20 / 2 30 (for i, x := range xs) *)
   sum_demo                      >>'   (* prints: 10 *)
   cond_goto_demo true           >>'   (* prints: 1 / 3 *)
   cond_goto_demo false          >>'   (* prints: 1 / 2 / 3 *)
@@ -1984,7 +1991,7 @@ Extraction NoInline
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
-  print println defer_call append slice_of_list run_blocks str_range
+  print println defer_call append slice_of_list run_blocks str_range for_each_idx
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2 str_switch3
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb

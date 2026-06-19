@@ -992,6 +992,13 @@ func Foreach_demo() {
 	}
 }
 
+func Foreach_idx_demo() {
+	xs := []int64{10, 20, 30}
+	for i, x := range xs {
+		println(i, x)
+	}
+}
+
 func Sum_demo() {
 	xs := []int64{1, 2, 3, 4}
 	total := int64(0)
@@ -1350,6 +1357,7 @@ func main() {
 	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()
+	Foreach_idx_demo()
 	Sum_demo()
 	Cond_goto_demo(true)
 	Cond_goto_demo(false)
