@@ -1209,7 +1209,10 @@ resting state.)**
     `binop_of`); (3) avoid the float32 LITERAL-typing issue by demoing through a typed-param
     function (`f32_sum (a b : GoFloat32)` → `func F32_sum(a, b float32) float32`, so the call-site
     consts pin to `float32`); (4) `println`/`any` of a `GoFloat32` (needs a `Tagged GoFloat32`
-    check).  A dedicated follow-on — slow to iterate because the drag error is unnamed.
+    check).  A dedicated follow-on, now ITERABLE: the `unsupported` abort NAMES the offending
+    decl (e.g. `(while emitting ``get_sign``)` — a SpecFloat helper the `Recursive Extraction`
+    grep had even missed), so the suppression set can be grown one named decl per build instead
+    of guessing.
     *Still open:* `float64` → `int`
     (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are

@@ -45,9 +45,14 @@ let keywords =
    or it is a dead definition to suppress in [is_inlined_ref].  It is never an
    invitation to emit [nil].  ("It's fine to leave things unmodeled; it's not
    fine to model them wrong.") *)
+(* The top-level decl currently being emitted — surfaced in [unsupported] so a fail-loud
+   abort names WHICH definition choked (decisive when an unmodeled node is dragged in from a
+   suppressible stdlib dependency: the name tells you exactly what to add to is_inlined_ref). *)
+let current_decl = ref ""
 let unsupported what =
+  let where = if String.equal !current_decl "" then "" else " (while emitting `" ^ !current_decl ^ "`)" in
   CErrors.user_err
-    (str ("fido: cannot extract " ^ what ^
+    (str ("fido: cannot extract " ^ what ^ where ^
           ": unmodeled Go construct.  Implement its lowering or suppress the \
            definition (is_inlined_ref) — refusing to emit wrong Go."))
 
@@ -3433,6 +3438,13 @@ let pp_main_body state body =
 (*s Declaration printer. *)
 
 let pp_decl state decl =
+  (match decl with
+   | Dterm (r, _, _) -> current_decl := global_basename r
+   | Dfix (refs, _, _) when Array.length refs > 0 -> current_decl := global_basename refs.(0)
+   | Dind mi when Array.length mi.ind_packets > 0 ->
+       current_decl := Id.to_string mi.ind_packets.(0).ip_typename
+   | Dtype (r, _, _) -> current_decl := global_basename r
+   | _ -> ());
   match decl with
   | Dterm (r, _, _) when is_inlined_ref r ->
       mt ()
