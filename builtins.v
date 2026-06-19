@@ -2642,6 +2642,84 @@ Fixpoint str_concat (a b : GoString) : GoString :=
   | String c rest => String c (str_concat rest b)
   end.
 
+(** ---- Rune view: [[]rune(s)] / [string([]rune)] (Go spec "Conversions to and from a
+    string type") ----  A [rune] is an int32 code point.  [[]rune(s)] UTF-8-DECODES the
+    byte sequence to code points; [string(rs)] UTF-8-ENCODES them back.  Both lower BY NAME
+    to the native Go [[]rune(s)] / [string(rs)] (the runtime does the real UTF-8, faithful);
+    the Coq bodies below are the proof-side model (suppressed + NoInline), a full 1–4 byte
+    UTF-8 codec.  [byte_chr] is a byte value → [ascii]; the codec is verified by the
+    round-trip examples (ASCII and a 3-byte CJK code point). *)
+Definition byte_chr (v : int) : ascii := byte_ascii (MkU8 v).
+Fixpoint str_to_runes (s : GoString) : list GoI32 :=
+  match s with
+  | EmptyString => nil
+  | String c0 r0 =>
+      let v0 := u8raw (ascii_byte c0) in
+      if PrimInt63.ltb v0 128%uint63 then            (* 1-byte: ASCII *)
+        MkI32 v0 :: str_to_runes r0
+      else if PrimInt63.ltb v0 224%uint63 then        (* 2-byte: 0xC0–0xDF *)
+        match r0 with
+        | String c1 r1 =>
+            let v1 := u8raw (ascii_byte c1) in
+            MkI32 (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
+                                 (PrimInt63.land v1 63%uint63)) :: str_to_runes r1
+        | EmptyString => MkI32 65533%uint63 :: nil    (* truncated → U+FFFD *)
+        end
+      else if PrimInt63.ltb v0 240%uint63 then        (* 3-byte: 0xE0–0xEF *)
+        match r0 with
+        | String c1 (String c2 r2) =>
+            let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
+            MkI32 (PrimInt63.lor (PrimInt63.lor
+                     (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
+                     (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
+                     (PrimInt63.land v2 63%uint63)) :: str_to_runes r2
+        | _ => MkI32 65533%uint63 :: nil
+        end
+      else                                            (* 4-byte: 0xF0+ *)
+        match r0 with
+        | String c1 (String c2 (String c3 r3)) =>
+            let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
+            let v3 := u8raw (ascii_byte c3) in
+            MkI32 (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
+                     (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
+                     (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
+                     (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
+                     (PrimInt63.land v3 63%uint63)) :: str_to_runes r3
+        | _ => MkI32 65533%uint63 :: nil
+        end
+  end.
+Definition rune_bytes (r : GoI32) : GoString :=
+  let c := i32raw r in
+  if PrimInt63.ltb c 128%uint63 then
+    String (byte_chr c) EmptyString
+  else if PrimInt63.ltb c 2048%uint63 then
+    String (byte_chr (PrimInt63.lor 192%uint63 (PrimInt63.lsr c 6%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString)
+  else if PrimInt63.ltb c 65536%uint63 then
+    String (byte_chr (PrimInt63.lor 224%uint63 (PrimInt63.lsr c 12%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 6%uint63) 63%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString))
+  else
+    String (byte_chr (PrimInt63.lor 240%uint63 (PrimInt63.lsr c 18%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 12%uint63) 63%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 6%uint63) 63%uint63)))
+   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString))).
+Fixpoint runes_to_str (rs : list GoI32) : GoString :=
+  match rs with
+  | nil => EmptyString
+  | r :: rest => str_concat (rune_bytes r) (runes_to_str rest)
+  end.
+
+(** Codec verified by ROUND-TRIP: encode→decode is the identity for ASCII and for a 3-byte
+    CJK code point (中 = U+4E2D = 20013, UTF-8 E4 B8 AD). *)
+Example rune_roundtrip_ascii :
+  str_to_runes (runes_to_str (MkI32 65%uint63 :: MkI32 66%uint63 :: nil))
+    = MkI32 65%uint63 :: MkI32 66%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Example rune_roundtrip_cjk :
+  str_to_runes (runes_to_str (MkI32 20013%uint63 :: nil)) = MkI32 20013%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+
 (** String COMPARISON (Go spec "Comparison operators": strings are comparable AND
     ordered).  [str_eqb] is Go [==] — byte-sequence equality (a THEOREM via
     [String.eqb]).  [str_ltb] is Go [<] — LEXICOGRAPHIC by BYTE VALUE, exactly Go's

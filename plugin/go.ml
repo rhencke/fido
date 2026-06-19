@@ -1440,6 +1440,11 @@ let rec pp_expr state env = function
            str "[]byte(" ++ pp_expr state env s ++ str ")"
        | MLglob r, [b] when String.equal (global_basename r) "str_from_bytes" ->
            str "string(" ++ pp_expr state env b ++ str ")"
+       (* string <-> rune-slice conversions → Go's [[]rune(s)] / [string(rs)] (UTF-8) *)
+       | MLglob r, [s] when String.equal (global_basename r) "str_to_runes" ->
+           str "[]rune(" ++ pp_expr state env s ++ str ")"
+       | MLglob r, [rs] when String.equal (global_basename r) "runes_to_str" ->
+           str "string(" ++ pp_expr state env rs ++ str ")"
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -3022,7 +3027,8 @@ let is_inlined_ref r =
     ["go_complex"; "go_real"; "go_imag"; "MkComplex128"; "c_re"; "c_im";
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
-     "str_to_bytes"; "str_from_bytes"; "byte_ascii"] ||
+     "str_to_bytes"; "str_from_bytes"; "byte_ascii";
+     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

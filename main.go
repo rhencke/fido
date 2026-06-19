@@ -665,6 +665,11 @@ func Bytes_demo() {
 	println(string(b))
 }
 
+func Rune_demo() {
+	rs := []rune("Go")
+	println(string(rs))
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1269,6 +1274,7 @@ func main() {
 	String_demo()
 	Str_cmp_demo()
 	Bytes_demo()
+	Rune_demo()
 	Tsw_demo(true)
 	Tsw_demo("go")
 	Tsw_demo(5)
