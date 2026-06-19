@@ -331,6 +331,12 @@ Proof. vm_compute. reflexivity. Qed.
     call-site constants pin to [float32]. *)
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
 Definition f32_demo : IO unit := println [ any (f32_combine 1.5 2.25 2) ].   (* (1.5+2.25)*2 = 7.5 *)
+(** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
+    zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
+    typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
+    compile error). *)
+Definition trunc64 (x : GoFloat64) : GoI64 := i64_of_f64 x.
+Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc64 (PrimFloat.opp 2.9)) ].   (* 3 / -2 *)
 
 Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
@@ -2325,6 +2331,7 @@ Definition main_effect : IO unit :=
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
+  i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
   enum_default_demo             >>'   (* prints: 1 / 0 (enum switch with a default arm) *)
@@ -2355,7 +2362,7 @@ Extraction NoInline
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
   i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int f64_of_i64
-  dir_name f32_combine
+  dir_name f32_combine trunc64
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb

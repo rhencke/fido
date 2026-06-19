@@ -1224,10 +1224,17 @@ resting state.)**
     `float32`.  `f32_demo` → `+7.500000e+000` (= (1.5+2.25)*2 in float32), golden-locked,
     **trust base still ZERO Fido axioms** (the SpecFloat machinery in `main_effect`'s proof base is
     only Rocq's `PrimFloat.*` primitives).  So float32 is a COMPLETE Go type: faithful binary32
-    model + native lowering.  The same `is_zarith_helper` module suppression now also unblocks the
-    proof-only conversions `i64_of_f64` / narrow→int64 (same drag) — a follow-on.
-    *Still open:* `float64` → `int`
-    (truncation — `PrimFloat` has no to-int primitive); float32 comparisons / literals beyond the demo,
+    model + native lowering.  The same `is_zarith_helper` module suppression then unblocked the
+    first proof-only conversion: **`float64` → `int64` TRUNCATION LOWERED (2026-06-19)** —
+    `i64_of_f64` → native Go `int64(f)` (truncates toward zero).  Its `Prim2SF`-match body
+    `f64_trunc_Z` is suppressed by name (a Fido proof-only helper) and the `Prim2SF` closure by
+    module; `i64_of_f64` recognised → the cast.  Through a typed-param wrapper (`trunc64 (x :
+    GoFloat64) → func Trunc64(x float64) int64 { return int64(x) }`) because Go rejects
+    `int64(3.7)` on a CONSTANT (truncation error) — the wrapper makes the operand a variable.
+    `i64_of_f64_demo` → `3 -2` (= `int64(3.7)`, `int64(-2.9)`), golden-locked, axiom-free.
+    *Still open:* the narrow→int64 widenings (`i64_of_u8`…) — same module suppression should help,
+    but those additionally η-reduce to a `to_Z` renaming Coq force-inlines into value position (to
+    probe); float32 comparisons / literals beyond the demo,
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
