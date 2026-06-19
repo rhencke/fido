@@ -200,7 +200,12 @@ Inductive GoTypeTag : Type -> Type :=
      reconstruct the full Go type string recursively. *)
   | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
   | TSlice : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoSlice A)
-  | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V).
+  | TMap   : forall {K V : Type}, GoTypeTag K -> GoTypeTag V -> GoTypeTag (GoMap K V)
+  (* function type — lets a DEFINED TYPE over a func underlying ([type Handler func(A) B])
+     carry the GoTypeTag phantom that stops Coq unboxing its single value field.  Arrows are
+     never decided equal by [tag_eq] (the catch-all returns [None]) — fine, a func type is
+     not a map key nor type-switched. *)
+  | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A -> B).
 
 (** TRANSPARENT congruences for the now-CONCRETE [GoChan]/[GoMap] records, forced
     to live at [@eq Type].  Two reasons they are not the stdlib [f_equal]/[f_equal2]:
@@ -216,6 +221,11 @@ Definition gochan_cong {A A'} (p : A = A') : @eq Type (GoChan A) (GoChan A') :=
 Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V')
   : @eq Type (GoMap K V) (GoMap K' V') :=
   match p in (_ = K2), q in (_ = V2) return (@eq Type (GoMap K V) (GoMap K2 V2)) with
+  | eq_refl, eq_refl => eq_refl
+  end.
+Definition goarrow_cong {A A' B B'} (p : A = A') (q : B = B')
+  : @eq Type (A -> B) (A' -> B') :=
+  match p in (_ = A2), q in (_ = B2) return (@eq Type (A -> B) (A2 -> B2)) with
   | eq_refl, eq_refl => eq_refl
   end.
 
@@ -253,6 +263,11 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
       | Some p, Some q => Some (gomap_cong p q)
       | _, _ => None
       end
+  | TArrow a1 b1, TArrow a2 b2 =>
+      match tag_eq a1 a2, tag_eq b1 b2 with
+      | Some p, Some q => Some (goarrow_cong p q)
+      | _, _ => None
+      end
   | _, _ => None
   end.
 
@@ -269,6 +284,7 @@ Proof.
   - rewrite IHt; reflexivity.                       (* TChan *)
   - rewrite IHt; reflexivity.                       (* TSlice *)
   - rewrite IHt1, IHt2; reflexivity.                (* TMap (gomap_cong reduces) *)
+  - rewrite IHt1, IHt2; reflexivity.                (* TArrow (goarrow_cong reduces) *)
 Qed.
 
 (** [tag_coerce t t x = Some x]: coercing along a tag's reflexive match is the
@@ -284,7 +300,7 @@ Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
     [zero_val] CALL by name to the Go zero literal (0/false/""/nil), so this body
     affects only proofs, never the emitted Go.  (The default for a [recv] from an
     empty/closed channel, an out-of-range index, etc.) *)
-Definition zero_val {A : Type} (t : GoTypeTag A) : A :=
+Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   match t in GoTypeTag A' return A' with
   | TBool    => false
   | TInt64   => 0%uint63
@@ -309,6 +325,9 @@ Definition zero_val {A : Type} (t : GoTypeTag A) : A :=
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
   | TMap _ _ => MkMap 0%uint63        (* nil map *)
+  | TArrow _ b => fun _ => zero_val b  (* func zero: plugin emits Go [nil]; this returning-codomain-
+                                          zero inhabitant is a proof-only placeholder (a real nil func
+                                          panics if called, but zero_val is a never-called default) *)
   end.
 
 (** ---- [GoAny] / [any] — Go's [interface{}], now a TAGGED (type, value) pair ----
@@ -382,6 +401,7 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
   | TMap _ _ => fun a b => PrimInt63.eqb (gm_loc a) (gm_loc b)
+  | TArrow _ _ => fun _ _ => false   (* func types are NOT comparable in Go (sentinel, like slices) *)
   end.
 
 (** [Comparable t]: [key_eqb t] decides equality on [K] — the typing side

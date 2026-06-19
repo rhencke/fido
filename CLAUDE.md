@@ -432,9 +432,17 @@ separate tracks.
    `string(x)`, `deftype_str_demo` → `Hi, fido`), and a defined type can **satisfy an INTERFACE**
    (`type Celsius int64`'s method `Reading` wired into a `Measurable` dictionary whose closure
    dispatches `c.Reading()` — behavioral satisfaction for a defined type; `deftype_iface_demo` → `120`).
-   `deftype_demo` → `42`; all golden-locked, axiom-free.  *Not yet:* defined types as map KEYS (the
-   phantom breaks equality), `Module`-namespaced method names, defined types over func/arrow underlyings
-   (no `GoTypeTag` constructor for arrows — would need a broader marker).
+   `deftype_demo` → `42`; all golden-locked, axiom-free.  **NAMED FUNC TYPES DONE (2026-06-19)** —
+   `type Handler func(int64) int64` (the `http.HandlerFunc` idiom), a defined type whose underlying is
+   a FUNC.  Needed a `TArrow` `GoTypeTag` constructor (for the phantom) — added with its `goarrow_cong`
+   + arms in `tag_eq`/`zero_val`/`key_eqb` (two arrows equal iff domain+codomain tags agree; func zero
+   is Go `nil`; funcs not comparable → `false` sentinel like slices), all axiom-free.  Plugin: the
+   projection cast PARENTHESISES a composite (func) underlying and CALLS THROUGH it when applied —
+   `func (h Handler) Handler_run(x int64) int64 { return (func(int64) int64)(h)(x) }` — so a method on
+   the named func type calls the wrapped func; `mk_handler` → `Handler(f)`, `named_func_demo` → `42`.
+   *Not yet:* defined types as map KEYS (the phantom breaks equality), `Module`-namespaced method names,
+   defined types over slice/map/struct underlyings (same parenthesised-cast path, no call-through — easy
+   follow-on).
 
    **c. Interfaces (dictionary model)** — *≥2-method done; 1-method (unboxed) pending*.
    An interface is modelled as a Rocq `Record` whose fields are the methods, each a

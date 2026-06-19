@@ -1394,6 +1394,24 @@ func Deftype_iface_demo() {
 	println(((Mk_celsius(20)).Celsius_measurable()).Measure())
 }
 
+type Handler func(int64) int64
+
+func Mk_handler(f func(int64) int64) Handler {
+	return Handler(f)
+}
+
+func (h Handler) Handler_run(x int64) int64 {
+	return (func(int64) int64)(h)(x)
+}
+
+func Hinc(n int64) int64 {
+	return n + 1
+}
+
+func Named_func_demo() {
+	println((Mk_handler(Hinc)).Handler_run(41))
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1540,4 +1558,5 @@ func main() {
 	Deftype_demo()
 	Deftype_str_demo()
 	Deftype_iface_demo()
+	Named_func_demo()
 }

@@ -1968,6 +1968,23 @@ Definition celsius_measurable (c : Celsius) : Measurable :=
 Definition deftype_iface_demo : IO unit :=
   println [any (measure (celsius_measurable (mk_celsius (20)%i64)) tt)].   (* 120 *)
 
+(** A NAMED FUNCTION TYPE (Go's [type Handler func(int64) int64] — the [http.HandlerFunc]
+    idiom): a defined type whose UNDERLYING is a func.  The [GoTypeTag] phantom needs an
+    arrow tag ([TArrow]), and the underlying renders via [pp_type] of the arrow → the
+    func type.  A value-receiver method [handler_run] CALLS the wrapped func: projecting it
+    is the cast [(func(int64) int64)(h)], and applying an arg calls THROUGH that cast —
+    [(func(int64) int64)(h)(x)].  [hinc] is a plain function (its first param is not a
+    record, so it stays a function, not a method) wrapped by [mk_handler]. *)
+Record Handler := MkHandler { h_fn : GoI64 -> GoI64 ; h_tag : GoTypeTag (GoI64 -> GoI64) }.
+Definition mk_handler (f : GoI64 -> GoI64) : Handler := MkHandler f (TArrow TI64 TI64).
+Definition handler_run (h : Handler) (x : GoI64) : GoI64 := h_fn h x.
+Definition hinc (n : GoI64) : GoI64 := i64_add n (1)%i64.
+(* dispatch is provable: the wrapped func IS what [handler_run] calls *)
+Example handler_run_spec : forall f x, handler_run (mk_handler f) x = f x.
+Proof. reflexivity. Qed.
+Definition named_func_demo : IO unit :=
+  println [any (handler_run (mk_handler hinc) (41)%i64)].   (* 42 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2119,6 +2136,7 @@ Definition main_effect : IO unit :=
   deftype_demo                  >>'   (* prints: 42 (defined type with method) *)
   deftype_str_demo              >>'   (* prints: Hi, fido (defined type over string) *)
   deftype_iface_demo            >>'   (* prints: 120 (defined type satisfies an interface) *)
+  named_func_demo               >>'   (* prints: 42 (named func type, type Handler func(int64) int64) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

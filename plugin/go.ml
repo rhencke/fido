@@ -964,6 +964,15 @@ let rec pp_type state = function
   | Tvar i | Tvar' i -> str ("T" ^ string_of_int i)
   | Tdummy _ | Tunknown | Taxiom | Tmeta _ -> str "any"
 
+(* A type in CONVERSION position [<T>(x)].  A composite type (func, …) whose
+   rendering contains a space must be parenthesised — Go parses [func(int64) int64(x)]
+   wrong, needs [(func(int64) int64)(x)] — whereas a bare identifier ([int64], [string])
+   must NOT be (Go rejects [(int64)(x)]… actually accepts it, but keep it clean). *)
+let pp_cast_type state t =
+  match t with
+  | Tarr _ -> str "(" ++ pp_type state t ++ str ")"
+  | _ -> pp_type state t
+
 let rec collect_tarrs = function
   | Tarr (t, rest) -> let ts, ret = collect_tarrs rest in t :: ts, ret
   | t              -> [], t
@@ -1416,10 +1425,17 @@ let rec pp_expr state env = function
           [field recv arg…] is dynamic dispatch [recv.Field(arg…)]. *)
        (* DEFINED-TYPE value projection [my_val x] → the cast [<under>(x)] (recover the
           underlying primitive from the named defined type), before the field-access arm. *)
-       | MLglob r, [recv] when is_record_proj r
+       | MLglob r, (recv :: rest) when is_record_proj r
              && Hashtbl.mem defined_prim_proj (global_path r) ->
-           pp_type state (Hashtbl.find defined_prim_proj (global_path r)) ++
-           str "(" ++ pp_expr state env recv ++ str ")"
+           let under = Hashtbl.find defined_prim_proj (global_path r) in
+           let cast = pp_cast_type state under ++ str "(" ++ pp_expr state env recv ++ str ")" in
+           (* the underlying may be a func type ([type Handler func(A) B]); projecting it then
+              applying args is calling through the cast: [(func(A) B)(h)(x)]. *)
+           (match rest with
+            | [] -> cast
+            | _  -> cast ++ str "(" ++
+                    prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
+                    str ")")
        | MLglob r, (recv :: rest) when is_record_proj r ->
            let fld = pp_atom state env recv ++ str "." ++ str (proj_field_name r) in
            (match rest with
