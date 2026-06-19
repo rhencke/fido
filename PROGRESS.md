@@ -1197,6 +1197,19 @@ resting state.)**
     like `i64_of_f64`):* the body's `SFadd`/`Prim2SF` drag the SpecFloat definitional tree into
     extraction, so the native lowering (`GoFloat32` → `float32`, `f32_add` → Go `+`, recognized-
     and-suppressed) needs that tree suppressed — a follow-on; the MODEL (the hard part) is done.
+    **Lowering SCOPED (2026-06-19, `Recursive Extraction f32_add`):** the drag closure is BOUNDED
+    (~15 decls) — `SFadd`/`SFsub`/`SFmul`/`SFdiv`, `Prim2SF`/`SF2Prim`, and the SpecFloat rounding
+    machinery `binary_round`/`binary_round_aux`/`round_nearest_even`/`shr`/`shr_m`/`shr_r`/`shr_s`/
+    `shr_fexp`/`shr_record`/`shr_record_of_loc`/`fexp`/`emin`/`digits2_pos`/`cond_Zopp`, plus the
+    `spec_float` TYPE.  An attempted lowering confirmed they drag (the abort is the generic
+    "unmodeled node in value position" — it does NOT name the decl, so the closure had to be found
+    via `Recursive Extraction`, not the error).  So the lowering is a concrete multi-piece job, not
+    intractable: (1) suppress those ~15 value decls (`is_inlined_ref`) + the `spec_float` type
+    (Dtype/Dind arm); (2) recognise `f32_add`/… → the native operator (`classify_f32_op` →
+    `binop_of`); (3) avoid the float32 LITERAL-typing issue by demoing through a typed-param
+    function (`f32_sum (a b : GoFloat32)` → `func F32_sum(a, b float32) float32`, so the call-site
+    consts pin to `float32`); (4) `println`/`any` of a `GoFloat32` (needs a `Tagged GoFloat32`
+    check).  A dedicated follow-on — slow to iterate because the drag error is unnamed.
     *Still open:* `float64` → `int`
     (truncation — `PrimFloat` has no to-int primitive); float32 LOWERING (tree suppression),
     `float32` literals/comparison, and `float↔float`; and `abs`/`sqrt` are
