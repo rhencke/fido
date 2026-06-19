@@ -1017,6 +1017,17 @@ func Variadic_demo() {
 	Sum_print(xs...)
 }
 
+func Log_prefixed(prefix string, xs ...int64) {
+	for _, x := range xs {
+		println(prefix, x)
+	}
+}
+
+func Variadic_mixed_demo() {
+	xs := []int64{4, 5}
+	Log_prefixed("n=", xs...)
+}
+
 func Foreach_idx_demo() {
 	xs := []int64{10, 20, 30}
 	for i, x := range xs {
@@ -1421,6 +1432,7 @@ func main() {
 	Scmp_demo()
 	Foreach_demo()
 	Variadic_demo()
+	Variadic_mixed_demo()
 	Foreach_idx_demo()
 	Int_range_demo()
 	Sum_demo()
