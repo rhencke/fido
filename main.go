@@ -2,6 +2,8 @@
 
 package main
 
+var Size uint = 63
+
 func I64_abs(a int64) int64 {
 	if a < 0 {
 		return 0 - a
@@ -93,6 +95,10 @@ func Fcmp_demo() {
 
 func F64_of_int_demo() {
 	println(float64(5), float64(-3))
+}
+
+func F64_of_i64_demo() {
+	println(float64(7), float64(-3))
 }
 
 func U8_demo() {
@@ -1311,6 +1317,7 @@ func main() {
 	Float_opp_sign_demo(0.0)
 	Fminmax_demo()
 	F64_of_int_demo()
+	F64_of_i64_demo()
 	Fcmp_demo()
 	U8_demo()
 	Fw_cmp_demo()

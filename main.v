@@ -313,6 +313,14 @@ Definition f64_of_int_demo : IO unit :=
   println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)
 
+(** GoI64 → float64 (Go [float64(i64)]) — NOW lowers too: same recognize-and-suppress as
+    [f64_of_int], plus suppressing the [Z]→int63 helpers [of_Z]/[of_pos] its [Z] carrier
+    drags (the [Z]/[positive] arithmetic was already suppressed by module).  It returns
+    [float], so it stays a NAMED call — the lowering [f64_of_i64] left deferred is closed. *)
+Definition f64_of_i64_demo : IO unit :=
+  println [ any (f64_of_i64 (7)%i64) ; any (f64_of_i64 (-3)%i64) ].
+  (* prints: +7.000000e+000 -3.000000e+000 (int64 → float64 cast) *)
+
 
 (** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
     Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.
@@ -1890,6 +1898,7 @@ Definition main_effect : IO unit :=
   float_opp_sign_demo 0         >>'   (* prints: true (opp made -0 at runtime) *)
   fminmax_demo                  >>'   (* prints: min/max of 3.0 5.0 *)
   f64_of_int_demo               >>'   (* prints: +5.000000e+000 -3.000000e+000 (float64(i)) *)
+  f64_of_i64_demo               >>'   (* prints: +7.000000e+000 -3.000000e+000 (float64(i64)) *)
   fcmp_demo                     >>'   (* prints: true true true *)
   u8_demo                       >>'   (* prints: 44 / 1 / 255 / true *)
   fw_cmp_demo                   >>'   (* prints: true true true (narrow >/>=/!=) *)
@@ -2036,7 +2045,7 @@ Extraction NoInline
   arr_lit arr_get_ok arr_eqb arr_set
   str_gtb str_geb str_neqb f64_gtb f64_geb f64_neqb
   i64_lit i64_add i64_sub i64_mul i64_add_nz i64_sub_nz i64_mul_nz i64_eqb i64_ltb i64_leb
-  i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int
+  i64_abs i64_neg u64_neg u64_of_i64 i64_of_u64 i64_min i64_max u64_min u64_max f64_min f64_max f64_of_int f64_of_i64
   i64_gtb i64_geb i64_neqb u64_gtb u64_geb u64_neqb
   u8_gtb u8_geb u8_neqb i8_gtb i8_geb i8_neqb
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb

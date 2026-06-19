@@ -1036,9 +1036,12 @@ resting state.)**
     widening fails for one reason: `f64_of_int` returns `float` (a primitive, NOT a single-
     field record), so there is no unbox-η-collapse to a renaming — it stays a NAMED call the
     recognizer fires on.  Adds `PrimFloat.of_uint63` to the trust base — a Rocq `float`
-    PRIMITIVE (like `PrimFloat.add`), NOT a Fido axiom.  *Still open:* `float64` → `int`
-    (truncation — `PrimFloat` has no to-int primitive); `f64_of_i64` lowering (`GoI64`→float,
-    modeled but its `Z` carrier needs the match-bodied `Uint63.of_Z`); `float32` (no native
+    PRIMITIVE (like `PrimFloat.add`), NOT a Fido axiom.  **`GoI64` → `float64` DONE too
+    (2026-06-19):** `f64_of_i64` → native `float64(i)`, same recognize-and-suppress; its `Z`
+    carrier additionally drags the Z→int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed
+    alongside the already-suppressed `Z`/`positive` arithmetic (`f64_of_i64_demo` →
+    `+7.000000e+000 -3.000000e+000`).  *Still open:* `float64` → `int`
+    (truncation — `PrimFloat` has no to-int primitive); `float32` (no native
     Rocq f32) and `float↔float`; and `abs`/`sqrt` are
     **deferred** because they need `math.Abs`/`math.Sqrt` — and **package imports
     are on hold by decision until every no-import builtin is locked down perfect**
