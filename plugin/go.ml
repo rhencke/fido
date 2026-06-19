@@ -841,6 +841,10 @@ let binop_of r =
 (*s Type printer. *)
 
 let rec pp_type state = function
+  (* [unit -> R] → Go's nullary [func() R] (the unit arg is erased) — a NULLARY method
+     in an interface dictionary (e.g. [String() string]). *)
+  | Tarr (t1, t2) when (match t1 with Tglob (r, []) -> is_unit_type r | _ -> false) ->
+      str "func() " ++ pp_type state t2
   | Tarr (t1, t2) ->
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
@@ -1660,10 +1664,14 @@ and pp_typed_closure state env ftype lam =
     | id :: ids', []       -> (id, Tunknown) :: zip ids' []
   in
   let pairs = zip ids argtypes in
+  (* drop [unit]-typed params from the SIGNATURE (a nullary method's [unit] trigger) — they
+     stay in [new_env] for de Bruijn, but the Go closure is nullary [func() R]. *)
+  let is_unit_arg t = (match t with Tglob (r, []) -> is_unit_type r | _ -> false) in
+  let sig_pairs = List.filter (fun (_, t) -> not (is_unit_arg t)) pairs in
   let new_env = List.rev ids @ env in
   str "func(" ++
   prlist_with_sep (fun () -> str ", ")
-    (fun (id, t) -> pp_mlident id ++ str " " ++ pp_type state t) pairs ++
+    (fun (id, t) -> pp_mlident id ++ str " " ++ pp_type state t) sig_pairs ++
   str ") " ++ pp_type state rettype ++ str " {" ++ fnl () ++
   str "\treturn " ++ pp_expr state new_env body ++ fnl () ++
   str "}"

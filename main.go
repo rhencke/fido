@@ -1177,6 +1177,21 @@ func Single_iface_demo() {
 	println((Mk_adder(5)).Greet(10))
 }
 
+type Stringer struct {
+	Sg_str  func() string
+	Sg_self any
+}
+
+func Mk_namer(nm string) Stringer {
+	return Stringer{func() string {
+		return nm
+	}, nm}
+}
+
+func Nullary_iface_demo() {
+	println((Mk_namer("fido")).Sg_str())
+}
+
 type Light struct {
 	Ticks  int64
 	Serial int64
@@ -1348,6 +1363,7 @@ func main() {
 	Ptr_method_demo()
 	Iface_demo()
 	Single_iface_demo()
+	Nullary_iface_demo()
 	Typestate_demo()
 	Repinv_demo()
 }

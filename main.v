@@ -1716,6 +1716,18 @@ Proof. reflexivity. Qed.
 Definition single_iface_demo : IO unit :=
   println [any (greet (mk_adder (5)%i64) (10)%i64)].   (* 5 + 10 = 15 *)
 
+(** NULLARY method (Go's [interface { String() string }] — no args beyond the receiver).
+    In the dictionary model the method is a [unit -> R] thunk (the unit triggers it, the
+    value is captured); it should lower to an idiomatic Go [func() string] with the call
+    [d.Sg_str()] — i.e. the [unit] param/arg erased. *)
+Record Stringer := MkStringer { sg_str : unit -> GoString ; sg_self : GoAny }.
+Definition mk_namer (nm : GoString) : Stringer :=
+  MkStringer (fun _ => nm) (any nm).
+Example dispatch_str : forall nm, sg_str (mk_namer nm) tt = nm.
+Proof. reflexivity. Qed.
+Definition nullary_iface_demo : IO unit :=
+  println [any (sg_str (mk_namer "fido"%string) tt)].   (* "fido" *)
+
 (** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
     The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
     index ([Light c]); each transition's type names the legal from/to states, so an
@@ -1915,6 +1927,7 @@ Definition main_effect : IO unit :=
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
+  nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   ret tt.
