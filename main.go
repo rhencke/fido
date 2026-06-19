@@ -674,6 +674,12 @@ func Rune_to_str_demo() {
 	println(string(rune(65)))
 }
 
+func Str_range_demo() {
+	for i, r := range string(rune(72)) + (string(rune(8364)) + string(rune(33))) {
+		println(i, r)
+	}
+}
+
 func Defer_loop_demo() {
 	i := int64(0)
 	var iv int64
@@ -1313,6 +1319,7 @@ func main() {
 	Bytes_demo()
 	Rune_demo()
 	Rune_to_str_demo()
+	Str_range_demo()
 	Tsw_demo(true)
 	Tsw_demo("go")
 	Tsw_demo(5)

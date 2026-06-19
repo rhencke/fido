@@ -272,6 +272,7 @@ let is_arr_lit_ref = named "arr_lit"
 let is_arr_eqb_ref = named "arr_eqb"   (* array == (field-wise; arrays comparable, slices not) *)
 let is_arr_set_ref = named "arr_set"   (* functional array update → copy-mutate-return IIFE *)
 let is_for_each_ref = named "for_each"
+let is_str_range_ref = named "str_range"   (* for i, r := range s (string range, byte index + rune) *)
 let is_slice_fold_ref = named "slice_fold"
 let is_ref_type = named "Ref"
 let is_ref_new_ref = named "ref_new"
@@ -1894,6 +1895,9 @@ let pp_io_body state tab env body =
               | MLglob r2, [xs; bodyfn] when is_for_each_ref r2 ->
                   emit_for_each tab env xs bodyfn ++
                   pp_stmts tab new_env body
+              | MLglob r2, [s; bodyfn] when is_str_range_ref r2 ->
+                  emit_str_range tab env s bodyfn ++
+                  pp_stmts tab new_env body
               (* bind (map_get_or k def m) (fun hit => body) → the value at k or
                  def, via comma-ok.  [hit] takes the default's (typed) value, so
                  it has the map's value type (not [any]); the if-block overwrites
@@ -1980,6 +1984,9 @@ let pp_io_body state tab env body =
          (* for_each in tail position (not inside a bind) *)
          | MLglob r, [xs; bodyfn] when is_for_each_ref r ->
              emit_for_each tab env xs bodyfn
+         (* str_range in tail position *)
+         | MLglob r, [s; bodyfn] when is_str_range_ref r ->
+             emit_str_range tab env s bodyfn
          (* run_blocks start [b0; b1; …] → Go labels + goto.  Only Jump-target
             labels are emitted (Go rejects unused labels); the label sits one
             indent left of its block, as gofmt wants. *)
@@ -2804,6 +2811,21 @@ let pp_io_body state tab env body =
     str tab ++ hdr ++ pp_expr state env xs ++ str " {" ++ fnl () ++
     pp_stmts (tab ^ "\t") new_env body ++
     str tab ++ str "}" ++ fnl ()
+  (* str_range s (fun i r => body) → for i, r := range s { body } — Go's string range
+     (i = byte offset, r = rune).  Two binders; an unused one becomes [_] (Go forbids an
+     unused range variable).  The proof-only [for_each_pairs] model is recognized away. *)
+  and emit_str_range tab env s bodyfn =
+    let ids, body = collect_lam bodyfn in
+    let new_env = List.rev ids @ env in
+    let nm id = if is_dummy id then str "_" else pp_mlident id in
+    let hdr =
+      match ids with
+      | [i; r] -> str "for " ++ nm i ++ str ", " ++ nm r ++ str " := range "
+      | [i]    -> str "for " ++ nm i ++ str " := range "
+      | _      -> str "for range " in
+    str tab ++ hdr ++ pp_expr state env s ++ str " {" ++ fnl () ++
+    pp_stmts (tab ^ "\t") new_env body ++
+    str tab ++ str "}" ++ fnl ()
   (* ---- Indexed-monad (linear) sessions ----
      A [Sess i j A] fragment lowers to sequential Go against the implicit shared
      channel [_sess_ch] (declared by [run_session]).  [sbind] is sequencing;
@@ -3045,7 +3067,8 @@ let is_inlined_ref r =
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
      "str_to_bytes"; "str_from_bytes"; "byte_ascii";
-     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str"] ||
+     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
+     "str_range"; "rune_width"; "runes_with_offsets"; "for_each_pairs"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

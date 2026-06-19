@@ -122,7 +122,7 @@ f32).  Note: distinctness makes explicit
 CONVERSIONS (below) load-bearing — without them you can't use a `uint8` where an
 `int` is wanted (which is correct: it fails loud, not silently).
 
-### [String types](https://go.dev/ref/spec#String_types) — ✓ byte sequence (rune view deferred)
+### [String types](https://go.dev/ref/spec#String_types) — ✓ byte sequence + rune view + `range s`
 Spec: "A string value is a (possibly empty) sequence of **bytes**… The number of
 bytes is called the **length**… A string's **bytes** can be accessed by integer
 indices `0` through `len(s)-1`" (`s[i]` is a byte); strings are **immutable**;
@@ -152,16 +152,16 @@ the earlier `list GoRune` (the rune view, which mismodelled `len`/`s[i]`).
 - **literals**: the plugin decodes a Coq `String`/`Ascii`/`EmptyString` literal to
   a byte-faithful Go string literal (printable ASCII verbatim; other bytes via Go's
   `\xNN`), so the emitted literal denotes EXACTLY the modelled bytes. ✓
-**Deferred (not silently wrong — unmodeled, fails loud):** the **rune view**
-(`range s` UTF-8 decode, `string`↔`[]rune`/`[]byte` — see Conversions ✗), and
-byte-level mutation (Go forbids `s[i] = …` anyway; strings are immutable).
-*Why `[]byte(s)`/`string(b)` is deferred — a representation tension, not difficulty:*
-Go's `[]byte` is `[]uint8`, but our arithmetic-faithful `uint8` erases `GoU8 → int64`
-(int64 + mask), so a byte slice would emit as `[]int64`, incompatible with Go's
-`[]byte`.  Faithful byte conversions need either an element-wise convert or a
-`uint8`-as-native-`uint8` storage representation — a deliberate representation
-decision, tracked.  (The rune view additionally needs a UTF-8 decoder — pure, but
-sequenced after that decision.)
+**Rune view DONE.** `string`↔`[]rune` (`str_to_runes`/`runes_to_str` → native
+`[]rune(s)`/`string(rs)`, a suppressed 1–4 byte UTF-8 codec verified by round-trip),
+`string(rune)` (`rune_to_str`), and `string`↔`[]byte` (`str_to_bytes`/`str_from_bytes`)
+all lower to the native conversions; the runtime does the real UTF-8. ✓
+**`range s` DONE (2026-06-19):** `str_range s (fun i r => …)` → the native two-variable
+`for i, r := range s { … }` — `i` the BYTE offset of each code point, `r` the rune; byte
+offsets are the prefix sums of the per-rune UTF-8 widths (machine-checked `str_range_offsets`,
+`A 中 B → 0 1 4`), matching Go exactly. ✓
+**Deferred (fails loud):** byte-level mutation (Go forbids `s[i] = …` anyway; strings
+are immutable).
 
 ### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays (literal, index, comparability, value-copy); ✗ array-typed positions (type-level N)
 Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
@@ -363,10 +363,10 @@ accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 →
 identity, but the faithful body crosses the PrimInt63→`Z` carrier via `Sint63.to_Z`,
 whose stdlib chain pulls in the deliberately-REJECTED unsigned `Uint63.ltb` (Tier 3
 #9) — so kept proof-only (not extracted), like `f64_of_i64`.
-**Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float gaps /
-no native f32); `string`↔`[]byte`/`[]rune` (the rune view, deferred); narrow →
-`uint64` and `int64`→narrow (same carrier-bridge); interface conversions beyond
-`type_assert`.
+`string`↔`[]byte`/`[]rune` and `string(rune)` are DONE (the rune view — see String
+types).  **Still ✗ (fails loud):** `int↔float` and `float↔float` (ties to the float
+gaps / no native f32); narrow → `uint64` and `int64`→narrow (same carrier-bridge);
+interface conversions beyond `type_assert`.
 
 ## Expressions — primary
 

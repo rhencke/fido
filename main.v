@@ -431,15 +431,19 @@ Definition convert_demo : IO unit :=
     crosses the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
     ([Sint63Axioms.to_Z] -> [Uint63.ltb] …) includes the DELIBERATELY-REJECTED unsigned
     [Uint63.ltb] (Tier 3 #9), so extracting the body drags a banned decl.  Kept proof-only.
-    *Two runtime-lowering attempts (2026-06-18) both FAILED for the same reason:* (a)
-    recognise [i64_of_u8] → identity at the call site + suppress its decl; (b) emit it as a
-    named no-op conversion func [func I64_of_u8(a int64) int64 { return int64(a) }] via
-    [fullwidth_conv_name].  BOTH abort because [i64_of_u8] is INLINED at the call site
-    despite [Extraction NoInline i64_of_u8] (which DOES work for [u64_of_i64] right beside it
-    in the same list!), so the [to_Z] body leaks regardless of how the decl is handled.
-    Why [NoInline] is ignored for THIS definition specifically is an open Coq-extraction
-    puzzle.  The robust fix is the **narrow-stored-in-Z model** (re-base [GoU8]… on [Z] like
-    [GoI64], so widening never crosses carriers) — a real refactor, deferred. *)
+    *Root cause (deepened diagnosis 2026-06-19):* the single-field [GoI64]/[GoU8] records
+    UNBOX, so EVERY faithful widening body η-reduces to a RENAMING of [Sint63.to_Z], which
+    Coq's extraction force-inlines regardless of [Extraction NoInline] — splicing [to_Z]'s
+    [if]-body (an [MLcase] over the rejected [Uint63.ltb]) into VALUE position, where the
+    pure value-position match cannot lower (ladder 7b).  Confirmed exhaustively: routing
+    through a FIDO wrapper [i64_of_int63] (NON-renaming match body, NON-match [Z.add … 0]
+    body, called directly or via the narrows) STILL inlines into value position — yet the
+    STRUCTURALLY-IDENTICAL [i64_abs] ([GoI64 -> GoI64], match body, same NoInline list) stays
+    a named decl whose [if] lowers fine in TAIL position.  The differentiator is the
+    [int -> GoI64] carrier crossing, not NoInline per se.  The robust fix is the
+    **narrow-stored-in-Z model** (re-base [GoU8]… on [Z] like [GoI64]): then [i64_of_u8 a =
+    MkI64 (u8raw a)] is a pure IDENTITY ([u8raw : GoU8 -> Z], no [to_Z], no match), lowering
+    to [a].  A focused all-6-types carrier refactor, deferred to its own iteration. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
 Example widen_i8  : i64_of_i8  (i8_of_int (-5)%sint63)      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
 Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.
@@ -1187,6 +1191,21 @@ Definition rune_demo : IO unit :=
 Definition rune_to_str_demo : IO unit :=
   println [any (rune_to_str (MkI32 65%uint63))].   (* string(rune(65)) → "A" *)
 
+(** Go [for i, r := range s]: [i] the BYTE offset of each code point, [r] the rune.
+    Byte offsets are faithful to UTF-8 widths — for [A 中 B] (1/3/1 bytes) the offsets are
+    [0 1 4], machine-checked here on the model; [str_range] lowers to the native two-variable
+    range loop.  The decode round-trips ([str_to_runes ∘ runes_to_str = id], [rune_roundtrip_*]). *)
+Example str_range_offsets :
+  runes_with_offsets 0%uint63
+    (str_to_runes (runes_to_str (MkI32 65%uint63 :: MkI32 20013%uint63 :: MkI32 66%uint63 :: nil)))
+  = (0%uint63, MkI32 65%uint63) :: (1%uint63, MkI32 20013%uint63) :: (4%uint63, MkI32 66%uint63) :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Definition str_range_demo : IO unit :=
+  str_range (str_concat (rune_to_str (MkI32 72%uint63))
+            (str_concat (rune_to_str (MkI32 8364%uint63))
+                        (rune_to_str (MkI32 33%uint63))))   (* "H€!" — H(1 byte) €(3) !(1) *)
+    (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
+
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
@@ -1874,6 +1893,7 @@ Definition main_effect : IO unit :=
   bytes_demo                    >>'   (* prints: Hi ([]byte / string round-trip) *)
   rune_demo                     >>'   (* prints: Go ([]rune / string round-trip, UTF-8) *)
   rune_to_str_demo              >>'   (* prints: A (string(rune(65))) *)
+  str_range_demo                >>'   (* prints: 0 72 / 1 8364 / 4 33 (for i, r := range s) *)
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
@@ -1964,7 +1984,7 @@ Extraction NoInline
   make_chan make_chan_buf send recv close_chan recv_ok select_recv2 select_recv_default go_spawn
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
-  print println defer_call append slice_of_list run_blocks
+  print println defer_call append slice_of_list run_blocks str_range
   len cap slice_get slice_at_ok str_at_ok str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2 str_switch3
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb

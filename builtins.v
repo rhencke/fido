@@ -3509,6 +3509,35 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
   | cons x rest => bind (body x) (fun _ => for_each rest body)
   end.
 
+(** ---- [range] over a string (Go spec "For statements: For range"): [for i, r := range s] ----
+    Go ranges a STRING by UTF-8 code point: [i] is the BYTE offset of each code point's first
+    byte, [r] the decoded rune.  Modeled faithfully on the existing rune view: [str_to_runes]
+    decodes, [rune_width] is each rune's UTF-8 byte length (the length [rune_bytes] would
+    emit), and the byte offsets are the running prefix sums of those widths — exactly Go's
+    string-range index (machine-checked by [str_range_offsets] in main.v).  [str_range] lowers
+    to the NATIVE two-variable [for i, r := range s]; the [for_each_pairs]/[runes_with_offsets]
+    model is proof-only (recognized by name, decl suppressed), so the emitted Go is the
+    idiomatic range loop — never a [[]rune] materialisation.  The index is the Go [int] index
+    type ([Sint63], → the loop's [int] variable). *)
+Definition rune_width (r : GoI32) : int :=
+  let c := i32raw r in
+  if PrimInt63.ltb c 128%uint63   then 1%uint63    (* 1-byte (ASCII) *)
+  else if PrimInt63.ltb c 2048%uint63  then 2%uint63    (* 2-byte *)
+  else if PrimInt63.ltb c 65536%uint63 then 3%uint63    (* 3-byte *)
+  else 4%uint63.                                          (* 4-byte *)
+Fixpoint runes_with_offsets (off : int) (rs : list GoI32) : list (int * GoI32) :=
+  match rs with
+  | nil         => nil
+  | cons r rest => cons (off, r) (runes_with_offsets (PrimInt63.add off (rune_width r)) rest)
+  end.
+Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO unit) : IO unit :=
+  match xs with
+  | nil              => ret tt
+  | cons (a, b) rest => bind (body a b) (fun _ => for_each_pairs rest body)
+  end.
+Definition str_range (s : GoString) (body : int -> GoI32 -> IO unit) : IO unit :=
+  for_each_pairs (runes_with_offsets 0%uint63 (str_to_runes s)) body.
+
 (** [slice_fold xs init step] is a pure left fold: it threads an accumulator
     through the slice, [step]ping it with each element.  A total Fixpoint, so
     its unfolding is provable:

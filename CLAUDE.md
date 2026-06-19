@@ -908,8 +908,14 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    `[]rune(s)`/`string(rs)` (runtime does the real UTF-8); the Coq bodies are a full 1–4
    byte UTF-8 codec (suppressed), VERIFIED by round-trip examples for ASCII and a 3-byte CJK
    point (`rune_roundtrip_ascii`/`_cjk`, 中=U+4E2D).  `rune_demo` → `Go`, golden-locked.
-   *Still deferred:* `range s` (the ITERATING form — a loop), and byte mutation (Go forbids
-   it — strings immutable).
+   **`range s` (the ITERATING form) DONE (2026-06-19):** `str_range s (fun i r => …)` lowers
+   to the native two-variable `for i, r := range s { … }` — `i` the BYTE offset of each
+   code point, `r` the rune (`GoI32`).  Faithful byte offsets: the proof-only model is
+   `runes_with_offsets` (running prefix sums of `rune_width`, the per-rune UTF-8 byte length)
+   over `str_to_runes`, recognized-by-name so the emitted Go is the idiomatic range loop, NOT
+   a `[]rune` materialisation.  The offsets MATCH Go's (machine-checked `str_range_offsets`:
+   `A 中 B` → `0 1 4`; `str_range_demo` runs `H € !` → `0 72 / 1 8364 / 4 33`, golden-locked,
+   axiom-free).  *Still deferred:* byte mutation (Go forbids it — strings immutable).
 8. **Reference-type state (maps, slices, refs).**
    (b) *get-after-write — FIXED for maps via a heap in the world.*  Map reads are
    now in `IO` (`map_get_opt : ... -> IO (option V)`, `map_get_or`, `map_len`);
