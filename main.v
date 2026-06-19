@@ -321,6 +321,21 @@ Definition f64_of_i64_demo : IO unit :=
   println [ any (f64_of_i64 (7)%i64) ; any (f64_of_i64 (-3)%i64) ].
   (* prints: +7.000000e+000 -3.000000e+000 (int64 → float64 cast) *)
 
+(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero, via the verified [Prim2SF]
+    decomposition.  Machine-checked across the sign, the exact case, and zero. *)
+Example i64_of_f64_pos   : i64_of_f64 3.7%float       = (3)%i64.       Proof. now vm_compute. Qed.
+Example i64_of_f64_neg   : i64_of_f64 (-3.7)%float    = (-3)%i64.      Proof. now vm_compute. Qed.
+Example i64_of_f64_exact : i64_of_f64 100%float       = (100)%i64.     Proof. now vm_compute. Qed.
+Example i64_of_f64_zero  : i64_of_f64 0%float         = (0)%i64.       Proof. now vm_compute. Qed.
+Example i64_of_f64_big   : i64_of_f64 1000000.9%float = (1000000)%i64. Proof. now vm_compute. Qed.
+(** *Lowering DEFERRED* (proof-only, like [f64_of_i64] once was): [i64_of_f64] returns
+    [GoI64] (a single-field record), so its Z-from-[Prim2SF] body hits the SAME wall as the
+    narrow→int64 widening — Coq's case-of-case fusion inlines the [match] into value position
+    regardless of [NoInline] / splitting out [f64_trunc_Z].  (The int→float directions lower
+    because they return [float], a PRIMITIVE, not a record.)  The MODEL is faithful and
+    machine-checked above; the intended lowering is the native [int64(f)] once the
+    record-result fusion is solved. *)
+
 
 (** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
     Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.

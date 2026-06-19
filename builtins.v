@@ -115,6 +115,7 @@ Definition GoSlice (A : Type) : Type := list A.
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
+From Stdlib Require Import Floats.FloatOps Floats.SpecFloat.   (* [Prim2SF] — verified float decomposition for [int64(f)] truncation *)
 (* [BinInt] gives [Z] for the FULL-WIDTH [GoI64] model below (the 63-bit primitive
    [int] is one bit short of int64).  Required WITHOUT [Open Scope Z_scope] so the
    existing [%uint63]/[%sint63] defaults are untouched — all [Z] use is qualified
@@ -1222,6 +1223,34 @@ Definition f64_of_int (i : int) : float :=
   if Sint63.ltb i 0%sint63
   then PrimFloat.opp (PrimFloat.of_uint63 (PrimInt63.sub 0%uint63 i))
   else PrimFloat.of_uint63 i.
+
+(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  Built on the stdlib's VERIFIED
+    decomposition [Prim2SF f] — a finite [f = (-1)^s * m * 2^e] ([m] positive, [e : Z]).  The
+    truncated MAGNITUDE is [m * 2^e] when [e >= 0] (an exact integer) or [m / 2^(-e)] when
+    [e < 0] (the FLOOR of the positive magnitude = truncation toward zero); the sign is
+    applied AFTER, so the whole thing rounds toward zero — exactly Go's rule.  MODELED +
+    machine-checked (witnesses in main.v).  *Runtime lowering DEFERRED (proof-only, not
+    reachable from [main_effect], so not extracted):* the intended lowering is the native
+    [int64(f)], but [i64_of_f64] returns [GoI64] (a single-field record), so its Z-from-
+    [Prim2SF] body hits the SAME wall as the narrow→int64 widening — the [MkI64] unbox + a
+    match-bodied Z computation lets Coq's case-of-case fusion inline the [match] into VALUE
+    position, regardless of [NoInline] or splitting out [f64_trunc_Z].  (The int→float casts
+    [f64_of_int]/[f64_of_i64] DO lower — they return [float], a PRIMITIVE, not a record.)
+    *Bounded deviation:* NaN / ±Inf / out-of-int64-range inputs are
+    IMPLEMENTATION-DEFINED in Go (spec "Conversions"); the model gives [0] (and [wrap64] folds
+    overflow), so those corners are a documented model gap — the FINITE in-range case (the
+    common use) is faithful and machine-checked. *)
+Definition f64_trunc_Z (f : float) : Z :=
+  match Prim2SF f with
+  | S754_finite s m e =>
+      let mag := if Z.leb 0 e then (Zpos m * 2 ^ e)%Z else (Zpos m / 2 ^ (- e))%Z in
+      if s then (- mag)%Z else mag
+  | _ => 0%Z
+  end.
+(* The [match]-on-[Prim2SF] lives in [f64_trunc_Z] (returns [Z]); [i64_of_f64]'s body is then
+   [wrap64 (…)] — a function application, NOT a match — so Coq's case-of-case fusion has no
+   match-of-match to inline, and [i64_of_f64] stays a NAMED call the recognizer fires on. *)
+Definition i64_of_f64 (f : float) : GoI64 := MkI64 (wrap64 (f64_trunc_Z f)).
 
 (** ---- Builtins ---- *)
 

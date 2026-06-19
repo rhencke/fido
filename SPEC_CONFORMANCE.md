@@ -378,8 +378,16 @@ where the narrow→int64 widening (record result) fails.  `f64_of_i64`'s `Z` car
 Z↔int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed alongside the `Z`/`positive`
 arithmetic.  Trust base gains the Rocq PRIMITIVE `PrimFloat.of_uint63` — a kernel `float` op
 (like `PrimFloat.add`), NOT a Fido axiom (`of_Z`/`of_pos` are `Definition`s, not in the
-base).  **Still ✗ (fails loud):** `float64` → `int` (truncation — `PrimFloat` has no to-int
-primitive); `float↔float` (no native f32); narrow → `uint64` and `int64`→narrow
+base).  **`float64` → `int64` truncation — MODELED, lowering deferred (proof-only,
+2026-06-19):** `i64_of_f64` truncates toward zero via the stdlib's VERIFIED `Prim2SF`
+decomposition (`m * 2^e` for `e ≥ 0`, else `m / 2^(-e)` = floor of the magnitude, sign
+applied after — exactly Go's rule), machine-checked across the sign / exact / zero cases
+(`i64_of_f64_pos`/`_neg`/`_exact`/`_zero`/`_big`).  The lowering would be the native
+`int64(f)`, but it returns `GoI64` (a single-field record), so its Z-from-`Prim2SF` body hits
+the SAME case-of-case fusion wall as the narrow→int64 widening (the int→float casts lower
+only because they return `float`, a primitive).  Bounded deviation at NaN/±Inf/overflow
+(impl-defined in Go).  **Still ✗ (fails loud):** `float↔float` (no native f32); narrow →
+`uint64` and `int64`→narrow
 (carrier-bridge); interface conversions beyond `type_assert`.
 
 ## Expressions — primary
