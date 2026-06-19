@@ -423,10 +423,15 @@ separate tracks.
    value) pair, and it's consistent with our multi-method dictionary model).  `Greeter
    { greet : GoI64→GoI64 ; gr_self : GoAny }`, `mk_adder base` → method adds `base` +
    stashes it; dispatch `greet g x` → `(g).Greet(x)`; `single_iface_demo` → `15`.  No
-   NoInline / extraction quirk (mirrors the `Shape` demo).  *Still pending:* a true 1-FIELD
-   model (the curried-return work); nullary (unit-thunk) methods (need unit-arg erasure);
-   and a true Go `interface{…}` keyword form (the vtable struct is the same semantics —
-   Go's interface IS a vtable + erased value).
+   NoInline / extraction quirk (mirrors the `Shape` demo).  **NULLARY methods DONE
+   (2026-06-19):** a `unit -> R` dictionary method (Go's `String() string`) lowers to the
+   idiomatic nullary `func() R` — `pp_type` renders `unit -> R` as `func() R` and
+   `pp_typed_closure` drops `unit`-typed params from the closure signature (the dispatch call
+   already dropped the `unit` arg); `nullary_iface_demo` → `Stringer{ Sg_str func() string;
+   … }`, `(Mk_namer("fido")).Sg_str()` → `fido`, `dispatch_str` machine-checked.  *Still
+   pending:* a true 1-FIELD model (the curried-return work); and a true Go `interface{…}`
+   keyword form (the vtable struct is the same semantics — Go's interface IS a vtable +
+   erased value).
    This is the gateway to typestate / "an FSM can't compile to a broken transition"
    and behavioral-satisfaction proofs.
 
