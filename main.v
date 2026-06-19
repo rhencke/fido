@@ -2341,4 +2341,6 @@ Extraction NoInline
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session.
 
+Print Assumptions main_effect.
+
 Go Main Extraction main "main_effect".

@@ -108,8 +108,15 @@ standing assertions.  (3) **Always know the base**: run `Print Assumptions` afte
 significant result and state its trust base honestly — never overclaim a guarantee
 whose axioms aren't named.
 
-**CURRENT TRUST BASE (verified 2026-06-18, `Print Assumptions main_effect`): ZERO Fido
-axioms.**  `builtins.v` and `main.v` declare NO `Axiom`/`Parameter`/`Admitted`; the IO /
+**CURRENT TRUST BASE (re-verified 2026-06-19, `Print Assumptions main_effect`): ZERO Fido
+axioms** — confirmed AFTER this session's additions (custom enums, user/mutual recursion,
+generics over functions & types, struct embedding, IO-value methods, defined types over
+every underlying).  `main.v` now keeps a standing `Print Assumptions main_effect.` before the
+`Go Main Extraction`, so EVERY build re-confirms the base (continuous verification; it prints
+to the build log and does not affect the runtime golden).  The printed base is EXACTLY Rocq's
+machine primitives — `int : Set`, `float : Set`, `PrimInt63.*`, `PrimFloat.*`, and
+`of_uint63` — with no `chan_*`/`map_*`/`ref_*`/`wrap*` or any other Fido name.  `builtins.v`,
+`main.v`, `concurrency.v` declare NO `Axiom`/`Parameter`/`Admitted`; the IO /
 heap / channel / session model is `Definition`s over a concrete `World`/`Outcome`, and
 every law (`run_bind`, channel & heap get-after-put, `ref_sel_upd_same`, …) is a DERIVED
 THEOREM.  The extracted program rests on EXACTLY Rocq's own machine primitives — `int :
