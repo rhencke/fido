@@ -1646,7 +1646,7 @@ let rec pp_expr state env = function
      whose argument is a lambda is emitted as a TYPED Go closure, so the literal
      matches the field type [func(A) R] rather than the generic [func(any) any].
      This is what makes the dictionary's method entries well-typed. *)
-  | MLcons (_, r, args) when is_record_ctor r ->
+  | MLcons (cty, r, args) when is_record_ctor r ->
       let ftypes = (try Hashtbl.find record_ctor_ftypes (global_basename r) with Not_found -> []) in
       let fields = (try Hashtbl.find record_ctor_fields (global_basename r) with Not_found -> []) in
       let rec pp_vals ts args = match ts, args with
@@ -1657,13 +1657,22 @@ let rec pp_expr state env = function
         | [],       a :: args' -> pp_expr state env a :: pp_vals [] args'
       in
       let vals = pp_vals ftypes args in
+      (* GENERIC STRUCT literal needs EXPLICIT type arguments — Go does not infer them for a
+         composite literal ([Box[int64]{…}], not [Box{…}]).  Take them from the constructed
+         type [Tglob(T, instanceargs)] (the MLcons type field): inside a generic function the
+         instance is the enclosing type param ([Box[T1]{…}]); at a concrete use it is the
+         concrete type ([Box[int64]{…}]).  A non-generic record has no args → no brackets. *)
+      let tyargs = match cty with
+        | Tglob (_, (_ :: _ as ta)) ->
+            str "[" ++ prlist_with_sep (fun () -> str ", ") (pp_type state) ta ++ str "]"
+        | _ -> mt () in
       (* KEYED struct literal [T{Field: v, …}] (field-order-independent, self-documenting —
          what Go style prefers) when a field name is known per value; positional fallback. *)
       let entries =
         if List.length fields = List.length vals
         then List.map2 (fun f v -> str f ++ str ": " ++ v) fields vals
         else vals in
-      str (record_ctor_tyname r) ++ str "{" ++
+      str (record_ctor_tyname r) ++ tyargs ++ str "{" ++
       prlist_with_sep (fun () -> str ", ") (fun x -> x) entries ++ str "}"
 
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
@@ -3381,7 +3390,19 @@ let pp_decl state decl =
                | _ -> false in
              if embedded then str "\t" ++ pp_type state t ++ fnl ()
              else str "\t" ++ str fname ++ str " " ++ pp_type state t ++ fnl () in
-           str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++
+           (* GENERIC STRUCT: the type variables appearing in the field types become the
+              struct's type-parameter list [type Box[T1 any, …] struct {…}] (constraint
+              [any]).  pp_type already renders [Tvar i] as [T<i>] in the fields and a
+              parameterised use [Box[T1]] (the generic Tglob arm), so the decl only needs to
+              DECLARE the params. *)
+           let tvars = List.fold_left collect_tvars [] ftypes in
+           let tparams =
+             if tvars = [] then mt ()
+             else str "[" ++
+                  prlist_with_sep (fun () -> str ", ")
+                    (fun i -> str ("T" ^ string_of_int i) ++ str " any") tvars ++
+                  str "]" in
+           str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++ tparams ++
            str " struct {" ++ fnl () ++
            prlist (fun x -> x) (List.map2 field projs ftypes) ++
            str "}" ++ fnl () ++ fnl ())

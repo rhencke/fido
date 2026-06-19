@@ -1468,6 +1468,29 @@ func Generics_demo() {
 	println(Gfirst("first", true))
 }
 
+type Box[T1 any] struct {
+	Bval T1
+	Btag int64
+}
+
+func Make_box[T1 any](v T1) Box[T1] {
+	return Box[T1]{Bval: v, Btag: 1}
+}
+
+func (b Box[T1]) Box_get() T1 {
+	return b.Bval
+}
+
+func (b Box[T1]) Box_tag() int64 {
+	return b.Btag
+}
+
+func Gstruct_demo() {
+	println((Make_box("hi")).Box_get())
+	println((Make_box(true)).Box_get())
+	println((Make_box("x")).Box_tag())
+}
+
 func main() {
 	println(1 + 2)
 	Panic_and_recover(40 + 2)
@@ -1618,4 +1641,5 @@ func main() {
 	Deftype_slice_demo()
 	Embed_demo()
 	Generics_demo()
+	Gstruct_demo()
 }

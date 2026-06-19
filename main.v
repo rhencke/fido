@@ -2036,6 +2036,24 @@ Definition generics_demo : IO unit :=
   bind (println [any (glen (slice_make TString 2))]) (fun _ =>   (* glen @ []string → 2 (same generic) *)
   println [any (gfirst "first"%string true)]))).                 (* gfirst @ (string,bool) → first *)
 
+(** GENERIC STRUCTS / TYPES (Go's [type Box[T any] struct {…}]).  A PARAMETERIZED Rocq
+    [Record] maps to a Go generic struct: the type variables in the field types become the
+    struct's type-parameter list, and — because Go does NOT infer type args for a composite
+    literal — the constructor emits them explicitly ([Box[T1]{…}] inside a generic function,
+    [Box[int64]{…}] at a concrete use), taken from the constructed type.  A method's receiver
+    carries the params ([func (b Box[T1]) Box_get() T1]); call sites infer.  [Box] needs >= 2
+    fields ([btag]) — a 1-field record is unboxed.  One [Box] is reused at [string] AND [bool]. *)
+Record Box (A : Type) := MkBox { bval : A ; btag : GoI64 }.
+Arguments MkBox {A}. Arguments bval {A}. Arguments btag {A}.
+Definition make_box {A : Type} (v : A) : Box A := MkBox v (1)%i64.   (* generic ctor function *)
+Definition box_get {A : Type} (b : Box A) : A := bval b.             (* generic-receiver method *)
+Definition box_tag {A : Type} (b : Box A) : GoI64 := btag b.         (* reads the non-generic field *)
+Example box_get_spec : forall A (v : A), box_get (make_box v) = v. Proof. reflexivity. Qed.
+Definition gstruct_demo : IO unit :=
+  bind (println [any (box_get (make_box "hi"%string))])  (fun _ =>   (* Box[string] → hi *)
+  bind (println [any (box_get (make_box true))])         (fun _ =>   (* Box[bool] → true (same generic) *)
+  println [any (box_tag (make_box "x"%string))])).                   (* non-generic field → 1 *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -2191,6 +2209,7 @@ Definition main_effect : IO unit :=
   deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
   embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
+  gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

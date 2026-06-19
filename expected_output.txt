@@ -253,3 +253,6 @@ go
 3
 2
 first
+hi
+true
+1

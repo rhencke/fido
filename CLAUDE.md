@@ -221,10 +221,19 @@ separate tracks.
    `[]int64` AND `[]string`, `Gfirst[T1 any, T2 any]` → `go / 3 / 2 / first`, axiom-free,
    golden-locked.  Faithfulness caveat: a BARE untyped-int literal arg (`gid 7`) has Go infer `int`
    not our `int64` (the untyped-constant gap, Tier 2 #6); typed operands (string lits / typed slices)
-   pin the arg, so the demo is faithful.  *Still pending:* generic STRUCTS/types (`type Stack[T]`)
-   and methods on them; constraints beyond `any` (`comparable`/interface — would map a Coq typeclass
-   dict to a Go constraint); an unused non-erased value param mis-names (the `_:B` → duplicate-name
-   artifact, a latent dummy-binder bug, sidestepped by naming params).
+   pin the arg, so the demo is faithful.  **GENERIC STRUCTS/TYPES DONE (2026-06-19):** a
+   PARAMETERIZED Rocq `Record` → a Go generic struct `type Box[T1 any] struct {…}` (the struct-decl
+   arm collects the field types' `Tvar`s into a type-param list).  Go does NOT infer type args for a
+   composite LITERAL, so the constructor emits them explicitly — `Box[T1]{…}` inside a generic
+   function, `Box[int64]{…}` at a concrete use — taken from the `MLcons` constructed-type field
+   `Tglob(Box, instanceargs)` (non-generic records have no args → no brackets, so existing `Point{…}`
+   etc. are unchanged).  A method's receiver carries the params (`func (b Box[T1]) Box_get() T1` — the
+   already-existing `pp_type`/`is_record_tglob` handle the parameterised receiver) and call sites
+   infer (`(Make_box("hi")).Box_get()`).  `Box` needs ≥2 fields (1-field records unbox).  `gstruct_demo`
+   reuses one `Box` at `string` AND `bool` → `hi / true / 1`, golden-locked, axiom-free.  *Still
+   pending:* constraints beyond `any` (`comparable`/interface — would map a Coq typeclass dict to a Go
+   constraint); generic struct used as a map value/key; an unused non-erased value param mis-names
+   (the `_:B` → duplicate-name artifact, a latent dummy-binder bug, sidestepped by naming params).
    *Still pending:* single-method
    interfaces (curried-return — blocked by Coq 1-field unboxing), the rune/UTF-8 string view,
    `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational float constants,
