@@ -1338,9 +1338,16 @@ let rec pp_expr state env = function
        | MLglob r, [xs; ys] when is_append_ref r ->
            str "append(" ++ pp_expr state env xs ++ str ", " ++
            pp_expr state env ys ++ str "...)"
-       (* [vararg xs] in a call-arg position → Go's spread [xs...] *)
+       (* [vararg xs] in a call-arg position → Go's variadic args.  When [xs] is a slice
+          LITERAL ([slice_of_list tag [v1;…]]), emit the idiomatic multi-value form
+          [v1, …, vN] (the values directly); otherwise spread an existing slice [xs...]. *)
        | MLglob r, [xs] when is_vararg_ref r ->
-           pp_expr state env xs ++ str "..."
+           (match xs with
+            | MLapp (MLglob r2, [_; lst]) when is_slice_of_list_ref r2
+                  && Option.has_some (unfold_list [] lst) ->
+                prlist_with_sep (fun () -> str ", ") (pp_expr state env)
+                  (Option.get (unfold_list [] lst))
+            | _ -> pp_expr state env xs ++ str "...")
        (* [va_slice xs] inside a variadic func → the slice itself (identity) *)
        | MLglob r, [xs] when is_va_slice_ref r ->
            pp_expr state env xs
@@ -1563,10 +1570,16 @@ let rec pp_expr state env = function
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
       str "})()"
 
-  (* [MkVariadic xs _] (an inlined [vararg xs]) in a call-arg position → Go's spread [xs...].
-     Checked BEFORE the generic record-ctor arm (which would emit a struct literal). *)
+  (* [MkVariadic xs _] (an inlined [vararg xs]) in a call-arg position → Go's variadic args
+     (multi-value for a slice literal, else [xs...]).  Checked BEFORE the generic record-ctor
+     arm (which would emit a struct literal). *)
   | MLcons (_, r, (xs :: _)) when is_vararg_ref r ->
-      pp_expr state env xs ++ str "..."
+      (match xs with
+       | MLapp (MLglob r2, [_; lst]) when is_slice_of_list_ref r2
+             && Option.has_some (unfold_list [] lst) ->
+           prlist_with_sep (fun () -> str ", ") (pp_expr state env)
+             (Option.get (unfold_list [] lst))
+       | _ -> pp_expr state env xs ++ str "...")
 
   (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}].  A
      field whose type is a function (an interface METHOD dictionary entry) and

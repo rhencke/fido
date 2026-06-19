@@ -1554,6 +1554,11 @@ Definition variadic_mixed_demo : IO unit :=
   let xs := slice_of_list TI64 [(4)%i64; (5)%i64] in
   log_prefixed "n="%string (vararg xs).   (* prints: n= 4 / n= 5 *)
 
+(** Passing INDIVIDUAL values (a slice literal straight to [vararg]) → the idiomatic
+    multi-value call [f(v1, v2, v3)] (not the [[]T{…}...] spread used for a slice var). *)
+Definition variadic_lit_demo : IO unit :=
+  sum_print (vararg (slice_of_list TI64 [(1)%i64; (2)%i64; (3)%i64])).   (* Sum_print(1, 2, 3) → 1 / 2 / 3 *)
+
 (** Indexed slice range: [for i, x := range xs] — [i] the element index, [x] the element
     (the indexed counterpart of [for_each]); lowers to the native two-variable range loop. *)
 Definition foreach_idx_demo : IO unit :=
@@ -2029,6 +2034,7 @@ Definition main_effect : IO unit :=
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
   variadic_demo                 >>'   (* prints: 7 / 8 / 9 (variadic func f(xs ...int64)) *)
   variadic_mixed_demo           >>'   (* prints: n= 4 / n= 5 (fixed param + variadic) *)
+  variadic_lit_demo             >>'   (* prints: 1 / 2 / 3 (multi-value call f(1,2,3)) *)
   foreach_idx_demo              >>'   (* prints: 0 10 / 1 20 / 2 30 (for i, x := range xs) *)
   int_range_demo                >>'   (* prints: 0 / 1 / 2 / 3 (for i := range n) *)
   sum_demo                      >>'   (* prints: 10 *)

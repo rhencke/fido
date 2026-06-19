@@ -1028,6 +1028,10 @@ func Variadic_mixed_demo() {
 	Log_prefixed("n=", xs...)
 }
 
+func Variadic_lit_demo() {
+	Sum_print(1, 2, 3)
+}
+
 func Foreach_idx_demo() {
 	xs := []int64{10, 20, 30}
 	for i, x := range xs {
@@ -1433,6 +1437,7 @@ func main() {
 	Foreach_demo()
 	Variadic_demo()
 	Variadic_mixed_demo()
+	Variadic_lit_demo()
 	Foreach_idx_demo()
 	Int_range_demo()
 	Sum_demo()
