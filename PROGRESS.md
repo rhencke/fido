@@ -619,13 +619,17 @@ essentially complete**.  Verified present + extracting:
 - Control flow / IO monad / panic-recover / defer / typestate — done.
 
 **The genuine remaining frontier (no-import):**
-1. *Generic `comparable` (and interface) constraints.*  Needs a witness-erasure mechanism: a
-   computational equality witness (so Rocq `vm_compute`/proofs reduce) that ERASES from the Go
-   signature AND call sites, with the type-param emitted `[K comparable]` and the witness's
-   equality → Go `==`.  Design: a dedicated `ComparableW K` record (distinct from `GoTypeTag`,
-   which is ambiguous — also used for boxing) carrying `cw_eqb`; the plugin registers functions
-   with a leading `ComparableW (Tvar i)` param, drops that param at decl + every call site, and
-   constrains `T<i>` to `comparable`.  ~1–2 ticks.
+1. *Generic `comparable` constraint* — **DONE (2026-06-19).**  The witness-erasure mechanism
+   shipped: `ComparableW K` (a record carrying `cw_eqb`, distinct from the ambiguous `GoTypeTag`)
+   is computational in Rocq (so `ceq_i64`/`ceq_str` witnesses `vm_compute`) but the plugin ERASES
+   it — `collect_decls` pass 3 records each function's `ComparableW (Tvar)` param indices, which
+   are dropped at the declaration (`render_pairs` filter) AND every call site (the
+   `comparable_witness` drop arm), the type var is emitted `[K comparable]` (not `any`), and
+   `cw_eqb w a b` lowers to native `a == b`.  Result: `func Ceqb[T1 comparable](a, b T1) bool {
+   return a == b }`, instantiated at `int64` AND `string` (`Ceq_i64`/`Ceq_str` drop the witness,
+   Go infers K); `comparable_demo` → `true false true`, golden-locked, axiom-free, no witness
+   struct leaks.  *(Interface-typed constraints — a generic over `K` bounded by a method set —
+   would reuse the same erasure with the dictionary record in place of `ComparableW`; not yet.)*
 2. *Untyped constants* (Go's arbitrary-precision, default-typed literal system) — foundational.
 3. *Enum `==` / enums as map keys* — idiomatic `==` needs plugin recognition (enums are Rocq
    inductives, no int projection); a nested-match `eqb` is faithful but non-idiomatic.

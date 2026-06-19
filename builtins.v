@@ -2899,6 +2899,21 @@ Proof. vm_compute. reflexivity. Qed.
     suppressed [ascii_byte] decoder (so it drags in no [nat_of_ascii]). *)
 Definition str_eqb (a b : GoString) : bool := String.eqb a b.
 
+(** Generic [comparable] CONSTRAINT (Go's [func F[K comparable](…)]).  A comparable type's
+    equality is carried as a [ComparableW K] WITNESS — computational in Rocq (so [vm_compute] /
+    proofs reduce), but the plugin ERASES it: a function with a [ComparableW (Tvar)] parameter
+    drops that parameter at its declaration AND every call site, emits the corresponding type
+    variable as [K comparable] (not [any]), and lowers the witness equality [cw_eqb] to native
+    Go [==].  Faithful: on a Go-comparable type, [cw_eqb] decides the SAME equality [==] does, so
+    erasing the dictionary to the native operator preserves meaning (the witness exists only so
+    Rocq can compute/prove; Go's [comparable] supplies [==] structurally with no runtime dict). *)
+Record ComparableW (K : Type) : Type := MkComparableW { cw_eqb : K -> K -> bool }.
+Arguments MkComparableW {K} _.
+Arguments cw_eqb {K} _.
+Definition ceqb {K} (w : ComparableW K) (a b : K) : bool := cw_eqb w a b.
+Definition cw_i64 : ComparableW GoI64    := MkComparableW i64_eqb.
+Definition cw_str : ComparableW GoString := MkComparableW str_eqb.
+
 Fixpoint str_ltb (a b : GoString) : bool :=
   match a, b with
   | EmptyString,  EmptyString  => false   (* equal — not [<] *)

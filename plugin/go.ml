@@ -389,6 +389,16 @@ let is_map_clear_ref = named "map_clear"
    [u64_max] the UNSIGNED order — both exactly Go's [min]/[max] on that type). *)
 let is_min_ref r = List.mem (global_basename r) ["go_min"; "i64_min"; "u64_min"; "f64_min"]
 let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max"; "f64_max"]
+(* Generic [comparable] constraint: a [ComparableW K] parameter is an ERASED equality witness.
+   A function carrying one drops that param (decl + call sites), emits its type var as
+   [K comparable], and lowers the witness equality [cw_eqb w a b] → native Go [a == b]. *)
+let is_comparablew_type = function
+  | Tglob (r, _) -> String.equal (global_basename r) "ComparableW"
+  | _ -> false
+let is_cw_eqb_ref r = String.equal (global_basename r) "cw_eqb"
+let is_comparable_witness_inst r = List.mem (global_basename r) ["cw_i64"; "cw_str"]
+(* fn global-path -> the visible param indices that are [ComparableW] witnesses (to DROP). *)
+let comparable_witness : (string, int list) Hashtbl.t = Hashtbl.create 16
 let is_slice_make_ref = named "slice_make"
 (* [List.repeat] backs [slice_make]'s model body; it is DEAD in the emitted Go
    (slice_make calls lower to [make([]T,n)]), so its decl is suppressed — emitting
@@ -590,6 +600,7 @@ let is_erased_record_typename s =
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
+  || String.equal s "ComparableW"   (* comparable-constraint witness: erased (drives [K comparable], not a struct) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
@@ -1639,6 +1650,16 @@ let rec pp_expr state env = function
        (* single rune → string: [string(rune(r))] (explicit rune cast, not [string(int)]) *)
        | MLglob r, [c] when String.equal (global_basename r) "rune_to_str" ->
            str "string(rune(" ++ pp_expr state env c ++ str "))"
+       (* comparable-witness equality [cw_eqb w a b] → native Go [a == b] (the witness [w], an
+          erased dictionary, is dropped; Go's [comparable] supplies [==] structurally). *)
+       | MLglob r, [_; a; b] when is_cw_eqb_ref r ->
+           pp_atom state env a ++ str " == " ++ pp_atom state env b
+       (* call to a comparable-constraint function: drop the erased [ComparableW] witness args. *)
+       | MLglob r, args when Hashtbl.mem comparable_witness (global_path r) ->
+           let drop = Hashtbl.find comparable_witness (global_path r) in
+           let kept = List.filteri (fun i _ -> not (List.mem i drop)) args in
+           str (go_export (global_basename r)) ++ str "(" ++
+           prlist_with_sep (fun () -> str ", ") (pp_expr state env) kept ++ str ")"
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -3321,21 +3342,31 @@ let pp_function state name body typ =
   let tvars =
     let fp = List.fold_left (fun acc (_, t) -> collect_tvars acc t) [] param_pairs in
     collect_tvars fp ret_type in
+  (* comparable-constraint: type vars carried by a [ComparableW (Tvar)] witness param get the
+     [comparable] constraint (not [any]); the witness params themselves are DROPPED from the
+     rendered signature (kept in [full_env] for de Bruijn, and their only body use — [cw_eqb] —
+     lowers to [==], so they never appear in the emitted body either). *)
+  let comparable_tvars =
+    List.concat_map (fun (_, t) -> match t with
+      | Tglob (_, args) when is_comparablew_type t -> List.concat_map (collect_tvars []) args
+      | _ -> []) param_pairs in
+  let render_pairs = List.filter (fun (_, t) -> not (is_comparablew_type t)) param_pairs in
   let tparams_doc =
     if tvars = [] then mt ()
     else str "[" ++
          prlist_with_sep (fun () -> str ", ")
-           (fun i -> str ("T" ^ string_of_int i) ++ str " any") tvars ++
+           (fun i -> str ("T" ^ string_of_int i) ++
+                     str (if List.mem i comparable_tvars then " comparable" else " any")) tvars ++
          str "]" in
   let fn_sig =
-    match param_pairs with
+    match render_pairs with
     | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
         str "func (" ++ pp_param (rid, rt) ++ str ") " ++
         str (go_export name) ++ str "(" ++
         prlist_with_sep (fun () -> str ", ") pp_param rest
     | _ ->
         str "func " ++ str (go_export name) ++ tparams_doc ++ str "(" ++
-        prlist_with_sep (fun () -> str ", ") pp_param param_pairs
+        prlist_with_sep (fun () -> str ", ") pp_param render_pairs
   in
   (* IO-returning functions use pp_io_body; pure functions use return+expr *)
   match fullwidth_conv_name name with
@@ -3465,6 +3496,7 @@ let is_inlined_ref r =
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
+  is_cw_eqb_ref r || is_comparable_witness_inst r || String.equal (global_basename r) "MkComparableW" ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing → float32(x); SpecFloat round body suppressed by module *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
@@ -3755,6 +3787,20 @@ let collect_decls struc =
     | Dterm (r, body, typ) -> register_method r body typ
     | Dfix (refs, bodies, types) ->
         Array.iteri (fun i r -> register_method r bodies.(i) types.(i)) refs
+    | _ -> ()) decls ;
+  (* pass 3 — comparable-constraint functions: record which visible param indices are
+     [ComparableW] equality witnesses, so they are DROPPED at the decl and at every call site. *)
+  let register_comparable r typ =
+    let param_types, _ = collect_tarrs typ in
+    let idxs =
+      List.mapi (fun i t -> (i, t)) param_types
+      |> List.filter (fun (_, t) -> is_comparablew_type t)
+      |> List.map fst in
+    if idxs <> [] then Hashtbl.replace comparable_witness (global_path r) idxs
+  in
+  List.iter (function
+    | Dterm (r, _, typ) -> register_comparable r typ
+    | Dfix (refs, _, types) -> Array.iteri (fun i r -> register_comparable r types.(i)) refs
     | _ -> ()) decls
 
 let pp_struct state struc =

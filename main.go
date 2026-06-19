@@ -38,6 +38,10 @@ func I64_of_u64(a uint64) int64 {
 	return int64(a)
 }
 
+func Ceqb[T1 comparable](a T1, b T1) bool {
+	return a == b
+}
+
 func Add(n int64, m int64) int64 {
 	return n + m
 }
@@ -1543,6 +1547,18 @@ func Generics_demo() {
 	println(Gfirst("first", true))
 }
 
+func Ceq_i64(a int64, b int64) bool {
+	return Ceqb(a, b)
+}
+
+func Ceq_str(a string, b string) bool {
+	return Ceqb(a, b)
+}
+
+func Comparable_demo() {
+	println(Ceq_i64(5, 5), Ceq_i64(5, 6), Ceq_str("go", "go"))
+}
+
 type Box[T1 any] struct {
 	Bval T1
 	Btag int64
@@ -1854,6 +1870,7 @@ func main() {
 	Deftype_slice_demo()
 	Embed_demo()
 	Generics_demo()
+	Comparable_demo()
 	Gstruct_demo()
 	Gmap_deftype_demo()
 	Recursion_demo()
