@@ -260,6 +260,12 @@ let classify_go_prim_type r =
 let is_go_prim_type r = Option.has_some (classify_go_prim_type r)
 
 let is_println_ref = named "println"
+(* variadic-param support: [vararg xs] / [MkVariadic xs _] in a call-arg position → [xs...]
+   (Go's spread); [va_slice xs] inside the func recovers the slice (identity); the param type
+   [Variadic T] renders [...T] (see pp_function). *)
+let is_vararg_ref   r = let n = global_basename r in n = "vararg" || n = "MkVariadic"
+let is_va_slice_ref r = String.equal (global_basename r) "va_slice"
+let is_variadic_type r = String.equal (global_basename r) "Variadic"
 let is_len_ref    r  = String.equal (global_basename r) "len"
 let is_cap_ref    r  = String.equal (global_basename r) "cap"
 let is_append_ref r  = String.equal (global_basename r) "append"
@@ -544,6 +550,7 @@ let is_erased_record_typename s =
   || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || String.equal s "GoChan" || String.equal s "GoMap"
+  || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
@@ -1331,6 +1338,12 @@ let rec pp_expr state env = function
        | MLglob r, [xs; ys] when is_append_ref r ->
            str "append(" ++ pp_expr state env xs ++ str ", " ++
            pp_expr state env ys ++ str "...)"
+       (* [vararg xs] in a call-arg position → Go's spread [xs...] *)
+       | MLglob r, [xs] when is_vararg_ref r ->
+           pp_expr state env xs ++ str "..."
+       (* [va_slice xs] inside a variadic func → the slice itself (identity) *)
+       | MLglob r, [xs] when is_va_slice_ref r ->
+           pp_expr state env xs
 
        (* print/println(list GoAny) — unfold list, strip existT wrappers *)
        | MLglob r, [lst] when is_print_ref r || is_println_ref r ->
@@ -1549,6 +1562,11 @@ let rec pp_expr state env = function
       str "\t" ++ pp_mlident id ++ str " := " ++ pp_expr state env e1 ++ fnl () ++
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
       str "})()"
+
+  (* [MkVariadic xs _] (an inlined [vararg xs]) in a call-arg position → Go's spread [xs...].
+     Checked BEFORE the generic record-ctor arm (which would emit a struct literal). *)
+  | MLcons (_, r, (xs :: _)) when is_vararg_ref r ->
+      pp_expr state env xs ++ str "..."
 
   (* record constructor [MkT a1 … an] → Go struct literal [T{a1, …, an}].  A
      field whose type is a function (an interface METHOD dictionary entry) and
@@ -3030,7 +3048,11 @@ let pp_function state name body typ =
   let param_pairs = zip_params ids param_types in
   (* env includes all ids (with dummies) for de Bruijn; innermost first. *)
   let full_env = List.rev ids in
-  let pp_param (id, t) = pp_mlident id ++ str " " ++ pp_type state t in
+  let pp_param (id, t) = match t with
+    (* a [Variadic T] param is Go's variadic [xs ...T] (T is the wrapper's element type) *)
+    | Tglob (r, [inner]) when is_variadic_type r ->
+        pp_mlident id ++ str " ..." ++ pp_type state inner
+    | _ -> pp_mlident id ++ str " " ++ pp_type state t in
   let fn_sig =
     match param_pairs with
     | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
@@ -3119,6 +3141,7 @@ let is_inlined_ref r =
   is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
   is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
+  is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
   is_type_assert_ref r || is_type_assert_safe_ref r || is_type_switch_ref r ||

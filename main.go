@@ -1006,6 +1006,17 @@ func Foreach_demo() {
 	}
 }
 
+func Sum_print(xs ...int64) {
+	for _, x := range xs {
+		println(x)
+	}
+}
+
+func Variadic_demo() {
+	xs := []int64{7, 8, 9}
+	Sum_print(xs...)
+}
+
 func Foreach_idx_demo() {
 	xs := []int64{10, 20, 30}
 	for i, x := range xs {
@@ -1409,6 +1420,7 @@ func main() {
 	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()
+	Variadic_demo()
 	Foreach_idx_demo()
 	Int_range_demo()
 	Sum_demo()

@@ -1537,6 +1537,15 @@ Definition foreach_demo : IO unit :=
   let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
   for_each xs (fun x => println [any x]).   (* prints 10 / 20 / 30 *)
 
+(** User VARIADIC function (Go [func f(xs ...int64)]): inside the func the param is a slice;
+    the call SPREADS ([f(xs...)]).  [Variadic] keeps the param type distinct so it renders
+    [...int64] (not [[]int64]); [vararg] is the call-site spread, [va_slice] recovers the slice. *)
+Definition sum_print (xs : Variadic GoI64) : IO unit :=
+  for_each (va_slice xs) (fun x => println [any x]).
+Definition variadic_demo : IO unit :=
+  let xs := slice_of_list TI64 [(7)%i64; (8)%i64; (9)%i64] in
+  sum_print (vararg xs).   (* prints 7 / 8 / 9 *)
+
 (** Indexed slice range: [for i, x := range xs] — [i] the element index, [x] the element
     (the indexed counterpart of [for_each]); lowers to the native two-variable range loop. *)
 Definition foreach_idx_demo : IO unit :=
@@ -2010,6 +2019,7 @@ Definition main_effect : IO unit :=
   complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
+  variadic_demo                 >>'   (* prints: 7 / 8 / 9 (variadic func f(xs ...int64)) *)
   foreach_idx_demo              >>'   (* prints: 0 10 / 1 20 / 2 30 (for i, x := range xs) *)
   int_range_demo                >>'   (* prints: 0 / 1 / 2 / 3 (for i := range n) *)
   sum_demo                      >>'   (* prints: 10 *)
@@ -2063,7 +2073,7 @@ Definition main_effect : IO unit :=
     still lowers each BY NAME to its Go primitive (and the abstract state — [ref_sel],
     [chan_buf], … — never reaches the emitted Go).  See ZERO_AXIOMS_PLAN.md. *)
 Extraction NoInline
-  call_shift10 apply_pt apply_cell swap2
+  call_shift10 apply_pt apply_cell swap2 sum_print vararg
   ret bind panic catch run_io
   ref_get ref_set ref_new
   ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new

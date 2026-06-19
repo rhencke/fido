@@ -202,7 +202,15 @@ separate tracks.
    **method values (`p.M`), method expressions (`T.M`), and MULTIPLE RETURN VALUES are now
    done too** (2026-06-18) — a pair-returning function lowers to a Go multi-value return
    `(A, B)` / `return a, b` and the caller's destructuring `let '(x,y) :=` to `x, y := f(…)`
-   (`multiret_demo` → `4 3`, axiom-free, golden-locked).  *Still pending:* single-method
+   (`multiret_demo` → `4 3`, axiom-free, golden-locked).  **USER VARIADIC FUNCTIONS DONE
+   (2026-06-19):** `func f(xs ...T)` — a param of type `Variadic T` renders `...T` (not `[]T`),
+   and a `vararg xs` call argument spreads to `xs...`; inside the func `va_slice` recovers the
+   slice.  `Variadic T` is a 2-FIELD record (a `bool` phantom) so Coq does NOT unbox the single
+   slice field — that is what keeps the param type distinguishable from a plain `[]T`; the
+   single-field-unbox blocker (which sinks the 1-method interface / GoI64-2-field) does NOT
+   apply here because a variadic param needs no `Comparable`/equality, so the phantom is free.
+   `variadic_demo`: `Sum_print(xs ...int64)` called `Sum_print(xs...)` → `7 / 8 / 9`, axiom-free,
+   golden-locked.  *Still pending:* single-method
    interfaces (curried-return — blocked by Coq 1-field unboxing), the rune/UTF-8 string view,
    `float32` soft-float, int↔float / narrow↔64 conversions, exact-rational float constants,
    complex `/` (Smith's algorithm), N-field struct pointers.  Tracked in the ladder + Tiers.

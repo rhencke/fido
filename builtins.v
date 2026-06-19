@@ -2483,6 +2483,18 @@ Definition f64_neqb (a b : float) : bool := negb (PrimFloat.eqb a b).
     correct element type instead of falling back to [append(nil, ...)]. *)
 Definition slice_of_list {A} (_ : GoTypeTag A) (xs : list A) : GoSlice A := xs.
 
+(** Variadic parameter (Go [func f(xs ...T)]): inside [f] the param is a SLICE, but Go's call
+    syntax SPREADS — [f(slice...)].  [Variadic T] is a 2-FIELD record (the [bool] phantom stops
+    Coq from unboxing the single slice field, so the PARAM TYPE stays distinguishable from a
+    plain [[]T] — the plugin renders it [...T], not [[]T]; no [Comparable] is needed for a
+    variadic param so the phantom-breaks-equality issue that ruled this out for [GoI64] does
+    not apply here).  [vararg xs] marks a call argument for spreading ([xs...]); inside [f],
+    [va_slice] recovers the slice (it is the param itself, so it lowers to identity). *)
+Record Variadic (T : Type) := MkVariadic { va_slice : GoSlice T ; va_ph : bool }.
+Arguments MkVariadic {T} _ _.
+Arguments va_slice {T} _.  Arguments va_ph {T} _.
+Definition vararg {T} (xs : GoSlice T) : Variadic T := MkVariadic xs true.
+
 (** [make([]T, n)] — a fresh slice of [n] zero values (Go's [make] for slices).
     Modelled as [repeat (zero_val tag) n] (so [len] is [n], every element the zero
     value) — a freshly-allocated slice, hence no aliasing concern.  The plugin
