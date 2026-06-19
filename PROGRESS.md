@@ -598,6 +598,46 @@ separate tracks.
 
 ## Known gaps
 
+### Construct-layer completeness assessment (2026-06-19, grounded survey)
+
+A direct survey of the committed code (NOT the drifted "still pending" notes, which had
+mislabelled ~6 done features — see ladder item 1) finds the **Go language-construct layer
+essentially complete**.  Verified present + extracting:
+
+- **Numerics — COMPLETE.** Every type (`uintN`/`intN` N≤32, `int64`, `uint64`, `float64`,
+  `float32`, `complex128`); all arithmetic / bitwise / shift / comparison; the full conversion
+  matrix incl. both `float↔int64` and `float↔uint64`; `min`/`max` (Go 1.21).
+- **Composite + nominal types — COMPLETE.** Slices, maps, arrays, strings (byte + rune view),
+  value/heap structs (2/3-field, heterogeneous, nested, embedding/promotion), defined types.
+- **Methods + interfaces — COMPLETE.** Value/pointer receivers, method values/expressions,
+  IO methods; interfaces of ALL arities (single via `gr_self`, nullary, ≥2-method), dynamic
+  dispatch, `any`/`interface{}`, type switch/assertion, closures capturing locals.
+- **Concurrency CONSTRUCTS — present + extracting.** Buffered channels, `go_spawn` → real
+  `go func(){…}()`, `select` → Go `select{…}`.  (The deep race/deadlock GUARANTEE — tying
+  happens-before to the operational semantics — is the open research layer, not a construct gap.)
+- **Generics — present** with `any` constraint (generic funcs + structs, multi-instantiation).
+- Control flow / IO monad / panic-recover / defer / typestate — done.
+
+**The genuine remaining frontier (no-import):**
+1. *Generic `comparable` (and interface) constraints.*  Needs a witness-erasure mechanism: a
+   computational equality witness (so Rocq `vm_compute`/proofs reduce) that ERASES from the Go
+   signature AND call sites, with the type-param emitted `[K comparable]` and the witness's
+   equality → Go `==`.  Design: a dedicated `ComparableW K` record (distinct from `GoTypeTag`,
+   which is ambiguous — also used for boxing) carrying `cw_eqb`; the plugin registers functions
+   with a leading `ComparableW (Tvar i)` param, drops that param at decl + every call site, and
+   constrains `T<i>` to `comparable`.  ~1–2 ticks.
+2. *Untyped constants* (Go's arbitrary-precision, default-typed literal system) — foundational.
+3. *Enum `==` / enums as map keys* — idiomatic `==` needs plugin recognition (enums are Rocq
+   inductives, no int projection); a nested-match `eqb` is faithful but non-idiomatic.
+4. *Reference-type aliasing* (maps/slices share backing state) — heap-model depth.
+5. *The concurrency guarantee* (happens-before ⇒ race/deadlock freedom over the real step
+   relation) — the research north-star, multi-tick proof work.
+
+Net: the project is far closer to "complete sans imports" than the loop framing implied — the
+bulk of remaining work is these named corners plus the concurrency proof, not missing builtins.
+
+---
+
 Audit (2026-06-13 sweep) of the partial/unsafe primitives against the
 safe-by-construction principle. Tracked until closed.
 
