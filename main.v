@@ -638,7 +638,7 @@ Definition fw_cmp_demo : IO unit :=
     plugin recognises every [uN_*]/[iN_*] width with one parser — these needed
     only the Rocq definitions, no new plugin code. *)
 Example u16_mul_wraps : u16_mul (u16_lit 1000 eq_refl) (u16_lit 1000 eq_refl) = u16_lit 16960 eq_refl.
-Proof. now vm_compute. Qed.                    (* 1000000 mod 65536 = 16960 *)
+Proof. reflexivity. Qed.                        (* 1000000 mod 65536 = 16960 (reflexivity: GoU16 range proof is SProp) *)
 Example i16_add_wraps : i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl) = i16_lit (-25536) eq_refl.
 Proof. now vm_compute. Qed.                    (* 40000 wraps to -25536 in int16 *)
 Definition u16_demo : IO unit :=

@@ -110,8 +110,10 @@ from one lemma `land255_lt256`).  SProp gives definitional proof irrelevance (no
 axiom — `Print Assumptions` = Rocq primitives only), so two `GoU8` with equal
 carriers are defeq; value witnesses use `reflexivity` (the VM doesn't decide SProp
 irrelevance, the kernel does).  Extraction unchanged (the SProp field erases; Go is
-byte-identical, golden-stable).  *Remaining:* `GoI8`/`GoU16`/`GoI16`/`GoU32`/`GoI32`/
-`GoI64`/`GoU64` get the same seal (one wrapper per loop iteration).
+byte-identical, golden-stable).  **`GoU16` sealed the same way (2026-06-20)** — SProp
+`Squash (u16raw <? 65536 = true)`, `u16wrap` + lemma `land65535_lt65536`, `u16_forged`
+`Fail` test.  *Remaining:* `GoI8`/`GoI16`/`GoU32`/`GoI32` (sign-extend `iN` need the
+`-2^(N-1) ≤ x < 2^(N-1)` bound) and `GoI64`/`GoU64` (Z-carried range) — one per loop iteration.
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may
