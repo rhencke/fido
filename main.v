@@ -640,7 +640,7 @@ Definition fw_cmp_demo : IO unit :=
 Example u16_mul_wraps : u16_mul (u16_lit 1000 eq_refl) (u16_lit 1000 eq_refl) = u16_lit 16960 eq_refl.
 Proof. reflexivity. Qed.                        (* 1000000 mod 65536 = 16960 (reflexivity: GoU16 range proof is SProp) *)
 Example i16_add_wraps : i16_add (i16_lit 30000 eq_refl) (i16_lit 10000 eq_refl) = i16_lit (-25536) eq_refl.
-Proof. now vm_compute. Qed.                    (* 40000 wraps to -25536 in int16 *)
+Proof. reflexivity. Qed.                        (* 40000 wraps to -25536 in int16 (reflexivity: GoI16 SProp provenance) *)
 Definition u16_demo : IO unit :=
   bind (println [any (u16_add (u16_lit 60000 eq_refl) (u16_lit 10000 eq_refl))]) (fun _ =>   (* 4464 *)
   bind (println [any (u16_mul (u16_lit 1000 eq_refl)  (u16_lit 1000 eq_refl))])  (fun _ =>   (* 16960 *)
@@ -699,7 +699,7 @@ Example spec_u8_of_int_trunc : u8_of_int 1000        = u8_lit 232 eq_refl. Proof
 Example spec_u8_of_int_neg   : u8_of_int (-1)%sint63 = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_of_int_wrap  : i8_of_int 200         = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
 Example spec_int_of_u8_widen : int_of_u8 (u8_lit 200 eq_refl) = 200%uint63. Proof. now vm_compute. Qed.
-Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. reflexivity. Qed.
 Definition convert_demo : IO unit :=
   let a := u8_lit 200 eq_refl in           (* uint8 200 *)
   let b := i16_lit 1000 eq_refl in         (* int16 1000 *)

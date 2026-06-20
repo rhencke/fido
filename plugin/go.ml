@@ -3685,6 +3685,7 @@ let is_inlined_ref r =
   String.equal (global_basename r) "u16wrap" ||  (* internal range-carrying u16 constructor *)
   String.equal (global_basename r) "u32wrap" ||  (* internal range-carrying u32 constructor *)
   String.equal (global_basename r) "i8wrap" ||  (* internal provenance-carrying i8 constructor *)
+  String.equal (global_basename r) "i16wrap" ||  (* internal provenance-carrying i16 constructor *)
   is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
   is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
