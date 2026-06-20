@@ -596,11 +596,11 @@ Example i64_of_f64_big   : i64_of_f64 1000000.9%float = (1000000)%i64. Proof. no
     subtraction genuinely WRAPS ([0 - 1 = 255]), which we model faithfully, whereas
     Coq's [Nat.sub] truncates ([0 - 1 = 0]) and is therefore rejected. *)
 Example u8_add_wraps : u8_add (u8_lit 200 eq_refl) (u8_lit 100 eq_refl) = u8_lit 44 eq_refl.
-Proof. now vm_compute. Qed.                                   (* 300 mod 256 = 44 *)
+Proof. reflexivity. Qed.                                      (* 300 mod 256 = 44 (reflexivity: GoU8's range proof is SProp — the VM can't decide proof-irrelevance, the kernel can) *)
 Example u8_mul_wraps : u8_mul (u8_lit 255 eq_refl) (u8_lit 255 eq_refl) = u8_lit 1 eq_refl.
-Proof. now vm_compute. Qed.                                   (* 65025 mod 256 = 1 *)
+Proof. reflexivity. Qed.                                      (* 65025 mod 256 = 1 *)
 Example u8_sub_wraps : u8_sub (u8_lit 0 eq_refl) (u8_lit 1 eq_refl) = u8_lit 255 eq_refl.
-Proof. now vm_compute. Qed.                                   (* 0 - 1 wraps to 255 *)
+Proof. reflexivity. Qed.                                      (* 0 - 1 wraps to 255 *)
 Definition u8_demo : IO unit :=
   bind (println [any (u8_add (u8_lit 200 eq_refl) (u8_lit 100 eq_refl))]) (fun _ =>   (* 44  *)
   bind (println [any (u8_mul (u8_lit 255 eq_refl) (u8_lit 255 eq_refl))]) (fun _ =>   (* 1   *)
@@ -650,11 +650,11 @@ Definition u16_demo : IO unit :=
     240 = 0b11110000, 60 = 0b00111100: AND=48, OR=252, XOR=204, AND-NOT=192,
     complement(240)=15.  Signed: [^int8(5) = -6], [int8(-1) &^ 5 = -6].  The
     MACHINE-CHECKED proofs below pin the values; this shows Go agreeing at run. *)
-Example spec_u8_and    : u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 48  eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_or     : u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 252 eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_xor    : u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 204 eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_andnot : u8_andnot (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 192 eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_not    : u8_not    (u8_lit 240 eq_refl)                     = u8_lit 15  eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_and    : u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 48  eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_or     : u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 252 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_xor    : u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 204 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_andnot : u8_andnot (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 192 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_not    : u8_not    (u8_lit 240 eq_refl)                     = u8_lit 15  eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_not    : i8_not    (i8_lit 5 eq_refl)                       = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
 Example spec_i8_andnot : i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl) = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
 Definition bitwise_demo : IO unit :=
@@ -674,9 +674,9 @@ Definition bitwise_demo : IO unit :=
     over-width `<<` → 0 (no upper limit); signed `<<` wraps two's-complement;
     `>>` is ARITHMETIC for signed — `-3>>1 = -2` (toward −∞), distinct from
     `-3/2 = -1` (toward zero), and `-1>>3 = -1` (NOT 0). *)
-Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) 3 eq_refl = u8_lit 8    eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) 8 eq_refl = u8_lit 0    eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) 4 eq_refl = u8_lit 15   eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) 3 eq_refl = u8_lit 8    eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) 8 eq_refl = u8_lit 0    eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) 4 eq_refl = u8_lit 15   eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) 1 eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
 Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) 1 eq_refl = i8_lit (-2) eq_refl. Proof. now vm_compute. Qed.
 Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) 3 eq_refl = i8_lit (-1) eq_refl. Proof. now vm_compute. Qed.
@@ -695,8 +695,8 @@ Definition shift_demo : IO unit :=
     conversions are what make the distinct numeric types usable together.
     MACHINE-CHECKED: [uint8(1000)=232] (mod 256), [uint8(-1)=255], [int8(200)=-56]
     (two's-complement), widen [int(uint8 200)=200], cross-width [int16(uint8 200)]. *)
-Example spec_u8_of_int_trunc : u8_of_int 1000        = u8_lit 232 eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_of_int_neg   : u8_of_int (-1)%sint63 = u8_lit 255 eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_of_int_trunc : u8_of_int 1000        = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_of_int_neg   : u8_of_int (-1)%sint63 = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_of_int_wrap  : i8_of_int 200         = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
 Example spec_int_of_u8_widen : int_of_u8 (u8_lit 200 eq_refl) = 200%uint63. Proof. now vm_compute. Qed.
 Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. now vm_compute. Qed.
@@ -741,8 +741,8 @@ Example widen_i32 : i64_of_i32 (i32_of_int (-7)%sint63)     = (-7)%i64.         
     Evidence-carrying: the divisor must be proven non-zero (`u8_div_zero` `Fail`).
     Signed division truncates toward zero (`-7/2 = -3`); the most-negative / `-1`
     case wraps two's-complement (`int8(-128)/int8(-1) = -128`). *)
-Example spec_u8_div       : u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 28 eq_refl. Proof. now vm_compute. Qed.
-Example spec_u8_mod       : u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 4  eq_refl. Proof. now vm_compute. Qed.
+Example spec_u8_div       : u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 28 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_mod       : u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 4  eq_refl. Proof. reflexivity. Qed.
 Example spec_i8_div_trunc : i8_div (i8_lit (-7) eq_refl) (i8_lit 2 eq_refl) eq_refl = i8_lit (-3) eq_refl. Proof. now vm_compute. Qed.
 Example spec_i8_div_ovf   : i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
 Definition divmod_demo : IO unit :=

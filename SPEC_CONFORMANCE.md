@@ -99,6 +99,19 @@ in-range literal.  So an out-of-range constant is **unrepresentable** — a comp
 error, exactly Go's "constant overflows uint8", NOT a silent wrap — build-checked
 by `u8_const_oob`/`i8_const_oob`/`u16_const_oob`/`i16_const_oob` (`Fail` tests).
 The Go output is unchanged (the proof erases; in-range mask is a no-op).  ✓
+**RAW CONSTRUCTOR now SEALED (2026-06-20, code review) — GoU8 done, others tracked.**
+A prior hole: the wrapper constructor `MkU8` was public and unconstrained, so
+`MkU8 300` forged an impossible uint8 (the type erased to int64, the constructor to
+identity → printed `300`).  Same class as the float32 injection hole.  Fix: `GoU8`
+now carries an **SProp range invariant** — `MkU8 { u8raw ; u8ok : Squash (u8raw <? 256
+= true) }` — so `MkU8 300 _` is UNCONSTRUCTABLE (the proof `300 < 256` is false;
+`u8_forged` is a `Fail` test).  Every op routes through `u8wrap` (mask + the proof
+from one lemma `land255_lt256`).  SProp gives definitional proof irrelevance (no
+axiom — `Print Assumptions` = Rocq primitives only), so two `GoU8` with equal
+carriers are defeq; value witnesses use `reflexivity` (the VM doesn't decide SProp
+irrelevance, the kernel does).  Extraction unchanged (the SProp field erases; Go is
+byte-identical, golden-stable).  *Remaining:* `GoI8`/`GoU16`/`GoI16`/`GoU32`/`GoI32`/
+`GoI64`/`GoU64` get the same seal (one wrapper per loop iteration).
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may
