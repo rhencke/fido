@@ -1431,6 +1431,21 @@ Definition f32_of_u64 (a : GoU64) : GoFloat32 :=
 Definition f32_of_int (i : GoInt) : GoFloat32 :=
   f32_of_f64 (SF2Prim (binary_normalize 24 128 (Sint63.to_Z i) 0 false)).
 
+(** Exact integer → [spec_float] (NO rounding): mantissa = [|z|], exponent 0. *)
+Definition sf_of_Z (z : Z) : spec_float :=
+  match z with
+  | Z0     => S754_zero false
+  | Zpos p => S754_finite false p 0
+  | Zneg p => S754_finite true  p 0
+  end.
+(** DIRECT exact float CONSTANT → float32 (Go [float32(num.0 / den.0)]): round the EXACT rational
+    [num/den] ONCE to binary32 via [SFdiv] of the EXACT-integer spec_floats (no intermediate binary64
+    — so correct for ALL [num], [den], unlike [f32_of_f64 (f64_of_fconst …)] which double-rounds when
+    [|num| > 2^53]: e.g. [2305843146652647425/1] rounds to [2^61+2^38] here but [2^61] via float64).
+    [SFdiv] handles arbitrary mantissas, so this is the correctly-rounded rational→binary32. *)
+Definition f32_of_fconst (a : FConst) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (SFdiv 24 128 (sf_of_Z (fc_num a)) (sf_of_Z (fc_den a)))).
+
 (** float32 unary NEGATION — EXACT (IEEE sign-flip, makes [-0.0]); re-enter the abstract type
     (the round is the identity on the sign-flipped, still-representable value).  Lowered to Go
     [-x].  Same role as [PrimFloat.opp] for float64. *)

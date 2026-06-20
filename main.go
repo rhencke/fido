@@ -159,6 +159,10 @@ func F32_of_int_demo() {
 	println(float32(2305843146652647425) == func(x float64) float32 { return float32(x) }(float64(2305843146652647425)))
 }
 
+func F32_fconst_demo() {
+	println(float32(30.0 / 100.0))
+}
+
 func Floatconv_demo() {
 	println(Narrow32(16777217.0))
 	println(Widen64(Narrow32(7.5)))
@@ -1968,6 +1972,7 @@ func main() {
 	F32_conv_demo()
 	F32_const_runtime_demo()
 	F32_of_int_demo()
+	F32_fconst_demo()
 	I64_of_f64_demo()
 	U64conv_demo()
 	Enum_demo()

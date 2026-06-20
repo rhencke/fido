@@ -1751,6 +1751,16 @@ let rec pp_expr state env = function
                 str (Printf.sprintf "(float64(%Ld) / float64(%Ld))" num den)
             | Some _ -> unsupported "f64_of_fconst: endpoint exceeds 2^53 (faithful single-rounding needs |num|,den < 2^53) or den=0"
             | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
+       (* [f32_of_fconst c] — exact FConst → float32: fold the rational and emit [float32(num.0 / den.0)].
+          Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary precision), then [float32(…)]
+          rounds ONCE — the correctly-rounded rational→binary32, for ALL num/den (no 2^53 guard, unlike
+          [f64_of_fconst]: the binary64 intermediate is what forces that guard; the untyped one is exact). *)
+       | MLglob r, [fc] when named "f32_of_fconst" r ->
+           (match fc_eval fc with
+            | Some (num, den) when den <> 0L ->
+                str (Printf.sprintf "float32(%Ld.0 / %Ld.0)" num den)
+            | Some _ -> unsupported "f32_of_fconst: den = 0 (a float32 constant cannot be ±Inf)"
+            | None -> unsupported "f32_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
        | MLglob r, [x] when is_f64_to_i64_ref r ->
            str "int64(" ++ pp_expr state env x ++ str ")"
@@ -3686,7 +3696,7 @@ let is_inlined_ref r =
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
   is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
     || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
-  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"] ||  (* FConst machinery: folded by name *)
+  List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"] ||  (* FConst machinery: folded by name *)
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)

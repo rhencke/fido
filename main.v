@@ -462,6 +462,21 @@ Definition f32_of_int_demo : IO unit :=
      the shared ~6 sig-figs, so print the INEQUALITY (false = they differ) — the observable proof. *)
   println [ any (f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
                          (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) ].  (* false *)
+(** EXACT float CONSTANT → float32 (code review's remaining item): [f32_of_fconst] rounds the exact
+    rational ONCE to binary32 (correctly-rounded for ALL num/den).  Disproves single-rounding via
+    float64 for a large rational, and computes the ordinary small constant exactly. *)
+Example f32_of_fconst_direct :   (* exact 2305843146652647425/1 → 2^61+2^38 (Go float32(x) = 0x5e000001) *)
+  PrimFloat.eqb (f64_of_f32 (f32_of_fconst (mkFC 2305843146652647425 1))) 2305843284091600896 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_of_fconst_differs :  (* single round ≠ double round (via float64) for the large rational *)
+  f32_eqb (f32_of_fconst (mkFC 2305843146652647425 1))
+          (f32_of_f64 (f64_of_fconst (mkFC 2305843146652647425 1))) = false.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_of_fconst_small :    (* 0.1 + 0.2 as an EXACT rational 30/100 → float32(0.3) *)
+  f32_eqb (f32_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) (f32_lit 0.3) = true.
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_fconst_demo : IO unit :=
+  println [ any (f32_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) ].   (* float32(0.1+0.2) = float32(0.3), single round *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2620,6 +2635,7 @@ Definition main_effect : IO unit :=
   f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
   f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
   f32_of_int_demo               >>'   (* prints: false (direct float32(x) ≠ float32(float64(x)) — double rounding) *)
+  f32_fconst_demo               >>'   (* prints: 0.3 (exact FConst → float32, single round) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)

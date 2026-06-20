@@ -419,8 +419,12 @@ NOT direct `float32(x)`.  *Fix:* DIRECT conversions `f32_of_i64`/`f32_of_u64`/`f
 exact integer ONCE to binary32 (`binary_normalize 24 128 x 0`), lowered to Go's `float32(x)`.
 Machine-checked on the reviewer's witness: `f32_of_i64_differs` (direct ≠ via-float64),
 `f32_of_i64_direct` (= `2^61+2^38`), `f32_of_i64_viaf64` (= `2^61`); `f32_of_int_demo` → `false`.
-*Remaining:* an exact `FConst → float32` path (round the rational once, via `SFdiv 24 128`) — the
-constant analogue, same double-rounding caveat, not yet added.
+*Constant path — ✓ DONE:* `f32_of_fconst` rounds the EXACT rational once to binary32 via `SFdiv 24
+128` of the exact-integer spec_floats (`sf_of_Z` — no intermediate binary64, so correctly-rounded for
+ALL num/den, not just `< 2^53`).  Lowered to Go's `float32(num.0 / den.0)` (untyped-constant division,
+arbitrary precision, single round).  Witnessed: `f32_of_fconst_direct` (`2305843146652647425/1 →
+2^61+2^38`), `f32_of_fconst_differs` (≠ the via-float64 double round), `f32_of_fconst_small`
+(`float32(0.1+0.2) = float32(0.3)`); `f32_fconst_demo` → `0.3`.
 **Constant-vs-runtime soundness fix (2026-06-20, code review) — applies to float32 AND float64.**
 Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
 CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot
