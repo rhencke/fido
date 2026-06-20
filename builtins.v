@@ -2091,14 +2091,27 @@ Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
 (** ── Toward a UNIFIED control-flow substrate: select as SENTINEL + goto (2026-06-19) ──
     [select] factors into a runtime WAIT that returns WHICH case fired plus a pure CFG DISPATCH
     (goto) on that index — no bespoke select control-flow node is needed in the substrate.
-    [select_wait2] is the SENTINEL: it blocks until a channel is ready, atomically recvs, and
-    returns [(index, value)] (idealised non-blocking like the others: ch1 priority, both-empty →
-    [(0, zero)]).  [select2] is the canonical DESUGAR — [bind select_wait2] then a [match] (goto)
-    on the index — and is PROVABLY the current [select_recv2], so the desugar is faithful.  *Next:
-    teach the relooper to LIFT the [select_wait2] sentinel + dispatch back to Go [select{}] (error
-    otherwise), making the goto-CFG the single static-control-flow substrate.*  Validity is
-    by-construction: [select2] is the only producer of the sentinel, so the lifted shape is always
-    a valid select — the strictness lives here in Rocq, not in the trusted relooper. *)
+    [select_wait2] is the SENTINEL; [select2] is the canonical DESUGAR ([bind select_wait2] then a
+    [match] (goto) on the index).  *Next: teach the relooper to LIFT the [select_wait2] sentinel +
+    dispatch back to Go [select{}] (error otherwise), making the goto-CFG the single static-
+    control-flow substrate; [select2] is the only producer of the sentinel, so the lifted shape is
+    a valid select by construction — strictness in Rocq, not the trusted relooper.*
+
+    ⚠ SCOPE OF THE THEOREM (code review, 2026-06-19 — corrects an earlier overclaim).  This
+    [select_wait2] inherits two UNSOUNDNESSES from the existing [select_recv2] model, so
+    [select2_eq_recv2] below proves the desugar equals the *idealised model*, NOT equivalence to
+    Go.  The model is a DETERMINISTIC UNDER-APPROXIMATION of Go's select:
+      (1) CHOICE: with both channels ready it deterministically takes ch1; Go picks pseudo-randomly
+          among ready cases.  Counterexample: both ready, [k1 ↦ 1], [k2 ↦ 2] — Rocq always 1, Go may
+          return 2.  So a select-choice-dependent property can be true here yet false for Go.
+      (2) BLOCKING: with none ready and no default it returns [(0, zero)]; Go BLOCKS forever.
+          Returning a fabricated value is strictly worse than #1.
+    The EXTRACTION is still faithful (we emit a native Go [select{}]); it is the MODEL that licenses
+    unsound *proofs* about select.  The robust fix is a NONDETERMINISTIC/relational [select_wait]
+    (range over every ready case, quantify the lift over the chosen index — [concurrency.v]'s [rstep]
+    is exactly this shape) with the empty case as divergence/fail-loud, never a zero.  A sound but
+    narrow interim is the evidence-carrying subset: demand a proof that EXACTLY ONE case is ready
+    (then determinism = Go), everything else fail-loud.  Tracked in Known gaps / SPEC_CONFORMANCE. *)
 Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
@@ -2111,7 +2124,9 @@ Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> I
   bind (select_wait2 ta ch1 ch2)
        (fun iv => match fst iv with O => k1 (snd iv) | _ => k2 (snd iv) end).
 
-(** The desugar is FAITHFUL: select-via-(wait + index-goto) IS the current select. *)
+(** The desugar is faithful TO THE IDEALISED MODEL: select-via-(wait + index-goto) IS the current
+    [select_recv2].  (NOT equivalence to Go — see the ⚠ scope note above: the model is a
+    deterministic, blocking-idealised under-approximation of Go's nondeterministic select.) *)
 Theorem select2_eq_recv2 :
   forall {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C),
     select2 ta ch1 ch2 k1 k2 = select_recv2 ta ch1 k1 ta ch2 k2.

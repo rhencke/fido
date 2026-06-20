@@ -572,12 +572,22 @@ Ours: `select_recv2` (two recv cases) and `select_recv_default` (recv + `default
 the non-blocking form) lower to a faithful, idiomatic Go `select { case x := <-ch:
 … }` — CPS like `recv_ok`.  `select_demo` (ch1 buffered/ready, ch2 empty → picks
 ch1, prints 42) and `select_default_demo` (empty ch → default, prints 99) golden-
-locked.  **⚠ the LOWERING is faithful Go; the denotational CHOICE semantics** (which
-ready case runs, pseudo-random fairness, blocking when none ready) **is idealised
-away** — exactly like `recv`'s blocking / divergence (Tier 5 #14: needs the
-scheduler / non-terminating model).  So `select` is grounded at the lowering level;
-its choice semantics is the tracked incremental frontier.  *Also pending:* send
-cases, N-ary (>2) cases — the same lowering, more arms.
+locked.  **⚠ the LOWERING is faithful Go; the MODEL is an UNSOUND deterministic
+under-approximation** (code review 2026-06-20, sharpening "idealised away" — which
+undersold it).  Two distinct unsoundnesses:
+  - **CHOICE.** Both channels ready ⇒ the model deterministically takes ch1; Go picks
+    pseudo-randomly.  Counterexample: both ready, `k1 ↦ 1`, `k2 ↦ 2` — Rocq always 1,
+    Go may return 2.  A select-choice-dependent property can hold in the model yet
+    FAIL for Go ⇒ the model licenses unsound *proofs* (the extracted Go is still fine).
+  - **BLOCKING.** None ready, no `default` ⇒ the model returns `(0, zero)`; Go BLOCKS
+    forever.  Fabricating a value is strictly worse than the choice gap.
+The desugar work (`select_wait2`/`select2`, `select2_eq_recv2`) proves the
+sentinel+goto factoring equals *this idealised model* — NOT Go.  **Robust fix:** a
+nondeterministic/relational `select_wait` ranging over every ready case, proofs
+quantified over the chosen index (`concurrency.v`'s `rstep` is this shape), empty ⇒
+divergence/fail-loud.  **Sound interim:** evidence-carrying subset requiring a proof
+that EXACTLY ONE case is ready (then determinism = Go), else fail-loud.  Tracked
+(Tier 5 #14, scheduler / non-terminating model).  *Also pending:* send cases, N-ary.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.
