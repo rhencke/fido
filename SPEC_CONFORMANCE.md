@@ -413,6 +413,16 @@ Witnessed: overflow → `+Inf` (`f32_overflow`), underflow → `0` (`f32_underfl
 = 2^24` (`f32_of_int_rounds`), `int(float32 3.7) = 3` truncate-toward-zero (`f32_to_int_trunc`),
 and `float32(0.1+0.2) = float32(0.3)` exact-rational constant fold, no double-rounding error
 (`f32_const_fold`).
+**Constant-vs-runtime soundness fix (2026-06-20, code review) — applies to float32 AND float64.**
+Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
+CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot
+denote −0/±Inf/NaN, and a constant `/0` or a `float32` overflow are COMPILE ERRORS (reproduced:
+`float32(1)/float32(0)`, `float32(1e40)`, `−(float32(0))` collapsing to +0).  Fix: a float op
+(arith / neg / narrow / min·max) whose operands are not runtime variables is now forced to RUNTIME
+via a typed IIFE (`func(x,y T) T { return x OP y }(a,b)`); ops on runtime operands stay idiomatic
+(`(a+b)*c`).  Sound (forces unless an operand is a runtime var, so no all-constant op is left
+unforced), value-preserving (golden output unchanged), and the three attacks now compile + yield
+IEEE results — `f32_const_runtime_demo` → `+Inf −Inf +Inf +Inf` (machine-checked vs the model).
 **⚠ Deferred (bounded, principled):** bit reinterpretation `math.Float32bits`/`Float32frombits`
 needs the `math` import (rule 5 — imports on hold, deferred not approximated) AND would expose
 that `SpecFloat` carries NO NaN payload (a substrate limit: `S754_nan` is payload-free), so

@@ -808,6 +808,27 @@ let classify_f32_op r =
   let bn = global_basename r in
   List.find_map (fun (name, op) -> if String.equal bn name then Some op else None) f32_op_table
 
+(* ---- Float CONSTANT-FOLDING soundness (code review) ----
+   A float op whose operands are all Go CONSTANTS is emitted as a Go *constant* expression,
+   where IEEE semantics do NOT hold: Go constants cannot denote -0 / ±Inf / NaN, and a constant
+   [/0] or a [float32] overflow are COMPILE ERRORS.  Fido's model is runtime IEEE, so such an op
+   must be forced to RUNTIME.  An operand that is a runtime VARIABLE ([MLrel]) already forces
+   runtime (Go [:=] vars are not constants); otherwise wrap in a typed IIFE.  Soundness: we force
+   UNLESS an operand is [MLrel], so we never leave an all-constant float op unforced (we may
+   over-force a non-[MLrel] runtime operand — harmless, the IIFE is value-preserving). *)
+let operand_is_runtime = function MLrel _ -> true | _ -> false
+(* Go float type of a forceable binary float ARITHMETIC op (not comparison), else None. *)
+let float_arith_go_type r =
+  if Option.has_some (classify_f32_op r) then Some "float32"
+  else if List.exists (is_float_op_ref r) ["add"; "sub"; "mul"; "div"] then Some "float64"
+  else None
+(* Go float type of a float min/max ([f32_min]/[f64_max]/…), else None (int min/max need no force). *)
+let float_minmax_go_type r =
+  match global_basename r with
+  | "f32_min" | "f32_max" -> Some "float32"
+  | "f64_min" | "f64_max" -> Some "float64"
+  | _ -> None
+
 (* Coq [nat] is modelled as Go [uint].  Add/mul/comparison are faithful within
    the representable range (a [nat] too large for [uint] is unrepresentable
    either way), but [Nat.sub] is TRUNCATED monus ([3 - 5 = 0]) whereas Go [uint]
@@ -1559,11 +1580,20 @@ let rec pp_expr state env = function
        | MLglob r, []        when is_map_make_ref r ->
            str "make(map[any]any)" (* type params erased; real type comes from context *)
 
-       (* min(a, b) / max(a, b) — Go 1.21 builtins (on [int]) *)
+       (* min(a, b) / max(a, b) — Go 1.21 builtins.  FLOAT min/max on all-constant operands
+          would constant-fold the signed-zero corner wrong (-0 collapses), so force runtime. *)
        | MLglob r, [a; b] when is_min_ref r ->
-           str "min(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+           (match float_minmax_go_type r with
+            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
+                str (Printf.sprintf "func(x %s, y %s) %s { return min(x, y) }(" ty ty ty)
+                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+            | _ -> str "min(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
        | MLglob r, [a; b] when is_max_ref r ->
-           str "max(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+           (match float_minmax_go_type r with
+            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
+                str (Printf.sprintf "func(x %s, y %s) %s { return max(x, y) }(" ty ty ty)
+                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+            | _ -> str "max(" ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
        (* slice_make tag n → make([]T, n) (fresh zeroed slice) *)
        | MLglob r, [tag; n] when is_slice_make_ref r ->
            str ("make([]" ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
@@ -1637,10 +1667,12 @@ let rec pp_expr state env = function
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
        | MLglob r, [x] when is_float_opp_ref r ->
-           str "-" ++ pp_atom state env x
+           if operand_is_runtime x then str "-" ++ pp_atom state env x
+           else str "func(x float64) float64 { return -x }(" ++ pp_expr state env x ++ str ")"
        (* f32_neg x → -x (float32 sign-flip; the operand is float32) *)
        | MLglob r, [x] when is_f32_neg_ref r ->
-           str "-" ++ pp_atom state env x
+           if operand_is_runtime x then str "-" ++ pp_atom state env x
+           else str "func(x float32) float32 { return -x }(" ++ pp_expr state env x ++ str ")"
        (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
        | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
            str "-" ++ pp_atom state env x
@@ -1719,9 +1751,11 @@ let rec pp_expr state env = function
        (* narrow → int64 widening → the operand (identity; the narrow already erases to int64) *)
        | MLglob r, [x] when is_i64_of_narrow_ref r ->
            pp_expr state env x
-       (* float64 → float32 narrowing (round-nearest-even) → [float32(x)] *)
+       (* float64 → float32 narrowing (round-nearest-even) → [float32(x)].  A CONSTANT that
+          overflows float32 is a Go compile error, so force runtime (the float64 operand fits). *)
        | MLglob r, [x] when is_f64_to_f32_ref r ->
-           str "float32(" ++ pp_expr state env x ++ str ")"
+           if operand_is_runtime x then str "float32(" ++ pp_expr state env x ++ str ")"
+           else str "func(x float64) float32 { return float32(x) }(" ++ pp_expr state env x ++ str ")"
        | MLglob r, [a; b]
          when fw_is r "add" || fw_is r "sub" || fw_is r "mul" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
@@ -1787,7 +1821,14 @@ let rec pp_expr state env = function
           parens only where genuinely needed. *)
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
-           pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b
+           (match float_arith_go_type r with
+            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
+                (* all-constant float arith would constant-fold under Go's (non-IEEE) constant
+                   rules — force runtime via a typed IIFE *)
+                str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
+                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+            | _ ->
+                pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b)
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
           witness [eqb] is dropped (it discharged the side condition).  Comparison level 3. *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
@@ -2023,8 +2064,13 @@ and pp_prec state env ctx e =
       (match h2, vis with
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
-           let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
-           if p < ctx then str "(" ++ inner ++ str ")" else inner
+           (match float_arith_go_type r with
+            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
+                str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
+                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+            | _ ->
+                let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
+                if p < ctx then str "(" ++ inner ++ str ")" else inner)
        | _ -> pp_expr state env e)
   | _ -> pp_expr state env e
 

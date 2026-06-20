@@ -429,6 +429,20 @@ Proof. vm_compute. reflexivity. Qed.
 Definition f32_conv_demo : IO unit :=
   println [ any (f32_of_f64 (f64_of_int 16777217%sint63))                       (* float32(2^24+1) = 1.6777216e7 *)
           ; any (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))) ]. (* float32(0.1+0.2) = 0.3 *)
+(** REGRESSION (code review): a float op on CONSTANTS must extract as a RUNTIME IEEE operation,
+    NOT a Go constant expression — Go constants cannot denote -0/±Inf/NaN, and a constant [/0] or
+    [float32] overflow are COMPILE ERRORS.  The extractor now forces runtime (typed IIFE) for any
+    float op whose operands are not runtime variables.  Model values (machine-checked) and the
+    runtime Go now agree on the IEEE results: *)
+Example f32_div0_inf  : PrimFloat.eqb (widen64 (f32_div (f32_lit 1) (f32_lit 0))) (PrimFloat.div 1 0) = true. (* +Inf *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_div_negzero : PrimFloat.eqb (widen64 (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))) (PrimFloat.div 1 (PrimFloat.opp 0)) = true. (* -Inf (proves -0) *)
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_const_runtime_demo : IO unit :=
+  println [ any (f32_div (f32_lit 1) (f32_lit 0))             (* +Inf  (pre-fix: Go compile error, constant /0) *)
+          ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved; pre-fix +0 → +Inf) *)
+          ; any (f32_lit 1e40)                                 (* +Inf  (pre-fix: Go compile error, const overflow) *)
+          ; any (PrimFloat.div 1 0)%float ].                   (* float64 +Inf (same class) *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2585,6 +2599,7 @@ Definition main_effect : IO unit :=
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
   f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
+  f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
