@@ -143,6 +143,10 @@ func Widen64(x float32) float64 {
 	return float64(x)
 }
 
+func F32_extra_demo() {
+	println(-(float32(1.5)), min(float32(3.0), float32(5.0)), max(float32(3.0), float32(5.0)))
+}
+
 func Floatconv_demo() {
 	println(Narrow32(16777217.0))
 	println(Widen64(Narrow32(7.5)))
@@ -1948,6 +1952,7 @@ func main() {
 	Floatconv_demo()
 	Fconst_demo()
 	F32_cmp_demo()
+	F32_extra_demo()
 	I64_of_f64_demo()
 	U64conv_demo()
 	Enum_demo()

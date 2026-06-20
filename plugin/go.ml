@@ -400,8 +400,8 @@ let is_map_clear_ref = named "map_clear"
 (* Go 1.21 [min]/[max] builtins: on [int] ([go_min]/[go_max]) and on the canonical
    full-width [int64]/[uint64] ([i64_min]/[i64_max] use the SIGNED order, [u64_min]/
    [u64_max] the UNSIGNED order — both exactly Go's [min]/[max] on that type). *)
-let is_min_ref r = List.mem (global_basename r) ["go_min"; "i64_min"; "u64_min"; "f64_min"]
-let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max"; "f64_max"]
+let is_min_ref r = List.mem (global_basename r) ["go_min"; "i64_min"; "u64_min"; "f64_min"; "f32_min"]
+let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max"; "f64_max"; "f32_max"]
 (* Generic [comparable] constraint: a [ComparableW K] parameter is an ERASED equality witness.
    A function carrying one drops that param (decl + call sites), emits its type var as
    [K comparable], and lowers the witness equality [cw_eqb w a b] → native Go [a == b]. *)
@@ -640,6 +640,9 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
 let is_f32_ctor  r = String.equal (global_basename r) "mkF32"
 let is_f32_proj  r = String.equal (global_basename r) "f32val"
 let is_f32_round r = String.equal (global_basename r) "f32_round"
+(* [f32_neg x] — float32 unary negation (IEEE sign-flip): Go's native [-x] (like [PrimFloat.opp]
+   for float64).  The [f32_of_f64 (opp …)] body is proof-only (suppressed); recognised → [-x]. *)
+let is_f32_neg_ref r = String.equal (global_basename r) "f32_neg"
 
 (* Full-width int64 ops ([i64_add]/[i64_lit]/…).  [GoI64]/[MkI64]/[i64raw] already
    ride the numint machinery above (erased type/ctor/proj, rendered int64), but the
@@ -1634,6 +1637,9 @@ let rec pp_expr state env = function
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
        | MLglob r, [x] when is_float_opp_ref r ->
+           str "-" ++ pp_atom state env x
+       (* f32_neg x → -x (float32 sign-flip; the operand is float32) *)
+       | MLglob r, [x] when is_f32_neg_ref r ->
            str "-" ++ pp_atom state env x
        (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
        | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
@@ -3656,7 +3662,7 @@ let is_inlined_ref r =
   String.equal (global_basename r) "with_defer" ||
   is_unit_tt r ||
   is_go_prim_type r || is_float64_type r ||
-  is_float_opp_ref r ||
+  is_float_opp_ref r || is_f32_neg_ref r ||
   is_int_to_f64_ref r || is_of_uint63_ref r || is_int63_of_z_ref r ||  (* int/int64→float cast: recognized → float64(x); body + of_uint63/of_Z/of_pos suppressed *)
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)

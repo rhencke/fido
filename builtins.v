@@ -1390,6 +1390,32 @@ Definition f32_neqb (x y : GoFloat32) : bool := negb (PrimFloat.eqb (f32val x) (
     [f32_of_f64] / [f32_lit] is defined up top, with the type.) *)
 Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := f32val x.
 
+(** float32 unary NEGATION — EXACT (IEEE sign-flip, makes [-0.0]); re-enter the abstract type
+    (the round is the identity on the sign-flipped, still-representable value).  Lowered to Go
+    [-x].  Same role as [PrimFloat.opp] for float64. *)
+Definition f32_neg (x : GoFloat32) : GoFloat32 := f32_of_f64 (PrimFloat.opp (f32val x)).
+
+(** [min]/[max] on float32 (Go "min and max") — the SAME two IEEE corners as float64, decided on
+    the binary32 carriers: NaN propagation ([eqb v v = false]) and signed zero ([min(-0,+0) = -0],
+    [max(-0,+0) = +0], via [1/v]).  Each returns the chosen OPERAND, already a valid [GoFloat32],
+    so there is no re-rounding.  Lowered to Go [min]/[max] on float32. *)
+Definition f32_min (x y : GoFloat32) : GoFloat32 :=
+  if negb (PrimFloat.eqb (f32val x) (f32val x)) then x            (* x is NaN → NaN *)
+  else if negb (PrimFloat.eqb (f32val y) (f32val y)) then y       (* y is NaN → NaN *)
+  else if PrimFloat.ltb (f32val x) (f32val y) then x
+  else if PrimFloat.ltb (f32val y) (f32val x) then y
+  else if PrimFloat.eqb (f32val x) 0
+       then (if PrimFloat.ltb (PrimFloat.div 1 (f32val x)) 0 then x else y)   (* min wants -0 *)
+       else x.
+Definition f32_max (x y : GoFloat32) : GoFloat32 :=
+  if negb (PrimFloat.eqb (f32val x) (f32val x)) then x
+  else if negb (PrimFloat.eqb (f32val y) (f32val y)) then y
+  else if PrimFloat.ltb (f32val x) (f32val y) then y
+  else if PrimFloat.ltb (f32val y) (f32val x) then x
+  else if PrimFloat.eqb (f32val x) 0
+       then (if PrimFloat.ltb (PrimFloat.div 1 (f32val x)) 0 then y else x)   (* max wants +0 *)
+       else x.
+
 (** ---- Builtins ---- *)
 
 (** [print]/[println] write to stdout — a real effect, but the proof-only world

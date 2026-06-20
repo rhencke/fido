@@ -388,6 +388,28 @@ Example f32_of_f64_rounds : PrimFloat.eqb (f64_of_f32 (f32_of_f64 16777217)) 167
 Proof. vm_compute. reflexivity. Qed.
 Definition narrow32 (x : GoFloat64) : GoFloat32 := f32_of_f64 x.
 Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
+(** float32 NEGATION + MIN/MAX (completing float32 to float64 parity, sans abs/sqrt which need
+    [math]).  Machine-checked on the IEEE corners: NaN propagation and signed zero.  [f32_neg] →
+    Go [-x]; [f32_min]/[f32_max] → Go [min]/[max] on float32. *)
+Example f32_neg_ex   : f32_eqb (f32_neg (f32_lit 1.5)) (f32_lit (-1.5)) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_neg_zero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_neg (f32_lit 0)))) 0 = true.  (* -0 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_min_ord  : f32_eqb (f32_min (f32_lit 3) (f32_lit 5)) (f32_lit 3) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_max_ord  : f32_eqb (f32_max (f32_lit 3) (f32_lit 5)) (f32_lit 5) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_min_nan  : let r := widen64 (f32_min (f32_lit (PrimFloat.div 0 0)) (f32_lit 1)) in
+                       PrimFloat.eqb r r = false.    (* NaN propagates *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_min_negzero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_min (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = true.   (* min(-0,+0) = -0 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_max_poszero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_max (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = false.  (* max(-0,+0) = +0 *)
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_extra_demo : IO unit :=
+  println [ any (f32_neg (f32_lit 1.5))             (* -1.5 *)
+          ; any (f32_min (f32_lit 3) (f32_lit 5))   (* 3 *)
+          ; any (f32_max (f32_lit 3) (f32_lit 5)) ]. (* 5 *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2542,6 +2564,7 @@ Definition main_effect : IO unit :=
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
+  f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)

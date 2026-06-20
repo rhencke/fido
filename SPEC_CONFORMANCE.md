@@ -399,9 +399,12 @@ to Go natives; float `/` unguarded (IEEE ±inf/NaN, no panic) — conforms.
 Go MAY FMA `a*b+c`, giving a more precise result — a fused expression can differ
 from our per-op-rounded value (Go does not GUARANTEE fusion, so this is bounded).
 `float32` — **✓ DONE & SOUND** (faithful binary32 via `SpecFloat`; arithmetic + comparisons →
-native Go `float32` `+ - * /` `< <= == > >= !=`).  `GoFloat32` is an ABSTRACT smart-constructor
-type carrying an unforgeable `exists a, carrier = f32_round a` proof, so a non-representable
-literal cannot be injected (would disagree with Go on widening); see the Reconciliation note up top.
+native Go `float32` `+ - * /` `< <= == > >= !=`, plus unary `-` (`f32_neg`) and `min`/`max`
+(`f32_min`/`f32_max`) — float64 parity sans `abs`/`sqrt`, which need `math`).  `GoFloat32` is an
+ABSTRACT smart-constructor type carrying an unforgeable `exists a, carrier = f32_round a` proof, so
+a non-representable literal cannot be injected (would disagree with Go on widening).  NaN and
+signed-zero corners machine-checked across negation/min/max (NaN propagates; `min(-0,+0) = -0`,
+`max(-0,+0) = +0`); see the Reconciliation note up top.
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal
