@@ -697,8 +697,15 @@ deadlock theory was extended to be select-aware (`blocked` now includes a select
 disjunct via the decidable `sel_first_ready`; `ready_can_step`/`rstuck_blocked` updated), and the
 `CSelect` case rides the existing `RInv`/`RBufSorted` preservation + the multi-goroutine state
 refinement (`wmatchc_step`: select's world-step = a recv on the chosen channel).  Axiom-free,
-proof-only (golden-stable).  *Remaining:* the relational closed-channel flag (item (a)), and a
-theorem connecting the typed sequential `select_recv2` to `CSelect` (the typed↔operational bridge).
+proof-only (golden-stable).  **Scheduler bridge DONE (2026-06-20):** `sel_first_ready` IS the
+ch1-priority scheduler the typed `select_recv2` realises, so `det_select_sound` proves that choice
+is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), and
+`det_select_incomplete` proves that when two cases are ready it realises only ch1 while
+`rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the review verdict
+"the deterministic interpreter is one example scheduler, non-authoritative" a theorem.  *Remaining:*
+the relational closed-channel flag (item (a)); the full WORLD-level bridge (relating
+`select_recv2`'s `IO`/`World` semantics, not just its scheduler, to `CSelect` — extends the Keystone
+channel-state refinement to select).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

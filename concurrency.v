@@ -1566,6 +1566,57 @@ Proof.
   - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
 Qed.
 
+(** ── BRIDGE: the typed sequential [select_recv2] (builtins.v) is a SOUND but INCOMPLETE scheduler
+    of this authoritative relational [CSelect]. ──
+
+    [select_recv2 ta ch1 k1 ta ch2 k2] takes ch1 if ready, else ch2 (ch1-PRIORITY) — exactly the
+    deterministic "first ready case" of the cases list [[(ch1,·); (ch2,·)]], which is precisely
+    [sel_first_ready].  These two theorems make the select-review verdict ("the deterministic
+    interpreter is ONE example scheduler, non-authoritative") a PROOF:
+    (1) SOUND — the deterministic first-ready choice is always a PERMITTED [rstep_select]; and
+    (2) INCOMPLETE — when two cases are ready it realises only ch1, yet [rstep_select] ALSO permits
+        the ch2 transition the typed model never takes. *)
+
+(** (1) SOUNDNESS: whatever case the ch1-priority scheduler ([sel_first_ready]) picks, the
+    authoritative nondeterministic select HAS that transition. *)
+Theorem det_select_sound :
+  forall p b h lv tr tid cases c f v s,
+    lv tid = true -> p tid = CSelect cases ->
+    sel_first_ready b cases = Some (c, f, v, s) ->
+    exists brest,
+      b c = (v, s) :: brest /\
+      rstep (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
+Proof.
+  intros p b h lv tr tid cases c f v s Hlv Hp Hsel.
+  destruct (sel_first_ready_sound _ _ _ _ _ _ Hsel) as [Hin [brest Hb]].
+  exists brest. split; [exact Hb |]. eapply rstep_select; eassumption.
+Qed.
+
+(** (2) INCOMPLETENESS: in [rsel2_cfg] BOTH channel 0 and channel 1 are ready; the ch1-priority
+    scheduler picks channel 0 ([sel_first_ready] returns the channel-0 case), yet [rstep_select]
+    ALSO has the channel-1 successor — a behaviour the deterministic typed select never realises. *)
+Definition rsel2_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CSelect [(0, fun _ => CRet); (1, fun _ => CRet)] else CRet)
+         (fun c => if Nat.eqb c 0 then [(7, 0)] else if Nat.eqb c 1 then [(9, 1)] else [])
+         (fun _ => 0) (fun t => Nat.eqb t 0)
+         [mkEv 0 (KSend 0); mkEv 0 (KSend 1)].
+
+Theorem det_select_incomplete :
+  (* the ch1-priority scheduler deterministically picks channel 0 *)
+  sel_first_ready (rc_bufs rsel2_cfg) [(0, fun _ : nat => CRet); (1, fun _ => CRet)]
+    = Some (0, (fun _ => CRet), 7, 0)
+  (* yet the authoritative select ALSO permits the channel-1 transition (distinct trace event) *)
+  /\ exists cfg1, rstep rsel2_cfg cfg1
+                  /\ rc_trace cfg1 = rc_trace rsel2_cfg ++ [mkEv 0 (KRecv 1 1)].
+Proof.
+  split; [ reflexivity |].
+  eexists. split.
+  - eapply rstep_select with (tid:=0) (c:=1) (f:=fun _ => CRet) (v:=9) (s:=1);
+      [ reflexivity | reflexivity | right; left; reflexivity | reflexivity ].
+  - reflexivity.
+Qed.
+
 (** ----------------------------------------------------------------------------
     DEADLOCK FREEDOM for a real class: RECEIVE-FREE programs.
 
