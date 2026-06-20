@@ -855,11 +855,11 @@ Definition uconst_demo : IO unit :=
     - [spec_u64_beyond63]: value > 2^62 unrepresentable in the old Sint63 model.
     All axiom-free (Print Assumptions = Closed under the global context). *)
 Example spec_u64_add_wrap : u64_add (u64_lit 9223372036854775808%Z eq_refl) (u64_lit 9223372036854775808%Z eq_refl)
-                            = u64_lit 0%Z eq_refl. Proof. now vm_compute. Qed.
+                            = u64_lit 0%Z eq_refl. Proof. reflexivity. Qed.
 Example spec_u64_sub_wrap : u64_sub (u64_lit 0%Z eq_refl) (u64_lit 1%Z eq_refl)
-                            = u64_lit 18446744073709551615%Z eq_refl. Proof. now vm_compute. Qed.
-Example spec_u64_not      : u64_not (u64_lit 0%Z eq_refl) = u64_lit 18446744073709551615%Z eq_refl. Proof. now vm_compute. Qed.
-Example spec_u64_shr      : u64_shr (u64_lit 8%Z eq_refl) 1 eq_refl = u64_lit 4%Z eq_refl. Proof. now vm_compute. Qed.
+                            = u64_lit 18446744073709551615%Z eq_refl. Proof. reflexivity. Qed.
+Example spec_u64_not      : u64_not (u64_lit 0%Z eq_refl) = u64_lit 18446744073709551615%Z eq_refl. Proof. reflexivity. Qed.
+Example spec_u64_shr      : u64_shr (u64_lit 8%Z eq_refl) 1 eq_refl = u64_lit 4%Z eq_refl. Proof. reflexivity. Qed.
 Example spec_u64_beyond63 : u64raw (u64_add (u64_lit 5000000000000000000%Z eq_refl)
                                             (u64_lit 5000000000000000000%Z eq_refl))
                             = 10000000000000000000%Z. Proof. now vm_compute. Qed.

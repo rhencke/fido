@@ -120,8 +120,10 @@ unconstructable (200 ∉ image of `i8_norm`; `i8_forged` `Fail` test).  **`GoI16
 (2026-06-20)** — `Squash (exists a, i16raw = i16_norm a)`, `i16wrap`, `i16_forged` `Fail` test.
 **`GoI32` sealed the same way (2026-06-20)** — `Squash (exists a, i32raw = i32_norm a)`, `i32wrap`,
 `i32_forged` `Fail` test; `i32wrap` reaches the real extracted rune/UTF-8 codec, so it also erases at
-the call site (→ its argument, like the bare `MkI32`).  *Remaining:* `GoI64`/`GoU64` (Z-carried
-range, a different invariant shape) — one per loop iteration.  **6 of 8 wrappers sealed.**
+the call site (→ its argument, like the bare `MkI32`).  **`GoU64` sealed (2026-06-20)** — Z-carried, so a RANGE invariant `Squash (in_u64 u64raw = true)`
+(`in_u64 z = 0 ≤ z < 2^64`); `u64wrap z := MkU64 (z mod 2^64) (squash (in_u64_wrapU64 z))` with one
+lemma via `Z.mod_pos_bound`; `u64_forged` `Fail` test.  *Remaining:* `GoI64` (Z-carried signed,
+`wrap64`) — the last wrapper.  **7 of 8 wrappers sealed.**
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may

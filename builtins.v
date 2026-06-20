@@ -188,6 +188,12 @@ Definition i16_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
 Definition i32_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
+(* uint64 range predicate + wrap-to-range, hoisted so the GoU64 record can carry a RANGE invariant
+   [in_u64 u64raw = true].  Z-carried (not int63), range [0, 2^64). *)
+Definition in_u64 (z : Z) : bool :=
+  andb (0 <=? z)%Z (z <? 18446744073709551616)%Z.
+Definition wrapU64 (z : Z) : Z :=
+  Z.modulo z 18446744073709551616%Z.
 
 (* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
 Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true) }.
@@ -209,7 +215,7 @@ Record GoI64 := MkI64 { i64raw : Z }.
    wraps at [2^64].  The wrapper ERASES at extraction (like [GoI64]); a [GoU64]
    value is a Go [uint64], which wraps natively at [2^64], so the emitted ops
    need no mask. *)
-Record GoU64 := MkU64 { u64raw : Z }.
+Record GoU64 := MkU64 { u64raw : Z ; u64ok : Squash (in_u64 u64raw = true) }.
 
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
@@ -369,7 +375,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TU16 => MkU16 0%uint63 (squash eq_refl) | TI16 => MkI16 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TI64 => MkI64 0%Z
-  | TU64 => MkU64 0%Z
+  | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
   | TInt     => 0%uint63
   | TInt8    => 0%uint63
@@ -1192,18 +1198,24 @@ Fail Definition i64_shl_neg  : GoI64 := i64_shl (i64_lit 1%Z eq_refl) (-1)%Z eq_
 
     Shifts: [<<] wraps mod [2^64] via [wrapU64 . Z.shiftl]; [>>] is LOGICAL
     (for unsigned, arithmetic = logical), so [Z.shiftr n k] is exact for n ≥ 0. *)
-Definition wrapU64 (z : Z) : Z :=
-  Z.modulo z 18446744073709551616%Z.
-Definition in_u64 (z : Z) : bool :=
-  andb (0 <=? z)%Z (z <? 18446744073709551616)%Z.
+(* [in_u64]/[wrapU64] are hoisted to the wrapper-record block (the GoU64 range invariant needs them).
+   [wrapU64 z = z mod 2^64] is always in range, so [u64wrap] carries the proof from one lemma; a forged
+   [u64wrap (2^64) _] is unconstructable ([in_u64 (2^64)] is false). *)
+Lemma in_u64_wrapU64 : forall z, in_u64 (wrapU64 z) = true.
+Proof.
+  intro z. unfold in_u64, wrapU64.
+  pose proof (Z.mod_pos_bound z 18446744073709551616%Z ltac:(lia)) as [Hlo Hhi].
+  apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
+Qed.
+Definition u64wrap (z : Z) : GoU64 := MkU64 (wrapU64 z) (squash (in_u64_wrapU64 z)).
 (* [u64_lit z _]: a uint64 constant; the proof is a representability check
    (must be in [0, 2^64)); an out-of-range literal is unrepresentable. *)
-Definition u64_lit (z : Z) (_ : in_u64 z = true) : GoU64 := MkU64 z.
-Definition u64_add (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a + u64raw b)).
-Definition u64_sub (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a - u64raw b)).
+Definition u64_lit (z : Z) (pf : in_u64 z = true) : GoU64 := MkU64 z (squash pf).
+Definition u64_add (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a + u64raw b)).
+Definition u64_sub (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a - u64raw b)).
 (* Unary negation: [-x] mod 2^64 (so [-1 = 2^64-1]).  Lowers to the prefix [-x]. *)
-Definition u64_neg (a : GoU64) : GoU64 := MkU64 (wrapU64 (Z.opp (u64raw a))).
-Definition u64_mul (a b : GoU64) : GoU64 := MkU64 (wrapU64 (u64raw a * u64raw b)).
+Definition u64_neg (a : GoU64) : GoU64 := u64wrap (wrapU64 (Z.opp (u64raw a))).
+Definition u64_mul (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a * u64raw b)).
 Definition u64_eqb (a b : GoU64) : bool := Z.eqb (u64raw a) (u64raw b).
 Definition u64_ltb (a b : GoU64) : bool := Z.ltb (u64raw a) (u64raw b).
 Definition u64_leb (a b : GoU64) : bool := Z.leb (u64raw a) (u64raw b).
@@ -1225,19 +1237,21 @@ Definition u64_neqb (a b : GoU64) : bool := negb (u64_eqb a b).
    [Z.modulo] are used here (floored) — for non-negative values they agree with
    Go's truncating division, so the result is exact.  No wrap needed: both
    results stay in [[0, 2^64)]. *)
-Definition u64_div (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := MkU64 (Z.div    (u64raw a) (u64raw b)).
-Definition u64_mod (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := MkU64 (Z.modulo (u64raw a) (u64raw b)).
-Definition u64_and    (a b : GoU64) : GoU64 := MkU64 (Z.land (u64raw a) (u64raw b)).
-Definition u64_or     (a b : GoU64) : GoU64 := MkU64 (Z.lor  (u64raw a) (u64raw b)).
-Definition u64_xor    (a b : GoU64) : GoU64 := MkU64 (Z.lxor (u64raw a) (u64raw b)).
-Definition u64_andnot (a b : GoU64) : GoU64 := MkU64 (Z.land (u64raw a) (Z.lnot (u64raw b))).
-Definition u64_not    (a   : GoU64) : GoU64 := MkU64 (wrapU64 (Z.lnot (u64raw a))).
-Definition u64_shl (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := MkU64 (wrapU64 (Z.shiftl (u64raw x) k)).
-Definition u64_shr (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := MkU64 (Z.shiftr (u64raw x) k).
+Definition u64_div (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := u64wrap (Z.div    (u64raw a) (u64raw b)).
+Definition u64_mod (a b : GoU64) (_ : Z.eqb (u64raw b) 0%Z = false) : GoU64 := u64wrap (Z.modulo (u64raw a) (u64raw b)).
+Definition u64_and    (a b : GoU64) : GoU64 := u64wrap (Z.land (u64raw a) (u64raw b)).
+Definition u64_or     (a b : GoU64) : GoU64 := u64wrap (Z.lor  (u64raw a) (u64raw b)).
+Definition u64_xor    (a b : GoU64) : GoU64 := u64wrap (Z.lxor (u64raw a) (u64raw b)).
+Definition u64_andnot (a b : GoU64) : GoU64 := u64wrap (Z.land (u64raw a) (Z.lnot (u64raw b))).
+Definition u64_not    (a   : GoU64) : GoU64 := u64wrap (wrapU64 (Z.lnot (u64raw a))).
+Definition u64_shl (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := u64wrap (wrapU64 (Z.shiftl (u64raw x) k)).
+Definition u64_shr (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := u64wrap (Z.shiftr (u64raw x) k).
 
 (* Build-checked: a constant >= 2^64 is UNREPRESENTABLE; uint64 does not
    implicitly mix with [int], [GoI64], or other types. *)
 Fail Definition u64_const_oob : GoU64 := u64_lit 18446744073709551616%Z eq_refl.  (* = 2^64 *)
+(* Build-checked: the RAW constructor cannot forge an out-of-range uint64 (in_u64 proof false). *)
+Fail Definition u64_forged : GoU64 := MkU64 18446744073709551616%Z (squash eq_refl).
 Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : int).
 (* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE. *)
 Fail Definition u64_div_zero : GoU64 := u64_div (u64_lit 1%Z eq_refl) (u64_lit 0%Z eq_refl) eq_refl.
@@ -1262,7 +1276,7 @@ Notation uint64 := GoU64.
 
 Definition i64_of_Z (z : Z) : option GoI64 := if in_i64 z then Some (MkI64 z) else None.
 Definition Z_of_i64 (x : GoI64) : Z := i64raw x.
-Definition u64_of_Z (z : Z) : option GoU64 := if in_u64 z then Some (MkU64 z) else None.
+Definition u64_of_Z (z : Z) : option GoU64 := if in_u64 z then Some (u64wrap z) else None.  (* wrapU64 z = z under the guard *)
 Definition Z_of_u64 (x : GoU64) : Z := u64raw x.
 
 Declare Scope i64_scope.
@@ -1301,7 +1315,7 @@ Fail Definition u64_lit_oob : GoU64 := (18446744073709551616)%u64.  (* = 2^64 *)
     range — with NO rounding or loss (unlike int<->float).  [int_of_FW]/[FW_of_int]
     cover the NARROW widths; these are the full-width pair (distinct because [GoU64]
     lowers to a real Go [uint64], not [int64]). *)
-Definition u64_of_i64 (a : GoI64) : GoU64 := MkU64 (wrapU64 (i64raw a)).
+Definition u64_of_i64 (a : GoI64) : GoU64 := u64wrap (wrapU64 (i64raw a)).
 Definition i64_of_u64 (a : GoU64) : GoI64 := MkI64 (wrap64  (u64raw a)).
 
 (* Reinterpret is mod-2^64 on both sides, so the two normalisers AGREE after a
@@ -1414,7 +1428,7 @@ Definition i64_of_f64 (f : float) : GoI64 := MkI64 (wrap64 (f64_trunc_Z f)).
     only wrapping into the unsigned range.  In-range ([0 <= trunc f < 2^64]) it is faithful (the
     verified [f64_trunc_Z]); out of range is Go-implementation-defined, where the defined wrap is
     an acceptable choice.  Lowered to native [uint64(f)]; the [Prim2SF]-match body suppressed. *)
-Definition u64_of_f64 (f : float) : GoU64 := MkU64 (wrapU64 (f64_trunc_Z f)).
+Definition u64_of_f64 (f : float) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f)).
 
 (** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  [PrimFloat.of_uint63] only
     takes a 63-bit input, so values in [[2^63, 2^64)] cannot go through it directly.  The standard

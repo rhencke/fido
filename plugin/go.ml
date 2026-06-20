@@ -1698,7 +1698,7 @@ let rec pp_expr state env = function
           Mostly appears only inside by-name-lowered op bodies, but [i32wrap] reaches real extracted
           code (the rune/UTF-8 codec), so it must erase at the CALL SITE too. *)
        | MLglob r, [g] when (let n = global_basename r in
-              List.mem n ["u8wrap"; "u16wrap"; "u32wrap"; "i8wrap"; "i16wrap"; "i32wrap"]) ->
+              List.mem n ["u8wrap"; "u16wrap"; "u32wrap"; "i8wrap"; "i16wrap"; "i32wrap"; "u64wrap"]) ->
            pp_expr state env g
        (* GoFloat32 carrier projection [f32val g] → [g] (the wrapper IS the float32) *)
        | MLglob r, [g] when is_f32_proj r ->
@@ -3694,6 +3694,7 @@ let is_inlined_ref r =
   String.equal (global_basename r) "i8wrap" ||  (* internal provenance-carrying i8 constructor *)
   String.equal (global_basename r) "i16wrap" ||  (* internal provenance-carrying i16 constructor *)
   String.equal (global_basename r) "i32wrap" ||  (* internal provenance-carrying i32 constructor *)
+  String.equal (global_basename r) "u64wrap" ||  (* internal range-carrying u64 constructor *)
   is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
   is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
