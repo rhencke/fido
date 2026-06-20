@@ -22,11 +22,15 @@ Import ListNotations.
 
 Inductive EvKind :=
   | KSend  (chan : nat)
-  | KRecv  (chan : nat) (from : nat)   (* matched send is at trace position [from] *)
+  | KRecv  (chan : nat) (from : nat)   (* the value's producer is at trace position [from]: a
+                                          matched SEND, or — for a recv that returns the zero value
+                                          because the channel is closed and drained — the CLOSE. *)
   | KSpawn (child : nat)
   | KStart (parent : nat)              (* this goroutine was spawned at position [parent] *)
   | KWrite (loc : nat)
-  | KRead  (loc : nat).
+  | KRead  (loc : nat)
+  | KClose (chan : nat).               (* close(ch): per the Go memory model, a close happens-before
+                                          a recv that returns zero because the channel is closed. *)
 
 Record Ev := mkEv { e_tid : nat; e_kind : EvKind }.
 Definition Trace := list Ev.
@@ -42,7 +46,8 @@ Definition WfTrace (t : Trace) : Prop :=
   forall i e, nth_error t i = Some e ->
     match e_kind e with
     | KRecv c from =>
-        from < i /\ exists e', nth_error t from = Some e' /\ e_kind e' = KSend c
+        from < i /\ exists e', nth_error t from = Some e' /\
+                              (e_kind e' = KSend c \/ e_kind e' = KClose c)
     | KStart parent =>
         parent < i /\ exists e' ch, nth_error t parent = Some e' /\ e_kind e' = KSpawn ch
     | _ => True
@@ -76,7 +81,7 @@ Lemma sync_forward : forall t i j, WfTrace t -> sync t i j -> i < j.
 Proof.
   intros t i j Hwf [e [Hj Hk]].
   specialize (Hwf j e Hj).
-  destruct (e_kind e) as [c|c from0|ch|parent0|l|l]; cbn in Hwf, Hk; try contradiction.
+  destruct (e_kind e) as [c|c from0|ch|parent0|l|l|c]; cbn in Hwf, Hk; try contradiction.
   - (* KRecv *) destruct Hwf as [Hlt _]. subst from0. exact Hlt.
   - (* KStart *) destruct Hwf as [Hlt _]. subst parent0. exact Hlt.
 Qed.
@@ -121,7 +126,7 @@ Proof.
   - cbn in H; inversion H; subst; cbn; exact I.
   - cbn in H; inversion H; subst; cbn; exact I.
   - cbn in H; inversion H; subst; cbn.
-    split; [lia | exists (mkEv 0 (KSend 0)); split; reflexivity].
+    split; [lia | exists (mkEv 0 (KSend 0)); split; [reflexivity | left; reflexivity]].
   - cbn in H; inversion H; subst; cbn; exact I.
   - apply nth_error_lt in H; cbn in H; lia.
 Qed.
@@ -177,6 +182,35 @@ Proof.
     try (apply Htid; reflexivity).
   - apply Hnij. exact mp_trace_hb_0_3.   (* i=0 (write), j=3 (read) *)
   - apply Hnji. exact mp_trace_hb_0_3.   (* i=3 (read),  j=0 (write) *)
+Qed.
+
+(** ── CLOSED-CHANNEL RECEIVE (trace-core foundation) ──────────────────────────
+    A recv from a CLOSED, drained channel returns the zero value immediately (Go).  Per the Go
+    memory model, "the closing of a channel happens before a receive that returns a zero value
+    because the channel is closed" — so such a recv's producer is the CLOSE, not a send.  The
+    trace core now expresses this: a [KClose] event, and a [KRecv]'s back-pointer may point at a
+    [KClose] of that channel (not only a [KSend]).  WfTrace/hb/race-freedom are all preserved
+    (proven above); these witnesses show the model represents the closed recv FAITHFULLY.
+    (The operational [step]/[rstep] rule that GENERATES such a trace — a config closed-flag + a
+    recv-on-closed-drained step — is the follow-on slice.) ── *)
+Definition closed_recv_trace : Trace :=
+  [ mkEv 0 (KClose 5)       (* pos 0: thread 0 closes channel 5            *)
+  ; mkEv 1 (KRecv 5 0) ].   (* pos 1: thread 1 recvs zero from CLOSED ch 5; from = pos 0 (the close) *)
+
+Lemma closed_recv_wf : WfTrace closed_recv_trace.
+Proof.
+  intros i e H. destruct i as [|[|i]].
+  - cbn in H; inversion H; subst; cbn; exact I.    (* KClose: no obligation *)
+  - cbn in H; inversion H; subst; cbn.             (* KRecv whose producer is the CLOSE *)
+    split; [lia | exists (mkEv 0 (KClose 5)); split; [reflexivity | right; reflexivity]].
+  - apply nth_error_lt in H. cbn in H. lia.
+Qed.
+
+(** The close (pos 0) HAPPENS-BEFORE the closed receive (pos 1) — the Go-memory-model edge, here a
+    [sync] edge read off the recv's back-pointer (which points at the close). *)
+Lemma closed_recv_hb : hbt closed_recv_trace 0 1.
+Proof.
+  apply hbt_sync. unfold sync. exists (mkEv 1 (KRecv 5 0)). cbn. split; reflexivity.
 Qed.
 
 (** ============================================================================
@@ -286,7 +320,8 @@ Proof. intros t e. rewrite nth_error_app2 by lia. rewrite Nat.sub_diag. reflexiv
 Lemma WfTrace_app : forall t e,
   WfTrace t ->
   match e_kind e with
-  | KRecv c from => from < length t /\ exists e', nth_error t from = Some e' /\ e_kind e' = KSend c
+  | KRecv c from => from < length t /\ exists e', nth_error t from = Some e' /\
+                                                 (e_kind e' = KSend c \/ e_kind e' = KClose c)
   | KStart parent => parent < length t /\ exists e' ch, nth_error t parent = Some e' /\ e_kind e' = KSpawn ch
   | _ => True
   end ->
@@ -296,7 +331,7 @@ Proof.
   destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
   - rewrite nth_error_app_old in Hi by exact Hlt.
     specialize (Hwf i e0 Hi).
-    destruct (e_kind e0) as [c0|c0 from0|ch0|parent0|l0|l0] eqn:Ek; cbn in Hwf |- *; auto.
+    destruct (e_kind e0) as [c0|c0 from0|ch0|parent0|l0|l0|c0] eqn:Ek; cbn in Hwf |- *; auto.
     + destruct Hwf as [Hf [e' [He' Hk']]]. split; [exact Hf|].
       exists e'. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
     + destruct Hwf as [Hf [e' [ch [He' Hk']]]]. split; [exact Hf|].
@@ -306,7 +341,7 @@ Proof.
     assert (Hzero : i - length t = 0) by lia.
     assert (Hieq : i = length t) by lia.
     rewrite Hzero in Hi. cbn in Hi. injection Hi as Hi; subst e0.
-    destruct (e_kind e) as [c0|c0 from0|ch0|parent0|l0|l0] eqn:Ek; cbn in Hnew |- *; auto.
+    destruct (e_kind e) as [c0|c0 from0|ch0|parent0|l0|l0|c0] eqn:Ek; cbn in Hnew |- *; auto.
     + destruct Hnew as [Hf [e' [He' Hk']]]. split; [rewrite Hieq; exact Hf|].
       exists e'. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
     + destruct Hnew as [Hf [e' [ch [He' Hk']]]]. split; [rewrite Hieq; exact Hf|].
@@ -351,7 +386,7 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn].
     assert (Hins : In s (b c)) by (rewrite Hbc; left; reflexivity).
     destruct (Hbuf c s Hins) as [Hlt [e' [He' Hk']]].
-    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+    split; [exact Hlt | exists e'; split; [exact He' | left; exact Hk']].
   - intros c0 s0 Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
     destruct (Nat.eq_dec c0 c) as [Heq|Hne].
     + subst c0. rewrite upd_same in Hin.
@@ -375,7 +410,7 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn].
     assert (Hins : In s (b c)) by (rewrite Hbc; left; reflexivity).
     destruct (Hbuf c s Hins) as [Hlt [e' [He' Hk']]].
-    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+    split; [exact Hlt | exists e'; split; [exact He' | left; exact Hk']].
   - intros c0 s0 Hin0. cbn [cfg_bufs cfg_trace] in Hin0 |- *.
     destruct (Nat.eq_dec c0 c) as [Heq|Hne].
     + subst c0. rewrite upd_same in Hin0.
@@ -784,7 +819,7 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn].
     assert (Hins : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
     destruct (Hbuf c v s Hins) as [Hlt [e' [He' Hk']]].
-    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+    split; [exact Hlt | exists e'; split; [exact He' | left; exact Hk']].
   - intros c0 v0 s0 Hin. cbn [rc_bufs rc_trace] in Hin |- *.
     destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same in Hin.
@@ -808,7 +843,7 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn].
     assert (Hins : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
     destruct (Hbuf c v s Hins) as [Hlt [e' [He' Hk']]].
-    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+    split; [exact Hlt | exists e'; split; [exact He' | left; exact Hk']].
   - intros c0 v0 s0 Hin0. cbn [rc_bufs rc_trace] in Hin0 |- *.
     destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same in Hin0.

@@ -702,10 +702,16 @@ ch1-priority scheduler the typed `select_recv2` realises, so `det_select_sound` 
 is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), and
 `det_select_incomplete` proves that when two cases are ready it realises only ch1 while
 `rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the review verdict
-"the deterministic interpreter is one example scheduler, non-authoritative" a theorem.  *Remaining:*
-the relational closed-channel flag (item (a)); the full WORLD-level bridge (relating
-`select_recv2`'s `IO`/`World` semantics, not just its scheduler, to `CSelect` — extends the Keystone
-channel-state refinement to select).
+"the deterministic interpreter is one example scheduler, non-authoritative" a theorem.
+**Closed-channel readiness (relational), trace-core slice DONE (2026-06-20):** a recv from a CLOSED,
+drained channel returns the zero value, and per the Go memory model the CLOSE happens-before that
+recv.  The trace core now expresses this — a `KClose` event-kind, and a `KRecv`'s back-pointer may
+point at a `KClose` of the channel (not only a `KSend`).  `WfTrace` carries the send-OR-close
+disjunction; all happens-before / race-freedom proofs preserved.  Witnesses `closed_recv_wf` (a
+closed-recv trace is well-formed) and `closed_recv_hb` (close happens-before the closed-recv).
+*Remaining:* the operational `step`/`rstep` rule that GENERATES such a trace (a config closed-flag +
+`step_close` + a recv-on-closed-drained step — the next slice); and the full WORLD-level bridge
+(relating `select_recv2`'s `IO`/`World` semantics, not just its scheduler, to `CSelect`).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.
