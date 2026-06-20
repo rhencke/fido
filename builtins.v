@@ -230,7 +230,12 @@ Inductive GoTypeTag : Type -> Type :=
      carry the GoTypeTag phantom that stops Coq unboxing its single value field.  Arrows are
      never decided equal by [tag_eq] (the catch-all returns [None]) — fine, a func type is
      not a map key nor type-switched. *)
-  | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A -> B).
+  | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A -> B)
+  (* product (pair) type — the SOUND backing for struct channels: unlike a nominal struct,
+     [A * B] is CANONICAL, so [tag_eq] can recover [A1*B1 = A2*B2] from the component tags.
+     A 2-field struct is modelled as a product (marshalled via its StructRep iso) yet still
+     EXTRACTS to its native named Go struct — methods/embedding intact. *)
+  | TProd : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A * B).
 
 (** TRANSPARENT congruences for the now-CONCRETE [GoChan]/[GoMap] records, forced
     to live at [@eq Type].  Two reasons they are not the stdlib [f_equal]/[f_equal2]:
@@ -251,6 +256,11 @@ Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V')
 Definition goarrow_cong {A A' B B'} (p : A = A') (q : B = B')
   : @eq Type (A -> B) (A' -> B') :=
   match p in (_ = A2), q in (_ = B2) return (@eq Type (A -> B) (A2 -> B2)) with
+  | eq_refl, eq_refl => eq_refl
+  end.
+Definition goprod_cong {A A' B B' : Type} (p : A = A') (q : B = B')
+  : @eq Type (A * B)%type (A' * B')%type :=
+  match p in (_ = A2), q in (_ = B2) return (@eq Type (A * B)%type (A2 * B2)%type) with
   | eq_refl, eq_refl => eq_refl
   end.
 
@@ -293,6 +303,11 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
       | Some p, Some q => Some (goarrow_cong p q)
       | _, _ => None
       end
+  | TProd a1 b1, TProd a2 b2 =>
+      match tag_eq a1 a2, tag_eq b1 b2 with
+      | Some p, Some q => Some (goprod_cong p q)
+      | _, _ => None
+      end
   | _, _ => None
   end.
 
@@ -310,12 +325,20 @@ Proof.
   - rewrite IHt; reflexivity.                       (* TSlice *)
   - rewrite IHt1, IHt2; reflexivity.                (* TMap (gomap_cong reduces) *)
   - rewrite IHt1, IHt2; reflexivity.                (* TArrow (goarrow_cong reduces) *)
+  - rewrite IHt1, IHt2; reflexivity.                (* TProd (goprod_cong reduces) *)
 Qed.
 
 (** [tag_coerce t t x = Some x]: coercing along a tag's reflexive match is the
     identity (from [tag_eq_refl]). *)
 Lemma tag_coerce_refl : forall {A} (t : GoTypeTag A) (x : A), tag_coerce t t x = Some x.
 Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
+
+(** [TProd] soundness — the foundation for struct channels.  [tag_eq] RECOVERS the product
+    type-equality (so a heterogeneous channel cell can cast a stored pair back to the
+    accessor's type), the very property a NOMINAL struct tag cannot provide.  This is exactly
+    why a struct channel is modelled product-backed: [A * B] is canonical, [Point] is not. *)
+Example tprod_tag_sound : tag_eq (TProd TI64 TBool) (TProd TI64 TBool) = Some eq_refl.
+Proof. reflexivity. Qed.
 
 (** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
     determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
@@ -353,6 +376,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TArrow _ b => fun _ => zero_val b  (* func zero: plugin emits Go [nil]; this returning-codomain-
                                           zero inhabitant is a proof-only placeholder (a real nil func
                                           panics if called, but zero_val is a never-called default) *)
+  | TProd a b => (zero_val a, zero_val b)  (* struct/pair zero: field-wise zeros *)
   end.
 
 (** ---- [GoAny] / [any] — Go's [interface{}], now a TAGGED (type, value) pair ----
@@ -394,6 +418,8 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoI64  : Tagged GoI64    := TI64.
 #[global] Instance Tagged_GoU64  : Tagged GoU64    := TU64.
 #[global] Instance Tagged_GoFloat32 : Tagged GoFloat32 := TFloat32.
+#[global] Instance Tagged_prod {A B} `(Tagged A) `(Tagged B) : Tagged (A * B) :=
+  TProd (the_tag A) (the_tag B).   (* a pair / 2-field struct backing infers its product tag *)
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -406,7 +432,7 @@ Notation any x := (anyt (the_tag _) x).
     well-typed program never keys a map on them.  [Comparable tag] is the proof
     that [key_eqb tag] decides Leibniz equality (it holds for the scalar key
     types; NOT for floats, since [NaN <> NaN]). *)
-Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
+Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
   | TInt64   => PrimInt63.eqb | TInt    => PrimInt63.eqb | TInt8  => PrimInt63.eqb
@@ -428,6 +454,8 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TSlice _ => fun _ _ => false
   | TMap _ _ => fun a b => PrimInt63.eqb (gm_loc a) (gm_loc b)
   | TArrow _ _ => fun _ _ => false   (* func types are NOT comparable in Go (sentinel, like slices) *)
+  | TProd a b => fun x y => andb (key_eqb a (fst x) (fst y)) (key_eqb b (snd x) (snd y))
+                                     (* a product (comparable struct) is a valid key iff both fields are *)
   end.
 
 (** [Comparable t]: [key_eqb t] decides equality on [K] — the typing side
