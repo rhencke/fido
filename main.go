@@ -2,6 +2,22 @@
 
 package main
 
+func Andb(b1 bool, b2 bool) bool {
+	if b1 {
+		return b2
+	} else {
+		return false
+	}
+}
+
+func Orb(b1 bool, b2 bool) bool {
+	if b1 {
+		return true
+	} else {
+		return b2
+	}
+}
+
 func Xorb(b1 bool, b2 bool) bool {
 	if b1 {
 		if b2 {
@@ -11,6 +27,14 @@ func Xorb(b1 bool, b2 bool) bool {
 		}
 	} else {
 		return b2
+	}
+}
+
+func Negb(b bool) bool {
+	if b {
+		return false
+	} else {
+		return true
 	}
 }
 
@@ -50,8 +74,16 @@ func Sub(n int64, m int64) int64 {
 	return n - m
 }
 
+func I64_add_nz(a int64, b int64) int64 {
+	return a + b
+}
+
+func I64_mul_nz(a int64, b int64) int64 {
+	return a * b
+}
+
 func Overflow_safe_demo() {
-	println(1000000000000+2000000000000, 1000*1000)
+	println(I64_add_nz(1000000000000, 2000000000000), I64_mul_nz(1000, 1000))
 }
 
 func I64_abs_demo() {
@@ -513,14 +545,14 @@ func Control_flow_demo() {
 }
 
 func Bool_op_demo(a bool, b bool, c bool) {
-	println(a && b)
-	println(a || b)
-	println(!b)
-	println((a || b) && c)
+	println(Andb(a, b))
+	println(Orb(a, b))
+	println(Negb(b))
+	println(Andb(Orb(a, b), c))
 }
 
 func And_cond(a int64, b int64) {
-	if a < 10 && b < 10 {
+	if Andb(a < 10, b < 10) {
 		println(1)
 	} else {
 		println(0)
@@ -528,7 +560,7 @@ func And_cond(a int64, b int64) {
 }
 
 func Or_cond(a int64, b int64) {
-	if a < 10 || b < 10 {
+	if Orb(a < 10, b < 10) {
 		println(1)
 	} else {
 		println(0)
@@ -536,7 +568,7 @@ func Or_cond(a int64, b int64) {
 }
 
 func Not_cond(a int64) {
-	if !(a < 10) {
+	if Negb(a < 10) {
 		println(1)
 	} else {
 		println(0)
@@ -1294,7 +1326,7 @@ func Io_method_demo() {
 }
 
 func (a Point) Point_eqb(b Point) bool {
-	return a.Px == b.Px && a.Py == b.Py
+	return Andb(a.Px == b.Px, a.Py == b.Py)
 }
 
 func Struct_eq_demo() {

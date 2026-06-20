@@ -159,10 +159,21 @@ let record_ctor_tyname r =
       go_export (globref_basename (Names.GlobRef.IndRef ind))
   | _ -> ""
 
-(* A Fido builtin/combinator is matched by its (unqualified) basename — safe
-   because those names are reserved by builtins.v and user theories should not
-   shadow them.  Stdlib refs are package-qualified and use [ref_has_suffix]. *)
-let named n r = String.equal (global_basename r) n
+(* [from_builtins r]: the ref is DEFINED in Fido's [builtins.v] module (dirpath component
+   ["builtins"]), NOT in a user theory like [main.v] (module ["main"]).  Coq references point at
+   the DEFINING module regardless of where they are used, so this holds for a builtin no matter
+   which theory references it.  Closes the basename-shadowing hole (code review): a user
+   [Definition u8_add] in [main.v] no longer gets mis-recognized as the builtin. *)
+let from_builtins r =
+  let d = try DirPath.to_string (Nametab.dirpath_of_global r.glob) with Not_found -> "" in
+  let ld = String.length d in
+  let rec scan i = i + 8 <= ld && (String.equal (String.sub d i 8) "builtins" || scan (i + 1)) in
+  scan 0
+
+(* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
+   — so a user theory CANNOT shadow a builtin name (the basename match alone used to trust that).
+   Stdlib refs are package-qualified and use [ref_has_suffix]. *)
+let named n r = String.equal (global_basename r) n && from_builtins r
 
 let ref_has_suffix r suffix =
   let p = global_path r in
@@ -473,7 +484,7 @@ let is_complex_type r   = String.equal (global_basename r) "GoComplex128"
 let is_go_complex_ref r = String.equal (global_basename r) "go_complex"
 let is_go_real_ref r    = String.equal (global_basename r) "go_real"
 let is_go_imag_ref r    = String.equal (global_basename r) "go_imag"
-let is_complex_neg_ref r = String.equal (global_basename r) "complex_neg"
+let is_complex_neg_ref r = from_builtins r && String.equal (global_basename r) "complex_neg"
 (* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
    default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
    count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
@@ -623,13 +634,16 @@ let is_erased_record_typename s =
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
   || String.equal s "ComparableW"   (* comparable-constraint witness: erased (drives [K comparable], not a struct) *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
-  let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2))
+  from_builtins r &&
+  (let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2)))
 let is_numint_ctor r =                      (* MkU8 / MkI16 *)
-  let n = global_basename r in str_prefix "Mk" n && is_ui_digits (String.sub n 2 (String.length n - 2))
+  from_builtins r &&
+  (let n = global_basename r in str_prefix "Mk" n && is_ui_digits (String.sub n 2 (String.length n - 2)))
 let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) digits "raw" *)
-  let n = global_basename r in let len = String.length n in
+  from_builtins r &&
+  (let n = global_basename r in let len = String.length n in
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
-  && all_digits (String.sub n 1 (len - 4))
+  && all_digits (String.sub n 1 (len - 4)))
 
 (* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
    proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
@@ -637,12 +651,12 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
    struct decl suppressed via [is_erased_record_typename]).  The constructor [mkF32] and
    projection [f32val] are IDENTITY (no wrapper at runtime), and the rounding helper
    [f32_round] is proof-only (suppressed; it only appears inside by-name-lowered ops). *)
-let is_f32_ctor  r = String.equal (global_basename r) "mkF32"
-let is_f32_proj  r = String.equal (global_basename r) "f32val"
-let is_f32_round r = String.equal (global_basename r) "f32_round"
+let is_f32_ctor  r = from_builtins r && String.equal (global_basename r) "mkF32"
+let is_f32_proj  r = from_builtins r && String.equal (global_basename r) "f32val"
+let is_f32_round r = from_builtins r && String.equal (global_basename r) "f32_round"
 (* [f32_neg x] — float32 unary negation (IEEE sign-flip): Go's native [-x] (like [PrimFloat.opp]
    for float64).  The [f32_of_f64 (opp …)] body is proof-only (suppressed); recognised → [-x]. *)
-let is_f32_neg_ref r = String.equal (global_basename r) "f32_neg"
+let is_f32_neg_ref r = from_builtins r && String.equal (global_basename r) "f32_neg"
 
 (* Full-width int64 ops ([i64_add]/[i64_lit]/…).  [GoI64]/[MkI64]/[i64raw] already
    ride the numint machinery above (erased type/ctor/proj, rendered int64), but the
@@ -650,7 +664,7 @@ let is_f32_neg_ref r = String.equal (global_basename r) "f32_neg"
    arithmetic/comparison ops lower to BARE Go operators via [binop_of], and [i64_lit]
    folds its [Z] literal.  The width-64 op names fall through [parse_fixed_width]
    (capped at 32), so they never get the narrow masked treatment. *)
-let is_i64_op r name = String.equal (global_basename r) ("i64_" ^ name)
+let is_i64_op r name = from_builtins r && String.equal (global_basename r) ("i64_" ^ name)
 let is_i64_lit r = is_i64_op r "lit"
 let is_any_i64_op r =
   List.exists (is_i64_op r)
@@ -667,7 +681,7 @@ let is_any_i64_op r =
    For literals, [Printf.sprintf "%Lu"] gives unsigned decimal for all [Int64.t]
    values, including those that are "negative" when interpreted as signed
    (i.e. u64 values in [2^63, 2^64)). *)
-let is_u64_op r name = String.equal (global_basename r) ("u64_" ^ name)
+let is_u64_op r name = from_builtins r && String.equal (global_basename r) ("u64_" ^ name)
 let is_u64_lit r = is_u64_op r "lit"
 let is_any_u64_op r =
   List.exists (is_u64_op r)
@@ -732,27 +746,28 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    widening fails exactly here, returning the record [GoI64]).  The body's leaf primitives
    ([of_uint63]) and Z↔int63 conversion helpers ([of_Z]/[of_pos]) have their own decls
    suppressed; the [Z]/[positive] arithmetic is already covered by [is_zarith_helper]. *)
-let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64"
+let is_int_to_f64_ref r = from_builtins r && (let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64")
 (* DIRECT integer → float32 ([f32_of_int]/[f32_of_i64]/[f32_of_u64]): Go's [float32(x)] cast rounds
    the integer ONCE to binary32 (NOT the double-rounding [float32(float64(x))]).  The
    [binary_normalize] body is proof-only; recognised → the direct cast.  No constant-overflow risk
    (every int64 is within float32 range), so no runtime-forcing needed. *)
-let is_int_to_f32_ref r = let n = global_basename r in n = "f32_of_int" || n = "f32_of_i64" || n = "f32_of_u64"
+let is_int_to_f32_ref r = from_builtins r && (let n = global_basename r in n = "f32_of_int" || n = "f32_of_i64" || n = "f32_of_u64")
 (* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
    The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
 let is_f64_to_f32_ref r =
-  let n = global_basename r in String.equal n "f32_of_f64" || String.equal n "f32_lit"
+  from_builtins r && (let n = global_basename r in String.equal n "f32_of_f64" || String.equal n "f32_lit")
 (* [i64_of_f64 f] — float64 → int64 TRUNCATION (toward zero): Go's native [int64(f)].  The
    model's [f64_trunc_Z]/[Prim2SF] body is proof-only (suppressed by name/module); recognised
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
    [int64(3.7)] on an untyped float constant) — demoed through a typed-param wrapper. *)
-let is_f64_to_i64_ref r = String.equal (global_basename r) "i64_of_f64"
-let is_f64_to_u64_ref r = String.equal (global_basename r) "u64_of_f64"
+let is_f64_to_i64_ref r = from_builtins r && String.equal (global_basename r) "i64_of_f64"
+let is_f64_to_u64_ref r = from_builtins r && String.equal (global_basename r) "u64_of_f64"
 (* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, and the narrow type
    already erases to a Go [int64] holding exactly this value, so the widen is IDENTITY — emit
    the operand.  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-position
    match would otherwise drag/fail; recognising the widen as identity sidesteps it.) *)
 let is_i64_of_narrow_ref r =
+  from_builtins r &&
   List.mem (global_basename r)
     ["i64_of_u8"; "i64_of_i8"; "i64_of_u16"; "i64_of_i16"; "i64_of_u32"; "i64_of_i32"]
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
@@ -786,7 +801,7 @@ let parse_fixed_width n =
         | Some width when width >= 1 && width <= 32 -> Some ((n.[0] = 'i'), width, op)
         | _ -> None
   end
-let fixed_width_op r = parse_fixed_width (global_basename r)
+let fixed_width_op r = if from_builtins r then parse_fixed_width (global_basename r) else None
 let fw_is r op = match fixed_width_op r with Some (_, _, o) -> String.equal o op | None -> false
 
 (* Emit the width-[w] wrap of [inner]: mask to [w] bits (Go [& 0x..]); for a
@@ -810,6 +825,7 @@ let classify_float_op r =
    closure is suppressed by module via [is_zarith_helper]. *)
 let f32_op_table = [ "f32_add", " + "; "f32_sub", " - "; "f32_mul", " * "; "f32_div", " / " ]
 let classify_f32_op r =
+  if not (from_builtins r) then None else
   let bn = global_basename r in
   List.find_map (fun (name, op) -> if String.equal bn name then Some op else None) f32_op_table
 
