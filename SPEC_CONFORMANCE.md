@@ -589,16 +589,24 @@ under-approximation** (code review 2026-06-20, sharpening "idealised away" — w
 undersold it).  Two distinct unsoundnesses:
   - **CHOICE.** Both channels ready ⇒ the model deterministically takes ch1; Go picks
     pseudo-randomly.  Counterexample: both ready, `k1 ↦ 1`, `k2 ↦ 2` — Rocq always 1,
-    Go may return 2.  A select-choice-dependent property can hold in the model yet
-    FAIL for Go ⇒ the model licenses unsound *proofs* (the extracted Go is still fine).
-  - **BLOCKING.** None ready, no `default` ⇒ the model returns `(0, zero)`; Go BLOCKS
-    forever.  Fabricating a value is strictly worse than the choice gap.
+    Go may return 2.  So native Go does NOT *refine* the deterministic function (Go
+    exhibits "take ch2", which the function forbids); that function is at best ONE
+    example scheduler / a test interpreter — **non-authoritative**.  The authoritative
+    spec is relational, and a safety property must hold for EVERY permitted choice.
+  - **BLOCKING.** None ready, no `default` ⇒ the model returns the fabricated `(0, zero)`;
+    Go BLOCKS.  But blocking is **not divergence**: the goroutine simply has no transition
+    *right now* while others may still step — it is DEADLOCK only when the WHOLE program
+    can't step.  `concurrency.v` already models this (`Stuck := ~ can_step /\ ~ done`,
+    `block_cfg`); empty-select is a LOCAL non-step, never a fabricated value.
 The desugar work (`select_wait2`/`select2`, `select2_eq_recv2`) proves the
-sentinel+goto factoring equals *this idealised model* — NOT Go.  **Robust fix:** a
-nondeterministic/relational `select_wait` ranging over every ready case, proofs
-quantified over the chosen index (`concurrency.v`'s `rstep` is this shape), empty ⇒
-divergence/fail-loud.  **Sound interim:** evidence-carrying subset requiring a proof
-that EXACTLY ONE case is ready (then determinism = Go), else fail-loud.  Tracked
+sentinel+goto factoring equals *this idealised model* — NOT Go.  **Robust fix** (in the
+`rstep` calculus, not the sequential `IO` model): a nondeterministic/relational
+`select_wait` ranging over every ready case, proofs quantified over the chosen index
+(`rstep` is this shape); empty = a local non-step (global deadlock = `Stuck`).  **Sound
+interim:** evidence-carrying subset requiring a proof that EXACTLY ONE case is ready
+(then determinism = Go) — sound ONLY under an interference-freedom / ownership discipline
+that keeps readiness STABLE until selection (else a TOCTOU gap between proof and select).
+Tracked
 (Tier 5 #14, scheduler / non-terminating model).  *Also pending:* send cases, N-ary.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil

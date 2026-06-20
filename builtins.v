@@ -2120,21 +2120,32 @@ Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
     control-flow substrate; [select2] is the only producer of the sentinel, so the lifted shape is
     a valid select by construction — strictness in Rocq, not the trusted relooper.*
 
-    ⚠ SCOPE OF THE THEOREM (code review, 2026-06-19 — corrects an earlier overclaim).  This
-    [select_wait2] inherits two UNSOUNDNESSES from the existing [select_recv2] model, so
-    [select2_eq_recv2] below proves the desugar equals the *idealised model*, NOT equivalence to
-    Go.  The model is a DETERMINISTIC UNDER-APPROXIMATION of Go's select:
-      (1) CHOICE: with both channels ready it deterministically takes ch1; Go picks pseudo-randomly
-          among ready cases.  Counterexample: both ready, [k1 ↦ 1], [k2 ↦ 2] — Rocq always 1, Go may
-          return 2.  So a select-choice-dependent property can be true here yet false for Go.
-      (2) BLOCKING: with none ready and no default it returns [(0, zero)]; Go BLOCKS forever.
-          Returning a fabricated value is strictly worse than #1.
-    The EXTRACTION is still faithful (we emit a native Go [select{}]); it is the MODEL that licenses
-    unsound *proofs* about select.  The robust fix is a NONDETERMINISTIC/relational [select_wait]
-    (range over every ready case, quantify the lift over the chosen index — [concurrency.v]'s [rstep]
-    is exactly this shape) with the empty case as divergence/fail-loud, never a zero.  A sound but
-    narrow interim is the evidence-carrying subset: demand a proof that EXACTLY ONE case is ready
-    (then determinism = Go), everything else fail-loud.  Tracked in Known gaps / SPEC_CONFORMANCE. *)
+    ⚠ SCOPE OF THE THEOREM (code reviews, 2026-06-19/20 — corrects an earlier overclaim, sharpened
+    by a follow-up review).  This [select_wait2] inherits the [select_recv2] model's behaviour, a
+    DETERMINISTIC UNDER-APPROXIMATION of Go's select, so [select2_eq_recv2] proves the desugar equals
+    that *idealised model*, NOT equivalence to Go.  Two distinct unsoundnesses:
+      (1) CHOICE: both channels ready ⇒ it deterministically takes ch1; Go picks pseudo-randomly among
+          ready cases.  Counterexample: both ready, [k1 ↦ 1], [k2 ↦ 2] — Rocq always 1, Go may return
+          2.  So native Go does NOT *refine* this deterministic function (Go exhibits "take ch2", a
+          behaviour the function FORBIDS) — the function is at best ONE example scheduler / an
+          executable test interpreter, NON-AUTHORITATIVE as a spec.  The authoritative spec is
+          relational/nondeterministic, and a safety property must hold for EVERY permitted choice,
+          not just ch1.
+      (2) BLOCKING: none ready and no default ⇒ it returns the fabricated [(0, zero)]; Go BLOCKS.  But
+          blocking is NOT divergence: in a concurrent program this goroutine merely has NO TRANSITION
+          right now while *other* goroutines may still step — it is DEADLOCK only when the WHOLE
+          program cannot step.  [concurrency.v] already models exactly this (a goroutine like
+          [block_cfg]'s [PRecv 0] with no sender has no [step]; [Stuck := ~ can_step /\ ~ done] is the
+          GLOBAL deadlock property).  So empty-select is a LOCAL non-step — never a fabricated value,
+          never collapsed into permanent nontermination.
+    The EXTRACTION is faithful (native Go [select{}]); it is the MODEL that licenses unsound *proofs*
+    about correct Go.  The robust fix belongs in the [rstep] calculus, NOT this sequential [IO] model:
+    a NONDETERMINISTIC/relational [select_wait] ranging over every ready case, the lift quantified over
+    the chosen index ([rstep] is exactly this shape).  A sound-but-narrow interim — demand a proof that
+    EXACTLY ONE case is ready (then determinism = Go) — is sound ONLY under an interference-freedom /
+    ownership discipline keeping that readiness STABLE until the selection point; otherwise another
+    goroutine can change readiness between the proof and the native select (a TOCTOU gap).  Tracked in
+    Known gaps / SPEC_CONFORMANCE. *)
 Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
