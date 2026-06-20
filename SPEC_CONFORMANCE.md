@@ -34,10 +34,20 @@ code implements a rule, it cites the section in a comment.
 Several per-section ✗/⚠ markers predate later work and OVERSTATE the gaps (verified against
 the committed code).  The status now:
 
-- **`float32` — ✓ DONE** (not "✗ no native Rocq f32").  Faithful binary32 via `SpecFloat`
+- **`float32` — ✓ DONE & SOUND** (not "✗ no native Rocq f32").  Faithful binary32 via `SpecFloat`
   (prec 24, emax 128): arithmetic, comparisons, and ALL conversions (`float32↔float64`,
   `float32↔int64`, narrow↔`int64`) lower to native Go `float32`.  Supersedes the `float32 ✗`
   notes in *Numeric types*, *Floating-point operators*, *Conversions*.
+  **Soundness fix (2026-06-20, code review):** `GoFloat32` was a *transparent alias* `:= float`,
+  so a non-binary32-representable literal could be injected raw (`16777217%float : GoFloat32`) and
+  widened with no rounding — making Rocq disagree with Go (`f64_of_f32 16777217 = 16777217` vs
+  Go's `float32(16777217) = 16777216`) and licensing UNSOUND proofs.  Now `GoFloat32` is an
+  ABSTRACT record carrying an unforgeable provenance proof (`exists a, carrier = f32_round a`);
+  the only way in is a rounding smart constructor (`f32_of_f64`/`f32_lit`/arith), so widening is
+  sound by construction and the raw injection no longer typechecks.  Zero new axioms (provenance
+  proofs are `eq_refl`; `Print Assumptions` = Rocq float/int primitives only).  Machine-checked
+  regression `f32_widen_sound`: `widen64 (f32_lit 16777217) = 16777216`, matching Go.  Extraction
+  unchanged (erases to native `float32`; golden-stable).
 - **Conversions — ✓ float included.**  `float64↔int64`, `float64↔uint64` (round-to-odd),
   `float32↔float64`, the full width-typed integer matrix (narrow↔`int64`↔`uint64`) all lower
   to native casts.  Supersedes "✗ float" + the "lowering deferred (proof-only)" notes.
@@ -388,8 +398,10 @@ to Go natives; float `/` unguarded (IEEE ±inf/NaN, no panic) — conforms.
 `float_demo`, `float_opp_demo`.  **⚠ deviation:** we round EACH op (no fusion);
 Go MAY FMA `a*b+c`, giving a more precise result — a fused expression can differ
 from our per-op-rounded value (Go does not GUARANTEE fusion, so this is bounded).
-`float32` — **✓ DONE** (faithful binary32 via `SpecFloat`; arithmetic + comparisons →
-native Go `float32` `+ - * /` `< <= == > >= !=`; see the Reconciliation note up top).
+`float32` — **✓ DONE & SOUND** (faithful binary32 via `SpecFloat`; arithmetic + comparisons →
+native Go `float32` `+ - * /` `< <= == > >= !=`).  `GoFloat32` is an ABSTRACT smart-constructor
+type carrying an unforgeable `exists a, carrier = f32_round a` proof, so a non-representable
+literal cannot be injected (would disagree with Go on widening); see the Reconciliation note up top.
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal

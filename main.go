@@ -120,7 +120,7 @@ func F32_combine(a float32, b float32, c float32) float32 {
 }
 
 func F32_demo() {
-	println(F32_combine(1.5, 2.25, 2.0))
+	println(F32_combine(float32(1.5), float32(2.25), float32(2.0)))
 }
 
 func I64_of_narrow_demo() {
@@ -153,7 +153,7 @@ func Fconst_demo() {
 }
 
 func F32_cmp_demo() {
-	println(F32_combine(1.5, 0.0, 2.0) < F32_combine(5.0, 0.0, 2.0), F32_combine(5.0, 0.0, 2.0) >= F32_combine(1.5, 0.0, 2.0), F32_combine(1.5, 0.0, 2.0) != F32_combine(5.0, 0.0, 2.0))
+	println(F32_combine(float32(1.5), float32(0.0), float32(2.0)) < F32_combine(float32(5.0), float32(0.0), float32(2.0)), F32_combine(float32(5.0), float32(0.0), float32(2.0)) >= F32_combine(float32(1.5), float32(0.0), float32(2.0)), F32_combine(float32(1.5), float32(0.0), float32(2.0)) != F32_combine(float32(5.0), float32(0.0), float32(2.0)))
 }
 
 func Trunc64(x float64) int64 {

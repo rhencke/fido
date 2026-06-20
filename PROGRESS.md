@@ -1242,8 +1242,8 @@ resting state.)**
     *Pending:* wrap `int` itself as a distinct record (tied to the Z-width model);
     explicit numeric CONVERSIONS (`int(x)`, `uint8(y)`) — now load-bearing, since
     distinct types can't mix without them (the Conversions spec section).
-11. **Float gaps — *comparison + unary negation + min/max now done; float32 +
-    conversions + abs/sqrt still open*.**  Float `<`/`<=`/`==` (incl. NaN's unordered
+11. **Float gaps — *comparison + unary negation + min/max + float32 (sound) + conversions
+    now done; abs/sqrt still open (need imports)*.**  Float `<`/`<=`/`==` (incl. NaN's unordered
     behaviour) and unary `opp` → `-x` (IEEE sign-flip, makes `-0.0`; machine-checked
     `opp_zero_is_neg` + runtime `float_opp_sign_demo`) are now emitted and proven
     faithful (see #9).  **`min`/`max` on float DONE (2026-06-18):** `f64_min`/`f64_max`
@@ -1334,6 +1334,29 @@ resting state.)**
     matching Go — `¬(x < NaN)` would wrongly be true; `f32_cmp_demo` → `true true true`,
     golden-locked, axiom-free (the `PrimFloat` compares were already in the trust base).  *Still
     open:* float32 literals beyond the demo.
+
+    **SOUNDNESS FIX (2026-06-20, code review) — `GoFloat32` made ABSTRACT.**  The model above
+    had `GoFloat32 := float` (a transparent alias), so the type system let a NON-binary32-
+    representable `float` literal flow straight into a `GoFloat32` position with no rounding:
+    `f64_of_f32 16777217 = 16777217` in Rocq, but Go rounds `float32(16777217)` to `16777216` —
+    a Rocq/Go DISAGREEMENT that licenses unsound proofs (the emitted Go was already `float32`-
+    correct; the hole was purely at the Rocq level).  Fix: `GoFloat32` is now an ABSTRACT record
+    `mkF32 { f32val : float ; f32ok : exists a, f32val = f32_round a }` — the proof field
+    WITNESSES that the carrier is in the image of `f32_round` (binary32-representable).
+    `mkF32 16777217 _` is unconstructable (its obligation `exists a, 16777217 = f32_round a` is
+    false), so every inhabitant enters through a rounding smart constructor (`f32_of_f64` /
+    `f32_lit` / the arith ops, which route their `SpecFloat` result back through `f32_of_f64`).
+    Widening `f64_of_f32 := f32val` (identity) is now SOUND by construction.  **Zero new axioms:**
+    the provenance proofs are `eq_refl` (the carrier is *literally* `f32_round a`); `Print
+    Assumptions` = Rocq's own float/int primitives only — no Flocq, no `Admitted` (the hard
+    `binary_round_aux` idempotence proof is SIDESTEPPED by carrying provenance instead of the
+    fixpoint equation).  **Extraction unchanged:** `GoFloat32` erases to native `float32` and
+    `mkF32`/`f32val`/`f32_round` to identity (suppressed; they only appear inside by-name-lowered
+    ops) — same `GoU8`-style wrapper erasure — so the Go and the golden output are byte-identical.
+    Machine-checked regression `f32_widen_sound`: `widen64 (f32_lit 16777217) = 16777216`,
+    matching Go; the raw injection `f64_of_f32 16777217` no longer typechecks.  float32 literals
+    now enter via `f32_lit` (rounds at the Rocq boundary), closing the "literals beyond the demo"
+    item.
 
     **int64 → narrow TRUNCATION DONE (2026-06-19):** `u8_of_i64`/`i8_of_i64`/`u16`/`i16`/`u32`/
     `i32_of_i64` → the SAME native mask / sign-extend the `uN_of_int` narrows already emit

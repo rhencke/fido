@@ -315,13 +315,13 @@ Proof. now vm_compute. Qed.
     back to [2^24] — whereas float64 keeps [16777217].  This proves the model really rounds at
     binary32, not binary64.  Exact cases ([1.5+2.25], [1.5*2.0]) confirm the SpecFloat path
     computes the ordinary results. *)
-Example f32_add_rounds : PrimFloat.eqb (f32_add 16777216 1) 16777216 = true.
+Example f32_add_rounds : f32_eqb (f32_add (f32_lit 16777216) (f32_lit 1)) (f32_lit 16777216) = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_f64_differ : PrimFloat.eqb (16777216 + 1)%float 16777217 = true.  (* float64 KEEPS the bit *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_add_exact  : PrimFloat.eqb (f32_add 1.5 2.25) 3.75 = true.
+Example f32_add_exact  : f32_eqb (f32_add (f32_lit 1.5) (f32_lit 2.25)) (f32_lit 3.75) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example f32_mul_exact  : PrimFloat.eqb (f32_mul 1.5 2) 3 = true.
+Example f32_mul_exact  : f32_eqb (f32_mul (f32_lit 1.5) (f32_lit 2)) (f32_lit 3) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** float32 LOWERED to native Go [float32].  The SpecFloat model body lowers to nothing — its
@@ -330,7 +330,8 @@ Proof. vm_compute. reflexivity. Qed.
     Go [+]/[-]/[*]/[/] on real [float32] values.  Demoed through a typed-param function so the
     call-site constants pin to [float32]. *)
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
-Definition f32_demo : IO unit := println [ any (f32_combine 1.5 2.25 2) ].   (* (1.5+2.25)*2 = 7.5 *)
+Definition f32_demo : IO unit :=
+  println [ any (f32_combine (f32_lit 1.5) (f32_lit 2.25) (f32_lit 2)) ].   (* (1.5+2.25)*2 = 7.5 *)
 (** narrow → int64 WIDENING LOWERED: [i64_of_u8]…[i64_of_i32] → IDENTITY (the narrow already
     erases to a Go int64 holding the value; the widen is value-preserving).  The faithful
     [to_Z]-crossing body is suppressed; the op is recognised as identity. *)
@@ -383,10 +384,19 @@ Definition narrow_u64_demo : IO unit :=
 (** float32 ↔ float64 conversions LOWERED.  Widening [f64_of_f32] → [float64(x)] (exact);
     narrowing [f32_of_f64] → [float32(x)] (rounds to binary32).  Machine-checked that the
     narrow really rounds: [2^24 + 1] is unrepresentable in binary32, so it rounds to [2^24]. *)
-Example f32_of_f64_rounds : PrimFloat.eqb (f32_of_f64 16777217) 16777216 = true.
+Example f32_of_f64_rounds : PrimFloat.eqb (f64_of_f32 (f32_of_f64 16777217)) 16777216 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition narrow32 (x : GoFloat64) : GoFloat32 := f32_of_f64 x.
 Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
+(** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
+    transparent alias, so a NON-binary32-representable literal could be injected raw and
+    [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
+    to [16777216]) and licensing unsound proofs.  Now [16777217] cannot enter [GoFloat32]
+    except through the rounding boundary [f32_lit], which rounds it to [2^24]; widening that
+    yields [16777216], MATCHING Go.  (The raw injection [f64_of_f32 16777217] no longer even
+    typechecks — [GoFloat32] is abstract.) *)
+Example f32_widen_sound : PrimFloat.eqb (widen64 (f32_lit 16777217)) 16777216 = true.
+Proof. vm_compute. reflexivity. Qed.
 Definition floatconv_demo : IO unit :=
   bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
   println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
@@ -412,18 +422,19 @@ Definition fconst_demo : IO unit :=
 (** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
     Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
     is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)
-Example f32_lt_ex   : f32_ltb  (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2) = true.   (* 3 < 10  *)
+Notation f32c a b c := (f32_combine (f32_lit a) (f32_lit b) (f32_lit c)) (only parsing).
+Example f32_lt_ex   : f32_ltb  (f32c 1.5 0.0 2) (f32c 5.0 0.0 2) = true.   (* 3 < 10  *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_ge_ex   : f32_geb  (f32_combine 5.0 0.0 2) (f32_combine 1.5 0.0 2) = true.   (* 10 >= 3 *)
+Example f32_ge_ex   : f32_geb  (f32c 5.0 0.0 2) (f32c 1.5 0.0 2) = true.   (* 10 >= 3 *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_geb_nan : f32_geb  (f32_combine 1.0 0.0 1) PrimFloat.nan = false.            (* x >= NaN false *)
+Example f32_geb_nan : f32_geb  (f32c 1.0 0.0 1) (f32_lit PrimFloat.nan) = false.  (* x >= NaN false *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_neq_ex  : f32_neqb (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2) = true.   (* 3 != 10 *)
+Example f32_neq_ex  : f32_neqb (f32c 1.5 0.0 2) (f32c 5.0 0.0 2) = true.   (* 3 != 10 *)
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_cmp_demo : IO unit :=
-  println [ any (f32_ltb  (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2))    (* 3 < 10  → true *)
-          ; any (f32_geb  (f32_combine 5.0 0.0 2) (f32_combine 1.5 0.0 2))    (* 10 >= 3 → true *)
-          ; any (f32_neqb (f32_combine 1.5 0.0 2) (f32_combine 5.0 0.0 2)) ]. (* 3 != 10 → true *)
+  println [ any (f32_ltb  (f32c 1.5 0.0 2) (f32c 5.0 0.0 2))    (* 3 < 10  → true *)
+          ; any (f32_geb  (f32c 5.0 0.0 2) (f32c 1.5 0.0 2))    (* 10 >= 3 → true *)
+          ; any (f32_neqb (f32c 1.5 0.0 2) (f32c 5.0 0.0 2)) ]. (* 3 != 10 → true *)
 (** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
     zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go

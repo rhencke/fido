@@ -110,8 +110,7 @@ Definition GoSlice (A : Type) : Type := list A.
 (** Floating-point types.
     [GoFloat64] is Rocq's primitive [PrimFloat.float] — IEEE 754 double
     precision, with verified arithmetic semantics in the kernel.
-    [GoFloat32] is DEFINED as [float] (Rocq has no native 32-bit float; faithful
-    32-bit rounding is a tracked gap — see below). *)
+    [GoFloat32] is an ABSTRACT binary32 wrapper over [float] (see below). *)
 Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
 From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
 From Stdlib Require Import Floats.PrimFloat.
@@ -122,11 +121,37 @@ From Stdlib Require Import Floats.FloatOps Floats.SpecFloat.   (* [Prim2SF] — 
    ([Z.add]/[Z.modulo]/…) with explicit [%Z] literals. *)
 From Stdlib Require Import BinInt.
 Notation GoFloat64 := float.
-(** [GoFloat32] has no native Rocq float32 (holdout #1 in ZERO_AXIOMS_PLAN.md).  Modelled
-    here as [float] (= float64): a CRUDE idealisation — no float32 op is modelled and no
-    law mentions it, and the carrier appears only in [TFloat32], never as an extracted
-    value — so this retires the axiom; faithful 32-bit rounding is deferred. *)
-Definition GoFloat32 : Type := float.
+
+(** ---- float32 (binary32), SOUND abstract model ----
+
+    Go's [float32] is IEEE binary32.  Rocq has no native 32-bit float, so a [GoFloat32]
+    is carried by a binary64 [float] holding a binary32-REPRESENTABLE value.  The faithful
+    binary32 rounding is [f32_round]: round to format (prec 24, emax 128) via SpecFloat's
+    [SFmul …·1] — exactly Go's round-to-nearest-even at binary32.
+
+    SOUNDNESS — closes a code-review hole.  Previously [GoFloat32 := float] (a transparent
+    alias), so a NON-representable literal could be injected directly ([16777217%float :
+    GoFloat32]) and widened with no rounding — making Rocq disagree with Go ([f64_of_f32]
+    keeps [16777217] in Rocq, but Go's [float32] rounds it to [16777216]), which licenses
+    UNSOUND proofs.  Now [GoFloat32] is an ABSTRACT record whose proof field [f32ok]
+    witnesses that the carrier is in the IMAGE of [f32_round] — i.e. binary32-representable.
+    [mkF32 16777217 _] is unconstructable: it would demand [exists a, 16777217 = f32_round a],
+    which is false.  Every inhabitant enters through a rounding smart constructor ([f32_of_f64]
+    / [f32_lit] / the arithmetic ops), so widening [f64_of_f32] (identity on the carrier) is
+    SOUND — the carrier always equals its own binary32 value, matching Go's exact
+    [float64(float32)].  ZERO new axioms: the provenance proofs are [eq_refl]; the trust base
+    stays exactly Rocq's float primitives (machine-checked [Print Assumptions]).  At extraction
+    [GoFloat32] erases to Go [float32] and [mkF32]/[f32val] to identity (the carrier IS the
+    float32), so the emitted Go is unchanged. *)
+Definition f32_round (v : float) : float :=
+  SF2Prim (SFmul 24 128 (Prim2SF v) (Prim2SF 1%float)).
+Record GoFloat32 : Type :=
+  mkF32 { f32val : float ; f32ok : exists a : float, f32val = f32_round a }.
+(** The only way IN: round a binary64 (or a literal) to binary32.  Provenance proof is
+    [eq_refl] — the carrier is literally [f32_round a]. *)
+Definition f32_of_f64 (a : GoFloat64) : GoFloat32 := mkF32 (f32_round a) (ex_intro _ a eq_refl).
+(** A float32 LITERAL rounds at the Rocq boundary (Go rounds a typed constant the same way). *)
+Definition f32_lit (a : GoFloat64) : GoFloat32 := f32_of_f64 a.
 
 (** [GoChan]/[GoMap] are CONCRETE phantom-LOCATION records (no longer axioms): a
     [GoChan A] is a handle [{ ch_loc : int }] into the world's channel state, the
@@ -321,7 +346,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TUint16  => 0%uint63
   | TUint32  => 0%uint63
   | TUint64  => 0%uint63
-  | TFloat32 => 0%float
+  | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
   | TMap _ _ => MkMap 0%uint63        (* nil map *)
@@ -389,7 +414,7 @@ Definition key_eqb {K} (t : GoTypeTag K) : K -> K -> bool :=
   | TUint    => PrimInt63.eqb | TUint8  => PrimInt63.eqb | TUint16 => PrimInt63.eqb
   | TUint32  => PrimInt63.eqb | TUint64 => PrimInt63.eqb
   | TString  => String.eqb
-  | TFloat64 => PrimFloat.eqb | TFloat32 => PrimFloat.eqb
+  | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
   | TI8  => fun a b => PrimInt63.eqb (i8raw a) (i8raw b)
   | TU16 => fun a b => PrimInt63.eqb (u16raw a) (u16raw b)
@@ -1331,41 +1356,39 @@ Definition fc_div (a b : FConst) : FConst := mkFC (fc_num a * fc_den b) (fc_den 
 Definition f64_of_fconst (a : FConst) : float :=
   PrimFloat.div (f64_of_i64 (MkI64 (fc_num a))) (f64_of_i64 (MkI64 (fc_den a))).
 
-(** FLOAT32 — faithful binary32 arithmetic via [SpecFloat] (already imported).  A [GoFloat32]
-    is carried as a [float] (binary64) holding a binary32-representable value; each op rounds
-    to binary32 = format (prec 24, emax 128) via [SFadd]/[SFsub]/[SFmul]/[SFdiv], exactly Go's
-    [float32] arithmetic (single round-to-nearest-even at binary32).  The SpecFloat round is
-    the SAME correct rounding Go's hardware does, so this is faithful — NOT a float64 idealisation.
-    *Lowering deferred (proof-only, like [i64_of_f64]):* the body's [SFadd]/[Prim2SF] drag the
-    SpecFloat definitional tree into extraction; the native lowering ([float32] + Go [+]) needs
-    that tree suppressed.  The MODEL (the hard part — faithful rounding) is now done; that the
-    rounding was tractable at all dissolves the old "float32 needs a hand-rolled soft-float"
-    blocker. *)
-Definition f32_add (a b : GoFloat32) : GoFloat32 := SF2Prim (SFadd 24 128 (Prim2SF a) (Prim2SF b)).
-Definition f32_sub (a b : GoFloat32) : GoFloat32 := SF2Prim (SFsub 24 128 (Prim2SF a) (Prim2SF b)).
-Definition f32_mul (a b : GoFloat32) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF b)).
-Definition f32_div (a b : GoFloat32) : GoFloat32 := SF2Prim (SFdiv 24 128 (Prim2SF a) (Prim2SF b)).
+(** FLOAT32 arithmetic — faithful binary32 (prec 24, emax 128) via [SpecFloat], then routed
+    back through [f32_of_f64] so the result re-enters the abstract type WITH its provenance
+    proof ([eq_refl]).  The extra round is the IDENTITY in reality (an [SFadd]/… result is
+    already in binary32 format), so this stays faithful — exactly Go's [float32] arithmetic
+    (single round-to-nearest-even at binary32).  Lowered BY NAME to native Go [float32]
+    [+]/[-]/[*]/[/]; the SpecFloat body (and the [f32val]/[mkF32] wrapping) is suppressed. *)
+Definition f32_add (x y : GoFloat32) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (SFadd 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+Definition f32_sub (x y : GoFloat32) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (SFsub 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+Definition f32_mul (x y : GoFloat32) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (SFmul 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+Definition f32_div (x y : GoFloat32) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (SFdiv 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
 
-(** float32 COMPARISON.  A [GoFloat32] is the [float] carrier holding a binary32-representable
-    value, and a comparison performs NO rounding, so on representable operands binary32 and
-    binary64 ordering agree exactly — hence [PrimFloat.ltb]/[leb]/[eqb] on the carrier ARE the
-    float32 comparisons.  Lowered to native Go [float32] [<]/[<=]/[==]/[>]/[>=]/[!=] (the
-    operands are [float32]).  Same NaN subtlety as float64: [f32_geb]/[f32_gtb] are the SWAPPED
-    [leb]/[ltb] (so a NaN operand makes [>=]/[>] FALSE, matching Go/IEEE — [¬(<)] would be true),
-    while [f32_neqb] is [negb (eqb)] (NaN compares unequal to everything). *)
-Definition f32_ltb  (a b : GoFloat32) : bool := PrimFloat.ltb a b.
-Definition f32_leb  (a b : GoFloat32) : bool := PrimFloat.leb a b.
-Definition f32_eqb  (a b : GoFloat32) : bool := PrimFloat.eqb a b.
-Definition f32_gtb  (a b : GoFloat32) : bool := PrimFloat.ltb b a.
-Definition f32_geb  (a b : GoFloat32) : bool := PrimFloat.leb b a.
-Definition f32_neqb (a b : GoFloat32) : bool := negb (PrimFloat.eqb a b).
+(** float32 COMPARISON.  The carrier holds a binary32-representable value and a comparison
+    performs NO rounding, so binary32 and binary64 ordering agree exactly on the carriers —
+    hence [PrimFloat.ltb]/[leb]/[eqb] on [f32val] ARE the float32 comparisons.  Lowered to
+    native Go [float32] [<]/[<=]/[==]/[>]/[>=]/[!=] (the operands are [float32]).  Same NaN
+    subtlety as float64: [f32_geb]/[f32_gtb] are the SWAPPED [leb]/[ltb] (so a NaN operand
+    makes [>=]/[>] FALSE, matching Go/IEEE), while [f32_neqb] is [negb (eqb)]. *)
+Definition f32_ltb  (x y : GoFloat32) : bool := PrimFloat.ltb (f32val x) (f32val y).
+Definition f32_leb  (x y : GoFloat32) : bool := PrimFloat.leb (f32val x) (f32val y).
+Definition f32_eqb  (x y : GoFloat32) : bool := PrimFloat.eqb (f32val x) (f32val y).
+Definition f32_gtb  (x y : GoFloat32) : bool := PrimFloat.ltb (f32val y) (f32val x).
+Definition f32_geb  (x y : GoFloat32) : bool := PrimFloat.leb (f32val y) (f32val x).
+Definition f32_neqb (x y : GoFloat32) : bool := negb (PrimFloat.eqb (f32val x) (f32val y)).
 
-(** float32 ↔ float64 conversions (Go [float64(f32)] / [float32(f64)]).  Widening is EXACT (a
-    binary32 value is exactly a binary64) — modelled as identity, lowered to [float64(x)].
-    Narrowing ROUNDS to binary32 (round-nearest-even) — modelled by the SpecFloat round
-    ([SFadd 24 128 … (Prim2SF 0)] = round-to-binary32 of [a+0]), lowered to [float32(x)]. *)
-Definition f64_of_f32 (a : GoFloat32) : GoFloat64 := a.
-Definition f32_of_f64 (a : GoFloat64) : GoFloat32 := SF2Prim (SFmul 24 128 (Prim2SF a) (Prim2SF 1%float)).
+(** float32 → float64 WIDENING is EXACT (a binary32 value is exactly a binary64): identity on
+    the carrier — SOUND precisely because [f32ok] guarantees the carrier is binary32-representable
+    (the carrier equals its own [f32_round]).  Lowered to Go [float64(x)].  (Narrowing
+    [f32_of_f64] / [f32_lit] is defined up top, with the type.) *)
+Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := f32val x.
 
 (** ---- Builtins ---- *)
 

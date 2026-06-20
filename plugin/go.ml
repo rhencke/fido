@@ -617,6 +617,7 @@ let is_erased_record_typename s =
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || arr_n_of_name "GoArr" "" s <> None    (* GoArr<N>: fixed-size [N]T array, rendered [N]T, ops by name *)
   || String.equal s "FConst"    (* untyped float constant: folds to a Go float literal, never a struct *)
+  || String.equal s "GoFloat32"  (* abstract binary32 wrapper: erased to native float32, ctor/proj identity *)
   || String.equal s "GoChan" || String.equal s "GoMap"
   || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
@@ -629,6 +630,16 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
   let n = global_basename r in let len = String.length n in
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
   && all_digits (String.sub n 1 (len - 4))
+
+(* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
+   proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
+   wrappers — the Go value IS a [float32] (type name → "float32" via [go_prim_type_table];
+   struct decl suppressed via [is_erased_record_typename]).  The constructor [mkF32] and
+   projection [f32val] are IDENTITY (no wrapper at runtime), and the rounding helper
+   [f32_round] is proof-only (suppressed; it only appears inside by-name-lowered ops). *)
+let is_f32_ctor  r = String.equal (global_basename r) "mkF32"
+let is_f32_proj  r = String.equal (global_basename r) "f32val"
+let is_f32_round r = String.equal (global_basename r) "f32_round"
 
 (* Full-width int64 ops ([i64_add]/[i64_lit]/…).  [GoI64]/[MkI64]/[i64raw] already
    ride the numint machinery above (erased type/ctor/proj, rendered int64), but the
@@ -721,7 +732,8 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
 let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64"
 (* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
    The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
-let is_f64_to_f32_ref r = String.equal (global_basename r) "f32_of_f64"
+let is_f64_to_f32_ref r =
+  let n = global_basename r in String.equal n "f32_of_f64" || String.equal n "f32_lit"
 (* [i64_of_f64 f] — float64 → int64 TRUNCATION (toward zero): Go's native [int64(f)].  The
    model's [f64_trunc_Z]/[Prim2SF] body is proof-only (suppressed by name/module); recognised
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
@@ -1633,6 +1645,9 @@ let rec pp_expr state env = function
        (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)
        | MLglob r, [g] when is_numint_proj r ->
            pp_expr state env g
+       (* GoFloat32 carrier projection [f32val g] → [g] (the wrapper IS the float32) *)
+       | MLglob r, [g] when is_f32_proj r ->
+           pp_expr state env g
 
        (* record projection [field recv …] → field access [recv.Field], and when
           the field is a method dictionary entry (a function), its application
@@ -1935,6 +1950,10 @@ let rec pp_expr state env = function
            | MLcons (_, r, _) when is_existT_ref r -> pp_expr state env (any_payload e)
            (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
            | MLcons (_, r, [v]) when is_numint_ctor r -> pp_expr state env v
+           (* GoFloat32 constructor [mkF32 v] → [v] (the proof field is erased; the carrier
+              IS the float32).  Should only appear inside by-name-lowered ops, but emit
+              identity for safety. *)
+           | MLcons (_, r, [v]) when is_f32_ctor r -> pp_expr state env v
            | MLcons (_, r, _) as lst ->
                (* Non-empty list literal: emit as append(nil, v1, v2, ...).
                   Go infers the slice element type from the values. *)
@@ -3587,6 +3606,7 @@ let is_inlined_ref r =
   is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
   is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
+  is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
   is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
@@ -3642,7 +3662,8 @@ let is_inlined_ref r =
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
   is_cw_eqb_ref r || is_comparable_witness_inst r || String.equal (global_basename r) "MkComparableW" ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
-  is_f64_to_f32_ref r ||  (* float64→float32 narrowing → float32(x); SpecFloat round body suppressed by module *)
+  is_f64_to_f32_ref r ||  (* float64→float32 narrowing ([f32_of_f64]/[f32_lit]) → float32(x); SpecFloat round body suppressed *)
+  is_f32_round r ||  (* [f32_round] (binary32 rounding helper): proof-only — only inside by-name-lowered ops *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   Option.has_some (classify_f32_op r) ||   (* f32_add/sub/mul/div: SpecFloat body suppressed by module, call site → Go [+]/[-]/[*]/[/] *)
   is_existT_ref r || is_sigT_ref r ||
