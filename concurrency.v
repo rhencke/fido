@@ -17,7 +17,7 @@
     bridge between the abstract rules and real operations.  Axiom-free. *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia Arith.
-Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.   (* [int] (Go int64) — the keystone value carrier *)
+Require Import Stdlib.Numbers.Cyclic.Int63.PrimInt63.   (* [int] (Go int64) — the keystone value carrier *)
 Import ListNotations.
 
 Inductive EvKind :=
@@ -381,6 +381,24 @@ Proof.
   intros tr c s e Hlt [e' [He' Hk']].
   split; [rewrite length_app; cbn; lia |].
   exists e'. rewrite nth_error_app_old by exact Hlt. split; [exact He'|exact Hk'].
+Qed.
+
+(** A trace with NO close event.  Used by the single-channel Keystone: its [OnChan]
+    programs never close, so [rstep_recv_closed] — which demands a [KClose] in the
+    trace — provably cannot fire there (the bridge stays in the open-channel regime). *)
+Definition NoCloseTrace (t : Trace) : Prop :=
+  forall pos e, nth_error t pos = Some e -> forall c', e_kind e <> KClose c'.
+
+Lemma NoClose_app : forall t e,
+  NoCloseTrace t -> (forall c', e_kind e <> KClose c') -> NoCloseTrace (t ++ [e]).
+Proof.
+  intros t e Hnc Hnew pos e0 Hpos c'.
+  destruct (Nat.lt_ge_cases pos (length t)) as [Hlt | Hge].
+  - rewrite nth_error_app_old in Hpos by exact Hlt. exact (Hnc pos e0 Hpos c').
+  - rewrite nth_error_app2 in Hpos by lia.
+    pose proof (nth_error_lt _ _ _ Hpos) as Hb. cbn in Hb.
+    assert (Hz : pos - length t = 0) by lia. rewrite Hz in Hpos. cbn in Hpos.
+    injection Hpos as <-. exact (Hnew c').
 Qed.
 
 Lemma step_preserves_inv : forall cfg cfg', step cfg cfg' -> Inv cfg -> Inv cfg'.
@@ -808,6 +826,12 @@ Proof. intros cfg' Hstep Hinv. exact (step_preserves_inv _ _ Hstep Hinv). Qed.
     laws specify, so it is a sound model of Fido's IO channels.
     ============================================================================ *)
 
+(* [Cmd] recurses through [list (nat * (nat -> Cmd))] in [CSelect].  Registering the "All" schemes
+   for the nesting types [prod] and [list] FIRST lets Coq build [Cmd]'s full nested induction
+   principle (rather than warning that it cannot) — the fix the [register-all] diagnostic recommends. *)
+Scheme All for prod.
+Scheme All for list.
+
 Inductive Cmd : Type :=
   | CRet   : Cmd
   | CSend  : nat -> nat -> Cmd -> Cmd          (* send value on channel, continue *)
@@ -815,7 +839,12 @@ Inductive Cmd : Type :=
   | CWrite : nat -> nat -> Cmd -> Cmd          (* write value to location, continue *)
   | CRead  : nat -> (nat -> Cmd) -> Cmd        (* read location, BIND value, continue *)
   | CSpawn : Cmd -> Cmd -> Cmd                 (* spawn child, continue parent *)
-  | CSelect : list (nat * (nat -> Cmd)) -> Cmd.
+  | CSelect : list (nat * (nat -> Cmd)) -> Cmd  (* select over recv cases — see note below *)
+  | CClose : nat -> Cmd -> Cmd.                  (* close(c), then continue.  A recv/select on a
+                                                    CLOSED, drained channel becomes READY (binds the
+                                                    zero value): rstep_close / rstep_recv_closed /
+                                                    rstep_select_closed — the rich-calculus port of
+                                                    the simple-calculus closed-channel slice. *)
   (* [select] over recv cases, each a (channel, value-binding continuation) PAIR — the
      AUTHORITATIVE select in the rich value-carrying calculus (the typed [run_io] [select_recv2]
      is a non-authoritative ch1-priority interpreter — see the select code reviews).  Unlike the
@@ -868,7 +897,27 @@ Inductive rstep : RConfig -> RConfig -> Prop :=
       In (c, f) cases -> b c = (v, s) :: brest ->
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid (f v)) (upd b c brest) h lv
-                    (tr ++ [mkEv tid (KRecv c s)])).
+                    (tr ++ [mkEv tid (KRecv c s)]))
+  (* close: record a [KClose c] event (no buffer change). *)
+  | rstep_close : forall p b h lv tr tid c k,
+      lv tid = true -> p tid = CClose c k ->
+      rstep (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid k) b h lv (tr ++ [mkEv tid (KClose c)]))
+  (* recv from a CLOSED, DRAINED channel: READY in Go (binds the zero value [0]); the [KRecv]'s
+     back-pointer is the CLOSE position [pos] (close happens-before the closed-recv, per the Go
+     memory model).  [nth_error tr pos = Some e /\ e_kind e = KClose c] reads "c is closed". *)
+  | rstep_recv_closed : forall p b h lv tr tid c f pos e,
+      lv tid = true -> p tid = CRecv c f ->
+      b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      rstep (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f 0)) b h lv (tr ++ [mkEv tid (KRecv c pos)]))
+  (* select whose case channel [c] is CLOSED + drained: that case is READY (binds zero) — the
+     closed-channel analogue of [rstep_select]. *)
+  | rstep_select_closed : forall p b h lv tr tid cases c f pos e,
+      lv tid = true -> p tid = CSelect cases ->
+      In (c, f) cases -> b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      rstep (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f 0)) b h lv (tr ++ [mkEv tid (KRecv c pos)])).
 
 Definition RBufOk (cfg : RConfig) : Prop :=
   forall c v s, In (v, s) (rc_bufs cfg c) ->
@@ -886,7 +935,10 @@ Proof.
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
-    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     split.
   (* send WfTrace / RBufOk *)
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
@@ -935,6 +987,20 @@ Proof.
       destruct (Hbuf c v0 s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
     + rewrite (upd_other _ _ _ _ Hne) in Hin0.
       destruct (Hbuf c0 v0 s0 Hin0) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* close WfTrace / RBufOk (KClose has no obligation; bufs unchanged) *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 v0 s0 Hin1. cbn [rc_bufs rc_trace] in Hin1 |- *.
+    destruct (Hbuf c0 v0 s0 Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* recv_closed WfTrace / RBufOk (KRecv's producer is the CLOSE at [pos]; bufs unchanged) *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    split; [exact (nth_error_lt _ _ _ Hpos) | exists e; split; [exact Hpos | right; exact Hek]].
+  - intros c0 v0 s0 Hin1. cbn [rc_bufs rc_trace] in Hin1 |- *.
+    destruct (Hbuf c0 v0 s0 Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* select_closed WfTrace / RBufOk (same closed-recv shape) *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    split; [exact (nth_error_lt _ _ _ Hpos) | exists e; split; [exact Hpos | right; exact Hek]].
+  - intros c0 v0 s0 Hin1. cbn [rc_bufs rc_trace] in Hin1 |- *.
+    destruct (Hbuf c0 v0 s0 Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
 Qed.
 
 Inductive rsteps : RConfig -> RConfig -> Prop :=
@@ -1035,7 +1101,10 @@ Proof.
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
-    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     intros c0; cbn [rc_bufs rc_trace].
   - destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same. rewrite map_app. apply Incr_app.
@@ -1055,6 +1124,9 @@ Proof.
     + rewrite upd_same. specialize (Hsort c). cbn [rc_bufs] in Hsort.
       rewrite Hbc in Hsort. cbn in Hsort. apply Incr_tail in Hsort. exact Hsort.
     + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - (* close: bufs unchanged *) exact (Hsort c0).
+  - (* recv_closed: bufs unchanged *) exact (Hsort c0).
+  - (* select_closed: bufs unchanged *) exact (Hsort c0).
 Qed.
 
 Lemma rinit_sorted : forall p, RBufSorted (rinit_cfg p).
@@ -1238,6 +1310,7 @@ Section Keystone.
     OnChan c (rc_prog cfg 0)
     /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
     /\ rc_live cfg = (fun t => Nat.eqb t 0)
+    /\ NoCloseTrace (rc_trace cfg)
     /\ exists m w, Denotes (rc_prog cfg 0) m
                    /\ WMatch1 c w cfg
                    /\ chan_closed (chenv c) w = false
@@ -1250,14 +1323,17 @@ Section Keystone.
     rstep cfg cfg' -> SimInv c m0 w0 cfg -> SimInv c m0 w0 cfg'.
   Proof.
     intros c m0 w0 cfg cfg' Hstep
-           [HOC [Hidle [Hlive [m [w [HD [HM [Hcl Hrun]]]]]]]].
+           [HOC [Hidle [Hlive [HNC [m [w [HD [HM [Hcl Hrun]]]]]]]]].
     destruct Hstep as
       [ p b h lv tr tid c1 v k Hlv Hp
       | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
       | p b h lv tr tid child k cid Hlv Hp Hcid
-      | p b h lv tr tid cases c1 f v s brest Hlv Hp Hin Hbc ];
+      | p b h lv tr tid cases c1 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c1 k Hlv Hp
+      | p b h lv tr tid c1 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c1 f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_prog rc_live] in HOC, Hidle, Hlive, HD;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid; subst lv.
     - (* send *)
@@ -1265,9 +1341,10 @@ Section Keystone.
       destruct (denote_sim_send _ _ _ _ _ 0 c v k m w HD HM Hcl)
         as [m' [HDk' [Hrun' HM']]].
       unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact HOCk | split; [| split]].
+      split; [exact HOCk | split; [| split; [| split]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
+      + cbn [rc_trace] in HNC |- *. apply NoClose_app; [exact HNC | intros c'; discriminate].
       + exists m', (chan_send_upd TI64 (chenv c) (inj v) w).
         split; [exact HDk' | split; [exact HM' | split]].
         * rewrite (chan_closed_send TI64 (chenv c) (inj v) w). exact Hcl.
@@ -1277,9 +1354,10 @@ Section Keystone.
       destruct (denote_sim_recv _ _ _ _ _ 0 c f m w v s brest HD HM Hbc)
         as [m' [HDk' [Hrun' HM']]].
       unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact (HOCf v) | split; [| split]].
+      split; [exact (HOCf v) | split; [| split; [| split]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
+      + cbn [rc_trace] in HNC |- *. apply NoClose_app; [exact HNC | intros c'; discriminate].
       + exists m', (chan_recv_upd TI64 (chenv c) w).
         split; [exact HDk' | split; [exact HM' | split]].
         * rewrite (chan_closed_recv TI64 (chenv c) w). exact Hcl.
@@ -1291,6 +1369,13 @@ Section Keystone.
     - (* spawn — impossible under OnChan *)
       rewrite Hp in HOC. inversion HOC.
     - (* select — impossible under OnChan (OnChan has no CSelect constructor) *)
+      rewrite Hp in HOC. inversion HOC.
+    - (* close — impossible under OnChan (OnChan has no CClose constructor) *)
+      rewrite Hp in HOC. inversion HOC.
+    - (* recv_closed — impossible: an OnChan program never closes, so the trace has no
+         KClose for the closed-recv premise to point at (NoCloseTrace). *)
+      cbn [rc_trace] in HNC. exfalso. exact (HNC pos e Hpos c1 Hek).
+    - (* select_closed — impossible under OnChan (OnChan has no CSelect constructor) *)
       rewrite Hp in HOC. inversion HOC.
   Qed.
 
@@ -1308,10 +1393,11 @@ Section Keystone.
   Proof.
     intros c prog0 m w0 HOC HD Hbuf Hcl.
     unfold SimInv, rinit_cfg; cbn [rc_prog rc_live].
-    split; [exact HOC | split; [| split]].
+    split; [exact HOC | split; [| split; [| split]]].
     - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
         [apply Nat.eqb_eq in E; congruence | reflexivity].
     - reflexivity.
+    - intros pos e Hpos c'. exfalso. apply nth_error_lt in Hpos. cbn in Hpos. lia.
     - exists m, w0. split; [exact HD | split; [| split]].
       + unfold WMatch1, rchan; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
       + exact Hcl.
@@ -1333,7 +1419,7 @@ Section Keystone.
     intros c prog0 m w0 cfg_final HOC HD Hbuf Hcl Hrsteps Hdone.
     pose proof (siminv_steps _ _ _ _ _ Hrsteps
                   (siminv_init _ _ _ _ HOC HD Hbuf Hcl)) as HS.
-    destruct HS as [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]].
+    destruct HS as [_ [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]]].
     rewrite Hdone in HD'. inversion HD'; subst.
     exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
   Qed.
@@ -1405,7 +1491,10 @@ Section KeystoneMulti.
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
       | p b h lv tr tid child k cid Hlv Hp Hcid
-      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc ].
+      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c0 k Hlv Hp
+      | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
     - (* send: world advances by [chan_send_upd] on channel [c0] *)
       exists (chan_send_upd TI64 (chenv c0) (inj v) w).
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
@@ -1450,6 +1539,15 @@ Section KeystoneMulti.
           (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
              (chenv_neq c0 c (not_eq_sym Hne))).
         exact HM.
+    - (* close: buffers unchanged, so the same world still matches *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
+    - (* recv_closed: buffers unchanged (closed recv binds zero, consumes nothing) *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
+    - (* select_closed: buffers unchanged *)
+      exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
+        cbn [rc_bufs] in *. exact HM.
   Qed.
 
   Lemma wmatchc_steps : forall cfg cfg' w,
@@ -1544,7 +1642,14 @@ Proof.
 Qed.
 
 (* A live goroutine BLOCKED: either waiting to receive on an empty channel, OR waiting in a
-   SELECT whose every case channel is empty.  Both are local non-steps that feed global deadlock. *)
+   SELECT whose every case channel is empty.  Both are local non-steps that feed global deadlock.
+   NOTE (closed channels): this is the OPEN-channel notion — it counts EVERY empty-channel recv as
+   blocking.  A recv/select on a CLOSED, drained channel is actually READY ([rstep_recv_closed] /
+   [rstep_select_closed], binds zero), so [blocked] OVER-approximates there.  It stays SOUND: a config
+   holding such a goroutine can step, hence is not [RStuck], so [rstuck_blocked]'s hypothesis fails and
+   we never wrongly classify it — under the [RStuck] hypothesis [blocked] is exactly right (a stuck
+   config cannot contain a closed-drained recv).  A closed-PRECISE [blocked] (closed-drained recv =
+   ready) is the next slice; the theorems below are true as stated. *)
 Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
   (exists c f, rc_prog cfg tid = CRecv c f /\ rc_bufs cfg c = [])
   \/ (exists cases, rc_prog cfg tid = CSelect cases
@@ -1565,7 +1670,7 @@ Lemma ready_can_step : forall cfg tid,
 Proof.
   intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk.
   unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs] in *.
-  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases ] eqn:Hp.
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - congruence.
   - eexists; eapply rstep_send; eassumption.
   - destruct (b c) as [ | [v s] rest] eqn:Hb.
@@ -1579,6 +1684,8 @@ Proof.
     + destruct (sel_first_ready_sound _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
       eexists; eapply rstep_select; eassumption.
     + exfalso. apply Hnblk. right. exists cases. split; [reflexivity | exact Hsel].
+  - (* close: always enabled *)
+    eexists; eapply rstep_close; eassumption.
 Qed.
 
 (** THE DEADLOCK CHARACTERIZATION: in a stuck config, EVERY live goroutine is either
@@ -1591,7 +1698,7 @@ Proof.
   intros cfg Hfresh [Hnstep _] tid Hlive.
   (* the non-CRecv heads are all enabled, so they can't occur in a stuck config;
      a CRecv is blocked iff its buffer is empty — both decidable, no classical logic. *)
-  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases ] eqn:Hp.
+  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - left. reflexivity.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
@@ -1618,6 +1725,10 @@ Proof.
       * unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc Hnone]]]; rewrite Hp in Hpc;
           [discriminate | injection Hpc as ->; rewrite Hsel in Hnone; discriminate].
     + right. unfold blocked. right. exists cases. split; [exact Hp | exact Hsel].
+  - (* close: enabled, so cannot occur in a stuck config *)
+    exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+    + rewrite Hp; discriminate.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
 Qed.
 
 (** Deadlock is REPRESENTABLE in the rich calculus too: one goroutine receiving on an
@@ -1630,11 +1741,50 @@ Lemma rblock_stuck : RStuck rblock_cfg.
 Proof.
   split.
   - intros [cfg' Hstep]. unfold rblock_cfg in Hstep.
+    (* the open empty channel mismatches every step head; the closed-recv/select heads need a
+       [KClose] in the (empty) trace, so their [nth_error [] pos = Some e] premise is absurd *)
     inversion Hstep; subst; cbn in *;
       match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
-      cbn in *; discriminate.
+      cbn in *; try discriminate;
+      match goal with H : nth_error [] _ = Some _ |- _ =>
+        apply nth_error_lt in H; cbn in H; lia end.
   - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
 Qed.
+
+(** CLOSED-CHANNEL READINESS in the RICH calculus — the operational closed-recv slice ported from
+    the simple calculus ([closed_recv_can_step] etc.).  A [CRecv]/[CSelect] on a CLOSED, drained
+    channel STEPS, binding the zero value [0] — whereas on an OPEN empty channel it is [RStuck]
+    ([rblock_stuck] / [rsel_block_stuck]).  Channel 5 is closed (a [KClose 5] at trace position 0)
+    and its buffer is empty. *)
+Definition rclosed_chan_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CRecv 5 (fun _ => CRet)
+                   else if Nat.eqb t 1 then CSelect [(5, fun _ => CRet)] else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
+         [mkEv 2 (KClose 5)].
+
+(** The recv from the closed, drained channel CAN step (Go: returns zero) — where buffered
+    [rstep_recv] could not.  The emitted [KRecv 5 0]'s producer is the close at position 0. *)
+Theorem rclosed_recv_can_step : exists cfg', rstep rclosed_chan_cfg cfg'.
+Proof.
+  eexists. eapply rstep_recv_closed with (tid := 0) (c := 5) (pos := 0) (e := mkEv 2 (KClose 5));
+    [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity ].
+Qed.
+
+(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero)
+    — the relational fix for the exact bug the sequential [select_recv2] had (it fabricated / fell
+    through), now in the value-carrying calculus. *)
+Theorem rclosed_select_can_step : exists cfg', rstep rclosed_chan_cfg cfg'.
+Proof.
+  eexists. eapply rstep_select_closed with (tid := 1) (cases := [(5, fun _ => CRet)]) (c := 5)
+                                           (f := fun _ => CRet) (pos := 0) (e := mkEv 2 (KClose 5));
+    [ reflexivity | reflexivity | left; reflexivity | reflexivity | reflexivity | reflexivity ].
+Qed.
+
+(** And the closed-recv keeps the trace well-formed (a real, sound transition): the resulting
+    config still satisfies [RInv], so its happens-before stays a strict partial order. *)
+Theorem rclosed_recv_preserves_inv :
+  forall cfg', rstep rclosed_chan_cfg cfg' -> RInv rclosed_chan_cfg -> RInv cfg'.
+Proof. intros cfg' Hstep Hinv. exact (rstep_preserves_inv _ _ Hstep Hinv). Qed.
 
 (** ── CSELECT, the authoritative select in the RICH (value-carrying) calculus: the two select
     code-review findings #3 proven here end-to-end. ── *)
@@ -1678,10 +1828,13 @@ Proof.
   split.
   - intros [cfg' Hstep]. unfold rsel_block_cfg in Hstep.
     (* every buffer is empty, so the rstep_select readiness premise [[] = (v,s)::_] is absurd;
-       all other rstep heads mismatch [CSelect] — [discriminate] closes them all *)
+       all other rstep heads mismatch [CSelect]; the closed-select head needs a [KClose] in the
+       (empty) trace, so its [nth_error [] pos = Some e] premise is absurd too *)
     inversion Hstep; subst; cbn in *;
       match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
-      cbn in *; discriminate.
+      cbn in *; try discriminate;
+      match goal with H : nth_error [] _ = Some _ |- _ =>
+        apply nth_error_lt in H; cbn in H; lia end.
   - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
 Qed.
 
@@ -1749,7 +1902,8 @@ Inductive RecvFree : Cmd -> Prop :=
   | RF_send  : forall c v k, RecvFree k -> RecvFree (CSend c v k)
   | RF_write : forall l v k, RecvFree k -> RecvFree (CWrite l v k)
   | RF_read  : forall l f, (forall x, RecvFree (f x)) -> RecvFree (CRead l f)
-  | RF_spawn : forall child k, RecvFree child -> RecvFree k -> RecvFree (CSpawn child k).
+  | RF_spawn : forall child k, RecvFree child -> RecvFree k -> RecvFree (CSpawn child k)
+  | RF_close : forall c k, RecvFree k -> RecvFree (CClose c k).
 
 Definition RecvFreeCfg (cfg : RConfig) : Prop :=
   forall tid, rc_live cfg tid = true -> RecvFree (rc_prog cfg tid).
@@ -1789,7 +1943,10 @@ Proof.
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
-    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_prog rc_live] in *; intros Hlive';
     pose proof (HRF tid Hlv) as Ht; rewrite Hp in Ht.
   - (* send *)
@@ -1818,6 +1975,14 @@ Proof.
       * rewrite (upd_other _ _ _ _ Hne2). exact (HRF tid' Hlive').
   - (* select — vacuous: a receive-free config has no CSelect head to step *)
     inversion Ht.
+  - (* close: continuation is receive-free (RF_close) *)
+    destruct (Nat.eq_dec tid' tid) as [->|Hne].
+    + rewrite upd_same. inversion Ht; assumption.
+    + rewrite (upd_other _ _ _ _ Hne). exact (HRF tid' Hlive').
+  - (* recv_closed — vacuous: a receive-free config has no CRecv head to step *)
+    inversion Ht.
+  - (* select_closed — vacuous: a receive-free config has no CSelect head to step *)
+    inversion Ht.
 Qed.
 
 (** A fresh goroutine id always exists — the live set is finite (bounded by some [n]),
@@ -1844,7 +2009,10 @@ Proof.
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
-    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_live] in *.
   - exists n; exact Hn.
   - exists n; exact Hn.
@@ -1860,6 +2028,9 @@ Proof.
     + rewrite (upd_other _ _ _ _ Hne). apply Hn.
       apply (Nat.le_trans n (Nat.max n (S cid)) t); [apply Nat.le_max_l | exact Ht].
   - (* select: live set unchanged *) exists n; exact Hn.
+  - (* close: live set unchanged *) exists n; exact Hn.
+  - (* recv_closed: live set unchanged *) exists n; exact Hn.
+  - (* select_closed: live set unchanged *) exists n; exact Hn.
 Qed.
 
 Lemma rsteps_recvfree_livefin : forall cfg cfg',
@@ -1921,7 +2092,10 @@ Proof.
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
-    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_live rc_prog rc_bufs] in *;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid;
     destruct Hphase as [[Hp0 Hb0] | [[Hp0 [s0 Hb0]] | Hp0]];
@@ -1940,6 +2114,8 @@ Proof.
     split; [reflexivity | split].
     + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
     + right; right. rewrite upd_same. reflexivity.
+  - (* recv_closed rule + receive shape: impossible — buffer is non-empty ([(42,s0)] <> []) *)
+    inversion Hp; subst. rewrite Hb0 in Hbc. discriminate Hbc.
 Qed.
 
 Lemma sr_steps_shape : forall a b, rsteps a b -> SRShape a -> SRShape b.
