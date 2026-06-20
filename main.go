@@ -148,7 +148,7 @@ func F32_extra_demo() {
 }
 
 func F32_conv_demo() {
-	println(func(x float64) float32 { return float32(x) }(float64(16777217)), func(x float64) float32 { return float32(x) }((float64(30) / float64(100))))
+	println(func(x float64) float32 { return float32(x) }(float64(16777217)), func(x float64) float32 { return float32(x) }(float64(30.0/100.0)))
 }
 
 func F32_const_runtime_demo() {
@@ -163,13 +163,17 @@ func F32_fconst_demo() {
 	println(float32(30.0 / 100.0))
 }
 
+func F64_fconst_big_demo() {
+	println(float64(9007199254740993.0 / 10.0))
+}
+
 func Floatconv_demo() {
 	println(Narrow32(16777217.0))
 	println(Widen64(Narrow32(7.5)))
 }
 
 func Fconst_demo() {
-	println((float64(30) / float64(100)), (float64(3) / float64(8)), (float64(1) / float64(4)))
+	println(float64(30.0/100.0), float64(3.0/8.0), float64(1.0/4.0))
 }
 
 func F32_cmp_demo() {
@@ -1973,6 +1977,7 @@ func main() {
 	F32_const_runtime_demo()
 	F32_of_int_demo()
 	F32_fconst_demo()
+	F64_fconst_big_demo()
 	I64_of_f64_demo()
 	U64conv_demo()
 	Enum_demo()

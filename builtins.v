@@ -1381,8 +1381,21 @@ Definition fc_sub (a b : FConst) : FConst :=
   mkFC (fc_num a * fc_den b - fc_num b * fc_den a) (fc_den a * fc_den b).
 Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (fc_den a * fc_den b).
 Definition fc_div (a b : FConst) : FConst := mkFC (fc_num a * fc_den b) (fc_den a * fc_num b).  (* (a/b)/(c/d) = ad/bc *)
+(** Exact integer → [spec_float] (NO rounding): mantissa = [|z|], exponent 0.  Shared by the exact
+    rational → float conversions (binary64 here; binary32 for [f32_of_fconst]). *)
+Definition sf_of_Z (z : Z) : spec_float :=
+  match z with
+  | Z0     => S754_zero false
+  | Zpos p => S754_finite false p 0
+  | Zneg p => S754_finite true  p 0
+  end.
+(** Exact float CONSTANT → float64 — round the EXACT rational [num/den] ONCE to binary64 via [SFdiv]
+    of the EXACT-integer spec_floats (no intermediate binary64), so correctly-rounded for ALL num/den,
+    not just [< 2^53].  Lowered to Go [float64(num.0 / den.0)] (untyped-constant division, single
+    round).  (The old [div (f64_of_i64 num) (f64_of_i64 den)] DOUBLE-rounds when both endpoints exceed
+    2^53 — a latent model unsoundness, only masked at extraction by a fail-loud 2^53 guard.) *)
 Definition f64_of_fconst (a : FConst) : float :=
-  PrimFloat.div (f64_of_i64 (MkI64 (fc_num a))) (f64_of_i64 (MkI64 (fc_den a))).
+  SF2Prim (SFdiv 53 1024 (sf_of_Z (fc_num a)) (sf_of_Z (fc_den a))).
 
 (** FLOAT32 arithmetic — faithful binary32 (prec 24, emax 128) via [SpecFloat], then routed
     back through [f32_of_f64] so the result re-enters the abstract type WITH its provenance
@@ -1431,13 +1444,6 @@ Definition f32_of_u64 (a : GoU64) : GoFloat32 :=
 Definition f32_of_int (i : GoInt) : GoFloat32 :=
   f32_of_f64 (SF2Prim (binary_normalize 24 128 (Sint63.to_Z i) 0 false)).
 
-(** Exact integer → [spec_float] (NO rounding): mantissa = [|z|], exponent 0. *)
-Definition sf_of_Z (z : Z) : spec_float :=
-  match z with
-  | Z0     => S754_zero false
-  | Zpos p => S754_finite false p 0
-  | Zneg p => S754_finite true  p 0
-  end.
 (** DIRECT exact float CONSTANT → float32 (Go [float32(num.0 / den.0)]): round the EXACT rational
     [num/den] ONCE to binary32 via [SFdiv] of the EXACT-integer spec_floats (no intermediate binary64
     — so correct for ALL [num], [den], unlike [f32_of_f64 (f64_of_fconst …)] which double-rounds when

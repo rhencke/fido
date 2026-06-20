@@ -1740,16 +1740,15 @@ let rec pp_expr state env = function
        | MLglob r, [x] when is_int_to_f32_ref r ->
            str "float32(" ++ pp_expr state env x ++ str ")"
        (* [f64_of_fconst c] — an untyped FLOAT CONSTANT: fold the exact rational [num/den] and emit
-          [(float64(num) / float64(den))], which Go RE-FOLDS at compile time to the correctly-
-          rounded constant (single rounding) — exactly the Go-constant answer.  Guarded to
-          [|num|,den < 2^53] so both endpoints are exact (else the lone division is not the only
-          rounding → fail loud rather than emit a double-rounded value). *)
+          [float64(num.0 / den.0)].  Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary
+          precision), then [float64(…)] rounds ONCE — the correctly-rounded rational→binary64, for ALL
+          num/den (no 2^53 guard: the untyped intermediate is exact, vs the old [float64(num)/float64
+          (den)] which double-rounds when both endpoints exceed 2^53). *)
        | MLglob r, [fc] when named "f64_of_fconst" r ->
            (match fc_eval fc with
-            | Some (num, den) when den <> 0L
-                && Int64.abs num < 9007199254740992L && Int64.abs den < 9007199254740992L ->
-                str (Printf.sprintf "(float64(%Ld) / float64(%Ld))" num den)
-            | Some _ -> unsupported "f64_of_fconst: endpoint exceeds 2^53 (faithful single-rounding needs |num|,den < 2^53) or den=0"
+            | Some (num, den) when den <> 0L ->
+                str (Printf.sprintf "float64(%Ld.0 / %Ld.0)" num den)
+            | Some _ -> unsupported "f64_of_fconst: den = 0 (a float64 constant cannot be ±Inf)"
             | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [f32_of_fconst c] — exact FConst → float32: fold the rational and emit [float32(num.0 / den.0)].
           Go computes [num.0 / den.0] as an UNTYPED constant (arbitrary precision), then [float32(…)]

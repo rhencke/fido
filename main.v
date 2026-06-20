@@ -477,6 +477,17 @@ Example f32_of_fconst_small :    (* 0.1 + 0.2 as an EXACT rational 30/100 → fl
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_fconst_demo : IO unit :=
   println [ any (f32_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) ].   (* float32(0.1+0.2) = float32(0.3), single round *)
+(** f64 exact constant — now correctly-rounded for ALL num/den (the float64 parallel of int→float32):
+    [f64_of_fconst] rounds the exact rational ONCE via [SFdiv 53 1024] of the exact spec_floats,
+    fixing the latent double-rounding of the old [div (f64_of_i64 num) (f64_of_i64 den)] when BOTH
+    endpoints exceed 2^53 (and removing the extraction's 2^53 fail-loud guard — large constants now
+    lower as [float64(num.0/den.0)]). *)
+Example f64_of_fconst_no_double_round :   (* new (single round) ≠ old (double round) for a both-large rational *)
+  PrimFloat.eqb (f64_of_fconst (mkFC 9007199254740993 9007199254740995))
+                (PrimFloat.div (f64_of_i64 (MkI64 9007199254740993)) (f64_of_i64 (MkI64 9007199254740995))) = false.
+Proof. vm_compute. reflexivity. Qed.
+Definition f64_fconst_big_demo : IO unit :=
+  println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round (was fail-loud) *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2636,6 +2647,7 @@ Definition main_effect : IO unit :=
   f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
   f32_of_int_demo               >>'   (* prints: false (direct float32(x) ≠ float32(float64(x)) — double rounding) *)
   f32_fconst_demo               >>'   (* prints: 0.3 (exact FConst → float32, single round) *)
+  f64_fconst_big_demo           >>'   (* prints: 900719925474099.25 (large exact FConst → float64, single round) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)

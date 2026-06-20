@@ -53,12 +53,15 @@ the committed code).  The status now:
   to native casts.  Supersedes "✗ float" + the "lowering deferred (proof-only)" notes.
 - **Interface types — ✓ single-method + nullary DONE** via the `gr_self`/`sg_self` second
   field (a 2-field record = Go's (vtable, value) pair).  Supersedes "✗ 1-method interface".
-- **Constant expressions — ✓ INTEGER done** (signed + unsigned): the plugin's `z_eval`/`zu_eval`
-  fold `Z.add/sub/mul/opp/shiftl/land/lor/lxor` with overflow = fail-loud.  ⚠ float-constant
-  arithmetic still open (needs exact-rational `Q`, round-once).
+- **Constant expressions — ✓ INTEGER + FLOAT done.**  Integer (signed + unsigned): the plugin's
+  `z_eval`/`zu_eval` fold `Z.add/sub/mul/opp/shiftl/land/lor/lxor` with overflow = fail-loud.
+  Float (2026-06-20): `FConst` is the exact rational `num/den`, `fc_add/sub/mul/div` are exact
+  (cross-multiply), and `f64_of_fconst`/`f32_of_fconst` round ONCE to binary64/binary32 via `SFdiv`
+  of the exact-integer spec_floats — correctly-rounded for ALL num/den (no `2^53` restriction; the
+  earlier `f64_of_i64`-based form double-rounded for large endpoints).
 - **Generics — ✓ `comparable` constraint** added (witness-erasure → `[K comparable]`, `==`).
 
-Genuinely still open (per honest survey): float-constant exact-rational arithmetic; FMA fusion
+Genuinely still open (per honest survey): FMA fusion
 (bounded deviation); array-TYPED positions (DONE for any fixed size — a `GoArr<N>` type renders as Go `[N]T` in a
 function param / typed var / field; the plugin parses `N` from the type NAME generically, so a new
 size needs only a Coq `GoArr<N>` type + `arr<N>_lit` constructor, no plugin edit; `GoArr3`→`[3]T`,
