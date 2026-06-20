@@ -709,9 +709,16 @@ recv.  The trace core now expresses this — a `KClose` event-kind, and a `KRecv
 point at a `KClose` of the channel (not only a `KSend`).  `WfTrace` carries the send-OR-close
 disjunction; all happens-before / race-freedom proofs preserved.  Witnesses `closed_recv_wf` (a
 closed-recv trace is well-formed) and `closed_recv_hb` (close happens-before the closed-recv).
-*Remaining:* the operational `step`/`rstep` rule that GENERATES such a trace (a config closed-flag +
-`step_close` + a recv-on-closed-drained step — the next slice); and the full WORLD-level bridge
-(relating `select_recv2`'s `IO`/`World` semantics, not just its scheduler, to `CSelect`).
+**Operational slice DONE (2026-06-20):** the simple-calculus `step` gains `PClose` + `step_close`
+(records a `KClose`), and — reading "closed" off the trace, no config field — `step_recv_closed` /
+`step_select_closed`: a recv/select on a CLOSED, drained channel STEPS (yields zero), the emitted
+`KRecv`'s producer being the close position.  `step_preserves_inv`/`step_preserves_sorted` extended
+(closed-recv keeps `Inv`; `WfTrace` discharged by the close back-pointer).  Witnesses
+`closed_recv_can_step` / `closed_select_can_step` (a closed-drained recv/select is ENABLED, where
+`block_stuck`/`sel_block_stuck` show the OPEN-empty one is stuck) and `closed_recv_preserves_inv`.
+*Remaining:* the same closed steps in the rich `rstep`/`Cmd` calculus; `close`-on-closed and
+`send`-on-closed panics (faithfulness, separate); the full WORLD-level `select_recv2`↔`CSelect`
+bridge.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

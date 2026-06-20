@@ -232,7 +232,11 @@ Qed.
 Inductive PAct :=
   | PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat)
   | PSpawn (child:nat)   (* spawn goroutine [child] (its body pre-registered in cfg_prog) *)
-  | PSelect (cs:list nat).
+  | PSelect (cs:list nat)
+  | PClose (c:nat).      (* close(c): records a KClose event.  A recv/select on a CLOSED, drained
+                            channel is then READY (yields the zero value) — see step_recv_closed /
+                            step_select_closed.  Closed-state is read off the trace (the KClose
+                            event), so no config field is needed. *)
   (* [select] over RECEIVE cases [cs]: receive on ANY ONE channel in [cs] that is ready.
      This is the AUTHORITATIVE select model (the sequential [run_io] [select_recv2] is a
      non-authoritative ch1-priority interpreter — see the select code review).  Its
@@ -298,7 +302,27 @@ Inductive step : Config -> Config -> Prop :=
       In c cs -> b c = s :: brest ->
       step (mkCfg p b lv tr)
            (mkCfg (upd p tid rest) (upd b c brest) lv
-                  (tr ++ [mkEv tid (KRecv c s)])).
+                  (tr ++ [mkEv tid (KRecv c s)]))
+  (* close: record a [KClose c] event (no buffer change). *)
+  | step_close : forall p b lv tr tid c rest,
+      lv tid = true -> p tid = PClose c :: rest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b lv (tr ++ [mkEv tid (KClose c)]))
+  (* recv from a CLOSED, DRAINED channel: READY in Go (yields zero); the [KRecv]'s back-pointer is
+     the CLOSE position [pos] (close happens-before the closed-recv, per the Go memory model).  The
+     premise [nth_error tr pos = Some e /\ e_kind e = KClose c] reads "c is closed" off the trace. *)
+  | step_recv_closed : forall p b lv tr tid c rest pos e,
+      lv tid = true -> p tid = PRecv c :: rest ->
+      b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b lv (tr ++ [mkEv tid (KRecv c pos)]))
+  (* select whose case channel [c] is CLOSED + drained: that case is READY (zero value) — the
+     closed-channel analogue of [step_select], which the sequential model mispredicted. *)
+  | step_select_closed : forall p b lv tr tid cs c rest pos e,
+      lv tid = true -> p tid = PSelect cs :: rest ->
+      In c cs -> b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) b lv (tr ++ [mkEv tid (KRecv c pos)])).
 
 Definition BufOk (cfg : Config) : Prop :=
   forall c s, In s (cfg_bufs cfg c) ->
@@ -368,7 +392,10 @@ Proof.
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid child rest Hlv Hp
-    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc ];
+    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc
+    | p b lv tr tid c rest Hlv Hp
+    | p b lv tr tid c rest pos e Hlv Hp Hbc Hpos Hek
+    | p b lv tr tid cs c rest pos e Hlv Hp Hin Hbc Hpos Hek ];
     split.
   (* ---- send ---- *)
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
@@ -418,6 +445,20 @@ Proof.
       destruct (Hbuf c s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
     + rewrite (upd_other _ _ _ _ Hne) in Hin0.
       destruct (Hbuf c0 s0 Hin0) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- close (KClose has no WfTrace obligation; bufs unchanged) ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  - intros c0 s Hin1. cbn [cfg_bufs cfg_trace] in Hin1 |- *.
+    destruct (Hbuf c0 s Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- recv_closed (KRecv's producer is the CLOSE at [pos]; bufs unchanged) ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    split; [exact (nth_error_lt _ _ _ Hpos) | exists e; split; [exact Hpos | right; exact Hek]].
+  - intros c0 s Hin1. cbn [cfg_bufs cfg_trace] in Hin1 |- *.
+    destruct (Hbuf c0 s Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- select_closed (same closed-recv shape as recv_closed) ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    split; [exact (nth_error_lt _ _ _ Hpos) | exists e; split; [exact Hpos | right; exact Hek]].
+  - intros c0 s Hin1. cbn [cfg_bufs cfg_trace] in Hin1 |- *.
+    destruct (Hbuf c0 s Hin1) as [Hlt Hex]. apply BufOk_pos_app; assumption.
 Qed.
 
 Inductive steps : Config -> Config -> Prop :=
@@ -587,7 +628,10 @@ Proof.
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid child rest Hlv Hp
-    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc ];
+    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc
+    | p b lv tr tid c rest Hlv Hp
+    | p b lv tr tid c rest pos e Hlv Hp Hbc Hpos Hek
+    | p b lv tr tid cs c rest pos e Hlv Hp Hin Hbc Hpos Hek ];
     intros c0; cbn [cfg_bufs cfg_trace].
   - (* send *) destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same. apply Incr_app.
@@ -606,6 +650,9 @@ Proof.
     + rewrite upd_same. specialize (Hsort c). cbn [cfg_bufs] in Hsort.
       rewrite Hbc in Hsort. apply Incr_tail in Hsort. exact Hsort.
     + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
+  - exact (Hsort c0).   (* close: bufs unchanged *)
+  - exact (Hsort c0).   (* recv_closed: bufs unchanged *)
+  - exact (Hsort c0).   (* select_closed: bufs unchanged *)
 Qed.
 
 Lemma init_sorted : forall p, BufSorted (init_cfg p).
@@ -660,7 +707,10 @@ Proof.
   split.
   - intros [cfg' Hstep]. inversion Hstep; subst; cbn in *;
       match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
-      cbn in *; discriminate.
+      cbn in *; try discriminate;
+      (* the recv-on-closed case: the trace is empty, so its [nth_error [] pos = Some e] is absurd *)
+      match goal with H : nth_error [] _ = Some _ |- _ =>
+        apply nth_error_lt in H; cbn in H; lia end.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
 
@@ -706,9 +756,43 @@ Proof.
   split.
   - intros [cfg' Hstep]. inversion Hstep; subst; cbn in *;
       match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
-      cbn in *; discriminate.
+      cbn in *; try discriminate;
+      (* select_closed: the trace is empty, so its [nth_error [] pos = Some e] is absurd *)
+      match goal with H : nth_error [] _ = Some _ |- _ =>
+        apply nth_error_lt in H; cbn in H; lia end.
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
 Qed.
+
+(** CLOSED-CHANNEL READINESS, OPERATIONAL (closes the select review's relational gap end-to-end).
+    A recv/select on a CLOSED, drained channel is READY — it STEPS, yielding the zero value — whereas
+    on an OPEN empty channel it is stuck ([block_stuck]/[sel_block_stuck] above).  [closed_chan_cfg]
+    has channel 5 already closed (a [KClose 5] at trace position 0) and an empty buffer. *)
+Definition closed_chan_cfg : Config :=
+  mkCfg (fun t => if Nat.eqb t 0 then [PRecv 5] else if Nat.eqb t 1 then [PSelect [5]] else [])
+        (fun _ => []) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
+        [mkEv 2 (KClose 5)].
+
+(** The recv from the closed, drained channel CAN step (Go: returns zero) — where the buffered
+    [step_recv] could not.  The emitted [KRecv 5 0]'s producer is the close (pos 0). *)
+Theorem closed_recv_can_step : exists cfg', step closed_chan_cfg cfg'.
+Proof.
+  eexists. eapply step_recv_closed with (tid := 0) (c := 5) (pos := 0) (e := mkEv 2 (KClose 5));
+    [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity ].
+Qed.
+
+(** A SELECT whose only case channel is closed+drained is likewise READY (the case fires with zero)
+    — the relational fix for the exact bug the sequential model had (it took [default] / fabricated). *)
+Theorem closed_select_can_step : exists cfg', step closed_chan_cfg cfg'.
+Proof.
+  eexists. eapply step_select_closed with (tid := 1) (cs := [5]) (c := 5) (pos := 0) (e := mkEv 2 (KClose 5));
+    [ reflexivity | reflexivity | left; reflexivity | reflexivity | reflexivity | reflexivity ].
+Qed.
+
+(** And the step keeps the trace well-formed (the closed-recv is a real, sound transition): the
+    resulting config still satisfies [Inv] (so its trace's happens-before stays a strict order). *)
+Theorem closed_recv_preserves_inv :
+  forall cfg', step closed_chan_cfg cfg' -> Inv closed_chan_cfg -> Inv cfg'.
+Proof. intros cfg' Hstep Hinv. exact (step_preserves_inv _ _ Hstep Hinv). Qed.
 
 (** ============================================================================
     STEP 1.2 + 1.3 + real memory — a RICH calculus: VALUES, a HEAP, value-dependent
