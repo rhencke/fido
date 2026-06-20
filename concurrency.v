@@ -1641,19 +1641,85 @@ Proof.
   - injection H as -> -> -> ->. split; [left; reflexivity | exists brest; exact Hb0].
 Qed.
 
-(* A live goroutine BLOCKED: either waiting to receive on an empty channel, OR waiting in a
-   SELECT whose every case channel is empty.  Both are local non-steps that feed global deadlock.
-   NOTE (closed channels): this is the OPEN-channel notion — it counts EVERY empty-channel recv as
-   blocking.  A recv/select on a CLOSED, drained channel is actually READY ([rstep_recv_closed] /
-   [rstep_select_closed], binds zero), so [blocked] OVER-approximates there.  It stays SOUND: a config
-   holding such a goroutine can step, hence is not [RStuck], so [rstuck_blocked]'s hypothesis fails and
-   we never wrongly classify it — under the [RStuck] hypothesis [blocked] is exactly right (a stuck
-   config cannot contain a closed-drained recv).  A closed-PRECISE [blocked] (closed-drained recv =
-   ready) is the next slice; the theorems below are true as stated. *)
+(* DECIDABLE "channel [c] is closed": some [KClose c] event sits in the trace (closed-state is read
+   off the trace, exactly as [rstep_recv_closed] does — no [RConfig] field). *)
+Definition closedb (tr : Trace) (c : nat) : bool :=
+  existsb (fun e => match e_kind e with KClose c' => Nat.eqb c' c | _ => false end) tr.
+
+Lemma closedb_true_witness : forall tr c, closedb tr c = true ->
+  exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c.
+Proof.
+  intros tr c H. unfold closedb in H. apply existsb_exists in H. destruct H as [e [Hin He]].
+  destruct (e_kind e) as [c0|c0 from|ch|par|l|l|c0] eqn:Ek; try discriminate.
+  apply Nat.eqb_eq in He. subst c0.
+  apply In_nth_error in Hin. destruct Hin as [pos Hpos]. exists pos, e. split; [exact Hpos | exact Ek].
+Qed.
+
+Lemma closedb_false_not : forall tr c, closedb tr c = false ->
+  ~ (exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c).
+Proof.
+  intros tr c H [pos [e [Hpos Hek]]].
+  assert (Hin : In e tr) by (eapply nth_error_In; exact Hpos).
+  assert (Htrue : closedb tr c = true).
+  { unfold closedb. apply existsb_exists. exists e. split; [exact Hin | rewrite Hek; apply Nat.eqb_refl]. }
+  rewrite H in Htrue. discriminate.
+Qed.
+
+(* CLOSED-AWARE select readiness: a case [(c,f)] is ready if [c]'s buffer is non-empty ([SR_buf],
+   fires [rstep_select]) OR [c] is closed and drained ([SR_closed], fires [rstep_select_closed]).
+   [None] iff EVERY case is empty-AND-open — the only genuinely blocking select. *)
+Inductive SelReady : Type :=
+  | SR_buf    (c : nat) (f : nat -> Cmd) (v s : nat)
+  | SR_closed (c : nat) (f : nat -> Cmd).
+
+Fixpoint sel_ready_cl (b : nat -> list (nat * nat)) (tr : Trace)
+                      (cases : list (nat * (nat -> Cmd))) : option SelReady :=
+  match cases with
+  | [] => None
+  | (c, f) :: rest =>
+      match b c with
+      | (v, s) :: _ => Some (SR_buf c f v s)
+      | [] => if closedb tr c then Some (SR_closed c f) else sel_ready_cl b tr rest
+      end
+  end.
+
+Lemma sel_ready_cl_buf : forall b tr cases c f v s,
+  sel_ready_cl b tr cases = Some (SR_buf c f v s) ->
+  In (c, f) cases /\ exists rest, b c = (v, s) :: rest.
+Proof.
+  induction cases as [|[c0 f0] rest IH]; intros c f v s H; cbn in H; [discriminate|].
+  destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
+  - destruct (closedb tr c0) eqn:Hcl0; [discriminate|].
+    destruct (IH _ _ _ _ H) as [Hin Hex]. split; [right; exact Hin | exact Hex].
+  - injection H as -> -> -> ->. split; [left; reflexivity | exists brest; exact Hb0].
+Qed.
+
+Lemma sel_ready_cl_closed : forall b tr cases c f,
+  sel_ready_cl b tr cases = Some (SR_closed c f) ->
+  In (c, f) cases /\ b c = [] /\ closedb tr c = true.
+Proof.
+  induction cases as [|[c0 f0] rest IH]; intros c f H; cbn in H; [discriminate|].
+  destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
+  - destruct (closedb tr c0) eqn:Hcl0.
+    + injection H as -> ->. split; [left; reflexivity | split; [exact Hb0 | exact Hcl0]].
+    + destruct (IH _ _ H) as [Hin [Hbc Hclc]]. split; [right; exact Hin | split; [exact Hbc | exact Hclc]].
+  - discriminate.
+Qed.
+
+(* A live goroutine BLOCKED — now CLOSED-PRECISE: a CRecv is blocked iff its channel is empty AND
+   OPEN ([closedb (rc_trace cfg) c = false]); a CSelect is blocked iff NO case is ready, where a case
+   is ready when its channel is buffered OR closed-and-drained ([sel_ready_cl] = [None]).  A recv/
+   select on a CLOSED, drained channel is READY ([rstep_recv_closed] / [rstep_select_closed], binds
+   the zero value), so it is correctly NOT blocked — the precision the open-only notion lacked
+   ([rclosed_recv_not_blocked] / [rclosed_select_not_blocked] witness the difference).  [ready_can_step]
+   (¬blocked ⇒ can step) and [rstuck_blocked] (stuck ⇒ done ∨ blocked) are now EXACT inverses:
+   ¬blocked is now NECESSARY as well as sufficient for progress. *)
 Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
-  (exists c f, rc_prog cfg tid = CRecv c f /\ rc_bufs cfg c = [])
+  (exists c f, rc_prog cfg tid = CRecv c f
+               /\ rc_bufs cfg c = []
+               /\ closedb (rc_trace cfg) c = false)
   \/ (exists cases, rc_prog cfg tid = CSelect cases
-                    /\ sel_first_ready (rc_bufs cfg) cases = None).
+                    /\ sel_ready_cl (rc_bufs cfg) (rc_trace cfg) cases = None).
 
 (* A fresh goroutine id is available — holds for any reachable config (only finitely
    many goroutines are ever spawned), so [CSpawn] never blocks for lack of an id. *)
@@ -1669,20 +1735,28 @@ Lemma ready_can_step : forall cfg tid,
   rcan_step cfg.
 Proof.
   intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk.
-  unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs] in *.
+  unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs rc_trace] in *.
   destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - congruence.
   - eexists; eapply rstep_send; eassumption.
   - destruct (b c) as [ | [v s] rest] eqn:Hb.
-    + exfalso. apply Hnblk. left. exists c, f. split; [reflexivity | exact Hb].
+    + (* empty buffer: CLOSED ⇒ rstep_recv_closed (zero); OPEN ⇒ genuinely blocked (contradiction) *)
+      destruct (closedb tr c) eqn:Hcl.
+      * destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+        eexists; eapply rstep_recv_closed; eassumption.
+      * exfalso. apply Hnblk. left. exists c, f.
+        split; [reflexivity | split; [exact Hb | exact Hcl]].
     + eexists; eapply rstep_recv; eassumption.
   - eexists; eapply rstep_write; eassumption.
   - eexists; eapply rstep_read; eassumption.
   - eexists; eapply rstep_spawn; eassumption.
-  - (* select: ready ⇒ step on the first ready case; no ready case ⇒ blocked (contradiction) *)
-    destruct (sel_first_ready b cases) as [[[[c f] v] s]|] eqn:Hsel.
-    + destruct (sel_first_ready_sound _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
+  - (* select: a ready case (buffered OR closed-drained) steps; no ready case ⇒ blocked *)
+    destruct (sel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Hsel.
+    + destruct (sel_ready_cl_buf _ _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
       eexists; eapply rstep_select; eassumption.
+    + destruct (sel_ready_cl_closed _ _ _ _ _ Hsel) as [Hin [Hb Hcl]].
+      destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+      eexists; eapply rstep_select_closed; eassumption.
     + exfalso. apply Hnblk. right. exists cases. split; [reflexivity | exact Hsel].
   - (* close: always enabled *)
     eexists; eapply rstep_close; eassumption.
@@ -1696,19 +1770,27 @@ Theorem rstuck_blocked : forall cfg,
   forall tid, rc_live cfg tid = true -> rc_prog cfg tid = CRet \/ blocked cfg tid.
 Proof.
   intros cfg Hfresh [Hnstep _] tid Hlive.
-  (* the non-CRecv heads are all enabled, so they can't occur in a stuck config;
-     a CRecv is blocked iff its buffer is empty — both decidable, no classical logic. *)
+  (* the non-CRecv/CSelect heads are all enabled, so can't occur in a stuck config; a CRecv is
+     blocked iff its buffer is empty AND open, a CSelect iff no case is buffered-or-closed-ready —
+     all decidable via [closedb] / [sel_ready_cl], no classical logic. *)
   destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - left. reflexivity.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
   - destruct (rc_bufs cfg c) as [ | hd rest ] eqn:Hb.
-    + right. unfold blocked. left. exists c, f. split; [exact Hp | exact Hb].
+    + (* empty buffer: blocked iff OPEN; if closed it can step (contradiction with stuck) *)
+      destruct (closedb (rc_trace cfg) c) eqn:Hcl.
+      * exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+        -- rewrite Hp; discriminate.
+        -- unfold blocked. intros [[c0 [f0 [Hpc [Hbc0 Hcl0]]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
+             [injection Hpc as Hcc Hff; subst c0; rewrite Hcl in Hcl0; discriminate Hcl0 | discriminate].
+      * right. unfold blocked. left. exists c, f.
+        split; [exact Hp | split; [exact Hb | exact Hcl]].
     + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
       * rewrite Hp; discriminate.
-      * unfold blocked. intros [[c0 [f0 [Hpc Hbc]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
-          [injection Hpc as Hcc Hff; subst c0; rewrite Hb in Hbc; discriminate Hbc | discriminate].
+      * unfold blocked. intros [[c0 [f0 [Hpc [Hbc0 _]]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
+          [injection Hpc as Hcc Hff; subst c0; rewrite Hb in Hbc0; discriminate Hbc0 | discriminate].
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
@@ -1718,8 +1800,8 @@ Proof.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
-  - (* select: ready ⇒ can step (contradiction with stuck); no ready case ⇒ blocked *)
-    destruct (sel_first_ready (rc_bufs cfg) cases) as [[[[c f] v] s]|] eqn:Hsel.
+  - (* select: ready (buffered OR closed-drained) ⇒ can step (contradiction); else blocked *)
+    destruct (sel_ready_cl (rc_bufs cfg) (rc_trace cfg) cases) as [sr|] eqn:Hsel.
     + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
       * rewrite Hp; discriminate.
       * unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc Hnone]]]; rewrite Hp in Hpc;
@@ -1785,6 +1867,25 @@ Qed.
 Theorem rclosed_recv_preserves_inv :
   forall cfg', rstep rclosed_chan_cfg cfg' -> RInv rclosed_chan_cfg -> RInv cfg'.
 Proof. intros cfg' Hstep Hinv. exact (rstep_preserves_inv _ _ Hstep Hinv). Qed.
+
+(** PRECISION PAYOFF of the closed-aware [blocked]: the closed-drained recv (goroutine 0) and
+    closed-drained select (goroutine 1) of [rclosed_chan_cfg] are NOT [blocked] — correctly
+    classified as READY (they step, [rclosed_recv_can_step] / [rclosed_select_can_step]).  Under the
+    earlier open-only [blocked] both WOULD have been (wrongly) called blocked: this is exactly the
+    over-approximation the [closedb] / [sel_ready_cl] refinement removes. *)
+Theorem rclosed_recv_not_blocked : ~ blocked rclosed_chan_cfg 0.
+Proof.
+  intros [[c [f [Hp [Hb Hcl]]]] | [cases [Hp _]]].
+  - cbn in Hp. injection Hp as Hc _. subst c. cbn in Hcl. discriminate Hcl.
+  - cbn in Hp. discriminate Hp.
+Qed.
+
+Theorem rclosed_select_not_blocked : ~ blocked rclosed_chan_cfg 1.
+Proof.
+  intros [[c [f [Hp _]]] | [cases [Hp Hnone]]].
+  - cbn in Hp. discriminate Hp.
+  - cbn in Hp. injection Hp as Hcs. subst cases. cbn in Hnone. discriminate Hnone.
+Qed.
 
 (** ── CSELECT, the authoritative select in the RICH (value-carrying) calculus: the two select
     code-review findings #3 proven here end-to-end. ── *)
@@ -2136,7 +2237,7 @@ Proof.
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
-    + unfold blocked. intros [[c0 [f0 [Hpc Hbc]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc;
+    + unfold blocked. intros [[c0 [f0 [Hpc [Hbc _]]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc;
         [congruence | discriminate].
   - left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
     apply Nat.eqb_eq in Hl. subst tid. exact Hp0.
