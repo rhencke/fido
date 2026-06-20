@@ -688,10 +688,17 @@ Go prints 1, model said 2).  `select_recv_default`/`select_recv2`/`select_wait2`
 (`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` re-proven.  *Remaining:*
 (a) the relational `PSelect` has no closed flag (`step_select` needs nonempty buffer) — a recv-on-closed
 step requires a config closed-flag AND a `KRecv`-with-no-matched-send (no hb edge), touching `WfTrace`;
-(b) the value-carrying `rstep`/`Cmd` calculus has NO select, and `PSelect` shares one continuation
-across cases (can't represent `case <-ch: A() | case <-ch: B()`) — needs `CSelect` with per-case
-channel+continuation + a theorem connecting typed `select_recv2` to it.  The typed select is a sound
-FOUNDATION, not yet the authoritative complete model.
+(b) **DONE (2026-06-20):** the value-carrying `rstep`/`Cmd` calculus now has `CSelect : list (nat *
+(nat → Cmd))` — PER-CASE channel + continuation, so `select { case <-ch: A() | case <-ch: B() }`
+(same channel, distinct bodies) IS representable and BOTH cases eligible (`rselect_per_case_continuation`:
+two successors running A vs B).  Its `rstep_select` fires any ready case (nondeterministic), and an
+empty select is a local non-step feeding global deadlock (`rsel_block_stuck` : `RStuck`).  The
+deadlock theory was extended to be select-aware (`blocked` now includes a select-with-no-ready-case
+disjunct via the decidable `sel_first_ready`; `ready_can_step`/`rstuck_blocked` updated), and the
+`CSelect` case rides the existing `RInv`/`RBufSorted` preservation + the multi-goroutine state
+refinement (`wmatchc_step`: select's world-step = a recv on the chosen channel).  Axiom-free,
+proof-only (golden-stable).  *Remaining:* the relational closed-channel flag (item (a)), and a
+theorem connecting the typed sequential `select_recv2` to `CSelect` (the typed↔operational bridge).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

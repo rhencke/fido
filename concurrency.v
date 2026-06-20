@@ -695,7 +695,16 @@ Inductive Cmd : Type :=
   | CRecv  : nat -> (nat -> Cmd) -> Cmd        (* recv from channel, BIND value, continue *)
   | CWrite : nat -> nat -> Cmd -> Cmd          (* write value to location, continue *)
   | CRead  : nat -> (nat -> Cmd) -> Cmd        (* read location, BIND value, continue *)
-  | CSpawn : Cmd -> Cmd -> Cmd.                (* spawn child, continue parent *)
+  | CSpawn : Cmd -> Cmd -> Cmd                 (* spawn child, continue parent *)
+  | CSelect : list (nat * (nat -> Cmd)) -> Cmd.
+  (* [select] over recv cases, each a (channel, value-binding continuation) PAIR — the
+     AUTHORITATIVE select in the rich value-carrying calculus (the typed [run_io] [select_recv2]
+     is a non-authoritative ch1-priority interpreter — see the select code reviews).  Unlike the
+     simple-calculus [PSelect] (which shared ONE continuation across cases), each case carries its
+     OWN continuation, so [select { case <-ch: A() | case <-ch: B() }] — same channel, distinct
+     bodies — is representable and BOTH cases are eligible (Go may pick either).  [rstep_select]
+     below fires for EVERY ready case, so select is genuinely NONDETERMINISTIC; when no case is
+     ready it has no step, so empty-select is a LOCAL non-step feeding global deadlock [RStuck]. *)
 
 Record RConfig := mkRCfg {
   rc_prog  : nat -> Cmd;
@@ -730,7 +739,17 @@ Inductive rstep : RConfig -> RConfig -> Prop :=
       lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
-                    (tr ++ [mkEv tid (KSpawn cid)])).
+                    (tr ++ [mkEv tid (KSpawn cid)]))
+  (* select: pick ANY case [(c, f)] in [cases] whose channel [c] is READY ([b c = (v,s)::brest]);
+     receive [v], BIND it into THAT case's continuation [f], emit the recv event.  Like
+     [rstep_recv] but choosing among a SET of (channel, continuation) cases — so [rstep] is
+     nondeterministic at a select, and each successor runs the chosen case's own continuation. *)
+  | rstep_select : forall p b h lv tr tid cases c f v s brest,
+      lv tid = true -> p tid = CSelect cases ->
+      In (c, f) cases -> b c = (v, s) :: brest ->
+      rstep (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv
+                    (tr ++ [mkEv tid (KRecv c s)])).
 
 Definition RBufOk (cfg : RConfig) : Prop :=
   forall c v s, In (v, s) (rc_bufs cfg c) ->
@@ -747,7 +766,8 @@ Proof.
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
-    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
     split.
   (* send WfTrace / RBufOk *)
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
@@ -784,6 +804,18 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
   - intros c0 v0 s0 Hin. cbn [rc_bufs rc_trace] in Hin |- *.
     destruct (Hbuf c0 v0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* select WfTrace / RBufOk — identical to recv (it receives on the chosen ready channel) *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    assert (Hins : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
+    destruct (Hbuf c v s Hins) as [Hlt [e' [He' Hk']]].
+    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+  - intros c0 v0 s0 Hin0. cbn [rc_bufs rc_trace] in Hin0 |- *.
+    destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same in Hin0.
+      assert (Hin' : In (v0, s0) (b c)) by (rewrite Hbc; right; exact Hin0).
+      destruct (Hbuf c v0 s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
+    + rewrite (upd_other _ _ _ _ Hne) in Hin0.
+      destruct (Hbuf c0 v0 s0 Hin0) as [Hlt Hex]. apply BufOk_pos_app; assumption.
 Qed.
 
 Inductive rsteps : RConfig -> RConfig -> Prop :=
@@ -883,7 +915,8 @@ Proof.
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
-    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
     intros c0; cbn [rc_bufs rc_trace].
   - destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same. rewrite map_app. apply Incr_app.
@@ -898,6 +931,11 @@ Proof.
   - exact (Hsort c0).
   - exact (Hsort c0).
   - exact (Hsort c0).
+  - (* select: same as recv (the chosen channel loses its head) *)
+    destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. specialize (Hsort c). cbn [rc_bufs] in Hsort.
+      rewrite Hbc in Hsort. cbn in Hsort. apply Incr_tail in Hsort. exact Hsort.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
 Qed.
 
 Lemma rinit_sorted : forall p, RBufSorted (rinit_cfg p).
@@ -1099,7 +1137,8 @@ Section Keystone.
       | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
-      | p b h lv tr tid child k cid Hlv Hp Hcid ];
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c1 f v s brest Hlv Hp Hin Hbc ];
     cbn [rc_prog rc_live] in HOC, Hidle, Hlive, HD;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid; subst lv.
     - (* send *)
@@ -1131,6 +1170,8 @@ Section Keystone.
     - (* read — impossible under OnChan *)
       rewrite Hp in HOC. inversion HOC.
     - (* spawn — impossible under OnChan *)
+      rewrite Hp in HOC. inversion HOC.
+    - (* select — impossible under OnChan (OnChan has no CSelect constructor) *)
       rewrite Hp in HOC. inversion HOC.
   Qed.
 
@@ -1244,7 +1285,8 @@ Section KeystoneMulti.
       | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
-      | p b h lv tr tid child k cid Hlv Hp Hcid ].
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc ].
     - (* send: world advances by [chan_send_upd] on channel [c0] *)
       exists (chan_send_upd TI64 (chenv c0) (inj v) w).
       intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
@@ -1276,6 +1318,19 @@ Section KeystoneMulti.
     - (* spawn: buffers unchanged *)
       exists w. intros c. specialize (HM c). unfold WMatchC, rchan in *;
         cbn [rc_bufs] in *. exact HM.
+    - (* select: receives on the chosen channel [c0] — identical world-refinement to recv *)
+      exists (chan_recv_upd TI64 (chenv c0) w).
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest)).
+      { generalize (HM c0). unfold rchan; cbn [rc_bufs]. rewrite Hbc. cbn. tauto. }
+      intros c. specialize (HM c). unfold WMatchC, rchan in *; cbn [rc_bufs] in *.
+      destruct (Nat.eq_dec c c0) as [->|Hne].
+      + rewrite upd_same,
+          (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+        reflexivity.
+      + rewrite (upd_other _ _ _ _ Hne),
+          (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w
+             (chenv_neq c0 c (not_eq_sym Hne))).
+        exact HM.
   Qed.
 
   Lemma wmatchc_steps : forall cfg cfg' w,
@@ -1344,9 +1399,37 @@ Definition rdone (cfg : RConfig) : Prop :=
   forall tid, rc_live cfg tid = true -> rc_prog cfg tid = CRet.
 Definition RStuck (cfg : RConfig) : Prop := ~ rcan_step cfg /\ ~ rdone cfg.
 
-(* A live goroutine BLOCKED: waiting to receive on an empty channel. *)
+(* Decidable select-readiness: scan the cases, return the FIRST ready one (channel non-empty)
+   as [Some (c, f, v, s)], or [None] if EVERY case's channel is empty (the select blocks). *)
+Fixpoint sel_first_ready (b : nat -> list (nat * nat))
+                         (cases : list (nat * (nat -> Cmd)))
+                         : option (nat * (nat -> Cmd) * nat * nat) :=
+  match cases with
+  | [] => None
+  | (c, f) :: rest =>
+      match b c with
+      | (v, s) :: _ => Some (c, f, v, s)
+      | [] => sel_first_ready b rest
+      end
+  end.
+
+(* [Some] result is a genuine ready case: [(c,f)] is in [cases] and [c]'s buffer heads with [(v,s)]. *)
+Lemma sel_first_ready_sound : forall b cases c f v s,
+  sel_first_ready b cases = Some (c, f, v, s) ->
+  In (c, f) cases /\ exists rest, b c = (v, s) :: rest.
+Proof.
+  induction cases as [|[c0 f0] rest IH]; intros c f v s H; cbn in H; [discriminate|].
+  destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
+  - destruct (IH _ _ _ _ H) as [Hin Hex]. split; [right; exact Hin | exact Hex].
+  - injection H as -> -> -> ->. split; [left; reflexivity | exists brest; exact Hb0].
+Qed.
+
+(* A live goroutine BLOCKED: either waiting to receive on an empty channel, OR waiting in a
+   SELECT whose every case channel is empty.  Both are local non-steps that feed global deadlock. *)
 Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
-  exists c f, rc_prog cfg tid = CRecv c f /\ rc_bufs cfg c = [].
+  (exists c f, rc_prog cfg tid = CRecv c f /\ rc_bufs cfg c = [])
+  \/ (exists cases, rc_prog cfg tid = CSelect cases
+                    /\ sel_first_ready (rc_bufs cfg) cases = None).
 
 (* A fresh goroutine id is available — holds for any reachable config (only finitely
    many goroutines are ever spawned), so [CSpawn] never blocks for lack of an id. *)
@@ -1363,15 +1446,20 @@ Lemma ready_can_step : forall cfg tid,
 Proof.
   intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk.
   unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs] in *.
-  destruct (p tid) as [ | c v k | c f | l v k | l f | child k ] eqn:Hp.
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases ] eqn:Hp.
   - congruence.
   - eexists; eapply rstep_send; eassumption.
   - destruct (b c) as [ | [v s] rest] eqn:Hb.
-    + exfalso. apply Hnblk. exists c, f. split; [reflexivity | exact Hb].
+    + exfalso. apply Hnblk. left. exists c, f. split; [reflexivity | exact Hb].
     + eexists; eapply rstep_recv; eassumption.
   - eexists; eapply rstep_write; eassumption.
   - eexists; eapply rstep_read; eassumption.
   - eexists; eapply rstep_spawn; eassumption.
+  - (* select: ready ⇒ step on the first ready case; no ready case ⇒ blocked (contradiction) *)
+    destruct (sel_first_ready b cases) as [[[[c f] v] s]|] eqn:Hsel.
+    + destruct (sel_first_ready_sound _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
+      eexists; eapply rstep_select; eassumption.
+    + exfalso. apply Hnblk. right. exists cases. split; [reflexivity | exact Hsel].
 Qed.
 
 (** THE DEADLOCK CHARACTERIZATION: in a stuck config, EVERY live goroutine is either
@@ -1384,26 +1472,33 @@ Proof.
   intros cfg Hfresh [Hnstep _] tid Hlive.
   (* the non-CRecv heads are all enabled, so they can't occur in a stuck config;
      a CRecv is blocked iff its buffer is empty — both decidable, no classical logic. *)
-  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k ] eqn:Hp.
+  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases ] eqn:Hp.
   - left. reflexivity.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
   - destruct (rc_bufs cfg c) as [ | hd rest ] eqn:Hb.
-    + right. unfold blocked. exists c, f. split; [exact Hp | exact Hb].
+    + right. unfold blocked. left. exists c, f. split; [exact Hp | exact Hb].
     + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
       * rewrite Hp; discriminate.
-      * unfold blocked. intros [c0 [f0 [Hpc Hbc]]]. rewrite Hp in Hpc.
-        injection Hpc as Hcc Hff. subst c0. rewrite Hb in Hbc. discriminate Hbc.
+      * unfold blocked. intros [[c0 [f0 [Hpc Hbc]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
+          [injection Hpc as Hcc Hff; subst c0; rewrite Hb in Hbc; discriminate Hbc | discriminate].
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp in Hpc. discriminate Hpc.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+  - (* select: ready ⇒ can step (contradiction with stuck); no ready case ⇒ blocked *)
+    destruct (sel_first_ready (rc_bufs cfg) cases) as [[[[c f] v] s]|] eqn:Hsel.
+    + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
+      * rewrite Hp; discriminate.
+      * unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc Hnone]]]; rewrite Hp in Hpc;
+          [discriminate | injection Hpc as ->; rewrite Hsel in Hnone; discriminate].
+    + right. unfold blocked. right. exists cases. split; [exact Hp | exact Hsel].
 Qed.
 
 (** Deadlock is REPRESENTABLE in the rich calculus too: one goroutine receiving on an
@@ -1416,6 +1511,55 @@ Lemma rblock_stuck : RStuck rblock_cfg.
 Proof.
   split.
   - intros [cfg' Hstep]. unfold rblock_cfg in Hstep.
+    inversion Hstep; subst; cbn in *;
+      match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+      cbn in *; discriminate.
+  - intros Hdone. specialize (Hdone 0 eq_refl). cbn in Hdone. discriminate.
+Qed.
+
+(** ── CSELECT, the authoritative select in the RICH (value-carrying) calculus: the two select
+    code-review findings #3 proven here end-to-end. ── *)
+
+(** PER-CASE CONTINUATIONS (review #3): [select { case <-ch: A() | case <-ch: B() }] — the SAME
+    channel with DISTINCT bodies — is representable (impossible with the shared-continuation
+    [PSelect]), and BOTH cases are eligible (Go may choose either), yielding two successors that run
+    DIFFERENT continuations.  ([rsel_cfg] is a post-send state: position 0 is the earlier send, so
+    it is [RInv]-valid.) *)
+Definition rsel_A : Cmd := CWrite 1 1 CRet.
+Definition rsel_B : Cmd := CWrite 2 2 CRet.
+Definition rsel_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CSelect [(0, fun _ => rsel_A); (0, fun _ => rsel_B)] else CRet)
+         (fun c => if Nat.eqb c 0 then [(42, 0)] else [])
+         (fun _ => 0) (fun t => Nat.eqb t 0)
+         [mkEv 0 (KSend 0)].
+
+Theorem rselect_per_case_continuation :
+  exists cfg1 cfg2, rstep rsel_cfg cfg1 /\ rstep rsel_cfg cfg2 /\
+                    rc_prog cfg1 0 = rsel_A /\ rc_prog cfg2 0 = rsel_B /\ rsel_A <> rsel_B.
+Proof.
+  eexists. eexists. split; [| split; [| split; [| split]]].
+  - eapply rstep_select with (tid:=0) (c:=0) (f:=fun _ => rsel_A) (v:=42) (s:=0);
+      [ reflexivity | reflexivity | left; reflexivity | reflexivity ].
+  - eapply rstep_select with (tid:=0) (c:=0) (f:=fun _ => rsel_B) (v:=42) (s:=0);
+      [ reflexivity | reflexivity | right; left; reflexivity | reflexivity ].
+  - cbn. rewrite upd_same. reflexivity.
+  - cbn. rewrite upd_same. reflexivity.
+  - unfold rsel_A, rsel_B. intro H. inversion H.
+Qed.
+
+(** EMPTY SELECT IS DEADLOCK, NOT A VALUE (review #3, rich-calculus version): a select with no
+    ready case (and no other goroutine to make one ready) is [RStuck] — a LOCAL non-step, never a
+    fabricated zero. *)
+Definition rsel_block_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CSelect [(0, fun _ => CRet); (1, fun _ => CRet)] else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+
+Lemma rsel_block_stuck : RStuck rsel_block_cfg.
+Proof.
+  split.
+  - intros [cfg' Hstep]. unfold rsel_block_cfg in Hstep.
+    (* every buffer is empty, so the rstep_select readiness premise [[] = (v,s)::_] is absurd;
+       all other rstep heads mismatch [CSelect] — [discriminate] closes them all *)
     inversion Hstep; subst; cbn in *;
       match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
       cbn in *; discriminate.
@@ -1443,7 +1587,10 @@ Definition RecvFreeCfg (cfg : RConfig) : Prop :=
 (* A receive-free goroutine is never blocked (blocking needs a [CRecv] head). *)
 Lemma recvfree_not_blocked : forall cfg tid,
   RecvFree (rc_prog cfg tid) -> ~ blocked cfg tid.
-Proof. intros cfg tid HRF [c [f [Hp _]]]. rewrite Hp in HRF. inversion HRF. Qed.
+Proof.
+  intros cfg tid HRF [[c [f [Hp _]]] | [cases [Hp _]]];
+    rewrite Hp in HRF; inversion HRF.
+Qed.
 
 (** PROGRESS for receive-free configs (witness form): while ANY live goroutine has
     work left, the config can step — i.e. it never deadlocks.  (No need to extract a
@@ -1471,7 +1618,8 @@ Proof.
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
-    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
     cbn [rc_prog rc_live] in *; intros Hlive';
     pose proof (HRF tid Hlv) as Ht; rewrite Hp in Ht.
   - (* send *)
@@ -1498,6 +1646,8 @@ Proof.
       destruct (Nat.eq_dec tid' tid) as [->|Hne2].
       * rewrite upd_same. assumption.
       * rewrite (upd_other _ _ _ _ Hne2). exact (HRF tid' Hlive').
+  - (* select — vacuous: a receive-free config has no CSelect head to step *)
+    inversion Ht.
 Qed.
 
 (** A fresh goroutine id always exists — the live set is finite (bounded by some [n]),
@@ -1523,7 +1673,8 @@ Proof.
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
-    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
     cbn [rc_live] in *.
   - exists n; exact Hn.
   - exists n; exact Hn.
@@ -1538,6 +1689,7 @@ Proof.
            [apply Nat.lt_succ_diag_r | apply Nat.le_max_r] | exact Ht].
     + rewrite (upd_other _ _ _ _ Hne). apply Hn.
       apply (Nat.le_trans n (Nat.max n (S cid)) t); [apply Nat.le_max_l | exact Ht].
+  - (* select: live set unchanged *) exists n; exact Hn.
 Qed.
 
 Lemma rsteps_recvfree_livefin : forall cfg cfg',
@@ -1598,7 +1750,8 @@ Proof.
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
-    | p b h lv tr tid child k cid Hlv Hp Hcid ];
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc ];
     cbn [rc_live rc_prog rc_bufs] in *;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid;
     destruct Hphase as [[Hp0 Hb0] | [[Hp0 [s0 Hb0]] | Hp0]];
@@ -1633,11 +1786,12 @@ Proof.
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc _]]]. rewrite Hp0 in Hpc. discriminate.
+    + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
-    + unfold blocked. intros [c0 [f0 [Hpc Hbc]]]. rewrite Hp0 in Hpc. congruence.
+    + unfold blocked. intros [[c0 [f0 [Hpc Hbc]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc;
+        [congruence | discriminate].
   - left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
     apply Nat.eqb_eq in Hl. subst tid. exact Hp0.
 Qed.
