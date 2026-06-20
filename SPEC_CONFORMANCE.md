@@ -634,6 +634,18 @@ interim:** evidence-carrying subset requiring a proof that EXACTLY ONE case is r
 that keeps readiness STABLE until selection (else a TOCTOU gap between proof and select).
 Tracked
 (Tier 5 #14, scheduler / non-terminating model).  *Also pending:* send cases, N-ary.
+**Third review (2026-06-20) — CLOSED-channel fix + remaining items.**  *Fixed:* a closed, drained
+channel's recv is READY in Go (zero value immediately), but the model examined only the buffer and
+mispredicted `default` / fabricated the other case (`close(ch); select{case <-ch: 1; default: 2}` —
+Go prints 1, model said 2).  `select_recv_default`/`select_recv2`/`select_wait2` now check
+`chan_closed`: empty+closed ⇒ that recv fires with zero; `default` only empty+OPEN.  Witnessed
+(`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` re-proven.  *Remaining:*
+(a) the relational `PSelect` has no closed flag (`step_select` needs nonempty buffer) — a recv-on-closed
+step requires a config closed-flag AND a `KRecv`-with-no-matched-send (no hb edge), touching `WfTrace`;
+(b) the value-carrying `rstep`/`Cmd` calculus has NO select, and `PSelect` shares one continuation
+across cases (can't represent `case <-ch: A() | case <-ch: B()`) — needs `CSelect` with per-case
+channel+continuation + a theorem connecting typed `select_recv2` to it.  The typed select is a sound
+FOUNDATION, not yet the authoritative complete model.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

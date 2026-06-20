@@ -2153,17 +2153,36 @@ Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> I
                                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
-           | nil    => match chan_buf tb ch2 w with
-                       | v :: _ => k2 v (chan_recv_upd tb ch2 w)
-                       | nil    => k1 (zero_val ta) w
-                       end
+           | nil    => if chan_closed ch1 w then k1 (zero_val ta) w   (* ch1 CLOSED+drained: recv READY, yields zero (Go) *)
+                       else match chan_buf tb ch2 w with
+                            | v :: _ => k2 v (chan_recv_upd tb ch2 w)
+                            | nil    => if chan_closed ch2 w then k2 (zero_val tb) w  (* ch2 closed+drained: zero *)
+                                        else k1 (zero_val ta) w        (* both empty+OPEN: fabricated zero — Go BLOCKS (documented unsoundness) *)
+                            end
            end.
+(** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED channel's recv is READY in
+    Go (yields the zero value immediately), so [default] is taken ONLY when the channel is empty
+    AND OPEN (code-review fix 2026-06-20 — examining only the buffer mispredicted [default] for a
+    closed channel). *)
 Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
                                       (k1 : A -> IO C) (d : IO C) : IO C :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => k1 v (chan_recv_upd ta ch1 w)
-           | nil    => d w
+           | nil    => if chan_closed ch1 w then k1 (zero_val ta) w   (* closed+drained: recv READY, zero *)
+                       else d w                                        (* open+empty: default *)
            end.
+(** CORRECTNESS — closed-channel readiness (code-review example): on a CLOSED, DRAINED channel the
+    recv case fires with the zero value (NOT [default]); on an OPEN, empty channel [default] fires. *)
+Lemma select_default_closed :
+  forall {A C} (ta : GoTypeTag A) (ch : GoChan A) (k1 : A -> IO C) (d : IO C) (w : World),
+    chan_buf ta ch w = nil -> chan_closed ch w = true ->
+    select_recv_default ta ch k1 d w = k1 (zero_val ta) w.
+Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc. reflexivity. Qed.
+Lemma select_default_open_empty :
+  forall {A C} (ta : GoTypeTag A) (ch : GoChan A) (k1 : A -> IO C) (d : IO C) (w : World),
+    chan_buf ta ch w = nil -> chan_closed ch w = false ->
+    select_recv_default ta ch k1 d w = d w.
+Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc. reflexivity. Qed.
 
 (** ── Toward a UNIFIED control-flow substrate: select as SENTINEL + goto (2026-06-19) ──
     [select] factors into a runtime WAIT that returns WHICH case fired plus a pure CFG DISPATCH
@@ -2199,14 +2218,34 @@ Definition select_recv_default {A C} (ta : GoTypeTag A) (ch1 : GoChan A)
     EXACTLY ONE case is ready (then determinism = Go) — is sound ONLY under an interference-freedom /
     ownership discipline keeping that readiness STABLE until the selection point; otherwise another
     goroutine can change readiness between the proof and the native select (a TOCTOU gap).  Tracked in
-    Known gaps / SPEC_CONFORMANCE. *)
+    Known gaps / SPEC_CONFORMANCE.
+
+    THIRD REVIEW (2026-06-20) — one FIX + two REMAINING items:
+    • FIXED here: a CLOSED, DRAINED channel's recv is READY in Go (yields zero immediately), but the
+      sequential model examined only the buffer and mispredicted [default] / fabricated the other case.
+      [select_recv_default]/[select_recv2]/[select_wait2] now check [chan_closed]: empty+closed ⇒ that
+      recv case fires with the zero value; [default] only on empty+OPEN.  Witnessed by
+      [select_default_closed] / [select_default_open_empty]; [select2_eq_recv2] re-proven.
+    • REMAINING (relational closed): [concurrency.v]'s [PSelect]/[step_select] has no closed-channel
+      state — [cfg_bufs] carries no closed flag, and [step_select] requires a NONEMPTY buffer, so a
+      closed-drained channel is wrongly not-ready.  Fix needs a closed flag on the config AND a
+      recv-on-closed step — subtle because such a recv has NO matched send (no happens-before edge),
+      so [WfTrace]/[KRecv]'s backpointer obligation must admit a "closed recv" with no [from].
+    • REMAINING (rich calculus + typed connection): the value-carrying [rstep]/[Cmd] calculus (the model
+      of actual Fido programs) has NO select — and [PSelect] gives all cases a SHARED continuation
+      [rest], so [select { case <-ch: A() | case <-ch: B() }] (same channel, distinct bodies) is
+      unrepresentable.  The authoritative model is [CSelect] in the rich calculus with PER-CASE channel
+      + continuation, plus a theorem connecting typed [select_recv2] programs to that relation.  Until
+      then the typed [select] is an important FOUNDATION, not the authoritative complete model. *)
 Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)
-           | nil    => match chan_buf ta ch2 w with
-                       | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
-                       | nil    => ORet (0, zero_val ta) w
-                       end
+           | nil    => if chan_closed ch1 w then ORet (0, zero_val ta) w   (* ch1 closed+drained: case 0 fires, zero *)
+                       else match chan_buf ta ch2 w with
+                            | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
+                            | nil    => if chan_closed ch2 w then ORet (1, zero_val ta) w  (* ch2 closed+drained: case 1, zero *)
+                                        else ORet (0, zero_val ta) w
+                            end
            end.
 Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
   bind (select_wait2 ta ch1 ch2)
@@ -2221,8 +2260,13 @@ Theorem select2_eq_recv2 :
 Proof.
   intros A C ta ch1 ch2 k1 k2. apply run_io_inj. intro w.
   unfold select2, select_recv2, select_wait2, bind, run_io.
-  destruct (chan_buf ta ch1 w) as [|v1 r1];
-    [ destruct (chan_buf ta ch2 w); reflexivity | reflexivity ].
+  destruct (chan_buf ta ch1 w) as [|v1 r1].
+  - destruct (chan_closed ch1 w).
+    + reflexivity.                                    (* ch1 closed+drained: both → k1 zero *)
+    + destruct (chan_buf ta ch2 w) as [|v2 r2].
+      * destruct (chan_closed ch2 w); reflexivity.    (* ch2 closed → k2 zero; else fabricated k1 zero *)
+      * reflexivity.                                  (* ch2 ready *)
+  - reflexivity.                                      (* ch1 ready *)
 Qed.
 (** [go_spawn m] (Go spec "Go statements"): the SEQUENTIAL approximation — run [m] to completion, keep its world
     effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
