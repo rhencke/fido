@@ -122,8 +122,14 @@ unconstructable (200 ∉ image of `i8_norm`; `i8_forged` `Fail` test).  **`GoI16
 `i32_forged` `Fail` test; `i32wrap` reaches the real extracted rune/UTF-8 codec, so it also erases at
 the call site (→ its argument, like the bare `MkI32`).  **`GoU64` sealed (2026-06-20)** — Z-carried, so a RANGE invariant `Squash (in_u64 u64raw = true)`
 (`in_u64 z = 0 ≤ z < 2^64`); `u64wrap z := MkU64 (z mod 2^64) (squash (in_u64_wrapU64 z))` with one
-lemma via `Z.mod_pos_bound`; `u64_forged` `Fail` test.  *Remaining:* `GoI64` (Z-carried signed,
-`wrap64`) — the last wrapper.  **7 of 8 wrappers sealed.**
+lemma via `Z.mod_pos_bound`; `u64_forged` `Fail` test.  **`GoI64` sealed (2026-06-20)** — Z-carried signed, range invariant `Squash (in_i64 i64raw = true)`
+(`in_i64 z = -2^63 ≤ z < 2^63`); `i64wrap z := MkI64 (wrap64 z) (squash (in_i64_wrap64 z))` with one
+two-sided bound lemma via `Z.mod_pos_bound`; `i64_forged` `Fail` test.  **ALL 8 WRAPPERS SEALED** —
+the public-raw-constructor forging hole (e.g. `MkU8 300`, `MkI64 (2^63)`) is fully CLOSED.  Three
+invariant shapes across the family: range-bound (`uN` masks), provenance "in the image of norm"
+(`iN` sign-extend), and Z-range (`u64`/`i64`).  Axiom-free (SProp proof irrelevance — `Print
+Assumptions` = Rocq primitives), extraction byte-identical (the SProp fields + `*wrap` constructors
+erase; golden-stable), value witnesses use `reflexivity` (the VM can't decide SProp irrelevance).
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may

@@ -52,7 +52,7 @@ Proof. now vm_compute. Qed.
 Theorem i64_sub_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a - i64raw b)%Z = true -> i64raw (i64_sub a b) = (i64raw a - i64raw b)%Z.
 Proof.
-  intros [a] [b]. unfold in_i64, i64_sub, wrap64. cbn. intros H.
+  intros [a] [b]. unfold in_i64, i64_sub, i64wrap, wrap64. cbn. intros H.
   apply andb_prop in H. destruct H as [H1 H2].
   apply Z.leb_le in H1. apply Z.ltb_lt in H2.
   rewrite Z.mod_small by lia. lia.
@@ -60,7 +60,7 @@ Qed.
 Theorem i64_mul_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a * i64raw b)%Z = true -> i64raw (i64_mul a b) = (i64raw a * i64raw b)%Z.
 Proof.
-  intros [a] [b]. unfold in_i64, i64_mul, wrap64. cbn. intros H.
+  intros [a] [b]. unfold in_i64, i64_mul, i64wrap, wrap64. cbn. intros H.
   apply andb_prop in H. destruct H as [H1 H2].
   apply Z.leb_le in H1. apply Z.ltb_lt in H2.
   rewrite Z.mod_small by lia. lia.
@@ -95,11 +95,11 @@ Definition overflow_safe_demo : IO unit :=
     written by hand with exactly such an [if].  Faithful across the FULL int64
     range, INCLUDING the [MININT] corner ([|MININT| = MININT], the [0 - a]
     two's-complement overflow Go also exhibits) — machine-checked below. *)
-Example i64_abs_pos    : i64_abs (7)%i64 = (7)%i64.   Proof. vm_compute. reflexivity. Qed.
-Example i64_abs_neg    : i64_abs (-7)%i64 = (7)%i64.  Proof. vm_compute. reflexivity. Qed.
+Example i64_abs_pos    : i64_abs (7)%i64 = (7)%i64.   Proof. reflexivity. Qed.
+Example i64_abs_neg    : i64_abs (-7)%i64 = (7)%i64.  Proof. reflexivity. Qed.
 Example i64_abs_minint :
   i64_abs (-9223372036854775808)%i64 = (-9223372036854775808)%i64.
-Proof. vm_compute. reflexivity. Qed.
+Proof. reflexivity. Qed.
 
 Definition i64_abs_demo : IO unit :=
   println [ any (i64_abs (-7)%i64) ; any (i64_abs (7)%i64)
@@ -448,14 +448,14 @@ Definition f32_const_runtime_demo : IO unit :=
     double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
     "single-rounding-equivalent" claim.  Reviewer's witness, x = 2^61+2^37+1 = 2305843146652647425: *)
 Example f32_of_i64_differs :         (* direct ≠ via-float64 — double rounding is REAL *)
-  f32_eqb (f32_of_i64 (MkI64 2305843146652647425))
-          (f32_of_f64 (f64_of_i64 (MkI64 2305843146652647425))) = false.
+  f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
+          (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl))) = false.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_i64_direct :          (* direct = 2^61+2^38 (Go float32(x) = 0x5e000001) *)
-  PrimFloat.eqb (f64_of_f32 (f32_of_i64 (MkI64 2305843146652647425))) 2305843284091600896 = true.
+  PrimFloat.eqb (f64_of_f32 (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))) 2305843284091600896 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_i64_viaf64 :          (* via float64 = 2^61 (Go float32(float64(x)) = 0x5e000000) *)
-  PrimFloat.eqb (f64_of_f32 (f32_of_f64 (f64_of_i64 (MkI64 2305843146652647425)))) 2305843009213693952 = true.
+  PrimFloat.eqb (f64_of_f32 (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) 2305843009213693952 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_of_int_demo : IO unit :=
   (* direct float32(x) vs via float64 float32(float64(x)) DIFFER (double rounding); println truncates
@@ -484,7 +484,7 @@ Definition f32_fconst_demo : IO unit :=
     lower as [float64(num.0/den.0)]). *)
 Example f64_of_fconst_no_double_round :   (* new (single round) ≠ old (double round) for a both-large rational *)
   PrimFloat.eqb (f64_of_fconst (mkFC 9007199254740993 9007199254740995))
-                (PrimFloat.div (f64_of_i64 (MkI64 9007199254740993)) (f64_of_i64 (MkI64 9007199254740995))) = false.
+                (PrimFloat.div (f64_of_i64 (i64_lit 9007199254740993 eq_refl)) (f64_of_i64 (i64_lit 9007199254740995 eq_refl))) = false.
 Proof. vm_compute. reflexivity. Qed.
 Definition f64_fconst_big_demo : IO unit :=
   println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round (was fail-loud) *)
@@ -575,11 +575,11 @@ Definition f64_of_i64_demo : IO unit :=
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero, via the verified [Prim2SF]
     decomposition.  Machine-checked across the sign, the exact case, and zero. *)
-Example i64_of_f64_pos   : i64_of_f64 3.7%float       = (3)%i64.       Proof. now vm_compute. Qed.
-Example i64_of_f64_neg   : i64_of_f64 (-3.7)%float    = (-3)%i64.      Proof. now vm_compute. Qed.
-Example i64_of_f64_exact : i64_of_f64 100%float       = (100)%i64.     Proof. now vm_compute. Qed.
-Example i64_of_f64_zero  : i64_of_f64 0%float         = (0)%i64.       Proof. now vm_compute. Qed.
-Example i64_of_f64_big   : i64_of_f64 1000000.9%float = (1000000)%i64. Proof. now vm_compute. Qed.
+Example i64_of_f64_pos   : i64_of_f64 3.7%float       = (3)%i64.       Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_neg   : i64_of_f64 (-3.7)%float    = (-3)%i64.      Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_exact : i64_of_f64 100%float       = (100)%i64.     Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_zero  : i64_of_f64 0%float         = (0)%i64.       Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_big   : i64_of_f64 1000000.9%float = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
 (** *Lowering DEFERRED* (proof-only, like [f64_of_i64] once was): [i64_of_f64] returns
     [GoI64] (a single-field record), so its Z-from-[Prim2SF] body hits the SAME wall as the
     narrow→int64 widening — Coq's case-of-case fusion inlines the [match] into value position
@@ -774,16 +774,16 @@ Definition u32_demo : IO unit :=
     2^63 — unlike the [Sint63] [int], which is faithful only within [-2^62, 2^62).
     [2^63-1 + 1] wraps to [-2^63]; [-2^63 - 1] wraps to [2^63-1]; [2^32 * 2^32 = 2^64]
     wraps to 0.  And a sum the OLD 2^62 model could not even represent is now exact. *)
-Example spec_i64_add_wrap : i64_add (i64_lit 9223372036854775807 eq_refl) (i64_lit 1 eq_refl) = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_sub_wrap : i64_sub (i64_lit (-9223372036854775808) eq_refl) (i64_lit 1 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_mul_wrap : i64_mul (i64_lit 4294967296 eq_refl) (i64_lit 4294967296 eq_refl) = i64_lit 0 eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_beyond62 : i64_add (i64_lit 4611686018427387904 eq_refl) (i64_lit 4611686018427387903 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_add_wrap : i64_add (i64_lit 9223372036854775807 eq_refl) (i64_lit 1 eq_refl) = i64_lit (-9223372036854775808) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_sub_wrap : i64_sub (i64_lit (-9223372036854775808) eq_refl) (i64_lit 1 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_mul_wrap : i64_mul (i64_lit 4294967296 eq_refl) (i64_lit 4294967296 eq_refl) = i64_lit 0 eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_beyond62 : i64_add (i64_lit 4611686018427387904 eq_refl) (i64_lit 4611686018427387903 eq_refl) = i64_lit 9223372036854775807 eq_refl. Proof. reflexivity. Qed.
 (* No-overflow ⇒ EXACT, at the TRUE int64 width (the canonical overflow theorem;
    the bounded Sint63 version was removed when the int model migrated to GoI64). *)
 Theorem i64_add_no_overflow_exact : forall a b : GoI64,
   in_i64 (i64raw a + i64raw b)%Z = true -> i64raw (i64_add a b) = (i64raw a + i64raw b)%Z.
 Proof.
-  intros [a] [b]. unfold in_i64, i64_add, wrap64. cbn. intros H.
+  intros [a] [b]. unfold in_i64, i64_add, i64wrap, wrap64. cbn. intros H.
   apply andb_prop in H. destruct H as [H1 H2].
   apply Z.leb_le in H1. apply Z.ltb_lt in H2.
   rewrite Z.mod_small by lia. lia.
@@ -807,13 +807,13 @@ Definition i64_demo : IO unit :=
     all at the full width.  Machine-checked corner cases: [-7/2 = -3] (trunc, not the
     flooring [-4]); [-7%2 = -1] (sign of dividend); [MININT/-1 = MININT] (two's-
     complement overflow wraps); [1<<63 = MININT]; [-8>>1 = -4] (arithmetic shift). *)
-Example spec_i64_div_trunc : i64_div (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-3) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_mod_sign  : i64_mod (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-1) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_div_ovf   : i64_div (i64_lit (-9223372036854775808) eq_refl) (i64_lit (-1) eq_refl) eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_shl_wrap  : i64_shl (i64_lit 1 eq_refl) 63 eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_shr_arith : i64_shr (i64_lit (-8) eq_refl) 1 eq_refl = i64_lit (-4) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_and       : i64_and (i64_lit (-1) eq_refl) (i64_lit 255 eq_refl) = i64_lit 255 eq_refl. Proof. now vm_compute. Qed.
-Example spec_i64_not       : i64_not (i64_lit 5 eq_refl) = i64_lit (-6) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i64_div_trunc : i64_div (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-3) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_mod_sign  : i64_mod (i64_lit (-7) eq_refl) (i64_lit 2 eq_refl) eq_refl = i64_lit (-1) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_div_ovf   : i64_div (i64_lit (-9223372036854775808) eq_refl) (i64_lit (-1) eq_refl) eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_shl_wrap  : i64_shl (i64_lit 1 eq_refl) 63 eq_refl = i64_lit (-9223372036854775808) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_shr_arith : i64_shr (i64_lit (-8) eq_refl) 1 eq_refl = i64_lit (-4) eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_and       : i64_and (i64_lit (-1) eq_refl) (i64_lit 255 eq_refl) = i64_lit 255 eq_refl. Proof. reflexivity. Qed.
+Example spec_i64_not       : i64_not (i64_lit 5 eq_refl) = i64_lit (-6) eq_refl. Proof. reflexivity. Qed.
 Definition i64_ops_demo : IO unit :=
   bind (println [ any (i64_div (i64_lit 9000000000000000000 eq_refl) (i64_lit 7 eq_refl) eq_refl)  (* 1285714285714285714 *)
                 ; any (i64_shl (i64_lit 1 eq_refl) 40 eq_refl) ])  (* 1099511627776 = 2^40 *)
