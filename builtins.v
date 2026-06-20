@@ -179,9 +179,15 @@ Arguments gm_loc {K V} _.
 
     Extend this inductive as new Go types are added to builtins. *)
 
+(* [iN_norm] (8-bit shown) hoisted here so the signed wrapper records can carry a PROVENANCE
+   invariant "the carrier is in the image of normalization" — i.e. it is a valid sign-extended
+   N-bit value (parallel to GoFloat32's [f32_round] provenance).  Body uses only [PrimInt63]. *)
+Definition i8_norm (x : int) : int :=
+  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
+
 (* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
 Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true) }.
-Record GoI8 := MkI8 { i8raw : int }.
+Record GoI8 := MkI8 { i8raw : int ; i8ok : Squash (exists a, i8raw = i8_norm a) }.
 Record GoU16 := MkU16 { u16raw : int ; u16ok : Squash ((u16raw <? 65536)%uint63 = true) }.
 Record GoI16 := MkI16 { i16raw : int }.
 Record GoU32 := MkU32 { u32raw : int ; u32ok : Squash ((u32raw <? 4294967296)%uint63 = true) }.
@@ -355,7 +361,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TInt64   => 0%uint63
   | TFloat64 => 0%float
   | TString  => EmptyString
-  | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63
+  | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TU16 => MkU16 0%uint63 (squash eq_refl) | TI16 => MkI16 0%uint63
   | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63
   | TI64 => MkI64 0%Z
@@ -779,12 +785,14 @@ Notation GoByte := GoU8.
     is erased in extraction, so the Go is unchanged.  The [*_norm] helpers stay
     [int -> int] (raw mask + sign-extend); the typed ops wrap with the record
     constructor. *)
-Definition i8_norm (x : int) : int :=
-  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
-Definition i8_lit (x : int) (_ : (Sint63.leb (-128)%sint63 x && Sint63.ltb x 128)%bool = true) : GoI8 := MkI8 x.
-Definition i8_add (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.add (i8raw a) (i8raw b))).
-Definition i8_sub (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.sub (i8raw a) (i8raw b))).
-Definition i8_mul (a b : GoI8) : GoI8 := MkI8 (i8_norm (PrimInt63.mul (i8raw a) (i8raw b))).
+(* [i8_norm] is hoisted up to the wrapper-record block (the GoI8 provenance invariant needs it).
+   [i8wrap] is the internal constructor: normalize to 8-bit signed + carry the (trivial) provenance
+   proof, so a forged [MkI8 200 _] is unconstructable (200 is not in [i8_norm]'s image). *)
+Definition i8wrap (x : int) : GoI8 := MkI8 (i8_norm x) (squash (ex_intro _ x eq_refl)).
+Definition i8_lit (x : int) (_ : (Sint63.leb (-128)%sint63 x && Sint63.ltb x 128)%bool = true) : GoI8 := i8wrap x.
+Definition i8_add (a b : GoI8) : GoI8 := i8wrap (PrimInt63.add (i8raw a) (i8raw b)).
+Definition i8_sub (a b : GoI8) : GoI8 := i8wrap (PrimInt63.sub (i8raw a) (i8raw b)).
+Definition i8_mul (a b : GoI8) : GoI8 := i8wrap (PrimInt63.mul (i8raw a) (i8raw b)).
 Definition i8_eqb (a b : GoI8) : bool := PrimInt63.eqb (i8raw a) (i8raw b).
 Definition i8_ltb (a b : GoI8) : bool := Sint63.ltb (i8raw a) (i8raw b).   (* SIGNED comparison *)
 Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
@@ -844,6 +852,9 @@ Fail Definition u8_u16_no_mix (x : GoU8) (y : GoU16) : GoU16 := u16_add y x.
 (* Build-checked (Go spec "Constants"): out-of-range constants are UNREPRESENTABLE
    (a compile error), per width — no silent wrap. *)
 Fail Definition i8_const_oob  : GoI8  := i8_lit  200    eq_refl.   (* > 127 *)
+(* Build-checked: the RAW constructor cannot forge an out-of-range int8 — the provenance proof
+   [exists a, 200 = i8_norm a] is false (200 is not a normalized 8-bit signed value). *)
+Fail Definition i8_forged : GoI8 := MkI8 200 (squash (ex_intro _ 200 eq_refl)).
 Fail Definition u16_const_oob : GoU16 := u16_lit 70000  eq_refl.   (* >= 2^16 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range uint16 (SProp range proof). *)
 Fail Definition u16_forged : GoU16 := MkU16 70000 (squash eq_refl).
@@ -867,11 +878,11 @@ Definition u8_or      (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.lor  (u8raw a) 
 Definition u8_xor     (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.lxor (u8raw a) (u8raw b)).
 Definition u8_andnot  (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.land (u8raw a) (PrimInt63.lxor (u8raw b) 255)).
 Definition u8_not     (a   : GoU8)  : GoU8  := u8wrap (PrimInt63.lxor (u8raw a) 255).
-Definition i8_and     (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.land (i8raw a) (i8raw b))).
-Definition i8_or      (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lor  (i8raw a) (i8raw b))).
-Definition i8_xor     (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lxor (i8raw a) (i8raw b))).
-Definition i8_andnot  (a b : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.land (i8raw a) (PrimInt63.lxor (i8raw b) 255))).
-Definition i8_not     (a   : GoI8)  : GoI8  := MkI8  (i8_norm (PrimInt63.lxor (i8raw a) 255)).
+Definition i8_and     (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.land (i8raw a) (i8raw b))).
+Definition i8_or      (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lor  (i8raw a) (i8raw b))).
+Definition i8_xor     (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) (i8raw b))).
+Definition i8_andnot  (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.land (i8raw a) (PrimInt63.lxor (i8raw b) 255))).
+Definition i8_not     (a   : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) 255)).
 Definition u16_and    (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (u16raw a) (u16raw b)).
 Definition u16_or     (a b : GoU16) : GoU16 := u16wrap (PrimInt63.lor  (u16raw a) (u16raw b)).
 Definition u16_xor    (a b : GoU16) : GoU16 := u16wrap (PrimInt63.lxor (u16raw a) (u16raw b)).
@@ -905,8 +916,8 @@ Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : int).
     [intN] (so Go's [>>] is arithmetic) — both correct with no mask. *)
 Definition u8_shl  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := u8wrap (PrimInt63.land (PrimInt63.lsl (u8raw x) k) 255).
 Definition u8_shr  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := u8wrap (PrimInt63.lsr (u8raw x) k).
-Definition i8_shl  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := MkI8  (i8_norm (PrimInt63.lsl (i8raw x) k)).
-Definition i8_shr  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := MkI8  (i8_norm (PrimInt63.asr (i8raw x) k)).
+Definition i8_shl  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.lsl (i8raw x) k)).
+Definition i8_shr  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.asr (i8raw x) k)).
 Definition u16_shl (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := u16wrap (PrimInt63.land (PrimInt63.lsl (u16raw x) k) 65535).
 Definition u16_shr (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := u16wrap (PrimInt63.lsr (u16raw x) k).
 Definition i16_shl (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 := MkI16 (i16_norm (PrimInt63.lsl (i16raw x) k)).
@@ -939,7 +950,7 @@ Definition int_of_i8  (x : GoI8)  : int := i8raw x.
 Definition int_of_u16 (x : GoU16) : int := u16raw x.
 Definition int_of_i16 (x : GoI16) : int := i16raw x.
 Definition u8_of_int  (x : int) : GoU8  := u8wrap (PrimInt63.land x 255).
-Definition i8_of_int  (x : int) : GoI8  := MkI8  (i8_norm x).
+Definition i8_of_int  (x : int) : GoI8  := i8wrap (i8_norm x).
 Definition u16_of_int (x : int) : GoU16 := u16wrap (PrimInt63.land x 65535).
 Definition i16_of_int (x : int) : GoI16 := MkI16 (i16_norm x).
 
@@ -982,8 +993,8 @@ Definition i64_of_i32 (a : GoI32) : GoI64 := MkI64 (Sint63.to_Z (i32raw a)).
       = -128] (two's-complement wrap), and [norm] gives exactly that. *)
 Definition u8_div  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (PrimInt63.divs (u8raw a) (u8raw b)).
 Definition u8_mod  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (PrimInt63.mods (u8raw a) (u8raw b)).
-Definition i8_div  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := MkI8  (i8_norm (PrimInt63.divs (i8raw a) (i8raw b))).
-Definition i8_mod  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := MkI8  (i8_norm (PrimInt63.mods (i8raw a) (i8raw b))).
+Definition i8_div  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.divs (i8raw a) (i8raw b))).
+Definition i8_mod  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.mods (i8raw a) (i8raw b))).
 Definition u16_div (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (PrimInt63.divs (u16raw a) (u16raw b)).
 Definition u16_mod (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (PrimInt63.mods (u16raw a) (u16raw b)).
 Definition i16_div (a b : GoI16) (_ : (PrimInt63.eqb (i16raw b) 0) = false) : GoI16 := MkI16 (i16_norm (PrimInt63.divs (i16raw a) (i16raw b))).
@@ -1339,7 +1350,7 @@ Definition f64_of_i64 (a : GoI64) : float :=
     as the [of_int] narrows are.  Mirrors each [uN_of_int]/[iN_of_int] structure so it stays a
     NAMED call the recognizer fires on (not force-inlined). *)
 Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 255).
-Definition i8_of_i64  (a : GoI64) : GoI8  := MkI8  (i8_norm  (Uint63.of_Z (i64raw a))).
+Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i8_norm  (Uint63.of_Z (i64raw a))).
 Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 65535).
 Definition i16_of_i64 (a : GoI64) : GoI16 := MkI16 (i16_norm (Uint63.of_Z (i64raw a))).
 Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).

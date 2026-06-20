@@ -611,9 +611,9 @@ Definition u8_demo : IO unit :=
     [-106] (150 sign-extended from 8 bits), and the wrap is machine-checked.  The
     sign-extension is the harder case the model must get right. *)
 Example i8_add_wraps : i8_add (i8_lit 100 eq_refl) (i8_lit 50 eq_refl) = i8_lit (-106) eq_refl.
-Proof. now vm_compute. Qed.                          (* 100+50=150 → -106 *)
+Proof. reflexivity. Qed.                             (* 100+50=150 → -106 (reflexivity: GoI8 carries an SProp provenance proof) *)
 Example i8_sub_wraps : i8_sub (i8_lit (-128) eq_refl) (i8_lit 1 eq_refl) = i8_lit 127 eq_refl.
-Proof. now vm_compute. Qed.                          (* -128 - 1 wraps to 127 *)
+Proof. reflexivity. Qed.                             (* -128 - 1 wraps to 127 *)
 Definition i8_demo : IO unit :=
   bind (println [any (i8_add (i8_lit 100 eq_refl) (i8_lit 50 eq_refl))])      (fun _ =>   (* -106 *)
   bind (println [any (i8_sub (i8_lit (-128) eq_refl) (i8_lit 1 eq_refl))])    (fun _ =>   (* 127  *)
@@ -655,8 +655,8 @@ Example spec_u8_or     : u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8
 Example spec_u8_xor    : u8_xor    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 204 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_andnot : u8_andnot (u8_lit 240 eq_refl) (u8_lit 60 eq_refl) = u8_lit 192 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_not    : u8_not    (u8_lit 240 eq_refl)                     = u8_lit 15  eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_not    : i8_not    (i8_lit 5 eq_refl)                       = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i8_andnot : i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl) = i8_lit (-6) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_not    : i8_not    (i8_lit 5 eq_refl)                       = i8_lit (-6) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_andnot : i8_andnot (i8_lit (-1) eq_refl) (i8_lit 5 eq_refl) = i8_lit (-6) eq_refl. Proof. reflexivity. Qed.
 Definition bitwise_demo : IO unit :=
   bind (println [ any (u8_and    (u8_lit 240 eq_refl) (u8_lit 60 eq_refl))      (* 48  *)
                 ; any (u8_or     (u8_lit 240 eq_refl) (u8_lit 60 eq_refl))      (* 252 *)
@@ -677,9 +677,9 @@ Definition bitwise_demo : IO unit :=
 Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) 3 eq_refl = u8_lit 8    eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) 8 eq_refl = u8_lit 0    eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) 4 eq_refl = u8_lit 15   eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) 1 eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) 1 eq_refl = i8_lit (-2) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) 3 eq_refl = i8_lit (-1) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) 1 eq_refl = i8_lit (-128) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) 1 eq_refl = i8_lit (-2) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) 3 eq_refl = i8_lit (-1) eq_refl. Proof. reflexivity. Qed.
 Definition shift_demo : IO unit :=
   bind (println [ any (u8_shl (u8_lit 1   eq_refl) 3 eq_refl)      (* 8  *)
                 ; any (u8_shl (u8_lit 1   eq_refl) 8 eq_refl)      (* 0  (over-width) *)

@@ -112,8 +112,12 @@ carriers are defeq; value witnesses use `reflexivity` (the VM doesn't decide SPr
 irrelevance, the kernel does).  Extraction unchanged (the SProp field erases; Go is
 byte-identical, golden-stable).  **`GoU16` + `GoU32` sealed the same way (2026-06-20)** — SProp `Squash (uNraw <? 2^N = true)`,
 `uNwrap` + a `land`-bound lemma, `uN_forged` `Fail` test.  The unsigned-mask trio (U8/U16/U32) is
-done.  *Remaining:* `GoI8`/`GoI16`/`GoI32` (sign-extend `iN` need the `-2^(N-1) ≤ x < 2^(N-1)`
-bound, not a single `land`) and `GoI64`/`GoU64` (Z-carried range) — one per loop iteration.
+done.  **`GoI8` sealed (2026-06-20) with a PROVENANCE invariant** — the sign-extend bound is
+two-sided and fiddly to prove, so (as for GoFloat32) `GoI8` carries `Squash (exists a, i8raw =
+i8_norm a)` ("the carrier is a normalized 8-bit signed value").  `i8wrap x := MkI8 (i8_norm x)
+(squash (ex_intro _ x eq_refl))` — the proof is `eq_refl`, NO bound lemma; `MkI8 200 _` is
+unconstructable (200 ∉ image of `i8_norm`; `i8_forged` `Fail` test).  *Remaining:* `GoI16`/`GoI32`
+(same provenance shape, `iN_norm`) and `GoI64`/`GoU64` (Z-carried range) — one per loop iteration.
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may
