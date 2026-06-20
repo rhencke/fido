@@ -197,7 +197,18 @@ Qed.
     ============================================================================ *)
 Inductive PAct :=
   | PSend (c:nat) | PRecv (c:nat) | PWrite (l:nat) | PRead (l:nat)
-  | PSpawn (child:nat).   (* spawn goroutine [child] (its body pre-registered in cfg_prog) *)
+  | PSpawn (child:nat)   (* spawn goroutine [child] (its body pre-registered in cfg_prog) *)
+  | PSelect (cs:list nat).
+  (* [select] over RECEIVE cases [cs]: receive on ANY ONE channel in [cs] that is ready.
+     This is the AUTHORITATIVE select model (the sequential [run_io] [select_recv2] is a
+     non-authoritative ch1-priority interpreter — see the select code review).  Its
+     [step_select] rule below fires for EVERY ready channel, so a config with two ready
+     cases has TWO successors: select is genuinely NONDETERMINISTIC here (Go's
+     pseudo-random choice), and a safety property must hold for ALL of them.  When NO case
+     is ready it has no [step] at all — so empty-select is a LOCAL non-step that contributes
+     to global deadlock [Stuck], NEVER a fabricated value.  (Scope: every case shares the
+     post-select continuation [rest]; per-case branch BODIES are the orthogonal goto-dispatch
+     dimension — [select2] in builtins.v — not what the choice/blocking review flagged.) *)
 
 Definition upd {A} (f : nat -> A) (k : nat) (v : A) : nat -> A :=
   fun x => if Nat.eqb x k then v else f x.
@@ -244,7 +255,16 @@ Inductive step : Config -> Config -> Prop :=
       lv tid = true -> p tid = PSpawn child :: rest ->
       step (mkCfg p b lv tr)
            (mkCfg (upd p tid rest) b (upd lv child true)
-                  (tr ++ [mkEv tid (KSpawn child)])).
+                  (tr ++ [mkEv tid (KSpawn child)]))
+  (* select: the chosen channel [c] must be one of the cases ([In c cs]) AND ready
+     ([b c = s :: brest]).  Like [step_recv] but over a SET of channels — every ready
+     case yields a distinct step, so [step] is nondeterministic at a select. *)
+  | step_select : forall p b lv tr tid cs c rest s brest,
+      lv tid = true -> p tid = PSelect cs :: rest ->
+      In c cs -> b c = s :: brest ->
+      step (mkCfg p b lv tr)
+           (mkCfg (upd p tid rest) (upd b c brest) lv
+                  (tr ++ [mkEv tid (KRecv c s)])).
 
 Definition BufOk (cfg : Config) : Prop :=
   forall c s, In s (cfg_bufs cfg c) ->
@@ -312,7 +332,8 @@ Proof.
     | p b lv tr tid c rest s brest Hlv Hp Hbc
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid l rest Hlv Hp
-    | p b lv tr tid child rest Hlv Hp ];
+    | p b lv tr tid child rest Hlv Hp
+    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc ];
     split.
   (* ---- send ---- *)
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
@@ -350,6 +371,18 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
   - intros c0 s Hin. cbn [cfg_bufs cfg_trace] in Hin |- *.
     destruct (Hbuf c0 s Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+  (* ---- select (receives on the CHOSEN ready channel; identical to recv) ---- *)
+  - apply WfTrace_app; [exact Hwf | cbn].
+    assert (Hins : In s (b c)) by (rewrite Hbc; left; reflexivity).
+    destruct (Hbuf c s Hins) as [Hlt [e' [He' Hk']]].
+    split; [exact Hlt | exists e'; split; [exact He'|exact Hk']].
+  - intros c0 s0 Hin0. cbn [cfg_bufs cfg_trace] in Hin0 |- *.
+    destruct (Nat.eq_dec c0 c) as [Heq|Hne].
+    + subst c0. rewrite upd_same in Hin0.
+      assert (Hin' : In s0 (b c)) by (rewrite Hbc; right; exact Hin0).
+      destruct (Hbuf c s0 Hin') as [Hlt Hex]. apply BufOk_pos_app; assumption.
+    + rewrite (upd_other _ _ _ _ Hne) in Hin0.
+      destruct (Hbuf c0 s0 Hin0) as [Hlt Hex]. apply BufOk_pos_app; assumption.
 Qed.
 
 Inductive steps : Config -> Config -> Prop :=
@@ -518,7 +551,8 @@ Proof.
     | p b lv tr tid c rest s brest Hlv Hp Hbc
     | p b lv tr tid l rest Hlv Hp
     | p b lv tr tid l rest Hlv Hp
-    | p b lv tr tid child rest Hlv Hp ];
+    | p b lv tr tid child rest Hlv Hp
+    | p b lv tr tid cs c rest s brest Hlv Hp Hin Hbc ];
     intros c0; cbn [cfg_bufs cfg_trace].
   - (* send *) destruct (Nat.eq_dec c0 c) as [->|Hne].
     + rewrite upd_same. apply Incr_app.
@@ -532,6 +566,11 @@ Proof.
   - exact (Hsort c0).
   - exact (Hsort c0).
   - exact (Hsort c0).
+  - (* select: same as recv (the chosen channel loses its head) *)
+    destruct (Nat.eq_dec c0 c) as [->|Hne].
+    + rewrite upd_same. specialize (Hsort c). cbn [cfg_bufs] in Hsort.
+      rewrite Hbc in Hsort. apply Incr_tail in Hsort. exact Hsort.
+    + rewrite (upd_other _ _ _ _ Hne). exact (Hsort c0).
 Qed.
 
 Lemma init_sorted : forall p, BufSorted (init_cfg p).
@@ -582,6 +621,52 @@ Definition block_cfg : Config :=
         (fun _ => []) (fun t => Nat.eqb t 0) [].
 
 Lemma block_stuck : Stuck block_cfg.
+Proof.
+  split.
+  - intros [cfg' Hstep]. inversion Hstep; subst; cbn in *;
+      match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+      cbn in *; discriminate.
+  - intros Hdone. specialize (Hdone 0 eq_refl). discriminate Hdone.
+Qed.
+
+(** ── SELECT, the AUTHORITATIVE relational semantics: the two code-review findings, proven ──
+
+    These two witnesses are the FIX for the select code review (the sequential [run_io]
+    [select_recv2] is a deterministic, blocking-idealised UNDER-APPROXIMATION; here select is
+    a first-class operational action whose [step_select] rule is the authoritative truth). *)
+
+(** FINDING 1 — CHOICE IS NONDETERMINISTIC.  A config with TWO ready cases has TWO distinct
+    successors (receive ch0 vs receive ch1, distinguishable in the trace).  Go picks
+    pseudo-randomly; the sequential ch1-priority interpreter realises only the first — so a
+    safety property must hold for BOTH, never just the deterministic one.  ([sel_ready_cfg] is
+    a post-send state: positions 0 and 1 are the two earlier sends, so it is [Inv]-valid.) *)
+Definition sel_ready_cfg : Config :=
+  mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
+        (fun c => if Nat.eqb c 0 then [0] else if Nat.eqb c 1 then [1] else [])
+        (fun t => Nat.eqb t 0)
+        [mkEv 0 (KSend 0); mkEv 0 (KSend 1)].
+
+Theorem select_nondeterministic :
+  exists cfg1 cfg2, step sel_ready_cfg cfg1 /\ step sel_ready_cfg cfg2 /\
+                    cfg_trace cfg1 <> cfg_trace cfg2.
+Proof.
+  eexists. eexists. split; [| split].
+  - eapply step_select with (tid:=0) (cs:=[0;1]) (c:=0) (s:=0);
+      [ reflexivity | reflexivity | left; reflexivity | reflexivity ].
+  - eapply step_select with (tid:=0) (cs:=[0;1]) (c:=1) (s:=1);
+      [ reflexivity | reflexivity | right; left; reflexivity | reflexivity ].
+  - cbn. intro H. inversion H.
+Qed.
+
+(** FINDING 2 — EMPTY SELECT IS DEADLOCK, NOT A VALUE.  A goroutine selecting on channels with
+    no ready case (and no other goroutine to make one ready) is [Stuck] — exactly like
+    [block_cfg], NOT the fabricated [(0, zero)] the sequential interpreter returns.  Blocking
+    lives in the GLOBAL transition relation (no enabled step), per the review. *)
+Definition sel_block_cfg : Config :=
+  mkCfg (fun t => if Nat.eqb t 0 then [PSelect [0; 1]] else [])
+        (fun _ => []) (fun t => Nat.eqb t 0) [].
+
+Lemma sel_block_stuck : Stuck sel_block_cfg.
 Proof.
   split.
   - intros [cfg' Hstep]. inversion Hstep; subst; cbn in *;
