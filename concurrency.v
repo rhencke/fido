@@ -1887,6 +1887,63 @@ Proof.
   - cbn in Hp. injection Hp as Hcs. subst cases. cbn in Hnone. discriminate Hnone.
 Qed.
 
+(** ── CLOSED IS PERMANENT (Go: a channel, once closed, stays closed — never reopens; recvs keep
+    returning the zero value for the rest of the run). ──
+
+    [closedb] only GROWS along execution: every [rstep] appends exactly one event to the trace, and
+    [closedb] (an [existsb] over the trace) is monotone under append.  This is the trace-core
+    FOUNDATION for making the operational close/send faithful to Go's double-close / send-on-closed
+    PANIC — the genuinely-open sub-item.  (The IO/[World] model ALREADY panics on those:
+    [close_chan]/[send] [OPanic] when closed, witnessed by [double_close_panics]/[send_closed_panics];
+    the remaining gap is the rich calculus's UNGUARDED [rstep_close]/[rstep_send], which silently
+    re-close.  A guard [closedb tr c = false] makes them faithful — and permanence is what makes the
+    guard meaningful: a closed channel can never be validly re-closed.  That guard + a panic-aware
+    deadlock characterization is the next slice.) *)
+
+Lemma closedb_app : forall t1 t2 c, closedb (t1 ++ t2) c = orb (closedb t1 c) (closedb t2 c).
+Proof. intros t1 t2 c. unfold closedb. apply existsb_app. Qed.
+
+(* Every [rstep] APPENDS exactly one event — buffers/heap/liveness may change, the trace only grows. *)
+Lemma rstep_grows_trace : forall cfg cfg', rstep cfg cfg' ->
+  exists e, rc_trace cfg' = rc_trace cfg ++ [e].
+Proof. intros cfg cfg' Hstep. destruct Hstep; cbn [rc_trace]; eexists; reflexivity. Qed.
+
+Lemma rstep_closedb_mono : forall cfg cfg' c, rstep cfg cfg' ->
+  closedb (rc_trace cfg) c = true -> closedb (rc_trace cfg') c = true.
+Proof.
+  intros cfg cfg' c Hstep H.
+  destruct (rstep_grows_trace _ _ Hstep) as [e He]. rewrite He, closedb_app, H. reflexivity.
+Qed.
+
+Lemma rsteps_closedb_mono : forall cfg cfg' c, rsteps cfg cfg' ->
+  closedb (rc_trace cfg) c = true -> closedb (rc_trace cfg') c = true.
+Proof.
+  intros cfg cfg' c Hsteps. induction Hsteps as [|a b d Hab Hbd IH]; intros H; [exact H|].
+  apply IH. exact (rstep_closedb_mono _ _ c Hab H).
+Qed.
+
+(** PAYOFF 1: channel 5 of [rclosed_chan_cfg] is closed in EVERY reachable successor — closedness
+    never lapses, so the channel never "reopens". *)
+Theorem rclosed_chan_stays_closed : forall cfg,
+  rsteps rclosed_chan_cfg cfg -> closedb (rc_trace cfg) 5 = true.
+Proof. intros cfg Hsteps. apply (rsteps_closedb_mono _ _ _ Hsteps). reflexivity. Qed.
+
+(** PAYOFF 2 (the operational form of Go's "receive from a closed channel proceeds immediately"):
+    from ANY config where [c] is closed, at ANY reachable later state, a live goroutine parked at
+    [CRecv c] on a drained buffer CAN step (closed-recv, yielding zero) — permanence guarantees the
+    closedness is still there to fire it.  No deadlock is possible on a closed channel. *)
+Theorem reachable_closed_recv_can_step : forall cfg0 cfg tid c f,
+  closedb (rc_trace cfg0) c = true -> rsteps cfg0 cfg ->
+  rc_live cfg tid = true -> rc_prog cfg tid = CRecv c f -> rc_bufs cfg c = [] ->
+  rcan_step cfg.
+Proof.
+  intros cfg0 cfg tid c f Hcl0 Hsteps Hlive Hp Hb.
+  pose proof (rsteps_closedb_mono _ _ c Hsteps Hcl0) as Hcl.
+  destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+  destruct cfg as [p b h lv tr]; cbn [rc_live rc_prog rc_bufs rc_trace] in *.
+  eexists. eapply rstep_recv_closed; eassumption.
+Qed.
+
 (** ── CSELECT, the authoritative select in the RICH (value-carrying) calculus: the two select
     code-review findings #3 proven here end-to-end. ── *)
 

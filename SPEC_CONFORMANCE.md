@@ -716,9 +716,23 @@ closed-recv trace is well-formed) and `closed_recv_hb` (close happens-before the
 (closed-recv keeps `Inv`; `WfTrace` discharged by the close back-pointer).  Witnesses
 `closed_recv_can_step` / `closed_select_can_step` (a closed-drained recv/select is ENABLED, where
 `block_stuck`/`sel_block_stuck` show the OPEN-empty one is stuck) and `closed_recv_preserves_inv`.
-*Remaining:* the same closed steps in the rich `rstep`/`Cmd` calculus; `close`-on-closed and
-`send`-on-closed panics (faithfulness, separate); the full WORLD-level `select_recv2`↔`CSelect`
-bridge.
+**Rich-calculus port DONE (250a8c3):** the same closed steps in the value-carrying `rstep`/`Cmd`
+calculus (`CClose` + `rstep_close` + `rstep_recv_closed` / `rstep_select_closed`, binding the zero
+value); witnesses `rclosed_recv_can_step` / `rclosed_select_can_step` / `rclosed_recv_preserves_inv`;
+Keystone `SimInv` carries a `NoCloseTrace` invariant.  **Closed-PRECISE deadlock DONE (e11b60f):**
+`closedb` (decidable trace-closedness) + `sel_ready_cl` (closed-aware select readiness) make `blocked`
+exact — a closed-drained recv/select is READY, not blocked; `ready_can_step`/`rstuck_blocked` are now
+exact inverses (`rclosed_recv_not_blocked` / `rclosed_select_not_blocked`).  **Closed PERMANENCE DONE
+(2026-06-20):** `closedb` only grows along `rstep` (every step appends one event; `existsb` monotone)
+— `rsteps_closedb_mono`, so a channel once closed stays closed; `rclosed_chan_stays_closed` and
+`reachable_closed_recv_can_step` (a closed-drained recv can step at ANY reachable later state — no
+deadlock on a closed channel).
+*Remaining:* `close`-on-closed and `send`-on-closed panics are DONE at the IO/`World` level
+(`double_close_panics` / `send_closed_panics` — see [Close] / [Send] below), but the rich-calculus
+`rstep_close`/`rstep_send` fire UNGUARDED, so the operational model still admits a double-close trace
+Go would panic on; the faithful fix is a guard `closedb tr c = false` + a panic-aware deadlock
+characterization (stuck ⇒ done ∨ blocked ∨ panicking) — permanence above is its foundation.  Also:
+the full WORLD-level `select_recv2`↔`CSelect` bridge.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.
