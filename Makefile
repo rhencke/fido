@@ -60,7 +60,13 @@ run: build
 # green.  [extract] re-runs the prover (Docker layers cached if unchanged), so
 # this always validates freshly-extracted Go (and fails loud if a proof broke).
 check: extract
-	@$(GORUN) > /tmp/fido_out.txt 2>&1 || true; \
+	@set +e; $(GORUN) > /tmp/fido_out.txt 2>&1; rc=$$?; set -e; \
+	if [ $$rc -ne 0 ]; then \
+	  echo "fido: PROGRAM EXITED NON-ZERO (status $$rc) — an uncaught panic / crash, NOT a benign diff:"; \
+	  echo ""; cat /tmp/fido_out.txt; \
+	  echo ""; echo "fido: a faithful Fido program runs to completion (exit 0)."; \
+	  exit 1; \
+	fi; \
 	if diff -u expected_output.txt /tmp/fido_out.txt; then \
 	  echo "fido: output matches golden ✓"; \
 	else \
@@ -76,7 +82,13 @@ check: extract
 # step done beside it.  Review the printed delta; if it is more than you intended, your
 # change had an unexpected effect somewhere.
 golden: extract
-	@$(GORUN) > /tmp/fido_new.txt 2>&1 || true; \
+	@set +e; $(GORUN) > /tmp/fido_new.txt 2>&1; rc=$$?; set -e; \
+	if [ $$rc -ne 0 ]; then \
+	  echo "fido: REFUSING TO BLESS — program EXITED NON-ZERO (status $$rc), an uncaught panic / crash:"; \
+	  echo ""; cat /tmp/fido_new.txt; \
+	  echo ""; echo "fido: fix the crash before re-blessing (a faithful Fido program exits 0)."; \
+	  exit 1; \
+	fi; \
 	echo "fido: golden delta (committed → new), review before blessing:"; \
 	diff -u expected_output.txt /tmp/fido_new.txt || true; \
 	cp /tmp/fido_new.txt expected_output.txt; \
