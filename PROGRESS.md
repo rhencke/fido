@@ -661,22 +661,30 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
   an ordinary value; a returned/shared channel handle is the same handle (reference semantics).
 
 **The two GENUINE limits (TODO):**
-1. **A struct (or any non-taggable aggregate) cannot be a channel PAYLOAD / `any` box / map
-   element.**  `send`/`any`/map ops are gated on a `GoTypeTag`, and `GoTypeTag` has NO struct
-   constructor (builtins.v:3579) — only scalars + `TChan`/`TSlice`/`TMap`/`TArrow`.  So a struct
-   FIELD that is a channel is fine, but *sending the struct itself over a channel* fails loud (you
-   cannot construct the tag `send` demands; it does not silently misbehave).  *Fix:* a structural
-   `GoTypeTag` for records (or a derive-the-tag mechanism), which also unlocks structs in `any` and
-   as map keys/values.  Related: the heap-side struct-tag gap already noted at ladder item 9.
+1. **A struct or POINTER (any non-taggable aggregate) cannot be a channel PAYLOAD / `any` box /
+   map element.**  `send`/`any`/map ops are gated on a `GoTypeTag`, and `GoTypeTag` has NO struct
+   constructor (builtins.v:3579) and no `TPtr`/`TRef` — only scalars + `TChan`/`TSlice`/`TMap`/
+   `TArrow`.  So a struct/`Ptr` FIELD or pointee is fine, but *sending the struct or a `Ptr A`
+   itself over a channel* (`chan *T`) fails loud (you cannot construct the tag `send` demands; it
+   does not silently misbehave).  *Fix:* a structural `GoTypeTag` for records + a `TPtr`/`TRef`
+   constructor (or a derive-the-tag mechanism), which also unlocks structs/pointers in `any` and as
+   map keys/values.  Related: the heap-side struct-tag gap already noted at ladder item 9.
 2. **The rich typed channel values and the now-correct concurrent select live in DIFFERENT
    layers.**  The typed sequential `IO`/`World` model carries arbitrary typed payloads (nested
-   channels, struct fields, closure captures); the operational `step`/`rstep` calculus — where
-   nondeterministic choice + blocking-as-`Stuck` were just proven (`select_nondeterministic` /
-   `sel_block_stuck`, 2026-06-20) — carries UNTYPED `nat` values.  So there is no *end-to-end*
-   "concurrent select over a channel of structs / nested channels": the synchronization truth is
-   payload-type-agnostic, the typing is in the other layer.  *Fix:* carry typed values in the
-   operational calculus (or a refinement relating the two) — the same typed-sequential ↔
-   operational bridge the goto-substrate unification (ladder item, ref. Known gaps #10) targets.
+   channels, struct fields, closure captures, aliasing `Ptr A` pointers via `ptr_get`/`ptr_set`);
+   the operational `step`/`rstep` calculus — where nondeterministic choice + blocking-as-`Stuck`
+   were just proven (`select_nondeterministic` / `sel_block_stuck`, 2026-06-20) — carries UNTYPED
+   `nat` values/locations.  So there is no *end-to-end* "concurrent select over a channel of
+   structs / nested channels", nor a typed "pointer sent over a channel, pointee mutated,
+   race-freedom guaranteed".  *The bones exist on the operational side:* shared-memory
+   `KWrite`/`KRead`, `TraceRace` (cross-goroutine conflicting accesses unordered by happens-before),
+   and `owned_race_free : Owned t → TraceRaceFree t` — the worked `mp_trace` is exactly
+   "write a location, hand off over a channel, read it": the send→recv orders the accesses, so it is
+   PROVEN race-free, and dropping the sync makes it a representable `TraceRace`.  What is missing is
+   the bridge: the race model is over untyped `nat` locations, not the typed `Ptr A` / `GoChan`.
+   *Fix:* carry typed values/locations in the operational calculus (or a refinement relating the
+   two) — the same typed-sequential ↔ operational bridge the goto-substrate unification (ladder
+   item, ref. Known gaps #10) targets.
 
 ---
 
