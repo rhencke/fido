@@ -184,7 +184,7 @@ Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true)
 Record GoI8 := MkI8 { i8raw : int }.
 Record GoU16 := MkU16 { u16raw : int ; u16ok : Squash ((u16raw <? 65536)%uint63 = true) }.
 Record GoI16 := MkI16 { i16raw : int }.
-Record GoU32 := MkU32 { u32raw : int }.
+Record GoU32 := MkU32 { u32raw : int ; u32ok : Squash ((u32raw <? 4294967296)%uint63 = true) }.
 Record GoI32 := MkI32 { i32raw : int }.
 (* FULL-WIDTH signed int64 (Go spec "Numeric types": [int64] is the set of all
    signed 64-bit integers).  Carried by [Z] — NOT the 63-bit [int] — so the model
@@ -357,7 +357,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TString  => EmptyString
   | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63
   | TU16 => MkU16 0%uint63 (squash eq_refl) | TI16 => MkI16 0%uint63
-  | TU32 => MkU32 0%uint63 | TI32 => MkI32 0%uint63
+  | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63
   | TI64 => MkI64 0%Z
   | TU64 => MkU64 0%Z
   | TUnit => tt
@@ -1006,24 +1006,36 @@ Fail Definition u8_div_zero : GoU8 := u8_div (u8_lit 1 eq_refl) (u8_lit 0 eq_ref
     the carrier's high bits never disturbs the low [w < 63] bits the mask keeps.
     (Only a 63-/64-bit-WIDE product genuinely needs the Z-based wide-int model.)
     Machine-checked: [spec_u32_mul_wrap]/[spec_i32_mul_wrap] in main.v. *)
-Definition u32_lit (x : int) (_ : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x.
-Definition u32_add (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
-Definition u32_sub (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
-Definition u32_mul (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.mul (u32raw a) (u32raw b)) 4294967295).  (* low 32 bits exact: 2^32 | 2^63 *)
+(** [land x (2^32-1)] is always [< 2^32] — the [uint32] range invariant (parallel to
+    [land255_lt256]).  [u32wrap] masks + carries the SProp proof; forged [MkU32 5000000000 _] is
+    unconstructable. *)
+Lemma land32_lt : forall x, (PrimInt63.land x 4294967295 <? 4294967296)%uint63 = true.
+Proof.
+  intro x. apply Uint63.ltb_spec. rewrite Uint63.land_spec'.
+  pose proof (Uint63.to_Z_bounded x) as Hb.
+  change (Uint63.to_Z 4294967295) with 4294967295%Z. change (Uint63.to_Z 4294967296) with 4294967296%Z.
+  replace 4294967295%Z with (Z.ones 32) by reflexivity.
+  rewrite Z.land_ones by lia. apply Z.mod_pos_bound. lia.
+Qed.
+Definition u32wrap (x : int) : GoU32 := MkU32 (PrimInt63.land x 4294967295) (squash (land32_lt x)).
+Definition u32_lit (x : int) (pf : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x (squash pf).
+Definition u32_add (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
+Definition u32_sub (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
+Definition u32_mul (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.mul (u32raw a) (u32raw b)) 4294967295).  (* low 32 bits exact: 2^32 | 2^63 *)
 Definition u32_eqb (a b : GoU32) : bool := PrimInt63.eqb (u32raw a) (u32raw b).
 Definition u32_ltb (a b : GoU32) : bool := PrimInt63.ltb (u32raw a) (u32raw b).
 Definition u32_leb (a b : GoU32) : bool := PrimInt63.leb (u32raw a) (u32raw b).
-Definition u32_and    (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (u32raw a) (u32raw b)).
-Definition u32_or     (a b : GoU32) : GoU32 := MkU32 (PrimInt63.lor  (u32raw a) (u32raw b)).
-Definition u32_xor    (a b : GoU32) : GoU32 := MkU32 (PrimInt63.lxor (u32raw a) (u32raw b)).
-Definition u32_andnot (a b : GoU32) : GoU32 := MkU32 (PrimInt63.land (u32raw a) (PrimInt63.lxor (u32raw b) 4294967295)).
-Definition u32_not    (a   : GoU32) : GoU32 := MkU32 (PrimInt63.lxor (u32raw a) 4294967295).
-Definition u32_shl (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := MkU32 (PrimInt63.land (PrimInt63.lsl (u32raw x) k) 4294967295).
-Definition u32_shr (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := MkU32 (PrimInt63.lsr (u32raw x) k).
-Definition u32_div (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := MkU32 (PrimInt63.divs (u32raw a) (u32raw b)).
-Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := MkU32 (PrimInt63.mods (u32raw a) (u32raw b)).
+Definition u32_and    (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (u32raw a) (u32raw b)).
+Definition u32_or     (a b : GoU32) : GoU32 := u32wrap (PrimInt63.lor  (u32raw a) (u32raw b)).
+Definition u32_xor    (a b : GoU32) : GoU32 := u32wrap (PrimInt63.lxor (u32raw a) (u32raw b)).
+Definition u32_andnot (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (u32raw a) (PrimInt63.lxor (u32raw b) 4294967295)).
+Definition u32_not    (a   : GoU32) : GoU32 := u32wrap (PrimInt63.lxor (u32raw a) 4294967295).
+Definition u32_shl (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.lsl (u32raw x) k) 4294967295).
+Definition u32_shr (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := u32wrap (PrimInt63.lsr (u32raw x) k).
+Definition u32_div (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.divs (u32raw a) (u32raw b)).
+Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.mods (u32raw a) (u32raw b)).
 Definition int_of_u32 (x : GoU32) : int := u32raw x.
-Definition u32_of_int (x : int) : GoU32 := MkU32 (PrimInt63.land x 4294967295).
+Definition u32_of_int (x : int) : GoU32 := u32wrap (PrimInt63.land x 4294967295).
 
 Definition i32_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
@@ -1065,6 +1077,8 @@ Definition i32_of_int (x : int) : GoI32 := MkI32 (i32_norm x).
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
 Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
 Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2^32 *)
+(* Build-checked: the RAW constructor cannot forge an out-of-range uint32 (SProp range proof). *)
+Fail Definition u32_forged : GoU32 := MkU32 5000000000 (squash eq_refl).
 
 (** ---- int64 — FULL-WIDTH signed 64-bit (Go spec "Numeric types") ----
 
@@ -1328,7 +1342,7 @@ Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z
 Definition i8_of_i64  (a : GoI64) : GoI8  := MkI8  (i8_norm  (Uint63.of_Z (i64raw a))).
 Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 65535).
 Definition i16_of_i64 (a : GoI64) : GoI16 := MkI16 (i16_norm (Uint63.of_Z (i64raw a))).
-Definition u32_of_i64 (a : GoI64) : GoU32 := MkU32 (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
+Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
 Definition i32_of_i64 (a : GoI64) : GoI32 := MkI32 (i32_norm (Uint63.of_Z (i64raw a))).
 
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for
