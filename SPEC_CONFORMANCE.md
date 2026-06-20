@@ -404,7 +404,20 @@ native Go `float32` `+ - * /` `< <= == > >= !=`, plus unary `-` (`f32_neg`) and 
 ABSTRACT smart-constructor type carrying an unforgeable `exists a, carrier = f32_round a` proof, so
 a non-representable literal cannot be injected (would disagree with Go on widening).  NaN and
 signed-zero corners machine-checked across negation/min/max (NaN propagates; `min(-0,+0) = -0`,
-`max(-0,+0) = +0`); see the Reconciliation note up top.
+`max(-0,+0) = +0`).
+**Conversions — ✓ faithful, machine-checked.**  `float32↔float64`, `float32↔int`, and float32
+constants all route through binary64, which is PROVABLY single-rounding-equivalent: binary64's
+53-bit significand exceeds `2·24 + 2 = 50`, so decimal/int → binary64 → binary32 equals a *direct*
+round to binary32 (the double-rounding-innocuous theorem — the intermediate adds no error).
+Witnessed: overflow → `+Inf` (`f32_overflow`), underflow → `0` (`f32_underflow`), `float32(2^24+1)
+= 2^24` (`f32_of_int_rounds`), `int(float32 3.7) = 3` truncate-toward-zero (`f32_to_int_trunc`),
+and `float32(0.1+0.2) = float32(0.3)` exact-rational constant fold, no double-rounding error
+(`f32_const_fold`).
+**⚠ Deferred (bounded, principled):** bit reinterpretation `math.Float32bits`/`Float32frombits`
+needs the `math` import (rule 5 — imports on hold, deferred not approximated) AND would expose
+that `SpecFloat` carries NO NaN payload (a substrate limit: `S754_nan` is payload-free), so
+bit-exact NaN-payload round-tripping is out of scope until both are addressed.
+See the Reconciliation note up top.
 
 ### [Comparison operators](https://go.dev/ref/spec#Comparison_operators) — ✓ conforms
 Spec: integers "in the usual way", floats "as defined by IEEE 754", bools equal

@@ -410,6 +410,25 @@ Definition f32_extra_demo : IO unit :=
   println [ any (f32_neg (f32_lit 1.5))             (* -1.5 *)
           ; any (f32_min (f32_lit 3) (f32_lit 5))   (* 3 *)
           ; any (f32_max (f32_lit 3) (f32_lit 5)) ]. (* 5 *)
+(** float32 RANGE + CONVERSION faithfulness (the float32 trap list).  Every float32↔(int/float64/
+    constant) path goes through binary64, which is PROVABLY single-rounding-equivalent: binary64's
+    53 bits exceed [2·24 + 2 = 50], so decimal/int → binary64 → binary32 equals a DIRECT round to
+    binary32 (the double-rounding-innocuous theorem — no extra error from the intermediate).
+    Machine-checked across the corners: *)
+Example f32_overflow  : PrimFloat.eqb (widen64 (f32_lit 1e40)) (PrimFloat.div 1 0) = true.   (* |x|>max → +Inf *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_underflow : PrimFloat.eqb (widen64 (f32_lit 1e-50)) 0 = true.                     (* below min subnormal → 0 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_of_int_rounds : f32_eqb (f32_of_f64 (f64_of_int 16777217%sint63)) (f32_lit 16777216) = true. (* float32(2^24+1)=2^24 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_to_int_trunc  : i64raw (i64_of_f64 (f64_of_f32 (f32_lit 3.7))) = 3%Z.             (* int(float32 3.7) trunc → 3 *)
+Proof. vm_compute. reflexivity. Qed.
+Example f32_const_fold : f32_eqb (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))))
+                                 (f32_of_f64 (f64_of_fconst (mkFC 3 10))) = true.   (* float32(0.1+0.2)=float32(0.3), exact fold *)
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_conv_demo : IO unit :=
+  println [ any (f32_of_f64 (f64_of_int 16777217%sint63))                       (* float32(2^24+1) = 1.6777216e7 *)
+          ; any (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))) ]. (* float32(0.1+0.2) = 0.3 *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2565,6 +2584,7 @@ Definition main_effect : IO unit :=
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
+  f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
