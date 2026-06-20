@@ -645,6 +645,39 @@ essentially complete**.  Verified present + extracting:
 Net: the project is far closer to "complete sans imports" than the loop framing implied — the
 bulk of remaining work is these named corners plus the concurrency proof, not missing builtins.
 
+### Channel-payload faithfulness — what composes vs. the two real limits (2026-06-20)
+
+Probing (a code-review thread) how faithfully channels compose as first-class values.
+**What WORKS — channels are first-class values (handles), so they compose freely:**
+- *Channels of channels of channels …* (any depth): `TChan : GoTypeTag A → GoTypeTag (GoChan A)`
+  is recursive, `send`/`recv`/`select_recv2`/`chan_buf` are `{A}`-polymorphic, and the channel
+  cell stores its element type existentially (`existT E (etag,(buf,cl))`) with a tag-checked read —
+  so `GoChan (GoChan (GoChan A))` is typed and sound; `tag_eq`/`zero_val` already recurse through
+  `TChan`.
+- *Channels captured in a lambda / goroutine closure*: a `GoChan A` is a value, captured like any
+  other; `go_spawn (send ta ch v)` → `go func(){ ch <- v }()` (main.v:1016), and `go`/`defer`
+  closures capture by VALUE (sidestepping Go's loop-variable gotcha).
+- *Channels in struct fields, returned, passed/aliased*: fine — a struct with a `GoChan` field is
+  an ordinary value; a returned/shared channel handle is the same handle (reference semantics).
+
+**The two GENUINE limits (TODO):**
+1. **A struct (or any non-taggable aggregate) cannot be a channel PAYLOAD / `any` box / map
+   element.**  `send`/`any`/map ops are gated on a `GoTypeTag`, and `GoTypeTag` has NO struct
+   constructor (builtins.v:3579) — only scalars + `TChan`/`TSlice`/`TMap`/`TArrow`.  So a struct
+   FIELD that is a channel is fine, but *sending the struct itself over a channel* fails loud (you
+   cannot construct the tag `send` demands; it does not silently misbehave).  *Fix:* a structural
+   `GoTypeTag` for records (or a derive-the-tag mechanism), which also unlocks structs in `any` and
+   as map keys/values.  Related: the heap-side struct-tag gap already noted at ladder item 9.
+2. **The rich typed channel values and the now-correct concurrent select live in DIFFERENT
+   layers.**  The typed sequential `IO`/`World` model carries arbitrary typed payloads (nested
+   channels, struct fields, closure captures); the operational `step`/`rstep` calculus — where
+   nondeterministic choice + blocking-as-`Stuck` were just proven (`select_nondeterministic` /
+   `sel_block_stuck`, 2026-06-20) — carries UNTYPED `nat` values.  So there is no *end-to-end*
+   "concurrent select over a channel of structs / nested channels": the synchronization truth is
+   payload-type-agnostic, the typing is in the other layer.  *Fix:* carry typed values in the
+   operational calculus (or a refinement relating the two) — the same typed-sequential ↔
+   operational bridge the goto-substrate unification (ladder item, ref. Known gaps #10) targets.
+
 ---
 
 Audit (2026-06-13 sweep) of the partial/unsafe primitives against the
