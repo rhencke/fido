@@ -786,6 +786,10 @@ func Complex_neg_demo() {
 	println(real(n), imag(n))
 }
 
+func Complex_const_runtime_demo() {
+	println(func(x float64, y float64) float64 { return x / y }(1.0, real(func(x complex128) complex128 { return -x }(complex(0.0, 0.0)))))
+}
+
 func Complex_mul_demo() {
 	a := complex(1.0, 2.0)
 	b := complex(3.0, 4.0)
@@ -1900,6 +1904,7 @@ func main() {
 	Complex_mul_demo()
 	Complex_div_demo()
 	Complex_neg_demo()
+	Complex_const_runtime_demo()
 	Complex_cmp_demo()
 	Scmp_demo()
 	Foreach_demo()

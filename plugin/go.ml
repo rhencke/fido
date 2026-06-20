@@ -822,10 +822,13 @@ let classify_f32_op r =
    UNLESS an operand is [MLrel], so we never leave an all-constant float op unforced (we may
    over-force a non-[MLrel] runtime operand — harmless, the IIFE is value-preserving). *)
 let operand_is_runtime = function MLrel _ -> true | _ -> false
-(* Go float type of a forceable binary float ARITHMETIC op (not comparison), else None. *)
+(* Go type of a forceable binary float/complex ARITHMETIC op (not comparison), else None.  Complex
+   constants hit the SAME Go-constant-vs-runtime hole as float (a constant complex can't denote -0,
+   ±Inf, NaN; constant /0 fails to compile), so complex arithmetic is forced too. *)
 let float_arith_go_type r =
   if Option.has_some (classify_f32_op r) then Some "float32"
   else if List.exists (is_float_op_ref r) ["add"; "sub"; "mul"; "div"] then Some "float64"
+  else if List.mem (global_basename r) ["complex_add"; "complex_sub"; "complex_mul"; "complex_div"] then Some "complex128"
   else None
 (* Go float type of a float min/max ([f32_min]/[f64_max]/…), else None (int min/max need no force). *)
 let float_minmax_go_type r =
@@ -1681,9 +1684,11 @@ let rec pp_expr state env = function
        (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
        | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
            str "-" ++ pp_atom state env x
-       (* complex_neg c → unary [-c] (component-wise sign-flip; native complex negation) *)
+       (* complex_neg c → unary [-c] (component-wise sign-flip).  On a constant operand Go folds
+          [-complex(0,0)] to [+0] (constants can't denote -0), so force runtime via a typed IIFE. *)
        | MLglob r, [c] when is_complex_neg_ref r ->
-           str "-" ++ pp_atom state env c
+           if operand_is_runtime c then str "-" ++ pp_atom state env c
+           else str "func(x complex128) complex128 { return -x }(" ++ pp_expr state env c ++ str ")"
 
        (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)
        | MLglob r, [g] when is_numint_proj r ->

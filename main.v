@@ -1480,6 +1480,16 @@ Definition complex_neg_demo : IO unit :=
   let c := go_complex (3.0)%float (4.0)%float in
   let n := complex_neg c in
   println [any (go_real n); any (go_imag n)].   (* -3 -4 *)
+(** REGRESSION (code review): complex ops on CONSTANTS must extract as RUNTIME IEEE — Go constants
+    cannot denote a complex -0/±Inf/NaN, and constant /0 fails to compile (the complex parallel of the
+    float constant-vs-runtime fix).  [complex_neg] / [complex_add/sub/mul/div] are now forced to
+    runtime via typed IIFEs unless an operand is a runtime variable. *)
+Example complex_neg_negzero :   (* real(-complex(0,0)) = -0, so 1/that = -Inf (was +Inf: const -0 → +0) *)
+  PrimFloat.eqb (PrimFloat.div 1 (go_real (complex_neg (go_complex 0 0))))
+                (PrimFloat.div 1 (PrimFloat.opp 0)) = true.
+Proof. vm_compute. reflexivity. Qed.
+Definition complex_const_runtime_demo : IO unit :=
+  println [ any (PrimFloat.div 1 (go_real (complex_neg (go_complex 0 0)))) ].   (* -Inf (complex -0 preserved at runtime) *)
 
 (** Complex [*] (gc's naive cross-product, native operator): (1+2i)*(3+4i) = -5+10i. *)
 Definition complex_mul_demo : IO unit :=
@@ -2570,6 +2580,7 @@ Definition main_effect : IO unit :=
   complex_mul_demo                  >>'   (* prints: -5 10 (complex multiply) *)
   complex_div_demo                  >>'   (* prints: 0.44 0.08 (complex divide, Smith's) *)
   complex_neg_demo                  >>'   (* prints: -3 -4 (complex unary negation) *)
+  complex_const_runtime_demo        >>'   (* prints: -Inf (complex const ops forced to runtime; -0 preserved) *)
   complex_cmp_demo                  >>'   (* prints: true false true (complex ==/!=) *)
   scmp_demo                     >>'   (* prints: true true true *)
   foreach_demo                  >>'   (* prints: 10 / 20 / 30 *)
