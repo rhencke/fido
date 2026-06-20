@@ -118,8 +118,10 @@ i8_norm a)` ("the carrier is a normalized 8-bit signed value").  `i8wrap x := Mk
 (squash (ex_intro _ x eq_refl))` — the proof is `eq_refl`, NO bound lemma; `MkI8 200 _` is
 unconstructable (200 ∉ image of `i8_norm`; `i8_forged` `Fail` test).  **`GoI16` sealed the same way
 (2026-06-20)** — `Squash (exists a, i16raw = i16_norm a)`, `i16wrap`, `i16_forged` `Fail` test.
-*Remaining:* `GoI32` (same provenance shape, `i32_norm`) and `GoI64`/`GoU64` (Z-carried range) — one
-per loop iteration.  **5 of 8 wrappers sealed.**
+**`GoI32` sealed the same way (2026-06-20)** — `Squash (exists a, i32raw = i32_norm a)`, `i32wrap`,
+`i32_forged` `Fail` test; `i32wrap` reaches the real extracted rune/UTF-8 codec, so it also erases at
+the call site (→ its argument, like the bare `MkI32`).  *Remaining:* `GoI64`/`GoU64` (Z-carried
+range, a different invariant shape) — one per loop iteration.  **6 of 8 wrappers sealed.**
 **Arbitrary-precision INTEGER constants — DONE (A5).**  `i64c`/`u64c` model an
 untyped int constant as `Z`: a closed `Z` constant expression is `vm_compute`-
 evaluated at ELABORATION (real bignums, exact, no width — an INTERMEDIATE may

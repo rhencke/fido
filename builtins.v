@@ -186,6 +186,8 @@ Definition i8_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
 Definition i16_norm (x : int) : int :=
   PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
+Definition i32_norm (x : int) : int :=
+  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
 
 (* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
 Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true) }.
@@ -193,7 +195,7 @@ Record GoI8 := MkI8 { i8raw : int ; i8ok : Squash (exists a, i8raw = i8_norm a) 
 Record GoU16 := MkU16 { u16raw : int ; u16ok : Squash ((u16raw <? 65536)%uint63 = true) }.
 Record GoI16 := MkI16 { i16raw : int ; i16ok : Squash (exists a, i16raw = i16_norm a) }.
 Record GoU32 := MkU32 { u32raw : int ; u32ok : Squash ((u32raw <? 4294967296)%uint63 = true) }.
-Record GoI32 := MkI32 { i32raw : int }.
+Record GoI32 := MkI32 { i32raw : int ; i32ok : Squash (exists a, i32raw = i32_norm a) }.
 (* FULL-WIDTH signed int64 (Go spec "Numeric types": [int64] is the set of all
    signed 64-bit integers).  Carried by [Z] — NOT the 63-bit [int] — so the model
    is faithful across the WHOLE int64 range and wraps at the true [2^63], unlike
@@ -365,7 +367,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TString  => EmptyString
   | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TU16 => MkU16 0%uint63 (squash eq_refl) | TI16 => MkI16 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
-  | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63
+  | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TI64 => MkI64 0%Z
   | TU64 => MkU64 0%Z
   | TUnit => tt
@@ -1053,12 +1055,14 @@ Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : Go
 Definition int_of_u32 (x : GoU32) : int := u32raw x.
 Definition u32_of_int (x : int) : GoU32 := u32wrap (PrimInt63.land x 4294967295).
 
-Definition i32_norm (x : int) : int :=
-  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
-Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := MkI32 x.
-Definition i32_add (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.add (i32raw a) (i32raw b))).
-Definition i32_sub (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.sub (i32raw a) (i32raw b))).
-Definition i32_mul (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.mul (i32raw a) (i32raw b))).  (* low 32 bits exact, then sign-extend *)
+(* [i32_norm] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
+   [i32wrap] = normalize + carry the trivial provenance proof, so [MkI32 5000000000 _] is
+   unconstructable. *)
+Definition i32wrap (x : int) : GoI32 := MkI32 (i32_norm x) (squash (ex_intro _ x eq_refl)).
+Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := i32wrap x.
+Definition i32_add (a b : GoI32) : GoI32 := i32wrap (PrimInt63.add (i32raw a) (i32raw b)).
+Definition i32_sub (a b : GoI32) : GoI32 := i32wrap (PrimInt63.sub (i32raw a) (i32raw b)).
+Definition i32_mul (a b : GoI32) : GoI32 := i32wrap (PrimInt63.mul (i32raw a) (i32raw b)).  (* low 32 bits exact, then sign-extend *)
 Definition i32_eqb (a b : GoI32) : bool := PrimInt63.eqb (i32raw a) (i32raw b).
 Definition i32_ltb (a b : GoI32) : bool := Sint63.ltb (i32raw a) (i32raw b).
 Definition i32_leb (a b : GoI32) : bool := Sint63.leb (i32raw a) (i32raw b).
@@ -1078,23 +1082,25 @@ Definition u32_neqb (a b : GoU32) : bool := negb (u32_eqb a b).
 Definition i32_gtb  (a b : GoI32) : bool := i32_ltb b a.
 Definition i32_geb  (a b : GoI32) : bool := i32_leb b a.
 Definition i32_neqb (a b : GoI32) : bool := negb (i32_eqb a b).
-Definition i32_and    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.land (i32raw a) (i32raw b))).
-Definition i32_or     (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lor  (i32raw a) (i32raw b))).
-Definition i32_xor    (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lxor (i32raw a) (i32raw b))).
-Definition i32_andnot (a b : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.land (i32raw a) (PrimInt63.lxor (i32raw b) 4294967295))).
-Definition i32_not    (a   : GoI32) : GoI32 := MkI32 (i32_norm (PrimInt63.lxor (i32raw a) 4294967295)).
-Definition i32_shl (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := MkI32 (i32_norm (PrimInt63.lsl (i32raw x) k)).
-Definition i32_shr (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := MkI32 (i32_norm (PrimInt63.asr (i32raw x) k)).
-Definition i32_div (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := MkI32 (i32_norm (PrimInt63.divs (i32raw a) (i32raw b))).
-Definition i32_mod (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := MkI32 (i32_norm (PrimInt63.mods (i32raw a) (i32raw b))).
+Definition i32_and    (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.land (i32raw a) (i32raw b))).
+Definition i32_or     (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lor  (i32raw a) (i32raw b))).
+Definition i32_xor    (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lxor (i32raw a) (i32raw b))).
+Definition i32_andnot (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.land (i32raw a) (PrimInt63.lxor (i32raw b) 4294967295))).
+Definition i32_not    (a   : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lxor (i32raw a) 4294967295)).
+Definition i32_shl (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := i32wrap (i32_norm (PrimInt63.lsl (i32raw x) k)).
+Definition i32_shr (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := i32wrap (i32_norm (PrimInt63.asr (i32raw x) k)).
+Definition i32_div (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.divs (i32raw a) (i32raw b))).
+Definition i32_mod (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.mods (i32raw a) (i32raw b))).
 Definition int_of_i32 (x : GoI32) : int := i32raw x.
-Definition i32_of_int (x : int) : GoI32 := MkI32 (i32_norm x).
+Definition i32_of_int (x : int) : GoI32 := i32wrap (i32_norm x).
 
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
 Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
 Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2^32 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range uint32 (SProp range proof). *)
 Fail Definition u32_forged : GoU32 := MkU32 5000000000 (squash eq_refl).
+(* Build-checked: the RAW int32 constructor cannot forge an out-of-range value (provenance proof false). *)
+Fail Definition i32_forged : GoI32 := MkI32 5000000000 (squash (ex_intro _ 5000000000 eq_refl)).
 
 (** ---- int64 — FULL-WIDTH signed 64-bit (Go spec "Numeric types") ----
 
@@ -1359,7 +1365,7 @@ Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i8_norm  (Uint63.of_Z (i64r
 Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 65535).
 Definition i16_of_i64 (a : GoI64) : GoI16 := i16wrap (i16_norm (Uint63.of_Z (i64raw a))).
 Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
-Definition i32_of_i64 (a : GoI64) : GoI32 := MkI32 (i32_norm (Uint63.of_Z (i64raw a))).
+Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (i64raw a))).
 
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for
     |i| < 2^53, rounds beyond — exactly Go's rule).  [PrimFloat.of_uint63] converts the
@@ -3132,36 +3138,36 @@ Fixpoint str_to_runes (s : GoString) : list GoI32 :=
   | String c0 r0 =>
       let v0 := u8raw (ascii_byte c0) in
       if PrimInt63.ltb v0 128%uint63 then            (* 1-byte: ASCII *)
-        MkI32 v0 :: str_to_runes r0
+        i32wrap v0 :: str_to_runes r0
       else if PrimInt63.ltb v0 224%uint63 then        (* 2-byte: 0xC0–0xDF *)
         match r0 with
         | String c1 r1 =>
             let v1 := u8raw (ascii_byte c1) in
-            MkI32 (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
+            i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
                                  (PrimInt63.land v1 63%uint63)) :: str_to_runes r1
-        | EmptyString => MkI32 65533%uint63 :: nil    (* truncated → U+FFFD *)
+        | EmptyString => i32wrap 65533%uint63 :: nil    (* truncated → U+FFFD *)
         end
       else if PrimInt63.ltb v0 240%uint63 then        (* 3-byte: 0xE0–0xEF *)
         match r0 with
         | String c1 (String c2 r2) =>
             let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
-            MkI32 (PrimInt63.lor (PrimInt63.lor
+            i32wrap (PrimInt63.lor (PrimInt63.lor
                      (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
                      (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
                      (PrimInt63.land v2 63%uint63)) :: str_to_runes r2
-        | _ => MkI32 65533%uint63 :: nil
+        | _ => i32wrap 65533%uint63 :: nil
         end
       else                                            (* 4-byte: 0xF0+ *)
         match r0 with
         | String c1 (String c2 (String c3 r3)) =>
             let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
             let v3 := u8raw (ascii_byte c3) in
-            MkI32 (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
+            i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
                      (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
                      (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
                      (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
                      (PrimInt63.land v3 63%uint63)) :: str_to_runes r3
-        | _ => MkI32 65533%uint63 :: nil
+        | _ => i32wrap 65533%uint63 :: nil
         end
   end.
 Definition rune_bytes (r : GoI32) : GoString :=
@@ -3189,18 +3195,18 @@ Fixpoint runes_to_str (rs : list GoI32) : GoString :=
 (** Codec verified by ROUND-TRIP: encode→decode is the identity for ASCII and for a 3-byte
     CJK code point (中 = U+4E2D = 20013, UTF-8 E4 B8 AD). *)
 Example rune_roundtrip_ascii :
-  str_to_runes (runes_to_str (MkI32 65%uint63 :: MkI32 66%uint63 :: nil))
-    = MkI32 65%uint63 :: MkI32 66%uint63 :: nil.
+  str_to_runes (runes_to_str (i32wrap 65%uint63 :: i32wrap 66%uint63 :: nil))
+    = i32wrap 65%uint63 :: i32wrap 66%uint63 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example rune_roundtrip_cjk :
-  str_to_runes (runes_to_str (MkI32 20013%uint63 :: nil)) = MkI32 20013%uint63 :: nil.
+  str_to_runes (runes_to_str (i32wrap 20013%uint63 :: nil)) = i32wrap 20013%uint63 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 
 (** Single rune → string (Go's [string(rune)]): the 1-code-point UTF-8 string.  Reuses the
     [rune_bytes] encoder; lowers to the native [string(rune(r))] (the explicit [rune] cast
     keeps it out of the deprecated [string(int)] form). *)
 Definition rune_to_str (r : GoI32) : GoString := rune_bytes r.
-Example rune_to_str_ascii : rune_to_str (MkI32 65%uint63) = "A"%string.
+Example rune_to_str_ascii : rune_to_str (i32wrap 65%uint63) = "A"%string.
 Proof. vm_compute. reflexivity. Qed.
 
 (** String COMPARISON (Go spec "Comparison operators": strings are comparable AND

@@ -756,10 +756,10 @@ Definition divmod_demo : IO unit :=
     ([2^32 | 2^63]), so no Z model is needed — `100000*100000 = 1e10` wraps mod 2^32
     → 1410065408; `46341^2 = 2147488281 > 2^31` wraps int32 → -2147479015. *)
 Example spec_u32_add_wrap : u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl) = u32_lit 705032704 eq_refl. Proof. reflexivity. Qed.
-Example spec_i32_add_wrap : i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl) = i32_lit (-294967296) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i32_add_wrap : i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl) = i32_lit (-294967296) eq_refl. Proof. reflexivity. Qed.
 Example spec_u32_mul_wrap : u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl) = u32_lit 1410065408 eq_refl. Proof. reflexivity. Qed.
 Example spec_u32_mul_max  : u32_mul (u32_lit 4294967295 eq_refl) (u32_lit 4294967295 eq_refl) = u32_lit 1 eq_refl. Proof. reflexivity. Qed.
-Example spec_i32_mul_wrap : i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl) = i32_lit (-2147479015) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i32_mul_wrap : i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl) = i32_lit (-2147479015) eq_refl. Proof. reflexivity. Qed.
 Definition u32_demo : IO unit :=
   bind (println [ any (u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl))  (* 705032704 *)
                 ; any (i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl)) ])  (* -294967296 *)
@@ -1546,7 +1546,7 @@ Definition rune_demo : IO unit :=
 
 (** Single rune → string (Go's [string(rune)]): code point 65 → "A". *)
 Definition rune_to_str_demo : IO unit :=
-  println [any (rune_to_str (MkI32 65%uint63))].   (* string(rune(65)) → "A" *)
+  println [any (rune_to_str (i32wrap 65%uint63))].   (* string(rune(65)) → "A" *)
 
 (** Go [for i, r := range s]: [i] the BYTE offset of each code point, [r] the rune.
     Byte offsets are faithful to UTF-8 widths — for [A 中 B] (1/3/1 bytes) the offsets are
@@ -1554,13 +1554,13 @@ Definition rune_to_str_demo : IO unit :=
     range loop.  The decode round-trips ([str_to_runes ∘ runes_to_str = id], [rune_roundtrip_*]). *)
 Example str_range_offsets :
   runes_with_offsets 0%uint63
-    (str_to_runes (runes_to_str (MkI32 65%uint63 :: MkI32 20013%uint63 :: MkI32 66%uint63 :: nil)))
-  = (0%uint63, MkI32 65%uint63) :: (1%uint63, MkI32 20013%uint63) :: (4%uint63, MkI32 66%uint63) :: nil.
+    (str_to_runes (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil)))
+  = (0%uint63, i32wrap 65%uint63) :: (1%uint63, i32wrap 20013%uint63) :: (4%uint63, i32wrap 66%uint63) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Definition str_range_demo : IO unit :=
-  str_range (str_concat (rune_to_str (MkI32 72%uint63))
-            (str_concat (rune_to_str (MkI32 8364%uint63))
-                        (rune_to_str (MkI32 33%uint63))))   (* "H€!" — H(1 byte) €(3) !(1) *)
+  str_range (str_concat (rune_to_str (i32wrap 72%uint63))
+            (str_concat (rune_to_str (i32wrap 8364%uint63))
+                        (rune_to_str (i32wrap 33%uint63))))   (* "H€!" — H(1 byte) €(3) !(1) *)
     (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
 
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
