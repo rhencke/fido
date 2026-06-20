@@ -1418,6 +1418,19 @@ Definition f32_neqb (x y : GoFloat32) : bool := negb (PrimFloat.eqb (f32val x) (
     [f32_of_f64] / [f32_lit] is defined up top, with the type.) *)
 Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := f32val x.
 
+(** DIRECT integer → float32 (Go [float32(x)]) — round the EXACT integer ONCE to binary32 via
+    [binary_normalize] at format (24, 128).  This is NOT [f32_of_f64 (f64_of_int x)] (= Go
+    [float32(float64(x))]): for |x| > 2^53 the int→float64 step ALREADY rounds, and the second
+    round to binary32 can DISAGREE — double rounding.  (E.g. [x = 2^61 + 2^37 + 1]: direct rounds
+    UP to [2^61 + 2^38]; via float64 the low bit is lost onto the float32 midpoint and ties-to-even
+    rounds DOWN to [2^61].)  Lowered to Go's direct [float32(x)] cast (single round). *)
+Definition f32_of_i64 (a : GoI64) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (binary_normalize 24 128 (i64raw a) 0 false)).
+Definition f32_of_u64 (a : GoU64) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (binary_normalize 24 128 (u64raw a) 0 false)).
+Definition f32_of_int (i : GoInt) : GoFloat32 :=
+  f32_of_f64 (SF2Prim (binary_normalize 24 128 (Sint63.to_Z i) 0 false)).
+
 (** float32 unary NEGATION — EXACT (IEEE sign-flip, makes [-0.0]); re-enter the abstract type
     (the round is the identity on the sign-flipped, still-representable value).  Lowered to Go
     [-x].  Same role as [PrimFloat.opp] for float64. *)

@@ -733,6 +733,11 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    ([of_uint63]) and Z↔int63 conversion helpers ([of_Z]/[of_pos]) have their own decls
    suppressed; the [Z]/[positive] arithmetic is already covered by [is_zarith_helper]. *)
 let is_int_to_f64_ref r = let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64"
+(* DIRECT integer → float32 ([f32_of_int]/[f32_of_i64]/[f32_of_u64]): Go's [float32(x)] cast rounds
+   the integer ONCE to binary32 (NOT the double-rounding [float32(float64(x))]).  The
+   [binary_normalize] body is proof-only; recognised → the direct cast.  No constant-overflow risk
+   (every int64 is within float32 range), so no runtime-forcing needed. *)
+let is_int_to_f32_ref r = let n = global_basename r in n = "f32_of_int" || n = "f32_of_i64" || n = "f32_of_u64"
 (* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
    The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
 let is_f64_to_f32_ref r =
@@ -1730,6 +1735,10 @@ let rec pp_expr state env = function
        (* [f64_of_int i] / [f64_of_i64 a] — int / int64 → float64: Go's native cast. *)
        | MLglob r, [x] when is_int_to_f64_ref r ->
            str "float64(" ++ pp_expr state env x ++ str ")"
+       (* [f32_of_int]/[f32_of_i64]/[f32_of_u64] — DIRECT int → float32: Go's [float32(x)] cast
+          (rounds the integer once, unlike the double-rounding [float32(float64(x))]). *)
+       | MLglob r, [x] when is_int_to_f32_ref r ->
+           str "float32(" ++ pp_expr state env x ++ str ")"
        (* [f64_of_fconst c] — an untyped FLOAT CONSTANT: fold the exact rational [num/den] and emit
           [(float64(num) / float64(den))], which Go RE-FOLDS at compile time to the correctly-
           rounded constant (single rounding) — exactly the Go-constant answer.  Guarded to
@@ -3715,6 +3724,7 @@ let is_inlined_ref r =
   is_cw_eqb_ref r || is_comparable_witness_inst r || String.equal (global_basename r) "MkComparableW" ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
   is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing ([f32_of_f64]/[f32_lit]) → float32(x); SpecFloat round body suppressed *)
+  is_int_to_f32_ref r ||  (* DIRECT int→float32 → float32(x); binary_normalize body suppressed *)
   is_f32_round r ||  (* [f32_round] (binary32 rounding helper): proof-only — only inside by-name-lowered ops *)
   List.exists (fun (name, _) -> is_float_op_ref r name) float_op_table ||
   Option.has_some (classify_f32_op r) ||   (* f32_add/sub/mul/div: SpecFloat body suppressed by module, call site → Go [+]/[-]/[*]/[/] *)

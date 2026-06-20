@@ -443,6 +443,25 @@ Definition f32_const_runtime_demo : IO unit :=
           ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved; pre-fix +0 → +Inf) *)
           ; any (f32_lit 1e40)                                 (* +Inf  (pre-fix: Go compile error, const overflow) *)
           ; any (PrimFloat.div 1 0)%float ].                   (* float64 +Inf (same class) *)
+(** DIRECT int → float32 (code review): [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
+    ONCE to binary32, faithfully modelling Go's [float32(x)].  For |x| > 2^53 this DIFFERS from the
+    double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
+    "single-rounding-equivalent" claim.  Reviewer's witness, x = 2^61+2^37+1 = 2305843146652647425: *)
+Example f32_of_i64_differs :         (* direct ≠ via-float64 — double rounding is REAL *)
+  f32_eqb (f32_of_i64 (MkI64 2305843146652647425))
+          (f32_of_f64 (f64_of_i64 (MkI64 2305843146652647425))) = false.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_of_i64_direct :          (* direct = 2^61+2^38 (Go float32(x) = 0x5e000001) *)
+  PrimFloat.eqb (f64_of_f32 (f32_of_i64 (MkI64 2305843146652647425))) 2305843284091600896 = true.
+Proof. vm_compute. reflexivity. Qed.
+Example f32_of_i64_viaf64 :          (* via float64 = 2^61 (Go float32(float64(x)) = 0x5e000000) *)
+  PrimFloat.eqb (f64_of_f32 (f32_of_f64 (f64_of_i64 (MkI64 2305843146652647425)))) 2305843009213693952 = true.
+Proof. vm_compute. reflexivity. Qed.
+Definition f32_of_int_demo : IO unit :=
+  (* direct float32(x) vs via float64 float32(float64(x)) DIFFER (double rounding); println truncates
+     the shared ~6 sig-figs, so print the INEQUALITY (false = they differ) — the observable proof. *)
+  println [ any (f32_eqb (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))
+                         (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) ].  (* false *)
 (** SOUNDNESS REGRESSION (closes a code-review hole).  Pre-fix, [GoFloat32 := float] was a
     transparent alias, so a NON-binary32-representable literal could be injected raw and
     [f64_of_f32 16777217 = 16777217] — DISAGREEING with Go (which rounds [float32(16777217)]
@@ -2600,6 +2619,7 @@ Definition main_effect : IO unit :=
   f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
   f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
   f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
+  f32_of_int_demo               >>'   (* prints: false (direct float32(x) ≠ float32(float64(x)) — double rounding) *)
   i64_of_f64_demo               >>'   (* prints: 3 / -2 (float64→int64 truncation) *)
   u64conv_demo                  >>'   (* prints: +1.844674e+019 13835058055282163712 (float↔uint64) *)
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)

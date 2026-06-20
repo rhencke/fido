@@ -405,14 +405,22 @@ ABSTRACT smart-constructor type carrying an unforgeable `exists a, carrier = f32
 a non-representable literal cannot be injected (would disagree with Go on widening).  NaN and
 signed-zero corners machine-checked across negation/min/max (NaN propagates; `min(-0,+0) = -0`,
 `max(-0,+0) = +0`).
-**Conversions — ✓ faithful, machine-checked.**  `float32↔float64`, `float32↔int`, and float32
-constants all route through binary64, which is PROVABLY single-rounding-equivalent: binary64's
-53-bit significand exceeds `2·24 + 2 = 50`, so decimal/int → binary64 → binary32 equals a *direct*
-round to binary32 (the double-rounding-innocuous theorem — the intermediate adds no error).
-Witnessed: overflow → `+Inf` (`f32_overflow`), underflow → `0` (`f32_underflow`), `float32(2^24+1)
-= 2^24` (`f32_of_int_rounds`), `int(float32 3.7) = 3` truncate-toward-zero (`f32_to_int_trunc`),
-and `float32(0.1+0.2) = float32(0.3)` exact-rational constant fold, no double-rounding error
-(`f32_const_fold`).
+**Conversions.**  `float32↔float64` and `int(float32)` (`f64_of_f32` widen exact; `i64_of_f64∘
+f64_of_f32` truncate-toward-zero) ✓.  Range corners witnessed: overflow → `+Inf` (`f32_overflow`),
+underflow → `0` (`f32_underflow`).
+**⚠ CORRECTION (2026-06-20, code review) — an earlier "single-rounding-equivalent" claim here was
+FALSE.**  Routing int/constant → `float32` through binary64 is NOT double-rounding-innocuous in
+general: the `q ≥ 2p+2` theorem assumes the intermediate holds the *exact* value, but for `|x| >
+2^53` the int→binary64 step ITSELF rounds, and a second round to binary32 can disagree.
+Reproduced (Go 1.23.2): `x = 2305843146652647425 = 2^61+2^37+1` gives `float32(x) = 0x5e000001`
+(rounds up) but `float32(float64(x)) = 0x5e000000` (low bit lost onto the float32 midpoint, then
+ties-to-even down).  So `f32_of_f64 (f64_of_int x)` faithfully models Go's `float32(float64(x))`,
+NOT direct `float32(x)`.  *Fix:* DIRECT conversions `f32_of_i64`/`f32_of_u64`/`f32_of_int` round the
+exact integer ONCE to binary32 (`binary_normalize 24 128 x 0`), lowered to Go's `float32(x)`.
+Machine-checked on the reviewer's witness: `f32_of_i64_differs` (direct ≠ via-float64),
+`f32_of_i64_direct` (= `2^61+2^38`), `f32_of_i64_viaf64` (= `2^61`); `f32_of_int_demo` → `false`.
+*Remaining:* an exact `FConst → float32` path (round the rational once, via `SFdiv 24 128`) — the
+constant analogue, same double-rounding caveat, not yet added.
 **Constant-vs-runtime soundness fix (2026-06-20, code review) — applies to float32 AND float64.**
 Fido's model is runtime IEEE (−0, ±Inf, NaN); the extractor formerly emitted float ops on
 CONSTANT operands as Go *constant expressions*, where IEEE does not hold — Go constants cannot

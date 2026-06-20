@@ -155,6 +155,10 @@ func F32_const_runtime_demo() {
 	println(func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(1.0), func(x float64) float32 { return float32(x) }(0.0)), func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(1.0), func(x float32) float32 { return -x }(func(x float64) float32 { return float32(x) }(0.0))), func(x float64) float32 { return float32(x) }(1e+40), func(x float64, y float64) float64 { return x / y }(1.0, 0.0))
 }
 
+func F32_of_int_demo() {
+	println(float32(2305843146652647425) == func(x float64) float32 { return float32(x) }(float64(2305843146652647425)))
+}
+
 func Floatconv_demo() {
 	println(Narrow32(16777217.0))
 	println(Widen64(Narrow32(7.5)))
@@ -1963,6 +1967,7 @@ func main() {
 	F32_extra_demo()
 	F32_conv_demo()
 	F32_const_runtime_demo()
+	F32_of_int_demo()
 	I64_of_f64_demo()
 	U64conv_demo()
 	Enum_demo()
