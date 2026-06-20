@@ -44,10 +44,16 @@ status, and roadmap live in `PROGRESS.md`.
 
 Verify-then-bless after an intended change: **`make check`** (re-extracts, runs,
 diffs vs the golden — confirm the delta is exactly what you intended) →
-**`make golden`** (re-shows the delta + blesses `expected_output.txt`) → commit.
-The diff lives in the Makefile; don't diff by hand. **Run / verify ONLY through
-these targets — never a bare `go run`** (it bypasses extraction and can validate
-stale Go).
+**`make golden`** (re-shows the delta + blesses `expected_output.txt`) → commit →
+**re-index**. The diff lives in the Makefile; don't diff by hand. **Run / verify
+ONLY through these targets — never a bare `go run`** (it bypasses extraction and
+can validate stale Go).
+
+**After every successful commit, re-index the codebase-memory MCP**
+(`index_repository`, mode `fast`). The index is a static snapshot — it has no
+self-update and can't hook git — so a commit silently staling it is the default
+unless you re-index. (Only relevant when that MCP is connected; a git hook can't
+do this — re-indexing is an MCP call the agent must make, not a shell command.)
 
 ```
 make build         # full Docker build → static binary
