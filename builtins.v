@@ -3721,6 +3721,51 @@ Arguments mkSR2 {R} _ _ _ _.
 Arguments sr2_f0 {R} _ _.  Arguments sr2_f1 {R} _ _.
 Arguments sr2_mk {R} _ _ _.  Arguments sr2_eta {R} _ _.
 
+(** ---- STRUCT CHANNELS (send a NAMED 2-field struct over a channel) ----
+
+    A struct channel is a [GoChan R] (tag-FREE phantom [R]).  A nominal [GoTypeTag R] is
+    impossible — [tag_eq] cannot decide downstream nominal type equality — so the CELL instead
+    stores the struct's FIELD TUPLE, tagged by the DECIDABLE [TProd TI64 TI64] (a product is
+    canonical, so [tag_eq] recovers it).  The [StructRep2] marshals [R <-> (f0, f1)]; [sr2_eta]
+    makes the round-trip FAITHFUL (proved below).  No nominal tag, no axiom.
+
+    *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is the next slice: Coq's
+    [prod] is the multi-return tuple, so emitting it as a Go struct needs dedicated plugin work;
+    this slice lands the MODEL + the correctness theorem.)* *)
+Definition struct_make2 {R} (n : int) : IO (GoChan R) :=
+  bind (make_chan_buf (TProd TI64 TI64) n) (fun ch => ret (MkChan (ch_loc ch))).
+Definition struct_send2 {R} (rep : StructRep2 R) (ch : GoChan R) (v : R) : IO unit :=
+  send (TProd TI64 TI64) (MkChan (ch_loc ch)) (sr2_f0 rep v, sr2_f1 rep v).
+Definition struct_recv2 {R} (rep : StructRep2 R) (ch : GoChan R) : IO R :=
+  bind (recv (TProd TI64 TI64) (MkChan (ch_loc ch)))
+       (fun p => ret (sr2_mk rep (fst p) (snd p))).
+
+(** CORRECTNESS — round-trip faithfulness.  On an OPEN, EMPTY channel, [struct_send2] then
+    [struct_recv2] recovers the struct EXACTLY: the field-tuple marshalling is lossless, by
+    [sr2_eta].  This is the acceptance test at the model level (a struct survives a channel
+    round-trip intact). *)
+Theorem struct_chan_roundtrip2 :
+  forall {R} (rep : StructRep2 R) (ch : GoChan R) (v : R) (w : World),
+    @chan_closed (GoI64 * GoI64)%type (MkChan (ch_loc ch)) w = false ->
+    chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch)) w = nil ->
+    exists w', run_io (bind (struct_send2 rep ch v)
+                            (fun _ => struct_recv2 rep ch)) w = ORet v w'.
+Proof.
+  intros R rep ch v w Hopen Hempty.
+  unfold struct_send2, struct_recv2.
+  rewrite run_bind.
+  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) (sr2_f0 rep v, sr2_f1 rep v) w Hopen).
+  rewrite run_bind.
+  assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
+            (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) (sr2_f0 rep v, sr2_f1 rep v) w)
+          = (sr2_f0 rep v, sr2_f1 rep v) :: nil)
+    by (rewrite chan_buf_send, Hempty; reflexivity).
+  rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch))
+                    (sr2_f0 rep v, sr2_f1 rep v) nil _ Hbuf1).
+  rewrite run_ret. cbn [fst snd]. rewrite (sr2_eta rep v).
+  eexists; reflexivity.
+Qed.
+
 Record SPtr (R : Type) := mkSPtr { sp_base : int ; sp_rep : StructRep2 R }.
 Arguments mkSPtr {R} _ _.
 Arguments sp_base {R} _.  Arguments sp_rep {R} _.
