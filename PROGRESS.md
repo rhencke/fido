@@ -627,6 +627,93 @@ separate tracks.
 
 ## Known gaps
 
+### ⛔ RELEASE-BLOCKING soundness breaks (external review, 2026-06-21) — verified against source
+
+**VERDICT (own it, do not let it drift): these proofs do NOT currently verify the generated Go.**
+There are valuable verified COMPONENTS, but the bridge from those components to actual Go behaviour
+has multiple independent soundness breaks.  The accurate headline is "verified components over
+honestly-modelled Go primitives, bridge status documented per item" — NOT "verified Go".  Every break
+below was CONFIRMED verbatim in the source (not taken on faith).  Close these in the order given before
+any "verified" claim.
+
+**Genuine soundness BREAKS (model ≠ Go, or an impossible premise — could let a false claim through):**
+1. **The Keystone coding hypothesis is uninstantiable.** `Variable inj : nat -> GoI64; Variable prj :
+   GoI64 -> nat; Hypothesis Hret : forall n, prj (inj n) = n` — but `GoI64 = {i64raw:Z; Squash(in_i64…)}`
+   is FINITE, so `Hret` forces an injection from infinite `nat` into a finite type: NONE EXISTS.  So
+   `denote_adequate`/`denote_adequate_mem` are conditional on a premise no implementation can meet (true
+   implications, useless end-to-end); `mp_g0_denotes`/`mp_handoff_delivers` are quantified over `inj`/`prj`
+   without `Hret`, so true even for nonsense codings → pin down no faithfulness.  THE TYPED↔OPERATIONAL
+   BRIDGE DOES NOT CONNECT THE CALCULUS TO THE EMITTED GO.  Fix: finite domains (`Fin n`, or injectivity
+   only over one execution's finite support).  (This is the "weak seam" of the architectural review, now
+   shown to rest on an impossible hypothesis — strong evidence for refounding the bridge or path (b).)
+2. **`map_size := 0` but Go `len` returns the real length.** `map_len` returns `map_size` (constant 0);
+   plugin lowers `map_len`→Go `len(m)`; `map_demo` prints `3`.  Direct model/extraction disagreement.
+3. **Session discipline forgeable.** `Record Sess (i j) A := MkSess { run_sess : IO A }` with public
+   `MkSess` — `MkSess (ret tt) : Sess P PEnd unit` typechecks for ANY `P`.  Linearity is not enforced.
+   Fix: seal `Sess` behind a module signature, or make constructors embody the protocol transitions.
+4. **Evidence-carrying equality APIs carry NO evidence.** `ComparableW := {cw_eqb : K->K->bool}` and
+   `struct_eqb (eqb) a b := eqb a b` — public constructors, no `forall x y, eqb x y = true <-> x = y`,
+   both erase to native `==`.  `struct_eqb (fun _ _ => false) p p` = `false` in Rocq, `true` in Go.
+   Fix: add the decidability field (SProp/erased) + seal the constructor.
+5. **Allocation freshness asserted, never established.** Allocators use `w_next` with NO `ValidWorld`
+   invariant (nonzero, > all live locs, no wrap).  "fresh"/"nonzero"/"disjoint" are comments, false as
+   theorem-level claims over arbitrary `World`.  Fix: a `ValidWorld` invariant, loc 0 reserved.
+6. **Nil aliases location 0; raw nil ops fabricate objects.** Nil chan/map/ptr = loc 0; send/close on
+   nil chan, assign to nil map, write through nil ptr all "succeed" (Go blocks/panics), and all nils of
+   a kind alias loc 0 (one bad write corrupts all).  (Nil-DEREF panic is in the excluded "nil/div"
+   scope; nil-chan-block and nil-map-panic are NOT, and the aliasing is a representational break.)
+7. **Runtime tag identity ≠ Go type identity.** `TInt64` tags Rocq `int`, `TI64` tags `GoI64`; both
+   lower to Go `int64`, but `tag_eq` distinguishes them → a `TInt64`-boxed value asserted at `TI64`
+   fails/panics in the model while Go's `int64` assertion succeeds.  Fix: one canonical runtime tag per
+   emitted Go type, separate from proof-side carriers.
+8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
+   `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
+   KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
+   the target event's number, not the source.  Fix: make source-kind/channel/child intrinsic to `sync`.
+9. **`complex_div` wrong on finite values.** Replaces Go's `abs(re)>=abs(im)` with a SQUARED-magnitude
+   compare → overflow/underflow.  Counterexample `1+2i / 1e307+1e308i`: Go ≈ `2.08e-308 - 7.9e-309i`,
+   model `0 - 0i`.  The "faithful for all finite" claim is false.
+10. **UTF-8 model is not a decoder.** `str_to_runes` picks width from the first byte and masks the rest
+    with no validation (continuation prefixes, overlong, surrogates, >MaxRune, invalid leads).  `0x80
+    0x41` → one 2-byte seq → `U+0001`; Go → `U+FFFD` then `A`.  `rune_bytes` emits surrogates/out-of-range
+    directly (Go substitutes `U+FFFD`).  Golden tests only exercise VALID input.
+
+**Overclaimed labels on true theorems (re-scope the words, the proofs are fine):**
+- "full/whole state refinement" — `WMatchC` compares only buffers (not closed-state/cap/nil); on close
+  the World is unchanged, so a closed operational channel "refines" an open World channel.
+- "the Go happens-before relation" — `hbt` omits the unbuffered recv→send-completion edge and the
+  cap-based k-th-recv→(k+cap)-th-send edge.  It is a CONSERVATIVE SUBSET (so `hbt`-race-free ⇒ Go-race-free
+  for race-freedom, sound-but-incomplete), but it is NOT the Go hb and cannot do exact bounded-channel claims.
+- "deadlock-freedom for Go" — the main `rstep` is UNBOUNDED-ASYNC (`rstep_send` always appends, no cap, no
+  full-buffer/rendezvous block); results are about that calculus, not Go's bounded/rendezvous channels.
+- `RStuck` conflates PANIC and DEADLOCK (both = can't-step ∧ not-done); `rpanicking` is post-hoc, there is
+  no panic transition/terminal.  Fix: explicit `Done`/`Panicked v`/`Running`.
+- The `∃ cfg, rsteps … ∧ TraceRaceFree` examples (`fork_exec`, `chan_pub_exec`, the old `mp_exec`) prove ONE
+  safe schedule, not program race-freedom.  *(`mp_all_interleavings_race_free` / `mp_reachable_owned`
+  (2026-06-21) now give the ∀-over-reachable + Owned-INVARIANT version FOR mp — but only mp, still over the
+  unbounded calculus, still unbridged to Go.)*
+
+**Documented idealizations that nonetheless must NOT slide into a "correctness" theorem:** unbounded
+channels; `defer_call` no-op; `go_spawn` sequential, discards child panics; `run_blocks` 1000-step cutoff;
+panic-value-as-`unit` (so `catch` can distinguish it from Go's runtime panic value); `zero_val TArrow` is a
+callable function (Go's zero func is nil, panics); `GoArray` erases length (different-length arrays
+comparable); `SliceH` public ctors with no `off≤len≤cap` invariant (raw indexing reads arbitrary heap);
+append-realloc fixes `cap=len+1` (Go may pick larger); `FConst` permits zero denominator (Go: compile error);
+`key_eqb` treats maps as comparable by location (Go maps comparable only vs nil).
+
+**Genuinely good (per the reviewer):** `Outcome` instead of arbitrary postcondition; the monad laws from the
+concrete `IO`; the fixed-width integer arithmetic + boundary witnesses; `hbt` irreflexivity under `WfTrace`;
+the rich nondeterministic `select`; closed-and-drained receive; the bounded-channel fragment (right direction,
+honestly flags the main calculus's limit); the emitted Go builds/vets/runs cleanly under Go 1.23.
+
+**REPAIR ORDER (do not extend the bridge until these close):** (1) seal `Sess`/`ComparableW`/`struct_eqb`/
+handle constructors + every invariant-carrying ctor; (2) `ValidWorld` invariant (loc 0 reserved, genuine
+freshness, no wrap/collision); (3) real nil blocking/panic; (4) canonical runtime tag per Go type; (5)
+finite domains for the Keystone coding; (6) integrate cap/closed/nil/panic into the authoritative state;
+(7) strengthen `sync` validity + prove safety UNIVERSALLY over reachable executions; (8) full-state
+refinement; (9) **differential-test every primitive vs Go on adversarial edges** (malformed UTF-8, extreme
+complex, NaN map keys, slice bounds, panic/recover) — the missing discipline (golden tests only hit valid input).
+
 ### Architectural seams & the strategic fork (external review, 2026-06-21)
 
 A global-altitude review (vs. the slice-local loop view) named the real seams.  Most are tracked
