@@ -760,6 +760,26 @@ any "verified" claim.
    lower to Go `int64`, but `tag_eq` distinguishes them → a `TInt64`-boxed value asserted at `TI64`
    fails/panics in the model while Go's `int64` assertion succeeds.  Fix: one canonical runtime tag per
    emitted Go type, separate from proof-side carriers.
+   **→ SCOPED (2026-06-21, deep investigation — LARGER & subtler than the one-liner; needs a representation
+   decision before coding).**  The real structure: `GoTypeTag` has TWO numeric families over the SAME
+   carrier `int`/`Z`.  (A) **Squash-sealed, range-enforced**: `GoU8`/`GoI8`/…/`GoU32`/`GoI32`/`GoI64`/`GoU64`
+   (tags `TU8`/`TI8`/…/`TI64`/`TU64`) — sound *values*, USED.  (B) **bare-int aliases** (`GoInt8`/`GoUint8`/
+   …/`GoUint64` = `int`, tags `TInt8`/…/`TUint64`) — emit the REAL narrow Go types (`int8`/`uint8`/…) but
+   carry NO range invariant, and are UNUSED in demos.  THE ROOT (worse than TInt64/TI64): the plugin lowers
+   EVERY family-A small-width type to Go **int64** (go.ml ~1069: `GoU64→uint64`, else `int64`), so `TU8`,
+   `TI8`, `TI16`, … AND `TI64` ALL emit Go `int64` and ALL collide under `tag_eq` — a family-A value boxed
+   as `any` has Go runtime identity `int64`, not its nominal `uint8`.  So break #7 is really *the int64-
+   backing of narrow types*, not just the TInt64/TI64 pair.  Reachable-collision census: TInt64(int)≡TI64,
+   plus every family-A narrow tag ≡ TI64 (all int64); TUint64(unused)≡TU64.  **Two finds:** (i) the 37
+   `TInt64` uses are all RELOOPER/control-flow loop counters — `int`-backed with int arithmetic, merely
+   MISLABELLED as Go int64; re-tagging them `TInt` (Go `int`) is mechanical (same `int` backing, identical
+   logic), retires `TInt64`, and closes the *cited* collision — but changes the emitted Go (`int64`→`int`
+   for counters; runtime output identical, so `expected_output.txt` stable).  (ii) the deeper fix —
+   family-A narrow types emitting their REAL Go type (`uint8`…) so their `any`-identity matches Go — is a
+   PLUGIN + representation change (give family-A the family-B Go-type names, keep the Squash range proof).
+   **DECISION NEEDED (surfaced):** retire-TInt64 only (cheap, closes the cited example, leaves narrow-backing)
+   vs. the full narrow-type representation fix (closes it properly, bigger).  No code landed this tick —
+   refused to ship a partial/risky tag-surgery before the representation call.
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
