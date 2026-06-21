@@ -1734,6 +1734,149 @@ Section KeystoneHeap.
 End KeystoneHeap.
 
 (** ============================================================================
+    COMBINED STATE REFINEMENT — channels AND heap in ONE world.
+
+    [reachable_refines] / [reachable_refines_heap] each match a [run_io] world to ONE component.
+    The honest "the [World] IS the whole state" statement uses a SINGLE world matching BOTH: every
+    [rstep] advances at most one component ([chan_*_upd] for a channel op, [ref_upd] for a write),
+    and the [World]'s ref- and channel-heaps are INDEPENDENT ([ref_sel_chan_*_upd] /
+    [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
+    advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
+    channels AND its memory — is realized by ONE [run_io] world, across all interleavings.
+    ============================================================================ *)
+Section KeystoneState.
+  Variable chenv : nat -> GoChan GoI64.
+  Variable locenv : nat -> Ref GoI64.
+  Variable inj : nat -> GoI64.
+  Hypothesis chenv_inj : forall i j, chenv i = chenv j -> i = j.
+  Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
+
+  Lemma kst_chenv_neq : forall i j, i <> j -> chenv i <> chenv j.
+  Proof. intros i j Hij Heq. apply Hij, chenv_inj, Heq. Qed.
+  Lemma kst_locenv_neq : forall i j, i <> j -> r_loc (locenv i) <> r_loc (locenv j).
+  Proof. intros i j Hij Heq. apply Hij, locenv_loc_inj, Heq. Qed.
+
+  Definition WState (w : World) (cfg : RConfig) : Prop :=
+    WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg.
+
+  Lemma wstate_step : forall cfg cfg' w,
+    rstep cfg cfg' -> WState w cfg -> exists w', WState w' cfg'.
+  Proof.
+    intros cfg cfg' w Hstep [HMc HMh].
+    unfold WMatchC, rchan in HMc. unfold WHMatchC in HMh.
+    destruct Hstep as
+      [ p b h lv tr tid c0 v k Hlv Hp _
+      | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c0 k Hlv Hp _
+      | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
+    - (* send: channel world advances; heap untouched and refs framed through chan_send_upd *)
+      exists (chan_send_upd TI64 (chenv c0) (inj v) w). split.
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app. cbn. reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_send_upd. exact (HMh l).
+    - (* recv: channel world advances; heap framed through chan_recv_upd *)
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest))
+        by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
+      exists (chan_recv_upd TI64 (chenv c0) w). split.
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+          reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+    - (* write: heap world advances; channels untouched and bufs framed through ref_upd *)
+      exists (ref_upd (locenv l) (inj v) w). split.
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. rewrite chan_buf_ref_upd_frame. exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l0. destruct (Nat.eq_dec l0 l) as [->|Hne].
+        * rewrite upd_same, ref_sel_upd_same. reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (kst_locenv_neq l l0 (not_eq_sym Hne))).
+          exact (HMh l0).
+    - (* read: world unchanged *)
+      exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
+                       | unfold WHMatchC; cbn [rc_heap]; exact HMh].
+    - (* spawn: world unchanged *)
+      exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
+                       | unfold WHMatchC; cbn [rc_heap]; exact HMh].
+    - (* select: channel world advances (recv on chosen channel); heap framed *)
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest))
+        by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
+      exists (chan_recv_upd TI64 (chenv c0) w). split.
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf).
+          reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+    - (* close: world unchanged (buffers and heap untouched) *)
+      exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
+                       | unfold WHMatchC; cbn [rc_heap]; exact HMh].
+    - (* recv_closed: world unchanged *)
+      exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
+                       | unfold WHMatchC; cbn [rc_heap]; exact HMh].
+    - (* select_closed: world unchanged *)
+      exists w. split; [unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc
+                       | unfold WHMatchC; cbn [rc_heap]; exact HMh].
+  Qed.
+
+  Lemma wstate_steps : forall cfg cfg' w,
+    rsteps cfg cfg' -> WState w cfg -> exists w', WState w' cfg'.
+  Proof.
+    intros cfg cfg' w H. revert w. induction H; intros w HM; [exists w; exact HM|].
+    destruct (wstate_step _ _ _ H HM) as [w' HM']. exact (IHrsteps w' HM').
+  Qed.
+
+  Lemma wstate_init : forall p w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    WState w0 (rinit_cfg p).
+  Proof.
+    intros p w0 Hempty Hzero. split.
+    - intros c. unfold rchan, rinit_cfg; cbn [rc_bufs]. rewrite Hempty. reflexivity.
+    - intros l. unfold rinit_cfg; cbn [rc_heap]. exact (Hzero l).
+  Qed.
+
+  (** THE COMBINED REFINEMENT.  Every reachable state of a concurrent program — its channels AND its
+      memory — is realized by ONE [run_io] world, across every interleaving. *)
+  Theorem reachable_refines_state : forall p cfg w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    rsteps (rinit_cfg p) cfg ->
+    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg.
+  Proof.
+    intros p cfg w0 Hempty Hzero Hsteps.
+    exact (wstate_steps _ _ _ Hsteps (wstate_init p w0 Hempty Hzero)).
+  Qed.
+
+  (** Capstone: that single world realizes the FULL reachable state AND (under ownership) the
+      execution is race-free with a strict-partial-order happens-before. *)
+  Theorem reachable_refines_state_and_safe : forall p cfg w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    rsteps (rinit_cfg p) cfg ->
+    Owned (rc_trace cfg) ->
+    (exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg) /\
+    TraceRaceFree (rc_trace cfg) /\
+    (forall i, ~ hbt (rc_trace cfg) i i).
+  Proof.
+    intros p cfg w0 Hempty Hzero Hsteps HO.
+    split; [exact (reachable_refines_state p cfg w0 Hempty Hzero Hsteps) |].
+    exact (reachable_owned_safe_r p cfg Hsteps HO).
+  Qed.
+
+End KeystoneState.
+
+(** ============================================================================
     DEADLOCK FREEDOM (progress) for the RICH calculus.
 
     The operational semantics REPRESENTS deadlock; here we (a) characterize EXACTLY

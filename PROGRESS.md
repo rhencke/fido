@@ -1635,9 +1635,16 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    races are actually about, not just channels.  Trust base (`Print Assumptions`): only
    `PrimInt63`/`PrimFloat` — no `functional_extensionality`, NO frame axioms (`ref_sel_upd_diff`
    is a derived lemma; `locenv_loc_inj` a discharged hypothesis), cleaner than the channel side.
-   *Still open:* a SINGLE-world COMBINED state match (channels ∧ heap together — needs the trivial
-   chan↔ref cross-frame laws), a term-level account of cross-goroutine value flow beyond state,
-   and the plugin lowering side (`Cmd` ↔ extracted Go).
+   **The SINGLE-world COMBINED state match is now DONE too (2026-06-21, `Section KeystoneState`):**
+   `WState w cfg := WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg`; `wstate_step` shows EVERY
+   `rstep` preserves it in ONE world — each step advances at most one component (`chan_*_upd` for a
+   channel op, `ref_upd` for a write) and the `World`'s ref- and channel-heaps are INDEPENDENT, so the
+   untouched component stays matched in the SAME advanced world (the new builtins cross-frames
+   `ref_sel_chan_send_upd`/`ref_sel_chan_recv_upd`/`chan_buf_ref_upd_frame`, all one-line: the two
+   sub-heaps are distinct `mkWorld` fields).  `reachable_refines_state` / `reachable_refines_state_and_safe`:
+   every reachable concurrent state — channels AND memory — is realized by ONE `run_io` world AND (under
+   ownership) race-free.  Trust base: only `PrimInt63`/`PrimFloat`.  *Still open:* a term-level account
+   of cross-goroutine value flow beyond state, and the plugin lowering side (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
    ownership discipline `Owned` — accesses to each location form an hb-CHAIN (any two

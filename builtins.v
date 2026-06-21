@@ -3881,6 +3881,26 @@ Proof.
   apply Uint63.eqb_spec in E. congruence.
 Qed.
 
+(** CROSS-RESOURCE separation: the [World]'s ref-heap and channel-heap are INDEPENDENT components
+    ([w_refs] vs [w_chans]), so a CHANNEL op leaves every ref untouched and a REF op leaves every
+    channel untouched.  These let a single [run_io] world match BOTH the calculus's channel AND heap
+    state at once (the combined state refinement). *)
+Lemma ref_sel_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl (r : Ref B) (w : World),
+  ref_sel r (chan_write tag ch buf cl w) = ref_sel r w.
+Proof. intros. unfold ref_sel, chan_write. reflexivity. Qed.
+
+Lemma ref_sel_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
+  ref_sel r (chan_send_upd tag ch v w) = ref_sel r w.
+Proof. intros. unfold chan_send_upd. apply ref_sel_chan_write_frame. Qed.
+
+Lemma ref_sel_chan_recv_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
+  ref_sel r (chan_recv_upd tag ch w) = ref_sel r w.
+Proof. intros. unfold chan_recv_upd. apply ref_sel_chan_write_frame. Qed.
+
+Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
+  chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.
+Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
+
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
     returns [v] (from [ref_sel_upd_same]). *)
 Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A),
