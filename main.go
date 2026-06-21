@@ -953,6 +953,15 @@ func Ptr_safe_demo() {
 	println(v2, ok2)
 }
 
+func Ptr_chan_demo() {
+	p := func(_v int64) *int64 { return &_v }(int64(7))
+	ch := make(chan *int64, 1)
+	ch <- p
+	q := <-ch
+	v := *q
+	println(v)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -1961,6 +1970,7 @@ func main() {
 	Ptr_demo()
 	New_demo()
 	Ptr_safe_demo()
+	Ptr_chan_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()

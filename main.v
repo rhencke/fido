@@ -1603,7 +1603,7 @@ Definition ptr_demo : IO unit :=
   bind (ptr_new TI64 (10)%i64) (fun p =>      (* p := new(int64) ← 10 *)
   bind (ptr_get TI64 p)        (fun a =>      (* a := *p  (= 10) *)
   bind (println [any a])       (fun _ =>      (* prints 10 *)
-  bind (ptr_set p (99)%i64)    (fun _ =>      (* *p = 99 *)
+  bind (ptr_set TI64 p (99)%i64) (fun _ =>    (* *p = 99 *)
   bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
   println [any b]))))).                        (* prints 99 *)
 
@@ -1624,6 +1624,18 @@ Definition ptr_safe_demo : IO unit :=
   bind (println [any v; any ok]) (fun _ =>          (* prints 42 true *)
   ptr_get_ok TI64 (ptr_nil TI64) (fun v2 ok2 =>     (* nil → v2=0, ok2=false, NO panic *)
   println [any v2; any ok2])))).                     (* prints 0 false *)
+
+(** Phase B1c: a POINTER over a CHANNEL ([chan *int64]) — unlocked by [TPtr] (the pointer
+    [GoTypeTag], 2026-06-21).  [p := new(int64) ← 7]; send [p] over [ch]; receive [q] (an ALIAS of
+    [p], same cell); [*q = 7].  A [*T] is now a first-class channel payload / [any] box / map element
+    (it rides the same tag machinery as scalars — [Tagged_ptr] infers [TPtr (the_tag T)]). *)
+Definition ptr_chan_demo : IO unit :=
+  bind (ptr_new TI64 (7)%i64)        (fun p =>      (* p := new(int64) ← 7 *)
+  bind (make_chan_buf (TPtr TI64) 1) (fun ch =>     (* ch := make(chan *int64, 1) *)
+  bind (send (TPtr TI64) ch p)       (fun _ =>      (* ch <- p *)
+  bind (recv (TPtr TI64) ch)         (fun q =>      (* q := <-ch  (aliases p) *)
+  bind (ptr_get TI64 q)              (fun v =>      (* v := *q  (= 7) *)
+  println [any v]))))).                              (* prints 7 *)
 
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
@@ -2605,6 +2617,7 @@ Definition main_effect : IO unit :=
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
   new_demo                      >>'   (* prints: 0 (new(int64) → zero) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
+  ptr_chan_demo                 >>'   (* prints: 7 (a *int64 sent over a chan, deref'd) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

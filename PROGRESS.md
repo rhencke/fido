@@ -660,15 +660,19 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
 - *Channels in struct fields, returned, passed/aliased*: fine — a struct with a `GoChan` field is
   an ordinary value; a returned/shared channel handle is the same handle (reference semantics).
 
-**The two GENUINE limits (TODO):**
-1. **A struct or POINTER (any non-taggable aggregate) cannot be a channel PAYLOAD / `any` box /
-   map element.**  `send`/`any`/map ops are gated on a `GoTypeTag`, and `GoTypeTag` has NO struct
-   constructor (builtins.v:3579) and no `TPtr`/`TRef` — only scalars + `TChan`/`TSlice`/`TMap`/
-   `TArrow`.  So a struct/`Ptr` FIELD or pointee is fine, but *sending the struct or a `Ptr A`
-   itself over a channel* (`chan *T`) fails loud (you cannot construct the tag `send` demands; it
-   does not silently misbehave).  *Fix:* a structural `GoTypeTag` for records + a `TPtr`/`TRef`
-   constructor (or a derive-the-tag mechanism), which also unlocks structs/pointers in `any` and as
-   map keys/values.  Related: the heap-side struct-tag gap already noted at ladder item 9.
+**Limit #1 — RESOLVED for BOTH structs and pointers (2026-06-21).**
+- *Structs:* DONE via `TProd` — a struct rides a channel / `any` / map as its canonical PRODUCT
+  backing (marshalled by its `StructRep` iso, extracts to the native named Go struct).
+- *Pointers:* DONE via **`TPtr`** (2026-06-21) — `Ptr A` was REDESIGNED tag-free (a phantom
+  `{p_loc:int}` handle beside `GoChan`/`GoMap`; the pointee tag lives in the world `RefCell`, and the
+  deref ops `ptr_get`/`ptr_set`/`ptr_as_ref` take the `GoTypeTag` explicitly).  That breaks the
+  universe cycle (a tag-CARRYING `Ptr` made `GoTypeTag (Ptr A)` inconsistent), so `GoTypeTag` gains
+  `TPtr : GoTypeTag A -> GoTypeTag (Ptr A)`, with `tag_eq`/`tag_coerce`/`zero_val`/`key_eqb`/`Tagged_ptr`
+  cases and the plugin rendering `*T` (by type, like `chan T`).  Now a `*T` is a first-class channel
+  payload / `any` box / map element: witness `ptr_chan_demo` — `p := new(int64)←7`, `ch <- p`,
+  `q := <-ch` (aliases p), `*q = 7` — emits idiomatic `make(chan *int64,1)` / `ch <- p` / `<-ch`,
+  prints `7`.  Axiom-free (trust base only), golden-stable.  *Still ✗ (niche):* embedding a non-struct
+  type, and `*T` to a struct whose `GoTypeTag` is product-backed only.
 2. **The rich typed channel values and the now-correct concurrent select live in DIFFERENT
    layers.**  The typed sequential `IO`/`World` model carries arbitrary typed payloads (nested
    channels, struct fields, closure captures, aliasing `Ptr A` pointers via `ptr_get`/`ptr_set`);

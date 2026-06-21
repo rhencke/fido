@@ -534,6 +534,8 @@ let rec go_type_of_tag = function
       "chan " ^ go_type_of_tag inner
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TSlice" ->
       "[]" ^ go_type_of_tag inner
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr"   ->
+      "*" ^ go_type_of_tag inner
   | MLcons (_, r, [kt; vt]) when String.equal (global_basename r) "TMap"  ->
       "map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt
   | _ -> "any"
@@ -545,6 +547,7 @@ let zero_of_tag tag =
   | MLcons (_, r, []) when String.equal (global_basename r) "TString" -> "\"\""
   | MLcons (_, r, [_])    when String.equal (global_basename r) "TChan"  -> "nil"
   | MLcons (_, r, [_])    when String.equal (global_basename r) "TSlice" -> "nil"
+  | MLcons (_, r, [_])    when String.equal (global_basename r) "TPtr"   -> "nil"
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
@@ -554,6 +557,7 @@ let is_go_type_tag_ctor r =
   Option.has_some (classify_go_type_tag r) ||
   String.equal (global_basename r) "TChan"  ||
   String.equal (global_basename r) "TSlice" ||
+  String.equal (global_basename r) "TPtr"   ||
   String.equal (global_basename r) "TMap"
 
 (* IO monad — basename matching is acceptable here because these names
@@ -1502,7 +1506,7 @@ let rec pp_expr state env = function
            str "new(" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")"
        | MLglob r, [_tag; p] when is_ptr_get_ref r ->
            str "*" ++ pp_atom state env p
-       | MLglob r, [p; v] when is_ptr_set_ref r ->
+       | MLglob r, [_tag; p; v] when is_ptr_set_ref r ->
            str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
        (* Struct pointers (Phase Bs.2).  The rep arg is proof-only (ignored here):
           [sptr_new rep v] → [&v] (composite literals are addressable in Go);

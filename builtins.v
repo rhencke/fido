@@ -170,6 +170,15 @@ Arguments MkChan {A} _.
 Arguments ch_loc {A} _.
 Arguments MkMap {K V} _.
 Arguments gm_loc {K V} _.
+(** [Ptr A] is a phantom-LOCATION record too (TAG-FREE, like [GoChan]/[GoMap]) — the element type [A]
+    is carried only in the type, never as a field.  This is what lets [GoTypeTag] reference it via
+    [TPtr] (a tag-carrying [Ptr] would make [GoTypeTag] universe-inconsistent — same reason as the
+    channel/map handles).  The pointee's type lives in the world heap cell ([RefCell] stores the tag),
+    so the deref OPS ([ptr_get]/[ptr_set]/…) below take the [GoTypeTag] explicitly.  Extraction:
+    [Ptr A] → Go [*T] (rendered by type name, like [chan T]); the [p_loc] handle is erased. *)
+Record Ptr (A : Type) : Type := mkPtr { p_loc : int }.
+Arguments mkPtr {A} _.
+Arguments p_loc {A} _.
 
 (** ---- Type assertions ----
 
@@ -266,7 +275,11 @@ Inductive GoTypeTag : Type -> Type :=
      [A * B] is CANONICAL, so [tag_eq] can recover [A1*B1 = A2*B2] from the component tags.
      A 2-field struct is modelled as a product (marshalled via its StructRep iso) yet still
      EXTRACTS to its native named Go struct — methods/embedding intact. *)
-  | TProd : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A * B).
+  | TProd : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A * B)
+  (* pointer type [*T] — a tag-free [Ptr A] handle (defined above, like [GoChan]); the element tag is
+     recovered by [tag_eq] so a [*T] can be a channel payload / [any] box / map value.  [==] on
+     pointers compares the location (Go compares addresses). *)
+  | TPtr : forall {A : Type}, GoTypeTag A -> GoTypeTag (Ptr A).
 
 (** TRANSPARENT congruences for the now-CONCRETE [GoChan]/[GoMap] records, forced
     to live at [@eq Type].  Two reasons they are not the stdlib [f_equal]/[f_equal2]:
@@ -294,6 +307,8 @@ Definition goprod_cong {A A' B B' : Type} (p : A = A') (q : B = B')
   match p in (_ = A2), q in (_ = B2) return (@eq Type (A * B)%type (A2 * B2)%type) with
   | eq_refl, eq_refl => eq_refl
   end.
+Definition goptr_cong {A A'} (p : A = A') : @eq Type (Ptr A) (Ptr A') :=
+  match p in (_ = X) return (@eq Type (Ptr A) (Ptr X)) with eq_refl => eq_refl end.
 
 (** Decidable tag equality WITH type recovery: if two tags are the same, hand back a
     proof that their indexed types are equal (so a heterogeneous heap can cast a stored
@@ -339,6 +354,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
       | Some p, Some q => Some (goprod_cong p q)
       | _, _ => None
       end
+  | TPtr a, TPtr b     => match tag_eq a b with Some p => Some (goptr_cong p) | None => None end
   | _, _ => None
   end.
 
@@ -357,6 +373,7 @@ Proof.
   - rewrite IHt1, IHt2; reflexivity.                (* TMap (gomap_cong reduces) *)
   - rewrite IHt1, IHt2; reflexivity.                (* TArrow (goarrow_cong reduces) *)
   - rewrite IHt1, IHt2; reflexivity.                (* TProd (goprod_cong reduces) *)
+  - rewrite IHt; reflexivity.                       (* TPtr (goptr_cong reduces) *)
 Qed.
 
 (** [tag_coerce t t x = Some x]: coercing along a tag's reflexive match is the
@@ -408,6 +425,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
                                           zero inhabitant is a proof-only placeholder (a real nil func
                                           panics if called, but zero_val is a never-called default) *)
   | TProd a b => (zero_val a, zero_val b)  (* struct/pair zero: field-wise zeros *)
+  | TPtr _   => mkPtr 0%uint63         (* nil pointer (handle erased; plugin emits nil) *)
   end.
 
 (** ---- [GoAny] / [any] — Go's [interface{}], now a TAGGED (type, value) pair ----
@@ -451,6 +469,8 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoFloat32 : Tagged GoFloat32 := TFloat32.
 #[global] Instance Tagged_prod {A B} `(Tagged A) `(Tagged B) : Tagged (A * B) :=
   TProd (the_tag A) (the_tag B).   (* a pair / 2-field struct backing infers its product tag *)
+#[global] Instance Tagged_ptr {A} `(Tagged A) : Tagged (Ptr A) :=
+  TPtr (the_tag A).                (* a [*T] handle infers its pointer tag — so it rides any/chan/map *)
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -487,6 +507,7 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TArrow _ _ => fun _ _ => false   (* func types are NOT comparable in Go (sentinel, like slices) *)
   | TProd a b => fun x y => andb (key_eqb a (fst x) (fst y)) (key_eqb b (snd x) (snd y))
                                      (* a product (comparable struct) is a valid key iff both fields are *)
+  | TPtr _ => fun a b => PrimInt63.eqb (p_loc a) (p_loc b)   (* Go [==] on pointers compares addresses *)
   end.
 
 (** [Comparable t]: [key_eqb t] decides equality on [K] — the typing side
@@ -3825,19 +3846,16 @@ Qed.
     [Ptr A] is its own record so it is a DISTINCT type the plugin renders [*T]; its ops
     go through the SAME [ref_sel]/[ref_upd] (via [ptr_as_ref]), so read-after-write and
     aliasing are inherited from [ref_sel_upd_same] — no new heap, no new axiom. *)
-Record Ptr (A : Type) : Type := mkPtr { p_loc : int ; p_tag : GoTypeTag A }.
-Arguments mkPtr {A} _ _.
-Arguments p_loc {A} _.
-Arguments p_tag {A} _.
-
-Definition ptr_as_ref {A} (p : Ptr A) : Ref A := mkRef (p_loc p) (p_tag p).
-Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0%uint63 tag.
+(** [ptr_as_ref tag p]: view a (tag-free) [Ptr A] as a [Ref A] at the same location with the GIVEN
+    tag — so the deref ops reuse the [ref_sel]/[ref_upd] heap (read-after-write, aliasing inherited). *)
+Definition ptr_as_ref {A} (tag : GoTypeTag A) (p : Ptr A) : Ref A := mkRef (p_loc p) tag.
+Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0%uint63.
 
 (** [ptr_new tag v]: Go [p := new(T); *p = v] — allocate a FRESH (nonzero) location,
-    store [v], bump the allocator, return the pointer.  Fresh ⇒ never nil. *)
+    store [v] (tagged), bump the allocator, return the pointer.  Fresh ⇒ never nil. *)
 Definition ptr_new {A} (tag : GoTypeTag A) (v : A) : IO (Ptr A) :=
   fun w => let l := w_next w in
-           ORet (mkPtr l tag)
+           ORet (mkPtr l)
                 (mkWorld (fun k => if PrimInt63.eqb k l then Some (existT _ A (tag, v))
                                    else w_refs w k)
                          (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63)).
@@ -3846,23 +3864,24 @@ Definition ptr_new {A} (tag : GoTypeTag A) (v : A) : IO (Ptr A) :=
     pointee reads as the zero value.  Lowers to Go [new(T)]. *)
 Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val tag).
 
-(** [ptr_get tag p] = [*p] (deref read); [ptr_set p v] = [*p = v] (deref write). *)
+(** [ptr_get tag p] = [*p] (deref read); [ptr_set tag p v] = [*p = v] (deref write).  Both take the
+    pointee tag explicitly (the tag-free handle does not carry it). *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
-  fun w => ORet (ref_sel (ptr_as_ref p) w) w.
-Definition ptr_set {A} (p : Ptr A) (v : A) : IO unit :=
-  fun w => ORet tt (ref_upd (ptr_as_ref p) v w).
+  fun w => ORet (ref_sel (ptr_as_ref tag p) w) w.
+Definition ptr_set {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) : IO unit :=
+  fun w => ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
-  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref p) w) w.
+  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref tag p) w) w.
 Proof. reflexivity. Qed.
-Lemma run_ptr_set : forall {A} (p : Ptr A) (v : A) (w : World),
-  run_io (ptr_set p v) w = ORet tt (ref_upd (ptr_as_ref p) v w).
+Lemma run_ptr_set : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
+  run_io (ptr_set tag p v) w = ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. reflexivity. Qed.
 
 (** Read-after-write THROUGH a pointer — a THEOREM (inherited from the shared heap):
-    after [ptr_set p v], [ptr_get p] returns [v]. *)
+    after [ptr_set tag p v], [ptr_get tag p] returns [v]. *)
 Lemma ptr_get_set_same : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A),
-  bind (ptr_set p v) (fun _ => ptr_get tag p) =
-  bind (ptr_set p v) (fun _ => ret v).
+  bind (ptr_set tag p v) (fun _ => ptr_get tag p) =
+  bind (ptr_set tag p v) (fun _ => ret v).
 Proof.
   intros. apply run_io_inj. intro w.
   rewrite !run_bind, !run_ptr_set. cbn.
@@ -3873,12 +3892,12 @@ Qed.
     location ([p] and a copy [q]) see each other's writes.  A write through [q] is
     observed by a read through [p] — impossible for a non-aliasing [Ref] var. *)
 Lemma ptr_alias : forall {A} (tag : GoTypeTag A) (p q : Ptr A) (v : A) (w : World),
-  p_loc p = p_loc q -> p_tag p = p_tag q ->
-  ref_sel (ptr_as_ref p) (ref_upd (ptr_as_ref q) v w) = v.
+  p_loc p = p_loc q ->
+  ref_sel (ptr_as_ref tag p) (ref_upd (ptr_as_ref tag q) v w) = v.
 Proof.
-  intros A tag p q v w Hl Ht.
-  unfold ptr_as_ref. rewrite Hl, Ht.
-  apply (ref_sel_upd_same (mkRef (p_loc q) (p_tag q)) v w).
+  intros A tag p q v w Hl.
+  unfold ptr_as_ref. rewrite Hl.
+  apply (ref_sel_upd_same (mkRef (p_loc q) tag) v w).
 Qed.
 
 (** ---- nil-deref SAFETY (Phase B1b) ----
@@ -3895,7 +3914,7 @@ Definition ptr_is_nil {A} (p : Ptr A) : bool := PrimInt63.eqb (p_loc p) 0%uint63
 Definition ptr_get_ok {A B} (tag : GoTypeTag A) (p : Ptr A) (k : A -> bool -> IO B) : IO B :=
   fun w => if ptr_is_nil p
            then k (zero_val tag) false w
-           else k (ref_sel (ptr_as_ref p) w) true w.
+           else k (ref_sel (ptr_as_ref tag p) w) true w.
 
 (** Dereferencing a NIL pointer takes the SAFE branch ([ok = false], [v = zero]) —
     never the panic; the nil case is forced on the caller.  A THEOREM. *)
@@ -3910,7 +3929,7 @@ Qed.
 Lemma ptr_get_ok_nonnil : forall {A B} (tag : GoTypeTag A) (p : Ptr A)
     (k : A -> bool -> IO B) (w : World),
   ptr_is_nil p = false ->
-  ptr_get_ok tag p k w = k (ref_sel (ptr_as_ref p) w) true w.
+  ptr_get_ok tag p k w = k (ref_sel (ptr_as_ref tag p) w) true w.
 Proof. intros A B tag p k w Hnn. unfold ptr_get_ok. rewrite Hnn. reflexivity. Qed.
 
 (** ---- Slices as ALIASING HANDLES (Go spec "Slice types", Phase B3) ----
