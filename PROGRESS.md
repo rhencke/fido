@@ -797,6 +797,16 @@ any "verified" claim.
 9. **`complex_div` wrong on finite values.** Replaces Go's `abs(re)>=abs(im)` with a SQUARED-magnitude
    compare → overflow/underflow.  Counterexample `1+2i / 1e307+1e308i`: Go ≈ `2.08e-308 - 7.9e-309i`,
    model `0 - 0i`.  The "faithful for all finite" claim is false.
+   **→ RESOLVED (2026-06-21, golden byte-identical).**  The branch condition is now `PrimFloat.leb
+   (abs mi) (abs mr)` (i.e. `|mi| <= |mr|`) — exactly Go's `|mr| >= |mi|` — instead of `mi² <= mr²`.
+   `abs` never overflows, so the right Smith branch is chosen for ALL finite divisors (the squared form
+   reduced to `Inf <= Inf = true` for |mi|,|mr| ≳ 1e154, picking the |mr|-branch even when |mi| > |mr|).
+   Sound to use `PrimFloat.abs` here even though `math.Abs` needs an import: `complex_div` lowers to the
+   NATIVE Go `/` (body proof-only, suppressed by name), so `abs` is never extracted; and it is a trust-base
+   `PrimFloat.*` primitive (no new axiom — `Print Assumptions` still PrimInt63/PrimFloat only).  Witness:
+   `complex_div_branch_overflow_fixed` machine-checks the old branch was wrong and the new one right at
+   mr=2^550, mi=2^600.  (Annex-G Inf/NaN-divisor postamble remains a documented model gap on DEGENERATE
+   inputs — the native `/` gets it for free at runtime.)
 10. **UTF-8 model is not a decoder.** `str_to_runes` picks width from the first byte and masks the rest
     with no validation (continuation prefixes, overlong, surrogates, >MaxRune, invalid leads).  `0x80
     0x41` → one 2-byte seq → `U+0001`; Go → `U+FFFD` then `A`.  `rune_bytes` emits surrogates/out-of-range

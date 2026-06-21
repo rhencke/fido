@@ -3819,10 +3819,15 @@ Proof. intros. split; reflexivity. Qed.
 Definition complex_div (n m : GoComplex128) : GoComplex128 :=
   let nr := c_re n in let ni := c_im n in
   let mr := c_re m in let mi := c_im m in
-  (* branch on which denominator component is larger in magnitude — Go uses
-     [|mr| >= |mi|]; we use the squared form [mi² <= mr²], equivalent for finite values
-     and avoiding [PrimFloat.abs] (an extraction-axiom). *)
-  if PrimFloat.leb (PrimFloat.mul mi mi) (PrimFloat.mul mr mr) then
+  (* branch on which denominator component is larger in magnitude — Go uses [|mr| >= |mi|], i.e.
+     [|mi| <= |mr|].  We compare ABSOLUTE VALUES via [PrimFloat.abs] (a trust-base [PrimFloat.*]
+     primitive).  This is sound to use here even though [math.Abs] would need an import: [complex_div]
+     lowers to the NATIVE Go [/] (its body is PROOF-ONLY, suppressed by name — see the plugin), so the
+     [abs] is never extracted.  (Break #9 fix: the earlier squared form [mi² <= mr²] OVERFLOWED to
+     [Inf <= Inf = true] for large operands — |mi|,|mr| ≳ 1e154 — and picked the WRONG branch when
+     |mi| > |mr| (e.g. mr=1e160, mi=1e200), diverging from Go on large FINITE divisors.  Abs never
+     overflows, so the branch now matches Go's exactly.) *)
+  if PrimFloat.leb (PrimFloat.abs mi) (PrimFloat.abs mr) then
     let ratio := PrimFloat.div mi mr in
     let denom := PrimFloat.add mr (PrimFloat.mul ratio mi) in
     MkComplex128 (PrimFloat.div (PrimFloat.add nr (PrimFloat.mul ni ratio)) denom)
@@ -3832,6 +3837,16 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
     let denom := PrimFloat.add mi (PrimFloat.mul ratio mr) in
     MkComplex128 (PrimFloat.div (PrimFloat.add (PrimFloat.mul nr ratio) ni) denom)
                  (PrimFloat.div (PrimFloat.sub (PrimFloat.mul ni ratio) nr) denom).
+
+(** Break #9 witness (machine-checked): on a large divisor where BOTH components square to [+Inf]
+    (|mi|, |mr| ≳ 1e154) but |mi| > |mr|, the OLD squared-magnitude branch [mi² <= mr²] wrongly reduces
+    to [Inf <= Inf = true] (picks the |mr|-branch), while the NEW [|mi| <= |mr|] correctly yields [false]
+    (the |mi|-branch) — exactly Go's [|mr| >= |mi|].  ([0x1p550] = 2^550, [0x1p600] = 2^600.) *)
+Example complex_div_branch_overflow_fixed :
+  let mr := 0x1p550%float in let mi := 0x1p600%float in
+     PrimFloat.leb (PrimFloat.mul mi mi) (PrimFloat.mul mr mr) = true    (* old (squared): WRONG branch *)
+  /\ PrimFloat.leb (PrimFloat.abs mi)    (PrimFloat.abs mr)    = false.  (* new (abs):     RIGHT branch *)
+Proof. vm_compute. split; reflexivity. Qed.
 
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
 
