@@ -538,13 +538,19 @@ Qed.
 
 (** Native struct equality — Go's [a == b] on a comparable struct (spec "Comparison
     operators": struct values are comparable iff all fields are, and [==] is field-wise).
-    EVIDENCE-CARRYING and safe-by-construction: it DEMANDS a decision procedure [eqb] —
-    the comparability witness Go requires before you may write [==] — and only then lowers
-    to the bare native [a == b] (the witness having discharged the comparability side
-    condition, exactly as [div_nz] discharges the non-zero-divisor guard).  [struct_eqb
-    eqb a b] is definitionally [eqb a b], so when [eqb] decides equality so does [==]
-    (proved at the use site from the field-wise [eqb]'s spec). *)
-Definition struct_eqb {R : Type} (eqb : R -> R -> bool) (a b : R) : bool := eqb a b.
+    EVIDENCE-CARRYING and safe-by-construction: it DEMANDS not just a candidate [eqb] but a
+    SEALED PROOF [pf] that [eqb] DECIDES equality ([forall x y, eqb x y = true <-> x = y]) —
+    the comparability witness Go requires before you may write [==] — and only then lowers to
+    the bare native [a == b] (the witness having discharged the comparability side condition,
+    exactly as [div_nz] discharges the non-zero-divisor guard).  Because [pf] is in [SProp] it
+    is ERASED at extraction, so [struct_eqb eqb pf a b] extracts to the same 3-arg shape the
+    plugin lowers to [a == b] — the seal costs nothing at runtime but makes the bogus witness
+    [struct_eqb (fun _ _ => false) ? a b] UNCONSTRUCTABLE (its [pf] obligation is unprovable).
+    [struct_eqb eqb pf a b] is definitionally [eqb a b], so since [eqb] decides equality so
+    does [==] (e.g. [struct_eqb_native_spec]). *)
+Definition struct_eqb {R : Type} (eqb : R -> R -> bool)
+                      (pf : Squash (forall x y, eqb x y = true <-> x = y))
+                      (a b : R) : bool := eqb a b.
 
 (** ---- World: a CONCRETE proof-only state record (no longer an axiom). ----
 

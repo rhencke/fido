@@ -655,14 +655,19 @@ any "verified" claim.
    `struct_eqb (eqb) a b := eqb a b` — public constructors, no `forall x y, eqb x y = true <-> x = y`,
    both erase to native `==`.  `struct_eqb (fun _ _ => false) p p` = `false` in Rocq, `true` in Go.
    Fix: add the decidability field (SProp/erased) + seal the constructor.
-   **→ ComparableW HALF RESOLVED (2026-06-21).** `ComparableW` now carries `cw_ok : Squash (forall x y,
-   cw_eqb x y = true <-> x = y)` (SProp-erased, golden-stable — the plugin drops the whole witness
-   regardless of arity).  Decidability proved for all 4 instances (`i64_eqb_spec`/`u64_eqb_spec`/
-   `str_eqb_spec`/the existing `point_eqb_spec`); `bogus_eqb_undecidable` machine-checks that the
-   always-`false` witness is unconstructable.  So `cw_eqb w` provably decides `=`, hence agrees with Go's
-   `==` — the erasure is now sound, not forgeable.  Base: PrimInt63 only (no funext/irrelevance/Fido axiom).
-   **STILL OPEN: the `struct_eqb` half** (the raw-`eqb` form is unchanged — next; it needs the plugin to
-   drop a `ComparableW` arg in place of the raw `eqb`, so it touches extraction, unlike the erased witness).
+   **→ FULLY RESOLVED (2026-06-21, both halves, golden-stable, no plugin change).**
+   *ComparableW:* now carries `cw_ok : Squash (forall x y, cw_eqb x y = true <-> x = y)` (SProp-erased — the
+   plugin drops the whole witness regardless of arity).  Decidability proved for all 4 instances
+   (`i64_eqb_spec`/`u64_eqb_spec`/`str_eqb_spec`/the existing `point_eqb_spec`); `bogus_eqb_undecidable`
+   machine-checks the always-`false` witness is unconstructable.
+   *struct_eqb:* now takes `pf : Squash (forall x y, eqb x y = true <-> x = y)` between `eqb` and `a,b`.
+   The KEY: an SProp argument is ERASED by Coq's extraction, so `struct_eqb eqb pf a b` extracts to the same
+   3-arg MiniML the plugin already lowers to `a == b` (`[_eqb; a; b]`) — byte-identical Go, zero plugin
+   change.  The forge `struct_eqb (fun _ _ => false) ? a b` is now unconstructable (`?` is unprovable).
+   Net: both erasures to native `==` are SOUND, not forgeable.  Base: PrimInt63 only (no funext/irrelevance/
+   Fido axiom).  **TECHNIQUE (reusable for the remaining seals): a `Squash (…spec…)` proof field/param is
+   free at runtime (SProp-erased) yet structurally blocks every bogus constructor — the cheapest possible
+   way to retrofit safe-by-construction onto an already-extracting, golden-locked API.**
 5. **Allocation freshness asserted, never established.** Allocators use `w_next` with NO `ValidWorld`
    invariant (nonzero, > all live locs, no wrap).  "fresh"/"nonzero"/"disjoint" are comments, false as
    theorem-level claims over arbitrary `World`.  Fix: a `ValidWorld` invariant, loc 0 reserved.
@@ -716,8 +721,9 @@ honestly flags the main calculus's limit); the emitted Go builds/vets/runs clean
 
 **REPAIR ORDER (do not extend the bridge until these close):** (1) seal `Sess`/`ComparableW`/`struct_eqb`/
 handle constructors + every invariant-carrying ctor [**`ComparableW` DONE 2026-06-21** — decidability
-evidence field, all 4 instances proved, forge machine-checked-impossible, golden-stable; `struct_eqb`/`Sess`/
-handles still open]; (2) `ValidWorld` invariant (loc 0 reserved, genuine
+evidence field, all 4 instances proved, forge machine-checked-impossible, golden-stable; **`struct_eqb` also
+DONE — SProp-erased `pf` param, break #4 fully closed**; `Sess`/handles still open]; (2) `ValidWorld`
+invariant (loc 0 reserved, genuine
 freshness, no wrap/collision); (3) real nil blocking/panic; (4) canonical runtime tag per Go type; (5)
 finite domains for the Keystone coding; (6) integrate cap/closed/nil/panic into the authoritative state;
 (7) strengthen `sync` validity + prove safety UNIVERSALLY over reachable executions; (8) full-state

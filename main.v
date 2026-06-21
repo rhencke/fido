@@ -2027,17 +2027,20 @@ Definition struct_eq_demo : IO unit :=
   println [any (point_eqb p q); any (point_eqb p r)].   (* true false *)
 
 (** NATIVE struct equality — Go's [a == b] OPERATOR (not the field-wise emulation).
-    [struct_eqb] is evidence-carrying: it demands the comparability witness [point_eqb]
-    (Go requires the struct be comparable to use [==]) and lowers to the bare Go [p == q].
-    [struct_eqb_native_spec] proves the native form STILL decides Point equality — same
-    guarantee as [point_eqb], now via the actual operator. *)
-Lemma struct_eqb_native_spec : forall a b, struct_eqb point_eqb a b = true <-> a = b.
+    [struct_eqb] is evidence-carrying: it demands the SEALED comparability witness
+    [squash point_eqb_spec] (a proof that [point_eqb] DECIDES Point equality, which Go's
+    comparability requires) and lowers to the bare Go [p == q].  [struct_eqb_native_spec]
+    proves the native form STILL decides Point equality — same guarantee as [point_eqb],
+    now via the actual operator. *)
+Lemma struct_eqb_native_spec :
+  forall a b, struct_eqb point_eqb (squash point_eqb_spec) a b = true <-> a = b.
 Proof. intros. unfold struct_eqb. apply point_eqb_spec. Qed.
 Definition struct_eq_native_demo : IO unit :=
   let p := MkPoint (3)%i64 (4)%i64 in
   let q := MkPoint (3)%i64 (4)%i64 in
   let r := MkPoint (3)%i64 (5)%i64 in
-  println [any (struct_eqb point_eqb p q); any (struct_eqb point_eqb p r)].   (* true false *)
+  println [any (struct_eqb point_eqb (squash point_eqb_spec) p q);
+           any (struct_eqb point_eqb (squash point_eqb_spec) p r)].   (* true false *)
 
 (** NESTED struct fields (Go struct composition): a struct with a field whose type is
     another struct.  Tests that the field-type printer handles a struct-typed field and
