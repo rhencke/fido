@@ -665,6 +665,49 @@ Proof.
   - intro i. apply hbt_irrefl. exact (reachable_wf p cfg Hsteps).
 Qed.
 
+(** ── OWNERSHIP TRANSFER through a channel — the general principle (complements [LocPrivate], the
+    no-sharing base).  A location's owner can MOVE between goroutines, provided the handoff goes
+    through a synchronisation: access [a] by goroutine A is program-before a SEND, the matching RECV
+    is program-before access [b] by goroutine B.  Then [a] →hb→ [b] ([po]·[sync]·[po]), so the two
+    cross-goroutine accesses are ORDERED — even a WRITE/WRITE conflict on the handed-off location is
+    race-free.  This is exactly the idiomatic Go pattern "pass ownership over a channel". ── *)
+Theorem transfer_orders : forall t a s r b,
+  po t a s -> sync t s r -> po t r b -> hbt t a b.
+Proof.
+  intros t a s r b Hpo1 Hsync Hpo2.
+  apply hbt_trans with (j := s); [apply hbt_po; exact Hpo1 |].
+  apply hbt_trans with (j := r); [apply hbt_sync; exact Hsync | apply hbt_po; exact Hpo2].
+Qed.
+
+(** Witness: goroutine 0 writes location 7, HANDS OFF via a send, goroutine 1 receives and then ALSO
+    writes location 7.  A genuine write/write conflict on 7 — yet race-FREE, because the transfer
+    orders the two writes ([transfer_orders] over the send/recv).  [LocPrivate] would REJECT this
+    (two goroutines touch 7); the transfer discipline ACCEPTS it. *)
+Definition handoff_trace : Trace :=
+  [ mkEv 0 (KWrite 7); mkEv 0 (KSend 0); mkEv 1 (KRecv 0 1); mkEv 1 (KWrite 7) ].
+
+Lemma handoff_loc_pos : forall i l, acc_loc_at handoff_trace i = Some l -> i = 0 \/ i = 3.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold handoff_trace, acc_loc_at in H.
+  destruct i as [|[|[|[|i]]]]; cbn in H;
+    [ left; reflexivity | discriminate | discriminate | right; reflexivity | lia ].
+Qed.
+
+Lemma handoff_owned : Owned handoff_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]]. left.
+  destruct (handoff_loc_pos i l Hi) as [-> | ->];
+    destruct (handoff_loc_pos j l Hj) as [-> | ->]; try lia.
+  apply (transfer_orders handoff_trace 0 1 2 3).
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv 1 (KRecv 0 1)); cbn. split; reflexivity.
+  - unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
+Theorem handoff_race_free : TraceRaceFree handoff_trace.
+Proof. exact (owned_race_free _ handoff_owned). Qed.
+
 (** The message-passing trace satisfies the discipline (its only same-location pair,
     the write/read of x, is directly hb-ordered) — so [owned_race_free] re-derives
     its race-freedom from the GENERAL theorem, subsuming [mp_trace_race_free]. *)

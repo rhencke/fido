@@ -1663,10 +1663,17 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    execution is race-free + strict-hb) earn race-freedom from a STRUCTURAL condition with
    NO `Owned` hypothesis — all fully axiom-free.  Witnesses: `disjoint_race_free` (two
    goroutines on disjoint locations) and `shared_not_locprivate` (the discipline bites: two
-   goroutines on the SAME location is rejected).  This is the no-sharing BASE.  *Still open:*
-   the TRANSFER case — ownership moving across a channel sync (so a location's owner changes,
-   `Owned` still holds) — and a PROGRAM-level (`Cmd`) discipline ⇒ `LocPrivate` reachable
-   traces (subtle: dynamic `CSpawn` picks the owning tid at run time).
+   goroutines on the SAME location is rejected).  This is the no-sharing BASE.
+   **The TRANSFER case is now a GENERAL theorem (2026-06-21):** `transfer_orders` — if access [a] is
+   program-before a SEND and the matching RECV is program-before access [b], then [a] →hb→ [b]
+   (`po`·`sync`·`po`); so ownership can MOVE between goroutines through a channel and the handed-off
+   location stays race-free.  Witness `handoff_race_free`: goroutine 0 writes loc 7, hands off via a
+   send, goroutine 1 receives and ALSO writes loc 7 — a genuine WRITE/WRITE conflict, yet race-free
+   because the transfer orders the two writes (`handoff_owned` via `transfer_orders`).  `LocPrivate`
+   REJECTS this (two goroutines on 7); the transfer discipline ACCEPTS it — the idiomatic Go "pass
+   ownership over a channel".  Axiom-free.  *Still open:* a closed-form transfer DISCIPLINE (every
+   cross-goroutine same-loc pair connected by such a handoff ⇒ `Owned`) as a checkable condition, and
+   a PROGRAM-level (`Cmd`) discipline ⇒ `Owned` reachable traces (subtle: dynamic `CSpawn`).
 3. **Model completeness — exact FIFO (done), liveness, real memory.**  *Exact FIFO —
    DONE:* `reachable_sorted` (concurrency.v, axiom-free) — every reachable channel
    buffer is STRICTLY INCREASING in send position (`BufSorted`, via `step_preserves_
