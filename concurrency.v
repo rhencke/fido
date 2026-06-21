@@ -1906,6 +1906,106 @@ Section Keystone.
     exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
   Qed.
 
+  (** ── The MEMORY analogue of [denote_adequate]: single-goroutine adequacy for a HEAP program. ──
+      [OnChan]/[denote_adequate] above cover send/recv on a channel; this covers WRITE/READ on a
+      single location [l], reusing the per-step [denote_sim_write]/[denote_sim_read].  It is the heap
+      half of the eventual combined (channel + memory) multi-goroutine adequacy (limit #2 slice 2c);
+      stated single-goroutine, single-location here.  [OnLoc] is the syntactic restriction
+      (write/read on [l] only); the World heap cell at [l] stays matched to the calculus heap. *)
+  Inductive OnLoc (l : nat) : Cmd -> Prop :=
+    | OL_ret   : OnLoc l CRet
+    | OL_write : forall v k, OnLoc l k -> OnLoc l (CWrite l v k)
+    | OL_read  : forall f, (forall x, OnLoc l (f x)) -> OnLoc l (CRead l f).
+
+  Definition SimInvMem (l : nat) (m0 : IO unit) (w0 : World) (cfg : RConfig) : Prop :=
+    OnLoc l (rc_prog cfg 0)
+    /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
+    /\ rc_live cfg = (fun t => Nat.eqb t 0)
+    /\ exists m w, Denotes (rc_prog cfg 0) m
+                   /\ WHMatch1 l w cfg
+                   /\ run_io m0 w0 = run_io m w.
+
+  Lemma siminvmem_step : forall l m0 w0 cfg cfg',
+    rstep cfg cfg' -> SimInvMem l m0 w0 cfg -> SimInvMem l m0 w0 cfg'.
+  Proof.
+    intros l m0 w0 cfg cfg' Hstep
+           [HOL [Hidle [Hlive [m [w [HD [HM Hrun]]]]]]].
+    destruct Hstep as
+      [ p b h lv tr tid c1 v k Hlv Hp _
+      | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l1 v k Hlv Hp
+      | p b h lv tr tid l1 f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c1 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c1 k Hlv Hp _
+      | p b h lv tr tid c1 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c1 f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_prog rc_live] in HOL, Hidle, Hlive, HD;
+    rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid.
+    - (* send — impossible under OnLoc *) rewrite Hp in HOL. inversion HOL.
+    - (* recv — impossible *) rewrite Hp in HOL. inversion HOL.
+    - (* write *)
+      rewrite Hp in HOL, HD. inversion HOL as [| v' k' HOLk |]; subst l1.
+      destruct (denote_sim_write p b h lv tr 0 l v k m w HD) as [m' [HDk' [Hrun' HM']]].
+      unfold SimInvMem; cbn [rc_prog rc_live]; rewrite upd_same.
+      split; [exact HOLk | split; [| split]].
+      + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+      + exact Hlive.
+      + exists m', (ref_upd (locenv l) (inj v) w).
+        split; [exact HDk' | split; [exact HM' | rewrite Hrun; exact Hrun']].
+    - (* read *)
+      rewrite Hp in HOL, HD. inversion HOL as [| | f' HOLf]; subst l1.
+      destruct (denote_sim_read p b h lv tr 0 l f m w HD HM) as [m' [HDk' [Hrun' HM']]].
+      unfold SimInvMem; cbn [rc_prog rc_live]; rewrite upd_same.
+      split; [exact (HOLf (h l)) | split; [| split]].
+      + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
+      + exact Hlive.
+      + exists m', w. split; [exact HDk' | split; [exact HM' | rewrite Hrun; exact Hrun']].
+    - (* spawn — impossible *) rewrite Hp in HOL. inversion HOL.
+    - (* select — impossible *) rewrite Hp in HOL. inversion HOL.
+    - (* close — impossible *) rewrite Hp in HOL. inversion HOL.
+    - (* recv_closed — impossible *) rewrite Hp in HOL. inversion HOL.
+    - (* select_closed — impossible *) rewrite Hp in HOL. inversion HOL.
+  Qed.
+
+  Lemma siminvmem_steps : forall l m0 w0 cfg cfg',
+    rsteps cfg cfg' -> SimInvMem l m0 w0 cfg -> SimInvMem l m0 w0 cfg'.
+  Proof.
+    intros l m0 w0 cfg cfg' H. induction H; intros HS; [exact HS|].
+    apply IHrsteps. exact (siminvmem_step _ _ _ _ _ H HS).
+  Qed.
+
+  Lemma siminvmem_init : forall l prog0 m w0,
+    OnLoc l prog0 -> Denotes prog0 m ->
+    WHMatch1 l w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) ->
+    SimInvMem l m w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)).
+  Proof.
+    intros l prog0 m w0 HOL HD HM.
+    unfold SimInvMem, rinit_cfg; cbn [rc_prog rc_live].
+    split; [exact HOL | split; [| split]].
+    - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
+        [apply Nat.eqb_eq in E; congruence | reflexivity].
+    - reflexivity.
+    - exists m, w0. split; [exact HD | split; [exact HM | reflexivity]].
+  Qed.
+
+  (** Memory END-TO-END: a single-goroutine WRITE/READ program run to [CRet] — its [run_io]
+      denotation completes ([ORet tt]) at a world whose cell [l] MATCHES the calculus heap. *)
+  Theorem denote_adequate_mem : forall l prog0 m w0 cfg_final,
+    OnLoc l prog0 -> Denotes prog0 m ->
+    WHMatch1 l w0 (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) ->
+    rsteps (rinit_cfg (fun t => if Nat.eqb t 0 then prog0 else CRet)) cfg_final ->
+    rc_prog cfg_final 0 = CRet ->
+    exists w_final, run_io m w0 = ORet tt w_final /\ WHMatch1 l w_final cfg_final.
+  Proof.
+    intros l prog0 m w0 cfg_final HOL HD HM Hrsteps Hdone.
+    pose proof (siminvmem_steps _ _ _ _ _ Hrsteps
+                  (siminvmem_init _ _ _ _ HOL HD HM)) as HS.
+    destruct HS as [_ [_ [_ [m' [w' [HD' [HM' Hrun']]]]]]].
+    rewrite Hdone in HD'. inversion HD'; subst.
+    exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
+  Qed.
+
 End Keystone.
 
 (** ════════════════════════════════════════════════════════════════════════════

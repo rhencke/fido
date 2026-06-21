@@ -744,9 +744,14 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    end-to-end. **CROSS-MODEL AGREEMENT (2026-06-21):** `mp_exec_state` — the operational handoff outcome
    (`rc_heap cfg 0 = v0`: g0's value survived the handoff and g1 read it; channel drained) MIRRORS the
    typed `mp_handoff_delivers` (`inj v0`): both models compute the same outcome `v0`/`inj v0`, axiom-free.
-   *Slice 2c (DEFERRED — multi-tick):* a MULTI-goroutine ADEQUACY = a proven SIMULATION between the
-   interleaved `rstep` execution and the typed `run_io` (generalise the single-goroutine
-   `denote_adequate`/`SimInv` to N goroutines + memory) — the ONE closed end-to-end theorem. Assessed
+   **MEMORY ADEQUACY (2026-06-21):** `denote_adequate_mem` — the Keystone's `denote_adequate` was
+   channel-only; added its HEAP analogue (`OnLoc`/`SimInvMem`/`WHMatch1`, reusing `denote_sim_write`/
+   `_read`): a single-goroutine write/read program run to `CRet` has its `run_io` denotation complete at
+   a world whose cell matches the calculus heap. Both single-goroutine adequacy halves now exist
+   (channel + heap), substrate-base, proof-only. *Slice 2c (DEFERRED — multi-tick):* the COMBINED
+   multi-goroutine ADEQUACY = a proven SIMULATION between the interleaved `rstep` execution and the
+   typed `run_io` (combine channel+heap with cross-frames, then generalise to N goroutines) — the ONE
+   closed end-to-end theorem. Assessed
    hard: SimInv is fundamentally single-goroutine (its sequential `run_io` invariant has no analogue for an
    interleaving without a serialization argument); a dedicated effort, not a clean tick. The per-model
    facts (safety, denotation, value-correctness, cross-model agreement) already tell the story side-by-side.
