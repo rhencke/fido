@@ -362,11 +362,18 @@ needs curried-return lowering — currently leaks the inner lambda, fails `go bu
 tracked), nullary (unit-thunk) methods (need unit-arg erasure), embedding, and the
 native `interface` keyword with structural satisfaction.
 
-### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ single-goroutine
-Slices = `list` (`len`/`cap`/`append`/`slice_at_ok`); maps via a heap in the world
-(get-after-write are *theorems*); channels via state in the world (below).  ✓ for
-single-goroutine/non-aliasing use; sub-slice aliasing / in-place append unmodeled
-(Tier 3 #8a).
+### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ incl. backing-array ALIASING
+Two slice views: the functional `GoSlice = list` (value/immutable: `len`/`cap`/`append`/`slice_at_ok`)
+AND the heap-backed mutable **`SliceH`** (`{base; off; len; cap; tag}` — a real view into a shared
+backing array).  `SliceH` models the DEFINING reference-type semantics, all extracted + golden-locked
+(`slice_aliasing_demo`/`slice_append_demo`/`slice_makelc_demo`): in-place `s[i]=v` (`slice_idx_set`),
+`s[a:b]` SHARING the backing (`subslice`), and the **aliasing THEOREM** `subslice_alias` (a write
+through a sub-slice is observed through the parent), its **complement** `slice_idx_set_frame`
+(SEPARATION: distinct backing cells are independent — 2026-06-21), and `append`'s subtle
+in-cap-aliases-vs-past-cap-reallocates (`slice_append_incap_aliases`), `make([]T,len,cap)`, slice
+`clear`/`copy`.  Maps via a heap in the world (get-after-write are *theorems*); channels via state in
+the world (below).  *Still ⚠:* a CONCURRENT (cross-goroutine) aliasing/race account rides the
+concurrency calculus, not this functional layer.
 
 ## Expressions — operators
 
@@ -559,8 +566,8 @@ never panics (`v, ok := m[k]`).  Ours: `slice_get` (raw, OOB ⇒ panic, escape h
 and the safe `slice_at_ok`/`str_at_ok` (CPS/comma-ok — FORCE handling OOB, cannot
 panic, signed-index both-ends check) → `xs[i]`/`int64(s[i])`; map `m[k]` via the
 comma-ok `map_get_opt`/`map_get_or` → Go's two-value lookup.  ✓ (the panicking form
-is proof-gated where range is statically known; aliasing of a sub-slice unmodeled,
-Tier 3 #8a).
+is proof-gated where range is statically known; sub-slice ALIASING is modeled — heap-backed
+`SliceH`, `subslice_alias` + `slice_idx_set_frame`, see [Slice types]).
 
 ### [Composite literals](https://go.dev/ref/spec#Composite_literals) / [Function literals](https://go.dev/ref/spec#Function_literals) / [Calls](https://go.dev/ref/spec#Calls) — ✓ for the modeled forms
 Struct literal `T{…}` (fields in declaration order) and slice literal `[]T{…}` via

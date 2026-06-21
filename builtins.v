@@ -3728,6 +3728,20 @@ Proof.
   intros A s a b j v w. rewrite subslice_shares_cell. apply ref_sel_upd_same.
 Qed.
 
+(** SEPARATION — the COMPLEMENT of aliasing, equally defining for a faithful reference-type model: a
+    write to cell [i] of slice [s] leaves cell [j] of slice [s'] UNCHANGED whenever they are DIFFERENT
+    backing cells ([sh_loc s i <> sh_loc s' j]).  So aliasing holds exactly where the cells COINCIDE
+    ([subslice_alias]) and independence exactly where they DIFFER — e.g. a write to [s[0:2]] is
+    invisible through [s[2:4]], and writes to distinct indices of one slice don't interfere. *)
+Lemma slice_idx_set_frame : forall {A B} (s : SliceH A) (s' : SliceH B) (i j : int) (v : A) (w : World),
+  sh_loc s i <> sh_loc s' j ->
+  ref_sel (sh_cell s' j) (ref_upd (sh_cell s i) v w) = ref_sel (sh_cell s' j) w.
+Proof.
+  intros A B s s' i j v w Hne. unfold ref_sel, ref_upd, sh_cell. cbn [r_loc r_tag w_refs].
+  destruct (PrimInt63.eqb (sh_loc s' j) (sh_loc s i)) eqn:E; [|reflexivity].
+  apply Uint63.eqb_spec in E. exfalso. apply Hne. symmetry. exact E.
+Qed.
+
 (** Read-after-write at an index — a THEOREM (from the shared heap). *)
 Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (v : A),
   bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =
