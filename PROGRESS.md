@@ -741,9 +741,15 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    `mp_handoff_delivers` — the extractable typed program run in `run_io` DELIVERS exactly `(inj v1, inj v0)`
    (g1 receives v1 over the channel AND reads v0 back through the pointer; pointee survives send+recv via
    the channel/heap World frames). So the program is not only race-free (2a) but COMPUTES the right values
-   end-to-end. *Slice 2c:* a MULTI-goroutine ADEQUACY composing the
-   per-goroutine `Denotes` (2b) with the interleaved `rstep` execution (2a) + World refinement
-   (generalise the single-goroutine `denote_adequate` to N) — the ONE closed end-to-end theorem.
+   end-to-end. **CROSS-MODEL AGREEMENT (2026-06-21):** `mp_exec_state` — the operational handoff outcome
+   (`rc_heap cfg 0 = v0`: g0's value survived the handoff and g1 read it; channel drained) MIRRORS the
+   typed `mp_handoff_delivers` (`inj v0`): both models compute the same outcome `v0`/`inj v0`, axiom-free.
+   *Slice 2c (DEFERRED — multi-tick):* a MULTI-goroutine ADEQUACY = a proven SIMULATION between the
+   interleaved `rstep` execution and the typed `run_io` (generalise the single-goroutine
+   `denote_adequate`/`SimInv` to N goroutines + memory) — the ONE closed end-to-end theorem. Assessed
+   hard: SimInv is fundamentally single-goroutine (its sequential `run_io` invariant has no analogue for an
+   interleaving without a serialization argument); a dedicated effort, not a clean tick. The per-model
+   facts (safety, denotation, value-correctness, cross-model agreement) already tell the story side-by-side.
    *N-generality
    (user asked 2026-06-21):* the GUARANTEE already generalizes — `reachable_owned_safe_r` quantifies over
    arbitrary programs (N goroutines via spawn) and all interleavings; these witnesses are concrete

@@ -2038,6 +2038,31 @@ Proof.
   exists cfg. split; [exact Hsteps |]. rewrite Htr. exact mp_trace_race_free.
 Qed.
 
+(** The handoff's OUTCOME, operationally: after the full run, the cell g0 wrote (loc 0) still holds
+    [v0] — the value SURVIVED the channel handoff and was the one g1 read — and the channel has
+    DRAINED (buffer empty).  This is the operational mirror of the typed [mp_handoff_delivers] (which
+    delivers [inj v0] through the pointer + drains the channel): BOTH models compute the SAME handoff
+    outcome [v0]/[inj v0], a concrete cross-model agreement.  (The general N-goroutine ADEQUACY — a
+    PROVEN simulation between the interleaved execution and the typed [run_io], generalising the
+    single-goroutine [denote_adequate]/[SimInv] — stays the deferred capstone; it is a multi-tick
+    refactor, not asserted here.) *)
+Theorem mp_exec_state : forall v0 v1,
+  exists cfg, rsteps (mp_init v0 v1) cfg
+    /\ rc_trace cfg = mp_trace
+    /\ rc_heap cfg 0 = v0        (* g0's written value survived the handoff (g1 read it) *)
+    /\ rc_bufs cfg 0 = [].       (* the channel drained *)
+Proof.
+  intros v0 v1. unfold mp_init, mp_prog. eexists. split; [| split; [| split]].
+  - eapply rsteps_step. { eapply rstep_write with (tid := 0); upd_proj; reflexivity. }
+    eapply rsteps_step. { eapply rstep_send  with (tid := 0); upd_proj; reflexivity. }
+    eapply rsteps_step. { eapply rstep_recv  with (tid := 1); upd_proj; reflexivity. }
+    eapply rsteps_step. { eapply rstep_read  with (tid := 1); upd_proj; reflexivity. }
+    apply rsteps_refl.
+  - cbn. reflexivity.
+  - cbn [rc_heap]. upd_proj. reflexivity.
+  - cbn [rc_bufs]. upd_proj. reflexivity.
+Qed.
+
 (** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
     Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
     goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
