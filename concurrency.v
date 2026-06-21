@@ -168,6 +168,20 @@ Qed.
 Theorem trace_ordered_no_race : forall t i j, hbt t i j -> ~ TraceRace t i j.
 Proof. intros t i j Hhb [_ [_ [Hno _]]]. exact (Hno Hhb). Qed.
 
+(** A trace with AT MOST ONE memory access (all accessing positions coincide) is race-free: a data
+    race needs TWO distinct-goroutine conflicting accesses, so a single access can never form a racing
+    pair.  This dispatches the PRE-HANDOFF phases of a single-writer handoff program (before the reader
+    reads, only the writer has touched memory) — a brick of the Keller-style inductive-invariant proof
+    that EVERY interleaving of the typed pointer handoff is race-free (limit #2, slice 2-A). *)
+Lemma le1_mem_access_race_free : forall t,
+  (forall i j, tr_acc t i <> None -> tr_acc t j <> None -> i = j) ->
+  TraceRaceFree t.
+Proof.
+  intros t H i j [Htid [[ai [aj [Hai [Haj _]]]] _]].
+  assert (Hij : i = j) by (apply H; [rewrite Hai; discriminate | rewrite Haj; discriminate]).
+  subst j. apply Htid. reflexivity.
+Qed.
+
 (** The message-passing PROGRAM is whole-trace race-free: its only conflicting
     cross-goroutine pair (the write/read of x) is ordered by the channel handoff. *)
 Theorem mp_trace_race_free : TraceRaceFree mp_trace.
