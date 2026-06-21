@@ -1233,6 +1233,44 @@ Definition u64_eqb (a b : GoU64) : bool := Z.eqb (u64raw a) (u64raw b).
 Definition u64_ltb (a b : GoU64) : bool := Z.ltb (u64raw a) (u64raw b).
 Definition u64_leb (a b : GoU64) : bool := Z.leb (u64raw a) (u64raw b).
 
+(** ── GoU64 ARITHMETIC has the commutative-semiring CORE mod 2^64 — `+` and `*` are commutative,
+    associative, and distributive — an algebraic-faithfulness check that the modelled uint64
+    arithmetic has the expected structure (wraparound is a ring homomorphism Z → Z/2^64, so it
+    preserves these).  Two [GoU64] with equal raw [Z] are EQUAL — the second (SProp range) field is
+    proof-irrelevant ([u64_ext]) — so every law reduces to a [Z]-mod identity. ── *)
+Lemma u64_ext : forall x y : GoU64, u64raw x = u64raw y -> x = y.
+Proof. intros [rx px] [ry py] H. cbn in H. subst ry. reflexivity. Qed.
+
+Lemma u64raw_add : forall a b, u64raw (u64_add a b) = wrapU64 (u64raw a + u64raw b).
+Proof. intros. unfold u64_add, u64wrap. cbn. unfold wrapU64. apply Zmod_mod. Qed.
+Lemma u64raw_mul : forall a b, u64raw (u64_mul a b) = wrapU64 (u64raw a * u64raw b).
+Proof. intros. unfold u64_mul, u64wrap. cbn. unfold wrapU64. apply Zmod_mod. Qed.
+
+Lemma u64_add_comm : forall a b, u64_add a b = u64_add b a.
+Proof. intros. apply u64_ext. rewrite !u64raw_add, (Z.add_comm (u64raw a)). reflexivity. Qed.
+Lemma u64_mul_comm : forall a b, u64_mul a b = u64_mul b a.
+Proof. intros. apply u64_ext. rewrite !u64raw_mul, (Z.mul_comm (u64raw a)). reflexivity. Qed.
+
+Lemma u64_add_assoc : forall a b c, u64_add a (u64_add b c) = u64_add (u64_add a b) c.
+Proof.
+  intros. apply u64_ext. rewrite !u64raw_add. unfold wrapU64.
+  rewrite Z.add_mod_idemp_r, Z.add_mod_idemp_l by (intro H; discriminate H).
+  f_equal. ring.
+Qed.
+Lemma u64_mul_assoc : forall a b c, u64_mul a (u64_mul b c) = u64_mul (u64_mul a b) c.
+Proof.
+  intros. apply u64_ext. rewrite !u64raw_mul. unfold wrapU64.
+  rewrite Z.mul_mod_idemp_r, Z.mul_mod_idemp_l by (intro H; discriminate H).
+  f_equal. ring.
+Qed.
+Lemma u64_mul_add_distr_l : forall a b c,
+  u64_mul a (u64_add b c) = u64_add (u64_mul a b) (u64_mul a c).
+Proof.
+  intros. apply u64_ext. rewrite !u64raw_add, !u64raw_mul, !u64raw_add. unfold wrapU64.
+  rewrite Z.mul_mod_idemp_r, Z.add_mod_idemp_l, Z.add_mod_idemp_r by (intro H; discriminate H).
+  f_equal. ring.
+Qed.
+
 (** Direct [>] / [>=] / [!=] completing Go's six comparison operators for the
     canonical [int64]/[uint64].  We already emit [== < <=] directly; [>]/[>=] are the
     swapped [</<=] and [!=] is [negb (==)] — SEMANTICALLY identical to the encodings a
