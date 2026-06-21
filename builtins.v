@@ -1401,6 +1401,59 @@ Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : int).
 Fail Definition u64_div_zero : GoU64 := u64_div (u64_lit 1%Z eq_refl) (u64_lit 0%Z eq_refl) eq_refl.
 Fail Definition u64_shl_neg  : GoU64 := u64_shl (u64_lit 1%Z eq_refl) (-1)%Z eq_refl.
 
+(** ---- Bitwise BOOLEAN-ALGEBRA laws for GoU64 (the bitwise counterpart of the proven arithmetic
+    semiring + total-order laws).  COMMUTATIVITY holds directly; ASSOCIATIVITY needs that [wrapU64]
+    (mod 2⁶⁴) depends only on the LOW 64 bits — so an inner [wrapU64] under a bit-op can be pulled out
+    ([wrapU64_bit_r]/[_l], one [Z.bits_inj'] each).  (Idempotence [a & a = a] is SProp-BLOCKED: it
+    needs [u64raw a] in range, which the [Squash] seal hides from [Prop] — documented, not skipped.) *)
+Lemma wrapU64_bit_r : forall (op : Z -> Z -> Z) (bf : bool -> bool -> bool),
+  (forall x y n, Z.testbit (op x y) n = bf (Z.testbit x n) (Z.testbit y n)) ->
+  forall a b, wrapU64 (op a (wrapU64 b)) = wrapU64 (op a b).
+Proof.
+  intros op bf Hspec a b. unfold wrapU64. change 18446744073709551616%Z with (2 ^ 64)%Z.
+  apply Z.bits_inj'. intros n Hn. destruct (Z.lt_ge_cases n 64) as [Hlt | Hge].
+  - rewrite !Z.mod_pow2_bits_low by lia. rewrite !Hspec.
+    rewrite Z.mod_pow2_bits_low by lia. reflexivity.
+  - rewrite !Z.mod_pow2_bits_high by lia. reflexivity.
+Qed.
+
+Lemma wrapU64_bit_l : forall (op : Z -> Z -> Z) (bf : bool -> bool -> bool),
+  (forall x y n, Z.testbit (op x y) n = bf (Z.testbit x n) (Z.testbit y n)) ->
+  forall a b, wrapU64 (op (wrapU64 a) b) = wrapU64 (op a b).
+Proof.
+  intros op bf Hspec a b. unfold wrapU64. change 18446744073709551616%Z with (2 ^ 64)%Z.
+  apply Z.bits_inj'. intros n Hn. destruct (Z.lt_ge_cases n 64) as [Hlt | Hge].
+  - rewrite !Z.mod_pow2_bits_low by lia. rewrite !Hspec.
+    rewrite Z.mod_pow2_bits_low by lia. reflexivity.
+  - rewrite !Z.mod_pow2_bits_high by lia. reflexivity.
+Qed.
+
+Lemma u64_and_comm : forall a b, u64_and a b = u64_and b a.
+Proof. intros a b. apply u64_ext. unfold u64_and, u64wrap; cbn. f_equal. apply Z.land_comm. Qed.
+Lemma u64_or_comm  : forall a b, u64_or a b = u64_or b a.
+Proof. intros a b. apply u64_ext. unfold u64_or, u64wrap; cbn. f_equal. apply Z.lor_comm. Qed.
+Lemma u64_xor_comm : forall a b, u64_xor a b = u64_xor b a.
+Proof. intros a b. apply u64_ext. unfold u64_xor, u64wrap; cbn. f_equal. apply Z.lxor_comm. Qed.
+
+Lemma u64_and_assoc : forall a b c, u64_and a (u64_and b c) = u64_and (u64_and a b) c.
+Proof.
+  intros a b c. apply u64_ext. unfold u64_and, u64wrap; cbn.
+  rewrite (wrapU64_bit_r Z.land andb Z.land_spec), (wrapU64_bit_l Z.land andb Z.land_spec).
+  f_equal. apply Z.land_assoc.
+Qed.
+Lemma u64_or_assoc : forall a b c, u64_or a (u64_or b c) = u64_or (u64_or a b) c.
+Proof.
+  intros a b c. apply u64_ext. unfold u64_or, u64wrap; cbn.
+  rewrite (wrapU64_bit_r Z.lor orb Z.lor_spec), (wrapU64_bit_l Z.lor orb Z.lor_spec).
+  f_equal. apply Z.lor_assoc.
+Qed.
+Lemma u64_xor_assoc : forall a b c, u64_xor a (u64_xor b c) = u64_xor (u64_xor a b) c.
+Proof.
+  intros a b c. apply u64_ext. unfold u64_xor, u64wrap; cbn.
+  rewrite (wrapU64_bit_r Z.lxor xorb Z.lxor_spec), (wrapU64_bit_l Z.lxor xorb Z.lxor_spec).
+  f_equal. symmetry. apply Z.lxor_assoc.
+Qed.
+
 (** ---- A4.2: GoI64 / GoU64 are THE canonical Go int64 / uint64 ----
 
     [GoI64]/[GoU64] (the [Z]-carried full-width types) are the faithful models of

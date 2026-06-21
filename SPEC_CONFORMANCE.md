@@ -396,7 +396,12 @@ and unary `^` are single operators.  **Subtlety honored:** unary `^x` on the int
 carrier is the *64-bit* complement (`^240 = -241`), so it is wrapped back to the
 width (`(^x)&0xff → 15`).  **`int` (Sint63) bitwise: ✗** — the 63-vs-64-bit carrier
 exposes the sign bit, so bitwise on negative `int` would differ from int64; blocked
-on the full-width Z model (Tier 2 #4).
+on the full-width Z model (Tier 2 #4).  **Bitwise ALGEBRA (`GoU64`) proven (2026-06-21,
+axiom-free):** `u64_{and,or,xor}_comm` + `u64_{and,or,xor}_assoc` — the Boolean-algebra
+counterpart of the arithmetic semiring + total-order laws; associativity rests on
+`wrapU64_bit_{l,r}` (mod-2⁶⁴ depends only on the low 64 bits, one `Z.bits_inj'` each).
+Idempotence `a&a=a` is SProp-BLOCKED (needs `u64raw a` in range, hidden by the `Squash`
+seal) — documented, not skipped.
 **Shift `<< >>` — ✓ fixed-width (`uintN`/`intN`).**  `uN_shl`/`shr`, `iN_shl`/`shr`:
 EVIDENCE-CARRYING like `div_nz` — the count must be proven **non-negative**
 (`eq_refl` for a literal; a negative count is unrepresentable — `u8_shl_neg`, a
