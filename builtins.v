@@ -1200,6 +1200,26 @@ Proof.
   intros. apply i64_ext. rewrite !i64raw_add, !i64raw_mul, !i64raw_add.
   rewrite wrap64_idem_mul_r, wrap64_idem_add_l, wrap64_idem_add_r. f_equal. ring.
 Qed.
+
+(** [<] is a STRICT TOTAL ORDER on (signed) GoI64 and [<=] is antisymmetric — the int64 analogue of
+    the GoU64 order laws (pure [Z]-order + [i64_ext]). *)
+Lemma i64_ltb_irrefl : forall a, i64_ltb a a = false.
+Proof. intros. unfold i64_ltb. apply Z.ltb_irrefl. Qed.
+Lemma i64_ltb_trans : forall a b c, i64_ltb a b = true -> i64_ltb b c = true -> i64_ltb a c = true.
+Proof. intros a b c Hab Hbc. unfold i64_ltb in *. apply Z.ltb_lt in Hab, Hbc. apply Z.ltb_lt. lia. Qed.
+Lemma i64_lt_trichotomy : forall a b, i64_ltb a b = true \/ a = b \/ i64_ltb b a = true.
+Proof.
+  intros a b. unfold i64_ltb. destruct (Z.lt_trichotomy (i64raw a) (i64raw b)) as [H|[H|H]].
+  - left. apply Z.ltb_lt. exact H.
+  - right; left. apply i64_ext. exact H.
+  - right; right. apply Z.ltb_lt. exact H.
+Qed.
+Lemma i64_leb_antisym : forall a b, i64_leb a b = true -> i64_leb b a = true -> a = b.
+Proof.
+  intros a b Hab Hba. unfold i64_leb in *. apply i64_ext.
+  apply Z.le_antisymm; apply Z.leb_le; assumption.
+Qed.
+
 (* Integer absolute value.  Go has NO abs builtin for ints (only [math.Abs] for
    floats — and that needs an import), so it is written by hand with an [if] in
    VALUE position: [|a| = if a < 0 then -a else a].  Faithful across the WHOLE
@@ -1321,6 +1341,27 @@ Proof.
   intros. apply u64_ext. rewrite !u64raw_add, !u64raw_mul, !u64raw_add. unfold wrapU64.
   rewrite Z.mul_mod_idemp_r, Z.add_mod_idemp_l, Z.add_mod_idemp_r by (intro H; discriminate H).
   f_equal. ring.
+Qed.
+
+(** [<] is a STRICT TOTAL ORDER on GoU64 (irreflexive, transitive, trichotomous) and [<=] is
+    antisymmetric — Go's comparison operators on uint64 are a well-behaved total order, a
+    completeness check the value-witnesses don't give.  (Pure [Z]-order + [u64_ext]; the SProp range
+    field is never needed.) *)
+Lemma u64_ltb_irrefl : forall a, u64_ltb a a = false.
+Proof. intros. unfold u64_ltb. apply Z.ltb_irrefl. Qed.
+Lemma u64_ltb_trans : forall a b c, u64_ltb a b = true -> u64_ltb b c = true -> u64_ltb a c = true.
+Proof. intros a b c Hab Hbc. unfold u64_ltb in *. apply Z.ltb_lt in Hab, Hbc. apply Z.ltb_lt. lia. Qed.
+Lemma u64_lt_trichotomy : forall a b, u64_ltb a b = true \/ a = b \/ u64_ltb b a = true.
+Proof.
+  intros a b. unfold u64_ltb. destruct (Z.lt_trichotomy (u64raw a) (u64raw b)) as [H|[H|H]].
+  - left. apply Z.ltb_lt. exact H.
+  - right; left. apply u64_ext. exact H.
+  - right; right. apply Z.ltb_lt. exact H.
+Qed.
+Lemma u64_leb_antisym : forall a b, u64_leb a b = true -> u64_leb b a = true -> a = b.
+Proof.
+  intros a b Hab Hba. unfold u64_leb in *. apply u64_ext.
+  apply Z.le_antisymm; apply Z.leb_le; assumption.
 Qed.
 
 (** Direct [>] / [>=] / [!=] completing Go's six comparison operators for the
