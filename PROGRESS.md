@@ -1773,10 +1773,21 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    shown deadlock-free too (`sr_never_stuck`): `sr_prog` sends then receives on one
    channel — it performs a receive yet never deadlocks, because the UNBOUNDED BUFFER
    lets the send precede the matching receive (proved by exhibiting the reachable shapes
-   `SRShape` and showing each is done-or-can-step).  *Still open:* GENERAL deadlock-
-   freedom for receiving programs (a session/ownership discipline ⇒ "every blocked
-   receive has a guaranteed future send", i.e. no circular wait); and a real heap behind
-   `KWrite`/`KRead` (currently abstract events).
+   `SRShape` and showing each is done-or-can-step).  **BIDIRECTIONAL exchange under
+   GENUINE INTERLEAVING — DONE (2026-06-21):** `ex_never_stuck` — TWO distinct goroutines
+   that each BOTH send and receive across two channels (`g0: send c0; recv c1` ‖
+   `g1: send c1; recv c0`).  Both opening sends are concurrently enabled, so the
+   reachable-state space BRANCHES (a 7-shape lattice with a diamond `4→{5,6}`, not the
+   linear chain `sr` had) — yet it never deadlocks, because each goroutine sends BEFORE
+   it blocks on a receive.  `EXShape` enumerates the 7 reachable shapes; `ex_step_shape`
+   shows `rstep` stays inside them (the send/recv transitions walk the lattice; the other
+   7 rstep rules are impossible); `ex_shape_progress` shows each is done-or-can-step.
+   Contrast `ex_recvfirst_stuck`: the SAME goroutines RECEIVE-first deadlock immediately
+   (the classic circular wait — the model faithfully represents it).  This shows the
+   manual reachable-shape method SURVIVES real interleaving (with real bookkeeping, no
+   blowup).  Axiom-free.  *Still open:* GENERAL deadlock-freedom for receiving programs
+   (a session/ownership discipline ⇒ "every blocked receive has a guaranteed future send",
+   i.e. no circular wait); and a real heap behind `KWrite`/`KRead` (currently abstract).
 
    **UNBUFFERED-channel FORCING — operational, DONE (2026-06-21, `Section BoundedChannels`).**
    The rich `rstep` uses UNBOUNDED buffers; Go's `make(chan T)` (capacity 0) FORBIDS buffering

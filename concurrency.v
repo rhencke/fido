@@ -3154,6 +3154,316 @@ Proof.
 Qed.
 
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
+    BIDIRECTIONAL exchange — deadlock-free under GENUINE interleaving.
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    [sr_never_stuck] was ONE goroutine self-communicating — a LINEAR run.  Here TWO distinct goroutines
+    each BOTH send and receive across two channels, and BOTH opening sends are concurrently enabled, so
+    the reachable-state space BRANCHES (a 7-shape lattice, not a line — the diamond is shapes 4→{5,6}).
+    It is the canonical "concurrent message passing", deadlock-free precisely because each goroutine
+    SENDS before it blocks on a receive (the classic deadlock is the OTHER order — both receive first;
+    that one genuinely gets stuck, [ex_recvfirst_stuck] below).  The test: does the manual
+    reachable-shape method survive real interleaving? *)
+Definition ex0  : Cmd := CSend 0 42 (CRecv 1 (fun _ => CRet)).   (* g0: send c0(42), then recv c1 *)
+Definition ex0b : Cmd := CRecv 1 (fun _ => CRet).                (* g0 after its send *)
+Definition ex1  : Cmd := CSend 1 43 (CRecv 0 (fun _ => CRet)).   (* g1: send c1(43), then recv c0 *)
+Definition ex1b : Cmd := CRecv 0 (fun _ => CRet).                (* g1 after its send *)
+Definition ex_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then ex0 else if Nat.eqb t 1 then ex1 else CRet.
+Definition ex_init : RConfig :=
+  mkRCfg ex_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+(** The 7 reachable shapes (g0-phase, g1-phase) with their forced buffers. *)
+Definition EXShape (cfg : RConfig) : Prop :=
+  rc_live cfg = (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
+  /\ (forall t, t <> 0 -> t <> 1 -> rc_prog cfg t = CRet)
+  /\ closedb (rc_trace cfg) 0 = false
+  /\ closedb (rc_trace cfg) 1 = false
+  /\ ( (rc_prog cfg 0 = ex0  /\ rc_prog cfg 1 = ex1  /\ rc_bufs cfg 0 = [] /\ rc_bufs cfg 1 = [])
+    \/ (rc_prog cfg 0 = ex0b /\ rc_prog cfg 1 = ex1  /\ (exists s, rc_bufs cfg 0 = [(42,s)]) /\ rc_bufs cfg 1 = [])
+    \/ (rc_prog cfg 0 = ex0  /\ rc_prog cfg 1 = ex1b /\ rc_bufs cfg 0 = [] /\ (exists s, rc_bufs cfg 1 = [(43,s)]))
+    \/ (rc_prog cfg 0 = ex0b /\ rc_prog cfg 1 = ex1b /\ (exists s, rc_bufs cfg 0 = [(42,s)]) /\ (exists s, rc_bufs cfg 1 = [(43,s)]))
+    \/ (rc_prog cfg 0 = CRet  /\ rc_prog cfg 1 = ex1b /\ (exists s, rc_bufs cfg 0 = [(42,s)]) /\ rc_bufs cfg 1 = [])
+    \/ (rc_prog cfg 0 = ex0b /\ rc_prog cfg 1 = CRet  /\ rc_bufs cfg 0 = [] /\ (exists s, rc_bufs cfg 1 = [(43,s)]))
+    \/ (rc_prog cfg 0 = CRet  /\ rc_prog cfg 1 = CRet  /\ rc_bufs cfg 0 = [] /\ rc_bufs cfg 1 = []) ).
+
+(** Every goroutine's head is a send / recv / ret — kills the write/read/spawn/select/close rules. *)
+Definition ex_head (c : Cmd) : Prop :=
+  match c with CSend _ _ _ => True | CRecv _ _ => True | CRet => True | _ => False end.
+
+Lemma ex_heads : forall cfg, EXShape cfg -> forall t, ex_head (rc_prog cfg t).
+Proof.
+  intros cfg [_ [Hidle [_ [_ Hph]]]] t.
+  destruct (Nat.eq_dec t 0) as [->|H0].
+  - destruct Hph as [[H _]|[[H _]|[[H _]|[[H _]|[[H _]|[[H _]|[H _]]]]]]]; rewrite H; exact I.
+  - destruct (Nat.eq_dec t 1) as [->|H1].
+    + destruct Hph as [[_ [H _]]|[[_ [H _]]|[[_ [H _]]|[[_ [H _]]|[[_ [H _]]|[[_ [H _]]|[_ [H _]]]]]]]];
+        rewrite H; exact I.
+    + rewrite (Hidle t H0 H1); exact I.
+Qed.
+
+Lemma ex_init_shape : EXShape ex_init.
+Proof.
+  unfold EXShape, ex_init; cbn [rc_live rc_prog rc_bufs rc_trace].
+  split; [reflexivity | split; [|split; [reflexivity | split; [reflexivity |]]]].
+  - intros t H0 H1. unfold ex_prog.
+    destruct (Nat.eqb t 0) eqn:E0; [apply Nat.eqb_eq in E0; congruence|].
+    destruct (Nat.eqb t 1) eqn:E1; [apply Nat.eqb_eq in E1; congruence|]. reflexivity.
+  - left. unfold ex_prog; cbn. repeat split; reflexivity.
+Qed.
+
+(** Every shape is DONE or CAN-STEP.  In a send shape the sender steps (send always enabled, channel
+    open); in a recv shape the matching buffer is non-empty so the receiver steps; shape 7 is done. *)
+Lemma ex_shape_progress : forall cfg, EXShape cfg -> rdone cfg \/ rcan_step cfg.
+Proof.
+  intros cfg [Hlive [Hidle [Hcl0 [Hcl1 Hph]]]].
+  assert (Hfresh : FreshAvail cfg) by (exists 2; rewrite Hlive; reflexivity).
+  destruct Hph as [[A0 [A1 [_ _]]] | [[A0 [A1 [_ _]]] | [[A0 [A1 [_ _]]]
+                | [[A0 [A1 [[s0 B0] [s1 B1]]]] | [[A0 [A1 [[s0 B0] _]]]
+                | [[A0 [A1 [_ [s1 B1]]]] | [A0 [A1 [_ _]]]]]]]]].
+  - (* S1 (a,a): g0 sends c0 *)
+    right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A0; unfold ex0; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc _]]]|[cs0 [Hpc _]]]; rewrite A0 in Hpc; unfold ex0 in Hpc; discriminate.
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc Hclp]]]]]; rewrite A0 in Hpc; unfold ex0 in Hpc;
+        [discriminate | injection Hpc as Hc0 _ _; subst c0; rewrite Hcl0 in Hclp; discriminate].
+  - (* S2 (b,a): g1 sends c1 *)
+    right. apply (ready_can_step cfg 1 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A1; unfold ex1; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc _]]]|[cs0 [Hpc _]]]; rewrite A1 in Hpc; unfold ex1 in Hpc; discriminate.
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc Hclp]]]]]; rewrite A1 in Hpc; unfold ex1 in Hpc;
+        [discriminate | injection Hpc as Hc0 _ _; subst c0; rewrite Hcl1 in Hclp; discriminate].
+  - (* S3 (a,b): g0 sends c0 *)
+    right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A0; unfold ex0; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc _]]]|[cs0 [Hpc _]]]; rewrite A0 in Hpc; unfold ex0 in Hpc; discriminate.
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc Hclp]]]]]; rewrite A0 in Hpc; unfold ex0 in Hpc;
+        [discriminate | injection Hpc as Hc0 _ _; subst c0; rewrite Hcl0 in Hclp; discriminate].
+  - (* S4 (b,b): g0 receives c1 (buffer [(43,s1)] non-empty) *)
+    right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A0; unfold ex0b; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc [Hbc _]]]]|[cs0 [Hpc _]]]; rewrite A0 in Hpc; unfold ex0b in Hpc;
+        [injection Hpc as Hc0 _; subst c0; rewrite B1 in Hbc; discriminate | discriminate].
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc _]]]]]; rewrite A0 in Hpc; unfold ex0b in Hpc; discriminate.
+  - (* S5 (c,b): g1 receives c0 (buffer [(42,s0)] non-empty) *)
+    right. apply (ready_can_step cfg 1 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A1; unfold ex1b; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc [Hbc _]]]]|[cs0 [Hpc _]]]; rewrite A1 in Hpc; unfold ex1b in Hpc;
+        [injection Hpc as Hc0 _; subst c0; rewrite B0 in Hbc; discriminate | discriminate].
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc _]]]]]; rewrite A1 in Hpc; unfold ex1b in Hpc; discriminate.
+  - (* S6 (b,c): g0 receives c1 (buffer [(43,s1)] non-empty) *)
+    right. apply (ready_can_step cfg 0 Hfresh).
+    + rewrite Hlive; reflexivity.
+    + rewrite A0; unfold ex0b; discriminate.
+    + unfold blocked; intros [[c0 [f0 [Hpc [Hbc _]]]]|[cs0 [Hpc _]]]; rewrite A0 in Hpc; unfold ex0b in Hpc;
+        [injection Hpc as Hc0 _; subst c0; rewrite B1 in Hbc; discriminate | discriminate].
+    + unfold rpanicking; intros [[c0 [k0 [Hpc _]]]|[c0 [v0 [k0 [Hpc _]]]]]; rewrite A0 in Hpc; unfold ex0b in Hpc; discriminate.
+  - (* S7 (c,c): DONE *)
+    left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
+    apply Bool.orb_true_iff in Hl. destruct Hl as [E|E]; apply Nat.eqb_eq in E; subst tid; assumption.
+Qed.
+
+(* tiny helpers for the upd bookkeeping in the step lemma *)
+Ltac upds := rewrite upd_same.
+Ltac updo := first [ rewrite upd_other by discriminate | rewrite upd_other by assumption ].
+
+(** THE STEP LEMMA — [rstep] keeps you inside the 7 shapes.  The write/read/spawn/select/close/
+    select_closed rules are impossible (heads are send/recv/ret, [ex_heads]); [recv_closed] is
+    impossible (channels 0,1 are never closed).  SEND and RECV walk the lattice:
+    send: 1→2, 1→3, 3→4, 2→4;  recv: 4→5, 4→6, 5→7, 6→7. *)
+Lemma ex_step_shape : forall cfg cfg', rstep cfg cfg' -> EXShape cfg -> EXShape cfg'.
+Proof.
+  intros cfg cfg' Hstep HS.
+  pose proof (ex_heads cfg HS) as Hheads.
+  destruct HS as [Hlive [Hidle [Hcl0 [Hcl1 Hph]]]].
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp Hopen
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hopen
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_live rc_prog rc_bufs rc_trace] in *;
+    (* kill write/read/spawn/select/close/select_closed: their head is not a send/recv/ret *)
+    try (exfalso; specialize (Hheads tid); rewrite Hp in Hheads; exact Hheads).
+  - (* ── SEND ── *)
+    rewrite Hlive in Hlv; cbn in Hlv; apply Bool.orb_true_iff in Hlv;
+      destruct Hlv as [E|E]; apply Nat.eqb_eq in E; subst tid.
+    + (* tid = 0: fires only when p0 = ex0 (shapes 1,3) *)
+      destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A0 in Hp; try (unfold ex0b in Hp; discriminate); try discriminate;
+        unfold ex0 in Hp; injection Hp as Hc Hv Hk; subst c v k.
+      * (* shape 1 → shape 2 *)  (* B0:b0=[], B1:b1=[] *)
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; left; cbn [rc_prog rc_bufs];
+          split; [ upds; reflexivity
+          | split; [ updo; exact A1
+          | split; [ exists (length tr); upds; rewrite B0; reflexivity
+          | updo; exact B1 ]]]]]]].
+      * (* shape 3 → shape 4 *)  (* B0:b0=[], B1:∃s1 *)
+        destruct B1 as [s1 B1].
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; left; cbn [rc_prog rc_bufs];
+          split; [ upds; reflexivity
+          | split; [ updo; exact A1
+          | split; [ exists (length tr); upds; rewrite B0; reflexivity
+          | exists s1; updo; exact B1 ]]]]]]].
+    + (* tid = 1: fires only when p1 = ex1 (shapes 1,2) *)
+      destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A1 in Hp; try (unfold ex1b in Hp; discriminate); try discriminate;
+        unfold ex1 in Hp; injection Hp as Hc Hv Hk; subst c v k.
+      * (* shape 1 → shape 3 *)  (* B0:b0=[], B1:b1=[] *)
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; left; cbn [rc_prog rc_bufs];
+          split; [ updo; exact A0
+          | split; [ upds; reflexivity
+          | split; [ updo; exact B0
+          | exists (length tr); upds; rewrite B1; reflexivity ]]]]]]].
+      * (* shape 2 → shape 4 *)  (* B0:∃s0, B1:b1=[] *)
+        destruct B0 as [s0 B0].
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; left; cbn [rc_prog rc_bufs];
+          split; [ updo; exact A0
+          | split; [ upds; reflexivity
+          | split; [ exists s0; updo; exact B0
+          | exists (length tr); upds; rewrite B1; reflexivity ]]]]]]].
+  - (* ── RECV ── *)
+    rewrite Hlive in Hlv; cbn in Hlv; apply Bool.orb_true_iff in Hlv;
+      destruct Hlv as [E|E]; apply Nat.eqb_eq in E; subst tid.
+    + (* tid = 0: head ex0b = CRecv 1; fires in shapes 4,6; shape 2 has b1=[] *)
+      destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A0 in Hp; try (unfold ex0 in Hp; discriminate); try discriminate;
+        unfold ex0b in Hp; injection Hp as Hc Hf; subst c f.
+      * (* shape 2: b1 = [] contradicts Hbc *) rewrite B1 in Hbc; discriminate.
+      * (* shape 4 → shape 5 *)  (* B0:∃s0, B1:∃s1 *)
+        destruct B0 as [s0 B0]; destruct B1 as [s1 B1].
+        rewrite B1 in Hbc; injection Hbc as Hv Hs Hrest; subst v s brest.
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; right; left; cbn [rc_prog rc_bufs];
+          split; [ upds; reflexivity
+          | split; [ updo; exact A1
+          | split; [ exists s0; updo; exact B0
+          | upds; reflexivity ]]]]]]].
+      * (* shape 6 → shape 7 *)  (* B0:b0=[], B1:∃s1 *)
+        destruct B1 as [s1 B1].
+        rewrite B1 in Hbc; injection Hbc as Hv Hs Hrest; subst v s brest.
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; right; right; right; cbn [rc_prog rc_bufs];
+          split; [ upds; reflexivity
+          | split; [ updo; exact A1
+          | split; [ updo; exact B0
+          | upds; reflexivity ]]]]]]].
+    + (* tid = 1: head ex1b = CRecv 0; fires in shapes 4,5; shape 3 has b0=[] *)
+      destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A1 in Hp; try (unfold ex1 in Hp; discriminate); try discriminate;
+        unfold ex1b in Hp; injection Hp as Hc Hf; subst c f.
+      * (* shape 3: b0 = [] contradicts Hbc *) rewrite B0 in Hbc; discriminate.
+      * (* shape 4 → shape 6 *)  (* B0:∃s0, B1:∃s1 *)
+        destruct B0 as [s0 B0]; destruct B1 as [s1 B1].
+        rewrite B0 in Hbc; injection Hbc as Hv Hs Hrest; subst v s brest.
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; right; right; left; cbn [rc_prog rc_bufs];
+          split; [ updo; exact A0
+          | split; [ upds; reflexivity
+          | split; [ upds; reflexivity
+          | exists s1; updo; exact B1 ]]]]]]].
+      * (* shape 5 → shape 7 *)  (* B0:∃s0, B1:b1=[] *)
+        destruct B0 as [s0 B0].
+        rewrite B0 in Hbc; injection Hbc as Hv Hs Hrest; subst v s brest.
+        split; [exact Hlive | split; [ intros t Ht0 Ht1; cbn [rc_prog]; updo; exact (Hidle t Ht0 Ht1)
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl0; reflexivity
+        | split; [ cbn [rc_trace]; rewrite closedb_app, Hcl1; reflexivity
+        | right; right; right; right; right; right; cbn [rc_prog rc_bufs];
+          split; [ updo; exact A0
+          | split; [ upds; reflexivity
+          | split; [ upds; reflexivity
+          | updo; exact B1 ]]]]]]].
+  - (* ── RECV_CLOSED ── impossible: the recv channel (0 or 1) is never closed ── *)
+    rewrite Hlive in Hlv; cbn in Hlv; apply Bool.orb_true_iff in Hlv;
+      destruct Hlv as [E|E]; apply Nat.eqb_eq in E; subst tid.
+    + destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A0 in Hp; try (unfold ex0 in Hp; discriminate); try discriminate;
+        unfold ex0b in Hp; injection Hp as Hc Hf; subst c;
+        exfalso; apply (closedb_false_not tr 1 Hcl1); exists pos, e; split; assumption.
+    + destruct Hph as [H|[H|[H|[H|[H|[H|H]]]]]]; destruct H as [A0 [A1 [B0 B1]]];
+        rewrite A1 in Hp; try (unfold ex1 in Hp; discriminate); try discriminate;
+        unfold ex1b in Hp; injection Hp as Hc Hf; subst c;
+        exfalso; apply (closedb_false_not tr 0 Hcl0); exists pos, e; split; assumption.
+Qed.
+
+Lemma ex_steps_shape : forall a b, rsteps a b -> EXShape a -> EXShape b.
+Proof.
+  intros a b H. induction H; intros HS; [exact HS|].
+  apply IHrsteps. exact (ex_step_shape _ _ H HS).
+Qed.
+
+(** PAYOFF: the bidirectional, genuinely-interleaving exchange NEVER deadlocks. *)
+Theorem ex_never_stuck : forall cfg, rsteps ex_init cfg -> ~ RStuck cfg.
+Proof.
+  intros cfg Hsteps [Hnstep Hndone].
+  pose proof (ex_steps_shape _ _ Hsteps ex_init_shape) as HS.
+  destruct (ex_shape_progress cfg HS) as [Hd | Hc]; [exact (Hndone Hd) | exact (Hnstep Hc)].
+Qed.
+
+(** CONTRAST: the SAME two goroutines but RECEIVE-FIRST deadlock immediately — the model faithfully
+    represents the classic circular wait (each blocked on the other's not-yet-sent value). *)
+Definition rf_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CRecv 1 (fun _ => CSend 0 42 CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun _ => CSend 1 43 CRet) else CRet.
+Definition rf_init : RConfig :=
+  mkRCfg rf_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Theorem ex_recvfirst_stuck : RStuck rf_init.
+Proof.
+  split.
+  - (* no step: both goroutines block on empty receives — use inversion so the concrete config's
+       live/prog functions are substituted in (destruct on a concrete config index would not). *)
+    intros [cfg' Hstep]. unfold rf_init in Hstep.
+    inversion Hstep; subst; cbn in *;
+      match goal with
+      | [ H : (Nat.eqb ?t 0 || Nat.eqb ?t 1)%bool = true |- _ ] =>
+          apply Bool.orb_true_iff in H; destruct H as [E|E]; apply Nat.eqb_eq in E; subst t
+      end;
+      cbn in *;
+      repeat match goal with
+      | [ H : CRecv _ _ = CSend _ _ _ |- _ ] => discriminate H
+      | [ H : CRecv _ _ = CWrite _ _ _ |- _ ] => discriminate H
+      | [ H : CRecv _ _ = CRead _ _ |- _ ] => discriminate H
+      | [ H : CRecv _ _ = CSpawn _ _ |- _ ] => discriminate H
+      | [ H : CRecv _ _ = CSelect _ |- _ ] => discriminate H
+      | [ H : CRecv _ _ = CClose _ _ |- _ ] => discriminate H
+      | [ H : CSend _ _ _ = CRecv _ _ |- _ ] => discriminate H
+      | [ H : [] = (_ :: _) |- _ ] => discriminate H
+      | [ H : CRecv ?c1 _ = CRecv ?c2 _ |- _ ] => injection H as -> _
+      | [ H : nth_error [] ?pos = Some _ |- _ ] => destruct pos; discriminate H
+      end.
+  - (* not done: goroutine 0 is parked at a CRecv, not CRet *)
+    intros Hd. specialize (Hd 0). unfold rf_init in Hd; cbn [rc_live rc_prog] in Hd.
+    unfold rf_prog in Hd; cbn in Hd. discriminate (Hd eq_refl).
+Qed.
+
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
     UNBUFFERED-CHANNEL FORCING — capacity, and the cap-0 synchronous-rendezvous semantics.
     ════════════════════════════════════════════════════════════════════════════════════════════════
     The rich [rstep] above models channels with UNBOUNDED buffers (every send always enqueues).  Go's
