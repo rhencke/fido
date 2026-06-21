@@ -9,6 +9,7 @@ From Stdlib Require Import Floats.PrimFloat.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Strings.String.   (* string-literal scope for the String-types demo *)
+From Stdlib Require Import StrictProp.        (* [squash]: seal the [ComparableW] decidability evidence *)
 Require Import Coq.Lists.List.
 Import ListNotations.
 
@@ -2374,7 +2375,7 @@ Definition generics_demo : IO unit :=
 Definition ceq_i64   (a b : GoI64)   : bool := ceqb cw_i64   a b.
 Definition ceq_u64   (a b : GoU64)   : bool := ceqb cw_u64   a b.
 Definition ceq_str   (a b : GoString): bool := ceqb cw_str   a b.
-Definition cw_point  : ComparableW Point := MkComparableW point_eqb.  (* struct comparable via field-wise [==] *)
+Definition cw_point  : ComparableW Point := MkComparableW point_eqb (squash point_eqb_spec).  (* struct comparable via field-wise [==], with sealed evidence *)
 Definition ceq_point (a b : Point)   : bool := ceqb cw_point a b.
 Example ceq_i64_t   : ceq_i64 (5)%i64 (5)%i64         = true.  Proof. now vm_compute. Qed.
 Example ceq_i64_f   : ceq_i64 (5)%i64 (6)%i64         = false. Proof. now vm_compute. Qed.

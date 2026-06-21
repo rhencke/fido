@@ -3580,13 +3580,48 @@ Definition str_eqb (a b : GoString) : bool := String.eqb a b.
     Go [==].  Faithful: on a Go-comparable type, [cw_eqb] decides the SAME equality [==] does, so
     erasing the dictionary to the native operator preserves meaning (the witness exists only so
     Rocq can compute/prove; Go's [comparable] supplies [==] structurally with no runtime dict). *)
-Record ComparableW (K : Type) : Type := MkComparableW { cw_eqb : K -> K -> bool }.
-Arguments MkComparableW {K} _.
+(** Each comparison function DECIDES its type's equality — the evidence a sealed witness must carry. *)
+Lemma i64_eqb_spec : forall x y, i64_eqb x y = true <-> x = y.
+Proof.
+  intros x y. unfold i64_eqb. split.
+  - intro H. apply Z.eqb_eq in H. apply i64_ext; exact H.
+  - intro H; subst; apply Z.eqb_refl.
+Qed.
+Lemma u64_eqb_spec : forall x y, u64_eqb x y = true <-> x = y.
+Proof.
+  intros x y. unfold u64_eqb. split.
+  - intro H. apply Z.eqb_eq in H. apply u64_ext; exact H.
+  - intro H; subst; apply Z.eqb_refl.
+Qed.
+Lemma str_eqb_spec : forall x y, str_eqb x y = true <-> x = y.
+Proof. intros x y. unfold str_eqb. apply String.eqb_eq. Qed.
+
+(** SEALED (release-blocking soundness fix, 2026-06-21): [ComparableW] now CARRIES the decidability proof
+    [cw_ok] (SProp-erased, proof-irrelevant), so a bogus witness like [MkComparableW (fun _ _ => false) _]
+    is UNCONSTRUCTABLE — its spec [forall x y, false = true <-> x = y] is false.  Hence erasing [cw_eqb] to
+    native Go [==] is sound, not a forgeable claim.  The proof field erases (SProp), so extraction is
+    unchanged: the whole witness is dropped by the plugin regardless of arity. *)
+Record ComparableW (K : Type) : Type := MkComparableW {
+  cw_eqb : K -> K -> bool ;
+  cw_ok  : Squash (forall x y, cw_eqb x y = true <-> x = y) }.
+Arguments MkComparableW {K} _ _.
 Arguments cw_eqb {K} _.
+Arguments cw_ok {K} _.
 Definition ceqb {K} (w : ComparableW K) (a b : K) : bool := cw_eqb w a b.
-Definition cw_i64 : ComparableW GoI64    := MkComparableW i64_eqb.
-Definition cw_u64 : ComparableW GoU64    := MkComparableW u64_eqb.
-Definition cw_str : ComparableW GoString := MkComparableW str_eqb.
+(** Each instance is a [ComparableW]-typed Definition, suppressed by the plugin (the witness erases to
+    native [==]); the [squash]ed spec is the seal that makes a bogus witness unconstructable. *)
+Definition cw_i64 : ComparableW GoI64    := MkComparableW i64_eqb (squash i64_eqb_spec).
+Definition cw_u64 : ComparableW GoU64    := MkComparableW u64_eqb (squash u64_eqb_spec).
+Definition cw_str : ComparableW GoString := MkComparableW str_eqb (squash str_eqb_spec).
+
+(** The seal is real (machine-checked): the always-[false] equality does NOT decide [GoI64] equality, so
+    no [ComparableW GoI64] can wrap it — the forged witness [MkComparableW (fun _ _ => false) _] is
+    unconstructable (its [cw_ok] obligation is the unprovable proposition below).  This is the safe-by-
+    construction guarantee the erasure [cw_eqb w → Go ==] needs: a witness exists only when [cw_eqb]
+    genuinely decides [=], hence agrees with Go's [==]. *)
+Lemma bogus_eqb_undecidable :
+  ~ (forall x y : GoI64, (fun _ _ : GoI64 => false) x y = true <-> x = y).
+Proof. intro H. destruct (H (i64wrap 0%Z) (i64wrap 0%Z)) as [_ Hb]. discriminate (Hb eq_refl). Qed.
 
 Fixpoint str_ltb (a b : GoString) : bool :=
   match a, b with
