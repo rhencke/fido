@@ -1109,6 +1109,31 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    function (the loop CORE is proved separately as `while_realized`), and connecting
    to the emitted Go AST.
 
+   **DEFERRED ARCHITECTURE — "verified relooper, extracted, plugged in" (PUNTED below
+   built-ins/imports; the golden file is sufficient for now).**  The eventual way to
+   turn `relooper.v` from a *reference* model into an actual guarantee, decided
+   2026-06-21: do NOT try to verify the existing OCaml (that needs reflecting ~3000
+   lines).  Instead, CompCert-style — (1) PORT the lowering (relooper + term→Go-AST)
+   into Rocq, transcribing the existing OCaml as the reference; (2) PROVE it
+   semantics-preserving (relooper.v is the control-flow seed); (3) EXTRACT the Rocq
+   lowering back to OCaml via Rocq's own (trusted) OCaml extractor and have the plugin
+   CALL it; (4) LEAVE the Go-AST→text printer as trusted OCaml — the irreducible
+   print/parse boundary every verified compiler keeps axiomatic (CompCert trusts its
+   asm printer).  During the port the existing OCaml lowering pulls double duty: the
+   spec to transcribe AND a DIFFERENTIAL-TESTING oracle (run both, diff the emitted Go
+   over the whole golden suite; any mismatch is a transcription bug).  Per *Reflections
+   on Trusting Trust*: this MINIMISES the trusted base, never eliminates it — after the
+   work you still trust Rocq's term→MiniML extraction, the MiniML→Rocq-mirror glue,
+   Rocq's OCaml extraction, and the printer.  What you buy: the relooper (the most
+   intricate, golden-only-sampled transform) becomes a THEOREM.  Scope when picked up:
+   "verified relooper, extracted, plugged in" then STOP — porting the straight-line
+   cases is low-risk tedium; leave the rest of `go.ml` trusted-but-golden-tested.
+   Smallest non-throwaway first step: pin the Go-AST type in Rocq + a `Stmt → GoStmt`
+   print-to-AST function, connecting `relooper.v`'s `Stmt` to what the printer consumes
+   (the seam between reference model and extractable lowering).  ORDER: only after the
+   no-import built-in layer (and then imports) lands; this is a multi-week build, not a
+   loop tick.
+
 ### Tier 2 — numeric correctness within the int/float parameters
 4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical
    full-width int64/uint64; primitive `int` kept as a bounded convenience*.**  The
