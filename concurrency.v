@@ -2299,6 +2299,52 @@ Proof.
   exact (mpreach_steps _ _ _ _ Hsteps (mpreach_init v0 v1)).
 Qed.
 
+(** ── Connecting slice 2-A to the GENERAL ownership framework (a step toward slice 2-B). ──
+    [mpreach_race_free] took the ad-hoc ≤1-mem-access route; here mp's reachable traces are shown
+    [Owned] (Keller/CSL's discipline: same-location accesses form an hb-chain), so race-freedom ALSO
+    flows through the general [owned_race_free].  [mp_reachable_owned] is a concrete instance of the
+    slice-2B theorem SHAPE — "a disciplined program's reachable traces are Owned" — for the handoff. *)
+Lemma acc_loc_mp : forall i l, acc_loc_at mp_trace i = Some l -> i = 0 \/ i = 3.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as L.
+  destruct i as [|[|[|[|i]]]]; cbn in H;
+    first [ discriminate H | (left; reflexivity) | (right; reflexivity) | (cbn in L; lia) ].
+Qed.
+
+Lemma owned_mp_trace : Owned mp_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]].
+  apply acc_loc_mp in Hi; apply acc_loc_mp in Hj.
+  destruct Hi as [->| ->]; destruct Hj as [->| ->]; try lia.
+  left. exact mp_trace_hb_0_3.
+Qed.
+
+Lemma acc_only0_owned : forall t,
+  (forall i l, acc_loc_at t i = Some l -> i = 0) -> Owned t.
+Proof.
+  intros t H i j Hij [l [Hi Hj]]. apply H in Hi; apply H in Hj; subst. lia.
+Qed.
+
+Lemma mpreach_owned : forall v0 v1 cfg, MpReach v0 v1 cfg -> Owned (rc_trace cfg).
+Proof.
+  intros v0 v1 cfg [_ Hph].
+  destruct Hph as [[Htr _]|[[Htr _]|[[Htr _]|[[Htr _]|[Htr _]]]]]; rewrite Htr;
+    try (apply acc_only0_owned; intros i l Hi;
+         pose proof (acc_loc_at_lt _ _ _ Hi) as L; destruct i as [|[|[|i]]]; cbn in Hi;
+         first [ reflexivity | discriminate Hi | (cbn in L; lia) ]).
+  exact owned_mp_trace.
+Qed.
+
+(** mp's reachable traces are Owned — the slice-2B theorem SHAPE for the concrete handoff (a disciplined
+    program's reachable traces satisfy the ownership discipline); race-freedom now flows the GENERAL way. *)
+Theorem mp_reachable_owned : forall v0 v1 cfg,
+  rsteps (mp_init v0 v1) cfg -> Owned (rc_trace cfg).
+Proof.
+  intros v0 v1 cfg Hsteps.
+  apply (mpreach_owned v0 v1).
+  exact (mpreach_steps _ _ _ _ Hsteps (mpreach_init v0 v1)).
+Qed.
+
 (** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
     Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
     goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
