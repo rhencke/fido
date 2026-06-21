@@ -267,7 +267,7 @@ since it is erased from the Coq type).  `arr_copy_demo`: `a` stays `[10,20,30]`,
 *positions* (param / field / return / typed var) need an explicit `[N]T` and are refused
 fail-loud — the type-level-`N` route (phantom `AS`/`AZ` chain the plugin decodes), deferred.
 
-### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields); ✗ embedding/tags
+### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields) + EMBEDDING (struct-in-struct, field/method promotion); ⚠ tags (no-op without reflection); ✗ embedding non-struct/pointer types
 Spec: a `struct` is a sequence of named fields with types; **value** semantics
 (assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
 constructor inductive with projections, value/copy semantics — so it maps directly:
@@ -515,7 +515,7 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64); ✗ float, strings, interfaces
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64), int/int64→float64, float64→float32, string↔[]byte/[]rune + string(rune); ⚠ narrow→int64 & float64→int64 lowering deferred (carrier); ✗ float32→/from-narrow-only
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
