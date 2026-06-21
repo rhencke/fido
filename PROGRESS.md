@@ -1080,7 +1080,19 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    emitted Go to the source term; golden tests cover only finitely many
    trajectories.  (See Known gaps #10.)  *Fix:* an operational semantics for the
    Go fragment in Rocq + a simulation/refinement proof — start with straight-line
-   IO, then control flow, then channels.
+   IO, then control flow, then channels.  **FIRST SLICE LANDED (2026-06-21,
+   `relooper.v`, proof-only):** the CONTROL-FLOW core — a CFG (basic blocks +
+   conditional gotos) with a big-step operational semantics `cfg_halts`, a
+   structured target (if/seq + `LLoop`/`LBreak`) with its semantics, and TWO
+   semantics-preservation theorems: `diamond_realized` (acyclic — the if-diamond
+   lowered via compositional `Realizes` combinators) and `while_realized` (CYCLIC
+   — the canonical while-loop CFG with a back-edge lowered to `loop { … break }`,
+   proved by induction on the `cfg_halts` derivation / loop-iteration count).
+   Both axiom-free.  It is a REFERENCE model (does NOT verify the OCaml plugin —
+   that needs reflecting the OCaml), but it proves the transformation CAN be
+   verified, supplies the method, and is a spec to check the plugin against.
+   Still open: a general relooper FUNCTION over arbitrary reducible CFGs (built
+   from these two cores), and connecting it to the actual emitted Go AST.
 
 ### Tier 2 — numeric correctness within the int/float parameters
 4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical

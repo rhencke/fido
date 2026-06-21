@@ -13,10 +13,15 @@
     verified, gives the correctness method (compositional "realizes" combinators), and is a spec the
     plugin can eventually be checked against.
 
-    SCOPE (honest): ACYCLIC CFGs lowered to nested if/seq, with the join block DUPLICATED into both
+    SCOPE (honest): (1) ACYCLIC CFGs lowered to nested if/seq, with the join block DUPLICATED into both
     branches (semantically correct; the plugin's no-duplication relooping is an optimisation atop this
-    correctness core).  CYCLIC CFGs → structured LOOPS (break/continue) are the genuinely hard frontier
-    and are NOT yet here — see the note at the end.  Proof-only: emits no Go. *)
+    correctness core) — the [Realizes] combinators + [diamond_realized].  (2) CYCLIC CFGs → structured
+    LOOPS (the genuinely hard part): a relational [seval] with [LLoop]/[LBreak], and [while_realized] —
+    the canonical while-loop CFG (with a back-edge) lowered to [loop { … break }], proved
+    semantics-preserving by INDUCTION ON THE [cfg_halts] DERIVATION (the loop-iteration count).
+    Both axiom-free.  STILL OPEN: a GENERAL relooper FUNCTION over arbitrary (reducible) CFGs — these
+    are the two correctness cores (straight-line + single loop) it would be built from.  Proof-only:
+    emits no Go. *)
 
 From Stdlib Require Import List Lia Arith.
 Import ListNotations.
@@ -153,12 +158,109 @@ Proof.
     rewrite Ht in Ht2. injection Ht2 as <- <- <-. exact (IH _ Hh2).
 Qed.
 
-End Relooper.
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    CYCLIC CFGs → structured LOOPS — the genuinely hard part of relooping.
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    A back-edge (a block that gotos an ancestor) cannot be lowered by the acyclic recipe: the
+    duplicating unfolding would not terminate, and a total [Fixpoint] cannot even DENOTE a
+    possibly-non-terminating loop.  So the structured target gains [LLoop]/[LBreak], its semantics goes
+    RELATIONAL (mirroring [cfg_halts]), and the loop lowering is proved by INDUCTION ON THE [cfg_halts]
+    DERIVATION (i.e. on the number of loop iterations).  We verify the canonical WHILE loop. *)
 
-(** ── The HARD FRONTIER (not yet done): CYCLIC CFGs → structured LOOPS. ──
-    A back-edge (a block that gotos an ancestor) cannot be lowered by the acyclic recipe — the
-    duplicating unfolding would not terminate, and [srun] (a total [Fixpoint]) cannot even DENOTE a
-    possibly-non-terminating loop.  The structured target must gain [SLoop]/[SBreak], its semantics
-    must go RELATIONAL/partial (mirroring [cfg_halts]), and the loop combinator must be proved by
-    INDUCTION ON THE NUMBER OF ITERATIONS (the [cfg_halts] derivation height).  That is the genuine
-    research step — the part of relooping that is actually hard — and is the next target. *)
+Inductive outcome : Type := Normal | Broke.
+
+(** Structured language WITH loops: [LLoop body] runs [body] repeatedly; a [LBreak] inside exits the
+    nearest enclosing loop (the loop then finishes [Normal]). *)
+Inductive Stmt2 : Type :=
+  | LBody  : (State -> State) -> Stmt2
+  | LSeq   : Stmt2 -> Stmt2 -> Stmt2
+  | LIf    : (State -> bool) -> Stmt2 -> Stmt2 -> Stmt2
+  | LLoop  : Stmt2 -> Stmt2
+  | LBreak : Stmt2.
+
+(** Big-step relational semantics with break propagation.  [seval S s s' o]: running [S] from [s]
+    yields state [s'] and finishes with outcome [o] ([Normal] = fell off the end, [Broke] = hit a
+    break that is still propagating outward).  A loop CONSUMES a break (turns it [Normal]); a
+    non-terminating loop simply has no derivation. *)
+Inductive seval : Stmt2 -> State -> State -> outcome -> Prop :=
+  | se_body  : forall f s, seval (LBody f) s (f s) Normal
+  | se_break : forall s, seval LBreak s s Broke
+  | se_seq_n : forall a b s s' s'' o,
+      seval a s s' Normal -> seval b s' s'' o -> seval (LSeq a b) s s'' o
+  | se_seq_b : forall a b s s',
+      seval a s s' Broke -> seval (LSeq a b) s s' Broke
+  | se_if_t  : forall c a b s s' o, c s = true  -> seval a s s' o -> seval (LIf c a b) s s' o
+  | se_if_f  : forall c a b s s' o, c s = false -> seval b s s' o -> seval (LIf c a b) s s' o
+  | se_loop_again : forall body s s' s'',
+      seval body s s' Normal -> seval (LLoop body) s' s'' Normal -> seval (LLoop body) s s'' Normal
+  | se_loop_break : forall body s s',
+      seval body s s' Broke -> seval (LLoop body) s s' Normal.
+
+(** Inversion helpers (keep the main proof readable). *)
+Lemma seval_body_inv : forall f s s' o, seval (LBody f) s s' o -> s' = f s /\ o = Normal.
+Proof. intros f s s' o H; inversion H; subst; split; reflexivity. Qed.
+
+Lemma seval_seq_inv : forall a b s s'' o, seval (LSeq a b) s s'' o ->
+  (exists s', seval a s s' Normal /\ seval b s' s'' o) \/ (o = Broke /\ seval a s s'' Broke).
+Proof.
+  intros a b s s'' o H; inversion H; subst.
+  - left; eexists; split; eassumption.
+  - right; split; [reflexivity | assumption].
+Qed.
+
+(** The canonical WHILE CFG: block 0 = HEADER (run [h], branch on [c] to body/exit); block 1 = BODY
+    (run [f], goto header); block 2 (+default) = EXIT (run [e], return).  This is exactly
+    [h; while c { f; h }; e] flattened to basic blocks with a back-edge 1→0. *)
+Definition whileCFG (h f e : State -> State) (c : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk h (TIf c 1 2)
+           | 1 => mkBlk f (TGoto 0)
+           | _ => mkBlk e TRet
+           end.
+
+(** Per-block structured realization (the induction motive).  [lb] is the loop body
+    [h; if c then f else break]; the header lowers to [loop lb; e], the body to [f; (loop lb; e)]. *)
+Definition blockprog (h f e : State -> State) (c : State -> bool) (l : nat) : Stmt2 :=
+  let lb := LSeq (LBody h) (LIf c (LBody f) LBreak) in
+  match l with
+  | 0 => LSeq (LLoop lb) (LBody e)
+  | 1 => LSeq (LBody f) (LSeq (LLoop lb) (LBody e))
+  | _ => LBody e
+  end.
+
+(** THE LOOP LOWERING IS CORRECT: every halting run of the while-CFG from any block is reproduced by
+    the structured program for that block.  Proved by induction on the [cfg_halts] derivation — the
+    recursive [ch_goto]/[ch_if] at the header is the loop unrolling, and the induction hypothesis is
+    exactly "the rest of the loop is already realized". *)
+Theorem while_realized : forall h f e c l s sf,
+  cfg_halts (whileCFG h f e c) l s sf -> seval (blockprog h f e c l) s sf Normal.
+Proof.
+  intros h f e c l s sf H.
+  induction H as [l s Ht | l l' s sf Ht Hh IH | l c0 a b s sf Ht Hh IH].
+  - (* ch_ret: only EXIT blocks (l ∉ {0,1}) return; they lower to [LBody e] *)
+    destruct l as [|[|l]]; cbn in Ht |- *; try discriminate. apply se_body.
+  - (* ch_goto: only the BODY (l=1) gotos — to the header (l'=0) *)
+    destruct l as [|[|l]]; cbn in Ht |- *; try discriminate.
+    injection Ht as Hl'; subst l'. cbn in IH |- *.
+    eapply se_seq_n; [apply se_body | exact IH].
+  - (* ch_if: only the HEADER (l=0) branches — c picks BODY (loop again) or EXIT (break) *)
+    destruct l as [|[|l]]; cbn in Ht |- *; try discriminate.
+    injection Ht as Hc Ha Hb; subst c0 a b.
+    cbn in Hh, IH |- *. destruct (c (h s)) eqn:E.
+    + (* c true: one more iteration, then the loop continues (from IH at the header) *)
+      cbn in IH. apply seval_seq_inv in IH. destruct IH as [[smid [Hf Hrest]] | [Hbad _]];
+        [| discriminate].
+      apply seval_body_inv in Hf. destruct Hf as [-> _].
+      apply seval_seq_inv in Hrest. destruct Hrest as [[s2 [Hloop He]] | [Hbad _]];
+        [| discriminate].
+      eapply se_seq_n; [| exact He].
+      eapply se_loop_again; [| exact Hloop].
+      eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact E | apply se_body].
+    + (* c false: the loop breaks this iteration, then runs the exit [e] *)
+      cbn in IH. apply seval_body_inv in IH. destruct IH as [-> _].
+      eapply se_seq_n; [| apply se_body ].
+      apply se_loop_break.
+      eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E | apply se_break].
+Qed.
+
+End Relooper.
