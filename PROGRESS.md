@@ -398,10 +398,17 @@ separate tracks.
    (`select_recv2` = two recv cases; `select_recv_default` = recv + `default`, the
    non-blocking form) → faithful Go `select { case x := <-ch: … }`, CPS like
    `recv_ok`. `select_demo` prints 42 (ready case), `select_default_demo` prints 99
-   (default); golden-locked. *Frontier:* the denotational CHOICE semantics (which
-   ready case runs, pseudo-random fairness, blocking when none ready) is idealised
-   away like `recv`'s blocking (Tier 5 #14, needs the scheduler/non-terminating
-   model); and send-cases / N-ary (>2) cases are the same lowering with more arms.
+   (default); golden-locked. The denotational CHOICE semantics (which ready case
+   runs, pseudo-random fairness, blocking when none ready) is idealised away in the
+   *sequential* `IO` model — but the AUTHORITATIVE choice semantics now lives in
+   `concurrency.v`'s relational `rstep_select` (nondeterministic, per-case
+   continuations), and the typed `select_recv2` is proven a SOUND scheduler of it
+   (`det_select_sound`), INCOMPLETE in general (`det_select_incomplete`: ≥2 ready ⇒ it
+   misses a successor), yet COMPLETE precisely when ONE case is ready
+   (`det_select_complete_unique` / `det_select_exact_unique`, 2026-06-21, axiom-free) —
+   so the deterministic model's exact faithfulness boundary is now a theorem. *Frontier:*
+   send-cases / N-ary (>2) cases are the same lowering with more arms; and a single
+   composed `select_recv2`(World)→`rstep_select` theorem (today argued in prose).
 9. **Structs / methods / interfaces** — the gateway to the closed-world wishlist
    (typestate, representation invariants, behavioral satisfaction, and the
    prerequisite for typing libraries). Built in three stages.

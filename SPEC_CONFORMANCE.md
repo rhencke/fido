@@ -703,8 +703,11 @@ mispredicted `default` / fabricated the other case (`close(ch); select{case <-ch
 Go prints 1, model said 2).  `select_recv_default`/`select_recv2`/`select_wait2` now check
 `chan_closed`: empty+closed ⇒ that recv fires with zero; `default` only empty+OPEN.  Witnessed
 (`select_default_closed`/`select_default_open_empty`); `select2_eq_recv2` re-proven.  *Remaining:*
-(a) the relational `PSelect` has no closed flag (`step_select` needs nonempty buffer) — a recv-on-closed
-step requires a config closed-flag AND a `KRecv`-with-no-matched-send (no hb edge), touching `WfTrace`;
+(a) **RESOLVED (2026-06-21):** the relational select now models closed channels with NO config flag —
+closed-state is read off the TRACE (`closedb`: a `KClose c` event), and a `KRecv` back-pointer may point
+at that `KClose` (the close→closed-recv happens-before edge).  `step_select_closed` / `rstep_select_closed`
+step a closed-drained select to zero (witnesses `closed_select_can_step` / `rclosed_select_can_step`; see
+the closed-channel rows below);
 (b) **DONE (2026-06-20):** the value-carrying `rstep`/`Cmd` calculus now has `CSelect : list (nat *
 (nat → Cmd))` — PER-CASE channel + continuation, so `select { case <-ch: A() | case <-ch: B() }`
 (same channel, distinct bodies) IS representable and BOTH cases eligible (`rselect_per_case_continuation`:
@@ -720,6 +723,17 @@ is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), an
 `det_select_incomplete` proves that when two cases are ready it realises only ch1 while
 `rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the review verdict
 "the deterministic interpreter is one example scheduler, non-authoritative" a theorem.
+**Completeness boundary DONE (2026-06-21):** the exact converse of `det_select_incomplete` —
+`det_select_complete_unique` proves that when the cases have a UNIQUE buffered-ready case, every buffered
+`rstep_select` firing collapses to the SAME successor `sel_first_ready` takes, and `det_select_exact_unique`
+packages sound (⊇, from `det_select_sound`) ∧ complete (⊆) into one EXACT statement.  So the cheap typed
+`select_recv2` is fully faithful to Go PRECISELY in the unique-ready regime — Go's pseudo-random pick then
+ranges over a single candidate, so the deterministic model forbids nothing Go permits; incompleteness
+arises ONLY from a genuine choice among ≥2 ready cases.  (Honest scope: the uniqueness is over BUFFERED
+readiness; full Go-completeness also needs the open-channel side condition, since a closed-drained case is
+an orthogonal ready successor.)  Proof-only, golden-stable, and `Print Assumptions det_select_exact_unique`
+= **Closed under the global context** — fully axiom-free, resting on nothing at all (pure `nat`/`list`/
+inductive reasoning over `rstep`, not even the Int63/Float substrate).
 **WORLD-level select↔recv bridge DONE (2026-06-21):** `det_select_sound` used `sel_first_ready` as a
 STAND-IN for the real `select_recv2`; now the actual `select_recv2` is tied to `run_io` directly — a
 READY first channel makes it reduce to a plain `recv` on that channel: `select_recv2_ch1_buffered` /

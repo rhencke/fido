@@ -2619,23 +2619,33 @@ Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc
     goroutine can change readiness between the proof and the native select (a TOCTOU gap).  Tracked in
     Known gaps / SPEC_CONFORMANCE.
 
-    THIRD REVIEW (2026-06-20) — one FIX + two REMAINING items:
+    THIRD REVIEW (2026-06-20) — one FIX (below) + two items SINCE RESOLVED in [concurrency.v]:
     • FIXED here: a CLOSED, DRAINED channel's recv is READY in Go (yields zero immediately), but the
       sequential model examined only the buffer and mispredicted [default] / fabricated the other case.
       [select_recv_default]/[select_recv2]/[select_wait2] now check [chan_closed]: empty+closed ⇒ that
       recv case fires with the zero value; [default] only on empty+OPEN.  Witnessed by
       [select_default_closed] / [select_default_open_empty]; [select2_eq_recv2] re-proven.
-    • REMAINING (relational closed): [concurrency.v]'s [PSelect]/[step_select] has no closed-channel
-      state — [cfg_bufs] carries no closed flag, and [step_select] requires a NONEMPTY buffer, so a
-      closed-drained channel is wrongly not-ready.  Fix needs a closed flag on the config AND a
-      recv-on-closed step — subtle because such a recv has NO matched send (no happens-before edge),
-      so [WfTrace]/[KRecv]'s backpointer obligation must admit a "closed recv" with no [from].
-    • REMAINING (rich calculus + typed connection): the value-carrying [rstep]/[Cmd] calculus (the model
-      of actual Fido programs) has NO select — and [PSelect] gives all cases a SHARED continuation
-      [rest], so [select { case <-ch: A() | case <-ch: B() }] (same channel, distinct bodies) is
-      unrepresentable.  The authoritative model is [CSelect] in the rich calculus with PER-CASE channel
-      + continuation, plus a theorem connecting typed [select_recv2] programs to that relation.  Until
-      then the typed [select] is an important FOUNDATION, not the authoritative complete model. *)
+    • RESOLVED (relational closed): the relational select now MODELS closed channels — closed-state is
+      read off the TRACE ([closedb]: some [KClose c] event), so there is no config flag and no
+      backpointer gap (the [KClose] position itself IS the closed-recv's happens-before producer).
+      [rstep_recv_closed] / [rstep_select_closed] step a closed-drained recv/select to the zero value;
+      [closed_select_can_step] / [rclosed_select_can_step] witness it; [closed_recv_preserves_inv]
+      keeps the resulting trace well-formed.
+    • RESOLVED (rich calculus + typed connection): the value-carrying [rstep]/[Cmd] calculus now has a
+      first-class [CSelect] with PER-CASE channel + continuation — [select { case <-ch: A() | case <-ch:
+      B() }] (same channel, distinct bodies) is representable and the two successors run DIFFERENT bodies
+      ([rselect_per_case_continuation]).  The typed↔relational bridge is proven: [det_select_sound] (the
+      deterministic ch1-priority pick is always a permitted [rstep_select]); [det_select_incomplete] (two
+      ready ⇒ it MISSES the other successor); [det_select_complete_unique] / [det_select_exact_unique] (a
+      UNIQUE ready case ⇒ it is also COMPLETE — the exact converse, so the deterministic model is fully
+      faithful precisely in the unique-ready regime); and [select_fire_is_recv_fire] (firing a ready case
+      reaches the same config as a plain recv, mirroring [select_recv2_ch1_buffered] here).
+    GENUINE remainder: a SINGLE composed theorem carrying a [select_recv2] World execution all the way to
+    a permitted [rstep_select] (today [select_recv2] = [recv] (World) ∘ [denote_sim_recv] ∘
+    [select_fire_is_recv_fire] is argued in prose, not yet ONE lemma); and full [rstep] determinism in the
+    CLOSED regime additionally needs close-position uniqueness (a [WfTrace] strengthening — at most one
+    [KClose] per channel).  Until those, the typed [select] is SOUND, with completeness pinned to the
+    unique-ready regime above. *)
 Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * A) :=
   fun w => match chan_buf ta ch1 w with
            | v :: _ => ORet (0, v) (chan_recv_upd ta ch1 w)

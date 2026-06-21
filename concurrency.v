@@ -2875,6 +2875,62 @@ Proof.
   - eapply rstep_recv; eassumption.
 Qed.
 
+(** (4) COMPLETENESS UNDER A UNIQUE READY CASE — the exact converse of (2), and the precise boundary
+    of the deterministic model's faithfulness.  The incompleteness in (2) is caused ENTIRELY by a
+    CHOICE among ≥2 ready cases.  Remove the choice — let the cases have a UNIQUE buffered-ready case
+    — and every buffered [rstep_select] firing of that goroutine collapses to ONE successor, exactly
+    the one the deterministic ch1-priority interpreter ([sel_first_ready]) takes.  So in that regime
+    the cheap typed [select_recv2] is not merely SOUND (1) but COMPLETE: Go's pseudo-random pick
+    ranges over a SINGLE candidate, hence the deterministic model forbids NOTHING Go permits.  This is
+    the "sound-but-narrow interim" the builtins.v select note only promises — now a THEOREM.
+
+    SCOPE (honest, per the select review's TOCTOU caveat): the uniqueness hypothesis is over BUFFERED
+    readiness ([b c' <> []]).  A CLOSED-and-drained case is an ORTHOGONAL readiness source (it fires
+    [rstep_select_closed], a different successor), so full Go-completeness additionally needs the
+    open-channel side condition — no case closed-drained — which the all-open configs of (1)/(2)
+    satisfy.  Within the buffered regime this is the precise ⊆ matching [det_select_sound]'s ⊇. *)
+Lemma det_select_complete_unique :
+  forall p b h lv tr tid cases c f v s brest,
+    p tid = CSelect cases ->
+    b c = (v, s) :: brest ->
+    (forall c' f', In (c', f') cases -> b c' <> [] -> (c', f') = (c, f)) ->  (* UNIQUE buffered-ready case *)
+    forall c2 f2 v2 s2 brest2,
+      In (c2, f2) cases -> b c2 = (v2, s2) :: brest2 ->                       (* any buffered firing... *)
+      mkRCfg (upd p tid (f2 v2)) (upd b c2 brest2) h lv (tr ++ [mkEv tid (KRecv c2 s2)])
+      = mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)]).  (* ...IS the det one *)
+Proof.
+  intros p b h lv tr tid cases c f v s brest Hp Hbc Huniq c2 f2 v2 s2 brest2 Hin2 Hb2.
+  assert (Hcf : (c2, f2) = (c, f)) by (apply Huniq; [exact Hin2 | rewrite Hb2; discriminate]).
+  injection Hcf as Hc2 Hf2; subst c2 f2.
+  rewrite Hbc in Hb2. inversion Hb2; subst. reflexivity.
+Qed.
+
+(** Headline: in the unique-ready regime the deterministic interpreter is EXACT — its pick is the ONE
+    permitted buffered select transition.  [det_select_sound] gives ⊇ (the pick is permitted);
+    [det_select_complete_unique] gives ⊆ (every permitted buffered firing IS the pick).  Together:
+    sound ∧ complete, so the typed [select_recv2] is fully faithful to Go's select on that goroutine's
+    buffered cases — the regime where Go's nondeterminism degenerates to a function.
+    [Print Assumptions det_select_exact_unique] = Closed under the global context: fully axiom-free,
+    not even the Int63/Float substrate (pure [nat]/[list]/inductive reasoning over [rstep]). *)
+Corollary det_select_exact_unique :
+  forall p b h lv tr tid cases c f v s brest,
+    lv tid = true -> p tid = CSelect cases ->
+    sel_first_ready b cases = Some (c, f, v, s) -> b c = (v, s) :: brest ->
+    (forall c' f', In (c', f') cases -> b c' <> [] -> (c', f') = (c, f)) ->
+    rstep (mkRCfg p b h lv tr)                                                (* ⊇ SOUND: permitted *)
+          (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)]))
+    /\ (forall c2 f2 v2 s2 brest2, In (c2, f2) cases -> b c2 = (v2, s2) :: brest2 ->  (* ⊆ COMPLETE *)
+          mkRCfg (upd p tid (f2 v2)) (upd b c2 brest2) h lv (tr ++ [mkEv tid (KRecv c2 s2)])
+          = mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
+Proof.
+  intros p b h lv tr tid cases c f v s brest Hlv Hp Hsel Hbc Huniq. split.
+  - destruct (sel_first_ready_sound _ _ _ _ _ _ Hsel) as [Hin _].
+    eapply rstep_select; [exact Hlv | exact Hp | exact Hin | exact Hbc].
+  - intros c2 f2 v2 s2 brest2 Hin2 Hb2.
+    exact (det_select_complete_unique p b h lv tr tid cases c f v s brest Hp Hbc Huniq
+             c2 f2 v2 s2 brest2 Hin2 Hb2).
+Qed.
+
 (** ----------------------------------------------------------------------------
     DEADLOCK FREEDOM for a real class: RECEIVE-FREE programs.
 
