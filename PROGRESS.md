@@ -697,6 +697,18 @@ any "verified" claim.
 5. **Allocation freshness asserted, never established.** Allocators use `w_next` with NO `ValidWorld`
    invariant (nonzero, > all live locs, no wrap).  "fresh"/"nonzero"/"disjoint" are comments, false as
    theorem-level claims over arbitrary `World`.  Fix: a `ValidWorld` invariant, loc 0 reserved.
+   **→ RESOLVED (2026-06-21, commit pending, proof-only, golden byte-identical).**  `ValidWorld w :=
+   (0 <? w_next w) ∧ (∀ l, w_next w <=? l → all three heaps None at l)` — allocator pointer positive (loc 0
+   RESERVED for `nil`) and bounding the live region.  Two payoffs follow from the invariant ALONE:
+   `valid_fresh_nonzero` (the minted loc `w_next w` is nonzero ⇒ a fresh ptr/chan/map is never nil) and
+   `valid_fresh_disjoint` (it is None in all three heaps ⇒ the install overwrites nothing — no aliasing).
+   `valid_w_init` (empty heaps, `w_next = 1`) is the base; `valid_run_ref_new`/`valid_run_make_chan`/
+   `valid_run_map_typed`/`valid_run_map_make` prove EACH allocator (by name, via `run_io … = ORet r w'`)
+   carries `ValidWorld` to its output world — so every world reachable by a finite allocation sequence is
+   valid.  Preservation needs `HasRoom w := to_Z(w_next w)+1 < wB` (no wrap); exhausting 2^63 locations is
+   the documented PrimInt63 substrate limit (same finiteness as `GoI64`), NOT a soundness gap.  Base:
+   PrimInt63 only (`Uint63Axioms.*`), no funext / proof-irrelevance / Fido axiom.  Freshness is now a
+   THEOREM, not a comment.  (Feeds break #6: loc 0 reserved is the hook for real nil blocking/panic.)
 6. **Nil aliases location 0; raw nil ops fabricate objects.** Nil chan/map/ptr = loc 0; send/close on
    nil chan, assign to nil map, write through nil ptr all "succeed" (Go blocks/panics), and all nils of
    a kind alias loc 0 (one bad write corrupts all).  (Nil-DEREF panic is in the excluded "nil/div"

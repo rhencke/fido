@@ -3850,6 +3850,175 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
                                    then Some (existT _ A (tag, v))
                                    else w_refs w k)
                          (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63)).
+
+(** ---- [ValidWorld]: allocation freshness as a MACHINE-CHECKED invariant (release-blocking break #5) ----
+
+    Every allocator ([map_make]/[map_make_typed]/[make_chan]/[ref_new]) mints [l := w_next w] and bumps
+    [w_next] to [l+1].  For "fresh" / "nonzero" / "disjoint" to be THEOREMS rather than comments we carry an
+    invariant [ValidWorld]: the allocator pointer is positive (so location 0 is RESERVED — it is Go's [nil])
+    AND it bounds the live region (every heap is [None] at and above [w_next]).  Two payoffs follow from the
+    invariant ALONE (no side conditions): the next location is nonzero ([valid_fresh_nonzero] — a fresh
+    pointer/chan/map is never nil) and is currently unallocated in all three heaps ([valid_fresh_disjoint] —
+    a fresh allocation overwrites nothing).  The invariant holds at the initial world ([valid_w_init]) and is
+    PRESERVED by every allocator ([valid_alloc_*]) as long as the 63-bit allocator has room to bump
+    ([HasRoom]); exhausting 2^63 locations is the documented PrimInt63 substrate limit (the same finiteness
+    as [GoI64]), not a soundness gap. *)
+Definition ValidWorld (w : World) : Prop :=
+  (0 <? w_next w)%uint63 = true /\
+  (forall l, (w_next w <=? l)%uint63 = true ->
+     w_refs w l = None /\ w_chans w l = None /\ w_maps w l = None).
+
+(** There is room to allocate: [w_next + 1] stays below [wB = 2^63], so the bump does not wrap around to
+    a small (already-live or zero) location.  Stated on [to_Z] to avoid a 63-bit int literal. *)
+Definition HasRoom (w : World) : Prop := (Uint63.to_Z (w_next w) + 1 < Uint63.wB)%Z.
+
+(** The initial world: empty heaps, allocator at 1 — so location 0 is reserved for [nil]. *)
+Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1%uint63.
+
+Lemma valid_w_init : ValidWorld w_init.
+Proof.
+  split.
+  - now vm_compute.
+  - intros l _. unfold w_init; cbn. repeat split; reflexivity.
+Qed.
+
+(** PAYOFF 1: the freshly minted location [w_next w] is nonzero — a fresh pointer/chan/map is never [nil]. *)
+Lemma valid_fresh_nonzero : forall w, ValidWorld w -> (0 <? w_next w)%uint63 = true.
+Proof. intros w [Hpos _]. exact Hpos. Qed.
+
+(** PAYOFF 2: the freshly minted location is currently unallocated in ALL three heaps — so installing a
+    cell there (what every allocator does) overwrites nothing; allocations never alias a live object. *)
+Lemma valid_fresh_disjoint : forall w, ValidWorld w ->
+  w_refs w (w_next w) = None /\ w_chans w (w_next w) = None /\ w_maps w (w_next w) = None.
+Proof.
+  intros w [_ Hfresh]. apply Hfresh. apply Uint63.leb_spec. lia.
+Qed.
+
+(** No-wrap arithmetic: with room to bump, the bump's [to_Z] is exactly [+1] (no modular reduction). *)
+Lemma add1_no_wrap : forall x : int, (Uint63.to_Z x + 1 < Uint63.wB)%Z ->
+  Uint63.to_Z (PrimInt63.add x 1) = (Uint63.to_Z x + 1)%Z.
+Proof.
+  intros x H. rewrite Uint63.add_spec. change (Uint63.to_Z 1) with 1%Z.
+  pose proof (Uint63.to_Z_bounded x) as Hb.
+  apply Z.mod_small. lia.
+Qed.
+
+(** Consequences of bumping a has-room pointer past [l']: the OLD pointer is still [<= l'], and [l'] is
+    distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']). *)
+Lemma bump_le : forall w l', HasRoom w ->
+  (PrimInt63.add (w_next w) 1 <=? l')%uint63 = true -> (w_next w <=? l')%uint63 = true.
+Proof.
+  intros w l' HR Hle. apply Uint63.leb_spec. apply Uint63.leb_spec in Hle.
+  rewrite (add1_no_wrap (w_next w) HR) in Hle. lia.
+Qed.
+
+Lemma bump_neq : forall w l', HasRoom w ->
+  (PrimInt63.add (w_next w) 1 <=? l')%uint63 = true -> PrimInt63.eqb l' (w_next w) = false.
+Proof.
+  intros w l' HR Hle. apply Uint63.leb_spec in Hle.
+  rewrite (add1_no_wrap (w_next w) HR) in Hle.
+  apply Bool.not_true_is_false. intro He. apply Uint63.eqb_spec in He.
+  subst l'. lia.
+Qed.
+
+(** PRESERVATION: each allocator carries [ValidWorld] to the post-allocation world (given [HasRoom]). *)
+Lemma valid_alloc_ref : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
+  ValidWorld w -> HasRoom w ->
+  ValidWorld (mkWorld
+    (fun k => if PrimInt63.eqb k (w_next w) then Some (existT _ A (tag, v)) else w_refs w k)
+    (w_chans w) (w_maps w) (PrimInt63.add (w_next w) 1)).
+Proof.
+  intros A tag v w HV HR. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
+    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
+    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
+    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
+    rewrite Hneq. repeat split; assumption.
+Qed.
+
+Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (w : World),
+  ValidWorld w -> HasRoom w ->
+  ValidWorld (mkWorld (w_refs w)
+    (fun k => if PrimInt63.eqb k (w_next w) then Some (existT _ A (tag, (nil, false))) else w_chans w k)
+    (w_maps w) (PrimInt63.add (w_next w) 1)).
+Proof.
+  intros A tag w HV HR. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
+    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
+    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
+    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
+    rewrite Hneq. repeat split; assumption.
+Qed.
+
+Lemma valid_alloc_map_bump : forall (w : World),
+  ValidWorld w -> HasRoom w ->
+  ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add (w_next w) 1)).
+Proof.
+  intros w HV HR. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
+    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
+    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    apply Hfresh. apply (bump_le w l' HR Hle).
+Qed.
+
+Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
+  ValidWorld w -> HasRoom w ->
+  ValidWorld (mkWorld (w_refs w) (w_chans w)
+    (fun k => if PrimInt63.eqb k (w_next w)
+              then Some (existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
+    (PrimInt63.add (w_next w) 1)).
+Proof.
+  intros K V kt vt w HV HR. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
+    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
+    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
+    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
+    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
+    rewrite Hneq. repeat split; assumption.
+Qed.
+
+(** The invariant is genuinely INDUCTIVE across the REAL allocator API (not just the world-shapes above):
+    running any allocator on a valid, has-room world yields a valid world.  With [valid_w_init] this means
+    EVERY world reachable by a finite allocation sequence is valid — so [valid_fresh_nonzero] /
+    [valid_fresh_disjoint] apply at every allocation, making "fresh ⇒ nonzero ∧ disjoint" a theorem about
+    [ref_new]/[make_chan]/[map_make]/[map_make_typed] BY NAME.  (Break #5: freshness ESTABLISHED, not asserted.) *)
+Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
+  ValidWorld w -> HasRoom w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag v w r w' HV HR Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_ref; assumption.
+Qed.
+
+Corollary valid_run_make_chan : forall {A} (tag : GoTypeTag A) (w : World) r w',
+  ValidWorld w -> HasRoom w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros A tag w r w' HV HR Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
+Qed.
+
+Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) r w',
+  ValidWorld w -> HasRoom w -> run_io (map_make_typed kt vt) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros K V kt vt w r w' HV HR Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_map_typed; assumption.
+Qed.
+
+Corollary valid_run_map_make : forall {K V} (w : World) r w',
+  ValidWorld w -> HasRoom w -> run_io (@map_make K V) w = ORet r w' -> ValidWorld w'.
+Proof.
+  intros K V w r w' HV HR Hrun. unfold run_io, map_make in Hrun.
+  injection Hrun as _ Hw. subst w'. apply valid_alloc_map_bump; assumption.
+Qed.
+
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
