@@ -1524,6 +1524,45 @@ Proof.
   reflexivity.
 Qed.
 
+(** SIGNED↔UNSIGNED bitwise FAITHFULNESS — Go: [a & b == int64(uint64(a) & uint64(b))].
+    The signed bitwise op equals the SIGNED REINTERPRETATION of the UNSIGNED op on the two's-complement
+    bit patterns, so [i64_and]/[_or]/[_xor] are FAITHFUL to Go's int64/uint64 bitwise agreement.  Proof:
+    cancel the double mod-2⁶⁴ ([wrapU64_idem]), pull each [wrapU64] out through the bit-op
+    ([wrapU64_bit_l]/[_r]), then collapse [wrap64 ∘ wrapU64 = wrap64]. *)
+Lemma wrapU64_idem : forall z, wrapU64 (wrapU64 z) = wrapU64 z.
+Proof. intro z. unfold wrapU64. rewrite Z.mod_mod by lia. reflexivity. Qed.
+
+Lemma i64_and_via_u64 : forall a b,
+  i64_and a b = i64_of_u64 (u64_and (u64_of_i64 a) (u64_of_i64 b)).
+Proof.
+  intros a b. apply i64_ext.
+  cbn [i64_and i64_of_u64 u64_and u64_of_i64 i64wrap u64wrap i64raw u64raw].
+  rewrite !wrapU64_idem,
+          (wrapU64_bit_l Z.land andb Z.land_spec), (wrapU64_bit_r Z.land andb Z.land_spec),
+          wrap64_wrapU64.
+  reflexivity.
+Qed.
+Lemma i64_or_via_u64 : forall a b,
+  i64_or a b = i64_of_u64 (u64_or (u64_of_i64 a) (u64_of_i64 b)).
+Proof.
+  intros a b. apply i64_ext.
+  cbn [i64_or i64_of_u64 u64_or u64_of_i64 i64wrap u64wrap i64raw u64raw].
+  rewrite !wrapU64_idem,
+          (wrapU64_bit_l Z.lor orb Z.lor_spec), (wrapU64_bit_r Z.lor orb Z.lor_spec),
+          wrap64_wrapU64.
+  reflexivity.
+Qed.
+Lemma i64_xor_via_u64 : forall a b,
+  i64_xor a b = i64_of_u64 (u64_xor (u64_of_i64 a) (u64_of_i64 b)).
+Proof.
+  intros a b. apply i64_ext.
+  cbn [i64_xor i64_of_u64 u64_xor u64_of_i64 i64wrap u64wrap i64raw u64raw].
+  rewrite !wrapU64_idem,
+          (wrapU64_bit_l Z.lxor xorb Z.lxor_spec), (wrapU64_bit_r Z.lxor xorb Z.lxor_spec),
+          wrap64_wrapU64.
+  reflexivity.
+Qed.
+
 (** ---- A5: untyped INTEGER constants (Go spec "Constants") ----
 
     A Go untyped constant is ARBITRARY-PRECISION: constant arithmetic is exact (no

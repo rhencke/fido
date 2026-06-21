@@ -401,7 +401,12 @@ axiom-free):** `u64_{and,or,xor}_comm` + `u64_{and,or,xor}_assoc` — the Boolea
 counterpart of the arithmetic semiring + total-order laws; associativity rests on
 `wrapU64_bit_{l,r}` (mod-2⁶⁴ depends only on the low 64 bits, one `Z.bits_inj'` each).
 Idempotence `a&a=a` is SProp-BLOCKED (needs `u64raw a` in range, hidden by the `Squash`
-seal) — documented, not skipped.
+seal) — documented, not skipped.  **SIGNED↔UNSIGNED FAITHFULNESS proven (2026-06-21,
+axiom-free):** `i64_{and,or,xor}_via_u64` — `a & b == int64(uint64(a) & uint64(b))`, i.e.
+the signed bitwise op = the signed reinterpretation of the UNSIGNED op on the
+two's-complement bit patterns (Go's int64/uint64 bitwise agreement), verifying the signed
+`GoI64` bitwise is faithful.  (Cancel the double mod-2⁶⁴, pull `wrapU64` through the bit-op,
+collapse `wrap64 ∘ wrapU64`.)
 **Shift `<< >>` — ✓ fixed-width (`uintN`/`intN`).**  `uN_shl`/`shr`, `iN_shl`/`shr`:
 EVIDENCE-CARRYING like `div_nz` — the count must be proven **non-negative**
 (`eq_refl` for a literal; a negative count is unrepresentable — `u8_shl_neg`, a
