@@ -172,6 +172,23 @@ unmodelled callbacks.
   sanitised before the query". Whole-program properties, meaningless open-world.
 - **Value-level ownership** — extend channel-endpoint ownership (race freedom)
   to heap values: no aliasing, no use-after-close.
+- **The "make a Go expert faint" demo (NORTH-STAR, user-requested 2026-06-21)** — one
+  deliberately HORRIFYING but PROVABLY-CORRECT Go program: goroutines and channels nested
+  in slices in structs, `select` over channels of structs-containing-channels, channels
+  that send *themselves*, and assorted nonsense — that compiles, runs, and is machine-
+  checked to never race, deadlock, send-on-closed, or panic. The point is VISCERAL: it
+  looks unsafe to an expert, yet Rocq has ruled out every failure mode. *Pieces:* FINITE
+  nesting is mostly ASSEMBLY today — `TChan`/`TSlice`/`TProd`/`TPtr`/`TMap` already compose
+  (a `[]chan *Foo` field in a struct shuttled between goroutines is taggable now). Two
+  genuine frontiers gate the FULL horror: (1) RECURSIVE / self-referential types ("a channel
+  that sends itself", `type C chan C`; a struct holding a channel of itself) — the finite-
+  inductive `GoTypeTag` cannot represent an infinitely-deep / self-referential type, so this
+  needs recursive type tags (a tag fixpoint) and hits the universe wall that forced
+  `GoChan`/`Ptr` to be tag-free (builtins.v:161) — the RESEARCH CENTERPIECE; (2) VERIFIED
+  SAFETY on the cursed program (race/deadlock-freedom on the TYPED program) = limit #2 (in
+  progress) + the deadlock/session theory. The safety half is what makes it LAND — without
+  it the demo merely compiles; with it, an expert learns the self-sending-channel soup is
+  *proven* clean.
 
 Interdependence to remember: closed-world for a *shared* value presupposes the
 ownership / race-freedom discipline (another goroutine could mutate it out from
