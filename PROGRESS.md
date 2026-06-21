@@ -778,8 +778,18 @@ any "verified" claim.
    family-A narrow types emitting their REAL Go type (`uint8`…) so their `any`-identity matches Go — is a
    PLUGIN + representation change (give family-A the family-B Go-type names, keep the Squash range proof).
    **DECISION NEEDED (surfaced):** retire-TInt64 only (cheap, closes the cited example, leaves narrow-backing)
-   vs. the full narrow-type representation fix (closes it properly, bigger).  No code landed this tick —
-   refused to ship a partial/risky tag-surgery before the representation call.
+   vs. the full narrow-type representation fix (closes it properly, bigger).
+   **→ "retire-TInt64" ATTEMPTED & REVERTED (2026-06-21) — it is NOT a cheap re-tag; it is PLUGIN-ENTANGLED.**
+   Re-tagged the 37 counters `TInt64`→`TInt` and pointed `Tagged_int := TInt`.  Coq extraction SUCCEEDED but
+   the GENERATED GO DID NOT COMPILE: `cannot use iv (variable of type int) as int64 value in argument to Add`.
+   Root: the plugin lowers Rocq `int` ARITHMETIC (`PrimInt63.add`, …) to **int64** Go ops (the `Add` helper
+   is int64-typed — `int` was *always* int64 via `TInt64`), so re-tagging the VARIABLES to Go `int`
+   desyncs variable types from operation types.  CONCLUSION: break #7 cannot be fixed by re-tagging at all —
+   the `int`-as-int64 conflation lives in the PLUGIN's numeric lowering, so BOTH sub-fixes (retire-TInt64 AND
+   narrow-type representation) require plugin work to lower each numeric type's ops consistently with its Go
+   type.  Reverted to HEAD (surgical edits — `git checkout` is boundaried; golden restored, tree clean).  No
+   incremental .v-only fix exists; this is a plugin-representation task.  Break is LATENT (no demo
+   cross-asserts) so the closed world is sound today.
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
