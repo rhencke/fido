@@ -2038,6 +2038,46 @@ Proof.
   exists cfg. split; [exact Hsteps |]. rewrite Htr. exact mp_trace_race_free.
 Qed.
 
+(** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
+    Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
+    goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
+    pointer-handoff IO program — g0 = [*p = v0; ch <- v1], g1 = [<-ch; _ := *p] — where the memory ops
+    are the genuine *T derefs [ptr_set]/[ptr_get] the plugin emits ([Denotes]'s [ref_set]/[ref_get]
+    are DEFINITIONALLY those, via the pointer-backed [locenv := plocenv ptrenv] of slice 1).  So the
+    race-free execution of slice 2a is the operational image of real typed pointer-over-channel code.
+    REMAINING (slice 2c): a MULTI-goroutine ADEQUACY composing these per-goroutine denotations with the
+    INTERLEAVED [rstep] execution + the World refinement (the single-goroutine [denote_adequate]
+    generalised to N) — the one closed end-to-end theorem.  Stated per-goroutine here, not overstated. *)
+Lemma mp_prog_goroutines : forall v0 v1,
+  mp_prog v0 v1 0 = CWrite 0 v0 (CSend 0 v1 CRet)
+  /\ mp_prog v0 v1 1 = CRecv 0 (fun _ => CRead 0 (fun _ => CRet)).
+Proof. intros v0 v1. split; reflexivity. Qed.
+
+Section MpTyped.
+  Variable chenv : nat -> GoChan GoI64.
+  Variable ptrenv : nat -> Ptr GoI64.
+  Variable inj : nat -> GoI64.
+  Variable prj : GoI64 -> nat.
+
+  (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
+  Definition mp_g0_io (v0 v1 : nat) : IO unit :=
+    bind (ptr_set TI64 (ptrenv 0) (inj v0))
+         (fun _ => bind (send TI64 (chenv 0) (inj v1)) (fun _ => ret tt)).
+  Definition mp_g1_io : IO unit :=
+    bind (recv TI64 (chenv 0))
+         (fun _ => bind (ptr_get TI64 (ptrenv 0)) (fun _ => ret tt)).
+
+  (* Each goroutine of mp_prog is the Keystone-denotation of its typed program, the memory ops being
+     the genuine *T derefs (pointer-backed locenv = [plocenv ptrenv], slice 1). *)
+  Lemma mp_g0_denotes : forall v0 v1,
+    Denotes chenv (plocenv ptrenv) inj prj (CWrite 0 v0 (CSend 0 v1 CRet)) (mp_g0_io v0 v1).
+  Proof. intros v0 v1. unfold mp_g0_io. apply D_write. apply D_send. apply D_ret. Qed.
+
+  Lemma mp_g1_denotes :
+    Denotes chenv (plocenv ptrenv) inj prj (CRecv 0 (fun _ => CRead 0 (fun _ => CRet))) mp_g1_io.
+  Proof. unfold mp_g1_io. apply D_recv. intro x. apply D_read. intro y. apply D_ret. Qed.
+End MpTyped.
+
 (** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
     rests on EXACTLY the [run_io] law for its operation, and nothing degenerate:
       - [denote_sim_send]  : [run_bind], [run_send],     [chan_buf_send]

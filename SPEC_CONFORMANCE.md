@@ -381,11 +381,14 @@ ARE genuine `*T` cells, and `mp_trace_race_free`'s race guarantee now concerns a
 abstract `nat`.  Substrate base only (no funext, no Fido axiom).  **Slice 2a DONE (2026-06-21):** the EXECUTION
 direction — `mp_exec_trace` proves the two-goroutine pointer-handoff program steps to exactly
 `mp_trace` (`rsteps (mp_init v0 v1) cfg /\ rc_trace cfg = mp_trace`) and `mp_exec_race_free` ⇒ that run
-is `TraceRaceFree`, so the trace is grounded in a real program run (both Closed-under-global-context).
-*Slice 2b (⚠ open):* a multi-goroutine `Denotes` tying a TYPED pointer-handoff IO program to that
-execution — to make the typed program's race-freedom a single closed end-to-end theorem.  (N-goroutine
-generality of the GUARANTEE is already `reachable_owned_safe_r`, over arbitrary programs + all schedules;
-the witnesses are instances.)
+is `TraceRaceFree`, so the trace is grounded in a real program run (both Closed-under-global-context).  **Slice 2b DONE (2026-06-21):**
+each goroutine of `mp_prog` is the Keystone-denotation of an EXTRACTABLE typed pointer-handoff IO program
+(`mp_g0_denotes`/`mp_g1_denotes`: `mp_g0_io = *p=v0; ch<-v1`, `mp_g1_io = <-ch; _:=*p`), the memory ops
+being the genuine `ptr_set`/`ptr_get` — so the race-free execution is the operational image of real typed
+pointer-over-channel code (substrate base; no funext, no Fido axiom).  *Slice 2c (⚠ open):* a
+multi-goroutine ADEQUACY composing the per-goroutine denotations (2b) with the interleaved `rstep`
+execution (2a) — the one closed end-to-end theorem.  (N-goroutine generality of the GUARANTEE is already
+`reachable_owned_safe_r`, over arbitrary programs + all schedules; the witnesses are instances.)
 
 ## Expressions — operators
 

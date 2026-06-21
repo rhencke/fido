@@ -732,8 +732,15 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    then reads loc 0, both pre-live) STEPS to exactly `mp_trace` (`rsteps (mp_init v0 v1) cfg /\ rc_trace
    cfg = mp_trace`); `mp_exec_race_free` ⇒ that run is `TraceRaceFree`. So slice-1's identified location
    is grounded in an actual program run, not a hand-written literal. Both Closed-under-global-context
-   (fully axiom-free). *Slice 2b:* a MULTI-goroutine `Denotes` tying a typed pointer-handoff IO program
-   to THAT execution — only then is the typed program's race-freedom one closed theorem. *N-generality
+   (fully axiom-free). **SLICE 2b DONE (2026-06-21) — mp_prog's goroutines DENOTE a typed program.**
+   `Section MpTyped`: each goroutine of `mp_prog` (slice 2a's race-free program) is the Keystone-
+   denotation of an EXTRACTABLE typed IO program — `mp_g0_io = *p=v0; ch<-v1`, `mp_g1_io = <-ch; _:=*p`
+   (`mp_g0_denotes`/`mp_g1_denotes`), the memory ops being the genuine `ptr_set`/`ptr_get` (pointer-
+   backed `locenv`, slice 1). So the race-free execution is the operational image of real typed pointer-
+   over-channel code. Substrate base, proof-only. *Slice 2c:* a MULTI-goroutine ADEQUACY composing the
+   per-goroutine `Denotes` (2b) with the interleaved `rstep` execution (2a) + World refinement
+   (generalise the single-goroutine `denote_adequate` to N) — the ONE closed end-to-end theorem.
+   *N-generality
    (user asked 2026-06-21):* the GUARANTEE already generalizes — `reachable_owned_safe_r` quantifies over
    arbitrary programs (N goroutines via spawn) and all interleavings; these witnesses are concrete
    instances, and the open seam for full N is program-structure-discipline ⇒ race-free with dynamic spawn.
