@@ -1097,9 +1097,13 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    arbitrary acyclic relooper is built from.  All axiom-free.  It is a REFERENCE
    model (does NOT verify the OCaml plugin — that needs reflecting the OCaml), but
    it proves the transformation CAN be verified, supplies the method, and is a spec
-   to check the plugin against.  Still open: the recursive relooper FUNCTION over
-   arbitrary reducible CFGs + its well-founded termination (built from these cores),
-   and connecting it to the actual emitted Go AST.
+   to check the plugin against.  The acyclic relooper now also exists as an
+   ALGORITHM: `reloop fuel g l` (fuel-bounded ⇒ total without a well-founded order;
+   `None` on a cycle/out-of-fuel, `Some S` otherwise) with SOUNDNESS `reloop_correct`
+   (every `Some S` realizes the CFG), exercised end-to-end by `diamond_reloop_correct`
+   (the function COMPUTES the diamond's lowering, certified correct).  Still open:
+   COMPLETENESS of `reloop` (acyclic ⇒ enough fuel ⇒ `Some` — needs an acyclicity
+   measure), folding LOOPS into the function, and connecting to the emitted Go AST.
 
 ### Tier 2 — numeric correctness within the int/float parameters
 4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical

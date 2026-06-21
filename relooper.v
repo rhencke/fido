@@ -24,9 +24,13 @@
         dodges the join-revisit hazard), giving compositional combinators [realize_seq]/
         [realizeTo_goto]/[realizeTo_if] and [diamond_general] — the diamond re-lowered with the join
         emitted ONCE.  These are the per-step SOUNDNESS for an arbitrary acyclic relooper.
-    All axiom-free.  STILL OPEN: the recursive relooper FUNCTION over arbitrary reducible CFGs + its
-    well-founded termination (the combinators above are exactly the pieces it is built from), and
-    connecting it to the actual emitted Go AST.  Proof-only: emits no Go. *)
+    (4) The acyclic relooper as an ALGORITHM: [reloop fuel g l] (fuel-bounded, so total without a
+        well-founded order — returns [None] on a cycle/out-of-fuel, [Some S] otherwise) with SOUNDNESS
+        [reloop_correct] (every [Some S] realizes the CFG), exercised end-to-end by
+        [diamond_reloop_correct] (the function COMPUTES the diamond's lowering, certified correct).
+    All axiom-free.  STILL OPEN: COMPLETENESS of [reloop] (acyclic ⇒ enough fuel ⇒ returns [Some] —
+    needs an acyclicity measure), folding LOOPS into the function (it currently refuses back-edges),
+    and connecting to the actual emitted Go AST.  Proof-only: emits no Go. *)
 
 From Stdlib Require Import List Lia Arith.
 Import ListNotations.
@@ -145,6 +149,49 @@ Proof.
     by (apply (realize_goto g 2 3); [reflexivity | exact H3]).
   apply (realize_if g 0 c 1 2); [reflexivity | exact H1 | exact H2].
 Qed.
+
+(** ── The acyclic relooper as an actual ALGORITHM (not just combinators). ──
+    [reloop fuel g l] runs the acyclic recipe from block [l]: a [TRet] becomes its body, a [TGoto]
+    sequences before the target's lowering, a [TIf] sequences before an [SIf] over the two branches
+    (the join is DUPLICATED — each branch recurses independently).  [fuel] bounds the recursion, so the
+    function is TOTAL (structural on [fuel]) without a well-founded-order argument: it returns [None] if
+    fuel runs out or a back-edge sends it round a cycle (the acyclic algorithm correctly REFUSES a
+    cyclic CFG), and [Some S] otherwise.  [reloop_correct] is SOUNDNESS — whenever it returns [Some S],
+    that [S] provably realizes the CFG (so the algorithm is correct by construction, independent of
+    fuel/acyclicity).  [reloop] is `option`-valued, so it emits no Go regardless. *)
+Fixpoint reloop (fuel : nat) (g : CFG) (l : nat) : option Stmt :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      match blk_term (g l) with
+      | TRet      => Some (SBody (blk_body (g l)))
+      | TGoto l'  => option_map (fun S => SSeq (SBody (blk_body (g l))) S) (reloop fuel' g l')
+      | TIf c a b =>
+          match reloop fuel' g a, reloop fuel' g b with
+          | Some Sa, Some Sb => Some (SSeq (SBody (blk_body (g l))) (SIf c Sa Sb))
+          | _, _ => None
+          end
+      end
+  end.
+
+Lemma reloop_correct : forall fuel g l S, reloop fuel g l = Some S -> Realizes g S l.
+Proof.
+  induction fuel as [|fuel IH]; intros g l S Hr; cbn in Hr; [discriminate |].
+  destruct (blk_term (g l)) eqn:Ht.
+  - (* TRet *) injection Hr as <-. apply realize_ret; exact Ht.
+  - (* TGoto *) destruct (reloop fuel g n) as [S'|] eqn:Hr'; cbn in Hr; [|discriminate].
+    injection Hr as <-. apply (realize_goto g l n); [exact Ht | apply IH; exact Hr'].
+  - (* TIf *) destruct (reloop fuel g n) as [Sa|] eqn:Hra; [|discriminate].
+    destruct (reloop fuel g n0) as [Sb|] eqn:Hrb; [|discriminate].
+    injection Hr as <-. apply (realize_if g l b n n0); [exact Ht | apply IH; exact Hra | apply IH; exact Hrb].
+Qed.
+
+(** End-to-end: the FUNCTION computes the diamond's lowering (by [reflexivity] on [reloop 4 …]) and
+    [reloop_correct] certifies it — the relooper, run as an algorithm, is correct on a real CFG. *)
+Theorem diamond_reloop_correct : forall b0 b1 b2 b3 c,
+  Realizes (diamond b0 b1 b2 b3 c)
+    (SSeq (SBody b0) (SIf c (SSeq (SBody b1) (SBody b3)) (SSeq (SBody b2) (SBody b3)))) 0.
+Proof. intros. apply (reloop_correct 4). reflexivity. Qed.
 
 (** Sanity: the CFG semantics is DETERMINISTIC (a block's body/terminator are functions), so
     [Realizes] pins the unique result — there is no ambiguity in "what the CFG computes". *)
