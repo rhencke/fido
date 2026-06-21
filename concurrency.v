@@ -2100,9 +2100,12 @@ Qed.
     deterministic "first ready case" of the cases list [[(ch1,·); (ch2,·)]], which is precisely
     [sel_first_ready].  These two theorems make the select-review verdict ("the deterministic
     interpreter is ONE example scheduler, non-authoritative") a PROOF:
-    (1) SOUND — the deterministic first-ready choice is always a PERMITTED [rstep_select]; and
+    (1) SOUND — the deterministic first-ready choice is always a PERMITTED [rstep_select];
     (2) INCOMPLETE — when two cases are ready it realises only ch1, yet [rstep_select] ALSO permits
-        the ch2 transition the typed model never takes. *)
+        the ch2 transition the typed model never takes; and
+    (3) WORLD-LEVEL — the real [select_recv2] (not just [sel_first_ready]) reduces, on a ready
+        channel, to a plain [recv] there ([select_recv2_ch1_buffered] etc. in builtins.v), which is
+        already operationally bridged — see [select_fire_is_recv_fire] below. *)
 
 (** (1) SOUNDNESS: whatever case the ch1-priority scheduler ([sel_first_ready]) picks, the
     authoritative nondeterministic select HAS that transition. *)
@@ -2142,6 +2145,26 @@ Proof.
   - eapply rstep_select with (tid:=0) (c:=1) (f:=fun _ => CRet) (v:=9) (s:=1);
       [ reflexivity | reflexivity | right; left; reflexivity | reflexivity ].
   - reflexivity.
+Qed.
+
+(** (3) WORLD-level connection (closes the gap that [det_select_sound] used [sel_first_ready] as a
+    STAND-IN for the real [select_recv2]).  Operationally, firing a BUFFERED select case [(c,f)]
+    reaches the IDENTICAL successor config as a plain [rstep_recv] on [c] would — select-taking-a-
+    ready-channel IS a recv on that channel.  This mirrors, in the calculus, the [run_io] theorem
+    [select_recv2_ch1_buffered] (builtins.v): [select_recv2] on a ready ch1 = [bind (recv ta ch1) k1].
+    Composed — [select_recv2] = [recv] (World, builtins) ∘ [recv] ↔ [rstep_recv] ([denote_sim_recv],
+    World) ∘ [rstep_recv] = [rstep_select]-successor (here) — the typed [select_recv2] is tied to the
+    operational select through [run_io], not merely to [sel_first_ready]. *)
+Theorem select_fire_is_recv_fire :
+  forall p b h lv tr tid cases c f v s brest,
+    lv tid = true -> In (c, f) cases -> b c = (v, s) :: brest ->
+    let succ := mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)]) in
+    (p tid = CSelect cases -> rstep (mkRCfg p b h lv tr) succ)   (* select firing case (c,f) … *)
+    /\ (p tid = CRecv c f  -> rstep (mkRCfg p b h lv tr) succ).  (* …reaches the SAME config as recv on c *)
+Proof.
+  intros p b h lv tr tid cases c f v s brest Hlv Hin Hb. cbn. split; intro Hp.
+  - eapply rstep_select; eassumption.
+  - eapply rstep_recv; eassumption.
 Qed.
 
 (** ----------------------------------------------------------------------------

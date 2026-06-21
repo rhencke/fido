@@ -2396,6 +2396,51 @@ Proof.
       * reflexivity.                                  (* ch2 ready *)
   - reflexivity.                                      (* ch1 ready *)
 Qed.
+
+(** ── WORLD-level select↔recv bridge.  Go: "if one or more of the communications can proceed, a
+    single one ... is chosen."  When the ch1-priority [select_recv2]'s FIRST channel is READY
+    (buffered, or closed-and-drained), it behaves EXACTLY like a plain [recv] on that channel —
+    [run_io]-equal to [bind (recv ta ch1) k1].  So a ready case makes select reduce to a recv on the
+    chosen channel, and select INHERITS [recv]'s [run_io] laws and operational refinement
+    ([denote_sim_recv] / [rstep_recv]); the calculus-level [det_select_sound] (concurrency.v) used
+    [sel_first_ready] as a STAND-IN for [select_recv2] — these connect the real [select_recv2] to
+    [run_io] directly.  Faithful for the cases that CAN proceed (Go's "communication can proceed");
+    the both-empty-open fall-through stays the documented blocking-idealisation. *)
+
+(* ch1 BUFFERED ⇒ select dequeues ch1's head = recv ch1 >>= k1. *)
+Theorem select_recv2_ch1_buffered :
+  forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (v : A) (rest : list A) (w : World),
+  chan_buf ta ch1 w = v :: rest ->
+  run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv ta ch1) k1) w.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 v rest w H. unfold select_recv2, recv, bind, run_io. rewrite H. reflexivity. Qed.
+
+(* ch1 CLOSED + drained ⇒ select yields ch1's zero value = recv ch1 >>= k1 (recv returns zero on the
+   drained channel — Go's "receive from a closed channel proceeds immediately"). *)
+Theorem select_recv2_ch1_closed :
+  forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = true ->
+  run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv ta ch1) k1) w.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 w He Hc. unfold select_recv2, recv, bind, run_io. rewrite He, Hc. reflexivity. Qed.
+
+(* ch1 EMPTY + OPEN, ch2 BUFFERED ⇒ select falls through to ch2 = recv ch2 >>= k2. *)
+Theorem select_recv2_ch2_buffered :
+  forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (v : B) (rest : list B) (w : World),
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false -> chan_buf tb ch2 w = v :: rest ->
+  run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 v rest w He1 Hc1 He2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2. reflexivity. Qed.
+
+(* ch1 EMPTY + OPEN, ch2 CLOSED + drained ⇒ select yields ch2's zero = recv ch2 >>= k2. *)
+Theorem select_recv2_ch2_closed :
+  forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
+  chan_buf tb ch2 w = nil -> chan_closed ch2 w = true ->
+  run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
+
 (** [go_spawn m] (Go spec "Go statements"): the SEQUENTIAL approximation — run [m] to completion, keep its world
     effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
     holdout #2 (ZERO_AXIOMS_PLAN.md).  No law constrains it; the definition is total. *)

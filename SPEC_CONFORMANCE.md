@@ -703,6 +703,14 @@ is always a PERMITTED `rstep_select` (the typed select is a SOUND scheduler), an
 `det_select_incomplete` proves that when two cases are ready it realises only ch1 while
 `rstep_select` ALSO permits the ch2 successor (so it is INCOMPLETE) — making the review verdict
 "the deterministic interpreter is one example scheduler, non-authoritative" a theorem.
+**WORLD-level select↔recv bridge DONE (2026-06-21):** `det_select_sound` used `sel_first_ready` as a
+STAND-IN for the real `select_recv2`; now the actual `select_recv2` is tied to `run_io` directly — a
+READY first channel makes it reduce to a plain `recv` on that channel: `select_recv2_ch1_buffered` /
+`select_recv2_ch1_closed` (and the ch2 fall-through `_ch2_buffered` / `_ch2_closed`) prove
+`run_io (select_recv2 …) w = run_io (bind (recv …) k) w`.  So select INHERITS `recv`'s `run_io`/
+operational refinement (`denote_sim_recv` / `rstep_recv`); the calculus mirror `select_fire_is_recv_fire`
+shows firing a buffered select case reaches the IDENTICAL successor as `rstep_recv` on that channel.
+Both rest only on the `PrimInt63`/`PrimFloat` base (no `functional_extensionality`, no Fido axiom).
 **Closed-channel readiness (relational), trace-core slice DONE (2026-06-20):** a recv from a CLOSED,
 drained channel returns the zero value, and per the Go memory model the CLOSE happens-before that
 recv.  The trace core now expresses this — a `KClose` event-kind, and a `KRecv`'s back-pointer may
