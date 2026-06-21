@@ -378,9 +378,14 @@ concurrency calculus, not this functional layer.  **Pointer↔calculus bridge, s
 operational shared-memory steps `rstep_write`/`rstep_read` (`ptr_write_sim`/`ptr_read_sim`, the derefs
 being DEFINITIONALLY the bridge's ref-accesses at `ptr_as_ref`) — so the calculus's `nat` locations
 ARE genuine `*T` cells, and `mp_trace_race_free`'s race guarantee now concerns a real pointer, not an
-abstract `nat`.  Substrate base only (no funext, no Fido axiom).  *Slice 2 (⚠ open):* the
-execution direction — a multi-goroutine `Denotes` proving a typed pointer-handoff program GENERATES
-`mp_trace` — to make the typed program's race-freedom a closed end-to-end theorem.
+abstract `nat`.  Substrate base only (no funext, no Fido axiom).  **Slice 2a DONE (2026-06-21):** the EXECUTION
+direction — `mp_exec_trace` proves the two-goroutine pointer-handoff program steps to exactly
+`mp_trace` (`rsteps (mp_init v0 v1) cfg /\ rc_trace cfg = mp_trace`) and `mp_exec_race_free` ⇒ that run
+is `TraceRaceFree`, so the trace is grounded in a real program run (both Closed-under-global-context).
+*Slice 2b (⚠ open):* a multi-goroutine `Denotes` tying a TYPED pointer-handoff IO program to that
+execution — to make the typed program's race-freedom a single closed end-to-end theorem.  (N-goroutine
+generality of the GUARANTEE is already `reachable_owned_safe_r`, over arbitrary programs + all schedules;
+the witnesses are instances.)
 
 ## Expressions — operators
 
