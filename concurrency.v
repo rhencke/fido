@@ -708,6 +708,38 @@ Qed.
 Theorem handoff_race_free : TraceRaceFree handoff_trace.
 Proof. exact (owned_race_free _ handoff_owned). Qed.
 
+(** FORK-edge ownership handoff — the OTHER go-mem synchronisation: "the [go] statement that starts a
+    new goroutine is synchronised before the goroutine's execution begins" (go.dev/ref/mem).  Same
+    [transfer_orders] shape as the channel handoff, but the sync edge is the SPAWN→START pair
+    ([KSpawn] / [KStart], back-pointer = the spawn position) instead of send/recv: goroutine 0 writes
+    loc 7, SPAWNS goroutine 1, which STARTS and reads loc 7 — write →hb→ read, so the parent's
+    pre-spawn writes are visible to the child and the cross-goroutine accesses are race-free.  Shows
+    [transfer_orders] is generic over BOTH go-mem synchronisation mechanisms (channel AND fork). *)
+Definition fork_handoff_trace : Trace :=
+  [ mkEv 0 (KWrite 7); mkEv 0 (KSpawn 1); mkEv 1 (KStart 1); mkEv 1 (KRead 7) ].
+
+Lemma fork_loc_pos : forall i l, acc_loc_at fork_handoff_trace i = Some l -> i = 0 \/ i = 3.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold fork_handoff_trace, acc_loc_at in H.
+  destruct i as [|[|[|[|i]]]]; cbn in H;
+    [ left; reflexivity | discriminate | discriminate | right; reflexivity | lia ].
+Qed.
+
+Lemma fork_handoff_owned : Owned fork_handoff_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]]. left.
+  destruct (fork_loc_pos i l Hi) as [-> | ->];
+    destruct (fork_loc_pos j l Hj) as [-> | ->]; try lia.
+  apply (transfer_orders fork_handoff_trace 0 1 2 3).
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv 1 (KStart 1)); cbn. split; reflexivity.
+  - unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
+Theorem fork_handoff_race_free : TraceRaceFree fork_handoff_trace.
+Proof. exact (owned_race_free _ fork_handoff_owned). Qed.
+
 (** The message-passing trace satisfies the discipline (its only same-location pair,
     the write/read of x, is directly hb-ordered) — so [owned_race_free] re-derives
     its race-freedom from the GENERAL theorem, subsuming [mp_trace_race_free]. *)
