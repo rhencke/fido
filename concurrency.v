@@ -2048,12 +2048,24 @@ Section KeystonePtr.
   (* a calculus location, viewed as the Keystone ref of its pointer's cell *)
   Definition plocenv (l : nat) : Ref GoI64 := ptr_as_ref TI64 (ptrenv l).
 
-  (* EXTRACTABLE deref = bridge ref-access (DEFINITIONAL): the *T ops the plugin emits ARE
-     the ref accesses the Keystone reasons about — so a calculus location is a real Go pointer. *)
+  (* The bridge's pointers are LIVE (non-nil): a calculus location maps to an ALLOCATED *T cell, whose
+     handle is nonzero (break #5: [valid_fresh_nonzero] — allocators never return location 0).  This is
+     the standing modeling assumption that lets the raw [ptr_set]/[ptr_get] (which now PANIC on nil,
+     break #6) coincide with the bridge ref-accesses. *)
+  Hypothesis ptrenv_live : forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false.
+
+  (* EXTRACTABLE deref = bridge ref-access: on a live pointer the *T ops the plugin emits ARE the ref
+     accesses the Keystone reasons about — so a calculus location is a real (non-nil) Go pointer. *)
   Lemma ptr_set_is_ref : forall l v, ptr_set TI64 (ptrenv l) v = ref_set (plocenv l) v.
-  Proof. reflexivity. Qed.
+  Proof.
+    intros l v. apply run_io_inj. intro w.
+    rewrite run_ptr_set, run_ref_set, ptrenv_live. reflexivity.
+  Qed.
   Lemma ptr_get_is_ref : forall l, ptr_get TI64 (ptrenv l) = ref_get TI64 (plocenv l).
-  Proof. reflexivity. Qed.
+  Proof.
+    intros l. apply run_io_inj. intro w.
+    rewrite run_ptr_get, run_ref_get, ptrenv_live. reflexivity.
+  Qed.
 
   (* one-cell heap match: the IO world value at [ptrenv l] codes the calculus heap value. *)
   Definition PHMatch (l : nat) (w : World) (h : nat -> nat) : Prop :=
@@ -2365,6 +2377,9 @@ Section MpTyped.
   Variable ptrenv : nat -> Ptr GoI64.
   Variable inj : nat -> GoI64.
   Variable prj : GoI64 -> nat.
+  (* the handoff pointer is LIVE (non-nil) — an allocated *T cell, nonzero by break #5; lets the raw
+     [ptr_set]/[ptr_get] (which now PANIC on nil, break #6) coincide with the bridge ref-accesses. *)
+  Hypothesis ptrenv_live : forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false.
 
   (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
   Definition mp_g0_io (v0 v1 : nat) : IO unit :=
@@ -2378,11 +2393,18 @@ Section MpTyped.
      the genuine *T derefs (pointer-backed locenv = [plocenv ptrenv], slice 1). *)
   Lemma mp_g0_denotes : forall v0 v1,
     Denotes chenv (plocenv ptrenv) inj prj (CWrite 0 v0 (CSend 0 v1 CRet)) (mp_g0_io v0 v1).
-  Proof. intros v0 v1. unfold mp_g0_io. apply D_write. apply D_send. apply D_ret. Qed.
+  Proof.
+    intros v0 v1. unfold mp_g0_io.
+    rewrite (ptr_set_is_ref ptrenv ptrenv_live 0 (inj v0)).
+    apply D_write. apply D_send. apply D_ret.
+  Qed.
 
   Lemma mp_g1_denotes :
     Denotes chenv (plocenv ptrenv) inj prj (CRecv 0 (fun _ => CRead 0 (fun _ => CRet))) mp_g1_io.
-  Proof. unfold mp_g1_io. apply D_recv. intro x. apply D_read. intro y. apply D_ret. Qed.
+  Proof.
+    unfold mp_g1_io. rewrite (ptr_get_is_ref ptrenv ptrenv_live 0).
+    apply D_recv. intro x. apply D_read. intro y. apply D_ret.
+  Qed.
 
   (** VALUE CORRECTNESS (companion to 2a's race-freedom): the EXTRACTABLE typed pointer-handoff
       program, run in [run_io] from a world where channel 0 is empty + open, DELIVERS exactly what
@@ -2403,11 +2425,11 @@ Section MpTyped.
     exists w', run_io (mp_handoff_io v0 v1) w0 = ORet (inj v1, inj v0) w'.
   Proof.
     intros v0 v1 w0 Hbuf Hcl. unfold mp_handoff_io.
-    rewrite run_bind, run_ptr_set; cbv beta iota.
+    rewrite run_bind, run_ptr_set, ptrenv_live; cbv beta iota.
     rewrite run_bind, run_send by exact Hcl; cbv beta iota.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
       by (rewrite chan_buf_send, chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
-    rewrite run_bind, run_ptr_get; cbv beta iota.
+    rewrite run_bind, run_ptr_get, ptrenv_live; cbv beta iota.
     rewrite run_ret, ref_sel_chan_recv_upd, ref_sel_chan_send_upd, ref_sel_upd_same.
     eexists. reflexivity.
   Qed.

@@ -4086,26 +4086,48 @@ Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val 
 
 (** [ptr_get tag p] = [*p] (deref read); [ptr_set tag p v] = [*p = v] (deref write).  Both take the
     pointee tag explicitly (the tag-free handle does not carry it). *)
+(** Break #6 (pointers): the RAW deref/assign now PANIC on a nil pointer, faithful to Go's [*p] /
+    [*p = v] (which panic on nil) — closing the old "fabricate a zero / silently write loc 0" gap.  The
+    nil sentinel is location 0, which [ValidWorld] RESERVES (no allocation ever returns it — break #5),
+    so the [eqb (p_loc p) 0] guard exactly separates "live cell" from "nil".  These are the catch-able
+    escape hatches (rule 4); [ptr_get_ok] is the safe-by-construction comma-ok form. *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
-  fun w => ORet (ref_sel (ptr_as_ref tag p) w) w.
+  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+           else ORet (ref_sel (ptr_as_ref tag p) w) w.
 Definition ptr_set {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) : IO unit :=
-  fun w => ORet tt (ref_upd (ptr_as_ref tag p) v w).
+  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+           else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
-  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref tag p) w) w.
+  run_io (ptr_get tag p) w =
+    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+    else ORet (ref_sel (ptr_as_ref tag p) w) w.
 Proof. reflexivity. Qed.
 Lemma run_ptr_set : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
-  run_io (ptr_set tag p v) w = ORet tt (ref_upd (ptr_as_ref tag p) v w).
+  run_io (ptr_set tag p v) w =
+    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+    else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. reflexivity. Qed.
 
-(** Read-after-write THROUGH a pointer — a THEOREM (inherited from the shared heap):
-    after [ptr_set tag p v], [ptr_get tag p] returns [v]. *)
+(** Faithfulness: dereferencing / assigning through a NIL pointer PANICS, exactly as Go's [*nil]. *)
+Lemma ptr_get_nil : forall {A} (tag : GoTypeTag A) (w : World),
+  run_io (ptr_get tag (ptr_nil tag)) w = OPanic (any tt) w.
+Proof. reflexivity. Qed.
+Lemma ptr_set_nil : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
+  run_io (ptr_set tag (ptr_nil tag) v) w = OPanic (any tt) w.
+Proof. reflexivity. Qed.
+
+(** Read-after-write THROUGH a pointer — a THEOREM (inherited from the shared heap): after
+    [ptr_set tag p v], [ptr_get tag p] returns [v].  Holds for ALL [p]: on a nil pointer BOTH sides
+    panic at the [ptr_set] step (so they agree), and on a live pointer the read observes the write. *)
 Lemma ptr_get_set_same : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A),
   bind (ptr_set tag p v) (fun _ => ptr_get tag p) =
   bind (ptr_set tag p v) (fun _ => ret v).
 Proof.
   intros. apply run_io_inj. intro w.
-  rewrite !run_bind, !run_ptr_set. cbn.
-  rewrite run_ptr_get, ref_sel_upd_same, run_ret. reflexivity.
+  rewrite !run_bind, !run_ptr_set.
+  destruct (PrimInt63.eqb (p_loc p) 0%uint63) eqn:Hnil.
+  - reflexivity.
+  - cbn. rewrite run_ptr_get, Hnil, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME

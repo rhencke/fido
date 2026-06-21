@@ -713,6 +713,20 @@ any "verified" claim.
    nil chan, assign to nil map, write through nil ptr all "succeed" (Go blocks/panics), and all nils of
    a kind alias loc 0 (one bad write corrupts all).  (Nil-DEREF panic is in the excluded "nil/div"
    scope; nil-chan-block and nil-map-panic are NOT, and the aliasing is a representational break.)
+   **→ POINTERS DONE (2026-06-21, golden byte-identical).**  Raw `ptr_get`/`ptr_set` now PANIC on a nil
+   pointer (`if eqb (p_loc p) 0 then OPanic … else …`), faithful to Go's `*nil` (which the plugin already
+   emits as `*p`, panicking natively) — closing the "fabricate a zero / silently write loc 0" gap.
+   `ptr_get_nil`/`ptr_set_nil` machine-check the panic; `ptr_get_set_same` re-proved UNCONDITIONALLY (on
+   nil both sides panic at the `ptr_set` step, so they still agree).  Break #5 justifies the `eqb … 0`
+   guard exactly separating live cell from nil (loc 0 reserved).  The Keystone/MpTyped bridge gained a
+   `ptrenv_live` hypothesis (its pointers are allocated ⇒ non-nil) so the raw derefs coincide with the
+   bridge ref-accesses.  Lowered by name ⇒ golden unchanged; demos deref only live pointers.  Base:
+   PrimInt63 + the pre-existing funext holdout (`run_io_inj` for IO equality), no NEW axiom.
+   **STILL OPEN: nil-MAP-write panic** (`map_set` on `MkMap 0` must panic — "assignment to entry in nil
+   map"; nil-map READ already returns zero, correct) and **nil-CHAN block** (send/recv on a nil channel
+   block FOREVER — not expressible as a returning `Outcome`; needs a "stuck"/divergence model, harder).
+   Also the **aliasing** point (all nils of a kind share loc 0) is now benign for ptr (any op on loc 0
+   panics before touching the heap), still latent for map/chan.
 7. **Runtime tag identity ≠ Go type identity.** `TInt64` tags Rocq `int`, `TI64` tags `GoI64`; both
    lower to Go `int64`, but `tag_eq` distinguishes them → a `TInt64`-boxed value asserted at `TI64`
    fails/panics in the model while Go's `int64` assertion succeeds.  Fix: one canonical runtime tag per
