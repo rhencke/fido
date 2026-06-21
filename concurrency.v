@@ -1295,6 +1295,38 @@ Proof.
   intros p cfg H. apply (rsteps_preserves_both _ _ H (rinit_inv p) (rinit_sorted p)).
 Qed.
 
+(** ── SYNCHRONOUS (unbuffered) RENDEZVOUS, DERIVED — no new rule, no cascade. ──
+
+    The calculus's channels are nominally unbounded-buffered, but an UNBUFFERED handoff (Go: a send
+    on a cap-0 channel blocks until a receiver takes the value) is REPRESENTABLE as the existing
+    [rstep_send] immediately followed by the matching [rstep_recv]: the value never RESTS in the
+    buffer — it is enqueued then dequeued back-to-back, so the buffer returns to empty and the value
+    passes straight from sender [t0]'s [v] to receiver [t1]'s continuation [k2 v].  This is the
+    operational shadow of the hb-model's [cap = 0] rendezvous edge ([hbe_send_recv] +
+    [hbe_recv_send]); it needs no [RConfig] capacity field and leaves every other proof untouched. *)
+Theorem rendezvous_via_buffer : forall p b h lv tr c v k1 k2 t0 t1,
+  t0 <> t1 -> lv t0 = true -> lv t1 = true ->
+  p t0 = CSend c v k1 -> p t1 = CRecv c k2 -> b c = [] -> closedb tr c = false ->
+  exists cfg',
+    rsteps (mkRCfg p b h lv tr) cfg'
+    /\ rc_prog cfg' t0 = k1            (* sender continued *)
+    /\ rc_prog cfg' t1 = k2 v          (* receiver got exactly the sent value [v] *)
+    /\ rc_bufs cfg' c = [].            (* the value did NOT rest in the buffer — a true handoff *)
+Proof.
+  intros p b h lv tr c v k1 k2 t0 t1 Hne Hlv0 Hlv1 Hp0 Hp1 Hbc Hcl.
+  eexists. split; [| split; [| split]].
+  - (* the two-step rendezvous: t0 sends, then t1 immediately receives *)
+    eapply rsteps_step; [ eapply rstep_send with (tid := t0); eassumption |].
+    eapply rsteps_step; [| apply rsteps_refl].
+    eapply rstep_recv with (tid := t1) (c := c) (f := k2) (v := v) (s := length tr) (brest := []).
+    + exact Hlv1.
+    + cbn. rewrite (upd_other _ _ _ _ (not_eq_sym Hne)). exact Hp1.
+    + cbn. rewrite upd_same, Hbc. reflexivity.
+  - cbn [rc_prog]. rewrite (upd_other _ _ _ _ Hne), upd_same. reflexivity.
+  - cbn [rc_prog]. rewrite upd_same. reflexivity.
+  - cbn [rc_bufs]. rewrite upd_same. reflexivity.
+Qed.
+
 (** ============================================================================
     STEP 1 KEYSTONE — the TERM-LEVEL bridge: a rich-calculus channel step
     SIMULATES [run_io] of the program's DENOTATION.

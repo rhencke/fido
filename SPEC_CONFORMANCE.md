@@ -801,7 +801,12 @@ is implied by it); `hb_send_before_recv`, `hb_recv_before_send`,
 ✓** + the **goroutine fork edge ✓** — every one a theorem, axiom-free (`Print
 Assumptions` = *Closed under the global context*):
 - rules 1/3/4 (send⤳recv-completion, kth-recv⤳(k+cap)th-send, unbuffered = cap 0):
-  the open model `hb cap`.
+  the open model `hb cap`.  **Operationally (2026-06-21):** the unbuffered (cap-0) HANDOFF is
+  REPRESENTABLE in the rich `rstep` calculus with NO capacity field — `rendezvous_via_buffer`: a
+  `rstep_send` immediately followed by the matching `rstep_recv` passes the value STRAIGHT from
+  sender to receiver's continuation (`k2 v`) with the buffer returning to empty (the value never
+  rests), the operational shadow of the cap-0 rendezvous edge.  Axiom-free; cascade-free (a derived
+  two-step, not a new rule).
 - **rule 2** (Phase 4a) — *"closing a channel is synchronized before a receive that
   returns zero because the channel is closed"*: the finite-stream model `hbc cap
   nsent` (sender sends `nsent` then closes; `hbc_close_before_zero_recv`: close ⤳
