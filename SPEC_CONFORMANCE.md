@@ -727,12 +727,18 @@ exact inverses (`rclosed_recv_not_blocked` / `rclosed_select_not_blocked`).  **C
 — `rsteps_closedb_mono`, so a channel once closed stays closed; `rclosed_chan_stays_closed` and
 `reachable_closed_recv_can_step` (a closed-drained recv can step at ANY reachable later state — no
 deadlock on a closed channel).
-*Remaining:* `close`-on-closed and `send`-on-closed panics are DONE at the IO/`World` level
-(`double_close_panics` / `send_closed_panics` — see [Close] / [Send] below), but the rich-calculus
-`rstep_close`/`rstep_send` fire UNGUARDED, so the operational model still admits a double-close trace
-Go would panic on; the faithful fix is a guard `closedb tr c = false` + a panic-aware deadlock
-characterization (stuck ⇒ done ∨ blocked ∨ panicking) — permanence above is its foundation.  Also:
-the full WORLD-level `select_recv2`↔`CSelect` bridge.
+**Operational double-CLOSE = PANIC DONE (2026-06-21):** `rstep_close` is now GUARDED by
+`closedb tr c = false` — a close of an already-closed channel has NO step (Go panics), classified
+`rpanicking` (decidable, `rpanicking_dec`), NOT a silent re-close.  The deadlock theory is now
+PANIC-AWARE: `rstuck_blocked` reads *stuck ⇒ done ∨ blocked ∨ panicking* (the three ways a live
+goroutine fails to step — Go distinguishes deadlock from panic, and so do we); `ready_can_step` gains
+`~ rpanicking`; `recvfree_progress` / `reachable_recvfree_progress` read *progress ∨ panic* (a
+receive-free program never DEADLOCKS — its only non-step is a double-close panic).  Witnessed:
+`rdouble_close_panicking` (a poised double-close IS panicking) and `rdouble_close_cant_step` (it
+genuinely cannot step — the guard works; the operational image of `double_close_panics`).  All
+zero-axiom.  *Remaining:* the same guard for `rstep_send` (send-on-closed = panic — adds a `closedb`
+SRShape invariant, deferred to keep this slice landable); the full WORLD-level
+`select_recv2`↔`CSelect` bridge.
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

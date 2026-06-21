@@ -826,6 +826,32 @@ Proof. intros cfg' Hstep Hinv. exact (step_preserves_inv _ _ Hstep Hinv). Qed.
     laws specify, so it is a sound model of Fido's IO channels.
     ============================================================================ *)
 
+(* DECIDABLE "channel [c] is closed": some [KClose c] event sits in the trace (closed-state is read
+   off the trace, exactly as [rstep_recv_closed] does — no [RConfig] field).  Defined HERE (before the
+   rich calculus) because [rstep_close] is GUARDED by it: closing a channel needs it still OPEN, so a
+   double-close has no valid step (Go PANICS on it) — see [rpanicking]. *)
+Definition closedb (tr : Trace) (c : nat) : bool :=
+  existsb (fun e => match e_kind e with KClose c' => Nat.eqb c' c | _ => false end) tr.
+
+Lemma closedb_true_witness : forall tr c, closedb tr c = true ->
+  exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c.
+Proof.
+  intros tr c H. unfold closedb in H. apply existsb_exists in H. destruct H as [e [Hin He]].
+  destruct (e_kind e) as [c0|c0 from|ch|par|l|l|c0] eqn:Ek; try discriminate.
+  apply Nat.eqb_eq in He. subst c0.
+  apply In_nth_error in Hin. destruct Hin as [pos Hpos]. exists pos, e. split; [exact Hpos | exact Ek].
+Qed.
+
+Lemma closedb_false_not : forall tr c, closedb tr c = false ->
+  ~ (exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c).
+Proof.
+  intros tr c H [pos [e [Hpos Hek]]].
+  assert (Hin : In e tr) by (eapply nth_error_In; exact Hpos).
+  assert (Htrue : closedb tr c = true).
+  { unfold closedb. apply existsb_exists. exists e. split; [exact Hin | rewrite Hek; apply Nat.eqb_refl]. }
+  rewrite H in Htrue. discriminate.
+Qed.
+
 (* [Cmd] recurses through [list (nat * (nat -> Cmd))] in [CSelect].  Registering the "All" schemes
    for the nesting types [prod] and [list] FIRST lets Coq build [Cmd]'s full nested induction
    principle (rather than warning that it cannot) — the fix the [register-all] diagnostic recommends. *)
@@ -898,9 +924,12 @@ Inductive rstep : RConfig -> RConfig -> Prop :=
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid (f v)) (upd b c brest) h lv
                     (tr ++ [mkEv tid (KRecv c s)]))
-  (* close: record a [KClose c] event (no buffer change). *)
+  (* close: record a [KClose c] event (no buffer change).  GUARDED by [closedb tr c = false] — the
+     channel must still be OPEN.  A close of an ALREADY-closed channel has no step (Go PANICS): it is
+     classified [rpanicking], not a silent re-close.  ([closedb] is permanent — [rsteps_closedb_mono]
+     — so once closed the guard never re-opens.) *)
   | rstep_close : forall p b h lv tr tid c k,
-      lv tid = true -> p tid = CClose c k ->
+      lv tid = true -> p tid = CClose c k -> closedb tr c = false ->
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid k) b h lv (tr ++ [mkEv tid (KClose c)]))
   (* recv from a CLOSED, DRAINED channel: READY in Go (binds the zero value [0]); the [KRecv]'s
@@ -936,7 +965,7 @@ Proof.
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
     | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c k Hlv Hp _
     | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
     | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     split.
@@ -1102,7 +1131,7 @@ Proof.
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
     | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c k Hlv Hp _
     | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
     | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     intros c0; cbn [rc_bufs rc_trace].
@@ -1331,7 +1360,7 @@ Section Keystone.
       | p b h lv tr tid l f Hlv Hp
       | p b h lv tr tid child k cid Hlv Hp Hcid
       | p b h lv tr tid cases c1 f v s brest Hlv Hp Hin Hbc
-      | p b h lv tr tid c1 k Hlv Hp
+      | p b h lv tr tid c1 k Hlv Hp _
       | p b h lv tr tid c1 f pos e Hlv Hp Hbc Hpos Hek
       | p b h lv tr tid cases c1 f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_prog rc_live] in HOC, Hidle, Hlive, HD;
@@ -1492,7 +1521,7 @@ Section KeystoneMulti.
       | p b h lv tr tid l f Hlv Hp
       | p b h lv tr tid child k cid Hlv Hp Hcid
       | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc
-      | p b h lv tr tid c0 k Hlv Hp
+      | p b h lv tr tid c0 k Hlv Hp _
       | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
       | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
     - (* send: world advances by [chan_send_upd] on channel [c0] *)
@@ -1641,30 +1670,6 @@ Proof.
   - injection H as -> -> -> ->. split; [left; reflexivity | exists brest; exact Hb0].
 Qed.
 
-(* DECIDABLE "channel [c] is closed": some [KClose c] event sits in the trace (closed-state is read
-   off the trace, exactly as [rstep_recv_closed] does — no [RConfig] field). *)
-Definition closedb (tr : Trace) (c : nat) : bool :=
-  existsb (fun e => match e_kind e with KClose c' => Nat.eqb c' c | _ => false end) tr.
-
-Lemma closedb_true_witness : forall tr c, closedb tr c = true ->
-  exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c.
-Proof.
-  intros tr c H. unfold closedb in H. apply existsb_exists in H. destruct H as [e [Hin He]].
-  destruct (e_kind e) as [c0|c0 from|ch|par|l|l|c0] eqn:Ek; try discriminate.
-  apply Nat.eqb_eq in He. subst c0.
-  apply In_nth_error in Hin. destruct Hin as [pos Hpos]. exists pos, e. split; [exact Hpos | exact Ek].
-Qed.
-
-Lemma closedb_false_not : forall tr c, closedb tr c = false ->
-  ~ (exists pos e, nth_error tr pos = Some e /\ e_kind e = KClose c).
-Proof.
-  intros tr c H [pos [e [Hpos Hek]]].
-  assert (Hin : In e tr) by (eapply nth_error_In; exact Hpos).
-  assert (Htrue : closedb tr c = true).
-  { unfold closedb. apply existsb_exists. exists e. split; [exact Hin | rewrite Hek; apply Nat.eqb_refl]. }
-  rewrite H in Htrue. discriminate.
-Qed.
-
 (* CLOSED-AWARE select readiness: a case [(c,f)] is ready if [c]'s buffer is non-empty ([SR_buf],
    fires [rstep_select]) OR [c] is closed and drained ([SR_closed], fires [rstep_select_closed]).
    [None] iff EVERY case is empty-AND-open — the only genuinely blocking select. *)
@@ -1725,17 +1730,38 @@ Definition blocked (cfg : RConfig) (tid : nat) : Prop :=
    many goroutines are ever spawned), so [CSpawn] never blocks for lack of an id. *)
 Definition FreshAvail (cfg : RConfig) : Prop := exists cid, rc_live cfg cid = false.
 
-(** PROGRESS: any live goroutine that is neither finished nor blocked can take a step
-    (so the whole config can step).  The heart of deadlock-freedom. *)
+(* A live goroutine about to PANIC: its head is a [CClose] of an ALREADY-closed channel (Go's
+   double-close panic).  Distinct from [blocked] (a deadlock) and from [rdone] — it is the third way
+   a non-stepping goroutine arises.  ([rstep_close]'s [closedb = false] guard makes this a non-step;
+   it is the operational image of [close_chan]'s [OPanic] in the IO model — [double_close_panics].)
+   Decidable: inspect the head, then [closedb] the trace. *)
+Definition rpanicking (cfg : RConfig) (tid : nat) : Prop :=
+  exists c k, rc_prog cfg tid = CClose c k /\ closedb (rc_trace cfg) c = true.
+
+Definition rpanicking_dec : forall cfg tid, {rpanicking cfg tid} + {~ rpanicking cfg tid}.
+Proof.
+  intros cfg tid.
+  destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
+  1-7: right; intros [c0 [k0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+  destruct (closedb (rc_trace cfg) c) eqn:Hcl.
+  - left. exists c, k. split; [exact Hp | exact Hcl].
+  - right. intros [c0 [k0 [Hpc Hcl0]]]. rewrite Hp in Hpc.
+    injection Hpc as -> _. rewrite Hcl in Hcl0. discriminate.
+Defined.
+
+(** PROGRESS: any live goroutine that is neither finished, blocked, NOR panicking can take a step
+    (so the whole config can step).  The heart of deadlock-freedom.  [~ rpanicking] is the new
+    hypothesis the [rstep_close] guard forces: a double-close goroutine genuinely cannot step. *)
 Lemma ready_can_step : forall cfg tid,
   FreshAvail cfg ->
   rc_live cfg tid = true ->
   rc_prog cfg tid <> CRet ->
   ~ blocked cfg tid ->
+  ~ rpanicking cfg tid ->
   rcan_step cfg.
 Proof.
-  intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk.
-  unfold rcan_step, blocked in *; cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  intros [p b h lv tr] tid [cid Hcid] Hlive Hnret Hnblk Hnpan.
+  unfold rcan_step, blocked, rpanicking in *; cbn [rc_prog rc_live rc_bufs rc_trace] in *.
   destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - congruence.
   - eexists; eapply rstep_send; eassumption.
@@ -1758,26 +1784,33 @@ Proof.
       destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
       eexists; eapply rstep_select_closed; eassumption.
     + exfalso. apply Hnblk. right. exists cases. split; [reflexivity | exact Hsel].
-  - (* close: always enabled *)
-    eexists; eapply rstep_close; eassumption.
+  - (* close: enabled IFF still OPEN; on an already-closed channel it would PANIC (contradiction) *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. exists c, k. split; [reflexivity | exact Hcl].
+    + eexists; eapply rstep_close; eassumption.
 Qed.
 
-(** THE DEADLOCK CHARACTERIZATION: in a stuck config, EVERY live goroutine is either
-    finished ([CRet]) or blocked on an empty-channel receive.  (Contrapositive of
-    progress: if any live goroutine were ready, the config could step.) *)
+(** THE DEADLOCK CHARACTERIZATION (now PANIC-AWARE): in a stuck config, EVERY live goroutine is
+    finished ([CRet]), blocked (empty-open recv / no-ready-case select), OR about to PANIC (double
+    close).  These are the THREE ways a live goroutine fails to step — Go's run-time distinguishes
+    deadlock from panic, and so does this.  (Contrapositive of progress: a goroutine that is none of
+    the three is ready, so the config could step.) *)
 Theorem rstuck_blocked : forall cfg,
   FreshAvail cfg -> RStuck cfg ->
-  forall tid, rc_live cfg tid = true -> rc_prog cfg tid = CRet \/ blocked cfg tid.
+  forall tid, rc_live cfg tid = true ->
+    rc_prog cfg tid = CRet \/ blocked cfg tid \/ rpanicking cfg tid.
 Proof.
   intros cfg Hfresh [Hnstep _] tid Hlive.
-  (* the non-CRecv/CSelect heads are all enabled, so can't occur in a stuck config; a CRecv is
-     blocked iff its buffer is empty AND open, a CSelect iff no case is buffered-or-closed-ready —
-     all decidable via [closedb] / [sel_ready_cl], no classical logic. *)
+  (* a double-close is decidably panicking; otherwise the non-CRecv/CSelect heads are all enabled
+     (a CClose now needs an OPEN channel — [~rpanicking] gives that), a CRecv is blocked iff empty
+     AND open, a CSelect iff no case is buffered-or-closed-ready — all decidable, no classical logic. *)
+  destruct (rpanicking_dec cfg tid) as [Hpan | Hnpan]; [right; right; exact Hpan |].
   destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - left. reflexivity.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+    + exact Hnpan.
   - destruct (rc_bufs cfg c) as [ | hd rest ] eqn:Hb.
     + (* empty buffer: blocked iff OPEN; if closed it can step (contradiction with stuck) *)
       destruct (closedb (rc_trace cfg) c) eqn:Hcl.
@@ -1785,32 +1818,64 @@ Proof.
         -- rewrite Hp; discriminate.
         -- unfold blocked. intros [[c0 [f0 [Hpc [Hbc0 Hcl0]]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
              [injection Hpc as Hcc Hff; subst c0; rewrite Hcl in Hcl0; discriminate Hcl0 | discriminate].
-      * right. unfold blocked. left. exists c, f.
+        -- exact Hnpan.
+      * right; left. unfold blocked. left. exists c, f.
         split; [exact Hp | split; [exact Hb | exact Hcl]].
     + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
       * rewrite Hp; discriminate.
       * unfold blocked. intros [[c0 [f0 [Hpc [Hbc0 _]]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc;
           [injection Hpc as Hcc Hff; subst c0; rewrite Hb in Hbc0; discriminate Hbc0 | discriminate].
+      * exact Hnpan.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+    + exact Hnpan.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+    + exact Hnpan.
   - exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+    + exact Hnpan.
   - (* select: ready (buffered OR closed-drained) ⇒ can step (contradiction); else blocked *)
     destruct (sel_ready_cl (rc_bufs cfg) (rc_trace cfg) cases) as [sr|] eqn:Hsel.
     + exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
       * rewrite Hp; discriminate.
       * unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc Hnone]]]; rewrite Hp in Hpc;
           [discriminate | injection Hpc as ->; rewrite Hsel in Hnone; discriminate].
-    + right. unfold blocked. right. exists cases. split; [exact Hp | exact Hsel].
-  - (* close: enabled, so cannot occur in a stuck config *)
+      * exact Hnpan.
+    + right; left. unfold blocked. right. exists cases. split; [exact Hp | exact Hsel].
+  - (* close: NOT panicking (handled above), so the channel is OPEN ⇒ enabled ⇒ contradiction *)
     exfalso. apply Hnstep. apply (ready_can_step cfg tid Hfresh Hlive).
     + rewrite Hp; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
+    + exact Hnpan.
+Qed.
+
+(** PANIC ≠ DEADLOCK, witnessed.  [rdouble_close_cfg]: goroutine 0 is poised to [close 5], but 5 is
+    already closed (a [KClose 5] sits at trace position 0).  It is [rpanicking] (Go would panic), it
+    genuinely CANNOT step (the [rstep_close] guard [closedb tr 5 = false] is false — no silent
+    re-close), and [rstuck_blocked] classifies it as PANICKING, NOT blocked — the operational image of
+    [double_close_panics] in the IO model. *)
+Definition rdouble_close_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CClose 5 CRet else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0)
+         [mkEv 1 (KClose 5)].
+
+Theorem rdouble_close_panicking : rpanicking rdouble_close_cfg 0.
+Proof. exists 5, CRet. split; reflexivity. Qed.
+
+Theorem rdouble_close_cant_step : ~ rcan_step rdouble_close_cfg.
+Proof.
+  intros [cfg' Hstep]. unfold rdouble_close_cfg in Hstep.
+  inversion Hstep; subst; cbn in *;
+    match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+    cbn in *; try discriminate;
+    (* the close rule survives the head match; resolve its channel to 5, then the guard
+       [closedb [KClose 5] 5 = false] reduces to [true = false] — absurd *)
+    try (match goal with H : CClose _ _ = CClose _ _ |- _ => injection H as <- <- end);
+    subst; cbn in *; try discriminate.
 Qed.
 
 (** Deadlock is REPRESENTABLE in the rich calculus too: one goroutine receiving on an
@@ -2074,18 +2139,20 @@ Proof.
     rewrite Hp in HRF; inversion HRF.
 Qed.
 
-(** PROGRESS for receive-free configs (witness form): while ANY live goroutine has
-    work left, the config can step — i.e. it never deadlocks.  (No need to extract a
-    witness from [~ rdone]: the caller supplies the unfinished goroutine, which exists
-    exactly when the config is not done.) *)
+(** PROGRESS for receive-free configs (witness form): while ANY live goroutine has work left, the
+    config can step OR that goroutine is about to PANIC (double-close) — i.e. it never DEADLOCKS.
+    (Receive-free rules out the only blocking head; the sole remaining non-step is a double-close,
+    a panic not a deadlock — so this is honest progress-or-panic, never silent stuck.) *)
 Lemma recvfree_progress : forall cfg tid,
   FreshAvail cfg -> RecvFreeCfg cfg ->
   rc_live cfg tid = true -> rc_prog cfg tid <> CRet ->
-  rcan_step cfg.
+  rcan_step cfg \/ rpanicking cfg tid.
 Proof.
   intros cfg tid Hfresh HRF Hlive Hnret.
+  destruct (rpanicking_dec cfg tid) as [Hpan | Hnpan]; [right; exact Hpan | left].
   apply (ready_can_step cfg tid Hfresh Hlive Hnret).
-  apply recvfree_not_blocked. exact (HRF tid Hlive).
+  - apply recvfree_not_blocked. exact (HRF tid Hlive).
+  - exact Hnpan.
 Qed.
 
 (* Receive-freeness of all live goroutines is preserved by every step (the [recv]
@@ -2102,7 +2169,7 @@ Proof.
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
     | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c k Hlv Hp _
     | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
     | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_prog rc_live] in *; intros Hlive';
@@ -2168,7 +2235,7 @@ Proof.
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
     | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c k Hlv Hp _
     | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
     | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_live] in *.
@@ -2200,13 +2267,14 @@ Proof.
     [exact (rstep_recvfree _ _ H HRF) | exact (rstep_livefin _ _ H HLF)].
 Qed.
 
-(** THE DEADLOCK-FREEDOM THEOREM.  In ANY reachable state of a receive-free program,
-    every live UNFINISHED goroutine can step — so the program never deadlocks; it
-    always makes progress while work remains. *)
+(** THE DEADLOCK-FREEDOM THEOREM (panic-aware).  In ANY reachable state of a receive-free program,
+    every live UNFINISHED goroutine can step OR is about to PANIC (double-close) — so the program
+    never DEADLOCKS; the only way it fails to progress is a run-time panic, exactly as in Go. *)
 Theorem reachable_recvfree_progress : forall p cfg,
   (forall t, RecvFree (p t)) ->
   rsteps (rinit_cfg p) cfg ->
-  forall tid, rc_live cfg tid = true -> rc_prog cfg tid <> CRet -> rcan_step cfg.
+  forall tid, rc_live cfg tid = true -> rc_prog cfg tid <> CRet ->
+    rcan_step cfg \/ rpanicking cfg tid.
 Proof.
   intros p cfg HpRF Hsteps tid Hlive Hnret.
   assert (HRF0 : RecvFreeCfg (rinit_cfg p)).
@@ -2251,7 +2319,7 @@ Proof.
     | p b h lv tr tid l f Hlv Hp
     | p b h lv tr tid child k cid Hlv Hp Hcid
     | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
-    | p b h lv tr tid c k Hlv Hp
+    | p b h lv tr tid c k Hlv Hp _
     | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
     | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
     cbn [rc_live rc_prog rc_bufs] in *;
@@ -2291,11 +2359,13 @@ Proof.
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
+    + unfold rpanicking. intros [c0 [k0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc [Hbc _]]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc;
         [congruence | discriminate].
+    + unfold rpanicking. intros [c0 [k0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
   - left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
     apply Nat.eqb_eq in Hl. subst tid. exact Hp0.
 Qed.
