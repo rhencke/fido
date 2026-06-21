@@ -1625,6 +1625,115 @@ Section KeystoneMulti.
 End KeystoneMulti.
 
 (** ============================================================================
+    MULTI-GOROUTINE STATE REFINEMENT — the HEAP analogue (ref separation).
+
+    [WMatchC] (above) refined the calculus's CHANNEL state to [run_io].  Races are about
+    MEMORY, so here is the parallel for the HEAP: [WHMatchC] matches every location's
+    [run_io] ref value to the operational [rc_heap]; [whmatchc_step] shows EVERY [rstep]
+    preserves it, the ref SEPARATION (frame) law [ref_sel_upd_diff] handling the untouched
+    locations.  Only [rstep_write] advances the heap world (by [ref_upd]); every other step
+    leaves [rc_heap] unchanged, so the same world still matches.  [reachable_refines_heap]:
+    every reachable state's MEMORY is realized by a [run_io] world, across all interleavings —
+    and [reachable_refines_heap_and_safe] bundles that with the proven race-freedom, so the
+    guarantee now covers the memory state that races are actually about.
+    ============================================================================ *)
+Section KeystoneHeap.
+  Variable locenv : nat -> Ref GoI64.
+  Variable inj : nat -> GoI64.
+  (* Distinct calculus locations sit at distinct World ref CELLS — the heap analogue of
+     [chenv_inj].  (Loc-level, not Ref-level: [ref_sel_upd_diff]'s frame is keyed on [r_loc].) *)
+  Hypothesis locenv_loc_inj : forall i j, r_loc (locenv i) = r_loc (locenv j) -> i = j.
+
+  Definition WHMatchC (w : World) (cfg : RConfig) : Prop :=
+    forall l, ref_sel (locenv l) w = inj (rc_heap cfg l).
+
+  Lemma locenv_loc_neq : forall i j, i <> j -> r_loc (locenv i) <> r_loc (locenv j).
+  Proof. intros i j Hij Heq. apply Hij, locenv_loc_inj, Heq. Qed.
+
+  (** Every [rstep] — any goroutine, any location — preserves the multi-location heap match. *)
+  Lemma whmatchc_step : forall cfg cfg' w,
+    rstep cfg cfg' -> WHMatchC w cfg -> exists w', WHMatchC w' cfg'.
+  Proof.
+    intros cfg cfg' w Hstep HM.
+    destruct Hstep as
+      [ p b h lv tr tid c0 v k Hlv Hp _
+      | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c0 k Hlv Hp _
+      | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
+    - (* send: heap untouched, so the same world still matches *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* recv: heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* write: world advances by [ref_upd] at location [l] *)
+      exists (ref_upd (locenv l) (inj v) w).
+      intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *.
+      destruct (Nat.eq_dec l0 l) as [->|Hne].
+      + rewrite upd_same, ref_sel_upd_same. reflexivity.
+      + rewrite (upd_other _ _ _ _ Hne),
+          (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (locenv_loc_neq l l0 (not_eq_sym Hne))).
+        exact HM.
+    - (* read: heap untouched (a read binds a value, does not write) *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* spawn: heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* select: receives on a channel, heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* close: heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* recv_closed: heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+    - (* select_closed: heap untouched *)
+      exists w. intros l0. specialize (HM l0). unfold WHMatchC in *; cbn [rc_heap] in *. exact HM.
+  Qed.
+
+  Lemma whmatchc_steps : forall cfg cfg' w,
+    rsteps cfg cfg' -> WHMatchC w cfg -> exists w', WHMatchC w' cfg'.
+  Proof.
+    intros cfg cfg' w H. revert w. induction H; intros w HM; [exists w; exact HM|].
+    destruct (whmatchc_step _ _ _ H HM) as [w' HM']. exact (IHrsteps w' HM').
+  Qed.
+
+  Lemma whmatchc_init : forall p w0,
+    (forall l, ref_sel (locenv l) w0 = inj 0) -> WHMatchC w0 (rinit_cfg p).
+  Proof.
+    intros p w0 Hzero l. unfold WHMatchC, rinit_cfg; cbn [rc_heap]. exact (Hzero l).
+  Qed.
+
+  (** THE MULTI-GOROUTINE HEAP REFINEMENT.  Every reachable state of a concurrent execution
+      has its MEMORY realized by some [run_io] world — across every interleaving. *)
+  Theorem reachable_refines_heap : forall p cfg w0,
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    rsteps (rinit_cfg p) cfg ->
+    exists w, WHMatchC w cfg.
+  Proof.
+    intros p cfg w0 Hzero Hsteps.
+    exact (whmatchc_steps _ _ _ Hsteps (whmatchc_init p w0 Hzero)).
+  Qed.
+
+  (** Capstone (memory): a reachable concurrent state has its HEAP realized by a [run_io]
+      world AND (under the ownership discipline) is race-free with a strict-partial-order
+      happens-before — the memory-state refinement and the race-freedom on the SAME execution. *)
+  Theorem reachable_refines_heap_and_safe : forall p cfg w0,
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    rsteps (rinit_cfg p) cfg ->
+    Owned (rc_trace cfg) ->
+    (exists w, WHMatchC w cfg) /\
+    TraceRaceFree (rc_trace cfg) /\
+    (forall i, ~ hbt (rc_trace cfg) i i).
+  Proof.
+    intros p cfg w0 Hzero Hsteps HO.
+    split; [exact (reachable_refines_heap p cfg w0 Hzero Hsteps) |].
+    exact (reachable_owned_safe_r p cfg Hsteps HO).
+  Qed.
+
+End KeystoneHeap.
+
+(** ============================================================================
     DEADLOCK FREEDOM (progress) for the RICH calculus.
 
     The operational semantics REPRESENTS deadlock; here we (a) characterize EXACTLY

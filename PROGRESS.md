@@ -1624,8 +1624,19 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    builtins.v (the channel-frame laws), validated by the same per-channel FIFO-map heap
    model as `chan_buf_send`; trust base verified by `Print Assumptions` (exactly the
    channel laws + the 2 frame axioms; `chenv_inj` is a discharged hypothesis).
-   *Still open:* the HEAP analogue (ref separation, to mix memory + channels — same
-   shape, more axioms), a term-level account of cross-goroutine value flow beyond state,
+   **The HEAP analogue is now DONE (2026-06-21, `Section KeystoneHeap`):** `WHMatchC` matches
+   every location's `run_io` ref value (`ref_sel (locenv l) w`) to the operational `rc_heap`;
+   `whmatchc_step` proves EVERY `rstep` (any goroutine, any location) preserves it — only
+   `rstep_write` advances the heap world (by `ref_upd`), the ref SEPARATION law
+   `ref_sel_upd_diff` handling the untouched locations, every other step leaving `rc_heap`
+   unchanged so the same world matches.  `reachable_refines_heap`: every reachable state's
+   MEMORY is realized by a `run_io` world, across all interleavings; `reachable_refines_heap_and_safe`
+   bundles it with the proven race-freedom — so the guarantee now covers the MEMORY STATE that
+   races are actually about, not just channels.  Trust base (`Print Assumptions`): only
+   `PrimInt63`/`PrimFloat` — no `functional_extensionality`, NO frame axioms (`ref_sel_upd_diff`
+   is a derived lemma; `locenv_loc_inj` a discharged hypothesis), cleaner than the channel side.
+   *Still open:* a SINGLE-world COMBINED state match (channels ∧ heap together — needs the trivial
+   chan↔ref cross-frame laws), a term-level account of cross-goroutine value flow beyond state,
    and the plugin lowering side (`Cmd` ↔ extracted Go).
 2. **General race-freedom under the ownership / session discipline — DONE (core
    theorem).**  `owned_race_free` (concurrency.v, axiom-free): a trace satisfying the
