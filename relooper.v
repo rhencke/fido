@@ -13,15 +13,20 @@
     verified, gives the correctness method (compositional "realizes" combinators), and is a spec the
     plugin can eventually be checked against.
 
-    SCOPE (honest): (1) ACYCLIC CFGs lowered to nested if/seq, with the join block DUPLICATED into both
-    branches (semantically correct; the plugin's no-duplication relooping is an optimisation atop this
-    correctness core) — the [Realizes] combinators + [diamond_realized].  (2) CYCLIC CFGs → structured
-    LOOPS (the genuinely hard part): a relational [seval] with [LLoop]/[LBreak], and [while_realized] —
-    the canonical while-loop CFG (with a back-edge) lowered to [loop { … break }], proved
-    semantics-preserving by INDUCTION ON THE [cfg_halts] DERIVATION (the loop-iteration count).
-    Both axiom-free.  STILL OPEN: a GENERAL relooper FUNCTION over arbitrary (reducible) CFGs — these
-    are the two correctness cores (straight-line + single loop) it would be built from.  Proof-only:
-    emits no Go. *)
+    SCOPE (honest):
+    (1) ACYCLIC, duplicating: the [Realizes] combinators + [diamond_realized] (join duplicated into
+        both branches — the simplest correct lowering).
+    (2) CYCLIC → LOOPS (the genuinely hard part): a relational [seval] with [LLoop]/[LBreak], and
+        [while_realized] — the canonical while-loop CFG (back-edge) lowered to [loop { … break }],
+        proved by INDUCTION ON THE [cfg_halts] DERIVATION (the loop-iteration count).
+    (3) ACYCLIC, GENERAL + NO-duplication: a run-to-a-LABEL semantics [runs_to] and the key
+        [runs_to_halts] (region-reaches-join ∘ join-reaches-HALT, UNCONDITIONAL — the trick that
+        dodges the join-revisit hazard), giving compositional combinators [realize_seq]/
+        [realizeTo_goto]/[realizeTo_if] and [diamond_general] — the diamond re-lowered with the join
+        emitted ONCE.  These are the per-step SOUNDNESS for an arbitrary acyclic relooper.
+    All axiom-free.  STILL OPEN: the recursive relooper FUNCTION over arbitrary reducible CFGs + its
+    well-founded termination (the combinators above are exactly the pieces it is built from), and
+    connecting it to the actual emitted Go AST.  Proof-only: emits no Go. *)
 
 From Stdlib Require Import List Lia Arith.
 Import ListNotations.
@@ -261,6 +266,84 @@ Proof.
       eapply se_seq_n; [| apply se_body ].
       apply se_loop_break.
       eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E | apply se_break].
+Qed.
+
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    The two hand-built witnesses ([diamond_realized], [while_realized]) point at specific blocks.  To
+    relooper an ARBITRARY (acyclic) CFG we need to COMPOSE region lowerings.  The naive composition —
+    "region reaches join j₁" then "region reaches join j₂" — is UNSOUND: j₂ may be revisited, so the
+    join-to-join transitivity is false without acyclicity.  The fix: always compose
+    REGION-REACHES-JOIN with JOIN-REACHES-HALT (terminal) — the second leg cannot be revisited, so the
+    composition ([runs_to_halts]) is UNCONDITIONAL.  We peel structured code off the ENTRY toward HALT.
+
+    [runs_to g j l s s']: entering block [l] in state [s], control REACHES the entry of block [j] with
+    state [s'] (j's body NOT yet run).  Unlike [cfg_halts] (run to return), this is run-to-a-LABEL. *)
+Inductive runs_to (g : CFG) (j : nat) : nat -> State -> State -> Prop :=
+  | rt_here : forall s, runs_to g j j s s
+  | rt_goto : forall l l' s sf, l <> j -> blk_term (g l) = TGoto l' ->
+      runs_to g j l' (blk_body (g l) s) sf -> runs_to g j l s sf
+  | rt_if   : forall l c a b s sf, l <> j -> blk_term (g l) = TIf c a b ->
+      runs_to g j (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf ->
+      runs_to g j l s sf.
+
+(** THE composition: reach [j], then HALT from [j] ⇒ HALT from [l].  Unconditional — the second leg
+    is terminal, which is exactly why peeling toward HALT (not join-to-join) avoids the revisit hazard. *)
+Lemma runs_to_halts : forall g j l s s1 sf,
+  runs_to g j l s s1 -> cfg_halts g j s1 sf -> cfg_halts g l s sf.
+Proof.
+  intros g j l s s1 sf H. revert sf.
+  induction H as [s | l l' s sf Hne Ht Hr IH | l c a b s sf Hne Ht Hr IH]; intros sf2 Hh.
+  - exact Hh.
+  - eapply ch_goto; [exact Ht | apply IH; exact Hh].
+  - eapply ch_if;   [exact Ht | apply IH; exact Hh].
+Qed.
+
+(** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
+    join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
+Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
+  forall s, runs_to g j l s (srun S s).
+
+(** PEEL — region [l→j] then [j→halt] composes to [l→halt], no side condition. *)
+Lemma realize_seq : forall g S1 S2 l j,
+  RealizesTo g S1 l j -> Realizes g S2 j -> Realizes g (SSeq S1 S2) l.
+Proof. intros g S1 S2 l j H1 H2 s. cbn. eapply runs_to_halts; [apply H1 | apply H2]. Qed.
+
+(** A [TGoto l'] block reaches its target ([l ≠ l'], else it is a self-loop and never reaches). *)
+Lemma realizeTo_goto : forall g l l',
+  l <> l' -> blk_term (g l) = TGoto l' -> RealizesTo g (SBody (blk_body (g l))) l l'.
+Proof. intros g l l' Hne Ht s. cbn. eapply rt_goto; [exact Hne | exact Ht | apply rt_here]. Qed.
+
+(** An [TIf] block whose BOTH branches reach a common join [j] (≠ l) — lowered with the join SHARED
+    (emitted ONCE, after the [if]), i.e. NO duplication. *)
+Lemma realizeTo_if : forall g l c a b j Sa Sb,
+  l <> j -> blk_term (g l) = TIf c a b -> RealizesTo g Sa a j -> RealizesTo g Sb b j ->
+  RealizesTo g (SSeq (SBody (blk_body (g l))) (SIf c Sa Sb)) l j.
+Proof.
+  intros g l c a b j Sa Sb Hne Ht HRa HRb s. cbn.
+  eapply rt_if; [exact Hne | exact Ht |]. cbn.
+  destruct (c (blk_body (g l) s)) eqn:E; [apply HRa | apply HRb].
+Qed.
+
+(** PAYOFF: the if-diamond re-lowered through the GENERAL combinators — and with the join [b3] emitted
+    ONCE (not duplicated into both branches as [diamond_realized] did):  b0 ; if c {b1} else {b2} ; b3.
+    Built compositionally, so the same recipe relooper any acyclic CFG (the remaining piece is the
+    recursive relooper FUNCTION + its well-founded termination, not the per-step soundness — that is
+    these lemmas). *)
+Theorem diamond_general : forall b0 b1 b2 b3 c,
+  Realizes (diamond b0 b1 b2 b3 c)
+    (SSeq (SSeq (SBody b0) (SIf c (SBody b1) (SBody b2))) (SBody b3)) 0.
+Proof.
+  intros b0 b1 b2 b3 c. set (g := diamond b0 b1 b2 b3 c).
+  assert (H3 : Realizes g (SBody b3) 3) by (apply (realize_ret g 3); reflexivity).
+  assert (HR1 : RealizesTo g (SBody b1) 1 3)
+    by (apply (realizeTo_goto g 1 3); [discriminate | reflexivity]).
+  assert (HR2 : RealizesTo g (SBody b2) 2 3)
+    by (apply (realizeTo_goto g 2 3); [discriminate | reflexivity]).
+  assert (HR0 : RealizesTo g (SSeq (SBody b0) (SIf c (SBody b1) (SBody b2))) 0 3)
+    by (apply (realizeTo_if g 0 c 1 2 3); [discriminate | reflexivity | exact HR1 | exact HR2]).
+  apply (realize_seq g _ (SBody b3) 0 3); [exact HR0 | exact H3].
 Qed.
 
 End Relooper.

@@ -1088,11 +1088,18 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    lowered via compositional `Realizes` combinators) and `while_realized` (CYCLIC
    — the canonical while-loop CFG with a back-edge lowered to `loop { … break }`,
    proved by induction on the `cfg_halts` derivation / loop-iteration count).
-   Both axiom-free.  It is a REFERENCE model (does NOT verify the OCaml plugin —
-   that needs reflecting the OCaml), but it proves the transformation CAN be
-   verified, supplies the method, and is a spec to check the plugin against.
-   Still open: a general relooper FUNCTION over arbitrary reducible CFGs (built
-   from these two cores), and connecting it to the actual emitted Go AST.
+   Plus the GENERAL ACYCLIC case, NO-duplication: a run-to-a-LABEL semantics
+   `runs_to` and the key `runs_to_halts` (region-reaches-join ∘ join-reaches-HALT
+   is UNCONDITIONAL — the second leg is terminal, dodging the join-revisit hazard
+   that makes naive join-to-join composition unsound), giving compositional
+   combinators (`realize_seq`/`realizeTo_goto`/`realizeTo_if`) and `diamond_general`
+   (the diamond re-lowered with the join emitted ONCE) — the per-step soundness an
+   arbitrary acyclic relooper is built from.  All axiom-free.  It is a REFERENCE
+   model (does NOT verify the OCaml plugin — that needs reflecting the OCaml), but
+   it proves the transformation CAN be verified, supplies the method, and is a spec
+   to check the plugin against.  Still open: the recursive relooper FUNCTION over
+   arbitrary reducible CFGs + its well-founded termination (built from these cores),
+   and connecting it to the actual emitted Go AST.
 
 ### Tier 2 — numeric correctness within the int/float parameters
 4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical
