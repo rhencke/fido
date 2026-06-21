@@ -180,15 +180,20 @@ unmodelled callbacks.
   looks unsafe to an expert, yet Rocq has ruled out every failure mode. *Pieces:* FINITE
   nesting is mostly ASSEMBLY today — `TChan`/`TSlice`/`TProd`/`TPtr`/`TMap` already compose
   (a `[]chan *Foo` field in a struct shuttled between goroutines is taggable now). Two
-  genuine frontiers gate the FULL horror: (1) RECURSIVE / self-referential types ("a channel
-  that sends itself", `type C chan C`; a struct holding a channel of itself) — the finite-
-  inductive `GoTypeTag` cannot represent an infinitely-deep / self-referential type, so this
-  needs recursive type tags (a tag fixpoint) and hits the universe wall that forced
-  `GoChan`/`Ptr` to be tag-free (builtins.v:161) — the RESEARCH CENTERPIECE; (2) VERIFIED
-  SAFETY on the cursed program (race/deadlock-freedom on the TYPED program) = limit #2 (in
-  progress) + the deadlock/session theory. The safety half is what makes it LAND — without
-  it the demo merely compiles; with it, an expert learns the self-sending-channel soup is
-  *proven* clean.
+  genuine frontiers gate the FULL horror: (1) RECURSIVE / self-referential types. Valid Go
+  recurses through INDIRECTION (pointer/channel/slice/map/func); only direct `type X X` /
+  `struct{x X}` is rejected. FIRST TARGET = **`type X *X`** (valid Go, the minimal recursive
+  self-type). Because `Ptr` is a TAG-FREE phantom handle, the VALUE side is BENIGN — model
+  `Inductive X := mkX (Ptr X)`: a value is just a location, recursion erased at runtime (like
+  phantom typestate). So the research nut is NARROW: the recursive TYPE TAG, not the value rep —
+  deref/sending X needs `GoTypeTag X`, but the finite-inductive `GoTypeTag` can't hold the cyclic
+  `tagX = TPtr tagX` (the universe wall that forced `GoChan`/`Ptr` tag-free, builtins.v:161).
+  Need a named-type tag / tag fixpoint; `type X *X` cracks it cleanest (pointer keeps values
+  trivial), `type C chan C` is the same tag problem + payload semantics. (2) VERIFIED SAFETY on
+  the cursed program (race/deadlock-freedom on the TYPED program) = limit #2 (in progress) + the
+  deadlock/session theory. The safety half is what makes it LAND — without it the demo merely
+  compiles; with it, an expert learns the self-sending-channel soup is *proven* clean. *Ordering
+  (user 2026-06-21): QUEUED after the current loop priorities (limit #2 etc.) — a to-do, not now.*
 
 Interdependence to remember: closed-world for a *shared* value presupposes the
 ownership / race-freedom discipline (another goroutine could mutate it out from
