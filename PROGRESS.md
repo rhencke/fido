@@ -1570,7 +1570,13 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    EQUALS the once-hand-built `fork_handoff_trace`; `fork_exec_race_free` then derives
    race-freedom + hb-irreflexivity from `reachable_owned_safe_r`.  (The simple `step`
    calculus still emits `KSpawn` only — it has no heap/race story; the rich `rstep` is
-   the authoritative model and supersedes it here.)*
+   the authoritative model and supersedes it here.)*  The CHANNEL handoff edge is grounded
+   the SAME way (`chan_pub_exec_trace`/`chan_pub_exec_race_free`): a real 2-goroutine
+   program that SPAWNS the child, THEN writes loc 7 and sends — the write happens AFTER the
+   spawn, so the fork edge canNOT publish it and the cross-goroutine ordering MUST flow
+   through the channel send/recv (`transfer_orders` over the `KSend`/`KRecv` pair).  BOTH
+   go-mem synchronisation edges (fork AND channel) are now consequences of EXECUTION, not
+   assertions on literals.  All axiom-free.
    **(1.2 — DONE)** the RICH calculus (`Cmd`/`RConfig`/`rstep` in concurrency.v):
    per-goroutine programs are a command TREE (`CRet`/`CSend`/`CRecv`/`CWrite`/`CRead`/
    `CSpawn`) with value-binding continuations (`nat -> Cmd`) — i.e. `bind`, control

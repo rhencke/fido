@@ -829,6 +829,14 @@ Assumptions` = *Closed under the global context*):
   `fork_handoff_trace`, with `fork_exec_race_free` deriving race-freedom from
   `reachable_owned_safe_r` — the fork synchronisation is a consequence of the operational
   semantics, not an assertion about a literal.  Both axiom-free.  ✓
+- **channel handoff edge** (the primary go-mem mechanism) — *"a send on a channel happens-before
+  the corresponding receive completes"*: `handoff_race_free` (hand-built) **+ now GROUNDED IN
+  EXECUTION** (`chan_pub_exec_trace` / `chan_pub_exec_race_free`): a real 2-goroutine program where
+  `main` SPAWNS the child, THEN writes loc 7 and sends — so the write happens AFTER the spawn and the
+  fork edge canNOT publish it; only the channel send/recv can.  Running it emits a 6-event trace
+  proven race-free via `transfer_orders` over the `KSend`/`KRecv` pair (the canonical "publish a
+  write over a channel" idiom).  Axiom-free.  ✓  Both go-mem synchronisation edges are now grounded
+  operationally, not just witnessed on literals.
 **Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
 above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
 TRACE — a list of events from interleaving goroutines, synchronisation recorded by

@@ -1289,6 +1289,83 @@ Proof.
   rewrite Htr. exact fork_handoff_owned.
 Qed.
 
+(** ---- Grounding Go's CHANNEL handoff (the recv-from edge) in EXECUTION ----
+    The SIBLING of [fork_exec_*]: the OTHER (and primary) go-mem mechanism — "a send on a channel
+    happens-before the corresponding receive completes" (go.dev/ref/mem).  [handoff_trace] above was
+    HAND-BUILT; here a real program PRODUCES the handoff by running.  Crucially, [main] SPAWNS the
+    child FIRST, and only THEN writes loc 7 and sends — so the FORK edge canNOT publish the write
+    (the write happens AFTER the spawn), and the cross-goroutine ordering MUST flow through the
+    channel send/recv.  This is the canonical "publish a write by passing it over a channel" idiom,
+    and the executed trace proves it race-free via the channel edge alone ([transfer_orders] over the
+    [KSend]/[KRecv] pair at positions 3->4).  The trace is SIX events (the spawn is unavoidable: a
+    real run starts with [main] only and must [go] to get a second goroutine). *)
+Definition chan_pub_child : Cmd := CRecv 0 (fun _ => CRead 7 (fun _ => CRet)).
+Definition chan_pub_prog : nat -> Cmd :=
+  fun n => if Nat.eqb n 0
+           then CSpawn chan_pub_child (CWrite 7 99 (CSend 0 42 CRet))
+           else CRet.
+
+(* The exact trace a run of [chan_pub_prog] emits: spawn, child-start, then main's write/send, then
+   the child's recv (back-pointer 3 = the send) and read.  Heap accesses are ONLY at 2 (write) and 5
+   (read); they are ordered write ->po send ->sync recv ->po read. *)
+Definition chan_pub_trace : Trace :=
+  [ mkEv 0 (KSpawn 1); mkEv 1 (KStart 0); mkEv 0 (KWrite 7);
+    mkEv 0 (KSend 0); mkEv 1 (KRecv 0 3); mkEv 1 (KRead 7) ].
+
+Lemma chan_pub_loc_pos : forall i l, acc_loc_at chan_pub_trace i = Some l -> i = 2 \/ i = 5.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold chan_pub_trace, acc_loc_at in H.
+  destruct i as [|[|[|[|[|[|i]]]]]]; cbn in H;
+    [ discriminate | discriminate | left; reflexivity
+    | discriminate | discriminate | right; reflexivity | lia ].
+Qed.
+
+Lemma chan_pub_owned : Owned chan_pub_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]]. left.
+  destruct (chan_pub_loc_pos i l Hi) as [-> | ->];
+    destruct (chan_pub_loc_pos j l Hj) as [-> | ->]; try lia.
+  apply (transfer_orders chan_pub_trace 2 3 4 5).
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv 1 (KRecv 0 3)); cbn. split; reflexivity.
+  - unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
+(* [upd] is opaque, so project through the [upd] stack with [upd_same]/[upd_other] before [reflexivity]. *)
+Ltac upd_proj := repeat first [ rewrite upd_same | rewrite upd_other by discriminate ].
+
+Theorem chan_pub_exec_trace :
+  exists cfg, rsteps (rinit_cfg chan_pub_prog) cfg /\ rc_trace cfg = chan_pub_trace.
+Proof.
+  unfold rinit_cfg. eexists. split.
+  - eapply rsteps_step.
+    { eapply rstep_spawn with (tid := 0) (cid := 1); upd_proj; reflexivity. }
+    eapply rsteps_step.
+    { eapply rstep_write with (tid := 0); upd_proj; reflexivity. }
+    eapply rsteps_step.
+    { eapply rstep_send with (tid := 0); upd_proj; reflexivity. }
+    eapply rsteps_step.
+    { eapply rstep_recv with (tid := 1); upd_proj; reflexivity. }
+    eapply rsteps_step.
+    { eapply rstep_read with (tid := 1); upd_proj; reflexivity. }
+    apply rsteps_refl.
+  - cbn. reflexivity.
+Qed.
+
+(** The executed 2-goroutine message-passing program is race-free AND hb-irreflexive — derived from
+    reachability + ownership, with the WRITE PUBLISHED PURELY OVER THE CHANNEL (the fork edge cannot
+    carry it).  The operational analogue of "send happens-before the matching receive completes". *)
+Theorem chan_pub_exec_race_free :
+  exists cfg, rsteps (rinit_cfg chan_pub_prog) cfg /\
+              TraceRaceFree (rc_trace cfg) /\ (forall i, ~ hbt (rc_trace cfg) i i).
+Proof.
+  destruct chan_pub_exec_trace as [cfg [Hsteps Htr]].
+  exists cfg. split; [exact Hsteps |].
+  apply (reachable_owned_safe_r chan_pub_prog cfg Hsteps).
+  rewrite Htr. exact chan_pub_owned.
+Qed.
+
 (** ---- The refinement: the rich calculus implements the [run_io] channel laws ----
     [rchan] is the channel VALUE-FIFO.  A send ENQUEUES the value (matching the
     [run_io] law [chan_buf_send]: buffer after send = buffer ++ [v]); a receive
