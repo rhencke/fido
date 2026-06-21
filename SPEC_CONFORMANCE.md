@@ -342,7 +342,7 @@ defined types used as map KEYS (the phantom breaks equality), `Module`-namespace
 types over a STRUCT underlying (mechanical), and IO-value methods whose tail is a BIND-chain (only the
 single-expression tail — `ret v` / clean read — is returned so far).
 
-### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ vtable-struct dictionary (≥2 methods); ✗ 1-method/`interface` keyword
+### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method, all extracted + golden-locked); ✗ `interface` keyword + interface embedding
 Spec: an interface is a method set; a value of interface type holds a concrete value
 whose type implements those methods, with the concrete type known only at runtime
 (an existential).  We model it as the method DICTIONARY directly: a Rocq `Record`
@@ -357,10 +357,17 @@ value); ⚠ deviation: we emit a struct-of-funcs, not the `interface { … }` ke
 Satisfaction is checked in Rocq (the dictionary literal demands real methods) and
 dispatch is provable (`dispatch_area`: `area (mk_rect w h) s = …`).  Witness:
 `iface_demo` (`Shape`/`mk_rect`/`mk_square`/`show_shape` → `14/1007/20/1010`).
-✗ not yet: a SINGLE-method interface (Coq unboxes a 1-field record `{m}` ≡ `m`, so it
-needs curried-return lowering — currently leaks the inner lambda, fails `go build`,
-tracked), nullary (unit-thunk) methods (need unit-arg erasure), embedding, and the
-native `interface` keyword with structural satisfaction.
+**1-METHOD + NULLARY DONE (verified vs golden + emitted Go, 2026-06-21 — corrects a stale ✗ that
+claimed 1-method "leaks the inner lambda, fails go build"; it compiles, runs, golden-locked):** a
+SINGLE-method interface is a 2-field record `{m ; gr_self : GoAny}` — the `gr_self` second field both
+sidesteps Coq's 1-field-record unboxing AND is MORE faithful (a Go interface value IS a (method-table,
+value) pair).  `Greeter`/`mk_adder` → emitted `type Greeter struct { Greet func(int64) int64; Gr_self
+any }`; dispatch `(Mk_adder(5)).Greet(10)` → `15` (`dispatch_greet` proven by `reflexivity`;
+`single_iface_demo` golden-locked).  NULLARY methods (`String()`-style — a unit-thunk `unit -> R`) lower
+with the UNIT ARG ERASED: `Stringer`/`mk_namer` → `type Stringer struct { Sg_str func() string; … }`,
+called `(Mk_namer("fido")).Sg_str()` (no arg) → `fido` (`dispatch_str` proven; `nullary_iface_demo`
+golden-locked).  **✗ still:** interface EMBEDDING (method-set union of embedded interfaces) and the
+native `interface { … }` KEYWORD with structural satisfaction — both need a different lowering, tracked.
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ incl. backing-array ALIASING
 Two slice views: the functional `GoSlice = list` (value/immutable: `len`/`cap`/`append`/`slice_at_ok`)
