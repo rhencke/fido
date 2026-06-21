@@ -813,7 +813,15 @@ Assumptions` = *Closed under the global context*):
   `rstep_send` immediately followed by the matching `rstep_recv` passes the value STRAIGHT from
   sender to receiver's continuation (`k2 v`) with the buffer returning to empty (the value never
   rests), the operational shadow of the cap-0 rendezvous edge.  Axiom-free; cascade-free (a derived
-  two-step, not a new rule).
+  two-step, not a new rule).  **FORCING now modelled (2026-06-21)** in the self-contained
+  capacity-parameterised channel calculus (`Section BoundedChannels`, concurrency.v): `cstep_send` is
+  GUARDED by `length (buf c) < cap c`, so a cap-0 channel can NEVER buffer — `cstep_cap0_buf` /
+  `csteps_cap0_buf` prove its buffer is empty in every reachable state; transfer is forced through the
+  synchronous `cstep_sync` rendezvous (`urv_can_sync`), and an unbuffered send with no waiting receiver
+  is STUCK (`all_senders_stuck` / `ublock_stuck` — the blocking that the unguarded buffered model
+  cannot express).  This is the genuine unbuffered semantics ("send blocks until a receiver"), not just
+  the derived handoff.  Axiom-free.  (Integrating `cap` into the full `rstep` — heap/spawn/select, an
+  `rc_cap` field at ~42 `mkRCfg` sites — is the remaining cascade; the SEMANTICS is proven here.)
 - **rule 2** (Phase 4a) — *"closing a channel is synchronized before a receive that
   returns zero because the channel is closed"*: the finite-stream model `hbc cap
   nsent` (sender sends `nsent` then closes; `hbc_close_before_zero_recv`: close ⤳

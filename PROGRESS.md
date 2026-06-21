@@ -1714,6 +1714,20 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    receive has a guaranteed future send", i.e. no circular wait); and a real heap behind
    `KWrite`/`KRead` (currently abstract events).
 
+   **UNBUFFERED-channel FORCING — operational, DONE (2026-06-21, `Section BoundedChannels`).**
+   The rich `rstep` uses UNBOUNDED buffers; Go's `make(chan T)` (capacity 0) FORBIDS buffering
+   and a send must RENDEZVOUS (blocking until a receiver).  `rendezvous_via_buffer` DERIVED the
+   handoff but did not FORCE it.  A self-contained capacity-parameterised channel calculus
+   (`Variable cap`, `cstep`) adds the forcing: `cstep_send` is GUARDED by `length (buf c) < cap c`
+   (unsatisfiable for cap 0), plus a synchronous `cstep_sync` rendezvous (guarded `buf c = []`, so
+   FIFO stays honest).  Proven: a cap-0 channel's buffer is empty in EVERY reachable state
+   (`cstep_cap0_buf` / `csteps_cap0_buf`) — buffering is impossible; an all-senders config in an
+   unbuffered world is STUCK (`all_senders_stuck` / `ublock_stuck`) — the blocking the buffered
+   model cannot express; and the rendezvous fires when a receiver is present (`urv_can_sync`).
+   Axiom-free.  Scope is bounded to the channel fragment ([CSend]/[CRecv]); integrating `cap` into
+   the full `rstep` (an `rc_cap` field at ~42 `mkRCfg` sites) is the remaining cascade — the
+   missing SEMANTICS (unbuffered = synchronous-only + blocking) is now proven.
+
 **Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting
 the ownership discipline has a strict-partial-order happens-before AND is race-free.
 **Deadlock representability + freedom:** unlike the (total, sequential) `run_io`, the

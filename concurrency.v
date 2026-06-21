@@ -3027,3 +3027,128 @@ Proof.
   pose proof (sr_steps_shape _ _ Hsteps sr_init_shape) as HS.
   destruct (sr_shape_progress cfg HS) as [Hd | Hc]; [exact (Hndone Hd) | exact (Hnstep Hc)].
 Qed.
+
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    UNBUFFERED-CHANNEL FORCING — capacity, and the cap-0 synchronous-rendezvous semantics.
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    The rich [rstep] above models channels with UNBOUNDED buffers (every send always enqueues).  Go's
+    real channels carry a CAPACITY: a [make(chan T, n)] holds at most [n] queued values, and an
+    UNBUFFERED channel ([make(chan T)], capacity 0) holds NONE — a send on it cannot buffer, so it must
+    RENDEZVOUS with a receiver (it BLOCKS until one is ready), per go.dev/ref/spec#Channel_types and the
+    memory model ("The k-th receive ... happens before the k-th send completes" for unbuffered).  The
+    [rendezvous_via_buffer] lemma earlier DERIVES the value-handoff, but does NOT force it (a send could
+    still buffer).  This self-contained channel-fragment calculus adds the missing FORCING: a capacity
+    GUARD on the async send, plus a synchronous RENDEZVOUS rule, and proves that on a capacity-0 channel
+    BUFFERING IS IMPOSSIBLE (the buffer is empty in every reachable state) so every transfer is a direct
+    handshake — and an unbuffered send with no waiting receiver is STUCK (the blocking behaviour).
+
+    Scope is honest and bounded: this models the channel fragment ([CSend]/[CRecv]) only — enough to
+    state and prove the forcing.  Integrating [cap] into the full [rstep] (heap/spawn/select) is a
+    separate cascade (it adds an [rc_cap] field to [RConfig], touched at ~42 [mkRCfg] sites) and is
+    deferred; the SEMANTICS that was missing — unbuffered = synchronous-only + blocking — is HERE. *)
+Section BoundedChannels.
+
+(** [cap c] = capacity of channel [c]; [cap c = 0] is an UNBUFFERED channel. *)
+Variable cap : nat -> nat.
+
+(** Channel-fragment config: per-goroutine program, per-channel value buffer, liveness. *)
+Record CConfig := mkCC { cc_prog : nat -> Cmd; cc_bufs : nat -> list nat; cc_live : nat -> bool }.
+
+Inductive cstep : CConfig -> CConfig -> Prop :=
+  (* ASYNC send — enqueue, but ONLY when the buffer has ROOM ([length < cap]).  For [cap c = 0] the
+     guard [length (b c) < 0] is UNSATISFIABLE, so an unbuffered channel can never buffer. *)
+  | cstep_send : forall p b lv tid c v k,
+      lv tid = true -> p tid = CSend c v k -> length (b c) < cap c ->
+      cstep (mkCC p b lv) (mkCC (upd p tid k) (upd b c (b c ++ [v])) lv)
+  (* RECV — dequeue the FIFO head (buffer non-empty). *)
+  | cstep_recv : forall p b lv tid c f v rest,
+      lv tid = true -> p tid = CRecv c f -> b c = v :: rest ->
+      cstep (mkCC p b lv) (mkCC (upd p tid (f v)) (upd b c rest) lv)
+  (* SYNCHRONOUS rendezvous — a sender and a DISTINCT receiver on the same channel step TOGETHER, the
+     value passing DIRECTLY (buffer unchanged).  Guarded by [b c = []] so it never bypasses a buffered
+     value (FIFO stays honest); for an unbuffered channel that guard always holds, and this is the ONLY
+     enabled transfer. *)
+  | cstep_sync : forall p b lv ts tr c v k f,
+      lv ts = true -> lv tr = true -> ts <> tr ->
+      p ts = CSend c v k -> p tr = CRecv c f -> b c = [] ->
+      cstep (mkCC p b lv) (mkCC (upd (upd p ts k) tr (f v)) b lv).
+
+Inductive csteps : CConfig -> CConfig -> Prop :=
+  | csteps_refl : forall s, csteps s s
+  | csteps_step : forall a b c, cstep a b -> csteps b c -> csteps a c.
+
+(** FORCING (one step): a capacity-0 channel's buffer that is empty STAYS empty — async send can't
+    fire (guard unsatisfiable), recv needs a non-empty buffer (vacuous), sync leaves the buffer alone. *)
+Lemma cstep_cap0_buf : forall ch s s',
+  cap ch = 0 -> cstep s s' -> cc_bufs s ch = [] -> cc_bufs s' ch = [].
+Proof.
+  intros ch s s' Hcap Hstep Hempty.
+  destruct Hstep as [p b lv tid c v k Hlv Hp Hroom
+                    | p b lv tid c f v rest Hlv Hp Hbc
+                    | p b lv ts tr c v k f Hlvs Hlvr Hne Hps Hpr Hbc];
+    cbn in Hempty |- *.
+  - (* send *) destruct (Nat.eq_dec ch c) as [->|Hne].
+    + exfalso. rewrite Hcap in Hroom. lia.
+    + rewrite upd_other by exact Hne. exact Hempty.
+  - (* recv *) destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite Hempty in Hbc. discriminate.
+    + rewrite upd_other by exact Hne. exact Hempty.
+  - (* sync: buffer unchanged *) exact Hempty.
+Qed.
+
+(** FORCING (whole execution): an unbuffered channel NEVER buffers along ANY run from an empty buffer. *)
+Lemma csteps_cap0_buf : forall ch s s',
+  cap ch = 0 -> csteps s s' -> cc_bufs s ch = [] -> cc_bufs s' ch = [].
+Proof.
+  intros ch s s' Hcap Hsteps. induction Hsteps as [|a b d Hab Hbd IH]; intros Hempty.
+  - exact Hempty.
+  - apply IH. exact (cstep_cap0_buf ch a b Hcap Hab Hempty).
+Qed.
+
+(** BLOCKING — the unbuffered send blocks until a receiver.  GENERAL form: in an unbuffered world,
+    a config where EVERY live goroutine is parked at a SEND (and all buffers empty) is STUCK — async
+    send is forbidden (cap-0 guard), recv/rendezvous need a receiver and there is none.  The
+    operational content of "an unbuffered send with no ready receiver deadlocks". *)
+Lemma all_senders_stuck : forall s,
+  (forall ch, cap ch = 0) ->
+  (forall ch, cc_bufs s ch = []) ->
+  (forall tid, cc_live s tid = true -> exists c v k, cc_prog s tid = CSend c v k) ->
+  ~ exists s', cstep s s'.
+Proof.
+  intros s Hcap Hbuf Hsend [s' Hstep].
+  destruct Hstep as [p b lv tid c v k Hlv Hp Hroom
+                    | p b lv tid c f v rest Hlv Hp Hbc
+                    | p b lv ts tr c v k f Hlvs Hlvr Hne Hps Hpr Hbc].
+  - (* send: guard [length (b c) < cap c], but [cap c = 0] *) rewrite Hcap in Hroom. lia.
+  - (* recv: this goroutine is a SEND, not a CRecv *)
+    destruct (Hsend tid Hlv) as [c0 [v0 [k0 Hps]]]. cbn in Hps. congruence.
+  - (* sync: the would-be RECEIVER is a SEND *)
+    destruct (Hsend tr Hlvr) as [c0 [v0 [k0 Hps0]]]. cbn in Hps0. congruence.
+Qed.
+
+(** Concrete witness: two goroutines both SEND on unbuffered channel 0, nobody receives → STUCK. *)
+Corollary ublock_stuck : (forall ch, cap ch = 0) ->
+  ~ exists s', cstep (mkCC (fun t => CSend 0 (if Nat.eqb t 0 then 7 else 8) CRet)
+                           (fun _ => []) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))) s'.
+Proof.
+  intros Hcap. apply all_senders_stuck; cbn.
+  - exact Hcap.
+  - intros ch. reflexivity.
+  - intros tid _. exists 0, (if Nat.eqb tid 0 then 7 else 8), CRet. reflexivity.
+Qed.
+
+(** RENDEZVOUS fires — on the SAME unbuffered channel, a sender (g0) and a receiver (g1) step together
+    even though buffering is impossible: the synchronous handshake is the cap-0 transfer mechanism. *)
+Definition urv_cfg : CConfig :=
+  mkCC (fun t => if Nat.eqb t 0 then CSend 0 42 CRet else CRecv 0 (fun _ => CRet))
+       (fun _ => [])
+       (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)).
+
+Lemma urv_can_sync : exists s', cstep urv_cfg s'.
+Proof.
+  eexists. unfold urv_cfg.
+  eapply cstep_sync with (ts := 0) (tr := 1);
+    [ reflexivity | reflexivity | discriminate | reflexivity | reflexivity | reflexivity ].
+Qed.
+
+End BoundedChannels.
