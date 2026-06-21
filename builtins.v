@@ -4763,7 +4763,18 @@ Qed.
     type's identity, so protocol mismatches stay TYPE ERRORS.  The single [IO A]
     field erases (Coq unboxes a one-field record), and the phantom [i]/[j]
     parameters never appear in it, so [Sess i j A] lowers exactly like [IO A] —
-    the plugin lowers the session OPERATIONS by name (channel passing). *)
+    the plugin lowers the session OPERATIONS by name (channel passing).
+
+    HONEST SCOPE (release-blocking break #3, tracked in PROGRESS.md): the [Fail]
+    linearity guarantees bind sessions built from the COMBINATORS below.  [MkSess]
+    is still PUBLIC, so a raw [MkSess (ret tt) : Sess P PEnd unit] forges any
+    protocol with a no-op body (lowering to a channel that is never communicated).
+    Sealing the constructor is NOT a cheap erased-evidence fix: Rocq 9.2 has no
+    [Local]/[Private] inductive-constructor mechanism (both forms are rejected;
+    [Private] restricts matching, not construction), so an airtight seal needs
+    opaque module ascription — which requires a Module-Type [Parameter] (discharged,
+    so it adds no [Print Assumptions] axiom, but brushes rule 3's "never Parameter")
+    — OR a real session-IO semantics tying [run_sess] to the protocol (limit #2). *)
 Record Sess (i j : Proto) (A : Type) : Type := MkSess { run_sess : IO A }.
 Arguments MkSess {i j A} _.
 Arguments run_sess {i j A} _.

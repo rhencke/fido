@@ -665,8 +665,18 @@ any "verified" claim.
    golden risk (must keep `S.Sess` extracting as unboxed `IO`, basenames `ssend`/… still recognized; opaque
    ascription introduces NO axiom).  (b) **real session-IO semantics** — make `run_sess` actually perform the
    send/recv so the indices are a provable consequence; this is limit-#2 foundation (the typed↔operational
-   bridge).  NEXT TICK: attempt (a); if it breaks the plugin/golden after honest effort, fall back to (b)
-   and record it as foundation-blocked rather than faking a seal.
+   bridge).
+   **→ ATTEMPTED & BLOCKED (2026-06-21).**  Tried the cheapest version of (a): an SProp CAPABILITY-TOKEN
+   field on `MkSess` whose constructor is `Local` (so only `builtins.v` can mint it; SProp ⇒ erased ⇒
+   golden-stable).  Rocq 9.2 REJECTS it: both `#[local] Inductive` and `Local Inductive` give "This command
+   does not support this attribute: local," and `Private Inductive` restricts *matching*, not *construction*.
+   So there is NO way to hide an inductive constructor short of opaque module ascription, which forces a
+   Module-Type `Parameter`.  **This converts break #3 into a POLICY DECISION for the user:** permit a
+   *discharged* Module-Type `Parameter` (verified to add no `Print Assumptions` axiom — honoring rule 3's
+   PURPOSE while brushing its LETTER) to enable the module seal (a), OR treat #3 as foundation-blocked
+   pending the session-IO semantics (b).  Until decided, the `Sess` doc now states the hole HONESTLY (the
+   `Fail` discipline binds combinator-built sessions; `MkSess` remains forgeable).  No code seal landed;
+   loop pivots to break #5 (`ValidWorld`, proof-only, no blockers) next.
 4. **Evidence-carrying equality APIs carry NO evidence.** `ComparableW := {cw_eqb : K->K->bool}` and
    `struct_eqb (eqb) a b := eqb a b` — public constructors, no `forall x y, eqb x y = true <-> x = y`,
    both erase to native `==`.  `struct_eqb (fun _ _ => false) p p` = `false` in Rocq, `true` in Go.
