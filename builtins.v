@@ -2563,8 +2563,15 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
            | v :: _ => ORet v (chan_recv_upd tag ch w)
            | nil    => ORet (zero_val tag) w
            end.
+(** Break #6 (channels): [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" —
+    instead of fabricating a close at the reserved location 0.  (Go also panics on a double-close, the
+    [chan_closed] guard below.)  [send]/[recv] on a nil channel BLOCK FOREVER in Go; that is the documented
+    "blocking idealised away" limitation (a faithful model needs a divergence/stuck outcome — foundation),
+    and like all nil ops it is UNREACHABLE in the closed world ([make_chan] mints a nonzero handle —
+    [chan_alloc_close_no_panic]).  Lowered by name ([close(ch)]), so the guard is golden-stable. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
-  fun w => if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_close_upd tag ch w).
+  fun w => if PrimInt63.eqb (ch_loc ch) 0%uint63 then OPanic (any tt) w
+           else if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_close_upd tag ch w).
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
            | v :: _ => f v true (chan_recv_upd tag ch w)
@@ -2776,13 +2783,21 @@ Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros A B tag ch f w H _. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
 Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
-Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_closed ch w = true ->
   run_io (close_chan tag ch) w = OPanic (any tt) w.
-Proof. intros A tag ch w H. unfold close_chan, run_io. rewrite H. reflexivity. Qed.
+Proof.
+  intros A tag ch w H. unfold close_chan, run_io. rewrite H.
+  destruct (PrimInt63.eqb (ch_loc ch) 0%uint63); reflexivity.   (* nil OR closed ⇒ panic *)
+Qed.
+(** Faithfulness: [close] on a nil channel PANICS, exactly as Go's [close(nil)]. *)
+Lemma close_chan_nil : forall {A} (tag : GoTypeTag A) (w : World),
+  run_io (close_chan tag (@MkChan A 0%uint63)) w = OPanic (any tt) w.
+Proof. reflexivity. Qed.
 
 (** ---- The channel laws, now DERIVED as theorems ---- *)
 
@@ -2815,25 +2830,29 @@ Proof.
   rewrite chan_buf_send, Hempty. reflexivity.
 Qed.
 
-(** Sending on a closed channel panics (Go spec): close then send → panic. *)
+(** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
+    nil one would panic at the first [close].) *)
 Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => send tag ch v)) w
   = OPanic (any tt) (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch v w Hopen.
-  rewrite run_bind, (run_close tag ch w Hopen). cbn.
+  intros A tag ch v w Hnn Hopen.
+  rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
   exact (run_send_closed tag ch v (chan_close_upd tag ch w) (chan_closed_close tag ch w)).
 Qed.
 
-(** Closing an already-closed channel panics (Go spec): close then close → panic. *)
+(** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a non-nil
+    channel — a nil one would panic at the first [close].) *)
 Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => close_chan tag ch)) w
   = OPanic (any tt) (chan_close_upd tag ch w).
 Proof.
-  intros A tag ch w Hopen.
-  rewrite run_bind, (run_close tag ch w Hopen). cbn.
+  intros A tag ch w Hnn Hopen.
+  rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
   exact (run_close_closed tag ch (chan_close_upd tag ch w) (chan_closed_close tag ch w)).
 Qed.
 
@@ -4210,6 +4229,24 @@ Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeT
 Proof.
   intros K V kt vt k v w m w' HV Hrun. eexists.
   apply map_set_nonnil, (map_make_typed_nonzero kt vt w m w' HV Hrun).
+Qed.
+
+(** Channel analogue: an ALLOCATED channel is non-nil ([make_chan] mints the old [w_next], nonzero by
+    break #5), so [close] on it never hits the nil panic.  [chan_alloc_close_no_panic] is the guarantee
+    (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
+    [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case. *)
+Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> PrimInt63.eqb (ch_loc ch) 0%uint63 = false.
+Proof.
+  intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
+Qed.
+Corollary chan_alloc_close_no_panic : forall {A} (tag : GoTypeTag A) (w : World) ch w',
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> chan_closed ch w' = false ->
+  exists w'', run_io (close_chan tag ch) w' = ORet tt w''.
+Proof.
+  intros A tag w ch w' HV Hrun Hcl. eexists.
+  apply run_close; [ apply (make_chan_nonzero tag w ch w' HV Hrun) | exact Hcl ].
 Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME

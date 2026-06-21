@@ -741,12 +741,21 @@ any "verified" claim.
    panic class — nil, div-by-zero, OOB, send-on-closed, failed assert — reachable in a well-formed
    closed-world program; the evidence-carrying APIs (`div_nz`, `slice_at`, these) are the bricks, and the
    eventual capstone is a global progress/"no-stuck" theorem (cf. break #7, universal safety).**
-   **STILL OPEN: nil-CHAN.**  `close` on a nil channel PANICS ("close of nil channel") — tractable, a
-   parallel guard.  `send`/`recv` on a nil channel BLOCK FOREVER — NOT expressible as a returning
-   `Outcome` (`run_io` is total); needs a "stuck"/divergence outcome, genuinely harder (assess vs. defer).
-   The **aliasing** point (all nils of a kind share loc 0) is now benign for ptr AND map (any write op on
-   loc 0 panics before touching the heap), still latent for chan.  OPEN-WORLD WRITE guards (a `ptr_set_ok`
-   / `map_set_ok` comma-ok form, parallel to `ptr_get_ok`) are a follow-up — they need plugin lowering.
+   **→ CHANNELS: close DONE (2026-06-21, golden byte-identical).**  `close_chan` on a nil channel
+   (`MkChan 0`) now PANICS ("close of nil channel") via an `eqb (ch_loc ch) 0` guard before the
+   double-close guard; `close_chan_nil` machine-checks it.  `run_close` gained a non-nil hypothesis,
+   `run_close_closed` stays unconditional (nil OR closed ⇒ panic), `send_closed_panics`/`double_close_panics`
+   gained the non-nil hypothesis (a nil channel panics at the *first* close).  Closed-world safety:
+   `make_chan_nonzero` (allocated channel is non-nil, from break #5) ⇒ `chan_alloc_close_no_panic`
+   (allocate-then-close ⇒ provably no nil panic).  No concurrency-bridge ripple (close isn't used there).
+   **STILL OPEN: nil-CHAN send/recv BLOCK FOREVER** — Go deadlocks; NOT expressible as a returning
+   `Outcome` (`run_io` total), and a fail-loud `OPanic` over-approximation would ripple through the ENTIRE
+   channel concurrency bridge (D_send/D_recv, mp_handoff, MpReach).  Faithful modeling needs a
+   divergence/"stuck" outcome (foundation) — deferred honestly; UNREACHABLE in the closed world anyway
+   (`make_chan_nonzero`), and it is the same "blocking idealised away" limitation already documented for
+   `recv` on an empty-open channel.  The **aliasing** point (all nils share loc 0) is now benign for ptr,
+   map, AND chan-close.  OPEN-WORLD WRITE guards (`ptr_set_ok`/`map_set_ok` comma-ok, parallel to
+   `ptr_get_ok`) remain a follow-up — they need plugin lowering.
 7. **Runtime tag identity ≠ Go type identity.** `TInt64` tags Rocq `int`, `TI64` tags `GoI64`; both
    lower to Go `int64`, but `tag_eq` distinguishes them → a `TInt64`-boxed value asserted at `TI64`
    fails/panics in the model while Go's `int64` assertion succeeds.  Fix: one canonical runtime tag per
