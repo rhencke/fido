@@ -2177,6 +2177,58 @@ Proof.
   - cbn [rc_bufs]. upd_proj. reflexivity.
 Qed.
 
+(** ── LIMIT #2, slice 2-A — EVERY interleaving of the typed pointer handoff is race-free (Keller-style). ──
+    [mp_exec_race_free] showed ONE execution race-free; the goal is ALL of them.  Following Keller 1976's
+    inductive-invariant method ("Formal Verification of Parallel Programs"): the channel SERIALIZES
+    [mp_prog] — g1's recv waits for g0's send, which follows g0's write — so every reachable state falls
+    into one of FIVE phases whose traces are prefixes of [mp_trace].  [MpReach] is that STRENGTHENED
+    reachability invariant: the buffer/prog facts (Keller's semaphore-W analogue) pin the phase, which
+    the bare "trace is a prefix" could not (it would not be inductive).  This brick = the invariant + its
+    BASE case ([mpreach_init]) + the SAFETY direction ([mpreach_race_free]: pre-handoff phases A–D have
+    ≤1 memory access — only g0 has written — race-free by [le1_mem_access_race_free]; phase E = [mp_trace],
+    race-free by [mp_trace_race_free]).  The rstep-PRESERVATION (the keystone closing the all-interleavings
+    theorem) is the next brick. *)
+Definition MpReach (v0 v1 : nat) (cfg : RConfig) : Prop :=
+  rc_live cfg = (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
+  /\ ( (rc_trace cfg = [] /\ rc_prog cfg 0 = CWrite 0 v0 (CSend 0 v1 CRet)
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CRead 0 (fun _ => CRet)) /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 0)] /\ rc_prog cfg 0 = CSend 0 v1 CRet
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CRead 0 (fun _ => CRet)) /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 0); mkEv 0 (KSend 0)] /\ rc_prog cfg 0 = CRet
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CRead 0 (fun _ => CRet)) /\ rc_bufs cfg 0 = [(v1, 1)])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 0); mkEv 0 (KSend 0); mkEv 1 (KRecv 0 1)]
+        /\ rc_prog cfg 0 = CRet /\ rc_prog cfg 1 = CRead 0 (fun _ => CRet) /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = mp_trace /\ rc_prog cfg 0 = CRet /\ rc_prog cfg 1 = CRet /\ rc_bufs cfg 0 = []) ).
+
+Lemma mpreach_init : forall v0 v1, MpReach v0 v1 (mp_init v0 v1).
+Proof.
+  intros v0 v1. unfold MpReach, mp_init, mp_prog. cbn.
+  split; [reflexivity | left; repeat split; reflexivity].
+Qed.
+
+(** Refinement of [le1_mem_access_race_free]: if every memory access sits at position 0, the trace is
+    race-free (a race needs two distinct-goroutine accesses; both would be at 0, same goroutine). *)
+Lemma mem_access_only0_race_free : forall t,
+  (forall i ai, tr_acc t i = Some ai -> i = 0) -> TraceRaceFree t.
+Proof.
+  intros t H. apply le1_mem_access_race_free. intros i j Hi Hj.
+  destruct (tr_acc t i) as [ai|] eqn:Ei; [| exfalso; apply Hi; reflexivity].
+  destruct (tr_acc t j) as [aj|] eqn:Ej; [| exfalso; apply Hj; reflexivity].
+  apply H in Ei; apply H in Ej; subst; reflexivity.
+Qed.
+
+Lemma mpreach_race_free : forall v0 v1 cfg, MpReach v0 v1 cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 cfg [_ Hph].
+  (* phases A–D: only g0's write (position 0) is a memory access — [tr_acc_lt] bounds the index, so the
+     finitely-many in-range positions are checked and the out-of-range ones are killed by [lia]. *)
+  destruct Hph as [[Htr _]|[[Htr _]|[[Htr _]|[[Htr _]|[Htr _]]]]]; rewrite Htr;
+    try (apply mem_access_only0_race_free; intros i ai Hi;
+         pose proof (tr_acc_lt _ _ _ Hi) as L; destruct i as [|[|[|i]]]; cbn in Hi;
+         first [reflexivity | discriminate Hi | (cbn in L; lia)]).
+  exact mp_trace_race_free.   (* phase E = mp_trace: ordered write/read *)
+Qed.
+
 (** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
     Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
     goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
