@@ -722,11 +722,31 @@ any "verified" claim.
    `ptrenv_live` hypothesis (its pointers are allocated ⇒ non-nil) so the raw derefs coincide with the
    bridge ref-accesses.  Lowered by name ⇒ golden unchanged; demos deref only live pointers.  Base:
    PrimInt63 + the pre-existing funext holdout (`run_io_inj` for IO equality), no NEW axiom.
-   **STILL OPEN: nil-MAP-write panic** (`map_set` on `MkMap 0` must panic — "assignment to entry in nil
-   map"; nil-map READ already returns zero, correct) and **nil-CHAN block** (send/recv on a nil channel
-   block FOREVER — not expressible as a returning `Outcome`; needs a "stuck"/divergence model, harder).
-   Also the **aliasing** point (all nils of a kind share loc 0) is now benign for ptr (any op on loc 0
-   panics before touching the heap), still latent for map/chan.
+   **→ MAPS DONE (2026-06-21, golden byte-identical).**  `map_set` on a nil map (`MkMap 0`) now PANICS
+   (`if eqb (gm_loc m) 0 then OPanic … else …`) — Go's "assignment to entry in nil map" — instead of
+   fabricating a cell at loc 0.  `map_set_nil` machine-checks it; `map_get_set_same` re-proved
+   unconditionally (nil ⇒ both sides panic at `map_set`), `map_get_set_diff` gained a non-nil hypothesis
+   (its post-state is only `map_upd` on a live map).  Nil-map READ already returns zero (`map_get_empty`,
+   Go-faithful) and `delete`/`clear` on nil are no-ops (no guard added) — only assignment panics.  Lowered
+   by name ⇒ golden unchanged; demos write only allocated maps.
+   **CLOSED-WORLD SAFETY (the point — modeling the panic is only half).**  The modeled nil panic plays
+   TWO roles: (1) COMPLETENESS (faithful to Go), and (2) DEFENCE — a cheap RUNTIME guard for the future
+   OPEN WORLD (imports), where proofs rest on axioms about external code that could be WRONG; the check
+   turns "an import handed back nil" into a loud panic, not silent heap corruption.  But in the CLOSED
+   WORLD the "oops" must NEVER fire, and now it provably can't: `ptr_new_nonzero` / `map_make_typed_nonzero`
+   (from break #5's `valid_fresh_nonzero`) prove an allocated handle is non-nil, and `ptr_set_nonnil` /
+   `ptr_get_nonnil` / `map_set_nonnil` show the panic branch is then DEAD — capped by `ptr_alloc_assign_no_panic`
+   / `map_alloc_set_no_panic` (*allocate then use ⇒ provably no panic*).  The OPEN-WORLD boundary (an
+   ARBITRARY handle) still guards via `ptr_get_ok` / `ptr_is_nil`.  **Aspiration (recorded as the bar): NO
+   panic class — nil, div-by-zero, OOB, send-on-closed, failed assert — reachable in a well-formed
+   closed-world program; the evidence-carrying APIs (`div_nz`, `slice_at`, these) are the bricks, and the
+   eventual capstone is a global progress/"no-stuck" theorem (cf. break #7, universal safety).**
+   **STILL OPEN: nil-CHAN.**  `close` on a nil channel PANICS ("close of nil channel") — tractable, a
+   parallel guard.  `send`/`recv` on a nil channel BLOCK FOREVER — NOT expressible as a returning
+   `Outcome` (`run_io` is total); needs a "stuck"/divergence outcome, genuinely harder (assess vs. defer).
+   The **aliasing** point (all nils of a kind share loc 0) is now benign for ptr AND map (any write op on
+   loc 0 panics before touching the heap), still latent for chan.  OPEN-WORLD WRITE guards (a `ptr_set_ok`
+   / `map_set_ok` comma-ok form, parallel to `ptr_get_ok`) are a follow-up — they need plugin lowering.
 7. **Runtime tag identity ≠ Go type identity.** `TInt64` tags Rocq `int`, `TI64` tags `GoI64`; both
    lower to Go `int64`, but `tag_eq` distinguishes them → a `TInt64`-boxed value asserted at `TI64`
    fails/panics in the model while Go's `int64` assertion succeeds.  Fix: one canonical runtime tag per

@@ -2204,8 +2204,14 @@ Definition map_len {K V} (m : GoMap K V) : IO GoInt :=
 (** [map_get_or k default m]: the value at [k], or [default] if absent. *)
 Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (default : V) (m : GoMap K V) : IO V :=
   fun w => ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
+(** Break #6 (maps): a WRITE to a NIL map ([MkMap 0], [gm_loc = 0]) PANICS — Go's "assignment to entry
+    in nil map" — instead of fabricating a cell at the reserved location 0.  (Go's nil map is fine to
+    READ — zero for every key — and to [delete]/[clear] — no-ops; only assignment panics, so only
+    [map_set] gains the guard.)  Location 0 is reserved by [ValidWorld] (break #5), so [eqb (gm_loc m) 0]
+    exactly detects nil.  Lowered by name ([m[k] = v]), so the guard is golden-stable. *)
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
-  fun w => ORet tt (map_upd kt vt k v m w).
+  fun w => if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic (any tt) w
+           else ORet tt (map_upd kt vt k v m w).
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => ORet tt (map_rem kt vt k m w).
 
@@ -2220,7 +2226,14 @@ Lemma run_map_get_or : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K
   ORet (match map_sel kt vt k m w with Some v => v | None => default end) w.
 Proof. reflexivity. Qed.
 Lemma run_map_set : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
-  run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
+  run_io (map_set kt vt k v m) w =
+    if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic (any tt) w
+    else ORet tt (map_upd kt vt k v m w).
+Proof. reflexivity. Qed.
+
+(** Faithfulness: assigning to a NIL map PANICS, exactly as Go's [m[k] = v] on a nil [m]. *)
+Lemma map_set_nil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World),
+  run_io (map_set kt vt k v (@map_empty K V)) w = OPanic (any tt) w.
 Proof. reflexivity. Qed.
 Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_delete kt vt k m) w = ORet tt (map_rem kt vt k m w).
@@ -2297,9 +2310,11 @@ Lemma map_get_set_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   bind (map_set kt vt k v m) (fun _ => ret (Some v)).
 Proof.
   intros K V kt vt k v m Hcmp. apply run_io_inj. intro w.
-  rewrite !run_bind, !run_map_set. cbn.
-  rewrite run_map_get_opt, map_sel_upd_same by (apply comparable_key_refl; exact Hcmp).
-  rewrite run_ret. reflexivity.
+  rewrite !run_bind, !run_map_set.
+  destruct (PrimInt63.eqb (gm_loc m) 0%uint63) eqn:Hnil.
+  - reflexivity.   (* nil map: both sides panic at the [map_set] step *)
+  - cbn. rewrite run_map_get_opt, map_sel_upd_same by (apply comparable_key_refl; exact Hcmp).
+    rewrite run_ret. reflexivity.
 Qed.
 
 Lemma map_get_delete_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
@@ -2323,15 +2338,16 @@ Proof.
   intros K V kt vt k w Hw. rewrite run_map_get_opt, map_sel_empty by exact Hw. reflexivity.
 Qed.
 
-(** Setting key [k2] leaves the read at a different key [k1] unchanged. *)
+(** Setting key [k2] leaves the read at a different key [k1] unchanged — on a NON-NIL map (a nil map
+    would panic at the [map_set], so the post-state is not [map_upd]). *)
 Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 ->
+  Comparable kt -> k1 <> k2 -> PrimInt63.eqb (gm_loc m) 0%uint63 = false ->
   run_io (bind (map_set kt vt k2 v m) (fun _ => map_get_opt kt vt k1 m)) w =
   ORet (map_sel kt vt k1 m w) (map_upd kt vt k2 v m w).
 Proof.
-  intros K V kt vt k1 k2 v m w Hcmp Hne.
-  rewrite run_bind, run_map_set. cbn.
+  intros K V kt vt k1 k2 v m w Hcmp Hne Hnil.
+  rewrite run_bind, run_map_set, Hnil. cbn.
   rewrite run_map_get_opt, map_sel_upd_diff by assumption. reflexivity.
 Qed.
 
@@ -4128,6 +4144,72 @@ Proof.
   destruct (PrimInt63.eqb (p_loc p) 0%uint63) eqn:Hnil.
   - reflexivity.
   - cbn. rewrite run_ptr_get, Hnil, ref_sel_upd_same, run_ret. reflexivity.
+Qed.
+
+(** ---- CLOSED-WORLD nil-safety: the modeled nil panics are UNREACHABLE for ALLOCATED handles ----
+
+    Modeling the nil panic (in [ptr_get]/[ptr_set]/[map_set]) plays TWO roles.  (1) COMPLETENESS: it is
+    faithful to Go's [*nil] / nil-map-write.  (2) DEFENCE: it is a cheap RUNTIME guard for the future
+    OPEN WORLD (imports), where proofs will rest on axioms about external code that could be WRONG — the
+    check turns a bad assumption (an import handing back nil where we assumed non-nil) into a loud panic
+    rather than silent heap corruption.  But in the CLOSED WORLD — every handle minted by an allocator —
+    the "oops" must never fire: break #5 ([valid_fresh_nonzero]) proves a freshly minted location is
+    nonzero, so an allocated pointer/map is provably non-nil and the op takes the heap branch, NEVER
+    [OPanic].  ([ptr_alloc_assign_no_panic] / [map_alloc_set_no_panic] are that guarantee.)  The OPEN-WORLD
+    boundary — a function handed an ARBITRARY handle — still guards via [ptr_get_ok] / [ptr_is_nil] before
+    crossing in.  (Goal: NO panic class — nil, div-by-zero, OOB, send-on-closed — is reachable in a
+    well-formed closed-world program; the evidence-carrying APIs ([div_nz], [slice_at], here) are the bricks.) *)
+Lemma pos_neq0 : forall x : int, (0 <? x)%uint63 = true -> PrimInt63.eqb x 0%uint63 = false.
+Proof.
+  intros x H. apply Bool.not_true_is_false. intro He.
+  apply Uint63.eqb_spec in He. subst x.
+  apply Uint63.ltb_spec in H. change (Uint63.to_Z 0) with 0%Z in H. lia.
+Qed.
+
+(** An ALLOCATED pointer is non-nil (its handle is the old [w_next], nonzero by break #5). *)
+Lemma ptr_new_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
+  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' -> PrimInt63.eqb (p_loc p) 0%uint63 = false.
+Proof.
+  intros A tag v w p w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hp _. subst p. cbn [p_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
+Qed.
+
+(** On a non-nil pointer the panic branch is DEAD — deref/assign just hit the heap. *)
+Lemma ptr_set_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
+  PrimInt63.eqb (p_loc p) 0%uint63 = false ->
+  run_io (ptr_set tag p v) w = ORet tt (ref_upd (ptr_as_ref tag p) v w).
+Proof. intros A tag p v w Hnn. rewrite run_ptr_set, Hnn. reflexivity. Qed.
+Lemma ptr_get_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
+  PrimInt63.eqb (p_loc p) 0%uint63 = false ->
+  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref tag p) w) w.
+Proof. intros A tag p w Hnn. rewrite run_ptr_get, Hnn. reflexivity. Qed.
+
+(** CLOSED-WORLD GUARANTEE: allocate a pointer, then assign through it — provably NO panic. *)
+Corollary ptr_alloc_assign_no_panic : forall {A} (tag : GoTypeTag A) (v v' : A) (w : World) p w',
+  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' ->
+  exists w'', run_io (ptr_set tag p v') w' = ORet tt w''.
+Proof.
+  intros A tag v v' w p w' HV Hrun. eexists.
+  apply ptr_set_nonnil, (ptr_new_nonzero tag v w p w' HV Hrun).
+Qed.
+
+(** The map analogues: an allocated map is non-nil, so [map_set] on it never panics. *)
+Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> PrimInt63.eqb (gm_loc m) 0%uint63 = false.
+Proof.
+  intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
+  injection Hrun as Hm _. subst m. cbn [gm_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
+Qed.
+Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
+  PrimInt63.eqb (gm_loc m) 0%uint63 = false ->
+  run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
+Proof. intros K V kt vt k v m w Hnn. rewrite run_map_set, Hnn. reflexivity. Qed.
+Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World) m w',
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' ->
+  exists w'', run_io (map_set kt vt k v m) w' = ORet tt w''.
+Proof.
+  intros K V kt vt k v w m w' HV Hrun. eexists.
+  apply map_set_nonnil, (map_make_typed_nonzero kt vt w m w' HV Hrun).
 Qed.
 
 (** ALIASING — the defining pointer property, a THEOREM: two pointers at the SAME
