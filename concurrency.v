@@ -768,6 +768,81 @@ Proof.
   - unfold po, tid_at; cbn. repeat split; lia.
 Qed.
 
+(** ── MULTI-HOP handoff: ownership transferred through a CHAIN of channels (g0 ⇝ g1 ⇝ g2 ⇝ …). ──
+    The single [Handoff] is one [po]·[sync]·[po].  [syncpath t i j] is the TRANSITIVE closure
+    [po]·([sync]·[po])* — an access [i], then any number of (program-step to a SEND/SPAWN, hand off to
+    the matching RECV/START, program-step on) hops, reaching [j].  Each hop is two [hbt] edges, so a
+    whole path is [hbt] ([syncpath_hbt]); hence a [SyncDisciplined] trace (every conflicting pair has a
+    path) is [Owned] — race-free.  This STRICTLY generalises [HandoffDisciplined]
+    ([handoff_syncpath]: one hop is a path), covering ownership that moves across SEVERAL channels
+    before the final access — which a single handoff cannot express. *)
+Inductive syncpath (t : Trace) : nat -> nat -> Prop :=
+  | sp_po   : forall i j, po t i j -> syncpath t i j
+  | sp_step : forall i s r j, po t i s -> sync t s r -> syncpath t r j -> syncpath t i j.
+
+Lemma syncpath_hbt : forall t i j, syncpath t i j -> hbt t i j.
+Proof.
+  intros t i j H. induction H as [i j Hpo | i s r j Hpo Hsync Hpath IH].
+  - apply hbt_po; exact Hpo.
+  - apply hbt_trans with (j := s); [apply hbt_po; exact Hpo |].
+    apply hbt_trans with (j := r); [apply hbt_sync; exact Hsync | exact IH].
+Qed.
+
+Definition SyncDisciplined (t : Trace) : Prop :=
+  forall i j, i < j -> same_loc t i j -> syncpath t i j.
+
+Theorem sync_disciplined_owned : forall t, SyncDisciplined t -> Owned t.
+Proof. intros t SD i j Hij Hsl. left. apply syncpath_hbt. exact (SD i j Hij Hsl). Qed.
+
+Theorem sync_disciplined_race_free : forall t, SyncDisciplined t -> TraceRaceFree t.
+Proof. intros t SD. exact (owned_race_free t (sync_disciplined_owned t SD)). Qed.
+
+(** A single [Handoff] is a one-hop [syncpath], so the multi-hop discipline subsumes the single one. *)
+Lemma handoff_syncpath : forall t i j, i < j -> same_loc t i j -> Handoff t i j -> syncpath t i j.
+Proof.
+  intros t i j Hij Hsl [Hsame | [s [r [Hpo1 [Hsync Hpo2]]]]].
+  - apply sp_po. unfold po. split; [exact Hij | split; [| exact Hsame]].
+    destruct Hsl as [l [_ Hj]]. exact (acc_loc_at_lt _ _ _ Hj).
+  - apply sp_step with (s := s) (r := r); [exact Hpo1 | exact Hsync | apply sp_po; exact Hpo2].
+Qed.
+
+Corollary handoff_disciplined_sync : forall t, HandoffDisciplined t -> SyncDisciplined t.
+Proof. intros t HD i j Hij Hsl. exact (handoff_syncpath t i j Hij Hsl (HD i j Hij Hsl)). Qed.
+
+(** Witness needing TWO hops: g0 writes loc 7, sends on ch0; g1 receives ch0, sends on ch1; g2
+    receives ch1, reads loc 7.  The write (pos 0) and read (pos 5) are race-free ONLY through the
+    2-hop chain 0 →po 1 →sync 2 →po 3 →sync 4 →po 5 — a single handoff cannot reach. *)
+Definition two_hop_trace : Trace :=
+  [ mkEv 0 (KWrite 7); mkEv 0 (KSend 0); mkEv 1 (KRecv 0 1);
+    mkEv 1 (KSend 1);  mkEv 2 (KRecv 1 3); mkEv 2 (KRead 7) ].
+
+Lemma two_hop_loc_pos : forall i l, acc_loc_at two_hop_trace i = Some l -> i = 0 \/ i = 5.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold two_hop_trace, acc_loc_at in H.
+  destruct i as [|[|[|[|[|[|i]]]]]]; cbn in H;
+    [ left; reflexivity | discriminate | discriminate
+    | discriminate | discriminate | right; reflexivity | lia ].
+Qed.
+
+Lemma two_hop_disciplined : SyncDisciplined two_hop_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]].
+  destruct (two_hop_loc_pos i l Hi) as [-> | ->];
+    destruct (two_hop_loc_pos j l Hj) as [-> | ->]; try lia.
+  (* 0 ⇝ 5: po 0 1, sync 1 2, po 2 3, sync 3 4, po 4 5 *)
+  apply sp_step with (s := 1) (r := 2).
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv 1 (KRecv 0 1)); cbn. split; reflexivity.
+  - apply sp_step with (s := 3) (r := 4).
+    + unfold po, tid_at; cbn. repeat split; lia.
+    + unfold sync; cbn. exists (mkEv 2 (KRecv 1 3)); cbn. split; reflexivity.
+    + apply sp_po. unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
+Theorem two_hop_race_free : TraceRaceFree two_hop_trace.
+Proof. exact (sync_disciplined_race_free _ two_hop_disciplined). Qed.
+
 (** FORK-edge ownership handoff — the OTHER go-mem synchronisation: "the [go] statement that starts a
     new goroutine is synchronised before the goroutine's execution begins" (go.dev/ref/mem).  Same
     [transfer_orders] shape as the channel handoff, but the sync edge is the SPAWN→START pair

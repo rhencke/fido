@@ -1691,9 +1691,14 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    the two bases — `locprivate_handoff_disciplined` (no sharing ⇒ same-goroutine disjunct) and
    `handoff_trace_disciplined` (the channel handoff ⇒ the `po·sync·po` disjunct, re-deriving
    `handoff_race_free` through the discipline).  Axiom-free.  Future programs earn race-freedom by
-   exhibiting the STRUCTURE, not a hand-built `Owned` proof.  *Still open:* a PROGRAM-level (`Cmd`)
-   discipline ⇒ the reachable traces are `HandoffDisciplined` (subtle: dynamic `CSpawn`); and
-   MULTI-HOP handoffs (ownership transferred through a chain of channels, not a single `sync`).
+   exhibiting the STRUCTURE, not a hand-built `Owned` proof.  **MULTI-HOP now DONE (2026-06-21):**
+   `syncpath t i j` = the transitive `po`·(`sync`·`po`)* — an access, then any number of (program-step
+   to a send/spawn, hand off to the matching recv/start, program-step on) hops; `syncpath_hbt` (each
+   hop = two `hbt` edges) ⇒ `sync_disciplined_owned`/`_race_free`.  STRICTLY generalises the single
+   handoff (`handoff_disciplined_sync`: one hop is a path); witness `two_hop_race_free` — ownership
+   passes g0⇝g1⇝g2 across TWO channels before the final read, race-free via the 2-hop chain (a single
+   handoff cannot reach).  Axiom-free.  *Still open:* a PROGRAM-level (`Cmd`) discipline ⇒ the
+   reachable traces are `SyncDisciplined` (subtle: dynamic `CSpawn`).
 3. **Model completeness — exact FIFO (done), liveness, real memory.**  *Exact FIFO —
    DONE:* `reachable_sorted` (concurrency.v, axiom-free) — every reachable channel
    buffer is STRICTLY INCREASING in send position (`BufSorted`, via `step_preserves_
