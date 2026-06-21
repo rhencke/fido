@@ -2229,6 +2229,76 @@ Proof.
   exact mp_trace_race_free.   (* phase E = mp_trace: ordered write/read *)
 Qed.
 
+(** The KEYSTONE: [MpReach] is rstep-PRESERVED.  In each phase the channel/prog state forces the UNIQUE
+    next step; every other rstep constructor contradicts a phase fact — head mismatch or empty/nonempty
+    buffer (both closed by [congruence] against [Hp0]/[Hp1]/[Hb0]), or a closed-recv/select whose
+    [KClose] back-pointer can't exist in mp's KClose-free trace ([nth_error]+[e_kind] discharge).  The
+    live set = mp_live bounds the stepping goroutine to {0,1}. *)
+Lemma mpreach_step : forall v0 v1 cfg cfg',
+  rstep cfg cfg' -> MpReach v0 v1 cfg -> MpReach v0 v1 cfg'.
+Proof.
+  intros v0 v1 cfg cfg' Hstep [Hlive Hph].
+  destruct Hph as [HX|[HX|[HX|[HX|HX]]]]; destruct HX as [Htr [Hp0 [Hp1 Hb0]]];
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _
+      | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _
+      | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_live rc_trace rc_prog rc_bufs] in Hlive, Htr, Hp0, Hp1, Hb0;
+    rewrite Hlive in Hlv; cbn in Hlv; apply Bool.orb_true_iff in Hlv;
+    destruct Hlv as [Hlv|Hlv]; apply Nat.eqb_eq in Hlv; subst tid;
+    try (rewrite Hp0 in Hp); try (rewrite Hp1 in Hp);
+    try (exfalso; congruence);
+    try (exfalso; rewrite Htr in Hpos; destruct pos as [|[|[|pos]]]; cbn in Hpos;
+         first [ discriminate Hpos | (injection Hpos as <-; cbn in Hek; discriminate Hek) ]).
+  (* The four surviving goals are the unique real steps A→B, B→C, C→D, D→E (phase E has none). *)
+  - (* A→B : g0 write *)
+    injection Hp as Hl _ Hk; subst l; subst k.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; left. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* B→C : g0 send *)
+    injection Hp as Hc Hv Hk; subst c; subst v; subst k.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; left. rewrite Htr, Hb0. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* C→D : g1 recv *)
+    injection Hp as Hc Hf; subst c.
+    rewrite Hb0 in Hbc; injection Hbc as Hv Hs Hbrest; subst v; subst s; subst brest; subst f.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; right; left. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* D→E : g1 read *)
+    injection Hp as Hl Hf; subst l; subst f.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; right; right. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+Qed.
+
+Lemma mpreach_steps : forall v0 v1 cfg cfg',
+  rsteps cfg cfg' -> MpReach v0 v1 cfg -> MpReach v0 v1 cfg'.
+Proof.
+  intros v0 v1 cfg cfg' H. induction H; intros HM; [exact HM|].
+  apply IHrsteps. exact (mpreach_step _ _ _ _ H HM).
+Qed.
+
+(** THE ALL-INTERLEAVINGS THEOREM (slice 2-A closed): EVERY reachable state of the typed pointer
+    handoff has a race-free trace — not just the one canonical execution [mp_exec_race_free] witnessed.
+    The channel's serialization makes [MpReach] an inductive invariant ([mpreach_init] ∘
+    [mpreach_steps]) implying [TraceRaceFree] ([mpreach_race_free]).  Race-freedom over ALL schedules. *)
+Theorem mp_all_interleavings_race_free : forall v0 v1 cfg,
+  rsteps (mp_init v0 v1) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 cfg Hsteps.
+  apply (mpreach_race_free v0 v1).
+  exact (mpreach_steps _ _ _ _ Hsteps (mpreach_init v0 v1)).
+Qed.
+
 (** ── LIMIT #2, slice 2b — mp_prog's goroutines DENOTE a TYPED pointer-handoff IO program. ──
     Slice 2a grounded [mp_trace] in a real OPERATIONAL run ([mp_prog], nat-valued [Cmd]).  Here each
     goroutine of THAT program is shown to be the Keystone-DENOTATION of an EXTRACTABLE typed
