@@ -383,6 +383,16 @@ Proof.
   exists e'. rewrite nth_error_app_old by exact Hlt. split; [exact He'|exact Hk'].
 Qed.
 
+(** Same, for an ARBITRARY-length suffix (the [rstep_spawn] case appends TWO events, not one). *)
+Lemma BufOk_pos_app_gen : forall tr suf c s,
+  s < length tr -> (exists e', nth_error tr s = Some e' /\ e_kind e' = KSend c) ->
+  s < length (tr ++ suf) /\ exists e', nth_error (tr ++ suf) s = Some e' /\ e_kind e' = KSend c.
+Proof.
+  intros tr suf c s Hlt [e' [He' Hk']].
+  split; [rewrite length_app; lia |].
+  exists e'. rewrite nth_error_app1 by exact Hlt. split; [exact He'|exact Hk'].
+Qed.
+
 (** A trace with NO close event.  Used by the single-channel Keystone: its [OnChan]
     programs never close, so [rstep_recv_closed] — which demands a [KClose] in the
     trace — provably cannot fire there (the bridge stays in the open-channel regime). *)
@@ -1061,11 +1071,19 @@ Inductive rstep : RConfig -> RConfig -> Prop :=
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid (f (h l))) b h lv
                     (tr ++ [mkEv tid (KRead l)]))
+  (* spawn emits BOTH the parent's [KSpawn cid] AND the child's [KStart (length tr)] —
+     atomically GROUNDING Go's "the [go] statement happens-before the start of the goroutine's
+     execution" (go.dev/ref/mem) in the operational semantics: the [KStart]'s back-pointer is the
+     position of the [KSpawn] just emitted ([length tr]), so the fork synchronisation edge ([sync]
+     [KStart]->[KSpawn]) is now PRODUCED BY EXECUTION rather than hand-built in a witness trace.
+     ([KStart] carries the child [tid], so it joins the child's program order; pinning it right
+     after [KSpawn] is one valid linearisation and introduces NO spurious happens-before edge — [hbt]
+     is [po] (same-tid) U [sync] only, never global trace order — see [fork_exec_trace] below.) *)
   | rstep_spawn : forall p b h lv tr tid child k cid,
       lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
-                    (tr ++ [mkEv tid (KSpawn cid)]))
+                    (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]))
   (* select: pick ANY case [(c, f)] in [cases] whose channel [c] is READY ([b c = (v,s)::brest]);
      receive [v], BIND it into THAT case's continuation [f], emit the recv event.  Like
      [rstep_recv] but choosing among a SET of (channel, continuation) cases — so [rstep] is
@@ -1152,10 +1170,18 @@ Proof.
   - apply WfTrace_app; [exact Hwf | cbn; exact I].
   - intros c0 v0 s0 Hin. cbn [rc_bufs rc_trace] in Hin |- *.
     destruct (Hbuf c0 v0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
-  (* spawn WfTrace / RBufOk *)
-  - apply WfTrace_app; [exact Hwf | cbn; exact I].
+  (* spawn WfTrace / RBufOk: trace appends [KSpawn cid; KStart (length tr)] — TWO events.
+     WfTrace via two [WfTrace_app]s; the [KStart]'s obligation points at the [KSpawn] just laid down. *)
+  - change ([mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])
+      with ([mkEv tid (KSpawn cid)] ++ [mkEv cid (KStart (length tr))]).
+    rewrite app_assoc.
+    apply WfTrace_app.
+    + apply WfTrace_app; [exact Hwf | cbn; exact I].
+    + cbn. split; [rewrite length_app; cbn; lia |].
+      exists (mkEv tid (KSpawn cid)), cid.
+      rewrite nth_error_app_new. split; reflexivity.
   - intros c0 v0 s0 Hin. cbn [rc_bufs rc_trace] in Hin |- *.
-    destruct (Hbuf c0 v0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app; assumption.
+    destruct (Hbuf c0 v0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app_gen; assumption.
   (* select WfTrace / RBufOk — identical to recv (it receives on the chosen ready channel) *)
   - apply WfTrace_app; [exact Hwf | cbn].
     assert (Hins : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
@@ -1220,6 +1246,47 @@ Proof.
   intros p cfg Hsteps HO. split.
   - exact (owned_race_free _ HO).
   - intro i. apply hbt_irrefl. exact (reachable_wf_r p cfg Hsteps).
+Qed.
+
+(** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
+    [fork_handoff_trace] / [fork_handoff_race_free] (defined way above) were HAND-BUILT traces:
+    we asserted the events and proved the fork edge made the write/read non-racy.  Now that
+    [rstep_spawn] EMITS the child's [KStart], that very trace is PRODUCED BY RUNNING a program:
+    [main] writes loc 7, spawns a child, the child reads loc 7.  Executing it yields EXACTLY
+    [fork_handoff_trace] ([fork_exec_trace]) — so the fork synchronisation is no longer an
+    assertion about a literal but a CONSEQUENCE of the operational semantics, and race-freedom
+    then drops out of [reachable_owned_safe_r] ([fork_exec_race_free]).  This is the operational
+    analogue of "the [go] statement happens-before the start of the goroutine's execution". *)
+Definition fork_child : Cmd := CRead 7 (fun _ => CRet).
+Definition fork_prog : nat -> Cmd :=
+  fun n => if Nat.eqb n 0 then CWrite 7 99 (CSpawn fork_child CRet) else CRet.
+
+Theorem fork_exec_trace :
+  exists cfg, rsteps (rinit_cfg fork_prog) cfg /\ rc_trace cfg = fork_handoff_trace.
+Proof.
+  unfold rinit_cfg. eexists. split.
+  - eapply rsteps_step.
+    { eapply rstep_write with (tid := 0); reflexivity. }
+    eapply rsteps_step.
+    { eapply rstep_spawn with (tid := 0) (cid := 1);
+        [ reflexivity | rewrite upd_same; reflexivity | reflexivity ]. }
+    eapply rsteps_step.
+    { eapply rstep_read with (tid := 1);
+        [ rewrite upd_same; reflexivity | rewrite upd_same; reflexivity ]. }
+    apply rsteps_refl.
+  - cbn. reflexivity.
+Qed.
+
+(** The executed trace is race-free AND its happens-before is a strict order — derived purely from
+    reachability (WfTrace) + ownership, with the fork edge now grounded in execution. *)
+Theorem fork_exec_race_free :
+  exists cfg, rsteps (rinit_cfg fork_prog) cfg /\
+              TraceRaceFree (rc_trace cfg) /\ (forall i, ~ hbt (rc_trace cfg) i i).
+Proof.
+  destruct fork_exec_trace as [cfg [Hsteps Htr]].
+  exists cfg. split; [exact Hsteps |].
+  apply (reachable_owned_safe_r fork_prog cfg Hsteps).
+  rewrite Htr. exact fork_handoff_owned.
 Qed.
 
 (** ---- The refinement: the rich calculus implements the [run_io] channel laws ----
@@ -2423,8 +2490,9 @@ Qed.
 (** ── CLOSED IS PERMANENT (Go: a channel, once closed, stays closed — never reopens; recvs keep
     returning the zero value for the rest of the run). ──
 
-    [closedb] only GROWS along execution: every [rstep] appends exactly one event to the trace, and
-    [closedb] (an [existsb] over the trace) is monotone under append.  This is the trace-core
+    [closedb] only GROWS along execution: every [rstep] appends events to the trace (one, or two for
+    [rstep_spawn]) and never removes any, and [closedb] (an [existsb] over the trace) is monotone
+    under append.  This is the trace-core
     FOUNDATION for making the operational close/send faithful to Go's double-close / send-on-closed
     PANIC — the genuinely-open sub-item.  (The IO/[World] model ALREADY panics on those:
     [close_chan]/[send] [OPanic] when closed, witnessed by [double_close_panics]/[send_closed_panics];
@@ -2436,16 +2504,18 @@ Qed.
 Lemma closedb_app : forall t1 t2 c, closedb (t1 ++ t2) c = orb (closedb t1 c) (closedb t2 c).
 Proof. intros t1 t2 c. unfold closedb. apply existsb_app. Qed.
 
-(* Every [rstep] APPENDS exactly one event — buffers/heap/liveness may change, the trace only grows. *)
+(* Every [rstep] APPENDS a non-empty suffix — one event for all rules EXCEPT [rstep_spawn], which
+   appends TWO (the parent's [KSpawn] and the child's [KStart]).  Buffers/heap/liveness may change;
+   the trace only grows.  (The exact-suffix shape is irrelevant downstream — only "grows" matters.) *)
 Lemma rstep_grows_trace : forall cfg cfg', rstep cfg cfg' ->
-  exists e, rc_trace cfg' = rc_trace cfg ++ [e].
+  exists suf, rc_trace cfg' = rc_trace cfg ++ suf.
 Proof. intros cfg cfg' Hstep. destruct Hstep; cbn [rc_trace]; eexists; reflexivity. Qed.
 
 Lemma rstep_closedb_mono : forall cfg cfg' c, rstep cfg cfg' ->
   closedb (rc_trace cfg) c = true -> closedb (rc_trace cfg') c = true.
 Proof.
   intros cfg cfg' c Hstep H.
-  destruct (rstep_grows_trace _ _ Hstep) as [e He]. rewrite He, closedb_app, H. reflexivity.
+  destruct (rstep_grows_trace _ _ Hstep) as [suf He]. rewrite He, closedb_app, H. reflexivity.
 Qed.
 
 Lemma rsteps_closedb_mono : forall cfg cfg' c, rsteps cfg cfg' ->

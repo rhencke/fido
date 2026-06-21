@@ -823,6 +823,12 @@ Assumptions` = *Closed under the global context*):
 - **fork edge** (Phase 4b) — *"a go statement is synchronized before the goroutine's
   execution starts"*: `fork_hb` + `fork_program_race_free` (parent writes `x`, spawns
   a child that reads `x` with NO channel — race-free purely by the fork edge).
+  **Now GROUNDED IN EXECUTION** (concurrency.v, rich calculus): `rstep_spawn` emits BOTH
+  the parent's `KSpawn` and the child's `KStart` (a two-event step), so `fork_exec_trace`
+  RUNS `write 7; go (read 7)` and proves its trace EQUALS the once-hand-built
+  `fork_handoff_trace`, with `fork_exec_race_free` deriving race-freedom from
+  `reachable_owned_safe_r` — the fork synchronisation is a consequence of the operational
+  semantics, not an assertion about a literal.  Both axiom-free.  ✓
 **Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
 above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
 TRACE — a list of events from interleaving goroutines, synchronisation recorded by

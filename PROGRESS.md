@@ -1562,8 +1562,15 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    **(1.1 — DONE)** goroutine SPAWN added to `step` (`PSpawn`/`step_spawn`, DYNAMIC pool
    via `cfg_live` — only spawned goroutines run, initially just `main`);
    `reachable_wf`/`reachable_hb_strict` re-established, axiom-free.  *Fork EDGE
-   (`KStart` back-pointer) deferred* — a two-event step, already proven abstractly by
-   `fork_hb`; until then cross-goroutine ordering flows through channels.
+   (`KStart` back-pointer) — now GROUNDED IN EXECUTION in the RICH calculus (see 1.2):
+   `rstep_spawn` is a TWO-event step that emits the parent's `KSpawn cid` AND the
+   child's `KStart (length tr)` (back-pointer = the just-laid `KSpawn`), so the fork
+   `sync` edge is produced by running a program, not asserted on a literal.
+   `fork_exec_trace` EXECUTES `write 7; go (read 7)` and proves the resulting trace
+   EQUALS the once-hand-built `fork_handoff_trace`; `fork_exec_race_free` then derives
+   race-freedom + hb-irreflexivity from `reachable_owned_safe_r`.  (The simple `step`
+   calculus still emits `KSpawn` only — it has no heap/race story; the rich `rstep` is
+   the authoritative model and supersedes it here.)*
    **(1.2 — DONE)** the RICH calculus (`Cmd`/`RConfig`/`rstep` in concurrency.v):
    per-goroutine programs are a command TREE (`CRet`/`CSend`/`CRecv`/`CWrite`/`CRead`/
    `CSpawn`) with value-binding continuations (`nat -> Cmd`) — i.e. `bind`, control
