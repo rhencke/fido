@@ -1101,9 +1101,13 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    ALGORITHM: `reloop fuel g l` (fuel-bounded ⇒ total without a well-founded order;
    `None` on a cycle/out-of-fuel, `Some S` otherwise) with SOUNDNESS `reloop_correct`
    (every `Some S` realizes the CFG), exercised end-to-end by `diamond_reloop_correct`
-   (the function COMPUTES the diamond's lowering, certified correct).  Still open:
-   COMPLETENESS of `reloop` (acyclic ⇒ enough fuel ⇒ `Some` — needs an acyclicity
-   measure), folding LOOPS into the function, and connecting to the emitted Go AST.
+   (the function COMPUTES the diamond's lowering, certified correct).  And
+   COMPLETENESS (`reloop_complete`/`reloop_total_correct`): a `Ranked g rank` witness
+   (a measure that strictly drops along every edge = acyclicity) gives fuel
+   `rank l + 1` that SUCCEEDS — so on any acyclic CFG `reloop` is TOTAL ∧ SOUND ∧
+   COMPLETE (`diamond_reloops` instantiates it).  Still open: folding LOOPS into the
+   function (the loop CORE is proved separately as `while_realized`), and connecting
+   to the emitted Go AST.
 
 ### Tier 2 — numeric correctness within the int/float parameters
 4. **`int` is ±2⁶², not full int64 — *RESOLVED: `GoI64`/`GoU64` are the canonical

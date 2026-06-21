@@ -27,10 +27,13 @@
     (4) The acyclic relooper as an ALGORITHM: [reloop fuel g l] (fuel-bounded, so total without a
         well-founded order — returns [None] on a cycle/out-of-fuel, [Some S] otherwise) with SOUNDNESS
         [reloop_correct] (every [Some S] realizes the CFG), exercised end-to-end by
-        [diamond_reloop_correct] (the function COMPUTES the diamond's lowering, certified correct).
-    All axiom-free.  STILL OPEN: COMPLETENESS of [reloop] (acyclic ⇒ enough fuel ⇒ returns [Some] —
-    needs an acyclicity measure), folding LOOPS into the function (it currently refuses back-edges),
-    and connecting to the actual emitted Go AST.  Proof-only: emits no Go. *)
+        [diamond_reloop_correct] (the function COMPUTES the diamond's lowering, certified correct), and
+        COMPLETENESS [reloop_complete]/[reloop_total_correct] — a [Ranked g rank] witness (a measure
+        dropping along every edge = acyclicity) gives fuel [rank l + 1] that SUCCEEDS, so on any
+        acyclic CFG [reloop] is TOTAL ∧ SOUND ∧ COMPLETE ([diamond_reloops] instantiates it).
+    All axiom-free.  STILL OPEN: folding LOOPS into the function (it currently refuses back-edges — the
+    loop CORE is proved separately, [while_realized]), and connecting to the actual emitted Go AST.
+    Proof-only: emits no Go. *)
 
 From Stdlib Require Import List Lia Arith.
 Import ListNotations.
@@ -192,6 +195,56 @@ Theorem diamond_reloop_correct : forall b0 b1 b2 b3 c,
   Realizes (diamond b0 b1 b2 b3 c)
     (SSeq (SBody b0) (SIf c (SSeq (SBody b1) (SBody b3)) (SSeq (SBody b2) (SBody b3)))) 0.
 Proof. intros. apply (reloop_correct 4). reflexivity. Qed.
+
+(** ── COMPLETENESS of [reloop] — acyclic ⇒ it SUCCEEDS (returns [Some]). ──
+    This is the piece fuel does NOT dodge: it needs an actual DECREASING MEASURE.  [Ranked g rank]
+    says a [rank : nat -> nat] strictly DROPS along every edge (goto target, both if-branches) — which
+    IS acyclicity, carried as an explicit witness (no path can cycle, since rank would have to drop
+    forever).  Then fuel [rank l + 1] is enough for [reloop] to bottom out at [TRet]s — proved by
+    induction on fuel, the rank drop feeding the IH at strictly smaller fuel. *)
+Definition Ranked (g : CFG) (rank : nat -> nat) : Prop :=
+  forall l, match blk_term (g l) with
+            | TRet      => True
+            | TGoto l'  => rank l' < rank l
+            | TIf _ a b => rank a < rank l /\ rank b < rank l
+            end.
+
+Lemma reloop_complete : forall g rank, Ranked g rank ->
+  forall fuel l, rank l < fuel -> exists S, reloop fuel g l = Some S.
+Proof.
+  intros g rank HR. induction fuel as [|fuel IH]; intros l Hlt; [exfalso; lia |].
+  cbn. specialize (HR l). destruct (blk_term (g l)) as [| l' | c a b] eqn:Ht.
+  - (* TRet *) eexists; reflexivity.
+  - (* TGoto: rank l' < rank l < S fuel, so rank l' < fuel *)
+    destruct (IH l') as [S' HS']; [lia |]. rewrite HS'. cbn. eexists; reflexivity.
+  - (* TIf: both branch ranks < rank l < S fuel *)
+    destruct HR as [Ha Hb].
+    destruct (IH a) as [Sa HSa]; [lia |]. destruct (IH b) as [Sb HSb]; [lia |].
+    rewrite HSa, HSb. eexists; reflexivity.
+Qed.
+
+(** The FULL verified acyclic relooper: on any RANKED (acyclic) CFG, [reloop] with fuel [rank l + 1]
+    SUCCEEDS and the program it returns REALIZES the CFG.  Total ∧ sound ∧ complete on acyclic inputs. *)
+Theorem reloop_total_correct : forall g rank, Ranked g rank ->
+  forall l, exists St, reloop (S (rank l)) g l = Some St /\ Realizes g St l.
+Proof.
+  intros g rank HR l.
+  destruct (reloop_complete g rank HR (S (rank l)) l (Nat.lt_succ_diag_r _)) as [St HS].
+  exists St. split; [exact HS | exact (reloop_correct _ g l St HS)].
+Qed.
+
+(** The diamond is ranked (0↦2, branches 1,2↦1, join 3↦0), so [reloop_total_correct] applies: the
+    relooper SUCCEEDS on it and the result is correct — no hand-built fuel constant. *)
+Definition diamond_rank : nat -> nat :=
+  fun l => match l with 0 => 2 | 1 => 1 | 2 => 1 | _ => 0 end.
+
+Lemma diamond_ranked : forall b0 b1 b2 b3 c, Ranked (diamond b0 b1 b2 b3 c) diamond_rank.
+Proof. intros b0 b1 b2 b3 c l. destruct l as [|[|[|l]]]; cbn; lia. Qed.
+
+Theorem diamond_reloops : forall b0 b1 b2 b3 c,
+  exists St, reloop (S (diamond_rank 0)) (diamond b0 b1 b2 b3 c) 0 = Some St
+             /\ Realizes (diamond b0 b1 b2 b3 c) St 0.
+Proof. intros. apply (reloop_total_correct _ diamond_rank), diamond_ranked. Qed.
 
 (** Sanity: the CFG semantics is DETERMINISTIC (a block's body/terminator are functions), so
     [Realizes] pins the unique result — there is no ambiguity in "what the CFG computes". *)
