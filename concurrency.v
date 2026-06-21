@@ -588,6 +588,83 @@ Proof.
     destruct Hsl as [l [Hi Hj]]. exists l. split; [exact Hj | exact Hi].
 Qed.
 
+(** ============================================================================
+    RACE-FREEDOM BY A CHECKABLE DISCIPLINE — location PRIVACY discharges [Owned].
+
+    [owned_race_free] takes [Owned] (accesses to each location form an hb-chain) as a HYPOTHESIS.
+    Here is a SYNTACTIC, decidable discipline that IMPLIES it — so the ownership premise is
+    ESTABLISHED, not assumed (research-plan step 2 "Remaining").  [LocPrivate]: every memory
+    location is touched by a SINGLE goroutine (any two same-location accesses share a tid).  Then
+    same-location accesses lie in ONE goroutine's PROGRAM ORDER, and [po] ⊆ [hbt], so they are
+    hb-ordered — [Owned] holds outright.  This is the no-sharing BASE of the ownership story (a
+    location whose owner never changes); ownership TRANSFER across a channel synchronisation is the
+    general case (deferred — dynamic [CSpawn] makes a static owner assignment subtle).
+    ============================================================================ *)
+Definition LocPrivate (t : Trace) : Prop :=
+  forall i j, same_loc t i j -> tid_at t i = tid_at t j.
+
+(** Location privacy DISCHARGES the ownership discipline: same-location accesses are program-ordered
+    (same goroutine), and program order is happens-before. *)
+Theorem locprivate_owned : forall t, LocPrivate t -> Owned t.
+Proof.
+  intros t HLP i j Hij Hsl. left. apply hbt_po. unfold po.
+  split; [exact Hij | split].
+  - destruct Hsl as [l [_ Hj]]. exact (acc_loc_at_lt t j l Hj).
+  - exact (HLP i j Hsl).
+Qed.
+
+(** Hence a location-private trace is RACE-FREE — with [Owned] no longer assumed but EARNED from the
+    checkable structural discipline. *)
+Theorem locprivate_race_free : forall t, LocPrivate t -> TraceRaceFree t.
+Proof. intros t HLP. exact (owned_race_free t (locprivate_owned t HLP)). Qed.
+
+(** Witness (positive): goroutine 0 writes location 0, goroutine 1 writes location 1 — DISJOINT
+    locations, so [LocPrivate] holds (no same-location cross-goroutine pair) and the trace is
+    race-free with NO [Owned] hypothesis. *)
+Definition disjoint_trace : Trace := [mkEv 0 (KWrite 0); mkEv 1 (KWrite 1)].
+
+(* In this trace location [l] is written at position [l] by goroutine [l], so an access of [l] pins
+   the accessing goroutine to [l]. *)
+Lemma disjoint_loc_tid : forall i l,
+  acc_loc_at disjoint_trace i = Some l -> tid_at disjoint_trace i = l.
+Proof.
+  intros i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold disjoint_trace, acc_loc_at, tid_at in *.
+  destruct i as [|[|i]]; cbn in *; try lia; congruence.
+Qed.
+
+Lemma disjoint_locprivate : LocPrivate disjoint_trace.
+Proof.
+  intros i j [l [Hi Hj]].
+  rewrite (disjoint_loc_tid i l Hi), (disjoint_loc_tid j l Hj). reflexivity.
+Qed.
+
+Theorem disjoint_race_free : TraceRaceFree disjoint_trace.
+Proof. exact (locprivate_race_free _ disjoint_locprivate). Qed.
+
+(** Witness (negative): the discipline BITES — two goroutines writing the SAME location is NOT
+    [LocPrivate] (a real shared-memory conflict the discipline correctly rejects). *)
+Definition shared_trace : Trace := [mkEv 0 (KWrite 5); mkEv 1 (KWrite 5)].
+
+Lemma shared_not_locprivate : ~ LocPrivate shared_trace.
+Proof.
+  intros H. assert (Hsl : same_loc shared_trace 0 1)
+    by (exists 5; unfold shared_trace, acc_loc_at; cbn; split; reflexivity).
+  specialize (H 0 1 Hsl). unfold shared_trace, tid_at in H. cbn in H. discriminate.
+Qed.
+
+(** Combined with reachability: a REACHABLE execution that is location-private is race-free AND has a
+    strict-partial-order happens-before — race-freedom earned from a checkable discipline on a
+    genuinely-executed trace, no [Owned] assumption. *)
+Theorem reachable_locprivate_safe : forall p cfg,
+  steps (init_cfg p) cfg -> LocPrivate (cfg_trace cfg) ->
+  TraceRaceFree (cfg_trace cfg) /\ (forall i, ~ hbt (cfg_trace cfg) i i).
+Proof.
+  intros p cfg Hsteps HLP. split.
+  - exact (locprivate_race_free _ HLP).
+  - intro i. apply hbt_irrefl. exact (reachable_wf p cfg Hsteps).
+Qed.
+
 (** The message-passing trace satisfies the discipline (its only same-location pair,
     the write/read of x, is directly hb-ordered) — so [owned_race_free] re-derives
     its race-freedom from the GENERAL theorem, subsuming [mp_trace_race_free]. *)

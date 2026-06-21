@@ -1655,9 +1655,18 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    induction), so no conflicting pair is unordered.  `mp_trace_owned` shows the
    message-passing trace satisfies it, so `owned_race_free` re-derives its
    race-freedom from the GENERAL theorem (subsuming the hand-built
-   `mp_trace_race_free`).  *Remaining:* tie `Owned` to a SYNTACTIC discipline a
-   program can be checked against (channel-endpoint ownership transfer / session
-   linearity ⇒ `Owned`), so it is established by typing rather than as a hypothesis.
+   `mp_trace_race_free`).  **A CHECKABLE discipline now DISCHARGES `Owned` (2026-06-21):**
+   `LocPrivate` — every memory location is touched by a SINGLE goroutine (any two
+   same-location accesses share a tid) — IMPLIES `Owned` (`locprivate_owned`), because
+   same-location accesses then lie in ONE goroutine's PROGRAM ORDER and `po ⊆ hbt`; hence
+   `locprivate_race_free` and `reachable_locprivate_safe` (a reachable location-private
+   execution is race-free + strict-hb) earn race-freedom from a STRUCTURAL condition with
+   NO `Owned` hypothesis — all fully axiom-free.  Witnesses: `disjoint_race_free` (two
+   goroutines on disjoint locations) and `shared_not_locprivate` (the discipline bites: two
+   goroutines on the SAME location is rejected).  This is the no-sharing BASE.  *Still open:*
+   the TRANSFER case — ownership moving across a channel sync (so a location's owner changes,
+   `Owned` still holds) — and a PROGRAM-level (`Cmd`) discipline ⇒ `LocPrivate` reachable
+   traces (subtle: dynamic `CSpawn` picks the owning tid at run time).
 3. **Model completeness — exact FIFO (done), liveness, real memory.**  *Exact FIFO —
    DONE:* `reachable_sorted` (concurrency.v, axiom-free) — every reachable channel
    buffer is STRICTLY INCREASING in send position (`BufSorted`, via `step_preserves_
