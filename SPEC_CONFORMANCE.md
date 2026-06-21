@@ -385,7 +385,11 @@ is `TraceRaceFree`, so the trace is grounded in a real program run (both Closed-
 each goroutine of `mp_prog` is the Keystone-denotation of an EXTRACTABLE typed pointer-handoff IO program
 (`mp_g0_denotes`/`mp_g1_denotes`: `mp_g0_io = *p=v0; ch<-v1`, `mp_g1_io = <-ch; _:=*p`), the memory ops
 being the genuine `ptr_set`/`ptr_get` — so the race-free execution is the operational image of real typed
-pointer-over-channel code (substrate base; no funext, no Fido axiom).  *Slice 2c (⚠ open):* a
+pointer-over-channel code (substrate base; no funext, no Fido axiom).  **Value correctness (2026-06-21):**
+`mp_handoff_delivers` — the extractable typed program run in `run_io` DELIVERS exactly `(inj v1, inj v0)`
+(g1 receives v1 over the channel AND reads v0 back through the pointer; pointee survives send+recv via the
+channel/heap World frames), so it is not only race-free but COMPUTES the right values end-to-end.  *Slice
+2c (⚠ open):* a
 multi-goroutine ADEQUACY composing the per-goroutine denotations (2b) with the interleaved `rstep`
 execution (2a) — the one closed end-to-end theorem.  (N-goroutine generality of the GUARANTEE is already
 `reachable_owned_safe_r`, over arbitrary programs + all schedules; the witnesses are instances.)

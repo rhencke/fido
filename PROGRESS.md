@@ -737,7 +737,11 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    denotation of an EXTRACTABLE typed IO program — `mp_g0_io = *p=v0; ch<-v1`, `mp_g1_io = <-ch; _:=*p`
    (`mp_g0_denotes`/`mp_g1_denotes`), the memory ops being the genuine `ptr_set`/`ptr_get` (pointer-
    backed `locenv`, slice 1). So the race-free execution is the operational image of real typed pointer-
-   over-channel code. Substrate base, proof-only. *Slice 2c:* a MULTI-goroutine ADEQUACY composing the
+   over-channel code. Substrate base, proof-only. **VALUE-CORRECTNESS companion (2026-06-21):**
+   `mp_handoff_delivers` — the extractable typed program run in `run_io` DELIVERS exactly `(inj v1, inj v0)`
+   (g1 receives v1 over the channel AND reads v0 back through the pointer; pointee survives send+recv via
+   the channel/heap World frames). So the program is not only race-free (2a) but COMPUTES the right values
+   end-to-end. *Slice 2c:* a MULTI-goroutine ADEQUACY composing the
    per-goroutine `Denotes` (2b) with the interleaved `rstep` execution (2a) + World refinement
    (generalise the single-goroutine `denote_adequate` to N) — the ONE closed end-to-end theorem.
    *N-generality

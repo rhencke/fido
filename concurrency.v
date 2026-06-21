@@ -2076,6 +2076,34 @@ Section MpTyped.
   Lemma mp_g1_denotes :
     Denotes chenv (plocenv ptrenv) inj prj (CRecv 0 (fun _ => CRead 0 (fun _ => CRet))) mp_g1_io.
   Proof. unfold mp_g1_io. apply D_recv. intro x. apply D_read. intro y. apply D_ret. Qed.
+
+  (** VALUE CORRECTNESS (companion to 2a's race-freedom): the EXTRACTABLE typed pointer-handoff
+      program, run in [run_io] from a world where channel 0 is empty + open, DELIVERS exactly what
+      g1 should observe — it RECEIVES [inj v1] over the channel AND reads back [inj v0] through the
+      pointer.  The pointee written by g0 survives the [send]+[recv] (channel and heap are separate
+      World components — the [ref_sel_chan_{send,recv}_upd] frames), so [*p] reads [inj v0]; the
+      channel delivers [inj v1].  So the typed program is not only race-free (2a) but COMPUTES the
+      right values end-to-end — the [*T]-over-channel handoff is faithful. *)
+  Definition mp_handoff_io (v0 v1 : nat) : IO (GoI64 * GoI64) :=
+    bind (ptr_set TI64 (ptrenv 0) (inj v0)) (fun _ =>
+    bind (send TI64 (chenv 0) (inj v1)) (fun _ =>
+    bind (recv TI64 (chenv 0)) (fun rcvd =>
+    bind (ptr_get TI64 (ptrenv 0)) (fun pv => ret (rcvd, pv))))).
+
+  Lemma mp_handoff_delivers : forall v0 v1 w0,
+    chan_buf TI64 (chenv 0) w0 = [] ->
+    chan_closed (chenv 0) w0 = false ->
+    exists w', run_io (mp_handoff_io v0 v1) w0 = ORet (inj v1, inj v0) w'.
+  Proof.
+    intros v0 v1 w0 Hbuf Hcl. unfold mp_handoff_io.
+    rewrite run_bind, run_ptr_set; cbv beta iota.
+    rewrite run_bind, run_send by exact Hcl; cbv beta iota.
+    rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
+      by (rewrite chan_buf_send, chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
+    rewrite run_bind, run_ptr_get; cbv beta iota.
+    rewrite run_ret, ref_sel_chan_recv_upd, ref_sel_chan_send_upd, ref_sel_upd_same.
+    eexists. reflexivity.
+  Qed.
 End MpTyped.
 
 (** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
