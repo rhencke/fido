@@ -1148,6 +1148,58 @@ Definition i64_neg (a : GoI64) : GoI64 := i64wrap (wrap64 (Z.opp (i64raw a))).
 Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
 Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
+
+(** ── GoI64 ARITHMETIC has the commutative-semiring CORE mod 2^64 (signed two's-complement) — the
+    signed analogue of the GoU64 laws.  Key: the SIGNED [wrap64] preserves the residue mod 2^64
+    ([wrap64_residue]: [wrap64 z ≡ z]), so it is a ring homomorphism — an inner [wrap64] is absorbed
+    across `+` / `*` ([wrap64_idem_*]); the rest mirrors GoU64. ── *)
+Lemma wrap64_residue : forall z,
+  (wrap64 z mod 18446744073709551616 = z mod 18446744073709551616)%Z.
+Proof.
+  intro z. unfold wrap64. rewrite Zminus_mod, Zmod_mod, <- Zminus_mod. f_equal. ring.
+Qed.
+Lemma wrap64_eq_of_mod : forall a b,
+  (a mod 18446744073709551616 = b mod 18446744073709551616)%Z -> wrap64 a = wrap64 b.
+Proof.
+  intros a b H. unfold wrap64. f_equal.
+  rewrite Zplus_mod, H, <- Zplus_mod. reflexivity.
+Qed.
+Lemma wrap64_idem_add_r : forall a b, wrap64 (a + wrap64 b) = wrap64 (a + b).
+Proof. intros. apply wrap64_eq_of_mod. rewrite Zplus_mod, wrap64_residue, <- Zplus_mod. reflexivity. Qed.
+Lemma wrap64_idem_add_l : forall a b, wrap64 (wrap64 a + b) = wrap64 (a + b).
+Proof. intros. apply wrap64_eq_of_mod. rewrite Zplus_mod, wrap64_residue, <- Zplus_mod. reflexivity. Qed.
+Lemma wrap64_idem_mul_r : forall a b, wrap64 (a * wrap64 b) = wrap64 (a * b).
+Proof. intros. apply wrap64_eq_of_mod. rewrite Zmult_mod, wrap64_residue, <- Zmult_mod. reflexivity. Qed.
+Lemma wrap64_idem_mul_l : forall a b, wrap64 (wrap64 a * b) = wrap64 (a * b).
+Proof. intros. apply wrap64_eq_of_mod. rewrite Zmult_mod, wrap64_residue, <- Zmult_mod. reflexivity. Qed.
+
+Lemma i64_ext : forall x y : GoI64, i64raw x = i64raw y -> x = y.
+Proof. intros [rx px] [ry py] H. cbn in H. subst ry. reflexivity. Qed.
+Lemma i64raw_add : forall a b, i64raw (i64_add a b) = wrap64 (i64raw a + i64raw b).
+Proof. intros. reflexivity. Qed.
+Lemma i64raw_mul : forall a b, i64raw (i64_mul a b) = wrap64 (i64raw a * i64raw b).
+Proof. intros. reflexivity. Qed.
+
+Lemma i64_add_comm : forall a b, i64_add a b = i64_add b a.
+Proof. intros. apply i64_ext. rewrite !i64raw_add, (Z.add_comm (i64raw a)). reflexivity. Qed.
+Lemma i64_mul_comm : forall a b, i64_mul a b = i64_mul b a.
+Proof. intros. apply i64_ext. rewrite !i64raw_mul, (Z.mul_comm (i64raw a)). reflexivity. Qed.
+Lemma i64_add_assoc : forall a b c, i64_add a (i64_add b c) = i64_add (i64_add a b) c.
+Proof.
+  intros. apply i64_ext. rewrite !i64raw_add.
+  rewrite wrap64_idem_add_r, wrap64_idem_add_l. f_equal. ring.
+Qed.
+Lemma i64_mul_assoc : forall a b c, i64_mul a (i64_mul b c) = i64_mul (i64_mul a b) c.
+Proof.
+  intros. apply i64_ext. rewrite !i64raw_mul.
+  rewrite wrap64_idem_mul_r, wrap64_idem_mul_l. f_equal. ring.
+Qed.
+Lemma i64_mul_add_distr_l : forall a b c,
+  i64_mul a (i64_add b c) = i64_add (i64_mul a b) (i64_mul a c).
+Proof.
+  intros. apply i64_ext. rewrite !i64raw_add, !i64raw_mul, !i64raw_add.
+  rewrite wrap64_idem_mul_r, wrap64_idem_add_l, wrap64_idem_add_r. f_equal. ring.
+Qed.
 (* Integer absolute value.  Go has NO abs builtin for ints (only [math.Abs] for
    floats — and that needs an import), so it is written by hand with an [if] in
    VALUE position: [|a| = if a < 0 then -a else a].  Faithful across the WHOLE
