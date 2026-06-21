@@ -850,6 +850,12 @@ Assumptions` = *Closed under the global context*):
   proven race-free via `transfer_orders` over the `KSend`/`KRecv` pair (the canonical "publish a
   write over a channel" idiom).  Axiom-free.  ✓  Both go-mem synchronisation edges are now grounded
   operationally, not just witnessed on literals.
+- **closed-form race-freedom DISCIPLINE** — the per-trace witnesses are now subsumed by ONE checkable
+  structural condition (`HandoffDisciplined`): every conflicting same-location pair is EITHER same
+  goroutine (program order) OR a single `po`·`sync`·`po` handoff.  `handoff_disciplined_owned` proves
+  it ⇒ `Owned` ⇒ race-free, UNIFYING the two bases — `locprivate_handoff_disciplined` (no-sharing) and
+  `handoff_trace_disciplined` (the channel handoff, re-deriving `handoff_race_free`).  A program earns
+  race-freedom by exhibiting the structure, not a bespoke `Owned` proof.  Axiom-free.  ✓
 **Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
 above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
 TRACE — a list of events from interleaving goroutines, synchronisation recorded by

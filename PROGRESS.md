@@ -1684,9 +1684,16 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    send, goroutine 1 receives and ALSO writes loc 7 — a genuine WRITE/WRITE conflict, yet race-free
    because the transfer orders the two writes (`handoff_owned` via `transfer_orders`).  `LocPrivate`
    REJECTS this (two goroutines on 7); the transfer discipline ACCEPTS it — the idiomatic Go "pass
-   ownership over a channel".  Axiom-free.  *Still open:* a closed-form transfer DISCIPLINE (every
-   cross-goroutine same-loc pair connected by such a handoff ⇒ `Owned`) as a checkable condition, and
-   a PROGRAM-level (`Cmd`) discipline ⇒ `Owned` reachable traces (subtle: dynamic `CSpawn`).
+   ownership over a channel".  Axiom-free.  **The closed-form DISCIPLINE is now DONE (2026-06-21):**
+   `HandoffDisciplined t` — EVERY conflicting (same-location) pair `i<j` is a `Handoff`: same
+   goroutine (program order) OR a single `po`·`sync`·`po` handoff.  `handoff_disciplined_owned`:
+   this one CHECKABLE structural condition ⇒ `Owned` ⇒ `handoff_disciplined_race_free`.  It UNIFIES
+   the two bases — `locprivate_handoff_disciplined` (no sharing ⇒ same-goroutine disjunct) and
+   `handoff_trace_disciplined` (the channel handoff ⇒ the `po·sync·po` disjunct, re-deriving
+   `handoff_race_free` through the discipline).  Axiom-free.  Future programs earn race-freedom by
+   exhibiting the STRUCTURE, not a hand-built `Owned` proof.  *Still open:* a PROGRAM-level (`Cmd`)
+   discipline ⇒ the reachable traces are `HandoffDisciplined` (subtle: dynamic `CSpawn`); and
+   MULTI-HOP handoffs (ownership transferred through a chain of channels, not a single `sync`).
 3. **Model completeness — exact FIFO (done), liveness, real memory.**  *Exact FIFO —
    DONE:* `reachable_sorted` (concurrency.v, axiom-free) — every reachable channel
    buffer is STRICTLY INCREASING in send position (`BufSorted`, via `step_preserves_

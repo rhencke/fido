@@ -718,6 +718,56 @@ Qed.
 Theorem handoff_race_free : TraceRaceFree handoff_trace.
 Proof. exact (owned_race_free _ handoff_owned). Qed.
 
+(** ── A CLOSED-FORM RACE-FREEDOM DISCIPLINE — unifying the TWO bases (LocPrivate no-sharing AND the
+    channel/fork HANDOFF) into ONE checkable structural condition. ──
+    [Handoff t i j] holds when the accesses at [i] and [j] are EITHER by the SAME goroutine (program
+    order alone orders them) OR connected by a SINGLE synchronisation handoff [po]·[sync]·[po] — an
+    access program-before a SEND/SPAWN whose matching RECV/START is program-before the other access.
+    A trace is [HandoffDisciplined] when EVERY conflicting (same-location) pair [i<j] is a [Handoff].
+    This single condition IMPLIES [Owned] (hence race-freedom), via [transfer_orders] for the handoff
+    case and program order for the same-goroutine case.  It SUBSUMES both existing bases:
+    [locprivate_handoff_disciplined] (no sharing ⇒ same-goroutine disjunct) and the bespoke
+    [handoff_owned]/[fork_handoff_owned]/[chan_pub_owned] witnesses (the handoff disjunct).  This is
+    the "closed-form transfer discipline as a checkable condition" the per-trace witnesses gestured at:
+    future programs earn race-freedom by exhibiting the STRUCTURE, not a hand-built [Owned] proof. *)
+Definition Handoff (t : Trace) (i j : nat) : Prop :=
+  tid_at t i = tid_at t j \/ exists s r, po t i s /\ sync t s r /\ po t r j.
+
+Definition HandoffDisciplined (t : Trace) : Prop :=
+  forall i j, i < j -> same_loc t i j -> Handoff t i j.
+
+Theorem handoff_disciplined_owned : forall t, HandoffDisciplined t -> Owned t.
+Proof.
+  intros t HD i j Hij Hsl. left.
+  destruct (HD i j Hij Hsl) as [Hsame | [s [r [Hpo1 [Hsync Hpo2]]]]].
+  - (* same goroutine: i<j of equal tid is in program order *)
+    apply hbt_po. unfold po. split; [exact Hij | split; [| exact Hsame]].
+    destruct Hsl as [l [_ Hj]]. exact (acc_loc_at_lt _ _ _ Hj).
+  - (* cross-goroutine: the single send/spawn handoff orders i before j *)
+    exact (transfer_orders t i s r j Hpo1 Hsync Hpo2).
+Qed.
+
+Theorem handoff_disciplined_race_free : forall t, HandoffDisciplined t -> TraceRaceFree t.
+Proof. intros t HD. exact (owned_race_free t (handoff_disciplined_owned t HD)). Qed.
+
+(** Base 1 subsumed: a LocPrivate trace (every location touched by one goroutine) is trivially
+    HandoffDisciplined — every conflicting pair takes the same-goroutine disjunct. *)
+Lemma locprivate_handoff_disciplined : forall t, LocPrivate t -> HandoffDisciplined t.
+Proof. intros t HLP i j _ Hsl. left. exact (HLP i j Hsl). Qed.
+
+(** Base 2 subsumed: the channel-handoff witness is HandoffDisciplined (the conflicting write/write at
+    0/3 take the handoff disjunct s=1,r=2) — so [handoff_race_free] re-derives through the discipline. *)
+Lemma handoff_trace_disciplined : HandoffDisciplined handoff_trace.
+Proof.
+  intros i j Hij [l [Hi Hj]].
+  destruct (handoff_loc_pos i l Hi) as [-> | ->];
+    destruct (handoff_loc_pos j l Hj) as [-> | ->]; try lia.
+  right. exists 1, 2. split; [|split].
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv 1 (KRecv 0 1)); cbn. split; reflexivity.
+  - unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
 (** FORK-edge ownership handoff — the OTHER go-mem synchronisation: "the [go] statement that starts a
     new goroutine is synchronised before the goroutine's execution begins" (go.dev/ref/mem).  Same
     [transfer_orders] shape as the channel handoff, but the sync edge is the SPAWN→START pair
