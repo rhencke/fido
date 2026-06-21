@@ -820,8 +820,13 @@ Assumptions` = *Closed under the global context*):
   synchronous `cstep_sync` rendezvous (`urv_can_sync`), and an unbuffered send with no waiting receiver
   is STUCK (`all_senders_stuck` / `ublock_stuck` — the blocking that the unguarded buffered model
   cannot express).  This is the genuine unbuffered semantics ("send blocks until a receiver"), not just
-  the derived handoff.  Axiom-free.  (Integrating `cap` into the full `rstep` — heap/spawn/select, an
-  `rc_cap` field at ~42 `mkRCfg` sites — is the remaining cascade; the SEMANTICS is proven here.)
+  the derived handoff.  Axiom-free.  **The capacity sub-model is now COMPLETE** — SAFETY:
+  `cstep_cap_respected` / `csteps_cap_respected` / `csteps_from_empty_cap_respected` prove the buffer
+  NEVER exceeds capacity (no overflow on any run); LIVENESS: `buffered_send_progresses` proves a send
+  with room never blocks (capacity > length ⇒ progress) — the dual of `all_senders_stuck` (capacity 0
+  ⇒ block), so both halves of Go's channel blocking are captured.  (Integrating `cap` into the full
+  `rstep` — heap/spawn/select, an `rc_cap` field at ~42 `mkRCfg` sites — is the remaining cascade; the
+  SEMANTICS is proven here.)
 - **rule 2** (Phase 4a) — *"closing a channel is synchronized before a receive that
   returns zero because the channel is closed"*: the finite-stream model `hbc cap
   nsent` (sender sends `nsent` then closes; `hbc_close_before_zero_recv`: close ⤳

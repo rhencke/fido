@@ -1724,8 +1724,12 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    (`cstep_cap0_buf` / `csteps_cap0_buf`) — buffering is impossible; an all-senders config in an
    unbuffered world is STUCK (`all_senders_stuck` / `ublock_stuck`) — the blocking the buffered
    model cannot express; and the rendezvous fires when a receiver is present (`urv_can_sync`).
-   Axiom-free.  Scope is bounded to the channel fragment ([CSend]/[CRecv]); integrating `cap` into
-   the full `rstep` (an `rc_cap` field at ~42 `mkRCfg` sites) is the remaining cascade — the
+   The capacity sub-model is now COMPLETE: SAFETY — the buffer never exceeds capacity on any run
+   (`cstep_cap_respected` / `csteps_cap_respected` / `csteps_from_empty_cap_respected`, no overflow);
+   LIVENESS — a buffered send with room never blocks (`buffered_send_progresses`), the dual of
+   `all_senders_stuck`, so BOTH halves of Go's channel blocking (cap>len ⇒ progress, cap 0 ⇒ block)
+   are captured.  Axiom-free.  Scope is bounded to the channel fragment ([CSend]/[CRecv]); integrating
+   `cap` into the full `rstep` (an `rc_cap` field at ~42 `mkRCfg` sites) is the remaining cascade — the
    missing SEMANTICS (unbuffered = synchronous-only + blocking) is now proven.
 
 **Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting

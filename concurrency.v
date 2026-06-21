@@ -3151,4 +3151,55 @@ Proof.
     [ reflexivity | reflexivity | discriminate | reflexivity | reflexivity | reflexivity ].
 Qed.
 
+(** SAFETY — the buffer NEVER exceeds its capacity (no overflow): [cstep_send] fires only with ROOM
+    ([length < cap], so the post-length [S length ≤ cap]), [cstep_recv] shrinks, [cstep_sync] leaves
+    the buffer.  This is the bounded-buffer invariant Go's runtime enforces. *)
+Lemma cstep_cap_respected : forall ch s s',
+  cstep s s' -> length (cc_bufs s ch) <= cap ch -> length (cc_bufs s' ch) <= cap ch.
+Proof.
+  intros ch s s' Hstep Hle.
+  destruct Hstep as [p b lv tid c v k Hlv Hp Hroom
+                    | p b lv tid c f v rest Hlv Hp Hbc
+                    | p b lv ts tr c v k f Hlvs Hlvr Hne Hps Hpr Hbc];
+    cbn in Hle |- *.
+  - (* send: post-length = S (length (b c)) ≤ cap c since [length (b c) < cap c] *)
+    destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same, length_app. cbn. lia.
+    + rewrite upd_other by exact Hne. exact Hle.
+  - (* recv: the buffer only shrinks *)
+    destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same. rewrite Hbc in Hle. cbn in Hle. lia.
+    + rewrite upd_other by exact Hne. exact Hle.
+  - (* sync: buffer unchanged *) exact Hle.
+Qed.
+
+Lemma csteps_cap_respected : forall ch s s',
+  csteps s s' -> length (cc_bufs s ch) <= cap ch -> length (cc_bufs s' ch) <= cap ch.
+Proof.
+  intros ch s s' Hsteps. induction Hsteps as [|a b d Hab Hbd IH]; intros Hle.
+  - exact Hle.
+  - apply IH. exact (cstep_cap_respected ch a b Hab Hle).
+Qed.
+
+(** Starting from empty buffers, EVERY reachable buffer respects its capacity — overflow is impossible
+    along any run. *)
+Corollary csteps_from_empty_cap_respected : forall ch s s',
+  (forall c, cc_bufs s c = []) -> csteps s s' -> length (cc_bufs s' ch) <= cap ch.
+Proof.
+  intros ch s s' Hempty Hsteps.
+  apply (csteps_cap_respected ch s s' Hsteps). rewrite Hempty. cbn. lia.
+Qed.
+
+(** LIVENESS dual of [all_senders_stuck] — a BUFFERED send with ROOM never blocks: a goroutine parked
+    at [CSend c] on a channel with [length (buf c) < cap c] can ALWAYS step (async enqueue).  So
+    capacity > current length ⇒ progress, while capacity 0 ⇒ block — the two halves of Go's channel
+    blocking semantics. *)
+Lemma buffered_send_progresses : forall s tid c v k,
+  cc_live s tid = true -> cc_prog s tid = CSend c v k -> length (cc_bufs s c) < cap c ->
+  exists s', cstep s s'.
+Proof.
+  intros [p b lv] tid c v k Hlv Hp Hroom. cbn in *.
+  eexists. eapply cstep_send; eassumption.
+Qed.
+
 End BoundedChannels.
