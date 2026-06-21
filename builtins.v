@@ -2010,6 +2010,20 @@ Proof.
   intros K V kt vt k m w Hk. unfold map_sel, map_rem.
   rewrite map_get_fn_write_same. cbn. rewrite Hk. reflexivity.
 Qed.
+(** DELETE FRAME (the dual of [map_sel_rem], mirroring [map_sel_upd_diff] for set): deleting key [k2]
+    leaves a DIFFERENT key [k1] reading exactly what it read before — Go's `delete(m, k2)` touches only
+    [k2].  Independence of keys is as defining for a map as [map_sel_rem] is. *)
+Theorem map_sel_rem_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k1 k2 : K) (m : GoMap K V) (w : World),
+  Comparable kt -> k1 <> k2 ->
+  map_sel kt vt k1 m (map_rem kt vt k2 m w) = map_sel kt vt k1 m w.
+Proof.
+  intros K V kt vt k1 k2 m w Hcmp Hne. unfold map_sel, map_rem.
+  rewrite map_get_fn_write_same. cbn.
+  destruct (key_eqb kt k2 k1) eqn:E.
+  - exfalso. apply Hne. symmetry. apply Hcmp. exact E.
+  - reflexivity.
+Qed.
 Theorem map_sel_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
   w_maps w 0%uint63 = None ->
   map_sel kt vt k (@map_empty K V) w = None.
@@ -2069,6 +2083,19 @@ Proof.
   intros K V kt vt k1 k2 v m w Hcmp Hne.
   rewrite run_bind, run_map_set. cbn.
   rewrite run_map_get_opt, map_sel_upd_diff by assumption. reflexivity.
+Qed.
+
+(** IO-level delete frame (the comma-ok dual of [map_get_set_diff]): after `delete(m, k2)`, the
+    two-value lookup of a DIFFERENT key [k1] returns exactly what it returned before the delete. *)
+Lemma map_get_delete_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
+    (k1 k2 : K) (m : GoMap K V) (w : World),
+  Comparable kt -> k1 <> k2 ->
+  run_io (bind (map_delete kt vt k2 m) (fun _ => map_get_opt kt vt k1 m)) w =
+  ORet (map_sel kt vt k1 m w) (map_rem kt vt k2 m w).
+Proof.
+  intros K V kt vt k1 k2 m w Hcmp Hne.
+  rewrite run_bind, run_map_delete. cbn.
+  rewrite run_map_get_opt, map_sel_rem_diff by assumption. reflexivity.
 Qed.
 
 (** [map_get_or] hits the stored value when present, falls back when absent. *)
