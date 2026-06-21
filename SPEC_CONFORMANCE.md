@@ -735,10 +735,14 @@ goroutine fails to step — Go distinguishes deadlock from panic, and so do we);
 `~ rpanicking`; `recvfree_progress` / `reachable_recvfree_progress` read *progress ∨ panic* (a
 receive-free program never DEADLOCKS — its only non-step is a double-close panic).  Witnessed:
 `rdouble_close_panicking` (a poised double-close IS panicking) and `rdouble_close_cant_step` (it
-genuinely cannot step — the guard works; the operational image of `double_close_panics`).  All
-zero-axiom.  *Remaining:* the same guard for `rstep_send` (send-on-closed = panic — adds a `closedb`
-SRShape invariant, deferred to keep this slice landable); the full WORLD-level
-`select_recv2`↔`CSelect` bridge.
+genuinely cannot step — the guard works; the operational image of `double_close_panics`).
+**Operational SEND-on-closed = PANIC DONE too (2026-06-21):** `rstep_send` is now GUARDED by the same
+`closedb tr c = false`; `rpanicking` gains a CSend disjunct (still decidable); a `closedb (rc_trace)
+0 = false` invariant added to `SRShape` (the `sr` deadlock-free witness SENDS on 0 — its send never
+panics, preserved because `sr` never closes 0).  Witnessed `rsend_closed_panicking` /
+`rsend_closed_cant_step`.  So BOTH operational close- and send-on-closed are now faithful panics,
+matching the IO model.  All zero-axiom.  *Remaining:* the full WORLD-level `select_recv2`↔`CSelect`
+bridge (extend the Keystone `WMatchC` refinement to a select operation in the `World`).
 
 ### [Close](https://go.dev/ref/spec#Close) — ✓ panics; ⚠ nil
 Spec: "Sending to or closing a **closed** channel causes a run-time panic.

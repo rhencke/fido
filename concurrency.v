@@ -890,7 +890,7 @@ Record RConfig := mkRCfg {
 
 Inductive rstep : RConfig -> RConfig -> Prop :=
   | rstep_send : forall p b h lv tr tid c v k,
-      lv tid = true -> p tid = CSend c v k ->
+      lv tid = true -> p tid = CSend c v k -> closedb tr c = false ->
       rstep (mkRCfg p b h lv tr)
             (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
                     (tr ++ [mkEv tid (KSend c)]))
@@ -959,7 +959,7 @@ Lemma rstep_preserves_inv : forall cfg cfg', rstep cfg cfg' -> RInv cfg -> RInv 
 Proof.
   intros cfg cfg' Hstep [Hwf Hbuf].
   destruct Hstep as
-    [ p b h lv tr tid c v k Hlv Hp
+    [ p b h lv tr tid c v k Hlv Hp _
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
@@ -1125,7 +1125,7 @@ Lemma rstep_preserves_sorted : forall cfg cfg',
 Proof.
   intros cfg cfg' Hstep [Hwf Hbuf] Hsort.
   destruct Hstep as
-    [ p b h lv tr tid c v k Hlv Hp
+    [ p b h lv tr tid c v k Hlv Hp _
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
@@ -1354,7 +1354,7 @@ Section Keystone.
     intros c m0 w0 cfg cfg' Hstep
            [HOC [Hidle [Hlive [HNC [m [w [HD [HM [Hcl Hrun]]]]]]]]].
     destruct Hstep as
-      [ p b h lv tr tid c1 v k Hlv Hp
+      [ p b h lv tr tid c1 v k Hlv Hp _
       | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
@@ -1515,7 +1515,7 @@ Section KeystoneMulti.
   Proof.
     intros cfg cfg' w Hstep HM.
     destruct Hstep as
-      [ p b h lv tr tid c0 v k Hlv Hp
+      [ p b h lv tr tid c0 v k Hlv Hp _
       | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
       | p b h lv tr tid l v k Hlv Hp
       | p b h lv tr tid l f Hlv Hp
@@ -1732,21 +1732,29 @@ Definition FreshAvail (cfg : RConfig) : Prop := exists cid, rc_live cfg cid = fa
 
 (* A live goroutine about to PANIC: its head is a [CClose] of an ALREADY-closed channel (Go's
    double-close panic).  Distinct from [blocked] (a deadlock) and from [rdone] — it is the third way
-   a non-stepping goroutine arises.  ([rstep_close]'s [closedb = false] guard makes this a non-step;
-   it is the operational image of [close_chan]'s [OPanic] in the IO model — [double_close_panics].)
-   Decidable: inspect the head, then [closedb] the trace. *)
+   a non-stepping goroutine arises.  ([rstep_close]/[rstep_send]'s [closedb = false] guard makes both
+   non-steps; it is the operational image of [close_chan]/[send]'s [OPanic] in the IO model —
+   [double_close_panics] / [send_closed_panics].)  Decidable: inspect the head, then [closedb]. *)
 Definition rpanicking (cfg : RConfig) (tid : nat) : Prop :=
-  exists c k, rc_prog cfg tid = CClose c k /\ closedb (rc_trace cfg) c = true.
+  (exists c k, rc_prog cfg tid = CClose c k /\ closedb (rc_trace cfg) c = true)
+  \/ (exists c v k, rc_prog cfg tid = CSend c v k /\ closedb (rc_trace cfg) c = true).
 
 Definition rpanicking_dec : forall cfg tid, {rpanicking cfg tid} + {~ rpanicking cfg tid}.
 Proof.
   intros cfg tid.
   destruct (rc_prog cfg tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
-  1-7: right; intros [c0 [k0 [Hpc _]]]; rewrite Hp in Hpc; discriminate.
-  destruct (closedb (rc_trace cfg) c) eqn:Hcl.
-  - left. exists c, k. split; [exact Hp | exact Hcl].
-  - right. intros [c0 [k0 [Hpc Hcl0]]]. rewrite Hp in Hpc.
-    injection Hpc as -> _. rewrite Hcl in Hcl0. discriminate.
+  (* CRet, CRecv, CWrite, CRead, CSpawn, CSelect: neither a CClose nor a CSend head *)
+  1,3,4,5,6,7: right; intros [[c0 [k0 [Hpc _]]] | [c0 [v0 [k0 [Hpc _]]]]]; rewrite Hp in Hpc; discriminate.
+  - (* CSend: panicking iff the channel is closed *)
+    destruct (closedb (rc_trace cfg) c) eqn:Hcl.
+    + left. right. exists c, v, k. split; [exact Hp | exact Hcl].
+    + right. intros [[c0 [k0 [Hpc _]]] | [c0 [v0 [k0 [Hpc Hcl0]]]]]; rewrite Hp in Hpc;
+        [discriminate | injection Hpc as -> _ _; rewrite Hcl in Hcl0; discriminate].
+  - (* CClose: panicking iff the channel is closed *)
+    destruct (closedb (rc_trace cfg) c) eqn:Hcl.
+    + left. left. exists c, k. split; [exact Hp | exact Hcl].
+    + right. intros [[c0 [k0 [Hpc Hcl0]]] | [c0 [v0 [k0 [Hpc _]]]]]; rewrite Hp in Hpc;
+        [injection Hpc as -> _; rewrite Hcl in Hcl0; discriminate | discriminate].
 Defined.
 
 (** PROGRESS: any live goroutine that is neither finished, blocked, NOR panicking can take a step
@@ -1764,7 +1772,10 @@ Proof.
   unfold rcan_step, blocked, rpanicking in *; cbn [rc_prog rc_live rc_bufs rc_trace] in *.
   destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
   - congruence.
-  - eexists; eapply rstep_send; eassumption.
+  - (* send: enabled IFF still OPEN; on a closed channel it would PANIC (contradiction) *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. right. exists c, v, k. split; [reflexivity | exact Hcl].
+    + eexists; eapply rstep_send; eassumption.
   - destruct (b c) as [ | [v s] rest] eqn:Hb.
     + (* empty buffer: CLOSED ⇒ rstep_recv_closed (zero); OPEN ⇒ genuinely blocked (contradiction) *)
       destruct (closedb tr c) eqn:Hcl.
@@ -1786,7 +1797,7 @@ Proof.
     + exfalso. apply Hnblk. right. exists cases. split; [reflexivity | exact Hsel].
   - (* close: enabled IFF still OPEN; on an already-closed channel it would PANIC (contradiction) *)
     destruct (closedb tr c) eqn:Hcl.
-    + exfalso. apply Hnpan. exists c, k. split; [reflexivity | exact Hcl].
+    + exfalso. apply Hnpan. left. exists c, k. split; [reflexivity | exact Hcl].
     + eexists; eapply rstep_close; eassumption.
 Qed.
 
@@ -1864,7 +1875,7 @@ Definition rdouble_close_cfg : RConfig :=
          [mkEv 1 (KClose 5)].
 
 Theorem rdouble_close_panicking : rpanicking rdouble_close_cfg 0.
-Proof. exists 5, CRet. split; reflexivity. Qed.
+Proof. left. exists 5, CRet. split; reflexivity. Qed.
 
 Theorem rdouble_close_cant_step : ~ rcan_step rdouble_close_cfg.
 Proof.
@@ -1875,6 +1886,27 @@ Proof.
     (* the close rule survives the head match; resolve its channel to 5, then the guard
        [closedb [KClose 5] 5 = false] reduces to [true = false] — absurd *)
     try (match goal with H : CClose _ _ = CClose _ _ |- _ => injection H as <- <- end);
+    subst; cbn in *; try discriminate.
+Qed.
+
+(** SEND on a closed channel is likewise a PANIC, not a step (Go).  [rsend_closed_cfg]: goroutine 0
+    is poised to [send 7 on 5], but 5 is already closed — it is [rpanicking] (the CSend disjunct) and
+    genuinely cannot step (the [rstep_send] guard bites); the operational image of [send_closed_panics]. *)
+Definition rsend_closed_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CSend 5 7 CRet else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0)
+         [mkEv 1 (KClose 5)].
+
+Theorem rsend_closed_panicking : rpanicking rsend_closed_cfg 0.
+Proof. right. exists 5, 7, CRet. split; reflexivity. Qed.
+
+Theorem rsend_closed_cant_step : ~ rcan_step rsend_closed_cfg.
+Proof.
+  intros [cfg' Hstep]. unfold rsend_closed_cfg in Hstep.
+  inversion Hstep; subst; cbn in *;
+    match goal with H : (_ =? 0) = true |- _ => apply Nat.eqb_eq in H; subst end;
+    cbn in *; try discriminate;
+    try (match goal with H : CSend _ _ _ = CSend _ _ _ |- _ => injection H as <- <- <- end);
     subst; cbn in *; try discriminate.
 Qed.
 
@@ -2163,7 +2195,7 @@ Proof.
   intros cfg cfg' Hstep HRF tid'.
   unfold RecvFreeCfg in HRF.
   destruct Hstep as
-    [ p b h lv tr tid c v k Hlv Hp
+    [ p b h lv tr tid c v k Hlv Hp _
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
@@ -2229,7 +2261,7 @@ Lemma rstep_livefin : forall cfg cfg', rstep cfg cfg' -> LiveFin cfg -> LiveFin 
 Proof.
   intros cfg cfg' Hstep [n Hn].
   destruct Hstep as
-    [ p b h lv tr tid c v k Hlv Hp
+    [ p b h lv tr tid c v k Hlv Hp _
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
@@ -2298,22 +2330,24 @@ Definition SRShape (cfg : RConfig) : Prop :=
   /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
   /\ ( (rc_prog cfg 0 = CSend 0 42 (CRecv 0 (fun _ => CRet)) /\ rc_bufs cfg 0 = [])
        \/ (rc_prog cfg 0 = CRecv 0 (fun _ => CRet) /\ exists s, rc_bufs cfg 0 = [(42, s)])
-       \/ rc_prog cfg 0 = CRet ).
+       \/ rc_prog cfg 0 = CRet )
+  /\ closedb (rc_trace cfg) 0 = false.   (* sr never closes channel 0 — so its SEND never panics *)
 
 Lemma sr_init_shape : SRShape sr_init.
 Proof.
   unfold SRShape, sr_init, rinit_cfg; cbn [rc_live rc_prog rc_bufs].
-  split; [reflexivity | split].
+  split; [reflexivity | split; [ | split]].
   - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
       [apply Nat.eqb_eq in E; congruence | reflexivity].
   - left. split; reflexivity.
+  - reflexivity.
 Qed.
 
 Lemma sr_step_shape : forall cfg cfg', rstep cfg cfg' -> SRShape cfg -> SRShape cfg'.
 Proof.
-  intros cfg cfg' Hstep [Hlive [Hidle Hphase]].
+  intros cfg cfg' Hstep [Hlive [Hidle [Hphase Hcl0]]].
   destruct Hstep as
-    [ p b h lv tr tid c v k Hlv Hp
+    [ p b h lv tr tid c v k Hlv Hp _
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
     | p b h lv tr tid l v k Hlv Hp
     | p b h lv tr tid l f Hlv Hp
@@ -2329,17 +2363,21 @@ Proof.
   - (* send rule + send shape -> receive shape *)
     inversion Hp; subst.
     unfold SRShape; cbn [rc_live rc_prog rc_bufs].
-    split; [reflexivity | split].
+    split; [reflexivity | split; [ | split]].
     + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
     + right; left. split.
       * rewrite upd_same. reflexivity.
       * exists (length tr). rewrite upd_same, Hb0. reflexivity.
+    + (* closedness preserved: the appended KSend 0 is not a KClose 0 *)
+      cbn [rc_trace] in Hcl0 |- *. rewrite closedb_app, Hcl0. reflexivity.
   - (* recv rule + receive shape -> finished *)
     inversion Hp; subst. rewrite Hb0 in Hbc. inversion Hbc; subst.
     unfold SRShape; cbn [rc_live rc_prog rc_bufs].
-    split; [reflexivity | split].
+    split; [reflexivity | split; [ | split]].
     + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
     + right; right. rewrite upd_same. reflexivity.
+    + (* closedness preserved: the appended KRecv 0 is not a KClose 0 *)
+      cbn [rc_trace] in Hcl0 |- *. rewrite closedb_app, Hcl0. reflexivity.
   - (* recv_closed rule + receive shape: impossible — buffer is non-empty ([(42,s0)] <> []) *)
     inversion Hp; subst. rewrite Hb0 in Hbc. discriminate Hbc.
 Qed.
@@ -2352,20 +2390,24 @@ Qed.
 
 Lemma sr_shape_progress : forall cfg, SRShape cfg -> rdone cfg \/ rcan_step cfg.
 Proof.
-  intros cfg [Hlive [_ Hphase]].
+  intros cfg [Hlive [_ [Hphase Hcl0]]].
   assert (Hfresh : FreshAvail cfg) by (exists 1; rewrite Hlive; reflexivity).
   destruct Hphase as [[Hp0 Hb0] | [[Hp0 [s0 Hb0]] | Hp0]].
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc _]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
-    + unfold rpanicking. intros [c0 [k0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
+    + (* send shape: the CSend-panic disjunct needs channel 0 closed, but [Hcl0] says it is open *)
+      unfold rpanicking. intros [[c0 [k0 [Hpc _]]] | [c0 [v0 [k0 [Hpc Hclp]]]]]; rewrite Hp0 in Hpc;
+        [discriminate | injection Hpc as Hc0 _ _; subst c0; rewrite Hcl0 in Hclp; discriminate].
   - right. apply (ready_can_step cfg 0 Hfresh).
     + rewrite Hlive; reflexivity.
     + rewrite Hp0; discriminate.
     + unfold blocked. intros [[c0 [f0 [Hpc [Hbc _]]]] | [cs0 [Hpc _]]]; rewrite Hp0 in Hpc;
         [congruence | discriminate].
-    + unfold rpanicking. intros [c0 [k0 [Hpc _]]]; rewrite Hp0 in Hpc; discriminate.
+    + (* recv shape: neither CClose nor CSend head, so not panicking *)
+      unfold rpanicking. intros [[c0 [k0 [Hpc _]]] | [c0 [v0 [k0 [Hpc _]]]]]; rewrite Hp0 in Hpc;
+        discriminate.
   - left. intros tid Hl. rewrite Hlive in Hl. cbn in Hl.
     apply Nat.eqb_eq in Hl. subst tid. exact Hp0.
 Qed.
