@@ -373,7 +373,14 @@ through a sub-slice is observed through the parent), its **complement** `slice_i
 in-cap-aliases-vs-past-cap-reallocates (`slice_append_incap_aliases`), `make([]T,len,cap)`, slice
 `clear`/`copy`.  Maps via a heap in the world (get-after-write are *theorems*); channels via state in
 the world (below).  *Still ⚠:* a CONCURRENT (cross-goroutine) aliasing/race account rides the
-concurrency calculus, not this functional layer.
+concurrency calculus, not this functional layer.  **Pointer↔calculus bridge, slice 1 (2026-06-21):**
+`concurrency.v` `Section KeystonePtr` ties the EXTRACTABLE pointer derefs `ptr_set`/`ptr_get` to the
+operational shared-memory steps `rstep_write`/`rstep_read` (`ptr_write_sim`/`ptr_read_sim`, the derefs
+being DEFINITIONALLY the bridge's ref-accesses at `ptr_as_ref`) — so the calculus's `nat` locations
+ARE genuine `*T` cells, and `mp_trace_race_free`'s race guarantee now concerns a real pointer, not an
+abstract `nat`.  Substrate base only (no funext, no Fido axiom).  *Slice 2 (⚠ open):* the
+execution direction — a multi-goroutine `Denotes` proving a typed pointer-handoff program GENERATES
+`mp_trace` — to make the typed program's race-freedom a closed end-to-end theorem.
 
 ## Expressions — operators
 

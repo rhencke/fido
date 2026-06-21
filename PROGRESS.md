@@ -696,6 +696,18 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    *Fix:* carry typed values/locations in the operational calculus (or a refinement relating the
    two) — the same typed-sequential ↔ operational bridge the goto-substrate unification (ladder
    item, ref. Known gaps #10) targets.
+   **SLICE 1 DONE (2026-06-21) — typed pointers ARE the calculus's locations.** `concurrency.v`
+   `Section KeystonePtr`: the operational memory steps `rstep_write`/`rstep_read` are simulated by the
+   EXTRACTABLE Go-pointer derefs `ptr_set`/`ptr_get` (what the plugin emits as `*p = v` / `*p`), so a
+   calculus `nat` location `l` is a genuine runnable `*T` cell — the pointer `ptrenv l`. The deref ops
+   are DEFINITIONALLY the Keystone's ref-accesses at `ptr_as_ref` (`ptr_set_is_ref`/`ptr_get_is_ref`),
+   so read-after-write + aliasing transfer with no new heap/axiom; `ptr_write_sim` (IO world advances
+   as `upd h l v`, cell-match preserved), `ptr_read_sim` (reads the coded heap value), `ptr_write_read`
+   (typed cell coherent). Substrate base only (PrimInt63/PrimFloat, no funext, no Fido axiom),
+   proof-only ⇒ golden-stable. So `mp_trace_race_free`'s guarantee is now known to concern a real `*T`,
+   not an abstract `nat`. *Slice 2:* a MULTI-goroutine `Denotes` proving a typed pointer-handoff IO
+   program GENERATES `mp_trace` — only then is the typed program's race-freedom a closed theorem rather
+   than an identification (deliberately not yet claimed).
 
 ---
 

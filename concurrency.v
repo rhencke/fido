@@ -1908,6 +1908,89 @@ Section Keystone.
 
 End Keystone.
 
+(** ════════════════════════════════════════════════════════════════════════════
+    LIMIT #2, slice 1 — TYPED POINTERS ARE THE OPERATIONAL CALCULUS'S LOCATIONS.
+
+    The Keystone refines the operational calculus to the [run_io] World, but its memory
+    cells are abstract [Ref]s reached through a [locenv], and the race/deadlock theory
+    ([mp_trace], [Owned], [TraceRaceFree]) reasons over UNTYPED [nat] locations.  This
+    section closes the typed-location half of limit #2 for POINTERS: the operational
+    memory steps [rstep_write]/[rstep_read] are simulated by the EXTRACTABLE Go-pointer
+    derefs [ptr_set]/[ptr_get] — exactly what the plugin emits as [*p = v] / [*p].  So a
+    calculus location [l] is not an abstract [nat] but a genuine, runnable *T cell: the
+    pointer [ptrenv l].
+
+    The deref ops are DEFINITIONALLY the Keystone's ref-accesses at [ptr_as_ref]
+    ([ptr_set_is_ref]/[ptr_get_is_ref]), so the bridge inherits read-after-write +
+    aliasing with no new heap and no new axiom.  SCOPE (honest): this is the per-cell
+    memory bridge — it identifies the calculus location with the extractable *T.  The
+    multi-goroutine execution that GENERATES [mp_trace] from a typed pointer-handoff
+    program — tying [mp_trace_race_free] to the typed *T end-to-end — is slice 2 (it
+    needs a multi-goroutine [Denotes]); deliberately NOT claimed here. *)
+Section KeystonePtr.
+  Variable ptrenv : nat -> Ptr GoI64.   (* calculus location -> the extractable Go pointer *)
+  Variable inj : nat -> GoI64.          (* calculus value    -> coded IO value *)
+
+  (* a calculus location, viewed as the Keystone ref of its pointer's cell *)
+  Definition plocenv (l : nat) : Ref GoI64 := ptr_as_ref TI64 (ptrenv l).
+
+  (* EXTRACTABLE deref = bridge ref-access (DEFINITIONAL): the *T ops the plugin emits ARE
+     the ref accesses the Keystone reasons about — so a calculus location is a real Go pointer. *)
+  Lemma ptr_set_is_ref : forall l v, ptr_set TI64 (ptrenv l) v = ref_set (plocenv l) v.
+  Proof. reflexivity. Qed.
+  Lemma ptr_get_is_ref : forall l, ptr_get TI64 (ptrenv l) = ref_get TI64 (plocenv l).
+  Proof. reflexivity. Qed.
+
+  (* one-cell heap match: the IO world value at [ptrenv l] codes the calculus heap value. *)
+  Definition PHMatch (l : nat) (w : World) (h : nat -> nat) : Prop :=
+    ref_sel (plocenv l) w = inj (h l).
+
+  (** WRITE through the EXTRACTABLE pointer simulates [rstep_write]: the IO world advances by
+      [ref_upd] exactly as the operational heap advances by [upd h l v], and the one-cell match
+      is preserved (post value [inj v], mirroring [upd h l v l = v]).  Mirrors [denote_sim_write]
+      but over the genuine *T deref [ptr_set]. *)
+  Lemma ptr_write_sim : forall l v h w,
+    run_io (ptr_set TI64 (ptrenv l) (inj v)) w = ORet tt (ref_upd (plocenv l) (inj v) w)
+    /\ PHMatch l (ref_upd (plocenv l) (inj v) w) (upd h l v).
+  Proof.
+    intros l v h w. split.
+    - rewrite ptr_set_is_ref, run_ref_set. reflexivity.
+    - unfold PHMatch. rewrite upd_same, ref_sel_upd_same. reflexivity.
+  Qed.
+
+  (** READ through the EXTRACTABLE pointer simulates [rstep_read]: no world change, and the value
+      read is the coded calculus heap value [inj (h l)] (recovered via the cell match), so the
+      continuation sees [h l] — mirroring [denote_sim_read]/[rstep_read]. *)
+  Lemma ptr_read_sim : forall l h w,
+    PHMatch l w h ->
+    run_io (ptr_get TI64 (ptrenv l)) w = ORet (inj (h l)) w.
+  Proof.
+    intros l h w HM. rewrite ptr_get_is_ref, run_ref_get.
+    unfold PHMatch in HM. rewrite HM. reflexivity.
+  Qed.
+
+  (** Read-after-write through the EXTRACTABLE pointer — the typed cell is coherent: [*p = v]
+      then [*p] yields [v].  Inherited from [ref_sel_upd_same]; the typed-pointer analogue of the
+      heap law the bridge stands on, now over the op the plugin actually emits. *)
+  Lemma ptr_write_read : forall l v w,
+    run_io (ptr_get TI64 (ptrenv l)) (ref_upd (plocenv l) v w)
+      = ORet v (ref_upd (plocenv l) v w).
+  Proof.
+    intros l v w. rewrite ptr_get_is_ref, run_ref_get, ref_sel_upd_same. reflexivity.
+  Qed.
+End KeystonePtr.
+
+(** PAYOFF (honest, prose — NOT a fabricated theorem).  Combine this section with the operational
+    race theory.  [mp_trace] (write loc 0 → send ⤳ recv → read loc 0) is [TraceRaceFree]
+    ([mp_trace_race_free]); its conflicting cross-goroutine pair — the write at pos 0 and the read
+    at pos 3 of location 0 — is happens-before ordered through the channel handoff ([mp_trace_hb_0_3]),
+    hence not a [TraceRace].  By [KeystonePtr], that location 0 is a genuine EXTRACTABLE pointer
+    [ptrenv 0] (an *int64), and its write/read ARE [ptr_set]/[ptr_get] on it ([ptr_write_sim] /
+    [ptr_read_sim]).  So the operational race guarantee is now known to concern a real *T cell, not an
+    abstract [nat].  What remains (slice 2) is the EXECUTION direction: a multi-goroutine [Denotes]
+    proving a typed pointer-handoff IO program *generates* [mp_trace] — only then is the typed
+    program's race-freedom a closed theorem rather than an identification.  Stated, not overstated. *)
+
 (** Trust-base audit (verified via [Print Assumptions], 2026-06-15): each step lemma
     rests on EXACTLY the [run_io] law for its operation, and nothing degenerate:
       - [denote_sim_send]  : [run_bind], [run_send],     [chan_buf_send]
