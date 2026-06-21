@@ -651,6 +651,22 @@ any "verified" claim.
 3. **Session discipline forgeable.** `Record Sess (i j) A := MkSess { run_sess : IO A }` with public
    `MkSess` — `MkSess (ret tt) : Sess P PEnd unit` typechecks for ANY `P`.  Linearity is not enforced.
    Fix: seal `Sess` behind a module signature, or make constructors embody the protocol transitions.
+   **→ ANALYSIS (2026-06-21, scoped — NOT a break-#4-style cheap seal).**  Confirmed REAL wrong-Go: the
+   plugin lowers sessions by recognizing `ssend`/`srecv`/`sbind`/`sret`/`slift` BY NAME (`go.ml` ~3399-3428);
+   a forged bare `MkSess (ret tt)` falls through `pp_sess_stmts`' `| _ ->` arm to `pp_expr` and emits a
+   no-op, so `run_session (MkSess (ret tt)) (MkSess (ret tt))` at e.g. `P := PSend nat PEnd` allocates a
+   channel but NEVER communicates — the type claims a send/recv protocol, the Go skips it (runtime desync).
+   **Why no erased-evidence (Squash) seal works here, unlike #4:** `run_sess` is IDEALIZED (`ssend := MkSess
+   (ret tt)`; the channel effect is injected by the plugin by op-name, absent from the proof model), so there
+   is NO protocol-realization relation over the idealized `IO` for a `cw_ok`-style field to prove.  **Two real
+   paths:** (a) **module-ascription seal** — wrap the API in `Module S : SESS := SessImpl` whose signature
+   omits `MkSess`, forcing every `Sess` through the protocol-correct combinators; tractable and needs no new
+   foundation, but a SUBSTANTIAL refactor (Sess + 6 combinators + notations + main.v demos/`Fail` tests) with
+   golden risk (must keep `S.Sess` extracting as unboxed `IO`, basenames `ssend`/… still recognized; opaque
+   ascription introduces NO axiom).  (b) **real session-IO semantics** — make `run_sess` actually perform the
+   send/recv so the indices are a provable consequence; this is limit-#2 foundation (the typed↔operational
+   bridge).  NEXT TICK: attempt (a); if it breaks the plugin/golden after honest effort, fall back to (b)
+   and record it as foundation-blocked rather than faking a seal.
 4. **Evidence-carrying equality APIs carry NO evidence.** `ComparableW := {cw_eqb : K->K->bool}` and
    `struct_eqb (eqb) a b := eqb a b` — public constructors, no `forall x y, eqb x y = true <-> x = y`,
    both erase to native `==`.  `struct_eqb (fun _ _ => false) p p` = `false` in Rocq, `true` in Go.
