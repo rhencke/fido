@@ -627,6 +627,58 @@ separate tracks.
 
 ## Known gaps
 
+### Architectural seams & the strategic fork (external review, 2026-06-21)
+
+A global-altitude review (vs. the slice-local loop view) named the real seams.  Most are tracked
+piecewise below / in SPEC_CONFORMANCE / under limit #2; the value here is the UNIFYING diagnosis +
+the strategic fork.  Recorded so they steer work rather than live in chat.
+
+1. **TWO SEMANTICS, ONE WEAK SEAM — the root.**  `run_io : World -> Outcome` is TOTAL (blocking /
+   divergence / OOM idealized away: a recv on an empty-open channel returns zero, `go_spawn` runs
+   sequentially) BECAUSE it is the EXTRACTION target — a deterministic `World->Outcome` that lowers to
+   sequential Go the runtime then schedules.  Blocking can't be a *value* in a total function, so ALL
+   liveness is exiled to the operational calculus (`rstep`, blocking = no-step = `RStuck`).  The split
+   is the idealization made architectural.  CONSEQUENCE: the concurrent end-to-end guarantee is
+   PROSE-GLUED — `denote_adequate` is single-goroutine / single-channel / frame-free; multi-goroutine
+   adequacy is the deferred capstone (limit #2 slice 2c).
+
+2. **The trust base mirrors the model split — "axiom-free" must not drift.**  Honest headline = ZERO
+   *Fido* axioms; external trust base = `PrimInt63`/`PrimFloat` (computational primitives) +
+   `functional_extensionality` (logical holdout #1).  funext lives almost entirely in the IO/World
+   layer (`run_io_inj` IS funext); the operational-calculus proofs (`mp_exec`, `det_select_*`, `le1`,
+   the `MpReach` bricks…) are genuinely "Closed under the global context" — no axioms, not even funext.
+   So: calculus = axiom-free but proof-only; IO model = extracts but needs funext.  The weakest link
+   (the bridge) is exactly where the two regimes meet.  DISCIPLINE: per-theorem claims stay precise
+   (verify via `Print Assumptions`); the AGGREGATE headline is "axiom-minimal, funext holdout #1".
+
+3. **Bespoke-ness — root cause is no GENERIC RECORD REFLECTION.**  `StructRep2/3/2H` are symptoms of
+   hand-rolling per-arity / per-representation isos because Coq gives no "for any Record, its product /
+   Go-struct view" generically.  Principled fix = datatype-generic deriving (a real research lift; Coq
+   record reflection is weak).  Same shape: the two slice models don't unify — `SliceH` (heap) is the
+   faithful Go-reference-type one, `GoSlice = list` the convenient pure view, no subsumption theorem.
+   Multiplies as coverage grows (StructRep4, 5…) until reflection collapses it.
+
+4. **Select is the microcosm — its gap = the capstone gap.**  The composed `select_recv2`(World) →
+   `rstep_select`(operational) theorem is argued, not a lemma — AND it is literally a SPECIAL CASE of
+   multi-goroutine adequacy.  So the select cross-model gap and the adequacy capstone are ONE gap, seen
+   through the most-used construct.  (Select's INTERNAL story is well-closed — soundness bug found+fixed,
+   sound/incomplete/complete-under-uniqueness — because that lives inside ONE model.)
+
+5. **THE STRATEGIC FORK (sit with this before committing).**  The IO/World model earns its keep ONLY as
+   the extraction target.  Two routes to one closed end-to-end concurrent theorem:
+   - **(a) Bridge the split** (current path): keep two models, build multi-goroutine adequacy (limit #2
+     2c).  Incremental; skeleton exists (`Denotes`, `reachable_refines`); preserves working extraction.
+     Bet: the bridge is closable.
+   - **(b) Eliminate the split** (the DEEP limit #2 = "carry typed values IN the calculus"): make the
+     TYPED `Cmd`/`rstep` calculus the SINGLE model AND extraction source.  `Cmd` is already a program AST
+     whose ops extract (`CSend`→`ch<-v`, `CRecv`→`<-ch`, `CSpawn`→`go`, `CSelect`→`select`); Go's runtime
+     IS the resolver of its nondeterminism (faithful — Go `select` IS nondeterministic).  `run_io`
+     demotes to a DERIVED single-schedule denotation; likely funext-free.  Massive refactor (retarget
+     extraction), bets the extraction story.
+   TRIGGER: stay on (a) for now.  The capstone is the TEST — if multi-goroutine serialization closes
+   cleanly, the split was fine; if it fights back, the split WAS the problem and (b) is the answer.  Do
+   NOT start (b) without an explicit decision.
+
 ### Construct-layer completeness assessment (2026-06-19, grounded survey)
 
 A direct survey of the committed code (NOT the drifted "still pending" notes, which had
