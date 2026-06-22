@@ -4272,6 +4272,11 @@ Qed.
     tag — so the deref ops reuse the [ref_sel]/[ref_upd] heap (read-after-write, aliasing inherited). *)
 Definition ptr_as_ref {A} (tag : GoTypeTag A) (p : Ptr A) : Ref A := mkRef (p_loc p) tag.
 Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0%uint63.
+(* A TAG-FREE nil pointer (for a NAMED/recursive type that has no [GoTypeTag], e.g. a recursive
+   struct's self-pointer field): same nil handle, but needs no tag.  Lowers to a bare Go [nil] (valid
+   where the target type is known — a struct-literal field / typed slot).  The [unit] arg makes it a
+   recognizable application at the call site. *)
+Definition ptr_nil_tf {A} (_ : unit) : Ptr A := mkPtr 0%uint63.
 
 (** [ptr_new tag v]: Go [p := new(T); *p = v] — allocate a FRESH (nonzero) location,
     store [v] (tagged), bump the allocator, return the pointer.  Fresh ⇒ never nil. *)

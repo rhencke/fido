@@ -1723,6 +1723,17 @@ Definition pool_demo : IO unit :=
   v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
   println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
 
+(** RECURSIVE / self-referential type (the north-star FRONTIER): [type Node struct { val int64;
+    next *Node }] — a struct that refers to ITSELF through a pointer.  Coq accepts the recursive
+    [Record] because [Ptr] is a TAG-FREE PHANTOM ([mkPtr { p_loc : int }], pointee erased), so [Node]
+    occurs VACUOUSLY-positively in [Ptr Node]; it extracts to a genuine recursive Go struct.  A single
+    node (nil [next]) needs no tag — a MULTI-node list needs a recursive type TAG (the deeper nut:
+    `GoTypeTag` can't be cyclic — deferred). *)
+Inductive RNode := MkRNode { rn_val : GoI64 ; rn_next : Ptr RNode }.   (* [Inductive], not [Record] — the [Record] keyword forbids recursion; [Inductive]+projections allows it *)
+Definition node_demo : IO unit :=
+  let n := MkRNode (5)%i64 (ptr_nil_tf tt) in    (* RNode{Rn_val: 5, Rn_next: nil} — a self-referential type, realised *)
+  println [any (rn_val n)].                       (* prints: 5 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2799,6 +2810,7 @@ Definition main_effect : IO unit :=
   hub_worker_demo               >>'   (* prints: worker 123 (a GOROUTINE feeding a channel nested in a struct) *)
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
+  node_demo                     >>'   (* prints: 5 (a RECURSIVE struct: type Node struct { nv int64; next *Node }) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

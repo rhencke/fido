@@ -364,6 +364,7 @@ let is_go_new_ref = named "go_new"   (* new(T): a fresh *T pointing to the zero 
 let is_ptr_get_ref = named "ptr_get"
 let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
+let is_ptr_nil_tf_ref = named "ptr_nil_tf"   (* tag-free nil pointer → bare [nil] (for tagless/recursive types) *)
 let is_ptr_as_ref_ref = named "ptr_as_ref"
 let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
 (* Struct pointers (Phase Bs.2): SPtr R → Go *R; ops lower to native pointer syntax,
@@ -1571,6 +1572,9 @@ let rec pp_expr state env = function
           safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)
        | MLglob r, [tag] when is_ptr_nil_ref r ->
            str "(*" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")(nil)"
+       (* tag-FREE nil pointer ([ptr_nil_tf tt]) → bare [nil] (no tag for the type, e.g. a recursive
+          struct's self-pointer field; the field/slot type makes [nil] unambiguous in Go) *)
+       | MLglob r, [_u] when is_ptr_nil_tf_ref r -> str "nil"
 
        (* Slices as aliasing handles (Phase B3).  SliceH lowers to Go []T (which IS
           the aliasing handle), so the ops are native: [make([]T,n)], [s[i]],
@@ -3794,7 +3798,7 @@ let is_inlined_ref r =
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
-  is_ptr_nil_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
+  is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||

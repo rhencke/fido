@@ -1053,6 +1053,16 @@ func Pool_demo() {
 	println(pool.Pool_base + (v0 + v1))
 }
 
+type RNode struct {
+	Rn_val  int64
+	Rn_next *RNode
+}
+
+func Node_demo() {
+	n := RNode{Rn_val: 5, Rn_next: nil}
+	println(n.Rn_val)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2150,6 +2160,7 @@ func main() {
 	Hub_worker_demo()
 	Chan_of_chan_demo()
 	Pool_demo()
+	Node_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
