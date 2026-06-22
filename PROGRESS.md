@@ -707,7 +707,7 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    BASENAME). Innocent user code can be suppressed or rewritten as an intrinsic; name mangling (capitalize,
    `'`→`_`) has no collision handling and drops the source module namespace. **Fix:** register/compare exact
    `GlobRef` identities; fully-qualified registry keys; deterministic namespace mangling + collision detection.
-7. **`Sess` is forgeable. — ✅ RESOLVED at the model layer (2026-06-22, brick 1).** `MkSess` public → a term
+7. **`Sess` is forgeable. — ✅ FULLY RESOLVED (model + EXTRACTED layer, 2026-06-22).** `MkSess` public → a term
    claims any protocol while wrapping `ret tt`; backend recognizes session ops by name, so a forged session
    emits no communication. The user chose the DEEPER fix over sealing (no Module-Type `Parameter`): a
    protocol-indexed INDUCTIVE session `PSess` (concurrency.v) whose only builders are the disciplined
@@ -733,16 +733,18 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    `(PEnd,PEnd)` emits EXACTLY `proto_steps P`) + `pair_steps_tr_forget` (a traced run is a `pair_step` run). So the
    THREE trace notions coincide — protocol SPEC (`proto_steps`), session TERM (`PEmits`, brick 1), synchronized RUN
    — the terminating deterministic run carries precisely the protocol's messages. All Closed-under-global-context.
-   FINDING (foundation): a FAITHFUL real-channel Rocq denotation (`PSess` → `IO` over a `GoChan`) is BLOCKED — a
+   FINDING (foundation): a FAITHFUL real-channel Rocq denotation (`PSess` → `IO` over a `GoChan`) stays BLOCKED — a
    heterogeneous session channel needs `GoChan GoAny` but `GoTypeTag GoAny` is universe-inconsistent (builtins.v:489),
-   the SAME idealisation that forces `run_sess = ret tt`. So the one remaining extraction-soundness step is the
-   plugin MIGRATION (replace the extracted `Sess` RECORD with an INDUCTIVE so the extracted type is forge-proof too;
-   the run stays plugin-lowered/idealised). RESEARCHED (2026-06-22): the plugin lowers session ops by COMBINATOR
-   name (`ssend`…) via `emit_sess_action` (go.ml ~3666), so migration must keep those names (`NoInline` wrappers
-   over the constructors) OR retarget the plugin to the inductive's constructors — the recognition CRUX, since Coq
-   may inline `ssend := SSend` to the constructor; `Sess` erases by name (`is_erased_record_typename`, go.ml 671) so
-   the inductive erases too; `run_session` walks the term. Intricate + golden-affecting ⇒ a focused FRESH tick, NOT
-   skipped.
+   the SAME idealisation that forces `run_sess = ret tt`; so the extracted `run` remains plugin-lowered/idealised.
+   **✅ MIGRATION DONE (2026-06-22, commit 2721403, golden BYTE-IDENTICAL):** the extracted `Sess` in builtins.v is
+   now an INDUCTIVE (`SRet`/`SSend`/`SRecv`/`SLift`/`SBind`) replacing the record; `MkSess`/`run_sess` removed; the
+   combinators `sret`…`slift` are thin wrappers, already in main.v's `Extraction NoInline` list so they stay named
+   refs and the plugin's by-operation-name lowering fires UNCHANGED (emitted Go identical). `Sess` erases by name so
+   the inductive erases like the record. **No plugin change needed.** Regression lock `Fail Definition bad_forge :
+   Sess PingPong PEnd unit := MkSess (ret tt)` (main.v) — `MkSess` no longer exists ⇒ the forgery is UNTYPABLE (the
+   build passing proves the `Fail` succeeds). So R9 is closed at BOTH layers: the extracted type is forge-proof, and
+   the isomorphic `PSess` carries the safety+liveness theory. REMAINING (cleanup, not soundness): `PSess`↔`Sess`
+   unification (make the theory literally about `builtins.Sess`, removing the redundant inductive).
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
