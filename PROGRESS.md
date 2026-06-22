@@ -1645,9 +1645,32 @@ the gap is.  Tiers 1–3 are **modelled-but-wrong / ungrounded** (real *now*); t
    COMPLETENESS (`reloop_complete`/`reloop_total_correct`): a `Ranked g rank` witness
    (a measure that strictly drops along every edge = acyclicity) gives fuel
    `rank l + 1` that SUCCEEDS — so on any acyclic CFG `reloop` is TOTAL ∧ SOUND ∧
-   COMPLETE (`diamond_reloops` instantiates it).  Still open: folding LOOPS into the
-   function (the loop CORE is proved separately as `while_realized`), and connecting
-   to the emitted Go AST.
+   COMPLETE (`diamond_reloops` instantiates it).
+
+   **LOOPS FULLY LANDED (2026-06-22, `relooper.v`, proof-only, all axiom-free —
+   `Print Assumptions` = "Closed under the global context").**  The control-flow
+   semantics-preservation now covers EVERY structured loop pattern, not just the
+   `while_realized` core: (a) GENERAL single-loop soundness — the loop-aware function
+   `reloop_loop` is correct on ANY single-loop CFG (`reloop_loop_sound`), built from a
+   fuel-indexed `cfg_halts_n`, a per-iteration `runs_term`, and `loop_body_iterates`;
+   (b) SEQUENTIAL loops — `reloop_chain`/`reloop_chain_sound` (a chain of loops + an
+   acyclic tail, e.g. `for{};for{};rest`); (c) NESTED loops to ANY DEPTH — the
+   reusable calculus `inner_split`/`inner_split_cfg_n` (decompose an outer iteration
+   that passes through an inner loop) + `inner_join` (the converse splice) + the
+   proper-nesting predicate `InnerClosed` + `loop_to_exit`/`loop_to_exit_c` (lower an
+   inner loop to an `LLoop`) + the realiser abstraction `Iterates`/`IteratesC`
+   (realise-under-the-run, so a nested body qualifies) + `loop_sound_c`, assembled into
+   `nested_iterates_gen` (the RECURSIVE depth-N builder: an inner loop that is itself an
+   `IteratesC` composes to any depth) and the single general statement
+   `nested_loop_sound_gen`; (d) their COMBINATION — `ChainSound`/`chain_c_sound`: a
+   sequence of arbitrarily-nested loops (a whole function body `for{};for{for{}};tail`).
+   Concrete end-to-end witnesses: `nested_loop_sound` (depth-2), `tri_nested_sound`
+   (depth-3, by composing `nested_iterates_gen` with itself), `seq_nested_sound`
+   (sequential+nested).  `reloop_chain_chainsound` bridges the `reloop_chain` FUNCTION
+   to the `ChainSound` relation (the template the general reducible-CFG function will
+   follow).  Still open: the FUNCTION that AUTO-DETECTS the loop nest from a raw
+   reducible CFG (dominator / loop-nest analysis — a large effort), and connecting to
+   the emitted Go AST.
 
    **DEFERRED ARCHITECTURE — "verified relooper, extracted, plugged in" (PUNTED below
    built-ins/imports; the golden file is sufficient for now).**  The eventual way to

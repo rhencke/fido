@@ -1433,6 +1433,35 @@ Proof.
     eapply se_seq_n; [ exact Hloop | exact (IH sx sf (cfg_halts_n_to g nx e sx sf Hexit)) ].
 Qed.
 
+(** ── BRIDGE: the [reloop_chain] FUNCTION produces a [ChainSound] witness. ──
+    The relooper algorithm [reloop_chain] (sequential loops with [reloop_b] acyclic bodies, [lift]ed acyclic
+    tail) and the relational [ChainSound] are two views of the same lowering.  This connects them: whenever
+    [reloop_chain] succeeds, its output IS a [ChainSound] chain (each [reloop_b] body an [IteratesC] via
+    [reloop_b_iterates]; the [lift]ed tail an [AfterRealizes] via [lift_after_realizes]).  Composed with
+    [chain_c_sound] it RE-DERIVES [reloop_chain_sound] — and, more importantly, it is the TEMPLATE the general
+    reducible-CFG relooper FUNCTION follows: compute the structure, emit a [ChainSound] witness, discharge by
+    [chain_c_sound].  (Here every link is acyclic; the general function's links would be nested, their
+    [IteratesC] from [nested_iterates_gen].) *)
+Lemma reloop_chain_chainsound : forall fuel g final aft,
+  reloop fuel g final = Some aft ->
+  forall loops entry S,
+  chain_ok loops final entry ->
+  reloop_chain loops final fuel g = Some S ->
+  ChainSound g final (lift aft) entry S.
+Proof.
+  intros fuel g final aft Ha.
+  induction loops as [|[h e] rest IH]; intros entry S Hok Hrc.
+  - cbn in Hok. subst entry. cbn in Hrc. rewrite Ha in Hrc. cbn in Hrc. injection Hrc as <-.
+    apply cs_done. exact (lift_after_realizes fuel g final aft Ha).
+  - cbn in Hok. destruct Hok as [He Hrest]. subst entry. cbn in Hrc.
+    destruct (reloop_b h e fuel g h) as [body|] eqn:Hb; [|discriminate].
+    destruct (reloop_chain rest final fuel g) as [after|] eqn:Hrc'; [|discriminate].
+    injection Hrc as <-.
+    eapply cs_loop.
+    + apply iterates_c. exact (reloop_b_iterates h e fuel g body Hb).
+    + exact (IH e after Hrest eq_refl).
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
