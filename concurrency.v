@@ -1691,6 +1691,45 @@ Proof.
   exact (proj2 (private_disc_reachable_race_free (fun _ => 0) spawn_init cfg spawn_init_disc Hsteps)).
 Qed.
 
+(* NORTH-STAR (FRONTIER 2 at the calculus level): the CURSED DEMO's concurrency SHAPE proven race-free.
+   The cursed demo is [type Cursed struct { Cu_chans []chan ChanBox ; Cu_list *ListNode }] — the MAIN
+   goroutine owns the HEAP (the [*ListNode], here location 0) and SPAWNS channel-relay goroutines (the
+   self-sending-channel goroutines — they only touch channels, [MemFree]); main then recvs the relayed
+   values and reads/writes its own list.  This is EXACTLY [OA_spawn]'s shape: memory owned by one
+   goroutine, dynamic spawns of memory-free children — so it is race-free, for EVERY interleaving, by
+   the discipline alone.  (Modulo the typed↔operational bridge from the extracted Go to this calculus.) *)
+Definition cursed_spawn_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0
+           then CSpawn (CSend 1 99 CRet)                  (* relay goroutine A (self-sending channel 1) *)
+                  (CSpawn (CSend 2 99 CRet)               (* relay goroutine B (self-sending channel 2) *)
+                     (CRecv 1 (fun _ => CRecv 2 (fun _ =>  (* main recvs both relayed values … *)
+                        CWrite 0 7 (CRead 0 (fun _ => CRet))))))  (* … then writes+reads its list (loc 0) *)
+           else CRet.
+Definition cursed_spawn_init : RConfig :=
+  mkRCfg cursed_spawn_prog (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+
+Lemma cursed_spawn_disc : PrivateDisc (fun _ => 0) cursed_spawn_init.
+Proof.
+  split.
+  - intros i l Hacc. cbn in Hacc. unfold acc_loc_at in Hacc.
+    destruct i; cbn in Hacc; discriminate.
+  - intros g Hg. cbn in Hg |- *. destruct g as [|g']; cbn in Hg |- *.
+    + apply OA_spawn; [ apply MF_send; apply MF_ret |].
+      apply OA_spawn; [ apply MF_send; apply MF_ret |].
+      apply OA_recv; intros _.
+      apply OA_recv; intros _.
+      apply OA_write; [ reflexivity |].
+      apply OA_read; [ reflexivity | intros _; apply OA_ret ].
+    + discriminate Hg.
+Qed.
+
+Theorem cursed_spawn_reachable_race_free : forall cfg,
+  rsteps cursed_spawn_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (proj2 (private_disc_reachable_race_free (fun _ => 0) cursed_spawn_init cfg cursed_spawn_disc Hsteps)).
+Qed.
+
 (** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
     [fork_handoff_trace] / [fork_handoff_race_free] (defined way above) were HAND-BUILT traces:
     we asserted the events and proved the fork edge made the write/read non-racy.  Now that
