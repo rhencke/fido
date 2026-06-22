@@ -203,6 +203,7 @@ n= 5
 42 true
 0 false
 7
+fido 42
 99
 9
 77

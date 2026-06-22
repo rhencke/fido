@@ -981,6 +981,19 @@ func Ptr_chan_demo() {
 	println(v)
 }
 
+type Inbox struct {
+	Ib_ch   chan int64
+	Ib_name string
+}
+
+func Inbox_demo() {
+	ch := make(chan int64, 1)
+	box := Inbox{Ib_ch: ch, Ib_name: "fido"}
+	box.Ib_ch <- 42
+	v, _ := <-box.Ib_ch
+	println(box.Ib_name, v)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2073,6 +2086,7 @@ func main() {
 	New_demo()
 	Ptr_safe_demo()
 	Ptr_chan_demo()
+	Inbox_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()

@@ -1655,6 +1655,18 @@ Definition ptr_chan_demo : IO unit :=
   bind (ptr_get TI64 q)              (fun v =>      (* v := *q  (= 7) *)
   println [any v]))))).                              (* prints 7 *)
 
+(** A CHANNEL nested in a STRUCT (Go's worker/inbox pattern: [type Inbox struct { ch chan int64;
+    name string }]).  The struct holds the channel HANDLE — a reference type, so copying the struct
+    SHARES the channel — and send/recv flow through the field [box.Ib_ch].  A first step toward the
+    north-star nesting (channels inside structs / slices). *)
+Record Inbox := MkInbox { ib_ch : GoChan GoI64 ; ib_name : GoString }.
+Definition inbox_demo : IO unit :=
+  bind (make_chan_buf TI64 1)            (fun ch =>   (* ch := make(chan int64, 1) *)
+  let box := MkInbox ch "fido"%string in              (* box := Inbox{Ib_ch: ch, Ib_name: "fido"} *)
+  bind (send TI64 (ib_ch box) (42)%i64)  (fun _ =>    (* box.Ib_ch <- 42 *)
+  recv_ok TI64 (ib_ch box) (fun v _ =>                (* v := <-box.Ib_ch *)
+  println [any (ib_name box); any v]))).               (* prints: fido 42 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2726,6 +2738,7 @@ Definition main_effect : IO unit :=
   new_demo                      >>'   (* prints: 0 (new(int64) → zero) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
   ptr_chan_demo                 >>'   (* prints: 7 (a *int64 sent over a chan, deref'd) *)
+  inbox_demo                    >>'   (* prints: fido 42 (a channel nested in a struct field) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
