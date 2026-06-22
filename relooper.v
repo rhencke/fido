@@ -819,22 +819,34 @@ Qed.
 Definition Iterates (g : CFG) (hdr exit : nat) (body : Stmt2) : Prop :=
   forall s, exists s' o, runs_term g hdr exit hdr s s' o /\ seval body s s' o.
 
-(** Whenever [body] realises one iteration ([Iterates]) and the CFG halts from the header in [n] fuel,
-    [LLoop body] reproduces the loop: it runs the body once per CFG iteration and STOPS exactly when control
-    reaches [exit], leaving the loop in the SAME state [sx] the CFG is in at [exit] — from which [nx] fuel
-    remains to finish.  Proof by STRONG induction on the fuel [n] ([lt_wf_ind]): one iteration via the
-    [Iterates] hypothesis gives [seval body] + a [runs_term]; [runs_term_cfg_n] factors it out of
-    [cfg_halts_n], yielding the residual at strictly smaller fuel (Normal: the header is re-entered with
-    [hdr <> exit], so [n' < n] — the IH applies, [se_loop_again]; Broke: [se_loop_break] consumes the break
-    and we hand off the residual exit-run). *)
-Lemma loop_body_iterates_gen : forall g hdr exit body,
-  Iterates g hdr exit body ->
+(** [IteratesC] is the CONDITIONAL realiser — [body] realises one iteration only from states from which the
+    CFG actually HALTS.  This is strictly weaker than [Iterates] (which demands it from EVERY state), and it
+    is exactly what a NESTED loop body needs: one iteration of a body wrapping an inner [LLoop] includes
+    running that inner loop to completion, which need not terminate from an arbitrary state — but DOES under
+    a halting run.  Every [Iterates] is an [IteratesC] ([iterates_c]); the loop machinery below is proved
+    over [IteratesC], so it covers both. *)
+Definition IteratesC (g : CFG) (hdr exit : nat) (body : Stmt2) : Prop :=
+  forall s sf, cfg_halts g hdr s sf -> exists s' o, runs_term g hdr exit hdr s s' o /\ seval body s s' o.
+
+Lemma iterates_c : forall g hdr exit body, Iterates g hdr exit body -> IteratesC g hdr exit body.
+Proof. intros g hdr exit body Hit s sf _. exact (Hit s). Qed.
+
+(** Whenever [body] realises one iteration UNDER THE RUN ([IteratesC]) and the CFG halts from the header in
+    [n] fuel, [LLoop body] reproduces the loop: it runs the body once per CFG iteration and STOPS exactly
+    when control reaches [exit], leaving the loop in the SAME state [sx] the CFG is in at [exit] — from which
+    [nx] fuel remains to finish.  Proof by STRONG induction on the fuel [n] ([lt_wf_ind]): one iteration via
+    the [IteratesC] hypothesis (licensed by [cfg_halts_n_to] of the residual run) gives [seval body] + a
+    [runs_term]; [runs_term_cfg_n] factors it out of [cfg_halts_n], yielding the residual at strictly smaller
+    fuel (Normal: the header is re-entered with [hdr <> exit], so [n' < n] — the IH applies, [se_loop_again];
+    Broke: [se_loop_break] consumes the break and we hand off the residual exit-run). *)
+Lemma loop_body_iterates_c : forall g hdr exit body,
+  IteratesC g hdr exit body ->
   forall sf n s, cfg_halts_n g n hdr s sf ->
   exists sx nx, seval (LLoop body) s sx Normal /\ cfg_halts_n g nx exit sx sf.
 Proof.
   intros g hdr exit body Hit sf n.
   induction n as [n IH] using lt_wf_ind. intros s Hch.
-  destruct (Hit s) as [s1 [o [Hrt Hsev]]].
+  destruct (Hit s sf (cfg_halts_n_to g n hdr s sf Hch)) as [s1 [o [Hrt Hsev]]].
   destruct (runs_term_cfg_n g hdr exit hdr s s1 o n sf Hrt Hch) as [n' [Hle [Hcf Hstrict]]].
   destruct o.
   - (* Normal: a real iteration, so hdr <> exit; recurse at strictly smaller fuel *)
@@ -843,6 +855,17 @@ Proof.
     exists sx, nx. split; [eapply se_loop_again; [exact Hsev | exact Hloop] | exact Hexit].
   - (* Broke: the loop breaks here, landing at exit in state s1 = sx *)
     exists s1, n'. split; [apply se_loop_break; exact Hsev | exact Hcf].
+Qed.
+
+(** The unconditional [loop_body_iterates_gen] is the [Iterates] instance (via [iterates_c]) — same
+    statement, so [reloop_loop_sound]/[reloop_chain_sound] are untouched. *)
+Lemma loop_body_iterates_gen : forall g hdr exit body,
+  Iterates g hdr exit body ->
+  forall sf n s, cfg_halts_n g n hdr s sf ->
+  exists sx nx, seval (LLoop body) s sx Normal /\ cfg_halts_n g nx exit sx sf.
+Proof.
+  intros g hdr exit body Hit sf n s Hch.
+  exact (loop_body_iterates_c g hdr exit body (iterates_c g hdr exit body Hit) sf n s Hch).
 Qed.
 
 (** [reloop_b]'s output IS an iteration realiser — its correctness ([reloop_b_correct]) at [l := hdr] is
@@ -873,6 +896,22 @@ Qed.
 Definition AfterRealizes (g : CFG) (exit : nat) (A : Stmt2) : Prop :=
   forall sx s', cfg_halts g exit sx s' -> seval A sx s' Normal.
 
+(** The fully abstract single-loop soundness over the CONDITIONAL realiser: [LSeq (LLoop body) A] is sound
+    for ANY [IteratesC] body (realising-under-the-run, so a NESTED body qualifies) and ANY exit-realising
+    [A].  The loop runs to the exit state ([loop_body_iterates_c]); [A] finishes from there. *)
+Lemma loop_sound_c : forall g hdr exit body A s sf,
+  IteratesC g hdr exit body ->
+  AfterRealizes g exit A ->
+  cfg_halts g hdr s sf ->
+  seval (LSeq (LLoop body) A) s sf Normal.
+Proof.
+  intros g hdr exit body A s sf Hit Haft Hch.
+  destruct (cfg_halts_to_n g hdr s sf Hch) as [n Hn].
+  destruct (loop_body_iterates_c g hdr exit body Hit sf n s Hn) as [sx [nx [Hloop Hexit]]].
+  eapply se_seq_n; [exact Hloop | exact (Haft sx sf (cfg_halts_n_to g nx exit sx sf Hexit))].
+Qed.
+
+(** The unconditional version is the [Iterates] instance (via [iterates_c]); [reloop_loop_sound] uses this. *)
 Lemma loop_sound_gen : forall g hdr exit body A s sf,
   Iterates g hdr exit body ->
   AfterRealizes g exit A ->
@@ -880,9 +919,7 @@ Lemma loop_sound_gen : forall g hdr exit body A s sf,
   seval (LSeq (LLoop body) A) s sf Normal.
 Proof.
   intros g hdr exit body A s sf Hit Haft Hch.
-  destruct (cfg_halts_to_n g hdr s sf Hch) as [n Hn].
-  destruct (loop_body_iterates_gen g hdr exit body Hit sf n s Hn) as [sx [nx [Hloop Hexit]]].
-  eapply se_seq_n; [exact Hloop | exact (Haft sx sf (cfg_halts_n_to g nx exit sx sf Hexit))].
+  exact (loop_sound_c g hdr exit body A s sf (iterates_c g hdr exit body Hit) Haft Hch).
 Qed.
 
 (** The [lift] of an acyclic [reloop] of the exit region is one such after-realiser ([reloop_correct] +
