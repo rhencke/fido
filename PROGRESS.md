@@ -659,16 +659,33 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    `go build`. **Fix:** wrap in a runtime-typed IIFE `func(x,y uint64) uint64 { return x-y }(…)` — exactly
    the technique already used for float constants (`f32`/`f64`). Tier-2 numeric carrier note relates but the
    *constant-folding* bug is independent.
-2. **Rocq types lost at local / interface boundaries. ✓credible** (narrow widths now render `uint8`/`int8`/
-   `int32`, but the expr printer still assumes int64-carried; emits `:=` locals so Go RE-INFERS a type; the
-   boxing repair inspects only the syntactic HEAD so a `let`/projection/helper-call defeats it). Minimal:
-   `let x:GoU8 := u8_add… in pass_as_GoAny x` → `x` inferred `int`, boxed as `int`, a later `.(uint8)` assert
-   FAILS though the model says it succeeds. Also: `i8_add` emits `& 0xff` (Go rejects on `int8`); `i64_of_u8`
-   emitted as identity (returns `uint8` where `int64` required); `str_at_ok` declares its byte result `int64`;
-   a literal `GoI64`/`GoU64` boxed as `GoAny` defaults to Go `int`. **Semantics change by adding a `let` —
-   fatal for an extractor. Fix:** a typed IR / expression-type environment; emit every local, return, field
-   init, interface box, channel send, and argument from the SOURCE type, never AST-inferred. The `GoAny` tag
-   must drive interface conversion (not `payload_head`).
+2. **Rocq types lost at local / interface boundaries. ✓CONFIRMED — REPRODUCED 2026-06-22** (narrow widths
+   render `uint8`/`int8`/`int32`, but the expr printer assumes int64-carried; emits `:=` locals so Go RE-INFERS
+   a type; the boxing repair inspects only the syntactic HEAD (`payload_head`/`fw_value_type`) so a
+   `let`/projection/helper-call defeats it). **Exact reproduction:** `let xrepro := u8_of_i64 (i64_lit 4660) in
+   println [any xrepro; …]` emits `xrepro := ((4660) & 0xff)` (Go infers `int`) and boxes `xrepro` BARE — vs the
+   direct sibling `any (u8_of_i64 …)` which correctly boxes `uint8(((4660) & 0xff))`. So `any xrepro` has dynamic
+   type `int`; `.(uint8)` FAILS though the model says `GoU8`, and `.(int)` SUCCEEDS — the exact model/runtime
+   contradiction. Also: `i8_add` emits `& 0xff` (Go rejects 255 on `int8`); `i64_of_u8` emitted as identity
+   (returns the narrow type where `int64` required); `str_at_ok` declares its byte result `int64`; a literal
+   `GoI64`/`GoU64` boxed as `GoAny` defaults to Go `int`.
+   **DEEP ROOT — the sub-issues are COUPLED by the int64-carrier representation:** narrow types are carried as
+   int64 for arithmetic (so masked ops constant-fold; native `uint8(200)+uint8(100)` is a Go const-overflow
+   error) but rendered as the REAL narrow Go type only at var-decls/boxing. Making narrows CONSISTENTLY their
+   real type (so a let-bound `uint8` boxes itself) would then require fixing every op that assumed int64-carrier
+   (`i64_of_u8` identity → `int64(x)` cast, masked arith → native arith on runtime narrow operands, …) — i.e. a
+   type-DIRECTED emission (native op on a runtime narrow-typed operand, masked int64 op on a constant). This is
+   the same runtime-vs-constant split as P0 #1's forcing, but per-type.
+   **Semantics change by adding a `let` — fatal for an extractor. Fix (typed IR / expr-type environment):** emit
+   every local, return, field init, interface box, channel send, and argument from the SOURCE Go type, never
+   AST-inferred; the `GoAny` payload's tracked TYPE drives interface conversion (not `payload_head`).
+   **PLANNED IMPLEMENTATION (least-invasive first slice, preserves the int64-carrier model):** record narrow-
+   typed let-bound vars and apply the `uint8(…)` conversion at the box site — either (a) extend the `env`
+   (currently an `MLident list`, threaded ~20 sites) to `(MLident * goType option) list`, or (b) a per-function
+   `state` table `var-name ↦ narrow-Go-type` populated at the narrow `MLletin` (2 sites: pp_expr IIFE ~2050 +
+   the pp_stmts `:=`) and consulted at the box (`pp_pa` ~1747, which has `env`), reset per function in
+   pp_function (Coq names are function-locally unique). LATENT today (the golden demos box narrow values DIRECTLY,
+   head visible) — so the fix is golden-byte-identical + re-verified by the repro boxing as `uint8(xrepro)`.
 3. **Unsupported type tags silently become `any`. ✓verified** (`go_type_of_tag` ~552 `| _ -> "any"`, ~543
    `None -> "any"`; `zero_of_tag` ~563 → `any(0)`). For `TUnit`/`TArrow`/`TProd` the emitted `x.(any)` assertion
    SUCCEEDS for any non-nil iface, but Rocq `tag_eq` says `TUnit ≠ TI64` → `type_assert_safe TUnit` on an int64
