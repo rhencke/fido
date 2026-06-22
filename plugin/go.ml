@@ -56,6 +56,23 @@ let unsupported what =
           ": unmodeled Go construct.  Implement its lowering or suppress the \
            definition (is_inlined_ref) — refusing to emit wrong Go."))
 
+(* review R7: package-level Go identifiers must be INJECTIVE.  Two distinct source declarations that
+   mangle to the SAME Go name (`foo'`/`foo_` → `Foo_`; `foo`/`Foo` → `Foo` after export-capitalization;
+   the same basename in two flattened modules) would emit the identifier twice — a Go `redeclared` error.
+   Relying on `go build` to catch that is TOO LATE: the plugin must emit correct Go or fail loud AT
+   EXTRACTION.  This registry maps each claimed Go identifier (methods use a separate `RecvType.Method`
+   key) to the source identity that claimed it; a second, DIFFERENT claimant aborts.  Reset per extraction. *)
+let emitted_names : (string, string) Hashtbl.t = Hashtbl.create 64
+let register_emitted_name key src =
+  match Hashtbl.find_opt emitted_names key with
+  | Some src0 when not (String.equal src0 src) ->
+      unsupported (Printf.sprintf
+        "two distinct declarations both mangle to the Go identifier `%s` (e.g. `foo'`/`foo_`, `foo`/`Foo` \
+         after export-capitalization, or the same basename in two modules) — emitting both is a Go \
+         `redeclared` error, which `go build` would catch only AFTER extraction; rename one in the source \
+         so the generated identifiers are distinct" key)
+  | _ -> Hashtbl.replace emitted_names key src
+
 (*s File naming. *)
 
 let file_naming state mp =
@@ -81,8 +98,14 @@ let go_safe s = String.map (function '\'' -> '_' | c -> c) s
 
 let pp_goid id = str (go_safe (Id.to_string id))
 
-(** Capitalise the first character (export in Go). *)
+(** Capitalise the first character (export in Go).  Also [go_safe] (review R7): a Coq identifier may
+    contain [']  (and [go_safe] maps it to [_]), which is illegal in a Go identifier — applying it HERE
+    means every emitted identifier (decl AND call site, since both go through [go_export]) is a valid Go
+    name, consistently.  [go_safe] is idempotent, so a site that already [go_safe]'d (e.g. [pp_goid]) is
+    unaffected.  Distinct source names that COLLIDE after this mangling (e.g. [foo']/[foo_] → [Foo_]) are
+    caught by the [register_emitted_name] collision check — they are NOT silently merged. *)
 let go_export s =
+  let s = go_safe s in
   if String.length s = 0 then s
   else
     let b = Bytes.of_string s in
@@ -4045,6 +4068,17 @@ let pp_main_body state body =
 
 (*s Declaration printer. *)
 
+(* review R7: claim a TERM declaration's Go identifier (method → its `RecvType.Method` namespace, which
+   is distinct from a package-level function/type of the same bare name).  Aborts on a colliding claim. *)
+let register_term_name r =
+  let name = go_export (global_basename r) in
+  let key =
+    if is_method r then
+      (match Hashtbl.find_opt method_recvtype (global_path r) with
+       | Some rt -> rt ^ "." ^ name | None -> name)
+    else name in
+  register_emitted_name key (global_path r)
+
 let pp_decl state decl =
   (match decl with
    | Dterm (r, _, _) -> current_decl := global_basename r
@@ -4067,6 +4101,7 @@ let pp_decl state decl =
       mt ()
 
   | Dterm (r, body, typ) ->
+      register_term_name r;   (* review R7: claim this decl's Go identifier, aborting on a collision *)
       let name = global_basename r in
       (match body with
        | MLlam _ ->
@@ -4092,10 +4127,12 @@ let pp_decl state decl =
 
   | Dfix (refs, bodies, types) ->
       if Array.exists is_inlined_ref refs then mt ()
-      else
+      else begin
+        Array.iter register_term_name refs;   (* review R7: claim each fixpoint's Go identifier *)
         prvecti
           (fun i _ -> pp_function state (global_basename refs.(i)) bodies.(i) types.(i))
           refs
+      end
 
   | Dind mi ->
       (* A record (single-constructor inductive with projections) → a Go struct;
@@ -4107,6 +4144,7 @@ let pp_decl state decl =
               suppressed — safe to match by name (no user type shares these names). *)
            && not (List.mem (Id.to_string mi.ind_packets.(0).ip_typename) ["shr_record"]) ->
            let pkt = mi.ind_packets.(0) in
+           register_emitted_name (go_export (Id.to_string pkt.ip_typename)) (Id.to_string pkt.ip_typename);
            let ftypes = (try pkt.ip_types.(0) with _ -> []) in
            (match Hashtbl.find_opt defined_prim_under (go_export (Id.to_string pkt.ip_typename)) with
             (* DEFINED TYPE over a primitive → [type Name <under>] (NOT a struct; the GoTypeTag
@@ -4157,6 +4195,8 @@ let pp_decl state decl =
            let pkt = mi.ind_packets.(0) in
            let tn = go_export (Id.to_string pkt.ip_typename) in
            let ctors = Array.to_list pkt.ip_consnames in
+           register_emitted_name tn (Id.to_string pkt.ip_typename);   (* review R7: enum type name *)
+           List.iter (fun c -> register_emitted_name (go_export (Id.to_string c)) (Id.to_string c)) ctors;  (* + iota consts *)
            str "type " ++ str tn ++ str " int" ++ fnl () ++ fnl () ++
            str "const (" ++ fnl () ++
            (match ctors with
@@ -4216,11 +4256,19 @@ let collect_decls struc =
          | Record projs when Array.length mi.ind_packets > 0
              && not (is_erased_record_typename (Id.to_string mi.ind_packets.(0).ip_typename)) ->
              let pkt = mi.ind_packets.(0) in
+             (* review R7: two records sharing a typename would silently OVERWRITE each other's
+                metadata (and emit a duplicate `type Name struct`) — catch it at extraction. *)
+             if Hashtbl.mem record_typenames (Id.to_string pkt.ip_typename) then
+               unsupported (Printf.sprintf "two record types both named `%s` — their `type %s struct` decls and field/ctor metadata would collide; rename one in the source"
+                              (Id.to_string pkt.ip_typename) (go_export (Id.to_string pkt.ip_typename)));
              Hashtbl.replace record_typenames (Id.to_string pkt.ip_typename) ();
              List.iter (function
                | Some g -> Hashtbl.replace record_proj_field (global_path g) (global_basename g)
                | None -> ()) projs;
              if Array.length pkt.ip_consnames > 0 then begin
+               if Hashtbl.mem record_ctor_names (Id.to_string pkt.ip_consnames.(0)) then
+                 unsupported (Printf.sprintf "two record constructors both named `%s` — their ctor/field metadata would collide; rename one in the source"
+                                (Id.to_string pkt.ip_consnames.(0)));
                Hashtbl.replace record_ctor_names (Id.to_string pkt.ip_consnames.(0)) ();
                let ftypes = (try pkt.ip_types.(0) with _ -> []) in
                Hashtbl.replace record_ctor_ftypes (Id.to_string pkt.ip_consnames.(0)) ftypes ;
@@ -4252,6 +4300,9 @@ let collect_decls struc =
                (let c0 = pkt.ip_consnames.(0) in
                 let s = Id.to_string c0 in String.equal s "true" || String.equal s "false") in
              if all_nullary && not is_bool then begin
+               if Hashtbl.mem enum_typenames (Id.to_string pkt.ip_typename) then
+                 unsupported (Printf.sprintf "two enum types both named `%s` — their `type %s int` + iota const blocks would collide; rename one in the source"
+                                (Id.to_string pkt.ip_typename) (go_export (Id.to_string pkt.ip_typename)));
                Hashtbl.replace enum_typenames (Id.to_string pkt.ip_typename) () ;
                Array.iter (fun c -> Hashtbl.replace enum_ctors (Id.to_string c) ())
                  pkt.ip_consnames
@@ -4334,6 +4385,7 @@ let collect_decls struc =
     | _ -> ()) decls
 
 let pp_struct state struc =
+  Hashtbl.reset emitted_names;   (* review R7: per-extraction identifier-collision registry *)
   collect_decls struc;
   let pp_mod (mp, sel) =
     State.with_visibility state mp [] (fun state ->

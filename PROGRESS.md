@@ -878,11 +878,22 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   Verified end-to-end: `lowbyte`/`lowbyte_i8`/`inc8`/`consume_i8` COMPILE and RUN correctly (`52 -56 201 -55`),
   with model-level `Example`s (`inc8 200 = 201`, `consume_i8 200 = -55`). Narrow struct FIELDS would follow the
   same widening if a demo needs them (no current demo has one).
-- **R7. Generated identifiers not injective** (assessed plausible): `foo'`→`foo_` collides with a real `foo_`;
-  `foo`/`Foo` collide after export-capitalization; two modules' same basename collide when flattened into one Go
-  package; record-ctor/type metadata keyed by basename can clobber across modules. And builtin recognition keys on
-  *any* path component named `builtins`, not the canonical `builtins.v` GlobRef. Needs deterministic full-GlobRef
-  mangling + a collision check before emission. (Overlaps/extends backend #6.)
+- **R7. Generated identifiers not injective — ✅ collision now caught AT EXTRACTION (this session, golden
+  byte-identical).** Two fixes (`go.ml`): (1) **`go_export` now `go_safe`s first** — a Coq name with `'`
+  (e.g. `foo'`) previously emitted the INVALID Go identifier `Foo'` (or, if some sites `go_safe`d and others
+  didn't, an inconsistent name); now every emitted identifier (decl AND call site — both route through
+  `go_export`) is a valid Go name, consistently (`foo'` → `Foo_`). (2) **An explicit collision registry**
+  (`register_emitted_name`): each emitted package-level Go identifier is claimed by its source identity
+  (functions/vars by `global_path`, so CROSS-MODULE basename collisions are caught; types/enum-consts too); a
+  second DIFFERENT claimant `unsupported`s — so `foo'`/`foo_`→`Foo_`, `foo`/`Foo`→`Foo`, and a type-vs-function
+  clash abort at EXTRACTION, NOT via a Go `redeclared` error (which would be TOO LATE — the plugin must emit
+  valid Go or fail loud itself). Plus `collect_decls` guards: two records/enums with the same typename, or two
+  records with the same ctor name, abort (the silent metadata-OVERWRITE the review flagged). Golden byte-identical
+  (no current name has `'`; no current collision). NEGATIVE FIXTURE fired: `Definition foo'`/`Definition foo_`
+  both → `Foo_` aborts ("two distinct declarations both mangle to the Go identifier `Foo_`"). REMAINING R7
+  sub-item (separate surface, not a decl-name collision): builtin RECOGNITION keys on any path component named
+  `builtins` rather than the canonical `builtins.v` GlobRef — the backend #6 deep tail (low-marginal; a user
+  must name a module `builtins` AND shadow a Fido intrinsic).
 
 **P2 — model-to-runtime faithfulness gaps (the bridge, gap #10 / limit #2):**
 - **R5. Plain `GoSlice` capacity model disagrees with Go** (assessed correct): the Rocq model has `cap xs = length
