@@ -370,6 +370,21 @@ Definition narrow_let_assert_demo : IO unit :=
   let xu8 := u8_of_i64 (i64_lit 200 eq_refl) in
   type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
     println [any v8; any ok1]).   (* 200 true *)
+(** P0 #2 slice — narrow RETURN boundary.  A function whose RETURN type is a sub-64 narrow [GoIntN]
+    now wraps its int64-carrier result in the declared Go type: [func lowbyte(x int64) uint8 { return
+    uint8(x & 0xff) }] COMPILES and the boxed dynamic type is faithful.  PRE-FIX it emitted [return
+    (x & 0xff)] — an [int64] value against a [uint8] signature, a Go BUILD error (the carrier-vs-declared
+    mismatch).  Both take a FULL-WIDTH [GoI64] param (no param-boundary issue — that is the next slice)
+    and return a narrow value; the result is boxed so its dynamic Go type ([uint8]/[int8]) is observed. *)
+Definition lowbyte    (x : GoI64) : GoU8 := u8_of_i64 x.
+Definition lowbyte_i8 (x : GoI64) : GoI8 := i8_of_i64 x.
+Example lowbyte_val    : i64raw (i64_of_u8 (lowbyte    (i64_lit 4660 eq_refl))) = 52%Z.
+Proof. vm_compute. reflexivity. Qed.
+Example lowbyte_i8_val : i64raw (i64_of_i8 (lowbyte_i8 (i64_lit 200  eq_refl))) = (-56)%Z.
+Proof. vm_compute. reflexivity. Qed.
+Definition narrow_ret_demo : IO unit :=
+  println [ any (lowbyte    (i64_lit 4660 eq_refl))    (* uint8(4660) = 52  *)
+          ; any (lowbyte_i8 (i64_lit 200  eq_refl)) ]. (* int8(200)   = -56 *)
 (** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
     through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (widen is identity, then the
     [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]
@@ -2924,6 +2939,7 @@ Definition main_effect : IO unit :=
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
+  narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)

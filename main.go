@@ -179,6 +179,18 @@ func Narrow_let_assert_demo() {
 	println(v8, ok1)
 }
 
+func Lowbyte(x int64) uint8 {
+	return uint8((x & 0xff))
+}
+
+func Lowbyte_i8(x int64) int8 {
+	return int8((((x & 0xff) ^ 0x80) - 0x80))
+}
+
+func Narrow_ret_demo() {
+	println(Lowbyte(4660), Lowbyte_i8(200))
+}
+
 func Narrow_u64_demo() {
 	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(511)) & 0xff)), int8(((((I64_of_u64(255)) & 0xff) ^ 0x80) - 0x80)))
 }
@@ -2265,6 +2277,7 @@ func main() {
 	I64_of_narrow_demo()
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
+	Narrow_ret_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
 	Fconst_demo()

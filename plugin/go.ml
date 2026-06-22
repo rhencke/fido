@@ -672,6 +672,23 @@ let is_numint_proj r =                      (* u8raw / i16raw / i64raw : (u|i) d
   len >= 5 && (n.[0] = 'u' || n.[0] = 'i') && str_suffix "raw" n
   && all_digits (String.sub n 1 (len - 4)))
 
+(* P0 #2 / review R4(d): the Go type name of a SUB-64 narrow numeric wrapper (GoU8/GoI8/GoU16/GoI16/
+   GoU32/GoI32 — the short [is_numint_type] wrapper names), else None.  EXCLUDES the full-width
+   GoI64/GoU64 (width 64, already int64/uint64-carried) and native GoInt/GoUint.  Parses the short form
+   "Go" + (U|I) + digits → "uint"/"int" + digits.  These narrow types are int-CARRIED for arithmetic
+   (masked-int exprs), so a value of one at a typed boundary (a function RETURN) is the int carrier, NOT
+   its declared narrow Go type — so a bare `return <expr>` against a `uint8`/`int8` signature is a Go type
+   error; the return must re-cast (`return uint8(…)`). *)
+let narrow_prim_type r =
+  if not (is_numint_type r) then None
+  else
+    let n = global_basename r in            (* "GoU8" / "GoI16" / "GoI64" *)
+    if String.length n <= 3 then None
+    else match int_of_string_opt (String.sub n 3 (String.length n - 3)) with
+      | Some w when w >= 1 && w <= 32 ->
+          Some ((if n.[2] = 'I' then "int" else "uint") ^ string_of_int w)
+      | _ -> None
+
 (* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
    proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
    wrappers — the Go value IS a [float32] (type name → "float32" via [go_prim_type_table];
@@ -871,6 +888,13 @@ let any_narrow_conv e =
    are function-locally unique) and RESET per function.  Preserves the int64-carrier model: x stays int-typed,
    only the box adds the cast (`uint8(int)` truncates to the right narrow value). *)
 let narrow_var_types : (string, string) Hashtbl.t = Hashtbl.create 16
+(* P0 #2 (narrow RETURN boundary): the current function's narrow Go return type, if its return type
+   is a sub-64 narrow wrapper.  The body computes an int-CARRIER value, so a bare `return <expr>`
+   would emit `return <int-expr>` against a declared `uint8`/`int8`/… signature — a Go type error.
+   When [Some gt], [pp_pure_tail]'s return wraps the value in [gt(…)] (e.g. `return uint8(x & 0xff)`),
+   value-preserving (the carrier is already masked into range) and giving the result its faithful Go
+   type.  Set per function in [pp_function] from its return type; [None] (reset) for everything else. *)
+let narrow_ret_type : string option ref = ref None
 let mlident_name = function
   | Id v | Tmp v -> Some (go_safe (Id.to_string v))
   | Dummy -> None
@@ -3684,7 +3708,11 @@ let is_sptr_record_tglob = function
    fallback below routes it there).  This is what lets a pure function whose body is
    an [if] (e.g. [i64_abs]) extract instead of aborting. *)
 let rec pp_pure_tail state tab env e =
-  let return_fallback () = str tab ++ str "return " ++ pp_expr state env e ++ fnl () in
+  let return_fallback () =
+    (* P0 #2: a sub-64 narrow return wraps the int-carrier value in its declared Go type. *)
+    match !narrow_ret_type with
+    | Some gt -> str tab ++ str "return " ++ str (gt ^ "(") ++ pp_expr state env e ++ str ")" ++ fnl ()
+    | None    -> str tab ++ str "return " ++ pp_expr state env e ++ fnl () in
   let ctor_of0 (ids, pat, body) =
     match pat with
     | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
@@ -3771,6 +3799,9 @@ let pp_function state name body typ =
   Hashtbl.reset narrow_var_types;   (* P0 #2: narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
   let param_types, ret_type = collect_tarrs typ in
+  (* P0 #2: a sub-64 narrow return type makes the pure-tail [return]s wrap the int-carrier value
+     in its declared Go type ([narrow_ret_type]); [None] for full-width / IO / non-narrow returns. *)
+  narrow_ret_type := (match ret_type with Tglob (r, []) -> narrow_prim_type r | _ -> None);
   (* Pair visible ids with their corresponding types, skipping erased args. *)
   let rec zip_params ids types =
     match ids, types with
@@ -3994,6 +4025,7 @@ let pp_main_call fn_name =
     Used by both [pp_main_body] and [pp_function] for IO-typed functions. *)
 let pp_main_body state body =
   Hashtbl.reset narrow_var_types;   (* P0 #2: reset the narrow-let-var table for main *)
+  narrow_ret_type := None;          (* P0 #2: main returns IO unit, never a narrow value *)
   str "func main() {" ++ fnl () ++
   pp_io_body state "\t" [] body ++
   str "}" ++ fnl ()
