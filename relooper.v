@@ -1686,4 +1686,64 @@ Proof.
     [ exact Hout | exact (lift_after_realizes 5 g 6 (SBody f6) eq_refl) | exact Hch ].
 Qed.
 
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    SEQUENTIAL + NESTED combined — a simple loop FOLLOWED by a nested loop, via [chain_c_sound].
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    Concrete validation that the two relooper stories COMPOSE: [snCFG] is [for {…}; for { for {…} }; tail]
+    — a plain loop (header 0), then a nested loop (header 2, inner header 3), then a return.  Lowered to
+    [LLoop body1 ; LLoop body2 ; tail] where [body1] is acyclic ([reloop_b]) and [body2] wraps an inner
+    [LLoop] ([nested_iterates_gen]).  The whole is a [ChainSound] chain of two [IteratesC] links, discharged
+    by [chain_c_sound]. *)
+Definition snCFG (f0 f1 f2 f3 f4 f5 f6 : State -> State) (c0 c1 c2 : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk f0 (TIf c0 1 2)   (* loop1 header: body 1 / loop1 exit 2 *)
+           | 1 => mkBlk f1 (TGoto 0)      (* loop1 body: back-edge to 0 *)
+           | 2 => mkBlk f2 (TIf c1 3 6)   (* loop2 (nested) header: inner loop 3 / loop2 exit 6 *)
+           | 3 => mkBlk f3 (TIf c2 4 5)   (* loop2 inner header: inner body 4 / inner exit 5 *)
+           | 4 => mkBlk f4 (TGoto 3)      (* inner body: back-edge to 3 *)
+           | 5 => mkBlk f5 (TGoto 2)      (* inner exit: back-edge to loop2 header 2 *)
+           | _ => mkBlk f6 TRet           (* tail (6) *)
+           end.
+
+Definition snBody1 (f0 f1 : State -> State) (c0 : State -> bool) : Stmt2 :=
+  LSeq (LBody f0) (LIf c0 (LBody f1) LBreak).
+Definition snInner (f3 f4 : State -> State) (c2 : State -> bool) : Stmt2 :=
+  LSeq (LBody f3) (LIf c2 (LBody f4) LBreak).
+Definition snBody2 (f2 f3 f4 f5 : State -> State) (c1 c2 : State -> bool) : Stmt2 :=
+  LSeq (LBody f2) (LIf c1 (LSeq (LLoop (snInner f3 f4 c2)) (LBody f5)) LBreak).
+Definition snP (l : nat) : bool := orb (Nat.eqb l 3) (Nat.eqb l 4).
+
+Lemma sn_inner_closed : forall f0 f1 f2 f3 f4 f5 f6 c0 c1 c2,
+  InnerClosed (snCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) snP 5.
+Proof.
+  intros f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 l Hl. unfold snP in Hl.
+  destruct l as [|[|[|[|[|l]]]]]; cbn in Hl |- *; try discriminate.
+  - split; [right; reflexivity | left; reflexivity].
+  - right; reflexivity.
+Qed.
+
+(** END-TO-END: every halting run of the sequential-then-nested CFG is reproduced by the chained structured
+    program — [chain_c_sound] over two [IteratesC] links (acyclic loop1, nested loop2). *)
+Theorem seq_nested_sound : forall f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 s sf,
+  cfg_halts (snCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) 0 s sf ->
+  seval (LSeq (LLoop (snBody1 f0 f1 c0))
+              (LSeq (LLoop (snBody2 f2 f3 f4 f5 c1 c2)) (LBody f6))) s sf Normal.
+Proof.
+  intros f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 s sf Hch.
+  set (g := snCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2).
+  assert (H1 : IteratesC g 0 2 (snBody1 f0 f1 c0)).
+  { apply iterates_c. exact (reloop_b_iterates 0 2 5 g (snBody1 f0 f1 c0) eq_refl). }
+  assert (Hin : IteratesC g 3 5 (snInner f3 f4 c2)).
+  { apply iterates_c. exact (reloop_b_iterates 3 5 5 g (snInner f3 f4 c2) eq_refl). }
+  assert (H2 : IteratesC g 2 6 (snBody2 f2 f3 f4 f5 c1 c2)).
+  { eapply (nested_iterates_gen g 2 6 3 5 c1 f2 f5 (snInner f3 f4 c2) snP);
+      try reflexivity; try discriminate;
+      [ exact (sn_inner_closed f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) | exact Hin ]. }
+  apply (chain_c_sound g 6 (LBody f6) 0 _ s sf); [| exact Hch].
+  eapply cs_loop; [ exact H1 |].
+  eapply cs_loop; [ exact H2 |].
+  apply cs_done.
+  exact (lift_after_realizes 5 g 6 (SBody f6) eq_refl).
+Qed.
+
 End Relooper.
