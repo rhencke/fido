@@ -1650,6 +1650,36 @@ Proof.
   rewrite Htr. exact fork_handoff_owned.
 Qed.
 
+(** ---- FORK handoff, PARAMETRIC over the spawned child's tid (the dynamic-CSpawn subtlety). ----
+    [fork_handoff_trace] hardcoded the child tid [1], but [rinit_cfg fork_prog] starts only goroutine 0
+    live, so [rstep_spawn] picks ANY fresh [cid <> 0].  Here the fork handoff is [Owned] — hence
+    race-free — for EVERY such [cid]: the write/read conflict (positions 0/3) is ordered by the SAME
+    spawn synchronisation ([transfer_orders] over the [KSpawn cid]→[KStart] edge) regardless of which
+    fresh tid the scheduler chose.  This is the foundation the all-interleavings result needs (phase E's
+    [Owned] for an arbitrary spawned child); the [ForkReach] reachability invariant pinning every
+    reachable state to a prefix of [fork_trace_cid cid] is the next brick. *)
+Definition fork_trace_cid (cid : nat) : Trace :=
+  [ mkEv 0 (KWrite 7); mkEv 0 (KSpawn cid); mkEv cid (KStart 1); mkEv cid (KRead 7) ].
+Lemma fork_loc_pos_cid : forall cid i l, acc_loc_at (fork_trace_cid cid) i = Some l -> i = 0 \/ i = 3.
+Proof.
+  intros cid i l H. pose proof (acc_loc_at_lt _ _ _ H) as Hlt. cbn in Hlt.
+  unfold fork_trace_cid, acc_loc_at in H.
+  destruct i as [|[|[|[|i]]]]; cbn in H;
+    [ left; reflexivity | discriminate | discriminate | right; reflexivity | lia ].
+Qed.
+Lemma fork_owned_cid : forall cid, Owned (fork_trace_cid cid).
+Proof.
+  intros cid i j Hij [l [Hi Hj]]. left.
+  destruct (fork_loc_pos_cid cid i l Hi) as [-> | ->];
+    destruct (fork_loc_pos_cid cid j l Hj) as [-> | ->]; try lia.
+  apply (transfer_orders (fork_trace_cid cid) 0 1 2 3).
+  - unfold po, tid_at; cbn. repeat split; lia.
+  - unfold sync; cbn. exists (mkEv cid (KStart 1)); cbn. split; reflexivity.
+  - unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+Theorem fork_race_free_cid : forall cid, TraceRaceFree (fork_trace_cid cid).
+Proof. intro cid. exact (owned_race_free _ (fork_owned_cid cid)). Qed.
+
 (** ---- Grounding Go's CHANNEL handoff (the recv-from edge) in EXECUTION ----
     The SIBLING of [fork_exec_*]: the OTHER (and primary) go-mem mechanism — "a send on a channel
     happens-before the corresponding receive completes" (go.dev/ref/mem).  [handoff_trace] above was
