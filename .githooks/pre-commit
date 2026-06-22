@@ -36,15 +36,22 @@ if ls ./*.go >/dev/null 2>&1; then
   fi
 fi
 
-# Anti-axiom gate.  The headline guarantee is ZERO Fido axioms: the emitted-Go layer
-# (builtins.v) and the extraction driver (main.v) must rest only on Rocq's own machine
-# primitives (verified by `Print Assumptions main_effect` = int/float + PrimInt63/PrimFloat
-# ops).  Fail loud if a global Axiom/Parameter/Conjecture or an Admitted creeps in.
-# (concurrency.v is proof-only theory and may use parameterised SECTION hypotheses; it is
-# not part of any extracted program's trust base, so it is excluded here.)
-if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture|Hypothesis)[[:space:]]|Admitted' builtins.v main.v 2>/dev/null; then
-  echo "fido: ERROR — a Fido axiom / Admitted was introduced in builtins.v or main.v."
-  echo "fido: the 0-axiom guarantee forbids this; model the construct as a Definition instead."
+# Anti-axiom gate.  The headline guarantee is ZERO Fido axioms (definitively checked by
+# `Print Assumptions`; this grep is the cheap commit-time backstop — review #3 R10 widened it
+# from builtins.v/main.v to ALL theory files):
+#  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY theory file — including the
+#      proof-only theories (concurrency.v / relooper.v): an Admitted is an INCOMPLETE proof and an
+#      Axiom/Parameter is a global assumption, neither of which the 0-axiom claim allows ANYWHERE.
+#  (b) A top-level Hypothesis / Variable is forbidden only in the EXTRACTED trust base (builtins.v /
+#      main.v, which use NO Sections).  The proof-only theories legitimately use SECTION-local
+#      Hypothesis / Variable (discharged at Section close — NOT global axioms), so those two
+#      constructs are not grepped there (Print Assumptions would catch a mis-discharged one).
+if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture)[[:space:]]|Admitted' \
+        builtins.v main.v concurrency.v relooper.v preamble.v 2>/dev/null \
+   || grep -nE '^[[:space:]]*(Hypothesis|Variable)[[:space:]]' builtins.v main.v 2>/dev/null; then
+  echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any theory file), or a top-level"
+  echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
+  echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."
   exit 1
 fi
 

@@ -947,12 +947,20 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
 - **R9. `Sess` forgeable** (= backend #7 / 2026-06-21 break #3, still open): `MkSess` is exposed, so a value can
   claim any protocol while wrapping an unrelated `IO`. Seal the constructor or tie indices to operational
   semantics.
-- **R10. Gates too weak** (= backend #9, still open): `make check` compares golden OUTPUT only (misses
+- **R10. Gates too weak** (= backend #9): `make check` compares golden OUTPUT only (misses
   type/interface/blocking/aliasing/overflow changes that preserve printed numbers); the pre-commit hook
   re-extracts only when selected files are staged (a standalone `.go` edit bypasses it); the axiom grep covers a
-  subset. Need from-scratch extraction + zero generated diff + `go build` + runtime differential + negative
-  extraction tests + identifier-collision fixtures + inline-vs-helper metamorphic tests + `Print Assumptions`
-  coverage.
+  subset. **AXIOM-GREP COVERAGE ✅ widened (this session):** the pre-commit `Axiom`/`Parameter`/`Conjecture`/
+  `Admitted` check ran on builtins.v + main.v only; it now covers ALL FIVE theory files (+ concurrency.v,
+  relooper.v, preamble.v) — an `Admitted`/`Axiom` in a proof-only theory previously slipped the gate. The
+  Section-local `Hypothesis`/`Variable` the proof-only theories legitimately use are still allowed there (only
+  the EXTRACTED files forbid top-level `Hypothesis`/`Variable`); `Print Assumptions` remains the definitive
+  catch for a mis-discharged one. Verified: a temp `Admitted` in relooper.v now aborts the commit (it did not
+  before); golden byte-identical. **STILL OPEN (deeper R10 slices):** a `Print Assumptions` CI check over the
+  public theorems, runtime DIFFERENTIAL tests (golden-output can't catch type/blocking/aliasing changes — the
+  root cause that let the silent bugs slip), a PERMANENT negative-extraction-test harness (the neg-fixtures I
+  run by hand per fix, made into a committed `make negtest`), `go build`/`go vet` as a distinct gate, and the
+  hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses the source-of-truth diff).
 
 **REPAIR ORDER (review #3) — fail-closed FIRST, in this order:**
 1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ✅ DONE.
