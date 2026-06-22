@@ -1755,11 +1755,13 @@ let rec pp_expr state env = function
        (* full-width int64 unary complement [i64_not x] → [^x].  Go's [^] on an
           int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask. *)
        | MLglob r, [x] when is_i64_op r "not" ->
-           str "^" ++ pp_atom state env x
+           if operand_is_runtime x then str "^" ++ pp_atom state env x
+           else str "func(x int64) int64 { return ^x }(" ++ pp_expr state env x ++ str ")"
        (* full-width uint64 unary complement [u64_not x] → [^x].  Go's [^] on a
           uint64 gives the 64-bit bitwise complement, exactly [2^64-1-x] = the model. *)
        | MLglob r, [x] when is_u64_op r "not" ->
-           str "^" ++ pp_atom state env x
+           if operand_is_runtime x then str "^" ++ pp_atom state env x
+           else str "func(x uint64) uint64 { return ^x }(" ++ pp_expr state env x ++ str ")"
 
        (* opp x → -x.  Unary [-] (like [!]) binds tighter than any binary op, so
           [pp_atom] parenthesises a compound operand and leaves an atom bare. *)
@@ -1772,7 +1774,9 @@ let rec pp_expr state env = function
            else str "func(x float32) float32 { return -x }(" ++ pp_expr state env x ++ str ")"
        (* i64_neg / u64_neg x → unary [-x] (the direct prefix, not the encoded [0 - x]) *)
        | MLglob r, [x] when is_i64_op r "neg" || is_u64_op r "neg" ->
-           str "-" ++ pp_atom state env x
+           let ty = if is_u64_op r "neg" then "uint64" else "int64" in
+           if operand_is_runtime x then str "-" ++ pp_atom state env x
+           else str (Printf.sprintf "func(x %s) %s { return -x }(" ty ty) ++ pp_expr state env x ++ str ")"
        (* complex_neg c → unary [-c] (component-wise sign-flip).  On a constant operand Go folds
           [-complex(0,0)] to [+0] (constants can't denote -0), so force runtime via a typed IIFE. *)
        | MLglob r, [c] when is_complex_neg_ref r ->

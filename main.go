@@ -101,7 +101,7 @@ func I64_abs_demo() {
 }
 
 func Neg_op_demo() {
-	println(-5, -(0 - 7))
+	println(func(x int64) int64 { return -x }(5), func(x int64) int64 { return -x }(0-7))
 }
 
 func Conv64_demo() {
@@ -312,7 +312,7 @@ func I64_demo() {
 
 func I64_ops_demo() {
 	println(9000000000000000000/7, 1<<40)
-	println(-1&4294967295, ^(5))
+	println(-1&4294967295, func(x int64) int64 { return ^x }(5))
 }
 
 var Uc_bignum int64 = 1099511627781
