@@ -917,9 +917,14 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   fresh value, no aliasing — matching the value model). **DISCOVERED related `SliceH` bug (next):** `SliceH`'s
   `slice_append` realloc sets `sh_cap = len+1` but emits Go's native `append` (impl-defined realloc cap), so a
   SECOND append after a realloc can ALIAS differently (model: disjoint fresh backing; Go: maybe in-place into the
-  over-allocated spare). No demo asserts post-realloc cap, so latent — but a real faithfulness gap. FIX: emit
-  `slice_append` as a manual realloc (`make([]T, len+1, len+1); copy; r[len]=v`) that FORCES `cap = len+1`,
-  matching the model.
+  over-allocated spare). No demo asserted post-realloc cap, so latent — but a real faithfulness gap. **✅ FIXED
+  (this session):** `slice_append` now emits a manual realloc IIFE — in-place via Go's `append` when `len < cap`
+  (faithful: cap unchanged), else `make([]T, len+1, len+1); copy(r, s); r[len] = v` — FORCING `cap = len+1` to
+  match the model. New demo `slice_realloc_alias_demo` LOCKS the subsequent-append faithfulness: two appends
+  (the 2nd hits the forced-cap realloc) → the slices are DISJOINT, so writing `s3[0]=99` is NOT seen through
+  `s2[0]` (prints `0`, the model's disjoint value; pre-fix Go would over-allocate and alias → `99`). Existing
+  slice demos (`9`, `77`) preserved; golden gains `0`. So the whole slice-capacity story is now honest: the
+  functional value-slice `cap` fails loud (use `SliceH`), and `SliceH`'s capacity + aliasing are faithful.
 - **R6. `PrimInt63.int` → platform `int`, divergent overflow** (known substrate limit, sharpened): faithful only
   in [−2^62, 2^62); Go `int` is platform-width and wraps at 2^63 (amd64) / 2^31 (32-bit). "Only for indices"
   doesn't close it without an enforced in-range proof on every emitted op.

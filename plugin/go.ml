@@ -1728,11 +1728,24 @@ let rec pp_expr state env = function
        | MLglob r, [s; a; b] when is_subslice_ref r ->
            pp_atom state env s ++ str "[" ++ pp_expr state env a ++ str ":"
            ++ pp_expr state env b ++ str "]"
-       (* slice_append tag s v → append(s, v) — Go's native append makes the
-          within-cap (in-place, aliases) vs past-cap (reallocate) choice itself. *)
-       | MLglob r, [_tag; s; v] when is_slice_append_h_ref r ->
-           str "append(" ++ pp_expr state env s ++ str ", "
-           ++ pp_typed_lit state env v ++ str ")"
+       (* slice_append tag s v (review R5 follow-up): the model REALLOCATES to cap = len+1 (no spare) when
+          [len = cap], in place (aliasing the backing) when [len < cap].  Go's NATIVE `append` makes the
+          in-place vs realloc choice the same way, BUT on realloc it picks an IMPLEMENTATION-DEFINED capacity
+          (it may over-allocate), so a SUBSEQUENT append could go in-place into Go's spare where the model
+          (cap = len+1, no spare) reallocates — diverging aliasing.  So FORCE the model's realloc capacity:
+          in-place via Go's `append` (faithful: cap unchanged), else a manual `make([]T, len+1, len+1)` copy.
+          (The `cap(s)` here is Go's builtin, not the Fido `cap` op.) *)
+       | MLglob r, [tag; s; v] when is_slice_append_h_ref r ->
+           let t = go_type_of_tag tag in
+           str "func(s []" ++ str t ++ str ", v " ++ str t ++ str ") []" ++ str t ++ str " {" ++ fnl () ++
+           str "\tif len(s) < cap(s) {" ++ fnl () ++
+           str "\t\treturn append(s, v)" ++ fnl () ++
+           str "\t}" ++ fnl () ++
+           str "\tr := make([]" ++ str t ++ str ", len(s)+1, len(s)+1)" ++ fnl () ++
+           str "\tcopy(r, s)" ++ fnl () ++
+           str "\tr[len(s)] = v" ++ fnl () ++
+           str "\treturn r" ++ fnl () ++
+           str "}(" ++ pp_expr state env s ++ str ", " ++ pp_typed_lit state env v ++ str ")"
        | MLglob r, [_tag; s] when is_slice_clear_h_ref r ->
            str "clear(" ++ pp_expr state env s ++ str ")"
        | MLglob r, [_tag; dst; src] when is_slice_copy_ref r ->

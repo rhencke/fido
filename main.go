@@ -1156,7 +1156,15 @@ func Slice_alias_demo() {
 func Slice_append_demo() {
 	s := make([]int64, 2)
 	s[0] = int64(5)
-	s2 := append(s, int64(9))
+	s2 := func(s []int64, v int64) []int64 {
+		if len(s) < cap(s) {
+			return append(s, v)
+		}
+		r := make([]int64, len(s)+1, len(s)+1)
+		copy(r, s)
+		r[len(s)] = v
+		return r
+	}(s, int64(9))
 	v := s2[2]
 	println(v)
 }
@@ -1164,9 +1172,42 @@ func Slice_append_demo() {
 func Slice_makecap_demo() {
 	s := make([]int64, 1, 3)
 	s[0] = int64(5)
-	s2 := append(s, int64(8))
+	s2 := func(s []int64, v int64) []int64 {
+		if len(s) < cap(s) {
+			return append(s, v)
+		}
+		r := make([]int64, len(s)+1, len(s)+1)
+		copy(r, s)
+		r[len(s)] = v
+		return r
+	}(s, int64(8))
 	s2[0] = int64(77)
 	v := s[0]
+	println(v)
+}
+
+func Slice_realloc_alias_demo() {
+	s := make([]int64, 2)
+	s2 := func(s []int64, v int64) []int64 {
+		if len(s) < cap(s) {
+			return append(s, v)
+		}
+		r := make([]int64, len(s)+1, len(s)+1)
+		copy(r, s)
+		r[len(s)] = v
+		return r
+	}(s, int64(1))
+	s3 := func(s []int64, v int64) []int64 {
+		if len(s) < cap(s) {
+			return append(s, v)
+		}
+		r := make([]int64, len(s)+1, len(s)+1)
+		copy(r, s)
+		r[len(s)] = v
+		return r
+	}(s2, int64(2))
+	s3[0] = int64(99)
+	v := s2[0]
 	println(v)
 }
 
@@ -2247,6 +2288,7 @@ func main() {
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
+	Slice_realloc_alias_demo()
 	Slice_clear_demo()
 	Slice_copy_demo()
 	Count_demo()

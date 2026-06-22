@@ -1861,6 +1861,20 @@ Definition slice_makecap_demo : IO unit :=
   bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
+(** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
+    realloc reallocates again → disjoint backing.  The plugin now FORCES Go's realloc capacity to len+1
+    (a manual `make([]T, len+1, len+1)` copy) to match — if it left Go's native `append` to over-allocate,
+    the 2nd append would go IN PLACE into Go's spare and ALIAS where the model says disjoint.  Here:
+    s=[0,0] (full) → s2=[0,0,1] (len=cap=3) → s3=[0,0,1,2] (2nd realloc, DISJOINT from s2); writing s3[0]
+    must NOT be seen through s2[0] (prints 0, the model's disjoint value; pre-fix Go would print 99). *)
+Definition slice_realloc_alias_demo : IO unit :=
+  bind (slice_make_h TI64 (2:int)) (fun s =>             (* len=cap=2, [0,0] *)
+  bind (slice_append TI64 s (1)%i64) (fun s2 =>          (* realloc → s2=[0,0,1], len=cap=3 (forced) *)
+  bind (slice_append TI64 s2 (2)%i64) (fun s3 =>         (* s2 full → realloc → s3=[0,0,1,2], DISJOINT *)
+  bind (slice_idx_set s3 (0:int) (99)%i64) (fun _ =>     (* s3[0] = 99 *)
+  bind (slice_idx_get TI64 s2 (0:int)) (fun v =>         (* v := s2[0] — disjoint, unaffected → 0 *)
+  println [any v]))))).                                   (* prints 0 *)
+
 (** Phase B3c: [clear] zeros a slice's elements; [copy] copies elements src→dst. *)
 Definition slice_clear_demo : IO unit :=
   bind (slice_make_h TI64 (2:int)) (fun s =>
@@ -2908,6 +2922,7 @@ Definition main_effect : IO unit :=
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
+  slice_realloc_alias_demo      >>'   (* prints: 0 (forced realloc cap=len+1: 2nd append disjoint, not aliased) *)
   slice_clear_demo              >>'   (* prints: 0 (clear zeros the slice) *)
   slice_copy_demo               >>'   (* prints: 7 (copy src→dst) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
