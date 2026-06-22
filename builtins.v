@@ -1226,6 +1226,11 @@ Proof.
   replace (Z.of_nat n + 9223372036854775808 - 9223372036854775808)%Z with (Z.of_nat n) by lia.
   apply Nat2Z.id.
 Qed.
+(** Representability predicate for the Keystone bridge: a value the [keystone] coding round-trips
+    (fits a signed int64).  Defined here so the [Z]-scope stays in [builtins.v] (concurrency.v has no ZArith). *)
+Definition Vrep64 (n : nat) : Prop := (Z.of_nat n < 9223372036854775808)%Z.
+Lemma Vrep64_0 : Vrep64 0.
+Proof. unfold Vrep64. cbn. lia. Qed.
 
 Lemma i64_add_comm : forall a b, i64_add a b = i64_add b a.
 Proof. intros. apply i64_ext. rewrite !i64raw_add, (Z.add_comm (i64raw a)). reflexivity. Qed.

@@ -663,8 +663,16 @@ any "verified" claim.
    The section is now INSTANTIABLE — `Vrep := fun n => Z.of_nat n < 2^63`, `inj/prj := keystone_inj/prj`,
    `Hret := keystone_roundtrip`, `Vrep0` trivial — so the bridge is no longer vacuous: it genuinely
    connects the calculus to the emitted Go for representable (= real int64) values.  Builds; golden
-   byte-identical (concurrency.v emits no Go); axiom base unchanged.  **REMAINING (slice 2c, small):** an
-   explicit `denote_adequate`-instantiated-with-keystone corollary to exhibit the non-vacuity concretely.
+   byte-identical (concurrency.v emits no Go); axiom base unchanged.
+   **→ SLICE 2c DONE (2026-06-22): non-vacuity EXHIBITED.**  `denote_adequate_keystone` /
+   `denote_adequate_mem_keystone` (concurrency.v) instantiate the bridge with the concrete keystone coding
+   (`inj/prj := keystone_inj/prj`, `Vrep := Vrep64 := Z.of_nat n < 2^63`), DISCHARGING the section
+   hypotheses (`keystone_roundtrip` is exactly `Hret`, `Vrep64_0` is `Vrep0`).  So the adequacy theorems
+   hold for a REAL coding — the bridge is no longer a vacuous implication.  **BREAK #1 RESOLVED**
+   (single-goroutine channel + heap fragment): the typed↔operational bridge connects the calculus to the
+   emitted Go for representable int64 values, on a realizable, instantiated coding.  (Multi-goroutine
+   adequacy / spawn remains future work — `go_spawn` has no `run_io` law, by design; that is the separate
+   limit-#2 frontier, not break #1.)
 2. **`map_size := 0` but Go `len` returns the real length.** `map_len` returns `map_size` (constant 0);
    plugin lowers `map_len`→Go `len(m)`; `map_demo` prints `3`.  Direct model/extraction disagreement.
    **→ RESOLVED (2026-06-22, proof-only, golden byte-identical).**  The map's `MapCell` now carries an

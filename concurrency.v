@@ -2067,6 +2067,17 @@ Section Keystone.
 
 End Keystone.
 
+(** NON-VACUITY of the refounded bridge (break #1, slice 2c): instantiate the abstract value-coding with
+    the CONCRETE [keystone_inj]/[keystone_prj] and representability [Vrep64 n := Z.of_nat n < 2^63].  The
+    section hypotheses are then DISCHARGED — [keystone_roundtrip] is exactly [Hret], [Vrep64_0] is [Vrep0].
+    So [denote_adequate] / [denote_adequate_mem] hold for a REAL coding: the typed↔operational bridge
+    genuinely connects the calculus to the emitted Go (for representable = real int64 values), no longer a
+    vacuous implication parameterised by an impossible round-trip. *)
+Definition denote_adequate_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
+  denote_adequate chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip.
+Definition denote_adequate_mem_keystone (chenv : nat -> GoChan GoI64) (locenv : nat -> Ref GoI64) :=
+  denote_adequate_mem chenv locenv keystone_inj keystone_prj Vrep64 keystone_roundtrip Vrep64_0.
+
 (** ════════════════════════════════════════════════════════════════════════════
     LIMIT #2, slice 1 — TYPED POINTERS ARE THE OPERATIONAL CALCULUS'S LOCATIONS.
 
