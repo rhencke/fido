@@ -232,12 +232,8 @@ let is_bool_false r = ref_has_suffix r ".Init.Datatypes.false"
 let is_unit_tt r   = ref_has_suffix r ".Init.Datatypes.tt"
 let is_list_type r =
   ref_has_suffix r ".Init.Datatypes.list"
-let is_list_nil r  =
-  ref_has_suffix r ".Init.Datatypes.nil" ||
-  String.equal (global_basename r) "nil"
-let is_list_cons r =
-  ref_has_suffix r ".Init.Datatypes.cons" ||
-  String.equal (global_basename r) "cons"
+let is_list_nil r  = ref_has_suffix r ".Init.Datatypes.nil"
+let is_list_cons r = ref_has_suffix r ".Init.Datatypes.cons"
 
 (* Coq [string] (Strings.String) — Go's byte-sequence [string].  The type, its
    two constructors (String/EmptyString), and the [ascii] byte constructor are
@@ -446,10 +442,8 @@ let is_slice_make_ref = named "slice_make"
 let is_repeat_ref r =
   ref_has_suffix r ".Lists.List.repeat" || String.equal (global_basename r) "repeat"
 (* option Some/None — used to lower [match map_get_opt … with Some v | None]. *)
-let is_some_ctor r =
-  ref_has_suffix r ".Init.Datatypes.Some" || String.equal (global_basename r) "Some"
-let is_none_ctor r =
-  ref_has_suffix r ".Init.Datatypes.None" || String.equal (global_basename r) "None"
+let is_some_ctor r = ref_has_suffix r ".Init.Datatypes.Some"
+let is_none_ctor r = ref_has_suffix r ".Init.Datatypes.None"
 let is_panic_ref = named "panic"
 let is_type_assert_ref = named "type_assert"
 let is_type_assert_safe_ref = named "type_assert_safe"
