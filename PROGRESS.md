@@ -847,7 +847,21 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   reaching ~2192 needs a bare `list` value in value position, but Fido's list handlers (`print`/`println`/
   `slice_of_list`/`vararg`) intercept every reachable list use and the type system routes slice-typed values
   through `slice_of_list` — so 2192 is a generic fallback unreachable from well-typed demo code (exactly why it
-  was a latent invalid-Go hole — review R10). R4(a),(b),(d) still open.
+  was a latent invalid-Go hole — review R10).
+  **R4(a) ✅ FIXED (this session, golden byte-identical).** `go.ml` ~1731 (applied) + ~2080 (bare value): untyped
+  `map_make` → `make(map[any]any)` lost K/V (the resulting `map[any]any` is the WRONG Go type — reads yield
+  `any`, not the typed value, and it is not assignable to a typed `map[K]V`). Both sites now `unsupported`,
+  directing to `map_make_typed`. Golden byte-identical (`map_make` is unused — every demo map uses
+  `map_make_typed`). NEG-FIXTURE fired: `bind map_make (fun m => map_set TI64 TI64 … m)` aborts ("a bare map
+  constructor — make(map[any]any) loses the key/value types").
+  **R4(b) ✅ FIXED (this session, golden byte-identical).** `go.ml` ~1715: `map_make_typed kt vt` rendered ANY
+  key tag, including the NON-COMPARABLE `TSlice`/`TMap` (→ `make(map[[]T]V)`, which Go rejects: "invalid map
+  key type"). Added `tag_comparable_key` (rejects `TSlice`/`TMap`; `TArrow`/`TProd` already fail in
+  `go_type_of_tag`); a non-comparable key now `unsupported`s. Golden byte-identical (all demo keys are
+  int64/uint64/string — comparable). NEG-FIXTURE fired: `map_make_typed (TSlice TI64) TI64` aborts
+  ("NON-COMPARABLE key type"). *Known deeper sub-case (noted, not yet closed):* a comparable check on a STRUCT
+  key requires field-comparability analysis (a struct with a slice/map field would still slip through) — part
+  of the typed-lowering phase. **R4(d) (narrow-param arith) still open** (the #2 param boundary).
 - **R7. Generated identifiers not injective** (assessed plausible): `foo'`→`foo_` collides with a real `foo_`;
   `foo`/`Foo` collide after export-capitalization; two modules' same basename collide when flattened into one Go
   package; record-ctor/type metadata keyed by basename can clobber across modules. And builtin recognition keys on

@@ -564,6 +564,16 @@ let zero_of_tag tag =
   | MLcons (_, r, [_; _]) when String.equal (global_basename r) "TMap"   -> "nil"
   | t -> go_type_of_tag t ^ "(0)"
 
+(* review R4(b): a GoTypeTag is usable as a Go MAP KEY only if it renders to a COMPARABLE Go type.
+   Slices ([]T) and maps (map[K]V) are NOT comparable — Go rejects them as map keys ("invalid map
+   key type").  Scalars / string / chan / ptr ARE comparable, and TArrow/TProd/TUnit already fail
+   in [go_type_of_tag].  (A struct key's comparability depends on its FIELDS — a struct with a
+   slice/map field would still slip through; a deeper gap for the typed-lowering phase.) *)
+let tag_comparable_key kt =
+  match kt with
+  | MLcons (_, r, _) -> not (List.mem (global_basename r) ["TSlice"; "TMap"])
+  | _ -> true
+
 let is_zero_val_ref = named "zero_val"
 
 let is_go_type_tag_ctor r =
@@ -1711,9 +1721,12 @@ let rec pp_expr state env = function
        | MLglob r, [tag] when is_zero_val_ref r ->
            str (zero_of_tag tag)
 
-       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags *)
+       (* map_make_typed kt vt → make(map[K]V) with concrete types from tags.
+          review R4(b): reject a NON-COMPARABLE key tag (slice/map) — Go forbids it as a map key. *)
        | MLglob r, [kt; vt] when is_map_make_typed_ref r ->
-           str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
+           if not (tag_comparable_key kt) then
+             unsupported "map_make_typed with a NON-COMPARABLE key type (a slice or map) — Go forbids slice/map/func map keys (`invalid map key type`); use a comparable key (bool / int / string / pointer / channel / comparable struct)"
+           else str ("make(map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt ^ ")")
 
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
@@ -1728,8 +1741,11 @@ let rec pp_expr state env = function
            str "clear(" ++ pp_expr state env m ++ str ")"
        | MLglob r, [m]       when is_map_len_ref r ->
            str "len(" ++ pp_expr state env m ++ str ")"
+       (* review R4(a): untyped map_make → `make(map[any]any)` loses K/V — the resulting map[any]any
+          is NOT the typed map[K]V the model means (reads return `any`, not the typed value; it is also
+          not assignable to a typed map var).  Fail loud; use map_make_typed which carries the tags. *)
        | MLglob r, []        when is_map_make_ref r ->
-           str "make(map[any]any)" (* type params erased; real type comes from context *)
+           unsupported "untyped map_make — `make(map[any]any)` loses the key/value types (reads would yield `any`, not the typed value, and it is not assignable to a typed `map[K]V`); use `map_make_typed <keytag> <valtag>`"
 
        (* min(a, b) / max(a, b) — Go 1.21 builtins.  FLOAT min/max on all-constant operands
           would constant-fold the signed-zero corner wrong (-0 collapses), so force runtime. *)
@@ -2077,7 +2093,10 @@ let rec pp_expr state env = function
   | MLglob r ->
       if is_bool_true r     then str "true"
       else if is_bool_false r then str "false"
-      else if is_map_make_ref r || is_map_make_typed_ref r then str "make(map[any]any)"
+      (* review R4(a): a BARE (unapplied) map constructor has no key/value tags to render a typed
+         map, and `make(map[any]any)` is the wrong Go type (not the model's typed map[K]V) — fail loud. *)
+      else if is_map_make_ref r || is_map_make_typed_ref r then
+        unsupported "a bare (unapplied) map constructor — `make(map[any]any)` loses the key/value types; apply `map_make_typed <keytag> <valtag>` so the typed `map[K]V` can be emitted"
       (* a method used as a BARE value (no application) is Go's method EXPRESSION [T.M]
          (a [func(T, …) …] whose first arg is the receiver) — emit [RecvType.Method]. *)
       else (match (if is_method r then Hashtbl.find_opt method_recvtype (global_path r) else None) with
