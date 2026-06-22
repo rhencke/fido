@@ -724,6 +724,58 @@ Proof.
   - exact (IH sf (cfg_halts_if_inv g l c a b s sf Ht Hch)).
 Qed.
 
+(** ── The DECREASING MEASURE for the final [LLoop] composition. ──
+    The composition chains the loop iterations, but the next-iteration run ([cfg_halts g hdr s']) is a
+    NESTED subderivation, not an immediate one — so plain induction gives no IH for it.  The fix: a
+    FUEL-INDEXED [cfg_halts_n] (the fuel bounds the derivation depth) as an explicit well-founded measure.
+    Each block stepped consumes one fuel ([chn_*]); since one loop iteration steps the header (≥1 block),
+    the next iteration runs at STRICTLY smaller fuel — the decrease the strong induction needs. *)
+Inductive cfg_halts_n (g : CFG) : nat -> nat -> State -> State -> Prop :=
+  | chn_ret  : forall n l s, blk_term (g l) = TRet -> cfg_halts_n g (S n) l s (blk_body (g l) s)
+  | chn_goto : forall n l l' s sf, blk_term (g l) = TGoto l' ->
+       cfg_halts_n g n l' (blk_body (g l) s) sf -> cfg_halts_n g (S n) l s sf
+  | chn_if   : forall n l c a b s sf, blk_term (g l) = TIf c a b ->
+       cfg_halts_n g n (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf ->
+       cfg_halts_n g (S n) l s sf.
+
+Lemma cfg_halts_to_n : forall g l s sf, cfg_halts g l s sf -> exists n, cfg_halts_n g n l s sf.
+Proof.
+  intros g l s sf H. induction H.
+  - exists 1. apply chn_ret; assumption.
+  - destruct IHcfg_halts as [n Hn]. exists (S n). eapply chn_goto; eassumption.
+  - destruct IHcfg_halts as [n Hn]. exists (S n). eapply chn_if; eassumption.
+Qed.
+
+Lemma cfg_halts_n_to : forall g n l s sf, cfg_halts_n g n l s sf -> cfg_halts g l s sf.
+Proof.
+  intros g n l s sf H. induction H.
+  - apply ch_ret; assumption.
+  - eapply ch_goto; eassumption.
+  - eapply ch_if; eassumption.
+Qed.
+
+(** Peel one fuel-step off a [cfg_halts_n] run — the fuel drops by exactly one per block. *)
+Lemma chn_goto_inv : forall g n l l' s sf, blk_term (g l) = TGoto l' ->
+  cfg_halts_n g n l s sf -> exists m, n = S m /\ cfg_halts_n g m l' (blk_body (g l) s) sf.
+Proof.
+  intros g n l l' s sf Ht H.
+  inversion H as [m l0 s0 Hr | m l0 l'0 s0 sf0 Hg Hh | m l0 c0 a0 b0 s0 sf0 Hi Hh]; subst.
+  - rewrite Ht in Hr; discriminate.
+  - rewrite Ht in Hg; injection Hg as <-. exists m. split; [reflexivity | exact Hh].
+  - rewrite Ht in Hi; discriminate.
+Qed.
+
+Lemma chn_if_inv : forall g n l c a b s sf, blk_term (g l) = TIf c a b ->
+  cfg_halts_n g n l s sf ->
+  exists m, n = S m /\ cfg_halts_n g m (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf.
+Proof.
+  intros g n l c a b s sf Ht H.
+  inversion H as [m l0 s0 Hr | m l0 l'0 s0 sf0 Hg Hh | m l0 c0 a0 b0 s0 sf0 Hi Hh]; subst.
+  - rewrite Ht in Hr; discriminate.
+  - rewrite Ht in Hg; discriminate.
+  - rewrite Ht in Hi; injection Hi as <- <- <-. exists m. split; [reflexivity | exact Hh].
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
