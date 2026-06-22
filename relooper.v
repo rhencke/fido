@@ -1403,6 +1403,36 @@ Proof.
   eapply loop_sound_c; [ eapply nested_iterates_gen; eassumption | exact Haft | exact Hch ].
 Qed.
 
+(** ── SEQUENCE of loops, each ARBITRARILY NESTED — the general chain. ──
+    [reloop_chain_sound] handled a chain of loops with ACYCLIC ([reloop_b]) bodies.  [ChainSound] is the
+    relational generalisation: a sequence of loops where EACH body is an arbitrary [IteratesC] (so each may
+    itself be a NESTED loop, via [nested_iterates_gen]), ending in an exit-realising after-region [A].  This
+    models a whole function body — [for {…}; for { for {…} }; …; tail] — at arbitrary nesting depth.
+    [ChainSound g final A entry Sfull]: the structured [Sfull] soundly lowers the region from [entry], a chain
+    of loops threaded down to [final] (each loop's exit is the next region's header) with after-region [A]. *)
+Inductive ChainSound (g : CFG) (final : nat) (A : Stmt2) : nat -> Stmt2 -> Prop :=
+  | cs_done : AfterRealizes g final A -> ChainSound g final A final A
+  | cs_loop : forall h e body cont,
+      IteratesC g h e body ->
+      ChainSound g final A e cont ->
+      ChainSound g final A h (LSeq (LLoop body) cont).
+
+(** SOUNDNESS: every halting run from the chain's entry is reproduced — each loop runs to its exit state
+    ([loop_body_iterates_c]), then the rest of the chain continues from there (the IH).  By induction on the
+    [ChainSound] derivation; the [IteratesC] body of each link can be acyclic OR nested OR another chain. *)
+Lemma chain_c_sound : forall g final A entry Sfull s sf,
+  ChainSound g final A entry Sfull ->
+  cfg_halts g entry s sf ->
+  seval Sfull s sf Normal.
+Proof.
+  intros g final A entry Sfull s sf HC. revert s sf.
+  induction HC as [Haft | h e body cont Hit HCrest IH]; intros s sf Hch.
+  - exact (Haft s sf Hch).
+  - destruct (cfg_halts_to_n g h s sf Hch) as [n Hn].
+    destruct (loop_body_iterates_c g h e body Hit sf n s Hn) as [sx [nx [Hloop Hexit]]].
+    eapply se_seq_n; [ exact Hloop | exact (IH sx sf (cfg_halts_n_to g nx e sx sf Hexit)) ].
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
