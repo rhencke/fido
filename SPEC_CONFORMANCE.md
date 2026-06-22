@@ -162,7 +162,12 @@ div/mod, conversions.  Two's-complement: ✓ (`i8_add_wraps`, `i16_add_wraps`,
 `spec_i32_add_wrap`).  **DISTINCTNESS airtight, BY CONSTRUCTION**: Rocq rejects
 mixing types, build-checked by `u8_no_implicit`…`u32_no_implicit` and the
 cross-width `u8_u16_no_mix` — exactly the spec's "no implicit conversion; the only
-implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  *Remaining:*
+implicit path is an untyped constant" (`u8_lit : int -> GoU8`).  ✓  Distinctness now extends
+to the RUNTIME type identity (break #7): every tag lowers to a DISTINCT Go type — `int` vs
+`int64` included (slice 7c made `int`→Go `int`, `int64`→Go `int64`; before, both were `int64`,
+a hidden distinctness violation) — machine-checked by `int_vs_int64_distinct` and the general
+`tag_runtime_agrees` (`tag_eq ta tb = None → go_runtime_name ta ≠ go_runtime_name tb`, the
+injectivity LOCK).  ✓  *Remaining:*
 **`int64` (full width) ✓ — `GoI64`**, a distinct record carried by `Z` (not the
 63-bit `int`), faithful across the WHOLE int64 range and wrapping at the true 2⁶³:
 `spec_i64_add_wrap` (2⁶³−1+1→−2⁶³), `spec_i64_sub_wrap`, `spec_i64_mul_wrap`,
@@ -185,9 +190,10 @@ PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_o
 make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
 and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
 bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
-`Sint63` `int` (⚠ ±2⁶², Tier 2 #4) COEXISTS (→ Go `int64`) as a bounded convenience for
-indices / `nat`-coding / small-value demos — faithful in range; use `GoI64`/`GoU64` for
-the full width.
+`Sint63` `int` (⚠ ±2⁶², Tier 2 #4) → **Go's platform `int`** (break #7 slice 7c — NO longer
+`int64`; a DISTINCT Go type from `GoI64`), the carrier for loop counters / slice indices /
+`len`/`cap` / `nat`-coding / small-value demos — faithful in range; use `GoI64`/`GoU64` for
+the full int64 width.
 **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
 carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
 `spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z

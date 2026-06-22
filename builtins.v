@@ -569,6 +569,14 @@ Qed.
    Definitions, with no opaque holes, never appealing to the PrimInt63/PrimFloat primitives
    or the [funext] holdout. *)
 
+(** The 7c payoff for the spec's "all numeric types are distinct" (Numeric types): the
+    platform [int] ([TInt64], PrimInt63) and [int64] ([TI64], the Z-carried [GoI64]) now
+    lower to DIFFERENT Go types, so Go's runtime type identity ([v.(int)] vs [v.(int64)])
+    distinguishes them — it did NOT before 7c, when BOTH lowered to Go [int64] (a hidden
+    distinctness violation).  A direct instance of [tag_runtime_agrees]. *)
+Example int_vs_int64_distinct : go_runtime_name TInt64 <> go_runtime_name TI64.
+Proof. cbn. discriminate. Qed.
+
 (** Native struct equality — Go's [a == b] on a comparable struct (spec "Comparison
     operators": struct values are comparable iff all fields are, and [==] is field-wise).
     EVIDENCE-CARRYING and safe-by-construction: it DEMANDS not just a candidate [eqb] but a
