@@ -170,8 +170,7 @@ func I64_of_narrow_demo() {
 }
 
 func I64_to_narrow_demo() {
-	xrepro := ((4660) & 0xff)
-	println(xrepro, uint8(((4660) & 0xff)), int8(((((200) & 0xff) ^ 0x80) - 0x80)), uint16(((70000) & 0xffff)), int32(((((5000000000) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
+	println(uint8(((4660) & 0xff)), int8(((((200) & 0xff) ^ 0x80) - 0x80)), uint16(((70000) & 0xffff)), int32(((((5000000000) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
 }
 
 func Narrow_u64_demo() {
