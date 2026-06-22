@@ -2924,9 +2924,9 @@ let pp_io_body ?(ret_val=false) state tab env body =
                                            ++ bw tb ++ str tab ++ str "} else {" ++ fnl ()
                                            ++ bw eb ++ str tab ++ str "}" ++ fnl () in
                                        arms ++ emit_region m stop loopctx tail tab
-                                   | _ -> str tab ++ str "return" ++ fnl ())
-                              | _ -> str tab ++ str "return" ++ fnl ())
-                         | _ -> str tab ++ pp_expr state benv b ++ fnl ())
+                                   | _ -> unsupported "a run_blocks conditional whose 2-branch match is not on a bool (true/false) — the structured emitter only lowers boolean if/else; a non-bool match would silently become `return`")
+                              | _ -> unsupported "a run_blocks conditional whose match does not have exactly 2 branches — would silently become `return`, dropping the other arms")
+                         | _ -> unsupported "a run_blocks block of an unrecognized shape (not bind / ret / boolean if-else) — would be emitted as a bare expression with NO control terminator, silently dropping its control flow")
                   in
                   if structurable
                   then hoist_doc ++ emit_region start_v exit_node [] true tab
