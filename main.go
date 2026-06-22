@@ -173,6 +173,12 @@ func I64_to_narrow_demo() {
 	println(uint8(((4660) & 0xff)), int8(((((200) & 0xff) ^ 0x80) - 0x80)), uint16(((70000) & 0xffff)), int32(((((5000000000) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
 }
 
+func Narrow_let_assert_demo() {
+	xu8 := ((200) & 0xff)
+	v8, ok1 := any(uint8(xu8)).(uint8)
+	println(v8, ok1)
+}
+
 func Narrow_u64_demo() {
 	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(511)) & 0xff)), int8(((((I64_of_u64(255)) & 0xff) ^ 0x80) - 0x80)))
 }
@@ -2258,6 +2264,7 @@ func main() {
 	F32_demo()
 	I64_of_narrow_demo()
 	I64_to_narrow_demo()
+	Narrow_let_assert_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
 	Fconst_demo()

@@ -1547,7 +1547,17 @@ let rec pp_expr state env = function
        (* type_assert tag v → v.(T) where T is read from the tag constructor *)
        | MLglob r, [tag; v] when is_type_assert_ref r ->
            let go_type = go_type_of_tag tag in
-           pp_expr state env (any_payload v) ++ str ".(" ++ str go_type ++ str ")"
+           let operand =
+             match strip_magic v with
+             | MLcons (_, r2, _) when is_existT_ref r2 ->
+                 (* a FRESH box [any x]: [any_payload] stripped it to its raw (non-interface) payload, so
+                    re-materialize as [any(<narrow-converted payload>)] — else [x.(T)] is "not an interface". *)
+                 let pv = pp_expr state env (any_payload v) in
+                 let conv = (match narrow_conv_of env v with Some gt -> str (gt ^ "(") ++ pv ++ str ")" | None -> pv) in
+                 str "any(" ++ conv ++ str ")"
+             | _ -> pp_expr state env (any_payload v)
+           in
+           operand ++ str ".(" ++ str go_type ++ str ")"
 
        (* panic(val) *)
        | MLglob r, [x] when is_panic_ref r ->
@@ -3183,7 +3193,15 @@ let pp_io_body ?(ret_val=false) state tab env body =
             Go's native two-value assertion: ok=false (no panic) on mismatch. *)
          | MLglob r, [tag; x; kont] when is_type_assert_safe_ref r ->
              let go_t = go_type_of_tag tag in
-             let inner = pp_expr state env (any_payload x) in
+             let inner =
+               match strip_magic x with
+               | MLcons (_, r2, _) when is_existT_ref r2 ->
+                   (* fresh box: materialize as any(<narrow-converted payload>) — see type_assert above *)
+                   let pv = pp_expr state env (any_payload x) in
+                   let conv = (match narrow_conv_of env x with Some gt -> str (gt ^ "(") ++ pv ++ str ")" | None -> pv) in
+                   str "any(" ++ conv ++ str ")"
+               | _ -> pp_expr state env (any_payload x)
+             in
              let ids, k_body = collect_lam kont in
              let new_env = List.rev ids @ env in
              (match ids with

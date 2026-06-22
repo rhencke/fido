@@ -359,6 +359,17 @@ Definition i64_to_narrow_demo : IO unit :=
           ; any (i8_of_i64  (i64_lit 200 eq_refl))          (* int8(200)     = -56  *)
           ; any (u16_of_i64 (i64_lit 70000 eq_refl))        (* uint16(70000) = 4464 *)
           ; any (i32_of_i64 (i64_lit 5000000000 eq_refl)) ]. (* int32(5e9)    = 705032704 *)
+(** P0 #2 LOCK (code review): a narrow value through a [let] must box as its REAL Go type, not its
+    int64 carrier.  [xu8 : GoU8] is bound via a [let]; [type_assert_safe TU8 (any xu8)] must SUCCEED
+    (ok1=true) and [TI64] must FAIL (ok2=false) — the boxed dynamic type is [uint8], DISTINCT from
+    [int64], exactly as Go's [v.(uint8)] / [v.(int64)] decide and as the model's [tag_eq] says.
+    Regression guard for the let-boundary narrow-box fix (the pre-fix int64-carrier bug boxed [xu8]
+    as Go [int], giving [false false]).  Also exercises type_assert_safe on a FRESH box — the backend
+    now materialises [any(uint8(xu8))] rather than asserting on the raw (non-interface) payload. *)
+Definition narrow_let_assert_demo : IO unit :=
+  let xu8 := u8_of_i64 (i64_lit 200 eq_refl) in
+  type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
+    println [any v8; any ok1]).   (* 200 true *)
 (** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
     through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (widen is identity, then the
     [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]
@@ -2912,6 +2923,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
+  narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)
