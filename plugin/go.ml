@@ -254,12 +254,12 @@ let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
 
 (* String builtins (builtins.v): [str_len s] → [int64(len(s))]; [str_concat a b]
    → [a + b] (via [binop_of]); [str_at_ok] → bounds-checked byte index. *)
-let is_str_len_ref    r = String.equal (global_basename r) "str_len"
-let is_str_concat_ref r = String.equal (global_basename r) "str_concat"
-let is_str_at_ok_ref  r = String.equal (global_basename r) "str_at_ok"
-let is_str_slice_ref  r = String.equal (global_basename r) "str_slice"   (* s[a:b] (proof-gated) *)
-let is_str_eqb_ref    r = String.equal (global_basename r) "str_eqb"
-let is_str_ltb_ref    r = String.equal (global_basename r) "str_ltb"
+let is_str_len_ref    r = named "str_len" r
+let is_str_concat_ref r = named "str_concat" r
+let is_str_at_ok_ref  r = named "str_at_ok" r
+let is_str_slice_ref  r = named "str_slice" r   (* s[a:b] (proof-gated) *)
+let is_str_eqb_ref    r = named "str_eqb" r
+let is_str_ltb_ref    r = named "str_ltb" r
 (* direct >/>=/!= for strings and float64 (completing Go's six comparison operators);
    each is a Fido wrapper recognized by name and lowered to the bare Go operator. *)
 let is_str_cmp_ref    r = List.mem (global_basename r) ["str_gtb"; "str_geb"; "str_neqb"]
@@ -292,7 +292,7 @@ let fullwidth_conv_name = function
 (* Basename matching is safe here because Go builtin names are unqualified
    and no user theory should shadow them.  All other Go stdlib calls are
    package-qualified (e.g. fmt.Println) and will never match these. *)
-let is_print_ref r   = String.equal (global_basename r) "print"
+let is_print_ref r   = named "print" r
 (* Table of axiom type names → Go type keywords.
    Basename matching is safe: these names are reserved by builtins.v and
    no user theory should shadow them. *)
@@ -322,12 +322,12 @@ let is_println_ref = named "println"
 (* variadic-param support: [vararg xs] / [MkVariadic xs _] in a call-arg position → [xs...]
    (Go's spread); [va_slice xs] inside the func recovers the slice (identity); the param type
    [Variadic T] renders [...T] (see pp_function). *)
-let is_vararg_ref   r = let n = global_basename r in n = "vararg" || n = "MkVariadic"
-let is_va_slice_ref r = String.equal (global_basename r) "va_slice"
+let is_vararg_ref   r = named "vararg" r || named "MkVariadic" r
+let is_va_slice_ref r = named "va_slice" r
 let is_variadic_type r = String.equal (global_basename r) "Variadic"
-let is_len_ref    r  = String.equal (global_basename r) "len"
-let is_cap_ref    r  = String.equal (global_basename r) "cap"
-let is_append_ref r  = String.equal (global_basename r) "append"
+let is_len_ref    r  = named "len" r
+let is_cap_ref    r  = named "cap" r
+let is_append_ref r  = named "append" r
 let is_go_map_type = named "GoMap"
 let is_slice_of_list_ref = named "slice_of_list"
 let is_slice_get_ref = named "slice_get"
