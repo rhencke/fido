@@ -1401,6 +1401,214 @@ Proof.
   - intro i. apply hbt_irrefl. exact (reachable_wf_r p cfg Hsteps).
 Qed.
 
+(** ============================================================================
+    LIMIT #2 — PART 2, brick 1: PRIVATE-MEMORY DISCIPLINE ⇒ reachable race-freedom
+    (the ABSTRACT-OWNERSHIP base case — arbitrary N, an INDUCTIVE INVARIANT, no
+    per-program state-enumeration).
+
+    The trace disciplines (LocPrivate / HandoffDisciplined / SyncDisciplined) say a
+    GIVEN trace is [Owned]; [reachable_owned_safe_r] still needs [Owned] as a HYPOTHESIS.
+    This brick EARNS race-freedom from a STRUCTURAL PROGRAM property, for an arbitrary
+    number of goroutines, the way the general N-goroutine theorem must — a Keller-style
+    invariant preserved by EVERY [rstep], NOT a per-program phase enumeration (which
+    explodes).  It is the CSL ownership base case: OWNERSHIP WITHOUT TRANSFER.
+
+    Discipline: a static owner map [own : loc -> tid] gives each location ONE owner, and
+    every goroutine's program only ever reads/writes locations IT owns ([OnlyAcc]).  Then
+    no two goroutines ever touch one location, so every reachable trace is [LocPrivate] —
+    hence [Owned], hence race-free — for ANY number of goroutines.  [OnlyAcc] has NO spawn
+    case, so disciplined programs are spawn-free (a STATIC goroutine set); ownership-SPLIT
+    on spawn and ownership-TRANSFER on send→recv are the NEXT bricks (this is the no-transfer
+    base).  Proof-only (concurrency.v emits no Go). *)
+Inductive OnlyAcc (P : nat -> Prop) : Cmd -> Prop :=
+  | OA_ret    : OnlyAcc P CRet
+  | OA_send   : forall c v k, OnlyAcc P k -> OnlyAcc P (CSend c v k)
+  | OA_recv   : forall c f, (forall v, OnlyAcc P (f v)) -> OnlyAcc P (CRecv c f)
+  | OA_write  : forall l v k, P l -> OnlyAcc P k -> OnlyAcc P (CWrite l v k)
+  | OA_read   : forall l f, P l -> (forall v, OnlyAcc P (f v)) -> OnlyAcc P (CRead l f)
+  | OA_select : forall cases, (forall c f, In (c, f) cases -> forall v, OnlyAcc P (f v)) ->
+                  OnlyAcc P (CSelect cases)
+  | OA_close  : forall c k, OnlyAcc P k -> OnlyAcc P (CClose c k).
+  (* NO OA_spawn — disciplined programs are spawn-free (the static-N base). *)
+
+(* Per-constructor inversions (used in the preservation proof). *)
+Lemma oa_send_inv : forall P c v k, OnlyAcc P (CSend c v k) -> OnlyAcc P k.
+Proof. intros P c v k H. inversion H; subst. assumption. Qed.
+Lemma oa_recv_inv : forall P c f, OnlyAcc P (CRecv c f) -> forall v, OnlyAcc P (f v).
+Proof. intros P c f H. inversion H; subst. assumption. Qed.
+Lemma oa_write_inv : forall P l v k, OnlyAcc P (CWrite l v k) -> P l /\ OnlyAcc P k.
+Proof. intros P l v k H. inversion H; subst. split; assumption. Qed.
+Lemma oa_read_inv : forall P l f, OnlyAcc P (CRead l f) -> P l /\ (forall v, OnlyAcc P (f v)).
+Proof. intros P l f H. inversion H; subst. split; assumption. Qed.
+Lemma oa_close_inv : forall P c k, OnlyAcc P (CClose c k) -> OnlyAcc P k.
+Proof. intros P c k H. inversion H; subst. assumption. Qed.
+Lemma oa_select_inv : forall P cases, OnlyAcc P (CSelect cases) ->
+  forall c f, In (c, f) cases -> forall v, OnlyAcc P (f v).
+Proof. intros P cases H. inversion H; subst. assumption. Qed.
+Lemma oa_not_spawn : forall P child k, OnlyAcc P (CSpawn child k) -> False.
+Proof. intros P child k H. inversion H. Qed.
+
+(* Each location's owning goroutine; goroutine [g] may access [l] iff [own l = g]. *)
+Definition PrivateDisc (own : nat -> nat) (cfg : RConfig) : Prop :=
+  (forall i l, acc_loc_at (rc_trace cfg) i = Some l -> tid_at (rc_trace cfg) i = own l)
+  /\ (forall g, rc_live cfg g = true -> OnlyAcc (fun l => own l = g) (rc_prog cfg g)).
+
+(* Trace-append helpers for [tid_at] / [acc_loc_at] (old positions unchanged; the new one reads the event). *)
+Lemma tid_at_app1 : forall (t : Trace) e i, i < length t -> tid_at (t ++ [e]) i = tid_at t i.
+Proof. intros t e i Hi. unfold tid_at. rewrite nth_error_app1 by exact Hi. reflexivity. Qed.
+Lemma acc_loc_at_app1 : forall (t : Trace) e i, i < length t -> acc_loc_at (t ++ [e]) i = acc_loc_at t i.
+Proof. intros t e i Hi. unfold acc_loc_at. rewrite nth_error_app1 by exact Hi. reflexivity. Qed.
+Lemma tid_at_app_new : forall (t : Trace) e, tid_at (t ++ [e]) (length t) = e_tid e.
+Proof. intros t e. unfold tid_at. rewrite nth_error_app_new. reflexivity. Qed.
+Lemma acc_loc_at_app_new : forall (t : Trace) e,
+  acc_loc_at (t ++ [e]) (length t) =
+  match e_kind e with KWrite l => Some l | KRead l => Some l | _ => None end.
+Proof. intros t e. unfold acc_loc_at. rewrite nth_error_app_new. reflexivity. Qed.
+
+(* The owner-of-each-access fact extends across a single appended event, given the new event
+   is by its location's owner (when it IS a memory access). *)
+Lemma TraceOwned_app : forall own tr ev,
+  (forall i l, acc_loc_at tr i = Some l -> tid_at tr i = own l) ->
+  (forall l, (e_kind ev = KWrite l \/ e_kind ev = KRead l) -> e_tid ev = own l) ->
+  (forall i l, acc_loc_at (tr ++ [ev]) i = Some l -> tid_at (tr ++ [ev]) i = own l).
+Proof.
+  intros own tr ev Hold Hnew i l Hacc.
+  destruct (Nat.lt_ge_cases i (length tr)) as [Hlt | Hge].
+  - rewrite (acc_loc_at_app1 tr ev i Hlt) in Hacc.
+    rewrite (tid_at_app1 tr ev i Hlt). exact (Hold i l Hacc).
+  - pose proof (acc_loc_at_lt _ _ _ Hacc) as Hb. rewrite length_app in Hb; cbn in Hb.
+    assert (Hi : i = length tr) by lia. subst i.
+    rewrite tid_at_app_new. rewrite acc_loc_at_app_new in Hacc.
+    destruct (e_kind ev) as [c0|c0 fr|ch0|par0|loc|loc|c0] eqn:Ek; cbn in Hacc; try discriminate Hacc.
+    + injection Hacc as Hll; subst loc. exact (Hnew l (or_introl eq_refl)).
+    + injection Hacc as Hll; subst loc. exact (Hnew l (or_intror eq_refl)).
+Qed.
+
+(* The program-ownership fact extends across a single [upd] of the stepping goroutine's continuation. *)
+Lemma onlyacc_upd : forall own (p : nat -> Cmd) tid (cont : Cmd) (lv : nat -> bool) g,
+  (forall g', lv g' = true -> OnlyAcc (fun l => own l = g') (p g')) ->
+  OnlyAcc (fun l => own l = tid) cont ->
+  lv g = true ->
+  OnlyAcc (fun l => own l = g) (upd p tid cont g).
+Proof.
+  intros own p tid cont lv g Hprog Hcont Hg.
+  destruct (Nat.eq_dec g tid) as [->|Hne].
+  - rewrite upd_same. exact Hcont.
+  - rewrite (upd_other p tid cont g Hne). exact (Hprog g Hg).
+Qed.
+
+(* PRESERVATION: every [rstep] keeps the private-memory discipline.  Spawn is impossible under
+   the invariant ([OnlyAcc] has no spawn case), discharged by inverting the program-ownership fact. *)
+Lemma private_disc_step : forall own cfg cfg',
+  rstep cfg cfg' -> PrivateDisc own cfg -> PrivateDisc own cfg'.
+Proof.
+  intros own cfg cfg' Hstep HPD. unfold PrivateDisc in HPD |- *. destruct HPD as [Htr Hprog].
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp _
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp _
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_trace rc_prog rc_live] in Htr, Hprog |- *.
+  - (* send: cont = k; event KSend (not a memory access) *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply oa_send_inv in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KSend c)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid k lv g Hprog HO Hg).
+  - (* recv: cont = f v; event KRecv *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KRecv c s)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid (f v) lv g Hprog (oa_recv_inv _ _ _ HO v) Hg).
+  - (* write: cont = k; event KWrite l, BY ITS OWNER (own l = tid from OnlyAcc) *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply oa_write_inv in HO. destruct HO as [Hown HOk]. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KWrite l)) Htr). intros l' [Hw|Hr]; cbn in *.
+      * injection Hw as Heq; subst l'. symmetry. exact Hown.
+      * discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid k lv g Hprog HOk Hg).
+  - (* read: cont = f (h l); event KRead l, by its owner *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply oa_read_inv in HO. destruct HO as [Hown HOf]. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KRead l)) Htr). intros l' [Hw|Hr]; cbn in *.
+      * discriminate.
+      * injection Hr as Heq; subst l'. symmetry. exact Hown.
+    + intros g Hg. exact (onlyacc_upd own p tid (f (h l)) lv g Hprog (HOf (h l)) Hg).
+  - (* spawn: IMPOSSIBLE under the discipline ([OnlyAcc] has no spawn case) *)
+    exfalso. pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. exact (oa_not_spawn _ _ _ HO).
+  - (* select: cont = f v (chosen case); event KRecv *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KRecv c s)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid (f v) lv g Hprog (oa_select_inv _ _ HO c f Hin v) Hg).
+  - (* close: cont = k; event KClose *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply oa_close_inv in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KClose c)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid k lv g Hprog HO Hg).
+  - (* recv_closed: cont = f 0; event KRecv *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KRecv c pos)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid (f 0) lv g Hprog (oa_recv_inv _ _ _ HO 0) Hg).
+  - (* select_closed: cont = f 0; event KRecv *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. split.
+    + apply (TraceOwned_app own tr (mkEv tid (KRecv c pos)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (onlyacc_upd own p tid (f 0) lv g Hprog (oa_select_inv _ _ HO c f Hin 0) Hg).
+Qed.
+
+Lemma private_disc_steps : forall own a b, rsteps a b -> PrivateDisc own a -> PrivateDisc own b.
+Proof.
+  intros own a b H. induction H as [cfg | a b c Hab Hbc IH]; intros HPD; [exact HPD|].
+  apply IH. exact (private_disc_step own _ _ Hab HPD).
+Qed.
+
+(* SOUNDNESS: the discipline implies the trace is location-private — every same-location pair is
+   the SAME goroutine (both equal to the location's unique owner). *)
+Lemma private_disc_locprivate : forall own cfg,
+  PrivateDisc own cfg -> LocPrivate (rc_trace cfg).
+Proof.
+  intros own cfg [Htr _] i j [l [Hi Hj]].
+  rewrite (Htr i l Hi), (Htr j l Hj). reflexivity.
+Qed.
+
+(** THE BRICK: a program whose goroutines only touch their OWN locations runs race-free, for ANY
+    number of goroutines and EVERY interleaving — race-freedom EARNED from a checkable structural
+    discipline (no [Owned] hypothesis), the abstract-ownership base case (no transfer/spawn yet). *)
+Theorem private_disc_reachable_race_free : forall own cfg0 cfg,
+  PrivateDisc own cfg0 -> rsteps cfg0 cfg ->
+  LocPrivate (rc_trace cfg) /\ TraceRaceFree (rc_trace cfg).
+Proof.
+  intros own cfg0 cfg HPD Hsteps.
+  pose proof (private_disc_locprivate own cfg (private_disc_steps own cfg0 cfg Hsteps HPD)) as HLP.
+  split; [exact HLP | exact (locprivate_race_free _ HLP)].
+Qed.
+
+(** Witness (positive, N=2): goroutine 0 writes location 0, goroutine 1 writes location 1, both
+    pre-live (no spawn).  With [own := id] the discipline holds at init, so EVERY interleaving of
+    this genuinely-concurrent program is race-free — derived from the program structure alone. *)
+Definition priv_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 0 0 CRet
+           else if Nat.eqb t 1 then CWrite 1 0 CRet else CRet.
+Definition priv_init : RConfig :=
+  mkRCfg priv_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma priv_init_disc : PrivateDisc (fun l => l) priv_init.
+Proof.
+  split.
+  - intros i l Hacc. cbn in Hacc. unfold acc_loc_at in Hacc.
+    destruct i; cbn in Hacc; discriminate.
+  - intros g Hg. cbn in Hg |- *.
+    destruct g as [|[|g']]; cbn in Hg |- *.
+    + apply OA_write; [reflexivity | apply OA_ret].
+    + apply OA_write; [reflexivity | apply OA_ret].
+    + discriminate Hg.
+Qed.
+
+Theorem priv_prog_reachable_race_free : forall cfg,
+  rsteps priv_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (proj2 (private_disc_reachable_race_free (fun l => l) priv_init cfg priv_init_disc Hsteps)).
+Qed.
+
 (** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
     [fork_handoff_trace] / [fork_handoff_race_free] (defined way above) were HAND-BUILT traces:
     we asserted the events and proved the fork edge made the write/read non-racy.  Now that
