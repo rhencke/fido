@@ -380,11 +380,11 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
    shares the same field-cell substrate and pointer lowering as the homogeneous SPtr/SPtr3,
    only the field TYPES differ.  Its [Tglob] carries 3 type args ([R; A; B]) vs SPtr's 1, so
    the record-type extractors below take the FIRST arg ([arg :: _]). *)
-let is_sptr_type r = let n = global_basename r in n = "SPtr" || n = "SPtr3" || n = "SPtrH"
-let is_sptr_new_ref r       = let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"       || n = "sptrh_new"
-let is_sptr_deref_ref r     = let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"     || n = "sptrh_deref"
-let is_sptr_get_field_ref r = let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field" || n = "sptrh_get_field"
-let is_sptr_set_field_ref r = let n = global_basename r in n = "sptr_set_field" || n = "sptr3_set_field" || n = "sptrh_set_field"
+let is_sptr_type r = from_builtins r && (let n = global_basename r in n = "SPtr" || n = "SPtr3" || n = "SPtrH")
+let is_sptr_new_ref r       = from_builtins r && (let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"       || n = "sptrh_new")
+let is_sptr_deref_ref r     = from_builtins r && (let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"     || n = "sptrh_deref")
+let is_sptr_get_field_ref r = from_builtins r && (let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field" || n = "sptrh_get_field")
+let is_sptr_set_field_ref r = from_builtins r && (let n = global_basename r in n = "sptr_set_field" || n = "sptr3_set_field" || n = "sptrh_set_field")
 let is_sptr_machinery r =          (* every proof-side struct-pointer name → suppress decl *)
   List.mem (global_basename r)
     ["sptr_new"; "sptr_deref"; "sptr_assign"; "sptr_get_field"; "sptr_set_field";
@@ -428,9 +428,9 @@ let is_max_ref r = List.mem (global_basename r) ["go_max"; "i64_max"; "u64_max";
    A function carrying one drops that param (decl + call sites), emits its type var as
    [K comparable], and lowers the witness equality [cw_eqb w a b] → native Go [a == b]. *)
 let is_comparablew_type = function
-  | Tglob (r, _) -> String.equal (global_basename r) "ComparableW"
+  | Tglob (r, _) -> named "ComparableW" r
   | _ -> false
-let is_cw_eqb_ref r = String.equal (global_basename r) "cw_eqb"
+let is_cw_eqb_ref r = named "cw_eqb" r
 (* Comparable-constraint registries (populated by [collect_decls]): [comparable_witness] maps a
    function's global-path to the visible param indices that are [ComparableW] witnesses (DROPPED
    at decl + call sites); [comparable_inst] holds every witness INSTANCE value (a def of type
@@ -488,14 +488,14 @@ let is_type_switch_or_ref r =
   String.length s >= 14 && String.sub s 0 14 = "type_switch_or"
 (* Native whole-struct equality: [struct_eqb eqb a b] → Go [a == b] (the comparability
    witness [eqb] is erased — it discharged the side condition).  3 args, so not a binop_of. *)
-let is_struct_eqb_ref r = String.equal (global_basename r) "struct_eqb"
+let is_struct_eqb_ref r = named "struct_eqb" r
 (* Complex numbers: [GoComplex128] → Go [complex128]; [go_complex re im] / [go_real c] /
    [go_imag c] → the predeclared builtins [complex(re,im)] / [real(c)] / [imag(c)]. *)
-let is_complex_type r   = String.equal (global_basename r) "GoComplex128"
-let is_go_complex_ref r = String.equal (global_basename r) "go_complex"
-let is_go_real_ref r    = String.equal (global_basename r) "go_real"
-let is_go_imag_ref r    = String.equal (global_basename r) "go_imag"
-let is_complex_neg_ref r = from_builtins r && String.equal (global_basename r) "complex_neg"
+let is_complex_type r   = named "GoComplex128" r
+let is_go_complex_ref r = named "go_complex" r
+let is_go_real_ref r    = named "go_real" r
+let is_go_imag_ref r    = named "go_imag" r
+let is_complex_neg_ref r = named "complex_neg" r
 (* Native expression switch [{int,str}_switchN x v1 k1 … d] → Go [switch x { case v: …;
    default: … }]; args after the scrutinee are (value, body) PAIRS then the default (odd
    count ≥ 3).  Same lowering for int64 and string scrutinees (Go does the [==] itself). *)
