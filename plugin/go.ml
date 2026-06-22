@@ -858,6 +858,41 @@ let rec payload_head t =
 let any_narrow_conv e =
   Option.bind (payload_head (any_payload e)) fw_value_type
 
+(* ---- P0 #2 (code review): narrow-typed LET-bound variables ----
+   A sub-64 narrow value (GoU8…GoI32) is int64-CARRIED, so `let x := <narrow op>` binds x to a masked int64
+   expression and Go infers `x : int` — LOSING the narrow type.  A later `any x` then sees only the variable
+   (not the producing op), so [any_narrow_conv] returns None and the value boxes as Go `int`; `.(uint8)` then
+   FAILS though the model says GoU8 (model/runtime contradiction).  Fix: record x ↦ its narrow Go type at the
+   [let] and re-apply the conversion ([uint8(x)]) at the box.  Keyed by the Go var NAME (Coq's extracted names
+   are function-locally unique) and RESET per function.  Preserves the int64-carrier model: x stays int-typed,
+   only the box adds the cast (`uint8(int)` truncates to the right narrow value). *)
+let narrow_var_types : (string, string) Hashtbl.t = Hashtbl.create 16
+let mlident_name = function
+  | Id v | Tmp v -> Some (go_safe (Id.to_string v))
+  | Dummy -> None
+(* The narrow Go type a raw (un-boxed) expression produces, if any (its payload head is a narrow VALUE op). *)
+let narrow_type_of e = Option.bind (payload_head e) fw_value_type
+(* The recorded narrow Go type of a bare variable [t = MLrel i], via [env].  Peel the [MLmagic]
+   coercions extraction wraps around a boxed payload — else the [MLrel] is hidden and the var is unfound. *)
+let narrow_var_of env t =
+  let rec peel = function MLmagic e -> peel e | e -> e in
+  match peel t with
+  | MLrel i ->
+      (try Option.bind (mlident_name (List.nth env (i - 1))) (Hashtbl.find_opt narrow_var_types)
+       with _ -> None)
+  | _ -> None
+(* Record `let id := e1` if e1 yields a narrow value — directly (a narrow op) or by aliasing a narrow var. *)
+let record_narrow_binding env id e1 =
+  let gt = match narrow_type_of e1 with Some _ as g -> g | None -> narrow_var_of env e1 in
+  match mlident_name id, gt with
+  | Some name, Some g -> Hashtbl.replace narrow_var_types name g
+  | _ -> ()
+(* Narrow Go conversion for a boxed payload: the producing-op width, or a recorded narrow let-var's type. *)
+let narrow_conv_of env e =
+  match any_narrow_conv e with
+  | Some _ as r -> r
+  | None -> narrow_var_of env (any_payload e)
+
 (* Emit the width-[w] wrap of [inner]: mask to [w] bits (Go [& 0x..]); for a
    SIGNED width, additionally sign-extend via [(m ^ 2^(w-1)) - 2^(w-1)].  Matches
    Go's uintW / intW wrap exactly on the int64 carrier. *)
@@ -1746,7 +1781,7 @@ let rec pp_expr state env = function
            let fname = global_basename r in
            let pp_pa e =
              let v = pp_expr state env (any_payload e) in
-             match any_narrow_conv e with
+             match narrow_conv_of env e with
              | Some gt -> str (gt ^ "(") ++ v ++ str ")"
              | None    -> v
            in
@@ -2049,6 +2084,7 @@ let rec pp_expr state env = function
 
   | MLletin (id, e1, e2) ->
       let new_env = id :: env in
+      record_narrow_binding env id e1;
       str "(func() any {" ++ fnl () ++
       str "\t" ++ pp_mlident id ++ str " := " ++ pp_expr state env e1 ++ fnl () ++
       str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
@@ -2139,7 +2175,7 @@ let rec pp_expr state env = function
               narrow payload is converted to its real Go type at this boundary (break #7). *)
            | MLcons (_, r, _) when is_existT_ref r ->
                let v = pp_expr state env (any_payload e) in
-               (match any_narrow_conv e with
+               (match narrow_conv_of env e with
                 | Some gt -> str (gt ^ "(") ++ v ++ str ")"
                 | None    -> v)
            (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
@@ -3251,6 +3287,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              str tab ++ pp_expr state env e ++ fnl ())
     | MLletin (id, e1, e2) ->
         let new_env = id :: env in
+        record_narrow_binding env id e1;
         (* map_get_or k default m → two-statement pattern: no IIFE *)
         let head1, all_args1 = collect_app e1 [] in
         let vis1 = List.filter (fun a -> not (is_erased a)) all_args1 in
@@ -3675,6 +3712,7 @@ let rec pp_pure_tail state tab env e =
     [recv.M(a)] denotes the same as [M(recv, a)]) and idiomatic.  Detection here
     mirrors [collect_decls]'s, so declaration and call sites agree. *)
 let pp_function state name body typ =
+  Hashtbl.reset narrow_var_types;   (* P0 #2: narrow-let-var table is per-function (names are fn-local) *)
   let ids, inner_body = collect_lam body in
   let param_types, ret_type = collect_tarrs typ in
   (* Pair visible ids with their corresponding types, skipping erased args. *)
@@ -3899,6 +3937,7 @@ let pp_main_call fn_name =
 (** Emit the body of any IO-returning function as flat sequential statements.
     Used by both [pp_main_body] and [pp_function] for IO-typed functions. *)
 let pp_main_body state body =
+  Hashtbl.reset narrow_var_types;   (* P0 #2: reset the narrow-let-var table for main *)
   str "func main() {" ++ fnl () ++
   pp_io_body state "\t" [] body ++
   str "}" ++ fnl ()
