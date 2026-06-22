@@ -5136,8 +5136,9 @@ End BoundedChannels.
     ascription (which needs a Module-Type [Parameter]); the chosen fix is the
     DEEPER one — tie the run to the protocol so the index simply CANNOT lie.  [Sess]
     in builtins.v has since been MIGRATED onto this inductive shape (so the extracted
-    type is forge-proof too); [PSess] here carries the full safety+liveness theory
-    and is isomorphic to it (PSess↔Sess unification pending).
+    type is forge-proof too) AND UNIFIED with this theory: [PSess]/[PS…] below are now
+    plain aliases for the extracted [builtins.Sess]/[S…], so every theorem here is
+    LITERALLY about the forge-proof type Fido emits.
 
     A session becomes an INDUCTIVE [PSess] indexed by the protocol, whose only
     builders are the disciplined combinators (send / recv / ret / lift / bind).
@@ -5162,18 +5163,20 @@ Fixpoint proto_steps (p : Proto) : list StepKind :=
   | PEnd                 => []
   end.
 
-(** A session REALISING the [i ↦ j] protocol fragment, producing an [A].  Each
-    constructor that advances the protocol performs the matching communication;
-    [PSLift] (local IO, no message) keeps the state FIXED ([P ↦ P]) so it cannot
-    forge a send/recv step.  Crucially there is no [MkSess]-style "arbitrary [IO]
-    at any index" builder — the index cannot be detached from the operations. *)
-Inductive PSess : Proto -> Proto -> Type -> Type :=
-  | PSRet  : forall {P : Proto} {A : Type}, A -> PSess P P A
-  | PSSend : forall {A : Type} {P : Proto}, A -> PSess (builtins.PSend A P) P unit
-  | PSRecv : forall {A : Type} {P : Proto}, GoTypeTag A -> PSess (builtins.PRecv A P) P A
-  | PSLift : forall {P : Proto} {A : Type}, IO A -> PSess P P A
-  | PSBind : forall {P Q R : Proto} {A B : Type},
-               PSess P Q A -> (A -> PSess Q R B) -> PSess P R B.
+(** The forge-proof session type is the EXTRACTED [builtins.Sess] (post-migration
+    UNIFICATION, 2026-06-22) — an inductive whose constructors are the disciplined
+    ops [SRet]/[SSend]/[SRecv]/[SLift]/[SBind].  Each step that advances the protocol
+    performs the matching communication; [SLift] (local IO, no message) keeps the
+    state FIXED ([P ↦ P]) so it cannot forge a send/recv step; there is no
+    [MkSess]-style "arbitrary [IO] at any index" builder.  [PSess]/[PS…] below are
+    readable ALIASES for [Sess]/[S…], so this whole theory is LITERALLY about the
+    forge-proof type Fido emits. *)
+Notation PSess := Sess.
+Notation PSRet := SRet.
+Notation PSSend := SSend.
+Notation PSRecv := SRecv.
+Notation PSLift := SLift.
+Notation PSBind := SBind.
 
 (** The communication trace a session performs.  A RELATION, not a [Fixpoint]:
     [PSBind]'s continuation [k a] is not a structural subterm (so a recursive

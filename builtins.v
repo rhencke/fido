@@ -5327,9 +5327,10 @@ Qed.
     / payload, AND incomplete protocols ([j <> PEnd]) are all TYPE ERRORS.  [Sess]
     erases in extraction — lowered by OPERATION NAME (channel passing), never
     materialised as a Go value — so the emitted Go is unchanged by this migration.
-    Its full safety+liveness theory is the isomorphic [PSess] in concurrency.v
-    (bricks 1–5: soundness, communication safety, deadlock-freedom, termination /
-    determinism, run-trace coherence; PSess↔Sess unification pending). *)
+    Its full safety+liveness theory is in concurrency.v (bricks 1–5: soundness,
+    communication safety, deadlock-freedom, termination / determinism, run-trace
+    coherence) — proved DIRECTLY about THIS type ([PSess]/[PS…] there are aliases
+    for [Sess]/[S…], so the theorems are literally about the extracted type). *)
 Inductive Sess : Proto -> Proto -> Type -> Type :=
   | SRet  : forall {P : Proto} {A : Type}, A -> Sess P P A
   | SSend : forall {A : Type} {P : Proto}, A -> Sess (PSend A P) P unit
