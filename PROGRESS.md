@@ -1068,6 +1068,31 @@ essentially complete**.  Verified present + extracting:
 Net: the project is far closer to "complete sans imports" than the loop framing implied — the
 bulk of remaining work is these named corners plus the concurrency proof, not missing builtins.
 
+**Named-type tagging — the defined-type/struct map-KEY & channel-VALUE gap (DESIGN, 2026-06-22).**
+After the break-#7 arc + the feature/ledger sweep, several remaining ✗ share ONE root: a NAMED type
+(a defined type `type Celsius int64`, or a named struct `Point`) has NO `GoTypeTag`, so it cannot be a
+map KEY, channel VALUE, or a defined-type-over-struct phantom (each demands a tag).  The obvious fix —
+add a `TDef`/`TNamed` constructor — is BLOCKED by a foundational tension verified this session:
+`tag_eq_refl` (`tag_eq t t = Some eq_refl`, load-bearing for the typed-heap read-after-write laws)
+needs DECIDABLE structural type-equality.  The finite primitive/composite tags satisfy it, but an
+open-ended named-type tag carrying `mk`/`proj` FUNCTIONS cannot (functions aren't comparable; the
+`R1 = R2` proof isn't derivable, and axiomatising name→type-equality violates zero-axioms).  So
+`GoTypeTag` is NOT extensible to named types without breaking its own foundation — a genuine design
+constraint.  THREE candidate paths (multi-tick research; no clean single-tick slice):
+(a) **ComparableW-keyed maps — RECOMMENDED.**  A map KEY needs only `key_eqb` + a comparability proof,
+NOT full `tag_eq`.  `ComparableW K` (the break-#4 SEALED witness, already "distinct from the ambiguous
+GoTypeTag") supplies exactly that, and a defined type CAN carry a `ComparableW`.  Refactor the map KEY
+requirement from `GoTypeTag K` → `ComparableW K` (the VALUE still needs a tag for zero/storage); derive
+`ComparableW` from a `GoTypeTag` for the existing primitive keys so the demo migration is mechanical;
+the plugin renders the Go key type from the Coq key type via `pp_type` (`Celsius`→its defined-type
+name).  Sidesteps the `tag_eq` tension; the 7d forcing theorem is UNAFFECTED (no new `GoTypeTag` ctor).
+Also unblocks struct map KEYS by the same mechanism.  (b) **Restrict + fail-loud:** keep named types
+un-taggable; a named-type map key / channel value aborts (`unsupported`) — honest, but a real gap.
+(c) **`TDef` with a decidable name:** REJECTED — `tag_eq (TDef …) (TDef …) = Some eq_refl` for self is
+unprovable without comparing carried functions or an axiom.  NEXT (impl, fresh tick): prototype (a),
+starting with `ComparableW`-from-`GoTypeTag` derivation so primitive map keys are untouched, then a
+defined-type map-key demo.
+
 ### Channel-payload faithfulness — what composes vs. the two real limits (2026-06-20)
 
 Probing (a code-review thread) how faithfully channels compose as first-class values.
