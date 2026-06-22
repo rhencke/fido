@@ -574,8 +574,11 @@ Definition ChanHeap : Type := int -> option ChanCell.
     + its tag, then the contents as a finite-support function [K -> option V].
     Like the channel cell, the stored tags let an accessor coerce back to its own
     [K]/[V] view (equal by construction). *)
+(** The leading [int] is the map's SIZE (number of live keys) — so Go's [len(m)] is faithfully modelled
+    ([map_size]), maintained by [map_upd] (+1 on a genuinely new key) and [map_rem] (−1 on a present key).
+    It sits OUTSIDE the existT (size is type-independent), so the value accessor [map_get_fn] is unchanged. *)
 Definition MapCell : Type :=
-  { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type }.
+  (int * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
 Definition MapHeap : Type := int -> option MapCell.
 Record World : Type := mkWorld
   { w_refs : RefHeap ; w_chans : ChanHeap ; w_maps : MapHeap ; w_next : int }.
@@ -2119,7 +2122,7 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
            ORet (MkMap l)
                 (mkWorld (w_refs w) (w_chans w)
                          (fun k => if PrimInt63.eqb k l
-                                   then Some (existT _ K (kt, existT _ V (vt, fun _ => None)))
+                                   then Some (0%uint63, existT _ K (kt, existT _ V (vt, fun _ => None)))
                                    else w_maps w k)
                          (PrimInt63.add l 1%uint63)).
 
@@ -2155,7 +2158,7 @@ Definition map_make {K V : Type} : IO (GoMap K V) :=
 Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                        (m : GoMap K V) (w : World) : K -> option V :=
   match w_maps w (gm_loc m) with
-  | Some (existT _ _ (kt', existT _ _ (vt', f))) =>
+  | Some (_, existT _ _ (kt', existT _ _ (vt', f))) =>
       match tag_eq kt kt', tag_eq vt vt' with
       | Some pk, Some pv =>
           fun k => eq_rect _ (fun Y : Type => option Y)
@@ -2165,34 +2168,55 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   | None => fun _ => None
   end.
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
-                      (m : GoMap K V) (f : K -> option V) (w : World) : World :=
+                      (m : GoMap K V) (f : K -> option V) (sz : int) (w : World) : World :=
   mkWorld (w_refs w) (w_chans w)
           (fun l => if PrimInt63.eqb l (gm_loc m)
-                    then Some (existT _ K (kt, existT _ V (vt, f)))
+                    then Some (sz, existT _ K (kt, existT _ V (vt, f)))
                     else w_maps w l)
           (w_next w).
 Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : option V :=
   map_get_fn kt vt m w k.
+(** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell (0 if the map has no cell yet
+    / is nil).  The plugin lowers [map_len] by name to Go [len(m)]; this model now AGREES with it. *)
+Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
+  match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0%uint63 end.
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
-  map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k') w.
+  map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k')
+    (match map_get_fn kt vt m w k with         (* len UNCHANGED on an existing key; +1 on a new one *)
+     | Some _ => map_size m w | None => PrimInt63.add (map_size m w) 1%uint63 end) w.
 Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : World :=
-  map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k') w.
-(** [map_size] is proof-only (the plugin lowers [map_len] by name to Go [len(m)]);
-    its value is never observed, so a placeholder suffices. *)
-Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt := 0%uint63.
+  map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k')
+    (match map_get_fn kt vt m w k with         (* len −1 on a present key; UNCHANGED if absent *)
+     | Some _ => PrimInt63.sub (map_size m w) 1%uint63 | None => map_size m w end) w.
 
 (** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
     coercions become identities, then eta). *)
-Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f w,
-  map_get_fn kt vt m (map_write kt vt m f w) = f.
+Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) m f sz w,
+  map_get_fn kt vt m (map_write kt vt m f sz w) = f.
 Proof.
-  intros K V kt vt m f w. unfold map_get_fn, map_write. cbn.
+  intros K V kt vt m f sz w. unfold map_get_fn, map_write. cbn.
   rewrite (Uint63.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
 Qed.
+
+(** Break #2 witness (machine-checked): [map_size] now reports the REAL live-key count = Go's [len(m)].
+    Insert keys 1,2; overwrite key 1 (len stays 2); delete key 2 (len → 1). *)
+Example map_len_counts :
+  match run_io (map_make_typed TI64 TI64)
+               (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1%uint63) with
+  | ORet m w1 =>
+      let w2 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 10%Z) m w1 in
+      let w3 := map_upd TI64 TI64 (i64wrap 2%Z) (i64wrap 20%Z) m w2 in
+      let w4 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 99%Z) m w3 in  (* overwrite key 1 — len stays 2 *)
+      let w5 := map_rem TI64 TI64 (i64wrap 2%Z) m w4 in                 (* delete key 2 — len → 1 *)
+      andb (PrimInt63.eqb (map_size m w4) 2%uint63)
+           (PrimInt63.eqb (map_size m w5) 1%uint63) = true
+  | OPanic _ _ => False
+  end.
+Proof. vm_compute. reflexivity. Qed.
 
 (** The map OPERATIONS, DEFINED over the abstract heap state above; their [run_*]
     laws are now THEOREMS.  Extraction lowers each by NAME to Go map syntax (the
@@ -2379,7 +2403,7 @@ Proof. intros K V kt vt k default m w H. rewrite run_map_get_or, H. reflexivity.
     GET-AFTER-CLEAR is too. *)
 Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                          (m : GoMap K V) (w : World) : World :=
-  map_write kt vt m (fun _ => None) w.
+  map_write kt vt m (fun _ => None) 0%uint63 w.   (* clear ⇒ empty ⇒ len 0 *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => ORet tt (map_clear_upd kt vt m w).
 Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
@@ -4087,7 +4111,7 @@ Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   ValidWorld w -> HasRoom w ->
   ValidWorld (mkWorld (w_refs w) (w_chans w)
     (fun k => if PrimInt63.eqb k (w_next w)
-              then Some (existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
+              then Some (0%uint63, existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
     (PrimInt63.add (w_next w) 1)).
 Proof.
   intros K V kt vt w HV HR. destruct HV as [Hpos Hfresh]. split.

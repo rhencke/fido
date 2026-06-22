@@ -648,6 +648,16 @@ any "verified" claim.
    shown to rest on an impossible hypothesis — strong evidence for refounding the bridge or path (b).)
 2. **`map_size := 0` but Go `len` returns the real length.** `map_len` returns `map_size` (constant 0);
    plugin lowers `map_len`→Go `len(m)`; `map_demo` prints `3`.  Direct model/extraction disagreement.
+   **→ RESOLVED (2026-06-22, proof-only, golden byte-identical).**  The map's `MapCell` now carries an
+   `int` SIZE (live-key count) ahead of the existT — `map_size m w` reads it (was the constant-0 stub), so
+   the model AGREES with the native `len(m)` the plugin emits.  `map_upd` does +1 only on a genuinely-new
+   key (unchanged on overwrite), `map_rem` −1 only on a present key (unchanged if absent); `map_make_typed`
+   / `map_clear` init it to 0.  Size sits OUTSIDE the existT (type-independent), so the value accessor
+   `map_get_fn` and ALL value laws (`map_sel_upd_same`/`_diff`/`map_sel_rem`/`map_sel_clear`/`map_get_set_*`/
+   `map_get_delete_*`) are UNCHANGED (the size threads as an extra `match` arg that `map_get_fn_write_same`
+   ignores) — re-proved with no edits.  Witness `map_len_counts` machine-checks len = 2 after insert 1,2 +
+   overwrite 1, then 1 after deleting 2.  Bodies suppressed (plugin emits `len(m)`), so golden unaffected;
+   PrimInt63 base.
 3. **Session discipline forgeable.** `Record Sess (i j) A := MkSess { run_sess : IO A }` with public
    `MkSess` — `MkSess (ret tt) : Sess P PEnd unit` typechecks for ANY `P`.  Linearity is not enforced.
    Fix: seal `Sess` behind a module signature, or make constructors embody the protocol transitions.
