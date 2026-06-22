@@ -1088,16 +1088,26 @@ type Cursed struct {
 }
 
 func Cursed_demo() {
-	c := make(chan ChanBox)
-	p := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 7, Ln_next: nil})
-	cu := Cursed{Cu_chans: []chan ChanBox{c}, Cu_list: p}
+	c0 := make(chan ChanBox)
+	c1 := make(chan ChanBox)
+	t3 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 3, Ln_next: nil})
+	t2 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 2, Ln_next: t3})
+	t1 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 1, Ln_next: t2})
+	cu := Cursed{Cu_chans: []chan ChanBox{c0, c1}, Cu_list: t1}
 	ch0 := cu.Cu_chans[0]
+	ch1 := cu.Cu_chans[1]
 	go func() {
-		ch0 <- ChanBox{Cb_id: 99, Cb_chan: ch0}
+		ch0 <- ChanBox{Cb_id: 90, Cb_chan: ch0}
 	}()
-	v := <-ch0
-	n := *(cu.Cu_list)
-	println(v.Cb_id, n.Ln_val)
+	go func() {
+		ch1 <- ChanBox{Cb_id: 9, Cb_chan: ch1}
+	}()
+	v0 := <-ch0
+	v1 := <-ch1
+	n1 := *(cu.Cu_list)
+	n2 := *(n1.Ln_next)
+	n3 := *(n2.Ln_next)
+	println(v0.Cb_id+v1.Cb_id, n1.Ln_val, n2.Ln_val, n3.Ln_val)
 }
 
 func Slice_alias_demo() {
