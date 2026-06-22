@@ -1019,6 +1019,18 @@ func Hub_worker_demo() {
 	println(box.Ib_name, v)
 }
 
+func Chan_of_chan_demo() {
+	reqs := make(chan chan int64, 1)
+	reply := make(chan int64, 1)
+	go func() {
+		r := <-reqs
+		r <- 77
+	}()
+	reqs <- reply
+	v, _ := <-reply
+	println(v)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2114,6 +2126,7 @@ func main() {
 	Inbox_demo()
 	Hub_demo()
 	Hub_worker_demo()
+	Chan_of_chan_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()

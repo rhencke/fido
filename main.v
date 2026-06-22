@@ -1693,6 +1693,18 @@ Definition hub_worker_demo : IO unit :=
   bind (recv TI64 (ib_ch box)) (fun v =>                        (* v := <-box.Ib_ch (rendezvous) *)
   println [any (ib_name box); any v]))).                        (* prints: worker 123 *)
 
+(** "Channels that send themselves" (the user's north-star phrasing): a CHANNEL OF CHANNELS
+    ([chan chan int64]) — the request/reply pattern.  The main sends a [reply] channel OVER the
+    [reqs] channel; a worker goroutine receives that reply-channel and sends a result back through
+    it — a channel VALUE flows over a channel.  Buffered + the data dependency ⇒ deterministic. *)
+Definition chan_of_chan_demo : IO unit :=
+  bind (make_chan_buf (TChan TI64) 1) (fun reqs =>            (* reqs : chan chan int64 *)
+  bind (make_chan_buf TI64 1)         (fun reply =>           (* reply : chan int64 *)
+  bind (go_spawn (bind (recv (TChan TI64) reqs) (fun r => send TI64 r (77)%i64))) (fun _ =>
+  bind (send (TChan TI64) reqs reply) (fun _ =>              (* reqs <- reply (a channel over a channel) *)
+  recv_ok TI64 reply (fun v _ =>                             (* v := <-reply *)
+  println [any v]))))).                                       (* prints: 77 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2767,6 +2779,7 @@ Definition main_effect : IO unit :=
   inbox_demo                    >>'   (* prints: fido 42 (a channel nested in a struct field) *)
   hub_demo                      >>'   (* prints: 7 99 (a SLICE of channels in a struct: channels-in-slice-in-struct) *)
   hub_worker_demo               >>'   (* prints: worker 123 (a GOROUTINE feeding a channel nested in a struct) *)
+  chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
