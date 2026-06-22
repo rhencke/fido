@@ -1075,6 +1075,111 @@ Proof.
       exists smid. split; [eapply rt_if; [exact Hlne2 | exact Ht | exact Hru] | exact Hrest].
 Qed.
 
+(** ── The INNER LOOP completing, lowered to an [LLoop] — nested-loop kernel #2. ──
+    [inner_split] reduced one outer iteration to [runs_to g e2 h2 …] (the inner loop running to its exit).
+    Now: that completion is reproduced by [LLoop ibody] when [ibody] realises one inner iteration
+    ([Iterates g h2 e2 ibody]).  The mismatch to bridge: [runs_to] follows edges blindly (a back-edge to
+    the inner header is just a goto it passes through), whereas one [Iterates] iteration STOPS at that
+    back-edge — so [runs_to] = (iterate)* then (break to [e2]).  We bridge with a FUEL-INDEXED [runs_to_n]
+    (the iteration count is the well-founded measure) and a per-iteration consistency lemma. *)
+Inductive runs_to_n (g : CFG) (j : nat) : nat -> nat -> State -> State -> Prop :=
+  | rtn_here : forall n s, runs_to_n g j (S n) j s s
+  | rtn_goto : forall n l l' s sf, l <> j -> blk_term (g l) = TGoto l' ->
+      runs_to_n g j n l' (blk_body (g l) s) sf -> runs_to_n g j (S n) l s sf
+  | rtn_if   : forall n l c a b s sf, l <> j -> blk_term (g l) = TIf c a b ->
+      runs_to_n g j n (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf ->
+      runs_to_n g j (S n) l s sf.
+
+Lemma runs_to_to_n : forall g j l s sf, runs_to g j l s sf -> exists n, runs_to_n g j n l s sf.
+Proof.
+  intros g j l s sf H. induction H.
+  - exists 1. apply rtn_here.
+  - destruct IHruns_to as [n Hn]. exists (S n). eapply rtn_goto; eassumption.
+  - destruct IHruns_to as [n Hn]. exists (S n). eapply rtn_if; eassumption.
+Qed.
+
+(** Peel one [runs_to_n] step: at the target [j] the run is finished ([sf = s]); off the target a
+    [TGoto]/[TIf] block drops the fuel by one to its successor. *)
+Lemma rtn_here_inv : forall g j n s sf, runs_to_n g j n j s sf -> sf = s.
+Proof. intros g j n s sf H. inversion H; subst; [reflexivity | congruence | congruence]. Qed.
+
+Lemma rtn_goto_inv : forall g j n l l' s sf, l <> j -> blk_term (g l) = TGoto l' ->
+  runs_to_n g j n l s sf -> exists m, n = S m /\ runs_to_n g j m l' (blk_body (g l) s) sf.
+Proof.
+  intros g j n l l' s sf Hlj Ht H.
+  inversion H as [n0 s0 | n0 l0 l'0 s0 sf0 Hne Ht0 Hr | n0 l0 c0 a0 b0 s0 sf0 Hne Ht0 Hr]; subst.
+  - congruence.
+  - rewrite Ht in Ht0; injection Ht0 as <-. exists n0. split; [reflexivity | exact Hr].
+  - rewrite Ht in Ht0; discriminate.
+Qed.
+
+Lemma rtn_if_inv : forall g j n l c a b s sf, l <> j -> blk_term (g l) = TIf c a b ->
+  runs_to_n g j n l s sf ->
+  exists m, n = S m /\ runs_to_n g j m (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf.
+Proof.
+  intros g j n l c a b s sf Hlj Ht H.
+  inversion H as [n0 s0 | n0 l0 l'0 s0 sf0 Hne Ht0 Hr | n0 l0 c0 a0 b0 s0 sf0 Hne Ht0 Hr]; subst.
+  - congruence.
+  - rewrite Ht in Ht0; discriminate.
+  - rewrite Ht in Ht0; injection Ht0 as <- <- <-. exists n0. split; [reflexivity | exact Hr].
+Qed.
+
+(** CONSISTENCY: one [Iterates] iteration [runs_term g h2 e2 l …] is a PREFIX of the [runs_to_n] run that
+    reaches [e2].  Either the iteration BROKE (reached [e2] — then it ends at the same state [smid]), or it
+    iterated (back-edge to [h2], [Normal]) — then a STRICTLY SHORTER residual [runs_to_n] continues from
+    [h2].  By induction on the iteration's [runs_term], peeling the [runs_to_n] in lock-step.  No
+    determinism needed — we relate the GIVEN iteration to the GIVEN run. *)
+Lemma iter_prefix : forall g h2 e2 l s s1 o,
+  runs_term g h2 e2 l s s1 o ->
+  forall n smid, runs_to_n g e2 n l s smid ->
+  (o = Broke /\ s1 = smid)
+  \/ (o = Normal /\ exists m, m < n /\ runs_to_n g e2 m h2 s1 smid).
+Proof.
+  intros g h2 e2 l s s1 o Hiter.
+  induction Hiter as [ s | l s Hbe Ht | l l' s s' o Hbe Ht Hnh Hiter' IH
+                    | l c a b s s' o Hbe Ht Hiter' IH ]; intros n smid Hrt.
+  - (* rterm_exit: l = e2, o = Broke, s1 = s — the run is already at e2 *)
+    left. split; [reflexivity | symmetry; exact (rtn_here_inv g e2 n s smid Hrt)].
+  - (* rterm_back: TGoto h2 (inner back-edge) — Normal, residual continues from h2 *)
+    right. destruct (rtn_goto_inv g e2 n l h2 s smid Hbe Ht Hrt) as [m [Hn Hres]].
+    split; [reflexivity |]. exists m. subst n. split; [lia | exact Hres].
+  - (* rterm_goto: same goto in the run; recurse from the successor *)
+    destruct (rtn_goto_inv g e2 n l l' s smid Hbe Ht Hrt) as [m [Hn Hres]]. subst n.
+    destruct (IH m smid Hres) as [[Ho Hs] | [Ho [m' [Hlt Hr']]]].
+    + left. split; assumption.
+    + right. split; [assumption |]. exists m'. split; [lia | exact Hr'].
+  - (* rterm_if: the run takes the same branch; recurse *)
+    destruct (rtn_if_inv g e2 n l c a b s smid Hbe Ht Hrt) as [m [Hn Hres]]. subst n.
+    destruct (IH m smid Hres) as [[Ho Hs] | [Ho [m' [Hlt Hr']]]].
+    + left. split; assumption.
+    + right. split; [assumption |]. exists m'. split; [lia | exact Hr'].
+Qed.
+
+(** Hence [LLoop ibody] reproduces the inner loop's completion: by STRONG induction on the [runs_to_n]
+    fuel, take one iteration (the [Iterates] hypothesis) and split it with [iter_prefix] — [Broke] ends the
+    loop ([se_loop_break]), [Normal] iterates and the residual (strictly smaller fuel) feeds the IH
+    ([se_loop_again]). *)
+Lemma loop_to_exit_n : forall g h2 e2 ibody,
+  Iterates g h2 e2 ibody ->
+  forall n s smid, runs_to_n g e2 n h2 s smid -> seval (LLoop ibody) s smid Normal.
+Proof.
+  intros g h2 e2 ibody Hit n.
+  induction n as [n IH] using lt_wf_ind. intros s smid Hrt.
+  destruct (Hit s) as [s1 [o [Hiter Hsev]]].
+  destruct (iter_prefix g h2 e2 h2 s s1 o Hiter n smid Hrt) as [[Ho Hs] | [Ho [m [Hlt Hres]]]].
+  - subst o; subst smid. apply se_loop_break. exact Hsev.
+  - subst o. eapply se_loop_again; [exact Hsev | exact (IH m Hlt s1 smid Hres)].
+Qed.
+
+Lemma loop_to_exit : forall g h2 e2 ibody,
+  Iterates g h2 e2 ibody ->
+  forall s smid, runs_to g e2 h2 s smid -> seval (LLoop ibody) s smid Normal.
+Proof.
+  intros g h2 e2 ibody Hit s smid Hrt.
+  destruct (runs_to_to_n g e2 h2 s smid Hrt) as [n Hn].
+  exact (loop_to_exit_n g h2 e2 ibody Hit n s smid Hn).
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
