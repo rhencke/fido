@@ -309,7 +309,7 @@ var Uc_product int64 = 1000000000000
 
 var Uc_100_i64 int64 = 100
 
-var Uc_100_u8 int64 = (100 & 0xff)
+var Uc_100_u8 uint8 = (100 & 0xff)
 
 var Uc_u64_hi uint64 = 9223372036854775808
 

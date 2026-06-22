@@ -1092,10 +1092,14 @@ let rec pp_type state = function
   | Tarr (t1, t2) ->
       str "func(" ++ pp_type state t1 ++ str ") " ++ pp_type state t2
   | Tglob (r, _)  when is_sigT_ref r -> str "any"
-  (* GoU<N>/GoI<N> erase to their int64 carrier (the wrapper is gone in Go).
-     Exception: GoU64 uses the unsigned uint64 carrier so it can represent [2^63, 2^64). *)
+  (* Each numeric wrapper renders as its REAL Go type — GoU8→uint8 … GoI32→int32,
+     GoI64→int64, GoU64→uint64 (break #7: a value's static / interface type is faithful;
+     the arithmetic stays int64+mask, converted to the narrow type at boundaries / the [any]
+     box).  Name shape ["Go"(U|I)<width>] → [(u)int<width>]. *)
   | Tglob (r, _)  when is_numint_type r ->
-      if String.equal (global_basename r) "GoU64" then str "uint64" else str "int64"
+      let n = global_basename r in
+      str ((if String.length n > 2 && n.[2] = 'I' then "int" else "uint")
+           ^ String.sub n 3 (String.length n - 3))
   (* IO A erases to A — the world token has no runtime representation *)
   | Tglob (r, [arg]) when is_IO_type r -> pp_type state arg
   (* Ref A → T (a mutable local cell is just a Go variable of type T) *)
