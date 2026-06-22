@@ -521,6 +521,54 @@ Proof.
   - intro H. injection H as ->. apply Z.eqb_refl.
 Qed.
 
+(** ---- Break #7: the tag → runtime-Go-type map is INJECTIVE (the anti-regression LOCK) ----
+
+    A type assertion [v.(T)] in the EMITTED Go targets the Go type the plugin prints for the
+    tag [T] (its [go_type_tag_map] entry).  [go_runtime_name] MIRRORS that map for the SCALAR
+    tags — each has a faithful, DISTINCT Go type.  The soundness a type assertion needs: the
+    model's [tag_eq] must not distinguish what Go cannot — two tags the model calls different
+    ([tag_eq = None]) MUST lower to DIFFERENT Go types, else [v.(Tb)] would succeed on a
+    [Ta]-boxed value exactly where the model's assertion fails.  [tag_runtime_agrees] proves
+    that over the named tags.  It is UNPROVABLE if any two named tags share a Go name — so it
+    is a machine-checked LOCK against re-introducing break #7's collisions, all now closed:
+    [TInt64]/[TI64] (int vs int64, slice 7c), the narrow cluster (uint8…int32, 7b),
+    [TUint64]/[TU64] and the dead bare-width tags (7a).
+
+    Scope: the [None] tags ([TUnit], [TArrow], the composites) are out of scope — a composite's
+    injectivity REDUCES to this one (it recurses on element tags, e.g. [chan T1] = [chan T2] iff
+    [T1]=[T2]), and unit/func assert to Go [any] (the documented [GoAny] "no assert-to-interface"
+    limit, not a collision). *)
+Definition go_runtime_name {A} (t : GoTypeTag A) : option string :=
+  (match t with
+   | TBool    => Some "bool"
+   | TInt64   => Some "int"        (* PrimInt63 = Go's platform int (7c) *)
+   | TFloat64 => Some "float64"
+   | TString  => Some "string"
+   | TUint    => Some "uint"
+   | TU8  => Some "uint8"  | TI8  => Some "int8"
+   | TU16 => Some "uint16" | TI16 => Some "int16"
+   | TU32 => Some "uint32" | TI32 => Some "int32"
+   | TI64 => Some "int64"          (* Z-carried GoI64 — DISTINCT from [TInt64] = int *)
+   | TU64 => Some "uint64"
+   | TFloat32 => Some "float32"
+   | _ => None
+   end)%string.
+
+Theorem tag_runtime_agrees :
+  forall {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) (sa sb : string),
+    go_runtime_name ta = Some sa ->
+    go_runtime_name tb = Some sb ->
+    tag_eq ta tb = None ->
+    sa <> sb.
+Proof.
+  intros A B ta tb sa sb Ha Hb Hne.
+  destruct ta, tb; cbn in *; congruence.
+Qed.
+(* Zero-assumption by construction: the proof is pure [destruct]/[cbn]/[congruence] over the
+   [tag_eq] and [go_runtime_name] Definitions — every step a primitive tactic over total
+   Definitions, with no opaque holes, never appealing to the PrimInt63/PrimFloat primitives
+   or the [funext] holdout. *)
+
 (** Native struct equality — Go's [a == b] on a comparable struct (spec "Comparison
     operators": struct values are comparable iff all fields are, and [==] is field-wise).
     EVIDENCE-CARRYING and safe-by-construction: it DEMANDS not just a candidate [eqb] but a
