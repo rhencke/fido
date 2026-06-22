@@ -540,7 +540,9 @@ let rec go_type_of_tag = function
   | MLcons (_, r, []) ->
       (match List.assoc_opt (global_basename r) go_type_tag_map with
        | Some t -> t
-       | None   -> "any")
+       | None   -> unsupported (Printf.sprintf
+           "go_type_of_tag: nullary type tag '%s' has no entry in go_type_tag_map — no faithful Go type to render.  Refusing to emit `any` (which would make every v.(T) assertion spuriously succeed and disagree with the model's tag_eq).  Add the tag to go_type_tag_map or suppress the definition."
+           (global_basename r)))
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TChan"  ->
       "chan " ^ go_type_of_tag inner
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TSlice" ->
@@ -549,7 +551,9 @@ let rec go_type_of_tag = function
       "*" ^ go_type_of_tag inner
   | MLcons (_, r, [kt; vt]) when String.equal (global_basename r) "TMap"  ->
       "map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt
-  | _ -> "any"
+  | t -> unsupported (Printf.sprintf
+      "go_type_of_tag: type tag '%s' has no faithful Go rendering (e.g. TUnit / TArrow / TProd, or an unhandled composite tag) — refusing to emit `any`"
+      (match t with MLcons (_, r, _) -> global_basename r | _ -> "<non-constructor term>"))
 
 (** Zero value for a Go type given its tag. *)
 let zero_of_tag tag =
