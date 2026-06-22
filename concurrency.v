@@ -3960,6 +3960,150 @@ Proof.
   exact (recvfree_progress cfg tid (livefin_fresh _ HLF) HRF Hlive Hnret).
 Qed.
 
+(** ============================================================================
+    PRIVATE-MEMORY brick, SCALED: an ARBITRARY-N private parallel program is BOTH
+    race-free AND deadlock-free — full safety + liveness, for EVERY N.
+
+    The brick-1 theorem [private_disc_reachable_race_free] holds for arbitrary N; here
+    is a PARAMETRIC witness ([priv_prog_N]: for any N, goroutines 0..N-1 each write their
+    OWN location, pre-live, no channels/spawn) that instantiates it for UNBOUNDED N, and
+    ADDS liveness via the [PureLocal] fragment — programs of only [CWrite]/[CRead]/[CRet]
+    (pure shared-memory computation): never blocked (no [CRecv]/[CSelect] head) and never
+    panicking (no [CSend]/[CClose] head), so a live unfinished goroutine ALWAYS lets the
+    config step.  So unbounded-N private parallel programs run race-free to completion.
+    Proof-only.  ============================================================================ *)
+Inductive PureLocal : Cmd -> Prop :=
+  | PL_ret   : PureLocal CRet
+  | PL_write : forall l v k, PureLocal k -> PureLocal (CWrite l v k)
+  | PL_read  : forall l f, (forall v, PureLocal (f v)) -> PureLocal (CRead l f).
+Definition PureLocalCfg (cfg : RConfig) : Prop :=
+  forall tid, rc_live cfg tid = true -> PureLocal (rc_prog cfg tid).
+
+Lemma pl_write_inv : forall l v k, PureLocal (CWrite l v k) -> PureLocal k.
+Proof. intros l v k H. inversion H; subst. assumption. Qed.
+Lemma pl_read_inv : forall l f, PureLocal (CRead l f) -> forall v, PureLocal (f v).
+Proof. intros l f H. inversion H; subst. assumption. Qed.
+Lemma pl_not_send   : forall c v k, PureLocal (CSend c v k) -> False.
+Proof. intros c v k H. inversion H. Qed.
+Lemma pl_not_recv   : forall c f, PureLocal (CRecv c f) -> False.
+Proof. intros c f H. inversion H. Qed.
+Lemma pl_not_spawn  : forall child k, PureLocal (CSpawn child k) -> False.
+Proof. intros child k H. inversion H. Qed.
+Lemma pl_not_select : forall cases, PureLocal (CSelect cases) -> False.
+Proof. intros cases H. inversion H. Qed.
+Lemma pl_not_close  : forall c k, PureLocal (CClose c k) -> False.
+Proof. intros c k H. inversion H. Qed.
+
+Lemma pl_not_blocked : forall cfg tid, PureLocal (rc_prog cfg tid) -> ~ blocked cfg tid.
+Proof. intros cfg tid HPL [[c [f [Hp _]]] | [cases [Hp _]]]; rewrite Hp in HPL; inversion HPL. Qed.
+Lemma pl_not_panicking : forall cfg tid, PureLocal (rc_prog cfg tid) -> ~ rpanicking cfg tid.
+Proof. intros cfg tid HPL [[c [k [Hp _]]] | [c [v [k [Hp _]]]]]; rewrite Hp in HPL; inversion HPL. Qed.
+
+Lemma purelocal_upd : forall (p : nat -> Cmd) tid cont (lv : nat -> bool) g,
+  (forall g', lv g' = true -> PureLocal (p g')) -> PureLocal cont -> lv g = true ->
+  PureLocal (upd p tid cont g).
+Proof.
+  intros p tid cont lv g Hp Hcont Hg.
+  destruct (Nat.eq_dec g tid) as [->|Hne].
+  - rewrite upd_same. exact Hcont.
+  - rewrite (upd_other p tid cont g Hne). exact (Hp g Hg).
+Qed.
+
+Lemma pure_local_step : forall cfg cfg', rstep cfg cfg' -> PureLocalCfg cfg -> PureLocalCfg cfg'.
+Proof.
+  intros cfg cfg' Hstep HPL. unfold PureLocalCfg in HPL |- *.
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp _
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp _
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_prog rc_live] in HPL |- *; intros g Hg;
+    pose proof (HPL tid Hlv) as H; rewrite Hp in H.
+  - exfalso. exact (pl_not_send _ _ _ H).
+  - exfalso. exact (pl_not_recv _ _ H).
+  - exact (purelocal_upd p tid k lv g HPL (pl_write_inv _ _ _ H) Hg).
+  - exact (purelocal_upd p tid (f (h l)) lv g HPL (pl_read_inv _ _ H (h l)) Hg).
+  - exfalso. exact (pl_not_spawn _ _ H).
+  - exfalso. exact (pl_not_select _ H).
+  - exfalso. exact (pl_not_close _ _ H).
+  - exfalso. exact (pl_not_recv _ _ H).
+  - exfalso. exact (pl_not_select _ H).
+Qed.
+
+Lemma pure_local_steps : forall a b, rsteps a b -> PureLocalCfg a -> PureLocalCfg b.
+Proof.
+  intros a b H. induction H as [cfg | a b c Hab Hbc IH]; intros HPL; [exact HPL|].
+  apply IH. exact (pure_local_step _ _ Hab HPL).
+Qed.
+
+(* A live, unfinished, PURE-LOCAL goroutine always lets the config step — no deadlock, no panic. *)
+Lemma pure_local_progress : forall cfg tid,
+  FreshAvail cfg -> PureLocalCfg cfg ->
+  rc_live cfg tid = true -> rc_prog cfg tid <> CRet -> rcan_step cfg.
+Proof.
+  intros cfg tid Hfresh HPL Hlive Hnret.
+  apply (ready_can_step cfg tid Hfresh Hlive Hnret).
+  - apply pl_not_blocked. exact (HPL tid Hlive).
+  - apply pl_not_panicking. exact (HPL tid Hlive).
+Qed.
+
+Lemma rsteps_livefin : forall a b, rsteps a b -> LiveFin a -> LiveFin b.
+Proof.
+  intros a b H. induction H as [cfg | a b c Hab Hbc IH]; intros HLF; [exact HLF|].
+  apply IH. exact (rstep_livefin _ _ Hab HLF).
+Qed.
+
+(* The arbitrary-N private parallel program: goroutine t (for t < N) writes location t. *)
+Definition priv_prog_N (N : nat) : nat -> Cmd :=
+  fun t => if Nat.ltb t N then CWrite t 0 CRet else CRet.
+Definition priv_init_N (N : nat) : RConfig :=
+  mkRCfg (priv_prog_N N) (fun _ => []) (fun _ => 0) (fun t => Nat.ltb t N) [].
+
+Lemma priv_init_N_disc : forall N, PrivateDisc (fun l => l) (priv_init_N N).
+Proof.
+  intros N. split.
+  - intros i l Hacc. cbn in Hacc. unfold acc_loc_at in Hacc. destruct i; cbn in Hacc; discriminate.
+  - intros g Hg. unfold priv_init_N, priv_prog_N in *. cbn [rc_live rc_prog] in Hg |- *.
+    destruct (Nat.ltb g N) eqn:E.
+    + apply OA_write; [reflexivity | apply OA_ret].
+    + congruence.
+Qed.
+Lemma priv_init_N_purelocal : forall N, PureLocalCfg (priv_init_N N).
+Proof.
+  intros N g Hg. unfold priv_init_N, priv_prog_N in *. cbn [rc_live rc_prog] in Hg |- *.
+  destruct (Nat.ltb g N) eqn:E.
+  - apply PL_write. apply PL_ret.
+  - congruence.
+Qed.
+Lemma priv_init_N_livefin : forall N, LiveFin (priv_init_N N).
+Proof. intros N. exists N. intros t Ht. cbn. apply Nat.ltb_ge. exact Ht. Qed.
+
+(** SAFETY: for EVERY N, every interleaving of the N-way private parallel program is race-free. *)
+Theorem priv_prog_N_race_free : forall N cfg,
+  rsteps (priv_init_N N) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros N cfg Hsteps.
+  exact (proj2 (private_disc_reachable_race_free (fun l => l) (priv_init_N N) cfg
+                 (priv_init_N_disc N) Hsteps)).
+Qed.
+
+(** LIVENESS: for EVERY N, at any reachable state, any live goroutine with work left lets the config
+    step — the program NEVER deadlocks and NEVER panics; it runs to completion. *)
+Theorem priv_prog_N_deadlock_free : forall N cfg tid,
+  rsteps (priv_init_N N) cfg -> rc_live cfg tid = true -> rc_prog cfg tid <> CRet ->
+  rcan_step cfg.
+Proof.
+  intros N cfg tid Hsteps Hlive Hnret.
+  pose proof (pure_local_steps _ _ Hsteps (priv_init_N_purelocal N)) as HPL.
+  pose proof (rsteps_livefin _ _ Hsteps (priv_init_N_livefin N)) as HLF.
+  exact (pure_local_progress cfg tid (livefin_fresh _ HLF) HPL Hlive Hnret).
+Qed.
+
 (** ----------------------------------------------------------------------------
     A RECEIVING program that is deadlock-free.  Receive-free is the clean general
     class; here is the complement — a program that DOES receive yet never deadlocks,
