@@ -1344,6 +1344,17 @@ Definition vec2_eqb (a b : GoArr2 GoI64) : bool := arr2_eqb a b.
 Definition arrN_demo : IO unit :=
   println [ any (vec3_eqb vecN_a vecN_a) ; any (vec3_eqb vecN_a vecN_b) ; any (vec2_eqb pairN pairN) ].   (* true false true *)
 
+(** Array RETURN + array FIELD positions — completing the typed-position coverage beyond [arrN_demo]'s
+    typed-VAR + PARAM.  [vec3_id]'s RETURN type is [[3]int64]; [Triple] has an array FIELD
+    [t_vec : [3]int64] (emitted [type Triple struct { T_vec [3]int64; T_label int64 }]).  Both ride the
+    same [GoArr<N>]→[[N]T] [pp_type] rendering — no new plugin support, any concrete N. *)
+Definition vec3_id (a : GoArr3 GoI64) : GoArr3 GoI64 := a.
+Record Triple := MkTriple { t_vec : GoArr3 GoI64 ; t_label : GoI64 }.
+Definition arr_field_ret_demo : IO unit :=
+  let tr := MkTriple (arr3_lit TI64 (4)%i64 (5)%i64 (6)%i64) (77)%i64 in
+  bind (println [any (vec3_eqb (vec3_id (t_vec tr)) (t_vec tr))]) (fun _ =>   (* field → return-id → compare: true *)
+  println [any (t_label tr)]).                                                (* the struct's int64 field: 77 *)
+
 (** Array COMPARABILITY (Go [==], field-wise): arrays are comparable (slices are NOT).
     [arr_eqb] decides array equality element-wise — a THEOREM — and lowers to the bare
     Go [a == b].  Distinct from slices, which support only [== nil]. *)
@@ -2615,6 +2626,7 @@ Definition main_effect : IO unit :=
   slice_safe_demo               >>'   (* prints: 20 true / 0 false *)
   arr_demo                      >>'   (* prints: 20 true / 0 false ([3]int64 array index) *)
   arrN_demo                     >>'   (* prints: true false (array in a TYPED position: [3]int64 param) *)
+  arr_field_ret_demo            >>'   (* prints: true 77 (array RETURN + array FIELD positions) *)
   arr_eq_demo                   >>'   (* prints: true false (array == is field-wise) *)
   arr_copy_demo                 >>'   (* prints: 10 99 (value-copy: a unchanged by arr_set) *)
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)

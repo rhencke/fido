@@ -681,6 +681,21 @@ func ArrN_demo() {
 	println(Vec3_eqb(VecN_a, VecN_a), Vec3_eqb(VecN_a, VecN_b), Vec2_eqb(PairN, PairN))
 }
 
+func Vec3_id(a [3]int64) [3]int64 {
+	return a
+}
+
+type Triple struct {
+	T_vec   [3]int64
+	T_label int64
+}
+
+func Arr_field_ret_demo() {
+	tr := Triple{T_vec: [3]int64{4, 5, 6}, T_label: 77}
+	println(Vec3_eqb(Vec3_id(tr.T_vec), tr.T_vec))
+	println(tr.T_label)
+}
+
 func Arr_eq_demo() {
 	a := [3]int64{1, 2, 3}
 	b := [3]int64{1, 2, 3}
@@ -1975,6 +1990,7 @@ func main() {
 	Slice_safe_demo()
 	Arr_demo()
 	ArrN_demo()
+	Arr_field_ret_demo()
 	Arr_eq_demo()
 	Arr_copy_demo()
 	Assert_safe_demo(7)

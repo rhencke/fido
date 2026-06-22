@@ -250,7 +250,7 @@ offsets are the prefix sums of the per-rune UTF-8 widths (machine-checked `str_r
 **Deferred (fails loud):** byte-level mutation (Go forbids `s[i] = …` anyway; strings
 are immutable).
 
-### [Array types](https://go.dev/ref/spec#Array_types) — ✓ LOCAL fixed-size arrays (literal, index, comparability, value-copy); ✗ array-typed positions (type-level N)
+### [Array types](https://go.dev/ref/spec#Array_types) — ✓ fixed-size arrays (literal, index, comparability, value-copy) + TYPED POSITIONS (var / param / return / field via GoArr<N>); ⚠ positions polymorphic over a SYMBOLIC N
 Spec: `[N]T` — fixed length `N` (part of the **type**), **value** semantics (assign/
 pass copies the whole array), comparable element-wise (unlike slices).
 **Piece 1 DONE (B4.1, 2026-06-18) — local fixed-size arrays.**  `N` lives in the *type*,
@@ -269,9 +269,14 @@ update — `a` is UNCHANGED (a slice would share the backing) — lowering to th
 return IIFE `func(_a [n]T) [n]T { _a[i] = v; return _a }(a)` (Go copies `a` into the value
 param, mutates the copy, returns it); the size `n` is passed explicitly (size-in-construction,
 since it is erased from the Coq type).  `arr_copy_demo`: `a` stays `[10,20,30]`, `b` becomes
-`[99,20,30]` → `true true`; machine-checked `arr_set_copy`.  **✗ still:** array-typed
-*positions* (param / field / return / typed var) need an explicit `[N]T` and are refused
-fail-loud — the type-level-`N` route (phantom `AS`/`AZ` chain the plugin decodes), deferred.
+`[99,20,30]` → `true true`; machine-checked `arr_set_copy`.  **Typed POSITIONS DONE (any CONCRETE
+fixed size):** a `GoArr<N>` type renders as Go `[N]T` in EVERY position — typed VAR + PARAM (`arrN_demo`:
+`vecN_a : [3]int64`, `vec3_eqb`'s `[3]int64` params; `GoArr2`→`[2]int64` too), and RETURN + FIELD
+(`arr_field_ret_demo`: `func Vec3_id(a [3]int64) [3]int64`, `type Triple struct { T_vec [3]int64; T_label
+int64 }` → `true 77`).  Each size needs only a Coq `GoArr<N>` + `arr<N>_lit` (no plugin edit), the
+constructor's fixed arity guaranteeing length-correctness.  **⚠ still:** a position polymorphic over a
+SYMBOLIC `N` — the size-erased `GoArray` stays LOCAL-only, and the type-level-`N` route (a phantom chain
+the plugin decodes for arbitrary `N`) is deferred.
 
 ### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields) + EMBEDDING (struct-in-struct, interface-in-struct, POINTER-to-struct — field/method promotion); ⚠ tags (no-op without reflection); ✗ embedding bare primitives
 Spec: a `struct` is a sequence of named fields with types; **value** semantics
