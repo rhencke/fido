@@ -747,6 +747,29 @@ This review does not invalidate the verified model/proof work — it bounds the 
 real; the *backend that lowers them to Go is the unverified, currently-fail-open frontier*, and closing it
 (fail-closed first, then typed lowering) is now the top priority.
 
+**STATUS (2026-06-22, after the fail-closed + typed-lowering loop arc) — most P0s CLOSED:**
+- **#1 (full-width int constant semantics) — ✅ FIXED.** Unary (`u64_neg`/`i64_neg`/`*_not`, commit 19162e0) and
+  binary (`add`/`sub`/`mul`/`div`/`mod`/bitwise/shift, 4fd96a9) full-width int ops now force constant operands
+  through a typed IIFE (comparisons exempt); `u64_neg 1` emits `18446744073709551615`, not `-1`. golden-identical.
+- **#3 (unknown tag → `any`) — ✅ FIXED** (b7a23e5): `go_type_of_tag`/`zero_of_tag` abort on an unrenderable tag.
+- **#4 (`slice_of_list` → `nil`) — ✅ FIXED** (51ceed5): non-literal list aborts.
+- **#5 (CFG invents control flow) — ✅ FIXED** (8fefdbc + 72b1617 + 30619aa): every silent control-flow
+  substitution in `run_blocks` (non-literal start/block-list/Jump, unrecognized terminator, non-bool/non-2-branch
+  match, bare-expression block) now fails loud.
+- **#6 (identity-based recognition) — ✅ FOUNDATIONAL + bulk done** (868aa39 exact-component `from_builtins`;
+  86b2124/9b68589/ea2b36f/02eb5db gate ~66 recognizers on it). Remaining tail (GoTypeTag-ctor machinery,
+  suppression list, stdlib basename-fallback drops) is LOW-marginal (requires a user to name a def exactly like a
+  Fido intrinsic in a non-builtins module).
+- **#2 (types lost at boundaries) — ◑ slice 1 (let-boundary) FIXED** (34318ad): a narrow value through a `let`
+  now boxes as its real Go type (`uint8(x)`), so `.(uint8)` succeeds. Remaining (deeper, coupled, LATENT):
+  narrow values at projection/param/field boundaries (the full type-directed emission — native op on a runtime
+  narrow operand vs masked int64 on a constant).
+- **#7 (`Sess` forgeable) — ⛔ DECISION-BLOCKED** (= 2026-06-21 break #3; a rule-3 policy call).
+- **#8 headline / #9 gates — partially addressed** (CLAUDE.md headline corrected; the `|| true` gate was already
+  fixed pre-review). Full differential/CI harness (repair steps 6–7) still open.
+Net: the backend's silent-miscompile sites (fail-OPEN fallbacks + the full-width-int constant bug) are CLOSED;
+the remaining frontier is the deeper typed-lowering (#2 param/field) and the verified-compiler theorem (#8).
+
 ### ⛔ RELEASE-BLOCKING soundness breaks (external review, 2026-06-21) — verified against source
 
 **VERDICT (own it, do not let it drift): these proofs do NOT currently verify the generated Go.**
