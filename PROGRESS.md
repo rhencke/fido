@@ -837,21 +837,28 @@ any "verified" claim.
    types (`int8`/`uint8`/…) without re-colliding with a family-B alias.  (Carrier aliases `GoInt8`/… left
    inert — `GoInt32`←`GoRune` dep; harmless, no tag ⇒ unboxable.  Plugin `go_type_tag_map` still lists the
    removed tags — dead, never matched — cleaned during 7b's plugin work.)
-   **→ REMAINING (multi-tick, scoped 2026-06-22):** *(7b, the real fix — approach B)* make the plugin emit
-   the narrow Squash types as their REAL Go types (`GoU8`→`uint8`, `GoI8`→`int8`, `GoU16`/`I16`/`U32`/`I32`;
-   `GoU64`→`uint64` already) with NATIVE narrow ops instead of the int64-carrier + mask.  It is a COUPLED
-   change — rendering (go.ml ~1069), every fixed-width op (`parse_fixed_width`/`fw_wrap`; the mask
-   `int8 ^ 0x80` overflows the int8 *constant* once operands are narrow-typed, so masking must go native),
-   widening (`i64_of_u8`: identity → `int64(x)`), truncation (`u8_of_i64`: mask → `uint8(x)`), literals
-   (`u8_lit n` → `uint8(n)`), `zero_val` — all must change together for Go to typecheck; one Docker
-   rebuild per iteration.  Runtime output should be PRESERVED (native narrow wrap = the masked model on
-   in-range values), so `expected_output.txt` is the regression check.  De-collides 6 of the 8 int64-cluster
-   tags and makes a boxed narrow value's interface identity faithful.  *(7c)* retire `TInt64` → migrate ALL
-   `int`-boxing to `GoI64` (pervasive: `any (n:int)`, `len`/`cap`/`str_len` return `int` tagged `TInt64`) —
-   leaves `TI64` the sole `int64` tag.  *(7d)* THE FORCING THEOREM: a Rocq `go_runtime_name {A} (t:GoTypeTag A)
-   : string` mirroring the plugin + `tag_runtime_agrees : tag_eq ta tb = None -> go_runtime_name ta <>
-   go_runtime_name tb` — UNPROVABLE while any collision survives, so it is the permanent anti-regression lock
-   once 7b+7c land.
+   **→ SLICE 7b DONE (commits 082e0b7 + b6af16d, 2026-06-22, golden BYTE-IDENTICAL).**  *Faithful narrow
+   interface identity* — but NOT via native narrow types (the obvious "approach B"), which is WRONG for Go:
+   `uint8(200)+uint8(100)` is a Go CONSTANT-overflow compile error (Go never wraps constant arithmetic), and
+   the int64+mask model exists precisely so narrow arithmetic constant-folds.  So keep int64+mask arithmetic
+   UNTOUCHED and convert to the real narrow Go type ONLY at the `any` box, where the value is in range:
+   `uint8(((200&0xff)+(100&0xff))&0xff)` = `uint8(44)`.  The crux: an `any x` tag resolves through the
+   single-field `Tagged` class and its type index is ERASED in extraction (the `existT` payload is
+   `Obj.magic`-wrapped, the tag is `the_tag _` with the type gone) — unrecoverable from the term.  So the
+   width is read from the PAYLOAD's head op: a value built by a fixed-width VALUE op (`u8_add`/`u8_lit`/
+   `u8_of_i64`/…, NOT the bool predicates `ltb`/`leb`/`eqb`/`gtb`/`geb`/`neqb`) IS that narrow type
+   (`fw_value_type` + magic-peeling `payload_head` + `any_narrow_conv`, at both boxing sites).  7b-ii:
+   `pp_type` renders each numint as its real Go type (`GoU8`→`uint8`…`GoI32`→`int32`, `GoI64`→`int64`,
+   `GoU64`→`uint64`), so the one emitted narrow ANNOTATION (`uc_100_u8 : GoU8` → `var uint8`) boxes faithfully
+   — no widening cascade (the narrow OPS emit untyped int64+mask EXPRESSIONS that no annotation types).
+   `go_type_tag_map` gains `TU8`→uint8…`TI32`→int32 (so a `type_assert TU8` emits `v.(uint8)`) and drops the
+   dead 7a entries.  RESULT: every boxed `GoU8`…`GoI32` value carries its real Go interface identity; 6 of the
+   8 int64-cluster tags DE-COLLIDED.  **→ REMAINING:** *(7c)* retire `TInt64` → migrate ALL `int`-boxing to
+   `GoI64` (pervasive: `any (n:int)`, `len`/`cap`/`str_len` return `int` tagged `TInt64`) — leaves `TI64` the
+   sole `int64` tag, closing the last `{TInt64,TI64}` collision.  *(7d)* THE FORCING THEOREM: a Rocq
+   `go_runtime_name {A} (t:GoTypeTag A) : string` mirroring the plugin + `tag_runtime_agrees : tag_eq ta tb =
+   None -> go_runtime_name ta <> go_runtime_name tb` — UNPROVABLE while any collision survives, so it is the
+   permanent anti-regression lock once 7c lands.
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
