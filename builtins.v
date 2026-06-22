@@ -61,7 +61,7 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     "Known gaps".  The remaining widths are DEFINED as [int] (placeholders for the
     faithful fixed-width records below — the carriers exist only for the tag index). *)
 (** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
-    (e.g. [TInt : GoTypeTag GoInt]) — never as a value in extracted Go — so defining
+    (e.g. [TUint : GoTypeTag GoUint]) — never as a value in extracted Go — so defining
     them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
     models are the [GoU8]/[GoI8]/… records below; these carriers exist for the tag's
     index.  Defined as [int] just to retire the axioms. *)
@@ -258,7 +258,11 @@ Inductive GoTypeTag : Type -> Type :=
      soundness hole (a tag→runtime-Go-type that is non-injective makes [tag_eq] disagree
      with Go's [v.(T)]).  They carried no [Tagged] instance and no value was ever boxed
      with them (dead), so they are RETIRED here: one canonical tag per fixed-width type. *)
-  | TInt     : GoTypeTag GoInt
+  (* [TInt64] IS Go's platform [int] now (break #7 slice 7c: PrimInt63 = Go int, the
+     Z-carried [GoI64]/[TI64] is int64).  The old [TInt]:GoTypeTag GoInt was a SECOND tag
+     for the same Go [int] (GoInt := int), with no [Tagged] instance and never boxed
+     (GoInt values box via [Tagged_int]=[TInt64]) — a redundant tag, RETIRED here so [int]
+     has exactly one tag. *)
   | TUint    : GoTypeTag GoUint
   | TFloat32 : GoTypeTag GoFloat32
   (* Composite type tags — carry the element/key/value tags so the plugin can
@@ -327,7 +331,6 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TI64, TI64 => Some eq_refl
   | TU64, TU64 => Some eq_refl
   | TUnit, TUnit => Some eq_refl
-  | TInt, TInt         => Some eq_refl
   | TUint, TUint       => Some eq_refl
   | TFloat32, TFloat32 => Some eq_refl
   | TChan a, TChan b   => match tag_eq a b with Some p => Some (gochan_cong p) | None => None end
@@ -401,7 +404,6 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TI64 => i64wrap 0%Z
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
-  | TInt     => 0%uint63
   | TUint    => 0%uint63
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
@@ -472,7 +474,7 @@ Notation any x := (anyt (the_tag _) x).
 Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
-  | TInt64   => PrimInt63.eqb | TInt    => PrimInt63.eqb | TUint   => PrimInt63.eqb
+  | TInt64   => PrimInt63.eqb | TUint   => PrimInt63.eqb
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)

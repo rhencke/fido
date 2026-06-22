@@ -66,11 +66,11 @@ func Ceqb[T1 comparable](a T1, b T1) bool {
 	return a == b
 }
 
-func Add(n int64, m int64) int64 {
+func Add(n int, m int) int {
 	return n + m
 }
 
-func Sub(n int64, m int64) int64 {
+func Sub(n int, m int) int {
 	return n - m
 }
 
@@ -102,11 +102,11 @@ func Cmp_ops_demo() {
 	println(5 > 3, 5 >= 5, 5 != 3, 18446744073709551615 > 1)
 }
 
-func Div_nz(n int64, d int64) int64 {
+func Div_nz(n int, d int) int {
 	return n / d
 }
 
-func Mod_nz(n int64, d int64) int64 {
+func Mod_nz(n int, d int) int {
 	return n % d
 }
 
@@ -628,19 +628,19 @@ func List_demo() {
 func Slice_safe_demo() {
 	xs := []int64{10, 20, 30}
 	var v int64
-	ok := 1 >= 0 && 1 < int64(len(xs))
+	ok := 1 >= 0 && 1 < len(xs)
 	if ok {
 		v = xs[1]
 	}
 	println(v, ok)
 	var v2 int64
-	ok2 := 9 >= 0 && 9 < int64(len(xs))
+	ok2 := 9 >= 0 && 9 < len(xs)
 	if ok2 {
 		v2 = xs[9]
 	}
 	println(v2, ok2)
 	var v3 int64
-	ok3 := Sub(0, 1) >= 0 && Sub(0, 1) < int64(len(xs))
+	ok3 := Sub(0, 1) >= 0 && Sub(0, 1) < len(xs)
 	if ok3 {
 		v3 = xs[Sub(0, 1)]
 	}
@@ -650,13 +650,13 @@ func Slice_safe_demo() {
 func Arr_demo() {
 	a := [3]int64{10, 20, 30}
 	var v int64
-	ok := 1 >= 0 && 1 < int64(len(a))
+	ok := 1 >= 0 && 1 < len(a)
 	if ok {
 		v = a[1]
 	}
 	println(v, ok)
 	var v2 int64
-	ok2 := Sub(10, 5) >= 0 && Sub(10, 5) < int64(len(a))
+	ok2 := Sub(10, 5) >= 0 && Sub(10, 5) < len(a)
 	if ok2 {
 		v2 = a[Sub(10, 5)]
 	}
@@ -708,15 +708,15 @@ func Assert_safe_demo(n int64) {
 
 func String_demo() {
 	s := "Go"
-	println(int64(len(s)))
+	println(len(s))
 	var b int64
-	ok := 0 >= 0 && 0 < int64(len(s))
+	ok := 0 >= 0 && 0 < len(s)
 	if ok {
 		b = int64(s[0])
 	}
 	println(b, ok)
 	var b2 int64
-	ok2 := 5 >= 0 && 5 < int64(len(s))
+	ok2 := 5 >= 0 && 5 < len(s)
 	if ok2 {
 		b2 = int64(s[5])
 	}
@@ -888,12 +888,12 @@ func Str_range_demo() {
 }
 
 func Defer_loop_demo() {
-	i := int64(0)
-	var iv int64
+	i := int(0)
+	var iv int
 	for {
 		iv = i
 		if iv < 3 {
-			defer func(iv int64) {
+			defer func(iv int) {
 				println(iv)
 			}(iv)
 			i = Add(iv, 1)
@@ -915,7 +915,7 @@ func Defer_demo() {
 }
 
 func Mut_demo() {
-	r := int64(10)
+	r := int(10)
 	a := r
 	r = Add(a, 5)
 	b := r
@@ -1006,8 +1006,8 @@ func Slice_copy_demo() {
 }
 
 func Count_demo() {
-	i := int64(0)
-	var iv int64
+	i := int(0)
+	var iv int
 	for {
 		iv = i
 		if iv < 3 {
@@ -1041,8 +1041,8 @@ func Diamond_demo(b bool) {
 }
 
 func Loopif_demo() {
-	i := int64(0)
-	var iv int64
+	i := int(0)
+	var iv int
 	for {
 		iv = i
 		if iv < 3 {
@@ -1061,14 +1061,14 @@ func Loopif_demo() {
 }
 
 func Nested_loop_demo() {
-	i := int64(0)
-	j := int64(0)
-	var jv int64
-	var iv int64
+	i := int(0)
+	j := int(0)
+	var jv int
+	var iv int
 	for {
 		iv = i
 		if iv < 2 {
-			j = int64(0)
+			j = int(0)
 			for {
 				jv = j
 				if jv < 2 {
@@ -1089,8 +1089,8 @@ func Nested_loop_demo() {
 }
 
 func Early_return_demo() {
-	i := int64(0)
-	var iv int64
+	i := int(0)
+	var iv int
 	for {
 		iv = i
 		if iv < 9 {
@@ -1111,15 +1111,15 @@ func Early_return_demo() {
 }
 
 func Labeled_break_demo() {
-	i := int64(0)
-	j := int64(0)
-	var jv int64
-	var iv int64
+	i := int(0)
+	j := int(0)
+	var jv int
+	var iv int
 L0:
 	for {
 		iv = i
 		if iv < 3 {
-			j = int64(0)
+			j = int(0)
 			for {
 				jv = j
 				if jv < 3 {
@@ -1145,16 +1145,16 @@ L0:
 }
 
 func Labeled_continue_demo() {
-	i := int64(0)
-	j := int64(0)
-	var iv int64
-	var jv int64
+	i := int(0)
+	j := int(0)
+	var iv int
+	var jv int
 L0:
 	for {
 		iv = i
 		i = Add(iv, 1)
 		if iv < 2 {
-			j = int64(0)
+			j = int(0)
 			for {
 				jv = j
 				if jv < 3 {
@@ -1176,8 +1176,8 @@ L0:
 }
 
 func Irreducible_demo(enter_high bool) {
-	n := int64(0)
-	var nv int64
+	n := int(0)
+	var nv int
 	if enter_high {
 		goto block2
 	} else {
@@ -1202,7 +1202,7 @@ block3:
 }
 
 func Foreach_demo() {
-	xs := []int64{10, 20, 30}
+	xs := []int{10, 20, 30}
 	for _, x := range xs {
 		println(x)
 	}

@@ -502,10 +502,9 @@ let is_slift_ref = named "slift"
 (* GoTypeTag constructors → Go type names *)
 let go_type_tag_map = [
   "TBool",    "bool";
-  "TInt64",   "int64";
+  "TInt64",   "int";      (* PrimInt63 = Go's platform int (break #7; TInt retired — TInt64 is the sole int tag) *)
   "TFloat64", "float64";
   "TString",  "string";
-  "TInt",     "int";
   "TUint",    "uint";
   (* canonical Squash-sealed fixed-width family — one tag per Go type (7a retired the
      bare-int duplicates TInt8/…/TUint64; their dead map entries are dropped here). *)
@@ -1135,7 +1134,9 @@ let rec pp_type state = function
       str "(" ++ pp_type state a ++ str ", " ++ pp_type state b ++ str ")"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
-  | Tglob (r, []) when is_uint63_type r -> str "int64"
+  | Tglob (r, []) when is_uint63_type r -> str "int"   (* PrimInt63 = Go's platform [int]
+       (break #7: DISTINCT from the Z-carried [GoI64]=int64, so a boxed int ≠ a boxed int64
+       and [tag_eq TInt64 TI64 = None] now AGREES with Go's [v.(int)] vs [v.(int64)]). *)
   | Tglob (r, []) when is_nat_type r    -> str "uint"
   | Tglob (r, []) when is_bool_type r   -> str "bool"
   | Tglob (r, args) ->
@@ -1664,10 +1665,10 @@ let rec pp_expr state env = function
            str "len(" ++ pp_expr state env s ++ str ")"
        | MLglob r, [s] when is_cap_ref r ->
            str "cap(" ++ pp_expr state env s ++ str ")"
-       (* str_len s → int64(len(s)): Go's [len] gives the BYTE count as an [int];
-          cast to int64 for the [int] model (Sint63/int64). *)
+       (* str_len s → len(s): Go's [len] already gives the BYTE count as a Go [int],
+          which is exactly the [int] (PrimInt63) model now (break #7) — no cast. *)
        | MLglob r, [s] when is_str_len_ref r ->
-           str "int64(len(" ++ pp_expr state env s ++ str "))"
+           str "len(" ++ pp_expr state env s ++ str ")"
        (* str_slice s a b (proof erased) → Go's slice expression s[a:b] (the proof
           discharged the bounds check, so this cannot panic). *)
        | MLglob r, [s; a; b] when is_str_slice_ref r ->
@@ -2172,7 +2173,7 @@ and pp_prec state env ctx e =
    literal as [int64(..)] / [float64(..)].  Non-literals already have a type. *)
 and pp_typed_lit state env e =
   match strip_magic e with
-  | MLuint _  -> str "int64("   ++ pp_expr state env e ++ str ")"
+  | MLuint _  -> str "int("     ++ pp_expr state env e ++ str ")"
   | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
   (* A full-width [GoI64]/[GoU64] LITERAL erases (single-field record) to a bare [Z]
      decimal, which Go defaults to [int]; in a typed position it mismatches the
@@ -3001,7 +3002,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                      a negative [i] passes [i < len] and [xs[i]] panics, breaking
                      the "cannot panic out of bounds" guarantee. *)
                   let cond = i_d ++ str " >= 0 && " ++ i_d
-                             ++ str " < int64(len(" ++ xs_d ++ str "))" in
+                             ++ str " < len(" ++ xs_d ++ str ")" in
                   let v_decl =
                     if is_dummy v_id then mt ()
                     else str tab ++ str "var " ++ pp_mlident v_id ++ str " "
@@ -3068,7 +3069,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   let s_d = pp_expr state env s in
                   let i_d = pp_expr state env i in
                   let cond = i_d ++ str " >= 0 && " ++ i_d
-                             ++ str " < int64(len(" ++ s_d ++ str "))" in
+                             ++ str " < len(" ++ s_d ++ str ")" in
                   let b_decl =
                     if is_dummy b_id then mt ()
                     else str tab ++ str "var " ++ pp_mlident b_id ++ str " int64" ++ fnl () in
