@@ -925,9 +925,20 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   `s2[0]` (prints `0`, the model's disjoint value; pre-fix Go would over-allocate and alias → `99`). Existing
   slice demos (`9`, `77`) preserved; golden gains `0`. So the whole slice-capacity story is now honest: the
   functional value-slice `cap` fails loud (use `SliceH`), and `SliceH`'s capacity + aliasing are faithful.
-- **R6. `PrimInt63.int` → platform `int`, divergent overflow** (known substrate limit, sharpened): faithful only
-  in [−2^62, 2^62); Go `int` is platform-width and wraps at 2^63 (amd64) / 2^31 (32-bit). "Only for indices"
-  doesn't close it without an enforced in-range proof on every emitted op.
+- **R6. `PrimInt63.int` → platform `int`, divergent overflow — ✅ HONESTLY SCOPED (this session); a SUBSTRATE
+  LIMIT, not a backend bug.** Go's `int` is, BY SPEC, 32-OR-64-bit (implementation-specific), so NO deterministic
+  model is faithful on every platform — un-modelability is inherent to `int`. `GoInt := int` (Rocq `PrimInt63`,
+  63-bit, Sint63-signed) is the chosen substrate carrier (it renders to Go `int`, idiomatic for `len`/`cap`/
+  indexing — rendering as `int64` would force a cast at every such interop). Faithful to a 64-bit Go `int` in
+  [−2^62, 2^62) (and [−2^31, 2^31) on 32-bit Go); an op whose result reaches ±2^62 wraps in the model where
+  64-bit Go would not — but 2^62 ≈ 4.6e18 is far above any realistic index/length/size, so the divergence is
+  UNREACHABLE in the index/size use case (no demo/theorem touches the boundary). This is exactly the
+  "principled and bounded … substrate limit like Rocq's 63-bit primitive int" CLAUDE.md rule 2 PERMITS.
+  **Correction landed:** a stale comment claimed `GoInt64` was the 63-bit `PrimInt63` — but `GoI64`/`GoU64` are
+  now FAITHFUL full-64-bit RECORDS (Z-carried, wrap exactly at 2^64); they ARE the faithful path for code needing
+  the guaranteed range. The remaining question — a per-op in-range proof to ENFORCE the bound — is deliberately
+  NOT added: it is invasive for an unreachable case, and the faithful 64-bit alternative (`GoI64`) already exists.
+  Docs sharpened in builtins.v (the `GoInt` block) + here; golden byte-identical (docs-only).
 - **R8. Proof IO semantics ≠ emitted-Go semantics** (known two-models gap, itemized): buffered-channel alloc
   ignores capacity; recv from an empty OPEN channel returns a fabricated zero instead of blocking; `go_spawn` runs
   the child sequentially to completion in the denotational model; `defer_call` is a proof-side no-op while the

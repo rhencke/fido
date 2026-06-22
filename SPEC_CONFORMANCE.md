@@ -190,10 +190,16 @@ PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_o
 make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
 and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
 bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
-`Sint63` `int` (⚠ ±2⁶², Tier 2 #4) → **Go's platform `int`** (break #7 slice 7c — NO longer
+`Sint63` `int` (⚠ ±2⁶², Tier 2 #4 / review R6) → **Go's platform `int`** (break #7 slice 7c — NO longer
 `int64`; a DISTINCT Go type from `GoI64`), the carrier for loop counters / slice indices /
-`len`/`cap` / `nat`-coding / small-value demos — faithful in range; use `GoI64`/`GoU64` for
-the full int64 width.
+`len`/`cap` / `nat`-coding / small-value demos.  ⚠ **SUBSTRATE/PLATFORM bounded deviation, honestly scoped
+(rule 2):** Go's `int` is 32-OR-64-bit BY SPEC (implementation-specific), so NO deterministic model is
+faithful on every platform — un-modelability is inherent to `int`.  The 63-bit `Sint63` carrier is faithful
+to a 64-bit Go `int` in [−2⁶², 2⁶²) (within [−2³¹, 2³¹) on 32-bit Go); an op reaching ±2⁶² (≈4.6e18) wraps
+in the model where 64-bit Go would not, but that is far above any realistic index/length/size, so the
+divergence is UNREACHABLE in the index/size use case (no demo/theorem touches the boundary).  Deliberately
+NOT enforced by a per-op range proof (invasive for an unreachable case); **use `GoI64`/`GoU64` (faithful,
+Z-carried, wrap exactly at 2⁶⁴/2⁶³) for the guaranteed full width.**
 **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
 carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
 `spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z

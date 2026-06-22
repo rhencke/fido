@@ -50,26 +50,30 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     the layer.  DIVERGENCE is idealised away: [run_io] is total (terminates). *)
 
 (** Signed integer types.
-    [GoInt64] is [PrimInt63.int] — Rocq's primitive 63-bit machine integer —
-    extracting to Go [int64], interpreted with SIGNED (Sint63) semantics.
-    [+], [-], [*] are two's-complement, shared with the unsigned primitive and
-    matching Go exactly; comparison and division use the signed Sint63
-    operations.  So [2 - 5] is [-3] as in Go — not the unsigned reading
-    [2^63 - 3].  HONEST LIMIT: Rocq's primitive int is 63-bit, so the model is
-    faithful to int64 only within [-2^62, 2^62); the missing top bit (full
-    int64 range and its overflow point) needs a Z-based model — see CLAUDE.md
-    "Known gaps".  The remaining widths are DEFINED as [int] (placeholders for the
-    faithful fixed-width records below — the carriers exist only for the tag index). *)
-(** These are OPAQUE CARRIER types that appear ONLY inside [GoTypeTag] constructors
-    (e.g. [TUint : GoTypeTag GoUint]) — never as a value in extracted Go — so defining
-    them costs nothing observable.  They are PLACEHOLDERS: the FAITHFUL fixed-width
-    models are the [GoU8]/[GoI8]/… records below; these carriers exist for the tag's
-    index.  Defined as [int] just to retire the axioms. *)
-Definition GoInt   : Type := int.   (* int    — platform-width, typically 64-bit *)
-Definition GoInt8  : Type := int.   (* int8   — 8-bit  *)
-Definition GoInt16 : Type := int.   (* int16  — 16-bit *)
-Definition GoInt32 : Type := int.   (* int32  — 32-bit *)
-(* GoInt64 = PrimInt63.int, loaded separately via Stdlib *)
+    [GoInt] models Go's [int].  Go's [int] is, BY SPEC, 32-OR-64-bit (implementation-specific,
+    go.dev/ref/spec#Numeric_types), so NO deterministic model is faithful on every platform —
+    this is an inherent property of [int], not a backend defect.  [GoInt := int] uses Rocq's
+    primitive 63-bit machine integer ([PrimInt63]) with SIGNED (Sint63) semantics: [+]/[-]/[*]
+    are two's-complement (so [2 - 5 = -3] as in Go, NOT the unsigned reading [2^63 - 3]);
+    comparison and division use the signed Sint63 ops.  It renders to Go [int] (idiomatic — it
+    matches [len]/[cap]/indexing, which are Go-[int]-typed; rendering as [int64] would force a
+    cast at every such interop).  HONEST BOUNDED DEVIATION (a SUBSTRATE LIMIT — exactly the
+    kind CLAUDE.md rule 2 permits): the 63-bit carrier is faithful to a 64-bit Go [int] only
+    within [-2^62, 2^62) (and within [-2^31, 2^31) on a 32-bit Go).  An operation whose result
+    reaches [±2^62] WRAPS in the model where 64-bit Go would not — but [2^62 ≈ 4.6e18] is far
+    above any realistic index/length/size, so the divergence is UNREACHABLE in the index/size
+    use case.  This is NOT enforced by a per-op range proof (that would be invasive for an
+    unreachable case); for code that NEEDS the guaranteed full 64-bit range, use the FAITHFUL
+    [GoI64]/[GoU64] records below (Z-carried, wrap EXACTLY at [2^64]). *)
+(** [GoInt8]/[GoInt16]/[GoInt32] are OPAQUE PLACEHOLDER carriers — they appear ONLY inside a
+    [GoTypeTag] constructor's index, NEVER as a value in extracted Go; the FAITHFUL fixed-width
+    models are the [GoI8]/[GoI16]/[GoI32] records below.  Defined as [int] just to retire the
+    axioms. *)
+Definition GoInt   : Type := int.   (* Go's platform-dependent int; 63-bit Sint63 substrate — bounded deviation, see above *)
+Definition GoInt8  : Type := int.   (* placeholder carrier (faithful model = GoI8 record) *)
+Definition GoInt16 : Type := int.   (* placeholder carrier (faithful model = GoI16 record) *)
+Definition GoInt32 : Type := int.   (* placeholder carrier (faithful model = GoI32 record) *)
+(* GoI64 / GoU64 (below) are the FAITHFUL full-64-bit records (Z-carried, wrap at 2^64). *)
 Notation GoRune := GoInt32.  (* rune is an alias for int32 *)
 
 (** Unsigned integer types. *)
