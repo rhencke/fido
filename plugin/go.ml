@@ -120,9 +120,15 @@ let record_ctor_fields : (string, string list) Hashtbl.t = Hashtbl.create 16
    the ctor as a cast [<Name>(v)], and the value projection as a cast [<under>(x)]. *)
 let defined_prim_under : (string, ml_type) Hashtbl.t = Hashtbl.create 16  (* record typename -> underlying ml_type *)
 let defined_prim_proj  : (string, ml_type) Hashtbl.t = Hashtbl.create 16  (* value-proj path -> underlying ml_type *)
-let deftype_under_of_ftypes ftypes =   (* Some <value field type> if [val_t; GoTypeTag _], else None *)
+let deftype_under_of_ftypes ftypes =   (* Some <value field type> if [val_t; GoTypeTag _] or [val_t; unit] *)
   match ftypes with
-  | [vt; Tglob (r, _)] when String.equal (global_basename r) "GoTypeTag" -> Some vt
+  (* The 2nd field is a KEPT phantom that stops Coq unboxing the single value field (so the
+     defined type stays a distinct method-receiver); it is DROPPED in extraction either way.
+     A [unit] phantom (vs the original [GoTypeTag _]) is axiom-free COMPARABLE — [tt = tt] is
+     trivial, whereas [GoTypeTag GoI64] uniqueness is not provable without an axiom (Type-indexed
+     family) — so a [unit]-phantom defined type can be a map KEY / compared. *)
+  | [vt; Tglob (r, _)] when String.equal (global_basename r) "GoTypeTag"
+                        || String.equal (global_basename r) "unit" -> Some vt
   | _ -> None
 (* Methods: a top-level function whose first visible param is a record (struct) is
    lowered as a Go value-receiver method.  [collect_decls] registers each such

@@ -2369,8 +2369,21 @@ Definition deftype_str_demo : IO unit :=
     a value-receiver method [reading]; [celsius_measurable] wires that method into a
     [Measurable] dictionary, so the defined type's method IS what satisfies the contract.
     Dispatch [measure d tt] → [d.Measure()] runs the captured [c.Reading()]. *)
-Record Celsius := MkCelsius { c_val : GoI64 ; c_tag : GoTypeTag GoI64 }.
-Definition mk_celsius (v : GoI64) : Celsius := MkCelsius v TI64.
+(* [Celsius]'s unboxing-blocker phantom is [unit] (not the [GoTypeTag GoI64] the other deftypes use):
+   a 2-field record is still not unboxed (so [Celsius] stays a distinct method-receiver and extracts
+   [type Celsius int64], the phantom dropped), AND [unit] is AXIOM-FREE COMPARABLE ([tt = tt] is
+   trivial) — so [Celsius] can be compared / be a map KEY, which a [GoTypeTag GoI64] phantom blocks
+   (its uniqueness is unprovable without an axiom — a Type-indexed family).  See PROGRESS.md. *)
+Record Celsius := MkCelsius { c_val : GoI64 ; c_tag : unit }.
+Definition mk_celsius (v : GoI64) : Celsius := MkCelsius v tt.
+(* The payoff: [Celsius] IS comparable AXIOM-FREE (two are equal iff their [c_val] carriers are; the
+   [unit] phantom is trivially equal) — the comparability a defined-type map key needs. *)
+Lemma comparable_celsius : forall a b : Celsius, i64_eqb (c_val a) (c_val b) = true <-> a = b.
+Proof.
+  intros [av []] [bv []]. cbn. split.
+  - intro H. apply i64_eqb_spec in H. subst. reflexivity.
+  - intro H. injection H as ->. apply i64_eqb_spec. reflexivity.
+Qed.
 Definition reading (c : Celsius) : GoI64 := i64_add (c_val c) (100)%i64.   (* a real method, +100 offset *)
 
 Record Measurable := MkMeasurable { measure : unit -> GoI64 ; meas_self : GoAny }.
