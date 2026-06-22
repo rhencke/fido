@@ -2196,6 +2196,34 @@ Proof. reflexivity. Qed.
 Definition nullary_iface_demo : IO unit :=
   println [any (sg_str (mk_namer "fido"%string) tt)].   (* "fido" *)
 
+(** INTERFACE EMBEDDING (Go's [type ReadWriter interface { Reader; Writer }]).  An interface
+    that EMBEDS others has the UNION of their method sets, and a value of it may be used wherever
+    any embedded interface is wanted.  In the dictionary model the embedding interface is the FLAT
+    UNION dictionary (all methods + the captured value), and the "is-a" relation is an explicit
+    UPCAST that PROJECTS the embedded interface's methods (and the same hidden value) into its
+    smaller dictionary — Go's implicit embedded-interface assignment, made explicit (consistent
+    with our explicit-dictionary deviation).  [mk_file] is ONE concrete carrier satisfying both
+    [Reader] and [Writer]; the upcasts never see it (existential), exactly like a flat interface. *)
+Record Reader     := MkReader     { rd_read  : GoI64 -> GoI64 ; rd_self : GoAny }.
+Record Writer     := MkWriter     { wr_write : GoI64 -> GoI64 ; wr_self : GoAny }.
+Record ReadWriter := MkReadWriter { rw_read  : GoI64 -> GoI64 ; rw_write : GoI64 -> GoI64 ; rw_self : GoAny }.
+Definition mk_file (base : GoI64) : ReadWriter :=
+  MkReadWriter (fun x => i64_add x base) (fun x => i64_sub x base) (any base).
+(* The embedding upcasts: a [ReadWriter] IS-A [Reader] and IS-A [Writer]. *)
+Definition rw_as_reader (rw : ReadWriter) : Reader := MkReader  (rw_read rw)  (rw_self rw).
+Definition rw_as_writer (rw : ReadWriter) : Writer := MkWriter  (rw_write rw) (rw_self rw).
+(* Dispatch through an upcast is exactly the method the concrete carrier supplied — provable,
+   and the method-set union means [rw_read]/[rw_write] both dispatch directly too. *)
+Example embed_read  : forall base x, rd_read  (rw_as_reader (mk_file base)) x = i64_add x base.
+Proof. reflexivity. Qed.
+Example embed_write : forall base x, wr_write (rw_as_writer (mk_file base)) x = i64_sub x base.
+Proof. reflexivity. Qed.
+Definition embed_iface_demo : IO unit :=
+  let f := mk_file (10)%i64 in
+  bind (println [any (rw_read f (3)%i64)])                (fun _ =>   (* direct (union): 3+10 = 13 *)
+  bind (println [any (rd_read (rw_as_reader f) (5)%i64)]) (fun _ =>   (* via Reader upcast: 5+10 = 15 *)
+  println [any (wr_write (rw_as_writer f) (40)%i64)])).               (* via Writer upcast: 40-10 = 30 *)
+
 (** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
     The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
     index ([Light c]); each transition's type names the legal from/to states, so an
@@ -2648,6 +2676,7 @@ Definition main_effect : IO unit :=
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)
   single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
   nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
+  embed_iface_demo              >>'   (* prints: 13 / 15 / 30 (interface embedding: union + upcasts) *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   deftype_demo                  >>'   (* prints: 42 (defined type with method) *)

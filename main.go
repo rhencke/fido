@@ -1500,6 +1500,45 @@ func Nullary_iface_demo() {
 	println((Mk_namer("fido")).Sg_str())
 }
 
+type Reader struct {
+	Rd_read func(int64) int64
+	Rd_self any
+}
+
+type Writer struct {
+	Wr_write func(int64) int64
+	Wr_self  any
+}
+
+type ReadWriter struct {
+	Rw_read  func(int64) int64
+	Rw_write func(int64) int64
+	Rw_self  any
+}
+
+func Mk_file(base int64) ReadWriter {
+	return ReadWriter{Rw_read: func(x int64) int64 {
+		return x + base
+	}, Rw_write: func(x int64) int64 {
+		return x - base
+	}, Rw_self: base}
+}
+
+func (rw ReadWriter) Rw_as_reader() Reader {
+	return Reader{Rd_read: rw.Rw_read, Rd_self: rw.Rw_self}
+}
+
+func (rw ReadWriter) Rw_as_writer() Writer {
+	return Writer{Wr_write: rw.Rw_write, Wr_self: rw.Rw_self}
+}
+
+func Embed_iface_demo() {
+	f := Mk_file(10)
+	println(f.Rw_read(3))
+	println((f.Rw_as_reader()).Rd_read(5))
+	println((f.Rw_as_writer()).Wr_write(40))
+}
+
 type Light struct {
 	Ticks  int64
 	Serial int64
@@ -1997,6 +2036,7 @@ func main() {
 	Iface_demo()
 	Single_iface_demo()
 	Nullary_iface_demo()
+	Embed_iface_demo()
 	Typestate_demo()
 	Repinv_demo()
 	Deftype_demo()

@@ -348,7 +348,7 @@ defined types used as map KEYS (the phantom breaks equality), `Module`-namespace
 types over a STRUCT underlying (mechanical), and IO-value methods whose tail is a BIND-chain (only the
 single-expression tail — `ret v` / clean read — is returned so far).
 
-### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method, all extracted + golden-locked); ✗ `interface` keyword + interface embedding
+### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value
 whose type implements those methods, with the concrete type known only at runtime
 (an existential).  We model it as the method DICTIONARY directly: a Rocq `Record`
@@ -372,8 +372,16 @@ any }`; dispatch `(Mk_adder(5)).Greet(10)` → `15` (`dispatch_greet` proven by 
 `single_iface_demo` golden-locked).  NULLARY methods (`String()`-style — a unit-thunk `unit -> R`) lower
 with the UNIT ARG ERASED: `Stringer`/`mk_namer` → `type Stringer struct { Sg_str func() string; … }`,
 called `(Mk_namer("fido")).Sg_str()` (no arg) → `fido` (`dispatch_str` proven; `nullary_iface_demo`
-golden-locked).  **✗ still:** interface EMBEDDING (method-set union of embedded interfaces) and the
-native `interface { … }` KEYWORD with structural satisfaction — both need a different lowering, tracked.
+golden-locked).  **EMBEDDING DONE (2026-06-22, model-only, NO plugin change, golden-locked):** an interface that EMBEDS
+others is the FLAT UNION dictionary (all methods + the captured value); the "is-a" relation is an explicit
+UPCAST that PROJECTS the embedded interface's methods (and the same hidden value) into its smaller
+dictionary.  `Reader`/`Writer`/`ReadWriter` (embeds both) → emitted `type ReadWriter struct { Rw_read
+func(int64) int64; Rw_write func(int64) int64; Rw_self any }` with receiver-method upcasts `func (rw
+ReadWriter) Rw_as_reader() Reader { return Reader{Rd_read: rw.Rw_read, Rd_self: rw.Rw_self} }`; dispatch
+via the UNION (`f.Rw_read(3)`) AND via each upcast (`f.Rw_as_reader().Rd_read(5)` / `…Wr_write(40)`) →
+`13/15/30` (`embed_read`/`embed_write` proven by `reflexivity`; `embed_iface_demo` golden-locked).  Go's
+implicit embedded-interface assignment is made EXPLICIT (consistent with the explicit-dictionary deviation).
+**✗ still:** the native `interface { … }` KEYWORD with structural satisfaction — we emit dict-structs, tracked.
 
 ### [Slice types](https://go.dev/ref/spec#Slice_types) / [Map types](https://go.dev/ref/spec#Map_types) / [Channel types](https://go.dev/ref/spec#Channel_types) — ✓ incl. backing-array ALIASING
 Two slice views: the functional `GoSlice = list` (value/immutable: `len`/`cap`/`append`/`slice_at_ok`)
