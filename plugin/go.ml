@@ -3205,10 +3205,20 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let ids, k_body = collect_lam kont in
              let new_env = List.rev ids @ env in
              (match ids with
-              | [v_id; ok_id] when not (is_dummy v_id && is_dummy ok_id) ->
-                  str tab ++ pp_mlident v_id ++ str ", " ++ pp_mlident ok_id ++
-                  str " := " ++ inner ++ str ".(" ++ str go_t ++ str ")" ++ fnl () ++
-                  pp_stmts tab new_env k_body
+              | [v_id; ok_id] ->
+                  (* blank an UNUSED binder ([_]) so Go doesn't reject a "declared and not used" local —
+                     the comma-ok idiom [_, ok := x.(T)] (check the type, ignore the value) is common.  In
+                     [k_body] the innermost binder [ok_id] is de Bruijn 1, [v_id] is 2. *)
+                  let v_used  = not (is_dummy v_id)  && not (dbn_free 2 k_body) in
+                  let ok_used = not (is_dummy ok_id) && not (db1_free k_body) in
+                  if not v_used && not ok_used then
+                    (* both results discarded — the two-value assertion is pure (no panic), so drop it *)
+                    pp_stmts tab new_env k_body
+                  else
+                    str tab ++ (if v_used then pp_mlident v_id else str "_")
+                    ++ str ", " ++ (if ok_used then pp_mlident ok_id else str "_")
+                    ++ str " := " ++ inner ++ str ".(" ++ str go_t ++ str ")" ++ fnl ()
+                    ++ pp_stmts tab new_env k_body
               | _ ->
                   pp_stmts tab new_env k_body)
          (* type_switchN a t1 k1 … tN kN d → Go's native type switch:
