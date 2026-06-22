@@ -863,6 +863,74 @@ Proof.
   eapply se_seq_n; [exact Hloop | rewrite Hdet; apply lift_correct].
 Qed.
 
+(** ── From ONE loop to a CHAIN of SEQUENTIAL loops. ──
+    A real Go function is often [for {…}; for {…}; …; rest] — several loops in SEQUENCE, then straight-line
+    code.  Its CFG is a chain: loop 1's exit IS loop 2's header, …, the last loop's exit enters the acyclic
+    tail.  [reloop_chain loops final] lowers exactly that shape — one [LLoop] per loop descriptor [(h,e)]
+    (header, exit), threaded so each loop's exit block begins the next region, with the [final] acyclic
+    region [lift]ed at the end.  This GENERALISES [reloop_loop] (the single-loop case is [reloop_chain
+    [(hdr,exit)] exit]).  [chain_ok loops final entry] is the well-formedness the lowering assumes: [entry]
+    is the first loop's header and each descriptor's exit is the next region's entry (so [loop_body_iterates]
+    lands each loop at the state where the next region begins). *)
+Fixpoint reloop_chain (loops : list (nat * nat)) (final fuel : nat) (g : CFG) : option Stmt2 :=
+  match loops with
+  | [] => option_map lift (reloop fuel g final)
+  | (h, e) :: rest =>
+      match reloop_b h e fuel g h, reloop_chain rest final fuel g with
+      | Some body, Some after => Some (LSeq (LLoop body) after)
+      | _, _ => None
+      end
+  end.
+
+Fixpoint chain_ok (loops : list (nat * nat)) (final entry : nat) : Prop :=
+  match loops with
+  | [] => entry = final
+  | (h, e) :: rest => entry = h /\ chain_ok rest final e
+  end.
+
+(** SOUNDNESS for the whole chain: every halting CFG run from the chain's [entry] is reproduced by the
+    structured program [reloop_chain] emits.  By induction on the chain: the empty tail is the acyclic
+    [reloop] ([reloop_correct] + [lift_correct] + [cfg_halts_det], as in [reloop_loop_sound]'s after-half);
+    a [(h,e)::rest] loop runs to its exit state via [loop_body_iterates], from which [chain_ok] says block
+    [e] begins [rest] — so the residual run feeds the IH, and [se_seq_n] joins this loop's [LLoop] to the
+    rest.  Axiom-free; proof-only. *)
+Lemma reloop_chain_sound : forall loops final fuel g entry S s sf,
+  chain_ok loops final entry ->
+  reloop_chain loops final fuel g = Some S ->
+  cfg_halts g entry s sf ->
+  seval S s sf Normal.
+Proof.
+  intros loops. induction loops as [|[h e] rest IH];
+    intros final fuel g entry S s sf Hwf Hrc Hch.
+  - (* [] : entry = final, S = lift aft for the acyclic tail *)
+    cbn in Hwf. subst entry. cbn in Hrc.
+    destruct (reloop fuel g final) as [aft|] eqn:Ha; cbn in Hrc; [injection Hrc as <- | discriminate].
+    pose proof (reloop_correct fuel g final aft Ha s) as Hac.
+    pose proof (cfg_halts_det g final s sf (srun aft s) Hch Hac) as Hdet.
+    rewrite Hdet. apply lift_correct.
+  - (* (h,e)::rest : entry = h; this loop runs to its exit state, then the IH handles rest *)
+    cbn in Hwf. destruct Hwf as [He Hrest]. subst entry. cbn in Hrc.
+    destruct (reloop_b h e fuel g h) as [body|] eqn:Hb; [|discriminate].
+    destruct (reloop_chain rest final fuel g) as [after|] eqn:Hrc'; [|discriminate].
+    injection Hrc as <-.
+    destruct (cfg_halts_to_n g h s sf Hch) as [n Hn].
+    destruct (loop_body_iterates h e fuel g body sf n s Hb Hn) as [sx [nx [Hloop Hexit]]].
+    eapply se_seq_n;
+      [ exact Hloop
+      | exact (IH final fuel g e after sx sf Hrest Hrc' (cfg_halts_n_to g nx e sx sf Hexit)) ].
+Qed.
+
+(** [reloop_chain] SUBSUMES the single-loop [reloop_loop]: the one-descriptor chain [[(hdr,exit)]] with
+    final region [exit] computes EXACTLY [reloop_loop hdr exit].  So [reloop_chain_sound] is a strict
+    generalisation of [reloop_loop_sound]. *)
+Lemma reloop_loop_is_chain : forall hdr exit fuel g,
+  reloop_chain [(hdr, exit)] exit fuel g = reloop_loop hdr exit fuel g.
+Proof.
+  intros hdr exit fuel g. cbn. unfold reloop_loop.
+  destruct (reloop_b hdr exit fuel g hdr) as [body|]; [|reflexivity].
+  destruct (reloop fuel g exit) as [aft|]; reflexivity.
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
