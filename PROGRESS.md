@@ -636,6 +636,11 @@ honestly-modelled Go primitives, bridge status documented per item" — NOT "ver
 below was CONFIRMED verbatim in the source (not taken on faith).  Close these in the order given before
 any "verified" claim.
 
+**STATUS (2026-06-22): 9 OF 10 RESOLVED — #1, #2, #4, #5, #6, #7, #8, #9, #10 all closed (machine-checked,
+golden byte-identical).**  Only **#3 (Sess)** remains, DECISION-BLOCKED on a rule-3 policy call (a discharged
+module-`Parameter` seal that adds no `Print Assumptions` axiom but uses the keyword rule 3 forbids, vs. keeping
+it foundation-blocked pending a real session-IO semantics).  See each item below for its resolution commit.
+
 **Genuine soundness BREAKS (model ≠ Go, or an impossible premise — could let a false claim through):**
 1. **The Keystone coding hypothesis is uninstantiable.** `Variable inj : nat -> GoI64; Variable prj :
    GoI64 -> nat; Hypothesis Hret : forall n, prj (inj n) = n` — but `GoI64 = {i64raw:Z; Squash(in_i64…)}`
@@ -873,8 +878,16 @@ any "verified" claim.
    values box via `Tagged_int`=`TInt64`; `len`/`cap` use the TYPE not the tag) — DEAD, so RETIRED (inductive +
    the 3 fixpoint arms + `go_type_tag_map`).  **Break #7's scalar tag→Go-type map is now INJECTIVE — one tag
    per Go type across 7a (dead bare tags) + 7b (narrows→real types) + 7c (int vs int64); ALL collisions
-   closed.**  **→ REMAINING: (7d) the forcing theorem** — `go_runtime_name` + `tag_runtime_agrees` (now
-   PROVABLE; proof-only Rocq lock, no plugin/golden change), mirroring `go_type_tag_map` exactly.
+   closed.**  **→ SLICE 7d DONE (commit 7ab3d5b, 2026-06-22, golden BYTE-IDENTICAL, proof-only) — BREAK #7
+   CLOSED.**  `go_runtime_name {A} (t:GoTypeTag A) : option string` mirrors the plugin's `go_type_tag_map`
+   for the scalar tags; `tag_runtime_agrees : tag_eq ta tb = None -> go_runtime_name ta = Some sa ->
+   go_runtime_name tb = Some sb -> sa <> sb` PROVES the model never distinguishes (`tag_eq`) two tags Go
+   cannot (`v.(T)`).  One-line proof (`destruct ta, tb; cbn in *; congruence` over ~441 ctor pairs), zero new
+   axioms (the extraction's Print Assumptions base is unchanged — exactly the PrimInt63/PrimFloat primitives).
+   It is the permanent machine-checked LOCK: UNPROVABLE if any two named tags ever share a Go name again.
+   (Scope: composites reduce to this via recursion; `TUnit`/`TArrow` assert to Go `any` — the documented
+   `GoAny` limit.)  **The `GoTypeTag` → runtime-Go-type map is now INJECTIVE — `tag_eq` agrees with Go's
+   runtime type identity.**
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
