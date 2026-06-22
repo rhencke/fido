@@ -1304,6 +1304,84 @@ Proof.
     + eapply rterm_if; [exact Hle | exact Ht | exact (IH Hc)].
 Qed.
 
+Lemma runs_to_n_to : forall g j n l s sf, runs_to_n g j n l s sf -> runs_to g j l s sf.
+Proof.
+  intros g j n l s sf H. induction H.
+  - apply rt_here.
+  - eapply rt_goto; eassumption.
+  - eapply rt_if; eassumption.
+Qed.
+
+(** ── CONDITIONAL [loop_to_exit]: the inner [LLoop] reproduces the inner loop completing, for an [IteratesC]
+    inner body. ──  [loop_to_exit] needed an UNCONDITIONAL [Iterates]; for a NESTED inner loop the realiser is
+    only [IteratesC] (licensed under a halting run).  Threading the continuation [cfg_halts g e2 smid sf] (the
+    run from the inner exit reaches [sf]), each inner iteration's state [s_cur] gets [cfg_halts g h2 s_cur sf]
+    via [runs_to_halts] (the residual inner run reaches [e2], thence [sf]) — exactly what licenses [IteratesC]
+    there.  Same proof shape as [loop_to_exit_n] (strong induction on the [runs_to_n] fuel, [iter_prefix]). *)
+Lemma loop_to_exit_c_n : forall g h2 e2 ibody sf,
+  IteratesC g h2 e2 ibody ->
+  forall n s smid, runs_to_n g e2 n h2 s smid -> cfg_halts g e2 smid sf ->
+  seval (LLoop ibody) s smid Normal.
+Proof.
+  intros g h2 e2 ibody sf Hit n.
+  induction n as [n IH] using lt_wf_ind. intros s smid Hrt Hcf.
+  assert (Hch2 : cfg_halts g h2 s sf)
+    by (eapply runs_to_halts; [exact (runs_to_n_to g e2 n h2 s smid Hrt) | exact Hcf]).
+  destruct (Hit s sf Hch2) as [s1 [o [Hiter Hsev]]].
+  destruct (iter_prefix g h2 e2 h2 s s1 o Hiter n smid Hrt) as [[Ho Hs] | [Ho [m [Hlt Hres]]]].
+  - subst o; subst smid. apply se_loop_break. exact Hsev.
+  - subst o. eapply se_loop_again; [exact Hsev | exact (IH m Hlt s1 smid Hres Hcf)].
+Qed.
+
+Lemma loop_to_exit_c : forall g h2 e2 ibody sf,
+  IteratesC g h2 e2 ibody ->
+  forall s smid, runs_to g e2 h2 s smid -> cfg_halts g e2 smid sf ->
+  seval (LLoop ibody) s smid Normal.
+Proof.
+  intros g h2 e2 ibody sf Hit s smid Hrt Hcf.
+  destruct (runs_to_to_n g e2 h2 s smid Hrt) as [n Hn].
+  exact (loop_to_exit_c_n g h2 e2 ibody sf Hit n s smid Hn Hcf).
+Qed.
+
+(** ── ARBITRARY-DEPTH nesting: the recursive [IteratesC] builder. ──
+    For ANY CFG whose outer header [h] branches ([TIf c0 ih e]) into a properly-nested inner loop and whose
+    inner-exit block [ie] back-edges to [h], the OUTER body [LSeq (LBody bh) (LIf c0 (LSeq (LLoop ibody)
+    (LBody bie)) LBreak)] is an [IteratesC] for the outer loop — PROVIDED the inner loop's lowering [ibody]
+    is itself an [IteratesC].  Since the inner realiser is CONDITIONAL, it may ITSELF be a nested loop's
+    lowering (built by a further [nested_iterates_gen]) — so this composes to ARBITRARY depth.  One outer
+    iteration under a halting run: [inner_split_cfg_n] extracts the inner loop's [runs_to g ie ih] from the
+    run (+ the continuation [cfg_halts g ie smid sf]); [loop_to_exit_c] reproduces it as the inner [LLoop] to
+    the SAME state [smid] (no determinism step — one [smid] serves both); [inner_join] reconstructs the outer
+    iteration's [runs_term] across the inner loop; block [h]'s [TIf] wraps both.  [c0] false ⇒ the iteration
+    breaks immediately.  Feed the result to [loop_sound_c] for end-to-end nested soundness. *)
+Lemma nested_iterates_gen : forall g h e ih ie c0 bh bie ibody P,
+  blk_term (g h) = TIf c0 ih e -> blk_body (g h) = bh ->
+  blk_term (g ie) = TGoto h -> blk_body (g ie) = bie ->
+  InnerClosed g P ie -> P ih = true -> P ie = false -> P h = false -> P e = false ->
+  ie <> e -> ie <> h -> h <> e ->
+  IteratesC g ih ie ibody ->
+  IteratesC g h e (LSeq (LBody bh) (LIf c0 (LSeq (LLoop ibody) (LBody bie)) LBreak)).
+Proof.
+  intros g h e ih ie c0 bh bie ibody P Hht Hhb Hiet Hieb Hclosed Pih Pie Ph Pe Hiee Hieh Hhe Hit s sf Hch.
+  pose proof (cfg_halts_if_inv g h c0 ih e s sf Hht Hch) as Hbr. rewrite Hhb in Hbr.
+  destruct (c0 (bh s)) eqn:Ec0.
+  - (* c0 true: the iteration runs the inner loop, then the back-edge *)
+    destruct (cfg_halts_to_n g ih (bh s) sf Hbr) as [n Hn].
+    destruct (inner_split_cfg_n g ie P Hclosed Pie n ih (bh s) sf Hn Pih) as [smid [m [Hle [Hru Hcfie]]]].
+    pose proof (cfg_halts_n_to g m ie smid sf Hcfie) as Hcfie'.
+    pose proof (loop_to_exit_c g ih ie ibody sf Hit (bh s) smid Hru Hcfie') as Hin.
+    pose proof (inner_join g h e ie P Hclosed Ph Pe Pie Hiee Hieh Hiet ih (bh s) smid Hru Pih) as Hjoin.
+    rewrite Hieb in Hjoin.
+    exists (bie smid), Normal. split.
+    + eapply rterm_if; [exact Hhe | exact Hht |]. rewrite Hhb, Ec0. exact Hjoin.
+    + eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact Ec0 |].
+      eapply se_seq_n; [exact Hin | apply se_body].
+  - (* c0 false: the iteration breaks at the exit *)
+    exists (bh s), Broke. split.
+    + eapply rterm_if; [exact Hhe | exact Hht |]. rewrite Hhb, Ec0. apply rterm_exit.
+    + eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec0 |]. apply se_break.
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
