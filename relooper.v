@@ -681,7 +681,47 @@ Proof.
       * destruct (IH g a2 Sb Hrb (blk_body (g l) s)) as [s' [o [Hrt Hsev]]].
         exists s', o. split.
         -- eapply rterm_if; [exact Eex | exact Ht |]. rewrite Ec. exact Hrt.
-        -- eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec | exact Hsev].
+        -- eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec | apply Hsev].
+Qed.
+
+(** [runs_term] FACTORS [cfg_halts]: the CFG is deterministic, so ONE loop iteration (a [runs_term] from
+    [l] to a terminal) is a prefix of the whole halting run from [l] — the run then CONTINUES from the
+    terminal ([hdr] on Normal/iterate, [exit] on Broke/break).  This bridges the loop-body soundness
+    ([reloop_b_correct], stated over [runs_term]) to the CFG's [cfg_halts], the ingredient the final
+    [LLoop] composition needs (the composition itself = a well-founded induction over the iterations). *)
+Lemma cfg_halts_goto_inv : forall g l l' s sf,
+  blk_term (g l) = TGoto l' -> cfg_halts g l s sf -> cfg_halts g l' (blk_body (g l) s) sf.
+Proof.
+  intros g l l' s sf Ht H.
+  inversion H as [l0 s0 Hr | l0 l'0 s0 sf0 Hg Hh | l0 c0 a0 b0 s0 sf0 Hi Hh]; subst.
+  - rewrite Ht in Hr; discriminate.
+  - rewrite Ht in Hg; injection Hg as <-; exact Hh.
+  - rewrite Ht in Hi; discriminate.
+Qed.
+
+Lemma cfg_halts_if_inv : forall g l c a b s sf,
+  blk_term (g l) = TIf c a b -> cfg_halts g l s sf ->
+  cfg_halts g (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) sf.
+Proof.
+  intros g l c a b s sf Ht H.
+  inversion H as [l0 s0 Hr | l0 l'0 s0 sf0 Hg Hh | l0 c0 a0 b0 s0 sf0 Hi Hh]; subst.
+  - rewrite Ht in Hr; discriminate.
+  - rewrite Ht in Hg; discriminate.
+  - rewrite Ht in Hi; injection Hi as <- <- <-; exact Hh.
+Qed.
+
+Lemma runs_term_cfg : forall g hdr exit l s s' o sf,
+  runs_term g hdr exit l s s' o ->
+  cfg_halts g l s sf ->
+  cfg_halts g (match o with Normal => hdr | Broke => exit end) s' sf.
+Proof.
+  intros g hdr exit l s s' o sf Hrt. revert sf.
+  induction Hrt as [ s | l s Hne Ht | l l' s s' o Hne Ht Hnh Hrt' IH
+                   | l c a b s s' o Hne Ht Hrt' IH ]; intros sf Hch.
+  - exact Hch.
+  - exact (cfg_halts_goto_inv g l hdr s sf Ht Hch).
+  - exact (IH sf (cfg_halts_goto_inv g l l' s sf Ht Hch)).
+  - exact (IH sf (cfg_halts_if_inv g l c a b s sf Ht Hch)).
 Qed.
 
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
