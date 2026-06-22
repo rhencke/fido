@@ -420,6 +420,70 @@ Proof.
       eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E | apply se_break].
 Qed.
 
+(** ── LOOP whose BODY BRANCHES — the relooper composing a LOOP with a CONDITIONAL (beyond
+    [while_realized]'s straight-line body).  CFG:
+      0 header: run [h], branch [c] to BODY(1) / EXIT(4);  1 body: run [f], branch [c2] to A(2)/B(3);
+      2 A: run [a], goto header;  3 B: run [b], goto header;  4 exit: run [e], return.
+    i.e. [loop { h; if c { f; if c2 then a else b } else break } ; e].  Proved, like [while_realized],
+    by induction on the [cfg_halts] derivation, but now the loop body has a nested [if] (c2) AND the
+    back-edge is reached from EITHER inner branch — exercising the loop/conditional interaction. *)
+Definition loopifCFG (h f a b e : State -> State) (c c2 : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk h (TIf c 1 4)
+           | 1 => mkBlk f (TIf c2 2 3)
+           | 2 => mkBlk a (TGoto 0)
+           | 3 => mkBlk b (TGoto 0)
+           | _ => mkBlk e TRet
+           end.
+
+Definition loopif_prog (h f a b e : State -> State) (c c2 : State -> bool) (l : nat) : Stmt2 :=
+  let lb := LSeq (LBody h) (LIf c (LSeq (LBody f) (LIf c2 (LBody a) (LBody b))) LBreak) in
+  let tail := LSeq (LLoop lb) (LBody e) in
+  match l with
+  | 0 => tail
+  | 1 => LSeq (LSeq (LBody f) (LIf c2 (LBody a) (LBody b))) tail
+  | 2 => LSeq (LBody a) tail
+  | 3 => LSeq (LBody b) tail
+  | _ => LBody e
+  end.
+
+Theorem loopif_realized : forall h f a b e c c2 l s sf,
+  cfg_halts (loopifCFG h f a b e c c2) l s sf -> seval (loopif_prog h f a b e c c2 l) s sf Normal.
+Proof.
+  intros h f a b e c c2 l s sf H.
+  induction H as [l s Ht | l l' s sf Ht Hh IH | l c0 a0 b0 s sf Ht Hh IH].
+  - (* ch_ret: only the EXIT (l ≥ 4) returns → [LBody e] *)
+    destruct l as [|[|[|[|l]]]]; cbn in Ht |- *; try discriminate. apply se_body.
+  - (* ch_goto: only A(2)/B(3) goto the header(0) *)
+    destruct l as [|[|[|[|l]]]]; cbn in Ht |- *; try discriminate;
+      injection Ht as Hl'; subst l'; cbn in IH |- *; eapply se_seq_n; first [apply se_body | exact IH].
+  - (* ch_if: the HEADER(0) branches on c; the BODY(1) branches on c2 *)
+    destruct l as [|[|[|[|l]]]]; cbn in Ht |- *; try discriminate.
+    + (* HEADER: c picks BODY (loop again) or EXIT (break) *)
+      injection Ht as Hc Ha Hb; subst c0 a0 b0. cbn in Hh, IH |- *. destruct (c (h s)) eqn:E.
+      * (* c true: run one iteration's body (f; if c2 {a} else {b}), then the loop continues *)
+        apply seval_seq_inv in IH. destruct IH as [[smid [Hbody Hrest]] | [Hbad _]]; [| discriminate].
+        apply seval_seq_inv in Hrest. destruct Hrest as [[s2 [Hloop He]] | [Hbad _]]; [| discriminate].
+        eapply se_seq_n; [| exact He]. eapply se_loop_again; [| exact Hloop].
+        eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact E | exact Hbody].
+      * (* c false: the loop breaks, then exit [e] *)
+        apply seval_body_inv in IH. destruct IH as [-> _].
+        eapply se_seq_n; [| apply se_body]. apply se_loop_break.
+        eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E | apply se_break].
+    + (* BODY: c2 picks A or B; either way run it then continue the loop *)
+      injection Ht as Hc2 Ha Hb; subst c0 a0 b0. cbn in Hh, IH |- *. destruct (c2 (f s)) eqn:E2.
+      * (* c2 true: A *)
+        apply seval_seq_inv in IH. destruct IH as [[smid [Ha2 Hrest]] | [Hbad _]]; [| discriminate].
+        apply seval_body_inv in Ha2. destruct Ha2 as [-> _].
+        eapply se_seq_n; [| exact Hrest].
+        eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact E2 | apply se_body].
+      * (* c2 false: B *)
+        apply seval_seq_inv in IH. destruct IH as [[smid [Hb2 Hrest]] | [Hbad _]]; [| discriminate].
+        apply seval_body_inv in Hb2. destruct Hb2 as [-> _].
+        eapply se_seq_n; [| exact Hrest].
+        eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E2 | apply se_body].
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
