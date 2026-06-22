@@ -827,6 +827,31 @@ any "verified" claim.
    type.  Reverted to HEAD (surgical edits — `git checkout` is boundaried; golden restored, tree clean).  No
    incremental .v-only fix exists; this is a plugin-representation task.  Break is LATENT (no demo
    cross-asserts) so the closed world is sound today.
+   **→ SLICE 7a DONE (commit 26ea15e, 2026-06-22, golden BYTE-IDENTICAL, .v-only).** Retired the 7 DEAD
+   family-B fixed-width tags (`TInt8`/`TInt16`/`TInt32`/`TUint8`/`TUint16`/`TUint32`/`TUint64`) from the
+   `GoTypeTag` inductive + the `tag_eq`/`zero_val`/`key_eqb` arms.  They had no `Tagged` instance and no
+   value was ever boxed with them (provably dead — full build re-extracted byte-identical), and
+   `TUint64`/`TU64` both→`uint64` was exactly such an unreachable collision.  Kept platform-width
+   `TInt`/`TUint` (`cap`/`len` return `GoInt`).  This is the NECESSARY PRECURSOR to the real fix: with the
+   family-B fixed-width duplicates gone, the canonical Squash family `TI8`/`TU8`/… can claim their REAL Go
+   types (`int8`/`uint8`/…) without re-colliding with a family-B alias.  (Carrier aliases `GoInt8`/… left
+   inert — `GoInt32`←`GoRune` dep; harmless, no tag ⇒ unboxable.  Plugin `go_type_tag_map` still lists the
+   removed tags — dead, never matched — cleaned during 7b's plugin work.)
+   **→ REMAINING (multi-tick, scoped 2026-06-22):** *(7b, the real fix — approach B)* make the plugin emit
+   the narrow Squash types as their REAL Go types (`GoU8`→`uint8`, `GoI8`→`int8`, `GoU16`/`I16`/`U32`/`I32`;
+   `GoU64`→`uint64` already) with NATIVE narrow ops instead of the int64-carrier + mask.  It is a COUPLED
+   change — rendering (go.ml ~1069), every fixed-width op (`parse_fixed_width`/`fw_wrap`; the mask
+   `int8 ^ 0x80` overflows the int8 *constant* once operands are narrow-typed, so masking must go native),
+   widening (`i64_of_u8`: identity → `int64(x)`), truncation (`u8_of_i64`: mask → `uint8(x)`), literals
+   (`u8_lit n` → `uint8(n)`), `zero_val` — all must change together for Go to typecheck; one Docker
+   rebuild per iteration.  Runtime output should be PRESERVED (native narrow wrap = the masked model on
+   in-range values), so `expected_output.txt` is the regression check.  De-collides 6 of the 8 int64-cluster
+   tags and makes a boxed narrow value's interface identity faithful.  *(7c)* retire `TInt64` → migrate ALL
+   `int`-boxing to `GoI64` (pervasive: `any (n:int)`, `len`/`cap`/`str_len` return `int` tagged `TInt64`) —
+   leaves `TI64` the sole `int64` tag.  *(7d)* THE FORCING THEOREM: a Rocq `go_runtime_name {A} (t:GoTypeTag A)
+   : string` mirroring the plugin + `tag_runtime_agrees : tag_eq ta tb = None -> go_runtime_name ta <>
+   go_runtime_name tb` — UNPROVABLE while any collision survives, so it is the permanent anti-regression lock
+   once 7b+7c land.
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
