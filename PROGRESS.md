@@ -859,6 +859,22 @@ any "verified" claim.
    `go_runtime_name {A} (t:GoTypeTag A) : string` mirroring the plugin + `tag_runtime_agrees : tag_eq ta tb =
    None -> go_runtime_name ta <> go_runtime_name tb` — UNPROVABLE while any collision survives, so it is the
    permanent anti-regression lock once 7c lands.
+   **→ SLICE 7c DONE (commit 3bc9627, 2026-06-22, golden BYTE-IDENTICAL) — last collision closed.**  The fix
+   was the OPPOSITE of "retire TInt64 → migrate to GoI64": render Rocq `int` (PrimInt63) as Go's platform
+   `int`, DISTINCT from the Z-carried `GoI64`=int64.  More faithful (loop counters, `len`/`cap`, indices ARE
+   Go int) AND it resolves `{TInt64,TI64}` (`v.(int)` ≠ `v.(int64)` now agrees with `tag_eq`).  This is what
+   the reverted b5c11ee couldn't do — its blocker was the plugin lowering int ARITHMETIC to int64 ops; fixed
+   at the source (`pp_type(uint63)→"int"`, so the `Add`/`Sub` helpers + counter vars retype together).
+   Int↔int64 boundaries patched (each surfaced by a make-check Go compile error): `str_len`→`len(s)`, the
+   typed int-literal wrapper `int(…)`, the slice/string index bounds-checks `i < len(xs)` (were
+   `int64(len(…))`).  Rocq int and `GoI64` never mix in demos ⇒ no conversion sites; `GoI64` (chan int64,
+   map[int64], i64 ops) stays int64 (228→188 int64 in main.go).  Making `TInt64`→"int" exposed a latent
+   SECOND Go-int tag — `TInt` (`GoTypeTag GoInt`, `GoInt:=int`), no `Tagged` instance, never boxed (`GoInt`
+   values box via `Tagged_int`=`TInt64`; `len`/`cap` use the TYPE not the tag) — DEAD, so RETIRED (inductive +
+   the 3 fixpoint arms + `go_type_tag_map`).  **Break #7's scalar tag→Go-type map is now INJECTIVE — one tag
+   per Go type across 7a (dead bare tags) + 7b (narrows→real types) + 7c (int vs int64); ALL collisions
+   closed.**  **→ REMAINING: (7d) the forcing theorem** — `go_runtime_name` + `tag_runtime_agrees` (now
+   PROVABLE; proof-only Rocq lock, no plugin/golden change), mirroring `go_type_tag_map` exactly.
 8. **`WfTrace` accepts malformed sync edges.** A `KStart` only needs its back-pointer to hit SOME
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
