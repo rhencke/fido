@@ -587,6 +587,46 @@ Fixpoint reloop_b (hdr exit : nat) (fuel : nat) (g : CFG) (l : nat) : option Stm
            end
   end.
 
+(** ── STRUCTURE-DIRECTED body relooper: [reloop_b] that EMITS inner [LLoop]s. ──
+    [reloop_b] handles an ACYCLIC loop body.  [reloop_b2] adds one case: a list [inners] of the body's
+    INNER loops [(inner-header, inner-exit, lowered-inner-body)] — when traversal reaches an inner header
+    [ih], it emits [LLoop ib] and CONTINUES from the inner exit [ie] (skipping the inner loop's blocks,
+    which the inner [LLoop] now covers).  [reloop_b []] is exactly [reloop_b].  This is the function the
+    general reducible-CFG relooper needs: with the loop-nest detected (the [inners] list per loop, bottom-up),
+    it computes the nested structured program directly.  [find_inner] looks up the inner-loop record for a
+    header. *)
+Fixpoint find_inner (l : nat) (inners : list (nat * nat * Stmt2)) : option (nat * Stmt2) :=
+  match inners with
+  | [] => None
+  | (ih, ie, ib) :: rest => if Nat.eqb l ih then Some (ie, ib) else find_inner l rest
+  end.
+
+Fixpoint reloop_b2 (inners : list (nat * nat * Stmt2)) (hdr exit fuel : nat) (g : CFG) (l : nat)
+  : option Stmt2 :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      if Nat.eqb l exit then Some LBreak
+      else match find_inner l inners with
+           | Some (ie, ib) =>   (* l is an inner-loop header: emit its [LLoop], continue after it at [ie] *)
+               option_map (fun rest => LSeq (LLoop ib) rest) (reloop_b2 inners hdr exit fuel' g ie)
+           | None =>
+               match blk_term (g l) with
+               | TRet => None
+               | TGoto l' =>
+                   if Nat.eqb l' hdr
+                   then Some (LBody (blk_body (g l)))
+                   else option_map (fun S => LSeq (LBody (blk_body (g l))) S)
+                          (reloop_b2 inners hdr exit fuel' g l')
+               | TIf c a b =>
+                   match reloop_b2 inners hdr exit fuel' g a, reloop_b2 inners hdr exit fuel' g b with
+                   | Some Sa, Some Sb => Some (LSeq (LBody (blk_body (g l))) (LIf c Sa Sb))
+                   | _, _ => None
+                   end
+               end
+           end
+  end.
+
 Definition reloop_loop (hdr exit : nat) (fuel : nat) (g : CFG) : option Stmt2 :=
   match reloop_b hdr exit fuel g hdr, reloop fuel g exit with
   | Some body, Some aft => Some (LSeq (LLoop body) (lift aft))
@@ -1642,6 +1682,23 @@ Proof.
   assert (T4b : blk_body (g 4) = f4) by reflexivity.
   pose proof (chn_ret_inv g nx 4 sx sf T4t Hcfx) as Hsf. rewrite T4b in Hsf.
   eapply se_seq_n; [exact Hloop | rewrite Hsf; apply se_body].
+Qed.
+
+(** The STRUCTURE-DIRECTED body relooper [reloop_b2] COMPUTES [nestCFG]'s outer body, and its output is
+    SOUND — end-to-end.  Given the one inner loop detected ([inners = (header 1, exit 3, its [reloop_b]
+    lowering [nestInner])]), [reloop_b2] traverses [nestCFG]'s outer body and emits exactly [nestOuter]
+    (by [cbn]/computation), so the function-produced loop body — wrapped in the outer [LLoop] with the
+    [lift]ed tail — reproduces every halting run ([nested_loop_sound]).  This is the FUNCTION (not a
+    hand-written witness) connected to soundness: with the loop nest detected, [reloop_b2] computes a
+    verified lowering. *)
+Theorem reloop_b2_nest_sound : forall f0 f1 f2 f3 f4 c0 c1 body s sf,
+  reloop_b2 [(1, 3, nestInner f1 f2 c1)] 0 4 5 (nestCFG f0 f1 f2 f3 f4 c0 c1) 0 = Some body ->
+  cfg_halts (nestCFG f0 f1 f2 f3 f4 c0 c1) 0 s sf ->
+  seval (LSeq (LLoop body) (LBody f4)) s sf Normal.
+Proof.
+  intros f0 f1 f2 f3 f4 c0 c1 body s sf Hb Hch.
+  cbn in Hb. injection Hb as <-.
+  exact (nested_loop_sound f0 f1 f2 f3 f4 c0 c1 s sf Hch).
 Qed.
 
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
