@@ -1220,6 +1220,13 @@ Fail Definition bad_double_send : Sess PingPong PEnd unit :=
 Fail Definition bad_server_sends : Sess (dual PingPong) PEnd unit :=
   sbind (ssend (1)%i64) (fun _ => sret tt).
 
+(* R9 (review #3): the OLD record's PUBLIC [MkSess] could FORGE any protocol with a
+   no-op body — [MkSess (ret tt) : Sess PingPong PEnd unit] claims a send-then-recv
+   yet communicates nothing.  [Sess] is now a forge-proof INDUCTIVE: [MkSess] no
+   longer exists, so the forgery is UNTYPABLE (the index cannot be detached from the
+   operations).  This is the regression lock for the R9 deeper-fix migration. *)
+Fail Definition bad_forge : Sess PingPong PEnd unit := MkSess (ret tt).
+
 (** A longer protocol: the client sends two numbers, the server replies with
     their sum.  Exercises consecutive same-direction steps — two sends in a row
     (client), two receives in a row (server) — which ping-pong does not. *)

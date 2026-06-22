@@ -5128,13 +5128,16 @@ End BoundedChannels.
 (* ====================================================================== *)
 (** * Forge-proof session typing — the protocol indices are OPERATIONAL.
 
-    [builtins.v]'s extracted session type [Sess i j A := MkSess { run_sess : IO A }]
-    is a one-field RECORD, so [MkSess] wraps an ARBITRARY [IO A] regardless of the
-    protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit] type-checks yet
-    COMMUNICATES NOTHING — the indices [i]/[j] are phantom (review #3 finding R9).
+    [builtins.v]'s extracted session type WAS a one-field RECORD [Sess i j A :=
+    MkSess { run_sess : IO A }], so the public [MkSess] wrapped an ARBITRARY [IO A]
+    regardless of the protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit]
+    type-checked yet COMMUNICATED NOTHING — the indices were phantom (review #3 R9).
     Rocq 9.2 cannot make a record constructor private without opaque module
     ascription (which needs a Module-Type [Parameter]); the chosen fix is the
-    DEEPER one — tie the run to the protocol so the index simply CANNOT lie.
+    DEEPER one — tie the run to the protocol so the index simply CANNOT lie.  [Sess]
+    in builtins.v has since been MIGRATED onto this inductive shape (so the extracted
+    type is forge-proof too); [PSess] here carries the full safety+liveness theory
+    and is isomorphic to it (PSess↔Sess unification pending).
 
     A session becomes an INDUCTIVE [PSess] indexed by the protocol, whose only
     builders are the disciplined combinators (send / recv / ret / lift / bind).

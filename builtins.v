@@ -5316,60 +5316,52 @@ Qed.
     double-use, wrong order/direction/payload, AND incomplete protocols are all
     Rocq TYPE ERRORS (see the [Fail] tests in main.v). *)
 
-(** [Sess i j A] is now a DEFINITION, not an axiom — a single-field record
-    wrapping an [IO A], INDEXED (as rigid inductive parameters) by the protocol
-    states [i], [j].  Rigidity is essential: a bare alias [Sess i j A := IO A]
-    would make [Sess i1 j1 A] and [Sess i2 j2 A] CONVERTIBLE (both reduce to
-    [IO A]), so a wrong-protocol value would type-check and the [Fail] linearity
-    tests would no longer fail.  As an inductive, the indices are part of the
-    type's identity, so protocol mismatches stay TYPE ERRORS.  The single [IO A]
-    field erases (Coq unboxes a one-field record), and the phantom [i]/[j]
-    parameters never appear in it, so [Sess i j A] lowers exactly like [IO A] —
-    the plugin lowers the session OPERATIONS by name (channel passing).
-
-    HONEST SCOPE (review #3 break R9): the [Fail] linearity guarantees bind
-    sessions built from the COMBINATORS below.  But [MkSess] is PUBLIC, so a raw
-    [MkSess (ret tt) : Sess P PEnd unit] forges any protocol with a no-op body
-    (lowering to a channel that is never communicated) — the index is phantom.
-    Sealing the constructor needs opaque module ascription (Rocq 9.2 has no
-    [Local]/[Private] constructor), i.e. a Module-Type [Parameter], which brushes
-    rule 3's "never Parameter".  RESOLVED (2026-06-22, user chose) by the DEEPER
-    fix instead — no seal, no [Parameter]: a protocol-indexed INDUCTIVE session
-    ([PSess] in concurrency.v) whose ONLY builders are the disciplined combinators,
-    with soundness [psess_emits_proto] proving its communication trace is EXACTLY
-    what the protocol prescribes, so the index cannot lie BY CONSTRUCTION.  Brick 1
-    of N (axiom-clean: PrimInt63/PrimFloat only); later bricks denote [PSess] into
-    this [IO] over real channels and migrate the extracted [Sess] below onto it,
-    after which [MkSess] retires. *)
-Record Sess (i j : Proto) (A : Type) : Type := MkSess { run_sess : IO A }.
-Arguments MkSess {i j A} _.
-Arguments run_sess {i j A} _.
+(** [Sess i j A] is the FORGE-PROOF session type (review #3 R9 — migration of the
+    user-chosen deeper fix into the extracted layer, 2026-06-22): an INDUCTIVE
+    whose only builders are the disciplined ops below.  There is NO [MkSess]-style
+    constructor wrapping an arbitrary [IO A] at any index, so the protocol index
+    CANNOT be detached from the operations — a forged "[… : Sess (PSend A P) P unit]
+    that sends nothing" is now UNTYPABLE (the old record's public [MkSess] could
+    build it; see the [Fail] tests in main.v).  The indices are rigid inductive
+    indices (not a convertible [IO A] alias), so double-use, wrong order / direction
+    / payload, AND incomplete protocols ([j <> PEnd]) are all TYPE ERRORS.  [Sess]
+    erases in extraction — lowered by OPERATION NAME (channel passing), never
+    materialised as a Go value — so the emitted Go is unchanged by this migration.
+    Its full safety+liveness theory is the isomorphic [PSess] in concurrency.v
+    (bricks 1–5: soundness, communication safety, deadlock-freedom, termination /
+    determinism, run-trace coherence; PSess↔Sess unification pending). *)
+Inductive Sess : Proto -> Proto -> Type -> Type :=
+  | SRet  : forall {P : Proto} {A : Type}, A -> Sess P P A
+  | SSend : forall {A : Type} {P : Proto}, A -> Sess (PSend A P) P unit
+  | SRecv : forall {A : Type} {P : Proto}, GoTypeTag A -> Sess (PRecv A P) P A
+  | SLift : forall {P : Proto} {A : Type}, IO A -> Sess P P A
+  | SBind : forall {P Q R : Proto} {A B : Type},
+              Sess P Q A -> (A -> Sess Q R B) -> Sess P R B.
 
 (** Pure value; protocol state unchanged.  Lowers like [ret]. *)
-Definition sret {P : Proto} {A : Type} (x : A) : Sess P P A := MkSess (ret x).
+Definition sret {P : Proto} {A : Type} (x : A) : Sess P P A := SRet x.
 
 (** Sequence: [m] advances [i→j], then [k a] advances [j→k].  Lowers like
     [bind] (sequential Go statements). *)
 Definition sbind {P Q R : Proto} {A B : Type}
-  (m : Sess P Q A) (k : A -> Sess Q R B) : Sess P R B :=
-  MkSess (bind (run_sess m) (fun a => run_sess (k a))).
+  (m : Sess P Q A) (k : A -> Sess Q R B) : Sess P R B := SBind m k.
 
 (** Send: consumes the head [PSend A] step.  No endpoint argument — the channel
     is implicit, supplied by the enclosing [run_session].
     Lowers to [_sess_ch <- any(v)]. *)
-Definition ssend {A : Type} {P : Proto} (v : A) : Sess (PSend A P) P unit :=
-  MkSess (ret tt).
+Definition ssend {A : Type} {P : Proto} (v : A) : Sess (PSend A P) P unit := SSend v.
 
 (** Receive: consumes the head [PRecv A] step, yielding the received value.
-    Lowers to [_r := <-_sess_ch; _r.(T)].  The proof-model body returns the type's
-    zero value (the channel effect lives in the plugin lowering, idealised away
-    here just as the old axiom had no denotation). *)
-Definition srecv {A : Type} {P : Proto} (tag : GoTypeTag A) : Sess (PRecv A P) P A :=
-  MkSess (ret (zero_val tag)).
+    Lowers to [_r := <-_sess_ch; _r.(T)]. *)
+Definition srecv {A : Type} {P : Proto} (tag : GoTypeTag A) : Sess (PRecv A P) P A := SRecv tag.
 
 (** Lift an [IO] action into a session at any protocol state (consumes no
     protocol step) — e.g. to print a received value.  Lowers to the IO body. *)
-Definition slift {P : Proto} {A : Type} (m : IO A) : Sess P P A := MkSess m.
+Definition slift {P : Proto} {A : Type} (m : IO A) : Sess P P A := SLift m.
+
+(** [sret]…[run_session] are already in main.v's [Extraction NoInline] list, so they
+    stay named refs (NOT inlined to their constructors) and the plugin's by-operation-
+    name session lowering fires exactly as before — the emitted Go is unchanged. *)
 
 (** Session sequencing notations (the [sbind] analogues of [>>'] / [<-' ;;]):
     [>>>] discards the step's result, [<<- … ;;;] binds it.  Right-associative so
