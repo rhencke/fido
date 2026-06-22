@@ -171,10 +171,14 @@ let record_ctor_tyname r =
    which theory references it.  Closes the basename-shadowing hole (code review): a user
    [Definition u8_add] in [main.v] no longer gets mis-recognized as the builtin. *)
 let from_builtins r =
-  let d = try DirPath.to_string (Nametab.dirpath_of_global r.glob) with Not_found -> "" in
-  let ld = String.length d in
-  let rec scan i = i + 8 <= ld && (String.equal (String.sub d i 8) "builtins" || scan (i + 1)) in
-  scan 0
+  (* EXACT dirpath-component match, not a substring scan: a [DirPath.repr] component must equal
+     "builtins" verbatim.  The old substring scan accepted ANY path CONTAINING the text — so a user
+     module [mybuiltins] / [builtins_helpers] would be mis-recognized as Fido's [builtins.v] and a
+     same-basename user definition mis-lowered to an intrinsic (code review P0 #6).  Comparing the
+     actual path components closes that: [mybuiltins] is the single component "mybuiltins" <> "builtins". *)
+  match (try Some (Nametab.dirpath_of_global r.glob) with Not_found -> None) with
+  | None -> false
+  | Some dp -> List.exists (fun c -> String.equal (Id.to_string c) "builtins") (DirPath.repr dp)
 
 (* A Fido builtin/combinator is matched by its basename AND a check that it lives in [builtins.v]
    — so a user theory CANNOT shadow a builtin name (the basename match alone used to trust that).
