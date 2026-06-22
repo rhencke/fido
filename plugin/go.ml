@@ -1701,10 +1701,11 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; ch] when is_close_chan_ref r ->
            str "close(" ++ pp_expr state env ch ++ str ")"
 
-       (* recv_ok in expression context — handled properly by pp_stmts;
-          this fallback covers the rare case of expression-position use. *)
-       | MLglob r, [_tag; ch; _kont] when is_recv_ok_ref r ->
-           str "<-" ++ pp_expr state env ch
+       (* review R2: recv_ok is normally lowered in STATEMENT position (pp_stmts), where its
+          continuation becomes `x, ok := <-ch; body`.  In EXPRESSION position the continuation
+          [_kont] has nowhere to go — emitting `<-ch` alone would silently DISCARD it.  Fail loud. *)
+       | MLglob r, [_tag; _ch; _kont] when is_recv_ok_ref r ->
+           unsupported "a comma-ok receive (recv_ok) used in expression position — its continuation (the `fun x ok => …`) cannot be emitted as a value and would be silently dropped; use recv_ok in statement position (bind it, so it lowers to `x, ok := <-ch; …`)"
 
        (* zero_val tag → false / "" / nil / T(0) *)
        | MLglob r, [tag] when is_zero_val_ref r ->
@@ -3056,8 +3057,12 @@ let pp_io_body ?(ret_val=false) state tab env body =
                    else str tab ++ x ++ str ", " ++ ok ++ str " := <-"
                           ++ pp_expr state env ch ++ fnl ())
                   ++ pp_stmts tab new_env k_body
+              (* review R2: the continuation is not an inline 2-arg lambda (a named /
+                 separately-extracted / eta-reduced handler), so [collect_lam] did not
+                 expose its [x ok] binders.  Emitting `_, _ = <-ch` DISCARDS the
+                 continuation body — fail loud instead of silently dropping it. *)
               | _ ->
-                  str tab ++ str "_, _ = <-" ++ pp_expr state env ch ++ fnl ())
+                  unsupported "a comma-ok receive (recv_ok) whose continuation is not an inline `fun x ok => …` lambda (e.g. a named or separately-extracted handler) — its body cannot be lowered inline; emitting `_, _ = <-ch` would silently DISCARD it.  Inline the handler as a literal two-argument lambda")
          (* select_recv2 ta ch1 k1 tb ch2 k2 → Go select with two recv cases.
             Each continuation [fun x => body] becomes [case x := <-ch: body].
             The non-deterministic CHOICE is Go's at runtime (faithful lowering). *)

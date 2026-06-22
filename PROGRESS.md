@@ -816,12 +816,16 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   FIXTURE proved the guard FIRES: a non-bool 2-branch `match` in `defer_loop_demo`'s defer body (a run_blocks
   closure) now aborts extraction ("a non-bool match would silently become a bare `return`, truncating the
   block's control flow") — pre-fix it silently emitted a bare `return`.
-- **R2. `recv_ok` drops its continuation. ✓verified** (`go.ml` 3050–3051 stmt, 1706–1707 expr): the statement
-  lowering assumes the continuation is an inline 2-arg `MLlam`; for ANY other shape (a named/separately-extracted
-  handler, eta-reduced, etc.) it emits `_, _ = <-ch` and NEVER emits the continuation body. The expression
-  position emits only `<-ch`, discarding `_kont` entirely. So a non-inline continuation is silently dropped (the
-  recv still happens; subsequent effects vanish). FIX: the non-`[x;ok]` branch and the expr fallback →
-  `unsupported` (or emit a residual call to the continuation).
+- **R2. `recv_ok` drops its continuation. ✅ FIXED (this session, golden byte-identical).** ✓verified (`go.ml`
+  3050–3051 stmt, 1706–1707 expr): the statement lowering assumed the continuation is an inline 2-arg `MLlam`;
+  for ANY other shape (a named/separately-extracted handler, eta-reduced, etc.) it emitted `_, _ = <-ch` and
+  NEVER emitted the continuation body. The expression position emitted only `<-ch`, discarding `_kont` entirely.
+  So a non-inline continuation was silently dropped (the recv still happens; subsequent effects vanish). FIX:
+  both the non-`[x;ok]` statement branch and the expression-position fallback → `unsupported`. Golden
+  byte-identical (all demos use inline `fun x ok => …` continuations in statement position). NEGATIVE FIXTURE
+  proved the guard FIRES: `recv_ok TI64 ch recv_neg_handler` with a NAMED handler (extraction did NOT inline it)
+  aborts extraction ("its body cannot be lowered inline; emitting `_, _ = <-ch` would silently DISCARD it") —
+  pre-fix it emitted `_, _ = <-ch`, dropping the handler.
 
 **P1 — emits INVALID or falsely-typed Go (should be negative extraction tests):**
 - **R3. Value-position lets/lambdas forcibly typed `any`** (assessed plausible, not yet repro'd): a value-position
@@ -865,9 +869,9 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
 
 **REPAIR ORDER (review #3) — fail-closed FIRST, in this order:**
 1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ✅ DONE.
-2. **R2** (`recv_ok` continuation-drop → `unsupported`/residual call). ← NEXT.
+2. **R2** (`recv_ok` continuation-drop → `unsupported`/residual call). ✅ DONE.
 3. **R4 negative tests** (`append(nil,…)`, `map[any]any`, non-comparable map keys, narrow-param arith → each
-   `unsupported` with a negative fixture) + finish the narrow boundary (RETURN slice in-progress, then PARAM).
+   `unsupported` with a negative fixture) + finish the narrow boundary (RETURN slice in-progress, then PARAM). ← NEXT.
 4. **R3** typed lowering (the typed target IR / expected-type threading — the deep #2 refactor).
 5. **R7** deterministic full-GlobRef mangling + collision check; exact-GlobRef builtin identity.
 6. **R5/R6** model-faithfulness (slice cap; int63 range proof or honest scoping).
