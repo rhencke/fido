@@ -1210,6 +1210,23 @@ Proof. intros. reflexivity. Qed.
 Lemma i64raw_mul : forall a b, i64raw (i64_mul a b) = wrap64 (i64raw a * i64raw b).
 Proof. intros. reflexivity. Qed.
 
+(** Keystone coding (break #1 foundation): a CONCRETE [nat] ↦ Go int64 ([GoI64]) coding with an HONEST
+    round-trip.  An injection [nat ↪ GoI64] with a left inverse is IMPOSSIBLE ([GoI64] is finite), so the
+    round-trip [keystone_prj (keystone_inj n) = n] holds ONLY for REPRESENTABLE [n] ([Z.of_nat n < 2^63]) —
+    [keystone_roundtrip].  The concurrency Keystone bridge must be re-founded on THIS bounded fact, not the
+    impossible unbounded [forall n, prj (inj n) = n] (see PROGRESS.md). *)
+Definition keystone_inj (n : nat) : GoI64 := i64wrap (Z.of_nat n).
+Definition keystone_prj (g : GoI64) : nat := Z.to_nat (i64raw g).
+Lemma keystone_roundtrip : forall n,
+  (Z.of_nat n < 9223372036854775808)%Z -> keystone_prj (keystone_inj n) = n.
+Proof.
+  intros n Hn. pose proof (Nat2Z.is_nonneg n) as Hpos.
+  unfold keystone_prj, keystone_inj, i64wrap. cbn [i64raw]. unfold wrap64.
+  rewrite Z.mod_small by lia.
+  replace (Z.of_nat n + 9223372036854775808 - 9223372036854775808)%Z with (Z.of_nat n) by lia.
+  apply Nat2Z.id.
+Qed.
+
 Lemma i64_add_comm : forall a b, i64_add a b = i64_add b a.
 Proof. intros. apply i64_ext. rewrite !i64raw_add, (Z.add_comm (i64raw a)). reflexivity. Qed.
 Lemma i64_mul_comm : forall a b, i64_mul a b = i64_mul b a.

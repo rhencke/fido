@@ -1675,16 +1675,24 @@ Qed.
     Value carrier = [GoI64] (the FULL-WIDTH Go int64, tag [TI64], [Z]-carried — NOT
     the bounded [Sint63] [int]); [recv] needs a [GoTypeTag] and [GoTypeTag nat] is
     provably EMPTY, so calculus [nat] values are coded into IO [GoI64] by [inj]/[prj].
-    [Hret] (the round-trip [prj (inj n) = n]) is the standard faithful-coding
-    condition — realizable across the WHOLE int64 range (e.g. [inj n := MkI64 (Z.of_nat
-    n)], [prj (MkI64 z) := Z.to_nat z]); it is the section's only hypothesis, NOT an
-    axiom.  (A4: the bridge carrier is now the faithful full-width int64.)
+    [Hret] (the round-trip [prj (inj n) = n]) is the faithful-coding condition.  HONEST SCOPE (break #1):
+    the UNBOUNDED form [forall n : nat, prj (inj n) = n] is IMPOSSIBLE — an injection [nat ↪ GoI64] with a
+    left inverse cannot exist ([GoI64] is FINITE).  It holds only over the REPRESENTABLE range; the concrete
+    coding [keystone_inj]/[keystone_prj] below round-trips exactly when [Z.of_nat n < 2^63]
+    ([keystone_roundtrip], machine-checked) — a value outside that range is not a real Go int64 anyway.  The
+    section still carries the abstract unbounded [Hret] as a Hypothesis (so it is currently INSTANTIABLE only
+    vacuously); re-founding the bridge on the bounded round-trip (threading a representability predicate
+    through [OnChan]/[SimInv]/[denote_sim_*]/[denote_adequate] + the heap analogues) is the remaining work —
+    see PROGRESS.md.  The realizable coding + its bounded round-trip are PROVED here as that foundation.
 
     SPAWN is deliberately ABSENT from this bridge: [go_spawn] has NO [run_io] law,
     because [run_io] is SEQUENTIAL and cannot express interleaving.  That is exactly
     why the calculus is the model for concurrency and why the race-freedom guarantee
     lives on [rstep], not on [run_io].
     ============================================================================ *)
+(** The CONCRETE realizable coding [keystone_inj]/[keystone_prj] and its bounded round-trip
+    [keystone_roundtrip] are defined in [builtins.v] (where [Z]/[i64wrap] live) — the break-#1 foundation. *)
+
 Section Keystone.
   Variable chenv : nat -> GoChan GoI64.    (* calculus channel id -> the IO channel *)
   Variable locenv : nat -> Ref GoI64.      (* calculus location  -> the IO ref cell *)

@@ -646,6 +646,19 @@ any "verified" claim.
    BRIDGE DOES NOT CONNECT THE CALCULUS TO THE EMITTED GO.  Fix: finite domains (`Fin n`, or injectivity
    only over one execution's finite support).  (This is the "weak seam" of the architectural review, now
    shown to rest on an impossible hypothesis — strong evidence for refounding the bridge or path (b).)
+   **→ SLICE 1 DONE (2026-06-22): the REALIZABLE coding + its honest BOUNDED round-trip are now PROVED**
+   (`builtins.v`): `keystone_inj n := i64wrap (Z.of_nat n)`, `keystone_prj g := Z.to_nat (i64raw g)`, and
+   `keystone_roundtrip : forall n, Z.of_nat n < 2^63 -> keystone_prj (keystone_inj n) = n` (machine-checked).
+   This is the foundation the unbounded `Hret` falsely claimed for ALL `n` — it holds only on REPRESENTABLE
+   values (which is every real Go int64).  The `concurrency.v` Keystone doc is corrected to state this
+   honestly (the unbounded form is impossible; do NOT claim it).  **REMAINING (slice 2, the refounding):**
+   re-parameterise the bridge on this bounded round-trip — replace the section `Hypothesis Hret` with a
+   representability predicate `Vrep n := Z.of_nat n < 2^63` threaded through `OnChan`/`SimInv`/`siminv_step`/
+   `denote_sim_recv`/`denote_sim_read`/`denote_adequate` and the heap analogues
+   (`OnLoc`/`SimInvMem`/`denote_adequate_mem`), then INSTANTIATE the section with `keystone_inj`/`keystone_prj`
+   so the bridge is genuinely non-vacuous.  Scope is bounded (Denotes itself and the other 5 Keystone*
+   sections do NOT use `Hret`); ~10 bridge lemmas across the channel + heap instances.  Each is its own
+   focused proof; the realizable coding (slice 1) is the mathematical content they were missing.
 2. **`map_size := 0` but Go `len` returns the real length.** `map_len` returns `map_size` (constant 0);
    plugin lowers `map_len`→Go `len(m)`; `map_demo` prints `3`.  Direct model/extraction disagreement.
    **→ RESOLVED (2026-06-22, proof-only, golden byte-identical).**  The map's `MapCell` now carries an
