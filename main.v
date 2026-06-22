@@ -1667,6 +1667,21 @@ Definition inbox_demo : IO unit :=
   recv_ok TI64 (ib_ch box) (fun v _ =>                (* v := <-box.Ib_ch *)
   println [any (ib_name box); any v]))).               (* prints: fido 42 *)
 
+(** Deeper north-star nesting: a SLICE of CHANNELS inside a STRUCT (Go's [type Hub struct {
+    chans []chan int64; id int64 }]) — channels in a slice in a struct.  Build the slice with the
+    channel element tag [TChan TI64], index it to a channel ([hub.Hub_chans[1]], bounds-checked),
+    then send/recv on that channel.  (A slice of STRUCTS would need a named-type tag — deferred;
+    a slice of CHANNELS works because [TChan TI64] is a real tag.) *)
+Record Hub := MkHub { hub_chans : GoSlice (GoChan GoI64) ; hub_id : GoI64 }.
+Definition hub_demo : IO unit :=
+  bind (make_chan_buf TI64 1) (fun ch0 =>
+  bind (make_chan_buf TI64 1) (fun ch1 =>
+  let hub := MkHub (slice_of_list (TChan TI64) [ch0; ch1]) (7)%i64 in   (* Hub{[]chan int64{ch0,ch1}, 7} *)
+  bind (slice_get (TChan TI64) (hub_chans hub) (1:int)) (fun c =>       (* c := hub.Hub_chans[1] (= ch1) *)
+  bind (send TI64 c (99)%i64) (fun _ =>                                  (* c <- 99 *)
+  recv_ok TI64 c (fun v _ =>                                             (* v := <-c *)
+  println [any (hub_id hub); any v]))))).                                (* prints: 7 99 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2739,6 +2754,7 @@ Definition main_effect : IO unit :=
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
   ptr_chan_demo                 >>'   (* prints: 7 (a *int64 sent over a chan, deref'd) *)
   inbox_demo                    >>'   (* prints: fido 42 (a channel nested in a struct field) *)
+  hub_demo                      >>'   (* prints: 7 99 (a SLICE of channels in a struct: channels-in-slice-in-struct) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

@@ -994,6 +994,21 @@ func Inbox_demo() {
 	println(box.Ib_name, v)
 }
 
+type Hub struct {
+	Hub_chans []chan int64
+	Hub_id    int64
+}
+
+func Hub_demo() {
+	ch0 := make(chan int64, 1)
+	ch1 := make(chan int64, 1)
+	hub := Hub{Hub_chans: []chan int64{ch0, ch1}, Hub_id: 7}
+	c := hub.Hub_chans[1]
+	c <- 99
+	v, _ := <-c
+	println(hub.Hub_id, v)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2087,6 +2102,7 @@ func main() {
 	Ptr_safe_demo()
 	Ptr_chan_demo()
 	Inbox_demo()
+	Hub_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
