@@ -717,9 +717,15 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    DUALITY / communication safety** — `proto_steps_dual` (`proto_steps (dual p) = map flip_step (proto_steps p)`,
    fully Closed-under-global-context) + `psess_pair_complementary` (a client realising `P` and a server realising
    `dual P` emit exact mirror-image traces: each side receives precisely what the other sends, same types same
-   order — no mismatch, no orphaned message; the classical session-types safety property). Remaining bricks:
-   denote `PSess` into the `builtins.v` channel `IO` over real channels, then migrate the extracted `Sess` onto
-   `PSess` (then `MkSess` retires).
+   order — no mismatch, no orphaned message; the classical session-types safety property). **Brick 3 (2026-06-22):
+   session PROGRESS / deadlock-freedom** — a synchronized `pair_step` on the two endpoints' remaining protocols
+   (matched `PSend A`/`PRecv A` cancel), `dual_pair_progress` (a dual pair is both-finished OR can take a matched
+   step, and the stepped pair stays dual = PRESERVATION+PROGRESS) + `dual_pair_stuck_iff_done` (the ONLY stuck dual
+   pair is `(PEnd,PEnd)` = DEADLOCK-FREEDOM). Both fully Closed-under-global-context (axiom-free). So the protocol-
+   safety theory is complete: soundness (1) + communication safety (2) + progress/deadlock-freedom (3). Remaining
+   bricks (the harder extraction bridge, explicitly NOT skipped): denote `PSess` into the `builtins.v` channel `IO`
+   over real channels (the `PSBind` `k a` guard issue needs a relational denotation or protocol-size measure), then
+   migrate the extracted `Sess` onto `PSess` (then `MkSess` retires).
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently

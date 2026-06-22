@@ -5318,3 +5318,55 @@ Qed.
     over [Proto]/[list], touches no primitive); [psess_pair_complementary] inherits
     brick 1's substrate (PrimInt63.*/PrimFloat.* only, via [psess_full_emits_proto]).
     No funext, no Eqdep/UIP/JMeq anywhere, no project-declared assumption. *)
+
+(** ** Session PROGRESS / deadlock-freedom — a dual pair never gets stuck.
+
+    Brick 2 showed the FULL traces of a client/server pair mirror each other.  This
+    brick shows the STEP-BY-STEP execution never deadlocks.  Model a synchronized
+    communication as a [pair_step] on the two endpoints' REMAINING protocols (the
+    matched head [PSend A] / [PRecv A] cancel, both advancing); then prove that a
+    dual pair [(P, dual P)] is stuck ONLY at [(PEnd, PEnd)] — at every other state
+    exactly one endpoint is ready to send while the other is ready to receive the
+    SAME type, so a step is always available.  Together with the trace mirroring of
+    brick 2 this is the classical session-types safety pair (PRESERVATION + PROGRESS).
+    Protocol-level (a complete [PSess] realises its protocol by brick 1, so its
+    available steps ARE these); brick 3 of the R9 deeper fix, still pure-protocol. *)
+
+(** One synchronized step: the sender's head [PSend A] and the receiver's matching
+    head [PRecv A] cancel, both endpoints advancing to their continuations. *)
+Inductive pair_step : Proto * Proto -> Proto * Proto -> Prop :=
+  | ps_send : forall (A : Type) (P' Q : Proto),
+      pair_step (builtins.PSend A P', builtins.PRecv A Q) (P', Q)
+  | ps_recv : forall (A : Type) (P' Q : Proto),
+      pair_step (builtins.PRecv A P', builtins.PSend A Q) (P', Q).
+
+(** PROGRESS + PRESERVATION in one: a dual pair is either both-finished, or it can
+    take a matched step — AND the stepped pair is again dual (so the invariant that
+    the two ends stay complementary is maintained for the whole run). *)
+Theorem dual_pair_progress : forall P : Proto,
+  (P = PEnd /\ dual P = PEnd) \/
+  (exists P' Q' : Proto, pair_step (P, dual P) (P', Q') /\ Q' = dual P').
+Proof.
+  destruct P as [A P' | A P' | ]; simpl.
+  - right. exists P', (dual P'). split; [ apply ps_send | reflexivity ].
+  - right. exists P', (dual P'). split; [ apply ps_recv | reflexivity ].
+  - left. split; reflexivity.
+Qed.
+
+(** DEADLOCK-FREEDOM: the ONLY dual pair that cannot step is the finished one
+    [(PEnd, PEnd)].  So a well-typed session pair never wedges with one endpoint
+    blocked on the other — it always either runs to completion or makes progress. *)
+Corollary dual_pair_stuck_iff_done : forall P : Proto,
+  (~ exists P' Q' : Proto, pair_step (P, dual P) (P', Q')) <-> P = PEnd.
+Proof.
+  intros P. split.
+  - intros Hns. destruct (dual_pair_progress P) as [[HP _] | [P' [Q' [Hstep _]]]].
+    + exact HP.
+    + exfalso. apply Hns. exists P', Q'. exact Hstep.
+  - intros ->. intros [P' [Q' H]]. simpl in H. inversion H.
+Qed.
+
+(** Trust base — pure protocol algebra over [Proto] (destruct + [inversion] on the
+    first-order [pair_step], no dependent elimination): [dual_pair_progress] /
+    [dual_pair_stuck_iff_done] are Closed under the global context (FULLY axiom-free
+    — no PrimInt63/PrimFloat, no funext, no Eqdep/UIP).  Verified by [Print Assumptions]. *)
