@@ -2403,7 +2403,7 @@ and emit_action state hoists tab env ids action =
     let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
     let args   = List.map (fun (x, _) -> pp_mlident x) hoists in
     str tab ++ str kw ++ str " func(" ++ sep params ++ str ") {" ++ fnl () ++
-    emit_block state hoists raw_term (tab ^ "\t") env body ++
+    emit_block false state hoists raw_term (tab ^ "\t") env body ++
     str tab ++ str "}(" ++ sep args ++ str ")" ++ fnl ()
   in
   let ah, aargs = collect_app action [] in
@@ -2422,7 +2422,7 @@ and emit_action state hoists tab env ids action =
 (* [term] handles the block's terminator (a [Next] value) — see [raw_term] /
    [loop_term].  This is what lets one emitter print raw goto or structured
    continue/break. *)
-and emit_block state hoists term tab env b =
+and emit_block terminating state hoists term tab env b =
   let h, args = collect_app b [] in
   let vis = List.filter (fun a -> not (is_erased a)) args in
   match h, vis with
@@ -2430,7 +2430,7 @@ and emit_block state hoists term tab env b =
       let ids, kbody = collect_lam k in
       let new_env = List.rev ids @ env in
       emit_action state hoists tab env ids action
-      ++ emit_block state hoists term tab new_env kbody
+      ++ emit_block terminating state hoists term tab new_env kbody
   | MLglob r, [next] when is_ret_ref r -> term tab next
   | _ ->
       (match b with
@@ -2444,7 +2444,7 @@ and emit_block state hoists term tab env b =
                 let new_env = List.rev ids @ env in
                 str tab ++ pp_mlident (List.nth ids 0) ++ str ", " ++ pp_mlident (List.nth ids 1)
                 ++ str " := " ++ pp_expr state env scrut ++ fnl ()
-                ++ emit_block state hoists term tab new_env body1
+                ++ emit_block terminating state hoists term tab new_env body1
             | [ (_, p1, body1); (_, p2, body2) ] ->
                 let cref p = (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
                 (match cref p1, cref p2 with
@@ -2453,13 +2453,22 @@ and emit_block state hoists term tab env b =
                      || (is_bool_false c1 && is_bool_true c2) ->
                      let tb, eb = if is_bool_true c1 then body1, body2 else body2, body1 in
                      str tab ++ str "if " ++ pp_expr state env scrut ++ str " {" ++ fnl () ++
-                     emit_block state hoists term (tab ^ "\t") env tb ++
+                     emit_block terminating state hoists term (tab ^ "\t") env tb ++
                      str tab ++ str "} else {" ++ fnl () ++
-                     emit_block state hoists term (tab ^ "\t") env eb ++
+                     emit_block terminating state hoists term (tab ^ "\t") env eb ++
                      str tab ++ str "}" ++ fnl ()
-                 | _ -> str tab ++ str "return" ++ fnl ())
-            | _ -> str tab ++ str "return" ++ fnl ())
-       | _ -> str tab ++ pp_expr state env b ++ fnl ())
+                 (* review R1: a 2-branch match that is NOT bool true/false would silently become a
+                    bare `return`, DROPPING both arms — fail loud (was the raw emitter's silent hole). *)
+                 | _ -> unsupported "a raw-CFG/closure block whose 2-branch match is not on a bool (true/false) — the raw emitter only lowers boolean if/else; a non-bool match would silently become a bare `return`, truncating the block's control flow")
+            (* review R1: a match with neither 1 (pair destructure) nor 2 (bool if/else) branches would
+               silently become a bare `return`, dropping the other arms — fail loud. *)
+            | _ -> unsupported "a raw-CFG/closure block match with neither 1 (pair destructure) nor 2 (bool if/else) branches — would silently become a bare `return`, dropping the other arms")
+       (* review R1: a non-bind/ret/case block.  TERMINATING context (a run_blocks block — must end in a
+          goto/return): a bare expression drops the control terminator → fail loud.  NON-terminating
+          context (a defer/go closure body): a single void action with no terminator is valid Go, so emit it. *)
+       | _ -> if terminating
+              then unsupported "a raw-CFG run_blocks block of an unrecognized shape (not bind / ret / pair-destructure / boolean if-else) — a bare expression would have NO control terminator, silently dropping its control flow"
+              else str tab ++ pp_expr state env b ++ fnl ())
 
 (*s IO body emitter — shared by pp_function (for IO-returning fns) and pp_main_body. *)
 
@@ -2695,7 +2704,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                           (if is_target i
                            then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
                            else mt ()) ++
-                          emit_block state hoists raw_term tab env bi ++
+                          emit_block true state hoists raw_term tab env bi ++
                           emit_all (i + 1) rest
                     in
                     hoist_doc ++ initial ++ emit_all 0 bs in

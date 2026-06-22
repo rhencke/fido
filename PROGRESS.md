@@ -753,15 +753,13 @@ real; the *backend that lowers them to Go is the unverified, currently-fail-open
   through a typed IIFE (comparisons exempt); `u64_neg 1` emits `18446744073709551615`, not `-1`. golden-identical.
 - **#3 (unknown tag → `any`) — ✅ FIXED** (b7a23e5): `go_type_of_tag`/`zero_of_tag` abort on an unrenderable tag.
 - **#4 (`slice_of_list` → `nil`) — ✅ FIXED** (51ceed5): non-literal list aborts.
-- **#5 (CFG invents control flow) — ◑ PARTIAL — the STRUCTURED path fixed, the RAW emitter MISSED** (8fefdbc +
-  72b1617 + 30619aa): the *structured* `walk` emitter's silent control-flow substitutions (non-literal
-  start/block-list/Jump, unrecognized terminator, non-bool/non-2-branch match, bare-expression block) now fail
-  loud (`go.ml` ~2950–3003), and `raw_term`'s terminator handling fails loud (~1520–1528). **⚠️ OVERCLAIM
-  CORRECTED (2026-06-22, review #3 ✓verified):** the RAW block-BODY emitter `emit_block` (`go.ml` ~2455–2461)
-  STILL fails OPEN — a non-bool 2-branch match → bare `return`; a non-1/2-branch match → bare `return`; an
-  unrecognized block → bare `pp_expr` with NO terminator. Reachable via **defer/go closure bodies**
-  (`emit_closure` ~2406 always uses `emit_block`) and the raw `run_blocks` fallback. So "#5 FIXED" was wrong —
-  see review #3 finding **R1** below; the three `emit_block` fallbacks must become `unsupported`.
+- **#5 (CFG invents control flow) — ✅ NOW FULLY FIXED (structured + raw)** (8fefdbc + 72b1617 + 30619aa +
+  **R1 below**): the *structured* `walk` emitter (`go.ml` ~2950–3003) and `raw_term` (~1520–1528) were fixed
+  earlier; an overclaim ("#5 FIXED") was corrected when **review #3 R1** found the RAW block-body emitter
+  `emit_block` STILL failed open (non-bool 2-branch match → bare `return`; non-1/2-branch → bare `return`;
+  unrecognized block → bare `pp_expr`, reachable via defer/go closures + the raw `run_blocks` fallback). **R1
+  closed that** — see the RELEASE REVIEW #3 section; all three `emit_block` fallbacks now `unsupported`
+  (2462 context-aware: a void closure body still emits, a run_blocks block fails loud).
 - **#6 (identity-based recognition) — ✅ FOUNDATIONAL + bulk done** (868aa39 exact-component `from_builtins`;
   86b2124/9b68589/ea2b36f/02eb5db gate ~66 recognizers on it). Remaining tail (GoTypeTag-ctor machinery,
   suppression list, stdlib basename-fallback drops) is LOW-marginal (requires a user to name a def exactly like a
@@ -806,13 +804,18 @@ Go, and (c) model-to-runtime semantic gaps. Findings I CONFIRMED verbatim in `pl
 marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above for release purposes.**
 
 **P0 — fail-OPEN silent miscompiles (must become `unsupported`; the TOP fail-closed work):**
-- **R1. Raw CFG emitter `emit_block` silently truncates. ✓verified** (`go.ml` ~2455–2461): a non-bool 2-branch
-  match → bare `return`; a non-1/2-branch match → bare `return`; an unrecognized block → bare `pp_expr` with NO
-  control terminator. Reachable via **defer/go closure bodies** (`emit_closure` ~2406) and the raw `run_blocks`
-  fallback — so an irreducible/unstructurable CFG (or any defer/go closure) with one of these shapes extracts
-  successfully while DROPPING the rest of execution. **This is why "#5 FIXED" was wrong** (only the structured
-  `walk` was fixed). FIX: all three `emit_block` fallbacks → `unsupported`; validate every block before the raw
-  path. *(Top priority — the most flagrant rule-2 violation remaining.)*
+- **R1. Raw CFG emitter `emit_block` silently truncates. ✅ FIXED (this session, golden byte-identical).**
+  ✓verified (`go.ml` ~2455–2461): a non-bool 2-branch match → bare `return`; a non-1/2-branch match → bare
+  `return`; an unrecognized block → bare `pp_expr` with NO control terminator. Reachable via **defer/go closure
+  bodies** (`emit_closure` ~2406, which goes through `emit_action` from BOTH the raw and structured emitters)
+  and the raw `run_blocks` fallback (`emit_raw`). **This is why "#5 FIXED" was wrong** (only the structured
+  `walk` was fixed). FIX: threaded a `terminating` flag through `emit_block`; the two bare-`return` arms now
+  `unsupported` ALWAYS (silent truncation in both contexts); the bare-expression arm `unsupported` in the
+  TERMINATING (run_blocks-block) context but still emits a valid void single-action body in a NON-terminating
+  (defer/go closure) context. Golden byte-identical (the fallbacks were dead for current demos). NEGATIVE
+  FIXTURE proved the guard FIRES: a non-bool 2-branch `match` in `defer_loop_demo`'s defer body (a run_blocks
+  closure) now aborts extraction ("a non-bool match would silently become a bare `return`, truncating the
+  block's control flow") — pre-fix it silently emitted a bare `return`.
 - **R2. `recv_ok` drops its continuation. ✓verified** (`go.ml` 3050–3051 stmt, 1706–1707 expr): the statement
   lowering assumes the continuation is an inline 2-arg `MLlam`; for ANY other shape (a named/separately-extracted
   handler, eta-reduced, etc.) it emits `_, _ = <-ch` and NEVER emits the continuation body. The expression
@@ -861,8 +864,8 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   coverage.
 
 **REPAIR ORDER (review #3) — fail-closed FIRST, in this order:**
-1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ← NEXT.
-2. **R2** (`recv_ok` continuation-drop → `unsupported`/residual call).
+1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ✅ DONE.
+2. **R2** (`recv_ok` continuation-drop → `unsupported`/residual call). ← NEXT.
 3. **R4 negative tests** (`append(nil,…)`, `map[any]any`, non-comparable map keys, narrow-param arith → each
    `unsupported` with a negative fixture) + finish the narrow boundary (RETURN slice in-progress, then PARAM).
 4. **R3** typed lowering (the typed target IR / expected-type threading — the deep #2 refactor).
