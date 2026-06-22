@@ -247,7 +247,7 @@ let is_string_type  r = ref_has_suffix r ".Strings.String.string"
                         (* [GoString] is a Definition alias for [string]; as a signature
                            param/return type it stays a named [Tglob GoString], so map it
                            to Go [string] here too (cf. [GoAny] → [any]). *)
-                        || String.equal (global_basename r) "GoString"
+                        || named "GoString" r
 let is_string_empty r = ref_has_suffix r ".Strings.String.EmptyString"
 let is_string_cons  r = ref_has_suffix r ".Strings.String.String"
 let is_ascii_ctor   r = ref_has_suffix r ".Strings.Ascii.Ascii"
@@ -324,7 +324,7 @@ let is_println_ref = named "println"
    [Variadic T] renders [...T] (see pp_function). *)
 let is_vararg_ref   r = named "vararg" r || named "MkVariadic" r
 let is_va_slice_ref r = named "va_slice" r
-let is_variadic_type r = String.equal (global_basename r) "Variadic"
+let is_variadic_type r = named "Variadic" r
 let is_len_ref    r  = named "len" r
 let is_cap_ref    r  = named "cap" r
 let is_append_ref r  = named "append" r
@@ -464,12 +464,12 @@ let is_select_recv2_ref = named "select_recv2"
 let is_select_recv_default_ref = named "select_recv_default"
 let is_go_spawn_ref = named "go_spawn"
 let is_defer_call_ref = named "defer_call"
-let is_proto_type r =
-  String.equal (global_basename r) "Proto"
+let is_proto_type r = named "Proto" r
 let is_proto_ctor r =
-  String.equal (global_basename r) "PSend" ||
-  String.equal (global_basename r) "PRecv" ||
-  String.equal (global_basename r) "PEnd"
+  from_builtins r &&
+  (String.equal (global_basename r) "PSend" ||
+   String.equal (global_basename r) "PRecv" ||
+   String.equal (global_basename r) "PEnd")
 let is_dual_ref = named "dual"
 (* Indexed-monad (linear) sessions: protocol state in the type index, lowered
    against an implicit shared channel [_sess_ch]. *)
@@ -581,7 +581,7 @@ let is_go_type_tag_ctor r =
 
 (* IO monad — basename matching is acceptable here because these names
    live in builtins.v and user theories should not shadow them. *)
-let is_IO_type  r = String.equal (global_basename r) "IO"
+let is_IO_type  r = named "IO" r
 let is_ret_ref = named "ret"
 let is_bind_ref = named "bind"
 
@@ -618,7 +618,7 @@ let is_sigT_ref r =
   String.equal (global_basename r) "sigT" ||
   (* [GoAny] is a Definition alias for [sigT …]; as a signature param/return type it
      stays a named [Tglob GoAny] (not unfolded), so map it to [any] here too. *)
-  String.equal (global_basename r) "GoAny"
+  named "GoAny" r
 
 (* Distinct fixed-width numeric types: each [GoU<N>]/[GoI<N>] is a single-field
    record over the [int] carrier (builtins.v) — DISTINCT in Rocq (mixing a uint8
@@ -1146,7 +1146,7 @@ let rec pp_type state = function
      is a Fido [Definition := list]; in most positions extraction unfolds it to [list],
      but a RECORD FIELD type keeps it unexpanded — so recognise the [GoSlice] name too
      (parallel to [GoMap]/[GoChan]), e.g. a defined type [type IntList []int64]. *)
-  | Tglob (r, [arg]) when is_list_type r || String.equal (global_basename r) "GoSlice" ->
+  | Tglob (r, [arg]) when is_list_type r || named "GoSlice" r ->
       str "[]" ++ pp_type state arg
   (* Coq [string] (Strings.String) → Go [string] (byte sequence) *)
   | Tglob (r, []) when is_string_type r -> str "string"
