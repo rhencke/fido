@@ -834,10 +834,20 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   does not compile. Needs a typed target IR / expected-type threading — same root as #2.
 - **R4. Several constructs emit invalid/falsely-typed Go:** (a) `map_make` → `make(map[any]any)` — not assignable
   to a typed `map[K]V` (probe failed); (b) `map_make_typed` accepts non-comparable key tags (slice/map/func) — Go
-  rejects non-comparable map keys; (c) non-empty list literal fallback → `append(nil, v1, v2)` — Go rejects
+  rejects non-comparable map keys; (c) **non-empty list literal fallback → `append(nil, v1, v2)`** — Go rejects
   (`first argument to append must be a slice; have untyped nil`); (d) **signed narrow arithmetic on a narrow
   PARAM** — `int8` param + `(((x+1)&0xff)^0x80)-0x80` → `0xff` overflows `int8` (this is the #2 param-boundary;
   the narrow-RETURN slice is in-progress, the PARAM slice still open).
+  **R4(c) ✅ FIXED (this session, golden byte-identical).** `go.ml` ~2192: the non-empty list-literal value-position
+  fallback emitted `append(nil, v1, …)` (always-invalid Go — `append`'s first arg must be a TYPED slice, not
+  untyped `nil`; the element type is erased so we cannot synthesize `[]T{…}` here). Now `unsupported`, directing
+  to `slice_of_list <tag> [v1; …]` (which carries the element type → a typed `[]T{…}`). Golden byte-identical
+  (the path was DEAD — `append(nil` appears nowhere in the committed Go). The fix is UNCONDITIONALLY correct (it
+  only ever replaces provably-invalid Go with a loud abort). A standalone negative fixture proved IMPRACTICAL:
+  reaching ~2192 needs a bare `list` value in value position, but Fido's list handlers (`print`/`println`/
+  `slice_of_list`/`vararg`) intercept every reachable list use and the type system routes slice-typed values
+  through `slice_of_list` — so 2192 is a generic fallback unreachable from well-typed demo code (exactly why it
+  was a latent invalid-Go hole — review R10). R4(a),(b),(d) still open.
 - **R7. Generated identifiers not injective** (assessed plausible): `foo'`→`foo_` collides with a real `foo_`;
   `foo`/`Foo` collide after export-capitalization; two modules' same basename collide when flattened into one Go
   package; record-ctor/type metadata keyed by basename can clobber across modules. And builtin recognition keys on

@@ -2190,14 +2190,15 @@ let rec pp_expr state env = function
               identity for safety. *)
            | MLcons (_, r, [v]) when is_f32_ctor r -> pp_expr state env v
            | MLcons (_, r, _) as lst ->
-               (* Non-empty list literal: emit as append(nil, v1, v2, ...).
-                  Go infers the slice element type from the values. *)
+               (* review R4: a non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
+                  is INVALID Go — `append`'s first argument must be a TYPED slice, and `nil` here is
+                  untyped, so `go build` rejects it ("first argument to append must be a slice; have
+                  untyped nil").  The element type is also erased by extraction, so we cannot synthesize
+                  the `[]T` literal here.  Fail loud and direct the user to `slice_of_list <tag> [v1; …]`,
+                  which carries the element type and lowers to a typed `[]T{v1, …}`. *)
                (match unfold_list [] lst with
-                | Some elems ->
-                    str "append(nil, " ++
-                    prlist_with_sep (fun () -> str ", ")
-                      (pp_expr state env) elems ++
-                    str ")"
+                | Some _ ->
+                    unsupported "a non-empty list literal in value position — `append(nil, …)` is invalid Go (append needs a TYPED slice, not untyped `nil`) and the element type is erased; use `slice_of_list <tag> [v1; …]` (carries the element type → a typed `[]T{…}`)"
                 | None when is_list_cons r ->
                     unsupported "a list with a non-literal spine (cons whose tail is not statically known)"
                 | None ->
