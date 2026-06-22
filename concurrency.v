@@ -5370,3 +5370,79 @@ Qed.
     first-order [pair_step], no dependent elimination): [dual_pair_progress] /
     [dual_pair_stuck_iff_done] are Closed under the global context (FULLY axiom-free
     — no PrimInt63/PrimFloat, no funext, no Eqdep/UIP).  Verified by [Print Assumptions]. *)
+
+(** ** Session LIVENESS — a dual pair runs deterministically to completion.
+
+    Brick 3 gave single-step progress (a dual pair can always step until done).
+    This brick gives the WHOLE-RUN story: the synchronized reduction is
+    DETERMINISTIC (no divergent choice) and TERMINATES at [(PEnd, PEnd)] — every
+    well-typed session pair runs to completion in finitely many matched steps and
+    halts at the unique stuck state (brick 3).  Together bricks 1–4 are the full
+    session-types safety+liveness theory for the forge-proof [PSess]: SOUNDNESS (1),
+    COMMUNICATION SAFETY (2), PROGRESS / deadlock-freedom (3), TERMINATION +
+    DETERMINISM (4).  A real foundation note: a FAITHFUL real-channel denotation
+    ([PSess] → [builtins] [IO] over a [GoChan]) is blocked — a heterogeneous session
+    channel needs [GoChan GoAny] but [GoTypeTag GoAny] is universe-inconsistent
+    (builtins.v), the same idealisation that forces [run_sess = ret tt]; the
+    remaining extraction-soundness step is therefore the plugin MIGRATION, not a
+    Rocq denotation.  Brick 4 of the R9 deeper fix, still pure-protocol. *)
+
+(** Reflexive-transitive closure of [pair_step]: a whole synchronized run. *)
+Inductive pair_steps : Proto * Proto -> Proto * Proto -> Prop :=
+  | pss_refl : forall st, pair_steps st st
+  | pss_step : forall st1 st2 st3,
+      pair_step st1 st2 -> pair_steps st2 st3 -> pair_steps st1 st3.
+
+(** TERMINATION: every dual pair reduces to the finished state [(PEnd, PEnd)] — the
+    session always runs to completion (no infinite communication, no premature
+    stop).  [proto_steps]'s length is the exact number of matched steps. *)
+Theorem dual_pair_terminates : forall P : Proto,
+  pair_steps (P, dual P) (PEnd, PEnd).
+Proof.
+  induction P as [A P' IH | A P' IH | ]; simpl.
+  - eapply pss_step; [ apply ps_send | exact IH ].
+  - eapply pss_step; [ apply ps_recv | exact IH ].
+  - apply pss_refl.
+Qed.
+
+(** DETERMINISM: from a dual pair the next step is UNIQUE — [P]'s head fixes which
+    endpoint sends and which receives, so the run cannot branch or diverge. *)
+Lemma dual_pair_step_deterministic : forall P st1 st2,
+  pair_step (P, dual P) st1 -> pair_step (P, dual P) st2 -> st1 = st2.
+Proof.
+  intros P st1 st2 H1 H2. destruct P as [A P' | A P' | ]; simpl in H1, H2.
+  - inversion H1; subst; inversion H2; subst; reflexivity.
+  - inversion H1; subst; inversion H2; subst; reflexivity.
+  - inversion H1.
+Qed.
+
+(** Concrete bidirectional witness (exercises [PSRecv], unlike brick 1's send-only
+    example): a ping-pong protocol — send an [int64], receive one back. *)
+Definition pingpong : Proto := builtins.PSend GoI64 (builtins.PRecv GoI64 PEnd).
+
+Definition pingpong_client : PSess pingpong PEnd unit :=
+  PSBind (PSSend (zero_val TI64))
+         (fun _ => PSBind (PSRecv TI64) (fun _ => PSRet tt)).
+
+(** The client's trace is EXACTLY the protocol [send int64; recv int64] … *)
+Example pingpong_client_emits : PEmits pingpong_client (proto_steps pingpong).
+Proof.
+  unfold pingpong_client, pingpong. cbn [proto_steps].
+  change (PKSend GoI64 :: PKRecv GoI64 :: nil)
+    with ((PKSend GoI64 :: nil) ++ ((PKRecv GoI64 :: nil) ++ @nil StepKind)).
+  eapply EmitBind with (a := tt).
+  - apply EmitSend.
+  - eapply EmitBind with (a := zero_val TI64).
+    + apply EmitRecv.
+    + apply EmitRet.
+Qed.
+
+(** … and the full dual pair runs to completion. *)
+Example pingpong_terminates : pair_steps (pingpong, dual pingpong) (PEnd, PEnd).
+Proof. apply dual_pair_terminates. Qed.
+
+(** Trust base — [dual_pair_terminates] / [dual_pair_step_deterministic] are pure
+    [Proto] algebra (induction / destruct + [inversion] on the first-order
+    [pair_step]): Closed under the global context, FULLY axiom-free.  The pingpong
+    witnesses pull only the PrimInt63/PrimFloat substrate (via [GoI64]/[TI64]).
+    No funext, no Eqdep/UIP.  Verified by [Print Assumptions]. *)

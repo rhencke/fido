@@ -722,10 +722,19 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    (matched `PSend A`/`PRecv A` cancel), `dual_pair_progress` (a dual pair is both-finished OR can take a matched
    step, and the stepped pair stays dual = PRESERVATION+PROGRESS) + `dual_pair_stuck_iff_done` (the ONLY stuck dual
    pair is `(PEnd,PEnd)` = DEADLOCK-FREEDOM). Both fully Closed-under-global-context (axiom-free). So the protocol-
-   safety theory is complete: soundness (1) + communication safety (2) + progress/deadlock-freedom (3). Remaining
-   bricks (the harder extraction bridge, explicitly NOT skipped): denote `PSess` into the `builtins.v` channel `IO`
-   over real channels (the `PSBind` `k a` guard issue needs a relational denotation or protocol-size measure), then
-   migrate the extracted `Sess` onto `PSess` (then `MkSess` retires).
+   safety theory is complete. **Brick 4 (2026-06-22): session LIVENESS** — `pair_steps` (RTC of `pair_step`),
+   `dual_pair_terminates` (every dual pair runs to completion at `(PEnd,PEnd)` — no infinite communication, no
+   premature stop) + `dual_pair_step_deterministic` (the run is deterministic, no divergent choice). Both fully
+   Closed-under-global-context. Plus a concrete bidirectional `pingpong` witness (`PSend GoI64 (PRecv GoI64 PEnd)`)
+   exercising `PSRecv`: its client's trace = the protocol, and the pair terminates. **So the model-layer session
+   theory is COMPLETE: soundness (1) + communication safety (2) + progress/deadlock-freedom (3) + termination/
+   determinism (4)** — the full session-types safety+liveness story for a forge-proof type.
+   FINDING (foundation): a FAITHFUL real-channel Rocq denotation (`PSess` → `IO` over a `GoChan`) is BLOCKED — a
+   heterogeneous session channel needs `GoChan GoAny` but `GoTypeTag GoAny` is universe-inconsistent (builtins.v:489),
+   the SAME idealisation that forces `run_sess = ret tt`. So the one remaining extraction-soundness step is the
+   plugin MIGRATION (replace the extracted `Sess` RECORD with the `PSess` INDUCTIVE so the extracted type is
+   forge-proof too; the run stays plugin-lowered/idealised) — a golden-affecting plugin change, the deep next step
+   (best on fresh context), explicitly NOT skipped.
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
