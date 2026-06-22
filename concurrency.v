@@ -1730,6 +1730,26 @@ Proof.
   exact (proj2 (private_disc_reachable_race_free (fun _ => 0) cursed_spawn_init cfg cursed_spawn_disc Hsteps)).
 Qed.
 
+(* GENERAL CAPSTONE of the memory-free line: a program in which EVERY goroutine is [MemFree] — a pure
+   channel/spawn program with NO shared memory at all — is race-free for EVERY reachable interleaving,
+   for ANY number of goroutines and ANY (dynamic) spawning, regardless of channel topology (self-sending
+   channels, channels-in-structs, …  none of which is memory).  A memory-free program is [OnlyAcc] for
+   EVERY owner ([memfree_onlyacc]), so [PrivateDisc] holds trivially (any [own] works); race-freedom then
+   follows from the discipline.  This is the general statement the specific witnesses above instantiate. *)
+Theorem memfree_prog_race_free : forall cfg0 cfg,
+  rc_trace cfg0 = [] ->
+  (forall g, MemFree (rc_prog cfg0 g)) ->
+  rsteps cfg0 cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg0 cfg Htr0 Hmf Hsteps.
+  assert (HPD : PrivateDisc (fun _ => 0) cfg0).
+  { split.
+    - intros i l Hacc. rewrite Htr0 in Hacc. unfold acc_loc_at in Hacc.
+      destruct i; cbn in Hacc; discriminate.
+    - intros g _. apply (memfree_onlyacc _ (Hmf g)). }
+  exact (proj2 (private_disc_reachable_race_free (fun _ => 0) cfg0 cfg HPD Hsteps)).
+Qed.
+
 (** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
     [fork_handoff_trace] / [fork_handoff_race_free] (defined way above) were HAND-BUILT traces:
     we asserted the events and proved the fork edge made the write/read non-racy.  Now that
