@@ -820,6 +820,17 @@ any "verified" claim.
     with no validation (continuation prefixes, overlong, surrogates, >MaxRune, invalid leads).  `0x80
     0x41` → one 2-byte seq → `U+0001`; Go → `U+FFFD` then `A`.  `rune_bytes` emits surrogates/out-of-range
     directly (Go substitutes `U+FFFD`).  Golden tests only exercise VALID input.
+    **→ DECODER RESOLVED (2026-06-22, golden byte-identical).**  `str_to_runes` is now a FAITHFUL Go
+    `utf8.DecodeRune`: an invalid sequence yields `RuneError` (U+FFFD) and advances exactly ONE byte,
+    rejecting cont-as-lead (0x80–0xBF), overlong-2 (0xC0/0xC1), bad/missing continuations, overlong-3/4
+    (0xE0 c1<0xA0, 0xF0 c1<0x90), surrogates (0xED c1≥0xA0), >MaxRune (0xF4 c1≥0x90), and leads ≥0xF5
+    (full accept-range table, structural recursion = advance-1 on error).  Body is proof-only (lowers by
+    name to native `[]rune(s)` which does the same), so the fix only corrects the MODEL; golden unaffected.
+    Witnesses: `utf8_cont_as_lead`/`utf8_overlong_2`/`utf8_surrogate`/`utf8_truncated_2` (invalid → U+FFFD)
+    + `utf8_valid_2byte` and the existing round-trips (valid still decodes).  PrimInt63 base (helpers inlined
+    as local `let`s so the unsigned `ltb`/`leb` stay in the suppressed body, never extracted).
+    *(`rune_bytes` ENCODER substituting U+FFFD for surrogates/out-of-range is a smaller remaining model
+    gap — the native `string(rs)` does it; tracked.)*
 
 **Overclaimed labels on true theorems (re-scope the words, the proofs are fine):**
 - "full/whole state refinement" — `WMatchC` compares only buffers (not closed-state/cap/nil); on close

@@ -3526,43 +3526,87 @@ Definition str_slice (s : GoString) (a b : nat)
     UTF-8 codec.  [byte_chr] is a byte value → [ascii]; the codec is verified by the
     round-trip examples (ASCII and a 3-byte CJK code point). *)
 Definition byte_chr (v : int) : ascii := byte_ascii (u8wrap v).
+
+(** Break #10: [str_to_runes] is now a FAITHFUL UTF-8 decoder — exactly Go's [utf8.DecodeRune] /
+    range-over-string.  An invalid sequence yields [RuneError] (U+FFFD) and advances by exactly ONE byte
+    (NOT the would-be width), rejecting: continuation bytes used as leads (0x80–0xBF), overlong 2-byte
+    (0xC0/0xC1), missing/bad continuation bytes, overlong 3/4-byte (0xE0 with c1<0xA0; 0xF0 with c1<0x90),
+    UTF-16 surrogates (0xED with c1≥0xA0), >MaxRune (0xF4 with c1≥0x90), and invalid leads ≥0xF5.  The body
+    is proof-only (lowered by name to native [[]rune(s)], which does the same), so this only corrects the
+    MODEL to match Go; golden is unaffected. *)
 Fixpoint str_to_runes (s : GoString) : list GoI32 :=
   match s with
   | EmptyString => nil
   | String c0 r0 =>
+      (* [rerr]/[isc] are LOCAL (not top-level Definitions): the whole body is suppressed and lowered by
+         name to native [[]rune(s)], so the unsigned [ltb]/[leb] here are proof-only and never extracted. *)
+      let rerr := i32wrap 65533%uint63 in              (* U+FFFD *)
+      let isc  := fun v => andb (PrimInt63.leb 128%uint63 v) (PrimInt63.ltb v 192%uint63) in  (* cont byte 0x80–0xBF *)
       let v0 := u8raw (ascii_byte c0) in
-      if PrimInt63.ltb v0 128%uint63 then            (* 1-byte: ASCII *)
+      if PrimInt63.ltb v0 128%uint63 then              (* 1-byte: ASCII 0x00–0x7F *)
         i32wrap v0 :: str_to_runes r0
-      else if PrimInt63.ltb v0 224%uint63 then        (* 2-byte: 0xC0–0xDF *)
+      else if PrimInt63.ltb v0 194%uint63 then         (* 0x80–0xC1: cont-as-lead OR overlong-2 → error *)
+        rerr :: str_to_runes r0
+      else if PrimInt63.ltb v0 224%uint63 then         (* 0xC2–0xDF: 2-byte (result ≥ 0x80, non-overlong) *)
         match r0 with
         | String c1 r1 =>
             let v1 := u8raw (ascii_byte c1) in
-            i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
-                                 (PrimInt63.land v1 63%uint63)) :: str_to_runes r1
-        | EmptyString => i32wrap 65533%uint63 :: nil    (* truncated → U+FFFD *)
+            if isc v1 then
+              i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
+                                     (PrimInt63.land v1 63%uint63)) :: str_to_runes r1
+            else rerr :: str_to_runes r0               (* bad continuation → error, advance 1 *)
+        | EmptyString => rerr :: nil                   (* truncated *)
         end
-      else if PrimInt63.ltb v0 240%uint63 then        (* 3-byte: 0xE0–0xEF *)
+      else if PrimInt63.ltb v0 240%uint63 then         (* 0xE0–0xEF: 3-byte *)
         match r0 with
-        | String c1 (String c2 r2) =>
-            let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
-            i32wrap (PrimInt63.lor (PrimInt63.lor
-                     (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
-                     (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
-                     (PrimInt63.land v2 63%uint63)) :: str_to_runes r2
-        | _ => i32wrap 65533%uint63 :: nil
+        | String c1 r1' =>
+            let v1 := u8raw (ascii_byte c1) in
+            let v1ok :=                                 (* accept-range: 0xE0→[0xA0,0xBF] (overlong); 0xED→[0x80,0x9F] (surrogate) *)
+              if PrimInt63.eqb v0 224%uint63 then andb (PrimInt63.leb 160%uint63 v1) (PrimInt63.ltb v1 192%uint63)
+              else if PrimInt63.eqb v0 237%uint63 then andb (PrimInt63.leb 128%uint63 v1) (PrimInt63.ltb v1 160%uint63)
+              else isc v1 in
+            match r1' with
+            | String c2 r2 =>
+                let v2 := u8raw (ascii_byte c2) in
+                if andb v1ok (isc v2) then
+                  i32wrap (PrimInt63.lor (PrimInt63.lor
+                           (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
+                           (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
+                           (PrimInt63.land v2 63%uint63)) :: str_to_runes r2
+                else rerr :: str_to_runes r0
+            | EmptyString => rerr :: str_to_runes r0
+            end
+        | EmptyString => rerr :: nil
         end
-      else                                            (* 4-byte: 0xF0+ *)
+      else if PrimInt63.ltb v0 245%uint63 then         (* 0xF0–0xF4: 4-byte *)
         match r0 with
-        | String c1 (String c2 (String c3 r3)) =>
-            let v1 := u8raw (ascii_byte c1) in let v2 := u8raw (ascii_byte c2) in
-            let v3 := u8raw (ascii_byte c3) in
-            i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
-                     (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
-                     (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
-                     (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
-                     (PrimInt63.land v3 63%uint63)) :: str_to_runes r3
-        | _ => i32wrap 65533%uint63 :: nil
+        | String c1 r1' =>
+            let v1 := u8raw (ascii_byte c1) in
+            let v1ok :=                                 (* accept-range: 0xF0→[0x90,0xBF] (overlong); 0xF4→[0x80,0x8F] (>MaxRune) *)
+              if PrimInt63.eqb v0 240%uint63 then andb (PrimInt63.leb 144%uint63 v1) (PrimInt63.ltb v1 192%uint63)
+              else if PrimInt63.eqb v0 244%uint63 then andb (PrimInt63.leb 128%uint63 v1) (PrimInt63.ltb v1 144%uint63)
+              else isc v1 in
+            match r1' with
+            | String c2 r2' =>
+                let v2 := u8raw (ascii_byte c2) in
+                match r2' with
+                | String c3 r3 =>
+                    let v3 := u8raw (ascii_byte c3) in
+                    if andb v1ok (andb (isc v2) (isc v3)) then
+                      i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
+                               (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
+                               (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
+                               (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
+                               (PrimInt63.land v3 63%uint63)) :: str_to_runes r3
+                    else rerr :: str_to_runes r0
+                | EmptyString => rerr :: str_to_runes r0
+                end
+            | EmptyString => rerr :: str_to_runes r0
+            end
+        | EmptyString => rerr :: nil
         end
+      else                                             (* 0xF5–0xFF: invalid lead → error *)
+        rerr :: str_to_runes r0
   end.
 Definition rune_bytes (r : GoI32) : GoString :=
   let c := i32raw r in
@@ -3594,6 +3638,27 @@ Example rune_roundtrip_ascii :
 Proof. vm_compute. reflexivity. Qed.
 Example rune_roundtrip_cjk :
   str_to_runes (runes_to_str (i32wrap 20013%uint63 :: nil)) = i32wrap 20013%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+
+(** Break #10 witnesses (machine-checked): INVALID UTF-8 now decodes to U+FFFD (65533) per offending
+    byte, advancing ONE byte — exactly Go's [utf8.DecodeRune].  (Before the fix these produced bogus
+    code points or swallowed bytes.)  [byte_chr v] is the byte with value [v]. *)
+Example utf8_cont_as_lead :                  (* lone continuation 0x80 — not a valid lead → one U+FFFD *)
+  str_to_runes (String (byte_chr 128%uint63) EmptyString) = i32wrap 65533%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Example utf8_overlong_2 :                     (* 0xC0 0x80 (overlong NUL): 0xC0 bad lead, 0x80 cont → two U+FFFD *)
+  str_to_runes (String (byte_chr 192%uint63) (String (byte_chr 128%uint63) EmptyString))
+    = i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Example utf8_surrogate :                      (* 0xED 0xA0 0x80 (would be U+D800, a UTF-16 surrogate) → three U+FFFD *)
+  str_to_runes (String (byte_chr 237%uint63) (String (byte_chr 160%uint63) (String (byte_chr 128%uint63) EmptyString)))
+    = i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Example utf8_truncated_2 :                     (* 0xC2 with no continuation → one U+FFFD *)
+  str_to_runes (String (byte_chr 194%uint63) EmptyString) = i32wrap 65533%uint63 :: nil.
+Proof. vm_compute. reflexivity. Qed.
+Example utf8_valid_2byte :                     (* 0xC2 0xA9 = U+00A9 (©) still decodes correctly *)
+  str_to_runes (String (byte_chr 194%uint63) (String (byte_chr 169%uint63) EmptyString)) = i32wrap 169%uint63 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 
 (** Single rune → string (Go's [string(rune)]): the 1-code-point UTF-8 string.  Reuses the
