@@ -742,9 +742,12 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    refs and the plugin's by-operation-name lowering fires UNCHANGED (emitted Go identical). `Sess` erases by name so
    the inductive erases like the record. **No plugin change needed.** Regression lock `Fail Definition bad_forge :
    Sess PingPong PEnd unit := MkSess (ret tt)` (main.v) — `MkSess` no longer exists ⇒ the forgery is UNTYPABLE (the
-   build passing proves the `Fail` succeeds). So R9 is closed at BOTH layers: the extracted type is forge-proof, and
-   the isomorphic `PSess` carries the safety+liveness theory. REMAINING (cleanup, not soundness): `PSess`↔`Sess`
-   unification (make the theory literally about `builtins.Sess`, removing the redundant inductive).
+   build passing proves the `Fail` succeeds). **✅ UNIFIED (commit c2108b2, golden byte-identical):** the redundant
+   `PSess` inductive in concurrency.v is gone — `PSess`/`PS…` are now ABBREVIATIONS for `builtins.Sess`/`S…`, so
+   bricks 1–5 are proved DIRECTLY about the extracted type (no isomorphic-but-separate gap). **R9 is FULLY CLOSED:
+   the emitted `Sess` is forge-proof and its complete safety+liveness theory is proved about that very type.** The
+   only residual is the documented idealisation (the channel `run` stays plugin-lowered, `GoTypeTag GoAny` universe
+   block) — principled, not a hole.
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
