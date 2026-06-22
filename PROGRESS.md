@@ -192,10 +192,15 @@ unmodelled callbacks.
   So the recursive TYPE gets a finite tag that round-trips through `tag_eq` (`tlistnode_tag_refl` /
   `tlistnode_selfptr_refl`, both `reflexivity`, assumptions = just `int : Set`), `*ListNode` cells
   live in the typed heap, and `linked_list_demo` heap-allocates + pointer-chains + TRAVERSES a real
-  3-node singly-linked list → `1 2 3`. REMAINING gap (genericity): each named recursive type needs
-  its own nullary tag constructor in builtins.v (Rocq inductives are closed — main.v can't extend
-  `GoTypeTag`); a user-defined recursive struct getting a tag automatically needs a named-type
-  registry / plugin pass (deferred). `type C chan C` is the same tag (done) + payload semantics.
+  3-node singly-linked list → `1 2 3`. The SAME crack extends through a CHANNEL (2026-06-22):
+  `Inductive ChanBox := MkChanBox { cb_id ; cb_chan : GoChan ChanBox }` = `type ChanBox struct { Id
+  int64; Ch chan ChanBox }` with nullary tag `TChanBox` (the channel-of-itself tag is the finite
+  `TChan TChanBox`) — so `chanbox_demo` makes a `chan ChanBox`, a goroutine sends `ChanBox{42, c}`
+  whose `Ch` field IS `c`, main receives it → `42`. **"A CHANNEL THAT SENDS ITSELF", realized,
+  axiom-free** (the explicitly-named north-star horror; `tchanbox_*_refl` rest on `int : Set`).
+  REMAINING gap (genericity): each named recursive type needs its own nullary tag constructor in
+  builtins.v (Rocq inductives are closed — main.v can't extend `GoTypeTag`); a user-defined recursive
+  struct getting a tag automatically needs a named-type registry / plugin pass (deferred).
   (2) VERIFIED SAFETY on
   the cursed program (race/deadlock-freedom on the TYPED program) = limit #2 (in progress) + the
   deadlock/session theory. The safety half is what makes it LAND — without it the demo merely

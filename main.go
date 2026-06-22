@@ -51,6 +51,11 @@ type ListNode struct {
 	Ln_next *ListNode
 }
 
+type ChanBox struct {
+	Cb_id   int64
+	Cb_chan chan ChanBox
+}
+
 func I64_abs(a int64) int64 {
 	if a < 0 {
 		return 0 - a
@@ -1066,6 +1071,15 @@ func Linked_list_demo() {
 	n2 := *(n1.Ln_next)
 	n3 := *(n2.Ln_next)
 	println(n1.Ln_val, n2.Ln_val, n3.Ln_val)
+}
+
+func Chanbox_demo() {
+	c := make(chan ChanBox)
+	go func() {
+		c <- ChanBox{Cb_id: 42, Cb_chan: c}
+	}()
+	v := <-c
+	println(v.Cb_id)
 }
 
 func Slice_alias_demo() {
@@ -2166,6 +2180,7 @@ func main() {
 	Chan_of_chan_demo()
 	Pool_demo()
 	Linked_list_demo()
+	Chanbox_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()

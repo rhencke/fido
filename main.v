@@ -1740,6 +1740,19 @@ Definition linked_list_demo : IO unit :=
   n3 <-' ptr_get TListNode (ln_next n2) ;;                          (* *(p2.Next) — follow again    *)
   println [any (ln_val n1) ; any (ln_val n2) ; any (ln_val n3)].    (* prints: 1 2 3 *)
 
+(** "A CHANNEL THAT SENDS ITSELF" — the north-star horror, realized.  [ChanBox] (builtins.v) is
+    [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
+    [Ch] field IS that very channel, so the channel transmits a value containing ITSELF.  (Stronger than
+    [chan_of_chan_demo]'s [chan chan int64], where the element is a DIFFERENT type — here the element type
+    contains the channel's own type.)  Recursion through the tag-free phantom [GoChan] + the NULLARY
+    nominal tag [TChanBox] (finite; the channel-of-itself tag is the finite [TChan TChanBox]).  A goroutine
+    sends the self-box; main receives it and reads the id — race/closed/panic-free, yet self-sending. *)
+Definition chanbox_demo : IO unit :=
+  c <-' make_chan TChanBox ;;                            (* c : chan ChanBox                                    *)
+  go_spawn (send TChanBox c (MkChanBox (42)%i64 c)) >>' (* goroutine: c <- ChanBox{42, c} — the channel sends ITSELF *)
+  ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
+    println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2817,6 +2830,7 @@ Definition main_effect : IO unit :=
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
+  chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

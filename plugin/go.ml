@@ -525,6 +525,9 @@ let go_type_tag_map = [
      [go_type_of_tag TListNode = "ListNode"] and [go_type_of_tag (TPtr TListNode) = "*ListNode"];
      [ptr_new TListNode v] thus emits [func(_v ListNode) *ListNode { return &_v }(v)]. *)
   "TListNode", "ListNode";
+  (* RECURSIVE-through-channel struct (builtins.v [ChanBox], "sends itself") — so [go_type_of_tag
+     (TChan TChanBox) = "chan ChanBox"] and [make_chan TChanBox] emits [make(chan ChanBox)]. *)
+  "TChanBox", "ChanBox";
 ]
 
 (** Primitive tag lookup — basename only, no recursion. *)

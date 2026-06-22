@@ -446,6 +446,15 @@ channel/heap World frames), so it is not only race-free but COMPUTES the right v
 multi-goroutine ADEQUACY composing the per-goroutine denotations (2b) with the interleaved `rstep`
 execution (2a) — the one closed end-to-end theorem.  (N-goroutine generality of the GUARANTEE is already
 `reachable_owned_safe_r`, over arbitrary programs + all schedules; the witnesses are instances.)
+**SELF-REFERENTIAL channel type DONE (2026-06-22):** a channel can carry a value of a type that
+contains the channel's own type — "channels that send themselves".  `Inductive ChanBox := MkChanBox
+{ cb_id : GoI64 ; cb_chan : GoChan ChanBox }` = `type ChanBox struct { Id int64; Ch chan ChanBox }`
+(recursion through the TAG-FREE phantom `GoChan` ⇒ vacuously positive; nullary nominal tag `TChanBox`,
+the channel-of-itself tag being the finite `TChan TChanBox`).  `chanbox_demo` makes a `chan ChanBox`,
+a goroutine sends `ChanBox{42, c}` whose `Ch` field IS `c`, main receives → `42`.  Stronger than
+`chan_of_chan_demo`'s `chan chan int64` (element is a *different* type); here the element type contains
+the channel's own type.  The channel read-after-write at `chan ChanBox` is the existing `chan_buf_write_same`
+theorem (via `tag_eq_refl`), so no new proof obligation; axiom-free (`tchanbox_*_refl` rest on `int : Set`).
 
 ## Expressions — operators
 
