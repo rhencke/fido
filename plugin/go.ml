@@ -506,14 +506,12 @@ let go_type_tag_map = [
   "TFloat64", "float64";
   "TString",  "string";
   "TInt",     "int";
-  "TInt8",    "int8";
-  "TInt16",   "int16";
-  "TInt32",   "int32";
   "TUint",    "uint";
-  "TUint8",   "uint8";
-  "TUint16",  "uint16";
-  "TUint32",  "uint32";
-  "TUint64",  "uint64";
+  (* canonical Squash-sealed fixed-width family — one tag per Go type (7a retired the
+     bare-int duplicates TInt8/…/TUint64; their dead map entries are dropped here). *)
+  "TU8",   "uint8";  "TI8",  "int8";
+  "TU16",  "uint16"; "TI16", "int16";
+  "TU32",  "uint32"; "TI32", "int32";
   "TI64",     "int64";    (* full-width Z-carried int64 (GoI64) *)
   "TU64",     "uint64";   (* full-width Z-carried uint64 (GoU64) *)
   "TFloat32", "float32";
@@ -807,6 +805,37 @@ let parse_fixed_width n =
   end
 let fixed_width_op r = if from_builtins r then parse_fixed_width (global_basename r) else None
 let fw_is r op = match fixed_width_op r with Some (_, _, o) -> String.equal o op | None -> false
+
+(* Break #7 — faithful narrow interface identity.  The sub-64-bit numeric narrows
+   (GoU8…GoI32) are int64-CARRIED for arithmetic so the masked ops constant-FOLD cleanly
+   (native [uint8(200)+uint8(100)] would be a Go constant-overflow error — Go does not wrap
+   constant arithmetic).  But a boxed value's FAITHFUL Go dynamic type is its real narrow
+   type: a boxed [GoU8] must answer [v.(uint8)], not [v.(int64)] — else [tag_eq] distinguishes
+   what Go cannot.  The [any] tag is resolved through the [Tagged] class and its type index is
+   ERASED in extraction (unrecoverable from the term), so we read the width from the PAYLOAD's
+   head op: a value built by a fixed-width VALUE op (u8_add/u8_lit/u8_of_i64/…, NOT the bool
+   predicates ltb/leb/eqb/gtb/geb/neqb) IS that narrow type, and is converted to it at the box
+   ([uint8(x)] / [int8(x)] / …).  Sub-64-typed GLOBALS / vars (e.g. [uc_100_u8 : GoU8]) are
+   already rendered at their real Go type by [pp_type], so they box faithfully on their own. *)
+let fw_value_type r =
+  match fixed_width_op r with
+  | Some (signed, width, op)
+    when width <= 32 &&
+         not (List.mem op ["ltb"; "leb"; "eqb"; "gtb"; "geb"; "neqb"]) ->
+      Some (Printf.sprintf "%s%d" (if signed then "int" else "uint") width)
+  | _ -> None
+(* Head constructor / global ref of a payload value term — peeling the [MLmagic]
+   coercions extraction wraps around an [existT] payload (its value type is erased). *)
+let rec payload_head t =
+  match t with
+  | MLmagic e        -> payload_head e
+  | MLglob r         -> Some r
+  | MLcons (_, r, _) -> Some r
+  | MLapp (f, _)     -> payload_head f
+  | _                -> None
+(* [Some "uint8"] when [any]-wrapped [e] boxes a value produced by a sub-64 narrow op. *)
+let any_narrow_conv e =
+  Option.bind (payload_head (any_payload e)) fw_value_type
 
 (* Emit the width-[w] wrap of [inner]: mask to [w] bits (Go [& 0x..]); for a
    SIGNED width, additionally sign-extend via [(m ^ 2^(w-1)) - 2^(w-1)].  Matches
@@ -1661,7 +1690,12 @@ let rec pp_expr state env = function
        (* print/println(list GoAny) — unfold list, strip existT wrappers *)
        | MLglob r, [lst] when is_print_ref r || is_println_ref r ->
            let fname = global_basename r in
-           let pp_pa e = pp_expr state env (any_payload e) in
+           let pp_pa e =
+             let v = pp_expr state env (any_payload e) in
+             match any_narrow_conv e with
+             | Some gt -> str (gt ^ "(") ++ v ++ str ")"
+             | None    -> v
+           in
            (match unfold_list [] lst with
             | Some pargs ->
                 str (fname ^ "(") ++
@@ -2043,8 +2077,13 @@ let rec pp_expr state env = function
            | MLcons (_, r, []) when is_enum_ctor r  -> str (go_export (global_basename r))
            (* [any v] (existT) in value position → its payload [v], which Go boxes to
               [any] from the surrounding context (a func arg / slot of interface type).
-              [any_payload] strips the existT (and any nested pair) to the value. *)
-           | MLcons (_, r, _) when is_existT_ref r -> pp_expr state env (any_payload e)
+              [any_payload] strips the existT (and any nested pair) to the value; a sub-64
+              narrow payload is converted to its real Go type at this boundary (break #7). *)
+           | MLcons (_, r, _) when is_existT_ref r ->
+               let v = pp_expr state env (any_payload e) in
+               (match any_narrow_conv e with
+                | Some gt -> str (gt ^ "(") ++ v ++ str ")"
+                | None    -> v)
            (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
            | MLcons (_, r, [v]) when is_numint_ctor r -> pp_expr state env v
            (* GoFloat32 constructor [mkF32 v] → [v] (the proof field is erased; the carrier
