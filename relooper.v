@@ -551,6 +551,63 @@ Proof.
         eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E2 | apply se_break].
 Qed.
 
+(** ── The LOOP-AWARE relooper as a FUNCTION (the acyclic [reloop] refused back-edges) — gap #10's #1
+    open item, FIRST SLICE.  Given a SINGLE loop with header [hdr] and exit block [exit], [reloop_loop]
+    emits [LLoop body ; after] where [reloop_b] relooper the loop BODY treating a back-edge to [hdr] as
+    FALL-THROUGH (the [LLoop] then iterates) and the [exit] block as [LBreak], and [after] is the acyclic
+    relooping of the exit (lifted into the loop language).  This is the loop analogue of
+    [diamond_reloop_correct]: the FUNCTION computes the canonical while-loop's lowering, certified correct
+    here on [whileCFG] via [while_realized].  (GENERAL soundness — [reloop_loop] correct for ANY
+    single-loop CFG — generalises [while_realized] to the algorithm's output; the next slice.  Multi-level
+    loops need labelled break, which [seval]'s nearest-only [LBreak] lacks — so single-loop is the clean
+    scope.) *)
+Fixpoint lift (S : Stmt) : Stmt2 :=
+  match S with
+  | SBody f   => LBody f
+  | SSeq a b  => LSeq (lift a) (lift b)
+  | SIf c a b => LIf c (lift a) (lift b)
+  end.
+
+Fixpoint reloop_b (hdr exit : nat) (fuel : nat) (g : CFG) (l : nat) : option Stmt2 :=
+  match fuel with
+  | 0 => None
+  | S fuel' =>
+      if Nat.eqb l exit then Some LBreak
+      else match blk_term (g l) with
+           | TRet => None   (* a return INSIDE the loop body: [seval] has no return, refuse (honest) *)
+           | TGoto l' =>
+               if Nat.eqb l' hdr
+               then Some (LBody (blk_body (g l)))   (* back-edge to header: run body, then the LLoop iterates *)
+               else option_map (fun S => LSeq (LBody (blk_body (g l))) S) (reloop_b hdr exit fuel' g l')
+           | TIf c a b =>
+               match reloop_b hdr exit fuel' g a, reloop_b hdr exit fuel' g b with
+               | Some Sa, Some Sb => Some (LSeq (LBody (blk_body (g l))) (LIf c Sa Sb))
+               | _, _ => None
+               end
+           end
+  end.
+
+Definition reloop_loop (hdr exit : nat) (fuel : nat) (g : CFG) : option Stmt2 :=
+  match reloop_b hdr exit fuel g hdr, reloop fuel g exit with
+  | Some body, Some aft => Some (LSeq (LLoop body) (lift aft))
+  | _, _ => None
+  end.
+
+(** The FUNCTION computes [whileCFG]'s loop lowering (by computation) — exactly [blockprog … 0]. *)
+Theorem whileCFG_reloop_loop : forall h f e c,
+  reloop_loop 0 2 5 (whileCFG h f e c) = Some (blockprog h f e c 0).
+Proof. intros. reflexivity. Qed.
+
+(** …and that lowering is CORRECT: every halting run of the while-CFG is reproduced by the structured
+    program the FUNCTION emits — the loop analogue of [diamond_reloop_correct]. *)
+Theorem whileCFG_reloop_loop_correct : forall h f e c s sf,
+  cfg_halts (whileCFG h f e c) 0 s sf ->
+  exists S, reloop_loop 0 2 5 (whileCFG h f e c) = Some S /\ seval S s sf Normal.
+Proof.
+  intros h f e c s sf H. exists (blockprog h f e c 0).
+  split; [apply whileCFG_reloop_loop | exact (while_realized h f e c 0 s sf H)].
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
