@@ -1349,6 +1349,17 @@ func Io_method_demo() {
 	p.Describe()
 }
 
+func (p Point) Px_then_sum() int64 {
+	println(p.Px)
+	return p.Px + p.Py
+}
+
+func Io_val_method_demo() {
+	p := Point{Px: 8, Py: 9}
+	s := p.Px_then_sum()
+	println(s)
+}
+
 func (a Point) Point_eqb(b Point) bool {
 	return Andb(a.Px == b.Px, a.Py == b.Py)
 }
@@ -2069,6 +2080,7 @@ func main() {
 	Method_expr_demo()
 	Multiret_demo()
 	Io_method_demo()
+	Io_val_method_demo()
 	Struct_eq_demo()
 	Struct_eq_native_demo()
 	Nested_struct_demo()

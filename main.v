@@ -2014,6 +2014,15 @@ Definition io_method_demo : IO unit :=
   let p := MkPoint (8)%i64 (9)%i64 in
   describe p.   (* prints: 8 / 9 *)
 
+(** A VALUE-returning IO method whose body is a BIND-CHAIN (an effect, then [ret v]) — not just
+    a single-expression tail.  [func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px+p.Py }]:
+    the leading [println] becomes a STATEMENT, the [ret] tail becomes [return …]. *)
+Definition px_then_sum (p : Point) : IO GoI64 :=
+  bind (println [any (px p)]) (fun _ => ret (i64_add (px p) (py p))).
+Definition io_val_method_demo : IO unit :=
+  let p := MkPoint (8)%i64 (9)%i64 in
+  bind (px_then_sum p) (fun s => println [any s]).   (* px_then_sum prints 8, returns 17; then prints 17 *)
+
 (** Struct COMPARABILITY (Go spec "Comparison operators": struct values are comparable
     if all fields are; [a == b] is FIELD-WISE).  [point_eqb] is exactly that field-wise
     comparison — it lowers via the existing [&&]/[==]/projection ops (no value-position
@@ -2705,6 +2714,7 @@ Definition main_effect : IO unit :=
   method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
   multiret_demo                 >>'   (* prints: 4 3 (multiple return values + destructure) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
+  io_val_method_demo            >>'   (* prints: 8 17 (value-returning IO method, bind-chain tail) *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)

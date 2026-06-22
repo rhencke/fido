@@ -360,9 +360,12 @@ Il_len() int { return len([]int64(l)) }`, `deftype_slice_demo` → `3`.  MAP und
 `type Counts map[string]int64`, ctor `Counts(m)`, projection cast `map[string]int64(c)`,
 with an IO-value method `func (c Counts) Co_size() int { return len(map[string]int64(c)) }` (lowers
 now that `pp_io_body` returns a value-returning IO tail), `gmap_deftype_demo` → `2`.  ✗ not yet:
-defined types used as map KEYS (the phantom breaks equality), `Module`-namespaced method names, defined
-types over a STRUCT underlying (mechanical), and IO-value methods whose tail is a BIND-chain (only the
-single-expression tail — `ret v` / clean read — is returned so far).
+defined types used as map KEYS (the phantom breaks equality), `Module`-namespaced method names, and defined
+types over a STRUCT underlying (the `GoTypeTag` phantom needs a tag for the named struct — the tag-system
+limit, not "mechanical").  **IO-value methods with a BIND-CHAIN tail DONE (2026-06-22):** `pp_io_body`'s
+`ret_val` path already emits the leading effects as STATEMENTS and the `ret` tail as `return …`, not just a
+single-expression tail — `func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px + p.Py }`
+(`io_val_method_demo` → `8 17`, golden-locked).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value
