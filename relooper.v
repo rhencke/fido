@@ -1222,6 +1222,51 @@ Proof.
       exists smid, m. split; [lia | split; [eapply rt_if; [exact Hlne2 | exact Ht | exact Hru] | exact Hres]].
 Qed.
 
+(** A [runs_to] already AT its target makes no step. *)
+Lemma runs_to_here_inv : forall g j s sf, runs_to g j j s sf -> sf = s.
+Proof. intros g j s sf H. inversion H; subst; [reflexivity | congruence | congruence]. Qed.
+
+(** ── The CONVERSE of [inner_split]: SPLICE a completed inner loop into an outer iteration's [runs_term]. ──
+    [inner_split] takes an outer-iteration [runs_term] and pulls the inner loop's completion OUT as a
+    [runs_to].  [inner_join] runs the other way: given the inner loop has completed ([runs_to g ie l s smid]
+    — control went from inner block [l] to the inner exit [ie]), it reconstructs the OUTER iteration's
+    [runs_term] across that span — traversing the inner region (each [runs_to] step becomes an outer
+    [rterm_goto]/[rterm_if]) and finishing with the [ie]→[h] BACK-EDGE ([rterm_back], one outer iteration).
+    [InnerClosed] keeps the path inside [P] (so no [rterm_back]/[rterm_exit] fires early), and the inner exit
+    [ie] back-edges to the outer header [h].  This is the piece needed to EXPRESS a nested outer iteration as
+    a [runs_term] — i.e. to build [Iterates]/[IteratesC] for a body wrapping an inner [LLoop], the path to
+    arbitrary-depth nesting. *)
+Lemma inner_join : forall g h e ie P,
+  InnerClosed g P ie -> P h = false -> P e = false -> P ie = false ->
+  ie <> e -> ie <> h -> blk_term (g ie) = TGoto h ->
+  forall l s smid, runs_to g ie l s smid -> P l = true ->
+  runs_term g h e l s (blk_body (g ie) smid) Normal.
+Proof.
+  intros g h e ie P Hclosed Ph Pe Pie Hiee Hieh Hiet l s smid Hrt.
+  induction Hrt as [ s | l l' s sf Hlne Ht Hr IH | l c a b s sf Hlne Ht Hr IH ]; intros Hl.
+  - (* rt_here: l = ie, impossible since P ie = false *)
+    rewrite Pie in Hl; discriminate.
+  - (* rt_goto: step to ie (fire the back-edge) or stay inner (recurse) *)
+    assert (Hle : l <> e) by (intro Heq; subst l; rewrite Pe in Hl; discriminate).
+    specialize (Hclosed l Hl); rewrite Ht in Hclosed. destruct Hclosed as [Hc | Hc].
+    + subst l'. pose proof (runs_to_here_inv g ie (blk_body (g l) s) sf Hr) as Hsm. subst sf.
+      eapply rterm_goto; [exact Hle | exact Ht | exact Hieh |].
+      apply rterm_back; [exact Hiee | exact Hiet].
+    + assert (Hl'h : l' <> h) by (intro Heq; subst l'; rewrite Ph in Hc; discriminate).
+      eapply rterm_goto; [exact Hle | exact Ht | exact Hl'h | exact (IH Hc)].
+  - (* rt_if: taken branch is ie (back-edge) or inner (recurse) *)
+    assert (Hle : l <> e) by (intro Heq; subst l; rewrite Pe in Hl; discriminate).
+    specialize (Hclosed l Hl); rewrite Ht in Hclosed. destruct Hclosed as [Ha Hb].
+    assert (Ht2 : (if c (blk_body (g l) s) then a else b) = ie
+                \/ P (if c (blk_body (g l) s) then a else b) = true)
+      by (destruct (c (blk_body (g l) s)); assumption).
+    destruct Ht2 as [Hc | Hc].
+    + rewrite Hc in Hr. pose proof (runs_to_here_inv g ie (blk_body (g l) s) sf Hr) as Hsm. subst sf.
+      eapply rterm_if; [exact Hle | exact Ht |]. rewrite Hc.
+      apply rterm_back; [exact Hiee | exact Hiet].
+    + eapply rterm_if; [exact Hle | exact Ht | exact (IH Hc)].
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
