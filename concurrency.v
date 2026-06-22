@@ -1416,10 +1416,27 @@ Qed.
     Discipline: a static owner map [own : loc -> tid] gives each location ONE owner, and
     every goroutine's program only ever reads/writes locations IT owns ([OnlyAcc]).  Then
     no two goroutines ever touch one location, so every reachable trace is [LocPrivate] —
-    hence [Owned], hence race-free — for ANY number of goroutines.  [OnlyAcc] has NO spawn
-    case, so disciplined programs are spawn-free (a STATIC goroutine set); ownership-SPLIT
-    on spawn and ownership-TRANSFER on send→recv are the NEXT bricks (this is the no-transfer
-    base).  Proof-only (concurrency.v emits no Go). *)
+    hence [Owned], hence race-free — for ANY number of goroutines.  Spawn is admitted for a
+    MEMORY-FREE child ([OA_spawn] + [MemFree] below): a channel-only goroutine touches no heap,
+    so it owns nothing and cannot race — DYNAMIC [CSpawn] of such a child preserves the discipline
+    (the bounded first step past the spawn-free base).  Ownership-SPLIT (a child that inherits SOME
+    of the parent's locations) and ownership-TRANSFER on send→recv remain the next bricks.
+    Proof-only (concurrency.v emits no Go). *)
+
+(* A [MemFree] command touches NO shared memory — only channels (send/recv/select/close), spawn of
+   further memory-free children, and return.  A memory-free goroutine is vacuously [OnlyAcc P] for ANY
+   owner [P] ([memfree_onlyacc]), so the private-memory discipline can admit its DYNAMIC spawn without a
+   dynamic owner map (the channel-relay goroutines of the cursed demo are exactly this shape). *)
+Inductive MemFree : Cmd -> Prop :=
+  | MF_ret    : MemFree CRet
+  | MF_send   : forall c v k, MemFree k -> MemFree (CSend c v k)
+  | MF_recv   : forall c f, (forall v, MemFree (f v)) -> MemFree (CRecv c f)
+  | MF_select : forall cases, (forall c f, In (c, f) cases -> forall v, MemFree (f v)) ->
+                  MemFree (CSelect cases)
+  | MF_close  : forall c k, MemFree k -> MemFree (CClose c k)
+  | MF_spawn  : forall child k, MemFree child -> MemFree k -> MemFree (CSpawn child k).
+  (* NO MF_write / MF_read — a memory-free command never accesses the heap. *)
+
 Inductive OnlyAcc (P : nat -> Prop) : Cmd -> Prop :=
   | OA_ret    : OnlyAcc P CRet
   | OA_send   : forall c v k, OnlyAcc P k -> OnlyAcc P (CSend c v k)
@@ -1428,8 +1445,10 @@ Inductive OnlyAcc (P : nat -> Prop) : Cmd -> Prop :=
   | OA_read   : forall l f, P l -> (forall v, OnlyAcc P (f v)) -> OnlyAcc P (CRead l f)
   | OA_select : forall cases, (forall c f, In (c, f) cases -> forall v, OnlyAcc P (f v)) ->
                   OnlyAcc P (CSelect cases)
-  | OA_close  : forall c k, OnlyAcc P k -> OnlyAcc P (CClose c k).
-  (* NO OA_spawn — disciplined programs are spawn-free (the static-N base). *)
+  | OA_close  : forall c k, OnlyAcc P k -> OnlyAcc P (CClose c k)
+  | OA_spawn  : forall child k, MemFree child -> OnlyAcc P k -> OnlyAcc P (CSpawn child k).
+  (* OA_spawn: a disciplined goroutine may SPAWN a MEMORY-FREE child (it owns no heap, cannot race),
+     then continue under its own ownership — admitting dynamic [CSpawn] for channel-only children. *)
 
 (* Per-constructor inversions (used in the preservation proof). *)
 Lemma oa_send_inv : forall P c v k, OnlyAcc P (CSend c v k) -> OnlyAcc P k.
@@ -1445,8 +1464,22 @@ Proof. intros P c k H. inversion H; subst. assumption. Qed.
 Lemma oa_select_inv : forall P cases, OnlyAcc P (CSelect cases) ->
   forall c f, In (c, f) cases -> forall v, OnlyAcc P (f v).
 Proof. intros P cases H. inversion H; subst. assumption. Qed.
-Lemma oa_not_spawn : forall P child k, OnlyAcc P (CSpawn child k) -> False.
-Proof. intros P child k H. inversion H. Qed.
+Lemma oa_spawn_inv : forall P child k, OnlyAcc P (CSpawn child k) -> MemFree child /\ OnlyAcc P k.
+Proof. intros P child k H. inversion H; subst. split; assumption. Qed.
+
+(* A memory-free command is [OnlyAcc] for EVERY owner predicate — it constrains no location. *)
+Lemma memfree_onlyacc : forall c, MemFree c -> forall P, OnlyAcc P c.
+Proof.
+  intros c H. induction H as
+    [ | c v k _ IHk | c f _ IHf | cases _ IHcs | c k _ IHk | child k Hchild _ _ IHk ];
+    intros P.
+  - apply OA_ret.
+  - apply OA_send. apply IHk.
+  - apply OA_recv. intros v. apply IHf.
+  - apply OA_select. intros c0 f Hin v. apply (IHcs c0 f Hin v).
+  - apply OA_close. apply IHk.
+  - apply OA_spawn; [ exact Hchild | apply IHk ].
+Qed.
 
 (* Each location's owning goroutine; goroutine [g] may access [l] iff [own l = g]. *)
 Definition PrivateDisc (own : nat -> nat) (cfg : RConfig) : Prop :=
@@ -1497,8 +1530,9 @@ Proof.
   - rewrite (upd_other p tid cont g Hne). exact (Hprog g Hg).
 Qed.
 
-(* PRESERVATION: every [rstep] keeps the private-memory discipline.  Spawn is impossible under
-   the invariant ([OnlyAcc] has no spawn case), discharged by inverting the program-ownership fact. *)
+(* PRESERVATION: every [rstep] keeps the private-memory discipline.  The spawn case is now LIVE:
+   the (memory-free) child is [OnlyAcc] for its own owner via [memfree_onlyacc], the parent's
+   continuation via [oa_spawn_inv], and the appended [KSpawn]/[KStart] events touch no memory. *)
 Lemma private_disc_step : forall own cfg cfg',
   rstep cfg cfg' -> PrivateDisc own cfg -> PrivateDisc own cfg'.
 Proof.
@@ -1534,8 +1568,24 @@ Proof.
       * discriminate.
       * injection Hr as Heq; subst l'. symmetry. exact Hown.
     + intros g Hg. exact (onlyacc_upd own p tid (f (h l)) lv g Hprog (HOf (h l)) Hg).
-  - (* spawn: IMPOSSIBLE under the discipline ([OnlyAcc] has no spawn case) *)
-    exfalso. pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. exact (oa_not_spawn _ _ _ HO).
+  - (* spawn: parent cont = k; child cid gets the MEMORY-FREE [child] (OnlyAcc for ANY owner);
+       the appended [KSpawn]/[KStart] events are not memory accesses *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
+    apply oa_spawn_inv in HO. destruct HO as [HMFchild HOk]. split.
+    + replace (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])
+        with ((tr ++ [mkEv tid (KSpawn cid)]) ++ [mkEv cid (KStart (length tr))])
+        by (rewrite <- app_assoc; reflexivity).
+      apply (TraceOwned_app own (tr ++ [mkEv tid (KSpawn cid)]) (mkEv cid (KStart (length tr)))).
+      * apply (TraceOwned_app own tr (mkEv tid (KSpawn cid)) Htr).
+        intros l' [Hw|Hr]; cbn in *; discriminate.
+      * intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. destruct (Nat.eq_dec g cid) as [->|Hgc].
+      * rewrite upd_same. exact (memfree_onlyacc child HMFchild (fun l => own l = cid)).
+      * rewrite (upd_other (upd p tid k) cid child g Hgc).
+        rewrite (upd_other lv cid true g Hgc) in Hg.
+        destruct (Nat.eq_dec g tid) as [->|Hgt].
+        -- rewrite upd_same. exact HOk.
+        -- rewrite (upd_other p tid k g Hgt). exact (Hprog g Hg).
   - (* select: cont = f v (chosen case); event KRecv *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. split.
     + apply (TraceOwned_app own tr (mkEv tid (KRecv c s)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
@@ -1607,6 +1657,38 @@ Theorem priv_prog_reachable_race_free : forall cfg,
 Proof.
   intros cfg Hsteps.
   exact (proj2 (private_disc_reachable_race_free (fun l => l) priv_init cfg priv_init_disc Hsteps)).
+Qed.
+
+(* WITNESS for the memory-free DYNAMIC spawn ([OA_spawn]): goroutine 0 SPAWNS a channel-only child
+   ([CSend 0 0 CRet] — touches no heap) then writes its OWN location 0.  With [own := fun _ => 0]
+   (goroutine 0 owns everything; the child owns nothing and touches nothing) the discipline holds at
+   init, so EVERY interleaving — INCLUDING after the runtime spawn of the second goroutine — is
+   race-free, for a program that is NOT spawn-free.  The old [OnlyAcc]-has-no-spawn base could not even
+   state this. *)
+Definition spawn_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0
+           then CSpawn (CSend 0 0 CRet) (CWrite 0 0 CRet)
+           else CRet.
+Definition spawn_init : RConfig :=
+  mkRCfg spawn_prog (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+
+Lemma spawn_init_disc : PrivateDisc (fun _ => 0) spawn_init.
+Proof.
+  split.
+  - intros i l Hacc. cbn in Hacc. unfold acc_loc_at in Hacc.
+    destruct i; cbn in Hacc; discriminate.
+  - intros g Hg. cbn in Hg |- *. destruct g as [|g']; cbn in Hg |- *.
+    + apply OA_spawn.
+      * apply MF_send. apply MF_ret.
+      * apply OA_write; [ reflexivity | apply OA_ret ].
+    + discriminate Hg.
+Qed.
+
+Theorem spawn_prog_reachable_race_free : forall cfg,
+  rsteps spawn_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (proj2 (private_disc_reachable_race_free (fun _ => 0) spawn_init cfg spawn_init_disc Hsteps)).
 Qed.
 
 (** ---- Grounding Go's "go-before-start" in EXECUTION (concurrency research-plan 1.1) ----
