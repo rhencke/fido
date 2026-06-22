@@ -1017,6 +1017,64 @@ Proof.
   - eapply ch_if;   [exact Ht | apply IH; exact Hh].
 Qed.
 
+(** ── PROPER NESTING and the inner-loop SPLIT — the kernel of nested loops. ──
+    To lower a NESTED loop, one OUTER iteration ([runs_term] from the outer header) that passes through an
+    inner loop must DECOMPOSE as: the inner loop runs to completion (reaching its exit block [e2]), THEN the
+    outer iteration continues from [e2].  [InnerClosed g P e2] is the proper-nesting (reducibility) condition
+    on a boolean predicate [P] that marks the inner region (inner blocks incl. the inner header; the inner
+    exit [e2], the OUTER header and exit are NOT in [P]): every inner block's successors are the inner exit
+    [e2] or again inner, and no inner block returns.  So once control is inside [P] it cannot escape to the
+    outer header/exit without first hitting [e2] — exactly proper nesting. *)
+Definition InnerClosed (g : CFG) (P : nat -> bool) (e2 : nat) : Prop :=
+  forall l, P l = true ->
+    match blk_term (g l) with
+    | TRet => False
+    | TGoto l' => l' = e2 \/ P l' = true
+    | TIf _ a b => (a = e2 \/ P a = true) /\ (b = e2 \/ P b = true)
+    end.
+
+(** The SPLIT: an outer-relative [runs_term] entered at an inner block [l] first [runs_to] the inner exit
+    [e2] (the inner loop running to completion), then [runs_term]s on from [e2] to the SAME terminal.  By
+    induction on the [runs_term] derivation: [rterm_exit] (would be at outer [exit] ∉ [P]) and [rterm_back]
+    (a successor = outer header ∉ [P], ∧ [h <> e2]) are IMPOSSIBLE inside the region; a [TGoto]/[TIf] either
+    steps to [e2] (reached — [rt_goto]/[rt_if] then [rt_here]) or stays inner (recurse via the IH, prepending
+    one [runs_to] step).  This is the runs_term decomposition the nested-loop relooper composes. *)
+Lemma inner_split : forall g h e e2 P,
+  InnerClosed g P e2 -> P h = false -> P e = false -> P e2 = false -> h <> e2 ->
+  forall l s s' o, runs_term g h e l s s' o -> P l = true ->
+  exists smid, runs_to g e2 l s smid /\ runs_term g h e e2 smid s' o.
+Proof.
+  intros g h e e2 P Hclosed Hh He He2 Hhe2 l s s' o Hrt.
+  induction Hrt as [ s | l s Hbe Ht | l l' s s' o Hbe Ht Hnh Hrt' IH
+                   | l c a b s s' o Hbe Ht Hrt' IH ]; intros Hl.
+  - (* rterm_exit: l = e (outer exit), but P e = false *)
+    rewrite He in Hl; discriminate.
+  - (* rterm_back: successor = outer header h, forbidden by InnerClosed (h <> e2, P h = false) *)
+    specialize (Hclosed l Hl); rewrite Ht in Hclosed.
+    destruct Hclosed as [Hc | Hc]; congruence.
+  - (* rterm_goto: step to e2 (reached) or to an inner block (recurse) *)
+    assert (Hlne2 : l <> e2) by (intro Heq; subst l; rewrite He2 in Hl; discriminate).
+    specialize (Hclosed l Hl); rewrite Ht in Hclosed.
+    destruct Hclosed as [Hc | Hc].
+    + subst l'. exists (blk_body (g l) s). split.
+      * eapply rt_goto; [exact Hlne2 | exact Ht | apply rt_here].
+      * exact Hrt'.
+    + destruct (IH Hc) as [smid [Hru Hrest]].
+      exists smid. split; [eapply rt_goto; [exact Hlne2 | exact Ht | exact Hru] | exact Hrest].
+  - (* rterm_if: taken branch is e2 (reached) or inner (recurse) *)
+    assert (Hlne2 : l <> e2) by (intro Heq; subst l; rewrite He2 in Hl; discriminate).
+    specialize (Hclosed l Hl); rewrite Ht in Hclosed. destruct Hclosed as [Ha Hb].
+    assert (Ht2 : (if c (blk_body (g l) s) then a else b) = e2
+                \/ P (if c (blk_body (g l) s) then a else b) = true)
+      by (destruct (c (blk_body (g l) s)); assumption).
+    destruct Ht2 as [Hc | Hc].
+    + exists (blk_body (g l) s). split.
+      * eapply rt_if; [exact Hlne2 | exact Ht | rewrite Hc; apply rt_here].
+      * rewrite Hc in Hrt'; exact Hrt'.
+    + destruct (IH Hc) as [smid [Hru Hrest]].
+      exists smid. split; [eapply rt_if; [exact Hlne2 | exact Ht | exact Hru] | exact Hrest].
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
