@@ -1092,6 +1092,21 @@ un-taggable; a named-type map key / channel value aborts (`unsupported`) — hon
 unprovable without comparing carried functions or an axiom.  NEXT (impl, fresh tick): prototype (a),
 starting with `ComparableW`-from-`GoTypeTag` derivation so primitive map keys are untouched, then a
 defined-type map-key demo.
+**OBSTACLE found (2026-06-22, experiment): the deftype `GoTypeTag` phantom BLOCKS axiom-free
+comparability.**  A defined type is a 2-field record `{ c_val : <under> ; c_tag : GoTypeTag <under> }`
+(the phantom KEPT so Coq doesn't unbox the single value field → distinct method-receiver).  To compare
+two such records you must prove their `c_tag` fields equal — i.e. `forall (t : GoTypeTag GoI64), t = TI64`
+— which is NOT provable axiom-free: `GoTypeTag` is indexed by `Type`, and a `Type`-indexed family's
+eliminator cannot discriminate the index (`GoI64` vs `bool` vs `GoChan A` …) to prune the impossible
+constructors (`destruct t` errors "Abstracting over … cannot be applied"; the motive can't case on
+`Type`).  So `ComparableW Celsius` is NOT axiom-free with the current rep — the `tag_eq`-foundation
+tension reappears one level down.  **REVISED path:** rework the deftype phantom from `GoTypeTag <under>`
+to a phantom that is (i) KEPT/computational (still blocks unboxing), (ii) axiom-free-comparable, and (iii)
+recognised+dropped by the plugin so extraction stays `type Name <under>`.  A `unit` second field fits
+(i)+(ii) (a 2-field record isn't unboxed; `tt = tt` is trivial), but needs a PLUGIN change to the deftype
+detection (currently keyed off the `GoTypeTag` phantom: `defined_prim_under`/`defined_prim_proj`) so a
+`unit`-phantom deftype still emits `type Name <under>` + the ctor/proj casts.  That phantom-rework is the
+real first implementation slice — a focused plugin + deftype-demo-migration effort, fresh context.
 
 ### Channel-payload faithfulness — what composes vs. the two real limits (2026-06-20)
 
