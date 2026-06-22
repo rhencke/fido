@@ -1401,6 +1401,97 @@ Definition InnersOK (g : CFG) (hdr exit : nat) (inners : list (nat * nat * Stmt2
     exists P, InnerClosed g P ie /\ P hdr = false /\ P exit = false /\ P ie = false /\
               P ih = true /\ hdr <> ie /\ Iterates g ih ie ib.
 
+(** ** A verified region-closure CHECKER — the trustworthy half of loop-nest detection.
+
+    Detection (recovering the loop nest from a raw CFG) is naturally an UNTRUSTED pass: some detector
+    proposes, per inner loop, a header [ih], an exit [ie], and a [region] (the list of blocks the inner loop
+    owns).  The trustworthy half is a VERIFIED CHECKER that re-validates the proposal before it is trusted.
+    [region_ok_check] is exactly that — a boolean test whose [= true] discharges six of the seven
+    [InnersOK] conjuncts (everything structural; only [Iterates], the inner body's one-iteration realizer,
+    comes separately from [reloop_b]).  Its semantic image is [P := fun l => existsb (Nat.eqb l) region].
+
+    The core is [inner_closed_check], the decidable image of [InnerClosed]: every block in [region] must
+    branch only to [ie] or back into [region] (never [TRet], never out to the outer header/exit). *)
+
+Definition succ_in (region : list nat) (ie l' : nat) : bool :=
+  Nat.eqb l' ie || existsb (Nat.eqb l') region.
+
+Definition succ_ok (g : CFG) (region : list nat) (ie l : nat) : bool :=
+  match blk_term (g l) with
+  | TRet => false
+  | TGoto l' => succ_in region ie l'
+  | TIf _ a b => succ_in region ie a && succ_in region ie b
+  end.
+
+Definition inner_closed_check (g : CFG) (region : list nat) (ie : nat) : bool :=
+  forallb (succ_ok g region ie) region.
+
+Definition mem_b (region : list nat) (x : nat) : bool := existsb (Nat.eqb x) region.
+
+Definition region_ok_check (g : CFG) (hdr exit ih ie : nat) (region : list nat) : bool :=
+  inner_closed_check g region ie
+  && negb (mem_b region hdr)
+  && negb (mem_b region exit)
+  && negb (mem_b region ie)
+  && mem_b region ih
+  && negb (Nat.eqb hdr ie).
+
+Lemma succ_in_sound : forall region ie l',
+  succ_in region ie l' = true -> l' = ie \/ existsb (Nat.eqb l') region = true.
+Proof.
+  intros region ie l' H. unfold succ_in in H.
+  destruct (Nat.eqb l' ie) eqn:E.
+  - left. apply Nat.eqb_eq in E. exact E.
+  - right. cbn in H. exact H.
+Qed.
+
+Lemma inner_closed_check_sound : forall g region ie,
+  inner_closed_check g region ie = true ->
+  InnerClosed g (fun l => existsb (Nat.eqb l) region) ie.
+Proof.
+  intros g region ie Hchk l Hl.
+  assert (HIn : In l region).
+  { cbn in Hl. apply existsb_exists in Hl. destruct Hl as [x [Hx Heq]].
+    apply Nat.eqb_eq in Heq. subst x. exact Hx. }
+  unfold inner_closed_check in Hchk. rewrite forallb_forall in Hchk.
+  specialize (Hchk l HIn). unfold succ_ok in Hchk.
+  destruct (blk_term (g l)) as [|l'|c a b].
+  - discriminate Hchk.
+  - apply succ_in_sound. exact Hchk.
+  - destruct (succ_in region ie a) eqn:Ea; destruct (succ_in region ie b) eqn:Eb;
+      cbn in Hchk; try discriminate.
+    split; apply succ_in_sound; assumption.
+Qed.
+
+(** [region_ok_check g hdr exit ih ie region = true] yields the structural [InnersOK] conjunct for this
+    inner loop — [InnerClosed] plus the four region-membership facts and [hdr <> ie].  Combined with
+    [Iterates] from [reloop_b_iterates] on the inner body, this fully discharges one [InnersOK] obligation
+    from a machine-checkable boolean — so a detector's proposed nest can be VALIDATED, not trusted. *)
+Lemma region_ok_check_sound : forall g hdr exit ih ie region,
+  region_ok_check g hdr exit ih ie region = true ->
+  InnerClosed g (fun l => existsb (Nat.eqb l) region) ie
+  /\ existsb (Nat.eqb hdr) region = false
+  /\ existsb (Nat.eqb exit) region = false
+  /\ existsb (Nat.eqb ie) region = false
+  /\ existsb (Nat.eqb ih) region = true
+  /\ hdr <> ie.
+Proof.
+  intros g hdr exit ih ie region H. unfold region_ok_check in H.
+  destruct (inner_closed_check g region ie) eqn:E1; cbn in H; try discriminate.
+  destruct (mem_b region hdr) eqn:E2; cbn in H; try discriminate.
+  destruct (mem_b region exit) eqn:E3; cbn in H; try discriminate.
+  destruct (mem_b region ie) eqn:E4; cbn in H; try discriminate.
+  destruct (mem_b region ih) eqn:E5; cbn in H; try discriminate.
+  destruct (Nat.eqb hdr ie) eqn:E6; cbn in H; try discriminate.
+  repeat split.
+  - apply inner_closed_check_sound. exact E1.
+  - exact E2.
+  - exact E3.
+  - exact E4.
+  - exact E5.
+  - intro Heq. rewrite Heq in E6. rewrite Nat.eqb_refl in E6. discriminate E6.
+Qed.
+
 Lemma find_inner_In : forall inners l ie ib,
   find_inner l inners = Some (ie, ib) -> In (l, ie, ib) inners.
 Proof.
