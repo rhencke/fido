@@ -1680,6 +1680,140 @@ Qed.
 Theorem fork_race_free_cid : forall cid, TraceRaceFree (fork_trace_cid cid).
 Proof. intro cid. exact (owned_race_free _ (fork_owned_cid cid)). Qed.
 
+(** EVERY interleaving of the fork-handoff program is race-free — the spawn analogue of
+    [mp_all_interleavings_race_free], and HARDER (the goroutine set is DYNAMIC: the child tid is freshly
+    spawned).  [ForkReach] is the 4-phase reachability invariant over [rinit_cfg fork_prog]; the child tid
+    [cid] is EXISTENTIAL in the post-spawn phases, and the live set there is the [upd]-form the operational
+    [rstep_spawn] produces (so no funext).  [fork_live_cases] bounds the stepping goroutine to {0, cid}. *)
+Lemma fork_live_cases : forall cid tid,
+  upd (fun t => Nat.eqb t 0) cid true tid = true -> tid = 0 \/ tid = cid.
+Proof.
+  intros cid tid H. destruct (Nat.eq_dec tid cid) as [->|Hne]; [right; reflexivity|].
+  rewrite (upd_other _ _ _ _ Hne) in H. apply Nat.eqb_eq in H. left; exact H.
+Qed.
+
+(* every memory access at position 0 ⇒ race-free (a race needs two distinct-goroutine accesses, both
+   would be position 0 = same goroutine).  Local copy of the later [mem_access_only0_race_free]. *)
+Lemma fork_only0_rf : forall t,
+  (forall i ai, tr_acc t i = Some ai -> i = 0) -> TraceRaceFree t.
+Proof.
+  intros t H. apply le1_mem_access_race_free. intros i j Hi Hj.
+  destruct (tr_acc t i) as [ai|] eqn:Ei; [|exfalso; apply Hi; reflexivity].
+  destruct (tr_acc t j) as [aj|] eqn:Ej; [|exfalso; apply Hj; reflexivity].
+  apply H in Ei; apply H in Ej; subst; reflexivity.
+Qed.
+
+Definition ForkReach (cfg : RConfig) : Prop :=
+     (rc_trace cfg = [] /\ rc_prog cfg 0 = CWrite 7 99 (CSpawn fork_child CRet)
+      /\ rc_live cfg = (fun t => Nat.eqb t 0))
+  \/ (rc_trace cfg = [mkEv 0 (KWrite 7)] /\ rc_prog cfg 0 = CSpawn fork_child CRet
+      /\ rc_live cfg = (fun t => Nat.eqb t 0))
+  \/ (exists cid, Nat.eqb cid 0 = false
+      /\ rc_trace cfg = [mkEv 0 (KWrite 7); mkEv 0 (KSpawn cid); mkEv cid (KStart 1)]
+      /\ rc_prog cfg 0 = CRet /\ rc_prog cfg cid = CRead 7 (fun _ => CRet)
+      /\ rc_live cfg = upd (fun t => Nat.eqb t 0) cid true)
+  \/ (exists cid, Nat.eqb cid 0 = false
+      /\ rc_trace cfg = fork_trace_cid cid
+      /\ rc_prog cfg 0 = CRet /\ rc_prog cfg cid = CRet
+      /\ rc_live cfg = upd (fun t => Nat.eqb t 0) cid true).
+
+Lemma forkreach_init : ForkReach (rinit_cfg fork_prog).
+Proof. left. unfold rinit_cfg, fork_prog; cbn. repeat split; reflexivity. Qed.
+
+Lemma forkreach_race_free : forall cfg, ForkReach cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg HFR.
+  destruct HFR as [[Htr _]|[[Htr _]|[[cid [_ [Htr _]]]|[cid [_ [Htr _]]]]]]; rewrite Htr.
+  - apply fork_only0_rf. intros i ai Hi. destruct i; cbn in Hi; discriminate.
+  - apply fork_only0_rf. intros i ai Hi. pose proof (tr_acc_lt _ _ _ Hi) as L.
+    destruct i as [|[|[|i]]]; cbn in Hi; first [reflexivity | discriminate Hi | (cbn in L; lia)].
+  - apply fork_only0_rf. intros i ai Hi. pose proof (tr_acc_lt _ _ _ Hi) as L.
+    destruct i as [|[|[|i]]]; cbn in Hi; first [reflexivity | discriminate Hi | (cbn in L; lia)].
+  - exact (fork_race_free_cid cid).
+Qed.
+
+Lemma forkreach_step : forall cfg cfg', rstep cfg cfg' -> ForkReach cfg -> ForkReach cfg'.
+Proof.
+  intros cfg cfg' Hstep HFR.
+  destruct HFR as [[Htr [Hp0 Hlive]]
+                 |[[Htr [Hp0 Hlive]]
+                  |[[cid [Hcid0 [Htr [Hp0 [Hpc Hlive]]]]]
+                   |[cid [Hcid0 [Htr [Hp0 [Hpc Hlive]]]]]]]].
+  - (* Phase A: g0 at CWrite, only g0 live → write → Phase B *)
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _ | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid' Hlv Hp Hcid' | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _ | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_live rc_trace rc_prog] in Hlive, Htr, Hp0 |- *;
+      rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid;
+      rewrite Hp0 in Hp; try (exfalso; congruence).
+    injection Hp as Hl Hv Hk; subst l v k.
+    right; left. rewrite Htr. cbn [rc_trace rc_prog rc_live]. rewrite upd_same.
+    repeat split; first [reflexivity | assumption].
+  - (* Phase B: g0 at CSpawn, only g0 live → spawn → Phase C (fresh cid') *)
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _ | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid' Hlv Hp Hcid' | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _ | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_live rc_trace rc_prog] in Hlive, Htr, Hp0 |- *;
+      rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid;
+      rewrite Hp0 in Hp; try (exfalso; congruence).
+    injection Hp as Hchild Hk; subst child k.
+    rewrite Hlive in Hcid'; cbn in Hcid'.
+    assert (Hne0 : 0 <> cid') by (apply not_eq_sym, Nat.eqb_neq; exact Hcid').
+    right; right; left. exists cid'. rewrite Htr, Hlive. cbn [rc_trace rc_prog rc_live].
+    unfold fork_child.
+    rewrite (upd_other (upd p 0 CRet) cid' (CRead 7 (fun _ => CRet)) 0 Hne0), !upd_same.
+    repeat split; first [exact Hcid' | reflexivity].
+  - (* Phase C: g0 done (CRet), gcid at CRead → only gcid steps (read) → Phase D *)
+    assert (Hne0 : 0 <> cid) by (apply not_eq_sym, Nat.eqb_neq; exact Hcid0).
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _ | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid' Hlv Hp Hcid' | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _ | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_live rc_trace rc_prog] in Hlive, Htr, Hp0, Hpc |- *;
+      rewrite Hlive in Hlv; apply fork_live_cases in Hlv; destruct Hlv as [->| ->];
+      first [ rewrite Hp0 in Hp | rewrite Hpc in Hp ];
+      try (exfalso; congruence).
+    injection Hp as Hl Hf; subst l f.
+    right; right; right. exists cid. rewrite Htr, Hlive. cbn [rc_trace rc_prog rc_live].
+    unfold fork_trace_cid.
+    rewrite (upd_other p cid CRet 0 Hne0), upd_same.
+    repeat split; first [exact Hcid0 | reflexivity | assumption].
+  - (* Phase D: both done (CRet) → no step *)
+    exfalso.
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _ | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid' Hlv Hp Hcid' | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _ | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_live rc_prog] in Hlive, Hp0, Hpc;
+      rewrite Hlive in Hlv; apply fork_live_cases in Hlv; destruct Hlv as [->| ->];
+      first [ rewrite Hp0 in Hp | rewrite Hpc in Hp ]; congruence.
+Qed.
+
+Lemma forkreach_steps : forall cfg cfg', rsteps cfg cfg' -> ForkReach cfg -> ForkReach cfg'.
+Proof.
+  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH]; intros HFR; [exact HFR|].
+  apply IH. exact (forkreach_step _ _ Hab HFR).
+Qed.
+
+(** THE FORK ALL-INTERLEAVINGS THEOREM: every reachable state of the fork-handoff program — under any
+    schedule and for whatever fresh tid the child was spawned with — is race-free. *)
+Theorem fork_all_interleavings_race_free : forall cfg,
+  rsteps (rinit_cfg fork_prog) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (forkreach_race_free _ (forkreach_steps _ _ Hsteps forkreach_init)).
+Qed.
+
 (** ---- Grounding Go's CHANNEL handoff (the recv-from edge) in EXECUTION ----
     The SIBLING of [fork_exec_*]: the OTHER (and primary) go-mem mechanism — "a send on a channel
     happens-before the corresponding receive completes" (go.dev/ref/mem).  [handoff_trace] above was
