@@ -810,41 +810,98 @@ Proof.
 Qed.
 
 (** ── The general [LLoop] composition: the loop body iterates correctly. ──
-    Whenever the body region relooper succeeds ([reloop_b … hdr = Some body]) and the CFG halts from the
-    header in [n] fuel, [LLoop body] reproduces the loop: it runs the body once per CFG iteration and
-    STOPS exactly when control reaches [exit], leaving the loop in the SAME state [sx] the CFG is in at
-    [exit] — from which [nx] fuel remains to finish.  Proof by STRONG induction on the fuel [n]
-    ([lt_wf_ind]): one iteration via [reloop_b_correct] gives [seval body] + a [runs_term]; [runs_term_cfg_n]
-    factors it out of [cfg_halts_n], yielding the residual at strictly smaller fuel (Normal: the header is
-    re-entered with [hdr <> exit], so [n' < n] — the IH applies, [se_loop_again]; Broke: [se_loop_break]
-    consumes the break and we hand off the residual exit-run). *)
-Lemma loop_body_iterates : forall hdr exit fuel g body sf n s,
-  reloop_b hdr exit fuel g hdr = Some body ->
-  cfg_halts_n g n hdr s sf ->
+    [Iterates g hdr exit body] is the abstraction barrier that DECOUPLES the loop machinery from any
+    particular body relooper: [body] realises ONE loop iteration from the header — run from any state it
+    reproduces the CFG's [runs_term] outcome (back-edge to [hdr] ⇒ [Normal]/iterate, reach [exit] ⇒
+    [Broke]/break).  [reloop_b]'s output is one such (just [reloop_b_correct] at [l := hdr]) — but so is a
+    [LSeq … (LLoop inner) …] body containing a NESTED inner loop, which is exactly why this abstraction is
+    the door to nested-loop bodies (the loop lemma no longer hardcodes the ACYCLIC [reloop_b]). *)
+Definition Iterates (g : CFG) (hdr exit : nat) (body : Stmt2) : Prop :=
+  forall s, exists s' o, runs_term g hdr exit hdr s s' o /\ seval body s s' o.
+
+(** Whenever [body] realises one iteration ([Iterates]) and the CFG halts from the header in [n] fuel,
+    [LLoop body] reproduces the loop: it runs the body once per CFG iteration and STOPS exactly when control
+    reaches [exit], leaving the loop in the SAME state [sx] the CFG is in at [exit] — from which [nx] fuel
+    remains to finish.  Proof by STRONG induction on the fuel [n] ([lt_wf_ind]): one iteration via the
+    [Iterates] hypothesis gives [seval body] + a [runs_term]; [runs_term_cfg_n] factors it out of
+    [cfg_halts_n], yielding the residual at strictly smaller fuel (Normal: the header is re-entered with
+    [hdr <> exit], so [n' < n] — the IH applies, [se_loop_again]; Broke: [se_loop_break] consumes the break
+    and we hand off the residual exit-run). *)
+Lemma loop_body_iterates_gen : forall g hdr exit body,
+  Iterates g hdr exit body ->
+  forall sf n s, cfg_halts_n g n hdr s sf ->
   exists sx nx, seval (LLoop body) s sx Normal /\ cfg_halts_n g nx exit sx sf.
 Proof.
-  intros hdr exit fuel g body sf n.
-  induction n as [n IH] using lt_wf_ind. intros s Hb Hch.
-  destruct (reloop_b_correct hdr exit fuel g hdr body Hb s) as [s1 [o [Hrt Hsev]]].
+  intros g hdr exit body Hit sf n.
+  induction n as [n IH] using lt_wf_ind. intros s Hch.
+  destruct (Hit s) as [s1 [o [Hrt Hsev]]].
   destruct (runs_term_cfg_n g hdr exit hdr s s1 o n sf Hrt Hch) as [n' [Hle [Hcf Hstrict]]].
   destruct o.
   - (* Normal: a real iteration, so hdr <> exit; recurse at strictly smaller fuel *)
     assert (Hne : hdr <> exit) by (intro Heq; rewrite Heq in Hrt; inversion Hrt; congruence).
-    destruct (IH n' (Hstrict Hne) s1 Hb Hcf) as [sx [nx [Hloop Hexit]]].
+    destruct (IH n' (Hstrict Hne) s1 Hcf) as [sx [nx [Hloop Hexit]]].
     exists sx, nx. split; [eapply se_loop_again; [exact Hsev | exact Hloop] | exact Hexit].
   - (* Broke: the loop breaks here, landing at exit in state s1 = sx *)
     exists s1, n'. split; [apply se_loop_break; exact Hsev | exact Hcf].
 Qed.
 
+(** [reloop_b]'s output IS an iteration realiser — its correctness ([reloop_b_correct]) at [l := hdr] is
+    literally [Iterates]. *)
+Lemma reloop_b_iterates : forall hdr exit fuel g body,
+  reloop_b hdr exit fuel g hdr = Some body -> Iterates g hdr exit body.
+Proof. intros hdr exit fuel g body Hb s. exact (reloop_b_correct hdr exit fuel g hdr body Hb s). Qed.
+
+(** The original [loop_body_iterates] is now the [reloop_b] INSTANCE of the general lemma — same statement,
+    so every downstream caller ([reloop_loop_sound], [reloop_chain_sound]) is untouched. *)
+Lemma loop_body_iterates : forall hdr exit fuel g body sf n s,
+  reloop_b hdr exit fuel g hdr = Some body ->
+  cfg_halts_n g n hdr s sf ->
+  exists sx nx, seval (LLoop body) s sx Normal /\ cfg_halts_n g nx exit sx sf.
+Proof.
+  intros hdr exit fuel g body sf n s Hb Hch.
+  exact (loop_body_iterates_gen g hdr exit body
+           (reloop_b_iterates hdr exit fuel g body Hb) sf n s Hch).
+Qed.
+
+(** ── The FULLY ABSTRACT single-loop soundness. ──
+    [AfterRealizes g exit A]: the structured tail [A] reproduces the CFG's run from [exit] (run [A] from any
+    [exit]-state and it lands wherever the CFG does).  Then [LSeq (LLoop body) A] is sound for ANY iteration-
+    realising [body] and ANY exit-realising [A] — the loop runs to the exit state ([loop_body_iterates_gen]),
+    [A] finishes from there.  This is the single-loop soundness with BOTH the body and the after-region
+    abstracted to their realiser specs; the concrete [reloop_loop_sound] and the nested-loop case are
+    instances. *)
+Definition AfterRealizes (g : CFG) (exit : nat) (A : Stmt2) : Prop :=
+  forall sx s', cfg_halts g exit sx s' -> seval A sx s' Normal.
+
+Lemma loop_sound_gen : forall g hdr exit body A s sf,
+  Iterates g hdr exit body ->
+  AfterRealizes g exit A ->
+  cfg_halts g hdr s sf ->
+  seval (LSeq (LLoop body) A) s sf Normal.
+Proof.
+  intros g hdr exit body A s sf Hit Haft Hch.
+  destruct (cfg_halts_to_n g hdr s sf Hch) as [n Hn].
+  destruct (loop_body_iterates_gen g hdr exit body Hit sf n s Hn) as [sx [nx [Hloop Hexit]]].
+  eapply se_seq_n; [exact Hloop | exact (Haft sx sf (cfg_halts_n_to g nx exit sx sf Hexit))].
+Qed.
+
+(** The [lift] of an acyclic [reloop] of the exit region is one such after-realiser ([reloop_correct] +
+    [lift_correct] + the CFG's determinism [cfg_halts_det] pinning the final state). *)
+Lemma lift_after_realizes : forall fuel g exit aft,
+  reloop fuel g exit = Some aft -> AfterRealizes g exit (lift aft).
+Proof.
+  intros fuel g exit aft Ha sx s' Hch.
+  pose proof (cfg_halts_det g exit sx s' (srun aft sx) Hch (reloop_correct fuel g exit aft Ha sx)) as Hdet.
+  rewrite Hdet. apply lift_correct.
+Qed.
+
 (** ── GENERAL single-loop relooper SOUNDNESS — the open item, now CLOSED. ──
     For an ARBITRARY CFG with a loop header [hdr] and exit [exit] (NOT just [whileCFG]), whenever the
     loop-aware relooper FUNCTION succeeds ([reloop_loop hdr exit fuel g = Some S]), the structured program
-    [S = LSeq (LLoop body) (lift aft)] it emits reproduces EVERY halting CFG run from [hdr]: the [LLoop body]
-    half runs the iterations to the exit state ([loop_body_iterates]); the [lift aft] half realises the
-    acyclic after-region ([reloop_correct] + [lift_correct]); the CFG's determinism ([cfg_halts_det]) pins
-    the after-region's final state to [sf].  This generalises [whileCFG_reloop_loop_correct] (the single
-    hand-checked CFG) to the relooper run as an ALGORITHM on any single-loop CFG — the loop counterpart of
-    [diamond_reloop_correct].  Axiom-free. *)
+    [S = LSeq (LLoop body) (lift aft)] it emits reproduces EVERY halting CFG run from [hdr].  Now a clean
+    INSTANCE of [loop_sound_gen]: [reloop_b_iterates] supplies the body realiser, [lift_after_realizes] the
+    after realiser.  Generalises [whileCFG_reloop_loop_correct] (the single hand-checked CFG) to the relooper
+    run as an ALGORITHM on any single-loop CFG — the loop counterpart of [diamond_reloop_correct].  Axiom-free. *)
 Theorem reloop_loop_sound : forall hdr exit fuel g S s sf,
   reloop_loop hdr exit fuel g = Some S ->
   cfg_halts g hdr s sf ->
@@ -855,12 +912,9 @@ Proof.
   destruct (reloop_b hdr exit fuel g hdr) as [body|] eqn:Hb; [|discriminate].
   destruct (reloop fuel g exit) as [aft|] eqn:Ha; [|discriminate].
   injection Hrl as <-.
-  destruct (cfg_halts_to_n g hdr s sf Hch) as [n Hn].
-  destruct (loop_body_iterates hdr exit fuel g body sf n s Hb Hn) as [sx [nx [Hloop Hexit]]].
-  pose proof (cfg_halts_n_to g nx exit sx sf Hexit) as Hcexit.
-  pose proof (reloop_correct fuel g exit aft Ha sx) as Hac.
-  pose proof (cfg_halts_det g exit sx sf (srun aft sx) Hcexit Hac) as Hdet.
-  eapply se_seq_n; [exact Hloop | rewrite Hdet; apply lift_correct].
+  apply (loop_sound_gen g hdr exit body (lift aft) s sf
+           (reloop_b_iterates hdr exit fuel g body Hb)
+           (lift_after_realizes fuel g exit aft Ha) Hch).
 Qed.
 
 (** ── From ONE loop to a CHAIN of SEQUENTIAL loops. ──
