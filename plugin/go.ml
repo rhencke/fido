@@ -1468,10 +1468,12 @@ let db1_free e = dbn_free 1 e
 let raw_term tab next =
   match next with
   | MLcons (_, c, [n]) when is_jump_ctor c ->
-      let lbl = match nat_value n with Some v -> v | None -> 0 in
+      let lbl = match nat_value n with
+        | Some v -> v
+        | None -> unsupported "a run_blocks Jump to a non-literal block target (the goto label must be statically known; defaulting to block0 would jump to the WRONG block and silently run a different program)" in
       str tab ++ str (Printf.sprintf "goto block%d" lbl) ++ fnl ()
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
-  | _ -> str tab ++ str "return" ++ fnl ()
+  | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
 let rec pp_expr state env = function
   | MLrel i ->
@@ -2878,8 +2880,9 @@ let pp_io_body ?(ret_val=false) state tab env body =
                          | MLcons (_, c, [nn]) when is_jump_ctor c ->
                              (match nat_value nn with
                               | Some j -> handle_edge j stop loopctx tail tab
-                              | None -> str tab ++ str "return" ++ fnl ())
-                         | _ -> str tab ++ str "return" ++ fnl ())
+                              | None -> unsupported "a structured run_blocks Jump to a non-literal block target (the goto label must be statically known; it would silently become `return`, truncating control flow)")
+                         | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
+                         | _ -> unsupported "a run_blocks block terminator (structured emitter) that is neither Jump nor Done — an unrecognized Next value would silently become `return`")
                     | _ ->
                         (match b with
                          | MLcase (_, scrut, branches) ->
