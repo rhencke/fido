@@ -1638,6 +1638,76 @@ Proof.
     | exact Haft | exact Hch ].
 Qed.
 
+(** ── MULTI-INNER end-to-end: the structure-directed FUNCTION is sound for a body with ANY number of
+    (sibling) inner loops. ──  Lifting [reloop_b2_correct] (completeness for a list) to whole-program
+    soundness: the iteration EXISTS under a halting run ([reloop_b2_iter_exists_l] — the list generalisation
+    of [reloop_b2_iter_exists], each inner-header case extracting the matching link from [InnersOK]), then
+    [Iterates] + [loop_sound_c].  So [reloop_b2_sound] (one inner loop) is the singleton instance. *)
+Lemma reloop_b2_iter_exists_l : forall g hdr exit inners,
+  InnersOK g hdr exit inners ->
+  forall fuel l S, reloop_b2 inners hdr exit fuel g l = Some S ->
+  forall s sf, cfg_halts g l s sf -> exists s' o, runs_term g hdr exit l s s' o.
+Proof.
+  intros g hdr exit inners HOK.
+  induction fuel as [|fuel IH]; intros l S Hb s sf Hch.
+  - discriminate Hb.
+  - cbn in Hb. destruct (Nat.eqb l exit) eqn:Eex; cbn in Hb.
+    + apply Nat.eqb_eq in Eex; subst l. exists s, Broke. apply rterm_exit.
+    + apply Nat.eqb_neq in Eex. destruct (find_inner l inners) as [[ie ib]|] eqn:Ef; cbn in Hb.
+      * destruct (reloop_b2 inners hdr exit fuel g ie) as [rest|] eqn:Hrest; cbn in Hb; [|discriminate Hb].
+        destruct (HOK l ie ib (find_inner_In inners l ie ib Ef))
+          as [P [Hclosed [Phdr [Pexit [Pie [Pih [Hhie Hib]]]]]]].
+        assert (Hieh : ie <> hdr) by (intro Hc; apply Hhie; symmetry; exact Hc).
+        destruct (cfg_halts_to_n g l s sf Hch) as [n Hn].
+        destruct (inner_split_cfg_n g ie P Hclosed Pie n l s sf Hn Pih) as [smid [m [Hle [Hru Hcfie]]]].
+        destruct (IH ie rest Hrest smid sf (cfg_halts_n_to g m ie smid sf Hcfie)) as [s' [o Hrtie]].
+        exists s', o.
+        exact (runs_to_prepend g hdr exit ie P Hclosed Phdr Pexit Pie Hieh l s smid Hru Pih s' o Hrtie).
+      * destruct (blk_term (g l)) as [|l'|c a b] eqn:Ht; cbn in Hb.
+        -- discriminate Hb.
+        -- destruct (Nat.eqb l' hdr) eqn:Eh; cbn in Hb.
+           ++ apply Nat.eqb_eq in Eh; subst l'.
+              exists (blk_body (g l) s), Normal. apply rterm_back; [exact Eex | exact Ht].
+           ++ apply Nat.eqb_neq in Eh.
+              destruct (reloop_b2 inners hdr exit fuel g l') as [rest|] eqn:Hrest; cbn in Hb;
+                [|discriminate Hb].
+              destruct (IH l' rest Hrest (blk_body (g l) s) sf (cfg_halts_goto_inv g l l' s sf Ht Hch))
+                as [s' [o Hrt']].
+              exists s', o. eapply rterm_goto; [exact Eex | exact Ht | exact Eh | exact Hrt'].
+        -- destruct (reloop_b2 inners hdr exit fuel g a) as [Sa|] eqn:Hra; cbn in Hb; [|discriminate Hb].
+           destruct (reloop_b2 inners hdr exit fuel g b) as [Sb|] eqn:Hrb; cbn in Hb; [|discriminate Hb].
+           pose proof (cfg_halts_if_inv g l c a b s sf Ht Hch) as Hch'.
+           destruct (c (blk_body (g l) s)) eqn:Ec.
+           ++ destruct (IH a Sa Hra (blk_body (g l) s) sf Hch') as [s' [o Hrt']].
+              exists s', o. eapply rterm_if; [exact Eex | exact Ht | rewrite Ec; exact Hrt'].
+           ++ destruct (IH b Sb Hrb (blk_body (g l) s) sf Hch') as [s' [o Hrt']].
+              exists s', o. eapply rterm_if; [exact Eex | exact Ht | rewrite Ec; exact Hrt'].
+Qed.
+
+Lemma reloop_b2_iterates_l : forall g hdr exit inners fuel body,
+  InnersOK g hdr exit inners ->
+  reloop_b2 inners hdr exit fuel g hdr = Some body ->
+  IteratesC g hdr exit body.
+Proof.
+  intros g hdr exit inners fuel body HOK Hbody s sf Hch.
+  destruct (reloop_b2_iter_exists_l g hdr exit inners HOK fuel hdr body Hbody s sf Hch) as [s' [o Hrt]].
+  exists s', o. split;
+    [ exact Hrt
+    | exact (reloop_b2_correct g hdr exit inners HOK fuel hdr body Hbody s s' o Hrt) ].
+Qed.
+
+Theorem reloop_b2_sound_l : forall g hdr exit inners fuel body A s sf,
+  InnersOK g hdr exit inners ->
+  reloop_b2 inners hdr exit fuel g hdr = Some body ->
+  AfterRealizes g exit A ->
+  cfg_halts g hdr s sf ->
+  seval (LSeq (LLoop body) A) s sf Normal.
+Proof.
+  intros g hdr exit inners fuel body A s sf HOK Hbody Haft Hch.
+  eapply loop_sound_c;
+    [ exact (reloop_b2_iterates_l g hdr exit inners fuel body HOK Hbody) | exact Haft | exact Hch ].
+Qed.
+
 Lemma runs_to_n_to : forall g j n l s sf, runs_to_n g j n l s sf -> runs_to g j l s sf.
 Proof.
   intros g j n l s sf H. induction H.
