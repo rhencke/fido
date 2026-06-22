@@ -3063,6 +3063,105 @@ Proof.
   exact (mpreach_steps _ _ _ _ Hsteps (mpreach_init v0 v1)).
 Qed.
 
+(** ── ALL-INTERLEAVINGS for the ownership-TRANSFER program (write/WRITE). ──
+    [xfer_exec_race_free] above witnessed ONE execution of the transfer program race-free.  Here, as
+    [mp_all_interleavings_race_free] does for the write/READ handoff, EVERY interleaving is race-free:
+    [XferReach] is the 5-phase reachability invariant (init → g0 write 7 → g0 send → g1 recv → g1 WRITE
+    7), rstep-PRESERVED, implying [TraceRaceFree].  Phases A–D have ≤1 memory access (only g0's write 7,
+    at position 0); phase E is [handoff_trace], whose conflicting write/write pair is sync-ordered
+    ([handoff_race_free]).  So the receiver's write to the handed-off cell is race-free under ANY
+    schedule — the all-interleavings strengthening of the transfer witness. *)
+Definition XferReach (v0 v1 v2 : nat) (cfg : RConfig) : Prop :=
+  rc_live cfg = (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1))
+  /\ ( (rc_trace cfg = [] /\ rc_prog cfg 0 = CWrite 7 v0 (CSend 0 v1 CRet)
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CWrite 7 v2 CRet) /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 7)] /\ rc_prog cfg 0 = CSend 0 v1 CRet
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CWrite 7 v2 CRet) /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 7); mkEv 0 (KSend 0)] /\ rc_prog cfg 0 = CRet
+        /\ rc_prog cfg 1 = CRecv 0 (fun _ => CWrite 7 v2 CRet) /\ rc_bufs cfg 0 = [(v1, 1)])
+    \/ (rc_trace cfg = [mkEv 0 (KWrite 7); mkEv 0 (KSend 0); mkEv 1 (KRecv 0 1)]
+        /\ rc_prog cfg 0 = CRet /\ rc_prog cfg 1 = CWrite 7 v2 CRet /\ rc_bufs cfg 0 = [])
+    \/ (rc_trace cfg = handoff_trace /\ rc_prog cfg 0 = CRet /\ rc_prog cfg 1 = CRet /\ rc_bufs cfg 0 = []) ).
+
+Lemma xferreach_init : forall v0 v1 v2, XferReach v0 v1 v2 (xfer_init v0 v1 v2).
+Proof.
+  intros v0 v1 v2. unfold XferReach, xfer_init, xfer_prog. cbn.
+  split; [reflexivity | left; repeat split; reflexivity].
+Qed.
+
+Lemma xferreach_race_free : forall v0 v1 v2 cfg, XferReach v0 v1 v2 cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 v2 cfg [_ Hph].
+  destruct Hph as [[Htr _]|[[Htr _]|[[Htr _]|[[Htr _]|[Htr _]]]]]; rewrite Htr;
+    try (apply mem_access_only0_race_free; intros i ai Hi;
+         pose proof (tr_acc_lt _ _ _ Hi) as L; destruct i as [|[|[|i]]]; cbn in Hi;
+         first [reflexivity | discriminate Hi | (cbn in L; lia)]).
+  exact handoff_race_free.   (* phase E = handoff_trace: ordered write/write transfer *)
+Qed.
+
+Lemma xferreach_step : forall v0 v1 v2 cfg cfg',
+  rstep cfg cfg' -> XferReach v0 v1 v2 cfg -> XferReach v0 v1 v2 cfg'.
+Proof.
+  intros v0 v1 v2 cfg cfg' Hstep [Hlive Hph].
+  destruct Hph as [HX|[HX|[HX|[HX|HX]]]]; destruct HX as [Htr [Hp0 [Hp1 Hb0]]];
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp _
+      | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp _
+      | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    cbn [rc_live rc_trace rc_prog rc_bufs] in Hlive, Htr, Hp0, Hp1, Hb0;
+    rewrite Hlive in Hlv; cbn in Hlv; apply Bool.orb_true_iff in Hlv;
+    destruct Hlv as [Hlv|Hlv]; apply Nat.eqb_eq in Hlv; subst tid;
+    try (rewrite Hp0 in Hp); try (rewrite Hp1 in Hp);
+    try (exfalso; congruence);
+    try (exfalso; rewrite Htr in Hpos; destruct pos as [|[|[|pos]]]; cbn in Hpos;
+         first [ discriminate Hpos | (injection Hpos as <-; cbn in Hek; discriminate Hek) ]).
+  (* The four surviving goals: A→B (g0 write), B→C (g0 send), C→D (g1 recv), D→E (g1 WRITE). *)
+  - (* A→B : g0 write *)
+    injection Hp as Hl _ Hk; subst l; subst k.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; left. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* B→C : g0 send *)
+    injection Hp as Hc Hv Hk; subst c; subst v; subst k.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; left. rewrite Htr, Hb0. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* C→D : g1 recv *)
+    injection Hp as Hc Hf; subst c.
+    rewrite Hb0 in Hbc; injection Hbc as Hv Hs Hbrest; subst v; subst s; subst brest; subst f.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; right; left. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+  - (* D→E : g1 WRITE (the receiver writes the handed-off cell — vs mp's READ) *)
+    injection Hp as Hl _ Hk; subst l; subst k.
+    split; [cbn [rc_live]; exact Hlive |].
+    right; right; right; right. rewrite Htr. cbn [rc_trace rc_prog rc_bufs]. upd_proj.
+    repeat split; first [reflexivity | assumption | (symmetry; assumption)].
+Qed.
+
+Lemma xferreach_steps : forall v0 v1 v2 cfg cfg',
+  rsteps cfg cfg' -> XferReach v0 v1 v2 cfg -> XferReach v0 v1 v2 cfg'.
+Proof.
+  intros v0 v1 v2 cfg cfg' H. induction H; intros HM; [exact HM|].
+  apply IHrsteps. exact (xferreach_step _ _ _ _ _ H HM).
+Qed.
+
+(** EVERY interleaving of the transfer program is race-free — the all-interleavings strengthening of
+    [xfer_exec_race_free], the write/WRITE analogue of [mp_all_interleavings_race_free]. *)
+Theorem xfer_all_interleavings_race_free : forall v0 v1 v2 cfg,
+  rsteps (xfer_init v0 v1 v2) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 v2 cfg Hsteps.
+  apply (xferreach_race_free v0 v1 v2).
+  exact (xferreach_steps _ _ _ _ _ Hsteps (xferreach_init v0 v1 v2)).
+Qed.
+
 (** ── Connecting slice 2-A to the GENERAL ownership framework (a step toward slice 2-B). ──
     [mpreach_race_free] took the ad-hoc ≤1-mem-access route; here mp's reachable traces are shown
     [Owned] (Keller/CSL's discipline: same-location accesses form an hb-chain), so race-freedom ALSO
