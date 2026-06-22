@@ -201,6 +201,68 @@ Proof.
   - apply Hnji. exact mp_trace_hb_0_3.   (* i=3 (read),  j=0 (write) *)
 Qed.
 
+(** ── DYNAMIC-SPAWN OWNERSHIP TRANSFER (trace core) ───────────────────────────
+    [mp_trace]'s handoff has BOTH goroutines pre-live.  Here the reader is SPAWNED by the writer and
+    the location is handed to that freshly-created child — the genuinely harder shape that
+    [mp_all_interleavings_race_free]'s preamble flags as the dynamic-tid frontier.  Thread 0 writes x
+    (loc 0), SPAWNS child [cid], then sends on chan 0; the child STARTS (its [KStart] back-points at
+    the spawn — the child-identity edge [WfTrace] demands), receives c0 (matched send at pos 3), then
+    reads x.  The only conflicting cross-goroutine pair (g0's write / the child's read of x) is ordered
+    by the channel handoff carried ACROSS the spawn boundary: write →po→ send →sync→ recv →po→ read.
+    These three witnesses certify the dynamic-spawn handoff trace is well-formed (back-pointers valid,
+    incl. KStart→KSpawn) and race-free regardless of which fresh tid the runtime hands the child.  The
+    all-interleavings invariant over the spawning PROGRAM (a [MpReach]-style inductive reachability with
+    the child tid existentially quantified) is the follow-on slice. ── *)
+Definition dst_trace (cid : nat) : Trace :=
+  [ mkEv 0 (KWrite 0)       (* pos 0: thread 0 writes x         *)
+  ; mkEv 0 (KSpawn cid)     (* pos 1: thread 0 spawns child cid *)
+  ; mkEv cid (KStart 1)     (* pos 2: child starts (spawn = pos 1) *)
+  ; mkEv 0 (KSend 0)        (* pos 3: thread 0 sends on c0      *)
+  ; mkEv cid (KRecv 0 3)    (* pos 4: child recvs c0 (from = pos 3) *)
+  ; mkEv cid (KRead 0) ].   (* pos 5: child reads x             *)
+
+Lemma dst_trace_wf : forall cid, WfTrace (dst_trace cid).
+Proof.
+  intros cid i e H.
+  destruct i as [|[|[|[|[|[|i]]]]]].
+  - cbn in H; inversion H; subst; cbn; exact I.
+  - cbn in H; inversion H; subst; cbn; exact I.
+  - cbn in H; inversion H; subst; cbn.
+    split; [lia | exists (mkEv 0 (KSpawn cid)); split; reflexivity].
+  - cbn in H; inversion H; subst; cbn; exact I.
+  - cbn in H; inversion H; subst; cbn.
+    split; [lia | exists (mkEv 0 (KSend 0)); split; [reflexivity | left; reflexivity]].
+  - cbn in H; inversion H; subst; cbn; exact I.
+  - apply nth_error_lt in H; cbn in H; lia.
+Qed.
+
+(** The write happens-before the read, through the channel handoff carried across the spawn. *)
+Lemma dst_trace_hb_0_5 : forall cid, hbt (dst_trace cid) 0 5.
+Proof.
+  intro cid.
+  apply hbt_trans with (j := 3).
+  - apply hbt_po. unfold po, tid_at; cbn. repeat split; lia.
+  - apply hbt_trans with (j := 4).
+    + apply hbt_sync. unfold sync. exists (mkEv cid (KRecv 0 3)). cbn. split; reflexivity.
+    + apply hbt_po. unfold po, tid_at; cbn. repeat split; lia.
+Qed.
+
+(** The dynamic-spawn handoff PROGRAM is whole-trace race-free: its only conflicting cross-goroutine
+    pair (the write/read of x) is ordered by the channel handoff — for ANY fresh child tid. *)
+Theorem dst_trace_race_free : forall cid, TraceRaceFree (dst_trace cid).
+Proof.
+  intros cid i j [Htid [[ai [aj [Hai [Haj _]]]] [Hnij Hnji]]].
+  pose proof (tr_acc_lt _ _ _ Hai) as Hi. pose proof (tr_acc_lt _ _ _ Haj) as Hj.
+  cbn in Hi, Hj.
+  destruct i as [|[|[|[|[|[|i]]]]]]; try lia;
+  destruct j as [|[|[|[|[|[|j]]]]]]; try lia;
+    cbn in Hai, Haj, Htid;
+    try discriminate Hai; try discriminate Haj;
+    try (apply Htid; reflexivity).
+  - apply Hnij. exact (dst_trace_hb_0_5 cid).   (* i=0 (write), j=5 (read) *)
+  - apply Hnji. exact (dst_trace_hb_0_5 cid).   (* i=5 (read),  j=0 (write) *)
+Qed.
+
 (** ── CLOSED-CHANNEL RECEIVE (trace-core foundation) ──────────────────────────
     A recv from a CLOSED, drained channel returns the zero value immediately (Go).  Per the Go
     memory model, "the closing of a channel happens before a receive that returns a zero value

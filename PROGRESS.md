@@ -1359,6 +1359,15 @@ Probing (a code-review thread) how faithfully channels compose as first-class va
    (user asked 2026-06-21):* the GUARANTEE already generalizes — `reachable_owned_safe_r` quantifies over
    arbitrary programs (N goroutines via spawn) and all interleavings; these witnesses are concrete
    instances, and the open seam for full N is program-structure-discipline ⇒ race-free with dynamic spawn.
+   **DYNAMIC-SPAWN TRANSFER, trace core (2026-06-22):** `dst_trace` / `dst_trace_wf` / `dst_trace_race_free`
+   — `mp_trace`'s static handoff has both goroutines pre-live; here the reader is SPAWNED by the writer and
+   the location is handed to that freshly-created child (the genuinely harder dynamic-tid shape). g0 writes
+   x, SPAWNS child `cid`, sends c0; the child STARTS (its `KStart` back-points at the spawn — the
+   child-identity edge `WfTrace` demands), recvs c0, reads x. The conflicting write/read pair is ordered by
+   the handoff carried ACROSS the spawn boundary (write →po→ send →sync→ recv →po→ read), so the trace is
+   well-formed AND race-free for ANY fresh child tid — axiom-free ("Closed under the global context"),
+   proof-only ⇒ golden-stable. The all-interleavings invariant over the spawning PROGRAM (a `MpReach`-style
+   reachability with the child tid existentially quantified) is the follow-on slice.
 
 ---
 
