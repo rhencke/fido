@@ -574,7 +574,7 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64), int/int64→float64, float64→float32, string↔[]byte/[]rune + string(rune); ⚠ narrow→int64 & float64→int64 lowering deferred (carrier); ✗ float32→/from-narrow-only
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64), int/int64→float64, float64→float32, narrow↔float32 (composable via int64/float64), string↔[]byte/[]rune + string(rune); ⚠ narrow→int64 & float64→int64 lowering deferred (carrier)
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed

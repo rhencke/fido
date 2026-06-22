@@ -183,6 +183,10 @@ func F32_conv_demo() {
 	println(func(x float64) float32 { return float32(x) }(float64(16777217)), func(x float64) float32 { return float32(x) }(float64(30.0/100.0)))
 }
 
+func Narrow_f32_demo() {
+	println(int64(float64(float32((200 & 0xff)))))
+}
+
 func F32_const_runtime_demo() {
 	println(func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(1.0), func(x float64) float32 { return float32(x) }(0.0)), func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(1.0), func(x float32) float32 { return -x }(func(x float64) float32 { return float32(x) }(0.0))), func(x float64) float32 { return float32(x) }(1e+40), func(x float64, y float64) float64 { return x / y }(1.0, 0.0))
 }
@@ -2119,6 +2123,7 @@ func main() {
 	F32_cmp_demo()
 	F32_extra_demo()
 	F32_conv_demo()
+	Narrow_f32_demo()
 	F32_const_runtime_demo()
 	F32_of_int_demo()
 	F32_fconst_demo()

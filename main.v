@@ -430,6 +430,12 @@ Proof. vm_compute. reflexivity. Qed.
 Definition f32_conv_demo : IO unit :=
   println [ any (f32_of_f64 (f64_of_int 16777217%sint63))                       (* float32(2^24+1) = 1.6777216e7 *)
           ; any (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))) ]. (* float32(0.1+0.2) = 0.3 *)
+(** narrow ↔ float32 is COMPOSABLE — no DIRECT [f32_of_u8]/[u8_of_f32] op is required: a uint8 reaches
+    float32 via [f32_of_i64 ∘ i64_of_u8], and back via [i64_of_f64 ∘ f64_of_f32] — exactly Go's
+    [float32(uint8(x))] / [int64(float32(x))], value-correct (a narrow is small, exactly representable).
+    Round-tripped through float32 and printed as an int to keep the witness format-free. *)
+Definition narrow_f32_demo : IO unit :=
+  println [ any (i64_of_f64 (f64_of_f32 (f32_of_i64 (i64_of_u8 (u8_lit 200 eq_refl))))) ].   (* uint8 200 → float32 → int64: 200 *)
 (** REGRESSION (code review): a float op on CONSTANTS must extract as a RUNTIME IEEE operation,
     NOT a Go constant expression — Go constants cannot denote -0/±Inf/NaN, and a constant [/0] or
     [float32] overflow are COMPILE ERRORS.  The extractor now forces runtime (typed IIFE) for any
@@ -2753,6 +2759,7 @@ Definition main_effect : IO unit :=
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
   f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
+  narrow_f32_demo               >>'   (* prints: 200 (narrow↔float32 composable via int64/float64) *)
   f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
   f32_of_int_demo               >>'   (* prints: false (direct float32(x) ≠ float32(float64(x)) — double rounding) *)
   f32_fconst_demo               >>'   (* prints: 0.3 (exact FConst → float32, single round) *)
