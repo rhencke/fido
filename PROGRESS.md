@@ -904,10 +904,22 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   must name a module `builtins` AND shadow a Fido intrinsic).
 
 **P2 — model-to-runtime faithfulness gaps (the bridge, gap #10 / limit #2):**
-- **R5. Plain `GoSlice` capacity model disagrees with Go** (assessed correct): the Rocq model has `cap xs = length
-  xs` and `append` = list concat, but native Go `append` may over-allocate (probe: len=5, cap=6). So any theorem
-  about `cap` after `append` is not about the generated Go. FIX: drop `cap` from functional `GoSlice`, route
-  capacity-sensitive code through the heap-backed slice model, or model capacity in the value.
+- **R5. Plain `GoSlice` capacity — ✅ functional `cap` FIXED (this session, golden byte-identical).** CONFIRMED
+  real: the model has `cap xs = len xs`, but the plugin emitted Go's native `cap(s)` (verified: `cap` reaches the
+  plugin, is NOT inlined to `len`), and Go's capacity after `append` is IMPLEMENTATION-DEFINED (append may
+  over-allocate), so the model's `cap = len` disagrees with the generated Go at runtime — a value `go build`
+  accepts but that is WRONG (the "too late" failure mode). FIX: the plugin emits `unsupported` for `cap` on a
+  functional `GoSlice` (golden byte-identical — `cap(` appears nowhere in the committed Go), directing
+  capacity-aware code to the heap-backed `SliceH` (explicit `sh_cap` field); the model `cap` Definition is
+  re-commented "proof-only; NOT Go's cap". NEGATIVE FIXTURE fired: `cap (slice_of_list TI64 [1;2;3])` aborts
+  ("cap of a functional GoSlice — Go's capacity after `append` is implementation-defined …"). The functional
+  `append` itself stays faithful (a functional slice has `cap = len`, no spare, so Go `append` always reallocs →
+  fresh value, no aliasing — matching the value model). **DISCOVERED related `SliceH` bug (next):** `SliceH`'s
+  `slice_append` realloc sets `sh_cap = len+1` but emits Go's native `append` (impl-defined realloc cap), so a
+  SECOND append after a realloc can ALIAS differently (model: disjoint fresh backing; Go: maybe in-place into the
+  over-allocated spare). No demo asserts post-realloc cap, so latent — but a real faithfulness gap. FIX: emit
+  `slice_append` as a manual realloc (`make([]T, len+1, len+1); copy; r[len]=v`) that FORCES `cap = len+1`,
+  matching the model.
 - **R6. `PrimInt63.int` → platform `int`, divergent overflow** (known substrate limit, sharpened): faithful only
   in [−2^62, 2^62); Go `int` is platform-width and wraps at 2^63 (amd64) / 2^31 (32-bit). "Only for indices"
   doesn't close it without an enforced in-range proof on every emitted op.

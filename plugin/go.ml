@@ -1812,11 +1812,17 @@ let rec pp_expr state env = function
        | MLglob r, [tag; n] when is_slice_make_ref r ->
            str ("make([]" ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
 
-       (* len(slice) / cap(slice) *)
+       (* len(slice) → len(s) (faithful: list length = Go len) *)
        | MLglob r, [s] when is_len_ref r ->
            str "len(" ++ pp_expr state env s ++ str ")"
-       | MLglob r, [s] when is_cap_ref r ->
-           str "cap(" ++ pp_expr state env s ++ str ")"
+       (* review R5: cap of a functional (value) GoSlice CANNOT be faithfully modeled.  Go's capacity
+          after `append` is IMPLEMENTATION-DEFINED (append may over-allocate), so the model's `cap = len`
+          would disagree with the generated `cap(s)`.  Emitting `cap(s)` and relying on the model's
+          `cap = len` ships a value that `go build` accepts but that is WRONG at runtime — fail loud at
+          extraction instead.  Capacity-aware code uses the heap-backed slice (SliceH), whose capacity is
+          an explicit field of the value. *)
+       | MLglob r, [_s] when is_cap_ref r ->
+           unsupported "cap of a functional GoSlice — Go's capacity after `append` is implementation-defined (append may over-allocate), so it cannot be faithfully modeled on the value slice (`cap = len` would disagree with the generated Go at runtime); use the heap-backed slice (SliceH), whose capacity is explicit"
        (* str_len s → len(s): Go's [len] already gives the BYTE count as a Go [int],
           which is exactly the [int] (PrimInt63) model now (break #7) — no cast. *)
        | MLglob r, [s] when is_str_len_ref r ->

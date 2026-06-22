@@ -3368,7 +3368,12 @@ Qed.
 (* [GoInt] is now [int]; [len] counts elements (lowered to Go [len] — body suppressed). *)
 Fixpoint len {A} (xs : GoSlice A) : GoInt :=
   match xs with nil => 0%uint63 | _ :: r => PrimInt63.add 1%uint63 (len r) end.
-Definition cap {A} (xs : GoSlice A) : GoInt := len xs.   (* model: cap = len *)
+(* review R5: [cap] on a functional (value) [GoSlice] is NOT Go's capacity.  Go's [cap] after [append]
+   is IMPLEMENTATION-DEFINED (append may over-allocate), so no value-slice model can predict it; this
+   [cap = len] is a proof-only convenience and is NOT extractable — the plugin emits [unsupported] for
+   any [cap] use (a value that [go build] would accept but that is WRONG at runtime).  Capacity-aware
+   code uses the heap-backed [SliceH], whose capacity ([sh_cap]) is an explicit field of the value. *)
+Definition cap {A} (xs : GoSlice A) : GoInt := len xs.   (* proof-only; NOT Go's cap — see R5 note above *)
 Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice A = list A *)
 
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
