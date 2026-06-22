@@ -713,8 +713,13 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    protocol-indexed INDUCTIVE session `PSess` (concurrency.v) whose only builders are the disciplined
    combinators, with soundness `psess_emits_proto`/`psess_full_emits_proto` proving its communication trace is
    EXACTLY `proto_steps i` — and `psess_send_nonempty` showing the `MkSess (ret tt)` forgery has no `PSess`
-   counterpart. Axiom-clean (PrimInt63/PrimFloat only; no funext/Eqdep). Brick 1 of N — later bricks denote
-   `PSess` into the `builtins.v` channel `IO` and migrate the extracted `Sess` onto it (then `MkSess` retires).
+   counterpart. Axiom-clean (PrimInt63/PrimFloat only; no funext/Eqdep). **Brick 2 (2026-06-22): session
+   DUALITY / communication safety** — `proto_steps_dual` (`proto_steps (dual p) = map flip_step (proto_steps p)`,
+   fully Closed-under-global-context) + `psess_pair_complementary` (a client realising `P` and a server realising
+   `dual P` emit exact mirror-image traces: each side receives precisely what the other sends, same types same
+   order — no mismatch, no orphaned message; the classical session-types safety property). Remaining bricks:
+   denote `PSess` into the `builtins.v` channel `IO` over real channels, then migrate the extracted `Sess` onto
+   `PSess` (then `MkSess` retires).
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently

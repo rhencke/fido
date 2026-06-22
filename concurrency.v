@@ -5262,3 +5262,59 @@ Qed.
     any kind.  So the soundness of the protocol-indexed session rests on the same
     trust base as the rest of Fido, and the seal-vs-deeper-fix tension of R9 is
     sidestepped entirely. *)
+
+(** ** Session DUALITY — the client and server agree (communication safety).
+
+    The whole point of a session TYPE is that the two endpoints follow
+    COMPLEMENTARY protocols: where one sends, the other receives the SAME type, in
+    the SAME order.  [dual] (builtins.v) flips every send↔recv at the protocol
+    level; here we lift it to the TRACE level and prove a client realising [P] and a
+    server realising [dual P] perform traces that are exact mirror images — every
+    message the client sends is exactly the one the server receives, with no type
+    mismatch and no orphaned message.  This is the deadlock/agreement core of
+    session typing, now proved for the forge-proof [PSess].  Brick 2 of the R9
+    deeper fix (still pure-protocol; the channel-IO denotation is brick 3). *)
+
+(** A single step's complement: a send of [A] is matched by a receive of [A]. *)
+Definition flip_step (s : StepKind) : StepKind :=
+  match s with
+  | PKSend A => PKRecv A
+  | PKRecv A => PKSend A
+  end.
+
+Lemma flip_step_involutive : forall s, flip_step (flip_step s) = s.
+Proof. intros [A | A]; reflexivity. Qed.
+
+(** The dual protocol prescribes EXACTLY the flipped communication sequence. *)
+Theorem proto_steps_dual : forall p : Proto,
+  proto_steps (dual p) = map flip_step (proto_steps p).
+Proof.
+  induction p as [A p' IH | A p' IH | ]; simpl.
+  - rewrite IH. reflexivity.            (* PSend A p' ↦ dual gives PRecv, flip gives PKRecv *)
+  - rewrite IH. reflexivity.            (* PRecv A p' ↦ symmetric *)
+  - reflexivity.                        (* PEnd ↦ [] = map _ [] *)
+Qed.
+
+(** COMMUNICATION SAFETY for a session pair: a complete client realising [P] and a
+    complete server realising [dual P] emit traces that are exact mirror images —
+    the server receives precisely what the client sends (same types, same order),
+    and vice versa.  No type mismatch, no orphaned or missing message.  Proved for
+    the forge-proof [PSess], so a well-typed session pair CANNOT desynchronise — the
+    classical session-types safety property, here a corollary of [PSess] soundness
+    plus protocol duality. *)
+Corollary psess_pair_complementary :
+  forall (P : Proto) (client : PSess P PEnd unit) (server : PSess (dual P) PEnd unit)
+         (cs ss : list StepKind),
+    PEmits client cs -> PEmits server ss -> ss = map flip_step cs.
+Proof.
+  intros P client server cs ss Hc Hs.
+  apply psess_full_emits_proto in Hc.
+  apply psess_full_emits_proto in Hs.
+  subst cs ss. apply proto_steps_dual.
+Qed.
+
+(** Trust base — verified by [Print Assumptions] (2026-06-22): [proto_steps_dual]
+    is "Closed under the global context" (FULLY axiom-free — pure protocol algebra
+    over [Proto]/[list], touches no primitive); [psess_pair_complementary] inherits
+    brick 1's substrate (PrimInt63.*/PrimFloat.* only, via [psess_full_emits_proto]).
+    No funext, no Eqdep/UIP/JMeq anywhere, no project-declared assumption. *)
