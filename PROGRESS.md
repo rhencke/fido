@@ -728,13 +728,21 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    Closed-under-global-context. Plus a concrete bidirectional `pingpong` witness (`PSend GoI64 (PRecv GoI64 PEnd)`)
    exercising `PSRecv`: its client's trace = the protocol, and the pair terminates. **So the model-layer session
    theory is COMPLETE: soundness (1) + communication safety (2) + progress/deadlock-freedom (3) + termination/
-   determinism (4)** — the full session-types safety+liveness story for a forge-proof type.
+   determinism (4)**. **Brick 5 (2026-06-22): run–trace coherence** — `pair_step_tr`/`pair_steps_tr` (the
+   synchronized run recording each communicated `StepKind`) + `dual_pair_run_trace` (the run from `(P, dual P)` to
+   `(PEnd,PEnd)` emits EXACTLY `proto_steps P`) + `pair_steps_tr_forget` (a traced run is a `pair_step` run). So the
+   THREE trace notions coincide — protocol SPEC (`proto_steps`), session TERM (`PEmits`, brick 1), synchronized RUN
+   — the terminating deterministic run carries precisely the protocol's messages. All Closed-under-global-context.
    FINDING (foundation): a FAITHFUL real-channel Rocq denotation (`PSess` → `IO` over a `GoChan`) is BLOCKED — a
    heterogeneous session channel needs `GoChan GoAny` but `GoTypeTag GoAny` is universe-inconsistent (builtins.v:489),
    the SAME idealisation that forces `run_sess = ret tt`. So the one remaining extraction-soundness step is the
-   plugin MIGRATION (replace the extracted `Sess` RECORD with the `PSess` INDUCTIVE so the extracted type is
-   forge-proof too; the run stays plugin-lowered/idealised) — a golden-affecting plugin change, the deep next step
-   (best on fresh context), explicitly NOT skipped.
+   plugin MIGRATION (replace the extracted `Sess` RECORD with an INDUCTIVE so the extracted type is forge-proof too;
+   the run stays plugin-lowered/idealised). RESEARCHED (2026-06-22): the plugin lowers session ops by COMBINATOR
+   name (`ssend`…) via `emit_sess_action` (go.ml ~3666), so migration must keep those names (`NoInline` wrappers
+   over the constructors) OR retarget the plugin to the inductive's constructors — the recognition CRUX, since Coq
+   may inline `ssend := SSend` to the constructor; `Sess` erases by name (`is_erased_record_typename`, go.ml 671) so
+   the inductive erases too; `run_session` walks the term. Intricate + golden-affecting ⇒ a focused FRESH tick, NOT
+   skipped.
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently

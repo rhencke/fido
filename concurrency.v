@@ -5446,3 +5446,62 @@ Proof. apply dual_pair_terminates. Qed.
     [pair_step]): Closed under the global context, FULLY axiom-free.  The pingpong
     witnesses pull only the PrimInt63/PrimFloat substrate (via [GoI64]/[TI64]).
     No funext, no Eqdep/UIP.  Verified by [Print Assumptions]. *)
+
+(** ** Run–trace coherence — the synchronized run communicates EXACTLY the protocol.
+
+    Brick 4 proved the dual-pair reduction terminates and is deterministic, but the
+    bare [pair_step] carried no message.  This brick records each step's
+    communicated [StepKind] and proves the whole run from [(P, dual P)] to
+    [(PEnd, PEnd)] emits EXACTLY [proto_steps P] — so the terminating, deterministic
+    run is not merely live, it carries precisely the protocol's message sequence.
+    This UNIFIES the three trace notions: the protocol SPEC ([proto_steps]), the
+    session TERM's trace ([PEmits], brick 1), and now the synchronized RUN's trace
+    all coincide.  Brick 5 of the R9 deeper fix, still pure-protocol. *)
+
+(** A step that records the communicated kind (from the sender's view). *)
+Inductive pair_step_tr : Proto * Proto -> StepKind -> Proto * Proto -> Prop :=
+  | pst_send : forall (A : Type) (P' Q : Proto),
+      pair_step_tr (builtins.PSend A P', builtins.PRecv A Q) (PKSend A) (P', Q)
+  | pst_recv : forall (A : Type) (P' Q : Proto),
+      pair_step_tr (builtins.PRecv A P', builtins.PSend A Q) (PKRecv A) (P', Q).
+
+(** A traced run accumulates the communicated kinds in order. *)
+Inductive pair_steps_tr : Proto * Proto -> list StepKind -> Proto * Proto -> Prop :=
+  | pstr_refl : forall st, pair_steps_tr st [] st
+  | pstr_step : forall st1 k st2 tr st3,
+      pair_step_tr st1 k st2 -> pair_steps_tr st2 tr st3 ->
+      pair_steps_tr st1 (k :: tr) st3.
+
+(** A traced step IS a [pair_step] (the kind is just extra information). *)
+Lemma pair_step_tr_untr : forall st1 k st2, pair_step_tr st1 k st2 -> pair_step st1 st2.
+Proof. intros st1 k st2 H. inversion H; subst; [ apply ps_send | apply ps_recv ]. Qed.
+
+(** … so a traced run IS a [pair_step] run (brick 4 — termination applies). *)
+Lemma pair_steps_tr_forget : forall st tr st', pair_steps_tr st tr st' -> pair_steps st st'.
+Proof.
+  intros st tr st' H. induction H as [ | st1 k st2 tr st3 Hstep _ IH ].
+  - apply pss_refl.
+  - eapply pss_step; [ apply (pair_step_tr_untr _ _ _ Hstep) | exact IH ].
+Qed.
+
+(** COHERENCE: the dual-pair run emits EXACTLY the protocol's message sequence. *)
+Theorem dual_pair_run_trace : forall P : Proto,
+  pair_steps_tr (P, dual P) (proto_steps P) (PEnd, PEnd).
+Proof.
+  induction P as [A P' IH | A P' IH | ]; simpl.
+  - eapply pstr_step; [ apply pst_send | exact IH ].
+  - eapply pstr_step; [ apply pst_recv | exact IH ].
+  - apply pstr_refl.
+Qed.
+
+(** Trust base — pure [Proto] algebra (induction + [inversion] on the first-order
+    [pair_step_tr]): [dual_pair_run_trace] / the forget lemmas are Closed under the
+    global context, FULLY axiom-free.  No funext, no Eqdep/UIP.  Verified by
+    [Print Assumptions].  Together bricks 1–5 are the model-layer session theory;
+    the remaining R9 step is the plugin MIGRATION (extracted [Sess] RECORD → an
+    INDUCTIVE, so the EXTRACTED type is forge-proof too).  RESEARCHED this tick: the
+    plugin lowers session ops by COMBINATOR name ([ssend]…) via [emit_sess_action],
+    so migration must keep those names (NoInline wrappers) OR retarget the plugin to
+    the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
+    so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
+    tick, NOT skipped. *)
