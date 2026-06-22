@@ -180,16 +180,23 @@ unmodelled callbacks.
   looks unsafe to an expert, yet Rocq has ruled out every failure mode. *Pieces:* FINITE
   nesting is mostly ASSEMBLY today — `TChan`/`TSlice`/`TProd`/`TPtr`/`TMap` already compose
   (a `[]chan *Foo` field in a struct shuttled between goroutines is taggable now). Two
-  genuine frontiers gate the FULL horror: (1) RECURSIVE / self-referential types. Valid Go
-  recurses through INDIRECTION (pointer/channel/slice/map/func); only direct `type X X` /
-  `struct{x X}` is rejected. FIRST TARGET = **`type X *X`** (valid Go, the minimal recursive
-  self-type). Because `Ptr` is a TAG-FREE phantom handle, the VALUE side is BENIGN — model
-  `Inductive X := mkX (Ptr X)`: a value is just a location, recursion erased at runtime (like
-  phantom typestate). So the research nut is NARROW: the recursive TYPE TAG, not the value rep —
-  deref/sending X needs `GoTypeTag X`, but the finite-inductive `GoTypeTag` can't hold the cyclic
-  `tagX = TPtr tagX` (the universe wall that forced `GoChan`/`Ptr` tag-free, builtins.v:161).
-  Need a named-type tag / tag fixpoint; `type X *X` cracks it cleanest (pointer keeps values
-  trivial), `type C chan C` is the same tag problem + payload semantics. (2) VERIFIED SAFETY on
+  genuine frontiers gate the FULL horror: (1) RECURSIVE / self-referential types — **CRACKED
+  (2026-06-22) for a concrete recursive type, axiom-free, end-to-end to Go.** Valid Go recurses
+  through INDIRECTION (pointer/channel/slice/map/func); only direct `type X X` / `struct{x X}` is
+  rejected. The VALUE side is benign — `Inductive ListNode := MkListNode { ln_val ; ln_next : Ptr
+  ListNode }` (`Inductive`, not the recursion-forbidding `Record` keyword; recursion through the
+  TAG-FREE phantom `Ptr` ⇒ vacuously positive, accepted by Rocq). The supposed TYPE-TAG wall — that
+  a finite `GoTypeTag` can't hold a cyclic `tagX = TPtr tagX` — was a **MISDIAGNOSIS**: a NULLARY
+  nominal tag `TListNode : GoTypeTag ListNode` does NOT structurally contain itself (it's a base case
+  exactly like `TBool`); the `ln_next : *ListNode` field's tag is the FINITE term `TPtr TListNode`.
+  So the recursive TYPE gets a finite tag that round-trips through `tag_eq` (`tlistnode_tag_refl` /
+  `tlistnode_selfptr_refl`, both `reflexivity`, assumptions = just `int : Set`), `*ListNode` cells
+  live in the typed heap, and `linked_list_demo` heap-allocates + pointer-chains + TRAVERSES a real
+  3-node singly-linked list → `1 2 3`. REMAINING gap (genericity): each named recursive type needs
+  its own nullary tag constructor in builtins.v (Rocq inductives are closed — main.v can't extend
+  `GoTypeTag`); a user-defined recursive struct getting a tag automatically needs a named-type
+  registry / plugin pass (deferred). `type C chan C` is the same tag (done) + payload semantics.
+  (2) VERIFIED SAFETY on
   the cursed program (race/deadlock-freedom on the TYPED program) = limit #2 (in progress) + the
   deadlock/session theory. The safety half is what makes it LAND — without it the demo merely
   compiles; with it, an expert learns the self-sending-channel soup is *proven* clean. *Ordering

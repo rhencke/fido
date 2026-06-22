@@ -230,6 +230,20 @@ Record GoI64 := MkI64 { i64raw : Z ; i64ok : Squash (in_i64 i64raw = true) }.
    need no mask. *)
 Record GoU64 := MkU64 { u64raw : Z ; u64ok : Squash (in_u64 u64raw = true) }.
 
+(* A genuinely RECURSIVE Go struct type — [type ListNode struct { Val int64 ; Next *ListNode }].
+   Defined HERE (above [GoTypeTag]) precisely so the tag inductive can carry its NULLARY nominal tag
+   [TListNode : GoTypeTag ListNode] below.  Two things make this work, axiom-free:
+   (1) [Inductive] (NOT the [Record] keyword, which forbids self-reference) with record-projection
+       syntax — extraction still classifies it as a record ⇒ the plugin emits a Go [struct].  The
+       recursion is through [Ptr ListNode], and [Ptr] is a TAG-FREE phantom handle (pointee erased,
+       stores no tag) ⇒ [ListNode] occurs vacuously-positively, so Rocq accepts it (and storing no
+       tag keeps [GoTypeTag ListNode] universe-consistent — same reason [GoChan] is tag-free).
+   (2) The supposed "cyclic type-tag wall" (a structural [tag = TPtr tag] would be an infinite term)
+       is a MIRAGE: a NULLARY nominal tag does not structurally contain itself.  [TListNode] is a base
+       case exactly like [TBool]; the [Next : *ListNode] field's tag is the FINITE term [TPtr TListNode].
+       So the recursive TYPE gets a finite tag and round-trips through [tag_eq] (witnessed below). *)
+Inductive ListNode := MkListNode { ln_val : GoI64 ; ln_next : Ptr ListNode }.
+
 (* [i64wrap] = wrap-to-int64-range + carry the (SProp) range proof, so [i64wrap (2^63) _] is
    unconstructable.  Hoisted here (before the narrow→int64 conversions at [i64_of_u8]… use it). *)
 Lemma in_i64_wrap64 : forall z, in_i64 (wrap64 z) = true.
@@ -265,6 +279,12 @@ Inductive GoTypeTag : Type -> Type :=
      has exactly one tag. *)
   | TUint    : GoTypeTag GoUint
   | TFloat32 : GoTypeTag GoFloat32
+  (* RECURSIVE / self-referential struct [ListNode] (above) — a NULLARY nominal tag, the crack of
+     the recursive-type-tag wall.  It does NOT structurally contain itself (unlike a hypothetical
+     [tag = TPtr tag]), so the inductive stays FINITE; the [Next : *ListNode] field's tag is the
+     finite term [TPtr TListNode].  This is what lets a [*ListNode] cell live in the typed heap
+     ([ptr_new]/[ptr_get] take [TListNode]) so a multi-node list is genuinely allocatable + traversable. *)
+  | TListNode : GoTypeTag ListNode
   (* Composite type tags — carry the element/key/value tags so the plugin can
      reconstruct the full Go type string recursively. *)
   | TChan  : forall {A : Type},           GoTypeTag A -> GoTypeTag (GoChan A)
@@ -333,6 +353,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TUnit, TUnit => Some eq_refl
   | TUint, TUint       => Some eq_refl
   | TFloat32, TFloat32 => Some eq_refl
+  | TListNode, TListNode => Some eq_refl   (* recursive nominal type decides equal to itself — the heap read-after-write at [*ListNode] *)
   | TChan a, TChan b   => match tag_eq a b with Some p => Some (gochan_cong p) | None => None end
   | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
   | TMap ka va, TMap kb vb =>
@@ -384,6 +405,18 @@ Proof. intros A t x. unfold tag_coerce. rewrite tag_eq_refl. reflexivity. Qed.
 Example tprod_tag_sound : tag_eq (TProd TI64 TBool) (TProd TI64 TBool) = Some eq_refl.
 Proof. reflexivity. Qed.
 
+(** RECURSIVE type-tag soundness — the crack of the self-referential-type wall.  The recursive
+    nominal type [ListNode] gets a FINITE tag [TListNode] that decides equal to itself, AND its own
+    self-pointer tag [TPtr TListNode] (the [Next : *ListNode] field's type) round-trips too — both by
+    [reflexivity], NO axiom.  Because the tag is nullary it never structurally contains itself, so
+    there is no infinite [tag = TPtr tag] term; the recursion lives in the TYPE, the tag stays finite.
+    These two facts are exactly what the typed heap needs to store/recover a [*ListNode] cell, so a
+    multi-node linked list is allocatable + traversable (see [list_demo]). *)
+Example tlistnode_tag_refl : tag_eq TListNode TListNode = Some eq_refl.
+Proof. reflexivity. Qed.
+Example tlistnode_selfptr_refl : tag_eq (TPtr TListNode) (TPtr TListNode) = Some eq_refl.
+Proof. reflexivity. Qed.
+
 (** Every Go type has a zero value (false, 0, 0.0, nil, "", …) — its [GoTypeTag]
     determines which.  Now a DEFINITION (not an axiom): a recursion on the tag that
     is total precisely because [GoTypeTag] enumerates exactly the Go types and each
@@ -406,6 +439,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TUnit => tt
   | TUint    => 0%uint63
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
+  | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0%uint63)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
   | TMap _ _ => MkMap 0%uint63        (* nil map *)
@@ -493,6 +527,10 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TProd a b => fun x y => andb (key_eqb a (fst x) (fst y)) (key_eqb b (snd x) (snd y))
                                      (* a product (comparable struct) is a valid key iff both fields are *)
   | TPtr _ => fun a b => PrimInt63.eqb (p_loc a) (p_loc b)   (* Go [==] on pointers compares addresses *)
+  | TListNode => fun a b => andb (Z.eqb (i64raw (ln_val a)) (i64raw (ln_val b)))
+                                 (PrimInt63.eqb (p_loc (ln_next a)) (p_loc (ln_next b)))
+                                     (* a [ListNode] IS comparable in Go (all fields are: int64 + a pointer):
+                                        field-wise == — equal [Val] AND same [Next] address. NOT a [false] sentinel. *)
   end.
 
 (** [Comparable t]: [key_eqb t] decides equality on [K] — the typing side

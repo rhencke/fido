@@ -521,6 +521,10 @@ let go_type_tag_map = [
   "TI64",     "int64";    (* full-width Z-carried int64 (GoI64) *)
   "TU64",     "uint64";   (* full-width Z-carried uint64 (GoU64) *)
   "TFloat32", "float32";
+  (* RECURSIVE nominal struct (builtins.v [ListNode]) — its nullary tag names the Go type, so
+     [go_type_of_tag TListNode = "ListNode"] and [go_type_of_tag (TPtr TListNode) = "*ListNode"];
+     [ptr_new TListNode v] thus emits [func(_v ListNode) *ListNode { return &_v }(v)]. *)
+  "TListNode", "ListNode";
 ]
 
 (** Primitive tag lookup — basename only, no recursion. *)

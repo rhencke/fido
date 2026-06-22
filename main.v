@@ -1723,16 +1723,22 @@ Definition pool_demo : IO unit :=
   v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
   println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
 
-(** RECURSIVE / self-referential type (the north-star FRONTIER): [type Node struct { val int64;
-    next *Node }] — a struct that refers to ITSELF through a pointer.  Coq accepts the recursive
-    [Record] because [Ptr] is a TAG-FREE PHANTOM ([mkPtr { p_loc : int }], pointee erased), so [Node]
-    occurs VACUOUSLY-positively in [Ptr Node]; it extracts to a genuine recursive Go struct.  A single
-    node (nil [next]) needs no tag — a MULTI-node list needs a recursive type TAG (the deeper nut:
-    `GoTypeTag` can't be cyclic — deferred). *)
-Inductive RNode := MkRNode { rn_val : GoI64 ; rn_next : Ptr RNode }.   (* [Inductive], not [Record] — the [Record] keyword forbids recursion; [Inductive]+projections allows it *)
-Definition node_demo : IO unit :=
-  let n := MkRNode (5)%i64 (ptr_nil_tf tt) in    (* RNode{Rn_val: 5, Rn_next: nil} — a self-referential type, realised *)
-  println [any (rn_val n)].                       (* prints: 5 *)
+(** RECURSIVE / self-referential type — the north-star FRONTIER, now OPERATED on, not just declared.
+    [ListNode] (builtins.v) is [type ListNode struct { Val int64 ; Next *ListNode }] — a struct that
+    points to ITSELF.  The previous tick DECLARED the type (a single nil-[next] node, no tag); this tick
+    CRACKS the recursive type TAG: [TListNode] is a NULLARY nominal tag — FINITE, not the feared cyclic
+    [tag = TPtr tag] (the field's tag is the finite [TPtr TListNode]).  With the tag, a [*ListNode] cell
+    lives in the typed heap, so a genuine 3-node singly-linked list is heap-ALLOCATED ([ptr_new TListNode],
+    tail-first), pointer-CHAINED, then TRAVERSED head→tail via [ptr_get]/[ln_next] — a real linked list,
+    allocated + linked + walked, axiom-free, extracted to ordinary Go. *)
+Definition linked_list_demo : IO unit :=
+  p3 <-' ptr_new TListNode (MkListNode (3)%i64 (ptr_nil_tf tt)) ;;   (* tail: ListNode{3, nil}       *)
+  p2 <-' ptr_new TListNode (MkListNode (2)%i64 p3) ;;                (* mid : ListNode{2, &tail}     *)
+  p1 <-' ptr_new TListNode (MkListNode (1)%i64 p2) ;;               (* head: ListNode{1, &mid}      *)
+  n1 <-' ptr_get TListNode p1 ;;                                    (* *p1                          *)
+  n2 <-' ptr_get TListNode (ln_next n1) ;;                          (* *(p1.Next) — follow the link *)
+  n3 <-' ptr_get TListNode (ln_next n2) ;;                          (* *(p2.Next) — follow again    *)
+  println [any (ln_val n1) ; any (ln_val n2) ; any (ln_val n3)].    (* prints: 1 2 3 *)
 
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
@@ -2810,7 +2816,7 @@ Definition main_effect : IO unit :=
   hub_worker_demo               >>'   (* prints: worker 123 (a GOROUTINE feeding a channel nested in a struct) *)
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
-  node_demo                     >>'   (* prints: 5 (a RECURSIVE struct: type Node struct { nv int64; next *Node }) *)
+  linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

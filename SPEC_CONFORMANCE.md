@@ -313,6 +313,19 @@ NOT `nd.Cell.Cell_incx()`).  Emitted `type Node struct { *Cell; Ntag int64 }`, `
 99}`, `nd.Cell_incx()` then `(nd.Cell).Cx` → `11 99` (`node_embed_demo`, golden-locked).  ✗ not yet:
 embedding a bare PRIMITIVE (no methods to promote — niche), and struct tags.  Methods declared on the
 struct → next section.
+**RECURSIVE / self-referential struct DONE (2026-06-22):** Go's `type ListNode struct { Val int64; Next
+*ListNode }` — a struct that points to ITSELF.  Modelled `Inductive ListNode := MkListNode { ln_val :
+GoI64 ; ln_next : Ptr ListNode }` (`Inductive`, not the recursion-forbidding `Record` keyword; recursion
+through the TAG-FREE phantom `Ptr` ⇒ `ListNode` occurs vacuously-positively, so Rocq accepts it and
+`GoTypeTag ListNode` stays universe-consistent — same reason `GoChan` is tag-free).  The recursive TYPE
+gets a FINITE nullary nominal tag `TListNode : GoTypeTag ListNode` (it doesn't structurally contain
+itself — a base case like `TBool`; the `Next` field's tag is the finite `TPtr TListNode`), which
+round-trips through `tag_eq` (`tlistnode_tag_refl`/`tlistnode_selfptr_refl`, both `reflexivity`).  So a
+`*ListNode` cell lives in the typed heap: `linked_list_demo` heap-allocates 3 nodes (`ptr_new TListNode`),
+pointer-chains them, and TRAVERSES head→tail (`ptr_get`/`ln_next`) → `1 2 3`.  Emits `type ListNode struct
+{ Ln_val int64; Ln_next *ListNode }`, golden-locked, axiom-free (assumptions = `int : Set`).  ⚠ each named
+recursive type needs its own nullary tag ctor in builtins.v (Rocq inductives are closed); auto-tagging
+user-defined recursive structs needs a named-type registry (deferred).
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:

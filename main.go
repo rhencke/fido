@@ -46,6 +46,11 @@ const (
 	Gt
 )
 
+type ListNode struct {
+	Ln_val  int64
+	Ln_next *ListNode
+}
+
 func I64_abs(a int64) int64 {
 	if a < 0 {
 		return 0 - a
@@ -1053,14 +1058,14 @@ func Pool_demo() {
 	println(pool.Pool_base + (v0 + v1))
 }
 
-type RNode struct {
-	Rn_val  int64
-	Rn_next *RNode
-}
-
-func Node_demo() {
-	n := RNode{Rn_val: 5, Rn_next: nil}
-	println(n.Rn_val)
+func Linked_list_demo() {
+	p3 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 3, Ln_next: nil})
+	p2 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 2, Ln_next: p3})
+	p1 := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 1, Ln_next: p2})
+	n1 := *p1
+	n2 := *(n1.Ln_next)
+	n3 := *(n2.Ln_next)
+	println(n1.Ln_val, n2.Ln_val, n3.Ln_val)
 }
 
 func Slice_alias_demo() {
@@ -2160,7 +2165,7 @@ func main() {
 	Hub_worker_demo()
 	Chan_of_chan_demo()
 	Pool_demo()
-	Node_demo()
+	Linked_list_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
