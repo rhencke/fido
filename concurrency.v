@@ -5124,3 +5124,141 @@ Proof.
 Qed.
 
 End BoundedChannels.
+
+(* ====================================================================== *)
+(** * Forge-proof session typing — the protocol indices are OPERATIONAL.
+
+    [builtins.v]'s extracted session type [Sess i j A := MkSess { run_sess : IO A }]
+    is a one-field RECORD, so [MkSess] wraps an ARBITRARY [IO A] regardless of the
+    protocol indices: [MkSess (ret tt) : Sess (PSend A P) P unit] type-checks yet
+    COMMUNICATES NOTHING — the indices [i]/[j] are phantom (review #3 finding R9).
+    Rocq 9.2 cannot make a record constructor private without opaque module
+    ascription (which needs a Module-Type [Parameter]); the chosen fix is the
+    DEEPER one — tie the run to the protocol so the index simply CANNOT lie.
+
+    A session becomes an INDUCTIVE [PSess] indexed by the protocol, whose only
+    builders are the disciplined combinators (send / recv / ret / lift / bind).
+    There is no "wrap arbitrary [IO] at the wrong protocol" constructor, so the
+    index is structurally honest.  We read off the COMMUNICATION TRACE a [PSess]
+    performs ([PEmits]) and prove it is EXACTLY the sequence the protocol
+    prescribes ([proto_steps]) — making the indices a genuine behavioural
+    specification.  This is brick 1 of the R9 deeper fix; later bricks denote
+    [PSess] into the [builtins.v] channel IO and migrate the extracted [Sess]. *)
+
+(** A protocol step's observable shape: send or receive of a value of a type.
+    ([PK…] avoids [EvKind]'s [KSend]/[KRecv], which instead carry a channel id.) *)
+Inductive StepKind : Type :=
+  | PKSend : Type -> StepKind
+  | PKRecv : Type -> StepKind.
+
+(** The communication sequence a protocol prescribes, head-first ([PEnd ↦ []]). *)
+Fixpoint proto_steps (p : Proto) : list StepKind :=
+  match p with
+  | builtins.PSend A p' => PKSend A :: proto_steps p'
+  | builtins.PRecv A p' => PKRecv A :: proto_steps p'
+  | PEnd                 => []
+  end.
+
+(** A session REALISING the [i ↦ j] protocol fragment, producing an [A].  Each
+    constructor that advances the protocol performs the matching communication;
+    [PSLift] (local IO, no message) keeps the state FIXED ([P ↦ P]) so it cannot
+    forge a send/recv step.  Crucially there is no [MkSess]-style "arbitrary [IO]
+    at any index" builder — the index cannot be detached from the operations. *)
+Inductive PSess : Proto -> Proto -> Type -> Type :=
+  | PSRet  : forall {P : Proto} {A : Type}, A -> PSess P P A
+  | PSSend : forall {A : Type} {P : Proto}, A -> PSess (builtins.PSend A P) P unit
+  | PSRecv : forall {A : Type} {P : Proto}, GoTypeTag A -> PSess (builtins.PRecv A P) P A
+  | PSLift : forall {P : Proto} {A : Type}, IO A -> PSess P P A
+  | PSBind : forall {P Q R : Proto} {A B : Type},
+               PSess P Q A -> (A -> PSess Q R B) -> PSess P R B.
+
+(** The communication trace a session performs.  A RELATION, not a [Fixpoint]:
+    [PSBind]'s continuation [k a] is not a structural subterm (so a recursive
+    function would fail the guard), and the bound value [a] is immaterial anyway —
+    [k a]'s indices [Q ↦ R] fix its trace for EVERY [a] (proved in the [PSBind]
+    case below).  Soundness is then an induction on this derivation. *)
+Inductive PEmits : forall {i j : Proto} {A : Type}, PSess i j A -> list StepKind -> Prop :=
+  | EmitRet  : forall (P : Proto) (A : Type) (x : A),
+                 PEmits (@PSRet P A x) []
+  | EmitSend : forall (A : Type) (P : Proto) (v : A),
+                 PEmits (@PSSend A P v) [PKSend A]
+  | EmitRecv : forall (A : Type) (P : Proto) (tag : GoTypeTag A),
+                 PEmits (@PSRecv A P tag) [PKRecv A]
+  | EmitLift : forall (P : Proto) (A : Type) (m : IO A),
+                 PEmits (@PSLift P A m) []
+  | EmitBind : forall (P Q R : Proto) (A B : Type)
+                      (m : PSess P Q A) (k : A -> PSess Q R B) (a : A)
+                      (sm sk : list StepKind),
+                 PEmits m sm -> PEmits (k a) sk ->
+                 PEmits (@PSBind P Q R A B m k) (sm ++ sk).
+
+(** SOUNDNESS — the operational tie.  Whatever trace [steps] a session emits,
+    appending the steps still OWED from its end state [j] reconstructs the FULL
+    protocol [i].  So the session performs EXACTLY the [i ↦ j] fragment — no
+    silent skips, no spurious extra messages.  The index is the behaviour. *)
+Theorem psess_emits_proto :
+  forall (i j : Proto) (A : Type) (s : PSess i j A) (steps : list StepKind),
+    PEmits s steps -> steps ++ proto_steps j = proto_steps i.
+Proof.
+  intros i j A s steps H.
+  induction H as [ | | | | P Q R A0 B m k a sm sk Hm IHm Hk IHk ]; simpl.
+  - reflexivity.                       (* Ret  : [] ++ proto_steps P = proto_steps P *)
+  - reflexivity.                       (* Send : [PKSend A] ++ steps P = steps (PSend A P) *)
+  - reflexivity.                       (* Recv : symmetric *)
+  - reflexivity.                       (* Lift : [] ++ proto_steps P = proto_steps P *)
+  - rewrite <- app_assoc, IHk. exact IHm.   (* Bind : (sm++sk)++R = sm++(sk++R) = sm++Q = P *)
+Qed.
+
+(** Headline corollary: a COMPLETE session ([j = PEnd]) performs PRECISELY the
+    protocol's whole communication sequence.  The forged [MkSess (ret tt) : Sess
+    (PSend A P) P unit] — which would emit [[]] ≠ [[PKSend A; …]] — has NO [PSess]
+    counterpart, so the leak that motivated R9 is closed by construction here. *)
+Corollary psess_full_emits_proto :
+  forall (i : Proto) (A : Type) (s : PSess i PEnd A) (steps : list StepKind),
+    PEmits s steps -> steps = proto_steps i.
+Proof.
+  intros i A s steps H.
+  apply psess_emits_proto in H. simpl in H.
+  rewrite app_nil_r in H. exact H.
+Qed.
+
+(** The PRECISE contrast with the forgeable record.  NO session that opens with a
+    send can emit the empty trace: [steps = []] would force [proto_steps P] to be
+    its own proper tail (a strictly longer list), which a length argument refutes.
+    [MkSess (ret tt) : Sess (PSend A P) P unit] is exactly that impossible-here
+    forgery — emitting nothing while typed as a send. *)
+Corollary psess_send_nonempty :
+  forall (A : Type) (P : Proto) (s : PSess (builtins.PSend A P) P unit) (steps : list StepKind),
+    PEmits s steps -> steps <> [].
+Proof.
+  intros A P s steps H. apply psess_emits_proto in H. simpl in H.
+  intro Hnil. rewrite Hnil in H. simpl in H.
+  apply (f_equal (@length StepKind)) in H. simpl in H. lia.
+Qed.
+
+(** Concrete witness that the model is inhabited and the trace is exactly the
+    protocol's: a client for [PSend unit PEnd] that sends [tt] then ends. *)
+Definition ex_proto : Proto := builtins.PSend unit PEnd.
+
+Definition ex_client : PSess ex_proto PEnd unit :=
+  PSBind (PSSend tt) (fun _ => PSRet tt).
+
+Example ex_client_emits : PEmits ex_client (proto_steps ex_proto).
+Proof.
+  unfold ex_client, ex_proto. cbn [proto_steps].
+  rewrite <- (app_nil_r [PKSend unit]).
+  eapply EmitBind with (a := tt).
+  - apply EmitSend.
+  - apply EmitRet.
+Qed.
+
+(** Trust base — verified via [Print Assumptions psess_full_emits_proto] /
+    [psess_send_nonempty] (2026-06-22): EXACTLY Rocq's primitive substrate,
+    [PrimInt63.*] / [PrimFloat.*] with their spec axioms ([Uint63Axioms.*]),
+    pulled in only because [PSess] mentions [IO]/[GoTypeTag].  No funext, no
+    Eqdep / UIP / JMeq — the dependent [induction] on [PEmits] stays clean (it is
+    plain [induction], NEVER the Eqdep-introducing dependent variant that would
+    breach rule 3) — and no project-declared assumption and no unfinished proof of
+    any kind.  So the soundness of the protocol-indexed session rests on the same
+    trust base as the rest of Fido, and the seal-vs-deeper-fix tension of R9 is
+    sidestepped entirely. *)

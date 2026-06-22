@@ -707,9 +707,14 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    BASENAME). Innocent user code can be suppressed or rewritten as an intrinsic; name mangling (capitalize,
    `'`→`_`) has no collision handling and drops the source module namespace. **Fix:** register/compare exact
    `GlobRef` identities; fully-qualified registry keys; deterministic namespace mangling + collision detection.
-7. **`Sess` is forgeable. (already known — break #3 below.)** `MkSess` public → a term claims any protocol
-   while wrapping `ret tt`; backend recognizes session ops by name, so a forged session emits no communication.
-   Until sealed (or backed by real protocol semantics), session typing does not verify emitted communication.
+7. **`Sess` is forgeable. — ✅ RESOLVED at the model layer (2026-06-22, brick 1).** `MkSess` public → a term
+   claims any protocol while wrapping `ret tt`; backend recognizes session ops by name, so a forged session
+   emits no communication. The user chose the DEEPER fix over sealing (no Module-Type `Parameter`): a
+   protocol-indexed INDUCTIVE session `PSess` (concurrency.v) whose only builders are the disciplined
+   combinators, with soundness `psess_emits_proto`/`psess_full_emits_proto` proving its communication trace is
+   EXACTLY `proto_steps i` — and `psess_send_nonempty` showing the `MkSess (ret tt)` forgery has no `PSess`
+   counterpart. Axiom-clean (PrimInt63/PrimFloat only; no funext/Eqdep). Brick 1 of N — later bricks denote
+   `PSess` into the `builtins.v` channel `IO` and migrate the extracted `Sess` onto it (then `MkSess` retires).
 
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
@@ -736,7 +741,8 @@ correctness" mandate):**
    SOURCE type (a typed IR or expr-type env). Closes #1's typing half and #2.
 3. **Constant/runtime boundary:** full-width int ops → runtime-typed IIFE (#1).
 4. **Exhaustive, identity-based** tag + intrinsic lowering (#3, #6).
-5. **Seal `Sess`** (#7 / break #3).
+5. ~~**Seal `Sess`** (#7 / break #3).~~ ✅ DONE at the model layer the DEEPER way (2026-06-22): forge-proof
+   inductive `PSess` + soundness in concurrency.v (no seal, no `Parameter`). Remaining: migrate extracted `Sess`.
 6. **Differential + metamorphic tests:** direct vs let-bound, literal vs runtime var, local vs global, inline
    vs helper, full type-tag-assertion matrix (#9). A golden that masks type identity is not a gate.
 7. **CI clean-extraction gate:** rebuild from Rocq, re-extract, require ZERO generated diff, compile positive
@@ -784,7 +790,12 @@ real; the *backend that lowers them to Go is the unverified, currently-fail-open
   the documented next backend frontier. Boxing-ONLY narrow params already emit correct Go (the declared
   narrow type matches the model), so a blanket fail-closed abort would over-reject; a precise guard needs
   body use-analysis. Deferred WITH this scoping, not punted.
-- **#7 (`Sess` forgeable) — ⛔ DECISION-BLOCKED** (= 2026-06-21 break #3; a rule-3 policy call).
+- **#7 (`Sess` forgeable) — ✅ RESOLVED at the model layer (2026-06-22; user took the rule-3 policy call).**
+  Decision: the DEEPER fix, NOT sealing — sealing needs opaque module ascription (a Module-Type `Parameter`,
+  which brushes rule 3) whereas the deeper fix needs none. Brick 1 landed: a protocol-indexed inductive `PSess`
+  (concurrency.v) + soundness `psess_emits_proto` (its trace is EXACTLY `proto_steps i`) + `psess_send_nonempty`
+  (the `MkSess (ret tt)` forgery has no counterpart). Axiom-clean. Remaining bricks: denote `PSess` into the
+  channel `IO`, then migrate the extracted `Sess` onto `PSess` (retiring `MkSess`).
 - **#8 headline / #9 gates — partially addressed** (CLAUDE.md headline corrected; the `|| true` gate was already
   fixed pre-review). Full differential/CI harness (repair steps 6–7) still open.
 Net (⚠️ CORRECTED by review #3, 2026-06-22): the FIRST review's enumerated fail-OPEN sites are closed, but that

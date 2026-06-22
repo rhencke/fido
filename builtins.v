@@ -5327,16 +5327,20 @@ Qed.
     parameters never appear in it, so [Sess i j A] lowers exactly like [IO A] —
     the plugin lowers the session OPERATIONS by name (channel passing).
 
-    HONEST SCOPE (release-blocking break #3, tracked in PROGRESS.md): the [Fail]
-    linearity guarantees bind sessions built from the COMBINATORS below.  [MkSess]
-    is still PUBLIC, so a raw [MkSess (ret tt) : Sess P PEnd unit] forges any
-    protocol with a no-op body (lowering to a channel that is never communicated).
-    Sealing the constructor is NOT a cheap erased-evidence fix: Rocq 9.2 has no
-    [Local]/[Private] inductive-constructor mechanism (both forms are rejected;
-    [Private] restricts matching, not construction), so an airtight seal needs
-    opaque module ascription — which requires a Module-Type [Parameter] (discharged,
-    so it adds no [Print Assumptions] axiom, but brushes rule 3's "never Parameter")
-    — OR a real session-IO semantics tying [run_sess] to the protocol (limit #2). *)
+    HONEST SCOPE (review #3 break R9): the [Fail] linearity guarantees bind
+    sessions built from the COMBINATORS below.  But [MkSess] is PUBLIC, so a raw
+    [MkSess (ret tt) : Sess P PEnd unit] forges any protocol with a no-op body
+    (lowering to a channel that is never communicated) — the index is phantom.
+    Sealing the constructor needs opaque module ascription (Rocq 9.2 has no
+    [Local]/[Private] constructor), i.e. a Module-Type [Parameter], which brushes
+    rule 3's "never Parameter".  RESOLVED (2026-06-22, user chose) by the DEEPER
+    fix instead — no seal, no [Parameter]: a protocol-indexed INDUCTIVE session
+    ([PSess] in concurrency.v) whose ONLY builders are the disciplined combinators,
+    with soundness [psess_emits_proto] proving its communication trace is EXACTLY
+    what the protocol prescribes, so the index cannot lie BY CONSTRUCTION.  Brick 1
+    of N (axiom-clean: PrimInt63/PrimFloat only); later bricks denote [PSess] into
+    this [IO] over real channels and migrate the extracted [Sess] below onto it,
+    after which [MkSess] retires. *)
 Record Sess (i j : Proto) (A : Type) : Type := MkSess { run_sess : IO A }.
 Arguments MkSess {i j A} _.
 Arguments run_sess {i j A} _.
