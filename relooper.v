@@ -634,6 +634,56 @@ Proof.
   - exact (reloop_correct fuel g exit aft Hr s).
 Qed.
 
+(** ── The LOOP-BODY half of general [reloop_loop] soundness — the genuinely hard part. ──
+    [runs_term g hdr exit l s s' o]: ONE pass of the loop body, entered at block [l], runs the CFG until
+    it either reaches the [exit] block ([o = Broke], a break) or follows a back-edge to [hdr] ([o = Normal],
+    iterate) — the operational meaning of "one loop iteration".  [reloop_b_correct] is the analogue of the
+    acyclic [reloop_correct]: whenever [reloop_b] returns [Some S], that [S] REALIZES [runs_term] — its
+    [seval] reproduces exactly the one-iteration outcome and state.  This is the body-region soundness the
+    full [LLoop] composition (the next slice) builds on, the loop counterpart of [reloop_correct]. *)
+Inductive runs_term (g : CFG) (hdr exit : nat) : nat -> State -> State -> outcome -> Prop :=
+  | rterm_exit : forall s, runs_term g hdr exit exit s s Broke
+  | rterm_back : forall l s, l <> exit -> blk_term (g l) = TGoto hdr ->
+       runs_term g hdr exit l s (blk_body (g l) s) Normal
+  | rterm_goto : forall l l' s s' o, l <> exit -> blk_term (g l) = TGoto l' -> l' <> hdr ->
+       runs_term g hdr exit l' (blk_body (g l) s) s' o -> runs_term g hdr exit l s s' o
+  | rterm_if : forall l c a b s s' o, l <> exit -> blk_term (g l) = TIf c a b ->
+       runs_term g hdr exit (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) s' o ->
+       runs_term g hdr exit l s s' o.
+
+Lemma reloop_b_correct : forall hdr exit fuel g l S,
+  reloop_b hdr exit fuel g l = Some S ->
+  forall s, exists s' o, runs_term g hdr exit l s s' o /\ seval S s s' o.
+Proof.
+  intros hdr exit. induction fuel as [|fuel IH]; intros g l S Hr s; cbn in Hr; [discriminate|].
+  destruct (Nat.eqb l exit) eqn:Eex.
+  - apply Nat.eqb_eq in Eex; subst l. injection Hr as <-.
+    exists s, Broke. split; [apply rterm_exit | apply se_break].
+  - apply Nat.eqb_neq in Eex. destruct (blk_term (g l)) as [ | n | cnd a1 a2] eqn:Ht.
+    + discriminate Hr.
+    + destruct (Nat.eqb n hdr) eqn:Eh.
+      * apply Nat.eqb_eq in Eh; subst n. injection Hr as <-.
+        exists (blk_body (g l) s), Normal. split; [apply rterm_back; assumption | apply se_body].
+      * apply Nat.eqb_neq in Eh.
+        destruct (reloop_b hdr exit fuel g n) as [S'|] eqn:Hr'; cbn in Hr; [|discriminate].
+        injection Hr as <-.
+        destruct (IH g n S' Hr' (blk_body (g l) s)) as [s' [o [Hrt Hsev]]].
+        exists s', o. split.
+        -- eapply rterm_goto; [exact Eex | exact Ht | exact Eh | exact Hrt].
+        -- eapply se_seq_n; [apply se_body | exact Hsev].
+    + destruct (reloop_b hdr exit fuel g a1) as [Sa|] eqn:Hra; [|discriminate].
+      destruct (reloop_b hdr exit fuel g a2) as [Sb|] eqn:Hrb; [|discriminate].
+      injection Hr as <-. destruct (cnd (blk_body (g l) s)) eqn:Ec.
+      * destruct (IH g a1 Sa Hra (blk_body (g l) s)) as [s' [o [Hrt Hsev]]].
+        exists s', o. split.
+        -- eapply rterm_if; [exact Eex | exact Ht |]. rewrite Ec. exact Hrt.
+        -- eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact Ec | exact Hsev].
+      * destruct (IH g a2 Sb Hrb (blk_body (g l) s)) as [s' [o [Hrt Hsev]]].
+        exists s', o. split.
+        -- eapply rterm_if; [exact Eex | exact Ht |]. rewrite Ec. exact Hrt.
+        -- eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec | exact Hsev].
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
