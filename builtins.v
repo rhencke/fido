@@ -251,15 +251,15 @@ Inductive GoTypeTag : Type -> Type :=
   | TI64 : GoTypeTag GoI64               (* → int64 (full-width Z-carried signed) *)
   | TU64 : GoTypeTag GoU64               (* → uint64 (full-width Z-carried unsigned) *)
   | TUnit : GoTypeTag unit
+  (* Go's platform-width [int]/[uint] — distinct Go types, kept (e.g. [cap]/[len]
+     return [GoInt]).  The FIXED-width bare-int aliases ([GoInt8]/…/[GoUint64]) had
+     their own tags here too, but they DUPLICATE the canonical Squash-sealed fixed-width
+     family ([TI8]/[TU8]/…/[TI64]/[TU64]) — same Go type, two tags — which is break #7's
+     soundness hole (a tag→runtime-Go-type that is non-injective makes [tag_eq] disagree
+     with Go's [v.(T)]).  They carried no [Tagged] instance and no value was ever boxed
+     with them (dead), so they are RETIRED here: one canonical tag per fixed-width type. *)
   | TInt     : GoTypeTag GoInt
-  | TInt8    : GoTypeTag GoInt8
-  | TInt16   : GoTypeTag GoInt16
-  | TInt32   : GoTypeTag GoInt32
   | TUint    : GoTypeTag GoUint
-  | TUint8   : GoTypeTag GoUint8
-  | TUint16  : GoTypeTag GoUint16
-  | TUint32  : GoTypeTag GoUint32
-  | TUint64  : GoTypeTag GoUint64
   | TFloat32 : GoTypeTag GoFloat32
   (* Composite type tags — carry the element/key/value tags so the plugin can
      reconstruct the full Go type string recursively. *)
@@ -328,14 +328,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
   | TU64, TU64 => Some eq_refl
   | TUnit, TUnit => Some eq_refl
   | TInt, TInt         => Some eq_refl
-  | TInt8, TInt8       => Some eq_refl
-  | TInt16, TInt16     => Some eq_refl
-  | TInt32, TInt32     => Some eq_refl
   | TUint, TUint       => Some eq_refl
-  | TUint8, TUint8     => Some eq_refl
-  | TUint16, TUint16   => Some eq_refl
-  | TUint32, TUint32   => Some eq_refl
-  | TUint64, TUint64   => Some eq_refl
   | TFloat32, TFloat32 => Some eq_refl
   | TChan a, TChan b   => match tag_eq a b with Some p => Some (gochan_cong p) | None => None end
   | TSlice a, TSlice b => match tag_eq a b with Some p => Some (f_equal GoSlice p) | None => None end
@@ -409,14 +402,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
   | TInt     => 0%uint63
-  | TInt8    => 0%uint63
-  | TInt16   => 0%uint63
-  | TInt32   => 0%uint63
   | TUint    => 0%uint63
-  | TUint8   => 0%uint63
-  | TUint16  => 0%uint63
-  | TUint32  => 0%uint63
-  | TUint64  => 0%uint63
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
@@ -486,10 +472,7 @@ Notation any x := (anyt (the_tag _) x).
 Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
-  | TInt64   => PrimInt63.eqb | TInt    => PrimInt63.eqb | TInt8  => PrimInt63.eqb
-  | TInt16   => PrimInt63.eqb | TInt32  => PrimInt63.eqb
-  | TUint    => PrimInt63.eqb | TUint8  => PrimInt63.eqb | TUint16 => PrimInt63.eqb
-  | TUint32  => PrimInt63.eqb | TUint64 => PrimInt63.eqb
+  | TInt64   => PrimInt63.eqb | TInt    => PrimInt63.eqb | TUint   => PrimInt63.eqb
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
