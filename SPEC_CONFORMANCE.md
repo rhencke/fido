@@ -441,11 +441,17 @@ being the genuine `ptr_set`/`ptr_get` — so the race-free execution is the oper
 pointer-over-channel code (substrate base; no funext, no Fido axiom).  **Value correctness (2026-06-21):**
 `mp_handoff_delivers` — the extractable typed program run in `run_io` DELIVERS exactly `(inj v1, inj v0)`
 (g1 receives v1 over the channel AND reads v0 back through the pointer; pointee survives send+recv via the
-channel/heap World frames), so it is not only race-free but COMPUTES the right values end-to-end.  *Slice
-2c (⚠ open):* a
-multi-goroutine ADEQUACY composing the per-goroutine denotations (2b) with the interleaved `rstep`
-execution (2a) — the one closed end-to-end theorem.  (N-goroutine generality of the GUARANTEE is already
-`reachable_owned_safe_r`, over arbitrary programs + all schedules; the witnesses are instances.)
+channel/heap World frames), so it is not only race-free but COMPUTES the right values end-to-end.  **Slice
+2c DONE (2026-06-22):** `mp_end_to_end` — THE one closed end-to-end theorem — COMPOSES every slice for the
+concrete typed pointer-handoff `mp_prog` under ONE coherent environment (`chenv`/`ptrenv`/`inj`/`prj`): the
+extractable typed concurrent program (a) executes to `mp_trace`, (b) is race-free on this run AND on every
+interleaving (`mp_all_interleavings_race_free`), (c) with each goroutine the Keystone-denotation of real
+typed IO (`mp_g0_denotes`/`mp_g1_denotes`), (d) its FULL state — channels AND memory — realized by one
+`run_io` world (`wstate_steps`), and (e) the equivalent single-threaded handoff IO delivering exactly
+`(inj v1, inj v0)` (`mp_handoff_delivers`).  Assumptions = PrimInt63/PrimFloat + the documented funext
+holdout (`run_io_inj`); no Fido axiom.  (N-goroutine generality of the GUARANTEE is already
+`reachable_owned_safe_r`, over arbitrary programs + all schedules; `mp_end_to_end` is the concrete closed
+instance — `go_spawn` has no whole-program `run_io` law, so cross-goroutine glue stays the STATE refinement.)
 **SELF-REFERENTIAL channel type DONE (2026-06-22):** a channel can carry a value of a type that
 contains the channel's own type — "channels that send themselves".  `Inductive ChanBox := MkChanBox
 { cb_id : GoI64 ; cb_chan : GoChan ChanBox }` = `type ChanBox struct { Id int64; Ch chan ChanBox }`

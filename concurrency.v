@@ -2913,6 +2913,73 @@ Section KeystoneState.
 End KeystoneState.
 
 (** ============================================================================
+    LIMIT #2 — slice 2c: THE ONE CLOSED END-TO-END THEOREM (concrete handoff).
+
+    The pieces existed SEPARATELY — 2a ([mp_exec_trace]: operational execution → [mp_trace],
+    race-free over ALL interleavings via [mp_all_interleavings_race_free]); 2b ([mp_g0_denotes]/
+    [mp_g1_denotes]: each goroutine DENOTES extractable typed *T-over-channel IO); the World
+    refinement ([wstate_steps]: channels AND heap matched in ONE [run_io] world); and value
+    correctness ([mp_handoff_delivers]).  [mp_end_to_end] COMPOSES them for the concrete typed
+    pointer-handoff [mp_prog] under ONE coherent environment ([chenv]/[ptrenv]/[inj]/[prj]):
+    a single theorem witnessing that the extractable typed concurrent program (a) executes to
+    [mp_trace], (b) race-free on THIS run AND on every interleaving, (c) with each goroutine the
+    Keystone-denotation of real typed IO, (d) its full state (channels + memory) realized by a
+    [run_io] world, and (e) the equivalent single-threaded handoff IO delivering exactly
+    [(inj v1, inj v0)].  This is the closed end-to-end tie the [MpTyped] header deferred — "stated
+    per-goroutine here, not overstated" — now stated WHOLE, for one real program.  (N-goroutine
+    GENERALITY stays a frontier: [go_spawn] has no [run_io] law by design, so the cross-goroutine
+    glue is the STATE refinement (d), not a whole-program [run_io] denotation.)  Proof-only
+    (concurrency.v emits no Go) — composes the established lemmas, adds no axiom.
+    ============================================================================ *)
+Theorem mp_end_to_end :
+  forall (chenv : nat -> GoChan GoI64) (ptrenv : nat -> Ptr GoI64)
+         (inj : nat -> GoI64) (prj : GoI64 -> nat) (v0 v1 : nat) (w0 : World),
+    (forall i j, chenv i = chenv j -> i = j) ->
+    (forall i j, r_loc (plocenv ptrenv i) = r_loc (plocenv ptrenv j) -> i = j) ->
+    (forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false) ->
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    chan_closed (chenv 0) w0 = false ->
+    (forall l, ref_sel (plocenv ptrenv l) w0 = inj 0) ->
+    exists cfg,
+      (* (a) the typed program EXECUTES, generating the canonical handoff trace *)
+      rsteps (mp_init v0 v1) cfg
+      /\ rc_trace cfg = mp_trace
+      (* (b) race-free — this run, and EVERY interleaving *)
+      /\ TraceRaceFree (rc_trace cfg)
+      /\ (forall cfg', rsteps (mp_init v0 v1) cfg' -> TraceRaceFree (rc_trace cfg'))
+      (* (c) each goroutine of mp_prog is the Keystone-denotation of EXTRACTABLE typed IO *)
+      /\ Denotes chenv (plocenv ptrenv) inj prj (mp_prog v0 v1 0) (mp_g0_io chenv ptrenv inj v0 v1)
+      /\ Denotes chenv (plocenv ptrenv) inj prj (mp_prog v0 v1 1) (mp_g1_io chenv ptrenv)
+      (* (d) the FULL reachable state — channels AND memory — is realized by one run_io world *)
+      /\ (exists w, WMatchC chenv inj w cfg /\ WHMatchC (plocenv ptrenv) inj w cfg)
+      (* (e) the equivalent single-threaded handoff IO delivers exactly the right values *)
+      /\ (exists w', run_io (mp_handoff_io chenv ptrenv inj v0 v1) w0 = ORet (inj v1, inj v0) w').
+Proof.
+  intros chenv ptrenv inj prj v0 v1 w0 Hchen Hloc Hlive Hbuf Hcl Hheap.
+  destruct (mp_exec_trace v0 v1) as [cfg [Hsteps Htr]].
+  exists cfg.
+  split; [exact Hsteps |].
+  split; [exact Htr |].
+  split; [rewrite Htr; exact mp_trace_race_free |].
+  split; [exact (mp_all_interleavings_race_free v0 v1) |].
+  split.
+  { rewrite (proj1 (mp_prog_goroutines v0 v1)).
+    exact (mp_g0_denotes chenv ptrenv inj prj Hlive v0 v1). }
+  split.
+  { rewrite (proj2 (mp_prog_goroutines v0 v1)).
+    exact (mp_g1_denotes chenv ptrenv inj prj Hlive). }
+  split.
+  { assert (Hinit : WState chenv (plocenv ptrenv) inj w0 (mp_init v0 v1)).
+    { split.
+      - intro c. unfold rchan, mp_init; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
+      - intro l. unfold mp_init; cbn [rc_heap]. exact (Hheap l). }
+    destruct (wstate_steps chenv (plocenv ptrenv) inj Hchen Hloc
+                (mp_init v0 v1) cfg w0 Hsteps Hinit) as [w HW].
+    exists w. exact HW. }
+  exact (mp_handoff_delivers chenv ptrenv inj Hlive v0 v1 w0 (Hbuf 0) Hcl).
+Qed.
+
+(** ============================================================================
     DEADLOCK FREEDOM (progress) for the RICH calculus.
 
     The operational semantics REPRESENTS deadlock; here we (a) characterize EXACTLY
