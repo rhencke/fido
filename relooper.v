@@ -1564,4 +1564,75 @@ Proof.
   eapply se_seq_n; [exact Hloop | rewrite Hsf; apply se_body].
 Qed.
 
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    DEPTH-3 nesting — a TRIPLE loop, proven by COMPOSING [nested_iterates_gen] with itself.
+    ════════════════════════════════════════════════════════════════════════════════════════════════
+    The concrete validation that the recursive [IteratesC] builder really does compose to arbitrary depth:
+    the innermost loop's [Iterates] (via [reloop_b]) feeds [nested_iterates_gen] to make the MIDDLE loop's
+    [IteratesC], which feeds a SECOND [nested_iterates_gen] to make the OUTER loop's [IteratesC], which
+    [loop_sound_c] turns into end-to-end soundness for the triply-nested [LLoop]-in-[LLoop]-in-[LLoop]. *)
+Definition triCFG (f0 f1 f2 f3 f4 f5 f6 : State -> State) (c0 c1 c2 : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk f0 (TIf c0 1 6)   (* outer header: middle loop (1) / outer exit (6) *)
+           | 1 => mkBlk f1 (TIf c1 2 5)   (* middle header: inner loop (2) / middle exit (5) *)
+           | 2 => mkBlk f2 (TIf c2 3 4)   (* inner header: inner body (3) / inner exit (4) *)
+           | 3 => mkBlk f3 (TGoto 2)      (* inner body: back-edge to inner header 2 *)
+           | 4 => mkBlk f4 (TGoto 1)      (* inner exit: back-edge to middle header 1 *)
+           | 5 => mkBlk f5 (TGoto 0)      (* middle exit: back-edge to outer header 0 *)
+           | _ => mkBlk f6 TRet           (* outer exit (6) *)
+           end.
+
+Definition triInner (f2 f3 : State -> State) (c2 : State -> bool) : Stmt2 :=
+  LSeq (LBody f2) (LIf c2 (LBody f3) LBreak).
+Definition triMiddle (f1 f2 f3 f4 : State -> State) (c1 c2 : State -> bool) : Stmt2 :=
+  LSeq (LBody f1) (LIf c1 (LSeq (LLoop (triInner f2 f3 c2)) (LBody f4)) LBreak).
+Definition triOuter (f0 f1 f2 f3 f4 f5 : State -> State) (c0 c1 c2 : State -> bool) : Stmt2 :=
+  LSeq (LBody f0) (LIf c0 (LSeq (LLoop (triMiddle f1 f2 f3 f4 c1 c2)) (LBody f5)) LBreak).
+
+Definition triPin  (l : nat) : bool := orb (Nat.eqb l 2) (Nat.eqb l 3).
+Definition triPmid (l : nat) : bool :=
+  orb (Nat.eqb l 1) (orb (Nat.eqb l 2) (orb (Nat.eqb l 3) (Nat.eqb l 4))).
+
+Lemma tri_inner_closed : forall f0 f1 f2 f3 f4 f5 f6 c0 c1 c2,
+  InnerClosed (triCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) triPin 4.
+Proof.
+  intros f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 l Hl. unfold triPin in Hl.
+  destruct l as [|[|[|[|l]]]]; cbn in Hl |- *; try discriminate.
+  - split; [right; reflexivity | left; reflexivity].
+  - right; reflexivity.
+Qed.
+
+Lemma tri_mid_closed : forall f0 f1 f2 f3 f4 f5 f6 c0 c1 c2,
+  InnerClosed (triCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) triPmid 5.
+Proof.
+  intros f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 l Hl. unfold triPmid in Hl.
+  destruct l as [|[|[|[|[|l]]]]]; cbn in Hl |- *; try discriminate.
+  - split; [right; reflexivity | left; reflexivity].
+  - split; [right; reflexivity | right; reflexivity].
+  - right; reflexivity.
+  - right; reflexivity.
+Qed.
+
+(** END-TO-END DEPTH-3 SOUNDNESS: every halting run of the triply-nested CFG is reproduced by the
+    triply-nested structured program — the recursive composition validated concretely. *)
+Theorem tri_nested_sound : forall f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 s sf,
+  cfg_halts (triCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) 0 s sf ->
+  seval (LSeq (LLoop (triOuter f0 f1 f2 f3 f4 f5 c0 c1 c2)) (LBody f6)) s sf Normal.
+Proof.
+  intros f0 f1 f2 f3 f4 f5 f6 c0 c1 c2 s sf Hch.
+  set (g := triCFG f0 f1 f2 f3 f4 f5 f6 c0 c1 c2).
+  assert (Hinn : IteratesC g 2 4 (triInner f2 f3 c2)).
+  { apply iterates_c. exact (reloop_b_iterates 2 4 5 g (triInner f2 f3 c2) eq_refl). }
+  assert (Hmid : IteratesC g 1 5 (triMiddle f1 f2 f3 f4 c1 c2)).
+  { eapply (nested_iterates_gen g 1 5 2 4 c1 f1 f4 (triInner f2 f3 c2) triPin);
+      try reflexivity; try discriminate;
+      [ exact (tri_inner_closed f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) | exact Hinn ]. }
+  assert (Hout : IteratesC g 0 6 (triOuter f0 f1 f2 f3 f4 f5 c0 c1 c2)).
+  { eapply (nested_iterates_gen g 0 6 1 5 c0 f0 f5 (triMiddle f1 f2 f3 f4 c1 c2) triPmid);
+      try reflexivity; try discriminate;
+      [ exact (tri_mid_closed f0 f1 f2 f3 f4 f5 f6 c0 c1 c2) | exact Hmid ]. }
+  eapply loop_sound_c;
+    [ exact Hout | exact (lift_after_realizes 5 g 6 (SBody f6) eq_refl) | exact Hch ].
+Qed.
+
 End Relooper.
