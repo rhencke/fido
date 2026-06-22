@@ -724,6 +724,33 @@ Proof.
         -- eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec | apply Hsev].
 Qed.
 
+(** [reloop_b2] is a CONSERVATIVE EXTENSION of [reloop_b]: with NO inner loops detected ([inners = []]) it
+    reduces to [reloop_b] (the only added case, the inner-header lookup, is always [None]).  By induction on
+    the fuel — at every step [find_inner l [] = None], so [reloop_b2 []] takes exactly [reloop_b]'s branches,
+    the recursive calls equated by the IH. *)
+Lemma reloop_b2_nil : forall hdr exit fuel g l,
+  reloop_b2 [] hdr exit fuel g l = reloop_b hdr exit fuel g l.
+Proof.
+  intros hdr exit fuel. induction fuel as [|fuel IH]; intros g l; [reflexivity|].
+  cbn. destruct (Nat.eqb l exit); [reflexivity|].
+  destruct (blk_term (g l)) as [|l'|c a b].
+  - reflexivity.
+  - destruct (Nat.eqb l' hdr); [reflexivity|]. rewrite IH. reflexivity.
+  - rewrite !IH. reflexivity.
+Qed.
+
+(** Hence [reloop_b2] is CORRECT on acyclic bodies — the base case of its eventual general soundness: with
+    no inner loops, its output realises one loop iteration exactly as [reloop_b_correct].  (The general case
+    — non-empty [inners], the inner-header case absorbing each [LLoop] via [loop_to_exit_c]/[inner_join] under
+    a halting run, yielding [IteratesC] — is the documented next effort.) *)
+Lemma reloop_b2_acyclic_correct : forall hdr exit fuel g l S,
+  reloop_b2 [] hdr exit fuel g l = Some S ->
+  forall s, exists s' o, runs_term g hdr exit l s s' o /\ seval S s s' o.
+Proof.
+  intros hdr exit fuel g l S H. rewrite reloop_b2_nil in H.
+  exact (reloop_b_correct hdr exit fuel g l S H).
+Qed.
+
 (** [runs_term] FACTORS [cfg_halts]: the CFG is deterministic, so ONE loop iteration (a [runs_term] from
     [l] to a terminal) is a prefix of the whole halting run from [l] — the run then CONTINUES from the
     terminal ([hdr] on Normal/iterate, [exit] on Broke/break).  This bridges the loop-body soundness
