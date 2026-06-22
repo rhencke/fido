@@ -390,6 +390,19 @@ Definition type_identity_lock_demo : IO unit :=
   type_assert_safe TI64 (any u64v) (fun _ f =>     (* uint64 .(int64)  → FALSE *)
     println [any a; any b; any c; any d; any e; any f])))))).
   (* true false true false true false *)
+
+(** Extends the differential lock (R10) to the FULL #7 narrow cluster: each narrow
+    type boxes as its OWN distinct Go type (de-collided from int64 by break #7b).
+    Each asserts its own type → [true]; a regression that re-collides any back to
+    int64 flips it.  (uint8 is already locked in [type_identity_lock_demo].) *)
+Definition narrow_cluster_lock_demo : IO unit :=
+  type_assert_safe TI8  (any (i8_of_i64  (i64_lit 5 eq_refl))) (fun _ a =>   (* int8   .(int8)   → true *)
+  type_assert_safe TU16 (any (u16_of_i64 (i64_lit 5 eq_refl))) (fun _ b =>   (* uint16 .(uint16) → true *)
+  type_assert_safe TI16 (any (i16_of_i64 (i64_lit 5 eq_refl))) (fun _ c =>   (* int16  .(int16)  → true *)
+  type_assert_safe TU32 (any (u32_of_i64 (i64_lit 5 eq_refl))) (fun _ d =>   (* uint32 .(uint32) → true *)
+  type_assert_safe TI32 (any (i32_of_i64 (i64_lit 5 eq_refl))) (fun _ e =>   (* int32  .(int32)  → true *)
+    println [any a; any b; any c; any d; any e]))))).
+  (* true true true true true *)
 (** P0 #2 — a sub-64 narrow [GoIntN] value now flows correctly through EVERY position: a function RETURN
     (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
     a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
@@ -2997,6 +3010,7 @@ Definition main_effect : IO unit :=
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false (uint8≠int64, GoI64/GoU64 box typed, R10 differential) *)
+  narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)

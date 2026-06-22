@@ -192,6 +192,15 @@ func Type_identity_lock_demo() {
 	println(a, b, c, d, e, f)
 }
 
+func Narrow_cluster_lock_demo() {
+	_, a := any(int8(((((int64(5)) & 0xff) ^ 0x80) - 0x80))).(int8)
+	_, b := any(uint16(((int64(5)) & 0xffff))).(uint16)
+	_, c := any(int16(((((int64(5)) & 0xffff) ^ 0x8000) - 0x8000))).(int16)
+	_, d := any(uint32(((int64(5)) & 0xffffffff))).(uint32)
+	_, e := any(int32(((((int64(5)) & 0xffffffff) ^ 0x80000000) - 0x80000000))).(int32)
+	println(a, b, c, d, e)
+}
+
 func Lowbyte(x int64) uint8 {
 	return uint8((x & 0xff))
 }
@@ -2349,6 +2358,7 @@ func main() {
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
 	Type_identity_lock_demo()
+	Narrow_cluster_lock_demo()
 	Narrow_ret_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
