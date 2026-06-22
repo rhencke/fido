@@ -1489,7 +1489,10 @@ let rec pp_expr state env = function
        | MLglob r, [x] when is_panic_ref r ->
            str "panic(" ++ pp_expr state env (any_payload x) ++ str ")"
 
-       (* slice_of_list tag list → []T{v1, v2, ...} *)
+       (* slice_of_list tag list → []T{v1, v2, ...}.  Only a STATICALLY-KNOWN element list is
+          modeled; an opaque Coq [list] has no faithful Go [[]T] lowering yet, so a non-literal
+          spine FAILS LOUD (rule 2) rather than emitting [[]T(nil)], which would silently DISCARD
+          the runtime data — exactly the plausible-but-wrong output the backend must never produce. *)
        | MLglob r, [tag; lst] when is_slice_of_list_ref r ->
            let go_elem = go_type_of_tag tag in
            (match unfold_list [] lst with
@@ -1497,7 +1500,7 @@ let rec pp_expr state env = function
                 str ("[]" ^ go_elem ^ "{") ++
                 prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
                 str "}"
-            | None -> str ("[]" ^ go_elem ^ "(nil)"))
+            | None -> unsupported "slice_of_list of a non-literal list (only a statically-known element list is modeled; an opaque Coq list has no faithful []T lowering yet — emitting []T(nil) would silently discard the runtime data)")
        (* arr_lit tag list → [N]T{v1, …, vN} — a FIXED-SIZE array literal (B4); the
           size N is the list length (read off the construction, NOT the type), so a
           local [a := arr_lit …] has its Go type inferred from this literal. *)
