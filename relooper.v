@@ -484,6 +484,73 @@ Proof.
         eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E2 | apply se_body].
 Qed.
 
+(** ── NESTED LOOPS — an OUTER loop containing an INNER loop, exercising [LBreak]'s "nearest enclosing
+    loop" scoping.  CFG:
+      0 OUTER-header: run [h1], branch [c1] to INNER-header(1) / OUTER-exit(3);
+      1 INNER-header: run [h2], branch [c2] to INNER-body(2) / back to OUTER-header(0);
+      2 INNER-body:   run [f], goto INNER-header(1);   3 OUTER-exit: run [e], return.
+    So [c2]-false EXITS the inner loop (its break) which falls through to the OUTER loop's iteration
+    (back to 0), and [c1]-false breaks the OUTER loop:
+      loop { h1; if c1 { loop { h2; if c2 then f else break } } else break } ; e.
+    The inner [break] must exit ONLY the inner loop — the proof's [se_loop_break] on the inner [LLoop]
+    leaves the outer [LLoop] to continue, exactly the nearest-enclosing semantics.  Proved by induction
+    on the [cfg_halts] derivation, peeling the (now doubly-nested) loop continuations with the [seval]
+    inversion helpers. *)
+Definition nestloopCFG (h1 h2 f e : State -> State) (c1 c2 : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk h1 (TIf c1 1 3)
+           | 1 => mkBlk h2 (TIf c2 2 0)
+           | 2 => mkBlk f (TGoto 1)
+           | _ => mkBlk e TRet
+           end.
+
+Definition nestloop_prog (h1 h2 f e : State -> State) (c1 c2 : State -> bool) (l : nat) : Stmt2 :=
+  let inner_lb := LSeq (LBody h2) (LIf c2 (LBody f) LBreak) in
+  let outer_lb := LSeq (LBody h1) (LIf c1 (LLoop inner_lb) LBreak) in
+  let otail := LSeq (LLoop outer_lb) (LBody e) in
+  match l with
+  | 0 => otail
+  | 1 => LSeq (LLoop inner_lb) otail
+  | 2 => LSeq (LBody f) (LSeq (LLoop inner_lb) otail)
+  | _ => LBody e
+  end.
+
+Theorem nestloop_realized : forall h1 h2 f e c1 c2 l s sf,
+  cfg_halts (nestloopCFG h1 h2 f e c1 c2) l s sf -> seval (nestloop_prog h1 h2 f e c1 c2 l) s sf Normal.
+Proof.
+  intros h1 h2 f e c1 c2 l s sf H.
+  induction H as [l s Ht | l l' s sf Ht Hh IH | l c0 a0 b0 s sf Ht Hh IH].
+  - (* ch_ret: only OUTER-exit (l ≥ 3) returns *)
+    destruct l as [|[|[|l]]]; cbn in Ht |- *; try discriminate. apply se_body.
+  - (* ch_goto: only INNER-body(2) gotos INNER-header(1) *)
+    destruct l as [|[|[|l]]]; cbn in Ht |- *; try discriminate.
+    injection Ht as Hl'; subst l'. cbn in IH |- *. eapply se_seq_n; [apply se_body | exact IH].
+  - (* ch_if: OUTER-header(0) on c1, INNER-header(1) on c2 *)
+    destruct l as [|[|[|l]]]; cbn in Ht |- *; try discriminate.
+    + (* OUTER-header: c1 picks the inner loop (then outer continues) or breaks the outer loop *)
+      injection Ht as Hc Ha Hb; subst c0 a0 b0. cbn in Hh, IH |- *. destruct (c1 (h1 s)) eqn:E.
+      * (* c1 true: run the WHOLE inner loop, then the outer loop iterates *)
+        apply seval_seq_inv in IH. destruct IH as [[s' [Hinner Hrest]] | [Hbad _]]; [| discriminate].
+        apply seval_seq_inv in Hrest. destruct Hrest as [[s2 [Houter He]] | [Hbad _]]; [| discriminate].
+        eapply se_seq_n; [| exact He]. eapply se_loop_again; [| exact Houter].
+        eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact E | exact Hinner].
+      * (* c1 false: break the outer loop, then exit *)
+        apply seval_body_inv in IH. destruct IH as [-> _].
+        eapply se_seq_n; [| apply se_body]. apply se_loop_break.
+        eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E | apply se_break].
+    + (* INNER-header: c2 picks the inner body (inner loop iterates) or breaks the INNER loop (outer continues) *)
+      injection Ht as Hc Ha Hb; subst c0 a0 b0. cbn in Hh, IH |- *. destruct (c2 (h2 s)) eqn:E2.
+      * (* c2 true: one inner iteration (run f), then the inner loop continues *)
+        apply seval_seq_inv in IH. destruct IH as [[smid [Hf Hrest]] | [Hbad _]]; [| discriminate].
+        apply seval_body_inv in Hf. destruct Hf as [-> _].
+        apply seval_seq_inv in Hrest. destruct Hrest as [[s2 [Hinner Houter]] | [Hbad _]]; [| discriminate].
+        eapply se_seq_n; [| exact Houter]. eapply se_loop_again; [| exact Hinner].
+        eapply se_seq_n; [apply se_body |]. eapply se_if_t; [exact E2 | apply se_body].
+      * (* c2 false: BREAK THE INNER LOOP (nearest enclosing) — the OUTER loop then continues *)
+        eapply se_seq_n; [| exact IH]. apply se_loop_break.
+        eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact E2 | apply se_break].
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
