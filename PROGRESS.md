@@ -639,6 +639,97 @@ separate tracks.
 
 ## Known gaps
 
+### ⛔⛔ RELEASE REVIEW (2026-06-22) — BACKEND FAILS *OPEN*: extraction emits plausible-but-wrong Go
+
+**Verdict: RED. Do NOT call current `main` "formally verified Go", and do NOT extend the feature set
+before fixing the backend.** A second external review (2026-06-22) found that the *extraction backend*
+(`plugin/go.ml`) repeatedly substitutes plausible Go — `nil`, `any`, `return`, block-zero, a comment —
+when it cannot preserve the source semantics. That is a direct violation of CLAUDE.md **rule 2**
+("faithful or fail-loud; the plugin's `unsupported` ABORTS extraction for anything it can't lower
+correctly — the meta-invariant"). These are **source-visible silent miscompilations**, independent of
+the 2026-06-21 model/bridge breaks below (those were the *model*; this is the *compiler*). **The "9 of 10
+breaks closed" status below is MODEL-LAYER only — it does NOT make the backend sound.** Findings that were
+CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
+
+**P0 (release-blocking) — each is a fail-OPEN site that must become fail-LOUD (`unsupported`) or be lowered correctly:**
+1. **Full-width int ops use constant, not runtime, semantics. ✓verified** (`go.ml` ~1015–1043): `i64_*`/`u64_*`
+   lower to BARE Go operators (`x - y`, `-x`), no IIFE. But on *literal* operands Go evaluates them as
+   arbitrary-precision UNTYPED constants. `u64_neg 1` (Rocq: `= 18446744073709551615`) would print `-1`
+   (silent wrong); `u64_sub 0 1`, `u64_not 1`, `i64_add MAXINT 1`, `i64_div MININT (-1)` go wrong or fail
+   `go build`. **Fix:** wrap in a runtime-typed IIFE `func(x,y uint64) uint64 { return x-y }(…)` — exactly
+   the technique already used for float constants (`f32`/`f64`). Tier-2 numeric carrier note relates but the
+   *constant-folding* bug is independent.
+2. **Rocq types lost at local / interface boundaries. ✓credible** (narrow widths now render `uint8`/`int8`/
+   `int32`, but the expr printer still assumes int64-carried; emits `:=` locals so Go RE-INFERS a type; the
+   boxing repair inspects only the syntactic HEAD so a `let`/projection/helper-call defeats it). Minimal:
+   `let x:GoU8 := u8_add… in pass_as_GoAny x` → `x` inferred `int`, boxed as `int`, a later `.(uint8)` assert
+   FAILS though the model says it succeeds. Also: `i8_add` emits `& 0xff` (Go rejects on `int8`); `i64_of_u8`
+   emitted as identity (returns `uint8` where `int64` required); `str_at_ok` declares its byte result `int64`;
+   a literal `GoI64`/`GoU64` boxed as `GoAny` defaults to Go `int`. **Semantics change by adding a `let` —
+   fatal for an extractor. Fix:** a typed IR / expression-type environment; emit every local, return, field
+   init, interface box, channel send, and argument from the SOURCE type, never AST-inferred. The `GoAny` tag
+   must drive interface conversion (not `payload_head`).
+3. **Unsupported type tags silently become `any`. ✓verified** (`go_type_of_tag` ~552 `| _ -> "any"`, ~543
+   `None -> "any"`; `zero_of_tag` ~563 → `any(0)`). For `TUnit`/`TArrow`/`TProd` the emitted `x.(any)` assertion
+   SUCCEEDS for any non-nil iface, but Rocq `tag_eq` says `TUnit ≠ TI64` → `type_assert_safe TUnit` on an int64
+   is `false` in model, `true` in Go: a clean silent contradiction. **Fix:** `go_type_of_tag` returns an ERROR
+   (→ `unsupported`) for any unrenderable tag; only explicit `GoAny` maps to `any`; exhaustive over `GoTypeTag`.
+4. **`slice_of_list` replaces runtime data with `nil`. ✓verified** (`go.ml` ~1500: non-literal spine → `[]T(nil)`).
+   `fun xs => slice_of_list tag xs` returns `nil` for EVERY runtime `xs`. **Fix:** emit the runtime list
+   expression if Coq-list/Go-slice share a rep, else `unsupported`. (Also ~1581 `(*T)(nil)` ptr case — audit.)
+5. **CFG backend invents control flow. ✓verified** (`go.ml`: ~2613 non-literal `Jump`/start → `goto block0`/
+   zero; unrecognized terminator → `return`; ~2924 non-literal block list → comment-only). A runtime-computed
+   jump mapped to block 0 runs a DIFFERENT program; an unfamiliar branch → `return` truncates effects. The
+   "raw goto is an always-correct fallback" claim is FALSE without first validating every start/target/
+   terminator/block shape. **Fix:** every such default → `unsupported`; validate literal targets+bounds BEFORE
+   the relooper runs. (This is gap #10's backend face; the verified `relooper.v` reference model does NOT
+   excuse the emitter's fail-open defaults.)
+6. **Builtins not identified by exact identity. ✓verified** (`from_builtins` ~173 scans for the SUBSTRING
+   "builtins" anywhere in the dirpath → `mybuiltins` passes; `named` = basename + that scan; `catch`,
+   string/rune convs, complex ops, struct-ptr ops, type-switch helpers, `fst`/`snd` suppressions all match on
+   BASENAME). Innocent user code can be suppressed or rewritten as an intrinsic; name mangling (capitalize,
+   `'`→`_`) has no collision handling and drops the source module namespace. **Fix:** register/compare exact
+   `GlobRef` identities; fully-qualified registry keys; deterministic namespace mangling + collision detection.
+7. **`Sess` is forgeable. (already known — break #3 below.)** `MkSess` public → a term claims any protocol
+   while wrapping `ret tt`; backend recognizes session ops by name, so a forged session emits no communication.
+   Until sealed (or backed by real protocol semantics), session typing does not verify emitted communication.
+
+**P1:**
+8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
+   fail-open) extraction backend"** until a compiler-correctness theorem connects MiniML/source semantics to
+   emitted Go. The concurrent model is also NOT the emitted semantics (unbounded channels, sequential
+   `go_spawn`, discarded child panics, no-op `defer_call`, 1000-step `run_blocks` cutoff, callable function
+   zero where Go has nil-func); the multi-goroutine→Go bridge is prose, not an end-to-end adequacy theorem.
+   Wording: "**no project-declared Fido axioms**" is accurate; "**axiom-free**" is NOT (depends on
+   `functional_extensionality` in places) — fix that phrasing in SPEC_CONFORMANCE.md / docs.
+9. **Gates weaker than claimed.** `make check` runs ONE demo and diffs text output — numeric output cannot
+   distinguish `int`/`uint8`/`int64`/`uint64`, so it systematically MASKS the type-identity bugs (#1, #2). The
+   pre-commit hook only re-extracts when a `.v`/`plugin/` file is staged → a gofmt-clean hand-edit to `main.go`
+   ALONE bypasses re-extraction (and the hook is opt-in). An `MLaxiom` is emitted as a runtime
+   `panic("axiom: …")` rather than aborting extraction (a latent axiom compiles if its path isn't run). No CI
+   status on the reviewed head.
+
+**REPAIR ORDER (supersedes the feature/relooper roadmap until P0s are closed — this IS the "no punting on
+correctness" mandate):**
+1. **Fail closed:** remove EVERY `nil` / `any` / block-zero / comment-only / `return` fallback → `unsupported`.
+   Incremental & loop-friendly: one fallback → `unsupported` per tick, each with a NEGATIVE fixture (a `.v`
+   that must fail at EXTRACTION), verifying the golden's legitimate paths still extract. Do this FIRST — it
+   converts every silent miscompilation into an honest abort, immediately restoring rule 2.
+2. **Real expression typing:** typed locals/casts/interface-boxing/returns/sends/stores/closures from the
+   SOURCE type (a typed IR or expr-type env). Closes #1's typing half and #2.
+3. **Constant/runtime boundary:** full-width int ops → runtime-typed IIFE (#1).
+4. **Exhaustive, identity-based** tag + intrinsic lowering (#3, #6).
+5. **Seal `Sess`** (#7 / break #3).
+6. **Differential + metamorphic tests:** direct vs let-bound, literal vs runtime var, local vs global, inline
+   vs helper, full type-tag-assertion matrix (#9). A golden that masks type identity is not a gate.
+7. **CI clean-extraction gate:** rebuild from Rocq, re-extract, require ZERO generated diff, compile positive
+   fixtures, require negative fixtures to fail AT EXTRACTION (#9).
+8. **Hold the headline** at the honest wording until a compiler-correctness theorem exists (#8).
+
+This review does not invalidate the verified model/proof work — it bounds the *claim*. The model components are
+real; the *backend that lowers them to Go is the unverified, currently-fail-open frontier*, and closing it
+(fail-closed first, then typed lowering) is now the top priority.
+
 ### ⛔ RELEASE-BLOCKING soundness breaks (external review, 2026-06-21) — verified against source
 
 **VERDICT (own it, do not let it drift): these proofs do NOT currently verify the generated Go.**
@@ -649,7 +740,10 @@ below was CONFIRMED verbatim in the source (not taken on faith).  Close these in
 any "verified" claim.
 
 **STATUS (2026-06-22): 9 OF 10 RESOLVED — #1, #2, #4, #5, #6, #7, #8, #9, #10 all closed (machine-checked,
-golden byte-identical).**  Only **#3 (Sess)** remains, DECISION-BLOCKED on a rule-3 policy call (a discharged
+golden byte-identical).**  ⚠️ **SCOPE: these ten are MODEL-LAYER / typed↔operational-bridge breaks. They are
+NOT the backend. The 2026-06-22 review above found an INDEPENDENT set of backend fail-open miscompilations —
+"9/10 closed" here does NOT mean release-ready; the backend P0s gate the "verified Go" claim too.**  Only
+**#3 (Sess)** remains, DECISION-BLOCKED on a rule-3 policy call (a discharged
 module-`Parameter` seal that adds no `Print Assumptions` axiom but uses the keyword rule 3 forbids, vs. keeping
 it foundation-blocked pending a real session-IO semantics).  See each item below for its resolution commit.
 

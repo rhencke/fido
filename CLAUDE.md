@@ -1,7 +1,13 @@
 # Fido
 
-Formally verified Go: theorems are proved in Rocq (Coq); the `*.go` is a **proof
-artifact extracted from `*.v`** by the plugin — never hand-written, never edited.
+**Verified model components with a TRUSTED extraction backend** (the honest claim — *not* yet "formally
+verified Go"). Theorems are proved in Rocq (Coq); the `*.go` is a **proof artifact extracted from `*.v`** by
+the plugin — never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**,
+and an external review (2026-06-22) found it currently **fails OPEN** — emitting plausible-but-wrong Go
+(`nil`/`any`/block-zero/`return`) where rule 2 demands a fail-loud `unsupported`. **Closing those backend P0s
+(fail-closed first, then typed lowering) is the TOP priority** — see PROGRESS.md "RELEASE REVIEW (2026-06-22)".
+Until a compiler-correctness theorem connects source/MiniML semantics to emitted Go, do not headline this as
+"formally verified Go".
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
 safety properties Go's compiler can't prove — no nil deref, use-after-close,
