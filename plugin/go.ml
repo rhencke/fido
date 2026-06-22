@@ -3931,6 +3931,11 @@ let pp_decl state decl =
                | Tglob (r, []) ->
                    let bn = global_basename r in
                    String.equal fname (go_export bn) && is_record_typename bn
+               | Tglob (r, (Tglob (br, []) :: _)) when is_sptr_type r ->
+                   (* embedded POINTER-to-struct: an [SPtr T] field whose exported name is the
+                      BASE record's name → Go anonymous [*T] field (promotes T's method set). *)
+                   let bn = global_basename br in
+                   String.equal fname (go_export bn) && is_record_typename bn
                | _ -> false in
              if embedded then str "\t" ++ pp_type state t ++ fnl ()
              else str "\t" ++ str fname ++ str " " ++ pp_type state t ++ fnl () in
@@ -4072,6 +4077,12 @@ let collect_decls struc =
                   match proj, t with
                   | Some g, Tglob (r, []) ->
                       let bn = global_basename r in
+                      if String.equal (go_export (global_basename g)) (go_export bn)
+                         && is_record_typename bn then
+                        Hashtbl.replace embedded_proj (global_path g) ()
+                  | Some g, Tglob (r, (Tglob (br, []) :: _)) when is_sptr_type r ->
+                      (* embedded [*T] (SPtr base): promote through the anonymous pointer field *)
+                      let bn = global_basename br in
                       if String.equal (go_export (global_basename g)) (go_export bn)
                          && is_record_typename bn then
                         Hashtbl.replace embedded_proj (global_path g) ()

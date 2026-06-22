@@ -2093,6 +2093,19 @@ Definition ptr_method_expr_demo : IO unit :=
   bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 6 *)
   println [any a]))).                                          (* prints: 6 *)
 
+(** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct (Go's [type Node struct { *Cell; tag int64 }]):
+    Go promotes the embedded [*T]'s method set THROUGH the pointer.  Detected by the SAME "field name =
+    base type name" rule, now for an [SPtr Cell] field → an anonymous [*Cell] field.  The pointer-receiver
+    method [cell_incx] is PROMOTED: [cell_incx (cell nd)] → [nd.Cell_incx()] (peeling the embedded
+    projection, exactly like struct-in-struct, but through the pointer); the struct's own [ntag] coexists. *)
+Record Node := MkNode { cell : SPtr Cell ; ntag : GoI64 }.
+Definition node_embed_demo : IO unit :=
+  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (10)%i64 (20)%i64)) (fun p =>
+  let nd := MkNode p (99)%i64 in
+  bind (cell_incx (cell nd)) (fun _ =>                         (* PROMOTED: nd.Cell_incx() mutates the embedded *Cell *)
+  bind (sptr_get_field (cell nd) 0%uint63 cx TI64) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
+  println [any a; any (ntag nd)]))).                           (* prints: 11 99 *)
+
 (** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
     a field.  Same generic field-cell substrate as the 2-field case ([sptr3_field_get_set]
     backs the mutation); shows the pointer story is not limited to 2 fields. *)
@@ -2686,6 +2699,7 @@ Definition main_effect : IO unit :=
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   ptr_method_expr_demo          >>'   (* prints: 6 (pointer-receiver method expression) *)
+  node_embed_demo               >>'   (* prints: 11 99 (embedded *Cell: promoted pointer-method through the pointer) *)
   nfield_ptr_demo               >>'   (* prints: 31 (pointer-receiver method mutates 3-field *Cell3) *)
   het_ptr_demo                  >>'   (* prints: 11 true (pointer method mutates heterogeneous *Pair) *)
   iface_demo                    >>'   (* prints: 14 / 1007 / 20 / 1010 *)

@@ -273,7 +273,7 @@ since it is erased from the Coq type).  `arr_copy_demo`: `a` stays `[10,20,30]`,
 *positions* (param / field / return / typed var) need an explicit `[N]T` and are refused
 fail-loud — the type-level-`N` route (phantom `AS`/`AZ` chain the plugin decodes), deferred.
 
-### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields) + EMBEDDING (struct-in-struct, field/method promotion); ⚠ tags (no-op without reflection); ✗ embedding non-struct/pointer types
+### [Struct types](https://go.dev/ref/spec#Struct_types) — ✓ value-struct (named fields) + EMBEDDING (struct-in-struct, interface-in-struct, POINTER-to-struct — field/method promotion); ⚠ tags (no-op without reflection); ✗ embedding bare primitives
 Spec: a `struct` is a sequence of named fields with types; **value** semantics
 (assign/pass copies every field).  A Rocq `Record` is exactly this — a single-
 constructor inductive with projections, value/copy semantics — so it maps directly:
@@ -299,9 +299,15 @@ are unique, so no shadowing).  The embedded type needs ≥2 fields (1-field reco
 `type LoggedGreeter struct { Greeter; Lg_calls int64 }` promotes the embedded interface's method
 (emitted `lg.Greet(5)`, NOT `lg.Greeter.Greet(…)`) alongside the struct's own field, a common Go
 wrap-an-interface pattern (`embed_iface_in_struct_demo` → `105 / 7`; `promoted_greet` reflexivity).
-✗ not yet: embedding a POINTER type (a `*T` anonymous field — needs the embed detection to match
-`Ptr <record>` at both sites AND a deref-aware promotion peephole; deferred to a focused tick) or a
-bare PRIMITIVE, and struct tags.  Methods declared on the struct → next section.
+**POINTER embedding DONE (2026-06-22):** Go's `type Node struct { *Cell; tag int64 }` — an [SPtr T]
+field whose exported name is the BASE record's name is emitted as an ANONYMOUS `*T` field, so Go promotes
+the embedded `*T`'s method set THROUGH the pointer.  The embed detection now matches `SPtr <record>` (base
+name) at BOTH sites (field emission + `embedded_proj` registration); promoted access reuses the existing
+`peel_embedded` peephole — `cell_incx (cell nd)` → `nd.Cell_incx()` (the pointer-receiver method promoted,
+NOT `nd.Cell.Cell_incx()`).  Emitted `type Node struct { *Cell; Ntag int64 }`, `nd := Node{Cell: p, Ntag:
+99}`, `nd.Cell_incx()` then `(nd.Cell).Cx` → `11 99` (`node_embed_demo`, golden-locked).  ✗ not yet:
+embedding a bare PRIMITIVE (no methods to promote — niche), and struct tags.  Methods declared on the
+struct → next section.
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:

@@ -1403,6 +1403,19 @@ func Ptr_method_expr_demo() {
 	println(a)
 }
 
+type Node struct {
+	*Cell
+	Ntag int64
+}
+
+func Node_embed_demo() {
+	p := &Cell{Cx: 10, Cy: 20}
+	nd := Node{Cell: p, Ntag: 99}
+	nd.Cell_incx()
+	a := (nd.Cell).Cx
+	println(a, nd.Ntag)
+}
+
 type Cell3 struct {
 	C3x int64
 	C3y int64
@@ -2046,6 +2059,7 @@ func main() {
 	Sptr_demo()
 	Ptr_method_demo()
 	Ptr_method_expr_demo()
+	Node_embed_demo()
 	Nfield_ptr_demo()
 	Het_ptr_demo()
 	Iface_demo()
