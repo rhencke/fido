@@ -1682,6 +1682,17 @@ Definition hub_demo : IO unit :=
   recv_ok TI64 c (fun v _ =>                                             (* v := <-c *)
   println [any (hub_id hub); any v]))))).                                (* prints: 7 99 *)
 
+(** Concurrency OVER the nesting: a GOROUTINE sends through a channel that lives in a STRUCT field
+    ([go func(){ box.Ib_ch <- 123 }(); v := <-box.Ib_ch]) — the worker pattern (a goroutine feeding a
+    struct's channel), combining [go_spawn] with the channel-in-struct nesting.  Unbuffered, so the
+    send/recv RENDEZVOUS makes the result deterministic. *)
+Definition hub_worker_demo : IO unit :=
+  bind (make_chan TI64) (fun ch =>
+  let box := MkInbox ch "worker"%string in
+  bind (go_spawn (send TI64 (ib_ch box) (123)%i64)) (fun _ =>   (* go func(){ box.Ib_ch <- 123 }() *)
+  bind (recv TI64 (ib_ch box)) (fun v =>                        (* v := <-box.Ib_ch (rendezvous) *)
+  println [any (ib_name box); any v]))).                        (* prints: worker 123 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2755,6 +2766,7 @@ Definition main_effect : IO unit :=
   ptr_chan_demo                 >>'   (* prints: 7 (a *int64 sent over a chan, deref'd) *)
   inbox_demo                    >>'   (* prints: fido 42 (a channel nested in a struct field) *)
   hub_demo                      >>'   (* prints: 7 99 (a SLICE of channels in a struct: channels-in-slice-in-struct) *)
+  hub_worker_demo               >>'   (* prints: worker 123 (a GOROUTINE feeding a channel nested in a struct) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
