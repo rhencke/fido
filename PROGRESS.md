@@ -753,9 +753,15 @@ real; the *backend that lowers them to Go is the unverified, currently-fail-open
   through a typed IIFE (comparisons exempt); `u64_neg 1` emits `18446744073709551615`, not `-1`. golden-identical.
 - **#3 (unknown tag → `any`) — ✅ FIXED** (b7a23e5): `go_type_of_tag`/`zero_of_tag` abort on an unrenderable tag.
 - **#4 (`slice_of_list` → `nil`) — ✅ FIXED** (51ceed5): non-literal list aborts.
-- **#5 (CFG invents control flow) — ✅ FIXED** (8fefdbc + 72b1617 + 30619aa): every silent control-flow
-  substitution in `run_blocks` (non-literal start/block-list/Jump, unrecognized terminator, non-bool/non-2-branch
-  match, bare-expression block) now fails loud.
+- **#5 (CFG invents control flow) — ◑ PARTIAL — the STRUCTURED path fixed, the RAW emitter MISSED** (8fefdbc +
+  72b1617 + 30619aa): the *structured* `walk` emitter's silent control-flow substitutions (non-literal
+  start/block-list/Jump, unrecognized terminator, non-bool/non-2-branch match, bare-expression block) now fail
+  loud (`go.ml` ~2950–3003), and `raw_term`'s terminator handling fails loud (~1520–1528). **⚠️ OVERCLAIM
+  CORRECTED (2026-06-22, review #3 ✓verified):** the RAW block-BODY emitter `emit_block` (`go.ml` ~2455–2461)
+  STILL fails OPEN — a non-bool 2-branch match → bare `return`; a non-1/2-branch match → bare `return`; an
+  unrecognized block → bare `pp_expr` with NO terminator. Reachable via **defer/go closure bodies**
+  (`emit_closure` ~2406 always uses `emit_block`) and the raw `run_blocks` fallback. So "#5 FIXED" was wrong —
+  see review #3 finding **R1** below; the three `emit_block` fallbacks must become `unsupported`.
 - **#6 (identity-based recognition) — ✅ FOUNDATIONAL + bulk done** (868aa39 exact-component `from_builtins`;
   86b2124/9b68589/ea2b36f/02eb5db gate ~66 recognizers on it). Remaining tail (GoTypeTag-ctor machinery,
   suppression list, stdlib basename-fallback drops) is LOW-marginal (requires a user to name a def exactly like a
@@ -783,8 +789,90 @@ real; the *backend that lowers them to Go is the unverified, currently-fail-open
 - **#7 (`Sess` forgeable) — ⛔ DECISION-BLOCKED** (= 2026-06-21 break #3; a rule-3 policy call).
 - **#8 headline / #9 gates — partially addressed** (CLAUDE.md headline corrected; the `|| true` gate was already
   fixed pre-review). Full differential/CI harness (repair steps 6–7) still open.
-Net: the backend's silent-miscompile sites (fail-OPEN fallbacks + the full-width-int constant bug) are CLOSED;
-the remaining frontier is the deeper typed-lowering (#2 param/field) and the verified-compiler theorem (#8).
+Net (⚠️ CORRECTED by review #3, 2026-06-22): the FIRST review's enumerated fail-OPEN sites are closed, but that
+review was NOT exhaustive — **review #3 (below) found MORE silent-miscompile sites the first sweep missed**
+(`emit_block` raw block-body, `recv_ok` continuation-drop). So "the backend's silent-miscompile sites are CLOSED"
+was itself an overclaim. The accurate status: a SUBSET of fail-OPEN sites is closed; closing the rest (review #3
+R1/R2 first) is the live fail-closed work, ahead of the deeper typed-lowering (#2 param/field) and the
+verified-compiler theorem (#8).
+
+### ⛔⛔ RELEASE REVIEW #3 (2026-06-22, independent) — MORE silent miscompiles + invalid-Go + model gaps
+
+**VERDICT: RED — "Do not release Fido as a correctness-preserving or 'verified Go' compiler."** A THIRD
+independent review (reviewed commit 031c133, plugin blob 57b7fa51; Go 1.23.2 linux/amd64 probes of emitted
+fragments; not a full extraction build). It found (a) backend silent-miscompile paths the earlier sweeps MISSED
+— including one that **falsifies our "#5 FIXED" claim**, (b) several constructs that emit INVALID or falsely-typed
+Go, and (c) model-to-runtime semantic gaps. Findings I CONFIRMED verbatim in `plugin/go.ml` this session are
+marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above for release purposes.**
+
+**P0 — fail-OPEN silent miscompiles (must become `unsupported`; the TOP fail-closed work):**
+- **R1. Raw CFG emitter `emit_block` silently truncates. ✓verified** (`go.ml` ~2455–2461): a non-bool 2-branch
+  match → bare `return`; a non-1/2-branch match → bare `return`; an unrecognized block → bare `pp_expr` with NO
+  control terminator. Reachable via **defer/go closure bodies** (`emit_closure` ~2406) and the raw `run_blocks`
+  fallback — so an irreducible/unstructurable CFG (or any defer/go closure) with one of these shapes extracts
+  successfully while DROPPING the rest of execution. **This is why "#5 FIXED" was wrong** (only the structured
+  `walk` was fixed). FIX: all three `emit_block` fallbacks → `unsupported`; validate every block before the raw
+  path. *(Top priority — the most flagrant rule-2 violation remaining.)*
+- **R2. `recv_ok` drops its continuation. ✓verified** (`go.ml` 3050–3051 stmt, 1706–1707 expr): the statement
+  lowering assumes the continuation is an inline 2-arg `MLlam`; for ANY other shape (a named/separately-extracted
+  handler, eta-reduced, etc.) it emits `_, _ = <-ch` and NEVER emits the continuation body. The expression
+  position emits only `<-ch`, discarding `_kont` entirely. So a non-inline continuation is silently dropped (the
+  recv still happens; subsequent effects vanish). FIX: the non-`[x;ok]` branch and the expr fallback →
+  `unsupported` (or emit a residual call to the continuation).
+
+**P1 — emits INVALID or falsely-typed Go (should be negative extraction tests):**
+- **R3. Value-position lets/lambdas forcibly typed `any`** (assessed plausible, not yet repro'd): a value-position
+  `let` becomes an IIFE returning `any`; an untyped lambda → `func(…any) any`; `Tdummy`/`Tunknown`/`Taxiom`/`Tmeta`
+  → `any`. E.g. an IIFE-`any` inside `int64` arithmetic, or `func(any)any` where `func(int64)int64` is required,
+  does not compile. Needs a typed target IR / expected-type threading — same root as #2.
+- **R4. Several constructs emit invalid/falsely-typed Go:** (a) `map_make` → `make(map[any]any)` — not assignable
+  to a typed `map[K]V` (probe failed); (b) `map_make_typed` accepts non-comparable key tags (slice/map/func) — Go
+  rejects non-comparable map keys; (c) non-empty list literal fallback → `append(nil, v1, v2)` — Go rejects
+  (`first argument to append must be a slice; have untyped nil`); (d) **signed narrow arithmetic on a narrow
+  PARAM** — `int8` param + `(((x+1)&0xff)^0x80)-0x80` → `0xff` overflows `int8` (this is the #2 param-boundary;
+  the narrow-RETURN slice is in-progress, the PARAM slice still open).
+- **R7. Generated identifiers not injective** (assessed plausible): `foo'`→`foo_` collides with a real `foo_`;
+  `foo`/`Foo` collide after export-capitalization; two modules' same basename collide when flattened into one Go
+  package; record-ctor/type metadata keyed by basename can clobber across modules. And builtin recognition keys on
+  *any* path component named `builtins`, not the canonical `builtins.v` GlobRef. Needs deterministic full-GlobRef
+  mangling + a collision check before emission. (Overlaps/extends backend #6.)
+
+**P2 — model-to-runtime faithfulness gaps (the bridge, gap #10 / limit #2):**
+- **R5. Plain `GoSlice` capacity model disagrees with Go** (assessed correct): the Rocq model has `cap xs = length
+  xs` and `append` = list concat, but native Go `append` may over-allocate (probe: len=5, cap=6). So any theorem
+  about `cap` after `append` is not about the generated Go. FIX: drop `cap` from functional `GoSlice`, route
+  capacity-sensitive code through the heap-backed slice model, or model capacity in the value.
+- **R6. `PrimInt63.int` → platform `int`, divergent overflow** (known substrate limit, sharpened): faithful only
+  in [−2^62, 2^62); Go `int` is platform-width and wraps at 2^63 (amd64) / 2^31 (32-bit). "Only for indices"
+  doesn't close it without an enforced in-range proof on every emitted op.
+- **R8. Proof IO semantics ≠ emitted-Go semantics** (known two-models gap, itemized): buffered-channel alloc
+  ignores capacity; recv from an empty OPEN channel returns a fabricated zero instead of blocking; `go_spawn` runs
+  the child sequentially to completion in the denotational model; `defer_call` is a proof-side no-op while the
+  backend emits a real Go `defer`. No compiler-correctness/refinement theorem connects source ↔ backend ↔ Go run.
+  Accurate claim: "verified model components + a tested trusted backend," not "verified generated Go."
+- **R9. `Sess` forgeable** (= backend #7 / 2026-06-21 break #3, still open): `MkSess` is exposed, so a value can
+  claim any protocol while wrapping an unrelated `IO`. Seal the constructor or tie indices to operational
+  semantics.
+- **R10. Gates too weak** (= backend #9, still open): `make check` compares golden OUTPUT only (misses
+  type/interface/blocking/aliasing/overflow changes that preserve printed numbers); the pre-commit hook
+  re-extracts only when selected files are staged (a standalone `.go` edit bypasses it); the axiom grep covers a
+  subset. Need from-scratch extraction + zero generated diff + `go build` + runtime differential + negative
+  extraction tests + identifier-collision fixtures + inline-vs-helper metamorphic tests + `Print Assumptions`
+  coverage.
+
+**REPAIR ORDER (review #3) — fail-closed FIRST, in this order:**
+1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ← NEXT.
+2. **R2** (`recv_ok` continuation-drop → `unsupported`/residual call).
+3. **R4 negative tests** (`append(nil,…)`, `map[any]any`, non-comparable map keys, narrow-param arith → each
+   `unsupported` with a negative fixture) + finish the narrow boundary (RETURN slice in-progress, then PARAM).
+4. **R3** typed lowering (the typed target IR / expected-type threading — the deep #2 refactor).
+5. **R7** deterministic full-GlobRef mangling + collision check; exact-GlobRef builtin identity.
+6. **R5/R6** model-faithfulness (slice cap; int63 range proof or honest scoping).
+7. **R9** seal `Sess`; **R10** real differential/negative/from-scratch gate harness.
+8. **R8** the refinement theorem (source ↔ backend ↔ Go) — the long-horizon capstone; until then, headline stays
+   "verified model components + tested trusted backend," NOT "verified Go".
+Until R1–R4 close, do NOT headline "verified Go" and do NOT extend the feature set (CLAUDE.md rule 2 + the
+project's own fail-loud meta-invariant).
 
 ### ⛔ RELEASE-BLOCKING soundness breaks (external review, 2026-06-21) — verified against source
 
