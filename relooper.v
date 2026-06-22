@@ -2287,4 +2287,82 @@ Proof.
   exact (lift_after_realizes 5 g 6 (SBody f6) eq_refl).
 Qed.
 
+(** ** Loop-nest DETECTION spine: validate a PROPOSED nest + COMPUTE its inner bodies → full [InnersOK].
+
+    The detector (back-edge / dominator analysis, UNTRUSTED) proposes a flat list of inner loops as
+    [(ih, ie, region)] triples — header, exit, owned block set.  [build_inner] validates one proposal with
+    [region_ok_check] (the six structural [InnersOK] conjuncts) and then COMPUTES its body
+    [ib := reloop_b ih ie fuel g ih] — [Stmt2] embeds [State]-functions so it has no decidable equality,
+    hence the checker must CONSTRUCT the body, never compare a detector-supplied one — yielding the seventh
+    conjunct [Iterates] via [reloop_b_iterates].  A proposal that fails validation or whose inner body is not
+    acyclic-within-fuel returns [None] (fails loud, never an unsound nest).  [build_inners] folds this over
+    the proposal list and [build_inners_sound] proves its output satisfies [InnersOK] in full, so
+    [detect_and_reloop_sound] threads a PROPOSED nest end-to-end into [reloop_b2_sound_l]: the detector stays
+    untrusted, its output MACHINE-VALIDATED.  (Scope: a flat list of sibling, acyclic-bodied inner loops —
+    exactly [reloop_b2_sound_l]'s domain; loops-within-loops need the [IteratesC] nesting machinery.) *)
+
+Definition build_inner (g : CFG) (hdr exit fuel : nat) (p : nat * nat * list nat)
+  : option (nat * nat * Stmt2) :=
+  let '(ih, ie, region) := p in
+  if region_ok_check g hdr exit ih ie region then
+    match reloop_b ih ie fuel g ih with
+    | Some ib => Some (ih, ie, ib)
+    | None => None
+    end
+  else None.
+
+Fixpoint build_inners (g : CFG) (hdr exit fuel : nat) (ps : list (nat * nat * list nat))
+  : option (list (nat * nat * Stmt2)) :=
+  match ps with
+  | [] => Some []
+  | p :: ps' =>
+    match build_inner g hdr exit fuel p, build_inners g hdr exit fuel ps' with
+    | Some inner, Some inners => Some (inner :: inners)
+    | _, _ => None
+    end
+  end.
+
+Lemma build_inner_sound : forall g hdr exit fuel p ih ie ib,
+  build_inner g hdr exit fuel p = Some (ih, ie, ib) ->
+  exists P, InnerClosed g P ie /\ P hdr = false /\ P exit = false /\ P ie = false /\
+            P ih = true /\ hdr <> ie /\ Iterates g ih ie ib.
+Proof.
+  intros g hdr exit fuel [[ih0 ie0] region] ih ie ib H. unfold build_inner in H.
+  destruct (region_ok_check g hdr exit ih0 ie0 region) eqn:Hrc; [|discriminate].
+  destruct (reloop_b ih0 ie0 fuel g ih0) as [ib0|] eqn:Hrb; [|discriminate].
+  injection H as Eih Eie Eib. subst ih ie ib.
+  exists (fun l => existsb (Nat.eqb l) region).
+  pose proof (region_ok_check_sound g hdr exit ih0 ie0 region Hrc)
+    as [HIC [Hh [He [Hieq [Hih Hne]]]]].
+  repeat split; try assumption.
+  exact (reloop_b_iterates ih0 ie0 fuel g ib0 Hrb).
+Qed.
+
+Lemma build_inners_sound : forall g hdr exit fuel ps inners,
+  build_inners g hdr exit fuel ps = Some inners ->
+  InnersOK g hdr exit inners.
+Proof.
+  intros g hdr exit fuel ps. induction ps as [|p ps' IH]; intros inners H; cbn in H.
+  - injection H as <-. intros ih ie ib HIn. destruct HIn.
+  - destruct (build_inner g hdr exit fuel p) as [inner0|] eqn:Hp; [|discriminate].
+    destruct (build_inners g hdr exit fuel ps') as [inners'|] eqn:Hps; [|discriminate].
+    injection H as <-. intros ih ie ib HIn. destruct HIn as [Heq | HIn'].
+    + rewrite Heq in Hp. exact (build_inner_sound g hdr exit fuel p ih ie ib Hp).
+    + exact (IH inners' eq_refl ih ie ib HIn').
+Qed.
+
+(** End-to-end: a PROPOSED nest [ps] → validated-and-built [inners] → sound relooping.  The detector that
+    produces [ps] is untrusted; this theorem trusts ONLY the machine-checked [build_inners] + [reloop_b2]. *)
+Theorem detect_and_reloop_sound : forall g hdr exit fuel ps inners body A s sf,
+  build_inners g hdr exit fuel ps = Some inners ->
+  reloop_b2 inners hdr exit fuel g hdr = Some body ->
+  AfterRealizes g exit A ->
+  cfg_halts g hdr s sf ->
+  seval (LSeq (LLoop body) A) s sf Normal.
+Proof.
+  intros g hdr exit fuel ps inners body A s sf Hbi Hr2 Haf Hch.
+  exact (reloop_b2_sound_l g hdr exit inners fuel body A s sf
+           (build_inners_sound g hdr exit fuel ps inners Hbi) Hr2 Haf Hch).
+Qed.
+
 End Relooper.
