@@ -2365,4 +2365,44 @@ Proof.
            (build_inners_sound g hdr exit fuel ps inners Hbi) Hr2 Haf Hch).
 Qed.
 
+(** ** Closing the loop visibly: the detection spine run END-TO-END on a concrete nested CFG.
+
+    [detCFG] is a real two-level loop — an OUTER loop [0 -> 4] whose body contains an INNER loop [1 -> 3]:
+      0 header : run [h]; if [c0] enter body (1) else exit (4)
+      1 inner header : run [hi]; if [c1] enter inner body (2) else inner-exit (3)
+      2 inner body : run [bi]; goto 1  (inner back-edge)
+      3 outer tail : run [bo]; goto 0  (outer back-edge)
+      4 exit : return.
+    The (untrusted) detector PROPOSES the single inner loop as [(1, 3, [1; 2])] — header 1, exit 3, owned
+    blocks {1, 2}.  [det_demo_sound] threads THIS proposal through the whole spine: [build_inners] VALIDATES
+    it and CONSTRUCTS the inner body (the [= Some inners] equation, by computation — so the proposal really
+    does pass [region_ok_check] and [reloop_b]), [reloop_b2] LOWERS the outer loop with the inner [LLoop]
+    folded in (the [= Some body] equation, again computed), and [detect_and_reloop_sound] certifies the
+    result SOUND.  Both [= Some] equations discharge by [reflexivity], which doubly confirms the spine's
+    definitions actually COMPUTE on a concrete case (not merely admit abstract soundness lemmas). *)
+Definition detCFG (h hi bi bo : State -> State) (c0 c1 : State -> bool) : CFG :=
+  fun l => match l with
+           | 0 => mkBlk h  (TIf c0 1 4)
+           | 1 => mkBlk hi (TIf c1 2 3)
+           | 2 => mkBlk bi (TGoto 1)
+           | 3 => mkBlk bo (TGoto 0)
+           | _ => mkBlk (fun s => s) TRet
+           end.
+
+Theorem det_demo_sound : forall h hi bi bo c0 c1 A s sf,
+  AfterRealizes (detCFG h hi bi bo c0 c1) 4 A ->
+  cfg_halts (detCFG h hi bi bo c0 c1) 0 s sf ->
+  exists inners body,
+    build_inners (detCFG h hi bi bo c0 c1) 0 4 5 [(1, 3, [1; 2])] = Some inners /\
+    reloop_b2 inners 0 4 5 (detCFG h hi bi bo c0 c1) 0 = Some body /\
+    seval (LSeq (LLoop body) A) s sf Normal.
+Proof.
+  intros h hi bi bo c0 c1 A s sf Haf Hch.
+  eexists; eexists.
+  split; [ reflexivity | ].
+  split; [ reflexivity | ].
+  eapply (detect_and_reloop_sound (detCFG h hi bi bo c0 c1) 0 4 5 [(1, 3, [1; 2])]);
+    [ reflexivity | reflexivity | exact Haf | exact Hch ].
+Qed.
+
 End Relooper.
