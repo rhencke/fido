@@ -907,6 +907,25 @@ let float_minmax_go_type r =
   | "f64_min" | "f64_max" -> Some "float64"
   | _ -> None
 
+(* Go type of a forceable full-width int ARITHMETIC / bitwise / shift op, else None.  Like floats, an
+   all-CONSTANT full-width int op constant-folds under Go's ARBITRARY-PRECISION rules, NOT runtime
+   wrapping: [u64_sub 0 1] = -1 (not 2^64-1), [i64_add MAX 1] / [1<<70] overflow the constant (compile
+   error), [u64_and] on a negative constant is nonsense.  Force to runtime via a typed IIFE so Go applies
+   fixed-width wrapping.  COMPARISONS (ltb/leb/eqb/gtb/geb/neqb) are EXCLUDED — they yield [bool] (no wrap,
+   and an [int64]-returning IIFE would be ill-typed) and a constant comparison equals its runtime value. *)
+let full_width_arith_suffixes =
+  ["add"; "sub"; "mul"; "add_nz"; "sub_nz"; "mul_nz"; "div"; "mod";
+   "and"; "andnot"; "shl"; "shr"; "or"; "xor"]
+let int_arith_go_type r =
+  if List.exists (is_i64_op r) full_width_arith_suffixes then Some "int64"
+  else if List.exists (is_u64_op r) full_width_arith_suffixes then Some "uint64"
+  else None
+(* Combined force type: float/complex arith OR full-width int arith. *)
+let arith_force_go_type r =
+  match float_arith_go_type r with
+  | Some _ as t -> t
+  | None -> int_arith_go_type r
+
 (* Coq [nat] is modelled as Go [uint].  Add/mul/comparison are faithful within
    the representable range (a [nat] too large for [uint] is unrepresentable
    either way), but [Nat.sub] is TRUNCATED monus ([3 - 5 = 0]) whereas Go [uint]
@@ -1944,7 +1963,7 @@ let rec pp_expr state env = function
           parens only where genuinely needed. *)
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
-           (match float_arith_go_type r with
+           (match arith_force_go_type r with
             | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
                 (* all-constant float arith would constant-fold under Go's (non-IEEE) constant
                    rules — force runtime via a typed IIFE *)
@@ -2192,7 +2211,7 @@ and pp_prec state env ctx e =
       (match h2, vis with
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
            let (p, opstr) = Option.get (binop_of r) in
-           (match float_arith_go_type r with
+           (match arith_force_go_type r with
             | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
                 str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
                 ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"

@@ -101,7 +101,7 @@ func I64_abs_demo() {
 }
 
 func Neg_op_demo() {
-	println(func(x int64) int64 { return -x }(5), func(x int64) int64 { return -x }(0-7))
+	println(func(x int64) int64 { return -x }(5), func(x int64) int64 { return -x }(func(x int64, y int64) int64 { return x - y }(0, 7)))
 }
 
 func Conv64_demo() {
@@ -307,12 +307,12 @@ func U32_demo() {
 }
 
 func I64_demo() {
-	println(9000000000000000000+200000000000000000, 3000000000*3000000000)
+	println(func(x int64, y int64) int64 { return x + y }(9000000000000000000, 200000000000000000), func(x int64, y int64) int64 { return x * y }(3000000000, 3000000000))
 }
 
 func I64_ops_demo() {
-	println(9000000000000000000/7, 1<<40)
-	println(-1&4294967295, func(x int64) int64 { return ^x }(5))
+	println(func(x int64, y int64) int64 { return x / y }(9000000000000000000, 7), func(x int64, y int64) int64 { return x << y }(1, 40))
+	println(func(x int64, y int64) int64 { return x & y }(-1, 4294967295), func(x int64) int64 { return ^x }(5))
 }
 
 var Uc_bignum int64 = 1099511627781
@@ -334,7 +334,7 @@ func Uconst_demo() {
 }
 
 func U64_demo() {
-	println(5000000000000000000+3000000000000000000, 3000000000*3000000000)
+	println(func(x uint64, y uint64) uint64 { return x + y }(5000000000000000000, 3000000000000000000), func(x uint64, y uint64) uint64 { return x * y }(3000000000, 3000000000))
 }
 
 func Recv_unused_ok_demo() {
@@ -548,7 +548,7 @@ func Pick_demo(b bool) {
 }
 
 func Neg_demo() {
-	println(2 - 5)
+	println(func(x int64, y int64) int64 { return x - y }(2, 5))
 }
 
 func Control_flow_demo() {
@@ -1060,7 +1060,7 @@ func Pool_demo() {
 	ch1 := pool.Pool_chans[1]
 	v0 := <-ch0
 	v1 := <-ch1
-	println(pool.Pool_base + (v0 + v1))
+	println(func(x int64, y int64) int64 { return x + y }(pool.Pool_base, v0+v1))
 }
 
 func Linked_list_demo() {
@@ -1107,7 +1107,7 @@ func Cursed_demo() {
 	n1 := *(cu.Cu_list)
 	n2 := *(n1.Ln_next)
 	n3 := *(n2.Ln_next)
-	println(v0.Cb_id+v1.Cb_id, n1.Ln_val, n2.Ln_val, n3.Ln_val)
+	println(func(x int64, y int64) int64 { return x + y }(v0.Cb_id, v1.Cb_id), n1.Ln_val, n2.Ln_val, n3.Ln_val)
 }
 
 func Slice_alias_demo() {
@@ -1413,7 +1413,7 @@ func Point_demo() {
 	p := Point{Px: 3, Py: 4}
 	println(p.Px)
 	println(p.Py)
-	println(p.Px + p.Py)
+	println(func(x int64, y int64) int64 { return x + y }(p.Px, p.Py))
 }
 
 type Labeled struct {
@@ -1428,7 +1428,7 @@ func Labeled_demo() {
 }
 
 func (p Point) Sum_coords() int64 {
-	return p.Px + p.Py
+	return func(x int64, y int64) int64 { return x + y }(p.Px, p.Py)
 }
 
 func (p Point) Shifted(dx int64) Point {
@@ -1484,7 +1484,7 @@ func Io_method_demo() {
 
 func (p Point) Px_then_sum() int64 {
 	println(p.Px)
-	return p.Px + p.Py
+	return func(x int64, y int64) int64 { return x + y }(p.Px, p.Py)
 }
 
 func Io_val_method_demo() {
@@ -1618,7 +1618,7 @@ type Shape struct {
 
 func Mk_rect(w int64, h int64) Shape {
 	return Shape{Area: func(s int64) int64 {
-		return w + h + (w + h) + s
+		return func(x int64, y int64) int64 { return x + y }(w+h, w+h) + s
 	}, Perim: func(s int64) int64 {
 		return w + h + s
 	}}
@@ -1626,7 +1626,7 @@ func Mk_rect(w int64, h int64) Shape {
 
 func Mk_square(side int64) Shape {
 	return Shape{Area: func(s int64) int64 {
-		return side + side + (side + side) + s
+		return func(x int64, y int64) int64 { return x + y }(side+side, side+side) + s
 	}, Perim: func(s int64) int64 {
 		return side + side + s
 	}}
@@ -1734,7 +1734,7 @@ type Light struct {
 var Fresh_light Light = Light{Ticks: 0, Serial: 7}
 
 func (l Light) Go_green() Light {
-	return Light{Ticks: l.Ticks + 1, Serial: l.Serial}
+	return Light{Ticks: func(x int64, y int64) int64 { return x + y }(l.Ticks, 1), Serial: l.Serial}
 }
 
 func (l Light) Go_red() Light {
@@ -1776,7 +1776,7 @@ func Mk_myi64(v int64) MyI64 {
 }
 
 func (m MyI64) Myi64_double() MyI64 {
-	return Mk_myi64(int64(m) + int64(m))
+	return Mk_myi64(func(x int64, y int64) int64 { return x + y }(int64(m), int64(m)))
 }
 
 func Deftype_demo() {
@@ -1804,7 +1804,7 @@ func Mk_celsius(v int64) Celsius {
 }
 
 func (c Celsius) Reading() int64 {
-	return int64(c) + 100
+	return func(x int64, y int64) int64 { return x + y }(int64(c), 100)
 }
 
 type Measurable struct {
@@ -1992,7 +1992,7 @@ func Pow2(n uint) int64 {
 		return 1
 	} else {
 		k := n - 1
-		return 2 * Pow2(k)
+		return func(x int64, y int64) int64 { return x * y }(2, Pow2(k))
 	}
 }
 func Pure_rec_demo() {
@@ -2082,8 +2082,8 @@ func Enum_default_demo() {
 }
 
 func main() {
-	println(1 + 2)
-	Panic_and_recover(40 + 2)
+	println(func(x int64, y int64) int64 { return x + y }(1, 2))
+	Panic_and_recover(func(x int64, y int64) int64 { return x + y }(40, 2))
 	Div_demo()
 	Overflow_safe_demo()
 	I64_abs_demo()
