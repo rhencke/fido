@@ -1005,6 +1005,14 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   root cause that let the silent bugs slip), a PERMANENT negative-extraction-test harness (the neg-fixtures I
   run by hand per fix, made into a committed `make negtest`), `go build`/`go vet` as a distinct gate, and the
   hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses the source-of-truth diff).
+  **RUNTIME DIFFERENTIAL TEST ✅ started + caught a real bug (2026-06-22, commit 5cb8611):** `type_identity_lock_demo`
+  (main.v) boxes each scalar and `type_assert_safe`s it against its OWN Go type (→true) and a sibling it must NOT
+  alias (→false), turning type identity into observable output. On its FIRST run it caught a latent type-identity
+  bug — a standalone `GoI64` literal emitted as a BARE decimal (`i64v := 9` ⇒ Go infers `int` not `int64`), so
+  `any(GoI64).(int64)` returned FALSE, diverging from the `TI64` tag. **FIXED** (go.ml: `i64_lit`→`int64(N)`,
+  `u64_lit`→`uint64(N)`); output golden unchanged for existing demos (`int64(9)` prints `9`). The runtime companion
+  to the model-side `tag_runtime_agrees` lock (R6/#7d). The matrix should be EXTENDED to narrow struct fields / map
+  values / channel payloads (likely more latent boxing bugs there).
 
 **REPAIR ORDER (review #3) — fail-closed FIRST, in this order:**
 1. **R1** (`emit_block` 3 fallbacks → `unsupported`) — the worst silent truncation, reachable via defer/go. ✅ DONE.
