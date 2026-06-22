@@ -1382,6 +1382,27 @@ Proof.
     + eapply se_seq_n; [apply se_body |]. eapply se_if_f; [exact Ec0 |]. apply se_break.
 Qed.
 
+(** ── GENERAL nested-loop SOUNDNESS (any depth, abstract CFG, abstract after-region). ──
+    [nested_iterates_gen] makes the nested outer body an [IteratesC]; [loop_sound_c] turns that + an exit
+    realiser into end-to-end soundness for the whole [LSeq (LLoop nestedbody) A].  Since the inner [ibody] is
+    only required to be an [IteratesC], it may ITSELF be a nested loop (built by a further
+    [nested_iterates_gen]) — so this is the single, depth-N, abstract soundness theorem of which the concrete
+    [nested_loop_sound] (depth-2, [nestCFG]) and [tri_nested_sound] (depth-3) are instances. *)
+Lemma nested_loop_sound_gen : forall g h e ih ie c0 bh bie ibody P A s sf,
+  blk_term (g h) = TIf c0 ih e -> blk_body (g h) = bh ->
+  blk_term (g ie) = TGoto h -> blk_body (g ie) = bie ->
+  InnerClosed g P ie -> P ih = true -> P ie = false -> P h = false -> P e = false ->
+  ie <> e -> ie <> h -> h <> e ->
+  IteratesC g ih ie ibody ->
+  AfterRealizes g e A ->
+  cfg_halts g h s sf ->
+  seval (LSeq (LLoop (LSeq (LBody bh) (LIf c0 (LSeq (LLoop ibody) (LBody bie)) LBreak))) A) s sf Normal.
+Proof.
+  intros g h e ih ie c0 bh bie ibody P A s sf
+         Hht Hhb Hiet Hieb Hclosed Pih Pie Ph Pe Hiee Hieh Hhe Hit Haft Hch.
+  eapply loop_sound_c; [ eapply nested_iterates_gen; eassumption | exact Haft | exact Hch ].
+Qed.
+
 (** [RealizesTo g S l j]: structured [S] computes the state at which the CFG, entered at [l], reaches
     join [j].  ([Realizes] from the acyclic section is the [j]=HALT special case, modulo [cfg_halts].) *)
 Definition RealizesTo (g : CFG) (S : Stmt) (l j : nat) : Prop :=
