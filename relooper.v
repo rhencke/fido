@@ -1329,6 +1329,66 @@ Proof.
   exact (loop_to_exit_n g h2 e2 ibody Hit n s smid Hn).
 Qed.
 
+(** ── GENERAL completeness of the structure-directed body relooper [reloop_b2] (one inner loop). ──
+    For ANY CFG with one properly-nested inner loop [(ih, ie, ib)] (region [P], [InnerClosed]; [ib] an
+    [Iterates] for the inner loop), whenever [reloop_b2 [(ih,ie,ib)] hdr exit fuel g l] succeeds, its output
+    REPRODUCES every halting one-iteration run from [l]: given the CFG's [runs_term], the [seval] matches.
+    By induction on the fuel — the ACYCLIC blocks peel the run with the [runs_term_*_inv] lemmas; at the
+    INNER HEADER [l = ih] the run is split by [inner_split] (inner loop completes at [ie], outer continues),
+    the inner [LLoop ib] reproduced by [loop_to_exit], the continuation by the IH.  This is the
+    [reloop_b_correct] analogue with inner-loop ABSORPTION — the general [reloop_b2] soundness for one inner
+    loop (the [nestCFG] witness [reloop_b2_nest_sound] is now an instance of THIS, over any CFG). *)
+Lemma reloop_b2_single_correct : forall g hdr exit ih ie ib P,
+  InnerClosed g P ie -> P hdr = false -> P exit = false -> P ie = false -> P ih = true ->
+  hdr <> ie -> Iterates g ih ie ib ->
+  forall fuel l S, reloop_b2 [(ih, ie, ib)] hdr exit fuel g l = Some S ->
+  forall s s' o, runs_term g hdr exit l s s' o -> seval S s s' o.
+Proof.
+  intros g hdr exit ih ie ib P Hclosed Phdr Pexit Pie Pih Hhie Hib.
+  induction fuel as [|fuel IH]; intros l S Hb s s' o Hrt.
+  - discriminate Hb.
+  - cbn in Hb. destruct (Nat.eqb l exit) eqn:Eex; cbn in Hb.
+    + (* l = exit: the iteration broke *)
+      injection Hb as <-. apply Nat.eqb_eq in Eex; subst l.
+      destruct (runs_term_exit_inv g hdr exit s s' o Hrt) as [Es Eo]; subst. apply se_break.
+    + apply Nat.eqb_neq in Eex. destruct (Nat.eqb l ih) eqn:Eih; cbn in Hb.
+      * (* l = ih: absorb the inner loop *)
+        apply Nat.eqb_eq in Eih; subst l.
+        destruct (reloop_b2 [(ih, ie, ib)] hdr exit fuel g ie) as [rest|] eqn:Hrest; cbn in Hb;
+          [injection Hb as <- | discriminate Hb].
+        destruct (inner_split g hdr exit ie P Hclosed Phdr Pexit Pie Hhie ih s s' o Hrt Pih)
+          as [smid [Hru Hrt2]].
+        eapply se_seq_n;
+          [ exact (loop_to_exit g ih ie ib Hib s smid Hru)
+          | exact (IH ie rest Hrest smid s' o Hrt2) ].
+      * destruct (blk_term (g l)) as [|l'|c a b] eqn:Ht; cbn in Hb.
+        -- discriminate Hb.   (* TRet inside a loop body: reloop_b2 = None *)
+        -- destruct (Nat.eqb l' hdr) eqn:Eh; cbn in Hb.
+           ++ (* TGoto hdr: back-edge, the loop iterates *)
+              injection Hb as <-. apply Nat.eqb_eq in Eh; subst l'.
+              destruct (runs_term_back_inv g hdr exit l s s' o Eex Ht Hrt) as [Es Eo]; subst.
+              apply se_body.
+           ++ (* TGoto l' (l' <> hdr): continue *)
+              apply Nat.eqb_neq in Eh.
+              destruct (reloop_b2 [(ih, ie, ib)] hdr exit fuel g l') as [rest|] eqn:Hrest; cbn in Hb;
+                [injection Hb as <- | discriminate Hb].
+              eapply se_seq_n;
+                [ apply se_body
+                | exact (IH l' rest Hrest (blk_body (g l) s) s' o
+                            (runs_term_goto_inv g hdr exit l l' s s' o Eex Ht Eh Hrt)) ].
+        -- (* TIf: branch *)
+           destruct (reloop_b2 [(ih, ie, ib)] hdr exit fuel g a) as [Sa|] eqn:Hra; cbn in Hb;
+             [|discriminate Hb].
+           destruct (reloop_b2 [(ih, ie, ib)] hdr exit fuel g b) as [Sb|] eqn:Hrb; cbn in Hb;
+             [|discriminate Hb].
+           injection Hb as <-.
+           pose proof (runs_term_if_inv g hdr exit l c a b s s' o Eex Ht Hrt) as Hrt2.
+           eapply se_seq_n; [apply se_body |].
+           destruct (c (blk_body (g l) s)) eqn:Ec.
+           ++ eapply se_if_t; [exact Ec | exact (IH a Sa Hra (blk_body (g l) s) s' o Hrt2)].
+           ++ eapply se_if_f; [exact Ec | exact (IH b Sb Hrb (blk_body (g l) s) s' o Hrt2)].
+Qed.
+
 (** ── The WHOLE-RUN inner-loop split — the toolkit piece the nested ASSEMBLY needs. ──
     [inner_split] is the per-iteration view ([runs_term]).  But assembling a nested loop needs the
     WHOLE-RUN view: the outer loop's body realiser is only definable WHEN the run terminates (a nested
