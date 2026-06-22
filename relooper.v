@@ -1323,47 +1323,66 @@ Proof.
   - rewrite Ht in Ht0; discriminate.
 Qed.
 
-(** The OUTER [LLoop] runs to the outer exit (block 4): by STRONG induction on the run's fuel, one outer
-    iteration either breaks (c0 false ⇒ [se_loop_break]) or runs the inner loop to completion
-    ([inner_split_cfg_n] + [loop_to_exit]), continues past block 3 (back-edge to 0), and the IH handles the
-    next iteration at strictly smaller fuel ([se_loop_again]).  This is [loop_body_iterates] for a NESTED
-    body — the [Iterates] over [nestOuter] is only meaningful UNDER the terminating run, so we work over
-    [cfg_halts_n] directly. *)
-Lemma nest_outer_loop : forall f0 f1 f2 f3 f4 c0 c1 n s sf,
-  cfg_halts_n (nestCFG f0 f1 f2 f3 f4 c0 c1) n 0 s sf ->
-  exists sx nx, seval (LLoop (nestOuter f0 f1 f2 f3 c0 c1)) s sx Normal
-              /\ cfg_halts_n (nestCFG f0 f1 f2 f3 f4 c0 c1) nx 4 sx sf.
+(** ── GENERAL depth-2 nesting: ANY CFG with one properly-nested inner loop. ──
+    Abstracting [nest_outer_loop] off the concrete [nestCFG]: for ANY CFG [g] whose outer header [h]
+    branches ([TIf c0 ih e]) into a properly-nested inner loop (header [ih], exit [ie], inner region [P]
+    with [InnerClosed g P ie]) or to the outer exit [e], and whose inner-exit block [ie] back-edges to [h],
+    the outer [LLoop] runs to [e].  The INNER loop is arbitrary — ANYTHING with an iteration realiser
+    [Iterates g ih ie ibody] (its own lowering): the body need only be an iteration realiser, so this covers
+    every acyclic-bodied inner loop in general position, not just [nestCFG]'s.  Proof: [loop_body_iterates]
+    for a nested body — strong induction on the run's fuel ([lt_wf_ind]); one outer iteration breaks (c0
+    false ⇒ [se_loop_break]) or runs the inner loop ([inner_split_cfg_n] extracts [runs_to g ie ih] from the
+    terminating run at residual fuel ≤; [loop_to_exit] makes it an inner [LLoop]), takes the [ie]→[h]
+    back-edge, and the IH handles the next iteration at strictly smaller fuel ([se_loop_again]). *)
+Lemma nested_outer_loop_gen : forall g h e ih ie c0 bh bie ibody P,
+  blk_term (g h) = TIf c0 ih e -> blk_body (g h) = bh ->
+  blk_term (g ie) = TGoto h -> blk_body (g ie) = bie ->
+  InnerClosed g P ie -> P ih = true -> P ie = false ->
+  Iterates g ih ie ibody ->
+  forall n s sf, cfg_halts_n g n h s sf ->
+  exists sx nx,
+    seval (LLoop (LSeq (LBody bh) (LIf c0 (LSeq (LLoop ibody) (LBody bie)) LBreak))) s sx Normal
+    /\ cfg_halts_n g nx e sx sf.
 Proof.
-  intros f0 f1 f2 f3 f4 c0 c1.
-  set (g := nestCFG f0 f1 f2 f3 f4 c0 c1).
+  intros g h e ih ie c0 bh bie ibody P Hht Hhb Hiet Hieb Hclosed Pih Pie Hit.
   intro n. induction n as [n IH] using lt_wf_ind. intros s sf Hch.
-  assert (T0t : blk_term (g 0) = TIf c0 1 4) by reflexivity.
-  assert (T0b : blk_body (g 0) = f0) by reflexivity.
-  destruct (chn_if_inv g n 0 c0 1 4 s sf T0t Hch) as [m [Hn Hm]].
-  rewrite T0b in Hm.
-  destruct (c0 (f0 s)) eqn:Ec0.
-  - (* c0 true: enter the inner loop (Hm now reads block 1 up to iota) *)
-    destruct (inner_split_cfg_n g 3 nestP (nest_inner_closed f0 f1 f2 f3 f4 c0 c1)
-                eq_refl m 1 (f0 s) sf Hm eq_refl) as [smid [m1 [Hle1 [Hru Hcf3]]]].
-    pose proof (loop_to_exit g 1 3 (nestInner f1 f2 c1)
-                  (nest_inner_iter f0 f1 f2 f3 f4 c0 c1) (f0 s) smid Hru) as Hin.
-    assert (T3t : blk_term (g 3) = TGoto 0) by reflexivity.
-    assert (T3b : blk_body (g 3) = f3) by reflexivity.
-    destruct (chn_goto_inv g m1 3 0 smid sf T3t Hcf3) as [m2 [Hm1 Hcf0]].
-    rewrite T3b in Hcf0.
+  destruct (chn_if_inv g n h c0 ih e s sf Hht Hch) as [m [Hn Hm]].
+  rewrite Hhb in Hm.
+  destruct (c0 (bh s)) eqn:Ec0.
+  - (* enter the inner loop (Hm reads block ih up to iota) *)
+    destruct (inner_split_cfg_n g ie P Hclosed Pie m ih (bh s) sf Hm Pih)
+      as [smid [m1 [Hle1 [Hru Hcf_ie]]]].
+    pose proof (loop_to_exit g ih ie ibody Hit (bh s) smid Hru) as Hin.
+    destruct (chn_goto_inv g m1 ie h smid sf Hiet Hcf_ie) as [m2 [Hm1 Hcf_h]].
+    rewrite Hieb in Hcf_h.
     assert (Hlt : m2 < n) by lia.
-    destruct (IH m2 Hlt (f3 smid) sf Hcf0) as [sx [nx [Hout Hcfx]]].
+    destruct (IH m2 Hlt (bie smid) sf Hcf_h) as [sx [nx [Hout Hcfx]]].
     exists sx, nx. split; [| exact Hcfx].
     eapply se_loop_again; [| exact Hout].
     eapply se_seq_n; [apply se_body |].
     eapply se_if_t; [exact Ec0 |].
     eapply se_seq_n; [exact Hin | apply se_body].
-  - (* c0 false: the outer loop breaks at block 4 *)
-    exists (f0 s), m. split; [| exact Hm].
+  - (* the outer loop breaks at the exit *)
+    exists (bh s), m. split; [| exact Hm].
     apply se_loop_break.
     eapply se_seq_n; [apply se_body |].
     eapply se_if_f; [exact Ec0 |].
     apply se_break.
+Qed.
+
+(** [nestCFG]'s outer loop is the instance of the general lemma — the concrete 5-block witness now FOLLOWS
+    from [nested_outer_loop_gen]. *)
+Lemma nest_outer_loop : forall f0 f1 f2 f3 f4 c0 c1 n s sf,
+  cfg_halts_n (nestCFG f0 f1 f2 f3 f4 c0 c1) n 0 s sf ->
+  exists sx nx, seval (LLoop (nestOuter f0 f1 f2 f3 c0 c1)) s sx Normal
+              /\ cfg_halts_n (nestCFG f0 f1 f2 f3 f4 c0 c1) nx 4 sx sf.
+Proof.
+  intros f0 f1 f2 f3 f4 c0 c1 n s sf Hch.
+  exact (nested_outer_loop_gen (nestCFG f0 f1 f2 f3 f4 c0 c1) 0 4 1 3 c0 f0 f3
+           (nestInner f1 f2 c1) nestP
+           eq_refl eq_refl eq_refl eq_refl
+           (nest_inner_closed f0 f1 f2 f3 f4 c0 c1) eq_refl eq_refl
+           (nest_inner_iter f0 f1 f2 f3 f4 c0 c1) n s sf Hch).
 Qed.
 
 (** END-TO-END NESTED-LOOP SOUNDNESS: every halting run of the doubly-nested CFG is reproduced by the
