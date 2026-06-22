@@ -2591,7 +2591,9 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     List.filter (fun (x, _) ->
                       let k = key x in
                       if List.mem k !seen then false else (seen := k :: !seen; true)) raw in
-                  let start_v = match nat_value start with Some v -> v | None -> 0 in
+                  let start_v = match nat_value start with
+                    | Some v -> v
+                    | None -> unsupported "run_blocks with a non-literal start block index (the CFG entry label must be statically known; defaulting to block0 would silently run a DIFFERENT program)" in
                   (* hoisted declarations: var x T, dominating every block *)
                   let hoist_doc =
                     prlist
@@ -2928,7 +2930,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   else emit_raw ()
                   end
               | None ->
-                  str tab ++ str "/* run_blocks: non-literal block list */" ++ fnl ())
+                  unsupported "run_blocks with a non-literal block list (the CFG blocks must be statically known; emitting only a comment would silently DROP all control flow)")
          | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
              let ids, h_body = collect_lam h in
              let new_env = List.rev ids @ env in
