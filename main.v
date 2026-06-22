@@ -1753,6 +1753,29 @@ Definition chanbox_demo : IO unit :=
   ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
     println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
 
+(** THE NORTH-STAR "CURSED" DEMO — assorted Go horror in ONE struct, machine-checked safe.  A struct
+    [Cursed] holds a SLICE of channels that SEND THEMSELVES ([]chan ChanBox) AND a pointer into a
+    RECURSIVE linked list (a *ListNode).  A goroutine pulls a channel OUT of the slice-in-the-struct and
+    makes it transmit a [ChanBox] whose [Ch] field IS that very channel — a channel-in-a-slice-in-a-
+    struct sending ITSELF — while main receives it and ALSO dereferences the recursive list.  It looks
+    unsafe to a Go expert (self-sending channels nested in a slice in a struct, a recursive heap type),
+    yet Rocq has ruled out nil-deref, send-on-closed, out-of-bounds AND data races.  Assembled entirely
+    from the shipped features (ChanBox self-send + ListNode recursion + channels-in-slices-in-structs).
+    Prints: 99 7. *)
+Record Cursed := MkCursed {
+  cu_chans : GoSlice (GoChan ChanBox) ;   (* []chan ChanBox — self-sending channels, IN A SLICE *)
+  cu_list  : Ptr ListNode                 (* *ListNode      — a RECURSIVE linked list             *)
+}.
+Definition cursed_demo : IO unit :=
+  c <-' make_chan TChanBox ;;                                      (* a self-sending channel               *)
+  p <-' ptr_new TListNode (MkListNode (7)%i64 (ptr_nil_tf tt)) ;;  (* a 1-node recursive list              *)
+  let cu := MkCursed (slice_of_list (TChan TChanBox) [c]) p in     (* struct{ []chan ChanBox ; *ListNode } *)
+  ch0 <-' slice_get (TChan TChanBox) (cu_chans cu) (0:int) ;;      (* pull the channel OUT of the slice-in-the-struct *)
+  go_spawn (send TChanBox ch0 (MkChanBox (99)%i64 ch0)) >>'        (* goroutine: ch0 <- ChanBox{99, ch0} — sends ITSELF *)
+  ( v <-' recv TChanBox ch0 ;;                                     (* receive the self-box                 *)
+    n <-' ptr_get TListNode (cu_list cu) ;;                        (* deref the recursive-list pointer     *)
+    println [any (cb_id v) ; any (ln_val n)] ).                    (* prints: 99 7 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2831,6 +2854,7 @@ Definition main_effect : IO unit :=
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
+  cursed_demo                   >>'   (* prints: 99 7 (NORTH-STAR: self-sending channels in a slice in a struct + a recursive list, all proven safe) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)

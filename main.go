@@ -1082,6 +1082,24 @@ func Chanbox_demo() {
 	println(v.Cb_id)
 }
 
+type Cursed struct {
+	Cu_chans []chan ChanBox
+	Cu_list  *ListNode
+}
+
+func Cursed_demo() {
+	c := make(chan ChanBox)
+	p := func(_v ListNode) *ListNode { return &_v }(ListNode{Ln_val: 7, Ln_next: nil})
+	cu := Cursed{Cu_chans: []chan ChanBox{c}, Cu_list: p}
+	ch0 := cu.Cu_chans[0]
+	go func() {
+		ch0 <- ChanBox{Cb_id: 99, Cb_chan: ch0}
+	}()
+	v := <-ch0
+	n := *(cu.Cu_list)
+	println(v.Cb_id, n.Ln_val)
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2181,6 +2199,7 @@ func main() {
 	Pool_demo()
 	Linked_list_demo()
 	Chanbox_demo()
+	Cursed_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()
