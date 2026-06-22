@@ -651,14 +651,20 @@ any "verified" claim.
    `keystone_roundtrip : forall n, Z.of_nat n < 2^63 -> keystone_prj (keystone_inj n) = n` (machine-checked).
    This is the foundation the unbounded `Hret` falsely claimed for ALL `n` — it holds only on REPRESENTABLE
    values (which is every real Go int64).  The `concurrency.v` Keystone doc is corrected to state this
-   honestly (the unbounded form is impossible; do NOT claim it).  **REMAINING (slice 2, the refounding):**
-   re-parameterise the bridge on this bounded round-trip — replace the section `Hypothesis Hret` with a
-   representability predicate `Vrep n := Z.of_nat n < 2^63` threaded through `OnChan`/`SimInv`/`siminv_step`/
-   `denote_sim_recv`/`denote_sim_read`/`denote_adequate` and the heap analogues
-   (`OnLoc`/`SimInvMem`/`denote_adequate_mem`), then INSTANTIATE the section with `keystone_inj`/`keystone_prj`
-   so the bridge is genuinely non-vacuous.  Scope is bounded (Denotes itself and the other 5 Keystone*
-   sections do NOT use `Hret`); ~10 bridge lemmas across the channel + heap instances.  Each is its own
-   focused proof; the realizable coding (slice 1) is the mathematical content they were missing.
+   honestly (the unbounded form is impossible; do NOT claim it).
+   **→ SLICE 2 DONE (2026-06-22): the bridge is REFOUNDED on the bounded round-trip — the impossible
+   `Hret` is GONE.**  The section now carries `Variable Vrep : nat -> Prop` + a REALIZABLE
+   `Hypothesis Hret : forall n, Vrep n -> prj (inj n) = n` + `Vrep0 : Vrep 0` (instead of the impossible
+   `forall n, prj (inj n) = n`).  Representability is threaded through the WHOLE single-goroutine bridge:
+   `OnChan`/`OnLoc` require `Vrep` on sent/written values and restrict recv/read continuations to
+   representable inputs; `SimInv` carries `Forall Vrep (rchan cfg c)` (buffer values representable),
+   `SimInvMem` carries `Vrep (rc_heap cfg l)`; `siminv_step`/`siminvmem_step` preserve it; `denote_sim_recv`/
+   `denote_sim_read` use the bounded `Hret`; `denote_adequate`/`denote_adequate_mem` go through unchanged.
+   The section is now INSTANTIABLE — `Vrep := fun n => Z.of_nat n < 2^63`, `inj/prj := keystone_inj/prj`,
+   `Hret := keystone_roundtrip`, `Vrep0` trivial — so the bridge is no longer vacuous: it genuinely
+   connects the calculus to the emitted Go for representable (= real int64) values.  Builds; golden
+   byte-identical (concurrency.v emits no Go); axiom base unchanged.  **REMAINING (slice 2c, small):** an
+   explicit `denote_adequate`-instantiated-with-keystone corollary to exhibit the non-vacuity concretely.
 2. **`map_size := 0` but Go `len` returns the real length.** `map_len` returns `map_size` (constant 0);
    plugin lowers `map_len`→Go `len(m)`; `map_demo` prints `3`.  Direct model/extraction disagreement.
    **→ RESOLVED (2026-06-22, proof-only, golden byte-identical).**  The map's `MapCell` now carries an

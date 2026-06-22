@@ -1698,7 +1698,12 @@ Section Keystone.
   Variable locenv : nat -> Ref GoI64.      (* calculus location  -> the IO ref cell *)
   Variable inj : nat -> GoI64.             (* calculus value -> IO value (a coding) *)
   Variable prj : GoI64 -> nat.             (* IO value -> calculus value *)
-  Hypothesis Hret : forall n, prj (inj n) = n.   (* the coding round-trips *)
+  Variable Vrep : nat -> Prop.             (* "representable": a value the coding handles faithfully (fits int64) *)
+  (* Break #1 fix: the round-trip is REALIZABLE — it holds only on REPRESENTABLE values, not all of [nat]
+     (an unbounded [forall n, prj (inj n) = n] is impossible, [GoI64] finite).  Instantiate with
+     [Vrep n := Z.of_nat n < 2^63], [inj := keystone_inj], [prj := keystone_prj], [Hret := keystone_roundtrip]. *)
+  Hypothesis Hret  : forall n, Vrep n -> prj (inj n) = n.
+  Hypothesis Vrep0 : Vrep 0.               (* the zero value is representable (the initial heap holds it) *)
 
   (* Deep<->shallow correspondence.  D_recv's premise is itself a [forall x],
      reflecting the HOAS continuation: the IO term [g] must agree with [denote] of
@@ -1749,18 +1754,19 @@ Section Keystone.
     Denotes (CRecv c f) m ->
     WMatch1 c w (mkRCfg p b h lv tr) ->
     b c = (v, s) :: brest ->
+    Vrep v ->                                   (* the head value is representable — so it round-trips *)
     exists m',
       Denotes (f v) m' /\
       run_io m w = run_io m' (chan_recv_upd TI64 (chenv c) w) /\
       WMatch1 c (chan_recv_upd TI64 (chenv c) w)
               (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
   Proof.
-    intros p b h lv tr tid c f m w v s brest HD HM Hbc.
+    intros p b h lv tr tid c f m w v s brest HD HM Hbc Hv.
     inversion HD as [| | ch0 f0 g HDg Hch Hm | | ]; subst.
     assert (Hbuf : chan_buf TI64 (chenv c) w = inj v :: map inj (map fst brest)).
     { unfold WMatch1, rchan in HM. cbn [rc_bufs] in HM. rewrite Hbc in HM. cbn in HM. exact HM. }
     exists (g (inj v)). split; [| split].
-    - specialize (HDg (inj v)). rewrite Hret in HDg. exact HDg.
+    - specialize (HDg (inj v)). rewrite (Hret v Hv) in HDg. exact HDg.
     - rewrite run_bind, (run_recv TI64 (chenv c) (inj v) (map inj (map fst brest)) w Hbuf).
       cbn. reflexivity.
     - unfold WMatch1, rchan. cbn [rc_bufs]. rewrite upd_same.
@@ -1796,16 +1802,17 @@ Section Keystone.
   Lemma denote_sim_read : forall p b h lv tr tid l f m w,
     Denotes (CRead l f) m ->
     WHMatch1 l w (mkRCfg p b h lv tr) ->
+    Vrep (h l) ->                               (* the heap value at [l] is representable — so it round-trips *)
     exists m',
       Denotes (f (h l)) m' /\
       run_io m w = run_io m' w /\
       WHMatch1 l w (mkRCfg (upd p tid (f (h l))) b h lv (tr ++ [mkEv tid (KRead l)])).
   Proof.
-    intros p b h lv tr tid l f m w HD HM.
+    intros p b h lv tr tid l f m w HD HM Hv.
     inversion HD as [| | | | l0 f0 g HDg Hl Hm]; subst.
     unfold WHMatch1 in HM. cbn [rc_heap] in HM.
     exists (g (inj (h l))). split; [| split].
-    - specialize (HDg (inj (h l))). rewrite Hret in HDg. exact HDg.
+    - specialize (HDg (inj (h l))). rewrite (Hret (h l) Hv) in HDg. exact HDg.
     - rewrite run_bind, (run_ref_get TI64 (locenv l) w). cbn. rewrite HM. reflexivity.
     - unfold WHMatch1. cbn [rc_heap]. exact HM.
   Qed.
@@ -1821,14 +1828,15 @@ Section Keystone.
       restriction; [SimInv] is the invariant carried along the execution. *)
   Inductive OnChan (c : nat) : Cmd -> Prop :=
     | OC_ret  : OnChan c CRet
-    | OC_send : forall v k, OnChan c k -> OnChan c (CSend c v k)
-    | OC_recv : forall f, (forall x, OnChan c (f x)) -> OnChan c (CRecv c f).
+    | OC_send : forall v k, Vrep v -> OnChan c k -> OnChan c (CSend c v k)   (* sent values are representable *)
+    | OC_recv : forall f, (forall x, Vrep x -> OnChan c (f x)) -> OnChan c (CRecv c f).  (* recv'd value is representable *)
 
   Definition SimInv (c : nat) (m0 : IO unit) (w0 : World) (cfg : RConfig) : Prop :=
     OnChan c (rc_prog cfg 0)
     /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
     /\ rc_live cfg = (fun t => Nat.eqb t 0)
     /\ NoCloseTrace (rc_trace cfg)
+    /\ Forall Vrep (rchan cfg c)          (* every buffered value is representable — so a recv round-trips *)
     /\ exists m w, Denotes (rc_prog cfg 0) m
                    /\ WMatch1 c w cfg
                    /\ chan_closed (chenv c) w = false
@@ -1841,7 +1849,7 @@ Section Keystone.
     rstep cfg cfg' -> SimInv c m0 w0 cfg -> SimInv c m0 w0 cfg'.
   Proof.
     intros c m0 w0 cfg cfg' Hstep
-           [HOC [Hidle [Hlive [HNC [m [w [HD [HM [Hcl Hrun]]]]]]]]].
+           [HOC [Hidle [Hlive [HNC [HVb [m [w [HD [HM [Hcl Hrun]]]]]]]]]].
     destruct Hstep as
       [ p b h lv tr tid c1 v k Hlv Hp _
       | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
@@ -1855,27 +1863,37 @@ Section Keystone.
     cbn [rc_prog rc_live] in HOC, Hidle, Hlive, HD;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid; subst lv.
     - (* send *)
-      rewrite Hp in HOC, HD. inversion HOC as [| v' k' HOCk |]; subst c1.
+      rewrite Hp in HOC, HD. inversion HOC as [| v' k' HVv HOCk |]; subst c1.
       destruct (denote_sim_send _ _ _ _ _ 0 c v k m w HD HM Hcl)
         as [m' [HDk' [Hrun' HM']]].
       unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact HOCk | split; [| split; [| split]]].
+      split; [exact HOCk | split; [| split; [| split; [| split]]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
       + cbn [rc_trace] in HNC |- *. apply NoClose_app; [exact HNC | intros c'; discriminate].
+      + (* buffer gains [v], which is representable (OC_send) *)
+        unfold rchan in HVb |- *; cbn [rc_bufs] in HVb |- *. rewrite upd_same, map_app. cbn.
+        apply Forall_app. split; [exact HVb | repeat constructor; exact HVv].
       + exists m', (chan_send_upd TI64 (chenv c) (inj v) w).
         split; [exact HDk' | split; [exact HM' | split]].
         * rewrite (chan_closed_send TI64 (chenv c) (inj v) w). exact Hcl.
         * rewrite Hrun. exact Hrun'.
     - (* recv *)
       rewrite Hp in HOC, HD. inversion HOC as [| | f' HOCf]; subst c1.
-      destruct (denote_sim_recv _ _ _ _ _ 0 c f m w v s brest HD HM Hbc)
+      (* the head value is representable, from the buffer-Forall invariant *)
+      assert (Hv : Vrep v).
+      { unfold rchan in HVb; cbn [rc_bufs] in HVb. rewrite Hbc in HVb. cbn in HVb.
+        exact (Forall_inv HVb). }
+      destruct (denote_sim_recv _ _ _ _ _ 0 c f m w v s brest HD HM Hbc Hv)
         as [m' [HDk' [Hrun' HM']]].
       unfold SimInv; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact (HOCf v) | split; [| split; [| split]]].
+      split; [exact (HOCf v Hv) | split; [| split; [| split; [| split]]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + reflexivity.
       + cbn [rc_trace] in HNC |- *. apply NoClose_app; [exact HNC | intros c'; discriminate].
+      + (* buffer loses its head; the tail is still all representable *)
+        unfold rchan in HVb |- *; cbn [rc_bufs] in HVb |- *. rewrite upd_same.
+        rewrite Hbc in HVb. cbn in HVb. exact (Forall_inv_tail HVb).
       + exists m', (chan_recv_upd TI64 (chenv c) w).
         split; [exact HDk' | split; [exact HM' | split]].
         * rewrite (chan_closed_recv TI64 (chenv c) w). exact Hcl.
@@ -1911,11 +1929,12 @@ Section Keystone.
   Proof.
     intros c prog0 m w0 HOC HD Hbuf Hcl.
     unfold SimInv, rinit_cfg; cbn [rc_prog rc_live].
-    split; [exact HOC | split; [| split; [| split]]].
+    split; [exact HOC | split; [| split; [| split; [| split]]]].
     - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
         [apply Nat.eqb_eq in E; congruence | reflexivity].
     - reflexivity.
     - intros pos e Hpos c'. exfalso. apply nth_error_lt in Hpos. cbn in Hpos. lia.
+    - unfold rchan; cbn [rc_bufs]. constructor.   (* initial buffer is empty ⇒ Forall vacuous *)
     - exists m, w0. split; [exact HD | split; [| split]].
       + unfold WMatch1, rchan; cbn [rc_bufs]. rewrite Hbuf. reflexivity.
       + exact Hcl.
@@ -1937,7 +1956,7 @@ Section Keystone.
     intros c prog0 m w0 cfg_final HOC HD Hbuf Hcl Hrsteps Hdone.
     pose proof (siminv_steps _ _ _ _ _ Hrsteps
                   (siminv_init _ _ _ _ HOC HD Hbuf Hcl)) as HS.
-    destruct HS as [_ [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]]].
+    destruct HS as [_ [_ [_ [_ [_ [m' [w' [HD' [HM' [_ Hrun']]]]]]]]]].
     rewrite Hdone in HD'. inversion HD'; subst.
     exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
   Qed.
@@ -1950,13 +1969,14 @@ Section Keystone.
       (write/read on [l] only); the World heap cell at [l] stays matched to the calculus heap. *)
   Inductive OnLoc (l : nat) : Cmd -> Prop :=
     | OL_ret   : OnLoc l CRet
-    | OL_write : forall v k, OnLoc l k -> OnLoc l (CWrite l v k)
-    | OL_read  : forall f, (forall x, OnLoc l (f x)) -> OnLoc l (CRead l f).
+    | OL_write : forall v k, Vrep v -> OnLoc l k -> OnLoc l (CWrite l v k)   (* written values are representable *)
+    | OL_read  : forall f, (forall x, Vrep x -> OnLoc l (f x)) -> OnLoc l (CRead l f).  (* read value is representable *)
 
   Definition SimInvMem (l : nat) (m0 : IO unit) (w0 : World) (cfg : RConfig) : Prop :=
     OnLoc l (rc_prog cfg 0)
     /\ (forall t, t <> 0 -> rc_prog cfg t = CRet)
     /\ rc_live cfg = (fun t => Nat.eqb t 0)
+    /\ Vrep (rc_heap cfg l)               (* the heap value at [l] is representable — so a read round-trips *)
     /\ exists m w, Denotes (rc_prog cfg 0) m
                    /\ WHMatch1 l w cfg
                    /\ run_io m0 w0 = run_io m w.
@@ -1965,7 +1985,7 @@ Section Keystone.
     rstep cfg cfg' -> SimInvMem l m0 w0 cfg -> SimInvMem l m0 w0 cfg'.
   Proof.
     intros l m0 w0 cfg cfg' Hstep
-           [HOL [Hidle [Hlive [m [w [HD [HM Hrun]]]]]]].
+           [HOL [Hidle [Hlive [HVh [m [w [HD [HM Hrun]]]]]]]].
     destruct Hstep as
       [ p b h lv tr tid c1 v k Hlv Hp _
       | p b h lv tr tid c1 f v s brest Hlv Hp Hbc
@@ -1976,26 +1996,28 @@ Section Keystone.
       | p b h lv tr tid c1 k Hlv Hp _
       | p b h lv tr tid c1 f pos e Hlv Hp Hbc Hpos Hek
       | p b h lv tr tid cases c1 f pos e Hlv Hp Hin Hbc Hpos Hek ];
-    cbn [rc_prog rc_live] in HOL, Hidle, Hlive, HD;
+    cbn [rc_prog rc_live rc_heap] in HOL, Hidle, Hlive, HVh, HD;
     rewrite Hlive in Hlv; cbn in Hlv; apply Nat.eqb_eq in Hlv; subst tid.
     - (* send — impossible under OnLoc *) rewrite Hp in HOL. inversion HOL.
     - (* recv — impossible *) rewrite Hp in HOL. inversion HOL.
     - (* write *)
-      rewrite Hp in HOL, HD. inversion HOL as [| v' k' HOLk |]; subst l1.
+      rewrite Hp in HOL, HD. inversion HOL as [| v' k' HVv HOLk |]; subst l1.
       destruct (denote_sim_write p b h lv tr 0 l v k m w HD) as [m' [HDk' [Hrun' HM']]].
       unfold SimInvMem; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact HOLk | split; [| split]].
+      split; [exact HOLk | split; [| split; [| split]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + exact Hlive.
+      + cbn [rc_heap]. rewrite upd_same. exact HVv.   (* heap value at [l] is now [v], representable *)
       + exists m', (ref_upd (locenv l) (inj v) w).
         split; [exact HDk' | split; [exact HM' | rewrite Hrun; exact Hrun']].
     - (* read *)
       rewrite Hp in HOL, HD. inversion HOL as [| | f' HOLf]; subst l1.
-      destruct (denote_sim_read p b h lv tr 0 l f m w HD HM) as [m' [HDk' [Hrun' HM']]].
+      destruct (denote_sim_read p b h lv tr 0 l f m w HD HM HVh) as [m' [HDk' [Hrun' HM']]].
       unfold SimInvMem; cbn [rc_prog rc_live]; rewrite upd_same.
-      split; [exact (HOLf (h l)) | split; [| split]].
+      split; [exact (HOLf (h l) HVh) | split; [| split; [| split]]].
       + intros t Ht. rewrite (upd_other _ _ _ _ Ht). exact (Hidle t Ht).
       + exact Hlive.
+      + cbn [rc_heap]. exact HVh.                      (* heap unchanged by a read *)
       + exists m', w. split; [exact HDk' | split; [exact HM' | rewrite Hrun; exact Hrun']].
     - (* spawn — impossible *) rewrite Hp in HOL. inversion HOL.
     - (* select — impossible *) rewrite Hp in HOL. inversion HOL.
@@ -2018,10 +2040,11 @@ Section Keystone.
   Proof.
     intros l prog0 m w0 HOL HD HM.
     unfold SimInvMem, rinit_cfg; cbn [rc_prog rc_live].
-    split; [exact HOL | split; [| split]].
+    split; [exact HOL | split; [| split; [| split]]].
     - intros t Ht. destruct (Nat.eqb t 0) eqn:E;
         [apply Nat.eqb_eq in E; congruence | reflexivity].
     - reflexivity.
+    - cbn [rc_heap]. exact Vrep0.   (* initial heap holds 0, representable *)
     - exists m, w0. split; [exact HD | split; [exact HM | reflexivity]].
   Qed.
 
@@ -2037,7 +2060,7 @@ Section Keystone.
     intros l prog0 m w0 cfg_final HOL HD HM Hrsteps Hdone.
     pose proof (siminvmem_steps _ _ _ _ _ Hrsteps
                   (siminvmem_init _ _ _ _ HOL HD HM)) as HS.
-    destruct HS as [_ [_ [_ [m' [w' [HD' [HM' Hrun']]]]]]].
+    destruct HS as [_ [_ [_ [_ [m' [w' [HD' [HM' Hrun']]]]]]]].
     rewrite Hdone in HD'. inversion HD'; subst.
     exists w'. split; [rewrite Hrun'; apply run_ret | exact HM'].
   Qed.
