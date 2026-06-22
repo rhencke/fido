@@ -268,7 +268,7 @@ go
 3
 2
 first
-true true false true
+true true false true true
 hi
 true
 1

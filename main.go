@@ -1783,8 +1783,12 @@ func (a Point) Ceq_point(b Point) bool {
 	return Ceqb(a, b)
 }
 
+func (a Celsius) Ceq_celsius(b Celsius) bool {
+	return Ceqb(a, b)
+}
+
 func Comparable_demo() {
-	println(Ceq_i64(5, 5), Ceq_u64(9, 9), Ceq_str("go", "hi"), Point{Px: 1, Py: 2}.Ceq_point(Point{Px: 1, Py: 2}))
+	println(Ceq_i64(5, 5), Ceq_u64(9, 9), Ceq_str("go", "hi"), Point{Px: 1, Py: 2}.Ceq_point(Point{Px: 1, Py: 2}), (Mk_celsius(20)).Ceq_celsius(Mk_celsius(20)))
 }
 
 type Box[T1 any] struct {
