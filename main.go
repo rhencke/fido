@@ -189,7 +189,8 @@ func Type_identity_lock_demo() {
 	_, d := any(i64v).(uint8)
 	_, e := any(u64v).(uint64)
 	_, f := any(u64v).(int64)
-	println(a, b, c, d, e, f)
+	_, g := any(i64v).(int)
+	println(a, b, c, d, e, f, g)
 }
 
 func Narrow_cluster_lock_demo() {

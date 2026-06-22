@@ -388,8 +388,9 @@ Definition type_identity_lock_demo : IO unit :=
   type_assert_safe TU8  (any i64v) (fun _ d =>     (* int64  .(uint8)  → FALSE *)
   type_assert_safe TU64 (any u64v) (fun _ e =>     (* uint64 .(uint64) → true  (locks u64_lit typed uint64) *)
   type_assert_safe TI64 (any u64v) (fun _ f =>     (* uint64 .(int64)  → FALSE *)
-    println [any a; any b; any c; any d; any e; any f])))))).
-  (* true false true false true false *)
+  type_assert_safe TInt64 (any i64v) (fun _ g =>   (* int64  .(int)    → FALSE (break #7c: GoI64 is int64, NOT Go's platform int) *)
+    println [any a; any b; any c; any d; any e; any f; any g]))))))).
+  (* true false true false true false false *)
 
 (** Extends the differential lock (R10) to the FULL #7 narrow cluster: each narrow
     type boxes as its OWN distinct Go type (de-collided from int64 by break #7b).
@@ -3009,7 +3010,7 @@ Definition main_effect : IO unit :=
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
-  type_identity_lock_demo       >>'   (* prints: true false true false true false (uint8≠int64, GoI64/GoU64 box typed, R10 differential) *)
+  type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)
   narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
