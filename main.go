@@ -1031,6 +1031,28 @@ func Chan_of_chan_demo() {
 	println(v)
 }
 
+type Pool struct {
+	Pool_chans []chan int64
+	Pool_base  int64
+}
+
+func Pool_demo() {
+	c0 := make(chan int64, 1)
+	c1 := make(chan int64, 1)
+	go func() {
+		c0 <- 5
+	}()
+	go func() {
+		c1 <- 7
+	}()
+	pool := Pool{Pool_chans: []chan int64{c0, c1}, Pool_base: 10}
+	ch0 := pool.Pool_chans[0]
+	ch1 := pool.Pool_chans[1]
+	v0 := <-ch0
+	v1 := <-ch1
+	println(pool.Pool_base + (v0 + v1))
+}
+
 func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
@@ -2127,6 +2149,7 @@ func main() {
 	Hub_demo()
 	Hub_worker_demo()
 	Chan_of_chan_demo()
+	Pool_demo()
 	Slice_alias_demo()
 	Slice_append_demo()
 	Slice_makecap_demo()

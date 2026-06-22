@@ -1705,6 +1705,24 @@ Definition chan_of_chan_demo : IO unit :=
   recv_ok TI64 reply (fun v _ =>                             (* v := <-reply *)
   println [any v]))))).                                       (* prints: 77 *)
 
+(** CAPSTONE — ONE program nesting the lot: a STRUCT [Pool] holding a SLICE of CHANNELS, a GOROUTINE
+    per channel feeding it, the struct's slice INDEXED to recover each channel, the results collected
+    concurrently and summed.  Buffered + the data dependency ⇒ deterministic.  "Horrifying-but-correct":
+    [struct { []chan int64 ; int64 }] + 2 goroutines + slice-index + recv + arithmetic, all from the
+    shipped features composing as Go nests them — and the whole thing is a single extracted Go func. *)
+Record Pool := MkPool { pool_chans : GoSlice (GoChan GoI64) ; pool_base : GoI64 }.
+Definition pool_demo : IO unit :=
+  c0 <-' make_chan_buf TI64 1 ;;
+  c1 <-' make_chan_buf TI64 1 ;;
+  go_spawn (send TI64 c0 (5)%i64) >>'                         (* worker 0: c0 <- 5 *)
+  go_spawn (send TI64 c1 (7)%i64) >>'                         (* worker 1: c1 <- 7 *)
+  let pool := MkPool (slice_of_list (TChan TI64) [c0; c1]) (10)%i64 in
+  ch0 <-' slice_get (TChan TI64) (pool_chans pool) (0:int) ;; (* ch0 := pool.Pool_chans[0] *)
+  ch1 <-' slice_get (TChan TI64) (pool_chans pool) (1:int) ;; (* ch1 := pool.Pool_chans[1] *)
+  v0 <-' recv TI64 ch0 ;;                                     (* v0 := <-ch0 (= 5) *)
+  v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
+  println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
+
 (** Phase B3a: SLICE ALIASING.  A [SliceH] is an aliasing handle into a backing array;
     a SUB-SLICE [s[1:3]] SHARES that backing, so a write through the sub-slice is seen
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
@@ -2780,6 +2798,7 @@ Definition main_effect : IO unit :=
   hub_demo                      >>'   (* prints: 7 99 (a SLICE of channels in a struct: channels-in-slice-in-struct) *)
   hub_worker_demo               >>'   (* prints: worker 123 (a GOROUTINE feeding a channel nested in a struct) *)
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
+  pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
