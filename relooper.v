@@ -751,6 +751,51 @@ Proof.
   exact (reloop_b_correct hdr exit fuel g l S H).
 Qed.
 
+(** PEEL one [runs_term] step (the [cfg_halts_*_inv] analogues for the one-iteration relation — the model had
+    them only for [cfg_halts]).  At the [exit] block the iteration BROKE ([s' = s], outcome [Broke]); a
+    [TGoto hdr] back-edge BROKE the body to the header ([s' = blk_body], [Normal]); other [TGoto]/[TIf] blocks
+    step to the successor.  These let a structure-directed soundness proof peel the GIVEN run case by case. *)
+Lemma runs_term_exit_inv : forall g hdr exit s s' o,
+  runs_term g hdr exit exit s s' o -> s' = s /\ o = Broke.
+Proof.
+  intros g hdr exit s s' o H.
+  inversion H as [ s0 | l0 s0 Hne Ht | l0 l'0 s0 sf0 o0 Hne Ht Hnh Hr
+                 | l0 c0 a0 b0 s0 sf0 o0 Hne Ht Hr ]; subst;
+    [ split; reflexivity | congruence | congruence | congruence ].
+Qed.
+
+Lemma runs_term_back_inv : forall g hdr exit l s s' o,
+  l <> exit -> blk_term (g l) = TGoto hdr -> runs_term g hdr exit l s s' o ->
+  s' = blk_body (g l) s /\ o = Normal.
+Proof.
+  intros g hdr exit l s s' o Hne Ht H.
+  inversion H as [ s0 | l0 s0 Hne0 Ht0 | l0 l'0 s0 sf0 o0 Hne0 Ht0 Hnh Hr
+                 | l0 c0 a0 b0 s0 sf0 o0 Hne0 Ht0 Hr ]; subst;
+    [ congruence | split; reflexivity | congruence | congruence ].
+Qed.
+
+Lemma runs_term_goto_inv : forall g hdr exit l l' s s' o,
+  l <> exit -> blk_term (g l) = TGoto l' -> l' <> hdr -> runs_term g hdr exit l s s' o ->
+  runs_term g hdr exit l' (blk_body (g l) s) s' o.
+Proof.
+  intros g hdr exit l l' s s' o Hne Ht Hnh H.
+  inversion H as [ s0 | l0 s0 Hne0 Ht0 | l0 l'0 s0 sf0 o0 Hne0 Ht0 Hnh0 Hr
+                 | l0 c0 a0 b0 s0 sf0 o0 Hne0 Ht0 Hr ]; subst;
+    [ congruence | congruence
+    | (assert (Hq : l' = l'0) by congruence; rewrite Hq; exact Hr) | congruence ].
+Qed.
+
+Lemma runs_term_if_inv : forall g hdr exit l c a b s s' o,
+  l <> exit -> blk_term (g l) = TIf c a b -> runs_term g hdr exit l s s' o ->
+  runs_term g hdr exit (if c (blk_body (g l) s) then a else b) (blk_body (g l) s) s' o.
+Proof.
+  intros g hdr exit l c a b s s' o Hne Ht H.
+  inversion H as [ s0 | l0 s0 Hne0 Ht0 | l0 l'0 s0 sf0 o0 Hne0 Ht0 Hnh Hr
+                 | l0 c0 a0 b0 s0 sf0 o0 Hne0 Ht0 Hr ]; subst;
+    [ congruence | congruence | congruence
+    | (rewrite Ht in Ht0; injection Ht0 as <- <- <-; exact Hr) ].
+Qed.
+
 (** [runs_term] FACTORS [cfg_halts]: the CFG is deterministic, so ONE loop iteration (a [runs_term] from
     [l] to a terminal) is a prefix of the whole halting run from [l] — the run then CONTINUES from the
     terminal ([hdr] on Normal/iterate, [exit] on Broke/break).  This bridges the loop-body soundness
