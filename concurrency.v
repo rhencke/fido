@@ -40,8 +40,11 @@ Definition tid_at (t : Trace) (i : nat) : nat :=
 
 (** A trace is WELL-FORMED when every back-pointer points to an EARLIER event of the
     right kind: a receive's [from] is an earlier send on the same channel; a start's
-    [parent] is an earlier spawn.  A real execution always satisfies this — you
-    receive a value already sent, and a goroutine runs after its [go]. *)
+    [parent] is an earlier spawn OF THAT SAME GOROUTINE (the spawn's [child] = this
+    start's own [e_tid]).  A real execution always satisfies this — you receive a value
+    already sent, and a goroutine runs after the [go] that spawned IT.  (Break #8 fix:
+    the child-identity clause was missing, so a [KStart] could point at a [KSpawn] of a
+    DIFFERENT child — forging a spawn happens-before edge to an unrelated goroutine.) *)
 Definition WfTrace (t : Trace) : Prop :=
   forall i e, nth_error t i = Some e ->
     match e_kind e with
@@ -49,7 +52,7 @@ Definition WfTrace (t : Trace) : Prop :=
         from < i /\ exists e', nth_error t from = Some e' /\
                               (e_kind e' = KSend c \/ e_kind e' = KClose c)
     | KStart parent =>
-        parent < i /\ exists e' ch, nth_error t parent = Some e' /\ e_kind e' = KSpawn ch
+        parent < i /\ exists e', nth_error t parent = Some e' /\ e_kind e' = KSpawn (e_tid e)
     | _ => True
     end.
 
@@ -360,7 +363,7 @@ Lemma WfTrace_app : forall t e,
   match e_kind e with
   | KRecv c from => from < length t /\ exists e', nth_error t from = Some e' /\
                                                  (e_kind e' = KSend c \/ e_kind e' = KClose c)
-  | KStart parent => parent < length t /\ exists e' ch, nth_error t parent = Some e' /\ e_kind e' = KSpawn ch
+  | KStart parent => parent < length t /\ exists e', nth_error t parent = Some e' /\ e_kind e' = KSpawn (e_tid e)
   | _ => True
   end ->
   WfTrace (t ++ [e]).
@@ -372,8 +375,8 @@ Proof.
     destruct (e_kind e0) as [c0|c0 from0|ch0|parent0|l0|l0|c0] eqn:Ek; cbn in Hwf |- *; auto.
     + destruct Hwf as [Hf [e' [He' Hk']]]. split; [exact Hf|].
       exists e'. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
-    + destruct Hwf as [Hf [e' [ch [He' Hk']]]]. split; [exact Hf|].
-      exists e', ch. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
+    + destruct Hwf as [Hf [e' [He' Hk']]]. split; [exact Hf|].
+      exists e'. rewrite nth_error_app_old by lia. split; [exact He'|exact Hk'].
   - rewrite nth_error_app2 in Hi by lia.
     pose proof (nth_error_lt _ _ _ Hi) as Hb. cbn in Hb.
     assert (Hzero : i - length t = 0) by lia.
@@ -382,8 +385,19 @@ Proof.
     destruct (e_kind e) as [c0|c0 from0|ch0|parent0|l0|l0|c0] eqn:Ek; cbn in Hnew |- *; auto.
     + destruct Hnew as [Hf [e' [He' Hk']]]. split; [rewrite Hieq; exact Hf|].
       exists e'. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
-    + destruct Hnew as [Hf [e' [ch [He' Hk']]]]. split; [rewrite Hieq; exact Hf|].
-      exists e', ch. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
+    + destruct Hnew as [Hf [e' [He' Hk']]]. split; [rewrite Hieq; exact Hf|].
+      exists e'. rewrite nth_error_app_old by exact Hf. split; [exact He'|exact Hk'].
+Qed.
+
+(** Break #8 witness (machine-checked): a [KStart] whose own goroutine ([e_tid = 99]) points back at a
+    [KSpawn] of a DIFFERENT child ([KSpawn 1]) is now REJECTED by [WfTrace] — the forged spawn happens-before
+    edge to an unrelated goroutine cannot be built.  (Under the old definition this trace was well-formed,
+    because the back-pointer only had to hit SOME [KSpawn].) *)
+Example forged_start_rejected :
+  ~ WfTrace [ mkEv 0 (KSpawn 1); mkEv 99 (KStart 0) ].
+Proof.
+  intro H. specialize (H 1 (mkEv 99 (KStart 0)) eq_refl). cbn in H.
+  destruct H as [_ [e' [He' Hk]]]. cbn in He'. injection He' as He'. subst e'. discriminate Hk.
 Qed.
 
 (** Bookkeeping: a buffered position survives a trace-append (still earlier, still a
@@ -1317,7 +1331,7 @@ Proof.
     apply WfTrace_app.
     + apply WfTrace_app; [exact Hwf | cbn; exact I].
     + cbn. split; [rewrite length_app; cbn; lia |].
-      exists (mkEv tid (KSpawn cid)), cid.
+      exists (mkEv tid (KSpawn cid)).
       rewrite nth_error_app_new. split; reflexivity.
   - intros c0 v0 s0 Hin. cbn [rc_bufs rc_trace] in Hin |- *.
     destruct (Hbuf c0 v0 s0 Hin) as [Hlt Hex]. apply BufOk_pos_app_gen; assumption.

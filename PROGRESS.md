@@ -794,6 +794,15 @@ any "verified" claim.
    `KSpawn c`; it never requires the started thread = the spawned child `c`.  So `[t0: KSpawn 1; t99:
    KStart 0]` is well-formed → a forged sync edge that can "prove" a race absent.  `sync` inspects only
    the target event's number, not the source.  Fix: make source-kind/channel/child intrinsic to `sync`.
+   **→ RESOLVED (2026-06-22, proof-only, golden byte-identical).**  `WfTrace`'s `KStart parent` clause now
+   requires `e_kind e' = KSpawn (e_tid e)` (the spawn's `child` = THIS start's own goroutine id), not
+   `KSpawn ch` for some unrelated `ch`.  So a `KStart` can only synchronise with the `go` that spawned
+   IT — the forged-edge trace `[KSpawn 1; t99:KStart 0]` is now rejected (`forged_start_rejected`, a
+   machine-checked `~ WfTrace`).  No consumer broke (`sync_forward`/`hbt_forward`/`hbt_irrefl` use only the
+   `parent < i` conjunct); all producers re-proved unchanged — the operational `rstep` spawn step and the
+   abstract traces already emit `mkEv cid (KStart …)` pointing at `mkEv tid (KSpawn cid)`, so child = tid
+   holds by construction.  (The `KRecv` back-pointer was already channel-matched, `KSend c`/`KClose c`.)
+   Axiom-free (constructive list/nat reasoning); the downstream race-freedom theorems stay closed.
 9. **`complex_div` wrong on finite values.** Replaces Go's `abs(re)>=abs(im)` with a SQUARED-magnitude
    compare → overflow/underflow.  Counterexample `1+2i / 1e307+1e308i`: Go ≈ `2.08e-308 - 7.9e-309i`,
    model `0 - 0i`.  The "faithful for all finite" claim is false.
