@@ -828,10 +828,18 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   pre-fix it emitted `_, _ = <-ch`, dropping the handler.
 
 **P1 — emits INVALID or falsely-typed Go (should be negative extraction tests):**
-- **R3. Value-position lets/lambdas forcibly typed `any`** (assessed plausible, not yet repro'd): a value-position
-  `let` becomes an IIFE returning `any`; an untyped lambda → `func(…any) any`; `Tdummy`/`Tunknown`/`Taxiom`/`Tmeta`
-  → `any`. E.g. an IIFE-`any` inside `int64` arithmetic, or `func(any)any` where `func(int64)int64` is required,
-  does not compile. Needs a typed target IR / expected-type threading — same root as #2.
+- **R3. Value-position lets/lambdas forcibly typed `any`** — ✅ **the value-position LET is FIXED** (this session,
+  verified end-to-end); the `any`-lambda + `Tdummy…→any` remain (latent, deeper). CONFIRMED in source: a
+  value-position `let` emitted `(func() any { x := e1; return e2 })()` (go.ml MLletin arm) — `any` in a typed
+  context (e.g. inside int64 arithmetic → `int64(any)`) does NOT compile. **FIX:** an expression-position `let`
+  is PURE (referentially transparent), so it is now INLINED via `ast_subst e1 e2` (`e2[Rel 1 := e1]`) — no IIFE,
+  no `any`; the surrounding context types the result. Verified: new demo `vlet (x z : GoI64) := i64_add (let y :=
+  i64_add x x in i64_add y y) z` COMPILES and computes `21` (was `int64((func() any {…})())` → build error);
+  model `Example vlet_val = 21`. Golden `+21`. REMAINING (latent — golden has ZERO `func() any`/`any) any`):
+  the untyped LAMBDA `func(x any) any` (go.ml MLlam arm ~2142) is wrong where a concrete `func(T)R` is expected —
+  needs the EXPECTED function type (expected-type threading, the deeper #2/R3 work); and `Tdummy`/`Tunknown`/
+  `Taxiom`/`Tmeta` → `any` in `pp_type`. Both effectively dead today (Fido HOFs are interface/method-dict typed),
+  but the deeper typed lowering is the remaining R3.
 - **R4. Several constructs emit invalid/falsely-typed Go:** (a) `map_make` → `make(map[any]any)` — not assignable
   to a typed `map[K]V` (probe failed); (b) `map_make_typed` accepts non-comparable key tags (slice/map/func) — Go
   rejects non-comparable map keys; (c) **non-empty list literal fallback → `append(nil, v1, v2)`** — Go rejects

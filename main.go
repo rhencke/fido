@@ -199,6 +199,14 @@ func Narrow_ret_demo() {
 	println(Lowbyte(4660), Lowbyte_i8(200), Inc8((200 & 0xff)), Consume_i8(200))
 }
 
+func Vlet(x int64, z int64) int64 {
+	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
+}
+
+func Vlet_demo() {
+	println(Vlet(5, 1))
+}
+
 func Narrow_u64_demo() {
 	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(511)) & 0xff)), int8(((((I64_of_u64(255)) & 0xff) ^ 0x80) - 0x80)))
 }
@@ -2286,6 +2294,7 @@ func main() {
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
 	Narrow_ret_demo()
+	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
 	Fconst_demo()

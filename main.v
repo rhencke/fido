@@ -394,6 +394,12 @@ Definition narrow_ret_demo : IO unit :=
           ; any (lowbyte_i8 (i64_lit 200  eq_refl))    (* int8(200)          = -56 *)
           ; any (inc8       (u8_lit 200 eq_refl))      (* uint8(200)+1       = 201 *)
           ; any (consume_i8 (i64_lit 200 eq_refl)) ].  (* int8(int8(200)+1)  = -55 *)
+(** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
+    it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
+    does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
+Definition vlet (x z : GoI64) : GoI64 := i64_add (let y := i64_add x x in i64_add y y) z.
+Example vlet_val : i64raw (vlet (5)%i64 (1)%i64) = 21%Z.   Proof. vm_compute. reflexivity. Qed.
+Definition vlet_demo : IO unit := println [ any (vlet (5)%i64 (1)%i64) ].   (* (5+5)+(5+5) + 1 = 21 *)
 (** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
     through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (widen is identity, then the
     [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]
@@ -2949,6 +2955,7 @@ Definition main_effect : IO unit :=
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
+  vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)

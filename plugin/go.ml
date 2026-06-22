@@ -2166,13 +2166,13 @@ let rec pp_expr state env = function
   | MLfix (i, names, _) ->
       str (go_export (go_safe (Id.to_string names.(i))))
 
-  | MLletin (id, e1, e2) ->
-      let new_env = id :: env in
-      record_narrow_binding env id e1;
-      str "(func() any {" ++ fnl () ++
-      str "\t" ++ pp_mlident id ++ str " := " ++ pp_expr state env e1 ++ fnl () ++
-      str "\treturn " ++ pp_expr state new_env e2 ++ fnl () ++
-      str "})()"
+  | MLletin (_id, e1, e2) ->
+      (* review R3: a value-position let must NOT become `(func() any { x := e1; return e2 })()` — the
+         `any` return is a non-compiling type in a typed context (e.g. inside int64 arithmetic, where the
+         old form gave `int64(any)`).  An expression-position let is PURE (referentially transparent), so
+         INLINE it via [ast_subst] (`e2[Rel 1 := e1]`); the surrounding context then types the result
+         correctly.  No IIFE, no `any`.  (Duplicates e1 if x is used >1×, but it is pure, so sound.) *)
+      pp_expr state env (ast_subst e1 e2)
 
   (* [MkVariadic xs _] (an inlined [vararg xs]) in a call-arg position → Go's variadic args
      (multi-value for a slice literal, else [xs...]).  Checked BEFORE the generic record-ctor
