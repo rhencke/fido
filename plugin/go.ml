@@ -2081,7 +2081,10 @@ let rec pp_expr state env = function
           [in_i64 z], so the value fits int64. *)
        | MLglob r, [z] when is_i64_lit r ->
            (match z_eval z with
-            | Some v -> str (Int64.to_string v)
+            (* TYPE the literal [int64(N)] not bare [N]: a bare decimal makes Go infer
+               [int] for a binding ([x := 9]) or box ([any 9]) — diverging from the
+               [TI64] tag (int64) and breaking [.(int64)] (review R10 differential). *)
+            | Some v -> str ("int64(" ^ Int64.to_string v ^ ")")
             | None   -> unsupported "i64_lit of a non-constant Z (only statically-known int64 constant expressions are modeled)")
        (* [u64_lit z] — a full-width uint64 constant: fold its [Z] literal to the
           UNSIGNED decimal ([Printf.sprintf "%Lu"] handles values in [2^63, 2^64)
@@ -2089,7 +2092,8 @@ let rec pp_expr state env = function
           correct positive decimal). *)
        | MLglob r, [z] when is_u64_lit r ->
            (match zu_eval z with
-            | Some v -> str (Printf.sprintf "%Lu" v)
+            (* TYPE the literal [uint64(N)] (same int-vs-uint64 boxing fix as i64_lit). *)
+            | Some v -> str ("uint64(" ^ Printf.sprintf "%Lu" v ^ ")")
             | None   -> unsupported "u64_lit of a non-constant Z (only statically-known uint64 constant expressions are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no

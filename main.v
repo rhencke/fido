@@ -370,6 +370,26 @@ Definition narrow_let_assert_demo : IO unit :=
   let xu8 := u8_of_i64 (i64_lit 200 eq_refl) in
   type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
     println [any v8; any ok1]).   (* 200 true *)
+
+(** DIFFERENTIAL TYPE-IDENTITY LOCK (R10 — golden-output ALONE cannot tell
+    [uint8]/[int64] apart, which is exactly how the #1/#2/#7 type-identity bugs HID).
+    At RUNTIME, assert each scalar against its OWN Go type (→ [true]) AND against a
+    sibling it must NOT alias (→ [false]): a uint8 is NOT an int64, an int64 is NOT a
+    uint8.  A regression that re-collides them (e.g. boxing [uint8] as [int64] again,
+    the #7 cluster bug) FLIPS the assertions, changing the golden ⇒ caught.  This is
+    the runtime companion to the model-side [tag_runtime_agrees] lock (break #7d). *)
+Definition type_identity_lock_demo : IO unit :=
+  let u8v  := u8_of_i64 (i64_lit 7 eq_refl) in
+  let i64v := i64_lit 9 eq_refl in
+  let u64v := u64_lit 5 eq_refl in
+  type_assert_safe TU8  (any u8v)  (fun _ a =>     (* uint8  .(uint8)  → true  *)
+  type_assert_safe TI64 (any u8v)  (fun _ b =>     (* uint8  .(int64)  → FALSE *)
+  type_assert_safe TI64 (any i64v) (fun _ c =>     (* int64  .(int64)  → true  (locks i64_lit typed int64) *)
+  type_assert_safe TU8  (any i64v) (fun _ d =>     (* int64  .(uint8)  → FALSE *)
+  type_assert_safe TU64 (any u64v) (fun _ e =>     (* uint64 .(uint64) → true  (locks u64_lit typed uint64) *)
+  type_assert_safe TI64 (any u64v) (fun _ f =>     (* uint64 .(int64)  → FALSE *)
+    println [any a; any b; any c; any d; any e; any f])))))).
+  (* true false true false true false *)
 (** P0 #2 — a sub-64 narrow [GoIntN] value now flows correctly through EVERY position: a function RETURN
     (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
     a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
@@ -2976,6 +2996,7 @@ Definition main_effect : IO unit :=
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
+  type_identity_lock_demo       >>'   (* prints: true false true false true false (uint8≠int64, GoI64/GoU64 box typed, R10 differential) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)

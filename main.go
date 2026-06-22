@@ -170,13 +170,26 @@ func I64_of_narrow_demo() {
 }
 
 func I64_to_narrow_demo() {
-	println(uint8(((4660) & 0xff)), int8(((((200) & 0xff) ^ 0x80) - 0x80)), uint16(((70000) & 0xffff)), int32(((((5000000000) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
+	println(uint8(((int64(4660)) & 0xff)), int8(((((int64(200)) & 0xff) ^ 0x80) - 0x80)), uint16(((int64(70000)) & 0xffff)), int32(((((int64(5000000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
 }
 
 func Narrow_let_assert_demo() {
-	xu8 := ((200) & 0xff)
+	xu8 := ((int64(200)) & 0xff)
 	v8, ok1 := any(uint8(xu8)).(uint8)
 	println(v8, ok1)
+}
+
+func Type_identity_lock_demo() {
+	u8v := ((int64(7)) & 0xff)
+	i64v := int64(9)
+	u64v := uint64(5)
+	_, a := any(uint8(u8v)).(uint8)
+	_, b := any(uint8(u8v)).(int64)
+	_, c := any(i64v).(int64)
+	_, d := any(i64v).(uint8)
+	_, e := any(u64v).(uint64)
+	_, f := any(u64v).(int64)
+	println(a, b, c, d, e, f)
 }
 
 func Lowbyte(x int64) uint8 {
@@ -196,7 +209,7 @@ func Consume_i8(x int64) int8 {
 }
 
 func Narrow_ret_demo() {
-	println(Lowbyte(4660), Lowbyte_i8(200), Inc8((200 & 0xff)), Consume_i8(200))
+	println(Lowbyte(int64(4660)), Lowbyte_i8(int64(200)), Inc8((200 & 0xff)), Consume_i8(int64(200)))
 }
 
 func Vlet(x int64, z int64) int64 {
@@ -208,7 +221,7 @@ func Vlet_demo() {
 }
 
 func Narrow_u64_demo() {
-	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(511)) & 0xff)), int8(((((I64_of_u64(255)) & 0xff) ^ 0x80) - 0x80)))
+	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(uint64(511))) & 0xff)), int8(((((I64_of_u64(uint64(255))) & 0xff) ^ 0x80) - 0x80)))
 }
 
 func Narrow32(x float64) float32 {
@@ -236,7 +249,7 @@ func F32_const_runtime_demo() {
 }
 
 func F32_of_int_demo() {
-	println(float32(2305843146652647425) == func(x float64) float32 { return float32(x) }(float64(2305843146652647425)))
+	println(float32(int64(2305843146652647425)) == func(x float64) float32 { return float32(x) }(float64(int64(2305843146652647425))))
 }
 
 func F32_fconst_demo() {
@@ -277,7 +290,7 @@ func U64_to_f64(x uint64) float64 {
 }
 
 func U64conv_demo() {
-	println(U64_to_f64(18446744073709551615), U64_trunc(U64_to_f64(13835058055282163712)))
+	println(U64_to_f64(uint64(18446744073709551615)), U64_trunc(U64_to_f64(uint64(13835058055282163712))))
 }
 
 func F64_of_int_demo() {
@@ -345,23 +358,23 @@ func I64_demo() {
 }
 
 func I64_ops_demo() {
-	println(func(x int64, y int64) int64 { return x / y }(9000000000000000000, 7), func(x int64, y int64) int64 { return x << y }(1, 40))
-	println(func(x int64, y int64) int64 { return x & y }(-1, 4294967295), func(x int64) int64 { return ^x }(5))
+	println(func(x int64, y int64) int64 { return x / y }(int64(9000000000000000000), int64(7)), func(x int64, y int64) int64 { return x << y }(int64(1), 40))
+	println(func(x int64, y int64) int64 { return x & y }(int64(-1), int64(4294967295)), func(x int64) int64 { return ^x }(int64(5)))
 }
 
-var Uc_bignum int64 = 1099511627781
+var Uc_bignum int64 = int64(1099511627781)
 
-var Uc_mask int64 = 1048575
+var Uc_mask int64 = int64(1048575)
 
-var Uc_product int64 = 1000000000000
+var Uc_product int64 = int64(1000000000000)
 
-var Uc_100_i64 int64 = 100
+var Uc_100_i64 int64 = int64(100)
 
 var Uc_100_u8 uint8 = (100 & 0xff)
 
-var Uc_u64_hi uint64 = 9223372036854775808
+var Uc_u64_hi uint64 = uint64(9223372036854775808)
 
-var Uc_u64_msk uint64 = 4294967295
+var Uc_u64_msk uint64 = uint64(4294967295)
 
 func Uconst_demo() {
 	println(Uc_bignum, Uc_mask, Uc_product, Uc_100_i64, Uc_100_u8, Uc_u64_hi, Uc_u64_msk)
@@ -405,7 +418,7 @@ func U64_pipeline_demo() {
 }
 
 func Const_demo() {
-	println(1000000000000, 4611686018427387904)
+	println(int64(1000000000000), int64(4611686018427387904))
 }
 
 func Minmax64_demo() {
@@ -2335,6 +2348,7 @@ func main() {
 	I64_of_narrow_demo()
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
+	Type_identity_lock_demo()
 	Narrow_ret_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
