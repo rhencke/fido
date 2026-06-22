@@ -1435,45 +1435,54 @@ Qed.
 Lemma runs_to_here_inv : forall g j s sf, runs_to g j j s sf -> sf = s.
 Proof. intros g j s sf H. inversion H; subst; [reflexivity | congruence | congruence]. Qed.
 
-(** ── The CONVERSE of [inner_split]: SPLICE a completed inner loop into an outer iteration's [runs_term]. ──
-    [inner_split] takes an outer-iteration [runs_term] and pulls the inner loop's completion OUT as a
-    [runs_to].  [inner_join] runs the other way: given the inner loop has completed ([runs_to g ie l s smid]
-    — control went from inner block [l] to the inner exit [ie]), it reconstructs the OUTER iteration's
-    [runs_term] across that span — traversing the inner region (each [runs_to] step becomes an outer
-    [rterm_goto]/[rterm_if]) and finishing with the [ie]→[h] BACK-EDGE ([rterm_back], one outer iteration).
-    [InnerClosed] keeps the path inside [P] (so no [rterm_back]/[rterm_exit] fires early), and the inner exit
-    [ie] back-edges to the outer header [h].  This is the piece needed to EXPRESS a nested outer iteration as
-    a [runs_term] — i.e. to build [Iterates]/[IteratesC] for a body wrapping an inner [LLoop], the path to
-    arbitrary-depth nesting. *)
+(** ── SPLICE a completed inner loop into an outer iteration's [runs_term], ending at a CONTINUATION. ──
+    [inner_split] pulls an inner loop's completion OUT of an outer [runs_term] (as a [runs_to]).
+    [runs_to_prepend] runs the other way and is the GENERAL converse: given the inner loop has completed
+    ([runs_to g ie l s smid] — control went from inner block [l] to the inner exit [ie]) AND a CONTINUATION
+    [runs_term] from [ie], it reconstructs the outer [runs_term] across the whole span — each [runs_to] step
+    in the inner region becomes an outer [rterm_goto]/[rterm_if], the path ending at the GIVEN continuation
+    when [ie] is reached.  [InnerClosed] keeps the path inside [P] (no early terminal); [ie <> hdr] makes the
+    step into [ie] an ordinary [rterm_goto], not a back-edge.  Generalises [inner_join] (whose continuation is
+    the [ie]→[hdr] back-edge) — and [inner_join] now derives from it. *)
+Lemma runs_to_prepend : forall g hdr exit ie P,
+  InnerClosed g P ie -> P hdr = false -> P exit = false -> P ie = false -> ie <> hdr ->
+  forall l s smid, runs_to g ie l s smid -> P l = true ->
+  forall s' o, runs_term g hdr exit ie smid s' o -> runs_term g hdr exit l s s' o.
+Proof.
+  intros g hdr exit ie P Hclosed Phdr Pexit Pie Hieh l s smid Hrt.
+  induction Hrt as [ s0 | l0 l'0 s0 sf0 Hlne Ht Hr IH | l0 c0 a0 b0 s0 sf0 Hlne Ht Hr IH ];
+    intros Hl s' o Hcont.
+  - (* rt_here: l0 = ie, impossible since P ie = false *)
+    rewrite Pie in Hl; discriminate.
+  - (* rt_goto: step to ie (use the continuation) or stay inner (recurse) *)
+    assert (Hle : l0 <> exit) by (intro Heq; subst l0; rewrite Pexit in Hl; discriminate).
+    specialize (Hclosed l0 Hl); rewrite Ht in Hclosed. destruct Hclosed as [Hc | Hc].
+    + subst l'0. pose proof (runs_to_here_inv g ie (blk_body (g l0) s0) sf0 Hr) as Hsm. subst sf0.
+      eapply rterm_goto; [exact Hle | exact Ht | exact Hieh | exact Hcont].
+    + assert (Hl'h : l'0 <> hdr) by (intro Heq; subst l'0; rewrite Phdr in Hc; discriminate).
+      eapply rterm_goto; [exact Hle | exact Ht | exact Hl'h | exact (IH Hc s' o Hcont)].
+  - (* rt_if: taken branch is ie (continuation) or inner (recurse) *)
+    assert (Hle : l0 <> exit) by (intro Heq; subst l0; rewrite Pexit in Hl; discriminate).
+    specialize (Hclosed l0 Hl); rewrite Ht in Hclosed. destruct Hclosed as [Ha Hb].
+    assert (Ht2 : (if c0 (blk_body (g l0) s0) then a0 else b0) = ie
+                \/ P (if c0 (blk_body (g l0) s0) then a0 else b0) = true)
+      by (destruct (c0 (blk_body (g l0) s0)); assumption).
+    destruct Ht2 as [Hc | Hc].
+    + rewrite Hc in Hr. pose proof (runs_to_here_inv g ie (blk_body (g l0) s0) sf0 Hr) as Hsm. subst sf0.
+      eapply rterm_if; [exact Hle | exact Ht |]. rewrite Hc. exact Hcont.
+    + eapply rterm_if; [exact Hle | exact Ht | exact (IH Hc s' o Hcont)].
+Qed.
+
+(** [inner_join] is [runs_to_prepend] with the continuation being the [ie]→[h] BACK-EDGE ([rterm_back]). *)
 Lemma inner_join : forall g h e ie P,
   InnerClosed g P ie -> P h = false -> P e = false -> P ie = false ->
   ie <> e -> ie <> h -> blk_term (g ie) = TGoto h ->
   forall l s smid, runs_to g ie l s smid -> P l = true ->
   runs_term g h e l s (blk_body (g ie) smid) Normal.
 Proof.
-  intros g h e ie P Hclosed Ph Pe Pie Hiee Hieh Hiet l s smid Hrt.
-  induction Hrt as [ s | l l' s sf Hlne Ht Hr IH | l c a b s sf Hlne Ht Hr IH ]; intros Hl.
-  - (* rt_here: l = ie, impossible since P ie = false *)
-    rewrite Pie in Hl; discriminate.
-  - (* rt_goto: step to ie (fire the back-edge) or stay inner (recurse) *)
-    assert (Hle : l <> e) by (intro Heq; subst l; rewrite Pe in Hl; discriminate).
-    specialize (Hclosed l Hl); rewrite Ht in Hclosed. destruct Hclosed as [Hc | Hc].
-    + subst l'. pose proof (runs_to_here_inv g ie (blk_body (g l) s) sf Hr) as Hsm. subst sf.
-      eapply rterm_goto; [exact Hle | exact Ht | exact Hieh |].
-      apply rterm_back; [exact Hiee | exact Hiet].
-    + assert (Hl'h : l' <> h) by (intro Heq; subst l'; rewrite Ph in Hc; discriminate).
-      eapply rterm_goto; [exact Hle | exact Ht | exact Hl'h | exact (IH Hc)].
-  - (* rt_if: taken branch is ie (back-edge) or inner (recurse) *)
-    assert (Hle : l <> e) by (intro Heq; subst l; rewrite Pe in Hl; discriminate).
-    specialize (Hclosed l Hl); rewrite Ht in Hclosed. destruct Hclosed as [Ha Hb].
-    assert (Ht2 : (if c (blk_body (g l) s) then a else b) = ie
-                \/ P (if c (blk_body (g l) s) then a else b) = true)
-      by (destruct (c (blk_body (g l) s)); assumption).
-    destruct Ht2 as [Hc | Hc].
-    + rewrite Hc in Hr. pose proof (runs_to_here_inv g ie (blk_body (g l) s) sf Hr) as Hsm. subst sf.
-      eapply rterm_if; [exact Hle | exact Ht |]. rewrite Hc.
-      apply rterm_back; [exact Hiee | exact Hiet].
-    + eapply rterm_if; [exact Hle | exact Ht | exact (IH Hc)].
+  intros g h e ie P Hclosed Ph Pe Pie Hiee Hieh Hiet l s smid Hrt Hl.
+  exact (runs_to_prepend g h e ie P Hclosed Ph Pe Pie Hieh l s smid Hrt Hl
+           (blk_body (g ie) smid) Normal (rterm_back g h e ie smid Hiee Hiet)).
 Qed.
 
 Lemma runs_to_n_to : forall g j n l s sf, runs_to_n g j n l s sf -> runs_to g j l s sf.
