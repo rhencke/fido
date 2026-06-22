@@ -837,7 +837,7 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   rejects non-comparable map keys; (c) **non-empty list literal fallback → `append(nil, v1, v2)`** — Go rejects
   (`first argument to append must be a slice; have untyped nil`); (d) **signed narrow arithmetic on a narrow
   PARAM** — `int8` param + `(((x+1)&0xff)^0x80)-0x80` → `0xff` overflows `int8` (this is the #2 param-boundary;
-  the narrow-RETURN slice is DONE this session (see R4(d) below), the PARAM slice still open).
+  the narrow boundary — RETURN, PARAM, and consumption — is COMPLETE this session, see R4(d) below).
   **R4(c) ✅ FIXED (this session, golden byte-identical).** `go.ml` ~2192: the non-empty list-literal value-position
   fallback emitted `append(nil, v1, …)` (always-invalid Go — `append`'s first arg must be a TYPED slice, not
   untyped `nil`; the element type is erased so we cannot synthesize `[]T{…}` here). Now `unsupported`, directing
@@ -862,17 +862,22 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   ("NON-COMPARABLE key type"). *Known deeper sub-case (noted, not yet closed):* a comparable check on a STRUCT
   key requires field-comparability analysis (a struct with a slice/map field would still slip through) — part
   of the typed-lowering phase.
-  **R4(d) — narrow-RETURN boundary ✅ FIXED (this session, golden +1 line `52 -56`); narrow-PARAM still open.**
-  The narrow-boundary issue (#2 param/field) splits into RETURN / PARAM / FIELD slices. The RETURN slice is
-  now DONE: a function whose return type is a sub-64 narrow `GoIntN` wraps its int-carrier result in the
-  declared Go type — `func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }` (pre-fix: `return (x & 0xff)`,
-  an `int64` against a `uint8` signature → Go build error). FIX (`go.ml`): `narrow_prim_type` (parses the short
-  `GoU8`→`uint8` wrapper name via `is_numint_type`, width ≤ 32) + a per-function `narrow_ret_type` ref set in
-  `pp_function`, consulted in `pp_pure_tail`'s `return` (wraps every return point), reset in `pp_main_body`.
-  Verified end-to-end: new demos `lowbyte`/`lowbyte_i8` COMPILE and RUN correctly (`52`/`-56`), with model-level
-  `Example`s (`i64raw (i64_of_u8 (lowbyte …)) = 52`). **The narrow-PARAM slice (R4(d) proper) is still open** —
-  an `int8`-typed param + masked arith (`(x+1) & 0xff` overflows `int8`); the carrier-vs-declared mismatch on a
-  RUNTIME param needs widening at entry (the deeper type-directed work, R3).
+  **R4(d) — narrow-boundary COMPLETE ✅ (this session, golden `52 -56 201 -55`).** A sub-64 narrow `GoIntN`
+  value now flows correctly through EVERY position — RETURN, PARAM, and CONSUMED-by-arithmetic — with no failing
+  residual. Two coordinated fixes (`go.ml`):
+  - **RETURN:** a narrow return casts its int-carrier result to the declared Go type — `func lowbyte(x int64)
+    uint8 { return uint8((x & 0xff)) }` (pre-fix: `return (x & 0xff)`, an `int64` against a `uint8` signature →
+    build error). `narrow_prim_type` (parses the short `GoU8`→`uint8` name via `is_numint_type`, width ≤ 32) +
+    a per-fn `narrow_ret_type` ref set in `pp_function`, consulted in `pp_pure_tail`'s `return`.
+  - **ARITHMETIC widening:** every MASKED narrow op (`not`, `add`/`sub`/`mul`, `shl`, signed `div`/`mod`) now
+    widens each operand to the int carrier (`int(x)`) BEFORE the `& mask`. So a narrow-typed operand — a `uint8`
+    PARAM (`func inc8(x uint8) uint8 { return uint8(((int(x)+int(1))&0xff)) }`), or a signed-narrow CALL-RESULT
+    consumed in signed arith (`consume_i8 = i8_add (lowbyte_i8 x) 1` → `int(Lowbyte_i8(x))`, which previously
+    overflowed `int8 & 0xff`) — computes in `int` then masks. `int(…)` is a no-op on a constant/int carrier and
+    a widen on a narrow type, so it is correct for ANY operand; signatures stay faithful (`uint8` params).
+  Verified end-to-end: `lowbyte`/`lowbyte_i8`/`inc8`/`consume_i8` COMPILE and RUN correctly (`52 -56 201 -55`),
+  with model-level `Example`s (`inc8 200 = 201`, `consume_i8 200 = -55`). Narrow struct FIELDS would follow the
+  same widening if a demo needs them (no current demo has one).
 - **R7. Generated identifiers not injective** (assessed plausible): `foo'`→`foo_` collides with a real `foo_`;
   `foo`/`Foo` collide after export-capitalization; two modules' same basename collide when flattened into one Go
   package; record-ctor/type metadata keyed by basename can clobber across modules. And builtin recognition keys on

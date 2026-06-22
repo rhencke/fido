@@ -370,21 +370,30 @@ Definition narrow_let_assert_demo : IO unit :=
   let xu8 := u8_of_i64 (i64_lit 200 eq_refl) in
   type_assert_safe TU8 (any xu8) (fun v8 ok1 =>
     println [any v8; any ok1]).   (* 200 true *)
-(** P0 #2 slice — narrow RETURN boundary.  A function whose RETURN type is a sub-64 narrow [GoIntN]
-    now wraps its int64-carrier result in the declared Go type: [func lowbyte(x int64) uint8 { return
-    uint8(x & 0xff) }] COMPILES and the boxed dynamic type is faithful.  PRE-FIX it emitted [return
-    (x & 0xff)] — an [int64] value against a [uint8] signature, a Go BUILD error (the carrier-vs-declared
-    mismatch).  Both take a FULL-WIDTH [GoI64] param (no param-boundary issue — that is the next slice)
-    and return a narrow value; the result is boxed so its dynamic Go type ([uint8]/[int8]) is observed. *)
+(** P0 #2 — a sub-64 narrow [GoIntN] value now flows correctly through EVERY position: a function RETURN
+    (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
+    a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
+    masked arithmetic), and a narrow result CONSUMED by further (signed) narrow arithmetic ([consume_i8] —
+    [i8_add (lowbyte_i8 x) …], where the [int8] result is widened before the `& 0xff` mask).  Each narrow op
+    widens its operands to the int carrier, so a narrow-typed operand never overflows the mask; the result is
+    re-cast to the narrow Go type only at a boundary (return) or box.  All COMPILE and compute correctly. *)
 Definition lowbyte    (x : GoI64) : GoU8 := u8_of_i64 x.
 Definition lowbyte_i8 (x : GoI64) : GoI8 := i8_of_i64 x.
+Definition inc8       (x : GoU8)  : GoU8 := u8_add x (u8_lit 1 eq_refl).            (* narrow PARAM in arith *)
+Definition consume_i8 (x : GoI64) : GoI8 := i8_add (lowbyte_i8 x) (i8_lit 1 eq_refl). (* narrow RESULT consumed *)
 Example lowbyte_val    : i64raw (i64_of_u8 (lowbyte    (i64_lit 4660 eq_refl))) = 52%Z.
 Proof. vm_compute. reflexivity. Qed.
 Example lowbyte_i8_val : i64raw (i64_of_i8 (lowbyte_i8 (i64_lit 200  eq_refl))) = (-56)%Z.
 Proof. vm_compute. reflexivity. Qed.
+Example inc8_val       : i64raw (i64_of_u8 (inc8       (u8_lit 200 eq_refl)))   = 201%Z.
+Proof. vm_compute. reflexivity. Qed.
+Example consume_i8_val : i64raw (i64_of_i8 (consume_i8 (i64_lit 200 eq_refl)))  = (-55)%Z.
+Proof. vm_compute. reflexivity. Qed.
 Definition narrow_ret_demo : IO unit :=
-  println [ any (lowbyte    (i64_lit 4660 eq_refl))    (* uint8(4660) = 52  *)
-          ; any (lowbyte_i8 (i64_lit 200  eq_refl)) ]. (* int8(200)   = -56 *)
+  println [ any (lowbyte    (i64_lit 4660 eq_refl))    (* uint8(4660)        = 52  *)
+          ; any (lowbyte_i8 (i64_lit 200  eq_refl))    (* int8(200)          = -56 *)
+          ; any (inc8       (u8_lit 200 eq_refl))      (* uint8(200)+1       = 201 *)
+          ; any (consume_i8 (i64_lit 200 eq_refl)) ].  (* int8(int8(200)+1)  = -55 *)
 (** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
     through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (widen is identity, then the
     [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]

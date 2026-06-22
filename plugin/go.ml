@@ -1850,7 +1850,8 @@ let rec pp_expr state env = function
           builds exactly that (same as the [lit]/[add] forms). *)
        | MLglob r, [x] when fw_is r "not" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
-           fw_wrap s w (str "^" ++ pp_atom state env x)
+           (* P0 #2: widen the operand to the int carrier (a narrow-typed int8 would overflow `& 0xff`). *)
+           fw_wrap s w (str "^int(" ++ pp_expr state env x ++ str ")")
        (* full-width int64 unary complement [i64_not x] → [^x].  Go's [^] on an
           int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask. *)
        | MLglob r, [x] when is_i64_op r "not" ->
@@ -1985,8 +1986,13 @@ let rec pp_expr state env = function
              unsupported (string_of_int w ^ "-bit multiply: a >=63-bit-wide product exceeds the 63-bit carrier; needs the Z-based wide-int model")
            else
              let opstr = (match op with "add" -> " + " | "sub" -> " - " | _ -> " * ") in
+             (* P0 #2: widen each operand to the int CARRIER before the masked op.  An operand may be a
+                NARROW-typed value (a uint8/int8 param, field, or call-result), and `int8 & 0xff` overflows
+                int8 — computing in int (then masking) is correct for any operand (a constant/int carrier is
+                unchanged by [int(…)], a narrow-typed one is widened).  This is what lets a narrow value flow
+                through arithmetic from ANY position, not just a literal. *)
              fw_wrap s w
-               (str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")")
+               (str "(int(" ++ pp_expr state env a ++ str ")" ++ str opstr ++ str "int(" ++ pp_expr state env b ++ str "))")
 
        (* fixed-width shifts.  [shl]: truncate to the width ([fw_wrap]) — uintN
           wraps mod 2^N, intN sign-extends.  [shr]: bare Go [x >> k] — the int64
@@ -1996,8 +2002,10 @@ let rec pp_expr state env = function
           give 0 / sign-fill, matching Go (no upper limit). *)
        | MLglob r, [x; k] when fw_is r "shl" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
+           (* P0 #2: widen the shifted value to the int carrier (a narrow-typed operand would overflow the
+              mask); the shift COUNT [k] is a plain int already. *)
            fw_wrap s w
-             (str "(" ++ pp_expr state env x ++ str " << " ++ pp_expr state env k ++ str ")")
+             (str "(int(" ++ pp_expr state env x ++ str ") << " ++ pp_expr state env k ++ str ")")
        | MLglob r, [x; k] when fw_is r "shr" ->
            str "(" ++ pp_expr state env x ++ str " >> " ++ pp_expr state env k ++ str ")"
 
@@ -2008,8 +2016,13 @@ let rec pp_expr state env = function
        | MLglob r, [a; b] when fw_is r "div" || fw_is r "mod" ->
            let (s, w, op) = Option.get (fixed_width_op r) in
            let opstr = if String.equal op "div" then " / " else " % " in
-           let raw = str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")" in
-           if s then fw_wrap s w raw else raw
+           if s then
+             (* signed [intN]: wrap to the width (the -2^(N-1)/-1 two's-complement overflow), widening each
+                operand to the int carrier first (a narrow-typed int8 would overflow the mask). *)
+             fw_wrap s w (str "(int(" ++ pp_expr state env a ++ str ")" ++ str opstr ++ str "int(" ++ pp_expr state env b ++ str "))")
+           else
+             (* unsigned [uintN]: non-negative carrier ⇒ Go's /,% is the in-range unsigned result, no mask. *)
+             str "(" ++ pp_expr state env a ++ str opstr ++ pp_expr state env b ++ str ")"
 
        (* Nat.sub is truncated monus, NOT Go uint's wrapping [-] — fail loud
           rather than emit a value that is wrong on underflow (3 - 5 ≠ 2^64-2). *)
