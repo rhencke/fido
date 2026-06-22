@@ -608,6 +608,32 @@ Proof.
   split; [apply whileCFG_reloop_loop | exact (while_realized h f e c 0 s sf H)].
 Qed.
 
+(** Toward GENERAL [reloop_loop] soundness — the EMBEDDING is faithful: the loop-language [seval] of a
+    [lift]ed acyclic statement reproduces its total [srun] semantics (and finishes [Normal] — an [SIf]/
+    [SSeq]/[SBody] never breaks).  This is the bridge the loop-aware relooper needs for its AFTER-loop
+    code, which is the acyclic [reloop] lifted into the loop language. *)
+Lemma lift_correct : forall S s, seval (lift S) s (srun S s) Normal.
+Proof.
+  induction S as [f | a IHa b IHb | c a IHa b IHb]; intros s; cbn.
+  - apply se_body.
+  - eapply se_seq_n; [apply IHa | apply IHb].
+  - destruct (c s) eqn:E; [eapply se_if_t | eapply se_if_f]; solve [exact E | apply IHa | apply IHb].
+Qed.
+
+(** Hence the AFTER-LOOP half of [reloop_loop] is sound: when the acyclic relooper handles the exit
+    region ([reloop … exit = Some aft]), its [lift]ed form, run from the exit's entry state, BOTH matches
+    the [seval] semantics AND reproduces the CFG's run from the exit ([reloop_correct]).  (The remaining
+    half — the [LLoop body] iterations realizing the loop — generalises [while_realized] to [reloop_b]'s
+    output; the next slice.) *)
+Lemma reloop_after_realizes : forall fuel g exit aft s,
+  reloop fuel g exit = Some aft ->
+  seval (lift aft) s (srun aft s) Normal /\ cfg_halts g exit s (srun aft s).
+Proof.
+  intros fuel g exit aft s Hr. split.
+  - apply lift_correct.
+  - exact (reloop_correct fuel g exit aft Hr s).
+Qed.
+
 (** ════════════════════════════════════════════════════════════════════════════════════════════════
     GENERAL ACYCLIC relooping — compositional, and WITHOUT join duplication.
     ════════════════════════════════════════════════════════════════════════════════════════════════
