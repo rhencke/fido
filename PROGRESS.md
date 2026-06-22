@@ -1107,6 +1107,26 @@ recognised+dropped by the plugin so extraction stays `type Name <under>`.  A `un
 detection (currently keyed off the `GoTypeTag` phantom: `defined_prim_under`/`defined_prim_proj`) so a
 `unit`-phantom deftype still emits `type Name <under>` + the ctor/proj casts.  That phantom-rework is the
 real first implementation slice — a focused plugin + deftype-demo-migration effort, fresh context.
+**PHANTOM-REWORK DONE (2026-06-22, commits 6ac4bb4 + bf063ce): defined-type COMPARABILITY shipped.**
+Celsius's phantom is now `unit` (golden byte-identical; `comparable_celsius` axiom-free; `cw_celsius` the
+sealed `ComparableW`; `ceqb` over Celsius → native `Celsius == Celsius`, in `comparable_demo`).  So a
+defined type is a first-class COMPARABLE.  **But the MAP KEY itself hits a DEEPER gate (found 2026-06-22):
+the map HEAP is HETEROGENEOUS** — `w_maps : int -> option MapCell`, one heap shared by ALL maps, and
+`map_get_fn` recovers each cell's key/value type via `tag_eq kt kt'` + `eq_rect`.  A tagless defined-type
+key has NO tag to store/recover, and `ComparableW` gives `key_eqb` but NOT the type-equality proof
+`eq_rect` needs.  So `ComparableW`-keyed maps can't ride the shared heterogeneous heap; they need either
+(x) a SEPARATE homogeneous map store (a [GoMap K V] whose cell is just `K -> option V` + the live count,
+no tag — the K type is fixed per map, so no recovery needed; a parallel `map_make_cmp`/`map_set_cmp`/… set
+that lowers to the SAME native Go `map[K]V`), or (y) a tag for named types (blocked, see above).  Path (x)
+also entangles: Go maps are REFERENCE types, so a faithful map lives in the `World` heap — but the `World`
+has ONE `w_maps` field (the heterogeneous, tag-recovered heap); a homogeneous ComparableW map would need
+its OWN `World` heap field (a pervasive `mkWorld` cascade) or it sacrifices reference-type faithfulness.
+**Honest conclusion:** a SHARED map heap across maps of different K REQUIRES per-cell type tags for
+recovery, so tagless keys are fundamentally blocked short of either a tag for named types (breaks
+`tag_eq_refl`) or a `World`-heap redesign — a depth DISPROPORTIONATE to this niche feature.  The achievable
+part (defined-type COMPARABILITY) is shipped; defined-type MAP KEYS are deferred as a known, scoped
+foundation limit (the `ComparableW` machinery is ready the day the heap is reworked).  **PIVOT** the loop
+to other Go-spec corners rather than the `World`-heap redesign.
 
 ### Channel-payload faithfulness — what composes vs. the two real limits (2026-06-20)
 
