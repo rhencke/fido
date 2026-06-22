@@ -993,28 +993,28 @@ let binop_of r =
   else if is_str_ltb_ref r then Some (3, " < ")
   (* array comparison: Go field-wise [==] (arrays are comparable, slices are not) *)
   else if is_arr_eqb_ref r then Some (3, " == ")
-  (* direct >/>=/!= for string and float64 (recognized by basename) *)
-  else if String.equal (global_basename r) "str_gtb"  then Some (3, " > ")
-  else if String.equal (global_basename r) "str_geb"  then Some (3, " >= ")
-  else if String.equal (global_basename r) "str_neqb" then Some (3, " != ")
-  else if String.equal (global_basename r) "f64_gtb"  then Some (3, " > ")
-  else if String.equal (global_basename r) "f64_geb"  then Some (3, " >= ")
-  else if String.equal (global_basename r) "f64_neqb" then Some (3, " != ")
+  (* direct >/>=/!= for string and float64 (recognized by name, gated on builtins.v) *)
+  else if named "str_gtb"  r then Some (3, " > ")
+  else if named "str_geb"  r then Some (3, " >= ")
+  else if named "str_neqb" r then Some (3, " != ")
+  else if named "f64_gtb"  r then Some (3, " > ")
+  else if named "f64_geb"  r then Some (3, " >= ")
+  else if named "f64_neqb" r then Some (3, " != ")
   (* float32 comparison: same direct operators, on [float32] operands *)
-  else if String.equal (global_basename r) "f32_ltb"  then Some (3, " < ")
-  else if String.equal (global_basename r) "f32_leb"  then Some (3, " <= ")
-  else if String.equal (global_basename r) "f32_eqb"  then Some (3, " == ")
-  else if String.equal (global_basename r) "f32_gtb"  then Some (3, " > ")
-  else if String.equal (global_basename r) "f32_geb"  then Some (3, " >= ")
-  else if String.equal (global_basename r) "f32_neqb" then Some (3, " != ")
+  else if named "f32_ltb"  r then Some (3, " < ")
+  else if named "f32_leb"  r then Some (3, " <= ")
+  else if named "f32_eqb"  r then Some (3, " == ")
+  else if named "f32_gtb"  r then Some (3, " > ")
+  else if named "f32_geb"  r then Some (3, " >= ")
+  else if named "f32_neqb" r then Some (3, " != ")
   (* complex128 arithmetic: component-wise [+]/[-] → native Go operators (float +/-) *)
-  else if String.equal (global_basename r) "complex_add"  then Some (4, " + ")
-  else if String.equal (global_basename r) "complex_sub"  then Some (4, " - ")
-  else if String.equal (global_basename r) "complex_mul"  then Some (5, " * ")
-  else if String.equal (global_basename r) "complex_div"  then Some (5, " / ")
+  else if named "complex_add"  r then Some (4, " + ")
+  else if named "complex_sub"  r then Some (4, " - ")
+  else if named "complex_mul"  r then Some (5, " * ")
+  else if named "complex_div"  r then Some (5, " / ")
   (* complex128 comparison: component-wise [==]/[!=] → native Go operators *)
-  else if String.equal (global_basename r) "complex_eqb"  then Some (3, " == ")
-  else if String.equal (global_basename r) "complex_neqb" then Some (3, " != ")
+  else if named "complex_eqb"  r then Some (3, " == ")
+  else if named "complex_neqb" r then Some (3, " != ")
   (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
      bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
      int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
@@ -1960,17 +1960,17 @@ let rec pp_expr state env = function
        | MLglob r, [c] when is_go_imag_ref r ->
            str "imag(" ++ pp_expr state env c ++ str ")"
        (* string <-> byte-slice conversions → Go's [[]byte(s)] / [string(b)] *)
-       | MLglob r, [s] when String.equal (global_basename r) "str_to_bytes" ->
+       | MLglob r, [s] when named "str_to_bytes" r ->
            str "[]byte(" ++ pp_expr state env s ++ str ")"
-       | MLglob r, [b] when String.equal (global_basename r) "str_from_bytes" ->
+       | MLglob r, [b] when named "str_from_bytes" r ->
            str "string(" ++ pp_expr state env b ++ str ")"
        (* string <-> rune-slice conversions → Go's [[]rune(s)] / [string(rs)] (UTF-8) *)
-       | MLglob r, [s] when String.equal (global_basename r) "str_to_runes" ->
+       | MLglob r, [s] when named "str_to_runes" r ->
            str "[]rune(" ++ pp_expr state env s ++ str ")"
-       | MLglob r, [rs] when String.equal (global_basename r) "runes_to_str" ->
+       | MLglob r, [rs] when named "runes_to_str" r ->
            str "string(" ++ pp_expr state env rs ++ str ")"
        (* single rune → string: [string(rune(r))] (explicit rune cast, not [string(int)]) *)
-       | MLglob r, [c] when String.equal (global_basename r) "rune_to_str" ->
+       | MLglob r, [c] when named "rune_to_str" r ->
            str "string(rune(" ++ pp_expr state env c ++ str "))"
        (* comparable-witness equality [cw_eqb w a b] → native Go [a == b] (the witness [w], an
           erased dictionary, is dropped; Go's [comparable] supplies [==] structurally). *)
@@ -2938,7 +2938,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   end
               | None ->
                   unsupported "run_blocks with a non-literal block list (the CFG blocks must be statically known; emitting only a comment would silently DROP all control flow)")
-         | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
+         | MLglob r, [m; h] when named "catch" r ->
              let ids, h_body = collect_lam h in
              let new_env = List.rev ids @ env in
              let p_id = match List.filter (fun id -> not (is_dummy id)) ids with
@@ -3509,7 +3509,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
     let head, all_args = collect_app b [] in
     let vis = List.filter (fun a -> not (is_erased a)) all_args in
     match head, vis with
-    | MLglob r, [m; h] when String.equal (global_basename r) "catch" ->
+    | MLglob r, [m; h] when named "catch" r ->
         let ids, h_body = collect_lam h in
         let new_env = List.rev ids @ env in
         let p_id = match List.filter (fun id -> not (is_dummy id)) ids with
