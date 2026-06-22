@@ -313,6 +313,58 @@ Proof.
   - right; split; [reflexivity | assumption].
 Qed.
 
+Lemma seval_if_inv : forall c a b s s' o, seval (LIf c a b) s s' o ->
+  (c s = true /\ seval a s s' o) \/ (c s = false /\ seval b s s' o).
+Proof. intros c a b s s' o H; inversion H; subst; [left|right]; split; assumption. Qed.
+
+Lemma seval_loop_inv : forall body s s' o, seval (LLoop body) s s' o ->
+  o = Normal /\ ( (exists smid, seval body s smid Normal /\ seval (LLoop body) smid s' Normal)
+                  \/ seval body s s' Broke ).
+Proof.
+  intros body s s' o H; inversion H; subst; split;
+    solve [ reflexivity | left; eexists; split; eassumption | right; assumption ].
+Qed.
+
+(** The structured-with-loops TARGET language is DETERMINISTIC: a statement run from a state yields a
+    UNIQUE (final state, outcome) whenever it terminates — the loop-language analogue of [cfg_halts_det].
+    Without this, "the program the relooper emits" would be ambiguous; with it, [seval] (and hence every
+    relooper correctness proof, which pins [seval]) denotes a function.  By induction on the first
+    derivation; the loop cases turn on the body's OUTCOME (Normal ⇒ iterate again, Broke ⇒ stop), which
+    the IH makes unique, so the two derivations take the same rule. *)
+Lemma seval_det : forall S s s1 o1, seval S s s1 o1 ->
+  forall s2 o2, seval S s s2 o2 -> s1 = s2 /\ o1 = o2.
+Proof.
+  intros S s s1 o1 H1.
+  induction H1 as
+    [ f s | s
+    | a b s s' s'' o Ha IHa Hb IHb | a b s s' Ha IHa
+    | c a b s s' o Hc Ha IHa | c a b s s' o Hc Hb IHb
+    | body s s' s'' Hbody IHbody Hloop IHloop | body s s' Hbody IHbody ];
+    intros s2 o2 H2.
+  - (* LBody *) inversion H2; subst; split; reflexivity.
+  - (* LBreak *) inversion H2; subst; split; reflexivity.
+  - (* LSeq, a Normal *) apply seval_seq_inv in H2.
+    destruct H2 as [[smid [Ha2 Hb2]] | [_ Hbad]].
+    + destruct (IHa _ _ Ha2) as [-> _]. exact (IHb _ _ Hb2).
+    + destruct (IHa _ _ Hbad) as [_ Hcon]; discriminate.
+  - (* LSeq, a Broke *) apply seval_seq_inv in H2.
+    destruct H2 as [[smid [Ha2 _]] | [-> Hbad]].
+    + destruct (IHa _ _ Ha2) as [_ Hcon]; discriminate.
+    + destruct (IHa _ _ Hbad) as [-> _]; split; reflexivity.
+  - (* LIf true *) apply seval_if_inv in H2.
+    destruct H2 as [[_ Ha2] | [Hcf _]]; [exact (IHa _ _ Ha2) | rewrite Hc in Hcf; discriminate].
+  - (* LIf false *) apply seval_if_inv in H2.
+    destruct H2 as [[Hct _] | [_ Hb2]]; [rewrite Hc in Hct; discriminate | exact (IHb _ _ Hb2)].
+  - (* LLoop, iterate again (body Normal) *) apply seval_loop_inv in H2.
+    destruct H2 as [-> [[smid [Hb2 Hl2]] | Hbrk]].
+    + destruct (IHbody _ _ Hb2) as [-> _]. exact (IHloop _ _ Hl2).
+    + destruct (IHbody _ _ Hbrk) as [_ Hcon]; discriminate.
+  - (* LLoop, break (body Broke) *) apply seval_loop_inv in H2.
+    destruct H2 as [-> [[smid [Hb2 _]] | Hbrk]].
+    + destruct (IHbody _ _ Hb2) as [_ Hcon]; discriminate.
+    + destruct (IHbody _ _ Hbrk) as [-> _]; split; reflexivity.
+Qed.
+
 (** The canonical WHILE CFG: block 0 = HEADER (run [h], branch on [c] to body/exit); block 1 = BODY
     (run [f], goto header); block 2 (+default) = EXIT (run [e], return).  This is exactly
     [h; while c { f; h }; e] flattened to basic blocks with a back-edge 1→0. *)
