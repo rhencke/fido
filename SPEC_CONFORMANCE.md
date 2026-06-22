@@ -295,8 +295,13 @@ embedded field, emitted in the PROMOTED SHORTHAND `species (animal d)` → `d.Sp
 method `speak (animal d)` → `d.Speak()` (a `peel_embedded` peephole, which compiles only because Go
 promotes through the embedded field — genuinely exercising promotion; safe since Coq projection names
 are unique, so no shadowing).  The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo`
-→ `canine / canine`.  ✗ not yet: embedding non-struct/pointer types, struct tags.  Methods declared on
-the struct → next section.
+→ `canine / canine`.  An INTERFACE (its method-dictionary) embeds the SAME way — the dict IS a struct:
+`type LoggedGreeter struct { Greeter; Lg_calls int64 }` promotes the embedded interface's method
+(emitted `lg.Greet(5)`, NOT `lg.Greeter.Greet(…)`) alongside the struct's own field, a common Go
+wrap-an-interface pattern (`embed_iface_in_struct_demo` → `105 / 7`; `promoted_greet` reflexivity).
+✗ not yet: embedding a POINTER type (a `*T` anonymous field — needs the embed detection to match
+`Ptr <record>` at both sites AND a deref-aware promotion peephole; deferred to a focused tick) or a
+bare PRIMITIVE, and struct tags.  Methods declared on the struct → next section.
 
 ### [Method declarations](https://go.dev/ref/spec#Method_declarations) — ✓ value + pointer receiver, method values/expressions
 Spec: a method binds a function to a receiver of a defined (here, struct) type:

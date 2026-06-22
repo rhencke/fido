@@ -2224,6 +2224,21 @@ Definition embed_iface_demo : IO unit :=
   bind (println [any (rd_read (rw_as_reader f) (5)%i64)]) (fun _ =>   (* via Reader upcast: 5+10 = 15 *)
   println [any (wr_write (rw_as_writer f) (40)%i64)])).               (* via Writer upcast: 40-10 = 30 *)
 
+(** Embedding an INTERFACE in a STRUCT (Go's [type LoggedGreeter struct { Greeter; calls int64 }]):
+    the embedded interface's method set is PROMOTED to the outer struct.  In the dictionary model
+    an interface IS a struct (its vtable), so this rides the SAME anonymous-field embedding as
+    struct-in-struct — the embedded [Greeter]'s [greet] is promoted (emitted [lg.Greet(x)], not
+    [lg.Greeter.Greet(x)]), coexisting with the struct's own [lg_calls] field.  A common Go pattern:
+    wrap an interface value with extra state while still satisfying its method set. *)
+Record LoggedGreeter := MkLoggedGreeter { greeter : Greeter ; lg_calls : GoI64 }.
+Definition mk_logged (base calls : GoI64) : LoggedGreeter := MkLoggedGreeter (mk_adder base) calls.
+Example promoted_greet : forall base calls x, greet (greeter (mk_logged base calls)) x = i64_add base x.
+Proof. reflexivity. Qed.
+Definition embed_iface_in_struct_demo : IO unit :=
+  let lg := mk_logged (100)%i64 (7)%i64 in
+  bind (println [any (greet (greeter lg) (5)%i64)])  (fun _ =>   (* PROMOTED Greet: 100+5 = 105 *)
+  println [any (lg_calls lg)]).                                  (* the struct's own field: 7 *)
+
 (** ── Typestate (a state machine that CANNOT compile to a broken transition) ──
     The payoff of structs+methods.  A value carries its FSM state in a PHANTOM type
     index ([Light c]); each transition's type names the legal from/to states, so an
@@ -2677,6 +2692,7 @@ Definition main_effect : IO unit :=
   single_iface_demo             >>'   (* prints: 15 (single-method interface dispatch) *)
   nullary_iface_demo            >>'   (* prints: fido (nullary method String()) *)
   embed_iface_demo              >>'   (* prints: 13 / 15 / 30 (interface embedding: union + upcasts) *)
+  embed_iface_in_struct_demo    >>'   (* prints: 105 / 7 (interface embedded in a struct, method promoted) *)
   typestate_demo                >>'   (* prints: 1 / 7 *)
   repinv_demo                   >>'   (* prints: 3 / 7 *)
   deftype_demo                  >>'   (* prints: 42 (defined type with method) *)

@@ -1539,6 +1539,21 @@ func Embed_iface_demo() {
 	println((f.Rw_as_writer()).Wr_write(40))
 }
 
+type LoggedGreeter struct {
+	Greeter
+	Lg_calls int64
+}
+
+func Mk_logged(base int64, calls int64) LoggedGreeter {
+	return LoggedGreeter{Greeter: Mk_adder(base), Lg_calls: calls}
+}
+
+func Embed_iface_in_struct_demo() {
+	lg := Mk_logged(100, 7)
+	println(lg.Greet(5))
+	println(lg.Lg_calls)
+}
+
 type Light struct {
 	Ticks  int64
 	Serial int64
@@ -2037,6 +2052,7 @@ func main() {
 	Single_iface_demo()
 	Nullary_iface_demo()
 	Embed_iface_demo()
+	Embed_iface_in_struct_demo()
 	Typestate_demo()
 	Repinv_demo()
 	Deftype_demo()
