@@ -7650,3 +7650,113 @@ Qed.
 
 
 
+
+(** ============================================================================
+    BOUNDED-CAPACITY CALCULUS [rstepC cap] — review #6 #2.
+
+    The rich [rstep] above has UNBOUNDED asynchronous channels: [rstep_send] fires
+    UNCONDITIONALLY (the deadlock section notes "[CSend] always enabled"), so a send to
+    a FULL buffer never blocks and the deadlock theory cannot see "blocked on a full
+    send" — exactly the #2 overclaim.
+
+    [rstepC cap] is the bounded calculus.  Capacity is a STATIC parameter
+    [cap : nat -> nat] (a channel's capacity is fixed at [make], not mutable state — so
+    it needs no [RConfig] field; the [mkRCfg] sites are untouched).  An asynchronous
+    send is GUARDED by room ([length (b c) < cap c]); an UNBUFFERED ([cap c = 0])
+    handoff is the atomic rendezvous [rstepC_sync] (sender + receiver in one step — the
+    operational form of [rendezvous_via_buffer]).  A full buffer (or a cap-0 channel
+    with no ready receiver) now genuinely BLOCKS the send.
+
+    Every [rstepC] step EMBEDS into [rsteps] ([rstepC_embed]): a guarded send / recv /
+    … is the matching [rstep]; a sync is send-then-recv.  So every [rsteps]-invariant
+    (RInv, ownership, race-freedom — all capacity-INDEPENDENT) transfers to [rstepC] for
+    free, and every [rstepC]-reachable config is [rsteps]-reachable.  The bounded
+    deadlock theory (blocked sends included) is built on [rstepC] next. *)
+Inductive rstepC (cap : nat -> nat) : RConfig -> RConfig -> Prop :=
+  | rstepC_send : forall p b h lv tr tid c v k,
+      lv tid = true -> p tid = CSend c v k -> closedb tr c = false ->
+      length (b c) < cap c ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
+                    (tr ++ [mkEv tid (KSend c)]))
+  | rstepC_sync : forall p b h lv tr t0 t1 c v k1 f,
+      t0 <> t1 -> lv t0 = true -> lv t1 = true ->
+      p t0 = CSend c v k1 -> p t1 = CRecv c f -> b c = [] -> closedb tr c = false ->
+      cap c = 0 ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd (upd p t0 k1) t1 (f v))
+                    (upd (upd b c (b c ++ [(v, length tr)])) c [])
+                    h lv
+                    ((tr ++ [mkEv t0 (KSend c)]) ++ [mkEv t1 (KRecv c (length tr))]))
+  | rstepC_recv : forall p b h lv tr tid c f v s brest,
+      lv tid = true -> p tid = CRecv c f -> b c = (v, s) :: brest ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv
+                    (tr ++ [mkEv tid (KRecv c s)]))
+  | rstepC_write : forall p b h lv tr tid l v k,
+      lv tid = true -> p tid = CWrite l v k ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid k) b (upd h l v) lv
+                    (tr ++ [mkEv tid (KWrite l)]))
+  | rstepC_read : forall p b h lv tr tid l f,
+      lv tid = true -> p tid = CRead l f ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f (h l))) b h lv
+                    (tr ++ [mkEv tid (KRead l)]))
+  | rstepC_spawn : forall p b h lv tr tid child k cid,
+      lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+                    (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]))
+  | rstepC_select : forall p b h lv tr tid cases c f v s brest,
+      lv tid = true -> p tid = CSelect cases ->
+      In (c, f) cases -> b c = (v, s) :: brest ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv
+                    (tr ++ [mkEv tid (KRecv c s)]))
+  | rstepC_close : forall p b h lv tr tid c k,
+      lv tid = true -> p tid = CClose c k -> closedb tr c = false ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid k) b h lv (tr ++ [mkEv tid (KClose c)]))
+  | rstepC_recv_closed : forall p b h lv tr tid c f pos e,
+      lv tid = true -> p tid = CRecv c f ->
+      b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f 0)) b h lv (tr ++ [mkEv tid (KRecv c pos)]))
+  | rstepC_select_closed : forall p b h lv tr tid cases c f pos e,
+      lv tid = true -> p tid = CSelect cases ->
+      In (c, f) cases -> b c = [] -> nth_error tr pos = Some e -> e_kind e = KClose c ->
+      rstepC cap (mkRCfg p b h lv tr)
+            (mkRCfg (upd p tid (f 0)) b h lv (tr ++ [mkEv tid (KRecv c pos)])).
+
+(** Every bounded step is one (or, for a rendezvous, two) unbounded steps — so all
+    [rsteps]-invariants transfer to [rstepC], and [rstepC]-reachable ⊆ [rsteps]-reachable. *)
+Lemma rstepC_embed : forall cap cfg cfg', rstepC cap cfg cfg' -> rsteps cfg cfg'.
+Proof.
+  intros cap cfg cfg' H. destruct H as
+    [ p b h lv tr tid c v k Hlv Hp Hcl Hroom
+    | p b h lv tr t0 t1 c v k1 f Hne Hlv0 Hlv1 Hp0 Hp1 Hbc Hcl Hcap
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcl
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ].
+  - eapply rsteps_step; [ eapply rstep_send; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_send with (tid := t0); [exact Hlv0 | exact Hp0 | exact Hcl] |].
+    eapply rsteps_step; [| apply rsteps_refl].
+    eapply rstep_recv with (tid := t1) (c := c) (f := f) (v := v) (s := length tr) (brest := []).
+    + exact Hlv1.
+    + cbn [rc_prog]. rewrite (upd_other _ _ _ _ (not_eq_sym Hne)). exact Hp1.
+    + cbn [rc_bufs]. rewrite upd_same, Hbc. reflexivity.
+  - eapply rsteps_step; [ eapply rstep_recv; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_write; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_read; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_spawn; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_select; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_close; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_recv_closed; eassumption | apply rsteps_refl ].
+  - eapply rsteps_step; [ eapply rstep_select_closed; eassumption | apply rsteps_refl ].
+Qed.
