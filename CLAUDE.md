@@ -14,8 +14,9 @@ identifier-collision detection at extraction, full-width-int constant forcing, p
 makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️ But review #4's meta-lesson stands:
 a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
 and demoed" — the trusted/unverified status holds. The remaining work is the deep **verified-printer architecture**
-(a compiler-correctness theorem connecting source/MiniML semantics to emitted Go — gap #10), **stronger gates** (a
-permanent negative-fixture harness, a Print-Assumptions manifest, CI), and a few **latent typed-lowering residuals**
+(a compiler-correctness theorem connecting source/MiniML semantics to emitted Go — gap #10), **stronger gates** (the
+axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
+wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**
 (e.g. R3's untyped higher-order `func(x any) any` lambda — dead today since Fido HOFs are interface/method-dict-typed).
 Until gap #10 closes, do not headline this as "formally verified Go" — see PROGRESS.md "RELEASE REVIEW #3 / #4".
 
@@ -97,6 +98,12 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
+- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set `Print
+  Assumptions main_effect` may depend on (the PrimInt63/PrimFloat substrate). The
+  Dockerfile's prover stage diffs the live `Print Assumptions` against it and FAILS
+  the build on any drift (a new transitive/imported axiom). If a change *intentionally*
+  alters the trust base, regenerate it (C-locale sort, from a fresh local build):
+  `rm -f _build/default/main.vo && dune build 2>&1 | awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
 
 Gotchas (don't relearn these the hard way):
 

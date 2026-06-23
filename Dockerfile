@@ -62,6 +62,7 @@ COPY --chown=opam:opam rocq-go-extraction.opam rocq-go-extraction.opam
 COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam dune  ./
 COPY --chown=opam:opam *.v   ./
+COPY --chown=opam:opam EXPECTED_ASSUMPTIONS.txt ./
 
 # The extracted *.go are produced as a SIDE EFFECT of compiling the extraction-driver
 # theories (the `Go Main Extraction` vernac); dune does NOT track them as build outputs.
@@ -73,10 +74,24 @@ COPY --chown=opam:opam *.v   ./
 #      regenerated.  So force every current driver's .vo out, making it recompile and
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
+#  (3) AXIOM-MANIFEST GATE (review #4 R10): the driver re-compile runs `Print Assumptions
+#      main_effect`, emitting the trust base.  Capture it and assert it EXACTLY equals the
+#      committed EXPECTED_ASSUMPTIONS.txt (the PrimInt63/PrimFloat substrate).  A NEW axiom
+#      reaching the extracted program — a stray `Require` pulling in funext/Classical, an
+#      `Admitted` that slipped the grep, etc. — is a trust-base regression (rule 3) and FAILS
+#      the build here, not silently in a `Print Assumptions` nobody reads.  (The pre-commit hook
+#      greps for DECLARED axioms; this catches TRANSITIVE/imported ones too.)
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
-    && dune build \
+    && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
+    && awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' /tmp/build.log \
+         | LC_ALL=C sort -u > /tmp/got_axioms.txt \
+    && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
+         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — main_effect's trust base changed."; \
+         echo "fido: a NEW axiom reaching the extracted program is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
+         exit 1; \
+       fi \
     && test -n "$(ls _build/default/*.go 2>/dev/null)" \
     && cp -r _build/default/*.go /tmp/
 

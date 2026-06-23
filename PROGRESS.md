@@ -1126,11 +1126,19 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   Section-local `Hypothesis`/`Variable` the proof-only theories legitimately use are still allowed there (only
   the EXTRACTED files forbid top-level `Hypothesis`/`Variable`); `Print Assumptions` remains the definitive
   catch for a mis-discharged one. Verified: a temp `Admitted` in relooper.v now aborts the commit (it did not
-  before); golden byte-identical. **STILL OPEN (deeper R10 slices):** a `Print Assumptions` CI check over the
-  public theorems, runtime DIFFERENTIAL tests (golden-output can't catch type/blocking/aliasing changes — the
-  root cause that let the silent bugs slip), a PERMANENT negative-extraction-test harness (the neg-fixtures I
-  run by hand per fix, made into a committed `make negtest`), `go build`/`go vet` as a distinct gate, and the
-  hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses the source-of-truth diff).
+  before); golden byte-identical. **AXIOM-MANIFEST GATE DONE (2026-06-23):** the Dockerfile's prover stage now
+  captures the live `Print Assumptions main_effect` (re-run on every fresh build, since the driver `.vo` is
+  forced out) and asserts the axiom NAME set EXACTLY equals the committed `EXPECTED_ASSUMPTIONS.txt` (42 names,
+  the PrimInt63/PrimFloat substrate) via `LC_ALL=C sort -u` + `diff`; ANY drift — a new transitive/imported
+  axiom (funext/Classical via a stray `Require`), an `Admitted` the grep missed — FAILS the build, not silently
+  in a `Print Assumptions` nobody reads. Complements the pre-commit DECLARED-axiom grep (this catches TRANSITIVE
+  ones). Verified both ways: passes on the real base; a deliberate mismatch (a sort-order delta during dev) fired
+  the `AXIOM-MANIFEST DRIFT` abort exactly. **STILL OPEN (deeper R10 slices):** runtime DIFFERENTIAL tests
+  (golden-output can't catch type/blocking/aliasing changes — the root cause that let the silent bugs slip), a
+  PERMANENT negative-EXTRACTION-test harness (the neg-fixtures I run by hand per fix — note an in-`main.v` `Fail
+  Go File Extraction` does NOT work: `Fail` doesn't catch the plugin's extraction `unsupported`, and File
+  Extraction of a deep-dep fn hits an enum-collision; so this needs SEPARATE-BUILD infra), CI running `make
+  check`, and the hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses the diff).
   **RUNTIME DIFFERENTIAL TEST ✅ started + caught a real bug (2026-06-22, commit 5cb8611):** `type_identity_lock_demo`
   (main.v) boxes each scalar and `type_assert_safe`s it against its OWN Go type (→true) and a sibling it must NOT
   alias (→false), turning type identity into observable output. On its FIRST run it caught a latent type-identity
