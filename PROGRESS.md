@@ -177,10 +177,16 @@ takes `Rc ⊆ R`, parent keeps the rest), `region_inv_spawn` proves the split pr
 the transferred cell's `AcqConn` is forged through the `KSpawn`→`KStart` fork edge — so
 `region_inv_race_free` now covers BOTH channel-handoff AND ownership-split-on-spawn (witnessed by a
 fork-handoff program whose child writes a cell the parent handed it, race-free for all interleavings).
-Still open (each its own slice, none blocked): the SIGNAL-handoff pattern (location stays shared, channel
-carries a non-pointer signal), and lifting from the `rstep` calculus to the EXTRACTABLE typed IO layer.
-The discipline `Owned ⇒ race-free` was always general; what is NEW is *earning* `Owned` for an arbitrary
-transfer program (channel OR spawn) by an abstract `rstep` induction, not a hand-built per-shape proof.)*
+SIGNAL-handoff (pattern B) now ALSO covered (2026-06-23): `WTf flp` parameterises the typing by a footprint
+map `flp c v` = the location a send of value `v` on channel `c` transfers (pattern A = `flp c v = v`; signal
+handoff = a channel-fixed footprint), and `region_inv_f_race_free` proves race-freedom for it — so the
+canonical `mp_prog` idiom (write a shared cell, send a SIGNAL, recv, read the cell), which pattern-A `WT`
+could not type, is now race-free via the general theorem (witnessed by `sig_*`).  So all THREE Go
+ownership-transfer mechanisms — pointer-handoff, spawn-split, signal-handoff — have general abstract
+race-freedom.  Still open: merging spawn into the `flp` version, and lifting from the `rstep` calculus to
+the EXTRACTABLE typed IO layer.  The discipline `Owned ⇒ race-free` was always general; what is NEW is
+*earning* `Owned` for an arbitrary transfer program (channel/spawn/signal) by an abstract `rstep`
+induction, not a hand-built per-shape proof.)*
   (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed

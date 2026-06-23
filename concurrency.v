@@ -2870,6 +2870,433 @@ Proof.
   rewrite Ho0 in Ho1. discriminate.
 Qed.
 
+(** ============================================================================
+    SIGNAL-HANDOFF (pattern B), unified with pointer-handoff (pattern A) via a FOOTPRINT MAP.
+    [WT] above releases the SENT VALUE's location (pattern A: send a pointer, receiver derefs).  But
+    Go also transfers ownership by sending a SIGNAL while a DIFFERENT cell stays shared (the canonical
+    [mp_prog] idiom: write x; ch<-done; <-ch; read x) — which [WT] cannot type (the read cell ≠ the
+    sent value).  [WTf flp] generalises: [flp c v] is THE location a send of value [v] on channel [c]
+    transfers — computable from the channel and the buffered value, so NO extra ghost is needed.
+    Pattern A = [flp c v = v] (recovers [WT] exactly); pattern B = a channel-fixed map (e.g. channel 0
+    always transfers cell 0, signal ignored).  A SINGLE [flp]-parameterised development covers both,
+    REUSING every pattern-agnostic helper (AcqConn, owned_step_snoc, heldby_*, …).  v1 scope: no-spawn.
+    ============================================================================ *)
+
+Inductive WTf (flp : nat -> nat -> nat) : (nat -> bool) -> Cmd -> Prop :=
+  | WTf_ret  : forall R, WTf flp R CRet
+  | WTf_write: forall R l v k, R l = true -> WTf flp R k -> WTf flp R (CWrite l v k)
+  | WTf_read : forall R l f, R l = true -> (forall v, WTf flp R (f v)) -> WTf flp R (CRead l f)
+  | WTf_send : forall R c v k, R (flp c v) = true -> WTf flp (rdel R (flp c v)) k -> WTf flp R (CSend c v k)
+  | WTf_recv : forall R c f, (forall v, WTf flp (radd R (flp c v)) (f v)) -> WTf flp R (CRecv c f).
+
+Lemma wtf_write_inv : forall flp R l v k, WTf flp R (CWrite l v k) -> R l = true /\ WTf flp R k.
+Proof. intros flp R l v k H. inversion H; subst. split; assumption. Qed.
+Lemma wtf_read_inv : forall flp R l f, WTf flp R (CRead l f) -> R l = true /\ (forall v, WTf flp R (f v)).
+Proof. intros flp R l f H. inversion H; subst. split; assumption. Qed.
+Lemma wtf_send_inv : forall flp R c v k, WTf flp R (CSend c v k) -> R (flp c v) = true /\ WTf flp (rdel R (flp c v)) k.
+Proof. intros flp R c v k H. inversion H; subst. split; assumption. Qed.
+Lemma wtf_recv_inv : forall flp R c f, WTf flp R (CRecv c f) -> forall v, WTf flp (radd R (flp c v)) (f v).
+Proof. intros flp R c f H. inversion H; subst. assumption. Qed.
+
+Lemma wtf_region_ext : forall flp R c, WTf flp R c -> forall R', (forall l, R l = R' l) -> WTf flp R' c.
+Proof.
+  intros flp R c HWT. induction HWT as
+    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c v k Hl _ IHk | R c f _ IHf ];
+    intros R' Hext.
+  - apply WTf_ret.
+  - apply WTf_write; [rewrite <- Hext; exact Hl | apply IHk; exact Hext].
+  - apply WTf_read; [rewrite <- Hext; exact Hl | intro v; apply IHf; exact Hext].
+  - apply WTf_send; [rewrite <- Hext; exact Hl |
+      apply IHk; intro x; unfold rdel; rewrite Hext; reflexivity].
+  - apply WTf_recv. intro v. apply IHf. intro x; unfold radd; rewrite Hext; reflexivity.
+Qed.
+
+(* The invariant, [flp]-parameterised: the buffer carries each in-transit message's TRANSFERRED
+   location [flp c v] (not the raw value).  Everything else is as [RegionInv]. *)
+Definition RegionInvF (flp : nat -> nat -> nat) (own : nat -> Owner) (lp acq : nat -> nat) (cfg : RConfig) : Prop :=
+  (forall g, rc_live cfg g = true -> WTf flp (heldby own g) (rc_prog cfg g))
+  /\ (forall L g, own L = Held g -> (exists i, acc_loc_at (rc_trace cfg) i = Some L) ->
+        AcqConn (rc_trace cfg) lp acq L g)
+  /\ (forall c v s, In (v, s) (rc_bufs cfg c) ->
+        own (flp c v) = Transit /\ ((exists i, acc_loc_at (rc_trace cfg) i = Some (flp c v)) ->
+                            hbt (rc_trace cfg) (lp (flp c v)) s))
+  /\ Owned (rc_trace cfg) /\ LastPosValid (rc_trace cfg) lp /\ AccBeforeLast (rc_trace cfg) lp
+  /\ NoClose (rc_trace cfg).
+
+(* Linearity on the TRANSFERRED locations [flp c (fst e)] (pattern A: = the values; pattern B with a
+   fixed footprint: forces ≤1 in-transit message per channel — a fixed-cell channel is single-shot). *)
+Definition BufLinF (flp : nat -> nat -> nat) (cfg : RConfig) : Prop :=
+  (forall c, NoDup (map (fun e : nat * nat => flp c (fst e)) (rc_bufs cfg c)))
+  /\ (forall c1 c2 L, In L (map (fun e : nat * nat => flp c1 (fst e)) (rc_bufs cfg c1)) ->
+                      In L (map (fun e : nat * nat => flp c2 (fst e)) (rc_bufs cfg c2)) -> c1 = c2).
+
+Lemma region_inv_f_write : forall flp own lp acq p b h lv tr tid l v k,
+  RegionInvF flp own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CWrite l v k ->
+  RegionInvF flp own (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr))
+            (mkRCfg (upd p tid k) b (upd h l v) lv (tr ++ [mkEv tid (KWrite l)])).
+Proof.
+  intros flp own lp acq p b h lv tr tid l v k HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wtf_write_inv in HW. destruct HW as [Hheld HWk].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  destruct (owned_step_snoc tr (mkEv tid (KWrite l)) l lp HO HV HB (or_introl eq_refl)
+              (fun Hex => acqconn_hbt_new tr (mkEv tid (KWrite l)) lp acq l tid (Hacq l tid Hown Hex) eq_refl))
+    as [HO' [HV' HB']].
+  unfold RegionInvF. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [exact HO' | split; [exact HV' | split; [exact HB' |]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. exact HWk.
+    + rewrite (upd_other p tid k g Hne). exact (Hprog g Hg).
+  - intros L g HownL Hex.
+    destruct (Nat.eq_dec L l) as [->|Hne].
+    + rewrite Hown in HownL. injection HownL as Hgt. subst g.
+      exact (acqconn_after_access tr (mkEv tid (KWrite l)) lp acq l tid eq_refl).
+    + pose proof (acc_app_other tr (mkEv tid (KWrite l)) L l (or_introl eq_refl) Hne Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KWrite l)]) lp acq
+               (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KWrite l)) lp acq L g (Hacq L g HownL HaccTr)).
+      * symmetry. exact (upd_lastpos_other lp l (length tr) L Hne).
+      * symmetry. exact (upd_lastpos_other acq l (length tr) L Hne).
+  - intros c0 v0 s0 Hin. destruct (Hbuf c0 v0 s0 Hin) as [HT Hsupp].
+    split; [exact HT |].
+    assert (Hne : flp c0 v0 <> l). { intro Heq; rewrite Heq in HT; rewrite Hown in HT; discriminate. }
+    rewrite (upd_lastpos_other lp l (length tr) (flp c0 v0) Hne). intros Hex.
+    pose proof (acc_app_other tr (mkEv tid (KWrite l)) (flp c0 v0) l (or_introl eq_refl) Hne Hex) as HaccTr.
+    exact (hbt_app1 tr (mkEv tid (KWrite l)) (lp (flp c0 v0)) s0 (Hsupp HaccTr)).
+  - apply noclose_app; [exact HNC | exact I].
+Qed.
+
+Lemma region_inv_f_read : forall flp own lp acq p b h lv tr tid l f,
+  RegionInvF flp own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CRead l f ->
+  RegionInvF flp own (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr))
+            (mkRCfg (upd p tid (f (h l))) b h lv (tr ++ [mkEv tid (KRead l)])).
+Proof.
+  intros flp own lp acq p b h lv tr tid l f HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wtf_read_inv in HW. destruct HW as [Hheld HWf].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  destruct (owned_step_snoc tr (mkEv tid (KRead l)) l lp HO HV HB (or_intror eq_refl)
+              (fun Hex => acqconn_hbt_new tr (mkEv tid (KRead l)) lp acq l tid (Hacq l tid Hown Hex) eq_refl))
+    as [HO' [HV' HB']].
+  unfold RegionInvF. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [exact HO' | split; [exact HV' | split; [exact HB' |]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. exact (HWf (h l)).
+    + rewrite (upd_other p tid (f (h l)) g Hne). exact (Hprog g Hg).
+  - intros L g HownL Hex.
+    destruct (Nat.eq_dec L l) as [->|Hne].
+    + rewrite Hown in HownL. injection HownL as Hgt. subst g.
+      exact (acqconn_after_access tr (mkEv tid (KRead l)) lp acq l tid eq_refl).
+    + pose proof (acc_app_other tr (mkEv tid (KRead l)) L l (or_intror eq_refl) Hne Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KRead l)]) lp acq
+               (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KRead l)) lp acq L g (Hacq L g HownL HaccTr)).
+      * symmetry. exact (upd_lastpos_other lp l (length tr) L Hne).
+      * symmetry. exact (upd_lastpos_other acq l (length tr) L Hne).
+  - intros c0 v0 s0 Hin. destruct (Hbuf c0 v0 s0 Hin) as [HT Hsupp].
+    split; [exact HT |].
+    assert (Hne : flp c0 v0 <> l). { intro Heq; rewrite Heq in HT; rewrite Hown in HT; discriminate. }
+    rewrite (upd_lastpos_other lp l (length tr) (flp c0 v0) Hne). intros Hex.
+    pose proof (acc_app_other tr (mkEv tid (KRead l)) (flp c0 v0) l (or_intror eq_refl) Hne Hex) as HaccTr.
+    exact (hbt_app1 tr (mkEv tid (KRead l)) (lp (flp c0 v0)) s0 (Hsupp HaccTr)).
+  - apply noclose_app; [exact HNC | exact I].
+Qed.
+
+Lemma region_inv_f_send : forall flp own lp acq p b h lv tr tid c v k,
+  RegionInvF flp own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CSend c v k ->
+  RegionInvF flp (upd_own own (flp c v) Transit) lp acq
+            (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv (tr ++ [mkEv tid (KSend c)])).
+Proof.
+  intros flp own lp acq p b h lv tr tid c v k HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wtf_send_inv in HW. destruct HW as [Hheld HWk].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  assert (Hnm : match e_kind (mkEv tid (KSend c)) with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  unfold RegionInvF. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split;
+    [ exact (owned_app_nonmem tr (mkEv tid (KSend c)) HO Hnm)
+    | split; [ exact (lastposvalid_app_nonmem tr (mkEv tid (KSend c)) lp HV Hnm)
+    | split; [ exact (accbeforelast_app_nonmem tr (mkEv tid (KSend c)) lp HB Hnm)
+    | apply noclose_app; [exact HNC | exact I] ]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. apply (wtf_region_ext flp (rdel (heldby own tid) (flp c v)) k HWk).
+      intro x. symmetry. apply heldby_release.
+    + rewrite (upd_other p tid k g Hne). apply (wtf_region_ext flp (heldby own g) (p g) (Hprog g Hg)).
+      intro x. symmetry. exact (heldby_release_other own (flp c v) tid g x Hne Hown).
+  - intros L g HownL Hex.
+    assert (HLne : L <> flp c v). { intro Heq; subst L. rewrite upd_own_same in HownL. discriminate. }
+    rewrite (upd_own_other own (flp c v) Transit L HLne) in HownL.
+    pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) L Hnm Hex) as HaccTr.
+    exact (acqconn_app1 tr (mkEv tid (KSend c)) lp acq L g (Hacq L g HownL HaccTr)).
+  - intros c0 v0 s0 Hin.
+    destruct (Nat.eq_dec c0 c) as [->|Hcne].
+    + rewrite upd_same in Hin. apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+      * destruct (Hbuf c v0 s0 Hin) as [HT Hsupp]. split.
+        -- destruct (Nat.eq_dec (flp c v0) (flp c v)) as [Heq|Hne2].
+           ++ rewrite Heq, upd_own_same. reflexivity.
+           ++ rewrite (upd_own_other own (flp c v) Transit (flp c v0) Hne2). exact HT.
+        -- intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) (flp c v0) Hnm Hex) as HaccTr.
+           exact (hbt_app1 tr (mkEv tid (KSend c)) (lp (flp c v0)) s0 (Hsupp HaccTr)).
+      * cbn in Hin. destruct Hin as [Heq | []]. injection Heq as Hv0 Hs0. subst v0 s0. split.
+        -- rewrite upd_own_same. reflexivity.
+        -- intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) (flp c v) Hnm Hex) as HaccTr.
+           exact (acqconn_hbt_new tr (mkEv tid (KSend c)) lp acq (flp c v) tid (Hacq (flp c v) tid Hown HaccTr) eq_refl).
+    + rewrite (upd_other b c (b c ++ [(v, length tr)]) c0 Hcne) in Hin.
+      destruct (Hbuf c0 v0 s0 Hin) as [HT Hsupp]. split.
+      * destruct (Nat.eq_dec (flp c0 v0) (flp c v)) as [Heq|Hne2].
+        -- rewrite Heq, upd_own_same. reflexivity.
+        -- rewrite (upd_own_other own (flp c v) Transit (flp c0 v0) Hne2). exact HT.
+      * intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) (flp c0 v0) Hnm Hex) as HaccTr.
+        exact (hbt_app1 tr (mkEv tid (KSend c)) (lp (flp c0 v0)) s0 (Hsupp HaccTr)).
+Qed.
+
+Lemma region_inv_f_recv : forall flp own lp acq p b h lv tr tid c f v s brest,
+  RegionInvF flp own lp acq (mkRCfg p b h lv tr) -> BufLinF flp (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CRecv c f -> b c = (v, s) :: brest ->
+  RegionInvF flp (upd_own own (flp c v) (Held tid)) lp (upd_lastpos acq (flp c v) (length tr))
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
+Proof.
+  intros flp own lp acq p b h lv tr tid c f v s brest HRI HBL Hlv Hp Hbc.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  destruct HBL as [HND HCC].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  pose proof (wtf_recv_inv _ _ _ _ HW) as HWf.
+  assert (Hhead : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
+  destruct (Hbuf c v s Hhead) as [HvT Hvsupp].
+  assert (Hnm : match e_kind (mkEv tid (KRecv c s)) with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (HvND : ~ In (flp c v) (map (fun e : nat * nat => flp c (fst e)) brest)).
+  { pose proof (HND c) as HNDc. rewrite Hbc in HNDc. cbn in HNDc.
+    inversion HNDc as [|x l Hnotin Hrest]; subst. exact Hnotin. }
+  assert (Hrem : forall c0 v0 s0, In (v0, s0) (upd b c brest c0) -> flp c0 v0 <> flp c v).
+  { intros c0 v0 s0 Hin Heq. destruct (Nat.eq_dec c0 c) as [->|Hcne].
+    - rewrite upd_same in Hin. apply (in_map (fun e : nat * nat => flp c (fst e))) in Hin. cbn in Hin.
+      rewrite <- Heq in HvND. exact (HvND Hin).
+    - rewrite (upd_other b c brest c0 Hcne) in Hin. apply (in_map (fun e : nat * nat => flp c0 (fst e))) in Hin. cbn in Hin.
+      rewrite Heq in Hin.
+      assert (Hvc : In (flp c v) (map (fun e : nat * nat => flp c (fst e)) (b c))) by (rewrite Hbc; left; reflexivity).
+      exact (Hcne (HCC c0 c (flp c v) Hin Hvc)). }
+  unfold RegionInvF. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split;
+    [ exact (owned_app_nonmem tr (mkEv tid (KRecv c s)) HO Hnm)
+    | split; [ exact (lastposvalid_app_nonmem tr (mkEv tid (KRecv c s)) lp HV Hnm)
+    | split; [ exact (accbeforelast_app_nonmem tr (mkEv tid (KRecv c s)) lp HB Hnm)
+    | apply noclose_app; [exact HNC | exact I] ]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. apply (wtf_region_ext flp (radd (heldby own tid) (flp c v)) (f v) (HWf v)).
+      intro x. symmetry. apply heldby_acquire.
+    + rewrite (upd_other p tid (f v) g Hne).
+      apply (wtf_region_ext flp (heldby own g) (p g) (Hprog g Hg)).
+      intro x. symmetry. exact (heldby_acquire_other own (flp c v) tid g x Hne HvT).
+  - intros L g HownL Hex.
+    destruct (Nat.eq_dec L (flp c v)) as [->|Hne].
+    + rewrite upd_own_same in HownL. injection HownL as Hgt. subst g.
+      pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) (flp c v) Hnm Hex) as HaccTr.
+      exact (recv_establishes_acqconn tr c s lp acq (flp c v) tid (Hvsupp HaccTr)).
+    + rewrite (upd_own_other own (flp c v) (Held tid) L Hne) in HownL.
+      pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) L Hnm Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KRecv c s)]) lp acq lp (upd_lastpos acq (flp c v) (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KRecv c s)) lp acq L g (Hacq L g HownL HaccTr)).
+      * reflexivity.
+      * symmetry. exact (upd_lastpos_other acq (flp c v) (length tr) L Hne).
+  - intros c0 v0 s0 Hin.
+    pose proof (Hrem c0 v0 s0 Hin) as HLne.
+    assert (Horig : own (flp c0 v0) = Transit /\
+                    ((exists i, acc_loc_at tr i = Some (flp c0 v0)) -> hbt tr (lp (flp c0 v0)) s0)).
+    { destruct (Nat.eq_dec c0 c) as [->|Hcne].
+      - rewrite upd_same in Hin. apply (Hbuf c v0 s0). rewrite Hbc. right. exact Hin.
+      - rewrite (upd_other b c brest c0 Hcne) in Hin. exact (Hbuf c0 v0 s0 Hin). }
+    destruct Horig as [HT Hsupp].
+    split.
+    + rewrite (upd_own_other own (flp c v) (Held tid) (flp c0 v0) HLne). exact HT.
+    + intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) (flp c0 v0) Hnm Hex) as HaccTr.
+      exact (hbt_app1 tr (mkEv tid (KRecv c s)) (lp (flp c0 v0)) s0 (Hsupp HaccTr)).
+Qed.
+
+Lemma buflinf_send : forall (flp : nat -> nat -> nat) (bf : nat -> list (nat * nat)) (c v s0 : nat),
+  (forall ch, NoDup (map (fun e : nat * nat => flp ch (fst e)) (bf ch))) ->
+  (forall c1 c2 L, In L (map (fun e : nat * nat => flp c1 (fst e)) (bf c1)) -> In L (map (fun e : nat * nat => flp c2 (fst e)) (bf c2)) -> c1 = c2) ->
+  (forall ch, ~ In (flp c v) (map (fun e : nat * nat => flp ch (fst e)) (bf ch))) ->
+  (forall ch, NoDup (map (fun e : nat * nat => flp ch (fst e)) (upd bf c (bf c ++ [(v, s0)]) ch)))
+  /\ (forall c1 c2 L, In L (map (fun e : nat * nat => flp c1 (fst e)) (upd bf c (bf c ++ [(v, s0)]) c1)) ->
+                      In L (map (fun e : nat * nat => flp c2 (fst e)) (upd bf c (bf c ++ [(v, s0)]) c2)) -> c1 = c2).
+Proof.
+  intros flp bf c v s0 HND HCC Hvnb. split.
+  - intro ch. destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same, map_app. cbn. apply nodup_snoc; [apply HND | apply Hvnb].
+    + rewrite (upd_other bf c (bf c ++ [(v, s0)]) ch Hne). apply HND.
+  - intros c1 c2 L H1 H2.
+    destruct (Nat.eq_dec c1 c) as [->|Hc1]; destruct (Nat.eq_dec c2 c) as [->|Hc2].
+    + reflexivity.
+    + rewrite upd_same, map_app in H1. rewrite (upd_other bf c _ c2 Hc2) in H2.
+      apply in_app_iff in H1. destruct H1 as [H1 | H1].
+      * exfalso. apply Hc2. symmetry. exact (HCC c c2 L H1 H2).
+      * cbn in H1. destruct H1 as [Heq | []]. subst L. exfalso. exact (Hvnb c2 H2).
+    + rewrite (upd_other bf c _ c1 Hc1) in H1. rewrite upd_same, map_app in H2.
+      apply in_app_iff in H2. destruct H2 as [H2 | H2].
+      * exfalso. apply Hc1. exact (HCC c1 c L H1 H2).
+      * cbn in H2. destruct H2 as [Heq | []]. subst L. exfalso. exact (Hvnb c1 H1).
+    + rewrite (upd_other bf c _ c1 Hc1) in H1. rewrite (upd_other bf c _ c2 Hc2) in H2.
+      exact (HCC c1 c2 L H1 H2).
+Qed.
+
+Lemma buflinf_recv : forall (flp : nat -> nat -> nat) (bf : nat -> list (nat * nat)) (c v s : nat) (brest : list (nat * nat)),
+  (forall ch, NoDup (map (fun e : nat * nat => flp ch (fst e)) (bf ch))) ->
+  (forall c1 c2 L, In L (map (fun e : nat * nat => flp c1 (fst e)) (bf c1)) -> In L (map (fun e : nat * nat => flp c2 (fst e)) (bf c2)) -> c1 = c2) ->
+  bf c = (v, s) :: brest ->
+  (forall ch, NoDup (map (fun e : nat * nat => flp ch (fst e)) (upd bf c brest ch)))
+  /\ (forall c1 c2 L, In L (map (fun e : nat * nat => flp c1 (fst e)) (upd bf c brest c1)) -> In L (map (fun e : nat * nat => flp c2 (fst e)) (upd bf c brest c2)) -> c1 = c2).
+Proof.
+  intros flp bf c v s brest HND HCC Hbc. split.
+  - intro ch. destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same. pose proof (HND c) as H. rewrite Hbc in H. cbn in H.
+      inversion H; subst; assumption.
+    + rewrite (upd_other bf c brest ch Hne). apply HND.
+  - intros c1 c2 L H1 H2.
+    assert (Hsub : forall cx, In L (map (fun e : nat * nat => flp cx (fst e)) (upd bf c brest cx)) -> In L (map (fun e : nat * nat => flp cx (fst e)) (bf cx))).
+    { intros cx Hx. destruct (Nat.eq_dec cx c) as [->|Hcx].
+      - rewrite upd_same in Hx. rewrite Hbc. cbn. right. exact Hx.
+      - rewrite (upd_other bf c brest cx Hcx) in Hx. exact Hx. }
+    exact (HCC c1 c2 L (Hsub c1 H1) (Hsub c2 H2)).
+Qed.
+
+Lemma region_inv_f_step : forall flp own lp acq cfg cfg',
+  RegionInvF flp own lp acq cfg -> BufLinF flp cfg -> OwnerLive own cfg -> rstep cfg cfg' ->
+  exists own' lp' acq', RegionInvF flp own' lp' acq' cfg' /\ BufLinF flp cfg' /\ OwnerLive own' cfg'.
+Proof.
+  intros flp own lp acq cfg cfg' HRI HBL HOL Hstep.
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp Hcb
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcb
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ].
+  - exists (upd_own own (flp c v) Transit), lp, acq.
+    split; [ exact (region_inv_f_send flp own lp acq p b h lv tr tid c v k HRI Hlv Hp) | ].
+    split.
+    + pose proof HRI as HRI2. destruct HRI2 as [Hprog [_ [Hbuf _]]]. destruct HBL as [HND HCC].
+      cbn [rc_prog rc_live rc_bufs] in *.
+      pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+      apply wtf_send_inv in HW. destruct HW as [Hheld _]. pose proof (heldby_true _ _ _ Hheld) as Hown.
+      assert (Hvnb : forall ch, ~ In (flp c v) (map (fun e : nat * nat => flp ch (fst e)) (b ch))).
+      { intros ch Hcon. apply in_map_iff in Hcon. destruct Hcon as [[v' s'] [Hfst Hin']].
+        cbn in Hfst. destruct (Hbuf ch v' s' Hin') as [HT _]. rewrite Hfst in HT. rewrite Hown in HT. discriminate. }
+      exact (buflinf_send flp b c v (length tr) HND HCC Hvnb).
+    + intros l0 g Hg. destruct (Nat.eq_dec l0 (flp c v)) as [->|Hne].
+      * rewrite upd_own_same in Hg. discriminate.
+      * rewrite (upd_own_other own (flp c v) Transit l0 Hne) in Hg. exact (HOL l0 g Hg).
+  - exists (upd_own own (flp c v) (Held tid)), lp, (upd_lastpos acq (flp c v) (length tr)).
+    split; [ exact (region_inv_f_recv flp own lp acq p b h lv tr tid c f v s brest HRI HBL Hlv Hp Hbc) | ].
+    split.
+    + destruct HBL as [HND HCC]. cbn [rc_bufs] in *.
+      exact (buflinf_recv flp b c v s brest HND HCC Hbc).
+    + intros l0 g Hg. destruct (Nat.eq_dec l0 (flp c v)) as [->|Hne].
+      * rewrite upd_own_same in Hg. injection Hg as Hgt. subst g. exact Hlv.
+      * rewrite (upd_own_other own (flp c v) (Held tid) l0 Hne) in Hg. exact (HOL l0 g Hg).
+  - exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
+    split; [ exact (region_inv_f_write flp own lp acq p b h lv tr tid l v k HRI Hlv Hp) |
+             split; [ exact HBL | exact HOL ] ].
+  - exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
+    split; [ exact (region_inv_f_read flp own lp acq p b h lv tr tid l f HRI Hlv Hp) |
+             split; [ exact HBL | exact HOL ] ].
+  - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - exfalso. destruct HRI as [_ [_ [_ [_ [_ [_ HNC]]]]]]. cbn [rc_trace] in HNC.
+    pose proof (HNC pos e Hpos) as HC. rewrite Hek in HC. cbn in HC. exact HC.
+  - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+Qed.
+
+Lemma region_inv_f_steps : forall flp own lp acq cfg cfg',
+  RegionInvF flp own lp acq cfg -> BufLinF flp cfg -> OwnerLive own cfg -> rsteps cfg cfg' ->
+  exists own' lp' acq', RegionInvF flp own' lp' acq' cfg' /\ BufLinF flp cfg' /\ OwnerLive own' cfg'.
+Proof.
+  intros flp own lp acq cfg cfg' HRI HBL HOL Hsteps. revert own lp acq HRI HBL HOL.
+  induction Hsteps as [cfg0 | a b0 c0 Hab Hbc IH]; intros own lp acq HRI HBL HOL.
+  - exists own, lp, acq. split; [exact HRI | split; [exact HBL | exact HOL]].
+  - destruct (region_inv_f_step flp own lp acq a b0 HRI HBL HOL Hab)
+      as [own' [lp' [acq' [HRI' [HBL' HOL']]]]].
+    exact (IH own' lp' acq' HRI' HBL' HOL').
+Qed.
+
+(* THE SIGNAL-HANDOFF THEOREM: arbitrary (no-spawn) programs disciplined by [WTf flp] are race-free
+   for ALL interleavings — covering BOTH pointer-handoff ([flp c v = v]) and signal-handoff. *)
+Theorem region_inv_f_race_free : forall flp own lp acq cfg0 cfg,
+  RegionInvF flp own lp acq cfg0 -> BufLinF flp cfg0 -> OwnerLive own cfg0 -> rsteps cfg0 cfg ->
+  TraceRaceFree (rc_trace cfg).
+Proof.
+  intros flp own lp acq cfg0 cfg HRI HBL HOL Hsteps.
+  destruct (region_inv_f_steps flp own lp acq cfg0 cfg HRI HBL HOL Hsteps) as [own' [lp' [acq' [HRI' _]]]].
+  destruct HRI' as [_ [_ [_ [HO _]]]].
+  exact (owned_race_free _ HO).
+Qed.
+
+(* SIGNAL-HANDOFF witness (pattern B — Fido's first concurrency idiom [mp_prog]): g0 owns cell 0,
+   writes it, then SENDS A SIGNAL (value 99) on channel 0 — and channel 0's footprint [sigflp 0 _ = 0]
+   transfers cell 0 itself; g1 receives the signal and READS cell 0.  The shared cell 0 (NOT the sent
+   value) is handed off — exactly what [WT] (pattern A) could not type — yet the cross-goroutine
+   write/read on cell 0 is race-free for EVERY interleaving. *)
+Definition sigflp : nat -> nat -> nat := fun c v => if Nat.eqb c 0 then 0 else v.
+Definition sig_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 0 1 (CSend 0 99 CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun _ => CRead 0 (fun _ => CRet))
+           else CRet.
+Definition sig_init : RConfig :=
+  mkRCfg sig_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma sig_regioninv : RegionInvF sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) sig_init.
+Proof.
+  unfold RegionInvF, sig_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold sig_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WTf_write; [reflexivity | apply WTf_send; [reflexivity | apply WTf_ret]].
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WTf_recv. intro x. apply WTf_read; [unfold sigflp; cbn; apply radd_same | intro v0; apply WTf_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c v0 s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma sig_buflin : BufLinF sigflp sig_init.
+Proof.
+  unfold BufLinF, sig_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Lemma sig_ownerlive : OwnerLive (fun _ => Held 0) sig_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
+Theorem sig_all_interleavings_race_free : forall cfg,
+  rsteps sig_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_f_race_free sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) sig_init cfg
+           sig_regioninv sig_buflin sig_ownerlive Hsteps).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6980,6 +7407,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
