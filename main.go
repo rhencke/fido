@@ -681,6 +681,17 @@ func Select_default_demo() {
 	}
 }
 
+func Select_closed_demo() {
+	ch := make(chan int64, 1)
+	close(ch)
+	select {
+	case x := <-ch:
+		println(x)
+	default:
+		println(99)
+	}
+}
+
 func Goroutine_demo() {
 	ch := make(chan int64)
 	go func() {
@@ -2387,6 +2398,7 @@ func main() {
 	Closed_panic_demo()
 	Select_demo()
 	Select_default_demo()
+	Select_closed_demo()
 	Goroutine_demo()
 	Session_demo()
 	Adder_demo()

@@ -1342,6 +1342,17 @@ Definition select_default_demo : IO unit :=
   select_recv_default TI64 ch (fun x => println [any x])   (* ch empty → default *)
                       (println [any (99)%i64]).            (* prints: 99 *)
 
+(** Differential test — select over a CLOSED channel.  A closed-and-DRAINED channel's recv is READY in
+    Go (it yields the zero value immediately), so the recv case fires and [default] is NOT taken — the
+    select_recv_default code-review fix (2026-06-20; examining only the buffer mispredicted default for a
+    closed channel).  Here [ch] is closed+empty: the recv case runs with the zero value (0), printing 0,
+    NOT 99.  A regression to the pre-fix behaviour would print 99. *)
+Definition select_closed_demo : IO unit :=
+  ch <-' make_chan_buf TI64 1 ;;
+  close_chan TI64 ch >>'                                   (* ch closed + empty *)
+  select_recv_default TI64 ch (fun x => println [any x])   (* closed+drained ⇒ recv READY ⇒ 0 (not default) *)
+                      (println [any (99)%i64]).
+
 (** Unbuffered channel + goroutine: the goroutine sends while main recvs.
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
 Definition goroutine_demo : IO unit :=
@@ -3073,6 +3084,7 @@ Definition main_effect : IO unit :=
   closed_panic_demo             >>'   (* prints: 1 / 2 (send-on-closed + double-close panics caught) *)
   select_demo                   >>'   (* prints: 42 (ch1 ready) *)
   select_default_demo           >>'   (* prints: 99 (default, ch empty) *)
+  select_closed_demo            >>'   (* prints: 0 (select over CLOSED chan: recv ready with zero, NOT default) *)
   goroutine_demo                >>'   (* prints: 42 *)
   session_demo                  >>'   (* prints: 42 *)
   adder_demo                    >>'   (* prints: 42 *)
