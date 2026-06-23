@@ -288,7 +288,10 @@ separate tracks.
    NaN-propagation and signed-zero corners) → Go `min(a,b)`/`max(a,b)`
    (`minmax64_demo` → `-2 1 18446744073709551615`; `fminmax_demo` floats). Add to
    `builtins.v` + plugin
-   match.  `new` (pointers), `copy`/slice-`clear`/`make([]T,len,cap)` (slice aliasing),
+   match.  `new` (pointers), `&x` (address-of-a-local, 2026-06-23 — `ref_as_ptr` →
+   Go `&x`, the inverse of `ptr_as_ref`; provably never-nil + read/write aliasing
+   theorems on the substrate base; fail-closed to addressable operands; `addr_of_demo`
+   golden-locked), `copy`/slice-`clear`/`make([]T,len,cap)` (slice aliasing),
    and `complex`/`real`/`imag` are all now DONE (the last 2026-06-18: `GoComplex128` is a
    2-field float record rendered as native `complex128`, with `go_complex`/`go_real`/
    `go_imag` → `complex(re,im)`/`real(c)`/`imag(c)`; struct decl/ctor/projections
