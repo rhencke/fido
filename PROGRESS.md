@@ -1138,13 +1138,15 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   backend site; each declares `(* EXPECT: <substring> *)` (the `unsupported` message it must abort with), and
   `negtests/run.sh` compiles each (standalone `rocq compile -R _build/default Fido`, OCAMLPATH at the built
   plugin) asserting the abort — a fixture that EXTRACTS instead = a reopened fail-closed site (the defect class
-  the golden can't see). v1 locks 3 sites: `&x` non-addressable operand, `recv_ok` in expression position (R2),
-  `slice_of_list` of a non-literal (P0 #4). Verified both ways: passes on the real plugin; a temp valid fixture
+  the golden can't see). Locks 4 sites: `&x` non-addressable operand, `recv_ok` in expression position (R2),
+  `slice_of_list` of a non-literal (P0 #4), non-comparable map key (R4(b)). Verified both ways: passes on the real plugin; a temp valid fixture
   (extracts fine) makes the harness FAIL exit 1. KEY: the in-`main.v` `Fail Go File Extraction` approach is dead
   (`Fail` doesn't catch the extraction `unsupported`; File Extraction hits an enum-collision) — a SEPARATE-build
-  compile (its own fresh compilation unit) sidesteps both. Local (host `rocq`, like run-local); negtests live
-  OUTSIDE the Fido theory `(modules …)` so `dune build`/the Docker build ignore them. FOLLOW-UP: more fixtures
-  (one per fail-closed site), and wiring into the Docker build / pre-commit for non-bypassability. **STILL OPEN
+  compile (its own fresh compilation unit) sidesteps both. **NON-BYPASSABLE (2026-06-23): `negtests/run.sh` now
+  runs in the Docker prover stage on EVERY build (after the axiom gate), so a reopened fail-closed site fails
+  `make check` itself; also `make negtest` locally.** The fixtures live OUTSIDE the theory's module list so
+  `dune build` never compiles them as modules (the harness compiles each explicitly). FOLLOW-UP: more fixtures.
+  **STILL OPEN
   (deeper R10 slices):** runtime DIFFERENTIAL tests beyond the type-identity matrix (now comprehensive), CI
   running `make check`, the hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses).
   **RUNTIME DIFFERENTIAL TEST ✅ started + caught a real bug (2026-06-22, commit 5cb8611):** `type_identity_lock_demo`

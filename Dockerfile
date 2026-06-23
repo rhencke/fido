@@ -63,6 +63,7 @@ COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam dune  ./
 COPY --chown=opam:opam *.v   ./
 COPY --chown=opam:opam EXPECTED_ASSUMPTIONS.txt ./
+COPY --chown=opam:opam negtests/ negtests/
 
 # The extracted *.go are produced as a SIDE EFFECT of compiling the extraction-driver
 # theories (the `Go Main Extraction` vernac); dune does NOT track them as build outputs.
@@ -81,6 +82,10 @@ COPY --chown=opam:opam EXPECTED_ASSUMPTIONS.txt ./
 #      `Admitted` that slipped the grep, etc. — is a trust-base regression (rule 3) and FAILS
 #      the build here, not silently in a `Print Assumptions` nobody reads.  (The pre-commit hook
 #      greps for DECLARED axioms; this catches TRANSITIVE/imported ones too.)
+#  (4) NEGTEST HARNESS (review #4 R10): `negtests/run.sh` compiles each negative fixture and
+#      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
+#      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
+#      the defect class the happy-path golden cannot see.  Now NON-bypassable (runs every build).
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
@@ -92,6 +97,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
          echo "fido: a NEW axiom reaching the extracted program is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
          exit 1; \
        fi \
+    && sh negtests/run.sh \
     && test -n "$(ls _build/default/*.go 2>/dev/null)" \
     && cp -r _build/default/*.go /tmp/
 

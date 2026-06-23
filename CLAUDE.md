@@ -110,8 +110,10 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `(* EXPECT: <substring> *)`, the `unsupported` message extraction MUST abort with. `run.sh`
   compiles each and asserts the abort — a fixture that EXTRACTS instead means a fail-closed
   site reopened (plausible-but-wrong Go where rule 2 demands a loud abort), the defect class
-  the happy-path golden CANNOT see. Run it after any plugin change. Local (host `rocq`, like
-  `run-local`); negtests are outside the Fido theory so the Docker build ignores them.
+  the happy-path golden CANNOT see. Runs NON-bypassably in the Docker prover stage on every
+  `make check`/`make extract` (after the axiom-manifest gate), AND locally via `make negtest`
+  (host `rocq`). The fixtures live outside the Fido theory's `(modules …)`, so `dune build`
+  never compiles them as theory modules — the harness compiles each explicitly, expecting the abort.
 
 Gotchas (don't relearn these the hard way):
 
