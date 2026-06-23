@@ -1827,6 +1827,16 @@ Definition ptr_demo : IO unit :=
   bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
   println [any b]))))).                        (* prints 99 *)
 
+(** Differential test — a POINTER boxed as [any] then type-asserted.  Exercises the RECURSIVE
+    [go_type_of_tag] ([TPtr TI64] → Go [*int64], the pointer-as-interface case, previously
+    UNEXERCISED): a [*int64] interface value asserted TO [*int64] SUCCEEDS and TO [int64] FAILS, so the
+    composite tag rendering AGREES with Go's runtime type identity (model [tag_eq] vs runtime assert). *)
+Definition ptr_box_demo : IO unit :=
+  bind (ptr_new TI64 (10)%i64) (fun p =>
+  type_assert_safe (TPtr TI64) (any p) (fun _ a =>    (* assert *int64 to *int64 → true  *)
+  type_assert_safe TI64 (any p) (fun _ b =>           (* assert *int64 to int64  → FALSE *)
+    println [any a; any b]))).   (* true false *)
+
 (** [new(T)] (Go's predeclared builtin): a fresh [*int64] pointing to the ZERO value;
     dereferencing it reads 0.  Now unblocked by the pointer model (B1). *)
 Definition new_demo : IO unit :=
@@ -3084,6 +3094,7 @@ Definition main_effect : IO unit :=
   irreducible_demo true         >>'   (* prints: 2 / 1 / 2 / 1 / 2 *)
   mut_demo                      >>'   (* prints: 15 *)
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
+  ptr_box_demo                  >>'   (* prints: true false (a *int64 boxed as any: asserts to *int64 not int64 — recursive TPtr tag) *)
   new_demo                      >>'   (* prints: 0 (new(int64) → zero) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
   ptr_chan_demo                 >>'   (* prints: 7 (a *int64 sent over a chan, deref'd) *)

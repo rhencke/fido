@@ -199,6 +199,7 @@ n= 5
 15
 10
 99
+true false
 0
 42 true
 0 false

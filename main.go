@@ -1110,6 +1110,13 @@ func Ptr_demo() {
 	println(b)
 }
 
+func Ptr_box_demo() {
+	p := func(_v int64) *int64 { return &_v }(int64(10))
+	_, a := any(p).(*int64)
+	_, b := any(p).(int64)
+	println(a, b)
+}
+
 func New_demo() {
 	p := new(int64)
 	v := *p
@@ -2405,6 +2412,7 @@ func main() {
 	Irreducible_demo(true)
 	Mut_demo()
 	Ptr_demo()
+	Ptr_box_demo()
 	New_demo()
 	Ptr_safe_demo()
 	Ptr_chan_demo()
