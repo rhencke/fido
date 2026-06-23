@@ -8,6 +8,11 @@ PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
 GORUN := docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine go run .
+# `go vet` gate (review #4 R10): `go run` already BUILDS the emitted Go (so a type error
+# anywhere fails), but vet catches suspicious-but-COMPILING constructs (bad printf verbs,
+# unreachable code, lost cancels, self-assignment, …) that a plugin bug could emit silently.
+# The no-import `package main` vets offline.  Wired into [check] and [golden] below.
+GOVET := docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine go vet .
 
 # One-time setup: activate git hooks from .githooks/.
 install-hooks:
@@ -60,6 +65,11 @@ run: build
 # green.  [extract] re-runs the prover (Docker layers cached if unchanged), so
 # this always validates freshly-extracted Go (and fails loud if a proof broke).
 check: extract
+	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
+	if ! $(GOVET); then \
+	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
+	  exit 1; \
+	fi
 	@set +e; $(GORUN) > /tmp/fido_out.txt 2>&1; rc=$$?; set -e; \
 	if [ $$rc -ne 0 ]; then \
 	  echo "fido: PROGRAM EXITED NON-ZERO (status $$rc) — an uncaught panic / crash, NOT a benign diff:"; \
@@ -82,6 +92,11 @@ check: extract
 # step done beside it.  Review the printed delta; if it is more than you intended, your
 # change had an unexpected effect somewhere.
 golden: extract
+	@echo "fido: go vet (gate before bless)..."; \
+	if ! $(GOVET); then \
+	  echo "fido: REFUSING TO BLESS — go vet reports a diagnostic on the emitted Go; fix it first."; \
+	  exit 1; \
+	fi
 	@set +e; $(GORUN) > /tmp/fido_new.txt 2>&1; rc=$$?; set -e; \
 	if [ $$rc -ne 0 ]; then \
 	  echo "fido: REFUSING TO BLESS — program EXITED NON-ZERO (status $$rc), an uncaught panic / crash:"; \
