@@ -1560,6 +1560,191 @@ Lemma acc_loc_at_app_new : forall (t : Trace) e,
   match e_kind e with KWrite l => Some l | KRead l => Some l | _ => None end.
 Proof. intros t e. unfold acc_loc_at. rewrite nth_error_app_new. reflexivity. Qed.
 
+(** ============================================================================
+    INCREMENTAL [Owned] — the reusable core for the GENERAL dynamic-ownership invariant.
+
+    The per-program transfer witnesses ([mp]/[fork]/[xfer]/[dst]) all establish [Owned] by
+    WHOLE-TRACE phase enumeration (a [...Reach] disjunction over the finitely-many reachable
+    states), which does NOT generalise to arbitrary programs (phase explosion).  The abstract
+    invariant instead needs [Owned] preserved ONE APPENDED ACCESS AT A TIME, so that an
+    [rstep]-indexed induction can carry it.  [owned_snoc] is that step: appending a memory
+    access to location [L] preserves [Owned] PROVIDED the new access is happens-before-after
+    EVERY prior access to [L] (its only new conflicting partners).  [owned_step_snoc] then
+    reduces that to a SINGLE per-step obligation — happens-before from the location's PREVIOUS
+    access ([lp L], the last-position map) to the new one — by carrying the auxiliary
+    [AccBeforeLast] invariant (every past access hb-before its location's latest).  This is
+    exactly the obligation a dynamic OWNER argument discharges (same owner ⇒ program order;
+    transferred owner ⇒ the send/recv or spawn/start synchronisation edge), so it is the clean
+    interface between the trace-level race theory and the forthcoming ownership-transfer
+    reachability proof.  All [hbt]-based and append-monotone — no [WfTrace] needed.
+    ============================================================================ *)
+
+(* The newly-appended event's accessed location, when it IS a memory access. *)
+Lemma acc_new_L : forall (t : Trace) e L,
+  (e_kind e = KWrite L \/ e_kind e = KRead L) ->
+  acc_loc_at (t ++ [e]) (length t) = Some L.
+Proof. intros t e L He. rewrite acc_loc_at_app_new. destruct He as [H|H]; rewrite H; reflexivity. Qed.
+
+(* Append-monotonicity of the happens-before relation and its components: an edge among
+   OLD positions survives appending a new event (the new event only adds forward edges). *)
+Lemma po_app1 : forall (t : Trace) e i j, po t i j -> po (t ++ [e]) i j.
+Proof.
+  intros t e i j H. destruct H as [Hij [Hj Htid]].
+  assert (Hi : i < length t) by lia.
+  split; [exact Hij | split].
+  - rewrite length_app. cbn. lia.
+  - rewrite (tid_at_app1 t e i Hi), (tid_at_app1 t e j Hj). exact Htid.
+Qed.
+
+Lemma sync_app1 : forall (t : Trace) e i j, sync t i j -> sync (t ++ [e]) i j.
+Proof.
+  intros t e i j [ev [Hnth Hk]]. exists ev. split; [| exact Hk].
+  pose proof (nth_error_lt _ _ _ Hnth) as Hj.
+  rewrite nth_error_app1 by exact Hj. exact Hnth.
+Qed.
+
+Lemma hbt_app1 : forall (t : Trace) e i j, hbt t i j -> hbt (t ++ [e]) i j.
+Proof.
+  intros t e i j H. induction H as [i j Hpo | i j Hsy | i j k Hij IHij Hjk IHjk].
+  - apply hbt_po. apply po_app1. exact Hpo.
+  - apply hbt_sync. apply sync_app1. exact Hsy.
+  - apply hbt_trans with (j := j); [exact IHij | exact IHjk].
+Qed.
+
+Lemma same_loc_app1 : forall (t : Trace) e i j,
+  i < length t -> j < length t -> same_loc t i j -> same_loc (t ++ [e]) i j.
+Proof.
+  intros t e i j Hi Hj [l [Hil Hjl]]. exists l.
+  rewrite (acc_loc_at_app1 t e i Hi), (acc_loc_at_app1 t e j Hj). split; [exact Hil | exact Hjl].
+Qed.
+
+Lemma same_loc_app1_inv : forall (t : Trace) e i j,
+  i < length t -> j < length t -> same_loc (t ++ [e]) i j -> same_loc t i j.
+Proof.
+  intros t e i j Hi Hj [l [Hil Hjl]]. exists l.
+  rewrite (acc_loc_at_app1 t e i Hi) in Hil. rewrite (acc_loc_at_app1 t e j Hj) in Hjl.
+  split; [exact Hil | exact Hjl].
+Qed.
+
+(* THE INCREMENTAL STEP (all-past form): appending an access to [L] preserves [Owned], given the
+   new access is hb-after every prior access to [L].  Old conflicting pairs are unchanged; the
+   only new pairs put the appended access last, and a non-latest old partner is separated by the
+   latest one ([Owned]'s "exists [k] strictly between" disjunct). *)
+Lemma owned_snoc : forall (t : Trace) e L,
+  Owned t ->
+  (e_kind e = KWrite L \/ e_kind e = KRead L) ->
+  (forall i, i < length t -> acc_loc_at t i = Some L -> hbt (t ++ [e]) i (length t)) ->
+  Owned (t ++ [e]).
+Proof.
+  intros t e L HO He Hnew i j Hij Hsl.
+  assert (Hjlen : j < length (t ++ [e])).
+  { destruct Hsl as [l [_ Hjl]]. exact (acc_loc_at_lt _ _ _ Hjl). }
+  rewrite length_app in Hjlen; cbn in Hjlen.
+  destruct (Nat.eq_dec j (length t)) as [Hjeq | Hjne].
+  - (* the new access is the later partner *)
+    subst j. left.
+    destruct Hsl as [l [Hil Hjl]].
+    rewrite (acc_new_L t e L He) in Hjl. injection Hjl as Hll. subst l.
+    assert (Hi : i < length t) by lia.
+    rewrite (acc_loc_at_app1 t e i Hi) in Hil.
+    exact (Hnew i Hi Hil).
+  - (* both partners are old positions — defer to [Owned t] and lift across the append *)
+    assert (Hjlt : j < length t) by lia.
+    assert (Hilt : i < length t) by lia.
+    pose proof (same_loc_app1_inv t e i j Hilt Hjlt Hsl) as Hslt.
+    destruct (HO i j Hij Hslt) as [Hhb | [k [[Hik Hkj] [Hsik Hskj]]]].
+    + left. apply hbt_app1. exact Hhb.
+    + right. exists k. assert (Hklt : k < length t) by lia.
+      split; [split; [exact Hik | exact Hkj] | split].
+      * apply same_loc_app1; [exact Hilt | exact Hklt | exact Hsik].
+      * apply same_loc_app1; [exact Hklt | exact Hjlt | exact Hskj].
+Qed.
+
+(* The last-position map [lp]: [lp L] is a trace position accessing [L] (the LATEST one, as the
+   invariants below force).  [upd_lastpos] bumps it to the new event's position on each access. *)
+Definition upd_lastpos (lp : nat -> nat) (L p : nat) : nat -> nat :=
+  fun L'' => if Nat.eqb L'' L then p else lp L''.
+Lemma upd_lastpos_same : forall lp L p, upd_lastpos lp L p L = p.
+Proof. intros. unfold upd_lastpos. rewrite Nat.eqb_refl. reflexivity. Qed.
+Lemma upd_lastpos_other : forall lp L p L'', L'' <> L -> upd_lastpos lp L p L'' = lp L''.
+Proof. intros lp L p L'' Hne. unfold upd_lastpos. apply Nat.eqb_neq in Hne. rewrite Hne. reflexivity. Qed.
+
+(* [lp L] is a genuine access position for every accessed [L]. *)
+Definition LastPosValid (t : Trace) (lp : nat -> nat) : Prop :=
+  forall L, (exists i, acc_loc_at t i = Some L) -> acc_loc_at t (lp L) = Some L.
+
+(* Every access is at, or happens-before, its location's recorded latest access. *)
+Definition AccBeforeLast (t : Trace) (lp : nat -> nat) : Prop :=
+  forall L i, acc_loc_at t i = Some L -> i = lp L \/ hbt t i (lp L).
+
+(* THE PACKAGED INCREMENTAL STEP: with [AccBeforeLast] carried, preserving [Owned] across one new
+   access to [L] reduces to the SINGLE obligation [hbt (t ++ [e]) (lp L) (length t)] — the new
+   access is hb-after [L]'s PREVIOUS access.  Returns the updated invariants for the next step. *)
+Lemma owned_step_snoc : forall (t : Trace) e L lp,
+  Owned t -> LastPosValid t lp -> AccBeforeLast t lp ->
+  (e_kind e = KWrite L \/ e_kind e = KRead L) ->
+  ((exists i, acc_loc_at t i = Some L) -> hbt (t ++ [e]) (lp L) (length t)) ->
+  Owned (t ++ [e])
+  /\ LastPosValid (t ++ [e]) (upd_lastpos lp L (length t))
+  /\ AccBeforeLast (t ++ [e]) (upd_lastpos lp L (length t)).
+Proof.
+  intros t e L lp HO HV HB He Hobl.
+  (* discharge [owned_snoc]'s all-past hypothesis from [AccBeforeLast] + the single obligation *)
+  assert (Hall : forall i, i < length t -> acc_loc_at t i = Some L -> hbt (t ++ [e]) i (length t)).
+  { intros i Hi Hacc.
+    assert (Hex : exists i0, acc_loc_at t i0 = Some L) by (exists i; exact Hacc).
+    specialize (Hobl Hex).
+    destruct (HB L i Hacc) as [Heq | Hhb].
+    - rewrite Heq. exact Hobl.
+    - exact (hbt_trans (t ++ [e]) i (lp L) (length t) (hbt_app1 t e i (lp L) Hhb) Hobl). }
+  pose proof (owned_snoc t e L HO He Hall) as HOt'.
+  split; [exact HOt' | split].
+  - (* LastPosValid carries: bumped location reads the new event; others unchanged and still valid *)
+    intros L'' [j Hj].
+    destruct (Nat.eq_dec L'' L) as [-> | Hne].
+    + rewrite upd_lastpos_same. exact (acc_new_L t e L He).
+    + rewrite (upd_lastpos_other lp L (length t) L'' Hne).
+      assert (HaccT : exists i, acc_loc_at t i = Some L'').
+      { destruct (Nat.lt_ge_cases j (length t)) as [Hjl | Hjg].
+        - exists j. rewrite (acc_loc_at_app1 t e j Hjl) in Hj. exact Hj.
+        - exfalso. pose proof (acc_loc_at_lt _ _ _ Hj) as Hb.
+          rewrite length_app in Hb; cbn in Hb.
+          assert (Hjeq : j = length t) by lia. subst j.
+          rewrite (acc_new_L t e L He) in Hj. injection Hj as Hll. apply Hne. symmetry; exact Hll. }
+      pose proof (HV L'' HaccT) as HvL''.
+      pose proof (acc_loc_at_lt _ _ _ HvL'') as Hlt.
+      rewrite (acc_loc_at_app1 t e (lp L'') Hlt). exact HvL''.
+  - (* AccBeforeLast carries: new access is its own latest; old accesses keep their witness *)
+    intros L'' i Hi.
+    destruct (Nat.lt_ge_cases i (length t)) as [Hil | Hig].
+    + rewrite (acc_loc_at_app1 t e i Hil) in Hi.
+      destruct (Nat.eq_dec L'' L) as [-> | Hne].
+      * rewrite upd_lastpos_same. right. exact (Hall i Hil Hi).
+      * rewrite (upd_lastpos_other lp L (length t) L'' Hne).
+        destruct (HB L'' i Hi) as [Heq | Hhb].
+        -- left. exact Heq.
+        -- right. exact (hbt_app1 t e i (lp L'') Hhb).
+    + pose proof (acc_loc_at_lt _ _ _ Hi) as Hb. rewrite length_app in Hb; cbn in Hb.
+      assert (Hieq : i = length t) by lia. subst i.
+      rewrite (acc_new_L t e L He) in Hi. injection Hi as Hll. subst L''.
+      left. rewrite upd_lastpos_same. reflexivity.
+Qed.
+
+(* Sanity that [owned_snoc] APPLIES: one goroutine writes loc 9 then reads it — the read at pos 1
+   is hb-after the write at pos 0 by program order, so [Owned] holds, built incrementally. *)
+Definition seq_acc_trace : Trace := [mkEv 0 (KWrite 9); mkEv 0 (KRead 9)].
+Lemma seq_acc_owned : Owned seq_acc_trace.
+Proof.
+  change seq_acc_trace with ([mkEv 0 (KWrite 9)] ++ [mkEv 0 (KRead 9)]).
+  apply (owned_snoc [mkEv 0 (KWrite 9)] (mkEv 0 (KRead 9)) 9).
+  - intros i j Hij Hsl. exfalso.
+    destruct Hsl as [l [_ Hjl]]. pose proof (acc_loc_at_lt _ _ _ Hjl) as Hj. cbn in Hj. lia.
+  - right. reflexivity.
+  - intros i Hi Hacc. cbn in Hi. assert (i = 0) by lia. subst i.
+    apply hbt_po. unfold po, tid_at. cbn. repeat split; lia.
+Qed.
+
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -5670,3 +5855,5 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
+

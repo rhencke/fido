@@ -161,7 +161,14 @@ the line count: the one **arbitrary-N** race-freedom result (`PureLocal`/`Privat
 **per-program** phase enumeration (`MpReach`/`XferReach`/the 7-shape exchange).  The ownership
 *discipline* (`Owned ⇒ race-free`) is general, but *earning* `Owned` for a transfer program is
 hand-built per shape and does not compose — so "race-free Fido" today ≈ the no-transfer fragment +
-a handful of witnessed handoff programs.  (And `GoInt`'s past-2⁶² deviation is *documented
+a handful of witnessed handoff programs.  *(Foundation toward composing it, 2026-06-23: the
+reusable INCREMENTAL-`Owned` core now exists — `owned_snoc` (appending an access preserves `Owned`
+if it is hb-after every prior same-location access) and `owned_step_snoc` (carrying `AccBeforeLast`,
+this reduces to a SINGLE per-step obligation: hb from the location's PREVIOUS access to the new one).
+That is the per-step inductive replacement for whole-trace phase enumeration; the open work is the
+dynamic-owner / linear-region invariant that DISCHARGES that obligation for arbitrary transfer
+programs — same-owner ⇒ program order, transferred-owner ⇒ the send/recv or spawn/start sync edge.
+All four lemmas Closed under the global context — fully axiom-free.)*  (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed
 labels on true theorems" section already record, consolidated here so the words stay exact.
