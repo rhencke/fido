@@ -4579,15 +4579,16 @@ Section KeystonePtr.
 
   (* EXTRACTABLE deref = bridge ref-access: on a live pointer the *T ops the plugin emits ARE the ref
      accesses the Keystone reasons about — so a calculus location is a real (non-nil) Go pointer. *)
+  (* These bridge lemmas state STRUCTURAL (Leibniz) equality of two distinct IO functions — needed
+     because the [Denotes] Keystone below inducts on the IO term's shape and so cannot use the
+     observational [io_eq].  This is the one surviving funext use (review #6 P2 #20), via run_io_inj. *)
   Lemma ptr_set_is_ref : forall l v, ptr_set TI64 (ptrenv l) v = ref_set (plocenv l) v.
   Proof.
-    intros l v. apply run_io_inj. intro w.
-    rewrite run_ptr_set, run_ref_set, ptrenv_live. reflexivity.
+    intros l v. apply run_io_inj. intro w. rewrite run_ptr_set, run_ref_set, ptrenv_live. reflexivity.
   Qed.
   Lemma ptr_get_is_ref : forall l, ptr_get TI64 (ptrenv l) = ref_get TI64 (plocenv l).
   Proof.
-    intros l. apply run_io_inj. intro w.
-    rewrite run_ptr_get, run_ref_get, ptrenv_live. reflexivity.
+    intros l. apply run_io_inj. intro w. rewrite run_ptr_get, run_ref_get, ptrenv_live. reflexivity.
   Qed.
 
   (* one-cell heap match: the IO world value at [ptrenv l] codes the calculus heap value. *)

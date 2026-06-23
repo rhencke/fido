@@ -10,10 +10,16 @@ our behavior, cited), our model, status, and the machine-checked witness.
 across `builtins.v`/`main.v`/`concurrency.v`/`preamble.v`; no `Admitted`.  So every
 ✓ below rests on a `Definition`/`Theorem` over a CONCRETE model (the `World` is a
 concrete record of typed heaps), and `Print Assumptions` of any result reports only
-the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat` primitives and
-stdlib `functional_extensionality` (the 108→0 axiom elimination).  Conformance
-witnesses that used to rest on a `run_io`/channel/map *axiom interface* now rest on
-the proven laws of that concrete model.
+the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat` primitives (the
+108→0 axiom elimination).  The IO monad/effect ALGEBRA (the monad laws, and every
+read-after-write / commutation lemma) is now **funext-free**: stated over OBSERVATIONAL
+equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise (review
+#6 P2 #20) — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
+stdlib `functional_extensionality` survives at exactly ONE site, `run_io_inj` (`io_eq → =`),
+used only by the concurrency `Denotes` Keystone bridge (`ptr_set_is_ref`), which must rewrite
+the IO term STRUCTURALLY and so cannot use `io_eq`; removing it there needs an observational
+`Denotes`, part of the concurrency unification.  Conformance witnesses that used to rest on a
+`run_io`/channel/map *axiom interface* now rest on the proven laws of that concrete model.
 
 Status legend:
 - **✓ conforms** — verified, ideally a machine-checked witness (an `Example`/

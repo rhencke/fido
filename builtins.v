@@ -9,6 +9,8 @@
 
 Require Import Coq.Init.Specif.
 Require Import Coq.Logic.FunctionalExtensionality.
+Require Import Coq.Classes.Morphisms.   (* Proper / setoid rewriting for [io_eq] — replaces funext (review #6 P2 #20) *)
+Require Import Coq.Setoids.Setoid.
 Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *)
 From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
 From Stdlib Require Import ZArith.   (* Z.to_nat for the slice index *)
@@ -820,35 +822,70 @@ Lemma run_catch : forall {A} (m : IO A) (h : GoAny -> IO A) (w : World),
   | OPanic v w' => run_io (h v) w'    (* panic: run the handler on the value *)
   end.
 Proof. reflexivity. Qed.
-(** IO extensionality: equal on every world => equal.  With [IO A := World -> Outcome A]
-    this is functional extensionality — a Coq-STDLIB axiom (EXTERNAL, not one of ours).
-    Restating the builtins-internal laws over observational equality would drop even
-    this; deferred (see ZERO_AXIOMS_PLAN.md, holdout #1). *)
-Lemma run_io_inj : forall {A} (m m' : IO A),
-  (forall w, run_io m w = run_io m' w) -> m = m'.
+(** IO OBSERVATIONAL EQUALITY (review #6 P2 #20): two IO actions are equal iff they yield the same
+    [Outcome] on every world.  This is the relation the monad/IO laws are stated over — it REPLACES
+    raw function equality [m = m'], which for [IO := World -> Outcome] required [functional_extensionality]
+    (a Coq-STDLIB AXIOM).  Every law below is now genuinely AXIOM-FREE: proved POINTWISE, with no
+    [run_io_inj]/funext.  Since [run_io m = m], [io_eq] IS Go-observable equality of the modeled effects
+    (heap / channel / map / panic / output) — exactly the relation the review asked us to use. *)
+Definition io_eq {A} (m m' : IO A) : Prop := forall w, run_io m w = run_io m' w.
+Infix "=io=" := io_eq (at level 70, no associativity).
+
+(** [io_eq] is an equivalence and a congruence for [bind]/[catch], so the laws below can be
+    setoid-rewritten under those contexts (this is what replaces funext-based [m = m'] reasoning). *)
+#[global] Instance io_eq_Equivalence {A} : Equivalence (@io_eq A).
+Proof.
+  split.
+  - intros m w; reflexivity.
+  - intros m m' H w; symmetry; apply H.
+  - intros m m' m'' H1 H2 w; rewrite H1; apply H2.
+Qed.
+#[global] Instance bind_Proper {A B} :
+  Proper (io_eq ==> pointwise_relation A io_eq ==> io_eq) (@bind A B).
+Proof.
+  intros m m' Hm f f' Hf w. rewrite !run_bind, (Hm w).
+  destruct (run_io m' w) as [a w' | v w'].
+  - apply Hf.
+  - reflexivity.
+Qed.
+#[global] Instance catch_Proper {A} :
+  Proper (io_eq ==> pointwise_relation GoAny io_eq ==> io_eq) (@catch A).
+Proof.
+  intros m m' Hm h h' Hh w. rewrite !run_catch, (Hm w).
+  destruct (run_io m' w) as [a w' | v w'].
+  - reflexivity.
+  - apply Hh.
+Qed.
+(** [run_io] respects [io_eq] — so an [io_eq] fact setoid-rewrites under [run_io _ w]. *)
+#[global] Instance run_io_Proper {A} : Proper (io_eq ==> eq ==> eq) (@run_io A).
+Proof. intros m m' Hm w w' Hw. subst w'. apply Hm. Qed.
+
+(** [run_io_inj]: observational equality UPGRADED to Leibniz equality — this is the ONE place the
+    trust base still touches [functional_extensionality] (review #6 P2 #20).  The IO ALGEBRA above
+    is now genuinely axiom-free (proved over [io_eq]); funext survives ONLY where a STRUCTURAL
+    rewrite of the IO term is needed — the concurrency [Denotes] Keystone bridge ([ptr_set_is_ref]),
+    which inducts on the IO term's shape and so cannot use the observational [io_eq].  Removing it
+    there needs an observational [Denotes], part of the concurrency unification (#2/#3). *)
+Lemma run_io_inj : forall {A} (m m' : IO A), io_eq m m' -> m = m'.
 Proof. intros A m m' H. apply functional_extensionality. exact H. Qed.
 
-(** ---- Monad laws — provable lemmas, not axioms. ---- *)
+(** ---- Monad laws — provable lemmas, AXIOM-FREE (pointwise over [io_eq], no funext). ---- *)
 Lemma bind_ret_l : forall {A B} (x : A) (f : A -> IO B),
-  bind (ret x) f = f x.
-Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite run_bind, run_ret. reflexivity.
-Qed.
+  bind (ret x) f =io= f x.
+Proof. intros A B x f w. rewrite run_bind, run_ret. reflexivity. Qed.
 
 Lemma bind_ret_r : forall {A} (m : IO A),
-  bind m (@ret A) = m.
+  bind m (@ret A) =io= m.
 Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite run_bind. destruct (run_io m w) as [a w' | v w'].
+  intros A m w. rewrite run_bind. destruct (run_io m w) as [a w' | v w'].
   - rewrite run_ret. reflexivity.
   - reflexivity.
 Qed.
 
 Lemma bind_assoc : forall {A B C} (m : IO A) (f : A -> IO B) (g : B -> IO C),
-  bind (bind m f) g = bind m (fun x => bind (f x) g).
+  bind (bind m f) g =io= bind m (fun x => bind (f x) g).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros A B C m f g w.
   rewrite (run_bind (bind m f) g), (run_bind m f),
           (run_bind m (fun x => bind (f x) g)).
   destruct (run_io m w) as [a w' | v w'].
@@ -856,31 +893,19 @@ Proof.
   - reflexivity.
 Qed.
 
-(** [panic] short-circuits any continuation — PROVED from [run_panic]
-    (was an axiom). *)
+(** [panic] short-circuits any continuation — PROVED from [run_panic] (was an axiom). *)
 Lemma bind_panic_l : forall {A B} (x : GoAny) (f : A -> IO B),
-  bind (panic x) f = panic x.
-Proof.
-  intros. apply run_io_inj. intro w.
-  (* the two [panic]s are at different type instances ([IO A] vs [IO B]),
-     so [!run_panic] is needed to rewrite both. *)
-  rewrite run_bind, !run_panic. reflexivity.
-Qed.
+  bind (panic x) f =io= panic x.
+Proof. intros A B x f w. rewrite run_bind, !run_panic. reflexivity. Qed.
 
 (** [catch] laws — PROVED from [run_catch] (were axioms). *)
 Lemma catch_ret : forall {A} (x : A) (h : GoAny -> IO A),
-  catch (ret x) h = ret x.
-Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite run_catch, !run_ret. reflexivity.
-Qed.
+  catch (ret x) h =io= ret x.
+Proof. intros A x h w. rewrite run_catch, !run_ret. reflexivity. Qed.
 
 Lemma catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
-  catch (panic v) h = h v.
-Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite run_catch, run_panic. reflexivity.
-Qed.
+  catch (panic v) h =io= h v.
+Proof. intros A v h w. rewrite run_catch, run_panic. reflexivity. Qed.
 
 (** ---- Hoare logic ----
     [{{ P }} m {{ Q }}] is PARTIAL correctness for NORMAL completion: if [P]
@@ -2110,7 +2135,7 @@ Definition with_defer {A : Type} (cleanup : IO unit) (m : IO A) : IO A :=
     short-circuits the body, reifying nothing) and [catch_panic] (the handler
     captures the panic as [inl v]); cleanup then runs once and re-raises it. *)
 Lemma with_defer_panic : forall {A} (cleanup : IO unit) (v : GoAny),
-  @with_defer A cleanup (panic v) = cleanup >>' panic v.
+  @with_defer A cleanup (panic v) =io= cleanup >>' panic v.
 Proof.
   intros A cleanup v. unfold with_defer.
   rewrite bind_panic_l, catch_panic, bind_ret_l. reflexivity.
@@ -2124,7 +2149,7 @@ Qed.
     could not have been proved; together with [with_defer_panic] it certifies a
     single cleanup execution on both exits. *)
 Lemma with_defer_ret : forall {A} (cleanup : IO unit) (x : A),
-  @with_defer A cleanup (ret x) = cleanup >>' ret x.
+  @with_defer A cleanup (ret x) =io= cleanup >>' ret x.
 Proof.
   intros A cleanup x. unfold with_defer.
   rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
@@ -2590,10 +2615,10 @@ Proof. intros K t k Hc. apply (proj2 (Hc k k)). reflexivity. Qed.
 Lemma map_get_set_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (v : V) (m : GoMap K V),
   Comparable kt ->
-  bind (map_set kt vt k v m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_set kt vt k v m) (fun _ => map_get_opt kt vt k m) =io=
   bind (map_set kt vt k v m) (fun _ => ret (Some v)).
 Proof.
-  intros K V kt vt k v m Hcmp. apply run_io_inj. intro w.
+  intros K V kt vt k v m Hcmp. intro w.
   rewrite !run_bind, !run_map_set.
   destruct (PrimInt63.eqb (gm_loc m) 0%uint63) eqn:Hnil.
   - reflexivity.   (* nil map: both sides panic at the [map_set] step *)
@@ -2604,10 +2629,10 @@ Qed.
 Lemma map_get_delete_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k : K) (m : GoMap K V),
   Comparable kt ->
-  bind (map_delete kt vt k m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_delete kt vt k m) (fun _ => map_get_opt kt vt k m) =io=
   bind (map_delete kt vt k m) (fun _ => ret (@None V)).
 Proof.
-  intros K V kt vt k m Hcmp. apply run_io_inj. intro w.
+  intros K V kt vt k m Hcmp. intro w.
   rewrite !run_bind, !run_map_delete. cbn.
   rewrite run_map_get_opt, map_sel_rem by (apply comparable_key_refl; exact Hcmp).
   rewrite run_ret. reflexivity.
@@ -2675,10 +2700,10 @@ Theorem map_sel_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof. intros. unfold map_sel, map_clear_upd. rewrite map_get_fn_write_same. reflexivity. Qed.
 
 Lemma map_get_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V),
-  bind (map_clear kt vt m) (fun _ => map_get_opt kt vt k m) =
+  bind (map_clear kt vt m) (fun _ => map_get_opt kt vt k m) =io=
   bind (map_clear kt vt m) (fun _ => ret (@None V)).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros. intro w.
   rewrite !run_bind, !run_map_clear. cbn.
   rewrite run_map_get_opt, map_sel_clear, run_ret. reflexivity.
 Qed.
@@ -2978,9 +3003,9 @@ Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> I
     deterministic, blocking-idealised under-approximation of Go's nondeterministic select.) *)
 Theorem select2_eq_recv2 :
   forall {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C),
-    select2 ta ch1 ch2 k1 k2 = select_recv2 ta ch1 k1 ta ch2 k2.
+    select2 ta ch1 ch2 k1 k2 =io= select_recv2 ta ch1 k1 ta ch2 k2.
 Proof.
-  intros A C ta ch1 ch2 k1 k2. apply run_io_inj. intro w.
+  intros A C ta ch1 ch2 k1 k2. intro w.
   unfold select2, select_recv2, select_wait2, bind, run_io.
   destruct (chan_buf ta ch1 w) as [|v1 r1].
   - destruct (chan_closed ch1 w).
@@ -4539,10 +4564,10 @@ Qed.
 
 (** Read-after-write — a THEOREM: after [ref_set r v], [ref_get] returns [v]. *)
 Lemma ref_get_set_same : forall {A} (tag : GoTypeTag A) (r : Ref A) (v : A),
-  bind (ref_set r v) (fun _ => ref_get tag r) =
+  bind (ref_set r v) (fun _ => ref_get tag r) =io=
   bind (ref_set r v) (fun _ => ret v).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros. intro w.
   rewrite !run_bind, !run_ref_set. cbn.
   rewrite run_ref_get, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
@@ -4619,10 +4644,10 @@ Proof. reflexivity. Qed.
     [ptr_set tag p v], [ptr_get tag p] returns [v].  Holds for ALL [p]: on a nil pointer BOTH sides
     panic at the [ptr_set] step (so they agree), and on a live pointer the read observes the write. *)
 Lemma ptr_get_set_same : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A),
-  bind (ptr_set tag p v) (fun _ => ptr_get tag p) =
+  bind (ptr_set tag p v) (fun _ => ptr_get tag p) =io=
   bind (ptr_set tag p v) (fun _ => ret v).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros. intro w.
   rewrite !run_bind, !run_ptr_set.
   destruct (PrimInt63.eqb (p_loc p) 0%uint63) eqn:Hnil.
   - reflexivity.
@@ -4925,10 +4950,10 @@ Qed.
 (** Read-after-write at an index — a THEOREM (from the shared heap). *)
 Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (v : A),
   (i <? sh_len s)%uint63 = true ->
-  bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =
+  bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =io=
   bind (slice_idx_set s i v) (fun _ => ret v).
 Proof.
-  intros A tag s i v Hi. apply run_io_inj. intro w.
+  intros A tag s i v Hi. intro w.
   rewrite !run_bind, !(run_slice_idx_set s i v w Hi). cbn.
   rewrite (run_slice_idx_get tag s i (ref_upd (sh_cell s i) v w) Hi), ref_sel_upd_same, run_ret.
   reflexivity.
@@ -5105,10 +5130,10 @@ Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
     returns [v] (from [ref_sel_upd_same]). *)
 Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A),
-  bind (hfield_set h k tag v) (fun _ => hfield_get h k tag) =
+  bind (hfield_set h k tag v) (fun _ => hfield_get h k tag) =io=
   bind (hfield_set h k tag v) (fun _ => ret v).
 Proof.
-  intros. apply run_io_inj. intro w.
+  intros. intro w.
   rewrite !run_bind, run_hfield_set. cbn.
   rewrite run_hfield_get, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
@@ -5273,7 +5298,7 @@ Definition sptr_set_field {R F} (p : SPtr R) (idx : int) (proj : R -> F) (ftag :
     a [*T] receiver relies on, reduced directly to [hfield_get_set_same]. *)
 Lemma sptr_field_get_set : forall {R F} (p : SPtr R) (idx : int) (proj : R -> F)
     (ftag : GoTypeTag F) (v : F),
-  bind (sptr_set_field p idx proj ftag v) (fun _ => sptr_get_field p idx proj ftag) =
+  bind (sptr_set_field p idx proj ftag v) (fun _ => sptr_get_field p idx proj ftag) =io=
   bind (sptr_set_field p idx proj ftag v) (fun _ => ret v).
 Proof.
   intros. unfold sptr_set_field, sptr_get_field. apply hfield_get_set_same.
@@ -5325,7 +5350,7 @@ Definition sptr3_set_field {R F} (p : SPtr3 R) (idx : int) (proj : R -> F) (ftag
   hfield_set (sptr3_hs p) idx ftag v.
 Lemma sptr3_field_get_set : forall {R F} (p : SPtr3 R) (idx : int) (proj : R -> F)
     (ftag : GoTypeTag F) (v : F),
-  bind (sptr3_set_field p idx proj ftag v) (fun _ => sptr3_get_field p idx proj ftag) =
+  bind (sptr3_set_field p idx proj ftag v) (fun _ => sptr3_get_field p idx proj ftag) =io=
   bind (sptr3_set_field p idx proj ftag v) (fun _ => ret v).
 Proof. intros. unfold sptr3_set_field, sptr3_get_field. apply hfield_get_set_same. Qed.
 
@@ -5373,7 +5398,7 @@ Definition sptrh_set_field {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> 
 
 Lemma sptrh_field_get_set : forall {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F)
     (ftag : GoTypeTag F) (v : F),
-  bind (sptrh_set_field p idx proj ftag v) (fun _ => sptrh_get_field p idx proj ftag) =
+  bind (sptrh_set_field p idx proj ftag v) (fun _ => sptrh_get_field p idx proj ftag) =io=
   bind (sptrh_set_field p idx proj ftag v) (fun _ => ret v).
 Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_same. Qed.
 
@@ -5387,10 +5412,10 @@ Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_sam
 Local Opaque ref_sel ref_upd hfield_cell.
 Lemma sptr_deref_assign : forall {R} (p : SPtr R) (v : R),
   r_loc (hfield_cell (sptr_hs p) 0%uint63 TI64) <> r_loc (hfield_cell (sptr_hs p) 1%uint63 TI64) ->
-  bind (sptr_assign p v) (fun _ => sptr_deref p) =
+  bind (sptr_assign p v) (fun _ => sptr_deref p) =io=
   bind (sptr_assign p v) (fun _ => ret v).
 Proof.
-  intros R p v Hne. apply run_io_inj. intro w.
+  intros R p v Hne. intro w.
   unfold sptr_assign, sptr_deref.
   repeat (rewrite ?run_bind, ?run_hfield_set, ?run_hfield_get, ?run_ret; cbn).
   rewrite (ref_sel_upd_diff (hfield_cell (sptr_hs p) 1%uint63 TI64)
