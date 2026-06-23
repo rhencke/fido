@@ -608,7 +608,7 @@ Spec: `p && q` = "if p then q else false", `p || q` = "if p then true else q",
 Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 `reflexivity`.  Short-circuit unobservable (pure total bools).  ✓
 
-### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64), int/int64→float64, float64→float32, narrow↔float32 (composable via int64/float64), string↔[]byte/[]rune + string(rune); ⚠ narrow→int64 & float64→int64 lowering deferred (carrier)
+### [Conversions](https://go.dev/ref/spec#Conversions) — ✓ integer↔integer (fixed-width + int64↔uint64 + narrow↔int64 + narrow↔uint64), int/int64→float64, float64→int64, float64→float32, narrow↔float32 (composable via int64/float64), string↔[]byte/[]rune + string(rune); ✗ interface conversions beyond `type_assert`
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
@@ -633,33 +633,39 @@ applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONS
 accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),
 `conv_i64_of_max` (`2⁶⁴-1 → -1`), `conv_roundtrip`; `conv64_demo` prints
 `18446744073709551615 -1 255`.
-**Narrow → `int64` widening — MODELED, lowering deferred (proof-only).**
-`i64_of_u8`…`i64_of_i32` are value-preserving widens, machine-checked
-(`widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/`widen_i32`).  The lowering would be
-identity, but the faithful body crosses the PrimInt63→`Z` carrier via `Sint63.to_Z`,
-whose stdlib chain pulls in the deliberately-REJECTED unsigned `Uint63.ltb` (Tier 3
-#9) — so kept proof-only (not extracted), like `f64_of_i64`.
+**Narrow → `int64` widening — ✓ DONE (review #4 P1 #4 slice 1, commit a4e715d).**
+`i64_of_u8`…`i64_of_i32` are value-preserving widens (machine-checked
+`widen_u8`/`widen_i8`/`widen_u16`/`widen_u32`/`widen_i32`), now LOWERED by
+NAME-RECOGNITION to Go's `int64(x)` — NOT identity: a narrow operand at a typed
+boundary is a real `uint8`/`int8`, so `int64(x)` is required to land it in the `int64`
+destination (a bare `return x` was the review #4 P1 #4 invalid-Go case).  The faithful
+`Sint63.to_Z` body (which would pull the deliberately-REJECTED unsigned `Uint63.ltb`,
+Tier 3 #9) is suppressed by the recognizer, sidestepping the carrier wall.  Extracted
+via `widen_param_demo` (`func Widen_u8_to_i64(x uint8) int64 { return int64(x) }`,
+golden `200 -5 100`).
 `string`↔`[]byte`/`[]rune` and `string(rune)` are DONE (the rune view — see String
 types).  **`int`/`int64` → `float64` DONE (2026-06-19):** `f64_of_int` (Sint63) and `f64_of_i64`
 (`GoI64`) → native `float64(x)` (the nearest double, exact for `|x| < 2^53`); modeled by
 `PrimFloat.of_uint63` + a sign-split (machine-checked `f64_of_int_pos`/`_neg`,
 `f64_of_i64_pos`/`_neg`), recognized → cast with the body suppressed.  Both return `float`
-(a primitive, not a single-field record), so they stay NAMED calls — the lowering succeeds
-where the narrow→int64 widening (record result) fails.  `f64_of_i64`'s `Z` carrier drags the
+(a primitive, not a single-field record), so they stay NAMED calls — this was the EARLY
+lowering technique; the narrow→int64 widening (record result) now lowers the same way, by
+name-recognition with its carrier body suppressed (review #4 P1 #4).  `f64_of_i64`'s `Z` carrier drags the
 Z↔int63 helpers `of_Z`/`of_pos`/`of_pos_rec`, suppressed alongside the `Z`/`positive`
 arithmetic.  Trust base gains the Rocq PRIMITIVE `PrimFloat.of_uint63` — a kernel `float` op
 (like `PrimFloat.add`), NOT a Fido axiom (`of_Z`/`of_pos` are `Definition`s, not in the
-base).  **`float64` → `int64` truncation — MODELED, lowering deferred (proof-only,
-2026-06-19):** `i64_of_f64` truncates toward zero via the stdlib's VERIFIED `Prim2SF`
-decomposition (`m * 2^e` for `e ≥ 0`, else `m / 2^(-e)` = floor of the magnitude, sign
-applied after — exactly Go's rule), machine-checked across the sign / exact / zero cases
-(`i64_of_f64_pos`/`_neg`/`_exact`/`_zero`/`_big`).  The lowering would be the native
-`int64(f)`, but it returns `GoI64` (a single-field record), so its Z-from-`Prim2SF` body hits
-the SAME case-of-case fusion wall as the narrow→int64 widening (the int→float casts lower
-only because they return `float`, a primitive).  Bounded deviation at NaN/±Inf/overflow
-(impl-defined in Go).  **Still ✗ (fails loud):** `float↔float` (no native f32); narrow →
-`uint64` and `int64`→narrow
-(carrier-bridge); interface conversions beyond `type_assert`.
+base).  **`float64` → `int64` truncation — ✓ DONE (name-recognized, golden-locked):**
+`i64_of_f64` truncates toward zero via the stdlib's VERIFIED `Prim2SF` decomposition
+(`m * 2^e` for `e ≥ 0`, else `m / 2^(-e)` = floor of the magnitude, sign applied after —
+exactly Go's rule), machine-checked across the sign / exact / zero cases
+(`i64_of_f64_pos`/`_neg`/`_exact`/`_zero`/`_big`), and LOWERED to Go's native `int64(f)` by
+name-recognition (the `Prim2SF`/`f64_trunc_Z` body suppressed, sidestepping the case-of-case
+fusion wall the old proof-only note cited).  Extracted via `trunc64` / `i64_of_f64_demo`
+(golden `3 / -2`).  Bounded deviation at NaN/±Inf/overflow (impl-defined in Go — the native
+`int64(f)` gets Go's behaviour for free).  **Narrow ↔ `uint64` and `int64` ↔ narrow are also
+DONE:** the uint64 hub (`u64_of_i64 ∘ i64_of_narrow`, golden `200 18446744073709551615 255
+-1`) and the `int64`→narrow truncations (`u8_of_i64`…, golden `52 -56 201 -55`).  **Still ✗
+(fails loud):** interface conversions beyond `type_assert` (the `interface` keyword).
 
 ## Expressions — primary
 
