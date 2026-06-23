@@ -1146,9 +1146,14 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   runs in the Docker prover stage on EVERY build (after the axiom gate), so a reopened fail-closed site fails
   `make check` itself; also `make negtest` locally.** The fixtures live OUTSIDE the theory's module list so
   `dune build` never compiles them as modules (the harness compiles each explicitly). FOLLOW-UP: more fixtures.
-  **STILL OPEN
-  (deeper R10 slices):** runtime DIFFERENTIAL tests beyond the type-identity matrix (now comprehensive), CI
-  running `make check`, the hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses).
+  **HOOK ANTI-TAMPERING HOLE CLOSED (2026-06-23):** the pre-commit hook re-extracted only on a staged
+  `.v`/`plugin/` change, so a hand-edited `.go` with NO source change slipped through (contradicting its own
+  "a hand-edit of *.go cannot survive a commit" claim). The trigger now also fires on a staged `.go`
+  (`grep -qE '\.v$|^plugin/|\.go$'`) → re-extract overwrites the hand-edit with fresh prover output and the
+  bare tampering commit aborts ("nothing to commit"). Docs-only commits still skip re-extraction (fast).
+  **STILL OPEN (deeper R10 slices):** runtime DIFFERENTIAL tests beyond the type-identity matrix (now
+  comprehensive); CI running `make check` (the token lacks Actions-policy permission here — can't verify-run,
+  so deferred rather than ship an unverifiable workflow).
   **RUNTIME DIFFERENTIAL TEST ✅ started + caught a real bug (2026-06-22, commit 5cb8611):** `type_identity_lock_demo`
   (main.v) boxes each scalar and `type_assert_safe`s it against its OWN Go type (→true) and a sibling it must NOT
   alias (→false), turning type identity into observable output. On its FIRST run it caught a latent type-identity
