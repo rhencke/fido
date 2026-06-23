@@ -2644,11 +2644,17 @@ Definition nested_struct_demo : IO unit :=
 Record Cell := MkCell { cx : GoI64 ; cy : GoI64 }.
 Lemma cell_eta : forall v, MkCell (cx v) (cy v) = v.
 Proof. intros [a b]; reflexivity. Qed.
+(* The CANONICAL rep for [Cell] (review #6 #10(b)): bound once to the type, so every [*Cell] handle
+   reconstructs the same way.  [cell_f0]/[cell_f1] are the field-COHERENCE evidence (#10(c)) — they
+   tie [cx]↔cell 0 and [cy]↔cell 1 to that rep, so a field access cannot name the wrong cell. *)
+#[local] Instance StructRep2Of_Cell : StructRep2Of Cell := mkSR2 cx cy MkCell cell_eta.
+Definition cell_f0 : field_at2 (the_rep2 Cell) 0%uint63 cx := or_introl (conj eq_refl eq_refl).
+Definition cell_f1 : field_at2 (the_rep2 Cell) 1%uint63 cy := or_intror (conj eq_refl eq_refl).
 Definition sptr_demo : IO unit :=
-  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
-  bind (sptr_set_field p 0%uint63 cx TI64 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
-  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>            (* a := p.Cx → 7 *)
-  bind (sptr_get_field p 1%uint63 cy TI64) (fun b =>            (* b := p.Cy → 4 *)
+  bind (sptr_new (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
+  bind (sptr_set_field p 0%uint63 cx TI64 cell_f0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
+  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>            (* a := p.Cx → 7 *)
+  bind (sptr_get_field p 1%uint63 cy TI64 cell_f1) (fun b =>            (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
 (** POINTER-RECEIVER method (Phase B2): a method whose first param is [SPtr Cell] (a
@@ -2657,13 +2663,13 @@ Definition sptr_demo : IO unit :=
     exactly the value-receiver path but through a pointer.  The mutation is observed by
     the CALLER (the defining pointer-receiver behaviour), backed by [sptr_field_get_set]. *)
 Definition cell_incx (p : SPtr Cell) : IO unit :=
-  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* read p.Cx *)
-        sptr_set_field p 0%uint63 cx TI64 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
+  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* read p.Cx *)
+        sptr_set_field p 0%uint63 cx TI64 cell_f0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
 
 Definition ptr_method_demo : IO unit :=
-  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (10)%i64 (20)%i64)) (fun p =>
+  bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   bind (cell_incx p) (fun _ =>                                (* p.Cell_incx() — mutates p.Cx *)
-  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 11 *)
+  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
 (** POINTER-receiver method EXPRESSION (the parenthesized-star-Cell dot Cell_incx form) — the
@@ -2672,9 +2678,9 @@ Definition ptr_method_demo : IO unit :=
     PARENTHESIZED pointer form (vs the value-receiver [Point.Sum_coords]). *)
 Definition apply_cell (f : SPtr Cell -> IO unit) (p : SPtr Cell) : IO unit := f p.
 Definition ptr_method_expr_demo : IO unit :=
-  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (5)%i64 (6)%i64)) (fun p =>
+  bind (sptr_new (MkCell (5)%i64 (6)%i64)) (fun p =>
   bind (apply_cell cell_incx p) (fun _ =>                     (* pointer-receiver method expr via the HOF — mutates p.Cx *)
-  bind (sptr_get_field p 0%uint63 cx TI64) (fun a =>          (* a := p.Cx → 6 *)
+  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 6 *)
   println [any a]))).                                          (* prints: 6 *)
 
 (** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct (Go's [type Node struct { *Cell; tag int64 }]):
@@ -2684,10 +2690,10 @@ Definition ptr_method_expr_demo : IO unit :=
     projection, exactly like struct-in-struct, but through the pointer); the struct's own [ntag] coexists. *)
 Record Node := MkNode { cell : SPtr Cell ; ntag : GoI64 }.
 Definition node_embed_demo : IO unit :=
-  bind (sptr_new (mkSR2 cx cy MkCell cell_eta) (MkCell (10)%i64 (20)%i64)) (fun p =>
+  bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   let nd := MkNode p (99)%i64 in
   bind (cell_incx (cell nd)) (fun _ =>                         (* PROMOTED: nd.Cell_incx() mutates the embedded *Cell *)
-  bind (sptr_get_field (cell nd) 0%uint63 cx TI64) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
+  bind (sptr_get_field (cell nd) 0%uint63 cx TI64 cell_f0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
   println [any a; any (ntag nd)]))).                           (* prints: 11 99 *)
 
 (** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates

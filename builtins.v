@@ -5265,52 +5265,61 @@ Proof.
   eexists; reflexivity.
 Qed.
 
-Record SPtr (R : Type) := mkSPtr { sp_base : int ; sp_rep : StructRep2 R }.
-Arguments mkSPtr {R} _ _.
-Arguments sp_base {R} _.  Arguments sp_rep {R} _.
+(** The canonical 2-field rep is bound to the TYPE by [StructRep2Of] (review #6 #10(b)/(c)): every
+    handle of type [R] reconstructs/marshals with the SAME [the_rep2 R], so two handles to one base
+    can NEVER disagree (the old per-handle [sp_rep] is gone — the pointer carries ONLY its base), and
+    field access is COHERENT against it ([field_at2], below). *)
+Class StructRep2Of (R : Type) : Type := the_rep2 : StructRep2 R.
+Arguments the_rep2 R {_}.
+Record SPtr (R : Type) := mkSPtr { sp_base : int }.
+Arguments mkSPtr {R} _.
+Arguments sp_base {R} _.
 
 Definition sptr_hs {R} (p : SPtr R) : HStruct := mkHStruct (sp_base p).
 
-(** [sptr_new rep v] — Go [p := &R{…}]: allocate a FRESH base, write each field cell
-    from [v]'s projections, bump the allocator by the field count (2), return the
-    pointer carrying [rep]. *)
-Definition sptr_new {R} (rep : StructRep2 R) (v : R) : IO (SPtr R) :=
+(** [sptr_new v] — Go [p := &R{…}]: allocate a FRESH base, write each field cell from [v]'s
+    projections (via the CANONICAL [the_rep2 R]), bump the allocator by the field count (2). *)
+Definition sptr_new {R} `{StructRep2Of R} (v : R) : IO (SPtr R) :=
   fun w =>
     let l := w_next w in
-    let p := mkSPtr l rep in
+    let p := mkSPtr l in
     let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) (w_output w) in  (* bump allocator *)
-    let w0 := ref_upd (hfield_cell (sptr_hs p) 0%uint63 TI64) (sr2_f0 rep v) wa in
-    let w1 := ref_upd (hfield_cell (sptr_hs p) 1%uint63 TI64) (sr2_f1 rep v) w0 in
+    let w0 := ref_upd (hfield_cell (sptr_hs p) 0%uint63 TI64) (sr2_f0 (the_rep2 R) v) wa in
+    let w1 := ref_upd (hfield_cell (sptr_hs p) 1%uint63 TI64) (sr2_f1 (the_rep2 R) v) w0 in
     ORet p w1.
 
-(** [sptr_deref p] — Go [*p]: read both field cells, RECONSTRUCT the struct via [rep]. *)
-Definition sptr_deref {R} (p : SPtr R) : IO R :=
+(** [sptr_deref p] — Go [*p]: read both field cells, RECONSTRUCT via the canonical rep. *)
+Definition sptr_deref {R} `{StructRep2Of R} (p : SPtr R) : IO R :=
   bind (hfield_get (sptr_hs p) 0%uint63 TI64) (fun a =>
   bind (hfield_get (sptr_hs p) 1%uint63 TI64) (fun b =>
-  ret (sr2_mk (sp_rep p) a b))).
+  ret (sr2_mk (the_rep2 R) a b))).
 
 (** [sptr_assign p v] — Go [*p = R{…}]: write both field cells from [v] (whole-struct
     write through the pointer; mutation is observed by any handle to the same base). *)
-Definition sptr_assign {R} (p : SPtr R) (v : R) : IO unit :=
-  bind (hfield_set (sptr_hs p) 0%uint63 TI64 (sr2_f0 (sp_rep p) v)) (fun _ =>
-        hfield_set (sptr_hs p) 1%uint63 TI64 (sr2_f1 (sp_rep p) v)).
+Definition sptr_assign {R} `{StructRep2Of R} (p : SPtr R) (v : R) : IO unit :=
+  bind (hfield_set (sptr_hs p) 0%uint63 TI64 (sr2_f0 (the_rep2 R) v)) (fun _ =>
+        hfield_set (sptr_hs p) 1%uint63 TI64 (sr2_f1 (the_rep2 R) v)).
 
-(** FIELD-level access through the pointer — Go [p.Field] / [p.Field = v] (the idiomatic
-    form the Bs.2 lowering targets).  [idx] selects the field cell, [proj] names it (for
-    the plugin's [proj → field-name] map) and SPECIFIES the read (it equals [proj] of the
-    pointee).  Built directly on the field-cell substrate. *)
-Definition sptr_get_field {R F} (p : SPtr R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+(** FIELD-level access through the pointer — Go [p.Field] / [p.Field = v] (the idiomatic form the
+    Bs.2 lowering targets).  [idx] selects the field cell; [proj] names it (the plugin's
+    [proj → field-name] map) AND must be COHERENT with it — review #6 #10(c): the erased [field_at2]
+    evidence ties [proj] to the canonical rep's [idx]-th projection, so you cannot claim to read field
+    [proj] while addressing a DIFFERENT cell.  ([proj]/[ftag]/[coh] erase; the cell op is the substrate.) *)
+Definition field_at2 {R} (rep : StructRep2 R) (idx : int) (proj : R -> GoI64) : Prop :=
+  (idx = 0%uint63 /\ proj = sr2_f0 rep) \/ (idx = 1%uint63 /\ proj = sr2_f1 rep).
+Definition sptr_get_field {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) : IO GoI64 :=
   hfield_get (sptr_hs p) idx ftag.
-Definition sptr_set_field {R F} (p : SPtr R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+Definition sptr_set_field {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64) : IO unit :=
   hfield_set (sptr_hs p) idx ftag v.
 
-(** Field read-after-write THROUGH the pointer — a THEOREM: after [sptr_set_field p idx
-    proj ftag v], reading the SAME field returns [v].  The mutation-through-pointer that
-    a [*T] receiver relies on, reduced directly to [hfield_get_set_same]. *)
-Lemma sptr_field_get_set : forall {R F} (p : SPtr R) (idx : int) (proj : R -> F)
-    (ftag : GoTypeTag F) (v : F),
-  bind (sptr_set_field p idx proj ftag v) (fun _ => sptr_get_field p idx proj ftag) =io=
-  bind (sptr_set_field p idx proj ftag v) (fun _ => ret v).
+(** Field read-after-write THROUGH the pointer — a THEOREM: after [sptr_set_field … v], reading the
+    SAME (coherent) field returns [v].  The mutation-through-pointer a [*T] receiver relies on. *)
+Lemma sptr_field_get_set : forall {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64),
+  bind (sptr_set_field p idx proj ftag coh v) (fun _ => sptr_get_field p idx proj ftag coh) =io=
+  bind (sptr_set_field p idx proj ftag coh v) (fun _ => ret v).
 Proof.
   intros. unfold sptr_set_field, sptr_get_field. apply hfield_get_set_same.
 Qed.
@@ -5421,19 +5430,19 @@ Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_sam
     ([ref_sel]/[ref_upd]/[hfield_cell] are kept opaque so [cbn] reduces only the monadic
     [match]/[bind] structure, leaving the heap terms intact for the final rewrites.) *)
 Local Opaque ref_sel ref_upd hfield_cell.
-Lemma sptr_deref_assign : forall {R} (p : SPtr R) (v : R),
+Lemma sptr_deref_assign : forall {R} `{StructRep2Of R} (p : SPtr R) (v : R),
   r_loc (hfield_cell (sptr_hs p) 0%uint63 TI64) <> r_loc (hfield_cell (sptr_hs p) 1%uint63 TI64) ->
   bind (sptr_assign p v) (fun _ => sptr_deref p) =io=
   bind (sptr_assign p v) (fun _ => ret v).
 Proof.
-  intros R p v Hne. intro w.
+  intros R Hrep p v Hne. intro w.
   unfold sptr_assign, sptr_deref.
   repeat (rewrite ?run_bind, ?run_hfield_set, ?run_hfield_get, ?run_ret; cbn).
   rewrite (ref_sel_upd_diff (hfield_cell (sptr_hs p) 1%uint63 TI64)
                             (hfield_cell (sptr_hs p) 0%uint63 TI64))
     by (apply not_eq_sym; exact Hne).
   rewrite !ref_sel_upd_same.
-  rewrite (sr2_eta (sp_rep p) v). reflexivity.
+  rewrite (sr2_eta (the_rep2 R) v). reflexivity.
 Qed.
 Local Transparent ref_sel ref_upd hfield_cell.
 

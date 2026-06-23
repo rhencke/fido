@@ -414,6 +414,9 @@ let is_sptr_machinery r =          (* every proof-side struct-pointer name → s
     ["sptr_new"; "sptr_deref"; "sptr_assign"; "sptr_get_field"; "sptr_set_field";
      "sptr_hs"; "mkSPtr"; "sp_base"; "sp_rep";
      "mkSR2"; "sr2_f0"; "sr2_f1"; "sr2_mk"; "sr2_eta";
+     (* canonical-rep typeclass projections (review #6 #10(b)) — the per-handle rep is gone; the
+        rep is [the_rep<n> R], used only inside suppressed op bodies, never emitted *)
+     "the_rep2"; "the_rep3"; "the_repH";
      (* 3-field variants *)
      "sptr3_new"; "sptr3_get_field"; "sptr3_set_field"; "sptr3_hs"; "mkSPtr3";
      "sp3_base"; "sp3_rep"; "mkSR3"; "sr3_f0"; "sr3_f1"; "sr3_f2"; "sr3_mk"; "sr3_eta";
@@ -693,6 +696,8 @@ let is_erased_record_typename s =
   || String.equal s "SPtr" || String.equal s "StructRep2"   (* struct-pointer machinery (Bs.2) *)
   || String.equal s "SPtr3" || String.equal s "StructRep3"  (* 3-field variant *)
   || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
+  || String.equal s "StructRep2Of" || String.equal s "StructRep3Of"
+  || String.equal s "StructRep2HOf"  (* canonical-rep typeclasses (review #6 #10(b)): single-field, proof-only *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || arr_n_of_name "GoArr" "" s <> None    (* GoArr<N>: fixed-size [N]T array, rendered [N]T, ops by name *)
   || String.equal s "FConst"    (* untyped float constant: folds to a Go float literal, never a struct *)
@@ -1840,6 +1845,19 @@ let rec pp_expr state env = function
            str "&" ++ pp_atom state env v
        | MLglob r, [p] when is_sptr_deref_ref r ->
            str "*" ++ pp_atom state env p
+       (* the 2-field [sptr_get_field]/[sptr_set_field] carry the canonical-rep typeclass DICT
+          (review #6 #10(b)/(c)) as a leading proof-only arg — strip it; the field COHERENCE
+          witness is erased.  [sptr3]/[sptrh] keep the no-dict shape (general arm below). *)
+       | MLglob r, [_dict; p; _idx; proj; _ftag] when String.equal (global_basename r) "sptr_get_field" ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a struct-pointer field read whose field arg is not a projection") in
+           pp_atom state env p ++ str "." ++ str fld
+       | MLglob r, [_dict; p; _idx; proj; _ftag; v] when String.equal (global_basename r) "sptr_set_field" ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a struct-pointer field write whose field arg is not a projection") in
+           pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
        | MLglob r, [p; _idx; proj; _ftag] when is_sptr_get_field_ref r ->
            let fld = (match strip_magic proj with
              | MLglob rp when is_record_proj rp -> proj_field_name rp
@@ -4321,6 +4339,8 @@ let is_inlined_ref r =
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
+  str_prefix "StructRep2Of" (global_basename r) || str_prefix "StructRep3Of" (global_basename r) ||
+  str_prefix "StructRep2HOf" (global_basename r) ||  (* canonical-rep typeclass + its instances (review #6 #10(b)) *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || String.equal (global_basename r) "subslice_desc" || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
@@ -4528,6 +4548,11 @@ let pp_decl state decl =
     || String.equal (global_basename r) "Sess"
     || String.equal (global_basename r) "GoString"
     || String.equal (global_basename r) "GoSlice"
+    (* canonical-rep typeclasses (review #6 #10(b)): a single-field class unboxes to a type ALIAS
+       [StructRep<n>Of R = StructRep<n> R]; proof-only, suppress (the rep never reaches Go) *)
+    || String.equal (global_basename r) "StructRep2Of"
+    || String.equal (global_basename r) "StructRep3Of"
+    || String.equal (global_basename r) "StructRep2HOf"
     || List.mem (global_basename r) ["RefCell"; "RefHeap"; "ChanCell"; "ChanHeap";
                                       "MapCell"; "MapHeap"; "Tagged"; "GoTypeTag"] -> mt ()
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
