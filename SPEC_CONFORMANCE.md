@@ -405,6 +405,9 @@ the N-ary work); now handled (`pure_destr_demo` → `7 6 5`: `sum_pair` 2-ary + 
 A WILDCARD binder `let '(_, y) := …` (Coq extracts the `_` as an unused gensym, which left as a real
 `:=` binder is invalid Go — `declared and not used`) is blanked to Go `_` via `pp_destr_binder`/`dbn_free`
 (`snd_of`, `stmt_blank_demo`) — both positions; this fixed a fail-OPEN the pure-position fix had exposed.
+A NARROW component — `func(…) (uint8, uint8)` — is cast to its return slot (`return uint8(…), uint8(…)`)
+via `value_narrow_conv`; without it the int64-carrier values were returned into uint8 slots = invalid Go
+(another fail-OPEN, found by the same self-review; `narrow_pair_demo` → `44 7`, go-vet-clean, golden-locked).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

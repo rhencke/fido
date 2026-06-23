@@ -1835,6 +1835,15 @@ func Stmt_blank_demo() {
 	println(y)
 }
 
+func Narrow_pair(x int64, y int64) (uint8, uint8) {
+	return uint8((x & 0xff)), uint8((y & 0xff))
+}
+
+func Narrow_pair_demo() {
+	p, q := Narrow_pair(300, 7)
+	println(p, q)
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -2608,6 +2617,7 @@ func main() {
 	Triple_demo()
 	Pure_destr_demo()
 	Stmt_blank_demo()
+	Narrow_pair_demo()
 	Io_method_demo()
 	Io_val_method_demo()
 	Struct_eq_demo()

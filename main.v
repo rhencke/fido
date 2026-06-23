@@ -2520,6 +2520,13 @@ Definition pure_destr_demo : IO unit :=
 (* same, but the blank-binder destructure is in IO/STATEMENT position. *)
 Definition stmt_blank_demo : IO unit :=
   let '(_, y) := swap2 (7)%i64 (8)%i64 in println [any y].   (* 7 *)
+(* NARROW multiple-return `func(…) (uint8, uint8)`: each component is an int64-carrier op result that
+   must be CAST to its narrow return slot — `return uint8(…), uint8(…)`.  Was a fail-OPEN (int64 into a
+   uint8 return slot fails `go build`). *)
+Definition narrow_pair (x y : GoI64) : GoU8 * GoU8 := (u8_of_i64 x, u8_of_i64 y).
+Definition narrow_pair_demo : IO unit :=
+  let '(p, q) := narrow_pair (300)%i64 (7)%i64 in   (* u8_of_i64 300 = 44, u8_of_i64 7 = 7 *)
+  println [any p; any q].                            (* 44 7 *)
 
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
@@ -3284,6 +3291,7 @@ Definition main_effect : IO unit :=
   triple_demo                   >>'   (* prints: 1 2 3 (N-ary 3-return + nested destructure) *)
   pure_destr_demo               >>'   (* prints: 7 6 5 (destructure in a PURE value fn; last = blank binder) *)
   stmt_blank_demo               >>'   (* prints: 7 (blank-binder destructure, IO/statement position) *)
+  narrow_pair_demo              >>'   (* prints: 44 7 (narrow `(uint8, uint8)` multi-return, components cast) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   io_val_method_demo            >>'   (* prints: 8 17 (value-returning IO method, bind-chain tail) *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)

@@ -4098,7 +4098,13 @@ let rec pp_pure_tail state tab env e =
   | MLcons (_, r, args) when is_pair_ref r && (List.length args = 2 || List.length args = 4) ->
       let a, b = (match args with [a; b] -> a, b | [_; _; a; b] -> a, b | _ -> assert false) in
       let vals = flatten_pair_value a @ [b] in   (* N-ary: [pair (pair a b) c] -> [a;b;c] -> [return a, b, c] *)
-      str tab ++ str "return " ++ prlist_with_sep (fun () -> str ", ") (pp_expr state env) vals ++ fnl ()
+      (* a NARROW component (int64-carrier) into its narrow return slot needs the cast — e.g. a
+         `func() (uint8, uint8)` whose `return (x & 0xff), …` would otherwise be int64-into-uint8 (P1 #4). *)
+      let pp_val v =
+        match value_narrow_conv env v with
+        | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
+        | None    -> pp_expr state env v in
+      str tab ++ str "return " ++ prlist_with_sep (fun () -> str ", ") pp_val vals ++ fnl ()
   | _ -> return_fallback ()
 
 (** Emit a top-level function, collecting leading lambdas for the signature
