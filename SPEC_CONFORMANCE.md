@@ -401,7 +401,10 @@ A non-left-nested `A * (B * C)` (not a valid Go flat tuple) stays fail-closed (t
 rejects it; a non-spine pair VALUE aborts at its `pp_expr`).  The DESTRUCTURE lowers in BOTH positions:
 IO/statement (`pp_stmts`/`emit_block`) AND pure-value-returning (`pp_pure_tail`) — a non-IO `func f()
 int64 { x, y := g(); return x + y }` was a fail-closed gap (found by self-review 2026-06-23, pre-dating
-the N-ary work); now handled (`pure_destr_demo` → `7 6`: `sum_pair` 2-ary + `sum3` N-ary, golden-locked).
+the N-ary work); now handled (`pure_destr_demo` → `7 6 5`: `sum_pair` 2-ary + `sum3` N-ary, golden-locked).
+A WILDCARD binder `let '(_, y) := …` (Coq extracts the `_` as an unused gensym, which left as a real
+`:=` binder is invalid Go — `declared and not used`) is blanked to Go `_` via `pp_destr_binder`/`dbn_free`
+(`snd_of`, `stmt_blank_demo`) — both positions; this fixed a fail-OPEN the pure-position fix had exposed.
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

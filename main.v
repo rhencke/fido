@@ -2512,8 +2512,14 @@ Definition triple_demo : IO unit :=
 Definition sum_pair (a b : GoI64) : GoI64 := let '(x, y) := swap2 a b in i64_add x y.
 Definition sum3 (a b c : GoI64) : GoI64 :=
   let '(x, y, z) := triple3 a b c in i64_add (i64_add x y) z.
+(* A BLANK binder [_] in a destructure → Go [_], NOT the unused gensym Coq extracts it as (which,
+   left as a real `:=` binder, is `declared and not used` — invalid Go). *)
+Definition snd_of (a b : GoI64) : GoI64 := let '(_, y) := swap2 a b in y.
 Definition pure_destr_demo : IO unit :=
-  println [any (sum_pair (3)%i64 (4)%i64); any (sum3 (1)%i64 (2)%i64 (3)%i64)].   (* 7 6 *)
+  println [any (sum_pair (3)%i64 (4)%i64); any (sum3 (1)%i64 (2)%i64 (3)%i64); any (snd_of (5)%i64 (6)%i64)].   (* 7 6 5 *)
+(* same, but the blank-binder destructure is in IO/STATEMENT position. *)
+Definition stmt_blank_demo : IO unit :=
+  let '(_, y) := swap2 (7)%i64 (8)%i64 in println [any y].   (* 7 *)
 
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
@@ -3276,7 +3282,8 @@ Definition main_effect : IO unit :=
   method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
   multiret_demo                 >>'   (* prints: 4 3 (multiple return values + destructure) *)
   triple_demo                   >>'   (* prints: 1 2 3 (N-ary 3-return + nested destructure) *)
-  pure_destr_demo               >>'   (* prints: 7 6 (multi-return destructure in a PURE value fn) *)
+  pure_destr_demo               >>'   (* prints: 7 6 5 (destructure in a PURE value fn; last = blank binder) *)
+  stmt_blank_demo               >>'   (* prints: 7 (blank-binder destructure, IO/statement position) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   io_val_method_demo            >>'   (* prints: 8 17 (value-returning IO method, bind-chain tail) *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)

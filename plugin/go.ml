@@ -1652,6 +1652,20 @@ let rec dbn_free n = function
   | MLmagic e           -> dbn_free n e
   | _                   -> true
 
+(* A multiple-return DESTRUCTURE binder, blanked to Go [_] when UNUSED.  A wildcard pattern
+   [let '(_, y) := f …] extracts the [_] as a fresh gensym (e.g. [g]); left as a real binder, the Go
+   [g, y := f()] would be `g declared and not used` — invalid Go.  [fenv] is the body's de-Bruijn
+   context (the binder is physically in it, prepended by [flatten_destructure]), so [idx] finds its
+   index [n] and [dbn_free n body] ⇒ unused ⇒ [_].  A [Dummy] binder is [_] outright. *)
+let pp_destr_binder fenv body id =
+  if is_dummy id then str "_"
+  else
+    let rec idx i = function
+      | [] -> 0
+      | x :: r -> if x == id then i else idx (i + 1) r in
+    let n = idx 1 fenv in
+    if n > 0 && dbn_free n body then str "_" else pp_mlident id
+
 let db1_free e = dbn_free 1 e
 
 (*s CFG block terminators ([Next] values).  A block emitter delegates its
@@ -2737,7 +2751,7 @@ and emit_block terminating state hoists term tab env b =
               when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                    && List.length ids = 2 ->
                 let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
-                str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
+                str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
                 ++ str " := " ++ pp_expr state env scrut ++ fnl ()
                 ++ emit_block terminating state hoists term tab fenv fbody
             | [ (_, p1, body1); (_, p2, body2) ] ->
@@ -3711,7 +3725,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
            when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                 && List.length ids = 2 ->
              let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
-             str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
+             str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
              ++ str " := " ++ pp_expr state env scrut ++ fnl ()
              ++ pp_stmts tab fenv fbody
          | _ -> emit_case tab env typ scrut branches (fun _nb b -> b))
@@ -4013,7 +4027,7 @@ let rec pp_pure_tail state tab env e =
     when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
          && List.length ids = 2 ->
       let flat_ids, fbody, fenv = flatten_destructure ids body1 env in
-      str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
+      str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
       ++ str " := " ++ pp_expr state env scrut ++ fnl ()
       ++ pp_pure_tail state tab fenv fbody
   (* VALUE-position ENUM match → a Go [switch] each of whose arms [return]s (e.g. a

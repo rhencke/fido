@@ -1821,8 +1821,18 @@ func Sum3(a int64, b int64, c int64) int64 {
 	return x + y + z
 }
 
+func Snd_of(a int64, b int64) int64 {
+	_, y := Swap2(a, b)
+	return y
+}
+
 func Pure_destr_demo() {
-	println(Sum_pair(3, 4), Sum3(1, 2, 3))
+	println(Sum_pair(3, 4), Sum3(1, 2, 3), Snd_of(5, 6))
+}
+
+func Stmt_blank_demo() {
+	_, y := Swap2(7, 8)
+	println(y)
 }
 
 func (p Point) Describe() {
@@ -2597,6 +2607,7 @@ func main() {
 	Multiret_demo()
 	Triple_demo()
 	Pure_destr_demo()
+	Stmt_blank_demo()
 	Io_method_demo()
 	Io_val_method_demo()
 	Struct_eq_demo()
