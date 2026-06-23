@@ -2,6 +2,13 @@
 
 Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and architecture). This is the living reference — the full project vision and principles, the incremental ladder (what is modelled, feature by feature), the correctness-debt tiers, known gaps, the wish list, and the concurrency research plan. **Update the ladder here when a feature lands.** Not auto-loaded into context; read on demand.
 
+**STATUS (2026-06-23) — MILESTONE: the tractable CORRECTNESS scope is comprehensively COMPLETE.**
+- **Go CONSTRUCT LAYER is 100%** — every Go construct in the no-import scope is modelled and extracted, with NO remaining fail-closed construct gap. Closed this session: `&x` (address-of-a-local), narrow `Ref` type-identity, and the last one — N-ary (3+) multiple return. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.)
+- **BACKEND hardened + GATED** — the fail-closed sweep (4 external reviews' defect classes) is complete, and a gate trio now *enforces* it on every build: `go vet` + the axiom-manifest (trust base == `EXPECTED_ASSUMPTIONS.txt`) + the non-bypassable negtest harness (`negtests/`), plus the hook anti-tampering fix.
+- **CONCURRENCY theory complete** — the abstract dynamic-ownership invariant (`region_inv_f_race_free`, all three transfer mechanisms) + the full session safety/liveness theory, axiom-free + funext-free.
+- ⚠️ **Still NOT "formally verified Go."** The plugin stays trusted/unverified (gap #10 — no source→emitted-Go theorem; golden + negtests are the only end-to-end check). The proven safety reaches the modelled fragment, not arbitrary emitted Go.
+- **Remaining frontier — all deep / foundational / gated / unfixable** (no clean tractable win left): native `interface{}` keyword (idiomatic paradigm change; dict lowering already correct), defined-type map KEYS (heterogeneous-heap rework, niche), the verified-printer (gap #10, huge, user-punted), the concurrency IO-LIFT (spawn fragment; `go_spawn` has no `run_io` law — user-gated option b), CI (gh token lacks Actions perms), and `int` bitwise/shifts (63-bit Rocq-`int` substrate limit) / assert-to-`any` (`GoTypeTag GoAny` universe-inconsistent) — both genuine `✗` that cannot be closed under the current substrate.
+
 ## The goal
 
 Be **safer than Go's compiler can prove** — type, memory, and concurrency
