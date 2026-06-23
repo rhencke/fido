@@ -157,29 +157,26 @@ fragment (`denote_adequate`/`_mem`); `go_spawn` has no `run_io` law BY DESIGN, s
 concurrent / possibly-blocking programs — exactly the safety-critical ones — are carried by the
 calculus ALONE, tied to emitted Go only through the plugin/prose.  Generality is also thinner than
 the line count: the one **arbitrary-N** race-freedom result (`PureLocal`/`PrivateDisc`) is the
-**no-transfer, memory-free-children** fragment; every program with real ownership *transfer* is a
-**per-program** phase enumeration (`MpReach`/`XferReach`/the 7-shape exchange).  The ownership
-*discipline* (`Owned ⇒ race-free`) is general, but *earning* `Owned` for a transfer program is
-hand-built per shape and does not compose — so "race-free Fido" today ≈ the no-transfer fragment +
-a handful of witnessed handoff programs.  *(Foundation toward composing it, 2026-06-23: the
-reusable INCREMENTAL-`Owned` core now exists — `owned_snoc` (appending an access preserves `Owned`
-if it is hb-after every prior same-location access) and `owned_step_snoc` (carrying `AccBeforeLast`,
-this reduces to a SINGLE per-step obligation: hb from the location's PREVIOUS access to the new one).
-That is the per-step inductive replacement for whole-trace phase enumeration; the open work is the
-dynamic-owner / linear-region invariant that DISCHARGES that obligation for arbitrary transfer
-programs — same-owner ⇒ program order, transferred-owner ⇒ the send/recv or spawn/start sync edge.
-All four lemmas Closed under the global context — fully axiom-free.  Brick 2, same day: the
-OWNERSHIP-TRANSFER DISCHARGE — `AcqConn` (the per-location owner witness) + `owned_step_by_owner`
-(an OWNER's access to a held location preserves `Owned`, composing the discharge INTO `owned_step_snoc`)
-+ the AcqConn lifecycle `recv_establishes_acqconn` / `acqconn_after_access`, and `WT`, the LINEAR
-region-threading typing (send RELEASES the sent location, recv ACQUIRES it — `OnlyAcc` is non-linear).
-The open assembly is the config invariant `region_inv_step` wiring these over `rstep`. Also axiom-free.
-Brick 3: `RegionInv` (the config invariant — single-valued ghost `own : Owner`, so DISJOINTNESS is free)
-+ `region_inv_write`/`region_inv_read`/`region_inv_send` (an `rstep` write/read/send PRESERVES it —
-owner-access and pointer-RELEASE), all axiom-free incl. `wt_region_ext` (re-types the continuation under
-a pointwise-updated region with NO funext).  Remaining for the full theorem: `region_inv_recv` (acquire —
-its only real subtlety is a buffer-linearity invariant so a pop leaves no duplicate), the vacuous `rstep`
-cases, and the assembly into reachability.)*
+**no-transfer, memory-free-children** fragment.  *(UPDATE 2026-06-23 — the ownership-TRANSFER gap is
+now closed for the pointer-handoff fragment: `region_inv_race_free` proves EVERY reachable interleaving
+of ANY (no-spawn) pointer-handoff program is race-free, via an ABSTRACT ownership invariant — not the
+old per-program phase enumeration (`MpReach`/`XferReach`/…).  The chain: `owned_snoc`/`owned_step_snoc`
+(incremental `Owned` — per-step preservation reduces to "the new access is hb-after the location's
+previous access") ← `AcqConn`/`acqconn_hbt_new` (a dynamic OWNER discharges that obligation: same-owner
+⇒ program order, transferred-owner ⇒ the send→recv sync edge) ← `WT` (a LINEAR region-threading typing —
+send RELEASES the sent pointer, recv ACQUIRES it; `OnlyAcc` is non-linear so cannot express transfer) ←
+`RegionInv` (the config invariant: single-valued ghost `own : Owner` ⇒ disjointness free; channel buffer
+carries each in-transit pointer with its sender's hb-support) + `BufLin` (buffer linearity, so a recv pop
+leaves no duplicate) ← `region_inv_step` (every `rstep` preserves both; spawn/select/close vacuous by
+`WT`-inversion, closed-recv by `NoClose`) ← `region_inv_steps`/`region_inv_race_free`.  Witnessed
+non-vacuously (`witness_all_interleavings_race_free`: a genuine cross-goroutine write/WRITE on one cell,
+handed off over a channel, race-free for ALL interleavings).  ENTIRELY funext-free — `WT`'s region is a
+hypothesis position and own-updates are pointwise, so `wt_region_ext` re-types continuations with no
+axiom.  Still open (each its own slice, none blocked): SPAWN-transfer (ownership split on `CSpawn`), the
+SIGNAL-handoff pattern (location stays shared, channel carries a non-pointer signal), and lifting from
+the `rstep` calculus to the EXTRACTABLE typed IO layer.  The discipline `Owned ⇒ race-free` was always
+general; what is NEW is *earning* `Owned` for an arbitrary transfer program by an abstract `rstep`
+induction, not a hand-built per-shape proof.)*
   (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed

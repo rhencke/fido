@@ -2294,6 +2294,189 @@ Proof.
       exact (hbt_app1 tr (mkEv tid (KRecv c s)) (lp L) s0 (Hsupp HaccTr)).
 Qed.
 
+(* ── BufLin preservation: a SEND appends a fresh (un-buffered) value; a RECV shrinks a buffer. ── *)
+Lemma nodup_snoc : forall (l : list nat) a, NoDup l -> ~ In a l -> NoDup (l ++ [a]).
+Proof.
+  induction l as [|x l IHl]; intros a HND Hni; cbn.
+  - constructor; [intros [] | constructor].
+  - inversion HND as [|x' l' Hxni HNDl]; subst.
+    constructor.
+    + rewrite in_app_iff. intros [Hin | Hin].
+      * exact (Hxni Hin).
+      * cbn in Hin. destruct Hin as [Heq | []]. subst x. apply Hni. left. reflexivity.
+    + apply IHl; [exact HNDl | intro Hin; apply Hni; right; exact Hin].
+Qed.
+
+Lemma buflin_send : forall (bf : nat -> list (nat * nat)) c v s0,
+  (forall ch, NoDup (map fst (bf ch))) ->
+  (forall c1 c2 L, In L (map fst (bf c1)) -> In L (map fst (bf c2)) -> c1 = c2) ->
+  (forall ch, ~ In v (map fst (bf ch))) ->
+  (forall ch, NoDup (map fst (upd bf c (bf c ++ [(v, s0)]) ch)))
+  /\ (forall c1 c2 L, In L (map fst (upd bf c (bf c ++ [(v, s0)]) c1)) ->
+                      In L (map fst (upd bf c (bf c ++ [(v, s0)]) c2)) -> c1 = c2).
+Proof.
+  intros bf c v s0 HND HCC Hvnb. split.
+  - intro ch. destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same, map_app. cbn. apply nodup_snoc; [apply HND | apply Hvnb].
+    + rewrite (upd_other bf c (bf c ++ [(v, s0)]) ch Hne). apply HND.
+  - intros c1 c2 L H1 H2.
+    destruct (Nat.eq_dec c1 c) as [->|Hc1]; destruct (Nat.eq_dec c2 c) as [->|Hc2].
+    + reflexivity.
+    + rewrite upd_same, map_app in H1. rewrite (upd_other bf c _ c2 Hc2) in H2.
+      apply in_app_iff in H1. destruct H1 as [H1 | H1].
+      * exfalso. apply Hc2. symmetry. exact (HCC c c2 L H1 H2).
+      * cbn in H1. destruct H1 as [Heq | []]. subst L. exfalso. exact (Hvnb c2 H2).
+    + rewrite (upd_other bf c _ c1 Hc1) in H1. rewrite upd_same, map_app in H2.
+      apply in_app_iff in H2. destruct H2 as [H2 | H2].
+      * exfalso. apply Hc1. exact (HCC c1 c L H1 H2).
+      * cbn in H2. destruct H2 as [Heq | []]. subst L. exfalso. exact (Hvnb c1 H1).
+    + rewrite (upd_other bf c _ c1 Hc1) in H1. rewrite (upd_other bf c _ c2 Hc2) in H2.
+      exact (HCC c1 c2 L H1 H2).
+Qed.
+
+Lemma buflin_recv : forall (bf : nat -> list (nat * nat)) c v s brest,
+  (forall ch, NoDup (map fst (bf ch))) ->
+  (forall c1 c2 L, In L (map fst (bf c1)) -> In L (map fst (bf c2)) -> c1 = c2) ->
+  bf c = (v, s) :: brest ->
+  (forall ch, NoDup (map fst (upd bf c brest ch)))
+  /\ (forall c1 c2 L, In L (map fst (upd bf c brest c1)) -> In L (map fst (upd bf c brest c2)) -> c1 = c2).
+Proof.
+  intros bf c v s brest HND HCC Hbc. split.
+  - intro ch. destruct (Nat.eq_dec ch c) as [->|Hne].
+    + rewrite upd_same. pose proof (HND c) as H. rewrite Hbc in H. cbn in H.
+      inversion H; subst; assumption.
+    + rewrite (upd_other bf c brest ch Hne). apply HND.
+  - intros c1 c2 L H1 H2.
+    assert (Hsub : forall cx, In L (map fst (upd bf c brest cx)) -> In L (map fst (bf cx))).
+    { intros cx Hx. destruct (Nat.eq_dec cx c) as [->|Hcx].
+      - rewrite upd_same in Hx. rewrite Hbc. cbn. right. exact Hx.
+      - rewrite (upd_other bf c brest cx Hcx) in Hx. exact Hx. }
+    exact (HCC c1 c2 L (Hsub c1 H1) (Hsub c2 H2)).
+Qed.
+
+(* THE PRESERVATION THEOREM: every [rstep] preserves [RegionInv] AND [BufLin].  The four owner/transfer
+   steps dispatch to the per-case lemmas; spawn/select/close are impossible under [WT] (no constructor),
+   and closed-recv is impossible under [NoClose]. *)
+Lemma region_inv_step : forall own lp acq cfg cfg',
+  RegionInv own lp acq cfg -> BufLin cfg -> rstep cfg cfg' ->
+  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg'.
+Proof.
+  intros own lp acq cfg cfg' HRI HBL Hstep.
+  destruct Hstep as
+    [ p b h lv tr tid c v k Hlv Hp Hcb
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcb
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ].
+  - (* send *)
+    exists (upd_own own v Transit), lp, acq.
+    split; [ exact (region_inv_send own lp acq p b h lv tr tid c v k HRI Hlv Hp) | ].
+    pose proof HRI as HRI2. destruct HRI2 as [Hprog [_ [Hbuf _]]]. destruct HBL as [HND HCC].
+    cbn [rc_prog rc_live rc_bufs] in *.
+    pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+    apply wt_send_inv in HW. destruct HW as [Hheld _]. pose proof (heldby_true _ _ _ Hheld) as Hown.
+    assert (Hvnb : forall ch, ~ In v (map fst (b ch))).
+    { intros ch Hcon. apply in_map_iff in Hcon. destruct Hcon as [[v' s'] [Hfst Hin']].
+      cbn in Hfst. subst v'. destruct (Hbuf ch v s' Hin') as [HT _]. rewrite Hown in HT. discriminate. }
+    exact (buflin_send b c v (length tr) HND HCC Hvnb).
+  - (* recv *)
+    exists (upd_own own v (Held tid)), lp, (upd_lastpos acq v (length tr)).
+    split; [ exact (region_inv_recv own lp acq p b h lv tr tid c f v s brest HRI HBL Hlv Hp Hbc) | ].
+    destruct HBL as [HND HCC]. cbn [rc_bufs] in *.
+    exact (buflin_recv b c v s brest HND HCC Hbc).
+  - (* write *)
+    exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
+    split; [ exact (region_inv_write own lp acq p b h lv tr tid l v k HRI Hlv Hp) | exact HBL ].
+  - (* read *)
+    exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
+    split; [ exact (region_inv_read own lp acq p b h lv tr tid l f HRI Hlv Hp) | exact HBL ].
+  - (* spawn: WT has no CSpawn *)
+    exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - (* select: WT has no CSelect *)
+    exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - (* close: WT has no CClose *)
+    exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - (* recv_closed: NoClose kills the KClose premise *)
+    exfalso. destruct HRI as [_ [_ [_ [_ [_ [_ HNC]]]]]]. cbn [rc_trace] in HNC.
+    pose proof (HNC pos e Hpos) as HC. rewrite Hek in HC. cbn in HC. exact HC.
+  - (* select_closed: WT has no CSelect *)
+    exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
+    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+Qed.
+
+Lemma region_inv_steps : forall own lp acq cfg cfg',
+  RegionInv own lp acq cfg -> BufLin cfg -> rsteps cfg cfg' ->
+  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg'.
+Proof.
+  intros own lp acq cfg cfg' HRI HBL Hsteps. revert own lp acq HRI HBL.
+  induction Hsteps as [cfg0 | a b0 c0 Hab Hbc IH]; intros own lp acq HRI HBL.
+  - exists own, lp, acq. split; [exact HRI | exact HBL].
+  - destruct (region_inv_step own lp acq a b0 HRI HBL Hab) as [own' [lp' [acq' [HRI' HBL']]]].
+    exact (IH own' lp' acq' HRI' HBL').
+Qed.
+
+(* THE THEOREM: every reachable trace of a [RegionInv]+[BufLin] program is race-free — for ARBITRARY
+   (no-spawn) pointer-handoff programs and ALL interleavings, via the ABSTRACT ownership invariant
+   (not a per-program phase enumeration). *)
+Theorem region_inv_race_free : forall own lp acq cfg0 cfg,
+  RegionInv own lp acq cfg0 -> BufLin cfg0 -> rsteps cfg0 cfg ->
+  TraceRaceFree (rc_trace cfg).
+Proof.
+  intros own lp acq cfg0 cfg HRI HBL Hsteps.
+  destruct (region_inv_steps own lp acq cfg0 cfg HRI HBL Hsteps) as [own' [lp' [acq' [HRI' _]]]].
+  destruct HRI' as [_ [_ [_ [HO _]]]].
+  exact (owned_race_free _ HO).
+Qed.
+
+(* WITNESS (non-vacuity): g0 owns loc 7, writes it, HANDS IT OFF over channel 0; g1 owns nothing,
+   receives the pointer and writes through it.  A genuine cross-goroutine write/write on loc 7 —
+   yet EVERY interleaving is race-free, derived from the program structure alone (own := all-g0). *)
+Definition witness_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 7 1 (CSend 0 7 CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun x => CWrite x 2 CRet) else CRet.
+Definition witness_init : RConfig :=
+  mkRCfg witness_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma witness_regioninv : RegionInv (fun _ => Held 0) (fun _ => 0) (fun _ => 0) witness_init.
+Proof.
+  unfold RegionInv, witness_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold witness_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WT_write; [reflexivity | apply WT_send; [reflexivity | apply WT_ret]].
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WT_recv. intro v. apply WT_write; [apply radd_same | apply WT_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c L s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma witness_buflin : BufLin witness_init.
+Proof.
+  unfold BufLin, witness_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Theorem witness_all_interleavings_race_free : forall cfg,
+  rsteps witness_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) witness_init cfg
+           witness_regioninv witness_buflin Hsteps).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6404,6 +6587,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
