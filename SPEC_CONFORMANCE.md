@@ -747,12 +747,19 @@ demo `goroutine_demo`.  The goroutine FORK happens-before edge (`go` ⤳ gorouti
 is PROVEN race-free (`fork_program_race_free`, see the memory model).  ✓ at the lowering
 + ordering level; the scheduler / interleaving is idealised away (Tier 5 #14).
 
-### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓
+### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ⚠ MODEL idealizes the deferred effect
 Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit.
-Ours: `defer_call f` → `defer func(){ f }()` (function-scoped, LIFO, run-at-return — Go
+Ours (RUNTIME — ✓): `defer_call f` → `defer func(){ f }()` (function-scoped, LIFO, run-at-return — Go
 provides the scoping/ordering); the block-scoped `with_defer` (IIFE + `defer`) coexists.
 Demos: `defer_demo`, `defer_loop_demo` (a `defer` in a loop captures each iteration's
-value — prints 2,1,0, not 2,2,2).  ✓
+value — prints 2,1,0, not 2,2,2 — the golden RUNTIME output is faithful).
+**MODEL — ⚠ idealized (be exact, review #5):** `defer_call (_ : IO unit) : IO unit := fun w => ORet tt w`
+is a NO-OP in the `run_io` model — the deferred effect is dropped, not run at return.  So the EMITTED Go
+is spec-faithful (native `defer` does LIFO/return-time), but the MODEL and the runtime DIVERGE on a
+program where defer's effect is observable: `run_io` omits the deferred output, the runtime runs it.  A
+`run_io`-based theorem therefore does NOT capture `defer`; faithful modeling needs return-time / panic-exit
+semantics `run_io` (a sequential `World -> Outcome`) does not express — a documented idealization, not a
+hole (the divergence is benign for the current theorems, which don't depend on a deferred effect).
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking
 Spec: send on a **closed** channel ⇒ panic; send on **nil** blocks forever.
