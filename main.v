@@ -1281,6 +1281,16 @@ Definition slice_demo : IO unit :=
      ret tt))
     (fun _ => println [any false])).              (* caught: prints false *)
 
+(** Differential test — a SLICE boxed as [any] (via explicit [anyt], since [GoSlice] has no [Tagged]
+    instance) then type-asserted.  Exercises the RECURSIVE [go_type_of_tag] for [TSlice TI64] → Go
+    [ []int64 ] (previously UNEXERCISED): a []int64 interface value asserted TO []int64 SUCCEEDS and TO
+    int64 FAILS — the composite tag rendering AGREES with Go's runtime type identity. *)
+Definition slice_box_demo : IO unit :=
+  let s := slice_of_list TI64 [(7)%i64; (8)%i64] in
+  type_assert_safe (TSlice TI64) (anyt (TSlice TI64) s) (fun _ a =>   (* []int64 to []int64 → true  *)
+  type_assert_safe TI64 (anyt (TSlice TI64) s) (fun _ b =>           (* []int64 to int64   → FALSE *)
+    println [any a; any b])).   (* true false *)
+
 (** Buffered channel: send 42, close, then recv_ok twice.
     First recv: value=42, ok=true  (buffered value still present after close).
     Second recv: value=0,  ok=false (channel drained and closed). *)
@@ -3018,6 +3028,7 @@ Definition main_effect : IO unit :=
   map_demo                      >>'   (* prints: 3 999 0 *)
   map_alias_demo                >>'   (* prints: 77 (map reference semantics: callee's write seen by caller) *)
   slice_demo                    >>'   (* prints: 5 3 / false *)
+  slice_box_demo                >>'   (* prints: true false (a []int64 boxed as any: asserts to []int64 not int64 — recursive TSlice tag) *)
   chan_demo                     >>'   (* prints: 42 true / 0 false *)
   select_demo                   >>'   (* prints: 42 (ch1 ready) *)
   select_default_demo           >>'   (* prints: 99 (default, ch empty) *)

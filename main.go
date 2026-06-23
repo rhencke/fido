@@ -614,6 +614,13 @@ func Slice_demo() {
 	}()
 }
 
+func Slice_box_demo() {
+	s := []int64{7, 8}
+	_, a := any(s).([]int64)
+	_, b := any(s).(int64)
+	println(a, b)
+}
+
 func Chan_demo() {
 	ch := make(chan int64, 1)
 	ch <- 42
@@ -2336,6 +2343,7 @@ func main() {
 	Map_demo()
 	Map_alias_demo()
 	Slice_demo()
+	Slice_box_demo()
 	Chan_demo()
 	Select_demo()
 	Select_default_demo()
