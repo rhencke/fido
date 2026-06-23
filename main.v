@@ -1865,8 +1865,17 @@ Definition rune_to_str_demo : IO unit :=
     range loop.  The decode round-trips ([str_to_runes ∘ runes_to_str = id], [rune_roundtrip_*]). *)
 Example str_range_offsets :
   runes_with_offsets 0%uint63
-    (str_to_runes (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil)))
+    (str_to_runes_w (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil)))
   = (0%uint63, i32wrap 65%uint63) :: (1%uint63, i32wrap 20013%uint63) :: (4%uint63, i32wrap 66%uint63) :: nil.
+Proof. vm_compute. reflexivity. Qed.
+(** Review #6 P1 #9 / minimum-suite #3: INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
+    a lone continuation, then 'A'.  Go's range yields [(0,U+FFFD) (1,'A')]: the bad byte consumed
+    exactly ONE source byte, so 'A' is at offset 1 — NOT 3, which re-encoding U+FFFD (3 bytes)
+    would have wrongly given.  This is the offset bug the consumed-width decoder fixes. *)
+Example str_range_invalid_offsets :
+  runes_with_offsets 0%uint63
+    (str_to_runes_w (String (byte_chr 128%uint63) (String (byte_chr 65%uint63) EmptyString)))
+  = (0%uint63, i32wrap 65533%uint63) :: (1%uint63, i32wrap 65%uint63) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Definition str_range_demo : IO unit :=
   str_range (str_concat (rune_to_str (i32wrap 72%uint63))

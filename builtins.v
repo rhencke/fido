@@ -3763,7 +3763,13 @@ Definition byte_chr (v : int) : ascii := byte_ascii (u8wrap v).
     UTF-16 surrogates (0xED with c1≥0xA0), >MaxRune (0xF4 with c1≥0x90), and invalid leads ≥0xF5.  The body
     is proof-only (lowered by name to native [[]rune(s)], which does the same), so this only corrects the
     MODEL to match Go; golden is unaffected. *)
-Fixpoint str_to_runes (s : GoString) : list GoI32 :=
+(** [str_to_runes_w] decodes AND records, per rune, the number of SOURCE bytes consumed (1 for an
+    invalid byte — Go's [utf8.DecodeRune] advances exactly one — or the 2/3/4 of a valid multibyte).
+    That CONSUMED width, not the decoded rune's would-be re-encoded width, is what [str_range]
+    accumulates into byte offsets (review #6 P1 #9): for source [0x80 'A'] Go yields
+    [(0,U+FFFD) (1,'A')], and so does the model now (the FFFD consumed ONE byte, not
+    [rune_width U+FFFD] = 3).  [str_to_runes] (rune-only) is [map fst] of this — one decoder. *)
+Fixpoint str_to_runes_w (s : GoString) : list (GoI32 * int) :=
   match s with
   | EmptyString => nil
   | String c0 r0 =>
@@ -3773,18 +3779,18 @@ Fixpoint str_to_runes (s : GoString) : list GoI32 :=
       let isc  := fun v => andb (PrimInt63.leb 128%uint63 v) (PrimInt63.ltb v 192%uint63) in  (* cont byte 0x80–0xBF *)
       let v0 := u8raw (ascii_byte c0) in
       if PrimInt63.ltb v0 128%uint63 then              (* 1-byte: ASCII 0x00–0x7F *)
-        i32wrap v0 :: str_to_runes r0
+        (i32wrap v0, 1%uint63) :: str_to_runes_w r0
       else if PrimInt63.ltb v0 194%uint63 then         (* 0x80–0xC1: cont-as-lead OR overlong-2 → error *)
-        rerr :: str_to_runes r0
+        (rerr, 1%uint63) :: str_to_runes_w r0
       else if PrimInt63.ltb v0 224%uint63 then         (* 0xC2–0xDF: 2-byte (result ≥ 0x80, non-overlong) *)
         match r0 with
         | String c1 r1 =>
             let v1 := u8raw (ascii_byte c1) in
             if isc v1 then
-              i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
-                                     (PrimInt63.land v1 63%uint63)) :: str_to_runes r1
-            else rerr :: str_to_runes r0               (* bad continuation → error, advance 1 *)
-        | EmptyString => rerr :: nil                   (* truncated *)
+              (i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
+                                     (PrimInt63.land v1 63%uint63)), 2%uint63) :: str_to_runes_w r1
+            else (rerr, 1%uint63) :: str_to_runes_w r0   (* bad continuation → error, advance 1 *)
+        | EmptyString => (rerr, 1%uint63) :: nil         (* truncated → advance 1 (the lead) *)
         end
       else if PrimInt63.ltb v0 240%uint63 then         (* 0xE0–0xEF: 3-byte *)
         match r0 with
@@ -3798,14 +3804,14 @@ Fixpoint str_to_runes (s : GoString) : list GoI32 :=
             | String c2 r2 =>
                 let v2 := u8raw (ascii_byte c2) in
                 if andb v1ok (isc v2) then
-                  i32wrap (PrimInt63.lor (PrimInt63.lor
+                  (i32wrap (PrimInt63.lor (PrimInt63.lor
                            (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
                            (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
-                           (PrimInt63.land v2 63%uint63)) :: str_to_runes r2
-                else rerr :: str_to_runes r0
-            | EmptyString => rerr :: str_to_runes r0
+                           (PrimInt63.land v2 63%uint63)), 3%uint63) :: str_to_runes_w r2
+                else (rerr, 1%uint63) :: str_to_runes_w r0
+            | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
             end
-        | EmptyString => rerr :: nil
+        | EmptyString => (rerr, 1%uint63) :: nil
         end
       else if PrimInt63.ltb v0 245%uint63 then         (* 0xF0–0xF4: 4-byte *)
         match r0 with
@@ -3822,23 +3828,38 @@ Fixpoint str_to_runes (s : GoString) : list GoI32 :=
                 | String c3 r3 =>
                     let v3 := u8raw (ascii_byte c3) in
                     if andb v1ok (andb (isc v2) (isc v3)) then
-                      i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
+                      (i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
                                (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
                                (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
                                (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
-                               (PrimInt63.land v3 63%uint63)) :: str_to_runes r3
-                    else rerr :: str_to_runes r0
-                | EmptyString => rerr :: str_to_runes r0
+                               (PrimInt63.land v3 63%uint63)), 4%uint63) :: str_to_runes_w r3
+                    else (rerr, 1%uint63) :: str_to_runes_w r0
+                | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
                 end
-            | EmptyString => rerr :: str_to_runes r0
+            | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
             end
-        | EmptyString => rerr :: nil
+        | EmptyString => (rerr, 1%uint63) :: nil
         end
       else                                             (* 0xF5–0xFF: invalid lead → error *)
-        rerr :: str_to_runes r0
+        (rerr, 1%uint63) :: str_to_runes_w r0
   end.
+(* rune-only view = drop the consumed-width tags.  A manual fixpoint (not [List.map]) so the
+   suppressed body pulls no generic [map] into the extraction closure. *)
+Fixpoint str_runes_fst (rs : list (GoI32 * int)) : list GoI32 :=
+  match rs with
+  | nil              => nil
+  | cons (r, _) rest => cons r (str_runes_fst rest)
+  end.
+Definition str_to_runes (s : GoString) : list GoI32 := str_runes_fst (str_to_runes_w s).
 Definition rune_bytes (r : GoI32) : GoString :=
-  let c := i32raw r in
+  (* Go's [string(rune)] / [utf8.EncodeRune] replaces an out-of-range or surrogate rune with
+     U+FFFD (review #6 P1 #9): [uint32(r) > MaxRune] — a NEGATIVE int32 lands far above MaxRune
+     because [i32_norm] sign-extends it into a huge uint63 — or [r] in the UTF-16 surrogate
+     range [0xD800,0xDFFF].  Without this the raw bits were emitted as a bogus encoding. *)
+  let c0 := i32raw r in
+  let c := if andb (PrimInt63.leb c0 1114111%uint63)
+                   (negb (andb (PrimInt63.leb 55296%uint63 c0) (PrimInt63.leb c0 57343%uint63)))
+           then c0 else 65533%uint63 in
   if PrimInt63.ltb c 128%uint63 then
     String (byte_chr c) EmptyString
   else if PrimInt63.ltb c 2048%uint63 then
@@ -3895,6 +3916,17 @@ Proof. vm_compute. reflexivity. Qed.
     keeps it out of the deprecated [string(int)] form). *)
 Definition rune_to_str (r : GoI32) : GoString := rune_bytes r.
 Example rune_to_str_ascii : rune_to_str (i32wrap 65%uint63) = "A"%string.
+Proof. vm_compute. reflexivity. Qed.
+(** Review #6 P1 #9 / minimum-suite #4: an out-of-range or surrogate rune encodes to U+FFFD,
+    exactly Go's [string(rune)].  Witnessed against the explicit FFFD encoding [EF BF BD]: a
+    UTF-16 surrogate (0xD800), a code point past MaxRune (0x110000), and a NEGATIVE rune (-1,
+    built by [i32_sub] so it is a genuine negative int32) all collapse to U+FFFD. *)
+Example rune_to_str_surrogate : rune_to_str (i32wrap 55296%uint63) = rune_to_str (i32wrap 65533%uint63).
+Proof. vm_compute. reflexivity. Qed.
+Example rune_to_str_above_max : rune_to_str (i32wrap 1114112%uint63) = rune_to_str (i32wrap 65533%uint63).
+Proof. vm_compute. reflexivity. Qed.
+Example rune_to_str_negative :
+  rune_to_str (i32_sub (i32wrap 0%uint63) (i32wrap 1%uint63)) = rune_to_str (i32wrap 65533%uint63).
 Proof. vm_compute. reflexivity. Qed.
 
 (** String COMPARISON (Go spec "Comparison operators": strings are comparable AND
@@ -5232,10 +5264,11 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
 
 (** ---- [range] over a string (Go spec "For statements: For range"): [for i, r := range s] ----
     Go ranges a STRING by UTF-8 code point: [i] is the BYTE offset of each code point's first
-    byte, [r] the decoded rune.  Modeled faithfully on the existing rune view: [str_to_runes]
-    decodes, [rune_width] is each rune's UTF-8 byte length (the length [rune_bytes] would
-    emit), and the byte offsets are the running prefix sums of those widths — exactly Go's
-    string-range index (machine-checked by [str_range_offsets] in main.v).  [str_range] lowers
+    byte, [r] the decoded rune.  Modeled faithfully on the rune view: [str_to_runes_w] decodes
+    each rune WITH the number of source bytes it consumed, and the byte offsets are the running
+    prefix sums of those CONSUMED widths — exactly Go's string-range index, even for invalid
+    UTF-8 (machine-checked by [str_range_offsets] / [str_range_invalid_offsets] in main.v).
+    ([rune_width] — utf8.RuneLen, a rune's ENCODED length — is a separate utility.)  [str_range] lowers
     to the NATIVE two-variable [for i, r := range s]; the [for_each_pairs]/[runes_with_offsets]
     model is proof-only (recognized by name, decl suppressed), so the emitted Go is the
     idiomatic range loop — never a [[]rune] materialisation.  The index is the Go [int] index
@@ -5246,10 +5279,14 @@ Definition rune_width (r : GoI32) : int :=
   else if PrimInt63.ltb c 2048%uint63  then 2%uint63    (* 2-byte *)
   else if PrimInt63.ltb c 65536%uint63 then 3%uint63    (* 3-byte *)
   else 4%uint63.                                          (* 4-byte *)
-Fixpoint runes_with_offsets (off : int) (rs : list GoI32) : list (int * GoI32) :=
+(** Byte offsets are the running prefix sums of the CONSUMED SOURCE widths (the [int] tag from
+    [str_to_runes_w]), so an invalid byte advances the offset by ONE — matching Go's range even
+    for invalid UTF-8 (review #6 P1 #9).  Re-encoding the decoded rune (via [rune_width]) would
+    OVER-count: U+FFFD is 3 bytes encoded but a malformed byte consumes only 1. *)
+Fixpoint runes_with_offsets (off : int) (rs : list (GoI32 * int)) : list (int * GoI32) :=
   match rs with
-  | nil         => nil
-  | cons r rest => cons (off, r) (runes_with_offsets (PrimInt63.add off (rune_width r)) rest)
+  | nil              => nil
+  | cons (r, w) rest => cons (off, r) (runes_with_offsets (PrimInt63.add off w) rest)
   end.
 Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO unit) : IO unit :=
   match xs with
@@ -5257,7 +5294,7 @@ Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO un
   | cons (a, b) rest => bind (body a b) (fun _ => for_each_pairs rest body)
   end.
 Definition str_range (s : GoString) (body : int -> GoI32 -> IO unit) : IO unit :=
-  for_each_pairs (runes_with_offsets 0%uint63 (str_to_runes s)) body.
+  for_each_pairs (runes_with_offsets 0%uint63 (str_to_runes_w s)) body.
 
 (** ---- Indexed [range] over a slice (Go spec "For statements: For range"): [for i, x := range xs] ----
     [i] is the element INDEX (0, 1, 2, …), [x] the element — the indexed counterpart of

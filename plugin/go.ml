@@ -4280,7 +4280,7 @@ let is_inlined_ref r =
      "complex_add"; "complex_sub"; "complex_mul"; "complex_div"; "complex_neg";
      "complex_eqb"; "complex_neqb";
      "str_to_bytes"; "str_from_bytes"; "byte_ascii";
-     "str_to_runes"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
+     "str_to_runes"; "str_to_runes_w"; "str_runes_fst"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
      "str_range"; "rune_width"; "runes_with_offsets"; "for_each_pairs";
      "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
