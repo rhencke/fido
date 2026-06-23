@@ -26,10 +26,30 @@ Import ListNotations.
 Inductive Cmd (A : Type) : Type :=
   | CRet : A -> Cmd A
   | COut : bool -> list GoAny -> Cmd A -> Cmd A
-  | CPan : GoAny -> Cmd A.
+  | CPan : GoAny -> Cmd A
+  | CDfr : Cmd unit -> Cmd A -> Cmd A.   (* [defer d]; [d] runs at function-scope return (review #12) *)
 Arguments CRet {A} _.
 Arguments COut {A} _ _ _.
 Arguments CPan {A} _.
+Arguments CDfr {A} _ _.
+
+(** The deferred action [Cmd unit] makes [A] a NON-uniform parameter, so Coq's auto-generated [Cmd_ind]
+    has a POLYMORPHIC motive ([forall A, Cmd A -> Prop]) and a spurious induction hypothesis for the
+    deferred — which is ill-typed for motives where [A] is load-bearing (e.g. [cbind_assoc], whose [k :
+    A -> Cmd B] pins [A]).  But [cbind]/[denote] treat the deferred OPAQUELY (they recurse only into the
+    continuation), so this MONOMORPHIC principle — recurse into the continuation, leave the deferred
+    abstract — is exactly the right tool and keeps every structural proof a clean four-case induction. *)
+Fixpoint Cmd_rect' (A : Type) (P : Cmd A -> Type)
+  (fret : forall a, P (CRet a)) (fout : forall b xs c', P c' -> P (COut b xs c'))
+  (fpan : forall v, P (CPan v)) (fdfr : forall d c', P c' -> P (CDfr d c'))
+  (c : Cmd A) : P c :=
+  match c with
+  | CRet a => fret a
+  | COut b xs c' => fout b xs c' (Cmd_rect' A P fret fout fpan fdfr c')
+  | CPan v => fpan v
+  | CDfr d c' => fdfr d c' (Cmd_rect' A P fret fout fpan fdfr c')
+  end.
+Definition Cmd_ind' (A : Type) (P : Cmd A -> Prop) := Cmd_rect' A P.
 
 (** [cbind c k] — sequencing, by appending [k] to [c]'s continuations.  STRUCTURAL on [c], so a real
     [Fixpoint] (the whole point of the CPS shape). *)
@@ -38,6 +58,7 @@ Fixpoint cbind {A B} (c : Cmd A) (k : A -> Cmd B) : Cmd B :=
   | CRet a => k a
   | COut b xs c' => COut b xs (cbind c' k)
   | CPan v => CPan v
+  | CDfr d c' => CDfr d (cbind c' k)
   end.
 
 (** The shallow output op (identical to [print]/[println] in builtins.v — appends to the [w_output]
@@ -51,16 +72,31 @@ Fixpoint denote {A} (c : Cmd A) : IO A :=
   | CRet a => ret a
   | COut b xs c' => bind (out b xs) (fun _ => denote c')
   | CPan v => panic v
+  | CDfr _ c' => denote c'   (* the SHALLOW reading DROPS the deferred action — exactly the [defer_call]
+                                no-op the review (#12) flags as a bug.  [run_cmd] below is the FAITHFUL
+                                operational semantics that actually runs it; their difference IS the bug. *)
   end.
 
 (** ---- The deep syntax is a LAWFUL monad ---- *)
 Lemma cbind_ret_l : forall {A B} (a : A) (k : A -> Cmd B), cbind (CRet a) k = k a.
 Proof. reflexivity. Qed.
 Lemma cbind_ret_r : forall {A} (c : Cmd A), cbind c (fun a => CRet a) = c.
-Proof. induction c; cbn; try reflexivity. rewrite IHc; reflexivity. Qed.
+Proof.
+  induction c as [a | b xs c' IH | v | d c' IH] using Cmd_ind'; cbn.
+  - reflexivity.
+  - rewrite IH; reflexivity.
+  - reflexivity.
+  - rewrite IH; reflexivity.
+Qed.
 Lemma cbind_assoc : forall {A B C} (c : Cmd A) (k : A -> Cmd B) (h : B -> Cmd C),
   cbind (cbind c k) h = cbind c (fun a => cbind (k a) h).
-Proof. intros. induction c; cbn; try reflexivity. rewrite IHc; reflexivity. Qed.
+Proof.
+  intros A B C c k h. induction c as [a | b xs c' IH | v | d c' IH] using Cmd_ind'; cbn.
+  - reflexivity.
+  - rewrite IH; reflexivity.
+  - reflexivity.
+  - rewrite IH; reflexivity.
+Qed.
 
 (** ---- [denote] is a MONAD MORPHISM (observationally): the deep program's runtime behaviour is its
     shallow denotation, so reasoning/extraction can move between the two ---- *)
@@ -69,8 +105,89 @@ Proof. reflexivity. Qed.
 Lemma denote_bind : forall {A B} (c : Cmd A) (k : A -> Cmd B),
   denote (cbind c k) =io= bind (denote c) (fun a => denote (k a)).
 Proof.
-  intros A B c k. induction c; cbn.
+  intros A B c k. induction c as [a | b xs c' IH | v | d c' IH] using Cmd_ind'; cbn.
   - rewrite bind_ret_l. reflexivity.
-  - rewrite bind_assoc. setoid_rewrite IHc. reflexivity.
+  - rewrite bind_assoc. setoid_rewrite IH. reflexivity.
   - rewrite bind_panic_l. reflexivity.
+  - exact IH.
 Qed.
+
+(** ---- The AUTHORITATIVE operational interpreter — [defer] is no longer a no-op (review #12) ----
+
+    [denote] above gives the SHALLOW reading (defers dropped); [run_cmd] here is the faithful semantics
+    that actually runs them at function-scope return.  The difference between the two on a deferred
+    program is EXACTLY the #12 bug, now fixed by taking [run_cmd] as authoritative. *)
+Definition oc_world {A} (oc : Outcome A) : World := match oc with ORet _ w => w | OPanic _ w => w end.
+Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
+  match oc with ORet a _ => ORet a w | OPanic v _ => OPanic v w end.
+
+(** [go c w] runs [c]'s body, ACCUMULATING the deferred actions (without running them yet).  Structural
+    on [c] — the CPS continuations are subterms, so no fuel needed here. *)
+Fixpoint go {A} (c : Cmd A) (w : World) : Outcome A * list (Cmd unit) :=
+  match c with
+  | CRet a => (ORet a w, nil)
+  | COut b xs c' => go c' (w_log b xs w)
+  | CPan v => (OPanic v w, nil)
+  | CDfr d c' => let '(oc, ds) := go c' w in (oc, ds ++ (d :: nil))
+  end.
+
+(** [run_defers fuel ds w] runs the accumulated defers in order — [go] APPENDS each, so the head is the
+    LAST-deferred = runs FIRST (LIFO, as Go).  A deferred runs as its OWN func scope (its defers run too,
+    recursively), and a deferred panic PROPAGATES after the rest run.  Fuel bounds the deferred-of-deferred
+    nesting (the continuation/accumulation is not structural). *)
+Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (w : World) : option (Outcome unit) :=
+  match fuel with
+  | O => None
+  | S n =>
+    match ds with
+    | nil => Some (ORet tt w)
+    | d :: ds' =>
+        let '(oc_d, ds_d) := go d w in
+        match oc_d with
+        | ORet _ w1 =>
+            match run_defers n ds_d w1 with
+            | Some (ORet _ w2) => run_defers n ds' w2
+            | Some (OPanic v w2) => Some (OPanic v w2)
+            | None => None
+            end
+        | OPanic v w1 =>
+            match run_defers n ds_d w1 with
+            | Some (ORet _ w2) => Some (OPanic v w2)
+            | Some (OPanic v' w2) => Some (OPanic v' w2)
+            | None => None
+            end
+        end
+    end
+  end.
+
+(** Full func-scope run: the body, THEN its defers (LIFO), keeping the body's value or propagating a
+    deferred panic.  [defer] is now FAITHFUL — the review #12 no-op is gone. *)
+Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A) :=
+  let '(oc, ds) := go c w in
+  match run_defers fuel ds (oc_world oc) with
+  | Some (ORet _ w') => Some (oc_set_world oc w')
+  | Some (OPanic v w') => Some (OPanic v w')
+  | None => None
+  end.
+
+(** ---- The #12 fix, demonstrated ---- *)
+
+(** [defer println(a); defer println(b); return] prints b THEN a (LIFO at return), exactly as Go. *)
+Example defer_runs_lifo : forall (a b : GoAny) (w : World),
+  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w
+    = Some (ORet tt (w_log true (a :: nil) (w_log true (b :: nil) w))).
+Proof. reflexivity. Qed.
+
+(** The SHALLOW denotation of the SAME program runs NEITHER deferred (output unchanged) — the [defer_call]
+    no-op the review flags.  The contrast with [defer_runs_lifo] IS review #12, made explicit and fixed. *)
+Example defer_shallow_drops : forall (a b : GoAny) (w : World),
+  run_io (denote (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt)))) w
+    = ORet tt w.
+Proof. reflexivity. Qed.
+
+(** Defers run even when the body PANICS (Go semantics): the deferred [println(a)] still happens, then the
+    panic propagates. *)
+Example defer_runs_on_panic : forall (a v : GoAny) (w : World),
+  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CPan v) : Cmd unit) w
+    = Some (OPanic v (w_log true (a :: nil) w)).
+Proof. reflexivity. Qed.
