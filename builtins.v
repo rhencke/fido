@@ -4191,17 +4191,49 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
      [abs] is never extracted.  (Break #9 fix: the earlier squared form [mi² <= mr²] OVERFLOWED to
      [Inf <= Inf = true] for large operands — |mi|,|mr| ≳ 1e154 — and picked the WRONG branch when
      |mi| > |mr| (e.g. mr=1e160, mi=1e200), diverging from Go on large FINITE divisors.  Abs never
-     overflows, so the branch now matches Go's exactly.) *)
-  if PrimFloat.leb (PrimFloat.abs mi) (PrimFloat.abs mr) then
-    let ratio := PrimFloat.div mi mr in
-    let denom := PrimFloat.add mr (PrimFloat.mul ratio mi) in
-    MkComplex128 (PrimFloat.div (PrimFloat.add nr (PrimFloat.mul ni ratio)) denom)
-                 (PrimFloat.div (PrimFloat.sub ni (PrimFloat.mul nr ratio)) denom)
-  else
-    let ratio := PrimFloat.div mr mi in
-    let denom := PrimFloat.add mi (PrimFloat.mul ratio mr) in
-    MkComplex128 (PrimFloat.div (PrimFloat.add (PrimFloat.mul nr ratio) ni) denom)
-                 (PrimFloat.div (PrimFloat.sub (PrimFloat.mul ni ratio) nr) denom).
+     overflows, so the branch now matches Go's exactly.)
+    The DEGENERATE-divisor postamble (C99 Annex G.5.1 step 3 — zero / Inf / NaN denominators) is
+    now PORTED operand-for-operand from gc's [runtime.complex128div] (review #6 P2 #17), so the
+    model matches Go on ALL inputs, not just finite ones.  NaN/Inf are detected with [PrimFloat]
+    primitives ([eqb x x] / [|x| = +Inf]); [copysign_inf]/[inf2one] reproduce gc's [math.Copysign]
+    (sign of a zero via [1.0 / c = -Inf]).  All proof-only — [complex_div] still lowers to native
+    Go [/], whose runtime applies exactly this recovery. *)
+  let isnan := fun x => negb (PrimFloat.eqb x x) in
+  let isinf := fun x => PrimFloat.eqb (PrimFloat.abs x) PrimFloat.infinity in
+  let isfin := fun x => negb (orb (isnan x) (isinf x)) in
+  (* sign bit set (x < 0, or x = -0 detected via 1.0/-0 = -Inf) *)
+  let negs  := fun x => orb (PrimFloat.ltb x 0%float)
+                            (PrimFloat.eqb (PrimFloat.div 1%float x) PrimFloat.neg_infinity) in
+  let copysign_inf := fun c => if negs c then PrimFloat.neg_infinity else PrimFloat.infinity in (* Copysign(+Inf, c) *)
+  let inf2one := fun x => let g := if isinf x then 1%float else 0%float in
+                          if negs x then PrimFloat.opp g else g in       (* Copysign(isInf?1:0, x) *)
+  let res :=
+    if PrimFloat.leb (PrimFloat.abs mi) (PrimFloat.abs mr) then
+      let ratio := PrimFloat.div mi mr in
+      let denom := PrimFloat.add mr (PrimFloat.mul ratio mi) in
+      MkComplex128 (PrimFloat.div (PrimFloat.add nr (PrimFloat.mul ni ratio)) denom)
+                   (PrimFloat.div (PrimFloat.sub ni (PrimFloat.mul nr ratio)) denom)
+    else
+      let ratio := PrimFloat.div mr mi in
+      let denom := PrimFloat.add mi (PrimFloat.mul ratio mr) in
+      MkComplex128 (PrimFloat.div (PrimFloat.add (PrimFloat.mul nr ratio) ni) denom)
+                   (PrimFloat.div (PrimFloat.sub (PrimFloat.mul ni ratio) nr) denom) in
+  (* Annex-G recovery: only when BOTH components came out NaN (a degenerate divisor) *)
+  if andb (isnan (c_re res)) (isnan (c_im res)) then
+    let a := nr in let b := ni in let c := mr in let d := mi in
+    if andb (andb (PrimFloat.eqb c 0%float) (PrimFloat.eqb d 0%float))
+            (orb (negb (isnan a)) (negb (isnan b)))                          (* m == 0, n not all-NaN *)
+    then MkComplex128 (PrimFloat.mul (copysign_inf c) a) (PrimFloat.mul (copysign_inf c) b)
+    else if andb (orb (isinf a) (isinf b)) (andb (isfin c) (isfin d))        (* Inf numerator / finite denom *)
+    then let a' := inf2one a in let b' := inf2one b in
+         MkComplex128 (PrimFloat.mul PrimFloat.infinity (PrimFloat.add (PrimFloat.mul a' c) (PrimFloat.mul b' d)))
+                      (PrimFloat.mul PrimFloat.infinity (PrimFloat.sub (PrimFloat.mul b' c) (PrimFloat.mul a' d)))
+    else if andb (orb (isinf c) (isinf d)) (andb (isfin a) (isfin b))        (* finite numerator / Inf denom *)
+    then let c' := inf2one c in let d' := inf2one d in
+         MkComplex128 (PrimFloat.mul 0%float (PrimFloat.add (PrimFloat.mul a c') (PrimFloat.mul b d')))
+                      (PrimFloat.mul 0%float (PrimFloat.sub (PrimFloat.mul b c') (PrimFloat.mul a d')))
+    else res
+  else res.
 
 (** Break #9 witness (machine-checked): on a large divisor where BOTH components square to [+Inf]
     (|mi|, |mr| ≳ 1e154) but |mi| > |mr|, the OLD squared-magnitude branch [mi² <= mr²] wrongly reduces
@@ -4211,6 +4243,16 @@ Example complex_div_branch_overflow_fixed :
   let mr := 0x1p550%float in let mi := 0x1p600%float in
      PrimFloat.leb (PrimFloat.mul mi mi) (PrimFloat.mul mr mr) = true    (* old (squared): WRONG branch *)
   /\ PrimFloat.leb (PrimFloat.abs mi)    (PrimFloat.abs mr)    = false.  (* new (abs):     RIGHT branch *)
+Proof. vm_compute. split; reflexivity. Qed.
+(** Review #6 P2 #17: DEGENERATE divisors now recover per Annex G (not the bare-Smith NaN).  Finite
+    nonzero / ZERO yields infinities; finite / Inf yields zero — matching gc's runtime.complex128div. *)
+Example complex_div_by_zero_is_inf :   (* (1+2i)/(0+0i) = (+Inf, +Inf) *)
+  PrimFloat.eqb (c_re (complex_div (go_complex 1%float 2%float) (go_complex 0%float 0%float))) PrimFloat.infinity = true
+  /\ PrimFloat.eqb (c_im (complex_div (go_complex 1%float 2%float) (go_complex 0%float 0%float))) PrimFloat.infinity = true.
+Proof. vm_compute. split; reflexivity. Qed.
+Example complex_div_by_inf_is_zero :   (* (1+1i)/(Inf+Inf i) = (0, 0) *)
+  PrimFloat.eqb (c_re (complex_div (go_complex 1%float 1%float) (go_complex PrimFloat.infinity PrimFloat.infinity))) 0%float = true
+  /\ PrimFloat.eqb (c_im (complex_div (go_complex 1%float 1%float) (go_complex PrimFloat.infinity PrimFloat.infinity))) 0%float = true.
 Proof. vm_compute. split; reflexivity. Qed.
 
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
