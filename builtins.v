@@ -577,7 +577,10 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TUnit => fun _ _ => true
   | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
-  | TMap _ _ => fun a b => PrimInt63.eqb (gm_loc a) (gm_loc b)
+  | TMap _ _ => fun _ _ => false   (* MAPS are NOT comparable in Go (review #6 P2 #18): sentinel,
+                                      like slices/funcs — a map value compares only against nil, and
+                                      cannot be a map key.  (Was loc-equality, which wrongly made
+                                      [Comparable (TMap …)] provable.) *)
   | TArrow _ _ => fun _ _ => false   (* func types are NOT comparable in Go (sentinel, like slices) *)
   | TProd a b => fun x y => andb (key_eqb a (fst x) (fst y)) (key_eqb b (snd x) (snd y))
                                      (* a product (comparable struct) is a valid key iff both fields are *)
@@ -617,6 +620,35 @@ Proof.
   - intro H. apply Z.eqb_eq in H. subst. reflexivity.
   - intro H. injection H as ->. apply Z.eqb_refl.
 Qed.
+
+(** [GoComparableType t] — the TYPE-LEVEL admissibility criterion for a map key / [==] operand,
+    DISTINCT from [Comparable] above (which is the stronger Leibniz-equality REFLECTION of
+    [key_eqb]).  Go's rule (spec "Comparison operators"): booleans, numbers, strings, pointers,
+    channels, interfaces, and structs/arrays of comparable types are comparable; SLICES, MAPS,
+    and FUNCTIONS are NOT (review #6 P2 #18).  Crucially FLOATS are admissible keys HERE even
+    though [Comparable TFloat64] FAILS (NaN <> NaN): key admissibility is a property of the
+    TYPE, not equality reflection on values.  This is the predicate map constructors gate on. *)
+Fixpoint GoComparableType {K} (t : GoTypeTag K) : bool :=
+  match t with
+  | TSlice _ | TMap _ _ | TArrow _ _ => false        (* the three non-comparable Go type classes *)
+  | TProd a b => andb (GoComparableType a) (GoComparableType b)   (* struct/array: all fields must be *)
+  | _ => true                                        (* bool/num/string/ptr/chan/unit/listnode/chanbox *)
+  end.
+
+Example GoComparableType_float_ok : GoComparableType TFloat64 = true.
+Proof. reflexivity. Qed.
+Example GoComparableType_map_no : forall K V (kt : GoTypeTag K) (vt : GoTypeTag V),
+  GoComparableType (TMap kt vt) = false.
+Proof. reflexivity. Qed.
+Example GoComparableType_slice_no : forall A (t : GoTypeTag A), GoComparableType (TSlice t) = false.
+Proof. reflexivity. Qed.
+Example GoComparableType_func_no : forall A B (a : GoTypeTag A) (b : GoTypeTag B),
+  GoComparableType (TArrow a b) = false.
+Proof. reflexivity. Qed.
+(** And the bug this closes: a MAP type is now NOT [Comparable] (was provable via loc-equality). *)
+Lemma map_not_Comparable : forall K V (kt : GoTypeTag K) (vt : GoTypeTag V),
+  ~ Comparable (TMap kt vt).
+Proof. intros K V kt vt H. destruct (H (MkMap 0%uint63) (MkMap 0%uint63)) as [_ H2]. discriminate (H2 eq_refl). Qed.
 
 (** ---- Break #7: the tag → runtime-Go-type map is INJECTIVE (the anti-regression LOCK) ----
 
