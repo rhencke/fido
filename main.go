@@ -971,6 +971,24 @@ func Tsw_demo(a any) {
 	}
 }
 
+func Tsw_narrow(a any) {
+	switch _tsv := a.(type) {
+	case uint8:
+		u := _tsv
+		println(int64(u))
+	case int64:
+		i := _tsv
+		println(i)
+	default:
+		println(9)
+	}
+}
+
+func Tsw_distinct_demo() {
+	Tsw_narrow(uint8(((int64(200)) & 0xff)))
+	Tsw_narrow(int64(7))
+}
+
 func Tsw3_demo(a any) {
 	switch _tsv := a.(type) {
 	case bool:
@@ -2424,6 +2442,7 @@ func main() {
 	Rune_to_str_demo()
 	Str_range_demo()
 	Tsw_demo(true)
+	Tsw_distinct_demo()
 	Tsw_demo("go")
 	Tsw_demo(5)
 	Tsw3_demo(true)

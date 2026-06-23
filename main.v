@@ -1688,6 +1688,19 @@ Definition tsw_demo (a : GoAny) : IO unit :=
     TString (fun s => println [any s; any (2)%i64])       (* case string → s, 2 *)
     (println [any (9)%i64]).                              (* default     → 9   *)
 
+(** Differential test — type SWITCH respects the break-#7 DISTINCTNESS (uint8 vs int64 are different
+    Go cases).  A boxed uint8 hits `case uint8:` (not `case int64:`), and a boxed int64 hits
+    `case int64:`.  This is a DIFFERENT dispatch from type-assert (a multi-case switch), so it checks
+    the same distinctness through the switch path. *)
+Definition tsw_narrow (a : GoAny) : IO unit :=
+  type_switch2 a
+    TU8  (fun u => println [any (i64_of_u8 u)])     (* case uint8 → widen → print *)
+    TI64 (fun i => println [any i])                  (* case int64 → print *)
+    (println [any (9)%i64]).                          (* default *)
+Definition tsw_distinct_demo : IO unit :=
+  bind (tsw_narrow (any (u8_of_i64 (i64_lit 200 eq_refl)))) (fun _ =>   (* uint8 → 200 *)
+        tsw_narrow (any (i64_lit 7 eq_refl))).                          (* int64 → 7  *)
+
 (** N-ary type switch (3 cases): same combinator, one more arm.  The int64 case is
     driven by a value of Go type [int64] (a function RETURN, [i64_abs]) so it boxes as
     [int64] and matches — a bare int literal would box as Go [int] and miss it. *)
@@ -3110,6 +3123,7 @@ Definition main_effect : IO unit :=
   rune_to_str_demo              >>'   (* prints: A (string(rune(65))) *)
   str_range_demo                >>'   (* prints: 0 72 / 1 8364 / 4 33 (for i, r := range s) *)
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
+  tsw_distinct_demo             >>'   (* prints: 200 / 7 (type switch respects uint8 vs int64 distinctness) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
   tsw3_demo (any true)              >>'   (* prints: true 1 (bool case, 3-case switch) *)
