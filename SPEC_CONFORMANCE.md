@@ -986,6 +986,30 @@ Assumptions` = *Closed under the global context*):
   it ⇒ `Owned` ⇒ race-free, UNIFYING the two bases — `locprivate_handoff_disciplined` (no-sharing) and
   `handoff_trace_disciplined` (the channel handoff, re-deriving `handoff_race_free`).  A program earns
   race-freedom by exhibiting the structure, not a bespoke `Owned` proof.  Axiom-free.  ✓
+- **ABSTRACT OWNERSHIP-TRANSFER RACE-FREEDOM — the GENERAL theorem (2026-06-23), ✓.**  The above is
+  trace-level; the per-PROGRAM results (`mp`/`fork`/`xfer`/`dst`) were each a hand-built phase
+  enumeration (`MpReach`/…) that did not compose.  Now ONE abstract reachability invariant earns
+  `Owned` for an *arbitrary* program by an `rstep` induction: `owned_step_snoc` (incremental `Owned` —
+  appending an access preserves it given a single per-step hb obligation) ← `AcqConn`/`owned_step_by_owner`
+  (a dynamic OWNER discharges that obligation: same-owner ⇒ program order, transferred-owner ⇒ the
+  send/recv or spawn/start sync edge) ← `WTf flp`, a LINEAR region-threading typing (`WT` non-linear
+  `OnlyAcc` cannot express transfer; `flp c v` = the location a send transfers, unifying pointer-handoff
+  `flp c v = v`, signal-handoff a channel-fixed footprint, and spawn-split) ← `RegionInvF` + `BufLinF` +
+  `OwnerLive` (single-valued ghost owner ⇒ disjointness free; buffer carries each in-transit location's
+  hb-support; linearity ⇒ a recv pop leaves no duplicate) ← `region_inv_f_step` (every `rstep` preserves
+  all of it) ← `region_inv_f_race_free`.  So **ALL THREE Go ownership-transfer mechanisms — pointer-handoff,
+  spawn-split, signal-handoff — are race-free for arbitrary (no-spawn-typed-or-spawn) programs, ALL
+  interleavings, under ONE theorem.**  Witnesses: `witness`/`relay` (pointer, multi-hop), `splitw`/`fork`
+  (spawn-split), `sig` (signal/`mp_prog` idiom), `combo`/`fcombo` (cell traveling spawn→channel).
+  SUBSUMPTION: `mp_subsumed_by_general` / `xfer_subsumed_by_general` re-prove the flagship bespoke
+  witnesses as instances.  NON-VACUITY: `region_inv_rejects_race` — a genuine unsynchronised write/write
+  program CANNOT satisfy the invariant (the discipline has teeth); `wt_rejects_unowned_*` (typing rejects
+  un-owned access).  Everything **Closed under the global context — axiom-free AND funext-free**
+  (`wt_region_ext` re-types continuations under pointwise-updated regions with no axiom).  IO-LIFT status:
+  the channel fragment connects to EXTRACTABLE typed pointer/channel Go (`mp_g0_denotes`/`mp_end_to_end` +
+  the subsumption); the spawn fragment cannot be lifted via `run_io` (`go_spawn` has no `run_io` law — the
+  documented strategic fork; concurrency lives on `rstep`).  ✓ (abstract; the calculus↔emitted-Go step is
+  the trust gap #10 / plugin, as everywhere).
 **Trace model ([concurrency.v]) — happens-before for ARBITRARY executions, ✓.**  The
 above lives on hand-built event sets; `concurrency.v` ties it to an actual EXECUTION
 TRACE — a list of events from interleaving goroutines, synchronisation recorded by
