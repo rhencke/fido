@@ -4233,7 +4233,7 @@ let proof_only_names =
       (* eq-transport / congruence proof terms used by tag_coerce/tag_eq — type casts
          that erase to identity, never real Go; the stdlib ones leak with type vars *)
     "run_sess"; "MkSess";       (* Sess record proj/ctor — sessions lower by op name *)
-    "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next";  (* World record ctor/projs *)
+    "mkWorld"; "w_refs"; "w_chans"; "w_maps"; "w_next"; "w_output"; "w_log";  (* World record ctor/projs + output-trace logger (review #6 P1 #12) *)
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
     "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref"; "ptr_is_nil";  (* Ptr ctor/projs/views — proof-only *)
     "mkSliceH"; "sh_base"; "sh_off"; "sh_len"; "sh_cap"; "sh_tag"; "sh_loc"; "sh_cell"; "sh_start";  (* SliceH internals — proof-only *)
