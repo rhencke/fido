@@ -78,6 +78,7 @@ make extract       # pull generated Go into the repo (runs gofmt -w)
 make check         # extract + run + diff vs expected_output.txt   ← the verify step
 make golden        # extract + show delta + bless expected_output.txt
 make run-local     # extract + go run (no Docker; needs a host Go)
+make negtest       # fail-closed regression harness: assert each negtests/*.v ABORTS extraction (host rocq)
 make install-hooks # activate the pre-commit hook (once after clone)
 ```
 
@@ -104,6 +105,13 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   the build on any drift (a new transitive/imported axiom). If a change *intentionally*
   alters the trust base, regenerate it (C-locale sort, from a fresh local build):
   `rm -f _build/default/main.vo && dune build 2>&1 | awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
+- `negtests/` — the fail-closed regression harness (`make negtest`, review #4 R10). Each
+  `negtests/*.v` is a program that hits a fail-CLOSED backend site; its first line declares
+  `(* EXPECT: <substring> *)`, the `unsupported` message extraction MUST abort with. `run.sh`
+  compiles each and asserts the abort — a fixture that EXTRACTS instead means a fail-closed
+  site reopened (plausible-but-wrong Go where rule 2 demands a loud abort), the defect class
+  the happy-path golden CANNOT see. Run it after any plugin change. Local (host `rocq`, like
+  `run-local`); negtests are outside the Fido theory so the Docker build ignores them.
 
 Gotchas (don't relearn these the hard way):
 

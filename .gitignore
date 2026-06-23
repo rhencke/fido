@@ -7,6 +7,9 @@ vendor/
 # Environment
 .env
 
+# Negtest harness scratch output (a negtest that wrongly EXTRACTS leaves this; run.sh cleans it)
+/neg_out.go
+
 # Rocq build artifacts — .v and .go sources are checked in, these are not
 *.glob
 *.vo

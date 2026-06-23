@@ -1133,12 +1133,20 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   axiom (funext/Classical via a stray `Require`), an `Admitted` the grep missed — FAILS the build, not silently
   in a `Print Assumptions` nobody reads. Complements the pre-commit DECLARED-axiom grep (this catches TRANSITIVE
   ones). Verified both ways: passes on the real base; a deliberate mismatch (a sort-order delta during dev) fired
-  the `AXIOM-MANIFEST DRIFT` abort exactly. **STILL OPEN (deeper R10 slices):** runtime DIFFERENTIAL tests
-  (golden-output can't catch type/blocking/aliasing changes — the root cause that let the silent bugs slip), a
-  PERMANENT negative-EXTRACTION-test harness (the neg-fixtures I run by hand per fix — note an in-`main.v` `Fail
-  Go File Extraction` does NOT work: `Fail` doesn't catch the plugin's extraction `unsupported`, and File
-  Extraction of a deep-dep fn hits an enum-collision; so this needs SEPARATE-BUILD infra), CI running `make
-  check`, and the hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses the diff).
+  the `AXIOM-MANIFEST DRIFT` abort exactly. **NEGATIVE-FIXTURE HARNESS DONE (2026-06-23, `make negtest`):** the
+  permanent fail-closed regression gate the reviews wanted. `negtests/*.v` are programs that hit a fail-CLOSED
+  backend site; each declares `(* EXPECT: <substring> *)` (the `unsupported` message it must abort with), and
+  `negtests/run.sh` compiles each (standalone `rocq compile -R _build/default Fido`, OCAMLPATH at the built
+  plugin) asserting the abort — a fixture that EXTRACTS instead = a reopened fail-closed site (the defect class
+  the golden can't see). v1 locks 3 sites: `&x` non-addressable operand, `recv_ok` in expression position (R2),
+  `slice_of_list` of a non-literal (P0 #4). Verified both ways: passes on the real plugin; a temp valid fixture
+  (extracts fine) makes the harness FAIL exit 1. KEY: the in-`main.v` `Fail Go File Extraction` approach is dead
+  (`Fail` doesn't catch the extraction `unsupported`; File Extraction hits an enum-collision) — a SEPARATE-build
+  compile (its own fresh compilation unit) sidesteps both. Local (host `rocq`, like run-local); negtests live
+  OUTSIDE the Fido theory `(modules …)` so `dune build`/the Docker build ignore them. FOLLOW-UP: more fixtures
+  (one per fail-closed site), and wiring into the Docker build / pre-commit for non-bypassability. **STILL OPEN
+  (deeper R10 slices):** runtime DIFFERENTIAL tests beyond the type-identity matrix (now comprehensive), CI
+  running `make check`, the hook's "only re-extracts on staged .v/plugin" hole (a standalone `.go` edit bypasses).
   **RUNTIME DIFFERENTIAL TEST ✅ started + caught a real bug (2026-06-22, commit 5cb8611):** `type_identity_lock_demo`
   (main.v) boxes each scalar and `type_assert_safe`s it against its OWN Go type (→true) and a sibling it must NOT
   alias (→false), turning type identity into observable output. On its FIRST run it caught a latent type-identity

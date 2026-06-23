@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -43,6 +43,16 @@ extract:
 # Run the extracted Go sources directly without Docker.
 run-local: extract
 	go run .
+
+# Fail-closed regression harness (review #4 R10 — the negative-fixture gate). Compiles each
+# negative fixture in negtests/ and asserts it ABORTS extraction with its declared
+# `(* EXPECT: … *)` message. A reopened fail-closed site (the plugin emitting plausible-but-
+# wrong Go where rule 2 demands a loud `unsupported`) is exactly the defect class the
+# happy-path golden CANNOT see — run this after any plugin change. Local (host rocq, like
+# run-local); the canonical Docker build is unaffected (negtests/ is outside the Fido theory).
+negtest:
+	dune build
+	@sh negtests/run.sh
 
 # Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
 # ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can
