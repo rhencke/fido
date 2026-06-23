@@ -173,7 +173,13 @@ OWNERSHIP-TRANSFER DISCHARGE — `AcqConn` (the per-location owner witness) + `o
 (an OWNER's access to a held location preserves `Owned`, composing the discharge INTO `owned_step_snoc`)
 + the AcqConn lifecycle `recv_establishes_acqconn` / `acqconn_after_access`, and `WT`, the LINEAR
 region-threading typing (send RELEASES the sent location, recv ACQUIRES it — `OnlyAcc` is non-linear).
-The open assembly is the config invariant `region_inv_step` wiring these over `rstep`. Also axiom-free.)*
+The open assembly is the config invariant `region_inv_step` wiring these over `rstep`. Also axiom-free.
+Brick 3: `RegionInv` (the config invariant — single-valued ghost `own : Owner`, so DISJOINTNESS is free)
++ `region_inv_write`/`region_inv_read`/`region_inv_send` (an `rstep` write/read/send PRESERVES it —
+owner-access and pointer-RELEASE), all axiom-free incl. `wt_region_ext` (re-types the continuation under
+a pointwise-updated region with NO funext).  Remaining for the full theorem: `region_inv_recv` (acquire —
+its only real subtlety is a buffer-linearity invariant so a pop leaves no duplicate), the vacuous `rstep`
+cases, and the assembly into reachability.)*
   (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed

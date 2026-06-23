@@ -1866,6 +1866,333 @@ Proof. apply WT_write; [reflexivity | apply WT_send; [reflexivity | apply WT_ret
 Lemma wt_receiver : WT (fun _ => false) (CRecv 0 (fun x => CWrite x 0 CRet)).
 Proof. apply WT_recv. intro v. apply WT_write; [apply radd_same | apply WT_ret]. Qed.
 
+(** ============================================================================
+    THE CONFIG INVARIANT [RegionInv] — assembling bricks 1+2 into a GENERAL transfer race-freedom
+    result for arbitrary pointer-handoff programs (no per-program phase enumeration).  A single-valued
+    ghost [own : nat -> Owner] (Held g | Transit) gives DISJOINTNESS for free (a location has one
+    owner); each live goroutine's program is [WT]-typed under its held region [heldby own g]; the
+    channel buffer holds the in-transit locations with the sender's hb-support; and per held+accessed
+    location an [AcqConn] witness pins the owner to the trace, carrying [Owned] forward by
+    [owned_step_snoc].  [region_inv_step] proves EVERY [rstep] preserves it (write/read = owner access,
+    send = release, recv = acquire; spawn/select/close vacuous by [WT]-inversion, closed-recv by
+    [NoClose]); hence every reachable trace is [Owned] — race-free, ALL interleavings.
+    ============================================================================ *)
+
+Inductive Owner := Held (g : nat) | Transit.
+
+(* [g]'s held region, decoded from the single-valued owner map. *)
+Definition heldby (own : nat -> Owner) (g : nat) : nat -> bool :=
+  fun l => match own l with Held g' => Nat.eqb g' g | Transit => false end.
+Definition upd_own (own : nat -> Owner) (l : nat) (o : Owner) : nat -> Owner :=
+  fun x => if Nat.eqb x l then o else own x.
+Lemma upd_own_same : forall own l o, upd_own own l o l = o.
+Proof. intros. unfold upd_own. rewrite Nat.eqb_refl. reflexivity. Qed.
+Lemma upd_own_other : forall own l o x, x <> l -> upd_own own l o x = own x.
+Proof. intros own l o x Hne. unfold upd_own. apply Nat.eqb_neq in Hne. rewrite Hne. reflexivity. Qed.
+Lemma heldby_held : forall own g L, own L = Held g -> heldby own g L = true.
+Proof. intros own g L H. unfold heldby. rewrite H. apply Nat.eqb_refl. Qed.
+Lemma heldby_true : forall own g L, heldby own g L = true -> own L = Held g.
+Proof.
+  intros own g L H. unfold heldby in H. destruct (own L) as [g'|] eqn:E.
+  - apply Nat.eqb_eq in H. subst g'. reflexivity.
+  - discriminate.
+Qed.
+
+(* WT's region appears as a HYPOTHESIS position, so a pointwise-equal region must be CONVERTIBLE
+   WITHOUT funext.  [wt_region_ext] does that by induction on the derivation — [radd]/[rdel] preserve
+   pointwise equality — so the owner-map updates (which change the region only pointwise) re-type the
+   continuation with no axiom.  This is why [own] can stay single-valued yet WT stay funext-free. *)
+Lemma wt_region_ext : forall R c, WT R c -> forall R', (forall l, R l = R' l) -> WT R' c.
+Proof.
+  intros R c HWT. induction HWT as
+    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c l k Hl _ IHk | R c f _ IHf ];
+    intros R' Hext.
+  - apply WT_ret.
+  - apply WT_write; [rewrite <- Hext; exact Hl | apply IHk; exact Hext].
+  - apply WT_read; [rewrite <- Hext; exact Hl | intro v; apply IHf; exact Hext].
+  - apply WT_send; [rewrite <- Hext; exact Hl |
+      apply IHk; intro x; unfold rdel; rewrite Hext; reflexivity].
+  - apply WT_recv. intro v. apply IHf. intro x; unfold radd; rewrite Hext; reflexivity.
+Qed.
+
+(* AcqConn lifts across an appended event (the connection lives among old positions). *)
+Lemma acqconn_app1 : forall t e lp acq L g, AcqConn t lp acq L g -> AcqConn (t ++ [e]) lp acq L g.
+Proof.
+  intros t e lp acq L g [Htid [Hlt Hconn]]. unfold AcqConn. split; [| split].
+  - rewrite (tid_at_app1 t e (acq L) Hlt). exact Htid.
+  - rewrite length_app; cbn; lia.
+  - destruct Hconn as [Heq | Hhb]; [left; exact Heq | right; apply hbt_app1; exact Hhb].
+Qed.
+
+(* AcqConn depends on [lp]/[acq] only at [L], so maps agreeing there are interchangeable. *)
+Lemma acqconn_ext : forall t lp acq lp' acq' L g,
+  AcqConn t lp acq L g -> lp L = lp' L -> acq L = acq' L -> AcqConn t lp' acq' L g.
+Proof.
+  intros t lp acq lp' acq' L g [Htid [Hlt Hconn]] Hlpe Hacqe.
+  unfold AcqConn. rewrite <- Hacqe, <- Hlpe. split; [exact Htid | split; [exact Hlt | exact Hconn]].
+Qed.
+
+(* A WT program never closes a channel (no [CClose] constructor), so no [KClose] is ever emitted —
+   which kills the closed-recv [rstep] case in preservation. *)
+Definition NoClose (t : Trace) : Prop :=
+  forall i e, nth_error t i = Some e -> match e_kind e with KClose _ => False | _ => True end.
+Lemma noclose_app : forall t e, NoClose t ->
+  match e_kind e with KClose _ => False | _ => True end -> NoClose (t ++ [e]).
+Proof.
+  intros t e HNC He i e0 Hnth.
+  destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
+  - rewrite nth_error_app1 in Hnth by exact Hlt. exact (HNC i e0 Hnth).
+  - pose proof (nth_error_lt _ _ _ Hnth) as Hb. rewrite length_app in Hb; cbn in Hb.
+    assert (i = length t) by lia. subst i. rewrite nth_error_app_new in Hnth.
+    injection Hnth as Heq. subst e0. exact He.
+Qed.
+
+(* The invariant: WT regions (disjoint by single-valued [own]), buffer carries in-transit locations
+   with sender hb-support, per held+accessed location an AcqConn witness, and the trace stays Owned. *)
+Definition RegionInv (own : nat -> Owner) (lp acq : nat -> nat) (cfg : RConfig) : Prop :=
+  (forall g, rc_live cfg g = true -> WT (heldby own g) (rc_prog cfg g))
+  /\ (forall L g, own L = Held g -> (exists i, acc_loc_at (rc_trace cfg) i = Some L) ->
+        AcqConn (rc_trace cfg) lp acq L g)
+  /\ (forall c L s, In (L, s) (rc_bufs cfg c) ->
+        own L = Transit /\ ((exists i, acc_loc_at (rc_trace cfg) i = Some L) ->
+                            hbt (rc_trace cfg) (lp L) s))
+  /\ Owned (rc_trace cfg) /\ LastPosValid (rc_trace cfg) lp /\ AccBeforeLast (rc_trace cfg) lp
+  /\ NoClose (rc_trace cfg).
+
+(* An access to L≠l in [t ++ [e]] (e a memory access of l) already exists in [t] (the new event
+   accesses l, not L). *)
+Lemma acc_app_other : forall t e L l,
+  (e_kind e = KWrite l \/ e_kind e = KRead l) -> L <> l ->
+  (exists i, acc_loc_at (t ++ [e]) i = Some L) -> (exists i, acc_loc_at t i = Some L).
+Proof.
+  intros t e L l He Hne [i Hi].
+  destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
+  - exists i. rewrite (acc_loc_at_app1 t e i Hlt) in Hi. exact Hi.
+  - exfalso. pose proof (acc_loc_at_lt _ _ _ Hi) as Hb. rewrite length_app in Hb; cbn in Hb.
+    assert (i = length t) by lia. subst i. rewrite (acc_new_L t e l He) in Hi.
+    injection Hi as Hll. apply Hne. symmetry; exact Hll.
+Qed.
+
+(* THE CORE SAFETY STEP (owner ACCESS): an [rstep_write] by the location's owner preserves [RegionInv]
+   — the heart of the transfer reachability proof.  [own] is unchanged (a write transfers nothing);
+   the trace grows by one owner-access, discharged via [owned_step_snoc] + [AcqConn]. *)
+Lemma region_inv_write : forall own lp acq p b h lv tr tid l v k,
+  RegionInv own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CWrite l v k ->
+  RegionInv own (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr))
+            (mkRCfg (upd p tid k) b (upd h l v) lv (tr ++ [mkEv tid (KWrite l)])).
+Proof.
+  intros own lp acq p b h lv tr tid l v k HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wt_write_inv in HW. destruct HW as [Hheld HWk].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  destruct (owned_step_snoc tr (mkEv tid (KWrite l)) l lp HO HV HB (or_introl eq_refl)
+              (fun Hex => acqconn_hbt_new tr (mkEv tid (KWrite l)) lp acq l tid (Hacq l tid Hown Hex) eq_refl))
+    as [HO' [HV' HB']].
+  unfold RegionInv. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [exact HO' | split; [exact HV' | split; [exact HB' |]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. exact HWk.
+    + rewrite (upd_other p tid k g Hne). exact (Hprog g Hg).
+  - intros L g HownL Hex.
+    destruct (Nat.eq_dec L l) as [->|Hne].
+    + rewrite Hown in HownL. injection HownL as Hgt. subst g.
+      exact (acqconn_after_access tr (mkEv tid (KWrite l)) lp acq l tid eq_refl).
+    + pose proof (acc_app_other tr (mkEv tid (KWrite l)) L l (or_introl eq_refl) Hne Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KWrite l)]) lp acq
+               (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KWrite l)) lp acq L g (Hacq L g HownL HaccTr)).
+      * symmetry. exact (upd_lastpos_other lp l (length tr) L Hne).
+      * symmetry. exact (upd_lastpos_other acq l (length tr) L Hne).
+  - intros c0 L s Hin. destruct (Hbuf c0 L s Hin) as [HT Hsupp].
+    split; [exact HT |].
+    assert (Hne : L <> l). { intro Heq; subst L. rewrite Hown in HT. discriminate. }
+    rewrite (upd_lastpos_other lp l (length tr) L Hne). intros Hex.
+    pose proof (acc_app_other tr (mkEv tid (KWrite l)) L l (or_introl eq_refl) Hne Hex) as HaccTr.
+    exact (hbt_app1 tr (mkEv tid (KWrite l)) (lp L) s (Hsupp HaccTr)).
+  - apply noclose_app; [exact HNC | exact I].
+Qed.
+
+(* The READ analogue (owner ACCESS): [rstep_read] by the owner preserves [RegionInv].  Identical to
+   write modulo the event ([KRead l]) and continuation ([f (h l)]). *)
+Lemma region_inv_read : forall own lp acq p b h lv tr tid l f,
+  RegionInv own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CRead l f ->
+  RegionInv own (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr))
+            (mkRCfg (upd p tid (f (h l))) b h lv (tr ++ [mkEv tid (KRead l)])).
+Proof.
+  intros own lp acq p b h lv tr tid l f HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wt_read_inv in HW. destruct HW as [Hheld HWf].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  destruct (owned_step_snoc tr (mkEv tid (KRead l)) l lp HO HV HB (or_intror eq_refl)
+              (fun Hex => acqconn_hbt_new tr (mkEv tid (KRead l)) lp acq l tid (Hacq l tid Hown Hex) eq_refl))
+    as [HO' [HV' HB']].
+  unfold RegionInv. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [exact HO' | split; [exact HV' | split; [exact HB' |]]]]]].
+  - intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. exact (HWf (h l)).
+    + rewrite (upd_other p tid (f (h l)) g Hne). exact (Hprog g Hg).
+  - intros L g HownL Hex.
+    destruct (Nat.eq_dec L l) as [->|Hne].
+    + rewrite Hown in HownL. injection HownL as Hgt. subst g.
+      exact (acqconn_after_access tr (mkEv tid (KRead l)) lp acq l tid eq_refl).
+    + pose proof (acc_app_other tr (mkEv tid (KRead l)) L l (or_intror eq_refl) Hne Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KRead l)]) lp acq
+               (upd_lastpos lp l (length tr)) (upd_lastpos acq l (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KRead l)) lp acq L g (Hacq L g HownL HaccTr)).
+      * symmetry. exact (upd_lastpos_other lp l (length tr) L Hne).
+      * symmetry. exact (upd_lastpos_other acq l (length tr) L Hne).
+  - intros c0 L s Hin. destruct (Hbuf c0 L s Hin) as [HT Hsupp].
+    split; [exact HT |].
+    assert (Hne : L <> l). { intro Heq; subst L. rewrite Hown in HT. discriminate. }
+    rewrite (upd_lastpos_other lp l (length tr) L Hne). intros Hex.
+    pose proof (acc_app_other tr (mkEv tid (KRead l)) L l (or_intror eq_refl) Hne Hex) as HaccTr.
+    exact (hbt_app1 tr (mkEv tid (KRead l)) (lp L) s (Hsupp HaccTr)).
+  - apply noclose_app; [exact HNC | exact I].
+Qed.
+
+(* ── Non-memory events (send/recv) leave the [Owned]/last-position trace facts untouched: they add
+   no memory access, so no new same-location pair and no new latest. ── *)
+Lemma acc_app_nonmem : forall t e L,
+  match e_kind e with KWrite _ => False | KRead _ => False | _ => True end ->
+  (exists i, acc_loc_at (t ++ [e]) i = Some L) -> (exists i, acc_loc_at t i = Some L).
+Proof.
+  intros t e L He [i Hi].
+  destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
+  - exists i. rewrite (acc_loc_at_app1 t e i Hlt) in Hi. exact Hi.
+  - exfalso. pose proof (acc_loc_at_lt _ _ _ Hi) as Hb. rewrite length_app in Hb; cbn in Hb.
+    assert (i = length t) by lia. subst i. rewrite acc_loc_at_app_new in Hi.
+    destruct (e_kind e); cbn in He, Hi; try discriminate; contradiction.
+Qed.
+
+Lemma owned_app_nonmem : forall t e,
+  Owned t -> match e_kind e with KWrite _ => False | KRead _ => False | _ => True end ->
+  Owned (t ++ [e]).
+Proof.
+  intros t e HO He i j Hij Hsl.
+  assert (Hjlt : j < length t).
+  { destruct (Nat.eq_dec j (length t)) as [Heq|Hjne].
+    - exfalso. subst j. destruct Hsl as [l [_ Hjl]]. rewrite acc_loc_at_app_new in Hjl.
+      destruct (e_kind e); cbn in He, Hjl; try discriminate; contradiction.
+    - destruct Hsl as [l [_ Hjl]]. pose proof (acc_loc_at_lt _ _ _ Hjl) as Hb.
+      rewrite length_app in Hb; cbn in Hb. lia. }
+  assert (Hilt : i < length t) by lia.
+  pose proof (same_loc_app1_inv t e i j Hilt Hjlt Hsl) as Hslt.
+  destruct (HO i j Hij Hslt) as [Hhb | [k [[Hik Hkj] [Hsik Hskj]]]].
+  - left. apply hbt_app1. exact Hhb.
+  - right. exists k. assert (Hklt : k < length t) by lia.
+    split; [split; [exact Hik | exact Hkj] | split;
+      [apply same_loc_app1; [exact Hilt | exact Hklt | exact Hsik]
+      |apply same_loc_app1; [exact Hklt | exact Hjlt | exact Hskj]]].
+Qed.
+
+Lemma lastposvalid_app_nonmem : forall t e lp,
+  LastPosValid t lp -> match e_kind e with KWrite _ => False | KRead _ => False | _ => True end ->
+  LastPosValid (t ++ [e]) lp.
+Proof.
+  intros t e lp HV He L Hex.
+  pose proof (acc_app_nonmem t e L He Hex) as HexT.
+  pose proof (HV L HexT) as Hvalid.
+  pose proof (acc_loc_at_lt _ _ _ Hvalid) as Hlt.
+  rewrite (acc_loc_at_app1 t e (lp L) Hlt). exact Hvalid.
+Qed.
+
+Lemma accbeforelast_app_nonmem : forall t e lp,
+  AccBeforeLast t lp -> match e_kind e with KWrite _ => False | KRead _ => False | _ => True end ->
+  AccBeforeLast (t ++ [e]) lp.
+Proof.
+  intros t e lp HB He L i Hi.
+  destruct (Nat.lt_ge_cases i (length t)) as [Hlt | Hge].
+  - rewrite (acc_loc_at_app1 t e i Hlt) in Hi.
+    destruct (HB L i Hi) as [Heq | Hhb]; [left; exact Heq | right; apply hbt_app1; exact Hhb].
+  - exfalso. pose proof (acc_loc_at_lt _ _ _ Hi) as Hb. rewrite length_app in Hb; cbn in Hb.
+    assert (i = length t) by lia. subst i. rewrite acc_loc_at_app_new in Hi.
+    destruct (e_kind e); cbn in He, Hi; try discriminate; contradiction.
+Qed.
+
+(* ── Region-map effect of a RELEASE (own v := Transit): pointwise it is exactly [rdel] of the held
+   region, and it leaves OTHER goroutines' regions unchanged (they did not own v). ── *)
+Lemma heldby_release : forall own v g x,
+  heldby (upd_own own v Transit) g x = rdel (heldby own g) v x.
+Proof.
+  intros own v g x. unfold heldby, upd_own, rdel.
+  destruct (Nat.eqb x v) eqn:E; cbn; destruct (own x) as [g'|]; cbn;
+    try reflexivity; destruct (Nat.eqb g' g); reflexivity.
+Qed.
+
+Lemma heldby_release_other : forall own v tid g x,
+  g <> tid -> own v = Held tid ->
+  heldby (upd_own own v Transit) g x = heldby own g x.
+Proof.
+  intros own v tid g x Hne Hv. unfold heldby, upd_own.
+  destruct (Nat.eqb x v) eqn:E.
+  - apply Nat.eqb_eq in E; subst x. rewrite Hv. cbn.
+    symmetry. apply Nat.eqb_neq. intro Heq; subst tid; apply Hne; reflexivity.
+  - reflexivity.
+Qed.
+
+(* THE RELEASE STEP: an [rstep_send] of a held pointer [v] preserves [RegionInv].  [v] LEAVES the
+   sender's region ([rdel]) and becomes Transit, entering the channel buffer with the sender's
+   happens-before support [hbt (lp v) (length tr)] (from the sender's own [AcqConn], via
+   [acqconn_hbt_new]) — exactly what the eventual receiver needs to acquire it race-free. *)
+Lemma region_inv_send : forall own lp acq p b h lv tr tid c v k,
+  RegionInv own lp acq (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CSend c v k ->
+  RegionInv (upd_own own v Transit) lp acq
+            (mkRCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv (tr ++ [mkEv tid (KSend c)])).
+Proof.
+  intros own lp acq p b h lv tr tid c v k HRI Hlv Hp.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wt_send_inv in HW. destruct HW as [Hheld HWk].
+  pose proof (heldby_true _ _ _ Hheld) as Hown.
+  assert (Hnm : match e_kind (mkEv tid (KSend c)) with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  unfold RegionInv. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split;
+    [ exact (owned_app_nonmem tr (mkEv tid (KSend c)) HO Hnm)
+    | split; [ exact (lastposvalid_app_nonmem tr (mkEv tid (KSend c)) lp HV Hnm)
+    | split; [ exact (accbeforelast_app_nonmem tr (mkEv tid (KSend c)) lp HB Hnm)
+    | apply noclose_app; [exact HNC | exact I] ]]]]]].
+  - (* prog: tid loses v (rdel); other goroutines unchanged *)
+    intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. apply (wt_region_ext (rdel (heldby own tid) v) k HWk).
+      intro x. symmetry. apply heldby_release.
+    + rewrite (upd_other p tid k g Hne). apply (wt_region_ext (heldby own g) (p g) (Hprog g Hg)).
+      intro x. symmetry. exact (heldby_release_other own v tid g x Hne Hown).
+  - (* acq: any still-Held location is <> v, so its AcqConn carries over *)
+    intros L g HownL Hex.
+    assert (HLne : L <> v). { intro Heq; subst L. rewrite upd_own_same in HownL. discriminate. }
+    rewrite (upd_own_other own v Transit L HLne) in HownL.
+    pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) L Hnm Hex) as HaccTr.
+    exact (acqconn_app1 tr (mkEv tid (KSend c)) lp acq L g (Hacq L g HownL HaccTr)).
+  - (* buf: old entries carry over (own unchanged at L<>v); the NEW entry (v, length tr) is Transit
+       with the sender's hb-support *)
+    intros c0 L s Hin.
+    destruct (Nat.eq_dec c0 c) as [->|Hcne].
+    + rewrite upd_same in Hin. apply in_app_or in Hin. destruct Hin as [Hin | Hin].
+      * destruct (Hbuf c L s Hin) as [HT Hsupp].
+        assert (HLne : L <> v). { intro Heq; subst L. rewrite Hown in HT. discriminate. }
+        split; [rewrite (upd_own_other own v Transit L HLne); exact HT |].
+        intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) L Hnm Hex) as HaccTr.
+        exact (hbt_app1 tr (mkEv tid (KSend c)) (lp L) s (Hsupp HaccTr)).
+      * cbn in Hin. destruct Hin as [Heq | []]. injection Heq as HLv Hsv. subst L s.
+        split; [rewrite upd_own_same; reflexivity |].
+        intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) v Hnm Hex) as HaccTr.
+        exact (acqconn_hbt_new tr (mkEv tid (KSend c)) lp acq v tid (Hacq v tid Hown HaccTr) eq_refl).
+    + rewrite (upd_other b c (b c ++ [(v, length tr)]) c0 Hcne) in Hin.
+      destruct (Hbuf c0 L s Hin) as [HT Hsupp].
+      assert (HLne : L <> v). { intro Heq; subst L. rewrite Hown in HT. discriminate. }
+      split; [rewrite (upd_own_other own v Transit L HLne); exact HT |].
+      intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KSend c)) L Hnm Hex) as HaccTr.
+      exact (hbt_app1 tr (mkEv tid (KSend c)) (lp L) s (Hsupp HaccTr)).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -5976,6 +6303,8 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
+
 
 
 
