@@ -7760,3 +7760,29 @@ Proof.
   - eapply rsteps_step; [ eapply rstep_recv_closed; eassumption | apply rsteps_refl ].
   - eapply rsteps_step; [ eapply rstep_select_closed; eassumption | apply rsteps_refl ].
 Qed.
+
+(** Transitive closure of the bounded step, and the reachability embedding: every bounded-reachable
+    config is rsteps-reachable, so every rsteps-reachability invariant holds on it for FREE. *)
+Lemma rsteps_trans : forall a b c, rsteps a b -> rsteps b c -> rsteps a c.
+Proof.
+  intros a b c H. induction H; intros Hbc; [exact Hbc|].
+  eapply rsteps_step; [exact H | apply IHrsteps; exact Hbc].
+Qed.
+
+Inductive rstepsC (cap : nat -> nat) : RConfig -> RConfig -> Prop :=
+  | rstepsC_refl : forall cfg, rstepsC cap cfg cfg
+  | rstepsC_step : forall a b c, rstepC cap a b -> rstepsC cap b c -> rstepsC cap a c.
+
+Lemma rstepsC_embed : forall cap cfg cfg', rstepsC cap cfg cfg' -> rsteps cfg cfg'.
+Proof.
+  intros cap cfg cfg' H. induction H as [cfg0 | a b c Hab Hbc IH]; [apply rsteps_refl|].
+  eapply rsteps_trans; [ exact (rstepC_embed _ _ _ Hab) | exact IH ].
+Qed.
+
+(** TRANSFER, demonstrated: the buffer/trace invariant [RInv] holds on every BOUNDED-reachable config —
+    proved with ZERO new work, straight through [rstepsC_embed] into the existing [rsteps_preserves_inv].
+    Every other capacity-independent reachability invariant (ownership, race-freedom) transfers the same way. *)
+Theorem reachableC_inv : forall cap p cfg, rstepsC cap (rinit_cfg p) cfg -> RInv cfg.
+Proof.
+  intros cap p cfg H. exact (rsteps_preserves_inv _ _ (rstepsC_embed _ _ _ H) (rinit_inv p)).
+Qed.
