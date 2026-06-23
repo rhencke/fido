@@ -2221,8 +2221,21 @@ let rec pp_expr state env = function
            (* under-applied (only the receiver, not the full args) → a Go METHOD VALUE
               [recv.M] (a first-class closure with the receiver bound); else a full call. *)
            if applied < arity then dot
-           else dot ++ str "(" ++
-                prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++ str ")"
+           else
+             (* review #4 P1 #4: a narrow PARAM of a METHOD needs the destination cast too.  The
+                method's registered param types are [receiver :: param-types]; the receiver is a
+                struct/named type (never a sub-64 narrow), so the non-receiver params are the TAIL,
+                aligned 1:1 with [rest] when no erased args (else decline → bare, as before). *)
+             let ptl = match Hashtbl.find_opt func_param_types (global_path r) with
+               | Some (_ :: tl) when List.length tl = List.length rest -> tl
+               | _ -> [] in
+             let pp_arg i a = match List.nth_opt ptl i with
+               | Some pt -> (match narrow_dest_conv pt with
+                             | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
+                             | None    -> pp_expr state env a)
+               | None -> pp_expr state env a in
+             dot ++ str "(" ++
+             prlist_with_sep (fun () -> str ", ") (fun x -> x) (List.mapi pp_arg rest) ++ str ")"
        | _ ->
            (* review #4 P1 #4: a wide value into a NARROW PARAM of a user function needs the
               destination cast ([f(uint8(x))]).  Use the callee's param types when they ALIGN 1:1 with

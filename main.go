@@ -1636,6 +1636,10 @@ func (p Point) Shifted(dx int64) Point {
 	return Point{Px: p.Px + dx, Py: p.Py + dx}
 }
 
+func (p Point) Px_plus(b uint8) int64 {
+	return func(x int64, y int64) int64 { return x + y }(p.Px, int64(b))
+}
+
 func Method_demo() {
 	p := Point{Px: 3, Py: 4}
 	q := p.Shifted(10)
@@ -1643,6 +1647,7 @@ func Method_demo() {
 	println(q.Px)
 	println(q.Py)
 	println(q.Sum_coords())
+	println(p.Px_plus(uint8(((int64(300)) & 0xff))))
 }
 
 func Call_shift10(f func(int64) Point) Point {

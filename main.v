@@ -2318,6 +2318,11 @@ Definition labeled_demo : IO unit :=
 Definition sum_coords (p : Point) : GoI64 := i64_add (px p) (py p).
 Definition shifted (p : Point) (dx : GoI64) : Point :=
   MkPoint (i64_add (px p) dx) (i64_add (py p) dx).
+(** review #4 P1 #4 — a method with a NARROW param: `func (p Point) Px_plus(b uint8) int64`.  The
+    receiver is param 0, so the cast machinery uses the param-type TAIL aligned with the non-receiver
+    args; a wide value at the narrow `b` is cast (`p.Px_plus(uint8(…))`) — the method residual the
+    function-arg slice left open, now closed (else `p.Px_plus(int64-expr)` = invalid Go). *)
+Definition px_plus (p : Point) (b : GoU8) : GoI64 := i64_add (px p) (i64_of_u8 b).
 
 (** Method behaviour is provable in Rocq: shifting moves each coordinate by [d].
     Both hold by computation (the method unfolds to a constructor + projection). *)
@@ -2332,7 +2337,8 @@ Definition method_demo : IO unit :=
   bind (println [any (sum_coords p)])   (fun _ =>   (* 7 *)
   bind (println [any (px q)])           (fun _ =>   (* 13 *)
   bind (println [any (py q)])           (fun _ =>   (* 14 *)
-  println [any (sum_coords q)]))).                  (* 27 *)
+  bind (println [any (sum_coords q)])   (fun _ =>   (* 27 *)
+  println [any (px_plus p (u8_of_i64 (i64_lit 300 eq_refl)))])))).   (* 3 + uint8(44) = 47 (narrow method arg) *)
 
 (** METHOD VALUE (Go's [p.M] as a first-class closure): [shifted p] is the method
     [Shifted] with its receiver [p] already bound — a [func(int64) Point] passed to a
