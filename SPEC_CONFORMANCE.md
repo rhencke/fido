@@ -386,18 +386,22 @@ limit, not "mechanical").  **IO-value methods with a BIND-CHAIN tail DONE (2026-
 single-expression tail — `func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px + p.Py }`
 (`io_val_method_demo` → `8 17`, golden-locked).
 
-### [Function types](https://go.dev/ref/spec#Function_types) — multiple return values: ✓ 2-ary; ✗ 3+-ary (fail-closed)
+### [Function types](https://go.dev/ref/spec#Function_types) — multiple return values: ✓ N-ary
 Spec: `func(…) (R1, R2, …)` returns a FLAT tuple of results.  Ours: a Coq function returning
-`prod A B` lowers to Go `func(…) (A, B)` (`return a, b`; destructure `x, y := f()`) — the
-2-ary case is ✓ (`swap2 : GoI64 * GoI64`).  **3+-ary is ✗ (fail-closed, not silent):** Go's
-`(A, B, C)` is flat, but Coq's `A * B * C` is the LEFT-NESTED `(A * B) * C` with value
-`pair (pair a b) c`; Fido lowers only a flat 2-tuple, so a 3+ return ABORTS at the inner pair
-(`cannot extract constructor pair`) rather than emitting nested `(A, (B, C))` (invalid Go).
-Closing it = flatten the left-spine at all four sites (the prod TYPE render, the `return …`
-value, and BOTH destructure sites) — the destructure is the hard part (a 3-destructure extracts
-as NESTED `MLcase`s needing look-ahead flattening to one `x, y, z := f()`), a multi-tick effort;
-DEFERRED (niche in the no-import scope, and rule-2-compliant since it fails loud).  Locked by the
-negative fixture `negtests/neg_multireturn.v` (so it stays fail-closed, never silently wrong).
+`prod A B` lowers to Go `func(…) (A, B)` (`return a, b`; destructure `x, y := f()`).  **N-ary
+(2, 3, …) DONE (2026-06-23):** Go's `(A, B, C)` is FLAT, but Coq's `A * B * C` is the LEFT-NESTED
+`(A * B) * C` with value `pair (pair a b) c`; the plugin now flattens the left spine at all four
+sites — the prod TYPE render (`flatten_prod_type` → `(int64, int64, int64)`), the `return …` value
+(`flatten_pair_value` → `return a, b, c`), and BOTH destructure sites (`flatten_destructure`, which
+collapses the NESTED `MLcase`s of `let '((x,y),z) := f` to one `x, y, z := f()`).  The destructure
+needs NO de-Bruijn lifting: the eliminated intermediate `p` stays in the body's env as an unused
+placeholder, so every index still resolves.  `triple_demo` (`triple3 : GoI64 * GoI64 * GoI64`) →
+`x, y, z := Triple3(1, 2, 3)` → `1 2 3`, golden-locked; 2-ary (`swap2`/`multiret_demo`) byte-identical.
+A non-left-nested `A * (B * C)` (not a valid Go flat tuple) stays fail-closed (the prod TYPE render
+rejects it; a non-spine pair VALUE aborts at its `pp_expr`).  The DESTRUCTURE lowers in BOTH positions:
+IO/statement (`pp_stmts`/`emit_block`) AND pure-value-returning (`pp_pure_tail`) — a non-IO `func f()
+int64 { x, y := g(); return x + y }` was a fail-closed gap (found by self-review 2026-06-23, pre-dating
+the N-ary work); now handled (`pure_destr_demo` → `7 6`: `sum_pair` 2-ary + `sum3` N-ary, golden-locked).
 
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value

@@ -1811,6 +1811,20 @@ func Triple_demo() {
 	println(x, y, z)
 }
 
+func Sum_pair(a int64, b int64) int64 {
+	x, y := Swap2(a, b)
+	return x + y
+}
+
+func Sum3(a int64, b int64, c int64) int64 {
+	x, y, z := Triple3(a, b, c)
+	return x + y + z
+}
+
+func Pure_destr_demo() {
+	println(Sum_pair(3, 4), Sum3(1, 2, 3))
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -2582,6 +2596,7 @@ func main() {
 	Method_expr_demo()
 	Multiret_demo()
 	Triple_demo()
+	Pure_destr_demo()
 	Io_method_demo()
 	Io_val_method_demo()
 	Struct_eq_demo()

@@ -2495,6 +2495,26 @@ Definition multiret_demo : IO unit :=
   let '(x, y) := swap2 (3)%i64 (4)%i64 in   (* (4, 3) *)
   println [any x; any y].                    (* 4 3 *)
 
+(** N-ARY (3+) multiple return (Go `func(…) (A, B, C)`).  Coq's `A * B * C` is the LEFT-NESTED
+    `(A * B) * C` with value `(a, b, c)` = `((a, b), c)`; the plugin flattens the left spine to a
+    FLAT Go `func(…) (int64, int64, int64)` / `return a, b, c`, and the nested destructure
+    `let '(x, y, z) := …` to a single `x, y, z := Triple3(…)`. *)
+Definition triple3 (a b c : GoI64) : GoI64 * GoI64 * GoI64 := (a, b, c).
+Definition triple_demo : IO unit :=
+  let '(x, y, z) := triple3 (1)%i64 (2)%i64 (3)%i64 in   (* (1, 2, 3) *)
+  println [any x; any y; any z].                          (* 1 2 3 *)
+
+(** PURE-value-position multiple-return destructure — a value-returning (NON-IO) function that
+    destructures a multi-return and uses the components, e.g. Go `func f() int64 { x, y := g();
+    return x + y }`.  Covers 2-ary (`sum_pair` over `swap2`) and N-ary (`sum3` over `triple3`).  Was
+    a fail-closed gap: the destructure only lowered in IO/statement position; now `pp_pure_tail`
+    handles it too (`x, y[, z] := f(); return …`). *)
+Definition sum_pair (a b : GoI64) : GoI64 := let '(x, y) := swap2 a b in i64_add x y.
+Definition sum3 (a b c : GoI64) : GoI64 :=
+  let '(x, y, z) := triple3 a b c in i64_add (i64_add x y) z.
+Definition pure_destr_demo : IO unit :=
+  println [any (sum_pair (3)%i64 (4)%i64); any (sum3 (1)%i64 (2)%i64 (3)%i64)].   (* 7 6 *)
+
 (** An IO-returning method (a method with effects) — the receiver threads through
     the [pp_io_body] path just like a pure one: [func (p Point) Describe() { … }],
     and the statement-position call [describe p] lowers to [p.Describe()]. *)
@@ -3255,6 +3275,8 @@ Definition main_effect : IO unit :=
   method_value_demo             >>'   (* prints: 11 12 (method value p.Shifted passed to a HOF) *)
   method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
   multiret_demo                 >>'   (* prints: 4 3 (multiple return values + destructure) *)
+  triple_demo                   >>'   (* prints: 1 2 3 (N-ary 3-return + nested destructure) *)
+  pure_destr_demo               >>'   (* prints: 7 6 (multi-return destructure in a PURE value fn) *)
   io_method_demo                >>'   (* prints: 8 / 9 *)
   io_val_method_demo            >>'   (* prints: 8 17 (value-returning IO method, bind-chain tail) *)
   struct_eq_demo                >>'   (* prints: true false (struct ==, field-wise) *)

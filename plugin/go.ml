@@ -632,6 +632,13 @@ let is_pair_ref r =
    signature; a pair value is otherwise only a [return a, b] or an [x, y :=] destructure). *)
 let is_prod_type r =
   ref_has_suffix r ".Init.Datatypes.prod" || String.equal (global_basename r) "prod"
+(* N-ary multiple return: Go's [(A, B, C)] is FLAT, but Coq's [A * B * C] is the LEFT-NESTED
+   [(A * B) * C].  Flatten the left spine of a product TYPE to its components.  Recurses on the
+   first component only; a non-left-spine nesting (e.g. [A * (B * C)]) leaves a [prod] element,
+   which the render site rejects (Go cannot express a nested tuple). *)
+let rec flatten_prod_type = function
+  | Tglob (r, [a; b]) when is_prod_type r -> flatten_prod_type a @ [b]
+  | ty -> [ty]
 (* Peel an [any x] = [existT _ _ (pair x tag)] down to the emitted VALUE [x]:
    strip the [existT] layer(s) then take the pair's first component.  Falls through
    to [v] for anything that is not an [any], so call sites can apply it
@@ -1304,8 +1311,11 @@ let rec pp_type state = function
   | Tglob (r, []) when is_string_type r -> str "string"
   | Tglob (r, []) when is_float64_type r  -> str "float64"
   | Tglob (r, []) when is_complex_type r  -> str "complex128"
-  | Tglob (r, [a; b]) when is_prod_type r ->   (* multiple return values: (A, B) *)
-      str "(" ++ pp_type state a ++ str ", " ++ pp_type state b ++ str ")"
+  | Tglob (r, [a; b]) when is_prod_type r ->   (* multiple return values: (A, B, …), N-ary *)
+      let tys = flatten_prod_type a @ [b] in
+      if List.exists (function Tglob (rr, _) -> is_prod_type rr | _ -> false) tys
+      then unsupported "a non-left-nested product return type — Go's multiple-return tuple is FLAT, so only the left-nested `A * B * … * Z` lowers (a `A * (B * C)` cannot be a nested Go tuple)"
+      else str "(" ++ prlist_with_sep (fun () -> str ", ") (pp_type state) tys ++ str ")"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
   | Tglob (r, []) when is_uint63_type r -> str "int"   (* PrimInt63 = Go's platform [int]
@@ -1400,6 +1410,33 @@ let collect_app head args =
 let rec strip_magic = function
   | MLmagic e -> strip_magic e
   | e         -> e
+
+(* N-ary multiple return — VALUE side.  Flatten the left spine of a nested pair VALUE
+   [pair (pair a b) c] -> [a; b; c] (for [return a, b, c]).  Mirrors [flatten_prod_type]; a
+   non-left-spine element stays a [pair] and aborts at its [pp_expr] (fail-closed). *)
+let rec flatten_pair_value v =
+  match strip_magic v with
+  | MLcons (_, r, [a; b])       when is_pair_ref r -> flatten_pair_value a @ [b]
+  | MLcons (_, r, [_; _; a; b]) when is_pair_ref r -> flatten_pair_value a @ [b]
+  | _ -> [v]
+
+(* N-ary multiple return — DESTRUCTURE side.  [let '((x,y),z) := f in body] extracts as NESTED
+   pair-matches: the outer binds [p; z] and its body immediately re-destructures [p] (the FIRST
+   binder, always [MLrel 2] in the branch's de-Bruijn context, since a pair binds [first; second]
+   -> env [second; first; …]).  Collect the FLAT leaf binders [x; y; z] for a single Go
+   [x, y, z := f()], and return the innermost body with the env the nested matches build — which
+   KEEPS the eliminated intermediate [p] as an unused placeholder so every de-Bruijn index in the
+   body still resolves (no lifting).  A non-nested body is the ordinary flat 2-destructure. *)
+let rec flatten_destructure ids body env =
+  let body_env = List.rev ids @ env in
+  match strip_magic body with
+  | MLcase (_, scrut, [| (ids2, pat2, body2) |])
+    when (match strip_magic scrut with MLrel 2 -> true | _ -> false)
+         && (match pat2 with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+         && List.length ids2 = 2 ->
+      let leaves, fb, fenv = flatten_destructure ids2 body2 body_env in
+      (leaves @ [List.nth ids 1], fb, fenv)
+  | _ -> ([List.nth ids 0; List.nth ids 1], body, body_env)
 
 (*s Unfold a Rocq list literal (MLcons-based) to an OCaml list, or None. *)
 
@@ -2699,10 +2736,10 @@ and emit_block terminating state hoists term tab env b =
             | [ (ids, pat, body1) ]
               when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                    && List.length ids = 2 ->
-                let new_env = List.rev ids @ env in
-                str tab ++ pp_mlident (List.nth ids 0) ++ str ", " ++ pp_mlident (List.nth ids 1)
+                let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
+                str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
                 ++ str " := " ++ pp_expr state env scrut ++ fnl ()
-                ++ emit_block terminating state hoists term tab new_env body1
+                ++ emit_block terminating state hoists term tab fenv fbody
             | [ (_, p1, body1); (_, p2, body2) ] ->
                 let cref p = (match p with Pusual r | Pcons (r, _) -> Some r | _ -> None) in
                 (match cref p1, cref p2 with
@@ -3673,10 +3710,10 @@ let pp_io_body ?(ret_val=false) state tab env body =
          | [ (ids, pat, body1) ]
            when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                 && List.length ids = 2 ->
-             let new_env = List.rev ids @ env in
-             str tab ++ pp_mlident (List.nth ids 0) ++ str ", " ++ pp_mlident (List.nth ids 1)
+             let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
+             str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
              ++ str " := " ++ pp_expr state env scrut ++ fnl ()
-             ++ pp_stmts tab new_env body1
+             ++ pp_stmts tab fenv fbody
          | _ -> emit_case tab env typ scrut branches (fun _nb b -> b))
     | MLcons (_, r, []) when is_unit_tt r -> mt ()
     (* Bare nullary IO function in tail position — needs () to be a call,
@@ -3968,6 +4005,17 @@ let rec pp_pure_tail state tab env e =
     | Pusual r | Pcons (r, _)   -> (Some r, ids, body)
     | Pwild | Prel _ | Ptuple _ -> (None, ids, body) in
   match strip_magic e with
+  (* VALUE-position multiple-return DESTRUCTURE [let '(x,y[,z…]) := f … in body] (single pair branch,
+     2 binders, N-ary via flatten_destructure) → [x, y[, z…] := f(…)] then the body in tail position.
+     Mirrors the statement-position destructure; without this, a destructure in a PURE (value-returning)
+     function — [func f() int { x, y := g(); return x + y }] — hit the value-position fallthrough. *)
+  | MLcase (_typ, scrut, [| (ids, pat, body1) |])
+    when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+         && List.length ids = 2 ->
+      let flat_ids, fbody, fenv = flatten_destructure ids body1 env in
+      str tab ++ prlist_with_sep (fun () -> str ", ") pp_mlident flat_ids
+      ++ str " := " ++ pp_expr state env scrut ++ fnl ()
+      ++ pp_pure_tail state tab fenv fbody
   (* VALUE-position ENUM match → a Go [switch] each of whose arms [return]s (e.g. a
      [func (d Direction) String() string]).  Mirrors the statement-position enum switch. *)
   | MLcase (_typ, scrut, branches)
@@ -4035,7 +4083,8 @@ let rec pp_pure_tail state tab env e =
      constructor carries 2 args type-erased, or 4 with the type params present). *)
   | MLcons (_, r, args) when is_pair_ref r && (List.length args = 2 || List.length args = 4) ->
       let a, b = (match args with [a; b] -> a, b | [_; _; a; b] -> a, b | _ -> assert false) in
-      str tab ++ str "return " ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ fnl ()
+      let vals = flatten_pair_value a @ [b] in   (* N-ary: [pair (pair a b) c] -> [a;b;c] -> [return a, b, c] *)
+      str tab ++ str "return " ++ prlist_with_sep (fun () -> str ", ") (pp_expr state env) vals ++ fnl ()
   | _ -> return_fallback ()
 
 (** Emit a top-level function, collecting leading lambdas for the signature
