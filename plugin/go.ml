@@ -4247,6 +4247,9 @@ let pp_decl state decl =
   | Dtype (_, _, Tglob (r, _)) when is_sigT_ref r    -> mt ()
 
   | Dtype (r, _, typ) ->
+      (* review #4 P1 6: a type ALIAS bypassed the collision registry — claim its Go
+         identifier so an alias/term or alias/alias clash aborts (vs a silent Go redeclaration). *)
+      register_emitted_name (go_export (global_basename r)) (global_path r);
       str "type " ++ str (go_export (global_basename r)) ++
       str " = " ++ pp_type state typ ++ fnl ()
 
@@ -4304,6 +4307,16 @@ let collect_decls struc =
                (* ordered Go field names, for keyed struct literals — from the projections *)
                let fields = List.filter_map
                  (function Some g -> Some (go_export (global_basename g)) | None -> None) projs in
+               (* review #4 P1 6: two projections of THIS struct exporting to the SAME Go field name
+                  (e.g. Coq `x'` and `x_` both mangle to `X_`) would emit a struct with a duplicate
+                  field — invalid Go.  Each struct is its own field namespace; abort on a clash. *)
+               let rec find_field_dup seen = function
+                 | [] -> None
+                 | f :: tl -> if List.mem f seen then Some f else find_field_dup (f :: seen) tl in
+               (match find_field_dup [] fields with
+                | Some f -> unsupported (Printf.sprintf "two fields of record `%s` export to the SAME Go field name `%s` (distinct Coq projections differing only by mangling, e.g. `'` vs `_`) — the emitted struct would have a duplicate field; rename one in the source"
+                                           (Id.to_string pkt.ip_typename) f)
+                | None -> ());
                Hashtbl.replace record_ctor_fields (Id.to_string pkt.ip_consnames.(0)) fields ;
                (* defined-primitive-type? (2 fields, 2nd a GoTypeTag phantom) — record its
                   underlying type for the special [type T <under>] emission + the value cast *)
