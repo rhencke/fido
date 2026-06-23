@@ -692,6 +692,18 @@ func Select_closed_demo() {
 	}
 }
 
+func Select_nonfinal_demo() {
+	ch := make(chan int64, 1)
+	ch <- 3
+	select {
+	case x := <-ch:
+		println(x)
+	default:
+		println(99)
+	}
+	println(5)
+}
+
 func Goroutine_demo() {
 	ch := make(chan int64)
 	go func() {
@@ -2431,6 +2443,7 @@ func main() {
 	Select_demo()
 	Select_default_demo()
 	Select_closed_demo()
+	Select_nonfinal_demo()
 	Goroutine_demo()
 	Session_demo()
 	Adder_demo()

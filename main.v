@@ -1353,6 +1353,16 @@ Definition select_closed_demo : IO unit :=
   select_recv_default TI64 ch (fun x => println [any x])   (* closed+drained ⇒ recv READY ⇒ 0 (not default) *)
                       (println [any (99)%i64]).
 
+(** select as a NON-FINAL statement — `select … >>' rest`.  Same routing class as the type-switch
+    fix: select is a pp_stmts-only form, so without a bind-action case it would fall to value position
+    and the tag constructors fail.  Here a ready channel takes the recv case (3), then execution
+    CONTINUES after the select (5). *)
+Definition select_nonfinal_demo : IO unit :=
+  ch <-' make_chan_buf TI64 1 ;;
+  send TI64 ch (3)%i64 >>'
+  select_recv_default TI64 ch (fun x => println [any x]) (println [any (99)%i64]) >>'  (* ch ready → 3 *)
+  println [any (5)%i64].                                                                (* continues → 5 *)
+
 (** Unbuffered channel + goroutine: the goroutine sends while main recvs.
     The pattern that required goroutines — unbuffered send deadlocks solo. *)
 Definition goroutine_demo : IO unit :=
@@ -3109,6 +3119,7 @@ Definition main_effect : IO unit :=
   select_demo                   >>'   (* prints: 42 (ch1 ready) *)
   select_default_demo           >>'   (* prints: 99 (default, ch empty) *)
   select_closed_demo            >>'   (* prints: 0 (select over CLOSED chan: recv ready with zero, NOT default) *)
+  select_nonfinal_demo          >>'   (* prints: 3 / 5 (select as a NON-FINAL statement, then continues) *)
   goroutine_demo                >>'   (* prints: 42 *)
   session_demo                  >>'   (* prints: 42 *)
   adder_demo                    >>'   (* prints: 42 *)
