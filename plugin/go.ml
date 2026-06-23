@@ -2778,6 +2778,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
                               && (List.filter (fun id -> not (is_dummy id)) ids = []
                                   || db1_free body) ->
                   pp_stmts tab env (strip_magic m) ++ pp_stmts tab new_env body
+              (* a type_switch / val_switch ACTION whose unit result is discarded (the only sensible
+                 use — its cases are IO unit) → emit it as a STATEMENT (the switch arms below handle
+                 it), then the continuation.  Without this a [type_switch … >>' rest] (a non-final
+                 switch) falls to VALUE position, where the tag constructors fail to extract. *)
+              | MLglob r2, _ when (is_type_switch_ref r2 || is_val_switch_ref r2)
+                              && (List.filter (fun id -> not (is_dummy id)) ids = []
+                                  || db1_free body) ->
+                  pp_stmts tab env (strip_magic m) ++ pp_stmts tab new_env body
               | MLglob r2, [xs; bodyfn] when is_for_each_ref r2 ->
                   emit_for_each tab env xs bodyfn ++
                   pp_stmts tab new_env body
@@ -3503,7 +3511,17 @@ let pp_io_body ?(ret_val=false) state tab env body =
          | MLglob r, (a :: rest)
             when is_type_switch_ref r && not (is_type_switch_or_ref r)
                  && List.length rest >= 3 && List.length rest mod 2 = 1 ->
-             let payload = pp_expr state env (any_payload a) in
+             (* the scrutinee must be an INTERFACE for [.(type)].  A bare variable [a:GoAny] already
+                is; an INLINE [any x] (existT) would strip to its raw payload (a non-interface), so
+                RE-BOX it as [any(<narrow-converted payload>)] — exactly the [type_assert] handling. *)
+             let payload =
+               match strip_magic a with
+               | MLcons (_, r2, _) when is_existT_ref r2 ->
+                   let pv = pp_expr state env (any_payload a) in
+                   let conv = (match narrow_conv_of env a with
+                               | Some gt -> str (gt ^ "(") ++ pv ++ str ")" | None -> pv) in
+                   str "any(" ++ conv ++ str ")"
+               | _ -> pp_expr state env (any_payload a) in
              let n = List.length rest in
              let d = List.nth rest (n - 1) in
              let rec chunk = function t :: k :: tl -> (t, k) :: chunk tl | _ -> [] in

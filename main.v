@@ -1701,6 +1701,17 @@ Definition tsw_distinct_demo : IO unit :=
   bind (tsw_narrow (any (u8_of_i64 (i64_lit 200 eq_refl)))) (fun _ =>   (* uint8 → 200 *)
         tsw_narrow (any (i64_lit 7 eq_refl))).                          (* int64 → 7  *)
 
+(** The fail-closed gap from the previous tick — a type-switch on an INLINE boxed scrutinee, and as a
+    NON-FINAL statement — now lowers correctly (two coordinated go.ml fixes): the inline `any x` is
+    RE-BOXED so `.(type)` is on an interface, and a `type_switch … >>' rest` action is routed to
+    statement position (it previously fell to value position and the tag constructors failed). *)
+Definition tsw_inline_demo : IO unit :=
+  type_switch2 (any (u8_of_i64 (i64_lit 200 eq_refl)))   (* INLINE boxed scrutinee, NON-FINAL switch *)
+    TU8  (fun u => println [any (i64_of_u8 u)])          (* uint8 → 200 *)
+    TI64 (fun i => println [any i])
+    (println [any (9)%i64]) >>'
+  println [any (5)%i64].                                  (* continues AFTER the switch → 5 *)
+
 (** N-ary type switch (3 cases): same combinator, one more arm.  The int64 case is
     driven by a value of Go type [int64] (a function RETURN, [i64_abs]) so it boxes as
     [int64] and matches — a bare int literal would box as Go [int] and miss it. *)
@@ -3124,6 +3135,7 @@ Definition main_effect : IO unit :=
   str_range_demo                >>'   (* prints: 0 72 / 1 8364 / 4 33 (for i, r := range s) *)
   tsw_demo (any true)           >>'   (* prints: true 1 (bool case) *)
   tsw_distinct_demo             >>'   (* prints: 200 / 7 (type switch respects uint8 vs int64 distinctness) *)
+  tsw_inline_demo               >>'   (* prints: 200 / 5 (inline boxed scrutinee + non-final type-switch — gap closed) *)
   tsw_demo (any "go"%string)    >>'   (* prints: go 2 (string case) *)
   tsw_demo (any (5)%i64)        >>'   (* prints: 9 (default; int64 matches neither) *)
   tsw3_demo (any true)              >>'   (* prints: true 1 (bool case, 3-case switch) *)

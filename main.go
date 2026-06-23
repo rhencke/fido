@@ -989,6 +989,20 @@ func Tsw_distinct_demo() {
 	Tsw_narrow(int64(7))
 }
 
+func Tsw_inline_demo() {
+	switch _tsv := any(uint8(((int64(200)) & 0xff))).(type) {
+	case uint8:
+		u := _tsv
+		println(int64(u))
+	case int64:
+		i := _tsv
+		println(i)
+	default:
+		println(9)
+	}
+	println(5)
+}
+
 func Tsw3_demo(a any) {
 	switch _tsv := a.(type) {
 	case bool:
@@ -2443,6 +2457,7 @@ func main() {
 	Str_range_demo()
 	Tsw_demo(true)
 	Tsw_distinct_demo()
+	Tsw_inline_demo()
 	Tsw_demo("go")
 	Tsw_demo(5)
 	Tsw3_demo(true)
