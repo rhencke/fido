@@ -4439,6 +4439,61 @@ Proof.
   - cbn. rewrite run_ptr_get, Hnil, ref_sel_upd_same, run_ret. reflexivity.
 Qed.
 
+(** ---- [&x]: the ADDRESS-OF operator (Go's `&`) — the missing inverse of [ptr_as_ref] ----
+
+    Taking the address of a local variable [x] (a [Ref A]) yields a [*T] ([Ptr A]) aliasing x's cell.
+    A [Ref] and a [Ptr] share the SAME [w_refs] heap (a [Ref] is a Go local, a [Ptr] its `*T` handle), so
+    [&x] is simply the [Ref]'s location wrapped as a (tag-free) [Ptr] — [ptr_as_ref]'s inverse.  KEY SAFETY
+    PROPERTY: a [Ref] always lives at a NONZERO location ([ValidWorld] reserves 0 for nil — break #5), so
+    [&x] is NEVER nil; dereferencing it therefore never panics.  Taking an address is ALWAYS safe (unlike a
+    raw [*T], which may be nil).  Read/write THROUGH [&x] alias [x] — the defining pointer behaviour —
+    inherited from the shared heap, no new axiom. *)
+Definition ref_as_ptr {A} (r : Ref A) : Ptr A := mkPtr (r_loc r).
+
+Lemma ref_as_ptr_loc : forall {A} (r : Ref A), p_loc (ref_as_ptr r) = r_loc r.
+Proof. reflexivity. Qed.
+
+(* Viewing [&x] back as a [Ref] (with x's own tag) recovers [x] exactly — same location, same tag. *)
+Lemma ptr_as_ref_of_ref_as_ptr : forall {A} (r : Ref A),
+  ptr_as_ref (r_tag r) (ref_as_ptr r) = r.
+Proof. intros A [l tag]. reflexivity. Qed.
+
+(* [&x] is never nil (a [Ref]'s location is nonzero), so it is SAFE to dereference — never panics. *)
+Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
+  r_loc r <> 0%uint63 -> p_loc (ref_as_ptr r) <> 0%uint63.
+Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
+
+(* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) and NEVER panics. *)
+Lemma ptr_get_ref_as_ptr : forall {A} (r : Ref A) (w : World),
+  r_loc r <> 0%uint63 ->
+  run_io (ptr_get (r_tag r) (ref_as_ptr r)) w = ORet (ref_sel r w) w.
+Proof.
+  intros A r w Hnz. rewrite run_ptr_get, ref_as_ptr_loc.
+  rewrite (Uint63.eqb_false_complete (r_loc r) 0%uint63 Hnz).
+  rewrite ptr_as_ref_of_ref_as_ptr. reflexivity.
+Qed.
+
+(* WRITE through [&x]: [*(&x) = v] updates [x]'s OWN cell and never panics. *)
+Lemma ptr_set_ref_as_ptr : forall {A} (r : Ref A) (v : A) (w : World),
+  r_loc r <> 0%uint63 ->
+  run_io (ptr_set (r_tag r) (ref_as_ptr r) v) w = ORet tt (ref_upd r v w).
+Proof.
+  intros A r v w Hnz. rewrite run_ptr_set, ref_as_ptr_loc.
+  rewrite (Uint63.eqb_false_complete (r_loc r) 0%uint63 Hnz).
+  rewrite ptr_as_ref_of_ref_as_ptr. reflexivity.
+Qed.
+
+(* THE DEFINING ALIAS: writing through [&x] is visible at [x] — [*(&x) = v], then [x] reads back [v].
+   This is the whole point of taking an address: the pointer and the variable share one cell. *)
+Theorem ptr_set_ref_as_ptr_aliases : forall {A} (r : Ref A) (v : A) (w : World),
+  r_loc r <> 0%uint63 ->
+  exists w', run_io (ptr_set (r_tag r) (ref_as_ptr r) v) w = ORet tt w' /\ ref_sel r w' = v.
+Proof.
+  intros A r v w Hnz. exists (ref_upd r v w). split.
+  - exact (ptr_set_ref_as_ptr r v w Hnz).
+  - apply ref_sel_upd_same.
+Qed.
+
 (** ---- CLOSED-WORLD nil-safety: the modeled nil panics are UNREACHABLE for ALLOCATED handles ----
 
     Modeling the nil panic (in [ptr_get]/[ptr_set]/[map_set]) plays TWO roles.  (1) COMPLETENESS: it is
@@ -5402,3 +5457,5 @@ Notation "x <<- m ;;; k" := (sbind m (fun x => k))
 Definition run_session {P : Proto}
   (client : Sess P PEnd unit) (server : Sess (dual P) PEnd unit) : IO unit :=
   ret tt.
+
+
