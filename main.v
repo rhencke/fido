@@ -2134,9 +2134,18 @@ Definition slice_alias_demo : IO unit :=
   bind (slice_make_h TI64 (3:int)) (fun s =>                                  (* s := make([]int64, 3) *)
   bind (slice_idx_set s (0:int) (10)%i64) (fun _ =>                           (* s[0] = 10 *)
   bind (slice_idx_set s (1:int) (20)%i64) (fun _ =>                           (* s[1] = 20 *)
-  bind (slice_idx_set (subslice s (1:int) (3:int)) (0:int) (99)%i64) (fun _ =>  (* s[1:3][0] = 99 (= s[1]) *)
+  bind (subslice s (1:int) (3:int)) (fun ss =>                                (* ss := s[1:3] (bounds-checked) *)
+  bind (slice_idx_set ss (0:int) (99)%i64) (fun _ =>                          (* ss[0] = 99 (= s[1]) *)
   bind (slice_idx_get TI64 s (1:int)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
-  println [any v]))))).                                                        (* prints 99 *)
+  println [any v])))))).                                                       (* prints 99 *)
+
+(** Review #6 P0 #4 / minimum-suite #6: an out-of-range subslice PANICS rather than producing
+    a bogus descriptor.  s has cap 2; [s[0:3]] requests b=3 > cap, which Go rejects — so the
+    wrapped-descriptor path that would defeat the index bounds check is unconstructable. *)
+Example subslice_past_cap_panics : forall (w : World),
+  run_io (subslice (mkSliceH (100:int) (0:int) (2:int) (2:int) TI64) (0:int) (3:int)) w
+    = OPanic (any tt) w.
+Proof. intros w. unfold subslice, run_io. reflexivity. Qed.
 
 (** Phase B3b: APPEND.  Go's [append] extends in place when [len < cap] (aliasing the
     backing — the [slice_append_incap_aliases] THEOREM) and REALLOCATES a fresh backing

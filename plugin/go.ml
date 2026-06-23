@@ -4300,7 +4300,7 @@ let is_inlined_ref r =
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
-  is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||
+  is_slice_idx_set_ref r || is_subslice_ref r || String.equal (global_basename r) "subslice_desc" || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||
   is_go_map_type r || is_map_make_ref r || is_map_make_typed_ref r ||
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||

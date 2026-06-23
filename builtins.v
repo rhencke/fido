@@ -4753,16 +4753,30 @@ Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : int) (v : A) (w : W
   (i <? sh_len s)%uint63 = false ->
   run_io (slice_idx_set s i v) w = OPanic (any tt) w.
 Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
-(* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells. *)
-Definition subslice {A} (s : SliceH A) (a b : int) : SliceH A :=
+(* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
+   is the PURE descriptor (the aliasing lemmas reason about it); [subslice] is the Go-level op. *)
+Definition subslice_desc {A} (s : SliceH A) (a b : int) : SliceH A :=
   mkSliceH (sh_base s) (PrimInt63.add (sh_off s) a)
            (PrimInt63.sub b a) (PrimInt63.sub (sh_cap s) a) (sh_tag s).
+(* Go's [s[a:b]] bounds-checks [0 <= a <= b <= cap(s)] at runtime and PANICS otherwise
+   (review #6 P0 #4 / min-suite #6) — note the upper bound is CAPACITY for a 2-index slice.
+   So [subslice] is an IO action that panics on a bad triple instead of silently producing a
+   wrapped descriptor whose bogus [sh_len] would defeat the index bounds check.  The native Go
+   [s[a:b]] performs the SAME check, so the lowering (a `:=` binding) is faithful. *)
+Definition subslice {A} (s : SliceH A) (a b : int) : IO (SliceH A) :=
+  fun w => if (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool
+           then ORet (subslice_desc s a b) w
+           else OPanic (any tt) w.
+Lemma run_subslice : forall {A} (s : SliceH A) (a b : int) (w : World),
+  (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool = true ->
+  run_io (subslice s a b) w = ORet (subslice_desc s a b) w.
+Proof. intros A s a b w H. unfold subslice, run_io. rewrite H. reflexivity. Qed.
 
 (** Sub-slice element [j] IS parent element [a+j] — the SAME backing cell. *)
 Lemma subslice_shares_cell : forall {A} (s : SliceH A) (a b j : int),
-  sh_cell (subslice s a b) j = sh_cell s (PrimInt63.add a j).
+  sh_cell (subslice_desc s a b) j = sh_cell s (PrimInt63.add a j).
 Proof.
-  intros A s a b j. unfold sh_cell, sh_loc, subslice. cbn.
+  intros A s a b j. unfold sh_cell, sh_loc, subslice_desc. cbn.
   rewrite (Uint63.add_assoc (sh_off s) a j). reflexivity.
 Qed.
 
@@ -4771,7 +4785,7 @@ Qed.
     [parent[a+j]]), read [parent[a+j]] → the written value. *)
 Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : int) (v : A) (w : World),
   ref_sel (sh_cell s (PrimInt63.add a j))
-          (ref_upd (sh_cell (subslice s a b) j) v w) = v.
+          (ref_upd (sh_cell (subslice_desc s a b) j) v w) = v.
 Proof.
   intros A s a b j v w. rewrite subslice_shares_cell. apply ref_sel_upd_same.
 Qed.

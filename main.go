@@ -1388,7 +1388,8 @@ func Slice_alias_demo() {
 	s := make([]int64, 3)
 	s[0] = int64(10)
 	s[1] = int64(20)
-	(s[1:3])[0] = int64(99)
+	ss := s[1:3]
+	ss[0] = int64(99)
 	v := s[1]
 	println(v)
 }
