@@ -2835,6 +2835,41 @@ Proof.
            combo_regioninv combo_buflin combo_ownerlive Hsteps).
 Qed.
 
+(** ── The discipline BITES (NON-VACUITY).  A race-freedom theorem is only meaningful if its premise
+    REJECTS racy programs — a discipline accepting everything would make [region_inv_race_free]
+    vacuous.  Two teeth: [WT] rejects accessing/releasing memory you do not own, and [RegionInv]
+    cannot be satisfied by a program with a genuine unsynchronised write/write conflict. ── *)
+Lemma wt_rejects_unowned_write : ~ WT (fun _ => false) (CWrite 5 0 CRet).
+Proof. intro H. apply wt_write_inv in H. destruct H as [Hf _]. discriminate. Qed.
+
+Lemma wt_rejects_unowned_read : ~ WT (fun _ => false) (CRead 5 (fun _ => CRet)).
+Proof. intro H. apply wt_read_inv in H. destruct H as [Hf _]. discriminate. Qed.
+
+Lemma wt_rejects_unowned_send : ~ WT (fun _ => false) (CSend 0 5 CRet).
+Proof. intro H. apply wt_send_inv in H. destruct H as [Hf _]. discriminate. Qed.
+
+(* Two pre-live goroutines BOTH write loc 5 with NO handoff — a genuine data race.  No owner
+   assignment can satisfy [RegionInv]: the program clause would force loc 5 to be owned by BOTH
+   goroutine 0 and goroutine 1 (each writes it), i.e. [Held 0 = Held 1] — impossible. *)
+Definition race_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 5 0 CRet
+           else if Nat.eqb t 1 then CWrite 5 1 CRet else CRet.
+Definition race_init : RConfig :=
+  mkRCfg race_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Theorem region_inv_rejects_race : forall own lp acq, ~ RegionInv own lp acq race_init.
+Proof.
+  intros own lp acq [Hprog _].
+  assert (L0 : rc_live race_init 0 = true) by reflexivity.
+  assert (L1 : rc_live race_init 1 = true) by reflexivity.
+  pose proof (Hprog 0 L0) as H0. pose proof (Hprog 1 L1) as H1.
+  cbn [rc_prog] in H0, H1. unfold race_prog in H0, H1. cbn in H0, H1.
+  apply wt_write_inv in H0. destruct H0 as [Ho0 _].
+  apply wt_write_inv in H1. destruct H1 as [Ho1 _].
+  apply heldby_true in Ho0. apply heldby_true in Ho1.
+  rewrite Ho0 in Ho1. discriminate.
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6945,6 +6980,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
