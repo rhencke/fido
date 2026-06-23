@@ -2161,6 +2161,14 @@ Definition slice_makecap_demo : IO unit :=
   bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
+(** Review #6 P0 #4 / minimum-suite #5: a slice with len=1, cap=2 — writing index 1 (in the
+    spare CAPACITY but past LENGTH) PANICS, exactly as Go bounds-checks against LEN not cap.
+    Pre-fix the model silently wrote the spare backing cell and returned normally. *)
+Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
+  run_io (slice_idx_set (mkSliceH (100:int) (0:int) (1:int) (2:int) TI64) (1:int) v) w
+    = OPanic (any tt) w.
+Proof. intros v w. apply run_slice_idx_set_oob. reflexivity. Qed.
+
 (** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
     realloc reallocates again → disjoint backing.  The plugin now FORCES Go's realloc capacity to len+1
     (a manual `make([]T, len+1, len+1)` copy) to match — if it left Go's native `append` to over-allocate,

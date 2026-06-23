@@ -4718,24 +4718,41 @@ Definition sh_cell {A} (s : SliceH A) (i : int) : Ref A := mkRef (sh_loc s i) (s
 
 (* [make([]T, n)]: allocate [n] fresh consecutive zeroed cells, return the handle. *)
 Definition slice_make_h {A} (tag : GoTypeTag A) (n : int) : IO (SliceH A) :=
-  fun w => let base := w_next w in
-           ORet (mkSliceH base 0 n n tag)
-                (mkWorld (fun k => if (PrimInt63.leb base k
-                                       && PrimInt63.ltb k (PrimInt63.add base n))%bool
-                                   then Some (existT _ A (tag, zero_val tag))
-                                   else w_refs w k)
-                         (w_chans w) (w_maps w) (PrimInt63.add base n)).
-(* [s[i]] read / [s[i] = v] write, through the shared backing cell. *)
+  fun w => if Sint63.leb 0 n then          (* Go: make([]T, n) with n < 0 PANICS (review #6 P0 #4) *)
+             let base := w_next w in
+             ORet (mkSliceH base 0 n n tag)
+                  (mkWorld (fun k => if (PrimInt63.leb base k
+                                         && PrimInt63.ltb k (PrimInt63.add base n))%bool
+                                     then Some (existT _ A (tag, zero_val tag))
+                                     else w_refs w k)
+                           (w_chans w) (w_maps w) (PrimInt63.add base n))
+           else OPanic (any tt) w.
+(* [s[i]] read / [s[i] = v] write, through the shared backing cell.  Go bounds-checks the
+   index against LENGTH (NOT capacity) at runtime and PANICS on [i < 0 || i >= len(s)] — so
+   the model panics there too (review #6 P0 #4): the unsigned [i <? sh_len s] rejects both
+   [i >= len] and a signed-negative index (which lands in the high uint63 range).  Without
+   this a write to a spare backing cell ([len <= i < cap]) silently succeeded.  The native
+   Go [s[i]] performs exactly this check, so the lowering is unchanged (body suppressed). *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) : IO A :=
-  fun w => ORet (ref_sel (sh_cell s i) w) w.
+  fun w => if (i <? sh_len s)%uint63 then ORet (ref_sel (sh_cell s i) w) w
+           else OPanic (any tt) w.
 Definition slice_idx_set {A} (s : SliceH A) (i : int) (v : A) : IO unit :=
-  fun w => ORet tt (ref_upd (sh_cell s i) v w).
+  fun w => if (i <? sh_len s)%uint63 then ORet tt (ref_upd (sh_cell s i) v w)
+           else OPanic (any tt) w.
 Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (w : World),
+  (i <? sh_len s)%uint63 = true ->
   run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s i) w) w.
-Proof. reflexivity. Qed.
+Proof. intros A tag s i w Hi. unfold slice_idx_get, run_io. rewrite Hi. reflexivity. Qed.
 Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
+  (i <? sh_len s)%uint63 = true ->
   run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s i) v w).
-Proof. reflexivity. Qed.
+Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
+(** Out of range is a PANIC, exactly Go: writing at index = len (the review's len=1,cap=2,
+    write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
+Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
+  (i <? sh_len s)%uint63 = false ->
+  run_io (slice_idx_set s i v) w = OPanic (any tt) w.
+Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells. *)
 Definition subslice {A} (s : SliceH A) (a b : int) : SliceH A :=
   mkSliceH (sh_base s) (PrimInt63.add (sh_off s) a)
@@ -4775,12 +4792,14 @@ Qed.
 
 (** Read-after-write at an index — a THEOREM (from the shared heap). *)
 Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (v : A),
+  (i <? sh_len s)%uint63 = true ->
   bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =
   bind (slice_idx_set s i v) (fun _ => ret v).
 Proof.
-  intros. apply run_io_inj. intro w.
-  rewrite !run_bind, run_slice_idx_set. cbn.
-  rewrite run_slice_idx_get, ref_sel_upd_same, run_ret. reflexivity.
+  intros A tag s i v Hi. apply run_io_inj. intro w.
+  rewrite !run_bind, !(run_slice_idx_set s i v w Hi). cbn.
+  rewrite (run_slice_idx_get tag s i (ref_upd (sh_cell s i) v w) Hi), ref_sel_upd_same, run_ret.
+  reflexivity.
 Qed.
 
 (** [append(s, v)] (Phase B3b) — the SUBTLE Go semantics:
@@ -4837,13 +4856,15 @@ Qed.
     within them is IN PLACE, [slice_append_incap]).  Same heap shape as [slice_make_h]
     (which is the [len = cap] case), but distinguishes len from cap. *)
 Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : int) : IO (SliceH A) :=
-  fun w => let base := w_next w in
-           ORet (mkSliceH base 0 len cap tag)
-                (mkWorld (fun k => if (PrimInt63.leb base k
-                                       && PrimInt63.ltb k (PrimInt63.add base cap))%bool
-                                   then Some (existT _ A (tag, zero_val tag))
-                                   else w_refs w k)
-                         (w_chans w) (w_maps w) (PrimInt63.add base cap)).
+  fun w => if (Sint63.leb 0 len && Sint63.leb len cap)%bool then   (* Go: 0 <= len <= cap, else PANIC *)
+             let base := w_next w in
+             ORet (mkSliceH base 0 len cap tag)
+                  (mkWorld (fun k => if (PrimInt63.leb base k
+                                         && PrimInt63.ltb k (PrimInt63.add base cap))%bool
+                                     then Some (existT _ A (tag, zero_val tag))
+                                     else w_refs w k)
+                           (w_chans w) (w_maps w) (PrimInt63.add base cap))
+           else OPanic (any tt) w.
 
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
@@ -4856,9 +4877,12 @@ Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : int) (v
            (ref_upd (sh_cell s (sh_len s)) v w0).
 Proof.
   intros A tag len cap v w Hlt s w0 Hmk.
-  (* the handle from make_lc has sh_len = len, sh_cap = cap, so len < cap ⇒ in place *)
-  unfold slice_make_lc, run_io in Hmk. injection Hmk as Hs _. subst s.
-  apply slice_append_incap. exact Hlt.
+  (* the handle from make_lc has sh_len = len, sh_cap = cap, so len < cap ⇒ in place.
+     make_lc now PANICS unless 0 <= len <= cap; the success hypothesis Hmk forces that branch. *)
+  unfold slice_make_lc, run_io in Hmk.
+  destruct (Sint63.leb 0 len && Sint63.leb len cap)%bool eqn:Hc.
+  - injection Hmk as Hs _. subst s. apply slice_append_incap. exact Hlt.
+  - discriminate Hmk.
 Qed.
 
 (* Element [i]'s cell is [sh_start s + i] (= [sh_loc s i] by [add_assoc]); the
