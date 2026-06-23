@@ -5446,10 +5446,13 @@ Inductive Next : Type :=
     combinator — a backward [Jump] is an unbounded loop — so a TOTAL Coq function
     must idealise divergence away, exactly as [run_io] is total (OOM / divergence
     are out of scope by decision).  We do so with FUEL: [run_blocks_fuel] follows
-    [Jump]s up to [block_fuel] steps, treating exhaustion as [Done].  This affects
-    only PROOFS: the plugin lowers [run_blocks] BY NAME to Go labels + [goto] (the
-    real, unbounded semantics), so the fuel never reaches the emitted Go, and no
-    theorem constrains [run_blocks]'s computational behaviour. *)
+    [Jump]s up to [block_fuel] steps; exhausting the fuel means the CFG did NOT
+    reach [Done] within the cap — a DIVERGENT loop (the emitted goto runs forever).
+    Exhaustion is therefore a LOUD distinct outcome (a recognizable string panic),
+    NEVER identified with normal completion [Done]/[ret tt] (review #6 P0 #6) — so
+    no proof can conclude a divergent CFG terminated normally.  This affects only
+    PROOFS: the plugin lowers [run_blocks] BY NAME to Go labels + [goto] (the real,
+    unbounded semantics), so the fuel/marker never reach the emitted Go. *)
 Fixpoint block_nth (blocks : list (IO Next)) (n : nat) : IO Next :=
   match blocks, n with
   | b :: _,    O   => b
@@ -5458,7 +5461,7 @@ Fixpoint block_nth (blocks : list (IO Next)) (n : nat) : IO Next :=
   end.
 Fixpoint run_blocks_fuel (fuel start : nat) (blocks : list (IO Next)) : IO unit :=
   match fuel with
-  | O   => ret tt
+  | O   => fun w => OPanic (anyt TString "fido: run_blocks exceeded block_fuel — divergent CFG (model idealisation, never extracted)"%string) w
   | S f => bind (block_nth blocks start)
                 (fun nx => match nx with
                            | Jump n => run_blocks_fuel f n blocks
@@ -5469,6 +5472,13 @@ Fixpoint run_blocks_fuel (fuel start : nat) (blocks : list (IO Next)) : IO unit 
 Definition block_fuel : nat := 1000.
 Definition run_blocks (start : nat) (blocks : list (IO Next)) : IO unit :=
   run_blocks_fuel block_fuel start blocks.
+
+(** Fuel exhaustion is NEVER normal completion (review #6 P0 #6): running an exhausted CFG
+    panics LOUDLY, distinct from [Done]'s [ORet tt], so the divergence idealisation cannot be
+    mistaken for a terminating run. *)
+Lemma run_blocks_fuel_exhausted_not_done : forall start blocks (w : World),
+  run_io (run_blocks_fuel 0 start blocks) w <> ORet tt w.
+Proof. intros start blocks w. cbn. discriminate. Qed.
 
 (** ---- Session types (step 6) ----
 
