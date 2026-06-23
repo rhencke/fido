@@ -2188,15 +2188,22 @@ Proof.
   rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
 Qed.
 
-(** [defer_call f] (Go spec "Defer statements"): Go's [defer] keyword — schedule
-    [f] to run when the enclosing *function* returns (LIFO across all defers, on both normal and
-    panic exit), and continue immediately.  This is FUNCTION-scoped, unlike the
-    block-scoped [with_defer]: deferred calls in a loop accumulate and all run
-    at function return.  Lowers to [defer func(){ f }()] (Go provides the
-    function-scoping, LIFO ordering, and run-at-return). *)
-(** Proof-only: the deferred effect (run at function return) is idealised away in the
-    sequential world — no law reasons about it; the real [defer] is in the emitted Go. *)
-Definition defer_call (_ : IO unit) : IO unit := fun w => ORet tt w.
+(** [defer_call f] (Go spec "Defer statements"): Go's [defer] keyword — schedule [f] to run when the
+    enclosing *function* returns (LIFO across all defers, on both normal and panic exit).  FUNCTION-scoped,
+    unlike block-scoped [with_defer].  Lowers to [defer func(){ f }()] (Go provides the function-scoping,
+    LIFO ordering, run-at-return).
+
+    FAILS LOUD in the sequential [run_io] semantics (review #6 #12).  The prior body [fun w => ORet tt w]
+    DROPPED the deferred action — a deferred [println] never reached the [w_output] trace, so [run_io]
+    "erased an observable effect" and two programs differing only in a defer compared EQUAL under [=io=]:
+    exactly the non-observational-equality the review flags.  Shallow [World -> Outcome] cannot run a
+    func-scoped defer (it cannot reify the deferred command to run it at return — the very reason the deep
+    command model exists), so per rule 2 the sequential meaning is a LOUD panic rather than a silent drop.
+    The FAITHFUL defer is [run_cmd] over a [CDfr] node (cmd.v), which runs defers LIFO at func-scope
+    return, on panic too.  Extraction is unaffected: the plugin lowers [defer_call] BY NAME to a real
+    [defer func(){…}()] (this body is suppressed), so the emitted Go and the golden run are unchanged. *)
+Definition defer_call (_ : IO unit) : IO unit :=
+  fun w => OPanic (anyt TString "fido: defer_call has no shallow run_io meaning — a func-scoped defer needs the deep command model; the faithful semantics is run_cmd's CDfr (cmd.v); run_io fails loud rather than silently dropping the deferred effect (review #6 #12)"%string) w.
 
 
 (** [type_assert tag v] (Go spec "Type assertions") asserts that [v : GoAny] holds
