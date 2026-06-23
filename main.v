@@ -1312,6 +1312,17 @@ Definition chan_demo : IO unit :=
   recv_ok TI64 ch (fun x2 ok2 =>
   println [any x2; any ok2])).
 
+(** Differential test — channel-close PANICS at RUNTIME (the closed-world tenet's DEFENSE, for the
+    open-world boundary).  Go panics on send-to-closed and on double-close; the model OPanics
+    ([run_send_closed] / [run_close_closed]), and [catch] (Go defer/recover) catches BOTH — so the
+    modeled panic and Go's runtime panic AGREE, and the defense is catchable.  (recv-from-closed is
+    [chan_demo] above; this covers the two PANICKING close interactions.) *)
+Definition closed_panic_demo : IO unit :=
+  ch <-' make_chan_buf TI64 1 ;;
+  close_chan TI64 ch >>'
+  catch (send TI64 ch (5)%i64 >>' ret tt) (fun _ => println [any (1)%i64]) >>'  (* send-on-closed → panic → 1 *)
+  catch (close_chan TI64 ch) (fun _ => println [any (2)%i64]).                   (* double-close → panic → 2 *)
+
 (** select (Go spec "Select statements"): choose among ready channel ops.  [ch1]
     is buffered with 42 (ready), [ch2] is empty — so select picks [ch1].  (The
     choice is Go's at runtime; the demo makes exactly ONE case ready so the golden
@@ -3059,6 +3070,7 @@ Definition main_effect : IO unit :=
   slice_demo                    >>'   (* prints: 5 3 / false *)
   slice_box_demo                >>'   (* prints: true false (a []int64 boxed as any: asserts to []int64 not int64 — recursive TSlice tag) *)
   chan_demo                     >>'   (* prints: 42 true / 0 false *)
+  closed_panic_demo             >>'   (* prints: 1 / 2 (send-on-closed + double-close panics caught) *)
   select_demo                   >>'   (* prints: 42 (ch1 ready) *)
   select_default_demo           >>'   (* prints: 99 (default, ch empty) *)
   goroutine_demo                >>'   (* prints: 42 *)

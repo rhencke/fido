@@ -65,6 +65,8 @@ false
 true false
 42 true
 0 false
+1
+2
 42
 99
 42

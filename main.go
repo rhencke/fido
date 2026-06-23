@@ -638,6 +638,27 @@ func Chan_demo() {
 	println(x2, ok2)
 }
 
+func Closed_panic_demo() {
+	ch := make(chan int64, 1)
+	close(ch)
+	func() {
+		defer func() {
+			if x := recover(); x != nil {
+				println(1)
+			}
+		}()
+		ch <- 5
+	}()
+	func() {
+		defer func() {
+			if x := recover(); x != nil {
+				println(2)
+			}
+		}()
+		close(ch)
+	}()
+}
+
 func Select_demo() {
 	ch1 := make(chan int64, 1)
 	ch2 := make(chan int64, 1)
@@ -2363,6 +2384,7 @@ func main() {
 	Slice_demo()
 	Slice_box_demo()
 	Chan_demo()
+	Closed_panic_demo()
 	Select_demo()
 	Select_default_demo()
 	Goroutine_demo()
