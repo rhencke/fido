@@ -3093,11 +3093,24 @@ Theorem select_recv2_ch2_closed :
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
 
-(** [go_spawn m] (Go spec "Go statements"): the SEQUENTIAL approximation — run [m] to completion, keep its world
-    effect, return.  Faithful concurrency lives in the calculus (concurrency.v); this is
-    holdout #2 (ZERO_AXIOMS_PLAN.md).  No law constrains it; the definition is total. *)
+(** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics (review #6
+    #5).  A goroutine is CONCURRENT, not a synchronous call: the prior "run [m] to completion, import its
+    world, return [ORet tt]" approximation was plausible-but-wrong three ways — it (1) sequentialised the
+    child, (2) imported ALL its effects into the parent world unconditionally (Go gives NO such visibility
+    without synchronisation), and (3) ERASED a child panic ([OPanic _ w' => ... ORet tt]) when an
+    unrecovered goroutine panic CRASHES the whole Go program.  Any [run_io] theorem through [go_spawn]
+    could therefore be false of Go.
+
+    There is no [run_io]<->calculus bridge for spawn (it deliberately has NO [run_io] law — see
+    concurrency.v), so per rule 2 (faithful or fail-loud, never plausible-but-wrong) the sequential
+    meaning is a LOUD panic: any source-level proof that tries to compute a spawn program's [run_io]
+    result hits this wall instead of silently succeeding with a wrong value.  The FAITHFUL spawn lives in
+    the concurrent transition system — [rstep_spawn] (concurrency.v), which forks a real child process
+    and grounds the [go]-happens-before-goroutine-start edge operationally.  Extraction is unaffected: the
+    plugin lowers [go_spawn] BY NAME to a real [go func(){…}()] statement (this body is suppressed), so
+    the emitted Go is genuinely concurrent and the golden run is unchanged. *)
 Definition go_spawn (m : IO unit) : IO unit :=
-  fun w => ORet tt (match m w with ORet _ w' => w' | OPanic _ w' => w' end).
+  fun w => OPanic (anyt TString "fido: go_spawn has no sequential run_io meaning — a goroutine is concurrent, not a synchronous call; the faithful semantics is rstep_spawn in concurrency.v (review #6 #5)"%string) w.
 
 (** The [run_*] laws are now THEOREMS, conditioned on channel state.  [send]/
     [recv]/[close_chan] carry the element [tag] (the typed-heap accessors need it
