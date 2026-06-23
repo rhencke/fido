@@ -1845,25 +1845,14 @@ let rec pp_expr state env = function
            str "&" ++ pp_atom state env v
        | MLglob r, [p] when is_sptr_deref_ref r ->
            str "*" ++ pp_atom state env p
-       (* the 2-field [sptr_get_field]/[sptr_set_field] carry the canonical-rep typeclass DICT
-          (review #6 #10(b)/(c)) as a leading proof-only arg — strip it; the field COHERENCE
-          witness is erased.  [sptr3]/[sptrh] keep the no-dict shape (general arm below). *)
-       | MLglob r, [_dict; p; _idx; proj; _ftag] when String.equal (global_basename r) "sptr_get_field" ->
+       (* sptr/sptr3/sptrh get/set carry the canonical-rep typeclass DICT (review #6 #10(b)/(c)) as a
+          leading proof-only arg — strip it; the field COHERENCE witness ([field_at…]) is erased. *)
+       | MLglob r, [_dict; p; _idx; proj; _ftag] when is_sptr_get_field_ref r ->
            let fld = (match strip_magic proj with
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a struct-pointer field read whose field arg is not a projection") in
            pp_atom state env p ++ str "." ++ str fld
-       | MLglob r, [_dict; p; _idx; proj; _ftag; v] when String.equal (global_basename r) "sptr_set_field" ->
-           let fld = (match strip_magic proj with
-             | MLglob rp when is_record_proj rp -> proj_field_name rp
-             | _ -> unsupported "a struct-pointer field write whose field arg is not a projection") in
-           pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
-       | MLglob r, [p; _idx; proj; _ftag] when is_sptr_get_field_ref r ->
-           let fld = (match strip_magic proj with
-             | MLglob rp when is_record_proj rp -> proj_field_name rp
-             | _ -> unsupported "a struct-pointer field read whose field arg is not a projection") in
-           pp_atom state env p ++ str "." ++ str fld
-       | MLglob r, [p; _idx; proj; _ftag; v] when is_sptr_set_field_ref r ->
+       | MLglob r, [_dict; p; _idx; proj; _ftag; v] when is_sptr_set_field_ref r ->
            let fld = (match strip_magic proj with
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a struct-pointer field write whose field arg is not a projection") in

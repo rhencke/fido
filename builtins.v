@@ -5351,27 +5351,35 @@ Record StructRep3 (R : Type) := mkSR3 {
 Arguments mkSR3 {R} _ _ _ _ _.
 Arguments sr3_f0 {R} _ _.  Arguments sr3_f1 {R} _ _.  Arguments sr3_f2 {R} _ _.
 Arguments sr3_mk {R} _ _ _ _.
-Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : int ; sp3_rep : StructRep3 R }.
-Arguments mkSPtr3 {R} _ _.
-Arguments sp3_base {R} _.  Arguments sp3_rep {R} _.
+Class StructRep3Of (R : Type) : Type := the_rep3 : StructRep3 R.
+Arguments the_rep3 R {_}.
+Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : int }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
+Arguments mkSPtr3 {R} _.
+Arguments sp3_base {R} _.
 Definition sptr3_hs {R} (p : SPtr3 R) : HStruct := mkHStruct (sp3_base p).
-Definition sptr3_new {R} (rep : StructRep3 R) (v : R) : IO (SPtr3 R) :=
+Definition sptr3_new {R} `{StructRep3Of R} (v : R) : IO (SPtr3 R) :=
   fun w =>
     let l := w_next w in
-    let p := mkSPtr3 l rep in
+    let p := mkSPtr3 l in
     let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 3) (w_output w) in  (* bump by 3 *)
-    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0%uint63 TI64) (sr3_f0 rep v) wa in
-    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1%uint63 TI64) (sr3_f1 rep v) w0 in
-    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2%uint63 TI64) (sr3_f2 rep v) w1 in
+    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0%uint63 TI64) (sr3_f0 (the_rep3 R) v) wa in
+    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1%uint63 TI64) (sr3_f1 (the_rep3 R) v) w0 in
+    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2%uint63 TI64) (sr3_f2 (the_rep3 R) v) w1 in
     ORet p w2.
-Definition sptr3_get_field {R F} (p : SPtr3 R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+(** Field coherence (review #6 #10(c)) for the 3-field rep — [proj] is the [idx]-th projection. *)
+Definition field_at3 {R} (rep : StructRep3 R) (idx : int) (proj : R -> GoI64) : Prop :=
+  (idx = 0%uint63 /\ proj = sr3_f0 rep) \/ (idx = 1%uint63 /\ proj = sr3_f1 rep)
+  \/ (idx = 2%uint63 /\ proj = sr3_f2 rep).
+Definition sptr3_get_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) : IO GoI64 :=
   hfield_get (sptr3_hs p) idx ftag.
-Definition sptr3_set_field {R F} (p : SPtr3 R) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+Definition sptr3_set_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64) : IO unit :=
   hfield_set (sptr3_hs p) idx ftag v.
-Lemma sptr3_field_get_set : forall {R F} (p : SPtr3 R) (idx : int) (proj : R -> F)
-    (ftag : GoTypeTag F) (v : F),
-  bind (sptr3_set_field p idx proj ftag v) (fun _ => sptr3_get_field p idx proj ftag) =io=
-  bind (sptr3_set_field p idx proj ftag v) (fun _ => ret v).
+Lemma sptr3_field_get_set : forall {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64),
+  bind (sptr3_set_field p idx proj ftag coh v) (fun _ => sptr3_get_field p idx proj ftag coh) =io=
+  bind (sptr3_set_field p idx proj ftag coh v) (fun _ => ret v).
 Proof. intros. unfold sptr3_set_field, sptr3_get_field. apply hfield_get_set_same. Qed.
 
 (** ---- HETEROGENEOUS 2-field struct pointer ([SPtrH R A B]) ----
@@ -5395,31 +5403,44 @@ Arguments sr2h_f0 {R A B} _ _.  Arguments sr2h_f1 {R A B} _ _.
 Arguments sr2h_ta {R A B} _.    Arguments sr2h_tb {R A B} _.
 Arguments sr2h_mk {R A B} _ _ _.  Arguments sr2h_eta {R A B} _ _.
 
-Record SPtrH (R A B : Type) := mkSPtrH { sph_base : int ; sph_rep : StructRep2H R A B }.
-Arguments mkSPtrH {R A B} _ _.
-Arguments sph_base {R A B} _.  Arguments sph_rep {R A B} _.
+Class StructRep2HOf (R A B : Type) : Type := the_repH : StructRep2H R A B.
+Arguments the_repH R A B {_}.
+Record SPtrH (R A B : Type) := mkSPtrH { sph_base : int }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
+Arguments mkSPtrH {R A B} _.
+Arguments sph_base {R A B} _.
 
 Definition sptrh_hs {R A B} (p : SPtrH R A B) : HStruct := mkHStruct (sph_base p).
 
-(** [sptrh_new rep v] — Go [p := &R{…}]: write field 0 at tag [A], field 1 at tag [B]. *)
-Definition sptrh_new {R A B} (rep : StructRep2H R A B) (v : R) : IO (SPtrH R A B) :=
+(** [sptrh_new v] — Go [p := &R{…}]: write field 0 at tag [A], field 1 at tag [B] (canonical rep). *)
+Definition sptrh_new {R A B} `{StructRep2HOf R A B} (v : R) : IO (SPtrH R A B) :=
   fun w =>
     let l := w_next w in
-    let p := mkSPtrH l rep in
+    let p := mkSPtrH l in
     let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) (w_output w) in
-    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0%uint63 (sr2h_ta rep)) (sr2h_f0 rep v) wa in
-    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1%uint63 (sr2h_tb rep)) (sr2h_f1 rep v) w0 in
+    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0%uint63 (sr2h_ta (the_repH R A B))) (sr2h_f0 (the_repH R A B) v) wa in
+    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1%uint63 (sr2h_tb (the_repH R A B))) (sr2h_f1 (the_repH R A B) v) w0 in
     ORet p w1.
 
-Definition sptrh_get_field {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) : IO F :=
+(** HETEROGENEOUS field coherence (review #6 #10(c)): the field type [F] varies, so [proj] AND its
+    [ftag] are pinned TOGETHER to the rep's [idx]-th (projection, tag) by a dependent [existT] — you
+    cannot read field 1 ([bool]) with field 0's projection/tag, nor mislabel either cell's type. *)
+Definition field_atH {R A B} (rep : StructRep2H R A B) (idx : int)
+    {F} (proj : R -> F) (ftag : GoTypeTag F) : Prop :=
+  (idx = 0%uint63 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
+                   = existT (fun T => ((R -> T) * GoTypeTag T)%type) A (sr2h_f0 rep, sr2h_ta rep))
+  \/ (idx = 1%uint63 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
+                      = existT (fun T => ((R -> T) * GoTypeTag T)%type) B (sr2h_f1 rep, sr2h_tb rep)).
+Definition sptrh_get_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) : IO F :=
   hfield_get (sptrh_hs p) idx ftag.
-Definition sptrh_set_field {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F) (ftag : GoTypeTag F) (v : F) : IO unit :=
+Definition sptrh_set_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F) : IO unit :=
   hfield_set (sptrh_hs p) idx ftag v.
 
-Lemma sptrh_field_get_set : forall {R A B F} (p : SPtrH R A B) (idx : int) (proj : R -> F)
-    (ftag : GoTypeTag F) (v : F),
-  bind (sptrh_set_field p idx proj ftag v) (fun _ => sptrh_get_field p idx proj ftag) =io=
-  bind (sptrh_set_field p idx proj ftag v) (fun _ => ret v).
+Lemma sptrh_field_get_set : forall {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F),
+  bind (sptrh_set_field p idx proj ftag coh v) (fun _ => sptrh_get_field p idx proj ftag coh) =io=
+  bind (sptrh_set_field p idx proj ftag coh v) (fun _ => ret v).
 Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_same. Qed.
 
 (** WHOLE-STRUCT deref-after-assign — a THEOREM: after [sptr_assign p v], [sptr_deref p]

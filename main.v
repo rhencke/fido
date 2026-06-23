@@ -2702,13 +2702,15 @@ Definition node_embed_demo : IO unit :=
 Record Cell3 := MkCell3 { c3x : GoI64 ; c3y : GoI64 ; c3z : GoI64 }.
 Lemma cell3_eta : forall v, MkCell3 (c3x v) (c3y v) (c3z v) = v.
 Proof. intros [a b c]; reflexivity. Qed.
+#[local] Instance StructRep3Of_Cell3 : StructRep3Of Cell3 := mkSR3 c3x c3y c3z MkCell3 cell3_eta.
+Definition cell3_f2 : field_at3 (the_rep3 Cell3) 2%uint63 c3z := or_intror (or_intror (conj eq_refl eq_refl)).
 Definition cell3_inc_z (p : SPtr3 Cell3) : IO unit :=
-  bind (sptr3_get_field p 2%uint63 c3z TI64) (fun z =>          (* read p.C3z *)
-        sptr3_set_field p 2%uint63 c3z TI64 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
+  bind (sptr3_get_field p 2%uint63 c3z TI64 cell3_f2) (fun z =>          (* read p.C3z *)
+        sptr3_set_field p 2%uint63 c3z TI64 cell3_f2 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
 Definition nfield_ptr_demo : IO unit :=
-  bind (sptr3_new (mkSR3 c3x c3y c3z MkCell3 cell3_eta) (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
+  bind (sptr3_new (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
   bind (cell3_inc_z p) (fun _ =>                                (* p.Cell3_inc_z() — mutates p.C3z *)
-  bind (sptr3_get_field p 2%uint63 c3z TI64) (fun z =>          (* z := p.C3z → 31 *)
+  bind (sptr3_get_field p 2%uint63 c3z TI64 cell3_f2) (fun z =>          (* z := p.C3z → 31 *)
   println [any z]))).                                           (* prints: 31 *)
 
 (** HETEROGENEOUS struct pointer: a [*Pair] whose two fields have DIFFERENT types
@@ -2718,15 +2720,26 @@ Definition nfield_ptr_demo : IO unit :=
 Record Pair := MkPair { p_n : GoI64 ; p_b : bool }.
 Lemma pair_eta : forall v, MkPair (p_n v) (p_b v) = v.
 Proof. intros [a b]; reflexivity. Qed.
+#[local] Instance StructRep2HOf_Pair : StructRep2HOf Pair GoI64 bool := mkSR2H p_n p_b TI64 TBool MkPair pair_eta.
+Definition pair_f0 : field_atH (the_repH Pair GoI64 bool) 0%uint63 p_n TI64 := or_introl (conj eq_refl eq_refl).
+Definition pair_f1 : field_atH (the_repH Pair GoI64 bool) 1%uint63 p_b TBool := or_intror (conj eq_refl eq_refl).
 Definition pair_bump (p : SPtrH Pair GoI64 bool) : IO unit :=
-  bind (sptrh_get_field p 0%uint63 p_n TI64) (fun n =>          (* read p.P_n *)
-        sptrh_set_field p 0%uint63 p_n TI64 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
+  bind (sptrh_get_field p 0%uint63 p_n TI64 pair_f0) (fun n =>          (* read p.P_n *)
+        sptrh_set_field p 0%uint63 p_n TI64 pair_f0 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
 Definition het_ptr_demo : IO unit :=
-  bind (sptrh_new (mkSR2H p_n p_b TI64 TBool MkPair pair_eta) (MkPair (10)%i64 true)) (fun p =>
+  bind (sptrh_new (MkPair (10)%i64 true)) (fun p =>
   bind (pair_bump p) (fun _ =>                                  (* p.Pair_bump() — mutates p.P_n *)
-  bind (sptrh_get_field p 0%uint63 p_n TI64) (fun n =>          (* n := p.P_n → 11 *)
-  bind (sptrh_get_field p 1%uint63 p_b TBool) (fun b =>         (* b := p.P_b → true *)
+  bind (sptrh_get_field p 0%uint63 p_n TI64 pair_f0) (fun n =>          (* n := p.P_n → 11 *)
+  bind (sptrh_get_field p 1%uint63 p_b TBool pair_f1) (fun b =>         (* b := p.P_b → true *)
   println [any n; any b])))).                                  (* prints: 11 true *)
+
+(** review #6 #10(c) — the field COHERENCE is ENFORCED, not decorative: a [field_at…] witness for a
+    MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
+    never name one field while addressing another cell (the exact defect the review flagged). *)
+Fail Definition cell_bad_coh   (* cy is field 1, not field 0 *)
+  : field_at2 (the_rep2 Cell) 0%uint63 cy := or_introl (conj eq_refl eq_refl).
+Fail Definition pair_bad_type  (* field 1 is bool — cannot be read as the int64 p_n with tag TI64 *)
+  : field_atH (the_repH Pair GoI64 bool) 1%uint63 p_n TI64 := or_intror (conj eq_refl eq_refl).
 
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
