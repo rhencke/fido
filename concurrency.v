@@ -4730,6 +4730,77 @@ Definition xfer_init (v0 v1 v2 : nat) : RConfig :=
   mkRCfg (xfer_prog v0 v1 v2) (fun _ => []) (fun _ => 0)
          (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
 
+(** ── SUBSUMPTION: the flagship bespoke witnesses [mp] (message-passing) and [xfer] (write/WRITE
+    handoff) — whose race-freedom was originally HAND-BUILT phase enumeration ([mp_all_interleavings_
+    race_free] via [MpReach]; [xfer_all_interleavings_race_free] via [XferReach]) — are race-free as
+    INSTANCES of the GENERAL unified theorem [region_inv_f_race_free], for ALL values, with the
+    appropriate signal footprint ([sigflp]: channel 0 transfers cell 0; [xferflp]: cell 7).  So the
+    abstract ownership invariant SUBSUMES the per-program proofs.  And since [mp]'s goroutines DENOTE
+    extractable typed pointer/channel IO ([mp_g0_denotes]/[mp_g1_denotes], [mp_end_to_end]), this is the
+    general theorem reaching extractable Go for the message-passing fragment. ── *)
+Lemma mp_regioninvf : forall v0 v1,
+  RegionInvF sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) (mp_init v0 v1).
+Proof.
+  intros v0 v1. unfold RegionInvF, mp_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold mp_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WTf_write; [reflexivity | apply WTf_send; [reflexivity | apply WTf_ret]].
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WTf_recv. intro x. apply WTf_read; [unfold sigflp; cbn; apply radd_same | intro v2; apply WTf_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c v2 s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Theorem mp_subsumed_by_general : forall v0 v1 cfg,
+  rsteps (mp_init v0 v1) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 cfg Hsteps.
+  apply (region_inv_f_race_free sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) (mp_init v0 v1) cfg
+           (mp_regioninvf v0 v1)).
+  - unfold BufLinF, mp_init. cbn [rc_bufs]. split;
+      [intro c; cbn; constructor | intros c1 c2 L H1 H2; cbn in H1; destruct H1].
+  - intros l g Hg. injection Hg as Hg0. subst g. reflexivity.
+  - exact Hsteps.
+Qed.
+
+Definition xferflp : nat -> nat -> nat := fun c v => if Nat.eqb c 0 then 7 else v.
+Lemma xfer_regioninvf : forall v0 v1 v2,
+  RegionInvF xferflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) (xfer_init v0 v1 v2).
+Proof.
+  intros v0 v1 v2. unfold RegionInvF, xfer_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold xfer_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WTf_write; [reflexivity | apply WTf_send; [reflexivity | apply WTf_ret]].
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WTf_recv. intro x. apply WTf_write; [unfold xferflp; cbn; apply radd_same | apply WTf_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c v3 s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Theorem xfer_subsumed_by_general : forall v0 v1 v2 cfg,
+  rsteps (xfer_init v0 v1 v2) cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros v0 v1 v2 cfg Hsteps.
+  apply (region_inv_f_race_free xferflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) (xfer_init v0 v1 v2) cfg
+           (xfer_regioninvf v0 v1 v2)).
+  - unfold BufLinF, xfer_init. cbn [rc_bufs]. split;
+      [intro c; cbn; constructor | intros c1 c2 L H1 H2; cbn in H1; destruct H1].
+  - intros l g Hg. injection Hg as Hg0. subst g. reflexivity.
+  - exact Hsteps.
+Qed.
+
 Theorem xfer_exec_trace : forall v0 v1 v2,
   exists cfg, rsteps (xfer_init v0 v1 v2) cfg /\ rc_trace cfg = handoff_trace.
 Proof.
@@ -7562,6 +7633,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
