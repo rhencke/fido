@@ -837,10 +837,11 @@ let is_f64_to_f32_ref r =
    [int64(3.7)] on an untyped float constant) — demoed through a typed-param wrapper. *)
 let is_f64_to_i64_ref r = from_builtins r && String.equal (global_basename r) "i64_of_f64"
 let is_f64_to_u64_ref r = from_builtins r && String.equal (global_basename r) "u64_of_f64"
-(* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, and the narrow type
-   already erases to a Go [int64] holding exactly this value, so the widen is IDENTITY — emit
-   the operand.  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-position
-   match would otherwise drag/fail; recognising the widen as identity sidesteps it.) *)
+(* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, lowered to [int64(x)]
+   (NOT identity — review #4 P1 #4: a narrow operand at a boundary is a real [uint8]/[int8]/… Go
+   value, so [int64(x)] is needed to land it in an [int64] destination; idempotent on an already-
+   int64-carried operand).  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-
+   position match would otherwise drag/fail; recognising the op by name sidesteps it.) *)
 let is_i64_of_narrow_ref r =
   from_builtins r &&
   List.mem (global_basename r)
@@ -1992,9 +1993,12 @@ let rec pp_expr state env = function
        | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" || fw_is r "of_i64" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
            fw_wrap s w (pp_atom state env x)
-       (* [int_of_FW x] — widen to [int]: identity (carrier already int64). *)
+       (* [int_of_FW x] — widen a narrow to Go [int] → [int(x)].  Same fix as [i64_of_narrow]
+          (review #4 P1 #4): a narrow PARAM is a real [uint8]/[int8]/… so a bare [x] against an
+          [int] destination is invalid Go; [int(x)] widens it and is idempotent on an int-carried
+          operand. *)
        | MLglob r, [x] when is_int_of_fw r ->
-           pp_expr state env x
+           str "int(" ++ pp_expr state env x ++ str ")"
        (* [f64_of_int i] / [f64_of_i64 a] — int / int64 → float64: Go's native cast. *)
        | MLglob r, [x] when is_int_to_f64_ref r ->
            str "float64(" ++ pp_expr state env x ++ str ")"
@@ -2029,9 +2033,14 @@ let rec pp_expr state env = function
        (* [u64_of_f64 f] → [uint64(f)] (float64 → uint64 truncation toward zero) *)
        | MLglob r, [x] when is_f64_to_u64_ref r ->
            str "uint64(" ++ pp_expr state env x ++ str ")"
-       (* narrow → int64 widening → the operand (identity; the narrow already erases to int64) *)
+       (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: review
+          #4 P1 #4 — a narrow operand at a typed boundary (a [uint8]/[int8]/… PARAM, or a value cast
+          to its narrow Go type) is a REAL narrow Go type, so a bare [x] against an [int64]
+          destination is invalid Go (e.g. [func Widen(x uint8) int64 { return x }]).  [int64(x)]
+          widens it (sign/zero-extending per the narrow type) and is harmlessly idempotent when [x]
+          is already an int64-carried expression — so it is correct in EVERY position. *)
        | MLglob r, [x] when is_i64_of_narrow_ref r ->
-           pp_expr state env x
+           str "int64(" ++ pp_expr state env x ++ str ")"
        (* float64 → float32 narrowing (round-nearest-even) → [float32(x)].  A CONSTANT that
           overflows float32 is a Go compile error, so force runtime (the float64 operand fits). *)
        | MLglob r, [x] when is_f64_to_f32_ref r ->

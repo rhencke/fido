@@ -340,6 +340,18 @@ Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (-5)%sint63))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
+(** review #4 P1 #4 — the narrow→wide widening through a narrow PARAM (the case the constant-operand
+    demos above could NOT see).  The param is a REAL Go [uint8]/[int8], so the widen is NOT identity:
+    [i64_of_u8 x] MUST emit [int64(x)] (the reviewer's exact counterexample [func Widen(x uint8) int64
+    { return x }] was invalid Go).  These extract to [func …(x uint8) int64 { return int64(x) }] etc.;
+    a regression to identity-lowering FAILS [go build] (caught now, not silently shipped). *)
+Definition widen_u8_to_i64 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 → int64 (zero-extend) *)
+Definition widen_i8_to_i64 (x : GoI8) : GoI64 := i64_of_i8 x.   (* int8  → int64 (sign-extend) *)
+Definition widen_u8_to_int (x : GoU8) : GoInt := int_of_u8 x.   (* uint8 → platform int (sibling op) *)
+Definition widen_param_demo : IO unit :=
+  println [ any (widen_u8_to_i64 (u8_lit 200 eq_refl))     (* int64(uint8 200) = 200 *)
+          ; any (widen_i8_to_i64 (i8_of_int (-5)%sint63))  (* int64(int8 -5)   = -5  (sign kept) *)
+          ; any (widen_u8_to_int (u8_lit 100 eq_refl)) ].  (* int(uint8 100)   = 100 *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
     since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful
@@ -819,8 +831,9 @@ Definition convert_demo : IO unit :=
     int64), so the byte/short value lands unchanged in the canonical [GoI64].
     Unsigned narrows stay non-negative; a signed narrow keeps its sign
     ([int64(int8 -5) = -5]).  MODELED + machine-checked across signed/unsigned and
-    small/large widths.  *Runtime lowering deferred (would be IDENTITY — the narrow
-    already erases to a Go int64 holding exactly this value):* the faithful Coq body
+    small/large widths.  *Runtime lowering = Go's [int64(x)] widening (review #4 P1 #4; NOT
+    identity — a narrow PARAM is a real [uint8]/[int8]/…, so [int64(x)] is needed to land it in
+    the [int64] destination, e.g. [func Widen(x uint8) int64 { return int64(x) }]):* the faithful Coq body
     crosses the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
     ([Sint63Axioms.to_Z] -> [Uint63.ltb] …) includes the DELIBERATELY-REJECTED unsigned
     [Uint63.ltb] (Tier 3 #9), so extracting the body drags a banned decl.  Kept proof-only.
@@ -3042,6 +3055,7 @@ Definition main_effect : IO unit :=
   mutual_rec_demo               >>'   (* prints: true / false (mutual recursion is_even/is_odd) *)
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
+  widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)

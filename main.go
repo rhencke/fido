@@ -166,7 +166,23 @@ func F32_demo() {
 }
 
 func I64_of_narrow_demo() {
-	println((200 & 0xff), (((-5 & 0xff) ^ 0x80) - 0x80), (60000 & 0xffff))
+	println(int64((200 & 0xff)), int64((((-5 & 0xff) ^ 0x80) - 0x80)), int64((60000 & 0xffff)))
+}
+
+func Widen_u8_to_i64(x uint8) int64 {
+	return int64(x)
+}
+
+func Widen_i8_to_i64(x int8) int64 {
+	return int64(x)
+}
+
+func Widen_u8_to_int(x uint8) int {
+	return int(x)
+}
+
+func Widen_param_demo() {
+	println(Widen_u8_to_i64((200 & 0xff)), Widen_i8_to_i64((((-5 & 0xff) ^ 0x80) - 0x80)), Widen_u8_to_int((100 & 0xff)))
 }
 
 func I64_to_narrow_demo() {
@@ -238,7 +254,7 @@ func Vlet_demo() {
 }
 
 func Narrow_u64_demo() {
-	println(U64_of_i64((200 & 0xff)), U64_of_i64((((-1 & 0xff) ^ 0x80) - 0x80)), uint8(((I64_of_u64(uint64(511))) & 0xff)), int8(((((I64_of_u64(uint64(255))) & 0xff) ^ 0x80) - 0x80)))
+	println(U64_of_i64(int64((200 & 0xff))), U64_of_i64(int64((((-1 & 0xff) ^ 0x80) - 0x80))), uint8(((I64_of_u64(uint64(511))) & 0xff)), int8(((((I64_of_u64(uint64(255))) & 0xff) ^ 0x80) - 0x80)))
 }
 
 func Narrow32(x float64) float32 {
@@ -258,7 +274,7 @@ func F32_conv_demo() {
 }
 
 func Narrow_f32_demo() {
-	println(int64(float64(float32((200 & 0xff)))))
+	println(int64(float64(float32(int64((200 & 0xff))))))
 }
 
 func F32_const_runtime_demo() {
@@ -356,8 +372,8 @@ func Shift_demo() {
 func Convert_demo() {
 	a := (200 & 0xff)
 	b := (((1000 & 0xffff) ^ 0x8000) - 0x8000)
-	println(a, uint8(((b) & 0xff)))
-	println(int16(((((int(b) + int(((((a) & 0xffff) ^ 0x8000) - 0x8000))) & 0xffff) ^ 0x8000) - 0x8000)))
+	println(int(a), uint8(((int(b)) & 0xff)))
+	println(int16(((((int(b) + int(((((int(a)) & 0xffff) ^ 0x8000) - 0x8000))) & 0xffff) ^ 0x8000) - 0x8000)))
 }
 
 func Divmod_demo() {
@@ -2374,6 +2390,7 @@ func main() {
 	Mutual_rec_demo()
 	F32_demo()
 	I64_of_narrow_demo()
+	Widen_param_demo()
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
 	Type_identity_lock_demo()
