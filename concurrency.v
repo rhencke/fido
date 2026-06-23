@@ -2887,7 +2887,12 @@ Inductive WTf (flp : nat -> nat -> nat) : (nat -> bool) -> Cmd -> Prop :=
   | WTf_write: forall R l v k, R l = true -> WTf flp R k -> WTf flp R (CWrite l v k)
   | WTf_read : forall R l f, R l = true -> (forall v, WTf flp R (f v)) -> WTf flp R (CRead l f)
   | WTf_send : forall R c v k, R (flp c v) = true -> WTf flp (rdel R (flp c v)) k -> WTf flp R (CSend c v k)
-  | WTf_recv : forall R c f, (forall v, WTf flp (radd R (flp c v)) (f v)) -> WTf flp R (CRecv c f).
+  | WTf_recv : forall R c f, (forall v, WTf flp (radd R (flp c v)) (f v)) -> WTf flp R (CRecv c f)
+  | WTf_spawn : forall R Rc child k,
+      (forall l, Rc l = true -> R l = true) ->
+      WTf flp Rc child ->
+      WTf flp (fun l => andb (R l) (negb (Rc l))) k ->
+      WTf flp R (CSpawn child k).
 
 Lemma wtf_write_inv : forall flp R l v k, WTf flp R (CWrite l v k) -> R l = true /\ WTf flp R k.
 Proof. intros flp R l v k H. inversion H; subst. split; assumption. Qed.
@@ -2897,11 +2902,16 @@ Lemma wtf_send_inv : forall flp R c v k, WTf flp R (CSend c v k) -> R (flp c v) 
 Proof. intros flp R c v k H. inversion H; subst. split; assumption. Qed.
 Lemma wtf_recv_inv : forall flp R c f, WTf flp R (CRecv c f) -> forall v, WTf flp (radd R (flp c v)) (f v).
 Proof. intros flp R c f H. inversion H; subst. assumption. Qed.
+Lemma wtf_spawn_inv : forall flp R child k, WTf flp R (CSpawn child k) ->
+  exists Rc, (forall l, Rc l = true -> R l = true) /\ WTf flp Rc child
+             /\ WTf flp (fun l => andb (R l) (negb (Rc l))) k.
+Proof. intros flp R child k H. inversion H; subst. eexists. split; [eassumption | split; eassumption]. Qed.
 
 Lemma wtf_region_ext : forall flp R c, WTf flp R c -> forall R', (forall l, R l = R' l) -> WTf flp R' c.
 Proof.
   intros flp R c HWT. induction HWT as
-    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c v k Hl _ IHk | R c f _ IHf ];
+    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c v k Hl _ IHk | R c f _ IHf
+    | R Rc child k Hsub Hchild _ _ IHk ];
     intros R' Hext.
   - apply WTf_ret.
   - apply WTf_write; [rewrite <- Hext; exact Hl | apply IHk; exact Hext].
@@ -2909,6 +2919,10 @@ Proof.
   - apply WTf_send; [rewrite <- Hext; exact Hl |
       apply IHk; intro x; unfold rdel; rewrite Hext; reflexivity].
   - apply WTf_recv. intro v. apply IHf. intro x; unfold radd; rewrite Hext; reflexivity.
+  - apply (WTf_spawn flp R' Rc child k).
+    + intros l Hl. rewrite <- Hext. exact (Hsub l Hl).
+    + exact Hchild.
+    + apply IHk. intro x. rewrite Hext. reflexivity.
 Qed.
 
 (* The invariant, [flp]-parameterised: the buffer carries each in-transit message's TRANSFERRED
@@ -3169,6 +3183,93 @@ Proof.
     exact (HCC c1 c2 L (Hsub c1 H1) (Hsub c2 H2)).
 Qed.
 
+(* SPAWN-split, [flp]-parameterised — identical to [region_inv_spawn] modulo [WTf]/[RegionInvF] and
+   the buffer's [flp c0 v0] transferred location.  Reuses the generic spawn helpers ([own_spawn],
+   [heldby_spawn_*], [spawn_establishes_acqconn]). *)
+Lemma region_inv_f_spawn : forall flp own lp acq p b h lv tr tid child k cid,
+  RegionInvF flp own lp acq (mkRCfg p b h lv tr) -> OwnerLive own (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
+  exists own' acq',
+    RegionInvF flp own' lp acq'
+      (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+              (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]))
+    /\ OwnerLive own'
+      (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+              (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])).
+Proof.
+  intros flp own lp acq p b h lv tr tid child k cid HRI HOL Hlv Hp Hcid.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wtf_spawn_inv in HW. destruct HW as [Rc [HRcsubR [HWchild HWk]]].
+  assert (Htidcid : tid <> cid) by (intro Heq; subst cid; rewrite Hlv in Hcid; discriminate).
+  assert (Hcidtid : cid <> tid) by (intro Heq; apply Htidcid; symmetry; exact Heq).
+  assert (Hfresh : forall l, own l <> Held cid).
+  { intros l Hcon. pose proof (HOL l cid Hcon) as Hx. cbn [rc_live] in Hx. rewrite Hcid in Hx. discriminate. }
+  assert (HRcsub : forall l, Rc l = true -> own l = Held tid)
+    by (intros l Hl; exact (heldby_true _ _ _ (HRcsubR l Hl))).
+  set (e1 := mkEv tid (KSpawn cid)). set (e2 := mkEv cid (KStart (length tr))).
+  assert (Hnm1 : match e_kind e1 with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (Hnm2 : match e_kind e2 with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (Htr' : tr ++ [e1; e2] = (tr ++ [e1]) ++ [e2]) by (rewrite <- app_assoc; reflexivity).
+  exists (own_spawn own Rc cid), (acq_spawn acq Rc (S (length tr))).
+  split.
+  - unfold RegionInvF. cbn [rc_prog rc_live rc_bufs rc_trace].
+    split; [| split; [| split; [| split; [| split; [| split]]]]].
+    + intros g Hg. destruct (Nat.eq_dec g cid) as [->|Hgc].
+      * rewrite upd_same. apply (wtf_region_ext flp Rc child HWchild).
+        intro l. symmetry. exact (heldby_spawn_child own Rc cid l Hfresh).
+      * rewrite (upd_other lv cid true g Hgc) in Hg.
+        rewrite (upd_other (upd p tid k) cid child g Hgc).
+        destruct (Nat.eq_dec g tid) as [->|Hgt].
+        -- rewrite upd_same.
+           apply (wtf_region_ext flp (fun l => andb (heldby own tid l) (negb (Rc l))) k HWk).
+           intro l. symmetry. exact (heldby_spawn_parent own Rc cid tid l Hcidtid).
+        -- rewrite (upd_other p tid k g Hgt).
+           apply (wtf_region_ext flp (heldby own g) (p g) (Hprog g Hg)).
+           intro l. symmetry. exact (heldby_spawn_other own Rc cid tid g l Hgc Hgt HRcsub).
+    + intros L g HownL Hex.
+      assert (HaccTr : exists i, acc_loc_at tr i = Some L).
+      { apply (acc_app_nonmem tr e1 L Hnm1). apply (acc_app_nonmem (tr ++ [e1]) e2 L Hnm2).
+        rewrite <- Htr'. exact Hex. }
+      rewrite Htr'. unfold own_spawn in HownL. destruct (Rc L) eqn:ERc.
+      * injection HownL as Hgcid. subst g.
+        pose proof (spawn_establishes_acqconn tr lp acq L tid cid (Hacq L tid (HRcsub L ERc) HaccTr)) as HACs.
+        fold e1 e2 in HACs. rewrite Htr' in HACs.
+        apply (acqconn_ext ((tr ++ [e1]) ++ [e2]) lp (upd_lastpos acq L (S (length tr)))
+                 lp (acq_spawn acq Rc (S (length tr))) L cid HACs).
+        -- reflexivity.
+        -- unfold acq_spawn. rewrite ERc. rewrite upd_lastpos_same. reflexivity.
+      * apply (acqconn_ext ((tr ++ [e1]) ++ [e2]) lp acq
+                 lp (acq_spawn acq Rc (S (length tr))) L g).
+        -- apply acqconn_app1. apply acqconn_app1. exact (Hacq L g HownL HaccTr).
+        -- reflexivity.
+        -- unfold acq_spawn. rewrite ERc. reflexivity.
+    + intros c0 v0 s0 Hin. destruct (Hbuf c0 v0 s0 Hin) as [HT Hsupp].
+      assert (HLnRc : Rc (flp c0 v0) = false).
+      { destruct (Rc (flp c0 v0)) eqn:E; [rewrite (HRcsub (flp c0 v0) E) in HT; discriminate | reflexivity]. }
+      split.
+      * unfold own_spawn. rewrite HLnRc. exact HT.
+      * intros Hex. rewrite Htr'.
+        assert (HaccTr : exists i, acc_loc_at tr i = Some (flp c0 v0)).
+        { apply (acc_app_nonmem tr e1 (flp c0 v0) Hnm1). apply (acc_app_nonmem (tr ++ [e1]) e2 (flp c0 v0) Hnm2).
+          rewrite <- Htr'. exact Hex. }
+        apply hbt_app1. apply hbt_app1. exact (Hsupp HaccTr).
+    + rewrite Htr'.
+      apply owned_app_nonmem; [apply owned_app_nonmem; [exact HO | exact Hnm1] | exact Hnm2].
+    + rewrite Htr'.
+      apply lastposvalid_app_nonmem; [apply lastposvalid_app_nonmem; [exact HV | exact Hnm1] | exact Hnm2].
+    + rewrite Htr'.
+      apply accbeforelast_app_nonmem; [apply accbeforelast_app_nonmem; [exact HB | exact Hnm1] | exact Hnm2].
+    + rewrite Htr'.
+      apply noclose_app; [apply noclose_app; [exact HNC | exact I] | exact I].
+  - intros l g Hg. cbn [rc_live]. unfold own_spawn in Hg. destruct (Rc l) eqn:ERc.
+    + injection Hg as Hgcid. subst g. rewrite upd_same. reflexivity.
+    + pose proof (HOL l g Hg) as Hlvg. cbn [rc_live] in Hlvg.
+      assert (Hgc : g <> cid) by (intro Heq; subst g; exact (Hfresh l Hg)).
+      rewrite (upd_other lv cid true g Hgc). exact Hlvg.
+Qed.
+
 Lemma region_inv_f_step : forall flp own lp acq cfg cfg',
   RegionInvF flp own lp acq cfg -> BufLinF flp cfg -> OwnerLive own cfg -> rstep cfg cfg' ->
   exists own' lp' acq', RegionInvF flp own' lp' acq' cfg' /\ BufLinF flp cfg' /\ OwnerLive own' cfg'.
@@ -3212,8 +3313,10 @@ Proof.
   - exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
     split; [ exact (region_inv_f_read flp own lp acq p b h lv tr tid l f HRI Hlv Hp) |
              split; [ exact HBL | exact HOL ] ].
-  - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
-    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - (* spawn: ownership SPLIT — dispatch to region_inv_f_spawn (bufs unchanged ⇒ BufLinF preserved) *)
+    destruct (region_inv_f_spawn flp own lp acq p b h lv tr tid child k cid HRI HOL Hlv Hp Hcid)
+      as [own' [acq' [HRI' HOL']]].
+    exists own', lp, acq'. split; [exact HRI' | split; [exact HBL | exact HOL']].
   - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
     cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
   - exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
@@ -3295,6 +3398,58 @@ Proof.
   intros cfg Hsteps.
   exact (region_inv_f_race_free sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) sig_init cfg
            sig_regioninv sig_buflin sig_ownerlive Hsteps).
+Qed.
+
+(* ALL-THREE-MECHANISMS witness, under the ONE unified theorem: cell 0 transfers g0 →(spawn-SPLIT)→
+   child →(SIGNAL-handoff over channel 0)→ g1.  g0 writes cell 0, SPAWNS a child given cell 0 (Rc={0});
+   the child SENDS A SIGNAL (99) on channel 0 — whose footprint [sigflp 0 _ = 0] transfers cell 0, not
+   99; g1 receives the signal and READS cell 0.  Spawn-split AND signal-handoff in one program, typed by
+   a single [WTf sigflp] — race-free for every interleaving via [region_inv_f_race_free]. *)
+Definition fcombo_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 0 1 (CSpawn (CSend 0 99 CRet) CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun _ => CRead 0 (fun _ => CRet))
+           else CRet.
+Definition fcombo_init : RConfig :=
+  mkRCfg fcombo_prog (fun _ => []) (fun _ => 0) (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma fcombo_regioninv : RegionInvF sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) fcombo_init.
+Proof.
+  unfold RegionInvF, fcombo_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold fcombo_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WTf_write; [reflexivity |].
+      apply (WTf_spawn sigflp _ (fun l => Nat.eqb l 0) (CSend 0 99 CRet) CRet).
+      * intros l Hl. apply Nat.eqb_eq in Hl; subst l. reflexivity.
+      * apply WTf_send; [reflexivity | apply WTf_ret].
+      * apply WTf_ret.
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WTf_recv. intro x. apply WTf_read; [unfold sigflp; cbn; apply radd_same | intro v0; apply WTf_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c v0 s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma fcombo_buflin : BufLinF sigflp fcombo_init.
+Proof.
+  unfold BufLinF, fcombo_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Lemma fcombo_ownerlive : OwnerLive (fun _ => Held 0) fcombo_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
+Theorem fcombo_all_interleavings_race_free : forall cfg,
+  rsteps fcombo_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_f_race_free sigflp (fun _ => Held 0) (fun _ => 0) (fun _ => 0) fcombo_init cfg
+           fcombo_regioninv fcombo_buflin fcombo_ownerlive Hsteps).
 Qed.
 
 (* The owner-of-each-access fact extends across a single appended event, given the new event
@@ -7407,6 +7562,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 

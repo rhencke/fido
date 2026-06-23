@@ -183,10 +183,12 @@ handoff = a channel-fixed footprint), and `region_inv_f_race_free` proves race-f
 canonical `mp_prog` idiom (write a shared cell, send a SIGNAL, recv, read the cell), which pattern-A `WT`
 could not type, is now race-free via the general theorem (witnessed by `sig_*`).  So all THREE Go
 ownership-transfer mechanisms — pointer-handoff, spawn-split, signal-handoff — have general abstract
-race-freedom.  Still open: merging spawn into the `flp` version, and lifting from the `rstep` calculus to
-the EXTRACTABLE typed IO layer.  The discipline `Owned ⇒ race-free` was always general; what is NEW is
-*earning* `Owned` for an arbitrary transfer program (channel/spawn/signal) by an abstract `rstep`
-induction, not a hand-built per-shape proof.)*
+race-freedom, now UNIFIED into ONE theorem: `WTf_spawn` folds the region-split spawn into the `flp`
+typing, so `region_inv_f_race_free` alone covers all three for arbitrary programs (witnessed by `fcombo`:
+a cell going g0 →spawn→ child →signal-channel→ g1, both mechanisms in one program, race-free for all
+interleavings).  Still open: lifting from the `rstep` calculus to the EXTRACTABLE typed IO layer.  The
+discipline `Owned ⇒ race-free` was always general; what is NEW is *earning* `Owned` for an arbitrary
+transfer program (channel/spawn/signal) by an abstract `rstep` induction, not a hand-built per-shape proof.)*
   (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed
