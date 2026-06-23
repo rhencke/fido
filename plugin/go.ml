@@ -1759,7 +1759,7 @@ let rec pp_expr state env = function
            prlist_with_sep (fun () -> str ", ") pp_el elems ++ str "}"
        (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
           func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
-       | MLglob r, [size; tag; a; i; v] when is_arr_set_ref r ->
+       | MLglob r, (size :: tag :: a :: i :: v :: _) when is_arr_set_ref r ->   (* trailing _ = erased bounds proof *)
            let n = (match nat_value (strip_magic size) with
              | Some n -> n
              | None -> unsupported "arr_set with a non-literal size (the array size must be statically known)") in

@@ -3589,16 +3589,18 @@ Definition arr_lit {A} (_ : GoTypeTag A) (l : list A) : GoArray A := mkArray l.
     [[N]T], where [N] is part of the TYPE.  [GoArray] above SIZE-ERASES [N] (fine for LOCAL
     arrays where Go infers the size from the literal), but a typed position needs [N] back.  First
     cut: the canonical small size 3 (a 3-vector) as a CONCRETE type [GoArr3], rendered by the
-    plugin as [[3]T].  Its constructor takes EXACTLY THREE elements, so the length is 3 BY
-    CONSTRUCTION — no proof obligation, and no uncompilable wrong-length literal can arise.
+    plugin as [[3]T].  Its constructor [mkArr3] now CARRIES A PROOF that its list has length 3
+    (review #6 P1 #11), so the length is 3 BY CONSTRUCTION — a wrong-length [mkArr3 []] is
+    UNCONSTRUCTABLE (the proof obligation [length [] = 3] is unprovable); [arr3_lit] discharges
+    it by [eq_refl].  The proof is a [Prop] field, erased at extraction, so [[3]T] is unchanged.
     (Other fixed sizes are their own type; arbitrary type-level [N] is a deferred route.) *)
-Record GoArr3 (A : Type) := mkArr3 { arr3_data : list A }.
-Arguments mkArr3 {A} _.  Arguments arr3_data {A} _.
-Definition arr3_lit {A} (_ : GoTypeTag A) (x y z : A) : GoArr3 A := mkArr3 (x :: y :: z :: nil).
+Record GoArr3 (A : Type) := mkArr3 { arr3_data : list A ; arr3_len : List.length arr3_data = 3%nat }.
+Arguments mkArr3 {A} _ _.  Arguments arr3_data {A} _.  Arguments arr3_len {A} _.
+Definition arr3_lit {A} (_ : GoTypeTag A) (x y z : A) : GoArr3 A := mkArr3 (x :: y :: z :: nil) eq_refl.
 (* Another size — the plugin handles ANY [GoArr<N>] generically (N parsed from the name). *)
-Record GoArr2 (A : Type) := mkArr2 { arr2_data : list A }.
-Arguments mkArr2 {A} _.  Arguments arr2_data {A} _.
-Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y :: nil).
+Record GoArr2 (A : Type) := mkArr2 { arr2_data : list A ; arr2_len : List.length arr2_data = 2%nat }.
+Arguments mkArr2 {A} _ _.  Arguments arr2_data {A} _.  Arguments arr2_len {A} _.
+Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y :: nil) eq_refl.
 
 (** Safe indexed read (CPS / comma-ok like [slice_at_ok] — Go arrays panic on OOB too):
     in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
@@ -3636,14 +3638,19 @@ Definition arr2_eqb (a b : GoArr2 GoI64) : bool := goi64_list_eqb (arr2_data a) 
     [func(_a [n]T) [n]T { _a[i] = v; return _a }(a)] — Go copies [a] into the value
     parameter, mutates the COPY, and returns it, leaving [a] untouched.  [n] (the size,
     erased from the Coq type) is passed explicitly (the author knows it — the
-    size-in-construction principle), so the plugin can emit the [n]T] annotation. *)
+    size-in-construction principle), so the plugin can emit the [n]T] annotation.
+    EVIDENCE-CARRYING (review #6 P1 #11): a Go array assignment [a[i] = v] panics on a
+    dynamic out-of-range index, so [arr_set] DEMANDS [0 <= i < len(a)] — without it the old
+    [go_list_set] silently returned the array UNCHANGED on an OOB index.  The [Prop] witness
+    is erased at extraction (native [a[i] = v] does the runtime check). *)
 Fixpoint go_list_set {A} (xs : list A) (i : int) (v : A) : list A :=
   match xs with
   | nil => nil
   | x :: xs' => if PrimInt63.eqb i 0%uint63 then v :: xs'
                 else x :: go_list_set xs' (PrimInt63.sub i 1%uint63) v
   end.
-Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : int) (v : A) : GoArray A :=
+Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : int) (v : A)
+                   (_h : (Sint63.leb 0 i && Sint63.ltb i (len (arr_data a)))%bool = true) : GoArray A :=
   mkArray (go_list_set (arr_data a) i v).
 
 (** ---- String operations (Go spec "String types") ----

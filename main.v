@@ -1640,12 +1640,20 @@ Definition arr_eq_demo : IO unit :=
     share the backing.  The size [3] is passed explicitly (it is erased from the Coq
     type).  Machine-checked that the update lands and the original is untouched. *)
 Example arr_set_copy :
-  arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (0:int) (99)%i64)
+  arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (0:int) (99)%i64 eq_refl)
   = [(99)%i64;(20)%i64;(30)%i64].
 Proof. reflexivity. Qed.
+(** Review #6 P1 #11 / minimum-suite #7: [mkArr3 []] is UNCONSTRUCTABLE (its length proof
+    [length [] = 3] is unprovable) — every GoArr3 genuinely has length 3; and an out-of-range
+    [arr_set] is rejected (its bounds proof [0 <= 5 < 3] is unprovable). *)
+Example arr3_has_length_3 : forall {A} (a : GoArr3 A), List.length (arr3_data a) = 3%nat.
+Proof. intros A a. exact (arr3_len a). Qed.
+Fail Definition mkArr3_wrong_length : GoArr3 GoI64 := mkArr3 nil eq_refl.
+Fail Definition arr_set_oob : GoArray GoI64 :=
+  arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (5:int) (99)%i64 eq_refl.
 Definition arr_copy_demo : IO unit :=
   let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in
-  let b := arr_set 3 TI64 a (0:int) (99)%i64 in   (* b = a with [0]=99; a UNCHANGED (value-copy) *)
+  let b := arr_set 3 TI64 a (0:int) (99)%i64 eq_refl in   (* b = a with [0]=99; a UNCHANGED (value-copy) *)
   println [ any (arr_eqb a (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]))    (* a STILL [10,20,30] → true *)
           ; any (arr_eqb b (arr_lit TI64 [(99)%i64;(20)%i64;(30)%i64])) ]. (* b IS [99,20,30] → true *)
 
