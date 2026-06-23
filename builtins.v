@@ -290,6 +290,21 @@ Proof.
 Qed.
 Definition i64wrap (z : Z) : GoI64 := MkI64 (wrap64 z) (squash (in_i64_wrap64 z)).
 
+(** Go function VALUES are NULLABLE references — a [func] variable defaults to [nil] and CALLING
+    a nil func PANICS (Go's nil-pointer dereference).  A total Coq [A -> B] cannot model that: it
+    is always callable, so a "zero function" would be a fake callable inhabitant (review #8).  We
+    therefore model a function value as [option (A -> B)]: [None] is the [nil] func, [Some f] a
+    real closure.  The zero value is [None] (faithful), and invocation is the EFFECTFUL
+    [gofunc_call] (defined once [panic] is in scope) which PANICS on [None].  This is the type the
+    [TArrow] tag now describes, so [zero_val (TArrow ..) = NilFunc] is a genuine nil — not callable.
+    A DISTINCT inductive (not [option]) so extraction keeps it opaque — it renders as Go's native
+    nilable [func(A) B] ([NilFunc]=nil, [SomeFunc f]=f), never the generic [option] lowering. *)
+Inductive GoFunc (A B : Type) : Type :=
+  | NilFunc  : GoFunc A B
+  | SomeFunc : (A -> B) -> GoFunc A B.
+Arguments NilFunc {A B}.
+Arguments SomeFunc {A B} _.
+
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
   | TInt64   : GoTypeTag int             (* → int64 *)
@@ -336,7 +351,7 @@ Inductive GoTypeTag : Type -> Type :=
      carry the GoTypeTag phantom that stops Coq unboxing its single value field.  Arrows are
      never decided equal by [tag_eq] (the catch-all returns [None]) — fine, a func type is
      not a map key nor type-switched. *)
-  | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (A -> B)
+  | TArrow : forall {A B : Type}, GoTypeTag A -> GoTypeTag B -> GoTypeTag (GoFunc A B)
   (* product (pair) type — the SOUND backing for struct channels: unlike a nominal struct,
      [A * B] is CANONICAL, so [tag_eq] can recover [A1*B1 = A2*B2] from the component tags.
      A 2-field struct is modelled as a product (marshalled via its StructRep iso) yet still
@@ -363,9 +378,9 @@ Definition gomap_cong {K K' V V'} (p : K = K') (q : V = V')
   match p in (_ = K2), q in (_ = V2) return (@eq Type (GoMap K V) (GoMap K2 V2)) with
   | eq_refl, eq_refl => eq_refl
   end.
-Definition goarrow_cong {A A' B B'} (p : A = A') (q : B = B')
-  : @eq Type (A -> B) (A' -> B') :=
-  match p in (_ = A2), q in (_ = B2) return (@eq Type (A -> B) (A2 -> B2)) with
+Definition gofunc_cong {A A' B B'} (p : A = A') (q : B = B')
+  : @eq Type (GoFunc A B) (GoFunc A' B') :=
+  match p in (_ = A2), q in (_ = B2) return (@eq Type (GoFunc A B) (GoFunc A2 B2)) with
   | eq_refl, eq_refl => eq_refl
   end.
 Definition goprod_cong {A A' B B' : Type} (p : A = A') (q : B = B')
@@ -406,7 +421,7 @@ Fixpoint tag_eq {A B} (ta : GoTypeTag A) (tb : GoTypeTag B) {struct ta} : option
       end
   | TArrow a1 b1, TArrow a2 b2 =>
       match tag_eq a1 a2, tag_eq b1 b2 with
-      | Some p, Some q => Some (goarrow_cong p q)
+      | Some p, Some q => Some (gofunc_cong p q)
       | _, _ => None
       end
   | TProd a1 b1, TProd a2 b2 =>
@@ -431,7 +446,7 @@ Proof.
   - rewrite IHt; reflexivity.                       (* TChan *)
   - rewrite IHt; reflexivity.                       (* TSlice *)
   - rewrite IHt1, IHt2; reflexivity.                (* TMap (gomap_cong reduces) *)
-  - rewrite IHt1, IHt2; reflexivity.                (* TArrow (goarrow_cong reduces) *)
+  - rewrite IHt1, IHt2; reflexivity.                (* TArrow (gofunc_cong reduces) *)
   - rewrite IHt1, IHt2; reflexivity.                (* TProd (goprod_cong reduces) *)
   - rewrite IHt; reflexivity.                       (* TPtr (goptr_cong reduces) *)
 Qed.
@@ -497,9 +512,9 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
   | TMap _ _ => MkMap 0%uint63        (* nil map *)
-  | TArrow _ b => fun _ => zero_val b  (* func zero: plugin emits Go [nil]; this returning-codomain-
-                                          zero inhabitant is a proof-only placeholder (a real nil func
-                                          panics if called, but zero_val is a never-called default) *)
+  | TArrow _ _ => NilFunc              (* func zero is the nil func ([NilFunc] : GoFunc _ _); plugin emits
+                                          Go [nil].  FAITHFUL (review #8): NOT a callable codomain-zero
+                                          placeholder — calling it (via [gofunc_call]) panics, like Go. *)
   | TProd a b => (zero_val a, zero_val b)  (* struct/pair zero: field-wise zeros *)
   | TPtr _   => mkPtr 0%uint63         (* nil pointer (handle erased; plugin emits nil) *)
   end.
@@ -796,6 +811,24 @@ Definition bind {A B} (m : IO A) (f : A -> IO B) : IO B :=
 Definition panic {A} (v : GoAny) : IO A := fun w => OPanic v w.
 Definition catch {A} (m : IO A) (h : GoAny -> IO A) : IO A :=
   fun w => match m w with ORet a w' => ORet a w' | OPanic v w' => h v w' end.
+
+(** Function VALUES (review #8).  [gofunc_of] wraps a real closure as a non-nil [GoFunc]; the
+    [zero_val (TArrow ..) = None] nil func is the ONLY other inhabitant.  [gofunc_call] is the
+    EFFECTFUL invocation: a real closure runs, but a [nil] ([None]) func PANICS with Go's exact
+    nil-dereference message ([rt_nil_deref]).  So a nil func is never a silently-callable
+    placeholder — extraction emits the bare Go call [f(x)], whose runtime nil-panic MATCHES. *)
+Definition gofunc_of {A B} (f : A -> B) : GoFunc A B := SomeFunc f.
+Definition gofunc_call {A B} (f : GoFunc A B) (x : A) : IO B :=
+  match f with
+  | SomeFunc g => ret (g x)
+  | NilFunc    => panic rt_nil_deref
+  end.
+Lemma gofunc_call_of : forall {A B} (f : A -> B) (x : A) (w : World),
+  run_io (gofunc_call (gofunc_of f) x) w = ORet (f x) w.
+Proof. reflexivity. Qed.
+Lemma gofunc_call_nil : forall {A B} (x : A) (w : World),
+  run_io (gofunc_call (@NilFunc A B) x) w = OPanic rt_nil_deref w.
+Proof. reflexivity. Qed.
 
 Notation "m >>' k"    := (bind m (fun _ => k)) (at level 50, left associativity).
 Notation "x <-' m ;; k" := (bind m (fun x => k))

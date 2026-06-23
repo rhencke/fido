@@ -2210,7 +2210,8 @@ func Hinc(n int64) int64 {
 }
 
 func Named_func_demo() {
-	println((Mk_handler(Hinc)).Handler_run(41))
+	r := (Mk_handler(Hinc)).Handler_run(41)
+	println(r)
 }
 
 type IntList []int64

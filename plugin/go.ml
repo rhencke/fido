@@ -476,6 +476,12 @@ let is_panic_ref = named "panic"
 let is_type_assert_ref = named "type_assert"
 let is_type_assert_safe_ref = named "type_assert_safe"
 let is_go_chan_type = named "GoChan"
+(* Nullable function VALUES (review #8): [GoFunc A B = option (A -> B)] → Go's native nilable
+   [func(A) B].  [gofunc_of] (the [Some]-wrap) erases to its closure; [gofunc_call f x] is Go's
+   native call [f(x)], whose runtime nil-panic matches the modelled [None] → [rt_nil_deref]. *)
+let is_gofunc_type = named "GoFunc"
+let is_gofunc_of_ref = named "gofunc_of"
+let is_gofunc_call_ref = named "gofunc_call"
 let is_make_chan_ref = named "make_chan"
 let is_make_chan_buf_ref = named "make_chan_buf"
 let is_send_ref = named "send"
@@ -1294,6 +1300,10 @@ let rec pp_type state = function
       unsupported "an array type in a position needing an explicit [N]T (param / field / return / typed var decl); only LOCAL arrays are supported — write `a := arr_lit […]` so Go infers the size from the literal (the size lives in the construction, not the Coq type)"
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
   | Tglob (r, [arg]) when is_sliceh_type r -> str "[]" ++ pp_type state arg
+  (* GoFunc A B → func(A) B — a NULLABLE func value (review #8); the [option] wrapper is erased
+     because a Go func is already nilable ([None]=nil, [Some f]=f). *)
+  | Tglob (r, [a; b]) when is_gofunc_type r ->
+      pp_type state (Tarr (a, b))
   (* GoChan A → chan T *)
   | Tglob (r, [arg]) when is_go_chan_type r ->
       str "chan " ++ pp_type state arg
@@ -1697,6 +1707,13 @@ let rec pp_expr state env = function
       (match head, vis with
        (* ret x → x (identity: IO wrapper erases) *)
        | MLglob r, [x] when is_ret_ref r -> pp_expr state env x
+
+       (* gofunc_of f → f  (the [Some]-wrap of a nullable func value erases; review #8) *)
+       | MLglob r, [f] when is_gofunc_of_ref r -> pp_expr state env f
+       (* gofunc_call f x → f(x)  (Go's native call; a nil func panics on its own with the
+          nil-dereference message, matching the modelled [None] → [rt_nil_deref]) *)
+       | MLglob r, [f; x] when is_gofunc_call_ref r ->
+           pp_expr state env f ++ str "(" ++ pp_expr state env x ++ str ")"
 
        (* type_assert tag v → v.(T) where T is read from the tag constructor *)
        | MLglob r, [tag; v] when is_type_assert_ref r ->
@@ -3984,7 +4001,8 @@ let pp_io_body ?(ret_val=false) state tab env body =
     if not ret_val then None
     else match collect_app body [] with
       | MLglob r, [v] when is_ret_ref r -> Some (pp_expr state env v)
-      | MLglob r, _ when is_map_len_ref r || is_len_ref r || is_cap_ref r ->
+      | MLglob r, _ when is_map_len_ref r || is_len_ref r || is_cap_ref r
+                      || is_gofunc_call_ref r ->  (* gofunc_call f x → return f(x) (review #8) *)
           Some (pp_expr state env body)
       | _ -> None
   in
@@ -4310,6 +4328,7 @@ let is_inlined_ref r =
   is_map_set_ref r || is_map_del_ref r || is_map_len_ref r || is_map_get_or_ref r ||
   is_map_get_opt_ref r || is_map_clear_ref r ||
   is_min_ref r || is_max_ref r || is_slice_make_ref r || is_repeat_ref r ||
+  is_gofunc_type r || is_gofunc_of_ref r || is_gofunc_call_ref r ||  (* nullable func values (review #8) *)
   is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
   is_select_recv2_ref r || is_select_recv_default_ref r ||

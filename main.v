@@ -2957,15 +2957,26 @@ Definition deftype_iface_demo : IO unit :=
     is the cast [(func(int64) int64)(h)], and applying an arg calls THROUGH that cast —
     [(func(int64) int64)(h)(x)].  [hinc] is a plain function (its first param is not a
     record, so it stays a function, not a method) wrapped by [mk_handler]. *)
-Record Handler := MkHandler { h_fn : GoI64 -> GoI64 ; h_tag : GoTypeTag (GoI64 -> GoI64) }.
-Definition mk_handler (f : GoI64 -> GoI64) : Handler := MkHandler f (TArrow TI64 TI64).
-Definition handler_run (h : Handler) (x : GoI64) : GoI64 := h_fn h x.
+Record Handler := MkHandler { h_fn : GoFunc GoI64 GoI64 ; h_tag : GoTypeTag (GoFunc GoI64 GoI64) }.
+Definition mk_handler (f : GoI64 -> GoI64) : Handler := MkHandler (gofunc_of f) (TArrow TI64 TI64).
+(* [h_fn h] is a NULLABLE func value (review #8); CALLING it is the effectful [gofunc_call] — a real
+   handler runs, a nil one panics (Go's nil-func call).  The plugin erases the [Some]/[gofunc_call]
+   down to the bare Go call [(func(int64) int64)(h)(x)]. *)
+Definition handler_run (h : Handler) (x : GoI64) : IO GoI64 := gofunc_call (h_fn h) x.
 Definition hinc (n : GoI64) : GoI64 := i64_add n (1)%i64.
-(* dispatch is provable: the wrapped func IS what [handler_run] calls *)
-Example handler_run_spec : forall f x, handler_run (mk_handler f) x = f x.
+(* dispatch is provable: the wrapped (non-nil) func IS what [handler_run] calls *)
+Example handler_run_spec : forall f x w,
+  run_io (handler_run (mk_handler f) x) w = ORet (f x) w.
+Proof. reflexivity. Qed.
+(* review #8 — the ZERO func is a genuine nil ([NilFunc]), and CALLING it PANICS (Go's nil-func
+   call = nil-pointer dereference); it is NOT a silently-callable codomain-zero placeholder. *)
+Example zero_func_is_nil : zero_val (TArrow TI64 TI64) = NilFunc.
+Proof. reflexivity. Qed.
+Example zero_func_call_panics : forall w,
+  run_io (gofunc_call (zero_val (TArrow TI64 TI64)) (5)%i64) w = OPanic rt_nil_deref w.
 Proof. reflexivity. Qed.
 Definition named_func_demo : IO unit :=
-  println [any (handler_run (mk_handler hinc) (41)%i64)].   (* 42 *)
+  r <-' handler_run (mk_handler hinc) (41)%i64 ;; println [any r].   (* 42 *)
 
 (** A DEFINED TYPE over a SLICE underlying (Go's [type IntList []int64] — the
     [sort.Interface] [type ByLen []T] idiom).  No new plugin work: the underlying
