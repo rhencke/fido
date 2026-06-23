@@ -5217,75 +5217,53 @@ Arguments mkSR2 {R} _ _ _ _.
 Arguments sr2_f0 {R} _ _.  Arguments sr2_f1 {R} _ _.
 Arguments sr2_mk {R} _ _ _.  Arguments sr2_eta {R} _ _.
 
-(** ---- STRUCT CHANNELS (send a NAMED 2-field struct over a channel) ----
+(** ---- STRUCT CHANNELS (a 2-field [int64 x int64] struct over a channel) ----
 
-    A struct channel is a [GoChan R] (tag-FREE phantom [R]).  A nominal [GoTypeTag R] is
-    impossible — [tag_eq] cannot decide downstream nominal type equality — so the CELL instead
-    stores the struct's FIELD TUPLE, tagged by the DECIDABLE [TProd TI64 TI64] (a product is
-    canonical, so [tag_eq] recovers it).  The [StructRep2] marshals [R <-> (f0, f1)]; [sr2_eta]
-    makes the round-trip FAITHFUL (proved below).  No nominal tag, no axiom.
+    A struct channel is a [GoChan (GoI64 * GoI64)]: the CELL stores the field TUPLE, tagged by the
+    DECIDABLE [TProd TI64 TI64] (a product is canonical, so [tag_eq] recovers it — a nominal
+    [GoTypeTag] for a NAMED struct is impossible, [tag_eq] cannot decide it).  The value sent IS the
+    tuple, so the channel marshals it by the IDENTITY.
 
-    COHERENCE — closes a code-review hole.  Previously [struct_send2]/[struct_recv2] each took an
-    INDEPENDENT [StructRep2 R]; two valid reps (e.g. normal vs swapped field order) each satisfy
-    [sr2_eta] yet marshal differently, so sending with one and receiving with another would CHANGE
-    the value (native [chan R] would not).  Fix: the rep is now bound to the TYPE by the [StructRep2Of]
-    typeclass — [struct_send2]/[struct_recv2] both resolve THE canonical [the_struct_rep2 R], so a
-    mismatched-rep round-trip is UNREPRESENTABLE (there is no explicit rep argument to disagree on),
-    exactly as a Go [chan R] marshals [R] one fixed way.
+    COHERENCE (review #6 #10(a)) — there is NO [StructRep] to choose, so a send and a receive CANNOT
+    disagree on field order.  The earlier design parameterised [struct_send2]/[struct_recv2] by a
+    [StructRep2Of] typeclass; but a Coq typeclass instance is NOT unique — an explicit dictionary
+    ([@struct_send2 R {| the_struct_rep2 := sr2_swapped |} …]) could send with one rep and receive
+    with a SWAPPED rep, corrupting the value, which a native [chan T] never does.  Marshalling by the
+    identity removes the rep entirely, so the swap is UNREPRESENTABLE (the faithful, non-overridable
+    behaviour of a Go [chan (int64,int64)]).  A named 2-field struct over a channel would need a
+    nominal struct tag (unavailable) — out of scope, not approximated.
 
-    *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is the next slice: Coq's
+    *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is a separate slice: Coq's
     [prod] is the multi-return tuple, so emitting it as a Go struct needs dedicated plugin work;
-    this slice lands the MODEL + the correctness theorem.)* *)
-Class StructRep2Of (R : Type) : Type := the_struct_rep2 : StructRep2 R.
-Arguments the_struct_rep2 R {_}.
-Definition struct_make2 {R} (n : int) : IO (GoChan R) :=
+    this lands the MODEL + the correctness theorem.)* *)
+Definition struct_make2 (n : int) : IO (GoChan (GoI64 * GoI64)) :=
   bind (make_chan_buf (TProd TI64 TI64) n) (fun ch => ret (MkChan (ch_loc ch))).
-Definition struct_send2 {R} `{StructRep2Of R} (ch : GoChan R) (v : R) : IO unit :=
-  send (TProd TI64 TI64) (MkChan (ch_loc ch))
-       (sr2_f0 (the_struct_rep2 R) v, sr2_f1 (the_struct_rep2 R) v).
-Definition struct_recv2 {R} `{StructRep2Of R} (ch : GoChan R) : IO R :=
-  bind (recv (TProd TI64 TI64) (MkChan (ch_loc ch)))
-       (fun p => ret (sr2_mk (the_struct_rep2 R) (fst p) (snd p))).
+Definition struct_send2 (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) : IO unit :=
+  send (TProd TI64 TI64) (MkChan (ch_loc ch)) v.
+Definition struct_recv2 (ch : GoChan (GoI64 * GoI64)) : IO (GoI64 * GoI64) :=
+  recv (TProd TI64 TI64) (MkChan (ch_loc ch)).
 
 (** CORRECTNESS — round-trip faithfulness.  On an OPEN, EMPTY channel, [struct_send2] then
     [struct_recv2] recovers the struct EXACTLY: the field-tuple marshalling is lossless, by
     [sr2_eta] of the channel's CANONICAL rep (send and recv share it — no rep to mismatch).  This
     is the acceptance test at the model level (a struct survives a channel round-trip intact). *)
 Theorem struct_chan_roundtrip2 :
-  forall {R} `{StructRep2Of R} (ch : GoChan R) (v : R) (w : World),
+  forall (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) (w : World),
     @chan_closed (GoI64 * GoI64)%type (MkChan (ch_loc ch)) w = false ->
     chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch)) w = nil ->
     exists w', run_io (bind (struct_send2 ch v)
                             (fun _ => struct_recv2 ch)) w = ORet v w'.
 Proof.
-  intros R Hrep ch v w Hopen Hempty.
+  intros ch v w Hopen Hempty.
   unfold struct_send2, struct_recv2.
-  set (rep := the_struct_rep2 R).
   rewrite run_bind.
-  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) (sr2_f0 rep v, sr2_f1 rep v) w Hopen).
-  rewrite run_bind.
+  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w Hopen).
   assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
-            (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) (sr2_f0 rep v, sr2_f1 rep v) w)
-          = (sr2_f0 rep v, sr2_f1 rep v) :: nil)
+            (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) v w) = v :: nil)
     by (rewrite chan_buf_send, Hempty; reflexivity).
-  rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch))
-                    (sr2_f0 rep v, sr2_f1 rep v) nil _ Hbuf1).
-  rewrite run_ret. cbn [fst snd]. rewrite (sr2_eta rep v).
+  rewrite (run_recv (TProd TI64 TI64) (MkChan (ch_loc ch)) v nil _ Hbuf1).
   eexists; reflexivity.
 Qed.
-
-(** Why coherence MATTERS — a concrete demo on the 2-field "struct" [GoI64 * GoI64].  Its canonical
-    rep is the identity projections; a SWAPPED rep ([snd]/[fst]) also satisfies [sr2_eta] yet
-    marshals an ASYMMETRIC value to a DIFFERENT tuple.  So mixing reps across send/recv would corrupt
-    the value — which the type-bound [the_struct_rep2] now makes impossible. *)
-#[local] Instance StructRep2Of_prod : StructRep2Of (GoI64 * GoI64) :=
-  mkSR2 fst snd (fun a b => (a, b)) (fun v => match v with (a, b) => eq_refl end).
-Definition sr2_swapped : StructRep2 (GoI64 * GoI64) :=
-  mkSR2 snd fst (fun a b => (b, a)) (fun v => match v with (a, b) => eq_refl end).
-Example struct_reps_disagree :
-  sr2_f0 (the_struct_rep2 (GoI64 * GoI64)) (i64_lit 1 eq_refl, i64_lit 2 eq_refl)
-    <> sr2_f0 sr2_swapped (i64_lit 1 eq_refl, i64_lit 2 eq_refl).
-Proof. cbn. intro H. apply (f_equal i64raw) in H. cbn in H. discriminate. Qed.
 
 Record SPtr (R : Type) := mkSPtr { sp_base : int ; sp_rep : StructRep2 R }.
 Arguments mkSPtr {R} _ _.
