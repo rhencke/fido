@@ -168,7 +168,13 @@ this reduces to a SINGLE per-step obligation: hb from the location's PREVIOUS ac
 That is the per-step inductive replacement for whole-trace phase enumeration; the open work is the
 dynamic-owner / linear-region invariant that DISCHARGES that obligation for arbitrary transfer
 programs — same-owner ⇒ program order, transferred-owner ⇒ the send/recv or spawn/start sync edge.
-All four lemmas Closed under the global context — fully axiom-free.)*  (And `GoInt`'s past-2⁶² deviation is *documented
+All four lemmas Closed under the global context — fully axiom-free.  Brick 2, same day: the
+OWNERSHIP-TRANSFER DISCHARGE — `AcqConn` (the per-location owner witness) + `owned_step_by_owner`
+(an OWNER's access to a held location preserves `Owned`, composing the discharge INTO `owned_step_snoc`)
++ the AcqConn lifecycle `recv_establishes_acqconn` / `acqconn_after_access`, and `WT`, the LINEAR
+region-threading typing (send RELEASES the sent location, recv ACQUIRES it — `OnlyAcc` is non-linear).
+The open assembly is the config invariant `region_inv_step` wiring these over `rstep`. Also axiom-free.)*
+  (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed
 labels on true theorems" section already record, consolidated here so the words stay exact.

@@ -1744,6 +1744,127 @@ Proof.
     apply hbt_po. unfold po, tid_at. cbn. repeat split; lia.
 Qed.
 
+(** ============================================================================
+    OWNERSHIP-TRANSFER DISCHARGE — turning [owned_step_snoc]'s per-step obligation into the
+    OWNER argument.  [owned_step_snoc] reduced preserving [Owned] across a new access to a single
+    obligation: [hbt (t ++ [e]) (lp L) (length t)] (the new access is hb-after L's PREVIOUS access).
+    [AcqConn] is the per-location witness a dynamic OWNER carries to discharge it: location [L] is
+    held by goroutine [g], and L's last access [lp L] is hb-connected to a position [acq L] that is
+    [g]'s own — program-ordered before whatever [g] does next.  Three transitions, proved standalone
+    (no [WfTrace], axiom-free), are the trace-level moves the forthcoming config invariant
+    [region_inv_step] threads over [rstep]:
+      - [acqconn_hbt_new]   : any new [g]-event after [acq L] is hb-after [lp L] — discharges an
+                              ACCESS's obligation AND supplies a SEND's buffer hb-support (one lemma);
+      - [owned_step_by_owner]: composing it INTO [owned_step_snoc] — an OWNER's access preserves
+                              [Owned] (the core safety step of the transfer reachability proof);
+      - [acqconn_after_access]: after [g] accesses [L], the connection re-establishes at the new pos;
+      - [recv_establishes_acqconn]: a RECV acquires [L] — the buffer carried the sender's support
+                              [hbt t (lp L) s], the recv's back-pointer is [s], so the new owner is
+                              connected through the send→recv [sync] edge.
+    [WT] (below) is the matching PROGRAM discipline: a LINEAR region-threading typing — send RELEASES
+    the sent location, recv ACQUIRES it ([OnlyAcc] is non-linear, so cannot express transfer).
+    ============================================================================ *)
+
+Definition AcqConn (t : Trace) (lp acq : nat -> nat) (L g : nat) : Prop :=
+  tid_at t (acq L) = g /\ acq L < length t /\ (lp L = acq L \/ hbt t (lp L) (acq L)).
+
+(* The discharge: any event appended by [g] (the owner) is hb-after L's previous access [lp L] —
+   via [po] from [acq L] (an earlier [g]-position) to the new event, prefixed by the [lp L]→[acq L]
+   connection.  Serves BOTH an access ([owned_step_snoc] obligation) and a send (buffer hb-support). *)
+Lemma acqconn_hbt_new : forall t e lp acq L g,
+  AcqConn t lp acq L g -> e_tid e = g -> hbt (t ++ [e]) (lp L) (length t).
+Proof.
+  intros t e lp acq L g [Htid [Hlt Hconn]] Hg.
+  assert (Hpo : po (t ++ [e]) (acq L) (length t)).
+  { unfold po. split; [exact Hlt | split].
+    - rewrite length_app; cbn; lia.
+    - rewrite (tid_at_app1 t e (acq L) Hlt), tid_at_app_new, Hg. exact Htid. }
+  destruct Hconn as [Heq | Hhb].
+  - rewrite Heq. apply hbt_po. exact Hpo.
+  - apply hbt_trans with (j := acq L); [apply hbt_app1; exact Hhb | apply hbt_po; exact Hpo].
+Qed.
+
+(* THE CORE SAFETY STEP: an OWNER accessing a location it holds preserves [Owned] (and carries the
+   aux invariants forward) — [acqconn_hbt_new] discharges the single obligation [owned_step_snoc] left. *)
+Lemma owned_step_by_owner : forall t e L lp acq g,
+  Owned t -> LastPosValid t lp -> AccBeforeLast t lp ->
+  (e_kind e = KWrite L \/ e_kind e = KRead L) -> e_tid e = g ->
+  AcqConn t lp acq L g ->
+  Owned (t ++ [e])
+  /\ LastPosValid (t ++ [e]) (upd_lastpos lp L (length t))
+  /\ AccBeforeLast (t ++ [e]) (upd_lastpos lp L (length t)).
+Proof.
+  intros t e L lp acq g HO HV HB He Hg HAC.
+  apply (owned_step_snoc t e L lp HO HV HB He).
+  intros _. exact (acqconn_hbt_new t e lp acq L g HAC Hg).
+Qed.
+
+(* After [g] accesses [L] at the new position, the connection re-establishes there (the access is
+   its own latest: [lp] and [acq] both bumped to the new position). *)
+Lemma acqconn_after_access : forall t e lp acq L g,
+  e_tid e = g ->
+  AcqConn (t ++ [e]) (upd_lastpos lp L (length t)) (upd_lastpos acq L (length t)) L g.
+Proof.
+  intros t e lp acq L g Hg. unfold AcqConn. rewrite !upd_lastpos_same. split; [| split].
+  - rewrite tid_at_app_new. exact Hg.
+  - rewrite length_app; cbn; lia.
+  - left. reflexivity.
+Qed.
+
+(* A RECV acquires [L]: the buffer entry carried the sender's support [hbt t (lp L) s], and the recv
+   event's back-pointer is [s] (so [sync] s→recv), connecting the new owner [g] through the send→recv
+   edge.  [acq L] is set to the recv position. *)
+Lemma recv_establishes_acqconn : forall t c s lp acq L g,
+  hbt t (lp L) s ->
+  AcqConn (t ++ [mkEv g (KRecv c s)]) lp (upd_lastpos acq L (length t)) L g.
+Proof.
+  intros t c s lp acq L g Hsupp. unfold AcqConn. rewrite upd_lastpos_same. split; [| split].
+  - rewrite tid_at_app_new. reflexivity.
+  - rewrite length_app; cbn; lia.
+  - right. apply hbt_trans with (j := s).
+    + apply hbt_app1. exact Hsupp.
+    + apply hbt_sync. unfold sync. exists (mkEv g (KRecv c s)). split.
+      * rewrite nth_error_app_new. reflexivity.
+      * cbn. reflexivity.
+Qed.
+
+(** ── [WT]: the LINEAR region-threading typing — the PROGRAM-level transfer discipline.
+    A region [R : nat -> bool] is the set of locations a goroutine currently OWNS; the judgment
+    threads it: write/read keep the region (must own the cell); SEND of location [l] RELEASES it
+    ([rdel R l] for the continuation); RECV ACQUIRES the received location ([radd R v]).  This is
+    SUBSTRUCTURAL — a sent location leaves the sender's region — which [OnlyAcc] (a fixed, freely
+    duplicable predicate) cannot express.  (Channels here carry POINTERS — the sent value IS the
+    transferred location, Go's idiomatic "hand the pointer over a channel".) ── *)
+Definition radd (R : nat -> bool) (l : nat) : nat -> bool := fun x => orb (R x) (Nat.eqb x l).
+Definition rdel (R : nat -> bool) (l : nat) : nat -> bool := fun x => andb (R x) (negb (Nat.eqb x l)).
+Lemma radd_same : forall R l, radd R l l = true.
+Proof. intros R l. unfold radd. rewrite Nat.eqb_refl. destruct (R l); reflexivity. Qed.
+Lemma rdel_same : forall R l, rdel R l l = false.
+Proof. intros R l. unfold rdel. rewrite Nat.eqb_refl. destruct (R l); reflexivity. Qed.
+
+Inductive WT : (nat -> bool) -> Cmd -> Prop :=
+  | WT_ret  : forall R, WT R CRet
+  | WT_write: forall R l v k, R l = true -> WT R k -> WT R (CWrite l v k)
+  | WT_read : forall R l f, R l = true -> (forall v, WT R (f v)) -> WT R (CRead l f)
+  | WT_send : forall R c l k, R l = true -> WT (rdel R l) k -> WT R (CSend c l k)
+  | WT_recv : forall R c f, (forall v, WT (radd R v) (f v)) -> WT R (CRecv c f).
+
+Lemma wt_write_inv : forall R l v k, WT R (CWrite l v k) -> R l = true /\ WT R k.
+Proof. intros R l v k H. inversion H; subst. split; assumption. Qed.
+Lemma wt_read_inv : forall R l f, WT R (CRead l f) -> R l = true /\ (forall v, WT R (f v)).
+Proof. intros R l f H. inversion H; subst. split; assumption. Qed.
+Lemma wt_send_inv : forall R c l k, WT R (CSend c l k) -> R l = true /\ WT (rdel R l) k.
+Proof. intros R c l k H. inversion H; subst. split; assumption. Qed.
+Lemma wt_recv_inv : forall R c f, WT R (CRecv c f) -> forall v, WT (radd R v) (f v).
+Proof. intros R c f H. inversion H; subst. assumption. Qed.
+
+(* Witnesses that the linear discipline is inhabited: a SENDER owns loc 7, writes it, then sends it
+   away (releasing — the continuation no longer owns 7); a RECEIVER owns nothing, receives a pointer,
+   then writes through it (acquired). *)
+Lemma wt_sender : WT (fun l => Nat.eqb l 7) (CWrite 7 0 (CSend 0 7 CRet)).
+Proof. apply WT_write; [reflexivity | apply WT_send; [reflexivity | apply WT_ret]]. Qed.
+Lemma wt_receiver : WT (fun _ => false) (CRecv 0 (fun x => CWrite x 0 CRet)).
+Proof. apply WT_recv. intro v. apply WT_write; [apply radd_same | apply WT_ret]. Qed.
 
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
@@ -5855,5 +5976,6 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
