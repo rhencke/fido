@@ -277,6 +277,20 @@ func Ptr_chan_narrow_demo() {
 	println(int64(pv), int64(cv))
 }
 
+func Map_narrow_demo() {
+	m := make(map[int64]uint8)
+	m[5] = uint8(((int64(300)) & 0xff))
+	hit := uint8(((int64(9)) & 0xff))
+	if _v, _ok := m[5]; _ok {
+		hit = _v
+	}
+	miss := uint8(((int64(9)) & 0xff))
+	if _v, _ok := m[9]; _ok {
+		miss = _v
+	}
+	println(int64(hit), int64(miss))
+}
+
 func Vlet(x int64, z int64) int64 {
 	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
 }
@@ -2432,6 +2446,7 @@ func main() {
 	Narrow_field_demo()
 	Narrow_elem_demo()
 	Ptr_chan_narrow_demo()
+	Map_narrow_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()

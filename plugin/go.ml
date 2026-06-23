@@ -1803,10 +1803,8 @@ let rec pp_expr state env = function
           needs the [uint8(…)] cast (review #4 P1 #4); the tag (previously dropped) is the element
           type.  Non-narrow sends keep the bare [pp_expr] (byte-identical). *)
        | MLglob r, [tag; ch; v] when is_send_ref r ->
-           let pv = match narrow_go_name (go_type_of_tag (strip_magic tag)) with
-             | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
-             | None    -> pp_expr state env v in
-           pp_expr state env ch ++ str " <- " ++ pv
+           pp_expr state env ch ++ str " <- " ++
+           pp_narrow_or state env tag v (fun () -> pp_expr state env v)
 
        (* recv tag ch → <-ch *)
        | MLglob r, [_tag; ch] when is_recv_ref r ->
@@ -1836,9 +1834,11 @@ let rec pp_expr state env = function
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
        (* map operations — the leading key/value [GoTypeTag]s are proof-only, dropped *)
-       | MLglob r, [_kt; _vt; k; v; m] when is_map_set_ref r ->
+       | MLglob r, [_kt; vt; k; v; m] when is_map_set_ref r ->
+           (* narrow map VALUE ([map[K]uint8] ← int64 carrier) needs [uint8(…)] (review #4 P1 #4);
+              the narrow KEY cast is a later slice.  Non-narrow value keeps bare [pp_expr]. *)
            pp_expr state env m ++ str "[" ++ pp_expr state env k ++ str "] = " ++
-           pp_expr state env v
+           pp_narrow_or state env vt v (fun () -> pp_expr state env v)
        | MLglob r, [_kt; _vt; k; m]    when is_map_del_ref r ->
            str "delete(" ++ pp_expr state env m ++ str ", " ++ pp_expr state env k ++ str ")"
        (* clear(m) — Go 1.21 builtin, remove all map entries *)
@@ -2466,14 +2466,17 @@ and pp_typed_lit_tagged state env tagdoc e =
       tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
   | _ -> pp_expr state env e
 
-(* review #4 P1 #4: a value WRITTEN at a tag-typed destination (a pointer / ref cell).  A narrow
-   destination ([*uint8] ← an int64-carried value) needs the explicit [uint8(…)] cast (else invalid
-   Go); otherwise the existing literal-typing [pp_typed_lit] (so non-narrow ptr/ref writes are
-   byte-identical).  Same coercion as the struct-field / slice-element fixes, keyed off the [GoTypeTag]. *)
-and pp_payload_at_tag state env tag e =
+(* review #4 P1 #4: a value at a tag-typed destination (pointer cell, channel, map key/value).  If the
+   destination is a sub-64 narrow numeric Go type the value (int64-carried) needs an explicit cast
+   ([uint8(…)]) — else invalid Go or a model/runtime tag mismatch; otherwise [fallback ()], the SITE's
+   existing non-narrow emission (so non-narrow writes stay byte-identical).  Keyed off the [GoTypeTag]. *)
+and pp_narrow_or state env tag e fallback =
   match narrow_go_name (go_type_of_tag (strip_magic tag)) with
   | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
-  | None    -> pp_typed_lit state env e
+  | None    -> fallback ()
+(* The pointer/ref-write specialisation: narrow cast, else [pp_typed_lit] (the prior behaviour). *)
+and pp_payload_at_tag state env tag e =
+  pp_narrow_or state env tag e (fun () -> pp_typed_lit state env e)
 
 (* Emit a lambda as a TYPED Go closure [func(x A) R { return body }] using a known
    function type [A1 -> … -> R] (a method dictionary entry).  Unlike the generic
@@ -2738,14 +2741,16 @@ let pp_io_body ?(ret_val=false) state tab env body =
                  def, via comma-ok.  [hit] takes the default's (typed) value, so
                  it has the map's value type (not [any]); the if-block overwrites
                  it on a hit. *)
-              | MLglob r2, [_kt; _vt; k; def; mm] when is_map_get_or_ref r2 ->
+              | MLglob r2, [_kt; vt; k; def; mm] when is_map_get_or_ref r2 ->
                   let hit = match List.filter (fun id -> not (is_dummy id)) ids with
                     | [id] -> pp_mlident id | _ -> str "_g" in
-                  (* pin the default to the map's VALUE type (from [_vt]) — for a
-                     bare full-width literal that would otherwise default to Go [int]
-                     and mismatch an [int64]/[uint64] value slot. *)
+                  (* pin the default to the map's VALUE type (from [vt]) — for a bare full-width literal
+                     that would otherwise default to Go [int] and mismatch an [int64]/[uint64] value slot;
+                     a NARROW value type also needs the [uint8(…)] cast so [hit] is inferred narrow (so
+                     the later [hit = _v] from the narrow map value type-checks) — review #4 P1 #4. *)
+                  let vn = go_type_of_tag (strip_magic vt) in
                   str tab ++ hit ++ str " := " ++
-                  pp_typed_lit_tagged state env (str (go_type_of_tag (strip_magic _vt))) def ++ fnl () ++
+                  pp_narrow_or state env vt def (fun () -> pp_typed_lit_tagged state env (str vn) def) ++ fnl () ++
                   str tab ++ str "if _v, _ok := " ++ pp_expr state env mm ++
                   str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
                   str (tab ^ "\t") ++ hit ++ str " = _v" ++ fnl () ++
@@ -3532,10 +3537,12 @@ let pp_io_body ?(ret_val=false) state tab env body =
         let head1, all_args1 = collect_app e1 [] in
         let vis1 = List.filter (fun a -> not (is_erased a)) all_args1 in
         (match head1, vis1 with
-         | MLglob r, [_kt; _vt; k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
+         | MLglob r, [_kt; vt; k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
              let lhs = pp_mlident id in
+             (* narrow value default boxes as its narrow Go type (else it would box as int64 and a
+                later [.(uint8)] would disagree with the model) — review #4 P1 #4. *)
              str tab ++ str "var " ++ lhs ++ str " any = "
-               ++ pp_typed_lit state env def ++ fnl () ++
+               ++ pp_payload_at_tag state env vt def ++ fnl () ++
              str tab ++ str "if _v, _ok := " ++ pp_expr state env m ++
              str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
              str tab ++ str "\t" ++ lhs ++ str " = _v" ++ fnl () ++

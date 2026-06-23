@@ -507,6 +507,18 @@ Definition ptr_chan_narrow_demo : IO unit :=
   bind (recv TU8 ch) (fun cv =>                                     (* cv := <-ch (uint8 45) *)
   println [ any (i64_of_u8 pv) ; any (i64_of_u8 cv) ])))))).        (* 7 45 *)
 
+(** review #4 P1 #4 (slice 5) — narrow map VALUES: a [map[int64]uint8] written with a wide int64-carried
+    value (the map_set RHS) and read with a narrow default (map_get_or's default).  Both were emitted bare
+    ([m[k] = x & 0xff] invalid Go; the default boxed as int64 ⇒ [hit] inferred int64, then [hit = _v] from
+    the uint8 map = invalid).  The plugin now casts both to the value type from the [GoTypeTag].  (Narrow
+    map KEYS are the next slice.) *)
+Definition map_narrow_demo : IO unit :=
+  bind (map_make_typed TI64 TU8) (fun m =>
+  bind (map_set TI64 TU8 (5)%i64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun _ =>      (* m[5] = uint8(44) *)
+  bind (@map_get_or GoI64 GoU8 TI64 TU8 (5)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun hit =>  (* m[5] = 44 *)
+  bind (@map_get_or GoI64 GoU8 TI64 TU8 (9)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun miss => (* miss → dflt uint8(9) *)
+  println [ any (i64_of_u8 hit) ; any (i64_of_u8 miss) ])))).      (* 44 9 *)
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3108,6 +3120,7 @@ Definition main_effect : IO unit :=
   narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)} — review #4 P1 #4 slice 2) *)
   narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)} — review #4 P1 #4 slice 3) *)
   ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8 — review #4 P1 #4 slice 4) *)
+  map_narrow_demo               >>'   (* prints: 44 9 (narrow map VALUE: map[int64]uint8 value+default — review #4 P1 #4 slice 5) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
