@@ -2477,6 +2477,56 @@ Proof.
            witness_regioninv witness_buflin Hsteps).
 Qed.
 
+(* MULTI-HOP / MULTI-CHANNEL witness: a pointer RELAY.  g0 owns loc 7, writes it, sends it on ch0;
+   g1 receives the pointer and forwards it on ch1 (acquiring then releasing — it never dereferences);
+   g2 receives it and writes through it.  The conflicting cross-goroutine write/WRITE on cell 7 is
+   ordered through TWO channel hops (g0→g1→g2) — yet EVERY interleaving is race-free, straight from
+   [region_inv_race_free].  This exercises the cross-channel arm of [BufLin] and multi-hop transfer,
+   confirming the abstract theorem is not limited to a single handoff. *)
+Definition relay_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 7 1 (CSend 0 7 CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun x => CSend 1 x CRet)
+           else if Nat.eqb t 2 then CRecv 1 (fun y => CWrite y 2 CRet)
+           else CRet.
+Definition relay_init : RConfig :=
+  mkRCfg relay_prog (fun _ => []) (fun _ => 0)
+         (fun t => orb (Nat.eqb t 0) (orb (Nat.eqb t 1) (Nat.eqb t 2))) [].
+
+Lemma relay_regioninv : RegionInv (fun _ => Held 0) (fun _ => 0) (fun _ => 0) relay_init.
+Proof.
+  unfold RegionInv, relay_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold relay_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WT_write; [reflexivity | apply WT_send; [reflexivity | apply WT_ret]].
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WT_recv. intro x. apply WT_send; [apply radd_same | apply WT_ret].
+      * destruct (Nat.eqb g 2) eqn:E2.
+        -- apply WT_recv. intro y. apply WT_write; [apply radd_same | apply WT_ret].
+        -- cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c L s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma relay_buflin : BufLin relay_init.
+Proof.
+  unfold BufLin, relay_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Theorem relay_all_interleavings_race_free : forall cfg,
+  rsteps relay_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) relay_init cfg
+           relay_regioninv relay_buflin Hsteps).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6587,6 +6637,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
