@@ -2012,22 +2012,49 @@ Definition println (_ : list GoAny) : IO unit := fun w => ORet tt w.
 (** [catch] is declared up top; [catch_ret] and [catch_panic] are now proved
     lemmas (from [run_catch]), not axioms. *)
 
-(** [with_defer cleanup m]: run [m], then run [cleanup] regardless of outcome.
-    If [cleanup] panics, its panic replaces any in-flight panic. *)
+(** [with_defer cleanup m]: run [m], then run [cleanup] EXACTLY ONCE regardless
+    of outcome (Go runs one deferred call once).  If [cleanup] panics, its panic
+    replaces any in-flight panic.
+
+    Subtlety (review #6 P0 #1): the cleanup must NOT live inside the [catch] that
+    distinguishes the body outcome.  The earlier shape
+      [catch (m ;; cleanup ;; ret x) (fun v => cleanup ;; panic v)]
+    ran cleanup TWICE when [m] returned normally and cleanup itself panicked: the
+    first (in-body) cleanup-panic was caught, and the handler re-ran cleanup.  We
+    instead reify [m]'s outcome into a [GoAny + A] sum WITHOUT running cleanup,
+    then invoke cleanup exactly once on the single post-[catch] path and re-raise
+    the captured body panic afterward. *)
 Definition with_defer {A : Type} (cleanup : IO unit) (m : IO A) : IO A :=
-  catch
-    (x <-' m ;; cleanup >>' ret x)
-    (fun v => cleanup >>' panic v).
+  r <-' catch (x <-' m ;; ret (@inr GoAny A x)) (fun v => ret (@inl GoAny A v)) ;;
+  cleanup >>' match r with
+              | inl v => panic v
+              | inr x => ret x
+              end.
 
 (** The semantics claimed above, now proven rather than asserted: when the
     guarded body panics, the deferred [cleanup] still runs and the original
     panic propagates afterwards.  Follows from [bind_panic_l] (panic
-    short-circuits the body) and [catch_panic] (the handler fires). *)
+    short-circuits the body, reifying nothing) and [catch_panic] (the handler
+    captures the panic as [inl v]); cleanup then runs once and re-raises it. *)
 Lemma with_defer_panic : forall {A} (cleanup : IO unit) (v : GoAny),
   @with_defer A cleanup (panic v) = cleanup >>' panic v.
 Proof.
   intros A cleanup v. unfold with_defer.
-  rewrite bind_panic_l, catch_panic. reflexivity.
+  rewrite bind_panic_l, catch_panic, bind_ret_l. reflexivity.
+Qed.
+
+(** Companion lemma for the NORMAL path, and the regression that pins review #6
+    P0 #1: when the body returns [x], cleanup runs and [x] propagates.  Crucially
+    this holds UNCONDITIONALLY in [cleanup] — even a [cleanup] that panics is run
+    exactly once (the RHS mentions [cleanup] once).  Under the earlier definition
+    this equation was FALSE for a panicking cleanup (it ran twice), so this lemma
+    could not have been proved; together with [with_defer_panic] it certifies a
+    single cleanup execution on both exits. *)
+Lemma with_defer_ret : forall {A} (cleanup : IO unit) (x : A),
+  @with_defer A cleanup (ret x) = cleanup >>' ret x.
+Proof.
+  intros A cleanup x. unfold with_defer.
+  rewrite bind_ret_l, catch_ret, bind_ret_l. reflexivity.
 Qed.
 
 (** [defer_call f] (Go spec "Defer statements"): Go's [defer] keyword — schedule
