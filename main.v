@@ -494,6 +494,19 @@ Definition narrow_elem_demo : IO unit :=
             ; any (i64_of_u8 av) ])).    (* 6  *)
   (* 44 6 *)
 
+(** review #4 P1 #4 (slice 4) — narrow PAYLOADS at the tag-carrying POINTER & CHANNEL boundaries: a
+    wide int64-carried value written into a [*uint8] cell or sent on a [chan uint8].  Both were emitted
+    bare (the [ptr_new] IIFE arg / [*p = v] / [ch <- v]) → invalid Go; the plugin now casts the payload
+    to the destination narrow type from the op's [GoTypeTag] ([uint8(…)]).  Runtime values exercise it. *)
+Definition ptr_chan_narrow_demo : IO unit :=
+  bind (ptr_new TU8 (u8_of_i64 (i64_lit 300 eq_refl))) (fun p =>   (* *uint8 ← uint8(44) *)
+  bind (ptr_set TU8 p (u8_of_i64 (i64_lit 7 eq_refl)))   (fun _ => (* *p = uint8(7) *)
+  bind (ptr_get TU8 p) (fun pv =>                                   (* pv := *p (uint8 7) *)
+  bind (make_chan_buf TU8 1) (fun ch =>
+  bind (send TU8 ch (u8_of_i64 (i64_lit 301 eq_refl))) (fun _ =>    (* ch <- uint8(45) *)
+  bind (recv TU8 ch) (fun cv =>                                     (* cv := <-ch (uint8 45) *)
+  println [ any (i64_of_u8 pv) ; any (i64_of_u8 cv) ])))))).        (* 7 45 *)
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3094,6 +3107,7 @@ Definition main_effect : IO unit :=
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)} — review #4 P1 #4 slice 2) *)
   narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)} — review #4 P1 #4 slice 3) *)
+  ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8 — review #4 P1 #4 slice 4) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)

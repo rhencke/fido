@@ -267,6 +267,16 @@ func Narrow_elem_demo() {
 	println(int64(s0), int64(av))
 }
 
+func Ptr_chan_narrow_demo() {
+	p := func(_v uint8) *uint8 { return &_v }(uint8(((int64(300)) & 0xff)))
+	*p = uint8(((int64(7)) & 0xff))
+	pv := *p
+	ch := make(chan uint8, 1)
+	ch <- uint8(((int64(301)) & 0xff))
+	cv := <-ch
+	println(int64(pv), int64(cv))
+}
+
 func Vlet(x int64, z int64) int64 {
 	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
 }
@@ -2421,6 +2431,7 @@ func main() {
 	Narrow_ret_demo()
 	Narrow_field_demo()
 	Narrow_elem_demo()
+	Ptr_chan_narrow_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()

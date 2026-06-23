@@ -1716,14 +1716,14 @@ let rec pp_expr state env = function
        | MLglob r, [tag; v] when is_ptr_new_ref r ->
            let t = go_type_of_tag (strip_magic tag) in
            str "func(_v " ++ str t ++ str ") *" ++ str t ++ str " { return &_v }(" ++
-           pp_typed_lit state env v ++ str ")"
+           pp_payload_at_tag state env tag v ++ str ")"   (* narrow pointee ← int64 carrier needs [uint8(…)] (P1 #4) *)
        (* go_new tag → new(T): a fresh *T pointing to the zero value *)
        | MLglob r, [tag] when is_go_new_ref r ->
            str "new(" ++ str (go_type_of_tag (strip_magic tag)) ++ str ")"
        | MLglob r, [_tag; p] when is_ptr_get_ref r ->
            str "*" ++ pp_atom state env p
-       | MLglob r, [_tag; p; v] when is_ptr_set_ref r ->
-           str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
+       | MLglob r, [tag; p; v] when is_ptr_set_ref r ->
+           str "*" ++ pp_atom state env p ++ str " = " ++ pp_payload_at_tag state env tag v   (* narrow *p ← int64 carrier (P1 #4) *)
        (* Struct pointers (Phase Bs.2).  The rep arg is proof-only (ignored here):
           [sptr_new rep v] → [&v] (composite literals are addressable in Go);
           [sptr_deref p] → [*p]; [sptr_get_field p idx proj _] → [p.Field] and
@@ -1799,9 +1799,14 @@ let rec pp_expr state env = function
        | MLglob r, [tag; n] when is_make_chan_buf_ref r ->
            str ("make(chan " ^ go_type_of_tag tag ^ ", ") ++ pp_expr state env n ++ str ")"
 
-       (* send tag ch v → ch <- v  (tag is the proof-only element type, dropped) *)
-       | MLglob r, [_tag; ch; v] when is_send_ref r ->
-           pp_expr state env ch ++ str " <- " ++ pp_expr state env v
+       (* send tag ch v → ch <- v.  A narrow channel element ([chan uint8] <- int64-carried value)
+          needs the [uint8(…)] cast (review #4 P1 #4); the tag (previously dropped) is the element
+          type.  Non-narrow sends keep the bare [pp_expr] (byte-identical). *)
+       | MLglob r, [tag; ch; v] when is_send_ref r ->
+           let pv = match narrow_go_name (go_type_of_tag (strip_magic tag)) with
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
+             | None    -> pp_expr state env v in
+           pp_expr state env ch ++ str " <- " ++ pv
 
        (* recv tag ch → <-ch *)
        | MLglob r, [_tag; ch] when is_recv_ref r ->
@@ -2460,6 +2465,15 @@ and pp_typed_lit_tagged state env tagdoc e =
   | MLcons _ as z when Option.has_some (z_value z) ->
       tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
   | _ -> pp_expr state env e
+
+(* review #4 P1 #4: a value WRITTEN at a tag-typed destination (a pointer / ref cell).  A narrow
+   destination ([*uint8] ← an int64-carried value) needs the explicit [uint8(…)] cast (else invalid
+   Go); otherwise the existing literal-typing [pp_typed_lit] (so non-narrow ptr/ref writes are
+   byte-identical).  Same coercion as the struct-field / slice-element fixes, keyed off the [GoTypeTag]. *)
+and pp_payload_at_tag state env tag e =
+  match narrow_go_name (go_type_of_tag (strip_magic tag)) with
+  | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
+  | None    -> pp_typed_lit state env e
 
 (* Emit a lambda as a TYPED Go closure [func(x A) R { return body }] using a known
    function type [A1 -> … -> R] (a method dictionary entry).  Unlike the generic
