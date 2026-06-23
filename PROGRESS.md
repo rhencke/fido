@@ -120,13 +120,51 @@ machine primitives — `int : Set`, `float : Set`, `PrimInt63.*`, `PrimFloat.*`,
 heap / channel / session model is `Definition`s over a concrete `World`/`Outcome`, and
 every law (`run_bind`, channel & heap get-after-put, `ref_sel_upd_same`, …) is a DERIVED
 THEOREM.  The extracted program rests on EXACTLY Rocq's own machine primitives — `int :
-Set`, `float : Set`, and the `PrimInt63.*` / `PrimFloat.*` operations — and nothing else.
-The only assumptions anywhere are two `concurrency.v` SECTION hypotheses (the abstract-
-calculus ↔ IO coding round-trip) — proof-only, parameterised (discharged at section
-close), emit no Go, NOT in the extracted program's trust base.  So the old "~70 axioms /
-joint consistency unproven" debt is CLOSED: there is no Fido axiom set to be jointly
-consistent.  The discipline now is to PRESERVE this — add no `Axiom` for any new builtin
-(model it as a `Definition`, even hard cases like a soft-float `float32`).
+Set`, `float : Set`, and the `PrimInt63.*` / `PrimFloat.*` operations — and nothing else
+*at the Rocq-model level* (this is the AXIOM base of `main_effect`; it is NOT the
+end-to-end trust base of the emitted bytes — see **END-TO-END TRUST BASE** below).
+The only *Fido-declared* assumptions anywhere are two `concurrency.v` SECTION hypotheses
+(the abstract-calculus ↔ IO coding round-trip) — proof-only, parameterised (discharged at
+section close via the concrete keystone coding), emit no Go, NOT in the extracted program's
+trust base.  (One EXTERNAL Coq-stdlib axiom is in scope for the IO-EQUATIONAL results:
+`funext`, used via `run_io_inj` — holdout #1; absent from `main_effect`, present in the
+`denote_*` adequacy chain.)  So the old "~70 axioms / joint consistency unproven" debt is
+CLOSED: there is no Fido axiom set to be jointly consistent.  The discipline now is to
+PRESERVE this — add no `Axiom` for any new builtin (model it as a `Definition`, even hard
+cases like a soft-float `float32`).
+
+**END-TO-END TRUST BASE — the whole picture (external review, 2026-06-23; be exact).**
+"ZERO Fido axioms" above is the **Rocq-model** base.  It is NOT the trust base of the bytes
+`go build` compiles — that is strictly larger, and the optimistic parts must not be assembled
+into "verified race-free Go."  THREE unverified bridges sit between the proofs and the bytes:
+- **The extraction plugin** (`plugin/go.ml`, ~4300 lines OCaml) — TRUSTED and UNVERIFIED; no
+  theorem relates emitted Go to the source term (Known gap #10).  Every "emits `[]T{…}`" /
+  "body suppressed" in these proofs is a claim about THIS translator, and a faithfulness bug
+  would live here.  It is the real TCB's largest, least-guarded component.
+- **funext** (Coq-stdlib `functional_extensionality`, EXTERNAL) — pulled in by the IO-equational
+  results through `run_io_inj` (builtins.v), including the `denote_adequate`/`_mem` chain.  Those
+  results are "no *project-declared* axiom," with funext a standing holdout (ZERO_AXIOMS_PLAN.md
+  #1) — so the project is NOT globally axiom-free.  (`main_effect` does not use it.)
+- **The `Denotes` relation + the source→`Cmd`→denotation map.**  `denote_adequate` proves "IF a
+  program denotes this IO term, its `run_io` agrees" — but the map from real Go to `Cmd` to `IO`
+  is by-hand/plugin, so a `Denotes` that mis-models Go makes the theorem reassure *vacuously*.
+  The machine-checked non-vacuity keystone (`keystone_roundtrip`) covers the VALUE CODING, not
+  the denotation relation itself.
+
+**Where the safety guarantee actually reaches.**  Race-freedom lives on `rstep`/the calculus and
+is bridged to `run_io` only for the **single-channel, single-goroutine, spawn-free, non-blocking**
+fragment (`denote_adequate`/`_mem`); `go_spawn` has no `run_io` law BY DESIGN, so the genuinely
+concurrent / possibly-blocking programs — exactly the safety-critical ones — are carried by the
+calculus ALONE, tied to emitted Go only through the plugin/prose.  Generality is also thinner than
+the line count: the one **arbitrary-N** race-freedom result (`PureLocal`/`PrivateDisc`) is the
+**no-transfer, memory-free-children** fragment; every program with real ownership *transfer* is a
+**per-program** phase enumeration (`MpReach`/`XferReach`/the 7-shape exchange).  The ownership
+*discipline* (`Owned ⇒ race-free`) is general, but *earning* `Owned` for a transfer program is
+hand-built per shape and does not compose — so "race-free Fido" today ≈ the no-transfer fragment +
+a handful of witnessed handoff programs.  (And `GoInt`'s past-2⁶² deviation is *documented
+unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
+None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed
+labels on true theorems" section already record, consolidated here so the words stay exact.
 
 ## Wish list
 
