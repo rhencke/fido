@@ -1802,6 +1802,15 @@ func Multiret_demo() {
 	println(x, y)
 }
 
+func Triple3(a int64, b int64, c int64) (int64, int64, int64) {
+	return a, b, c
+}
+
+func Triple_demo() {
+	x, y, z := Triple3(1, 2, 3)
+	println(x, y, z)
+}
+
 func (p Point) Describe() {
 	println(p.Px)
 	println(p.Py)
@@ -2572,6 +2581,7 @@ func main() {
 	Method_value_demo()
 	Method_expr_demo()
 	Multiret_demo()
+	Triple_demo()
 	Io_method_demo()
 	Io_val_method_demo()
 	Struct_eq_demo()
