@@ -2354,14 +2354,21 @@ Proof.
     exact (HCC c1 c2 L (Hsub c1 H1) (Hsub c2 H2)).
 Qed.
 
-(* THE PRESERVATION THEOREM: every [rstep] preserves [RegionInv] AND [BufLin].  The four owner/transfer
-   steps dispatch to the per-case lemmas; spawn/select/close are impossible under [WT] (no constructor),
-   and closed-recv is impossible under [NoClose]. *)
+(* Owner-LIVENESS coherence: every owned location's owner is a LIVE goroutine.  Needed by the SPAWN
+   case — a freshly-spawned [cid] (not yet live) therefore owns nothing, so the split-off region is
+   exactly the child's region.  Trivially preserved by all steps (owners are assigned only to the
+   live stepping goroutine, and a spawn makes its [cid] live). *)
+Definition OwnerLive (own : nat -> Owner) (cfg : RConfig) : Prop :=
+  forall l g, own l = Held g -> rc_live cfg g = true.
+
+(* THE PRESERVATION THEOREM: every [rstep] preserves [RegionInv], [BufLin] AND [OwnerLive].  The four
+   owner/transfer steps dispatch to the per-case lemmas; spawn/select/close are impossible under [WT]
+   (no constructor), and closed-recv is impossible under [NoClose]. *)
 Lemma region_inv_step : forall own lp acq cfg cfg',
-  RegionInv own lp acq cfg -> BufLin cfg -> rstep cfg cfg' ->
-  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg'.
+  RegionInv own lp acq cfg -> BufLin cfg -> OwnerLive own cfg -> rstep cfg cfg' ->
+  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg' /\ OwnerLive own' cfg'.
 Proof.
-  intros own lp acq cfg cfg' HRI HBL Hstep.
+  intros own lp acq cfg cfg' HRI HBL HOL Hstep.
   destruct Hstep as
     [ p b h lv tr tid c v k Hlv Hp Hcb
     | p b h lv tr tid c f v s brest Hlv Hp Hbc
@@ -2375,25 +2382,35 @@ Proof.
   - (* send *)
     exists (upd_own own v Transit), lp, acq.
     split; [ exact (region_inv_send own lp acq p b h lv tr tid c v k HRI Hlv Hp) | ].
-    pose proof HRI as HRI2. destruct HRI2 as [Hprog [_ [Hbuf _]]]. destruct HBL as [HND HCC].
-    cbn [rc_prog rc_live rc_bufs] in *.
-    pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
-    apply wt_send_inv in HW. destruct HW as [Hheld _]. pose proof (heldby_true _ _ _ Hheld) as Hown.
-    assert (Hvnb : forall ch, ~ In v (map fst (b ch))).
-    { intros ch Hcon. apply in_map_iff in Hcon. destruct Hcon as [[v' s'] [Hfst Hin']].
-      cbn in Hfst. subst v'. destruct (Hbuf ch v s' Hin') as [HT _]. rewrite Hown in HT. discriminate. }
-    exact (buflin_send b c v (length tr) HND HCC Hvnb).
+    split.
+    + pose proof HRI as HRI2. destruct HRI2 as [Hprog [_ [Hbuf _]]]. destruct HBL as [HND HCC].
+      cbn [rc_prog rc_live rc_bufs] in *.
+      pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+      apply wt_send_inv in HW. destruct HW as [Hheld _]. pose proof (heldby_true _ _ _ Hheld) as Hown.
+      assert (Hvnb : forall ch, ~ In v (map fst (b ch))).
+      { intros ch Hcon. apply in_map_iff in Hcon. destruct Hcon as [[v' s'] [Hfst Hin']].
+        cbn in Hfst. subst v'. destruct (Hbuf ch v s' Hin') as [HT _]. rewrite Hown in HT. discriminate. }
+      exact (buflin_send b c v (length tr) HND HCC Hvnb).
+    + intros l0 g Hg. destruct (Nat.eq_dec l0 v) as [->|Hne].
+      * rewrite upd_own_same in Hg. discriminate.
+      * rewrite (upd_own_other own v Transit l0 Hne) in Hg. exact (HOL l0 g Hg).
   - (* recv *)
     exists (upd_own own v (Held tid)), lp, (upd_lastpos acq v (length tr)).
     split; [ exact (region_inv_recv own lp acq p b h lv tr tid c f v s brest HRI HBL Hlv Hp Hbc) | ].
-    destruct HBL as [HND HCC]. cbn [rc_bufs] in *.
-    exact (buflin_recv b c v s brest HND HCC Hbc).
+    split.
+    + destruct HBL as [HND HCC]. cbn [rc_bufs] in *.
+      exact (buflin_recv b c v s brest HND HCC Hbc).
+    + intros l0 g Hg. destruct (Nat.eq_dec l0 v) as [->|Hne].
+      * rewrite upd_own_same in Hg. injection Hg as Hgt. subst g. exact Hlv.
+      * rewrite (upd_own_other own v (Held tid) l0 Hne) in Hg. exact (HOL l0 g Hg).
   - (* write *)
     exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
-    split; [ exact (region_inv_write own lp acq p b h lv tr tid l v k HRI Hlv Hp) | exact HBL ].
+    split; [ exact (region_inv_write own lp acq p b h lv tr tid l v k HRI Hlv Hp) |
+             split; [ exact HBL | exact HOL ] ].
   - (* read *)
     exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
-    split; [ exact (region_inv_read own lp acq p b h lv tr tid l f HRI Hlv Hp) | exact HBL ].
+    split; [ exact (region_inv_read own lp acq p b h lv tr tid l f HRI Hlv Hp) |
+             split; [ exact HBL | exact HOL ] ].
   - (* spawn: WT has no CSpawn *)
     exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
     cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
@@ -2412,25 +2429,26 @@ Proof.
 Qed.
 
 Lemma region_inv_steps : forall own lp acq cfg cfg',
-  RegionInv own lp acq cfg -> BufLin cfg -> rsteps cfg cfg' ->
-  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg'.
+  RegionInv own lp acq cfg -> BufLin cfg -> OwnerLive own cfg -> rsteps cfg cfg' ->
+  exists own' lp' acq', RegionInv own' lp' acq' cfg' /\ BufLin cfg' /\ OwnerLive own' cfg'.
 Proof.
-  intros own lp acq cfg cfg' HRI HBL Hsteps. revert own lp acq HRI HBL.
-  induction Hsteps as [cfg0 | a b0 c0 Hab Hbc IH]; intros own lp acq HRI HBL.
-  - exists own, lp, acq. split; [exact HRI | exact HBL].
-  - destruct (region_inv_step own lp acq a b0 HRI HBL Hab) as [own' [lp' [acq' [HRI' HBL']]]].
-    exact (IH own' lp' acq' HRI' HBL').
+  intros own lp acq cfg cfg' HRI HBL HOL Hsteps. revert own lp acq HRI HBL HOL.
+  induction Hsteps as [cfg0 | a b0 c0 Hab Hbc IH]; intros own lp acq HRI HBL HOL.
+  - exists own, lp, acq. split; [exact HRI | split; [exact HBL | exact HOL]].
+  - destruct (region_inv_step own lp acq a b0 HRI HBL HOL Hab)
+      as [own' [lp' [acq' [HRI' [HBL' HOL']]]]].
+    exact (IH own' lp' acq' HRI' HBL' HOL').
 Qed.
 
-(* THE THEOREM: every reachable trace of a [RegionInv]+[BufLin] program is race-free — for ARBITRARY
-   (no-spawn) pointer-handoff programs and ALL interleavings, via the ABSTRACT ownership invariant
-   (not a per-program phase enumeration). *)
+(* THE THEOREM: every reachable trace of a [RegionInv]+[BufLin]+[OwnerLive] program is race-free — for
+   ARBITRARY (no-spawn) pointer-handoff programs and ALL interleavings, via the ABSTRACT ownership
+   invariant (not a per-program phase enumeration). *)
 Theorem region_inv_race_free : forall own lp acq cfg0 cfg,
-  RegionInv own lp acq cfg0 -> BufLin cfg0 -> rsteps cfg0 cfg ->
+  RegionInv own lp acq cfg0 -> BufLin cfg0 -> OwnerLive own cfg0 -> rsteps cfg0 cfg ->
   TraceRaceFree (rc_trace cfg).
 Proof.
-  intros own lp acq cfg0 cfg HRI HBL Hsteps.
-  destruct (region_inv_steps own lp acq cfg0 cfg HRI HBL Hsteps) as [own' [lp' [acq' [HRI' _]]]].
+  intros own lp acq cfg0 cfg HRI HBL HOL Hsteps.
+  destruct (region_inv_steps own lp acq cfg0 cfg HRI HBL HOL Hsteps) as [own' [lp' [acq' [HRI' _]]]].
   destruct HRI' as [_ [_ [_ [HO _]]]].
   exact (owned_race_free _ HO).
 Qed.
@@ -2469,12 +2487,15 @@ Proof.
   - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
 Qed.
 
+Lemma witness_ownerlive : OwnerLive (fun _ => Held 0) witness_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
 Theorem witness_all_interleavings_race_free : forall cfg,
   rsteps witness_init cfg -> TraceRaceFree (rc_trace cfg).
 Proof.
   intros cfg Hsteps.
   exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) witness_init cfg
-           witness_regioninv witness_buflin Hsteps).
+           witness_regioninv witness_buflin witness_ownerlive Hsteps).
 Qed.
 
 (* MULTI-HOP / MULTI-CHANNEL witness: a pointer RELAY.  g0 owns loc 7, writes it, sends it on ch0;
@@ -2519,12 +2540,15 @@ Proof.
   - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
 Qed.
 
+Lemma relay_ownerlive : OwnerLive (fun _ => Held 0) relay_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
 Theorem relay_all_interleavings_race_free : forall cfg,
   rsteps relay_init cfg -> TraceRaceFree (rc_trace cfg).
 Proof.
   intros cfg Hsteps.
   exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) relay_init cfg
-           relay_regioninv relay_buflin Hsteps).
+           relay_regioninv relay_buflin relay_ownerlive Hsteps).
 Qed.
 
 (* The owner-of-each-access fact extends across a single appended event, given the new event
@@ -6637,6 +6661,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
