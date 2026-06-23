@@ -4282,7 +4282,11 @@ let is_inlined_ref r =
      "str_to_bytes"; "str_from_bytes"; "byte_ascii";
      "str_to_runes"; "str_to_runes_w"; "str_runes_fst"; "runes_to_str"; "rune_bytes"; "byte_chr"; "rune_to_str";
      "str_range"; "rune_width"; "runes_with_offsets"; "for_each_pairs";
-     "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux"] ||
+     "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux";
+     (* runtime-panic VALUES (review #6 P1 #15) — used only inside suppressed panic-op bodies,
+        never emitted (the native Go op panics on its own) *)
+     "rt_nil_deref"; "rt_index_oob"; "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
+     "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||

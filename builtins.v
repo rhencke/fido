@@ -549,6 +549,25 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_ptr {A} `(Tagged A) : Tagged (Ptr A) :=
   TPtr (the_tag A).                (* a [*T] handle infers its pointer tag — so it rides any/chan/map *)
 
+(** ---- Runtime-panic VALUES (review #6 P1 #15) ----
+    A modeled runtime panic carries the SAME string Go's [recover] sees via the runtime error's
+    [Error()] — so a [catch]/recover handler can DISTINGUISH runtime errors from each other AND
+    from a user [panic] (which carries the user's own value).  This replaces the old [any tt],
+    which collapsed EVERY runtime cause to one indistinguishable unit, letting a modeled handler
+    take a branch the Go handler would not.  The string IS the abstraction relation to Go's panic
+    value the review asked for.  Model-only: a runtime panic lowers to the NATIVE Go operation
+    (whose own panic fires), so these values live solely in the suppressed op bodies and are never
+    extracted — they are listed in the plugin's [is_inlined_ref]. *)
+Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
+Definition rt_index_oob    : GoAny := anyt TString "runtime error: index out of range"%string.
+Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds out of range"%string.
+Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.
+Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil map"%string.
+Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%string.
+Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
+Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.
+Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
+
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
     Go map keys are restricted to comparable types (the spec: "the comparison
@@ -2130,7 +2149,7 @@ Definition type_assert {T : Type} (tag : GoTypeTag T) (a : GoAny) : IO T :=
   | existT _ _ (x, atag) =>
       match tag_coerce tag atag x with
       | Some t => ret t
-      | None   => panic (anyt TUnit tt)   (* runtime-type mismatch: Go panics *)
+      | None   => panic rt_assert_fail   (* runtime-type mismatch: Go panics *)
       end
   end.
 
@@ -2466,7 +2485,7 @@ Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (defau
     [map_set] gains the guard.)  Location 0 is reserved by [ValidWorld] (break #5), so [eqb (gm_loc m) 0]
     exactly detects nil.  Lowered by name ([m[k] = v]), so the guard is golden-stable. *)
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
-  fun w => if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic (any tt) w
+  fun w => if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic rt_nil_map w
            else ORet tt (map_upd kt vt k v m w).
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => ORet tt (map_rem kt vt k m w).
@@ -2483,13 +2502,13 @@ Lemma run_map_get_or : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K
 Proof. reflexivity. Qed.
 Lemma run_map_set : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
   run_io (map_set kt vt k v m) w =
-    if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic (any tt) w
+    if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic rt_nil_map w
     else ORet tt (map_upd kt vt k v m w).
 Proof. reflexivity. Qed.
 
 (** Faithfulness: assigning to a NIL map PANICS, exactly as Go's [m[k] = v] on a nil [m]. *)
 Lemma map_set_nil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World),
-  run_io (map_set kt vt k v (@map_empty K V)) w = OPanic (any tt) w.
+  run_io (map_set kt vt k v (@map_empty K V)) w = OPanic rt_nil_map w.
 Proof. reflexivity. Qed.
 Lemma run_map_delete : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) (w : World),
   run_io (map_delete kt vt k m) w = ORet tt (map_rem kt vt k m w).
@@ -2813,7 +2832,7 @@ Qed.
     on an empty OPEN channel returns the zero/default rather than blocking — no proof
     depends on that case (the laws below cover only the non-empty / closed cases). *)
 Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
-  fun w => if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_send_upd tag ch v w).
+  fun w => if chan_closed ch w then OPanic rt_send_closed w else ORet tt (chan_send_upd tag ch v w).
 Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
   fun w => match chan_buf tag ch w with
            | v :: _ => ORet v (chan_recv_upd tag ch w)
@@ -2826,8 +2845,8 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
     and like all nil ops it is UNREACHABLE in the closed world ([make_chan] mints a nonzero handle —
     [chan_alloc_close_no_panic]).  Lowered by name ([close(ch)]), so the guard is golden-stable. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
-  fun w => if PrimInt63.eqb (ch_loc ch) 0%uint63 then OPanic (any tt) w
-           else if chan_closed ch w then OPanic (any tt) w else ORet tt (chan_close_upd tag ch w).
+  fun w => if PrimInt63.eqb (ch_loc ch) 0%uint63 then OPanic rt_close_nil w
+           else if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w).
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
            | v :: _ => f v true (chan_recv_upd tag ch w)
@@ -3022,7 +3041,7 @@ Lemma run_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : Wor
 Proof. intros A tag ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
 Lemma run_send_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = true ->
-  run_io (send tag ch v) w = OPanic (any tt) w.
+  run_io (send tag ch v) w = OPanic rt_send_closed w.
 Proof. intros A tag ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
 Lemma run_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (rest : list A) (w : World),
   chan_buf tag ch w = v :: rest ->
@@ -3043,16 +3062,17 @@ Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
 Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
+(** Closing a non-nil CLOSED channel panics with "close of closed channel" (review #6 P1 #15
+    distinguishes this from "close of nil channel" — a nil channel hits the prior guard).  The
+    non-nil hypothesis selects the [rt_close_closed] cause; [close_chan_nil] covers the nil one. *)
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = true ->
-  run_io (close_chan tag ch) w = OPanic (any tt) w.
-Proof.
-  intros A tag ch w H. unfold close_chan, run_io. rewrite H.
-  destruct (PrimInt63.eqb (ch_loc ch) 0%uint63); reflexivity.   (* nil OR closed ⇒ panic *)
-Qed.
-(** Faithfulness: [close] on a nil channel PANICS, exactly as Go's [close(nil)]. *)
+  run_io (close_chan tag ch) w = OPanic rt_close_closed w.
+Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
+(** Faithfulness: [close] on a nil channel PANICS with "close of nil channel", exactly Go's [close(nil)]. *)
 Lemma close_chan_nil : forall {A} (tag : GoTypeTag A) (w : World),
-  run_io (close_chan tag (@MkChan A 0%uint63)) w = OPanic (any tt) w.
+  run_io (close_chan tag (@MkChan A 0%uint63)) w = OPanic rt_close_nil w.
 Proof. reflexivity. Qed.
 
 (** ---- The channel laws, now DERIVED as theorems ---- *)
@@ -3092,7 +3112,7 @@ Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v :
   PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => send tag ch v)) w
-  = OPanic (any tt) (chan_close_upd tag ch w).
+  = OPanic rt_send_closed (chan_close_upd tag ch w).
 Proof.
   intros A tag ch v w Hnn Hopen.
   rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
@@ -3105,11 +3125,11 @@ Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w 
   PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => close_chan tag ch)) w
-  = OPanic (any tt) (chan_close_upd tag ch w).
+  = OPanic rt_close_closed (chan_close_upd tag ch w).
 Proof.
   intros A tag ch w Hnn Hopen.
   rewrite run_bind, (run_close tag ch w Hnn Hopen). cbn.
-  exact (run_close_closed tag ch (chan_close_upd tag ch w) (chan_closed_close tag ch w)).
+  exact (run_close_closed tag ch (chan_close_upd tag ch w) Hnn (chan_closed_close tag ch w)).
 Qed.
 
 (** [recv_ok] on a closed, EMPTY channel returns [(zero_val tag, false)] — Go's
@@ -3581,7 +3601,7 @@ Fixpoint go_list_nth {A : Type} (xs : list A) (i : int) (d : A) : A :=
 Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : int) : IO A :=
   fun w => if (Sint63.leb 0 i && Sint63.ltb i (len xs))%bool
            then ORet (go_list_nth xs i (zero_val tag)) w
-           else OPanic (any tt) w.   (* out of bounds / negative: Go panics *)
+           else OPanic rt_index_oob w.   (* out of bounds / negative: Go panics *)
 
 (** Safe checked index (the safe-by-construction default for slice access).
     [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in
@@ -4554,28 +4574,28 @@ Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val 
     so the [eqb (p_loc p) 0] guard exactly separates "live cell" from "nil".  These are the catch-able
     escape hatches (rule 4); [ptr_get_ok] is the safe-by-construction comma-ok form. *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
-  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
            else ORet (ref_sel (ptr_as_ref tag p) w) w.
 Definition ptr_set {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) : IO unit :=
-  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
            else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
   run_io (ptr_get tag p) w =
-    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
     else ORet (ref_sel (ptr_as_ref tag p) w) w.
 Proof. reflexivity. Qed.
 Lemma run_ptr_set : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
   run_io (ptr_set tag p v) w =
-    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic (any tt) w
+    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
     else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. reflexivity. Qed.
 
 (** Faithfulness: dereferencing / assigning through a NIL pointer PANICS, exactly as Go's [*nil]. *)
 Lemma ptr_get_nil : forall {A} (tag : GoTypeTag A) (w : World),
-  run_io (ptr_get tag (ptr_nil tag)) w = OPanic (any tt) w.
+  run_io (ptr_get tag (ptr_nil tag)) w = OPanic rt_nil_deref w.
 Proof. reflexivity. Qed.
 Lemma ptr_set_nil : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
-  run_io (ptr_set tag (ptr_nil tag) v) w = OPanic (any tt) w.
+  run_io (ptr_set tag (ptr_nil tag) v) w = OPanic rt_nil_deref w.
 Proof. reflexivity. Qed.
 
 (** Read-after-write THROUGH a pointer — a THEOREM (inherited from the shared heap): after
@@ -4807,7 +4827,7 @@ Definition slice_make_h {A} (tag : GoTypeTag A) (n : int) : IO (SliceH A) :=
                                      then Some (existT _ A (tag, zero_val tag))
                                      else w_refs w k)
                            (w_chans w) (w_maps w) (PrimInt63.add base n))
-           else OPanic (any tt) w.
+           else OPanic rt_neg_make w.
 (* [s[i]] read / [s[i] = v] write, through the shared backing cell.  Go bounds-checks the
    index against LENGTH (NOT capacity) at runtime and PANICS on [i < 0 || i >= len(s)] — so
    the model panics there too (review #6 P0 #4): the unsigned [i <? sh_len s] rejects both
@@ -4816,10 +4836,10 @@ Definition slice_make_h {A} (tag : GoTypeTag A) (n : int) : IO (SliceH A) :=
    Go [s[i]] performs exactly this check, so the lowering is unchanged (body suppressed). *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) : IO A :=
   fun w => if (i <? sh_len s)%uint63 then ORet (ref_sel (sh_cell s i) w) w
-           else OPanic (any tt) w.
+           else OPanic rt_index_oob w.
 Definition slice_idx_set {A} (s : SliceH A) (i : int) (v : A) : IO unit :=
   fun w => if (i <? sh_len s)%uint63 then ORet tt (ref_upd (sh_cell s i) v w)
-           else OPanic (any tt) w.
+           else OPanic rt_index_oob w.
 Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (w : World),
   (i <? sh_len s)%uint63 = true ->
   run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s i) w) w.
@@ -4832,7 +4852,7 @@ Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivit
     write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
 Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
   (i <? sh_len s)%uint63 = false ->
-  run_io (slice_idx_set s i v) w = OPanic (any tt) w.
+  run_io (slice_idx_set s i v) w = OPanic rt_index_oob w.
 Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
    is the PURE descriptor (the aliasing lemmas reason about it); [subslice] is the Go-level op. *)
@@ -4847,7 +4867,7 @@ Definition subslice_desc {A} (s : SliceH A) (a b : int) : SliceH A :=
 Definition subslice {A} (s : SliceH A) (a b : int) : IO (SliceH A) :=
   fun w => if (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool
            then ORet (subslice_desc s a b) w
-           else OPanic (any tt) w.
+           else OPanic rt_slice_bounds w.
 Lemma run_subslice : forall {A} (s : SliceH A) (a b : int) (w : World),
   (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool = true ->
   run_io (subslice s a b) w = ORet (subslice_desc s a b) w.
@@ -4959,7 +4979,7 @@ Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : int) : IO (SliceH A)
                                      then Some (existT _ A (tag, zero_val tag))
                                      else w_refs w k)
                            (w_chans w) (w_maps w) (PrimInt63.add base cap))
-           else OPanic (any tt) w.
+           else OPanic rt_neg_make w.
 
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append

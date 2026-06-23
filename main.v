@@ -2152,7 +2152,7 @@ Definition slice_alias_demo : IO unit :=
     wrapped-descriptor path that would defeat the index bounds check is unconstructable. *)
 Example subslice_past_cap_panics : forall (w : World),
   run_io (subslice (mkSliceH (100:int) (0:int) (2:int) (2:int) TI64) (0:int) (3:int)) w
-    = OPanic (any tt) w.
+    = OPanic rt_slice_bounds w.
 Proof. intros w. unfold subslice, run_io. reflexivity. Qed.
 
 (** Phase B3b: APPEND.  Go's [append] extends in place when [len < cap] (aliasing the
@@ -2183,7 +2183,7 @@ Definition slice_makecap_demo : IO unit :=
     Pre-fix the model silently wrote the spare backing cell and returned normally. *)
 Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
   run_io (slice_idx_set (mkSliceH (100:int) (0:int) (1:int) (2:int) TI64) (1:int) v) w
-    = OPanic (any tt) w.
+    = OPanic rt_index_oob w.
 Proof. intros v w. apply run_slice_idx_set_oob. reflexivity. Qed.
 
 (** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
