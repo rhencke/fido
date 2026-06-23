@@ -1847,7 +1847,15 @@ Inductive WT : (nat -> bool) -> Cmd -> Prop :=
   | WT_write: forall R l v k, R l = true -> WT R k -> WT R (CWrite l v k)
   | WT_read : forall R l f, R l = true -> (forall v, WT R (f v)) -> WT R (CRead l f)
   | WT_send : forall R c l k, R l = true -> WT (rdel R l) k -> WT R (CSend c l k)
-  | WT_recv : forall R c f, (forall v, WT (radd R v) (f v)) -> WT R (CRecv c f).
+  | WT_recv : forall R c f, (forall v, WT (radd R v) (f v)) -> WT R (CRecv c f)
+  (* SPAWN SPLITS the region: the child gets a sub-region [Rc ⊆ R] and runs [WT Rc child]; the parent
+     keeps the rest [R \ Rc] for its continuation.  Linear: the two are disjoint by construction
+     ([andb (R l) (negb (Rc l))] removes exactly [Rc]). *)
+  | WT_spawn : forall R Rc child k,
+      (forall l, Rc l = true -> R l = true) ->
+      WT Rc child ->
+      WT (fun l => andb (R l) (negb (Rc l))) k ->
+      WT R (CSpawn child k).
 
 Lemma wt_write_inv : forall R l v k, WT R (CWrite l v k) -> R l = true /\ WT R k.
 Proof. intros R l v k H. inversion H; subst. split; assumption. Qed.
@@ -1857,6 +1865,10 @@ Lemma wt_send_inv : forall R c l k, WT R (CSend c l k) -> R l = true /\ WT (rdel
 Proof. intros R c l k H. inversion H; subst. split; assumption. Qed.
 Lemma wt_recv_inv : forall R c f, WT R (CRecv c f) -> forall v, WT (radd R v) (f v).
 Proof. intros R c f H. inversion H; subst. assumption. Qed.
+Lemma wt_spawn_inv : forall R child k, WT R (CSpawn child k) ->
+  exists Rc, (forall l, Rc l = true -> R l = true) /\ WT Rc child
+             /\ WT (fun l => andb (R l) (negb (Rc l))) k.
+Proof. intros R child k H. inversion H; subst. eexists. split; [eassumption | split; eassumption]. Qed.
 
 (* Witnesses that the linear discipline is inhabited: a SENDER owns loc 7, writes it, then sends it
    away (releasing — the continuation no longer owns 7); a RECEIVER owns nothing, receives a pointer,
@@ -1905,7 +1917,8 @@ Qed.
 Lemma wt_region_ext : forall R c, WT R c -> forall R', (forall l, R l = R' l) -> WT R' c.
 Proof.
   intros R c HWT. induction HWT as
-    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c l k Hl _ IHk | R c f _ IHf ];
+    [ R | R l v k Hl _ IHk | R l f Hl _ IHf | R c l k Hl _ IHk | R c f _ IHf
+    | R Rc child k Hsub Hchild _ _ IHk ];
     intros R' Hext.
   - apply WT_ret.
   - apply WT_write; [rewrite <- Hext; exact Hl | apply IHk; exact Hext].
@@ -1913,6 +1926,10 @@ Proof.
   - apply WT_send; [rewrite <- Hext; exact Hl |
       apply IHk; intro x; unfold rdel; rewrite Hext; reflexivity].
   - apply WT_recv. intro v. apply IHf. intro x; unfold radd; rewrite Hext; reflexivity.
+  - apply (WT_spawn R' Rc child k).
+    + intros l Hl. rewrite <- Hext. exact (Hsub l Hl).
+    + exact Hchild.
+    + apply IHk. intro x. rewrite Hext. reflexivity.
 Qed.
 
 (* AcqConn lifts across an appended event (the connection lives among old positions). *)
@@ -2361,6 +2378,167 @@ Qed.
 Definition OwnerLive (own : nat -> Owner) (cfg : RConfig) : Prop :=
   forall l g, own l = Held g -> rc_live cfg g = true.
 
+(** ── SPAWN transfer: ownership SPLIT.  On [CSpawn child k], the parent's region splits — the child
+    [cid] takes the sub-region [Rc] (becoming its owner), the parent keeps the rest.  [own_spawn]
+    reassigns [Rc] to [cid]; [acq_spawn] sets those locations' [AcqConn] anchor to the [KStart]
+    position, so the child's first access to a transferred cell is hb-after the parent's last via the
+    [KSpawn]→[KStart] fork edge.  Fresh-[cid] (it owns nothing before, by [OwnerLive] + [lv cid=false])
+    makes the child's decoded region exactly [Rc]. ── *)
+Definition own_spawn (own : nat -> Owner) (Rc : nat -> bool) (cid : nat) : nat -> Owner :=
+  fun l => if Rc l then Held cid else own l.
+Definition acq_spawn (acq : nat -> nat) (Rc : nat -> bool) (p : nat) : nat -> nat :=
+  fun l => if Rc l then p else acq l.
+
+Lemma heldby_spawn_child : forall own Rc cid l,
+  (forall l0, own l0 <> Held cid) -> heldby (own_spawn own Rc cid) cid l = Rc l.
+Proof.
+  intros own Rc cid l Hfresh. unfold heldby, own_spawn. destruct (Rc l) eqn:E; cbn.
+  - rewrite Nat.eqb_refl. reflexivity.
+  - destruct (own l) as [g'|] eqn:Eo; cbn.
+    + apply Nat.eqb_neq. intro Heq. subst g'. exact (Hfresh l Eo).
+    + reflexivity.
+Qed.
+
+Lemma heldby_spawn_parent : forall own Rc cid tid l,
+  cid <> tid -> heldby (own_spawn own Rc cid) tid l = andb (heldby own tid l) (negb (Rc l)).
+Proof.
+  intros own Rc cid tid l Hne. apply Nat.eqb_neq in Hne.
+  unfold heldby, own_spawn. destruct (Rc l) eqn:E; cbn.
+  - rewrite Hne. destruct (own l) as [g'|]; cbn;
+      [destruct (Nat.eqb g' tid); reflexivity | reflexivity].
+  - destruct (own l) as [g'|]; cbn;
+      [destruct (Nat.eqb g' tid); reflexivity | reflexivity].
+Qed.
+
+Lemma heldby_spawn_other : forall own Rc cid tid g l,
+  g <> cid -> g <> tid -> (forall l0, Rc l0 = true -> own l0 = Held tid) ->
+  heldby (own_spawn own Rc cid) g l = heldby own g l.
+Proof.
+  intros own Rc cid tid g l Hgc Hgt HRc.
+  assert (Hcg : Nat.eqb cid g = false) by (apply Nat.eqb_neq; intro Hx; apply Hgc; symmetry; exact Hx).
+  assert (Htg : Nat.eqb tid g = false) by (apply Nat.eqb_neq; intro Hx; apply Hgt; symmetry; exact Hx).
+  unfold heldby, own_spawn. destruct (Rc l) eqn:E; cbn.
+  - rewrite (HRc l E); cbn. rewrite Hcg, Htg. reflexivity.
+  - reflexivity.
+Qed.
+
+(* The fork edge forges the transferred cell's [AcqConn]: parent's connection → po to the [KSpawn]
+   (a tid-event, [acqconn_hbt_new]) → sync to the [KStart] (its back-pointer is the [KSpawn] position)
+   → the child owns it, anchored at the [KStart] position. *)
+Lemma spawn_establishes_acqconn : forall tr lp acq L tid cid,
+  AcqConn tr lp acq L tid ->
+  AcqConn (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])
+          lp (upd_lastpos acq L (S (length tr))) L cid.
+Proof.
+  intros tr lp acq L tid cid HAC.
+  pose proof (acqconn_hbt_new tr (mkEv tid (KSpawn cid)) lp acq L tid HAC eq_refl) as Hhb1.
+  assert (Htr' : tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]
+               = (tr ++ [mkEv tid (KSpawn cid)]) ++ [mkEv cid (KStart (length tr))])
+    by (rewrite <- app_assoc; reflexivity).
+  rewrite Htr'.
+  assert (Hlen1 : length (tr ++ [mkEv tid (KSpawn cid)]) = S (length tr))
+    by (rewrite length_app; cbn; lia).
+  unfold AcqConn. rewrite upd_lastpos_same. split; [| split].
+  - unfold tid_at. rewrite <- Hlen1, nth_error_app_new. reflexivity.
+  - rewrite length_app, length_app; cbn; lia.
+  - right. apply hbt_trans with (j := length tr).
+    + apply hbt_app1. exact Hhb1.
+    + apply hbt_sync. unfold sync. exists (mkEv cid (KStart (length tr))). split.
+      * rewrite <- Hlen1, nth_error_app_new. reflexivity.
+      * cbn. reflexivity.
+Qed.
+
+(* THE SPAWN STEP: an [rstep_spawn] (ownership SPLIT) preserves [RegionInv] AND [OwnerLive].  [Rc]
+   (the split region) comes from inverting the parent's [WT]; the child becomes owner of [Rc] via the
+   fork edge, the parent keeps the rest, everyone else is untouched. *)
+Lemma region_inv_spawn : forall own lp acq p b h lv tr tid child k cid,
+  RegionInv own lp acq (mkRCfg p b h lv tr) -> OwnerLive own (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CSpawn child k -> lv cid = false ->
+  exists own' acq',
+    RegionInv own' lp acq'
+      (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+              (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]))
+    /\ OwnerLive own'
+      (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+              (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])).
+Proof.
+  intros own lp acq p b h lv tr tid child k cid HRI HOL Hlv Hp Hcid.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  apply wt_spawn_inv in HW. destruct HW as [Rc [HRcsubR [HWchild HWk]]].
+  assert (Htidcid : tid <> cid) by (intro Heq; subst cid; rewrite Hlv in Hcid; discriminate).
+  assert (Hcidtid : cid <> tid) by (intro Heq; apply Htidcid; symmetry; exact Heq).
+  assert (Hfresh : forall l, own l <> Held cid).
+  { intros l Hcon. pose proof (HOL l cid Hcon) as Hx. cbn [rc_live] in Hx. rewrite Hcid in Hx. discriminate. }
+  assert (HRcsub : forall l, Rc l = true -> own l = Held tid)
+    by (intros l Hl; exact (heldby_true _ _ _ (HRcsubR l Hl))).
+  set (e1 := mkEv tid (KSpawn cid)). set (e2 := mkEv cid (KStart (length tr))).
+  assert (Hnm1 : match e_kind e1 with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (Hnm2 : match e_kind e2 with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (Htr' : tr ++ [e1; e2] = (tr ++ [e1]) ++ [e2]) by (rewrite <- app_assoc; reflexivity).
+  exists (own_spawn own Rc cid), (acq_spawn acq Rc (S (length tr))).
+  split.
+  - unfold RegionInv. cbn [rc_prog rc_live rc_bufs rc_trace].
+    split; [| split; [| split; [| split; [| split; [| split]]]]].
+    + (* prog *)
+      intros g Hg. destruct (Nat.eq_dec g cid) as [->|Hgc].
+      * rewrite upd_same. apply (wt_region_ext Rc child HWchild).
+        intro l. symmetry. exact (heldby_spawn_child own Rc cid l Hfresh).
+      * rewrite (upd_other lv cid true g Hgc) in Hg.
+        rewrite (upd_other (upd p tid k) cid child g Hgc).
+        destruct (Nat.eq_dec g tid) as [->|Hgt].
+        -- rewrite upd_same.
+           apply (wt_region_ext (fun l => andb (heldby own tid l) (negb (Rc l))) k HWk).
+           intro l. symmetry. exact (heldby_spawn_parent own Rc cid tid l Hcidtid).
+        -- rewrite (upd_other p tid k g Hgt).
+           apply (wt_region_ext (heldby own g) (p g) (Hprog g Hg)).
+           intro l. symmetry. exact (heldby_spawn_other own Rc cid tid g l Hgc Hgt HRcsub).
+    + (* acq *)
+      intros L g HownL Hex.
+      assert (HaccTr : exists i, acc_loc_at tr i = Some L).
+      { apply (acc_app_nonmem tr e1 L Hnm1). apply (acc_app_nonmem (tr ++ [e1]) e2 L Hnm2).
+        rewrite <- Htr'. exact Hex. }
+      rewrite Htr'. unfold own_spawn in HownL. destruct (Rc L) eqn:ERc.
+      * injection HownL as Hgcid. subst g.
+        pose proof (spawn_establishes_acqconn tr lp acq L tid cid (Hacq L tid (HRcsub L ERc) HaccTr)) as HACs.
+        fold e1 e2 in HACs. rewrite Htr' in HACs.
+        apply (acqconn_ext ((tr ++ [e1]) ++ [e2]) lp (upd_lastpos acq L (S (length tr)))
+                 lp (acq_spawn acq Rc (S (length tr))) L cid HACs).
+        -- reflexivity.
+        -- unfold acq_spawn. rewrite ERc. rewrite upd_lastpos_same. reflexivity.
+      * apply (acqconn_ext ((tr ++ [e1]) ++ [e2]) lp acq
+                 lp (acq_spawn acq Rc (S (length tr))) L g).
+        -- apply acqconn_app1. apply acqconn_app1. exact (Hacq L g HownL HaccTr).
+        -- reflexivity.
+        -- unfold acq_spawn. rewrite ERc. reflexivity.
+    + (* buf *)
+      intros c0 L s0 Hin. destruct (Hbuf c0 L s0 Hin) as [HT Hsupp].
+      assert (HLnRc : Rc L = false).
+      { destruct (Rc L) eqn:E; [rewrite (HRcsub L E) in HT; discriminate | reflexivity]. }
+      split.
+      * unfold own_spawn. rewrite HLnRc. exact HT.
+      * intros Hex.
+        assert (HaccTr : exists i, acc_loc_at tr i = Some L).
+        { apply (acc_app_nonmem tr e1 L Hnm1). apply (acc_app_nonmem (tr ++ [e1]) e2 L Hnm2).
+          rewrite <- Htr'. exact Hex. }
+        rewrite Htr'. apply hbt_app1. apply hbt_app1. exact (Hsupp HaccTr).
+    + (* Owned *) rewrite Htr'.
+      apply owned_app_nonmem; [apply owned_app_nonmem; [exact HO | exact Hnm1] | exact Hnm2].
+    + (* LastPosValid *) rewrite Htr'.
+      apply lastposvalid_app_nonmem; [apply lastposvalid_app_nonmem; [exact HV | exact Hnm1] | exact Hnm2].
+    + (* AccBeforeLast *) rewrite Htr'.
+      apply accbeforelast_app_nonmem; [apply accbeforelast_app_nonmem; [exact HB | exact Hnm1] | exact Hnm2].
+    + (* NoClose *) rewrite Htr'.
+      apply noclose_app; [apply noclose_app; [exact HNC | exact I] | exact I].
+  - (* OwnerLive *)
+    intros l g Hg. cbn [rc_live]. unfold own_spawn in Hg. destruct (Rc l) eqn:ERc.
+    + injection Hg as Hgcid. subst g. rewrite upd_same. reflexivity.
+    + pose proof (HOL l g Hg) as Hlvg. cbn [rc_live] in Hlvg.
+      assert (Hgc : g <> cid) by (intro Heq; subst g; exact (Hfresh l Hg)).
+      rewrite (upd_other lv cid true g Hgc). exact Hlvg.
+Qed.
+
 (* THE PRESERVATION THEOREM: every [rstep] preserves [RegionInv], [BufLin] AND [OwnerLive].  The four
    owner/transfer steps dispatch to the per-case lemmas; spawn/select/close are impossible under [WT]
    (no constructor), and closed-recv is impossible under [NoClose]. *)
@@ -2411,9 +2589,10 @@ Proof.
     exists own, (upd_lastpos lp l (length tr)), (upd_lastpos acq l (length tr)).
     split; [ exact (region_inv_read own lp acq p b h lv tr tid l f HRI Hlv Hp) |
              split; [ exact HBL | exact HOL ] ].
-  - (* spawn: WT has no CSpawn *)
-    exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
-    cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
+  - (* spawn: ownership SPLIT — dispatch to region_inv_spawn (bufs unchanged ⇒ BufLin preserved) *)
+    destruct (region_inv_spawn own lp acq p b h lv tr tid child k cid HRI HOL Hlv Hp Hcid)
+      as [own' [acq' [HRI' HOL']]].
+    exists own', lp, acq'. split; [exact HRI' | split; [exact HBL | exact HOL']].
   - (* select: WT has no CSelect *)
     exfalso. destruct HRI as [Hprog _]. pose proof (Hprog tid Hlv) as HW.
     cbn [rc_prog rc_live] in HW. rewrite Hp in HW. inversion HW.
@@ -2549,6 +2728,56 @@ Proof.
   intros cfg Hsteps.
   exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) relay_init cfg
            relay_regioninv relay_buflin relay_ownerlive Hsteps).
+Qed.
+
+(* SPAWN-transfer witness (ownership SPLIT): g0 owns loc 7, writes it, then SPAWNS a child to whom it
+   hands off loc 7 (the child's region [Rc = {7}]); the child writes 7.  A genuine cross-goroutine
+   write/WRITE on cell 7 — g0's write before the [go], the child's after it — ordered by the
+   KSpawn→KStart fork edge, so EVERY interleaving (including the dynamically-spawned child) is
+   race-free, derived from the program structure alone. *)
+Definition splitw_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0
+           then CWrite 7 1 (CSpawn (CWrite 7 2 CRet) CRet)
+           else CRet.
+Definition splitw_init : RConfig :=
+  mkRCfg splitw_prog (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+
+Lemma splitw_regioninv : RegionInv (fun _ => Held 0) (fun _ => 0) (fun _ => 0) splitw_init.
+Proof.
+  unfold RegionInv, splitw_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold splitw_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WT_write; [reflexivity |].
+      apply (WT_spawn _ (fun l => Nat.eqb l 7) (CWrite 7 2 CRet) CRet).
+      * intros l Hl. apply Nat.eqb_eq in Hl; subst l. reflexivity.
+      * apply WT_write; [reflexivity | apply WT_ret].
+      * apply WT_ret.
+    + cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c L s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma splitw_buflin : BufLin splitw_init.
+Proof.
+  unfold BufLin, splitw_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Lemma splitw_ownerlive : OwnerLive (fun _ => Held 0) splitw_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
+Theorem splitw_all_interleavings_race_free : forall cfg,
+  rsteps splitw_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) splitw_init cfg
+           splitw_regioninv splitw_buflin splitw_ownerlive Hsteps).
 Qed.
 
 (* The owner-of-each-access fact extends across a single appended event, given the new event
@@ -6661,6 +6890,8 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
+
 
 
 

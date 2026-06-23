@@ -172,11 +172,15 @@ leaves no duplicate) ← `region_inv_step` (every `rstep` preserves both; spawn/
 non-vacuously (`witness_all_interleavings_race_free`: a genuine cross-goroutine write/WRITE on one cell,
 handed off over a channel, race-free for ALL interleavings).  ENTIRELY funext-free — `WT`'s region is a
 hypothesis position and own-updates are pointwise, so `wt_region_ext` re-types continuations with no
-axiom.  Still open (each its own slice, none blocked): SPAWN-transfer (ownership split on `CSpawn`), the
-SIGNAL-handoff pattern (location stays shared, channel carries a non-pointer signal), and lifting from
-the `rstep` calculus to the EXTRACTABLE typed IO layer.  The discipline `Owned ⇒ race-free` was always
-general; what is NEW is *earning* `Owned` for an arbitrary transfer program by an abstract `rstep`
-induction, not a hand-built per-shape proof.)*
+axiom.  SPAWN-transfer now ALSO covered (2026-06-23): `WT_spawn` splits the region on `CSpawn` (child
+takes `Rc ⊆ R`, parent keeps the rest), `region_inv_spawn` proves the split preserves the invariant —
+the transferred cell's `AcqConn` is forged through the `KSpawn`→`KStart` fork edge — so
+`region_inv_race_free` now covers BOTH channel-handoff AND ownership-split-on-spawn (witnessed by a
+fork-handoff program whose child writes a cell the parent handed it, race-free for all interleavings).
+Still open (each its own slice, none blocked): the SIGNAL-handoff pattern (location stays shared, channel
+carries a non-pointer signal), and lifting from the `rstep` calculus to the EXTRACTABLE typed IO layer.
+The discipline `Owned ⇒ race-free` was always general; what is NEW is *earning* `Owned` for an arbitrary
+transfer program (channel OR spawn) by an abstract `rstep` induction, not a hand-built per-shape proof.)*
   (And `GoInt`'s past-2⁶² deviation is *documented
 unreachable in practice*, not *proved* unreachable; mitigated by the faithful `GoI64`/`GoU64`.)
 None of this is new breakage — it is the same scope the RED reviews, gap #10, and the "Overclaimed
