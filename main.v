@@ -479,6 +479,21 @@ Definition narrow_field_demo : IO unit :=
           ; any (bb_tag b) ].            (* 7 (the int64 field is untouched) *)
   (* 44 7 *)
 
+(** review #4 P1 #4 (slice 3) — narrow COLLECTION ELEMENTS: a wide int64-carried value flowing into a
+    narrow slice/array element.  [[]uint8] / [[N]uint8] literals built from runtime values were emitted
+    bare ([[]uint8{x & 0xff}] = invalid Go); the plugin now casts each element to the element type from
+    the [GoTypeTag] ([[]uint8{uint8(((int64(300)) & 0xff)), uint8((5 & 0xff))}]).  Exercises the SLICE
+    emitter [slice_of_list] ([]T) and the ARRAY emitter [arr_lit] ([N]T); [arr3_lit] ([3]T) shares
+    [arr_lit]'s identical element-cast code path ([narrow_go_name go_elem]). *)
+Definition narrow_elem_demo : IO unit :=
+  let s := slice_of_list TU8 [u8_of_i64 (i64_lit 300 eq_refl); u8_lit 5 eq_refl] in   (* []uint8{44,5} *)
+  let a := arr_lit       TU8 [u8_of_i64 (i64_lit 301 eq_refl); u8_lit 6 eq_refl] in   (* [2]uint8{45,6} *)
+  bind (slice_get TU8 s (0:int)) (fun s0 =>           (* s[0] = uint8 44 *)
+  arr_get_ok TU8 a (1:int) (fun av _ok =>             (* a[1] = uint8 6  *)
+    println [ any (i64_of_u8 s0)         (* 44 *)
+            ; any (i64_of_u8 av) ])).    (* 6  *)
+  (* 44 6 *)
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3078,6 +3093,7 @@ Definition main_effect : IO unit :=
   uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int — review #4 P0 #1) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)} — review #4 P1 #4 slice 2) *)
+  narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)} — review #4 P1 #4 slice 3) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)

@@ -723,6 +723,14 @@ let narrow_dest_conv t = match t with
   | Tglob (r, []) -> narrow_prim_type r
   | _ -> None
 
+(* The SAME destination cast keyed by a Go type NAME string (from a [GoTypeTag] via [go_type_of_tag])
+   rather than an [ml_type] — for the tag-carrying collection boundaries (slice / array literals; and
+   later channel sends, pointer/map writes).  [Some s] iff [s] is one of the six sub-64 narrow numeric
+   Go types that need an explicit cast from the int64 carrier (exactly [narrow_prim_type]'s outputs);
+   int64/uint64/uint/structs/etc. need none.  review #4 P1 #4. *)
+let narrow_go_name s =
+  if List.mem s ["uint8"; "int8"; "uint16"; "int16"; "uint32"; "int32"] then Some s else None
+
 (* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
    proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
    wrappers — the Go value IS a [float32] (type name → "float32" via [go_prim_type_table];
@@ -1641,10 +1649,15 @@ let rec pp_expr state env = function
           the runtime data — exactly the plausible-but-wrong output the backend must never produce. *)
        | MLglob r, [tag; lst] when is_slice_of_list_ref r ->
            let go_elem = go_type_of_tag tag in
+           (* narrow element [[]uint8{…}] needs each element cast to the destination (review #4 P1 #4):
+              values are int64-carried, so a bare [[]uint8{x & 0xff}] is invalid Go. *)
+           let pp_el e = match narrow_go_name go_elem with
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
+             | None    -> pp_expr state env e in
            (match unfold_list [] lst with
             | Some elems ->
                 str ("[]" ^ go_elem ^ "{") ++
-                prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
+                prlist_with_sep (fun () -> str ", ") pp_el elems ++
                 str "}"
             | None -> unsupported "slice_of_list of a non-literal list (only a statically-known element list is modeled; an opaque Coq list has no faithful []T lowering yet — emitting []T(nil) would silently discard the runtime data)")
        (* arr_lit tag list → [N]T{v1, …, vN} — a FIXED-SIZE array literal (B4); the
@@ -1652,18 +1665,24 @@ let rec pp_expr state env = function
           local [a := arr_lit …] has its Go type inferred from this literal. *)
        | MLglob r, [tag; lst] when is_arr_lit_ref r ->
            let go_elem = go_type_of_tag tag in
+           let pp_el e = match narrow_go_name go_elem with   (* narrow element cast — review #4 P1 #4 *)
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
+             | None    -> pp_expr state env e in
            (match unfold_list [] lst with
             | Some elems ->
                 str ("[" ^ string_of_int (List.length elems) ^ "]" ^ go_elem ^ "{") ++
-                prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++
+                prlist_with_sep (fun () -> str ", ") pp_el elems ++
                 str "}"
             | None -> unsupported "arr_lit of a non-literal list (an array's size must be statically known)")
        (* arr<N>_lit tag e1 … eN → [N]T{e1, …, eN} — a fixed-size array literal in a typed position *)
        | MLglob r, (tag :: elems) when is_arrN_lit_ref r ->
            let n = Option.get (arrN_lit_size r) in
            let go_elem = go_type_of_tag tag in
+           let pp_el e = match narrow_go_name go_elem with   (* narrow element cast — review #4 P1 #4 *)
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
+             | None    -> pp_expr state env e in
            str (Printf.sprintf "[%d]%s{" n go_elem) ++
-           prlist_with_sep (fun () -> str ", ") (pp_expr state env) elems ++ str "}"
+           prlist_with_sep (fun () -> str ", ") pp_el elems ++ str "}"
        (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
           func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
        | MLglob r, [size; tag; a; i; v] when is_arr_set_ref r ->

@@ -255,6 +255,18 @@ func Narrow_field_demo() {
 	println(int64(b.Bb_val), b.Bb_tag)
 }
 
+func Narrow_elem_demo() {
+	s := []uint8{uint8(((int64(300)) & 0xff)), uint8((5 & 0xff))}
+	a := [2]uint8{uint8(((int64(301)) & 0xff)), uint8((6 & 0xff))}
+	s0 := s[0]
+	var av uint8
+	_ok := 1 >= 0 && 1 < len(a)
+	if _ok {
+		av = a[1]
+	}
+	println(int64(s0), int64(av))
+}
+
 func Vlet(x int64, z int64) int64 {
 	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
 }
@@ -2408,6 +2420,7 @@ func main() {
 	Uint_lock_demo()
 	Narrow_ret_demo()
 	Narrow_field_demo()
+	Narrow_elem_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
