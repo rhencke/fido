@@ -291,6 +291,22 @@ func Map_narrow_demo() {
 	println(int64(hit), int64(miss))
 }
 
+func Map_key_narrow_demo() {
+	m := make(map[uint8]int64)
+	m[uint8(((int64(300)) & 0xff))] = 5
+	hit := int64(0)
+	if _v, _ok := m[uint8(((int64(300)) & 0xff))]; _ok {
+		hit = _v
+	}
+	if v, _ok := m[uint8(((int64(300)) & 0xff))]; _ok {
+		delete(m, uint8(((int64(300)) & 0xff)))
+		n := len(m)
+		println(hit, v, n)
+	} else {
+		println(0)
+	}
+}
+
 func Vlet(x int64, z int64) int64 {
 	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
 }
@@ -2447,6 +2463,7 @@ func main() {
 	Narrow_elem_demo()
 	Ptr_chan_narrow_demo()
 	Map_narrow_demo()
+	Map_key_narrow_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()

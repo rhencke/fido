@@ -1834,13 +1834,13 @@ let rec pp_expr state env = function
        (* map_get_or: handled in pp_stmts/MLletin for clean two-statement emission *)
 
        (* map operations — the leading key/value [GoTypeTag]s are proof-only, dropped *)
-       | MLglob r, [_kt; vt; k; v; m] when is_map_set_ref r ->
-           (* narrow map VALUE ([map[K]uint8] ← int64 carrier) needs [uint8(…)] (review #4 P1 #4);
-              the narrow KEY cast is a later slice.  Non-narrow value keeps bare [pp_expr]. *)
-           pp_expr state env m ++ str "[" ++ pp_expr state env k ++ str "] = " ++
-           pp_narrow_or state env vt v (fun () -> pp_expr state env v)
-       | MLglob r, [_kt; _vt; k; m]    when is_map_del_ref r ->
-           str "delete(" ++ pp_expr state env m ++ str ", " ++ pp_expr state env k ++ str ")"
+       | MLglob r, [kt; vt; k; v; m] when is_map_set_ref r ->
+           (* narrow map KEY ([map[uint8]V]) and VALUE ([map[K]uint8]) both need the [uint8(…)] cast
+              from their tags (review #4 P1 #4); non-narrow key/value keep bare [pp_expr]. *)
+           pp_expr state env m ++ str "[" ++ pp_narrow_or_expr state env kt k ++ str "] = " ++
+           pp_narrow_or_expr state env vt v
+       | MLglob r, [kt; _vt; k; m]    when is_map_del_ref r ->
+           str "delete(" ++ pp_expr state env m ++ str ", " ++ pp_narrow_or_expr state env kt k ++ str ")"
        (* clear(m) — Go 1.21 builtin, remove all map entries *)
        | MLglob r, [_kt; _vt; m]       when is_map_clear_ref r ->
            str "clear(" ++ pp_expr state env m ++ str ")"
@@ -2477,6 +2477,9 @@ and pp_narrow_or state env tag e fallback =
 (* The pointer/ref-write specialisation: narrow cast, else [pp_typed_lit] (the prior behaviour). *)
 and pp_payload_at_tag state env tag e =
   pp_narrow_or state env tag e (fun () -> pp_typed_lit state env e)
+(* For destinations whose non-narrow emission is bare [pp_expr] — a map KEY, a channel payload. *)
+and pp_narrow_or_expr state env tag e =
+  pp_narrow_or state env tag e (fun () -> pp_expr state env e)
 
 (* Emit a lambda as a TYPED Go closure [func(x A) R { return body }] using a known
    function type [A1 -> … -> R] (a method dictionary entry).  Unlike the generic
@@ -2741,7 +2744,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                  def, via comma-ok.  [hit] takes the default's (typed) value, so
                  it has the map's value type (not [any]); the if-block overwrites
                  it on a hit. *)
-              | MLglob r2, [_kt; vt; k; def; mm] when is_map_get_or_ref r2 ->
+              | MLglob r2, [kt; vt; k; def; mm] when is_map_get_or_ref r2 ->
                   let hit = match List.filter (fun id -> not (is_dummy id)) ids with
                     | [id] -> pp_mlident id | _ -> str "_g" in
                   (* pin the default to the map's VALUE type (from [vt]) — for a bare full-width literal
@@ -2752,14 +2755,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
                   str tab ++ hit ++ str " := " ++
                   pp_narrow_or state env vt def (fun () -> pp_typed_lit_tagged state env (str vn) def) ++ fnl () ++
                   str tab ++ str "if _v, _ok := " ++ pp_expr state env mm ++
-                  str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
+                  str "[" ++ pp_narrow_or_expr state env kt k ++ str "]; _ok {" ++ fnl () ++
                   str (tab ^ "\t") ++ hit ++ str " = _v" ++ fnl () ++
                   str tab ++ str "}" ++ fnl () ++
                   pp_stmts tab new_env body
               (* bind (map_get_opt k m) (fun o => match o with Some v => A | None => B)
                  → comma-ok if/else.  No [option] value is built; the bound [o] is
                  consumed by the match, so [v] is bound directly from m[k]. *)
-              | MLglob r2, [_kt; _vt; k; mm] when is_map_get_opt_ref r2 ->
+              | MLglob r2, [kt; _vt; k; mm] when is_map_get_opt_ref r2 ->
                   let fallback () =
                     unsupported "a map_get_opt result that is not immediately matched (the option has no Go representation; bind it directly to a Some v / None match)" in
                   (match ids, strip_magic body with
@@ -2780,7 +2783,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                                    | _ -> str "_" in
                                  str tab ++ str "if " ++ v_doc ++ str ", _ok := "
                                    ++ pp_expr state env mm ++ str "["
-                                   ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
+                                   ++ pp_narrow_or_expr state env kt k ++ str "]; _ok {" ++ fnl () ++
                                  pp_stmts (tab ^ "\t") (List.rev some_ids @ (o_id :: env)) some_body ++
                                  str tab ++ str "} else {" ++ fnl () ++
                                  pp_stmts (tab ^ "\t") (o_id :: env) none_body ++
@@ -3537,14 +3540,14 @@ let pp_io_body ?(ret_val=false) state tab env body =
         let head1, all_args1 = collect_app e1 [] in
         let vis1 = List.filter (fun a -> not (is_erased a)) all_args1 in
         (match head1, vis1 with
-         | MLglob r, [_kt; vt; k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
+         | MLglob r, [kt; vt; k; def; m] when is_map_get_or_ref r && not (is_dummy id) ->
              let lhs = pp_mlident id in
              (* narrow value default boxes as its narrow Go type (else it would box as int64 and a
-                later [.(uint8)] would disagree with the model) — review #4 P1 #4. *)
+                later [.(uint8)] would disagree with the model); narrow KEY cast too — review #4 P1 #4. *)
              str tab ++ str "var " ++ lhs ++ str " any = "
                ++ pp_payload_at_tag state env vt def ++ fnl () ++
              str tab ++ str "if _v, _ok := " ++ pp_expr state env m ++
-             str "[" ++ pp_expr state env k ++ str "]; _ok {" ++ fnl () ++
+             str "[" ++ pp_narrow_or_expr state env kt k ++ str "]; _ok {" ++ fnl () ++
              str tab ++ str "\t" ++ lhs ++ str " = _v" ++ fnl () ++
              str tab ++ str "}" ++ fnl () ++
              pp_stmts tab new_env e2
@@ -3673,13 +3676,13 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let sh, sargs = collect_app (strip_magic scrut) [] in
              let svis = List.filter (fun a -> not (is_erased a)) sargs in
              (match sh, svis with
-              | MLglob r, [_kt; _vt; k; m] when is_map_get_opt_ref r ->
+              | MLglob r, [kt; _vt; k; m] when is_map_get_opt_ref r ->
                   let v_doc = match some_ids with
                     | [id] when not (is_dummy id) -> pp_mlident id
                     | _ -> str "_" in
                   let pre =
                     v_doc ++ str ", _ok := " ++ pp_expr state env m ++
-                    str "[" ++ pp_expr state env k ++ str "]; " in
+                    str "[" ++ pp_narrow_or_expr state env kt k ++ str "]; " in
                   if_else pre (str "_ok")
                     (some_body, List.length some_ids, List.rev some_ids @ env)
                     (none_body, 0, env)

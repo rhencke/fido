@@ -519,6 +519,24 @@ Definition map_narrow_demo : IO unit :=
   bind (@map_get_or GoI64 GoU8 TI64 TU8 (9)%i64 (u8_of_i64 (i64_lit 9 eq_refl)) m) (fun miss => (* miss → dflt uint8(9) *)
   println [ any (i64_of_u8 hit) ; any (i64_of_u8 miss) ])))).      (* 44 9 *)
 
+(** review #4 P1 #4 (slice 6) — narrow map KEYS: a [map[uint8]int64] keyed by a wide int64-carried value.
+    Every key site emitted the key bare ([m[x & 0xff]] = invalid Go: an int64 index into a [map[uint8]]),
+    so a narrow-key map was all-or-nothing.  The plugin now casts the key to the key type from the
+    [GoTypeTag] at ALL sites: map_set, map_delete, map_get_or, map_get_opt.  This demo exercises set +
+    get_or + get_opt(bind/match) + delete + len with a [uint8] key. *)
+Definition map_key_narrow_demo : IO unit :=
+  bind (map_make_typed TU8 TI64) (fun m =>
+  bind (map_set TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) (5)%i64 m) (fun _ =>            (* m[uint8 44] = 5 *)
+  bind (@map_get_or GoU8 GoI64 TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) (0)%i64 m) (fun hit =>  (* m[44] = 5 *)
+  bind (map_get_opt TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun o =>                (* Some 5 *)
+  match o with
+  | Some v =>
+    bind (map_delete TU8 TI64 (u8_of_i64 (i64_lit 300 eq_refl)) m) (fun _ =>               (* delete m[44] *)
+    bind (map_len m) (fun n =>                                                              (* len = 0 *)
+    println [ any hit ; any v ; any n ]))                                                   (* 5 5 0 *)
+  | None => println [ any (0)%i64 ]
+  end)))).
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3121,6 +3139,7 @@ Definition main_effect : IO unit :=
   narrow_elem_demo              >>'   (* prints: 44 6 (narrow slice/array ELEMENT boundary: []uint8{uint8(…)} — review #4 P1 #4 slice 3) *)
   ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8 — review #4 P1 #4 slice 4) *)
   map_narrow_demo               >>'   (* prints: 44 9 (narrow map VALUE: map[int64]uint8 value+default — review #4 P1 #4 slice 5) *)
+  map_key_narrow_demo           >>'   (* prints: 5 5 0 (narrow map KEY: map[uint8]int64 set/get/del — review #4 P1 #4 slice 6) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)
