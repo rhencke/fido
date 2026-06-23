@@ -3172,12 +3172,15 @@ let pp_io_body ?(ret_val=false) state tab env body =
          | MLglob r, [_ta; ch1; k1; _tb; ch2; k2] when is_select_recv2_ref r ->
              let recv_case ch kont =
                let ids, body = collect_lam kont in
-               let new_env = List.rev ids @ env in
-               let x = match List.filter (fun id -> not (is_dummy id)) ids with
-                 | [id] -> pp_mlident id | _ -> str "_" in
-               str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
-                 ++ pp_expr state env ch ++ str ":" ++ fnl () ++
-               pp_stmts (tab ^ "\t\t") new_env body in
+               (match ids with
+                | [v] ->   (* exactly one lambda peeled: an inline `fun v => …` *)
+                    let new_env = List.rev ids @ env in
+                    let x = if is_dummy v then str "_" else pp_mlident v in
+                    str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
+                      ++ pp_expr state env ch ++ str ":" ++ fnl () ++
+                    pp_stmts (tab ^ "\t\t") new_env body
+                | _ ->
+                    unsupported "select_recv2 receive continuation is not an inline single-argument `fun v => …` lambda (e.g. a NAMED handler Coq did not inline): the received value would not reach it.  Inline the handler (review #4 P0 2)") in
              str tab ++ str "select {" ++ fnl () ++
              recv_case ch1 k1 ++ recv_case ch2 k2 ++
              str tab ++ str "}" ++ fnl ()
@@ -3185,16 +3188,19 @@ let pp_io_body ?(ret_val=false) state tab env body =
             (the non-blocking form: recv-and-k1 if ready, else run d). *)
          | MLglob r, [_ta; ch1; k1; d] when is_select_recv_default_ref r ->
              let ids, body = collect_lam k1 in
-             let new_env = List.rev ids @ env in
-             let x = match List.filter (fun id -> not (is_dummy id)) ids with
-               | [id] -> pp_mlident id | _ -> str "_" in
-             str tab ++ str "select {" ++ fnl () ++
-             str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
-               ++ pp_expr state env ch1 ++ str ":" ++ fnl () ++
-             pp_stmts (tab ^ "\t\t") new_env body ++
-             str (tab ^ "\t") ++ str "default:" ++ fnl () ++
-             pp_stmts (tab ^ "\t\t") env d ++
-             str tab ++ str "}" ++ fnl ()
+             (match ids with
+              | [v] ->   (* exactly one lambda peeled: an inline `fun v => …` *)
+                  let new_env = List.rev ids @ env in
+                  let x = if is_dummy v then str "_" else pp_mlident v in
+                  str tab ++ str "select {" ++ fnl () ++
+                  str (tab ^ "\t") ++ str "case " ++ x ++ str " := <-"
+                    ++ pp_expr state env ch1 ++ str ":" ++ fnl () ++
+                  pp_stmts (tab ^ "\t\t") new_env body ++
+                  str (tab ^ "\t") ++ str "default:" ++ fnl () ++
+                  pp_stmts (tab ^ "\t\t") env d ++
+                  str tab ++ str "}" ++ fnl ()
+              | _ ->
+                  unsupported "select_recv_default receive continuation is not an inline single-argument `fun v => …` lambda (e.g. a NAMED handler Coq did not inline): the received value would not reach it.  Inline the handler (review #4 P0 2)")
          (* slice_at_ok tag xs i (fun v ok => body) → bounds-checked index:
               var v T
               ok := i < int64(len(xs))   (* i is uint63 >= 0; only upper bound *)
@@ -3233,7 +3239,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                       str tab ++ str "}" ++ fnl () in
                   v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
-                  pp_stmts tab new_env k_body)
+                  unsupported "comma-ok CPS intrinsic (slice_at_ok / arr_get_ok / ptr_get_ok / str_at_ok / type_assert_safe) whose continuation is not an inline two-argument `fun v ok => …` lambda (e.g. a NAMED or separately-extracted handler that Coq did not inline): emitting only the continuation body would silently DROP the checked operation and its v/ok results.  Inline the handler as a literal two-argument lambda (review #4 P0 2 — the recv_ok continuation-loss class)")
          (* ptr_get_ok tag p (fun v ok => body) → nil-checked deref (Phase B1b):
               var v T
               ok := p != nil
@@ -3266,7 +3272,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                       str tab ++ str "}" ++ fnl () in
                   v_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
-                  pp_stmts tab new_env k_body)
+                  unsupported "comma-ok CPS intrinsic (slice_at_ok / arr_get_ok / ptr_get_ok / str_at_ok / type_assert_safe) whose continuation is not an inline two-argument `fun v ok => …` lambda (e.g. a NAMED or separately-extracted handler that Coq did not inline): emitting only the continuation body would silently DROP the checked operation and its v/ok results.  Inline the handler as a literal two-argument lambda (review #4 P0 2 — the recv_ok continuation-loss class)")
          (* str_at_ok s i (fun b ok => body) → bounds-checked byte index:
               var b int64
               ok := i >= 0 && i < int64(len(s))
@@ -3299,7 +3305,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                       str tab ++ str "}" ++ fnl () in
                   b_decl ++ ok_bind ++ if_block ++ pp_stmts tab new_env k_body
               | _ ->
-                  pp_stmts tab new_env k_body)
+                  unsupported "comma-ok CPS intrinsic (slice_at_ok / arr_get_ok / ptr_get_ok / str_at_ok / type_assert_safe) whose continuation is not an inline two-argument `fun v ok => …` lambda (e.g. a NAMED or separately-extracted handler that Coq did not inline): emitting only the continuation body would silently DROP the checked operation and its v/ok results.  Inline the handler as a literal two-argument lambda (review #4 P0 2 — the recv_ok continuation-loss class)")
          (* type_assert_safe tag x (fun v ok => body) → v, ok := x.(T); body
             Go's native two-value assertion: ok=false (no panic) on mismatch. *)
          | MLglob r, [tag; x; kont] when is_type_assert_safe_ref r ->
@@ -3331,7 +3337,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
                     ++ str " := " ++ inner ++ str ".(" ++ str go_t ++ str ")" ++ fnl ()
                     ++ pp_stmts tab new_env k_body
               | _ ->
-                  pp_stmts tab new_env k_body)
+                  unsupported "comma-ok CPS intrinsic (slice_at_ok / arr_get_ok / ptr_get_ok / str_at_ok / type_assert_safe) whose continuation is not an inline two-argument `fun v ok => …` lambda (e.g. a NAMED or separately-extracted handler that Coq did not inline): emitting only the continuation body would silently DROP the checked operation and its v/ok results.  Inline the handler as a literal two-argument lambda (review #4 P0 2 — the recv_ok continuation-loss class)")
          (* type_switchN a t1 k1 … tN kN d → Go's native type switch:
               switch _tsv := <a>.(type) {
               case T1: v1 := _tsv; <k1 body>   …   case TN: vN := _tsv; <kN body>
