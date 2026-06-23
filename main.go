@@ -339,6 +339,13 @@ func F32_extra_demo() {
 	println(func(x float32) float32 { return -x }(func(x float64) float32 { return float32(x) }(1.5)), func(x float32, y float32) float32 { return min(x, y) }(func(x float64) float32 { return float32(x) }(3.0), func(x float64) float32 { return float32(x) }(5.0)), func(x float32, y float32) float32 { return max(x, y) }(func(x float64) float32 { return float32(x) }(3.0), func(x float64) float32 { return float32(x) }(5.0)))
 }
 
+func F32_box_demo() {
+	_, a := any(func(x float64) float32 { return float32(x) }(1.5)).(float32)
+	_, b := any(func(x float64) float32 { return float32(x) }(1.5)).(float64)
+	_, c := any(1.5).(float64)
+	println(a, b, c)
+}
+
 func F32_conv_demo() {
 	println(func(x float64) float32 { return float32(x) }(float64(16777217)), func(x float64) float32 { return float32(x) }(float64(30.0/100.0)))
 }
@@ -2507,6 +2514,7 @@ func main() {
 	Fconst_demo()
 	F32_cmp_demo()
 	F32_extra_demo()
+	F32_box_demo()
 	F32_conv_demo()
 	Narrow_f32_demo()
 	F32_const_runtime_demo()

@@ -605,6 +605,15 @@ Definition f32_extra_demo : IO unit :=
   println [ any (f32_neg (f32_lit 1.5))             (* -1.5 *)
           ; any (f32_min (f32_lit 3) (f32_lit 5))   (* 3 *)
           ; any (f32_max (f32_lit 3) (f32_lit 5)) ]. (* 5 *)
+(** Differential test — float32 vs float64 DISTINCTNESS under boxing (untested: the f32 demos box+print,
+    which can't reveal the boxed Go type).  A boxed [GoFloat32] asserts TO [float32] (true) but NOT TO
+    [float64] (false), and a boxed [float64] the reverse — so the model's [tag_eq] agrees with Go's
+    runtime [v.(float32)] vs [v.(float64)] (they are genuinely distinct Go types). *)
+Definition f32_box_demo : IO unit :=
+  type_assert_safe TFloat32 (any (f32_lit 1.5)) (fun _ a =>     (* float32 to float32 → true  *)
+  type_assert_safe TFloat64 (any (f32_lit 1.5)) (fun _ b =>     (* float32 to float64 → FALSE *)
+  type_assert_safe TFloat64 (any (1.5)%float)   (fun _ c =>     (* float64 to float64 → true  *)
+    println [any a; any b; any c]))).   (* true false true *)
 (** float32 RANGE + CONVERSION faithfulness (the float32 trap list).  Every float32↔(int/float64/
     constant) path goes through binary64, which is PROVABLY single-rounding-equivalent: binary64's
     53 bits exceed [2·24 + 2 = 50], so decimal/int → binary64 → binary32 equals a DIRECT round to
@@ -3196,6 +3205,7 @@ Definition main_effect : IO unit :=
   fconst_demo                   >>'   (* prints: 0.3 0.375 (untyped float CONSTANTS, exact-rational fold) *)
   f32_cmp_demo                  >>'   (* prints: true true true (native float32 comparison) *)
   f32_extra_demo                >>'   (* prints: -1.5 / 3 / 5 (float32 neg, min, max) *)
+  f32_box_demo                  >>'   (* prints: true false true (float32 vs float64 boxing distinctness) *)
   f32_conv_demo                 >>'   (* prints: 1.6777216e7 / 0.3 (float32(int), float32 const) *)
   narrow_f32_demo               >>'   (* prints: 200 (narrow↔float32 composable via int64/float64) *)
   f32_const_runtime_demo        >>'   (* prints: +Inf / -Inf / +Inf / +Inf (const float ops forced to runtime IEEE) *)
