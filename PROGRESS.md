@@ -733,8 +733,15 @@ test (a `Fail`/abort) or a runtime golden lock that the un-demoed instances also
   destination was emitted bare (invalid Go) at EVERY boundary the review listed; now cast via the unified
   `narrow_dest_conv`/`narrow_go_name`/`pp_narrow_or`/`func_param_types` helpers at: narrow→wide widening,
   struct fields, slice/array elements, pointer/channel payloads, map keys+values, and function args. So
-  R4(d) "every position" is now genuinely true (modulo SAFE residuals that DECLINE rather than mis-cast:
-  narrow params of methods / erased-arg functions, `ref_set`). Each boundary has a runtime golden lock.
+  R4(d) "every position" is now genuinely true (method-arg + erased-arg/generics×narrow residuals also
+  CLOSED — commits a134f7d, aeb8ae1). Each boundary has a runtime golden lock. ONE latent residual remains:
+  `ref_set` — the only narrow-destination op with no tag at the write site. `ref_new` emits the cell's init
+  via `pp_typed_lit`, which does NOT cast a narrow value, so Go infers the ref var as its `int64` carrier;
+  `ref_set r v` is then `int64 = int64` — CONSISTENT and build-valid (not a build error, not a wrong value).
+  The gap is purely type-IDENTITY: a `Ref GoU8` is `int64` in the emitted Go but `GoU8` in the model, so
+  boxing+asserting it would show `int64` not `uint8` (the P0 #1 class, but latent — no demo boxes a narrow
+  ref). A narrow-faithful-`Ref` fix casts the init at `ref_new` via its tag AND tracks the ref var's narrow
+  type to cast at `ref_set` (an intricate ref-var-tracking change, not a clean 1-liner — deferred, recorded).
 - **P1 #5 — session "full safety+liveness" (RE-SCOPED, not a code bug).** Restated above (search "review #4
   P1 #5"): forge-proof discipline + conditional successful-trace soundness PROVED; unconditional
   liveness/termination NOT (SLift admits `panic`; emits theorems conditional on `PEmits`). PARTIAL.

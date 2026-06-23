@@ -2,15 +2,22 @@
 
 **Verified model components with a TRUSTED extraction backend** (the honest claim — *not* yet "formally
 verified Go"). Theorems are proved in Rocq (Coq); the `*.go` is a **proof artifact extracted from `*.v`** by
-the plugin — never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**,
-and THREE external reviews (2026-06-21 model-layer; 2026-06-22 backend; 2026-06-22 review #3) found it currently
-**fails OPEN** — emitting plausible-but-wrong Go (`nil`/`any`/block-zero/`return`, a silently-dropped branch or
-recv-continuation) where rule 2 demands a fail-loud `unsupported`. ⚠️ The latest (review #3) FALSIFIED an earlier
-"all silent sites closed" claim — it found MORE (the raw `emit_block` block-body and `recv_ok` continuation-drop)
-plus several invalid-Go and model-faithfulness gaps. **Closing the remaining backend fail-OPEN sites (R1
-`emit_block`, R2 `recv_ok` first; then typed lowering) is the TOP priority** — see PROGRESS.md "RELEASE REVIEW #3
-(2026-06-22)". Until a compiler-correctness theorem connects source/MiniML semantics to emitted Go, do not
-headline this as "formally verified Go".
+the plugin — never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**:
+no theorem relates the emitted Go to the source term, so the golden tests are the only end-to-end check. FOUR
+external reviews (2026-06-21 model-layer; 2026-06-22 backend; 2026-06-22 review #3; 2026-06-23 review #4) found
+the backend **failing OPEN** at a series of sites — emitting plausible-but-wrong Go (`nil`/`any`/block-zero/
+`return`, a dropped branch, a dropped `recv`/comma-ok CPS continuation, an uncast narrow boundary, a
+non-injective identifier) where rule 2 demands a fail-loud `unsupported`. **Every enumerated fail-OPEN site has
+since been CLOSED** — the fail-closed sweep (incl. R1 `emit_block` block-body, R2 `recv_ok` + the whole comma-ok
+CPS class, the narrow-destination class across all 7 boundaries, raw-CFG entry/terminator validation,
+identifier-collision detection at extraction, full-width-int constant forcing, platform-`uint` distinctness)
+makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️ But review #4's meta-lesson stands:
+a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
+and demoed" — the trusted/unverified status holds. The remaining work is the deep **verified-printer architecture**
+(a compiler-correctness theorem connecting source/MiniML semantics to emitted Go — gap #10), **stronger gates** (a
+permanent negative-fixture harness, a Print-Assumptions manifest, CI), and a few **latent typed-lowering residuals**
+(e.g. narrow `Ref` type-identity). Until gap #10 closes, do not headline this as "formally verified Go" — see
+PROGRESS.md "RELEASE REVIEW #3 / #4".
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
 safety properties Go's compiler can't prove — no nil deref, use-after-close,
