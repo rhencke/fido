@@ -464,6 +464,21 @@ Definition narrow_ret_demo : IO unit :=
           ; any (lowbyte_i8 (i64_lit 200  eq_refl))    (* int8(200)          = -56 *)
           ; any (inc8       (u8_lit 200 eq_refl))      (* uint8(200)+1       = 201 *)
           ; any (consume_i8 (i64_lit 200 eq_refl)) ].  (* int8(int8(200)+1)  = -55 *)
+
+(** review #4 P1 #4 (slice 2) — the CONVERSE of the widening: a wide int64-carried value flowing INTO
+    a NARROW struct field.  [bb_val : GoU8] renders as Go [uint8], but the constructor value
+    [u8_of_i64 …] is computed in the int64 carrier (a masked expr), so a bare [ByteBox{Bb_val: x & 0xff}]
+    is INVALID Go (the reviewer's [Box{V: x & 0xff}] with V uint8).  The plugin now casts the value to
+    the field's destination type: [ByteBox{Bb_val: uint8(((int64(300)) & 0xff)), …}].  A RUNTIME value
+    (not a bare constant) exercises the cast: [u8_of_i64 (i64_lit 300)] truncates to uint8(300)=44, then
+    the field read [bb_val b] (a real [uint8]) widens back via [i64_of_u8] (slice 1) to 44. *)
+Record ByteBox := MkByteBox { bb_val : GoU8 ; bb_tag : GoI64 }.   (* 2 fields: avoid single-field unboxing *)
+Definition narrow_field_demo : IO unit :=
+  let b := MkByteBox (u8_of_i64 (i64_lit 300 eq_refl)) (i64_lit 7 eq_refl) in
+  println [ any (i64_of_u8 (bb_val b))   (* uint8(300)=44, widened back to int64 *)
+          ; any (bb_tag b) ].            (* 7 (the int64 field is untouched) *)
+  (* 44 7 *)
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3062,6 +3077,7 @@ Definition main_effect : IO unit :=
   narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
   uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int — review #4 P0 #1) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
+  narrow_field_demo             >>'   (* prints: 44 7 (narrow struct FIELD boundary: ByteBox{uint8(…)} — review #4 P1 #4 slice 2) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)

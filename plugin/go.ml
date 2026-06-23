@@ -711,6 +711,18 @@ let narrow_prim_type r =
           Some ((if n.[2] = 'I' then "int" else "uint") ^ string_of_int w)
       | _ -> None
 
+(* review #4 P1 #4: the Go conversion a value needs when flowing INTO a destination of [ml_type] [t]
+   — a struct field, map key/value, channel payload, function arg, slice element, pointer write.  A
+   SUB-64 narrow numeric destination ([uint8]…[int32]) needs an EXPLICIT cast because values are
+   computed in the int64 carrier (a masked expr), so a bare value against a narrow destination is
+   invalid Go (the reviewer's [Box{V: x & 0xff}] with V uint8).  Returns the Go type name to cast to,
+   else None — None covers everything ALREADY at its destination type: int64/uint64 (carrier IS the
+   type), [GoUint] (self-casts to [uint(…)] at its ctor), structs/slices/strings/bools/etc.  This is
+   the [pp_value_at_type] coercion the review prescribes; applied at the struct-field boundary first. *)
+let narrow_dest_conv t = match t with
+  | Tglob (r, []) -> narrow_prim_type r
+  | _ -> None
+
 (* Abstract [GoFloat32] wrapper (builtins.v): a [float] carrier + an UNFORGEABLE provenance
    proof (the carrier is in the image of [f32_round]).  ERASED exactly like the numint
    wrappers — the Go value IS a [float32] (type name → "float32" via [go_prim_type_table];
@@ -2251,6 +2263,12 @@ let rec pp_expr state env = function
         | _, [] -> []
         | (Tarr _ as t) :: ts', (MLlam _ as a) :: args' ->
             pp_typed_closure state env t a :: pp_vals ts' args'
+        (* narrow field [V uint8 := <int64-carried expr>] needs the destination cast [uint8(…)]
+           (review #4 P1 #4) — else [T{V: x & 0xff}] is invalid Go.  Idempotent on a value already
+           of that narrow type (e.g. a [uint8] param passed straight through). *)
+        | t :: ts', a :: args' when narrow_dest_conv t <> None ->
+            (str (Option.get (narrow_dest_conv t) ^ "(") ++ pp_expr state env a ++ str ")")
+              :: pp_vals ts' args'
         | _ :: ts', a :: args' -> pp_expr state env a :: pp_vals ts' args'
         | [],       a :: args' -> pp_expr state env a :: pp_vals [] args'
       in

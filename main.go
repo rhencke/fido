@@ -245,6 +245,16 @@ func Narrow_ret_demo() {
 	println(Lowbyte(int64(4660)), Lowbyte_i8(int64(200)), Inc8((200 & 0xff)), Consume_i8(int64(200)))
 }
 
+type ByteBox struct {
+	Bb_val uint8
+	Bb_tag int64
+}
+
+func Narrow_field_demo() {
+	b := ByteBox{Bb_val: uint8(((int64(300)) & 0xff)), Bb_tag: int64(7)}
+	println(int64(b.Bb_val), b.Bb_tag)
+}
+
 func Vlet(x int64, z int64) int64 {
 	return func(x int64, y int64) int64 { return x + y }(x+x, x+x) + z
 }
@@ -2397,6 +2407,7 @@ func main() {
 	Narrow_cluster_lock_demo()
 	Uint_lock_demo()
 	Narrow_ret_demo()
+	Narrow_field_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
