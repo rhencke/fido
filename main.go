@@ -1196,6 +1196,15 @@ func Mut_demo() {
 	println(b)
 }
 
+func Narrow_ref_demo() {
+	r := uint8(((int64(200)) & 0xff))
+	r = uint8(((int64(7)) & 0xff))
+	v := r
+	_, okU := any(v).(uint8)
+	_, okI := any(v).(int64)
+	println(okU, okI)
+}
+
 func Ptr_demo() {
 	p := func(_v int64) *int64 { return &_v }(int64(10))
 	a := *p
@@ -2532,6 +2541,7 @@ func main() {
 	Irreducible_demo(false)
 	Irreducible_demo(true)
 	Mut_demo()
+	Narrow_ref_demo()
 	Ptr_demo()
 	Addr_of_demo()
 	Ptr_box_demo()

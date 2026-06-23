@@ -16,8 +16,8 @@ a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites 
 and demoed" — the trusted/unverified status holds. The remaining work is the deep **verified-printer architecture**
 (a compiler-correctness theorem connecting source/MiniML semantics to emitted Go — gap #10), **stronger gates** (a
 permanent negative-fixture harness, a Print-Assumptions manifest, CI), and a few **latent typed-lowering residuals**
-(e.g. narrow `Ref` type-identity). Until gap #10 closes, do not headline this as "formally verified Go" — see
-PROGRESS.md "RELEASE REVIEW #3 / #4".
+(e.g. R3's untyped higher-order `func(x any) any` lambda — dead today since Fido HOFs are interface/method-dict-typed).
+Until gap #10 closes, do not headline this as "formally verified Go" — see PROGRESS.md "RELEASE REVIEW #3 / #4".
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
 safety properties Go's compiler can't prove — no nil deref, use-after-close,

@@ -1899,6 +1899,19 @@ Definition mut_demo : IO unit :=
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
   println [any b])))).                         (* prints 15 *)
 
+(** Narrow [Ref] type-IDENTITY (P1 #4 narrow-Ref residual): a [Ref GoU8] now lowers to a Go [uint8]
+    cell, not the [int64] carrier — so a value read back, boxed, and asserted resolves to [uint8] (true)
+    NOT [int64] (false), agreeing with the model's [TU8] tag.  [ref_new TU8] casts the init via its tag;
+    [ref_set] casts via the value's own narrow type.  Without the fix the cell was [int64] (`false true`).
+    The numeric value (7) was always right — this locks the previously-latent type identity. *)
+Definition narrow_ref_demo : IO unit :=
+  bind (ref_new TU8 (u8_of_i64 (i64_lit 200 eq_refl))) (fun r =>   (* r := uint8(200) *)
+  bind (ref_set r (u8_of_i64 (i64_lit 7 eq_refl)))      (fun _ =>   (* r = uint8(7) *)
+  bind (ref_get TU8 r)                                  (fun v =>   (* v := r  (uint8 7) *)
+  type_assert_safe TU8 (any v)  (fun _ okU =>                        (* assert uint8 → true  *)
+  type_assert_safe TI64 (any v) (fun _ okI =>                        (* assert int64 → false *)
+  println [any okU; any okI]))))).                                   (* true false *)
+
 (** Phase B1: POINTERS (Go spec "Pointer types").  [ptr_new] allocates a fresh
     [*int64] holding 10; [*p] reads it; [*p = v] writes through it.  Distinct from a
     [Ref] (a local var): a [Ptr] lowers to Go [*T], so a COPY of the pointer aliases
@@ -3211,6 +3224,7 @@ Definition main_effect : IO unit :=
   irreducible_demo false        >>'   (* prints: 1 / 2 / 1 / 2 *)
   irreducible_demo true         >>'   (* prints: 2 / 1 / 2 / 1 / 2 *)
   mut_demo                      >>'   (* prints: 15 *)
+  narrow_ref_demo               >>'   (* prints: true false (a Ref GoU8 lowers to a uint8 cell, not int64) *)
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
   addr_of_demo                  >>'   (* prints: 10 / 99 (&x: writing through a local's address aliases it) *)
   ptr_box_demo                  >>'   (* prints: true false (a *int64 boxed as any: asserts to *int64 not int64 — recursive TPtr tag) *)

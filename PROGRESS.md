@@ -734,14 +734,17 @@ test (a `Fail`/abort) or a runtime golden lock that the un-demoed instances also
   `narrow_dest_conv`/`narrow_go_name`/`pp_narrow_or`/`func_param_types` helpers at: narrow→wide widening,
   struct fields, slice/array elements, pointer/channel payloads, map keys+values, and function args. So
   R4(d) "every position" is now genuinely true (method-arg + erased-arg/generics×narrow residuals also
-  CLOSED — commits a134f7d, aeb8ae1). Each boundary has a runtime golden lock. ONE latent residual remains:
-  `ref_set` — the only narrow-destination op with no tag at the write site. `ref_new` emits the cell's init
-  via `pp_typed_lit`, which does NOT cast a narrow value, so Go infers the ref var as its `int64` carrier;
-  `ref_set r v` is then `int64 = int64` — CONSISTENT and build-valid (not a build error, not a wrong value).
-  The gap is purely type-IDENTITY: a `Ref GoU8` is `int64` in the emitted Go but `GoU8` in the model, so
-  boxing+asserting it would show `int64` not `uint8` (the P0 #1 class, but latent — no demo boxes a narrow
-  ref). A narrow-faithful-`Ref` fix casts the init at `ref_new` via its tag AND tracks the ref var's narrow
-  type to cast at `ref_set` (an intricate ref-var-tracking change, not a clean 1-liner — deferred, recorded).
+  CLOSED — commits a134f7d, aeb8ae1). Each boundary has a runtime golden lock. **The last narrow-destination
+  residual — narrow `Ref` type-identity — is now CLOSED too (2026-06-23).** A `Ref GoU8` was lowering to the
+  `int64` carrier (a latent type-identity gap: model `GoU8` vs Go `int64`, observable only via box+assert —
+  the P0 #1 class), because `ref_new` emitted the cell's init bare. FIX (go.ml): `ref_new` now casts the init
+  via its tag (`pp_payload_at_tag`, like `ptr_new`), so the Go cell is `uint8`; `ref_set` casts the value via
+  `value_narrow_conv` (the value's OWN narrow Go type — `ref_set` carries no tag, but the value has the same
+  source type `A` as the ref, so it supplies the cast). COMPLETE, no fail-open residual: an already-`uint8`-typed
+  value (param / let-var / narrow-returning call) needs no cast (`uint8 = uint8`); only the int64-carrier narrow
+  OP results do, and `value_narrow_conv` detects exactly those. Non-narrow refs (`TInt64`/…) byte-identical
+  (`pp_payload_at_tag`/`value_narrow_conv` decline). Runtime lock `narrow_ref_demo` → `true false` (a `Ref GoU8`
+  asserts to `uint8` not `int64`; was `false true`). Turned out NOT to need the feared ref-var tracking.
 - **P1 #5 — session "full safety+liveness" (RE-SCOPED, not a code bug).** Restated above (search "review #4
   P1 #5"): forge-proof discipline + conditional successful-trace soundness PROVED; unconditional
   liveness/termination NOT (SLift admits `panic`; emits theorems conditional on `PEmits`). PARTIAL.

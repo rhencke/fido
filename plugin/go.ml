@@ -1721,10 +1721,16 @@ let rec pp_expr state env = function
           int/float literals are typed so the inferred Go var is int64/float64.
           [ref_new] now carries a leading [GoTypeTag] (the cell's element type, for
           the typed-heap model); it is proof-only, dropped at the call site. *)
-       | MLglob r, [_tag; v] when is_ref_new_ref r -> pp_typed_lit state env v
+       | MLglob r, [tag; v] when is_ref_new_ref r -> pp_payload_at_tag state env tag v  (* narrow cell ← int64 carrier needs uint8(…) so the inferred Go var is the model's type, not int64 (P1 #4 narrow-Ref) *)
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
-           pp_expr state env rf ++ str " = " ++ pp_typed_lit state env v
+           (* a narrow value (int64-carrier) into a narrow Go ref var needs a cast; the value's OWN
+              narrow Go type IS the ref's type (both are the source type [A]), so [value_narrow_conv]
+              supplies it — [ref_set] carries no tag.  Non-narrow ⇒ [pp_typed_lit] (byte-identical). *)
+           let rhs = (match value_narrow_conv env v with
+                      | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
+                      | None -> pp_typed_lit state env v) in
+           pp_expr state env rf ++ str " = " ++ rhs
        (* [ref_as_ptr r] = Go [&x]: the ADDRESS of a local variable [x].  A [Ref] lowers to an
           addressable Go var, so [&x] is a valid [*T] aliasing its cell.  Emit [&] of the var — but
           ONLY when the operand is a bound variable ([MLrel], the provably-addressable case); a [Ref]
