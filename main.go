@@ -2163,6 +2163,12 @@ func Gstruct_demo() {
 	println((Make_box("x")).Box_tag())
 }
 
+func Gbox_narrow_demo() {
+	b := Make_box(uint8(((int64(300)) & 0xff)))
+	_, ok := any(b.Box_get()).(uint8)
+	println(int64(b.Box_get()), ok)
+}
+
 type Counts map[string]int64
 
 func Mk_counts(m map[string]int64) Counts {
@@ -2475,6 +2481,7 @@ func main() {
 	Generics_demo()
 	Comparable_demo()
 	Gstruct_demo()
+	Gbox_narrow_demo()
 	Gmap_deftype_demo()
 	Recursion_demo()
 	Pure_rec_demo()

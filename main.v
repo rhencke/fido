@@ -2894,6 +2894,16 @@ Definition gstruct_demo : IO unit :=
   bind (println [any (box_get (make_box true))])         (fun _ =>   (* Box[bool] → true (same generic) *)
   println [any (box_tag (make_box "x"%string))])).                   (* non-generic field → 1 *)
 
+(** review-driven: a generic struct instantiated at a NARROW type ([Box GoU8] = [Box[uint8]]).  The
+    P1 #4 struct-field / function-arg casts key off the DECLARED type, which here is a type VARIABLE
+    [A] ⇒ [narrow_dest_conv] is None ⇒ no cast.  The value [u8_of_i64 …] is an int64-masked carrier, so
+    `Make_box[uint8](x & 0xff)` would pass an int64 to a [uint8] type-param = invalid Go (the generics×
+    narrow fail-open).  Reading back widens via [i64_of_u8]. *)
+Definition gbox_narrow_demo : IO unit :=
+  let b := make_box (u8_of_i64 (i64_lit 300 eq_refl)) in   (* Box[uint8] in the model, bval = uint8(44) *)
+  type_assert_safe TU8 (any (box_get b)) (fun _ ok =>       (* model: box_get : GoU8 ⇒ .(uint8) is TRUE *)
+    println [ any (i64_of_u8 (box_get b)) ; any ok ]).      (* 44 true — runtime must AGREE (Box[uint8], not Box[int64]) *)
+
 (** A DEFINED TYPE over a MAP underlying (Go's [type Counts map[string]int64]) — completing
     the composite-underlying axis (primitive/string/func/slice/MAP).  [GoMap] is already
     recognised by name in [pp_type] (unlike [GoSlice]), so no plugin change: the underlying
@@ -3160,6 +3170,7 @@ Definition main_effect : IO unit :=
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   comparable_demo               >>'   (* prints: true true false true true (generic [K comparable]: int64/uint64/string/struct/DEFINED-TYPE → native ==) *)
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
+  gbox_narrow_demo              >>'   (* prints: 44 true (generic struct Box[uint8] — generics×narrow type inference) *)
   gmap_deftype_demo             >>'   (* prints: 2 (defined type over a map, type Counts map[string]int64) *)
   recursion_demo                >>'   (* prints: 3 / 2 / 1 (user recursion, self-calling func) *)
   pure_rec_demo                 >>'   (* prints: 16 (pure value-returning recursion, pow2 4) *)

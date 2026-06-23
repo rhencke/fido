@@ -967,6 +967,17 @@ let narrow_var_of env t =
       (try Option.bind (mlident_name (List.nth env (i - 1))) (Hashtbl.find_opt narrow_var_types)
        with _ -> None)
   | _ -> None
+(* review #4 P1 #4 / generics: the narrow Go type to cast a value TO when it flows into a destination
+   whose DECLARED type is NOT a concrete narrow — a generic type-PARAMETER position ([Box[T]{V}],
+   [make_box(v)]).  Without it Go INFERS the type parameter from the int64-masked arg ([Box[int64]] for a
+   [uint8] value), diverging model↔runtime.  Uses the VALUE's own narrow type (a narrow op result, or a
+   recorded narrow let-var).  EXCLUDES an [existT]/any-box (its inner narrow is cast at the box, not here)
+   — so it never mis-fires on a [GoAny] param. *)
+let value_narrow_conv env e =
+  let rec peel = function MLmagic x -> peel x | x -> x in
+  match peel e with
+  | MLcons (_, r, _) when is_existT_ref r -> None
+  | _ -> (match narrow_type_of e with Some _ as g -> g | None -> narrow_var_of env e)
 (* Record `let id := e1` if e1 yields a narrow value — directly (a narrow op) or by aliasing a narrow var. *)
 let record_narrow_binding env id e1 =
   let gt = match narrow_type_of e1 with Some _ as g -> g | None -> narrow_var_of env e1 in
@@ -2229,11 +2240,12 @@ let rec pp_expr state env = function
              let ptl = match Hashtbl.find_opt func_param_types (global_path r) with
                | Some (_ :: tl) when List.length tl = List.length rest -> tl
                | _ -> [] in
-             let pp_arg i a = match List.nth_opt ptl i with
-               | Some pt -> (match narrow_dest_conv pt with
-                             | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
-                             | None    -> pp_expr state env a)
-               | None -> pp_expr state env a in
+             let pp_arg i a =
+               let gt = match Option.bind (List.nth_opt ptl i) narrow_dest_conv with
+                 | Some _ as g -> g | None -> value_narrow_conv env a in
+               match gt with
+               | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
+               | None    -> pp_expr state env a in
              dot ++ str "(" ++
              prlist_with_sep (fun () -> str ", ") (fun x -> x) (List.mapi pp_arg rest) ++ str ")"
        | _ ->
@@ -2245,11 +2257,15 @@ let rec pp_expr state env = function
                             | Some pts when List.length pts = List.length vis -> pts
                             | _ -> [])
              | _ -> [] in
-           let pp_arg i a = match List.nth_opt pts i with
-             | Some pt -> (match narrow_dest_conv pt with
-                           | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
-                           | None    -> pp_expr state env a)
-             | None -> pp_expr state env a in
+           (* declared-narrow param → cast; else the VALUE's own narrow type (generic type-param
+              position, where Go would otherwise infer the wrong type argument; also the erased-arg
+              fallback — a raw narrow value is cast regardless of alignment, an any-box is not). *)
+           let pp_arg i a =
+             let gt = match Option.bind (List.nth_opt pts i) narrow_dest_conv with
+               | Some _ as g -> g | None -> value_narrow_conv env a in
+             match gt with
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
+             | None    -> pp_expr state env a in
            pp_atom state env head ++ str "(" ++
            prlist_with_sep (fun () -> str ", ")
              (fun x -> x) (List.mapi pp_arg vis) ++
@@ -2320,12 +2336,14 @@ let rec pp_expr state env = function
         | (Tarr _ as t) :: ts', (MLlam _ as a) :: args' ->
             pp_typed_closure state env t a :: pp_vals ts' args'
         (* narrow field [V uint8 := <int64-carried expr>] needs the destination cast [uint8(…)]
-           (review #4 P1 #4) — else [T{V: x & 0xff}] is invalid Go.  Idempotent on a value already
-           of that narrow type (e.g. a [uint8] param passed straight through). *)
-        | t :: ts', a :: args' when narrow_dest_conv t <> None ->
-            (str (Option.get (narrow_dest_conv t) ^ "(") ++ pp_expr state env a ++ str ")")
-              :: pp_vals ts' args'
-        | _ :: ts', a :: args' -> pp_expr state env a :: pp_vals ts' args'
+           (review #4 P1 #4) — else [T{V: x & 0xff}] is invalid Go.  Cast off the DECLARED field type,
+           else the VALUE's own narrow type (a generic field [Box[T]{V}] at a narrow instance, where
+           the declared type is a type variable).  Idempotent on a value already of that narrow type. *)
+        | t :: ts', a :: args' ->
+            let gt = match narrow_dest_conv t with Some _ as g -> g | None -> value_narrow_conv env a in
+            (match gt with
+             | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
+             | None    -> pp_expr state env a) :: pp_vals ts' args'
         | [],       a :: args' -> pp_expr state env a :: pp_vals [] args'
       in
       let vals = pp_vals ftypes args in
