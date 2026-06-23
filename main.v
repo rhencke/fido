@@ -721,14 +721,20 @@ Example fconst_runtime : PrimFloat.eqb (PrimFloat.add 0.1 0.2) 0.3 = false.   (*
 Proof. vm_compute. reflexivity. Qed.
 Example fconst_mul     : PrimFloat.eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 0.375 = true.  (* 3/2·1/4 = 3/8 = 0.375 *)
 Proof. vm_compute. reflexivity. Qed.
-Example fconst_div     : PrimFloat.eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
+Example fconst_div     : PrimFloat.eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
 Proof. vm_compute. reflexivity. Qed.
+(** Review #6 P2 #16 / minimum-suite #12: a constant division by a ZERO constant is
+    UNCONSTRUCTABLE.  [fc_div] demands evidence [fc_num b <> 0]; for a zero divisor that
+    obligation is [0 <> 0], which is refutable — so no such [fc_div] term can be written.
+    (Go rejects constant division by zero at compile time; here it is a TYPE error.) *)
+Example fc_div_zero_evidence_absurd : ~ (fc_num (mkFC 0 1) <> 0%Z).
+Proof. intro H. exact (H eq_refl). Qed.
 (** LOWERED: [f64_of_fconst] folds the exact rational and emits [(float64(num) / float64(den))],
     which Go RE-FOLDS at compile time to the same correctly-rounded constant. *)
 Definition fconst_demo : IO unit :=
   println [ any (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))    (* (1/10)+(2/10) = 0.3 *)
           ; any (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4)))      (* (3/2)·(1/4) = 0.375 *)
-          ; any (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1))) ].   (* 1.0/4.0 = 0.25 *)
+          ; any (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) ].   (* 1.0/4.0 = 0.25 *)
 (** float32 COMPARISON LOWERED to native Go [float32] [<]/[>=]/[!=] (operands are [float32]).
     Machine-checked faithful, NaN corner included: [f32_geb] is the swapped [leb], so [x >= NaN]
     is FALSE (matching Go) — [¬(x < NaN)] would wrongly be true. *)

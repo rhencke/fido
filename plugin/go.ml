@@ -1598,13 +1598,18 @@ let rec zu_eval e =
 let rec fc_eval e =
   match e with
   | MLcons (_, r, [num; den]) when named "mkFC" r ->   (* the record CONSTRUCTOR is an MLcons *)
-      (match z_eval num, z_eval den with Some n, Some d -> Some (n, d) | _ -> None)
+      (* [fc_den] is a [positive] (Q-style, always >= 1), so the denominator is read with
+         [pos_value], not [z_eval]; it can never fold to 0 (review #6 P2 #16). *)
+      (match z_eval num, pos_value den with Some n, Some d -> Some (n, d) | _ -> None)
   | MLapp (MLglob r, [a; b]) when named "fc_mul" r ->
       (match fc_eval a, fc_eval b with
        | Some (na, da), Some (nb, db) ->
            (match chk_mul na nb, chk_mul da db with Some n, Some d -> Some (n, d) | _ -> None)
        | _ -> None)
-  | MLapp (MLglob r, [a; b]) when named "fc_div" r ->   (* (na/da)/(nb/db) = (na·db)/(da·nb) *)
+  | MLapp (MLglob r, (a :: b :: _)) when named "fc_div" r ->   (* (na/da)/(nb/db) = (na·db)/(da·nb) *)
+      (* [fc_div] carries a nonzero-divisor PROOF arg ([hb : fc_num b <> 0]); Coq erases it, but
+         match [a :: b :: _] so a residual erased dummy never defeats recognition.  The folded
+         value (na·db)/(da·nb) equals the model's sign-normalised (sgn·na·db)/(da·|nb|). *)
       (match fc_eval a, fc_eval b with
        | Some (na, da), Some (nb, db) ->
            (match chk_mul na db, chk_mul da nb with Some n, Some d -> Some (n, d) | _ -> None)
@@ -2136,6 +2141,9 @@ let rec pp_expr state env = function
            (match fc_eval fc with
             | Some (num, den) when den <> 0L ->
                 str (Printf.sprintf "float64(%Ld.0 / %Ld.0)" num den)
+            (* den=0 is now UNREACHABLE: [fc_den] is a [positive] and [fc_div] is nonzero-divisor
+               gated (review #6 P2 #16), so a 0 denominator cannot be constructed — this stays as
+               a defensive boundary guard (closed-world tenet), not a reachable fail-loud path. *)
             | Some _ -> unsupported "f64_of_fconst: den = 0 (a float64 constant cannot be ±Inf)"
             | None -> unsupported "f64_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [f32_of_fconst c] — exact FConst → float32: fold the rational and emit [float32(num.0 / den.0)].

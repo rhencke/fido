@@ -1881,13 +1881,26 @@ Definition f64_of_u64 (a : GoU64) : float :=
     so the single division carries the only rounding).  *MODEL + machine-checked; LOWERING (a
     plugin FConst-fold → Go [float64(num)/float64(den)], which Go re-folds to the same constant)
     is the deferred follow-on.* *)
-Record FConst := mkFC { fc_num : Z ; fc_den : Z }.
+(** The denominator is a [positive] — exactly the shape of Coq's [QArith.Q] — so a Go
+    float CONSTANT is an EXACT *nonzero-denominator* rational and can NEVER denote ±Inf
+    or NaN (review #6 P2 #16).  A malformed [den = 0] constant is now UNCONSTRUCTABLE by
+    type, so the extractor's [den = 0] fold guard is a dead defensive boundary rather than
+    a reachable path.  [Bind Scope] keeps [mkFC n d] literals parsing [d] as a positive. *)
+Record FConst := mkFC { fc_num : Z ; fc_den : positive }.
+Bind Scope positive_scope with positive.
 Definition fc_add (a b : FConst) : FConst :=
-  mkFC (fc_num a * fc_den b + fc_num b * fc_den a) (fc_den a * fc_den b).
+  mkFC (fc_num a * Zpos (fc_den b) + fc_num b * Zpos (fc_den a)) (Pos.mul (fc_den a) (fc_den b)).
 Definition fc_sub (a b : FConst) : FConst :=
-  mkFC (fc_num a * fc_den b - fc_num b * fc_den a) (fc_den a * fc_den b).
-Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (fc_den a * fc_den b).
-Definition fc_div (a b : FConst) : FConst := mkFC (fc_num a * fc_den b) (fc_den a * fc_num b).  (* (a/b)/(c/d) = ad/bc *)
+  mkFC (fc_num a * Zpos (fc_den b) - fc_num b * Zpos (fc_den a)) (Pos.mul (fc_den a) (fc_den b)).
+Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (Pos.mul (fc_den a) (fc_den b)).
+(** Constant DIVISION is EVIDENCE-CARRYING: Go constant division by zero is a COMPILE error,
+    so [fc_div] DEMANDS a proof the divisor's numerator is nonzero — a constant [/0] cannot be
+    written (review #6 P2 #16; min-suite #12).  The denominator stays strictly positive by
+    folding the divisor's SIGN into the numerator:
+      (na/da)/(nb/db) = (na·db)/(da·nb) = (sgn(nb)·na·db)/(da·|nb|). *)
+Definition fc_div (a b : FConst) (hb : fc_num b <> 0%Z) : FConst :=
+  mkFC (Z.sgn (fc_num b) * fc_num a * Zpos (fc_den b))
+       (Pos.mul (fc_den a) (Z.to_pos (Z.abs (fc_num b)))).  (* (a/b)/(c/d) = ad/bc, den kept > 0 *)
 (** Exact integer → [spec_float] (NO rounding): mantissa = [|z|], exponent 0.  Shared by the exact
     rational → float conversions (binary64 here; binary32 for [f32_of_fconst]). *)
 Definition sf_of_Z (z : Z) : spec_float :=
@@ -1902,7 +1915,7 @@ Definition sf_of_Z (z : Z) : spec_float :=
     round).  (The old [div (f64_of_i64 num) (f64_of_i64 den)] DOUBLE-rounds when both endpoints exceed
     2^53 — a latent model unsoundness, only masked at extraction by a fail-loud 2^53 guard.) *)
 Definition f64_of_fconst (a : FConst) : float :=
-  SF2Prim (SFdiv 53 1024 (sf_of_Z (fc_num a)) (sf_of_Z (fc_den a))).
+  SF2Prim (SFdiv 53 1024 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a)))).
 
 (** FLOAT32 arithmetic — faithful binary32 (prec 24, emax 128) via [SpecFloat], then routed
     back through [f32_of_f64] so the result re-enters the abstract type WITH its provenance
@@ -1957,7 +1970,7 @@ Definition f32_of_int (i : GoInt) : GoFloat32 :=
     [|num| > 2^53]: e.g. [2305843146652647425/1] rounds to [2^61+2^38] here but [2^61] via float64).
     [SFdiv] handles arbitrary mantissas, so this is the correctly-rounded rational→binary32. *)
 Definition f32_of_fconst (a : FConst) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFdiv 24 128 (sf_of_Z (fc_num a)) (sf_of_Z (fc_den a)))).
+  f32_of_f64 (SF2Prim (SFdiv 24 128 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a))))).
 
 (** float32 unary NEGATION — EXACT (IEEE sign-flip, makes [-0.0]); re-enter the abstract type
     (the round is the identity on the sign-flipped, still-representable value).  Lowered to Go
