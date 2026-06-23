@@ -921,6 +921,11 @@ func Str_cmp_demo() {
 	println("Go" == "Go", "Go" == "No", "abc" < "abd", "b" < "a")
 }
 
+func Str_highbyte_demo() {
+	hi := string([]uint8{uint8((200 & 0xff))})
+	println("z" < hi, hi < "z")
+}
+
 func Tsw_demo(a any) {
 	switch _tsv := a.(type) {
 	case bool:
@@ -2378,6 +2383,7 @@ func main() {
 	Assert_safe_demo(7)
 	String_demo()
 	Str_cmp_demo()
+	Str_highbyte_demo()
 	Str_slice_demo()
 	Bytes_demo()
 	Rune_demo()

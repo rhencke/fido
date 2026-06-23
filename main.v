@@ -1644,6 +1644,16 @@ Definition str_cmp_demo : IO unit :=
           ; any (str_ltb "abc"%string "abd"%string)  (* true  *)
           ; any (str_ltb "b"%string "a"%string) ].   (* false *)
 
+(** Differential test — string comparison is UNSIGNED byte-wise (the classic signed/unsigned trap).
+    A string whose first byte is 200 (0xC8, ≥ 128): Go compares bytes as uint8, so "z" (0x7A=122) <
+    that string.  A naive SIGNED byte compare would read 200 as -56 and FLIP it.  [str_ltb] uses
+    [PrimInt63.ltb] on the 0–255 byte (unsigned), agreeing with Go's native [<].  (Bytes ≥ 128 were
+    only covered for ASCII by [spec_str_lt_*].) *)
+Definition str_highbyte_demo : IO unit :=
+  let hi := str_from_bytes (slice_of_list TU8 [u8_lit 200 eq_refl]) in   (* 1-byte string, byte 0xC8 *)
+  println [ any (str_ltb "z"%string hi)        (* 0x7A < 0xC8 → true  (unsigned) *)
+          ; any (str_ltb hi "z"%string) ].     (* 0xC8 < 0x7A → false *)
+
 (** Type switch (Go spec "Type switches"): [switch v := a.(type) { case bool: …;
     case string: …; default: … }] dispatches on the RUNTIME type of the [any] value
     [a].  Built on [type_switch2] (axiom-free, the same [tag_coerce] basis as
@@ -3069,6 +3079,7 @@ Definition main_effect : IO unit :=
   assert_safe_demo (7)%i64    >>'   (* prints: 7 true / false false *)
   string_demo                   >>'   (* prints: 2 / 71 true / 0 false / Go! *)
   str_cmp_demo                  >>'   (* prints: true false true false *)
+  str_highbyte_demo             >>'   (* prints: true false (string comparison is UNSIGNED byte-wise, byte 0xC8) *)
   str_slice_demo                >>'   (* prints: world (s[a:b] string slice) *)
   bytes_demo                    >>'   (* prints: Hi ([]byte / string round-trip) *)
   rune_demo                     >>'   (* prints: Go ([]rune / string round-trip, UTF-8) *)
