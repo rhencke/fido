@@ -2193,6 +2193,107 @@ Proof.
       exact (hbt_app1 tr (mkEv tid (KSend c)) (lp L) s (Hsupp HaccTr)).
 Qed.
 
+(* ── Region-map effect of an ACQUIRE (own v := Held g): pointwise [radd] of g's region; leaves
+   OTHER goroutines' regions unchanged (v was in transit, owned by no goroutine). ── *)
+Lemma heldby_acquire : forall own v g x,
+  heldby (upd_own own v (Held g)) g x = radd (heldby own g) v x.
+Proof.
+  intros own v g x. unfold heldby, upd_own, radd.
+  destruct (Nat.eqb x v) eqn:E; cbn.
+  - rewrite Nat.eqb_refl. destruct (own x) as [g'|]; cbn;
+      [destruct (Nat.eqb g' g); reflexivity | reflexivity].
+  - destruct (own x) as [g'|]; cbn;
+      [destruct (Nat.eqb g' g); reflexivity | reflexivity].
+Qed.
+
+Lemma heldby_acquire_other : forall own v g g' x,
+  g' <> g -> own v = Transit ->
+  heldby (upd_own own v (Held g)) g' x = heldby own g' x.
+Proof.
+  intros own v g g' x Hne Hv. unfold heldby, upd_own.
+  destruct (Nat.eqb x v) eqn:E.
+  - apply Nat.eqb_eq in E; subst x. rewrite Hv. cbn.
+    apply Nat.eqb_neq. intro Heq; subst g; apply Hne; reflexivity.
+  - reflexivity.
+Qed.
+
+(* ── Buffer LINEARITY: a transferred location occupies at most one buffer slot total — no duplicate
+   within a channel ([NoDup] of values), and never in two channels at once.  This is what makes a RECV
+   (popping the head) leave the location absent from the REMAINING buffers, so re-owning it to the
+   receiver preserves "buffered ⟹ Transit".  Maintained by the discipline: a send only buffers a HELD
+   (hence un-buffered) location; a recv shrinks the buffer. ── *)
+Definition BufLin (cfg : RConfig) : Prop :=
+  (forall c, NoDup (map fst (rc_bufs cfg c)))
+  /\ (forall c1 c2 L, In L (map fst (rc_bufs cfg c1)) -> In L (map fst (rc_bufs cfg c2)) -> c1 = c2).
+
+(* THE ACQUIRE STEP: an [rstep_recv] popping a pointer [v] preserves [RegionInv].  [v] ENTERS the
+   receiver's region ([radd]) and becomes [Held tid]; its [AcqConn] is forged through the send→recv
+   [sync] edge ([recv_establishes_acqconn], using the buffer's stored hb-support).  [BufLin] guarantees
+   the popped [v] is gone from the remaining buffers, so they stay "Transit". *)
+Lemma region_inv_recv : forall own lp acq p b h lv tr tid c f v s brest,
+  RegionInv own lp acq (mkRCfg p b h lv tr) -> BufLin (mkRCfg p b h lv tr) ->
+  lv tid = true -> p tid = CRecv c f -> b c = (v, s) :: brest ->
+  RegionInv (upd_own own v (Held tid)) lp (upd_lastpos acq v (length tr))
+            (mkRCfg (upd p tid (f v)) (upd b c brest) h lv (tr ++ [mkEv tid (KRecv c s)])).
+Proof.
+  intros own lp acq p b h lv tr tid c f v s brest HRI HBL Hlv Hp Hbc.
+  destruct HRI as [Hprog [Hacq [Hbuf [HO [HV [HB HNC]]]]]].
+  destruct HBL as [HND HCC].
+  cbn [rc_prog rc_live rc_bufs rc_trace] in *.
+  pose proof (Hprog tid Hlv) as HW. rewrite Hp in HW.
+  pose proof (wt_recv_inv _ _ _ HW) as HWf.
+  assert (Hhead : In (v, s) (b c)) by (rewrite Hbc; left; reflexivity).
+  destruct (Hbuf c v s Hhead) as [HvT Hvsupp].
+  assert (Hnm : match e_kind (mkEv tid (KRecv c s)) with KWrite _ => False | KRead _ => False | _ => True end) by exact I.
+  assert (HvND : ~ In v (map fst brest)).
+  { pose proof (HND c) as HNDc. rewrite Hbc in HNDc. cbn in HNDc.
+    inversion HNDc as [|x l Hnotin Hrest]; subst. exact Hnotin. }
+  (* helper: a remaining-buffer entry's location is ≠ v *)
+  assert (Hrem : forall c0 L s0, In (L, s0) (upd b c brest c0) -> L <> v).
+  { intros c0 L s0 Hin Heq. subst L. destruct (Nat.eq_dec c0 c) as [->|Hcne].
+    - rewrite upd_same in Hin. apply (in_map fst) in Hin. cbn in Hin. exact (HvND Hin).
+    - rewrite (upd_other b c brest c0 Hcne) in Hin. apply (in_map fst) in Hin. cbn in Hin.
+      assert (Hvc : In v (map fst (b c))) by (rewrite Hbc; left; reflexivity).
+      exact (Hcne (HCC c0 c v Hin Hvc)). }
+  unfold RegionInv. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split;
+    [ exact (owned_app_nonmem tr (mkEv tid (KRecv c s)) HO Hnm)
+    | split; [ exact (lastposvalid_app_nonmem tr (mkEv tid (KRecv c s)) lp HV Hnm)
+    | split; [ exact (accbeforelast_app_nonmem tr (mkEv tid (KRecv c s)) lp HB Hnm)
+    | apply noclose_app; [exact HNC | exact I] ]]]]]].
+  - (* prog: receiver gains v (radd); others unchanged (v was Transit) *)
+    intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hne].
+    + rewrite upd_same. apply (wt_region_ext (radd (heldby own tid) v) (f v) (HWf v)).
+      intro x. symmetry. apply heldby_acquire.
+    + rewrite (upd_other p tid (f v) g Hne).
+      apply (wt_region_ext (heldby own g) (p g) (Hprog g Hg)).
+      intro x. symmetry. exact (heldby_acquire_other own v tid g x Hne HvT).
+  - (* acq: v's connection forged through the send→recv edge; others carry over *)
+    intros L g HownL Hex.
+    destruct (Nat.eq_dec L v) as [->|Hne].
+    + rewrite upd_own_same in HownL. injection HownL as Hgt. subst g.
+      pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) v Hnm Hex) as HaccTr.
+      exact (recv_establishes_acqconn tr c s lp acq v tid (Hvsupp HaccTr)).
+    + rewrite (upd_own_other own v (Held tid) L Hne) in HownL.
+      pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) L Hnm Hex) as HaccTr.
+      apply (acqconn_ext (tr ++ [mkEv tid (KRecv c s)]) lp acq lp (upd_lastpos acq v (length tr)) L g).
+      * exact (acqconn_app1 tr (mkEv tid (KRecv c s)) lp acq L g (Hacq L g HownL HaccTr)).
+      * reflexivity.
+      * symmetry. exact (upd_lastpos_other acq v (length tr) L Hne).
+  - (* buf: remaining entries keep value ≠ v, so own unchanged (Transit) and support lifts *)
+    intros c0 L s0 Hin.
+    pose proof (Hrem c0 L s0 Hin) as HLne.
+    assert (Horig : own L = Transit /\ ((exists i, acc_loc_at tr i = Some L) -> hbt tr (lp L) s0)).
+    { destruct (Nat.eq_dec c0 c) as [->|Hcne].
+      - rewrite upd_same in Hin. apply (Hbuf c L s0). rewrite Hbc. right. exact Hin.
+      - rewrite (upd_other b c brest c0 Hcne) in Hin. exact (Hbuf c0 L s0 Hin). }
+    destruct Horig as [HT Hsupp].
+    split.
+    + rewrite (upd_own_other own v (Held tid) L HLne). exact HT.
+    + intros Hex. pose proof (acc_app_nonmem tr (mkEv tid (KRecv c s)) L Hnm Hex) as HaccTr.
+      exact (hbt_app1 tr (mkEv tid (KRecv c s)) (lp L) s0 (Hsupp HaccTr)).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6303,6 +6404,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
