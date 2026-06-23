@@ -202,6 +202,13 @@ func Narrow_cluster_lock_demo() {
 	println(a, b, c, d, e)
 }
 
+func Uint_lock_demo() {
+	uv := uint(5)
+	_, a := any(uv).(uint)
+	_, b := any(uv).(int)
+	println(a, b)
+}
+
 func Lowbyte(x int64) uint8 {
 	return uint8((x & 0xff))
 }
@@ -2371,6 +2378,7 @@ func main() {
 	Narrow_let_assert_demo()
 	Type_identity_lock_demo()
 	Narrow_cluster_lock_demo()
+	Uint_lock_demo()
 	Narrow_ret_demo()
 	Vlet_demo()
 	Narrow_u64_demo()

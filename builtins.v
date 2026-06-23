@@ -65,25 +65,22 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     use case.  This is NOT enforced by a per-op range proof (that would be invasive for an
     unreachable case); for code that NEEDS the guaranteed full 64-bit range, use the FAITHFUL
     [GoI64]/[GoU64] records below (Z-carried, wrap EXACTLY at [2^64]). *)
-(** [GoInt8]/[GoInt16]/[GoInt32] are OPAQUE PLACEHOLDER carriers — they appear ONLY inside a
-    [GoTypeTag] constructor's index, NEVER as a value in extracted Go; the FAITHFUL fixed-width
-    models are the [GoI8]/[GoI16]/[GoI32] records below.  Defined as [int] just to retire the
-    axioms. *)
-Definition GoInt   : Type := int.   (* Go's platform-dependent int; 63-bit Sint63 substrate — bounded deviation, see above *)
-Definition GoInt8  : Type := int.   (* placeholder carrier (faithful model = GoI8 record) *)
-Definition GoInt16 : Type := int.   (* placeholder carrier (faithful model = GoI16 record) *)
-Definition GoInt32 : Type := int.   (* placeholder carrier (faithful model = GoI32 record) *)
-(* GoI64 / GoU64 (below) are the FAITHFUL full-64-bit records (Z-carried, wrap at 2^64). *)
-Notation GoRune := GoInt32.  (* rune is an alias for int32 *)
+(** Go's platform-width [int] — the 63-bit [Sint63] substrate (bounded deviation, see above).
+    It IS Go's [int]: a transparent [int] alias is correct HERE, because the plugin ALSO renders
+    [int] as Go [int] (no type-vs-rendering mismatch) and it boxes via [Tagged_int].
 
-(** Unsigned integer types. *)
-Definition GoUint   : Type := int.   (* uint    — platform-width *)
-Definition GoUint8  : Type := int.   (* uint8   — 8-bit  *)
-Definition GoUint16 : Type := int.   (* uint16  — 16-bit *)
-Definition GoUint32 : Type := int.   (* uint32  — 32-bit *)
-Definition GoUint64 : Type := int.   (* uint64  — 64-bit *)
+    The OTHER integer types are NOT transparent [int] aliases.  That was review #4 P0 #1: a
+    transparent alias ([GoUint := int]) is freely cross-assignable in Rocq, yet the plugin renders
+    it as a DISTINCT Go type ([uint]) — so [fun (x:GoInt) => (x:GoUint)] type-checks but extracts to
+    the INVALID Go [func(x int) uint { return x }], and [any (x:GoUint)] mis-tags (only [Tagged_int]
+    resolves, so it boxes as [int] not [uint]).  The fixed-width signed/unsigned family
+    ([int8]…[uint64]) are the GENUINELY DISTINCT records [GoI8]/[GoU8]/…/[GoI64]/[GoU64] below, and
+    Go's platform [uint] is the distinct record [GoUint] (defined by [GoU64]).  The dead bare-[int]
+    placeholders [GoInt8]/[GoInt16]/[GoInt32]/[GoUint8]/…/[GoUint64] are RETIRED (one Rocq type per
+    Go type); [GoRune] is now the faithful [GoI32] (bound after the records). *)
+Definition GoInt : Type := int.   (* Go's platform-dependent int; 63-bit Sint63 substrate — bounded deviation, see above *)
 (* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
-   the FAITHFUL [GoU8] record rather than the opaque [GoUint8] axiom. *)
+   the FAITHFUL [GoU8] record (NOT a bare-int placeholder). *)
 
 (** Go's string type (Go spec "String types"): "a string value is a (possibly
     empty) sequence of BYTES; ... strings are immutable".  Modelled as Coq's
@@ -234,6 +231,28 @@ Record GoI64 := MkI64 { i64raw : Z ; i64ok : Squash (in_i64 i64raw = true) }.
    need no mask. *)
 Record GoU64 := MkU64 { u64raw : Z ; u64ok : Squash (in_u64 u64raw = true) }.
 
+(* Go's platform-width UNSIGNED [uint] — a GENUINELY DISTINCT record (review #4 P0 #1), NOT a
+   transparent [int] alias.  Carried by the 63-bit primitive [int] viewed UNSIGNED (uint63): the
+   platform [int]/[uint] pair both ride the [Sint63]/[Uint63] substrate, exactly as the fixed-width
+   [int64]/[uint64] pair both ride [Z] ([GoI64]/[GoU64]).  BOUNDED DEVIATION (a SUBSTRATE LIMIT, the
+   kind CLAUDE.md rule 2 permits — IDENTICAL to [GoInt]'s): faithful to Go's [uint] within [0, 2^63);
+   for the full 64-bit unsigned range use [GoU64].  [uintok] is a PHANTOM SProp field whose SOLE role
+   is to defeat Coq's single-field-record unboxing — so the wrapper SURVIVES extraction as a distinct
+   type (rendered [uint], its struct decl suppressed, ctor/proj erased) instead of collapsing to its
+   [int] carrier.  There is no range to seal: EVERY 63-bit [int] is a valid platform-uint in the
+   unsigned view (so [MkUint] is total, unlike the range-sealed [MkU8]).  Distinctness is what gives
+   [Tagged_GoUint := TUint] a UNIQUE resolution ([Tagged_int] no longer applies, since [GoUint <> int]),
+   closing the model/runtime tag inversion. *)
+Record GoUint := MkUint { uintraw : int ; uintok : Squash True }.
+(* The canonical platform-uint constructor — [uint_lit n] is Go's typed [uint(n)].  At extraction
+   [MkUint]/[uint_lit] render [uint(<carrier>)] and [uintraw] renders [int(<value>)], so a [GoUint]
+   value is valid Go in EVERY position (param/return/field/[any]-box): [any (uint_lit 5)] boxes as
+   Go [uint], so [.(uint)] SUCCEEDS and [.(int)] FAILS — model and runtime agree. *)
+Definition uint_lit (n : int) : GoUint := MkUint n (squash I).
+(* Go's [rune] is an alias for [int32] — the FAITHFUL [GoI32] record (NOT the retired [GoInt32]
+   placeholder), so a [rune] value (e.g. [i32wrap c]) is a real, distinct int32. *)
+Notation GoRune := GoI32.
+
 (* A genuinely RECURSIVE Go struct type — [type ListNode struct { Val int64 ; Next *ListNode }].
    Defined HERE (above [GoTypeTag]) precisely so the tag inductive can carry its NULLARY nominal tag
    [TListNode : GoTypeTag ListNode] below.  Two things make this work, axiom-free:
@@ -281,12 +300,14 @@ Inductive GoTypeTag : Type -> Type :=
   | TU64 : GoTypeTag GoU64               (* → uint64 (full-width Z-carried unsigned) *)
   | TUnit : GoTypeTag unit
   (* Go's platform-width [int]/[uint] — distinct Go types, kept (e.g. [cap]/[len]
-     return [GoInt]).  The FIXED-width bare-int aliases ([GoInt8]/…/[GoUint64]) had
-     their own tags here too, but they DUPLICATE the canonical Squash-sealed fixed-width
-     family ([TI8]/[TU8]/…/[TI64]/[TU64]) — same Go type, two tags — which is break #7's
-     soundness hole (a tag→runtime-Go-type that is non-injective makes [tag_eq] disagree
-     with Go's [v.(T)]).  They carried no [Tagged] instance and no value was ever boxed
-     with them (dead), so they are RETIRED here: one canonical tag per fixed-width type. *)
+     return [GoInt]).  [TUint] now indexes the DISTINCT record [GoUint] (review #4 P0 #1):
+     before, [GoUint := int], so this tag indexed [int] and clashed with [TInt64] (both Go
+     [int] in the model yet [uint] vs [int] at runtime) — the tag inversion.  The FIXED-width
+     bare-int aliases ([GoInt8]/…/[GoUint64]) had their own tags here too, but they DUPLICATEd
+     the canonical Squash-sealed fixed-width family ([TI8]/[TU8]/…/[TI64]/[TU64]) — same Go type,
+     two tags — break #7's soundness hole (a non-injective tag→runtime-Go-type makes [tag_eq]
+     disagree with Go's [v.(T)]).  Those aliases are now RETIRED as TYPES entirely (review #4
+     P0 #1), so one canonical tag AND one Rocq type per fixed-width Go type. *)
   (* [TInt64] IS Go's platform [int] now (break #7 slice 7c: PrimInt63 = Go int, the
      Z-carried [GoI64]/[TI64] is int64).  The old [TInt]:GoTypeTag GoInt was a SECOND tag
      for the same Go [int] (GoInt := int), with no [Tagged] instance and never boxed
@@ -467,7 +488,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TI64 => i64wrap 0%Z
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
-  | TUint    => 0%uint63
+  | TUint    => uint_lit 0%uint63
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
   | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0%uint63)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
   | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0%uint63)    (* zero box: {0, nil-chan} (proof-only) *)
@@ -519,6 +540,7 @@ Notation any x := (anyt (the_tag _) x).
 #[global] Instance Tagged_GoI32  : Tagged GoI32    := TI32.
 #[global] Instance Tagged_GoI64  : Tagged GoI64    := TI64.
 #[global] Instance Tagged_GoU64  : Tagged GoU64    := TU64.
+#[global] Instance Tagged_GoUint : Tagged GoUint   := TUint.   (* platform uint — distinct record ⇒ UNIQUE instance (Tagged_int no longer applies); review #4 P0 #1 *)
 #[global] Instance Tagged_GoFloat32 : Tagged GoFloat32 := TFloat32.
 #[global] Instance Tagged_ListNode : Tagged ListNode := TListNode.   (* recursive struct boxable / channel-payload *)
 #[global] Instance Tagged_ChanBox  : Tagged ChanBox  := TChanBox.    (* "sends itself" struct boxable / channel-payload *)
@@ -541,7 +563,7 @@ Notation any x := (anyt (the_tag _) x).
 Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
-  | TInt64   => PrimInt63.eqb | TUint   => PrimInt63.eqb
+  | TInt64   => PrimInt63.eqb | TUint   => fun a b => PrimInt63.eqb (uintraw a) (uintraw b)
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)

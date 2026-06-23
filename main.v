@@ -404,6 +404,30 @@ Definition narrow_cluster_lock_demo : IO unit :=
   type_assert_safe TI32 (any (i32_of_i64 (i64_lit 5 eq_refl))) (fun _ e =>   (* int32  .(int32)  → true *)
     println [any a; any b; any c; any d; any e]))))).
   (* true true true true true *)
+
+(** review #4 P0 #1 — Go's platform [uint] is now a GENUINELY DISTINCT Rocq type ([GoUint], a
+    record), NOT a transparent [int] alias.  TWO defects, both machine-checked closed here:
+
+    (1) TYPE CONFUSION — assigning a [GoInt] where a [GoUint] is expected (or the reverse) no
+        longer type-checks, so the plugin can NEVER emit the invalid Go [func(x int) uint { return x }]
+        (review #4's exact counterexample).  These [Fail]s are checked at COMPILE time: *)
+Fail Definition int_to_uint_confusion (x : GoInt)  : GoUint := x.
+Fail Definition uint_to_int_confusion (x : GoUint) : GoInt  := x.
+(*  and the retired bare-[int] placeholders no longer exist as types at all (one Rocq type per Go type): *)
+Fail Check (GoUint8 : Type).
+Fail Check (GoInt32 : Type).
+
+(** (2) TAG INVERSION — a [GoUint] value boxes as Go [uint] (via the now-UNIQUE [Tagged_GoUint = TUint];
+    [Tagged_int] no longer applies since [GoUint <> int]), so [.(uint)] SUCCEEDS and [.(int)] FAILS:
+    the model ([tag_eq]) and the runtime ([v.(T)]) AGREE.  A regression that re-collapses [GoUint] to
+    [int] flips these and moves the golden ⇒ caught.  Runtime companion to the model-side
+    [tag_runtime_agrees] lock, now covering the platform-uint tag. *)
+Definition uint_lock_demo : IO unit :=
+  let uv := uint_lit 5%uint63 in
+  type_assert_safe TUint  (any uv) (fun _ a =>    (* uint .(uint) → true  *)
+  type_assert_safe TInt64 (any uv) (fun _ b =>    (* uint .(int)  → FALSE (platform uint <> platform int) *)
+    println [any a; any b])).
+  (* true false *)
 (** P0 #2 — a sub-64 narrow [GoIntN] value now flows correctly through EVERY position: a function RETURN
     (the result is cast to its declared Go type — [func lowbyte(x int64) uint8 { return uint8((x & 0xff)) }]),
     a narrow PARAM ([inc8] below — the param is the declared [uint8], widened to the int carrier inside the
@@ -3022,6 +3046,7 @@ Definition main_effect : IO unit :=
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)
   narrow_cluster_lock_demo      >>'   (* prints: true true true true true (full #7 narrow cluster boxes as own Go type) *)
+  uint_lock_demo                >>'   (* prints: true false (platform uint boxes as Go uint, distinct from int — review #4 P0 #1) *)
   narrow_ret_demo               >>'   (* prints: 52 -56 (narrow RETURN boundary: func returns uint8/int8) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)

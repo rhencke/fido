@@ -316,16 +316,14 @@ let is_print_ref r   = named "print" r
    Basename matching is safe: these names are reserved by builtins.v and
    no user theory should shadow them. *)
 let go_prim_type_table = [
-  "GoInt",     "int";
-  "GoInt8",    "int8";
-  "GoInt16",   "int16";
-  "GoInt32",   "int32";
-  "GoUint",    "uint";
-  "GoUint8",   "uint8";
-  "GoUint16",  "uint16";
-  "GoUint32",  "uint32";
-  "GoUint64",  "uint64";
+  "GoInt",     "int";    (* platform int — a transparent [int] alias; the plugin renders [int] as Go [int] too, so no type-vs-rendering mismatch *)
+  "GoUint",    "uint";   (* platform uint — the DISTINCT record [GoUint] (builtins.v), erased to its [uint] carrier (ctor/proj below); review #4 P0 #1 *)
   "GoFloat32", "float32";
+  (* NOTE: the fixed-width [int8]…[uint64] are NOT here — they are the distinct records
+     [GoI8]/[GoU8]/…/[GoI64]/[GoU64] (rendered via [is_numint_type]/[narrow_prim_type]).  The old
+     transparent bare-[int] aliases [GoInt8]/…/[GoUint64] were review #4 P0 #1 (alias cross-assignable
+     in Rocq but rendered a distinct Go type ⇒ invalid Go) and are RETIRED in builtins.v; their dead
+     table entries are dropped here so no future re-added alias is silently mis-rendered. *)
 ]
 
 let is_float64_type r =
@@ -683,6 +681,7 @@ let is_erased_record_typename s =
   || String.equal s "Variadic"   (* variadic-param wrapper: param rendered [...T], not a struct *)
   || String.equal s "Tagged"   (* the GoAny type-tag typeclass (single-field) *)
   || String.equal s "ComparableW"   (* comparable-constraint witness: erased (drives [K comparable], not a struct) *)
+  || String.equal s "GoUint"   (* platform-uint wrapper (review #4 P0 #1): distinct record erased to its [uint] carrier; ctor/proj recognized below *)
 let is_numint_type r =                      (* GoU8 / GoI16 *)
   from_builtins r &&
   (let n = global_basename r in str_prefix "Go" n && is_ui_digits (String.sub n 2 (String.length n - 2)))
@@ -718,6 +717,15 @@ let narrow_prim_type r =
    struct decl suppressed via [is_erased_record_typename]).  The constructor [mkF32] and
    projection [f32val] are IDENTITY (no wrapper at runtime), and the rounding helper
    [f32_round] is proof-only (suppressed; it only appears inside by-name-lowered ops). *)
+(* Platform-uint wrapper [GoUint] (builtins.v, review #4 P0 #1): a genuinely DISTINCT record over an
+   [int] carrier, rendered Go [uint].  The constructor [MkUint]/[uint_lit] emit [uint(<carrier>)] (a
+   typed conversion — so the value is Go [uint] in EVERY position incl. an [any]-box, NOT a bare [int]
+   that would mis-tag), and the projection [uintraw] emits [int(<value>)] (back to the int carrier).
+   These typed conversions are the per-value analogue of the narrow [any_narrow_conv] cast, but they
+   apply UNIVERSALLY (any position), so [GoUint] needs no destination-typing machinery. *)
+let is_uint_ctor r = from_builtins r && String.equal (global_basename r) "MkUint"   (* the record constructor (MLcons) *)
+let is_uint_lit  r = from_builtins r && String.equal (global_basename r) "uint_lit" (* the [uint_lit n] smart constructor (MLglob app) *)
+let is_uint_proj r = from_builtins r && String.equal (global_basename r) "uintraw"
 let is_f32_ctor  r = from_builtins r && String.equal (global_basename r) "mkF32"
 let is_f32_proj  r = from_builtins r && String.equal (global_basename r) "f32val"
 let is_f32_round r = from_builtins r && String.equal (global_basename r) "f32_round"
@@ -1938,6 +1946,14 @@ let rec pp_expr state env = function
        (* GoFloat32 carrier projection [f32val g] → [g] (the wrapper IS the float32) *)
        | MLglob r, [g] when is_f32_proj r ->
            pp_expr state env g
+       (* platform-uint projection [uintraw g] → [int(g)]: recover the [int] carrier from the
+          [uint]-rendered [GoUint] value (review #4 P0 #1).  The [int(...)] keeps it valid Go in an
+          int context (proof-only today — [key_eqb]/[zero_val] are not extracted — but correct if reached). *)
+       | MLglob r, [g] when is_uint_proj r ->
+           str "int(" ++ pp_expr state env g ++ str ")"
+       (* platform-uint smart constructor [uint_lit n] → [uint(n)] (Go's typed uint conversion) *)
+       | MLglob r, [n] when is_uint_lit r ->
+           str "uint(" ++ pp_expr state env n ++ str ")"
 
        (* record projection [field recv …] → field access [recv.Field], and when
           the field is a method dictionary entry (a function), its application
@@ -2291,6 +2307,11 @@ let rec pp_expr state env = function
               IS the float32).  Should only appear inside by-name-lowered ops, but emit
               identity for safety. *)
            | MLcons (_, r, [v]) when is_f32_ctor r -> pp_expr state env v
+           (* platform-uint constructor [MkUint v] → [uint(v)] (typed conversion; the proof field is
+              erased).  The [uint(...)] makes the value Go [uint] in EVERY position — crucially at an
+              [any]-box, where a bare [v] would box as Go [int] and disagree with the [TUint] tag
+              (review #4 P0 #1).  [uint_lit n] (a Definition) renders the same via its MLglob arm above. *)
+           | MLcons (_, r, [v]) when is_uint_ctor r -> str "uint(" ++ pp_expr state env v ++ str ")"
            | MLcons (_, r, _) as lst ->
                (* review R4: a non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
                   is INVALID Go — `append`'s first argument must be a TYPED slice, and `nil` here is
@@ -3538,15 +3559,11 @@ let pp_io_body ?(ret_val=false) state tab env body =
       pp_stmts (tab ^ "\t") fenv (mk_body fn fbody) ++
       str tab ++ str "}" ++ fnl ()
     in
-    (* [GoString] is a BYTE sequence ([string]), DISTINCT from a [list GoRune]
-       ([]int32); the byte-wise slice lowering (xs[0], xs[1:]) is wrong for a rune
-       slice, so a string match is excluded from the list case. *)
-    let is_string_list =
-      match typ with
-      | Tglob (r, [Tglob (elem, [])]) ->
-          is_list_type r && String.equal (global_basename elem) "GoInt32"
-      | _ -> false
-    in
+    (* (Historical note: a stale [is_string_list] guard excluded a [list GoInt32] from the list/slice
+       match — from the OBSOLETE [GoString := list GoRune] model.  [GoString] is now Coq [string] (a
+       byte sequence, matched by its own arm) and the [GoInt32] placeholder is RETIRED (review #4
+       P0 #1); rune slices are the FAITHFUL [list GoI32] and are LEGITIMATE slices that DO take the
+       list lowering.  The guard tested a now-nonexistent type ⇒ structurally always-false ⇒ removed.) *)
     (* ENUM match (all arms are nullary enum constructors, any arity ≥ 2) → Go [switch].
        Checked before the 2-arm shapes so a 2-value enum also switches.  A source `_`
        wildcard needs no special handling: Coq EXPANDS it into the missing constructors
@@ -3623,11 +3640,10 @@ let pp_io_body ?(ret_val=false) state tab env body =
                (mk_body (List.length succ_ids) succ_body) ++
              str tab ++ str "}" ++ fnl ()
          (* list / slice: [match xs with [] | x :: rest] → len / index / reslice.
-            Slices only — a [GoString] (byte sequence) match is excluded above. *)
+            A [GoString] (byte sequence) is Coq [string], matched by its own arm above, never here. *)
          | Some c1, Some c2
            when ((is_list_nil c1 && is_list_cons c2)
-              || (is_list_cons c1 && is_list_nil c2))
-             && not is_string_list ->
+              || (is_list_cons c1 && is_list_nil c2)) ->
              let nil_body, cons_ids, cons_body =
                if is_list_nil c1 then body1, ids2, body2
                else body2, ids1, body1 in
@@ -4021,6 +4037,7 @@ let is_inlined_ref r =
   String.equal (global_basename r) "u64wrap" ||  (* internal range-carrying u64 constructor *)
   String.equal (global_basename r) "i64wrap" ||  (* internal range-carrying i64 constructor *)
   is_f32_proj r || is_f32_ctor r ||  (* erased GoFloat32 wrapper proj/ctor decls *)
+  is_uint_proj r || is_uint_ctor r || is_uint_lit r ||  (* erased platform-uint [GoUint] proj/ctor/lit decls (review #4 P0 #1) *)
   is_vararg_ref r || is_va_slice_ref r || String.equal (global_basename r) "va_ph" ||  (* variadic wrapper machinery *)
   is_print_ref r || is_println_ref r ||
   is_len_ref r || is_cap_ref r || is_append_ref r || is_panic_ref r ||
