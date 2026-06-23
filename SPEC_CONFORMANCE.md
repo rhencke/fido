@@ -386,6 +386,19 @@ limit, not "mechanical").  **IO-value methods with a BIND-CHAIN tail DONE (2026-
 single-expression tail — `func (p Point) Px_then_sum() int64 { println(p.Px); return p.Px + p.Py }`
 (`io_val_method_demo` → `8 17`, golden-locked).
 
+### [Function types](https://go.dev/ref/spec#Function_types) — multiple return values: ✓ 2-ary; ✗ 3+-ary (fail-closed)
+Spec: `func(…) (R1, R2, …)` returns a FLAT tuple of results.  Ours: a Coq function returning
+`prod A B` lowers to Go `func(…) (A, B)` (`return a, b`; destructure `x, y := f()`) — the
+2-ary case is ✓ (`swap2 : GoI64 * GoI64`).  **3+-ary is ✗ (fail-closed, not silent):** Go's
+`(A, B, C)` is flat, but Coq's `A * B * C` is the LEFT-NESTED `(A * B) * C` with value
+`pair (pair a b) c`; Fido lowers only a flat 2-tuple, so a 3+ return ABORTS at the inner pair
+(`cannot extract constructor pair`) rather than emitting nested `(A, (B, C))` (invalid Go).
+Closing it = flatten the left-spine at all four sites (the prod TYPE render, the `return …`
+value, and BOTH destructure sites) — the destructure is the hard part (a 3-destructure extracts
+as NESTED `MLcase`s needing look-ahead flattening to one `x, y, z := f()`), a multi-tick effort;
+DEFERRED (niche in the no-import scope, and rule-2-compliant since it fails loud).  Locked by the
+negative fixture `negtests/neg_multireturn.v` (so it stays fail-closed, never silently wrong).
+
 ### [Interface types](https://go.dev/ref/spec#Interface_types) — ⚠ method-dictionary (1 / nullary / N-method + EMBEDDING, all extracted + golden-locked); ✗ `interface` keyword
 Spec: an interface is a method set; a value of interface type holds a concrete value
 whose type implements those methods, with the concrete type known only at runtime
