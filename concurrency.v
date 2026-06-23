@@ -2780,6 +2780,61 @@ Proof.
            splitw_regioninv splitw_buflin splitw_ownerlive Hsteps).
 Qed.
 
+(* COMBINED spawn+channel witness (BOTH transfer mechanisms in one program — the "spawn a worker, hand
+   it work over a channel" idiom).  g0 owns loc 7, writes it, SPAWNS a child to whom it hands off loc 7
+   (split); the child SENDS the pointer on channel 0 (channel handoff); g1 receives the pointer and
+   writes through it.  Loc 7 thus travels g0 →(fork)→ child →(channel)→ g1 — two DIFFERENT transfer
+   mechanisms in sequence — yet the cross-goroutine write/WRITE on cell 7 (g0's vs g1's) is race-free
+   for EVERY interleaving, straight from [region_inv_race_free].  This is the general theorem subsuming
+   the bespoke spawn+channel ([dst]) phase-enumeration witness. *)
+Definition combo_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CWrite 7 1 (CSpawn (CSend 0 7 CRet) CRet)
+           else if Nat.eqb t 1 then CRecv 0 (fun x => CWrite x 2 CRet)
+           else CRet.
+Definition combo_init : RConfig :=
+  mkRCfg combo_prog (fun _ => []) (fun _ => 0)
+         (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma combo_regioninv : RegionInv (fun _ => Held 0) (fun _ => 0) (fun _ => 0) combo_init.
+Proof.
+  unfold RegionInv, combo_init. cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [| split; [| split; [| split; [| split; [| split]]]]].
+  - intros g Hg. unfold combo_prog. destruct (Nat.eqb g 0) eqn:E0.
+    + apply Nat.eqb_eq in E0; subst g.
+      apply WT_write; [reflexivity |].
+      apply (WT_spawn _ (fun l => Nat.eqb l 7) (CSend 0 7 CRet) CRet).
+      * intros l Hl. apply Nat.eqb_eq in Hl; subst l. reflexivity.
+      * apply WT_send; [reflexivity | apply WT_ret].
+      * apply WT_ret.
+    + destruct (Nat.eqb g 1) eqn:E1.
+      * apply WT_recv. intro x. apply WT_write; [apply radd_same | apply WT_ret].
+      * cbn in Hg. discriminate.
+  - intros L g _ [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros c L s [].
+  - intros i j Hij [l [Hi _]]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L [i Hi]. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros L i Hi. unfold acc_loc_at in Hi. destruct i; cbn in Hi; discriminate.
+  - intros i e Hi. destruct i; cbn in Hi; discriminate.
+Qed.
+
+Lemma combo_buflin : BufLin combo_init.
+Proof.
+  unfold BufLin, combo_init. cbn [rc_bufs]. split.
+  - intro c. cbn. constructor.
+  - intros c1 c2 L H1 H2. cbn in H1. destruct H1.
+Qed.
+
+Lemma combo_ownerlive : OwnerLive (fun _ => Held 0) combo_init.
+Proof. intros l g Hg. injection Hg as Hg0. subst g. reflexivity. Qed.
+
+Theorem combo_all_interleavings_race_free : forall cfg,
+  rsteps combo_init cfg -> TraceRaceFree (rc_trace cfg).
+Proof.
+  intros cfg Hsteps.
+  exact (region_inv_race_free (fun _ => Held 0) (fun _ => 0) (fun _ => 0) combo_init cfg
+           combo_regioninv combo_buflin combo_ownerlive Hsteps).
+Qed.
+
 (* The owner-of-each-access fact extends across a single appended event, given the new event
    is by its location's owner (when it IS a memory access). *)
 Lemma TraceOwned_app : forall own tr ev,
@@ -6890,6 +6945,7 @@ Qed.
     the inductive's constructors; [Sess] erases by name ([is_erased_record_typename])
     so the inductive erases too.  Intricate + golden-affecting ⇒ a focused fresh
     tick, NOT skipped. *)
+
 
 
 
