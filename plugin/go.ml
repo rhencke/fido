@@ -137,6 +137,12 @@ let record_ctor_ftypes : (string, ml_type list) Hashtbl.t = Hashtbl.create 16
   (* constructor basename -> field types (for typed-closure dictionary entries) *)
 let record_ctor_fields : (string, string list) Hashtbl.t = Hashtbl.create 16
   (* constructor basename -> ordered Go field names (for KEYED struct literals T{F: v}) *)
+(* review #4 P1 #4: a top-level function's PARAMETER types (path -> param ml_types), populated by
+   [collect_decls].  At a call site a wide int64-carried value flowing into a NARROW param needs the
+   [uint8(…)] cast — same as a struct field, but the destination type comes from the callee signature.
+   Only applied when the param count equals the visible-arg count (i.e. no erased tag/witness/type
+   args mis-align the zip — those calls decline the cast, staying at the prior bare emission). *)
+let func_param_types : (string, ml_type list) Hashtbl.t = Hashtbl.create 64
 (* DEFINED TYPE over a primitive (Go [type MyT <prim>]): a 2-field record whose 2nd field is a
    [GoTypeTag] PHANTOM (kept by extraction so Coq does NOT unbox the single value field, which
    keeps the type a distinct method-receiver).  We emit [type <Name> <under>] (NOT a struct),
@@ -2218,9 +2224,22 @@ let rec pp_expr state env = function
            else dot ++ str "(" ++
                 prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++ str ")"
        | _ ->
+           (* review #4 P1 #4: a wide value into a NARROW PARAM of a user function needs the
+              destination cast ([f(uint8(x))]).  Use the callee's param types when they ALIGN 1:1 with
+              the visible args (no erased tag/witness/type args) — else bare [pp_expr] (prior behaviour). *)
+           let pts = match head with
+             | MLglob r -> (match Hashtbl.find_opt func_param_types (global_path r) with
+                            | Some pts when List.length pts = List.length vis -> pts
+                            | _ -> [])
+             | _ -> [] in
+           let pp_arg i a = match List.nth_opt pts i with
+             | Some pt -> (match narrow_dest_conv pt with
+                           | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
+                           | None    -> pp_expr state env a)
+             | None -> pp_expr state env a in
            pp_atom state env head ++ str "(" ++
            prlist_with_sep (fun () -> str ", ")
-             (pp_expr state env) vis ++
+             (fun x -> x) (List.mapi pp_arg vis) ++
            str ")")
 
   | MLlam _ as e ->
@@ -4505,9 +4524,11 @@ let collect_decls struc =
     | _ -> ()
   in
   List.iter (function
-    | Dterm (r, body, typ) -> register_method r body typ
+    | Dterm (r, body, typ) -> register_method r body typ ;
+        Hashtbl.replace func_param_types (global_path r) (fst (collect_tarrs typ))
     | Dfix (refs, bodies, types) ->
-        Array.iteri (fun i r -> register_method r bodies.(i) types.(i)) refs
+        Array.iteri (fun i r -> register_method r bodies.(i) types.(i) ;
+          Hashtbl.replace func_param_types (global_path r) (fst (collect_tarrs types.(i)))) refs
     | _ -> ()) decls ;
   (* pass 3 — comparable-constraint functions: record which visible param indices are
      [ComparableW] equality witnesses, so they are DROPPED at the decl and at every call site. *)

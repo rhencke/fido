@@ -537,6 +537,16 @@ Definition map_key_narrow_demo : IO unit :=
   | None => println [ any (0)%i64 ]
   end)))).
 
+(** review #4 P1 #4 (slice 7) — narrow function ARGS: a wide int64-carried value passed to a NARROW
+    PARAM of a user function.  The arg [u8_of_i64 …] is the int64-masked carrier, so a bare
+    [Takes_u8(x & 0xff)] is invalid Go (int64 into a [uint8] param).  The plugin now casts the arg to
+    the callee's param type ([Takes_u8(uint8(…))]) when the params align 1:1 with the visible args
+    (monomorphic — no erased tag/witness args).  The existing many-arg int64 calls are unaffected
+    (int64 param ⇒ no cast); generic tag-carrying calls (slice_get …) decline (length mismatch). *)
+Definition takes_u8 (x : GoU8) : GoI64 := i64_of_u8 x.   (* uint8 param, widened to int64 *)
+Definition arg_narrow_demo : IO unit :=
+  println [ any (takes_u8 (u8_of_i64 (i64_lit 300 eq_refl))) ].   (* Takes_u8(uint8(44)) = 44 *)
+
 (** P0 R3 — a VALUE-position [let] (nested in an expression, the bound var used twice so extraction keeps
     it) inside int64 arithmetic.  The old backend emitted [(func() any {…})()], i.e. [int64(any)+…], which
     does not compile; now the pure let is inlined so the surrounding [int64] context types it. *)
@@ -3140,6 +3150,7 @@ Definition main_effect : IO unit :=
   ptr_chan_narrow_demo          >>'   (* prints: 7 45 (narrow POINTER/CHANNEL payload: *uint8 / chan uint8 — review #4 P1 #4 slice 4) *)
   map_narrow_demo               >>'   (* prints: 44 9 (narrow map VALUE: map[int64]uint8 value+default — review #4 P1 #4 slice 5) *)
   map_key_narrow_demo           >>'   (* prints: 5 5 0 (narrow map KEY: map[uint8]int64 set/get/del — review #4 P1 #4 slice 6) *)
+  arg_narrow_demo               >>'   (* prints: 44 (narrow function ARG: takes_u8(uint8(…)) — review #4 P1 #4 slice 7) *)
   vlet_demo                     >>'   (* prints: 21 (value-position let in int64 arithmetic) *)
   narrow_u64_demo               >>'   (* prints: 200 18446744073709551615 255 -1 (narrow↔uint64 via hub) *)
   floatconv_demo                >>'   (* prints: 16777216 / 7.5 (float32↔float64 convert) *)

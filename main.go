@@ -182,7 +182,7 @@ func Widen_u8_to_int(x uint8) int {
 }
 
 func Widen_param_demo() {
-	println(Widen_u8_to_i64((200 & 0xff)), Widen_i8_to_i64((((-5 & 0xff) ^ 0x80) - 0x80)), Widen_u8_to_int((100 & 0xff)))
+	println(Widen_u8_to_i64(uint8((200 & 0xff))), Widen_i8_to_i64(int8((((-5 & 0xff) ^ 0x80) - 0x80))), Widen_u8_to_int(uint8((100 & 0xff))))
 }
 
 func I64_to_narrow_demo() {
@@ -242,7 +242,7 @@ func Consume_i8(x int64) int8 {
 }
 
 func Narrow_ret_demo() {
-	println(Lowbyte(int64(4660)), Lowbyte_i8(int64(200)), Inc8((200 & 0xff)), Consume_i8(int64(200)))
+	println(Lowbyte(int64(4660)), Lowbyte_i8(int64(200)), Inc8(uint8((200 & 0xff))), Consume_i8(int64(200)))
 }
 
 type ByteBox struct {
@@ -305,6 +305,14 @@ func Map_key_narrow_demo() {
 	} else {
 		println(0)
 	}
+}
+
+func Takes_u8(x uint8) int64 {
+	return int64(x)
+}
+
+func Arg_narrow_demo() {
+	println(Takes_u8(uint8(((int64(300)) & 0xff))))
 }
 
 func Vlet(x int64, z int64) int64 {
@@ -2464,6 +2472,7 @@ func main() {
 	Ptr_chan_narrow_demo()
 	Map_narrow_demo()
 	Map_key_narrow_demo()
+	Arg_narrow_demo()
 	Vlet_demo()
 	Narrow_u64_demo()
 	Floatconv_demo()
