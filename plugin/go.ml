@@ -393,6 +393,7 @@ let is_ptr_set_ref = named "ptr_set"
 let is_ptr_nil_ref = named "ptr_nil"
 let is_ptr_nil_tf_ref = named "ptr_nil_tf"   (* tag-free nil pointer → bare [nil] (for tagless/recursive types) *)
 let is_ptr_as_ref_ref = named "ptr_as_ref"
+let is_ref_as_ptr_ref = named "ref_as_ptr"   (* &x: address-of a local Ref → Go [&x] (the inverse of ptr_as_ref) *)
 let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
 (* Struct pointers (Phase Bs.2): SPtr R → Go *R; ops lower to native pointer syntax,
    reusing the same shapes as Ptr.  The StructRep/field-cell machinery is proof-only
@@ -1724,6 +1725,16 @@ let rec pp_expr state env = function
        | MLglob r, [_tag; rf] when is_ref_get_ref r -> pp_expr state env rf
        | MLglob r, [rf; v] when is_ref_set_ref r ->
            pp_expr state env rf ++ str " = " ++ pp_typed_lit state env v
+       (* [ref_as_ptr r] = Go [&x]: the ADDRESS of a local variable [x].  A [Ref] lowers to an
+          addressable Go var, so [&x] is a valid [*T] aliasing its cell.  Emit [&] of the var — but
+          ONLY when the operand is a bound variable ([MLrel], the provably-addressable case); a [Ref]
+          held in any other form (e.g. a function result) is NOT guaranteed addressable, and Go forbids
+          [&] of a non-addressable expression, so emit a fail-LOUD [unsupported] there rather than
+          invalid Go (rule 2 — never rely on a later [go build] error). *)
+       | MLglob r, [rf] when is_ref_as_ptr_ref r ->
+           (match strip_magic rf with
+            | MLrel _ -> str "&" ++ pp_atom state env rf
+            | _ -> unsupported "address-of (&x) whose operand is not a bound local variable (not provably addressable in Go)")
 
        (* Pointers (Phase B1).  [ptr_new tag v] → a fresh [*T] initialised to [v],
           emitted as the single-expression IIFE [func(_v T) *T { return &_v }(v)] (Go
@@ -4203,7 +4214,7 @@ let is_inlined_ref r =
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
-  is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ptr_get_ok_ref r ||
+  is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || is_slice_append_h_ref r ||

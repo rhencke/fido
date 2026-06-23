@@ -1912,6 +1912,22 @@ Definition ptr_demo : IO unit :=
   bind (ptr_get TI64 p)        (fun b =>      (* b := *p  (= 99) *)
   println [any b]))))).                        (* prints 99 *)
 
+(** Phase B1d: [&x] — the ADDRESS-OF operator (Go's `&`).  [&x] takes the address of a LOCAL
+    variable [x] (a [Ref], which lowers to an addressable Go var), yielding a [*int64] that ALIASES
+    x's cell.  Passing [&x] to a mutator ([write_thru]) and writing THROUGH the pointer changes [x]
+    itself — the defining reason `&` exists in Go (a callee mutating a caller's variable).  [&x] is
+    provably NEVER nil ([ref_as_ptr_not_nil], builtins.v), so the deref is safe; that the write is
+    visible at [x] is [ptr_set_ref_as_ptr_aliases].  Lowers to Go [write_thru(&x)]. *)
+Definition write_thru (p : Ptr GoI64) : IO unit :=
+  ptr_set TI64 p (99)%i64.                     (* *p = int64(99) *)
+Definition addr_of_demo : IO unit :=
+  bind (ref_new TI64 (10)%i64) (fun x =>       (* x := int64(10) *)
+  bind (ref_get TI64 x)        (fun a =>       (* a := x  (= 10) *)
+  bind (println [any a])       (fun _ =>       (* prints 10 *)
+  bind (write_thru (ref_as_ptr x)) (fun _ =>   (* write_thru(&x) — mutate x through its address *)
+  bind (ref_get TI64 x)        (fun b =>       (* b := x  (= 99, aliased through &x!) *)
+  println [any b]))))).                         (* prints 99 *)
+
 (** Differential test — a POINTER boxed as [any] then type-asserted.  Exercises the RECURSIVE
     [go_type_of_tag] ([TPtr TI64] → Go [*int64], the pointer-as-interface case, previously
     UNEXERCISED): a [*int64] interface value asserted TO [*int64] SUCCEEDS and TO [int64] FAILS, so the
@@ -3196,6 +3212,7 @@ Definition main_effect : IO unit :=
   irreducible_demo true         >>'   (* prints: 2 / 1 / 2 / 1 / 2 *)
   mut_demo                      >>'   (* prints: 15 *)
   ptr_demo                      >>'   (* prints: 10 / 99 (pointer deref read/write) *)
+  addr_of_demo                  >>'   (* prints: 10 / 99 (&x: writing through a local's address aliases it) *)
   ptr_box_demo                  >>'   (* prints: true false (a *int64 boxed as any: asserts to *int64 not int64 — recursive TPtr tag) *)
   new_demo                      >>'   (* prints: 0 (new(int64) → zero) *)
   ptr_safe_demo                 >>'   (* prints: 42 true / 0 false (nil-checked deref) *)
@@ -3299,7 +3316,7 @@ Extraction NoInline
   call_shift10 apply_pt apply_cell swap2 sum_print log_prefixed vararg
   ret bind panic catch run_io
   ref_get ref_set ref_new
-  ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new
+  ptr_get ptr_set ptr_new ptr_nil ptr_get_ok go_new ref_as_ptr
   sptr_new sptr_deref sptr_assign sptr_get_field sptr_set_field cell_incx
   sptr3_new sptr3_get_field sptr3_set_field cell3_inc_z
   sptrh_new sptrh_get_field sptrh_set_field pair_bump

@@ -1205,6 +1205,19 @@ func Ptr_demo() {
 	println(b)
 }
 
+func Write_thru(p *int64) {
+	*p = int64(99)
+}
+
+func Addr_of_demo() {
+	x := int64(10)
+	a := x
+	println(a)
+	Write_thru(&x)
+	b := x
+	println(b)
+}
+
 func Ptr_box_demo() {
 	p := func(_v int64) *int64 { return &_v }(int64(10))
 	_, a := any(p).(*int64)
@@ -2520,6 +2533,7 @@ func main() {
 	Irreducible_demo(true)
 	Mut_demo()
 	Ptr_demo()
+	Addr_of_demo()
 	Ptr_box_demo()
 	New_demo()
 	Ptr_safe_demo()

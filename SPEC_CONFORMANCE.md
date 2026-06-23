@@ -710,13 +710,17 @@ Spec: a variable holds a value; assignment `x = v` stores; declaration `x := v`.
 `ref_new`/`ref_get`/`ref_set` (a `Ref A` = a concrete typed cell in `w_refs`) → `var x T`
 / read / `x = v`; read-after-write is a **theorem** (`ref_sel_upd_same`, `ref_get_set_same`).
 Demo: `mut_demo`.  ✓  (The CFG variable-placement discipline — declaration dominates use,
-no shadowing — is part of the control-flow lowering below; pointers/`&x` ⚠ MODEL DONE, extraction pending,
+no shadowing — is part of the control-flow lowering below; pointers/`&x` ✓ DONE end-to-end,
 Tier 3 #8a — `ref_as_ptr r := mkPtr (r_loc r)` is the address-of operator (the inverse of `ptr_as_ref`):
 `&x` of a local `x` (a `Ref`) is a `*T` aliasing x's cell.  THEOREMS (substrate base, no funext/Fido axiom):
 `ref_as_ptr_not_nil` (a `Ref` lives at a nonzero location ⇒ `&x` is NEVER nil ⇒ deref never panics — taking
 an address is always safe, unlike a raw `*T`), `ptr_get_ref_as_ptr` (`*(&x)` reads `x`), and
-`ptr_set_ref_as_ptr_aliases` (`*(&x) = v` then `x` reads back `v` — the defining alias).  Still `✗` as a
-USABLE feature: the plugin does not yet EMIT `&x` (extraction/demo is the next slice).)
+`ptr_set_ref_as_ptr_aliases` (`*(&x) = v` then `x` reads back `v` — the defining alias).  EXTRACTION: the
+plugin emits Go `&x` for `ref_as_ptr` — FAIL-CLOSED, restricted to a bound-variable operand (`MLrel`, the
+provably-addressable case); any other operand is `unsupported` (Go forbids `&` of a non-addressable
+expression, so we never rely on a later `go build` error).  WITNESS: `addr_of_demo` (main.v) lowers to
+`x := int64(10); Write_thru(&x); …` — writing through `&x` mutates `x` (10→99), the canonical reason `&`
+exists; golden-locked.)
 
 ### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the goto-CFG relooper; ⚠ native `switch`
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,
