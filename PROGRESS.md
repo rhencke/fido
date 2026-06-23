@@ -677,6 +677,45 @@ separate tracks.
 
 ## Known gaps
 
+### RELEASE REVIEW #4 (2026-06-23) — resolution: defect CLASSES closed, overclaims re-scoped
+
+Verdict was RED (head c8400932). Central critique CONFIRMED firsthand: prior fixes repaired the OBSERVED
+demo instance but docs promoted each to "whole defect CLASS closed" — false; the source language still
+admitted invalid-Go / silent-wrong programs outside the curated demos. Each finding is now closed by
+FAILING-CLOSED the class (fail-loud `unsupported`) or making it genuinely correct, with a NEGATIVE source
+test (a `Fail`/abort) or a runtime golden lock that the un-demoed instances also hold:
+
+- **P0 #1 — platform-int distinctness (CLOSED, commit 60a71b6).** `GoUint`/`GoIntN`/`GoUintN` were
+  transparent `:= int` aliases rendered as DISTINCT Go types (invalid Go like `func(x int) uint`; `any`
+  mis-tagged). `GoUint` is now a genuinely distinct record (`Tagged_GoUint := TUint`, unique); the 7 dead
+  bare-int placeholders RETIRED; `GoRune` re-pointed to the faithful `GoI32`. Negative `Fail` tests +
+  runtime `uint_lock_demo`. So "DISTINCTNESS airtight" / the INJECTIVE tag→Go-type map are now ACCURATE
+  (were the hole P0 #1 named).
+- **P0 #2 — CPS continuation-loss (CLOSED, commit 6d4b3d8).** The comma-ok intrinsics
+  (`slice_at_ok`/`ptr_get_ok`/…/`type_assert_safe`, select-recv) kept `recv_ok`'s old fail-open
+  `|_->k_body`; now one shared `unsupported` for a non-inline handler. Permanent named-handler neg-fixtures.
+- **P1 #3 — raw-CFG nonzero-entry (CLOSED, commit 72a489c).** `run_blocks` with a nonzero entry emitted
+  `goto blockN` with no label; now validates the entry + every jump target in range (else `unsupported`)
+  and labels the nonzero entry. So "raw goto fallback always correct" is now ACCURATE (validated).
+- **P1 #4 — destination-typed narrow conversions (CLOSED, commits a4e715d, 31ca614, 6926948, 2eb8aac,
+  ac8250b, 69dd071, 8993a8d).** The typed-lowering crux. A wide int64-carried value into a NARROW
+  destination was emitted bare (invalid Go) at EVERY boundary the review listed; now cast via the unified
+  `narrow_dest_conv`/`narrow_go_name`/`pp_narrow_or`/`func_param_types` helpers at: narrow→wide widening,
+  struct fields, slice/array elements, pointer/channel payloads, map keys+values, and function args. So
+  R4(d) "every position" is now genuinely true (modulo SAFE residuals that DECLINE rather than mis-cast:
+  narrow params of methods / erased-arg functions, `ref_set`). Each boundary has a runtime golden lock.
+- **P1 #5 — session "full safety+liveness" (RE-SCOPED, not a code bug).** Restated above (search "review #4
+  P1 #5"): forge-proof discipline + conditional successful-trace soundness PROVED; unconditional
+  liveness/termination NOT (SLift admits `panic`; emits theorems conditional on `PEmits`). PARTIAL.
+- **P1 #6 — generated-name injectivity (CLOSED, commit 43b2703).** `Dtype` aliases now registered; each
+  record's exported field names scanned for a collision (`x'`/`x_` → `X_`) → `unsupported`. So R7's
+  injectivity claim now covers type aliases + struct fields too.
+
+The broader trust-base exactness (the plugin TCB, funext, the `Denotes` map, where the safety guarantee
+reaches) was consolidated separately — see **END-TO-END TRUST BASE** above. Still open from review #4: the
+R10 GATES (a permanent negtest harness, a `Print Assumptions` manifest, a `go vet`/build gate, CI) — the
+automation that would have caught these classes before a human review.
+
 ### ⛔⛔ RELEASE REVIEW (2026-06-22) — BACKEND FAILS *OPEN*: extraction emits plausible-but-wrong Go
 
 **Verdict: RED. Do NOT call current `main` "formally verified Go", and do NOT extend the feature set
@@ -783,7 +822,11 @@ CONFIRMED VERBATIM in `plugin/go.ml` this session are marked ✓verified.
    build passing proves the `Fail` succeeds). **✅ UNIFIED (commit c2108b2, golden byte-identical):** the redundant
    `PSess` inductive in concurrency.v is gone — `PSess`/`PS…` are now ABBREVIATIONS for `builtins.Sess`/`S…`, so
    bricks 1–5 are proved DIRECTLY about the extracted type (no isomorphic-but-separate gap). **R9 is FULLY CLOSED:
-   the emitted `Sess` is forge-proof and its complete safety+liveness theory is proved about that very type.** The
+   the emitted `Sess` is forge-proof and its successful-trace soundness is proved about that very type — PARTIAL/
+CONDITIONAL correctness, NOT unconditional "full safety+liveness" (review #4 P1 #5: `SLift` embeds arbitrary `IO`
+incl. `panic` at ANY index, and the emits theorems are conditional on a `PEmits` derivation an aborting/`Void`
+computation lacks, so they apply only to NORMALLY-RETURNING terms; unconditional liveness/termination is NOT
+proved — see the RELEASE REVIEW #4 resolution below).** The
    only residual is the documented idealisation (the channel `run` stays plugin-lowered, `GoTypeTag GoAny` universe
    block) — principled, not a hole.
 
@@ -952,9 +995,13 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   ("NON-COMPARABLE key type"). *Known deeper sub-case (noted, not yet closed):* a comparable check on a STRUCT
   key requires field-comparability analysis (a struct with a slice/map field would still slip through) — part
   of the typed-lowering phase.
-  **R4(d) — narrow-boundary COMPLETE ✅ (this session, golden `52 -56 201 -55`).** A sub-64 narrow `GoIntN`
-  value now flows correctly through EVERY position — RETURN, PARAM, and CONSUMED-by-arithmetic — with no failing
-  residual. Two coordinated fixes (`go.ml`):
+  **R4(d) — narrow-boundary.** (HONEST HISTORY: this entry ORIGINALLY claimed "EVERY position" while only
+  RETURN / PARAM / CONSUMED-by-arithmetic were covered — review #4 P1 #4 correctly falsified that. NOW genuinely
+  complete across ALL destination boundaries via the P1 #4 slices: narrow→wide widening, struct fields,
+  slice/array elements, pointer/channel payloads, map keys+values, and function args — see the RELEASE REVIEW #4
+  resolution. Residuals DECLINE the cast rather than mis-cast: narrow params of methods / erased-arg functions,
+  `ref_set`.) The original RETURN / PARAM / arithmetic fixes (golden `52 -56 201 -55`), two coordinated
+  `go.ml` changes:
   - **RETURN:** a narrow return casts its int-carrier result to the declared Go type — `func lowbyte(x int64)
     uint8 { return uint8((x & 0xff)) }` (pre-fix: `return (x & 0xff)`, an `int64` against a `uint8` signature →
     build error). `narrow_prim_type` (parses the short `GoU8`→`uint8` name via `is_numint_type`, width ≤ 32) +
