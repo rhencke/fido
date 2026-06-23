@@ -2785,6 +2785,17 @@ let pp_io_body ?(ret_val=false) state tab env body =
                       (List.rev hoists) in
                   let blocks = Array.of_list bs in
                   let nblk = Array.length blocks in
+                  (* review #4 P1 3: validate the entry + every literal Jump target is IN RANGE before any
+                     labelling / dominator processing.  An out-of-range entry/jump would otherwise become an
+                     undefined Go label (raw path) or an out-of-bounds [blocks.(i)] in the structurer — not a
+                     controlled abort. *)
+                  let () =
+                    if start_v >= nblk then
+                      unsupported (Printf.sprintf "run_blocks entry block index %d is out of range (there are only %d blocks): `goto block%d` would be an undefined Go label" start_v nblk start_v);
+                    List.iter (fun t ->
+                      if t >= nblk then
+                        unsupported (Printf.sprintf "run_blocks Jump to block index %d is out of range (there are only %d blocks): an undefined Go label / out-of-bounds block access" t nblk))
+                      (List.sort_uniq compare (List.fold_left (fun a b -> block_targets b a) [] bs)) in
                   let exit_node = nblk in
                   let inter a b = List.filter (fun x -> List.mem x b) a in
                   let targets_of i =
@@ -2794,7 +2805,10 @@ let pp_io_body ?(ret_val=false) state tab env body =
                      sits one indent left of its block, as gofmt wants. *)
                   let emit_raw () =
                     let targets =
-                      List.fold_left (fun a b -> block_targets b a) [] bs in
+                      (* review #4 P1 3: a NONZERO entry needs its OWN label — `initial` gotos it, so it
+                         must be in the label set (the Jump targets alone miss an entry no block jumps to). *)
+                      let jt = List.fold_left (fun a b -> block_targets b a) [] bs in
+                      if start_v = 0 then jt else start_v :: jt in
                     let is_target i = List.mem i targets in
                     let lbl_indent =
                       if String.length tab >= 1

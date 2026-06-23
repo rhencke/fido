@@ -1266,6 +1266,16 @@ func Count_demo() {
 	return
 }
 
+func Cfg_nonzero_entry_demo() {
+	goto block1
+block0:
+	println(7)
+	return
+block1:
+	println(5)
+	goto block0
+}
+
 func Cond_goto_demo(early bool) {
 	println(1)
 	if !early {
@@ -2315,6 +2325,7 @@ func main() {
 	Slice_clear_demo()
 	Slice_copy_demo()
 	Count_demo()
+	Cfg_nonzero_entry_demo()
 	Defer_demo()
 	Defer_loop_demo()
 	Point_demo()

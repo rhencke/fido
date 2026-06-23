@@ -1947,6 +1947,15 @@ Definition count_demo : IO unit :=
     ret Done                                       (* block 1 *)
   ]).
 
+(** review #4 P1 3: a run_blocks with a NONZERO entry (block 1) now emits its own `block1:`
+    label — the raw fallback used to emit `goto block1` with NO such label (undefined Go).  Entry
+    block 1 prints 5 then jumps to block 0 (so block 0 is reachable, not dead); block 0 prints 7. *)
+Definition cfg_nonzero_entry_demo : IO unit :=
+  run_blocks 1%nat [
+    bind (println [any (7 : int)]) (fun _ => ret Done) ;           (* block 0 — reached via block 1's jump *)
+    bind (println [any (5 : int)]) (fun _ => ret (Jump 0%nat))     (* block 1 — the ENTRY, then → block 0 *)
+  ].
+
 (** Control flow as a goto-CFG.  Three blocks; block 0 conditionally jumps to
     the merge (block 2), skipping block 1.  The structurer lifts this to a clean
     one-armed [if !early { println(2) }] — block 1 runs only when not early.
@@ -2967,6 +2976,7 @@ Definition main_effect : IO unit :=
   slice_clear_demo              >>'   (* prints: 0 (clear zeros the slice) *)
   slice_copy_demo               >>'   (* prints: 7 (copy src→dst) *)
   count_demo                    >>'   (* prints: 0 / 1 / 2 *)
+  cfg_nonzero_entry_demo        >>'   (* prints: 5 / 7 (nonzero run_blocks entry now labelled, R#4 P1 3) *)
   defer_demo                    >>'   (* prints: 3 / 2 / 1 *)
   defer_loop_demo               >>'   (* prints: 2 / 1 / 0 *)
   point_demo                    >>'   (* prints: 3 / 4 / 7 *)
