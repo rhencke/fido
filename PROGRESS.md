@@ -1121,6 +1121,16 @@ marked ✓verified. **This review SUPERSEDES the "most P0s CLOSED" status above 
   the guaranteed range. The remaining question — a per-op in-range proof to ENFORCE the bound — is deliberately
   NOT added: it is invasive for an unreachable case, and the faithful 64-bit alternative (`GoI64`) already exists.
   Docs sharpened in builtins.v (the `GoInt` block) + here; golden byte-identical (docs-only).
+  **⚠ SUPERSEDED — being FIXED, not accepted (review #6 #13, user directive "ALL ints/uints → Z, no documented
+  shortcomings"):** the "principled substrate-limit deviation" framing above is being RETIRED for the platform
+  types — each is re-carriered onto `Z` (faithful full width, the `GoI64`/`GoU64` shape), so there is no residual
+  63-bit wrap deviation to permit. **Platform `uint` (`GoUint`): DONE (commit 796281f)** — distinct `Z`-carried
+  record, faithful `[0, 2^64)`, golden byte-identical. **Platform `int` (`GoInt`): NEXT** (atomic big-bang — `GoInt`
+  is a pervasive type; the index/loop/len machinery already emits Go-native so it stays byte-identical, only the
+  literal renderers migrate to the `Z`-literal path). The ONLY residual platform assumption then is the 64-bit
+  *width* choice (Go's `int` is 32-or-64 by spec; we model 64), which is NOT a carrier deviation. Once `GoInt`
+  lands, the line-10 "`int` bitwise/shifts — 63-bit substrate ✗ that cannot be closed" and the §2453 "uint64/uint/
+  int full width ✗" entries also flip to ✓ and must be updated.
 - **R8. Proof IO semantics ≠ emitted-Go semantics** (known two-models gap, itemized): buffered-channel alloc
   ignores capacity; recv from an empty OPEN channel returns a fabricated zero instead of blocking; `go_spawn` runs
   the child sequentially to completion in the denotational model; `defer_call` is a proof-side no-op while the
