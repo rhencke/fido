@@ -4948,17 +4948,24 @@ Qed.
 
     Dereferencing a nil pointer PANICS in Go.  The raw [ptr_get]/[ptr_set] are the
     escape hatch; [ptr_get_ok] is the safe-by-construction default — a comma-ok CPS
-    form (like [slice_at_ok]/[recv_ok]) that BRANCHES on [p ≠ nil]: non-nil ⇒
+    form (like [slice_at_ok]/[recv_ok]) that BRANCHES on [p ≠ nil]: non-nil-AND-allocated ⇒
     [v = *p, ok = true]; nil ⇒ [v = zero, ok = false].  Because the caller must handle
     [ok = false], the nil-deref panic is UNREACHABLE.  (A [Ptr] is nil iff its location
     is the 0 sentinel — [ptr_nil].  The value is in the world heap, so [ptr_get_ok]
-    threads [w]; a read leaves [w] unchanged.) *)
+    threads [w]; a read leaves [w] unchanged.)  Review #6 #7: the non-nil branch reads via the
+    CHECKED [ref_sel_opt], so a FORGED / retyped non-nil handle (cell absent or wrong-tagged) FAILS
+    LOUD rather than fabricating a zero with [ok = true] — the same hole [ref_get] closed, here in the
+    safe comma-ok default.  That loud branch is unreachable for any [Ptr] from [ptr_new]/[ref_as_ptr]
+    (their cells are allocated at the matching tag); it guards only the public raw [mkPtr]. *)
 Definition ptr_is_nil {A} (p : Ptr A) : bool := Nat.eqb (p_loc p) 0.
 
 Definition ptr_get_ok {A B} (tag : GoTypeTag A) (p : Ptr A) (k : A -> bool -> IO B) : IO B :=
   fun w => if ptr_is_nil p
            then k (zero_val tag) false w
-           else k (ref_sel (ptr_as_ref tag p) w) true w.
+           else match ref_sel_opt (ptr_as_ref tag p) w with
+                | Some a => k a true w
+                | None   => OPanic rt_nil_deref w   (* forged / retyped non-nil handle: FAIL LOUD, never fabricate *)
+                end.
 
 (** Dereferencing a NIL pointer takes the SAFE branch ([ok = false], [v = zero]) —
     never the panic; the nil case is forced on the caller.  A THEOREM. *)
@@ -4968,13 +4975,18 @@ Proof.
   intros A B tag k. unfold ptr_get_ok, ptr_is_nil, ptr_nil. reflexivity.
 Qed.
 
-(** A pointer from [ptr_new] is NON-nil, so [ptr_get_ok] reads through it
-    ([ok = true]) and returns the stored value: safe deref of a live pointer. *)
+(** A pointer from [ptr_new] is NON-nil AND its cell is allocated at [p]'s own tag, so [ref_sel_opt] hits
+    [Some] and [ptr_get_ok] reads through it ([ok = true]) returning the stored value: safe deref of a live
+    pointer.  (A forged / retyped non-nil handle — [ref_sel_opt = None] — instead FAILS LOUD, review #6 #7:
+    the safe comma-ok form no longer fabricates a zero for a handle whose cell is absent or wrong-typed,
+    closing the same hole [ref_get] closed.  That loud branch is UNREACHABLE for any [Ptr] obtained from
+    [ptr_new]/[ref_as_ptr], a boundary defense for the public [mkPtr] only.) *)
 Lemma ptr_get_ok_nonnil : forall {A B} (tag : GoTypeTag A) (p : Ptr A)
-    (k : A -> bool -> IO B) (w : World),
+    (k : A -> bool -> IO B) (a : A) (w : World),
   ptr_is_nil p = false ->
-  ptr_get_ok tag p k w = k (ref_sel (ptr_as_ref tag p) w) true w.
-Proof. intros A B tag p k w Hnn. unfold ptr_get_ok. rewrite Hnn. reflexivity. Qed.
+  ref_sel_opt (ptr_as_ref tag p) w = Some a ->
+  ptr_get_ok tag p k w = k a true w.
+Proof. intros A B tag p k a w Hnn Hsel. unfold ptr_get_ok. rewrite Hnn, Hsel. reflexivity. Qed.
 
 (** ---- Slices as ALIASING HANDLES (Go spec "Slice types", Phase B3) ----
 
@@ -5019,16 +5031,27 @@ Definition slice_make_h {A} (tag : GoTypeTag A) (n : GoInt) : IO (SliceH A) :=
    this check, so the lowering is unchanged (body suppressed). *)
 Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
   (Z.leb 0 (intraw i) && Nat.ltb (Z.to_nat (intraw i)) (sh_len s))%bool.
+(** Review #6 #7: the in-bounds read goes through the CHECKED [ref_sel_opt], so a FORGED slice header
+    ([mkSliceH] at a [base]/[off] whose backing cell is unallocated or wrong-tagged) FAILS LOUD instead
+    of fabricating a zero — the same [ref_sel]-zero-fill hole [ref_get]/[ptr_get_ok] closed, here for the
+    safe slice element read.  The loud branch is UNREACHABLE for any slice from [slice_make_h]/[subslice]/
+    [slice_append] (their backing cells are allocated at the matching tag), so real programs are
+    unaffected; it guards only the public raw [mkSliceH].  Body is plugin-lowered to [s[i]]. *)
 Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO A :=
-  fun w => if slice_in_len s i then ORet (ref_sel (sh_cell s (Z.to_nat (intraw i))) w) w
+  fun w => if slice_in_len s i
+           then match ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w with
+                | Some a => ORet a w
+                | None   => OPanic rt_nil_deref w
+                end
            else OPanic rt_index_oob w.
 Definition slice_idx_set {A} (s : SliceH A) (i : GoInt) (v : A) : IO unit :=
   fun w => if slice_in_len s i then ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
            else OPanic rt_index_oob w.
-Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (w : World),
+Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (a : A) (w : World),
   slice_in_len s i = true ->
-  run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s (Z.to_nat (intraw i))) w) w.
-Proof. intros A tag s i w Hi. unfold slice_idx_get, run_io. rewrite Hi. reflexivity. Qed.
+  ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
+  run_io (slice_idx_get tag s i) w = ORet a w.
+Proof. intros A tag s i a w Hi Hsel. unfold slice_idx_get, run_io. rewrite Hi, Hsel. reflexivity. Qed.
 Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
   slice_in_len s i = true ->
   run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w).
@@ -5101,7 +5124,8 @@ Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i 
 Proof.
   intros A tag s i v Hi. intro w.
   rewrite !run_bind, !(run_slice_idx_set s i v w Hi). cbn.
-  rewrite (run_slice_idx_get tag s i (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi), ref_sel_upd_same, run_ret.
+  rewrite (run_slice_idx_get tag s i v (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi
+             (ref_sel_opt_upd_same (sh_cell s (Z.to_nat (intraw i))) v w)), run_ret.
   reflexivity.
 Qed.
 
