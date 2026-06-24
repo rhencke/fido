@@ -5544,8 +5544,10 @@ End KeystoneHeap.
     [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
     advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
     channels AND its memory — is realized by ONE [run_io] world, across all interleavings.  Open/closed
-    channel STATUS is matched too ([reachable_refines_closed], review #6 #14); capacity/nilness stay a
-    frontier (capacity lives in the bounded calculus [rstepC]).
+    channel STATUS is matched too ([reachable_refines_closed], review #6 #14); CAPACITY is now a proven
+    invariant of every bounded-reachable state ([reachableC_bounded] / [reachableC_refines_bounded] at
+    the file end, #14) — it lives in the bounded calculus [rstepC] (the idealized [run_io] world cannot
+    express a bound), but the refinement now carries it.  Nilness stays a frontier.
     ============================================================================ *)
 (** [closedb] distributes over trace concatenation — moved up (was below) because [wstate_stepC]'s
     closedness-preservation in [KeystoneState] needs it. *)
@@ -5668,7 +5670,9 @@ Section KeystoneState.
 
   (** Capstone: that single world realizes the reachable BUFFER+HEAP state AND (under ownership) the
       execution is race-free with a strict-partial-order happens-before.  (Open/closed channel STATUS is
-      also realized — [reachable_refines_closed] below, review #6 #14; capacity/nilness stay a frontier.) *)
+      also realized — [reachable_refines_closed] below, review #6 #14; CAPACITY is a proven invariant of
+      every bounded-reachable state — [reachableC_bounded] / [reachableC_refines_bounded], file end;
+      nilness stays a frontier.) *)
   Theorem reachable_refines_state_and_safe : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     (forall l, ref_sel (locenv l) w0 = inj 0) ->
@@ -5688,8 +5692,10 @@ Section KeystoneState.
       OPEN world (the old [wstate_step] close case left the world unchanged).  [WClosedMatch] adds the
       missing conjunct — the world's [chan_closed] flag matches the trace's [closedb] — and [wstate_stepC]
       maps a [close] to [chan_close_upd] (advancing the world) so the FULL state, buffers AND heap AND
-      closedness, is realized by one [run_io] world.  (Capacity/nilness stay a frontier — capacity lives in
-      the bounded calculus [rstepC]; this is the closedness half of #14.) *)
+      closedness, is realized by one [run_io] world.  This is the CLOSEDNESS half of #14; the CAPACITY
+      half is now done too — capacity lives in the bounded calculus [rstepC] (the idealized [run_io]
+      world cannot bound a buffer), and [reachableC_bounded] / [reachableC_refines_bounded] (file end)
+      prove it a refinement invariant of every bounded-reachable state.  Nilness stays a frontier. *)
   Definition WClosedMatch (w : World) (cfg : RConfig) : Prop :=
     forall c, chan_closed (chenv c) w = closedb (rc_trace cfg) c.
   Definition WStateC (w : World) (cfg : RConfig) : Prop :=
@@ -8519,4 +8525,89 @@ Proof.
     + exact (Hncret Hret).
     + exact (Hnblk Hblk).
     + exact (Hnpan Hpan).
+Qed.
+
+(** ============================================================================
+    CAPACITY IN THE REFINEMENT — closing the "[capacity stays a frontier]" note (#14).
+
+    The [run_io] world deliberately idealizes blocking away (its channel buffer is UNBOUNDED — see the
+    [run_io] design note), so the channel CAPACITY cannot live in the world; it lives in the bounded
+    calculus [rstepC], exactly as the [reachable_refines] frontier comment says.  We close the frontier
+    AT THE LEVEL IT EXISTS: capacity is now a PROVEN INVARIANT [BoundedC] of every bounded-reachable
+    config — [rstepC_send]'s [length < cap] guard, [rstepC_sync]'s drain-to-empty, and the
+    length-non-increasing recv/select keep [length (buf c) <= cap c] at every step — and the refined
+    world realizes EXACTLY that capacity-respecting buffer state.  So [reachableC_refines_bounded] is the
+    capacity-AWARE refinement: every bounded-reachable state is realized by a [run_io] world AND provably
+    honors the capacity bound. *)
+Definition BoundedC (cap : nat -> nat) (cfg : RConfig) : Prop :=
+  forall c, length (rc_bufs cfg c) <= cap c.
+
+Lemma rstepC_bounded : forall cap cfg cfg',
+  rstepC cap cfg cfg' -> BoundedC cap cfg -> BoundedC cap cfg'.
+Proof.
+  unfold BoundedC. intros cap cfg cfg' H HB. destruct H as
+    [ p b h lv tr tid c v k Hlv Hp Hcl Hroom
+    | p b h lv tr t0 t1 c v k1 f Hne Hlv0 Hlv1 Hp0 Hp1 Hbc Hcl Hcap
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcl
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+    intros c'; cbn [rc_bufs] in *; specialize (HB c').
+  - (* send: channel c gains one element; the [length < cap] guard keeps it bounded *)
+    destruct (Nat.eq_dec c' c) as [->|Hne]; [|rewrite (upd_other _ _ _ _ Hne); exact HB].
+    rewrite upd_same, length_app; cbn [length]; lia.
+  - (* sync: c is buffered-then-drained back to empty; all other channels unchanged *)
+    destruct (Nat.eq_dec c' c) as [->|Hne'].
+    + rewrite upd_same; cbn [length]; lia.
+    + rewrite (upd_other _ _ _ _ Hne'), (upd_other _ _ _ _ Hne'); exact HB.
+  - (* recv: c shrinks by one *)
+    destruct (Nat.eq_dec c' c) as [->|Hne]; [|rewrite (upd_other _ _ _ _ Hne); exact HB].
+    rewrite upd_same. rewrite Hbc in HB. cbn [length] in HB. lia.
+  - exact HB.
+  - exact HB.
+  - exact HB.
+  - (* select: c shrinks by one, like recv *)
+    destruct (Nat.eq_dec c' c) as [->|Hne]; [|rewrite (upd_other _ _ _ _ Hne); exact HB].
+    rewrite upd_same. rewrite Hbc in HB. cbn [length] in HB. lia.
+  - exact HB.
+  - exact HB.
+  - exact HB.
+Qed.
+
+Lemma rstepsC_bounded : forall cap cfg cfg',
+  rstepsC cap cfg cfg' -> BoundedC cap cfg -> BoundedC cap cfg'.
+Proof.
+  intros cap cfg cfg' H. induction H as [cfg0 | a b0 c Hab Hbc IH]; intros HB; [exact HB|].
+  apply IH. exact (rstepC_bounded _ _ _ Hab HB).
+Qed.
+
+Lemma boundedC_init : forall cap p, BoundedC cap (rinit_cfg p).
+Proof. intros cap p c. unfold rinit_cfg; cbn [rc_bufs]. apply Nat.le_0_l. Qed.
+
+(* CAPACITY INVARIANT: every bounded-reachable config respects every channel's capacity. *)
+Theorem reachableC_bounded : forall cap p cfg,
+  rstepsC cap (rinit_cfg p) cfg -> BoundedC cap cfg.
+Proof. intros cap p cfg H. exact (rstepsC_bounded _ _ _ H (boundedC_init cap p)). Qed.
+
+(** CAPACITY-AWARE REFINEMENT: every bounded-reachable state is BOTH realized by a [run_io] world
+    (matching its channel buffers — [reachable_refines] lifted onto [rstepC] for free via
+    [rstepsC_embed]) AND provably honors the capacity bound ([reachableC_bounded]).  The world supplies
+    the (capacity-agnostic, idealized) buffer contents; [BoundedC] supplies the capacity the world cannot
+    express — together, the capacity-respecting refinement the frontier note asked for. *)
+Corollary reachableC_refines_bounded :
+  forall (chenv : nat -> GoChan GoI64) (inj : nat -> GoI64),
+    (forall i j, chenv i = chenv j -> i = j) ->
+  forall cap p cfg w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    rstepsC cap (rinit_cfg p) cfg ->
+    (exists w, WMatchC chenv inj w cfg) /\ BoundedC cap cfg.
+Proof.
+  intros chenv inj Hci cap p cfg w0 Hempty Hsteps.
+  split.
+  - exact (reachable_refines chenv inj Hci p cfg w0 Hempty (rstepsC_embed _ _ _ Hsteps)).
+  - exact (reachableC_bounded cap p cfg Hsteps).
 Qed.

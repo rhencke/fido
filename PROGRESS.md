@@ -2954,9 +2954,13 @@ The honest gaps, IN ORDER, each taken one at a time with careful up-front planni
    (`cstep_cap_respected` / `csteps_cap_respected` / `csteps_from_empty_cap_respected`, no overflow);
    LIVENESS — a buffered send with room never blocks (`buffered_send_progresses`), the dual of
    `all_senders_stuck`, so BOTH halves of Go's channel blocking (cap>len ⇒ progress, cap 0 ⇒ block)
-   are captured.  Axiom-free.  Scope is bounded to the channel fragment ([CSend]/[CRecv]); integrating
-   `cap` into the full `rstep` (an `rc_cap` field at ~42 `mkRCfg` sites) is the remaining cascade — the
-   missing SEMANTICS (unbuffered = synchronous-only + blocking) is now proven.
+   are captured.  Axiom-free.  This `cstep` is the self-contained channel-fragment pilot; the FULL-calculus
+   integration is now DONE — `rstepC cap` (the whole `rstep` parameterised by a capacity, threaded as a
+   `nat -> nat` argument rather than an `rc_cap` field, so NO `mkRCfg`-site cascade) carries the same
+   `length < cap` send guard + cap-0 `rstepC_sync` rendezvous, and on it: SAFETY transfers for free
+   (`rstepsC_embed`), capacity is a proven reachability invariant of the full state (`BoundedC` /
+   `reachableC_bounded`), the deadlock characterization is the single IFF `rstuckC_iff_blocked` over ALL
+   bounded programs, and the world-refinement is capacity-aware (`reachableC_refines_bounded`).
 
 **Combined (steps 1+2):** `reachable_owned_safe` — a REACHABLE execution respecting
 the ownership discipline has a strict-partial-order happens-before AND is race-free.
