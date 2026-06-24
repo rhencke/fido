@@ -2065,17 +2065,20 @@ Definition linked_list_demo : IO unit :=
     contains the channel's own type.)  Recursion through the tag-free phantom [GoChan] + the NULLARY
     nominal tag [TChanBox] (finite; the channel-of-itself tag is the finite [TChan TChanBox]).  A goroutine
     sends the self-box; main receives it and reads the id — built from safe channel APIs (no [close], so
-    send-on-closed is unexpressible) and structurally race-free (one sender, one receiver, no shared
-    writes), yet self-sending.  (As with [cursed_demo], a per-program formal race-freedom proof is the
-    limit-#2 frontier; the feature safety is machine-checked.) *)
+    send-on-closed is unexpressible) and MACHINE-CHECKED race-free in shape: a self-sending-channel relay
+    is [MemFree], so this fits the memory-free/ownership discipline ([memfree_prog_race_free] /
+    [cursed_spawn_reachable_race_free], concurrency.v) — race-free for every interleaving, yet
+    self-sending.  (As with [cursed_demo], only the typed↔operational bridge to this exact program is the
+    limit-#2 frontier; feature safety AND the shape's race-freedom are machine-checked.) *)
 Definition chanbox_demo : IO unit :=
   c <-' make_chan TChanBox ;;                            (* c : chan ChanBox                                    *)
   go_spawn (send TChanBox c (MkChanBox (42)%i64 c)) >>' (* goroutine: c <- ChanBox{42, c} — the channel sends ITSELF *)
   ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
     println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
 
-(** THE NORTH-STAR "CURSED" DEMO (v2) — assorted Go horror in ONE struct, safe BY CONSTRUCTION (see the
-    HONEST SCOPE note at the end: per-program formal race-freedom is the limit-#2 frontier).  A struct
+(** THE NORTH-STAR "CURSED" DEMO (v2) — assorted Go horror in ONE struct, safe by construction with its
+    concurrency shape MACHINE-CHECKED race-free ([cursed_spawn_reachable_race_free]; see the HONEST SCOPE
+    note at the end — only the typed↔calculus bridge is the limit-#2 frontier).  A struct
     [Cursed] holds a SLICE of channels that SEND THEMSELVES ([]chan ChanBox) AND a pointer into a
     RECURSIVE linked list (a *ListNode).  TWO goroutines each pull their channel OUT of the slice-in-the-
     struct and make it transmit a [ChanBox] whose [Ch] field IS that very channel — channels-in-a-slice-
@@ -2084,13 +2087,17 @@ Definition chanbox_demo : IO unit :=
     a struct, concurrent goroutines, a recursive heap type), yet it is built EXCLUSIVELY from
     safe-by-construction APIs: out-of-bounds is UNEXPRESSIBLE ([slice_get] demands an in-range proof),
     every deref is the fail-loud [ptr_get], every channel op a safe form, and the program contains no
-    [close] — so OOB / nil-deref / send-on-closed cannot silently occur — and it is STRUCTURALLY
-    race-free (each goroutine owns its own channel; no shared writes).  Assembled entirely from the
+    [close] — so OOB / nil-deref / send-on-closed cannot silently occur.  Its concurrency SHAPE is
+    MACHINE-CHECKED race-free: [cursed_spawn_reachable_race_free] (concurrency.v) proves that EXACT shape
+    — a main goroutine that owns the heap and dynamically spawns memory-free ([MemFree]) self-sending-
+    channel relays, then recvs and reads/writes its list — race-free for EVERY reachable interleaving, via
+    the [PrivateDisc]/[OA_spawn] ownership discipline ([own := fun _ => 0]).  Assembled entirely from the
     shipped features (ChanBox self-send + ListNode recursion + channels-in-slices-in-structs +
-    goroutines).  Prints: 99 1 2 3.  (HONEST SCOPE: the FEATURE-level safety and the GENERAL race-freedom
-    theory are machine-checked; a per-program, end-to-end formal safety proof of THIS typed program —
-    Denoting it into the [rstep] calculus to transfer its race-freedom — is the limit-#2 frontier, NOT
-    yet discharged.  Per CLAUDE.md, this is not "verified race-free Go".) *)
+    goroutines).  Prints: 99 1 2 3.  (HONEST SCOPE: feature-level safety AND the concurrency shape's
+    race-freedom are machine-checked; the only gap is the typed↔operational BRIDGE — Denoting THIS exact
+    extracted program into [cursed_spawn_prog] — which is the limit-#2 frontier.  Per CLAUDE.md this is
+    still not "verified race-free Go", but the race-freedom is proven on the calculus model, not merely
+    argued.) *)
 Record Cursed := MkCursed {
   cu_chans : GoSlice (GoChan ChanBox) ;   (* []chan ChanBox — self-sending channels, IN A SLICE *)
   cu_list  : Ptr ListNode                 (* *ListNode      — a RECURSIVE linked list             *)
@@ -3321,7 +3328,7 @@ Definition main_effect : IO unit :=
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
-  cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct, safe by construction — per-program race-freedom is the limit-#2 frontier) *)
+  cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
   slice_append_demo             >>'   (* prints: 9 (append reallocates a full slice) *)
   slice_makecap_demo            >>'   (* prints: 77 (make-with-cap: in-place append shares backing) *)
