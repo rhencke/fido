@@ -624,3 +624,37 @@ Proof.
     apply usteps_refl.
   - cbn. repeat split; reflexivity.
 Qed.
+
+(** ============================================================================
+    SLICE 7 — observable behaviour is APPEND-ONLY: output and the trace only ever GROW under [ustep].
+
+    A structural faithfulness property the shallow [run_io] could not have (it erased output): every
+    step EXTENDS the output log and the event trace by a suffix — nothing already emitted is ever lost,
+    overwritten, or reordered.  (Reinforces review #6 #12 on the authoritative semantics.) *)
+Lemma ustep_out_grows : forall cfg cfg', ustep cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
+Proof.
+  intros cfg cfg' H. destruct H; cbn [uc_out];
+    first [ exists (@nil (nat * list GoAny)); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
+Qed.
+
+Lemma ustep_trace_grows : forall cfg cfg', ustep cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
+Proof.
+  intros cfg cfg' H. destruct H; cbn [uc_trace];
+    first [ exists (@nil Ev); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
+Qed.
+
+Lemma usteps_out_grows : forall cfg cfg', usteps cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
+Proof.
+  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
+  - exists nil. rewrite app_nil_r. reflexivity.
+  - destruct (ustep_out_grows a b Hab) as [s1 H1]. destruct IH as [s2 H2].
+    exists (s1 ++ s2). rewrite H2, H1, app_assoc. reflexivity.
+Qed.
+
+Lemma usteps_trace_grows : forall cfg cfg', usteps cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
+Proof.
+  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
+  - exists nil. rewrite app_nil_r. reflexivity.
+  - destruct (ustep_trace_grows a b Hab) as [s1 H1]. destruct IH as [s2 H2].
+    exists (s1 ++ s2). rewrite H2, H1, app_assoc. reflexivity.
+Qed.
