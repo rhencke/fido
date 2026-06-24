@@ -120,7 +120,23 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
   | ustep_pan_done : forall p b h lv tr o df pa tid v,
       lv tid = true -> p tid = UPan v -> df tid = [] ->
       ustep (mkUCfg p b h lv tr o df pa)
-            (mkUCfg p b h (upd lv tid false) tr o df (upd pa tid (Some v))).
+            (mkUCfg p b h (upd lv tid false) tr o df (upd pa tid (Some v)))
+  (* ---- faithful CLOSED-CHANNEL panics: send/close on a closed channel PANICS (Go), modelled by
+         transitioning the goroutine to [UPan] (the defer/death machinery above then runs); a recv on a
+         CLOSED, drained channel returns the zero value (binds 0), exactly [rstep_recv_closed]. ---- *)
+  | ustep_send_closed : forall p b h lv tr o df pa tid c v k,
+      lv tid = true -> p tid = USend c v k -> closedb tr c = true ->
+      ustep (mkUCfg p b h lv tr o df pa)
+            (mkUCfg (upd p tid (UPan rt_send_closed)) b h lv tr o df pa)
+  | ustep_close_closed : forall p b h lv tr o df pa tid c k,
+      lv tid = true -> p tid = UClose c k -> closedb tr c = true ->
+      ustep (mkUCfg p b h lv tr o df pa)
+            (mkUCfg (upd p tid (UPan rt_close_closed)) b h lv tr o df pa)
+  | ustep_recv_closed : forall p b h lv tr o df pa tid c f pos e,
+      lv tid = true -> p tid = URecv c f -> b c = [] ->
+      nth_error tr pos = Some e -> e_kind e = KClose c ->
+      ustep (mkUCfg p b h lv tr o df pa)
+            (mkUCfg (upd p tid (f 0)) b h lv (tr ++ [mkEv tid (KRecv c pos)]) o df pa).
 
 Inductive usteps : UConfig -> UConfig -> Prop :=
   | usteps_refl : forall cfg, usteps cfg cfg
@@ -259,7 +275,10 @@ Proof.
     | p b h lv tr o df pa tid d ds Hlv Hp Hdfeq
     | p b h lv tr o df pa tid Hlv Hp Hdfeq
     | p b h lv tr o df pa tid v d ds Hlv Hp Hdfeq
-    | p b h lv tr o df pa tid v Hlv Hp Hdfeq ];
+    | p b h lv tr o df pa tid v Hlv Hp Hdfeq
+    | p b h lv tr o df pa tid c v k Hlv Hp Hcl
+    | p b h lv tr o df pa tid c k Hlv Hp Hcl
+    | p b h lv tr o df pa tid c f pos e Hlv Hp Hbc Hpos Hek ];
     cbn [uc_trace uc_prog uc_live uc_defers] in Htr, Hprog, Hdf |- *.
   - (* write: owner access (own l = tid), cont k *)
     pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO. apply uoa_write_inv in HO. destruct HO as [Hown HOk].
@@ -347,6 +366,18 @@ Proof.
         [ rewrite upd_same in Hg; discriminate | rewrite (upd_other lv tid false g Hgt) in Hg; exact (Hprog g Hg) ].
     + intros g Hg. destruct (Nat.eq_dec g tid) as [->|Hgt];
         [ rewrite upd_same in Hg; discriminate | rewrite (upd_other lv tid false g Hgt) in Hg; exact (Hdf g Hg) ].
+  - (* send-on-closed: prog becomes UPan (no memory, UOnlyAcc trivially); trace/defers unchanged *)
+    split; [exact Htr | split; [| exact Hdf]].
+    intros g Hg. exact (uonlyacc_upd own p tid (UPan rt_send_closed) lv g Hprog (UOA_pan _ _) Hg).
+  - (* close-on-closed: prog becomes UPan *)
+    split; [exact Htr | split; [| exact Hdf]].
+    intros g Hg. exact (uonlyacc_upd own p tid (UPan rt_close_closed) lv g Hprog (UOA_pan _ _) Hg).
+  - (* recv-on-closed: cont f 0; event KRecv (not memory) *)
+    pose proof (Hprog tid Hlv) as HO. rewrite Hp in HO.
+    split; [| split].
+    + apply (TraceOwned_app own tr (mkEv tid (KRecv c pos)) Htr). intros l' [Hw|Hr]; cbn in *; discriminate.
+    + intros g Hg. exact (uonlyacc_upd own p tid (f 0) lv g Hprog (uoa_recv_inv _ _ _ HO 0) Hg).
+    + exact Hdf.
 Qed.
 
 Lemma uprivate_disc_steps : forall own a b, usteps a b -> UPrivateDisc own a -> UPrivateDisc own b.
@@ -372,4 +403,87 @@ Proof.
   intros own cfg0 cfg HPD Hsteps.
   pose proof (uprivate_disc_locprivate own cfg (uprivate_disc_steps own cfg0 cfg Hsteps HPD)) as HLP.
   split; [exact HLP | exact (locprivate_race_free _ HLP)].
+Qed.
+
+(** ============================================================================
+    SLICE 3 — LIVENESS / DEADLOCK, ported onto the unified semantics.
+
+    With panics now operational (send/close-on-closed -> [UPan]; recv-on-closed -> zero), the ONLY way a
+    live goroutine fails to step is a receive on an empty, still-OPEN channel — a genuine wait for a
+    sender.  So [ustep]'s progress and deadlock characterization is clean: a config is STUCK exactly when
+    every live goroutine is so blocked.  Output, defer-register, defer/panic-at-return, write, read,
+    spawn all step unconditionally; send steps (async) or panics; close steps or panics; recv steps when
+    buffered or closed.  This is the rich-calculus [rstuck_blocked]/[ready_can_step] re-homed on the ONE
+    semantics that ALSO carries panic + defer + output. *)
+Definition ucan_step (cfg : UConfig) : Prop := exists cfg', ustep cfg cfg'.
+Definition UFreshAvail (cfg : UConfig) : Prop := exists cid, uc_live cfg cid = false.
+Definition ublocked (cfg : UConfig) (tid : nat) : Prop :=
+  exists c f, uc_prog cfg tid = URecv c f
+              /\ uc_bufs cfg c = [] /\ closedb (uc_trace cfg) c = false.
+
+(** PROGRESS: a live goroutine that is NOT blocked-on-empty-open-recv means the whole config can step. *)
+Theorem uready_can_step : forall cfg tid,
+  UFreshAvail cfg -> uc_live cfg tid = true -> ~ ublocked cfg tid -> ucan_step cfg.
+Proof.
+  intros cfg tid [cid Hcid] Hlive Hnblk. destruct cfg as [p b h lv tr o df pa].
+  cbn [uc_prog uc_bufs uc_trace uc_live] in *.
+  destruct (p tid) as [ | xs k | v | d k | c v k | c f | l v k | l f | child k | c k ] eqn:Hp.
+  - (* URet *) destruct (df tid) as [|d ds] eqn:E.
+    + eexists. eapply ustep_ret_done; [exact Hlive | exact Hp | exact E].
+    + eexists. eapply ustep_ret_defer; [exact Hlive | exact Hp | exact E].
+  - eexists. eapply ustep_out; [exact Hlive | exact Hp].
+  - (* UPan *) destruct (df tid) as [|d ds] eqn:E.
+    + eexists. eapply ustep_pan_done; [exact Hlive | exact Hp | exact E].
+    + eexists. eapply ustep_pan_defer; [exact Hlive | exact Hp | exact E].
+  - eexists. eapply ustep_defer; [exact Hlive | exact Hp].
+  - (* USend *) destruct (closedb tr c) eqn:Ecl.
+    + eexists. eapply ustep_send_closed; [exact Hlive | exact Hp | exact Ecl].
+    + eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl].
+  - (* URecv *) destruct (b c) as [|[v s] rest] eqn:Eb.
+    + destruct (closedb tr c) eqn:Ecl.
+      * destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
+        eexists. eapply ustep_recv_closed; [exact Hlive | exact Hp | exact Eb | exact Hpos | exact Hek].
+      * exfalso. apply Hnblk. exists c, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
+    + eexists. eapply ustep_recv; [exact Hlive | exact Hp | exact Eb].
+  - eexists. eapply ustep_write; [exact Hlive | exact Hp].
+  - eexists. eapply ustep_read; [exact Hlive | exact Hp].
+  - eexists. eapply ustep_spawn; [exact Hlive | exact Hp | exact Hcid].
+  - (* UClose *) destruct (closedb tr c) eqn:Ecl.
+    + eexists. eapply ustep_close_closed; [exact Hlive | exact Hp | exact Ecl].
+    + eexists. eapply ustep_close; [exact Hlive | exact Hp | exact Ecl].
+Qed.
+
+(** DEADLOCK CHARACTERIZATION (the converse): a STUCK config — one that cannot step yet has a live
+    goroutine — has EVERY live goroutine blocked on an empty, open channel.  No spurious "stuck": a
+    would-be panic (send/close on closed) is a STEP, not a deadlock; only a real wait-for-sender is. *)
+Theorem ustuck_blocked : forall cfg,
+  UFreshAvail cfg -> ~ ucan_step cfg ->
+  forall tid, uc_live cfg tid = true -> ublocked cfg tid.
+Proof.
+  intros cfg [cid Hcid] Hnstep tid Hlive. destruct cfg as [p b h lv tr o df pa].
+  cbn [uc_prog uc_bufs uc_trace uc_live] in *.
+  destruct (p tid) as [ | xs k | v | d k | c v k | c f | l v k | l f | child k | c k ] eqn:Hp.
+  - exfalso. apply Hnstep. destruct (df tid) as [|d ds] eqn:E.
+    + eexists. eapply ustep_ret_done; [exact Hlive | exact Hp | exact E].
+    + eexists. eapply ustep_ret_defer; [exact Hlive | exact Hp | exact E].
+  - exfalso. apply Hnstep. eexists. eapply ustep_out; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. destruct (df tid) as [|d ds] eqn:E.
+    + eexists. eapply ustep_pan_done; [exact Hlive | exact Hp | exact E].
+    + eexists. eapply ustep_pan_defer; [exact Hlive | exact Hp | exact E].
+  - exfalso. apply Hnstep. eexists. eapply ustep_defer; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. destruct (closedb tr c) eqn:Ecl.
+    + eexists. eapply ustep_send_closed; [exact Hlive | exact Hp | exact Ecl].
+    + eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl].
+  - (* URecv: the only blocking shape *) destruct (b c) as [|[v s] rest] eqn:Eb.
+    + destruct (closedb tr c) eqn:Ecl.
+      * exfalso. apply Hnstep. destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
+        eexists. eapply ustep_recv_closed; [exact Hlive | exact Hp | exact Eb | exact Hpos | exact Hek].
+      * exists c, f. split; [exact Hp | split; [exact Eb | exact Ecl]].
+    + exfalso. apply Hnstep. eexists. eapply ustep_recv; [exact Hlive | exact Hp | exact Eb].
+  - exfalso. apply Hnstep. eexists. eapply ustep_write; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. eexists. eapply ustep_read; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. eexists. eapply ustep_spawn; [exact Hlive | exact Hp | exact Hcid].
+  - exfalso. apply Hnstep. destruct (closedb tr c) eqn:Ecl.
+    + eexists. eapply ustep_close_closed; [exact Hlive | exact Hp | exact Ecl].
+    + eexists. eapply ustep_close; [exact Hlive | exact Hp | exact Ecl].
 Qed.
