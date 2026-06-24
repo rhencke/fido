@@ -3,10 +3,7 @@ PrimFloat.eqb
 PrimFloat.leb
 PrimFloat.ltb
 PrimFloat.sub
-PrimInt63.add
 PrimInt63.eqb
-PrimInt63.leb
-PrimInt63.ltb
 PrimInt63.sub
 abs
 div
@@ -15,7 +12,6 @@ frshiftexp
 int
 land
 ldshiftexp
-lesb
 lor
 lsl
 lsr

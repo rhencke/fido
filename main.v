@@ -2142,31 +2142,31 @@ Definition cursed_demo : IO unit :=
     through the parent — the [subslice_alias] THEOREM.  Here [s[1:3][0] = 99] writes
     [s[1]], read back as 99 — impossible for the value (list-based) slice model. *)
 Definition slice_alias_demo : IO unit :=
-  bind (slice_make_h TI64 (3:int)) (fun s =>                                  (* s := make([]int64, 3) *)
-  bind (slice_idx_set s (0:int) (10)%i64) (fun _ =>                           (* s[0] = 10 *)
-  bind (slice_idx_set s (1:int) (20)%i64) (fun _ =>                           (* s[1] = 20 *)
-  bind (subslice s (1:int) (3:int)) (fun ss =>                                (* ss := s[1:3] (bounds-checked) *)
-  bind (slice_idx_set ss (0:int) (99)%i64) (fun _ =>                          (* ss[0] = 99 (= s[1]) *)
-  bind (slice_idx_get TI64 s (1:int)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
+  bind (slice_make_h TI64 (int_lit 3 eq_refl)) (fun s =>                                  (* s := make([]int64, 3) *)
+  bind (slice_idx_set s (int_lit 0 eq_refl) (10)%i64) (fun _ =>                           (* s[0] = 10 *)
+  bind (slice_idx_set s (int_lit 1 eq_refl) (20)%i64) (fun _ =>                           (* s[1] = 20 *)
+  bind (subslice s (int_lit 1 eq_refl) (int_lit 3 eq_refl)) (fun ss =>                                (* ss := s[1:3] (bounds-checked) *)
+  bind (slice_idx_set ss (int_lit 0 eq_refl) (99)%i64) (fun _ =>                          (* ss[0] = 99 (= s[1]) *)
+  bind (slice_idx_get TI64 s (int_lit 1 eq_refl)) (fun v =>                               (* v := s[1] — sees 99 (aliasing) *)
   println [any v])))))).                                                       (* prints 99 *)
 
 (** Review #6 P0 #4 / minimum-suite #6: an out-of-range subslice PANICS rather than producing
     a bogus descriptor.  s has cap 2; [s[0:3]] requests b=3 > cap, which Go rejects — so the
     wrapped-descriptor path that would defeat the index bounds check is unconstructable. *)
 Example subslice_past_cap_panics : forall (w : World),
-  run_io (subslice (mkSliceH (100:int) (0:int) (2:int) (2:int) TI64) (0:int) (3:int)) w
+  run_io (subslice (mkSliceH 100 0 2 2 TI64) (int_lit 0 eq_refl) (int_lit 3 eq_refl)) w
     = OPanic rt_slice_bounds w.
-Proof. intros w. unfold subslice, run_io. reflexivity. Qed.
+Proof. intros w. unfold subslice, run_io. now vm_compute. Qed.
 
 (** Phase B3b: APPEND.  Go's [append] extends in place when [len < cap] (aliasing the
     backing — the [slice_append_incap_aliases] THEOREM) and REALLOCATES a fresh backing
     when [len = cap] (no aliasing).  Here [s] is full ([len = cap = 2]), so [append]
     reallocates; [s2 = [5, 0, 9]] (len 3) and the appended element [s2[2] = 9]. *)
 Definition slice_append_demo : IO unit :=
-  bind (slice_make_h TI64 (2:int)) (fun s =>             (* make([]int64, 2), len=cap=2 *)
-  bind (slice_idx_set s (0:int) (5)%i64) (fun _ =>       (* s[0] = 5 *)
+  bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>             (* make([]int64, 2), len=cap=2 *)
+  bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>       (* s[0] = 5 *)
   bind (slice_append TI64 s (9)%i64) (fun s2 =>          (* s2 := append(s, 9) — reallocates, appends at index len=2 *)
-  bind (slice_idx_get TI64 s2 (2:int)) (fun v =>         (* v := s2[2] = 9 (the appended element) *)
+  bind (slice_idx_get TI64 s2 (int_lit 2 eq_refl)) (fun v =>         (* v := s2[2] = 9 (the appended element) *)
   println [any v])))).                                    (* prints 9 *)
 
 (** Phase B3c: [make([]T, len, cap)] gives a slice SPARE capacity, so [append] is
@@ -2174,20 +2174,20 @@ Definition slice_append_demo : IO unit :=
     at runtime.  [s] has len 1, cap 3; [append] writes index 1 in place (no realloc), so
     [s2] shares [s]'s backing — writing [s2[0]] is seen through [s[0]]. *)
 Definition slice_makecap_demo : IO unit :=
-  bind (slice_make_lc TI64 (1:int) (3:int)) (fun s =>    (* make([]int64, 1, 3): len=1, cap=3 *)
-  bind (slice_idx_set s (0:int) (5)%i64) (fun _ =>        (* s[0] = 5 *)
+  bind (slice_make_lc TI64 (int_lit 1 eq_refl) (int_lit 3 eq_refl)) (fun s =>    (* make([]int64, 1, 3): len=1, cap=3 *)
+  bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>        (* s[0] = 5 *)
   bind (slice_append TI64 s (8)%i64) (fun s2 =>           (* s2 := append(s, 8) — IN PLACE (len<cap), shares backing *)
-  bind (slice_idx_set s2 (0:int) (77)%i64) (fun _ =>      (* s2[0] = 77 *)
-  bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
+  bind (slice_idx_set s2 (int_lit 0 eq_refl) (77)%i64) (fun _ =>      (* s2[0] = 77 *)
+  bind (slice_idx_get TI64 s (int_lit 0 eq_refl)) (fun v =>           (* v := s[0] — sees 77 (shared backing!) *)
   println [any v]))))).                                    (* prints 77 *)
 
 (** Review #6 P0 #4 / minimum-suite #5: a slice with len=1, cap=2 — writing index 1 (in the
     spare CAPACITY but past LENGTH) PANICS, exactly as Go bounds-checks against LEN not cap.
     Pre-fix the model silently wrote the spare backing cell and returned normally. *)
 Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
-  run_io (slice_idx_set (mkSliceH (100:int) (0:int) (1:int) (2:int) TI64) (1:int) v) w
+  run_io (slice_idx_set (mkSliceH 100 0 1 2 TI64) (int_lit 1 eq_refl) v) w
     = OPanic rt_index_oob w.
-Proof. intros v w. apply run_slice_idx_set_oob. reflexivity. Qed.
+Proof. intros v w. apply run_slice_idx_set_oob. now vm_compute. Qed.
 
 (** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a
     realloc reallocates again → disjoint backing.  The plugin now FORCES Go's realloc capacity to len+1
@@ -2196,26 +2196,26 @@ Proof. intros v w. apply run_slice_idx_set_oob. reflexivity. Qed.
     s=[0,0] (full) → s2=[0,0,1] (len=cap=3) → s3=[0,0,1,2] (2nd realloc, DISJOINT from s2); writing s3[0]
     must NOT be seen through s2[0] (prints 0, the model's disjoint value; pre-fix Go would print 99). *)
 Definition slice_realloc_alias_demo : IO unit :=
-  bind (slice_make_h TI64 (2:int)) (fun s =>             (* len=cap=2, [0,0] *)
+  bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>             (* len=cap=2, [0,0] *)
   bind (slice_append TI64 s (1)%i64) (fun s2 =>          (* realloc → s2=[0,0,1], len=cap=3 (forced) *)
   bind (slice_append TI64 s2 (2)%i64) (fun s3 =>         (* s2 full → realloc → s3=[0,0,1,2], DISJOINT *)
-  bind (slice_idx_set s3 (0:int) (99)%i64) (fun _ =>     (* s3[0] = 99 *)
-  bind (slice_idx_get TI64 s2 (0:int)) (fun v =>         (* v := s2[0] — disjoint, unaffected → 0 *)
+  bind (slice_idx_set s3 (int_lit 0 eq_refl) (99)%i64) (fun _ =>     (* s3[0] = 99 *)
+  bind (slice_idx_get TI64 s2 (int_lit 0 eq_refl)) (fun v =>         (* v := s2[0] — disjoint, unaffected → 0 *)
   println [any v]))))).                                   (* prints 0 *)
 
 (** Phase B3c: [clear] zeros a slice's elements; [copy] copies elements src→dst. *)
 Definition slice_clear_demo : IO unit :=
-  bind (slice_make_h TI64 (2:int)) (fun s =>
-  bind (slice_idx_set s (0:int) (5)%i64) (fun _ =>        (* s[0] = 5 *)
+  bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun s =>
+  bind (slice_idx_set s (int_lit 0 eq_refl) (5)%i64) (fun _ =>        (* s[0] = 5 *)
   bind (slice_clear_h TI64 s) (fun _ =>                   (* clear(s) → all zero *)
-  bind (slice_idx_get TI64 s (0:int)) (fun v =>           (* v := s[0] = 0 *)
+  bind (slice_idx_get TI64 s (int_lit 0 eq_refl)) (fun v =>           (* v := s[0] = 0 *)
   println [any v])))).                                     (* prints 0 *)
 Definition slice_copy_demo : IO unit :=
-  bind (slice_make_h TI64 (2:int)) (fun dst =>
-  bind (slice_make_h TI64 (2:int)) (fun src =>
-  bind (slice_idx_set src (0:int) (7)%i64) (fun _ =>       (* src[0] = 7 *)
+  bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun dst =>
+  bind (slice_make_h TI64 (int_lit 2 eq_refl)) (fun src =>
+  bind (slice_idx_set src (int_lit 0 eq_refl) (7)%i64) (fun _ =>       (* src[0] = 7 *)
   bind (slice_copy TI64 dst src) (fun _n =>               (* copy(dst, src) *)
-  bind (slice_idx_get TI64 dst (0:int)) (fun v =>          (* v := dst[0] = 7 *)
+  bind (slice_idx_get TI64 dst (int_lit 0 eq_refl)) (fun v =>          (* v := dst[0] = 7 *)
   println [any v]))))).                                    (* prints 7 *)
 
 (** Backward-goto counting loop: a [Ref] counter + [goto] back to the header.
@@ -2651,13 +2651,13 @@ Proof. intros [a b]; reflexivity. Qed.
    reconstructs the same way.  [cell_f0]/[cell_f1] are the field-COHERENCE evidence (#10(c)) — they
    tie [cx]↔cell 0 and [cy]↔cell 1 to that rep, so a field access cannot name the wrong cell. *)
 #[local] Instance StructRep2Of_Cell : StructRep2Of Cell := mkSR2 cx cy MkCell cell_eta.
-Definition cell_f0 : field_at2 (the_rep2 Cell) 0%uint63 cx := or_introl (conj eq_refl eq_refl).
-Definition cell_f1 : field_at2 (the_rep2 Cell) 1%uint63 cy := or_intror (conj eq_refl eq_refl).
+Definition cell_f0 : field_at2 (the_rep2 Cell) 0 cx := or_introl (conj eq_refl eq_refl).
+Definition cell_f1 : field_at2 (the_rep2 Cell) 1 cy := or_intror (conj eq_refl eq_refl).
 Definition sptr_demo : IO unit :=
   bind (sptr_new (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
-  bind (sptr_set_field p 0%uint63 cx TI64 cell_f0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
-  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>            (* a := p.Cx → 7 *)
-  bind (sptr_get_field p 1%uint63 cy TI64 cell_f1) (fun b =>            (* b := p.Cy → 4 *)
+  bind (sptr_set_field p 0 cx TI64 cell_f0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
+  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>            (* a := p.Cx → 7 *)
+  bind (sptr_get_field p 1 cy TI64 cell_f1) (fun b =>            (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
 (** POINTER-RECEIVER method (Phase B2): a method whose first param is [SPtr Cell] (a
@@ -2666,13 +2666,13 @@ Definition sptr_demo : IO unit :=
     exactly the value-receiver path but through a pointer.  The mutation is observed by
     the CALLER (the defining pointer-receiver behaviour), backed by [sptr_field_get_set]. *)
 Definition cell_incx (p : SPtr Cell) : IO unit :=
-  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* read p.Cx *)
-        sptr_set_field p 0%uint63 cx TI64 cell_f0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
+  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* read p.Cx *)
+        sptr_set_field p 0 cx TI64 cell_f0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
 
 Definition ptr_method_demo : IO unit :=
   bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   bind (cell_incx p) (fun _ =>                                (* p.Cell_incx() — mutates p.Cx *)
-  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 11 *)
+  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
 (** POINTER-receiver method EXPRESSION (the parenthesized-star-Cell dot Cell_incx form) — the
@@ -2683,7 +2683,7 @@ Definition apply_cell (f : SPtr Cell -> IO unit) (p : SPtr Cell) : IO unit := f 
 Definition ptr_method_expr_demo : IO unit :=
   bind (sptr_new (MkCell (5)%i64 (6)%i64)) (fun p =>
   bind (apply_cell cell_incx p) (fun _ =>                     (* pointer-receiver method expr via the HOF — mutates p.Cx *)
-  bind (sptr_get_field p 0%uint63 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 6 *)
+  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 6 *)
   println [any a]))).                                          (* prints: 6 *)
 
 (** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct (Go's [type Node struct { *Cell; tag int64 }]):
@@ -2696,7 +2696,7 @@ Definition node_embed_demo : IO unit :=
   bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   let nd := MkNode p (99)%i64 in
   bind (cell_incx (cell nd)) (fun _ =>                         (* PROMOTED: nd.Cell_incx() mutates the embedded *Cell *)
-  bind (sptr_get_field (cell nd) 0%uint63 cx TI64 cell_f0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
+  bind (sptr_get_field (cell nd) 0 cx TI64 cell_f0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
   println [any a; any (ntag nd)]))).                           (* prints: 11 99 *)
 
 (** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
@@ -2706,14 +2706,14 @@ Record Cell3 := MkCell3 { c3x : GoI64 ; c3y : GoI64 ; c3z : GoI64 }.
 Lemma cell3_eta : forall v, MkCell3 (c3x v) (c3y v) (c3z v) = v.
 Proof. intros [a b c]; reflexivity. Qed.
 #[local] Instance StructRep3Of_Cell3 : StructRep3Of Cell3 := mkSR3 c3x c3y c3z MkCell3 cell3_eta.
-Definition cell3_f2 : field_at3 (the_rep3 Cell3) 2%uint63 c3z := or_intror (or_intror (conj eq_refl eq_refl)).
+Definition cell3_f2 : field_at3 (the_rep3 Cell3) 2 c3z := or_intror (or_intror (conj eq_refl eq_refl)).
 Definition cell3_inc_z (p : SPtr3 Cell3) : IO unit :=
-  bind (sptr3_get_field p 2%uint63 c3z TI64 cell3_f2) (fun z =>          (* read p.C3z *)
-        sptr3_set_field p 2%uint63 c3z TI64 cell3_f2 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
+  bind (sptr3_get_field p 2 c3z TI64 cell3_f2) (fun z =>          (* read p.C3z *)
+        sptr3_set_field p 2 c3z TI64 cell3_f2 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
 Definition nfield_ptr_demo : IO unit :=
   bind (sptr3_new (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
   bind (cell3_inc_z p) (fun _ =>                                (* p.Cell3_inc_z() — mutates p.C3z *)
-  bind (sptr3_get_field p 2%uint63 c3z TI64 cell3_f2) (fun z =>          (* z := p.C3z → 31 *)
+  bind (sptr3_get_field p 2 c3z TI64 cell3_f2) (fun z =>          (* z := p.C3z → 31 *)
   println [any z]))).                                           (* prints: 31 *)
 
 (** HETEROGENEOUS struct pointer: a [*Pair] whose two fields have DIFFERENT types
@@ -2724,25 +2724,25 @@ Record Pair := MkPair { p_n : GoI64 ; p_b : bool }.
 Lemma pair_eta : forall v, MkPair (p_n v) (p_b v) = v.
 Proof. intros [a b]; reflexivity. Qed.
 #[local] Instance StructRep2HOf_Pair : StructRep2HOf Pair GoI64 bool := mkSR2H p_n p_b TI64 TBool MkPair pair_eta.
-Definition pair_f0 : field_atH (the_repH Pair GoI64 bool) 0%uint63 p_n TI64 := or_introl (conj eq_refl eq_refl).
-Definition pair_f1 : field_atH (the_repH Pair GoI64 bool) 1%uint63 p_b TBool := or_intror (conj eq_refl eq_refl).
+Definition pair_f0 : field_atH (the_repH Pair GoI64 bool) 0 p_n TI64 := or_introl (conj eq_refl eq_refl).
+Definition pair_f1 : field_atH (the_repH Pair GoI64 bool) 1 p_b TBool := or_intror (conj eq_refl eq_refl).
 Definition pair_bump (p : SPtrH Pair GoI64 bool) : IO unit :=
-  bind (sptrh_get_field p 0%uint63 p_n TI64 pair_f0) (fun n =>          (* read p.P_n *)
-        sptrh_set_field p 0%uint63 p_n TI64 pair_f0 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
+  bind (sptrh_get_field p 0 p_n TI64 pair_f0) (fun n =>          (* read p.P_n *)
+        sptrh_set_field p 0 p_n TI64 pair_f0 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
 Definition het_ptr_demo : IO unit :=
   bind (sptrh_new (MkPair (10)%i64 true)) (fun p =>
   bind (pair_bump p) (fun _ =>                                  (* p.Pair_bump() — mutates p.P_n *)
-  bind (sptrh_get_field p 0%uint63 p_n TI64 pair_f0) (fun n =>          (* n := p.P_n → 11 *)
-  bind (sptrh_get_field p 1%uint63 p_b TBool pair_f1) (fun b =>         (* b := p.P_b → true *)
+  bind (sptrh_get_field p 0 p_n TI64 pair_f0) (fun n =>          (* n := p.P_n → 11 *)
+  bind (sptrh_get_field p 1 p_b TBool pair_f1) (fun b =>         (* b := p.P_b → true *)
   println [any n; any b])))).                                  (* prints: 11 true *)
 
 (** review #6 #10(c) — the field COHERENCE is ENFORCED, not decorative: a [field_at…] witness for a
     MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
     never name one field while addressing another cell (the exact defect the review flagged). *)
 Fail Definition cell_bad_coh   (* cy is field 1, not field 0 *)
-  : field_at2 (the_rep2 Cell) 0%uint63 cy := or_introl (conj eq_refl eq_refl).
+  : field_at2 (the_rep2 Cell) 0 cy := or_introl (conj eq_refl eq_refl).
 Fail Definition pair_bad_type  (* field 1 is bool — cannot be read as the int64 p_n with tag TI64 *)
-  : field_atH (the_repH Pair GoI64 bool) 1%uint63 p_n TI64 := or_intror (conj eq_refl eq_refl).
+  : field_atH (the_repH Pair GoI64 bool) 1 p_n TI64 := or_intror (conj eq_refl eq_refl).
 
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds

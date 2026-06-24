@@ -4575,7 +4575,7 @@ Section KeystonePtr.
      handle is nonzero (break #5: [valid_fresh_nonzero] — allocators never return location 0).  This is
      the standing modeling assumption that lets the raw [ptr_set]/[ptr_get] (which now PANIC on nil,
      break #6) coincide with the bridge ref-accesses. *)
-  Hypothesis ptrenv_live : forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false.
+  Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
 
   (* EXTRACTABLE deref = bridge ref-access: on a live pointer the *T ops the plugin emits ARE the ref
      accesses the Keystone reasons about — so a calculus location is a real (non-nil) Go pointer. *)
@@ -5194,7 +5194,7 @@ Section MpTyped.
   Variable prj : GoI64 -> nat.
   (* the handoff pointer is LIVE (non-nil) — an allocated *T cell, nonzero by break #5; lets the raw
      [ptr_set]/[ptr_get] (which now PANIC on nil, break #6) coincide with the bridge ref-accesses. *)
-  Hypothesis ptrenv_live : forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false.
+  Hypothesis ptrenv_live : forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false.
 
   (* g0 = [*p = v0; ch <- v1] ; g1 = [<-ch; _ := *p] — built from the EXTRACTABLE ptr/chan ops. *)
   Definition mp_g0_io (v0 v1 : nat) : IO unit :=
@@ -5864,7 +5864,7 @@ Theorem mp_end_to_end :
          (inj : nat -> GoI64) (prj : GoI64 -> nat) (v0 v1 : nat) (w0 : World),
     (forall i j, chenv i = chenv j -> i = j) ->
     (forall i j, r_loc (plocenv ptrenv i) = r_loc (plocenv ptrenv j) -> i = j) ->
-    (forall l, PrimInt63.eqb (p_loc (ptrenv l)) 0%uint63 = false) ->
+    (forall l, Nat.eqb (p_loc (ptrenv l)) 0 = false) ->
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     chan_closed (chenv 0) w0 = false ->
     (forall l, ref_sel (plocenv ptrenv l) w0 = inj 0) ->

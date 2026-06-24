@@ -151,7 +151,7 @@ Definition f32_of_f64 (a : GoFloat64) : GoFloat32 := mkF32 (f32_round a) (ex_int
 Definition f32_lit (a : GoFloat64) : GoFloat32 := f32_of_f64 a.
 
 (** [GoChan]/[GoMap] are CONCRETE phantom-LOCATION records (no longer axioms): a
-    [GoChan A] is a handle [{ ch_loc : int }] into the world's channel state, the
+    [GoChan A] is a handle [{ ch_loc : nat }] into the world's channel state, the
     element type [A] carried only PHANTOM (in the type, never as a field).  They do
     NOT carry their [GoTypeTag] — that would make [GoTypeTag] (which references them
     via [TChan]/[TMap]) UNIVERSE-INCONSISTENT (a tag indexing over a type that
@@ -160,8 +160,8 @@ Definition f32_lit (a : GoFloat64) : GoFloat32 := f32_of_f64 a.
     [map[K]V] (the plugin renders by type NAME); the [ch_loc]/[gm_loc] handle and
     the record wrapper are erased.  (Channel/map STATE ops are DEFINITIONS over
     these concrete handles.) *)
-Record GoChan (A : Type) : Type := MkChan { ch_loc : int }.
-Record GoMap  (K V : Type) : Type := MkMap { gm_loc : int }.
+Record GoChan (A : Type) : Type := MkChan { ch_loc : nat }.
+Record GoMap  (K V : Type) : Type := MkMap { gm_loc : nat }.
 Arguments MkChan {A} _.
 Arguments ch_loc {A} _.
 Arguments MkMap {K V} _.
@@ -172,7 +172,7 @@ Arguments gm_loc {K V} _.
     channel/map handles).  The pointee's type lives in the world heap cell ([RefCell] stores the tag),
     so the deref OPS ([ptr_get]/[ptr_set]/…) below take the [GoTypeTag] explicitly.  Extraction:
     [Ptr A] → Go [*T] (rendered by type name, like [chan T]); the [p_loc] handle is erased. *)
-Record Ptr (A : Type) : Type := mkPtr { p_loc : int }.
+Record Ptr (A : Type) : Type := mkPtr { p_loc : nat }.
 Arguments mkPtr {A} _.
 Arguments p_loc {A} _.
 
@@ -184,15 +184,6 @@ Arguments p_loc {A} _.
 
     Extend this inductive as new Go types are added to builtins. *)
 
-(* [iN_norm] (8-bit shown) hoisted here so the signed wrapper records can carry a PROVENANCE
-   invariant "the carrier is in the image of normalization" — i.e. it is a valid sign-extended
-   N-bit value (parallel to GoFloat32's [f32_round] provenance).  Body uses only [PrimInt63]. *)
-Definition i8_norm (x : int) : int :=
-  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 255) 128) 128.
-Definition i16_norm (x : int) : int :=
-  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 65535) 32768) 32768.
-Definition i32_norm (x : int) : int :=
-  PrimInt63.sub (PrimInt63.lxor (PrimInt63.land x 4294967295) 2147483648) 2147483648.
 (* int64/uint64 range predicates + wrap-to-range, hoisted so the GoI64/GoU64 records can carry a
    RANGE invariant.  Z-carried (not int63): int64 = [-2^63, 2^63), uint64 = [0, 2^64). *)
 Definition in_i64 (z : Z) : bool :=
@@ -526,16 +517,16 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TUnit => tt
   | TUint    => MkUint 0%Z (squash eq_refl)   (* platform-uint zero — [Z]-carried (mirrors [TU64]), faithful [0,2^64) *)
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
-  | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0%uint63)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
-  | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0%uint63)    (* zero box: {0, nil-chan} (proof-only) *)
-  | TChan _  => MkChan 0%uint63       (* nil channel (handle erased; plugin emits nil) *)
+  | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
+  | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0)    (* zero box: {0, nil-chan} (proof-only) *)
+  | TChan _  => MkChan 0       (* nil channel (handle erased; plugin emits nil) *)
   | TSlice _ => nil                   (* empty slice *)
-  | TMap _ _ => MkMap 0%uint63        (* nil map *)
+  | TMap _ _ => MkMap 0        (* nil map *)
   | TArrow _ _ => NilFunc              (* func zero is the nil func ([NilFunc] : GoFunc _ _); plugin emits
                                           Go [nil].  FAITHFUL (review #8): NOT a callable codomain-zero
                                           placeholder — calling it (via [gofunc_call]) panics, like Go. *)
   | TProd a b => (zero_val a, zero_val b)  (* struct/pair zero: field-wise zeros *)
-  | TPtr _   => mkPtr 0%uint63         (* nil pointer (handle erased; plugin emits nil) *)
+  | TPtr _   => mkPtr 0         (* nil pointer (handle erased; plugin emits nil) *)
   end.
 
 (** ---- [GoAny] / [any] — Go's [interface{}], now a TAGGED (type, value) pair ----
@@ -609,8 +600,8 @@ Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interf
     Go map keys are restricted to comparable types (the spec: "the comparison
     operators == and != must be fully defined for operands of the key type").
     [key_eqb tag] is that comparison, recovered from the key's [GoTypeTag]: the
-    scalar carriers ([int]) use [PrimInt63.eqb], [bool]/[string]/[float] their own
-    [eqb], a channel/map handle compares its location.  Slices and [GoAny] are NOT
+    scalar carriers ([Z]) use [Z.eqb], [bool]/[string]/[float] their own
+    [eqb], a channel/map handle compares its [nat] location ([Nat.eqb]).  Slices and [GoAny] are NOT
     comparable key types — Go rejects them — so they get a sentinel ([false]); a
     well-typed program never keys a map on them.  [Comparable tag] is the proof
     that [key_eqb tag] decides Leibniz equality (it holds for the scalar key
@@ -630,7 +621,7 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TI64 => fun a b => Z.eqb (i64raw a) (i64raw b)
   | TU64 => fun a b => Z.eqb (u64raw a) (u64raw b)
   | TUnit => fun _ _ => true
-  | TChan _  => fun a b => PrimInt63.eqb (ch_loc a) (ch_loc b)
+  | TChan _  => fun a b => Nat.eqb (ch_loc a) (ch_loc b)
   | TSlice _ => fun _ _ => false
   | TMap _ _ => fun _ _ => false   (* MAPS are NOT comparable in Go (review #6 P2 #18): sentinel,
                                       like slices/funcs — a map value compares only against nil, and
@@ -639,13 +630,13 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TArrow _ _ => fun _ _ => false   (* func types are NOT comparable in Go (sentinel, like slices) *)
   | TProd a b => fun x y => andb (key_eqb a (fst x) (fst y)) (key_eqb b (snd x) (snd y))
                                      (* a product (comparable struct) is a valid key iff both fields are *)
-  | TPtr _ => fun a b => PrimInt63.eqb (p_loc a) (p_loc b)   (* Go [==] on pointers compares addresses *)
+  | TPtr _ => fun a b => Nat.eqb (p_loc a) (p_loc b)   (* Go [==] on pointers compares addresses *)
   | TListNode => fun a b => andb (Z.eqb (i64raw (ln_val a)) (i64raw (ln_val b)))
-                                 (PrimInt63.eqb (p_loc (ln_next a)) (p_loc (ln_next b)))
+                                 (Nat.eqb (p_loc (ln_next a)) (p_loc (ln_next b)))
                                      (* a [ListNode] IS comparable in Go (all fields are: int64 + a pointer):
                                         field-wise == — equal [Val] AND same [Next] address. NOT a [false] sentinel. *)
   | TChanBox => fun a b => andb (Z.eqb (i64raw (cb_id a)) (i64raw (cb_id b)))
-                                (PrimInt63.eqb (ch_loc (cb_chan a)) (ch_loc (cb_chan b)))
+                                (Nat.eqb (ch_loc (cb_chan a)) (ch_loc (cb_chan b)))
                                      (* a [ChanBox] IS comparable in Go (int64 + a channel; channels compare by
                                         identity): field-wise == — equal [Id] AND same [Ch] channel. *)
   end.
@@ -709,7 +700,7 @@ Proof. reflexivity. Qed.
 (** And the bug this closes: a MAP type is now NOT [Comparable] (was provable via loc-equality). *)
 Lemma map_not_Comparable : forall K V (kt : GoTypeTag K) (vt : GoTypeTag V),
   ~ Comparable (TMap kt vt).
-Proof. intros K V kt vt H. destruct (H (MkMap 0%uint63) (MkMap 0%uint63)) as [_ H2]. discriminate (H2 eq_refl). Qed.
+Proof. intros K V kt vt H. destruct (H (MkMap 0) (MkMap 0)) as [_ H2]. discriminate (H2 eq_refl). Qed.
 
 (** ---- Break #7: the tag → runtime-Go-type map is INJECTIVE (the anti-regression LOCK) ----
 
@@ -794,25 +785,25 @@ Definition struct_eqb {R : Type} (eqb : R -> R -> bool)
     Extraction erases the whole record (the world token never appears in emitted
     Go). *)
 Definition RefCell : Type := { T : Type & (GoTypeTag T * T)%type }.
-Definition RefHeap : Type := int -> option RefCell.
+Definition RefHeap : Type := nat -> option RefCell.
 (** A channel cell: the element type [E] with its [GoTypeTag], the FIFO buffer
     (a [list E]), and the closed flag.  The stored [GoTypeTag] lets an accessor
     coerce the buffer back to its own view's element type (they are equal by
     construction; [tag_eq] recovers the proof). *)
 Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * bool))%type }.
-Definition ChanHeap : Type := int -> option ChanCell.
+Definition ChanHeap : Type := nat -> option ChanCell.
 (** A map cell: the key type [K] + its tag, then existentially the value type [V]
     + its tag, then the contents as a finite-support function [K -> option V].
     Like the channel cell, the stored tags let an accessor coerce back to its own
     [K]/[V] view (equal by construction). *)
-(** The leading [int] is the map's SIZE (number of live keys) — so Go's [len(m)] is faithfully modelled
+(** The leading [nat] is the map's SIZE (number of live keys) — so Go's [len(m)] is faithfully modelled
     ([map_size]), maintained by [map_upd] (+1 on a genuinely new key) and [map_rem] (−1 on a present key).
     It sits OUTSIDE the existT (size is type-independent), so the value accessor [map_get_fn] is unchanged. *)
 Definition MapCell : Type :=
-  (int * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
-Definition MapHeap : Type := int -> option MapCell.
+  (nat * { K : Type & (GoTypeTag K * { V : Type & (GoTypeTag V * (K -> option V))%type })%type })%type.
+Definition MapHeap : Type := nat -> option MapCell.
 Record World : Type := mkWorld
-  { w_refs : RefHeap ; w_chans : ChanHeap ; w_maps : MapHeap ; w_next : int
+  { w_refs : RefHeap ; w_chans : ChanHeap ; w_maps : MapHeap ; w_next : nat
   (* OBSERVABLE OUTPUT TRACE (review #6 P1 #12): [print]/[println] were world-passthrough no-ops,
      so the model proved programs with DIFFERENT output equal.  Each call now appends an event
      [(is_println, args)] here, so [run_io]-equality respects stdout.  Model-only: print/println
@@ -1114,9 +1105,9 @@ Notation GoByte := GoU8.
     is erased in extraction, so the Go is unchanged.  The [*_norm] helpers stay
     [int -> int] (raw mask + sign-extend); the typed ops wrap with the record
     constructor. *)
-(* [i8_norm] is hoisted up to the wrapper-record block (the GoI8 provenance invariant needs it).
+(* [i8_norm_z] is hoisted up to the wrapper-record block (the GoI8 provenance invariant needs it).
    [i8wrap] is the internal constructor: normalize to 8-bit signed + carry the (trivial) provenance
-   proof, so a forged [MkI8 200 _] is unconstructable (200 is not in [i8_norm]'s image). *)
+   proof, so a forged [MkI8 200 _] is unconstructable (200 is not in [i8_norm_z]'s image). *)
 Definition i8wrap (z : Z) : GoI8 := MkI8 (i8_norm_z z) (squash (in_i8_norm z)).
 Definition i8_lit (z : Z) (pf : in_i8 z = true) : GoI8 := MkI8 z (squash pf).
 Definition i8_add (a b : GoI8) : GoI8 := i8wrap (i8raw a + i8raw b).
@@ -1158,7 +1149,7 @@ Definition u16_eqb (a b : GoU16) : bool := Z.eqb (u16raw a) (u16raw b).
 Definition u16_ltb (a b : GoU16) : bool := Z.ltb (u16raw a) (u16raw b).
 Definition u16_leb (a b : GoU16) : bool := Z.leb (u16raw a) (u16raw b).
 
-(* [i16_norm] hoisted to the wrapper-record block (the GoI16 provenance invariant needs it).
+(* [i16_norm_z] hoisted to the wrapper-record block (the GoI16 provenance invariant needs it).
    [i16wrap] = normalize + carry the trivial provenance proof, so [MkI16 40000 _] is unconstructable. *)
 Definition i16wrap (z : Z) : GoI16 := MkI16 (i16_norm_z z) (squash (in_i16_norm z)).
 Definition i16_lit (z : Z) (pf : in_i16 z = true) : GoI16 := MkI16 z (squash pf).
@@ -1181,7 +1172,7 @@ Fail Definition u8_u16_no_mix (x : GoU8) (y : GoU16) : GoU16 := u16_add y x.
    (a compile error), per width — no silent wrap. *)
 Fail Definition i8_const_oob  : GoI8  := i8_lit  200    eq_refl.   (* > 127 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range int8 — the provenance proof
-   [exists a, 200 = i8_norm a] is false (200 is not a normalized 8-bit signed value). *)
+   [in_i8 200 = true] is false (200 is not in the int8 range [-128,128)). *)
 Fail Definition i8_forged : GoI8 := MkI8 200 (squash (ex_intro _ 200 eq_refl)).
 Fail Definition u16_const_oob : GoU16 := u16_lit 70000  eq_refl.   (* >= 2^16 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range uint16 (SProp range proof). *)
@@ -1376,7 +1367,7 @@ Definition u32_mod (a b : GoU32) (_ : (Z.eqb (u32raw b) 0) = false) : GoU32 := u
 Definition int_of_u32 (x : GoU32) : GoInt := intwrap (u32raw x).
 Definition u32_of_int (x : GoInt) : GoU32 := u32wrap (intraw x).
 
-(* [i32_norm] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
+(* [i32_norm_z] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
    [i32wrap] = normalize + carry the trivial provenance proof, so [MkI32 5000000000 _] is
    unconstructable. *)
 Definition i32wrap (z : Z) : GoI32 := MkI32 (i32_norm_z z) (squash (in_i32_norm z)).
@@ -2465,7 +2456,7 @@ Proof. reflexivity. Qed.
     CONTENTS live in the concrete [w_maps] heap, where [map_sel]/[map_upd] are
     DEFINITIONS and the map laws are THEOREMS.  Lowered by name ([make(map[K]V)] /
     nil), the bodies are proof-only. *)
-Definition map_empty {K V : Type} : GoMap K V := MkMap 0%uint63.
+Definition map_empty {K V : Type} : GoMap K V := MkMap 0.
 
 (** [map_make_typed kt vt] creates an empty map with concrete key/value types.
     The [GoTypeTag] witnesses survive extraction so the plugin can emit
@@ -2479,10 +2470,10 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
   fun w => let l := w_next w in
            ORet (MkMap l)
                 (mkWorld (w_refs w) (w_chans w)
-                         (fun k => if PrimInt63.eqb k l
-                                   then Some (0%uint63, existT _ K (kt, existT _ V (vt, fun _ => None)))
+                         (fun k => if Nat.eqb k l
+                                   then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None)))
                                    else w_maps w k)
-                         (PrimInt63.add l 1%uint63) (w_output w)).
+                         (S l) (w_output w)).
 
 (** Untyped fallback — loses key/value types to erasure, emits map[any]any.  No
     tags to seed a cell, so it just mints the handle (the first [map_set] creates
@@ -2490,7 +2481,7 @@ Definition map_make_typed {K V : Type} (kt : GoTypeTag K) (vt : GoTypeTag V) : I
 Definition map_make {K V : Type} : IO (GoMap K V) :=
   fun w => ORet (MkMap (w_next w))
                 (mkWorld (w_refs w) (w_chans w) (w_maps w)
-                         (PrimInt63.add (w_next w) 1%uint63) (w_output w)).
+                         (S (w_next w)) (w_output w)).
 
 (** ---- Maps via a heap in the world ----
 
@@ -2526,9 +2517,9 @@ Definition map_get_fn {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   | None => fun _ => None
   end.
 Definition map_write {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
-                      (m : GoMap K V) (f : K -> option V) (sz : int) (w : World) : World :=
+                      (m : GoMap K V) (f : K -> option V) (sz : nat) (w : World) : World :=
   mkWorld (w_refs w) (w_chans w)
-          (fun l => if PrimInt63.eqb l (gm_loc m)
+          (fun l => if Nat.eqb l (gm_loc m)
                     then Some (sz, existT _ K (kt, existT _ V (vt, f)))
                     else w_maps w l)
           (w_next w) (w_output w).
@@ -2537,23 +2528,23 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   map_get_fn kt vt m w k.
 (** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell (0 if the map has no cell yet
     / is nil).  The plugin lowers [map_len] by name to Go [len(m)]; this model now AGREES with it. *)
-(* The map's live-key count as the RAW heap-internal [int] (the cell stores [int]); [map_upd]/[map_rem]
+(* The map's live-key count as the RAW heap-internal [nat] (the cell stores [nat]); [map_upd]/[map_rem]
    do their +1/-1 bookkeeping here.  [map_size] is the Go-facing [len(m)] — the same count widened to
-   the [Z]-carried [GoInt] (review #6 #13). *)
-Definition map_count {K V} (m : GoMap K V) (w : World) : int :=
-  match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0%uint63 end.
+   the [Z]-carried [GoInt] (review #6 #13; #13→int63: the count is a [nat], no PrimInt63). *)
+Definition map_count {K V} (m : GoMap K V) (w : World) : nat :=
+  match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0 end.
 Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
-  intwrap (Sint63.to_Z (map_count m w)).
+  intwrap (Z.of_nat (map_count m w)).
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len UNCHANGED on an existing key; +1 on a new one *)
-     | Some _ => map_count m w | None => PrimInt63.add (map_count m w) 1%uint63 end) w.
+     | Some _ => map_count m w | None => S (map_count m w) end) w.
 Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len −1 on a present key; UNCHANGED if absent *)
-     | Some _ => PrimInt63.sub (map_count m w) 1%uint63 | None => map_count m w end) w.
+     | Some _ => Nat.pred (map_count m w) | None => map_count m w end) w.
 
 (** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
@@ -2562,14 +2553,14 @@ Lemma map_get_fn_write_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   map_get_fn kt vt m (map_write kt vt m f sz w) = f.
 Proof.
   intros K V kt vt m f sz w. unfold map_get_fn, map_write. cbn.
-  rewrite (Uint63.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
+  rewrite (Nat.eqb_refl (gm_loc m)), !tag_eq_refl. reflexivity.
 Qed.
 
 (** Break #2 witness (machine-checked): [map_size] now reports the REAL live-key count = Go's [len(m)].
     Insert keys 1,2; overwrite key 1 (len stays 2); delete key 2 (len → 1). *)
 Example map_len_counts :
   match run_io (map_make_typed TI64 TI64)
-               (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1%uint63 nil) with
+               (mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil) with
   | ORet m w1 =>
       let w2 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 10%Z) m w1 in
       let w3 := map_upd TI64 TI64 (i64wrap 2%Z) (i64wrap 20%Z) m w2 in
@@ -2597,7 +2588,7 @@ Definition map_get_or {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (defau
     [map_set] gains the guard.)  Location 0 is reserved by [ValidWorld] (break #5), so [eqb (gm_loc m) 0]
     exactly detects nil.  Lowered by name ([m[k] = v]), so the guard is golden-stable. *)
 Definition map_set {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) : IO unit :=
-  fun w => if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic rt_nil_map w
+  fun w => if Nat.eqb (gm_loc m) 0 then OPanic rt_nil_map w
            else ORet tt (map_upd kt vt k v m w).
 Definition map_delete {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (m : GoMap K V) : IO unit :=
   fun w => ORet tt (map_rem kt vt k m w).
@@ -2614,7 +2605,7 @@ Lemma run_map_get_or : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K
 Proof. reflexivity. Qed.
 Lemma run_map_set : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
   run_io (map_set kt vt k v m) w =
-    if PrimInt63.eqb (gm_loc m) 0%uint63 then OPanic rt_nil_map w
+    if Nat.eqb (gm_loc m) 0 then OPanic rt_nil_map w
     else ORet tt (map_upd kt vt k v m w).
 Proof. reflexivity. Qed.
 
@@ -2675,7 +2666,7 @@ Proof.
   - reflexivity.
 Qed.
 Theorem map_sel_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
-  w_maps w 0%uint63 = None ->
+  w_maps w 0 = None ->
   map_sel kt vt k (@map_empty K V) w = None.
 Proof.
   intros K V kt vt k w Hw. unfold map_sel, map_get_fn, map_empty. cbn.
@@ -2698,7 +2689,7 @@ Lemma map_get_set_same : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
 Proof.
   intros K V kt vt k v m Hcmp. intro w.
   rewrite !run_bind, !run_map_set.
-  destruct (PrimInt63.eqb (gm_loc m) 0%uint63) eqn:Hnil.
+  destruct (Nat.eqb (gm_loc m) 0) eqn:Hnil.
   - reflexivity.   (* nil map: both sides panic at the [map_set] step *)
   - cbn. rewrite run_map_get_opt, map_sel_upd_same by (apply comparable_key_refl; exact Hcmp).
     rewrite run_ret. reflexivity.
@@ -2719,7 +2710,7 @@ Qed.
 (** Reading the empty (nil) map gives [None] — in a world where its location is
     unallocated (Go's nil map reads the zero value for every key). *)
 Lemma map_get_empty : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (w : World),
-  w_maps w 0%uint63 = None ->
+  w_maps w 0 = None ->
   run_io (@map_get_opt K V kt vt k map_empty) w = ORet None w.
 Proof.
   intros K V kt vt k w Hw. rewrite run_map_get_opt, map_sel_empty by exact Hw. reflexivity.
@@ -2729,7 +2720,7 @@ Qed.
     would panic at the [map_set], so the post-state is not [map_upd]). *)
 Lemma map_get_set_diff : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
     (k1 k2 : K) (v : V) (m : GoMap K V) (w : World),
-  Comparable kt -> k1 <> k2 -> PrimInt63.eqb (gm_loc m) 0%uint63 = false ->
+  Comparable kt -> k1 <> k2 -> Nat.eqb (gm_loc m) 0 = false ->
   run_io (bind (map_set kt vt k2 v m) (fun _ => map_get_opt kt vt k1 m)) w =
   ORet (map_sel kt vt k1 m w) (map_upd kt vt k2 v m w).
 Proof.
@@ -2766,7 +2757,7 @@ Proof. intros K V kt vt k default m w H. rewrite run_map_get_or, H. reflexivity.
     GET-AFTER-CLEAR is too. *)
 Definition map_clear_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                          (m : GoMap K V) (w : World) : World :=
-  map_write kt vt m (fun _ => None) 0%uint63 w.   (* clear ⇒ empty ⇒ len 0 *)
+  map_write kt vt m (fun _ => None) 0 w.   (* clear ⇒ empty ⇒ len 0 *)
 Definition map_clear {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) : IO unit :=
   fun w => ORet tt (map_clear_upd kt vt m w).
 Lemma run_map_clear : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (m : GoMap K V) (w : World),
@@ -2807,10 +2798,10 @@ Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
   fun w => let l := w_next w in
            ORet (MkChan l)
                 (mkWorld (w_refs w)
-                         (fun k => if PrimInt63.eqb k l
+                         (fun k => if Nat.eqb k l
                                    then Some (existT _ A (tag, (nil, false)))
                                    else w_chans w k)
-                         (w_maps w) (PrimInt63.add l 1%uint63) (w_output w)).
+                         (w_maps w) (S l) (w_output w)).
 (** Buffering is idealised away in the proof model (capacity has no denotation
     here — only the FIFO + closed flag), so a buffered channel is created exactly
     like an unbuffered one; the capacity [n] survives only in the plugin lowering
@@ -2863,7 +2854,7 @@ Definition chan_closed {A : Type} (ch : GoChan A) (w : World) : bool :=
 Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
                       (buf : list A) (cl : bool) (w : World) : World :=
   mkWorld (w_refs w)
-          (fun k => if PrimInt63.eqb k (ch_loc ch)
+          (fun k => if Nat.eqb k (ch_loc ch)
                     then Some (existT _ A (tag, (buf, cl)))
                     else w_chans w k)
           (w_maps w) (w_next w) (w_output w).
@@ -2880,13 +2871,13 @@ Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl w,
   chan_buf tag ch (chan_write tag ch buf cl w) = buf.
 Proof.
   intros A tag ch buf cl w. unfold chan_buf, chan_write. cbn.
-  rewrite (Uint63.eqb_refl (ch_loc ch)), tag_eq_refl. reflexivity.
+  rewrite (Nat.eqb_refl (ch_loc ch)), tag_eq_refl. reflexivity.
 Qed.
 Lemma chan_closed_write_same : forall {A} (tag : GoTypeTag A) ch buf cl w,
   chan_closed ch (chan_write tag ch buf cl w) = cl.
 Proof.
   intros A tag ch buf cl w. unfold chan_closed, chan_write. cbn.
-  rewrite (Uint63.eqb_refl (ch_loc ch)). reflexivity.
+  rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
 Qed.
 (** A write to [ch] leaves a DIFFERENT channel's cell ([ch']) untouched — record
     injectivity ([ch <> ch' => ch_loc ch <> ch_loc ch']) + [eqb_false_complete]. *)
@@ -2899,7 +2890,7 @@ Lemma chan_read_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A)
   ch <> ch' -> w_chans (chan_write tag ch buf cl w) (ch_loc ch') = w_chans w (ch_loc ch').
 Proof.
   intros A tag ch ch' buf cl w Hne. unfold chan_write. cbn.
-  rewrite (Uint63.eqb_false_complete (ch_loc ch') (ch_loc ch)).
+  rewrite (proj2 (Nat.eqb_neq (ch_loc ch') (ch_loc ch))).
   - reflexivity.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
 Qed.
@@ -2957,7 +2948,7 @@ Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
     and like all nil ops it is UNREACHABLE in the closed world ([make_chan] mints a nonzero handle —
     [chan_alloc_close_no_panic]).  Lowered by name ([close(ch)]), so the guard is golden-stable. *)
 Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
-  fun w => if PrimInt63.eqb (ch_loc ch) 0%uint63 then OPanic rt_close_nil w
+  fun w => if Nat.eqb (ch_loc ch) 0 then OPanic rt_close_nil w
            else if chan_closed ch w then OPanic rt_close_closed w else ORet tt (chan_close_upd tag ch w).
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
@@ -3183,7 +3174,7 @@ Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
 Proof. intros A B tag ch f w H _. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
 Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = false ->
   run_io (close_chan tag ch) w = ORet tt (chan_close_upd tag ch w).
 Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
@@ -3191,13 +3182,13 @@ Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. refle
     distinguishes this from "close of nil channel" — a nil channel hits the prior guard).  The
     non-nil hypothesis selects the [rt_close_closed] cause; [close_chan_nil] covers the nil one. *)
 Lemma run_close_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = true ->
   run_io (close_chan tag ch) w = OPanic rt_close_closed w.
 Proof. intros A tag ch w Hnn H. unfold close_chan, run_io. rewrite Hnn, H. reflexivity. Qed.
 (** Faithfulness: [close] on a nil channel PANICS with "close of nil channel", exactly Go's [close(nil)]. *)
 Lemma close_chan_nil : forall {A} (tag : GoTypeTag A) (w : World),
-  run_io (close_chan tag (@MkChan A 0%uint63)) w = OPanic rt_close_nil w.
+  run_io (close_chan tag (@MkChan A 0)) w = OPanic rt_close_nil w.
 Proof. reflexivity. Qed.
 
 (** ---- The channel laws, now DERIVED as theorems ---- *)
@@ -3234,7 +3225,7 @@ Qed.
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
     nil one would panic at the first [close].) *)
 Theorem send_closed_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => send tag ch v)) w
   = OPanic rt_send_closed (chan_close_upd tag ch w).
@@ -3247,7 +3238,7 @@ Qed.
 (** Closing an already-closed channel panics (Go spec): close then close → panic.  (On a non-nil
     channel — a nil one would panic at the first [close].) *)
 Theorem double_close_panics : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
-  PrimInt63.eqb (ch_loc ch) 0%uint63 = false ->
+  Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = false ->
   run_io (bind (close_chan tag ch) (fun _ => close_chan tag ch)) w
   = OPanic rt_close_closed (chan_close_upd tag ch w).
@@ -3717,15 +3708,15 @@ Definition slice_make {A : Type} (tag : GoTypeTag A) (n : nat) : GoSlice A :=
     [go_list_nth] (structural on the list, suppressed) rather than
     [nth_error]+[Z.to_nat].  The signed guard [0 <= i < len xs] decides in-range;
     in range ⇒ the element, else ⇒ panic. *)
-Fixpoint go_list_nth {A : Type} (xs : list A) (i : int) (d : A) : A :=
+Fixpoint go_list_nth {A : Type} (xs : list A) (i : nat) (d : A) : A :=
   match xs with
   | nil        => d
-  | x :: rest  => if PrimInt63.eqb i 0%uint63 then x
-                  else go_list_nth rest (PrimInt63.sub i 1%uint63) d
+  | x :: rest  => if Nat.eqb i 0 then x
+                  else go_list_nth rest (Nat.pred i) d
   end.
 Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) : IO A :=
   fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
-           then ORet (go_list_nth xs (Uint63.of_Z (intraw i)) (zero_val tag)) w
+           then ORet (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) w
            else OPanic rt_index_oob w.   (* out of bounds / negative: Go panics *)
 
 (** Safe checked index (the safe-by-construction default for slice access).
@@ -3743,7 +3734,7 @@ Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt)
 Definition slice_at_ok {A B : Type}
   (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B) : IO B :=
   if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
-  then k (go_list_nth xs (Uint63.of_Z (intraw i)) (zero_val tag)) true
+  then k (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) true
   else k (zero_val tag) false.
 
 (** ---- Arrays (Go spec "Array types"): a FIXED-SIZE [N]T VALUE (Phase B4.1) ----
@@ -3785,7 +3776,7 @@ Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y
     so the plugin reuses that arm. *)
 Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B) : IO B :=
   if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool
-  then k (go_list_nth (arr_data a) (Uint63.of_Z (intraw i)) (zero_val tag)) true
+  then k (go_list_nth (arr_data a) (Z.to_nat (intraw i)) (zero_val tag)) true
   else k (zero_val tag) false.
 
 (* The construction round-trips: [arr_lit]'s data IS the given list (so [arr_get_ok]
@@ -3820,15 +3811,15 @@ Definition arr2_eqb (a b : GoArr2 GoI64) : bool := goi64_list_eqb (arr2_data a) 
     dynamic out-of-range index, so [arr_set] DEMANDS [0 <= i < len(a)] — without it the old
     [go_list_set] silently returned the array UNCHANGED on an OOB index.  The [Prop] witness
     is erased at extraction (native [a[i] = v] does the runtime check). *)
-Fixpoint go_list_set {A} (xs : list A) (i : int) (v : A) : list A :=
+Fixpoint go_list_set {A} (xs : list A) (i : nat) (v : A) : list A :=
   match xs with
   | nil => nil
-  | x :: xs' => if PrimInt63.eqb i 0%uint63 then v :: xs'
-                else x :: go_list_set xs' (PrimInt63.sub i 1%uint63) v
+  | x :: xs' => if Nat.eqb i 0 then v :: xs'
+                else x :: go_list_set xs' (Nat.pred i) v
   end.
 Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : GoInt) (v : A)
                    (_h : (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = true) : GoArray A :=
-  mkArray (go_list_set (arr_data a) (Uint63.of_Z (intraw i)) v).
+  mkArray (go_list_set (arr_data a) (Z.to_nat (intraw i)) v).
 
 (** ---- String operations (Go spec "String types") ----
 
@@ -3870,11 +3861,11 @@ Definition ascii_byte (c : ascii) : GoByte :=
       u8wrap (v b0 1 + (v b1 2 + (v b2 4 + (v b3 8 +
              (v b4 16 + (v b5 32 + (v b6 64 + v b7 128)))))))%Z
   end.
-Fixpoint go_str_byte (s : GoString) (i : int) : GoByte :=
+Fixpoint go_str_byte (s : GoString) (i : nat) : GoByte :=
   match s with
   | EmptyString  => u8wrap 0
-  | String c rest => if PrimInt63.eqb i 0%uint63 then ascii_byte c
-                     else go_str_byte rest (PrimInt63.sub i 1%uint63)
+  | String c rest => if Nat.eqb i 0 then ascii_byte c
+                     else go_str_byte rest (Nat.pred i)
   end.
 
 (** ---- [[]byte] / [string] conversions (Go spec "Conversions to and from a string
@@ -3905,7 +3896,7 @@ Proof. induction s as [|c rest IH]; simpl; [reflexivity | rewrite IH; reflexivit
 Definition str_at_ok {B : Type}
   (s : GoString) (i : GoInt) (k : GoByte -> bool -> IO B) : IO B :=
   if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (str_len s)))%bool
-  then k (go_str_byte s (Uint63.of_Z (intraw i))) true
+  then k (go_str_byte s (Z.to_nat (intraw i))) true
   else k (u8wrap 0) false.
 
 Fixpoint str_concat (a b : GoString) : GoString :=
@@ -4032,9 +4023,9 @@ Fixpoint str_runes_fst (rs : list (GoI32 * Z)) : list GoI32 :=
 Definition str_to_runes (s : GoString) : list GoI32 := str_runes_fst (str_to_runes_w s).
 Definition rune_bytes (r : GoI32) : GoString :=
   (* Go's [string(rune)] / [utf8.EncodeRune] replaces an out-of-range or surrogate rune with
-     U+FFFD (review #6 P1 #9): [uint32(r) > MaxRune] — a NEGATIVE int32 lands far above MaxRune
-     because [i32_norm] sign-extends it into a huge uint63 — or [r] in the UTF-16 surrogate
-     range [0xD800,0xDFFF].  Without this the raw bits were emitted as a bogus encoding. *)
+     U+FFFD (review #6 P1 #9): Go tests [uint32(r) > MaxRune], so a NEGATIVE int32 is out of range —
+     on our [Z] carrier that is simply [c0 < 0] (we guard [0 <= c0] below) — as is [r] in the
+     UTF-16 surrogate range [0xD800,0xDFFF].  Without this the raw bits were a bogus encoding. *)
   let c0 := i32raw r in
   (* out-of-range (incl. NEGATIVE — on the [Z] carrier that is [c0 < 0], not a huge unsigned as the
      old int63 carrier sign-extended it) or UTF-16 surrogate → U+FFFD (review #6 P1 #9 / #13). *)
@@ -4413,7 +4404,7 @@ Proof. vm_compute. split; reflexivity. Qed.
     THEOREM.  At extraction a [Ref A] is a plain Go variable — [ref_new] lowers to
     [x := v], [ref_get] to a read, [ref_set] to [x = v] — and the [r_loc]/[r_tag]
     fields and the heap are proof-only (erased). *)
-Record Ref (A : Type) : Type := mkRef { r_loc : int ; r_tag : GoTypeTag A }.
+Record Ref (A : Type) : Type := mkRef { r_loc : nat ; r_tag : GoTypeTag A }.
 Arguments mkRef {A} _ _.
 Arguments r_loc {A} _.
 Arguments r_tag {A} _.
@@ -4434,7 +4425,7 @@ Definition ref_sel {A : Type} (r : Ref A) (w : World) : A :=
 
 (** [ref_upd r v w]: write [v] (tagged with [r]'s own tag) at [r]'s location. *)
 Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
-  mkWorld (fun l => if PrimInt63.eqb l (r_loc r)
+  mkWorld (fun l => if Nat.eqb l (r_loc r)
                     then Some (existT _ A (r_tag r, v))
                     else w_refs w l)
           (w_chans w) (w_maps w) (w_next w) (w_output w).
@@ -4445,10 +4436,10 @@ Definition ref_upd {A : Type} (r : Ref A) (v : A) (w : World) : World :=
 Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
   fun w => let l := w_next w in
            ORet (mkRef l tag)
-                (mkWorld (fun k => if PrimInt63.eqb k l
+                (mkWorld (fun k => if Nat.eqb k l
                                    then Some (existT _ A (tag, v))
                                    else w_refs w k)
-                         (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63) (w_output w)).
+                         (w_chans w) (w_maps w) (S l) (w_output w)).
 
 (** ---- [ValidWorld]: allocation freshness as a MACHINE-CHECKED invariant (release-blocking break #5) ----
 
@@ -4459,20 +4450,16 @@ Definition ref_new {A : Type} (tag : GoTypeTag A) (v : A) : IO (Ref A) :=
     invariant ALONE (no side conditions): the next location is nonzero ([valid_fresh_nonzero] — a fresh
     pointer/chan/map is never nil) and is currently unallocated in all three heaps ([valid_fresh_disjoint] —
     a fresh allocation overwrites nothing).  The invariant holds at the initial world ([valid_w_init]) and is
-    PRESERVED by every allocator ([valid_alloc_*]) as long as the 63-bit allocator has room to bump
-    ([HasRoom]); exhausting 2^63 locations is the documented PrimInt63 substrate limit (the same finiteness
-    as [GoI64]), not a soundness gap. *)
+    PRESERVED by every allocator ([valid_alloc_*]) UNCONDITIONALLY — locations are [nat] (review #6 #13→int63:
+    no PrimInt63), so the allocator counter never overflows; the old 63-bit [HasRoom] side condition (and the
+    "exhausting 2^63 locations" substrate deviation) is GONE — a faithfulness improvement, not a soundness gap. *)
 Definition ValidWorld (w : World) : Prop :=
-  (0 <? w_next w)%uint63 = true /\
-  (forall l, (w_next w <=? l)%uint63 = true ->
+  (0 <? w_next w)%nat = true /\
+  (forall l, (w_next w <=? l)%nat = true ->
      w_refs w l = None /\ w_chans w l = None /\ w_maps w l = None).
 
-(** There is room to allocate: [w_next + 1] stays below [wB = 2^63], so the bump does not wrap around to
-    a small (already-live or zero) location.  Stated on [to_Z] to avoid a 63-bit int literal. *)
-Definition HasRoom (w : World) : Prop := (Uint63.to_Z (w_next w) + 1 < Uint63.wB)%Z.
-
 (** The initial world: empty heaps, allocator at 1 — so location 0 is reserved for [nil]. *)
-Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1%uint63 nil.
+Definition w_init : World := mkWorld (fun _ => None) (fun _ => None) (fun _ => None) 1 nil.
 
 (** Review #6 P1 #12: [run_io] now RESPECTS output — a program that prints TWICE is no longer
     provably equal to one that prints ONCE (the old no-op [println] erased output, collapsing
@@ -4490,7 +4477,7 @@ Proof.
 Qed.
 
 (** PAYOFF 1: the freshly minted location [w_next w] is nonzero — a fresh pointer/chan/map is never [nil]. *)
-Lemma valid_fresh_nonzero : forall w, ValidWorld w -> (0 <? w_next w)%uint63 = true.
+Lemma valid_fresh_nonzero : forall w, ValidWorld w -> (0 <? w_next w)%nat = true.
 Proof. intros w [Hpos _]. exact Hpos. Qed.
 
 (** PAYOFF 2: the freshly minted location is currently unallocated in ALL three heaps — so installing a
@@ -4498,97 +4485,78 @@ Proof. intros w [Hpos _]. exact Hpos. Qed.
 Lemma valid_fresh_disjoint : forall w, ValidWorld w ->
   w_refs w (w_next w) = None /\ w_chans w (w_next w) = None /\ w_maps w (w_next w) = None.
 Proof.
-  intros w [_ Hfresh]. apply Hfresh. apply Uint63.leb_spec. lia.
+  intros w [_ Hfresh]. apply Hfresh. apply Nat.leb_le. lia.
 Qed.
 
-(** No-wrap arithmetic: with room to bump, the bump's [to_Z] is exactly [+1] (no modular reduction). *)
-Lemma add1_no_wrap : forall x : int, (Uint63.to_Z x + 1 < Uint63.wB)%Z ->
-  Uint63.to_Z (PrimInt63.add x 1) = (Uint63.to_Z x + 1)%Z.
+(** Consequences of bumping the allocator past [l']: the OLD pointer is still [<= l'], and [l'] is
+    distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']).
+    With [nat] locations these are pure arithmetic — no no-wrap side condition. *)
+Lemma bump_le : forall w l',
+  (S (w_next w) <=? l')%nat = true -> (w_next w <=? l')%nat = true.
 Proof.
-  intros x H. rewrite Uint63.add_spec. change (Uint63.to_Z 1) with 1%Z.
-  pose proof (Uint63.to_Z_bounded x) as Hb.
-  apply Z.mod_small. lia.
+  intros w l' Hle. apply Nat.leb_le. apply Nat.leb_le in Hle. lia.
 Qed.
 
-(** Consequences of bumping a has-room pointer past [l']: the OLD pointer is still [<= l'], and [l'] is
-    distinct from the freshly minted location (so the install's [eqb] guard is [false] at [l']). *)
-Lemma bump_le : forall w l', HasRoom w ->
-  (PrimInt63.add (w_next w) 1 <=? l')%uint63 = true -> (w_next w <=? l')%uint63 = true.
+Lemma bump_neq : forall w l',
+  (S (w_next w) <=? l')%nat = true -> Nat.eqb l' (w_next w) = false.
 Proof.
-  intros w l' HR Hle. apply Uint63.leb_spec. apply Uint63.leb_spec in Hle.
-  rewrite (add1_no_wrap (w_next w) HR) in Hle. lia.
+  intros w l' Hle. apply Nat.leb_le in Hle. apply Nat.eqb_neq. lia.
 Qed.
 
-Lemma bump_neq : forall w l', HasRoom w ->
-  (PrimInt63.add (w_next w) 1 <=? l')%uint63 = true -> PrimInt63.eqb l' (w_next w) = false.
-Proof.
-  intros w l' HR Hle. apply Uint63.leb_spec in Hle.
-  rewrite (add1_no_wrap (w_next w) HR) in Hle.
-  apply Bool.not_true_is_false. intro He. apply Uint63.eqb_spec in He.
-  subst l'. lia.
-Qed.
-
-(** PRESERVATION: each allocator carries [ValidWorld] to the post-allocation world (given [HasRoom]). *)
+(** PRESERVATION: each allocator carries [ValidWorld] to the post-allocation world (unconditionally —
+    [nat] locations never overflow, so no [HasRoom] side condition). *)
 Lemma valid_alloc_ref : forall {A} (tag : GoTypeTag A) (v : A) (w : World),
-  ValidWorld w -> HasRoom w ->
+  ValidWorld w ->
   ValidWorld (mkWorld
-    (fun k => if PrimInt63.eqb k (w_next w) then Some (existT _ A (tag, v)) else w_refs w k)
-    (w_chans w) (w_maps w) (PrimInt63.add (w_next w) 1) (w_output w)).
+    (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, v)) else w_refs w k)
+    (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros A tag v w HV HR. destruct HV as [Hpos Hfresh]. split.
-  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
-    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
-    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  intros A tag v w HV. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Nat.ltb_lt. lia.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
-    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
-    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
+    assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
     destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
     rewrite Hneq. repeat split; assumption.
 Qed.
 
 Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (w : World),
-  ValidWorld w -> HasRoom w ->
+  ValidWorld w ->
   ValidWorld (mkWorld (w_refs w)
-    (fun k => if PrimInt63.eqb k (w_next w) then Some (existT _ A (tag, (nil, false))) else w_chans w k)
-    (w_maps w) (PrimInt63.add (w_next w) 1) (w_output w)).
+    (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, (nil, false))) else w_chans w k)
+    (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros A tag w HV HR. destruct HV as [Hpos Hfresh]. split.
-  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
-    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
-    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  intros A tag w HV. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Nat.ltb_lt. lia.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
-    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
-    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
+    assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
     destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
     rewrite Hneq. repeat split; assumption.
 Qed.
 
 Lemma valid_alloc_map_bump : forall (w : World),
-  ValidWorld w -> HasRoom w ->
-  ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add (w_next w) 1) (w_output w)).
+  ValidWorld w ->
+  ValidWorld (mkWorld (w_refs w) (w_chans w) (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros w HV HR. destruct HV as [Hpos Hfresh]. split.
-  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
-    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
-    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  intros w HV. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Nat.ltb_lt. lia.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
-    apply Hfresh. apply (bump_le w l' HR Hle).
+    apply Hfresh. apply (bump_le w l' Hle).
 Qed.
 
 Lemma valid_alloc_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World),
-  ValidWorld w -> HasRoom w ->
+  ValidWorld w ->
   ValidWorld (mkWorld (w_refs w) (w_chans w)
-    (fun k => if PrimInt63.eqb k (w_next w)
-              then Some (0%uint63, existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
-    (PrimInt63.add (w_next w) 1) (w_output w)).
+    (fun k => if Nat.eqb k (w_next w)
+              then Some (0, existT _ K (kt, existT _ V (vt, fun _ => None))) else w_maps w k)
+    (S (w_next w)) (w_output w)).
 Proof.
-  intros K V kt vt w HV HR. destruct HV as [Hpos Hfresh]. split.
-  - cbn [w_next]. apply Uint63.ltb_spec. rewrite (add1_no_wrap (w_next w) HR).
-    apply Uint63.ltb_spec in Hpos. change (Uint63.to_Z 0) with 0%Z in *.
-    pose proof (Uint63.to_Z_bounded (w_next w)). lia.
+  intros K V kt vt w HV. destruct HV as [Hpos Hfresh]. split.
+  - cbn [w_next]. apply Nat.ltb_lt. lia.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
-    assert (Hle0 : (w_next w <=? l')%uint63 = true) by (apply (bump_le w l' HR Hle)).
-    assert (Hneq : PrimInt63.eqb l' (w_next w) = false) by (apply (bump_neq w l' HR Hle)).
+    assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
+    assert (Hneq : Nat.eqb l' (w_next w) = false) by (apply (bump_neq w l' Hle)).
     destruct (Hfresh l' Hle0) as [Hr [Hc Hm]].
     rewrite Hneq. repeat split; assumption.
 Qed.
@@ -4599,30 +4567,30 @@ Qed.
     [valid_fresh_disjoint] apply at every allocation, making "fresh ⇒ nonzero ∧ disjoint" a theorem about
     [ref_new]/[make_chan]/[map_make]/[map_make_typed] BY NAME.  (Break #5: freshness ESTABLISHED, not asserted.) *)
 Corollary valid_run_ref_new : forall {A} (tag : GoTypeTag A) (v : A) (w : World) r w',
-  ValidWorld w -> HasRoom w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
+  ValidWorld w -> run_io (ref_new tag v) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros A tag v w r w' HV HR Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
+  intros A tag v w r w' HV Hrun. unfold run_io, ref_new in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_ref; assumption.
 Qed.
 
 Corollary valid_run_make_chan : forall {A} (tag : GoTypeTag A) (w : World) r w',
-  ValidWorld w -> HasRoom w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
+  ValidWorld w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros A tag w r w' HV HR Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
+  intros A tag w r w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
 Qed.
 
 Corollary valid_run_map_typed : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) r w',
-  ValidWorld w -> HasRoom w -> run_io (map_make_typed kt vt) w = ORet r w' -> ValidWorld w'.
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros K V kt vt w r w' HV HR Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
+  intros K V kt vt w r w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_map_typed; assumption.
 Qed.
 
 Corollary valid_run_map_make : forall {K V} (w : World) r w',
-  ValidWorld w -> HasRoom w -> run_io (@map_make K V) w = ORet r w' -> ValidWorld w'.
+  ValidWorld w -> run_io (@map_make K V) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros K V w r w' HV HR Hrun. unfold run_io, map_make in Hrun.
+  intros K V w r w' HV Hrun. unfold run_io, map_make in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_map_bump; assumption.
 Qed.
 
@@ -4643,13 +4611,13 @@ Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel_opt r (ref_upd r v w) = Some v.
 Proof.
   intros A r v w. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (Uint63.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
+  rewrite (Nat.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
 Qed.
 Lemma ref_sel_opt_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
   r_loc r <> r_loc r' -> ref_sel_opt r (ref_upd r' v w) = ref_sel_opt r w.
 Proof.
   intros A B r r' v w Hne. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (Uint63.eqb_false_complete (r_loc r) (r_loc r') Hne). reflexivity.
+  rewrite (proj2 (Nat.eqb_neq (r_loc r) (r_loc r')) Hne). reflexivity.
 Qed.
 
 (** [ref_get] — FAILS LOUD (review #6 #7) on a missing/retyped cell: dereferencing a forged / dangling
@@ -4685,7 +4653,7 @@ Lemma ref_sel_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
   ref_sel r (ref_upd r v w) = v.
 Proof.
   intros A r v w. unfold ref_sel, ref_upd. cbn.
-  rewrite (Uint63.eqb_refl (r_loc r)).
+  rewrite (Nat.eqb_refl (r_loc r)).
   rewrite tag_coerce_refl. reflexivity.
 Qed.
 
@@ -4715,21 +4683,21 @@ Qed.
 (** [ptr_as_ref tag p]: view a (tag-free) [Ptr A] as a [Ref A] at the same location with the GIVEN
     tag — so the deref ops reuse the [ref_sel]/[ref_upd] heap (read-after-write, aliasing inherited). *)
 Definition ptr_as_ref {A} (tag : GoTypeTag A) (p : Ptr A) : Ref A := mkRef (p_loc p) tag.
-Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0%uint63.
+Definition ptr_nil {A} (tag : GoTypeTag A) : Ptr A := mkPtr 0.
 (* A TAG-FREE nil pointer (for a NAMED/recursive type that has no [GoTypeTag], e.g. a recursive
    struct's self-pointer field): same nil handle, but needs no tag.  Lowers to a bare Go [nil] (valid
    where the target type is known — a struct-literal field / typed slot).  The [unit] arg makes it a
    recognizable application at the call site. *)
-Definition ptr_nil_tf {A} (_ : unit) : Ptr A := mkPtr 0%uint63.
+Definition ptr_nil_tf {A} (_ : unit) : Ptr A := mkPtr 0.
 
 (** [ptr_new tag v]: Go [p := new(T); *p = v] — allocate a FRESH (nonzero) location,
     store [v] (tagged), bump the allocator, return the pointer.  Fresh ⇒ never nil. *)
 Definition ptr_new {A} (tag : GoTypeTag A) (v : A) : IO (Ptr A) :=
   fun w => let l := w_next w in
            ORet (mkPtr l)
-                (mkWorld (fun k => if PrimInt63.eqb k l then Some (existT _ A (tag, v))
+                (mkWorld (fun k => if Nat.eqb k l then Some (existT _ A (tag, v))
                                    else w_refs w k)
-                         (w_chans w) (w_maps w) (PrimInt63.add l 1%uint63) (w_output w)).
+                         (w_chans w) (w_maps w) (S l) (w_output w)).
 (** [new(T)] (Go's predeclared [new]): allocate a FRESH [*T] pointing to the ZERO value
     of [T], return it.  = [ptr_new tag (zero_val tag)] — fresh, hence never nil; the
     pointee reads as the zero value.  Lowers to Go [new(T)]. *)
@@ -4745,17 +4713,17 @@ Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val 
 (** [ptr_get] already panics on a NIL pointer; review #6 #7 extends the loudness to a DANGLING one — a
     non-nil but unallocated/retyped cell now panics (checked [ref_sel_opt]) instead of fabricating a zero. *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
-  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
+  fun w => if Nat.eqb (p_loc p) 0 then OPanic rt_nil_deref w
            else match ref_sel_opt (ptr_as_ref tag p) w with
                 | Some a => ORet a w
                 | None   => OPanic rt_nil_deref w
                 end.
 Definition ptr_set {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) : IO unit :=
-  fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
+  fun w => if Nat.eqb (p_loc p) 0 then OPanic rt_nil_deref w
            else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
   run_io (ptr_get tag p) w =
-    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
+    if Nat.eqb (p_loc p) 0 then OPanic rt_nil_deref w
     else match ref_sel_opt (ptr_as_ref tag p) w with
          | Some a => ORet a w
          | None   => OPanic rt_nil_deref w
@@ -4763,7 +4731,7 @@ Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
 Proof. reflexivity. Qed.
 Lemma run_ptr_set : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
   run_io (ptr_set tag p v) w =
-    if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
+    if Nat.eqb (p_loc p) 0 then OPanic rt_nil_deref w
     else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. reflexivity. Qed.
 
@@ -4784,7 +4752,7 @@ Lemma ptr_get_set_same : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A),
 Proof.
   intros. intro w.
   rewrite !run_bind, !run_ptr_set.
-  destruct (PrimInt63.eqb (p_loc p) 0%uint63) eqn:Hnil.
+  destruct (Nat.eqb (p_loc p) 0) eqn:Hnil.
   - reflexivity.
   - cbn. rewrite run_ptr_get, Hnil. cbn. rewrite ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
 Qed.
@@ -4810,34 +4778,34 @@ Proof. intros A [l tag]. reflexivity. Qed.
 
 (* [&x] is never nil (a [Ref]'s location is nonzero), so it is SAFE to dereference — never panics. *)
 Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
-  r_loc r <> 0%uint63 -> p_loc (ref_as_ptr r) <> 0%uint63.
+  r_loc r <> 0 -> p_loc (ref_as_ptr r) <> 0.
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
 
 (* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) and NEVER panics. *)
 Lemma ptr_get_ref_as_ptr : forall {A} (r : Ref A) (a : A) (w : World),
-  r_loc r <> 0%uint63 ->
+  r_loc r <> 0 ->
   ref_sel_opt r w = Some a ->
   run_io (ptr_get (r_tag r) (ref_as_ptr r)) w = ORet a w.
 Proof.
   intros A r a w Hnz Hpres. rewrite run_ptr_get, ref_as_ptr_loc.
-  rewrite (Uint63.eqb_false_complete (r_loc r) 0%uint63 Hnz).
+  rewrite (proj2 (Nat.eqb_neq (r_loc r) 0) Hnz).
   rewrite ptr_as_ref_of_ref_as_ptr, Hpres. reflexivity.
 Qed.
 
 (* WRITE through [&x]: [*(&x) = v] updates [x]'s OWN cell and never panics. *)
 Lemma ptr_set_ref_as_ptr : forall {A} (r : Ref A) (v : A) (w : World),
-  r_loc r <> 0%uint63 ->
+  r_loc r <> 0 ->
   run_io (ptr_set (r_tag r) (ref_as_ptr r) v) w = ORet tt (ref_upd r v w).
 Proof.
   intros A r v w Hnz. rewrite run_ptr_set, ref_as_ptr_loc.
-  rewrite (Uint63.eqb_false_complete (r_loc r) 0%uint63 Hnz).
+  rewrite (proj2 (Nat.eqb_neq (r_loc r) 0) Hnz).
   rewrite ptr_as_ref_of_ref_as_ptr. reflexivity.
 Qed.
 
 (* THE DEFINING ALIAS: writing through [&x] is visible at [x] — [*(&x) = v], then [x] reads back [v].
    This is the whole point of taking an address: the pointer and the variable share one cell. *)
 Theorem ptr_set_ref_as_ptr_aliases : forall {A} (r : Ref A) (v : A) (w : World),
-  r_loc r <> 0%uint63 ->
+  r_loc r <> 0 ->
   exists w', run_io (ptr_set (r_tag r) (ref_as_ptr r) v) w = ORet tt w' /\ ref_sel r w' = v.
 Proof.
   intros A r v w Hnz. exists (ref_upd r v w). split.
@@ -4858,16 +4826,14 @@ Qed.
     boundary — a function handed an ARBITRARY handle — still guards via [ptr_get_ok] / [ptr_is_nil] before
     crossing in.  (Goal: NO panic class — nil, div-by-zero, OOB, send-on-closed — is reachable in a
     well-formed closed-world program; the evidence-carrying APIs ([div_nz], [slice_at], here) are the bricks.) *)
-Lemma pos_neq0 : forall x : int, (0 <? x)%uint63 = true -> PrimInt63.eqb x 0%uint63 = false.
+Lemma pos_neq0 : forall x : nat, (0 <? x)%nat = true -> Nat.eqb x 0 = false.
 Proof.
-  intros x H. apply Bool.not_true_is_false. intro He.
-  apply Uint63.eqb_spec in He. subst x.
-  apply Uint63.ltb_spec in H. change (Uint63.to_Z 0) with 0%Z in H. lia.
+  intros x H. apply Nat.eqb_neq. apply Nat.ltb_lt in H. lia.
 Qed.
 
 (** An ALLOCATED pointer is non-nil (its handle is the old [w_next], nonzero by break #5). *)
 Lemma ptr_new_nonzero : forall {A} (tag : GoTypeTag A) (v : A) (w : World) p w',
-  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' -> PrimInt63.eqb (p_loc p) 0%uint63 = false.
+  ValidWorld w -> run_io (ptr_new tag v) w = ORet p w' -> Nat.eqb (p_loc p) 0 = false.
 Proof.
   intros A tag v w p w' HV Hrun. unfold run_io, ptr_new in Hrun. cbv zeta in Hrun.
   injection Hrun as Hp _. subst p. cbn [p_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
@@ -4875,11 +4841,11 @@ Qed.
 
 (** On a non-nil pointer the panic branch is DEAD — deref/assign just hit the heap. *)
 Lemma ptr_set_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
-  PrimInt63.eqb (p_loc p) 0%uint63 = false ->
+  Nat.eqb (p_loc p) 0 = false ->
   run_io (ptr_set tag p v) w = ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. intros A tag p v w Hnn. rewrite run_ptr_set, Hnn. reflexivity. Qed.
 Lemma ptr_get_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (a : A) (w : World),
-  PrimInt63.eqb (p_loc p) 0%uint63 = false ->
+  Nat.eqb (p_loc p) 0 = false ->
   ref_sel_opt (ptr_as_ref tag p) w = Some a ->
   run_io (ptr_get tag p) w = ORet a w.
 Proof. intros A tag p a w Hnn Hpres. rewrite run_ptr_get, Hnn, Hpres. reflexivity. Qed.
@@ -4895,13 +4861,13 @@ Qed.
 
 (** The map analogues: an allocated map is non-nil, so [map_set] on it never panics. *)
 Lemma map_make_typed_nonzero : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (w : World) m w',
-  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> PrimInt63.eqb (gm_loc m) 0%uint63 = false.
+  ValidWorld w -> run_io (map_make_typed kt vt) w = ORet m w' -> Nat.eqb (gm_loc m) 0 = false.
 Proof.
   intros K V kt vt w m w' HV Hrun. unfold run_io, map_make_typed in Hrun. cbv zeta in Hrun.
   injection Hrun as Hm _. subst m. cbn [gm_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
 Qed.
 Lemma map_set_nonnil : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (m : GoMap K V) (w : World),
-  PrimInt63.eqb (gm_loc m) 0%uint63 = false ->
+  Nat.eqb (gm_loc m) 0 = false ->
   run_io (map_set kt vt k v m) w = ORet tt (map_upd kt vt k v m w).
 Proof. intros K V kt vt k v m w Hnn. rewrite run_map_set, Hnn. reflexivity. Qed.
 Corollary map_alloc_set_no_panic : forall {K V} (kt : GoTypeTag K) (vt : GoTypeTag V) (k : K) (v : V) (w : World) m w',
@@ -4917,7 +4883,7 @@ Qed.
     (the remaining [close] panic — double-close — is the send-on-closed class, gated separately by
     [chan_closed]).  [send]/[recv] on the same allocated channel likewise never hit the nil case. *)
 Lemma make_chan_nonzero : forall {A} (tag : GoTypeTag A) (w : World) ch w',
-  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> PrimInt63.eqb (ch_loc ch) 0%uint63 = false.
+  ValidWorld w -> run_io (make_chan tag) w = ORet ch w' -> Nat.eqb (ch_loc ch) 0 = false.
 Proof.
   intros A tag w ch w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
   injection Hrun as Hc _. subst ch. cbn [ch_loc]. apply pos_neq0, (valid_fresh_nonzero w HV).
@@ -4951,7 +4917,7 @@ Qed.
     [ok = false], the nil-deref panic is UNREACHABLE.  (A [Ptr] is nil iff its location
     is the 0 sentinel — [ptr_nil].  The value is in the world heap, so [ptr_get_ok]
     threads [w]; a read leaves [w] unchanged.) *)
-Definition ptr_is_nil {A} (p : Ptr A) : bool := PrimInt63.eqb (p_loc p) 0%uint63.
+Definition ptr_is_nil {A} (p : Ptr A) : bool := Nat.eqb (p_loc p) 0.
 
 Definition ptr_get_ok {A B} (tag : GoTypeTag A) (p : Ptr A) (k : A -> bool -> IO B) : IO B :=
   fun w => if ptr_is_nil p
@@ -4985,86 +4951,93 @@ Proof. intros A B tag p k w Hnn. unfold ptr_get_ok. rewrite Hnn. reflexivity. Qe
     `ref_sel_upd_same` theorem, no new heap, no new axiom.  Lowers to Go [[]T] (which
     IS this handle) with native [make]/index/sub-slice. *)
 Record SliceH (A : Type) : Type := mkSliceH
-  { sh_base : int ; sh_off : int ; sh_len : int ; sh_cap : int ; sh_tag : GoTypeTag A }.
+  { sh_base : nat ; sh_off : nat ; sh_len : nat ; sh_cap : nat ; sh_tag : GoTypeTag A }.
 Arguments mkSliceH {A} _ _ _ _ _.
 Arguments sh_base {A} _.  Arguments sh_off {A} _.  Arguments sh_len {A} _.
 Arguments sh_cap {A} _.   Arguments sh_tag {A} _.
 
 (* Element [i]'s cell = [base + (off + i)] — grouped so the sub-slice alias is one
    [add_assoc].  [sh_cell] is the [Ref] view into the shared heap. *)
-Definition sh_loc {A} (s : SliceH A) (i : int) : int :=
-  PrimInt63.add (sh_base s) (PrimInt63.add (sh_off s) i).
-Definition sh_cell {A} (s : SliceH A) (i : int) : Ref A := mkRef (sh_loc s i) (sh_tag s).
+Definition sh_loc {A} (s : SliceH A) (i : nat) : nat :=
+  sh_base s + (sh_off s + i).
+Definition sh_cell {A} (s : SliceH A) (i : nat) : Ref A := mkRef (sh_loc s i) (sh_tag s).
 
-(* [make([]T, n)]: allocate [n] fresh consecutive zeroed cells, return the handle. *)
-Definition slice_make_h {A} (tag : GoTypeTag A) (n : int) : IO (SliceH A) :=
-  fun w => if Sint63.leb 0 n then          (* Go: make([]T, n) with n < 0 PANICS (review #6 P0 #4) *)
+(* [make([]T, n)]: allocate [n] fresh consecutive zeroed cells, return the handle.  The size [n]
+   is the Go-facing [GoInt] (the make argument the plugin emits); the model converts it to the
+   internal [nat] cell count [nn] (review #6 #13→int63: locations/lengths are [nat], no PrimInt63). *)
+Definition slice_make_h {A} (tag : GoTypeTag A) (n : GoInt) : IO (SliceH A) :=
+  fun w => if (0 <=? intraw n)%Z then        (* Go: make([]T, n) with n < 0 PANICS (review #6 P0 #4) *)
              let base := w_next w in
-             ORet (mkSliceH base 0 n n tag)
-                  (mkWorld (fun k => if (PrimInt63.leb base k
-                                         && PrimInt63.ltb k (PrimInt63.add base n))%bool
+             let nn := Z.to_nat (intraw n) in
+             ORet (mkSliceH base 0 nn nn tag)
+                  (mkWorld (fun k => if (Nat.leb base k && Nat.ltb k (base + nn))%bool
                                      then Some (existT _ A (tag, zero_val tag))
                                      else w_refs w k)
-                           (w_chans w) (w_maps w) (PrimInt63.add base n) (w_output w))
+                           (w_chans w) (w_maps w) (base + nn) (w_output w))
            else OPanic rt_neg_make w.
 (* [s[i]] read / [s[i] = v] write, through the shared backing cell.  Go bounds-checks the
    index against LENGTH (NOT capacity) at runtime and PANICS on [i < 0 || i >= len(s)] — so
-   the model panics there too (review #6 P0 #4): the unsigned [i <? sh_len s] rejects both
-   [i >= len] and a signed-negative index (which lands in the high uint63 range).  Without
-   this a write to a spare backing cell ([len <= i < cap]) silently succeeded.  The native
-   Go [s[i]] performs exactly this check, so the lowering is unchanged (body suppressed). *)
-Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) : IO A :=
-  fun w => if (i <? sh_len s)%uint63 then ORet (ref_sel (sh_cell s i) w) w
+   the model panics there too (review #6 P0 #4): the [GoInt] index [i] is checked [0 <= i] on
+   its [Z] carrier AND [i < len] via [Z.to_nat i <? sh_len s].  Without this a write to a spare
+   backing cell ([len <= i < cap]) silently succeeded.  The native Go [s[i]] performs exactly
+   this check, so the lowering is unchanged (body suppressed). *)
+Definition slice_in_len {A} (s : SliceH A) (i : GoInt) : bool :=
+  (Z.leb 0 (intraw i) && Nat.ltb (Z.to_nat (intraw i)) (sh_len s))%bool.
+Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO A :=
+  fun w => if slice_in_len s i then ORet (ref_sel (sh_cell s (Z.to_nat (intraw i))) w) w
            else OPanic rt_index_oob w.
-Definition slice_idx_set {A} (s : SliceH A) (i : int) (v : A) : IO unit :=
-  fun w => if (i <? sh_len s)%uint63 then ORet tt (ref_upd (sh_cell s i) v w)
+Definition slice_idx_set {A} (s : SliceH A) (i : GoInt) (v : A) : IO unit :=
+  fun w => if slice_in_len s i then ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
            else OPanic rt_index_oob w.
-Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (w : World),
-  (i <? sh_len s)%uint63 = true ->
-  run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s i) w) w.
+Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (w : World),
+  slice_in_len s i = true ->
+  run_io (slice_idx_get tag s i) w = ORet (ref_sel (sh_cell s (Z.to_nat (intraw i))) w) w.
 Proof. intros A tag s i w Hi. unfold slice_idx_get, run_io. rewrite Hi. reflexivity. Qed.
-Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
-  (i <? sh_len s)%uint63 = true ->
-  run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s i) v w).
+Lemma run_slice_idx_set : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+  slice_in_len s i = true ->
+  run_io (slice_idx_set s i v) w = ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w).
 Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
 (** Out of range is a PANIC, exactly Go: writing at index = len (the review's len=1,cap=2,
     write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
-Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : int) (v : A) (w : World),
-  (i <? sh_len s)%uint63 = false ->
+Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
+  slice_in_len s i = false ->
   run_io (slice_idx_set s i v) w = OPanic rt_index_oob w.
 Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
-   is the PURE descriptor (the aliasing lemmas reason about it); [subslice] is the Go-level op. *)
-Definition subslice_desc {A} (s : SliceH A) (a b : int) : SliceH A :=
-  mkSliceH (sh_base s) (PrimInt63.add (sh_off s) a)
-           (PrimInt63.sub b a) (PrimInt63.sub (sh_cap s) a) (sh_tag s).
+   is the PURE descriptor on internal [nat] indices (the aliasing lemmas reason about it);
+   [subslice] is the Go-level op taking the [GoInt] bounds and converting at the boundary. *)
+Definition subslice_desc {A} (s : SliceH A) (a b : nat) : SliceH A :=
+  mkSliceH (sh_base s) (sh_off s + a)
+           (b - a) (sh_cap s - a) (sh_tag s).
 (* Go's [s[a:b]] bounds-checks [0 <= a <= b <= cap(s)] at runtime and PANICS otherwise
    (review #6 P0 #4 / min-suite #6) — note the upper bound is CAPACITY for a 2-index slice.
    So [subslice] is an IO action that panics on a bad triple instead of silently producing a
    wrapped descriptor whose bogus [sh_len] would defeat the index bounds check.  The native Go
    [s[a:b]] performs the SAME check, so the lowering (a `:=` binding) is faithful. *)
-Definition subslice {A} (s : SliceH A) (a b : int) : IO (SliceH A) :=
-  fun w => if (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool
-           then ORet (subslice_desc s a b) w
+Definition subslice_inb {A} (s : SliceH A) (a b : GoInt) : bool :=
+  (Z.leb 0 (intraw a) && Z.leb (intraw a) (intraw b) && Z.leb (intraw b) (Z.of_nat (sh_cap s)))%bool.
+Definition subslice {A} (s : SliceH A) (a b : GoInt) : IO (SliceH A) :=
+  fun w => if subslice_inb s a b
+           then ORet (subslice_desc s (Z.to_nat (intraw a)) (Z.to_nat (intraw b))) w
            else OPanic rt_slice_bounds w.
-Lemma run_subslice : forall {A} (s : SliceH A) (a b : int) (w : World),
-  (Sint63.leb 0 a && Sint63.leb a b && Sint63.leb b (sh_cap s))%bool = true ->
-  run_io (subslice s a b) w = ORet (subslice_desc s a b) w.
+Lemma run_subslice : forall {A} (s : SliceH A) (a b : GoInt) (w : World),
+  subslice_inb s a b = true ->
+  run_io (subslice s a b) w = ORet (subslice_desc s (Z.to_nat (intraw a)) (Z.to_nat (intraw b))) w.
 Proof. intros A s a b w H. unfold subslice, run_io. rewrite H. reflexivity. Qed.
 
 (** Sub-slice element [j] IS parent element [a+j] — the SAME backing cell. *)
-Lemma subslice_shares_cell : forall {A} (s : SliceH A) (a b j : int),
-  sh_cell (subslice_desc s a b) j = sh_cell s (PrimInt63.add a j).
+Lemma subslice_shares_cell : forall {A} (s : SliceH A) (a b j : nat),
+  sh_cell (subslice_desc s a b) j = sh_cell s (a + j).
 Proof.
   intros A s a b j. unfold sh_cell, sh_loc, subslice_desc. cbn.
-  rewrite (Uint63.add_assoc (sh_off s) a j). reflexivity.
+  rewrite (Nat.add_assoc (sh_off s) a j). reflexivity.
 Qed.
 
 (** ALIASING — the defining slice property, a THEOREM: a write through a SUB-SLICE is
     observed through the PARENT (they share the backing array).  Write [sub[j]] (=
     [parent[a+j]]), read [parent[a+j]] → the written value. *)
-Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : int) (v : A) (w : World),
-  ref_sel (sh_cell s (PrimInt63.add a j))
+Lemma subslice_alias : forall {A} (s : SliceH A) (a b j : nat) (v : A) (w : World),
+  ref_sel (sh_cell s (a + j))
           (ref_upd (sh_cell (subslice_desc s a b) j) v w) = v.
 Proof.
   intros A s a b j v w. rewrite subslice_shares_cell. apply ref_sel_upd_same.
@@ -5075,24 +5048,24 @@ Qed.
     backing cells ([sh_loc s i <> sh_loc s' j]).  So aliasing holds exactly where the cells COINCIDE
     ([subslice_alias]) and independence exactly where they DIFFER — e.g. a write to [s[0:2]] is
     invisible through [s[2:4]], and writes to distinct indices of one slice don't interfere. *)
-Lemma slice_idx_set_frame : forall {A B} (s : SliceH A) (s' : SliceH B) (i j : int) (v : A) (w : World),
+Lemma slice_idx_set_frame : forall {A B} (s : SliceH A) (s' : SliceH B) (i j : nat) (v : A) (w : World),
   sh_loc s i <> sh_loc s' j ->
   ref_sel (sh_cell s' j) (ref_upd (sh_cell s i) v w) = ref_sel (sh_cell s' j) w.
 Proof.
   intros A B s s' i j v w Hne. unfold ref_sel, ref_upd, sh_cell. cbn [r_loc r_tag w_refs].
-  destruct (PrimInt63.eqb (sh_loc s' j) (sh_loc s i)) eqn:E; [|reflexivity].
-  apply Uint63.eqb_spec in E. exfalso. apply Hne. symmetry. exact E.
+  destruct (Nat.eqb (sh_loc s' j) (sh_loc s i)) eqn:E; [|reflexivity].
+  apply Nat.eqb_eq in E. exfalso. apply Hne. symmetry. exact E.
 Qed.
 
 (** Read-after-write at an index — a THEOREM (from the shared heap). *)
-Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : int) (v : A),
-  (i <? sh_len s)%uint63 = true ->
+Lemma slice_idx_get_set_same : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (v : A),
+  slice_in_len s i = true ->
   bind (slice_idx_set s i v) (fun _ => slice_idx_get tag s i) =io=
   bind (slice_idx_set s i v) (fun _ => ret v).
 Proof.
   intros A tag s i v Hi. intro w.
   rewrite !run_bind, !(run_slice_idx_set s i v w Hi). cbn.
-  rewrite (run_slice_idx_get tag s i (ref_upd (sh_cell s i) v w) Hi), ref_sel_upd_same, run_ret.
+  rewrite (run_slice_idx_get tag s i (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w) Hi), ref_sel_upd_same, run_ret.
   reflexivity.
 Qed.
 
@@ -5106,38 +5079,38 @@ Qed.
     Lowers to Go's native [append(s, v)] (which makes exactly this choice on [cap]). *)
 Definition slice_append {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) : IO (SliceH A) :=
   fun w =>
-    if (sh_len s <? sh_cap s)%uint63
+    if (sh_len s <? sh_cap s)%nat
     then (* in place: write index len, len+1, SAME base/off/cap *)
-      ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+      ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w)
     else (* reallocate: fresh disjoint backing of len+1, copy old, append v *)
       let base' := w_next w in
       let n := sh_len s in
-      ORet (mkSliceH base' 0 (PrimInt63.add n 1) (PrimInt63.add n 1) tag)
+      ORet (mkSliceH base' 0 (S n) (S n) tag)
            (mkWorld (fun k =>
-              if (PrimInt63.leb base' k
-                  && PrimInt63.ltb k (PrimInt63.add base' (PrimInt63.add n 1)))%bool
-              then (let j := PrimInt63.sub k base' in
-                    if PrimInt63.eqb j n
+              if (Nat.leb base' k
+                  && Nat.ltb k (base' + S n))%bool
+              then (let j := k - base' in
+                    if Nat.eqb j n
                     then Some (existT _ A (tag, v))                         (* the appended element *)
                     else Some (existT _ A (tag, ref_sel (sh_cell s j) w)))  (* a copy of old s[j] *)
               else w_refs w k)
-              (w_chans w) (w_maps w) (PrimInt63.add base' (PrimInt63.add n 1)) (w_output w)).
+              (w_chans w) (w_maps w) (base' + S n) (w_output w)).
 
 (** WITHIN-cap append is IN PLACE: it updates exactly [s]'s cell at index [len], so the
     new element is written into the SHARED backing — a THEOREM.  (Reading [result[len]]
     or [parent[off+len]] sees [v].) *)
 Lemma slice_append_incap : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
-  (sh_len s <? sh_cap s)%uint63 = true ->
+  (sh_len s <? sh_cap s)%nat = true ->
   run_io (slice_append tag s v) w
-    = ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+    = ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w).
 Proof. intros A tag s v w Hlt. unfold slice_append, run_io. rewrite Hlt. reflexivity. Qed.
 
 (** ...and that in-place write is OBSERVED through the parent backing: reading the cell
     at index [len] after the append returns [v] (the appended element aliases). *)
 Lemma slice_append_incap_aliases : forall {A} (tag : GoTypeTag A) (s : SliceH A) (v : A) (w : World),
-  (sh_len s <? sh_cap s)%uint63 = true ->
+  (sh_len s <? sh_cap s)%nat = true ->
   ref_sel (sh_cell s (sh_len s))
           (match run_io (slice_append tag s v) w with ORet _ w' => w' | OPanic _ w' => w' end) = v.
 Proof.
@@ -5149,61 +5122,65 @@ Qed.
     has length [len] and capacity [cap] (so it has [cap - len] spare slots — appending
     within them is IN PLACE, [slice_append_incap]).  Same heap shape as [slice_make_h]
     (which is the [len = cap] case), but distinguishes len from cap. *)
-Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : int) : IO (SliceH A) :=
-  fun w => if (Sint63.leb 0 len && Sint63.leb len cap)%bool then   (* Go: 0 <= len <= cap, else PANIC *)
+Definition slice_make_lc {A} (tag : GoTypeTag A) (len cap : GoInt) : IO (SliceH A) :=
+  fun w => if (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool then   (* Go: 0 <= len <= cap, else PANIC *)
              let base := w_next w in
-             ORet (mkSliceH base 0 len cap tag)
-                  (mkWorld (fun k => if (PrimInt63.leb base k
-                                         && PrimInt63.ltb k (PrimInt63.add base cap))%bool
+             let ln := Z.to_nat (intraw len) in
+             let cp := Z.to_nat (intraw cap) in
+             ORet (mkSliceH base 0 ln cp tag)
+                  (mkWorld (fun k => if (Nat.leb base k
+                                         && Nat.ltb k (base + cp))%bool
                                      then Some (existT _ A (tag, zero_val tag))
                                      else w_refs w k)
-                           (w_chans w) (w_maps w) (PrimInt63.add base cap) (w_output w))
+                           (w_chans w) (w_maps w) (base + cp) (w_output w))
            else OPanic rt_neg_make w.
 
 (** A [make([]T, len, cap)] slice has spare capacity, so [append] is IN PLACE and the
     result SHARES its backing — a THEOREM directly from [slice_append_incap]: the append
     writes the cell at index [len] of the ORIGINAL handle. *)
-Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : int) (v : A) (w : World),
-  (len <? cap)%uint63 = true ->
+Lemma make_lc_append_inplace : forall {A} (tag : GoTypeTag A) (len cap : GoInt) (v : A) (w : World),
+  (intraw len <? intraw cap)%Z = true ->
   forall s w0, run_io (slice_make_lc tag len cap) w = ORet s w0 ->
   run_io (slice_append tag s v) w0
-    = ORet (mkSliceH (sh_base s) (sh_off s) (PrimInt63.add (sh_len s) 1) (sh_cap s) tag)
+    = ORet (mkSliceH (sh_base s) (sh_off s) (S (sh_len s)) (sh_cap s) tag)
            (ref_upd (sh_cell s (sh_len s)) v w0).
 Proof.
   intros A tag len cap v w Hlt s w0 Hmk.
-  (* the handle from make_lc has sh_len = len, sh_cap = cap, so len < cap ⇒ in place.
+  (* the handle from make_lc has sh_len = Z.to_nat len, sh_cap = Z.to_nat cap, so len < cap ⇒ in place.
      make_lc now PANICS unless 0 <= len <= cap; the success hypothesis Hmk forces that branch. *)
   unfold slice_make_lc, run_io in Hmk.
-  destruct (Sint63.leb 0 len && Sint63.leb len cap)%bool eqn:Hc.
-  - injection Hmk as Hs _. subst s. apply slice_append_incap. exact Hlt.
+  destruct (Z.leb 0 (intraw len) && Z.leb (intraw len) (intraw cap))%bool eqn:Hc.
+  - injection Hmk as Hs _. subst s. apply slice_append_incap. cbn [sh_len sh_cap].
+    apply Nat.ltb_lt. apply andb_prop in Hc. destruct Hc as [Hc0 Hc1].
+    apply Z.leb_le in Hc0. apply Z.leb_le in Hc1. apply Z.ltb_lt in Hlt. lia.
   - discriminate Hmk.
 Qed.
 
 (* Element [i]'s cell is [sh_start s + i] (= [sh_loc s i] by [add_assoc]); the
    clear/copy ranges are the interval [[sh_start s, sh_start s + len)]. *)
-Definition sh_start {A} (s : SliceH A) : int := PrimInt63.add (sh_base s) (sh_off s).
+Definition sh_start {A} (s : SliceH A) : nat := sh_base s + sh_off s.
 
 (** [clear(s)] (Go 1.21, Phase B3c): zero [s]'s [len] elements.  A single declarative
     heap update — the cells in [s]'s range map to the zero value, the rest unchanged. *)
 Definition slice_clear_h {A} (tag : GoTypeTag A) (s : SliceH A) : IO unit :=
   fun w => ORet tt
-    (mkWorld (fun k => if (PrimInt63.leb (sh_start s) k
-                           && PrimInt63.ltb k (PrimInt63.add (sh_start s) (sh_len s)))%bool
+    (mkWorld (fun k => if (Nat.leb (sh_start s) k
+                           && Nat.ltb k (sh_start s + sh_len s))%bool
                        then Some (existT _ A (tag, zero_val tag))
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
 
 (** [copy(dst, src)] (Phase B3c): copy [min(len dst, len src)] elements [src → dst],
-    return the count.  A single declarative heap update — each [dst] cell in range takes
-    the corresponding [src] value ([src]'s cell at the same relative index). *)
-Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
-  fun w => let n := if PrimInt63.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
-           ORet n
-    (mkWorld (fun k => if (PrimInt63.leb (sh_start dst) k
-                           && PrimInt63.ltb k (PrimInt63.add (sh_start dst) n))%bool
+    return the count (a Go [int], so the [nat] count is widened to a [GoInt]).  A single
+    declarative heap update — each [dst] cell in range takes the corresponding [src] value
+    ([src]'s cell at the same relative index). *)
+Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO GoInt :=
+  fun w => let n := if Nat.leb (sh_len dst) (sh_len src) then sh_len dst else sh_len src in
+           ORet (intwrap (Z.of_nat n))
+    (mkWorld (fun k => if (Nat.leb (sh_start dst) k
+                           && Nat.ltb k (sh_start dst + n))%bool
                        then Some (existT _ A
-                              (tag, ref_sel (mkRef (PrimInt63.add (sh_start src)
-                                                      (PrimInt63.sub k (sh_start dst)))
+                              (tag, ref_sel (mkRef (sh_start src + (k - sh_start dst))
                                                    (sh_tag src)) w))
                        else w_refs w k)
              (w_chans w) (w_maps w) (w_next w) (w_output w)).
@@ -5220,23 +5197,23 @@ Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
     SUBSTRATE that [B2] (pointer receivers) needs; it ALSO unblocks structs in
     [any]/channels/maps (all blocked by the same wall).  Every law is inherited from
     [ref_sel_upd_same] — NO new heap, NO new axiom. *)
-Record HStruct := mkHStruct { hs_base : int }.
+Record HStruct := mkHStruct { hs_base : nat }.
 (* [ref_sel_opt] + its laws were moved UP to just before [ref_get] (needed there for the fail-loud read). *)
 
-Definition hfield_cell {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : Ref A :=
-  mkRef (PrimInt63.add (hs_base h) k) tag.
+Definition hfield_cell {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : Ref A :=
+  mkRef (hs_base h + k) tag.
 (** Read a struct field.  FAILS LOUD (review #6 #7) on a missing/retyped cell — a forged [SPtr] (e.g.
     [mkSPtr 5] addressing an unallocated base) panics with the Go nil-pointer/invalid-address message
     instead of fabricating a zero.  Body is plugin-lowered to [p.Field], so the loud check never reaches
     the emitted Go (a real [p] is always allocated); it only rules out the model accepting a forged read. *)
-Definition hfield_get {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : IO A :=
+Definition hfield_get {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) : IO A :=
   fun w => match ref_sel_opt (hfield_cell h k tag) w with
            | Some a => ORet a w
            | None   => OPanic rt_nil_deref w
            end.
-Definition hfield_set {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) : IO unit :=
+Definition hfield_set {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) : IO unit :=
   fun w => ORet tt (ref_upd (hfield_cell h k tag) v w).
-Lemma run_hfield_get : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (w : World),
+Lemma run_hfield_get : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (w : World),
   run_io (hfield_get h k tag) w =
     match ref_sel_opt (hfield_cell h k tag) w with
     | Some a => ORet a w
@@ -5245,11 +5222,11 @@ Lemma run_hfield_get : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (w
 Proof. reflexivity. Qed.
 (** When the field cell is genuinely allocated + correctly typed (the only case real programs hit), the
     checked read delivers the value — so read-after-write reasoning is unchanged for valid heaps. *)
-Lemma run_hfield_get_some : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (a : A) (w : World),
+Lemma run_hfield_get_some : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (a : A) (w : World),
   ref_sel_opt (hfield_cell h k tag) w = Some a ->
   run_io (hfield_get h k tag) w = ORet a w.
 Proof. intros A h k tag a w H. unfold run_io, hfield_get. rewrite H. reflexivity. Qed.
-Lemma run_hfield_set : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) (w : World),
+Lemma run_hfield_set : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) (w : World),
   run_io (hfield_set h k tag v) w = ORet tt (ref_upd (hfield_cell h k tag) v w).
 Proof. reflexivity. Qed.
 
@@ -5259,8 +5236,8 @@ Lemma ref_sel_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : A) (w : Worl
   r_loc r <> r_loc r' -> ref_sel r' (ref_upd r v w) = ref_sel r' w.
 Proof.
   intros A B r r' v w Hne. unfold ref_sel, ref_upd. cbn.
-  destruct (PrimInt63.eqb (r_loc r') (r_loc r)) eqn:E; [|reflexivity].
-  apply Uint63.eqb_spec in E. congruence.
+  destruct (Nat.eqb (r_loc r') (r_loc r)) eqn:E; [|reflexivity].
+  apply Nat.eqb_eq in E. congruence.
 Qed.
 
 (** CROSS-RESOURCE separation: the [World]'s ref-heap and channel-heap are INDEPENDENT components
@@ -5334,7 +5311,7 @@ Qed.
 
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
     returns [v] (from [ref_sel_upd_same]). *)
-Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A),
+Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A) (v : A),
   bind (hfield_set h k tag v) (fun _ => hfield_get h k tag) =io=
   bind (hfield_set h k tag v) (fun _ => ret v).
 Proof.
@@ -5344,26 +5321,28 @@ Proof.
 Qed.
 
 (** DIFFERENT fields are INDEPENDENT — writing field [k] does NOT change field [k']
-    (distinct field CELLS), even when the fields have DIFFERENT types.  A THEOREM.
-    (Stated on the field-cell LOCATIONS being distinct, which holds for distinct field
-    indices [k ≠ k']; the index ⇒ location step is [add]-injectivity on [Uint63], a
-    [to_Z] modular-cancellation — left as a routine follow-up, immediate by [vm_compute]
-    for any concrete index pair.) *)
-Lemma hfield_independent : forall {A B} (h : HStruct) (k k' : int)
+    (distinct field CELLS), even when the fields have DIFFERENT types.  A THEOREM, now
+    stated directly on the field INDICES [k ≠ k'] (review #6 #13→int63): with [nat] field
+    indices the index ⇒ location step ([hs_base + k ≠ hs_base + k']) is plain [Nat.add]
+    cancellation, immediate by [lia] — no [Uint63] modular-cancellation follow-up. *)
+Lemma hfield_independent : forall {A B} (h : HStruct) (k k' : nat)
     (ta : GoTypeTag A) (tb : GoTypeTag B) (v : A) (w : World),
-  PrimInt63.add (hs_base h) k <> PrimInt63.add (hs_base h) k' ->
+  k <> k' ->
   ref_sel (hfield_cell h k' tb) (ref_upd (hfield_cell h k ta) v w)
     = ref_sel (hfield_cell h k' tb) w.
-Proof. intros A B h k k' ta tb v w Hne. apply ref_sel_upd_diff. cbn. exact Hne. Qed.
+Proof.
+  intros A B h k k' ta tb v w Hne. apply ref_sel_upd_diff. cbn.
+  intro He. apply Hne. lia.
+Qed.
 
 (** Two pointers to the SAME struct (same [base]) see each other's field writes — the
     aliasing a [*T] receiver relies on.  A THEOREM. *)
-Lemma hstruct_alias : forall {A} (h h' : HStruct) (k : int) (tag : GoTypeTag A) (v : A) (w : World),
+Lemma hstruct_alias : forall {A} (h h' : HStruct) (k : nat) (tag : GoTypeTag A) (v : A) (w : World),
   hs_base h = hs_base h' ->
   ref_sel (hfield_cell h k tag) (ref_upd (hfield_cell h' k tag) v w) = v.
 Proof.
   intros A h h' k tag v w Hb. unfold hfield_cell. rewrite Hb.
-  apply (ref_sel_upd_same (mkRef (PrimInt63.add (hs_base h') k) tag) v w).
+  apply (ref_sel_upd_same (mkRef (hs_base h' + k) tag) v w).
 Qed.
 
 (** ---- Struct POINTERS (Phase Bs.2): a heap-backed struct ↔ Go [*R] ----
@@ -5443,7 +5422,7 @@ Qed.
     field access is COHERENT against it ([field_at2], below). *)
 Class StructRep2Of (R : Type) : Type := the_rep2 : StructRep2 R.
 Arguments the_rep2 R {_}.
-Record SPtr (R : Type) := mkSPtr { sp_base : int }.
+Record SPtr (R : Type) := mkSPtr { sp_base : nat }.
 Arguments mkSPtr {R} _.
 Arguments sp_base {R} _.
 
@@ -5455,40 +5434,40 @@ Definition sptr_new {R} `{StructRep2Of R} (v : R) : IO (SPtr R) :=
   fun w =>
     let l := w_next w in
     let p := mkSPtr l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) (w_output w) in  (* bump allocator *)
-    let w0 := ref_upd (hfield_cell (sptr_hs p) 0%uint63 TI64) (sr2_f0 (the_rep2 R) v) wa in
-    let w1 := ref_upd (hfield_cell (sptr_hs p) 1%uint63 TI64) (sr2_f1 (the_rep2 R) v) w0 in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 2) (w_output w) in  (* bump allocator *)
+    let w0 := ref_upd (hfield_cell (sptr_hs p) 0 TI64) (sr2_f0 (the_rep2 R) v) wa in
+    let w1 := ref_upd (hfield_cell (sptr_hs p) 1 TI64) (sr2_f1 (the_rep2 R) v) w0 in
     ORet p w1.
 
 (** [sptr_deref p] — Go [*p]: read both field cells, RECONSTRUCT via the canonical rep. *)
 Definition sptr_deref {R} `{StructRep2Of R} (p : SPtr R) : IO R :=
-  bind (hfield_get (sptr_hs p) 0%uint63 TI64) (fun a =>
-  bind (hfield_get (sptr_hs p) 1%uint63 TI64) (fun b =>
+  bind (hfield_get (sptr_hs p) 0 TI64) (fun a =>
+  bind (hfield_get (sptr_hs p) 1 TI64) (fun b =>
   ret (sr2_mk (the_rep2 R) a b))).
 
 (** [sptr_assign p v] — Go [*p = R{…}]: write both field cells from [v] (whole-struct
     write through the pointer; mutation is observed by any handle to the same base). *)
 Definition sptr_assign {R} `{StructRep2Of R} (p : SPtr R) (v : R) : IO unit :=
-  bind (hfield_set (sptr_hs p) 0%uint63 TI64 (sr2_f0 (the_rep2 R) v)) (fun _ =>
-        hfield_set (sptr_hs p) 1%uint63 TI64 (sr2_f1 (the_rep2 R) v)).
+  bind (hfield_set (sptr_hs p) 0 TI64 (sr2_f0 (the_rep2 R) v)) (fun _ =>
+        hfield_set (sptr_hs p) 1 TI64 (sr2_f1 (the_rep2 R) v)).
 
 (** FIELD-level access through the pointer — Go [p.Field] / [p.Field = v] (the idiomatic form the
     Bs.2 lowering targets).  [idx] selects the field cell; [proj] names it (the plugin's
     [proj → field-name] map) AND must be COHERENT with it — review #6 #10(c): the erased [field_at2]
     evidence ties [proj] to the canonical rep's [idx]-th projection, so you cannot claim to read field
     [proj] while addressing a DIFFERENT cell.  ([proj]/[ftag]/[coh] erase; the cell op is the substrate.) *)
-Definition field_at2 {R} (rep : StructRep2 R) (idx : int) (proj : R -> GoI64) : Prop :=
-  (idx = 0%uint63 /\ proj = sr2_f0 rep) \/ (idx = 1%uint63 /\ proj = sr2_f1 rep).
-Definition sptr_get_field {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+Definition field_at2 {R} (rep : StructRep2 R) (idx : nat) (proj : R -> GoI64) : Prop :=
+  (idx = 0 /\ proj = sr2_f0 rep) \/ (idx = 1 /\ proj = sr2_f1 rep).
+Definition sptr_get_field {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) : IO GoI64 :=
   hfield_get (sptr_hs p) idx ftag.
-Definition sptr_set_field {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+Definition sptr_set_field {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64) : IO unit :=
   hfield_set (sptr_hs p) idx ftag v.
 
 (** Field read-after-write THROUGH the pointer — a THEOREM: after [sptr_set_field … v], reading the
     SAME (coherent) field returns [v].  The mutation-through-pointer a [*T] receiver relies on. *)
-Lemma sptr_field_get_set : forall {R} `{StructRep2Of R} (p : SPtr R) (idx : int) (proj : R -> GoI64)
+Lemma sptr_field_get_set : forall {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64),
   bind (sptr_set_field p idx proj ftag coh v) (fun _ => sptr_get_field p idx proj ftag coh) =io=
   bind (sptr_set_field p idx proj ftag coh v) (fun _ => ret v).
@@ -5501,7 +5480,7 @@ Qed.
     [sptr_deref]-after-[sptr_assign] round-trip — reassembling via [sr2_eta] across both
     field cells — follows from this + field independence; deferred, fiddlier [run_bind]
     sequencing.) *)
-Lemma sptr_field_alias : forall {R F} (p q : SPtr R) (idx : int)
+Lemma sptr_field_alias : forall {R F} (p q : SPtr R) (idx : nat)
     (ftag : GoTypeTag F) (v : F) (w : World),
   sp_base p = sp_base q ->
   ref_sel (hfield_cell (sptr_hs p) idx ftag) (ref_upd (hfield_cell (sptr_hs q) idx ftag) v w) = v.
@@ -5525,7 +5504,7 @@ Arguments sr3_f0 {R} _ _.  Arguments sr3_f1 {R} _ _.  Arguments sr3_f2 {R} _ _.
 Arguments sr3_mk {R} _ _ _ _.
 Class StructRep3Of (R : Type) : Type := the_rep3 : StructRep3 R.
 Arguments the_rep3 R {_}.
-Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : int }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
+Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : nat }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
 Arguments mkSPtr3 {R} _.
 Arguments sp3_base {R} _.
 Definition sptr3_hs {R} (p : SPtr3 R) : HStruct := mkHStruct (sp3_base p).
@@ -5533,22 +5512,22 @@ Definition sptr3_new {R} `{StructRep3Of R} (v : R) : IO (SPtr3 R) :=
   fun w =>
     let l := w_next w in
     let p := mkSPtr3 l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 3) (w_output w) in  (* bump by 3 *)
-    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0%uint63 TI64) (sr3_f0 (the_rep3 R) v) wa in
-    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1%uint63 TI64) (sr3_f1 (the_rep3 R) v) w0 in
-    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2%uint63 TI64) (sr3_f2 (the_rep3 R) v) w1 in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 3) (w_output w) in  (* bump by 3 *)
+    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0 TI64) (sr3_f0 (the_rep3 R) v) wa in
+    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1 TI64) (sr3_f1 (the_rep3 R) v) w0 in
+    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2 TI64) (sr3_f2 (the_rep3 R) v) w1 in
     ORet p w2.
 (** Field coherence (review #6 #10(c)) for the 3-field rep — [proj] is the [idx]-th projection. *)
-Definition field_at3 {R} (rep : StructRep3 R) (idx : int) (proj : R -> GoI64) : Prop :=
-  (idx = 0%uint63 /\ proj = sr3_f0 rep) \/ (idx = 1%uint63 /\ proj = sr3_f1 rep)
-  \/ (idx = 2%uint63 /\ proj = sr3_f2 rep).
-Definition sptr3_get_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+Definition field_at3 {R} (rep : StructRep3 R) (idx : nat) (proj : R -> GoI64) : Prop :=
+  (idx = 0 /\ proj = sr3_f0 rep) \/ (idx = 1 /\ proj = sr3_f1 rep)
+  \/ (idx = 2 /\ proj = sr3_f2 rep).
+Definition sptr3_get_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) : IO GoI64 :=
   hfield_get (sptr3_hs p) idx ftag.
-Definition sptr3_set_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+Definition sptr3_set_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64) : IO unit :=
   hfield_set (sptr3_hs p) idx ftag v.
-Lemma sptr3_field_get_set : forall {R} `{StructRep3Of R} (p : SPtr3 R) (idx : int) (proj : R -> GoI64)
+Lemma sptr3_field_get_set : forall {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
     (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64),
   bind (sptr3_set_field p idx proj ftag coh v) (fun _ => sptr3_get_field p idx proj ftag coh) =io=
   bind (sptr3_set_field p idx proj ftag coh v) (fun _ => ret v).
@@ -5577,7 +5556,7 @@ Arguments sr2h_mk {R A B} _ _ _.  Arguments sr2h_eta {R A B} _ _.
 
 Class StructRep2HOf (R A B : Type) : Type := the_repH : StructRep2H R A B.
 Arguments the_repH R A B {_}.
-Record SPtrH (R A B : Type) := mkSPtrH { sph_base : int }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
+Record SPtrH (R A B : Type) := mkSPtrH { sph_base : nat }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
 Arguments mkSPtrH {R A B} _.
 Arguments sph_base {R A B} _.
 
@@ -5588,28 +5567,28 @@ Definition sptrh_new {R A B} `{StructRep2HOf R A B} (v : R) : IO (SPtrH R A B) :
   fun w =>
     let l := w_next w in
     let p := mkSPtrH l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (PrimInt63.add l 2) (w_output w) in
-    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0%uint63 (sr2h_ta (the_repH R A B))) (sr2h_f0 (the_repH R A B) v) wa in
-    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1%uint63 (sr2h_tb (the_repH R A B))) (sr2h_f1 (the_repH R A B) v) w0 in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 2) (w_output w) in
+    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0 (sr2h_ta (the_repH R A B))) (sr2h_f0 (the_repH R A B) v) wa in
+    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1 (sr2h_tb (the_repH R A B))) (sr2h_f1 (the_repH R A B) v) w0 in
     ORet p w1.
 
 (** HETEROGENEOUS field coherence (review #6 #10(c)): the field type [F] varies, so [proj] AND its
     [ftag] are pinned TOGETHER to the rep's [idx]-th (projection, tag) by a dependent [existT] — you
     cannot read field 1 ([bool]) with field 0's projection/tag, nor mislabel either cell's type. *)
-Definition field_atH {R A B} (rep : StructRep2H R A B) (idx : int)
+Definition field_atH {R A B} (rep : StructRep2H R A B) (idx : nat)
     {F} (proj : R -> F) (ftag : GoTypeTag F) : Prop :=
-  (idx = 0%uint63 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
+  (idx = 0 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
                    = existT (fun T => ((R -> T) * GoTypeTag T)%type) A (sr2h_f0 rep, sr2h_ta rep))
-  \/ (idx = 1%uint63 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
+  \/ (idx = 1 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
                       = existT (fun T => ((R -> T) * GoTypeTag T)%type) B (sr2h_f1 rep, sr2h_tb rep)).
-Definition sptrh_get_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+Definition sptrh_get_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
     (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) : IO F :=
   hfield_get (sptrh_hs p) idx ftag.
-Definition sptrh_set_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+Definition sptrh_set_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
     (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F) : IO unit :=
   hfield_set (sptrh_hs p) idx ftag v.
 
-Lemma sptrh_field_get_set : forall {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : int) (proj : R -> F)
+Lemma sptrh_field_get_set : forall {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
     (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F),
   bind (sptrh_set_field p idx proj ftag coh v) (fun _ => sptrh_get_field p idx proj ftag coh) =io=
   bind (sptrh_set_field p idx proj ftag coh v) (fun _ => ret v).
@@ -5624,7 +5603,7 @@ Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_sam
     [match]/[bind] structure, leaving the heap terms intact for the final rewrites.) *)
 Local Opaque ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 Lemma sptr_deref_assign : forall {R} `{StructRep2Of R} (p : SPtr R) (v : R),
-  r_loc (hfield_cell (sptr_hs p) 0%uint63 TI64) <> r_loc (hfield_cell (sptr_hs p) 1%uint63 TI64) ->
+  r_loc (hfield_cell (sptr_hs p) 0 TI64) <> r_loc (hfield_cell (sptr_hs p) 1 TI64) ->
   bind (sptr_assign p v) (fun _ => sptr_deref p) =io=
   bind (sptr_assign p v) (fun _ => ret v).
 Proof.

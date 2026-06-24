@@ -4307,6 +4307,7 @@ let proof_only_names =
     "mkRef"; "r_loc"; "r_tag";   (* Ref record ctor/projs — a Ref lowers to a Go var *)
     "mkPtr"; "p_loc"; "p_tag"; "ptr_as_ref"; "ptr_is_nil";  (* Ptr ctor/projs/views — proof-only *)
     "mkSliceH"; "sh_base"; "sh_off"; "sh_len"; "sh_cap"; "sh_tag"; "sh_loc"; "sh_cell"; "sh_start";  (* SliceH internals — proof-only *)
+    "slice_in_len"; "subslice_inb";  (* SliceH bounds-check predicates (review #6 #13→int63) — proof-only, the index ops lower by name *)
     "MkChan"; "ch_loc"; "MkMap"; "gm_loc";  (* GoChan/GoMap handle ctor/projs — erased
       (GoChan A -> chan T, GoMap K V -> map[K]V; channels/maps come from make_* by name) *)
     "block_nth"; "run_blocks_fuel"; "block_fuel";  (* fueled run_blocks internals *)
