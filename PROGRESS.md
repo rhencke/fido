@@ -73,6 +73,25 @@ is happens-before-determined, not interleaving-dependent — the DRF visible-wri
 condition, proved constructively (no classical reasoning; it rests on
 `owned_orders_same_loc`'s positive ordering).
 
+**THE UNIFIED SEMANTICS (`unified.v`) — the 2026-06-24 review's decisive ask.**
+That review's verdict (RED) found several disconnected semantic systems (the shallow
+`IO`/`World`, the `cmd.v` effect evaluator, `rstep`, `rstepC`, the session reductions)
+but no single authoritative operational configuration covering an *ordinary program*
+combining goroutines + channels + heap + panic + defer + output.  `unified.v` is that
+configuration: ONE command language `UCmd` with every admitted effect, ONE config
+`UConfig`, ONE step relation `ustep`.  The defer/panic interaction is faithful (a
+panicking goroutine still runs its remaining defers — the cmd.v P0 fix, now operational
+and concurrent).  The ownership/race and liveness results are PORTED onto it, reusing
+concurrency.v's trace theory verbatim (it is calculus-agnostic): `uprivate_disc_step` +
+`uprivate_disc_reachable_race_free` (RACE-FREEDOM for every interleaving of an all-effects
+program), `uready_can_step` (PROGRESS) + `ustuck_blocked` (the DEADLOCK characterization —
+a stuck config is a genuine wait-for-sender, since send/close-on-closed now panic-step and
+recv-on-closed returns zero).  Concrete all-effects executions are machine-checked
+(`unified_panic_runs_defer`, `unified_heap_write_read`, `unified_chan_send_recv`,
+`unified_output_ordered`).  `unified.v` is the authoritative semantics; the older systems
+remain as earlier, narrower fragments.  Still open (in progress): the full `rstep`→`ustep`
+embedding (`USelect` + the translation), sessions on `ustep`, and retiring the old systems.
+
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.
 

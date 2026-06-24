@@ -559,3 +559,23 @@ Proof.
     apply usteps_refl.
   - cbn. reflexivity.
 Qed.
+
+(** OUTPUT is recorded IN PROGRAM ORDER — closing review #6 #12's "[run_io] erases output" on the
+    AUTHORITATIVE semantics: [print x; print y] yields the log [(0,[x]); (0,[y])], faithfully and ordered
+    (the shallow [run_io] made differently-printing programs provably equal; [ustep]'s [uc_out] does not). *)
+Lemma unified_output_ordered : forall (x y : GoAny),
+  exists cfg',
+    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UOut (x :: nil) (UOut (y :: nil) URet) else URet)
+                   (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+                   nil (fun _ => nil) (fun _ => None))
+           cfg'
+    /\ uc_out cfg' = (0, x :: nil) :: (0, y :: nil) :: nil.
+Proof.
+  intros x y. eexists. split.
+  - eapply usteps_step.
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (x :: nil) (UOut (y :: nil) URet)); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (y :: nil) URet); reflexivity. }
+    apply usteps_refl.
+  - cbn. reflexivity.
+Qed.

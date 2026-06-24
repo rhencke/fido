@@ -99,7 +99,20 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   their `.v` bodies suppressed. **Trusted and unverified** — no theorem relates the
   emitted Go to the source term; golden tests are the only check (a real gap, not
   overclaimed — see `PROGRESS.md` Known gaps #10).
-- `concurrency.v` — proof-only (emits no Go): trace-based happens-before.
+- `concurrency.v` — proof-only (emits no Go): trace-based happens-before, the rich
+  `rstep`/`rstepC` concurrency calculi, ownership/race-freedom, the bounded deadlock
+  theory. The trace/hb/race theory is calculus-AGNOSTIC — which is what lets
+  `unified.v` reuse it.
+- `unified.v` — proof-only: the ONE authoritative closed-world operational semantics
+  (the 2026-06-24 review's decisive ask). A single command language `UCmd` carrying
+  ALL admitted effects (goroutines/channels/heap/panic/defer/output), one config
+  `UConfig`, one step relation `ustep` — with the faithful defer+panic interaction
+  (a panicking goroutine still runs its remaining defers). Race-freedom
+  (`uprivate_disc_reachable_race_free`) and liveness/deadlock (`uready_can_step` /
+  `ustuck_blocked`) are PROVED on it, reusing concurrency.v's trace theory. It is
+  the authoritative semantics, carrying every effect together; the shallow `IO`/`World`,
+  the `cmd.v` effect evaluator, and `rstep` remain as earlier, NARROWER fragments.
+  (Full `rstep`→`ustep` embedding + sessions on `ustep`: in progress.)
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
