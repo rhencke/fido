@@ -881,9 +881,14 @@ proved — see the RELEASE REVIEW #4 resolution below).** The
 **P1:**
 8. **Headline overclaims.** Keep the public claim at **"verified model components with a trusted (currently
    fail-open) extraction backend"** until a compiler-correctness theorem connects MiniML/source semantics to
-   emitted Go. The concurrent model is also NOT the emitted semantics (unbounded channels, sequential
-   `go_spawn`, discarded child panics, no-op `defer_call`, 1000-step `run_blocks` cutoff, callable function
-   zero where Go has nil-func); the multi-goroutine→Go bridge is prose, not an end-to-end adequacy theorem.
+   emitted Go. The concurrent model is still NOT proven to BE the emitted semantics — the
+   multi-goroutine→Go bridge is prose, not an end-to-end adequacy theorem (gap #10). (The specific
+   model-faithfulness gaps the 2026-06-23 review #6 flagged here are CLOSED at the model level: channels
+   are now BOUNDED — the capacity-guarded `rstepC` with a cap-0 rendezvous + a send-block-aware deadlock
+   theory `rstuckC_blocked`/`send_block_rstuckC`, #2; `go_spawn` and `defer_call` FAIL LOUD in the
+   sequential `run_io` rather than sequentializing / discarding a child panic / dropping the deferred —
+   the faithful semantics are `rstep_spawn` and `run_cmd`'s `CDfr`, #5/#12; `run_blocks` exhaustion is a
+   LOUD distinct panic, never a silent success, #6; the function zero is a non-callable `NilFunc`, #8.)
    Wording: "**no project-declared Fido axioms**" is accurate; "**axiom-free**" is NOT (depends on
    `functional_extensionality` in places) — fix that phrasing in SPEC_CONFORMANCE.md / docs.
 9. **Gates weaker than claimed.** `make check` runs ONE demo and diffs text output — numeric output cannot

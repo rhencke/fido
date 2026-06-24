@@ -5752,6 +5752,15 @@ Qed.
     an empty channel — and a deadlock is: someone is unfinished, yet every live
     goroutine is finished or blocked on such a receive ("all waiting to receive, no one
     sending").  [rstuck_blocked] proves exactly that characterization.
+
+    ⚠ This "[CSend] always enabled" enabledness is the UNBOUNDED model, and is exactly review #6 #2: it
+    cannot represent a send that BLOCKS on a full / unbuffered channel, so this characterization (and any
+    deadlock-freedom resting on it) is only about the unbounded abstraction.  The AUTHORITATIVE BOUNDED
+    account is [rstepC] / [rstuckC_blocked] at the END of this file (capacity-guarded sends + a cap-0
+    rendezvous; [blockedC] adds the send-block case this notion lacks), and [send_block_rstuckC] exhibits
+    a concrete deadlock the unbounded model here MASKS.  Race-freedom/ownership are capacity-INDEPENDENT
+    and transfer from [rstep] to [rstepC] for free via [rstepC_embed]; liveness/deadlock claims belong on
+    the bounded [rstepC].
     ============================================================================ *)
 
 Definition rcan_step (cfg : RConfig) : Prop := exists cfg', rstep cfg cfg'.
