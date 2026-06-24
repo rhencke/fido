@@ -8066,3 +8066,42 @@ Proof.
       subst; cbn in *; (discriminate || lia || congruence).
   - intros Hdone. specialize (Hdone 0 eq_refl). discriminate.
 Qed.
+
+(** ---- #2 LIVENESS DUAL: the bounded calculus CONFIRMS a deadlock-FREE program COMPLETES ----
+    [send_block_rstuckC] shows [rstepC] CATCHES a deadlock the unbounded model masks.  The DUAL
+    matters just as much: the bounded calculus must not block EVERYTHING — a well-matched program
+    has to make progress.  Here goroutine 0 sends and goroutine 1 receives on the SAME unbuffered
+    channel; under the SAME [rstepC zerocap] one [rstepC_sync] rendezvous hands the value over and
+    BOTH reach [CRet] ([rdone]).  So the bounded calculus genuinely DISTINGUISHES a deadlocking
+    program ([send_block_rstuckC]) from a progressing one ([handoff_completes]) — the capacity guard
+    blocks only a send with no room AND no partner, never a matched handoff. *)
+Definition handoff_prog (t : nat) : Cmd :=
+  if Nat.eqb t 0 then CSend 0 7 CRet
+  else if Nat.eqb t 1 then CRecv 0 (fun _ => CRet) else CRet.
+Definition handoff_cfg : RConfig :=
+  mkRCfg handoff_prog (fun _ => []) (fun _ => 0)
+         (fun t => orb (Nat.eqb t 0) (Nat.eqb t 1)) [].
+
+Lemma handoff_completes : exists cfg, rstepsC zerocap handoff_cfg cfg /\ rdone cfg.
+Proof.
+  eexists. split.
+  - eapply rstepsC_step; [ | apply rstepsC_refl ].
+    eapply rstepC_sync with (t0 := 0) (t1 := 1);
+      [ discriminate | reflexivity | reflexivity | reflexivity
+      | reflexivity | reflexivity | reflexivity | reflexivity ].
+  - intros tid Hlive. cbn [rc_live rc_prog] in Hlive |- *.
+    apply Bool.orb_true_iff in Hlive. destruct Hlive as [H | H];
+      apply Nat.eqb_eq in H; subst tid; reflexivity.
+Qed.
+
+(** ---- rstepC AS THE AUTHORITATIVE CALCULUS: capacity-independent SAFETY transfers for FREE ----
+    [reachableC_inv] already lifted [RInv]; the same one-line [rstepsC_embed] route carries every
+    capacity-independent reachability result onto the bounded calculus.  Made explicit here for the
+    flagship N-way private-parallel program: race-freedom (proven on [rsteps]) holds verbatim on the
+    BOUNDED [rstepC cap], for EVERY capacity and every interleaving.  So [rstepC] is the one
+    authoritative calculus — it INHERITS the full safety theory (RInv, ownership, race-freedom) from
+    [rstep] via the embedding, and ADDS the bounded liveness theory ([rstuckC_blocked] + the
+    deadlock/progress witnesses) that the unbounded model cannot express. *)
+Corollary priv_prog_N_race_freeC : forall cap N cfg,
+  rstepsC cap (priv_init_N N) cfg -> TraceRaceFree (rc_trace cfg).
+Proof. intros cap N cfg H. exact (priv_prog_N_race_free N cfg (rstepsC_embed _ _ _ H)). Qed.
