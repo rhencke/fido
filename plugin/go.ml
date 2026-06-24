@@ -2102,9 +2102,15 @@ let rec pp_expr state env = function
           int context (proof-only today — [key_eqb]/[zero_val] are not extracted — but correct if reached). *)
        | MLglob r, [g] when is_uint_proj r ->
            str "int(" ++ pp_expr state env g ++ str ")"
-       (* platform-uint smart constructor [uint_lit n] → [uint(n)] (Go's typed uint conversion) *)
-       | MLglob r, [n] when is_uint_lit r ->
-           str "uint(" ++ pp_expr state env n ++ str ")"
+       (* platform-uint smart constructor [uint_lit z _] → [uint(<unsigned decimal>)] (Go's typed
+          uint conversion).  EXACTLY [u64_lit]'s shape (review #6 #13): [GoUint] is now [Z]-carried and
+          unboxes to its carrier, so this op MUST supply the [uint(…)] cast — a bare folded decimal
+          would be inferred [int].  Fold the [Z] literal unsigned ([%Lu] handles [[2^63,2^64)]); the
+          erased proof arg guaranteed [in_u64 z]. *)
+       | MLglob r, [z] when is_uint_lit r ->
+           (match zu_eval z with
+            | Some v -> str ("uint(" ^ Printf.sprintf "%Lu" v ^ ")")
+            | None   -> unsupported "uint_lit of a non-constant Z (only statically-known platform-uint constant expressions are modeled)")
 
        (* record projection [field recv …] → field access [recv.Field], and when
           the field is a method dictionary entry (a function), its application

@@ -206,6 +206,13 @@ in the model where 64-bit Go would not, but that is far above any realistic inde
 divergence is UNREACHABLE in the index/size use case (no demo/theorem touches the boundary).  Deliberately
 NOT enforced by a per-op range proof (invasive for an unreachable case); **use `GoI64`/`GoU64` (faithful,
 Z-carried, wrap exactly at 2⁶⁴/2⁶³) for the guaranteed full width.**
+**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED (review #6 #13):** the companion platform-UINT is now a
+DISTINCT `Z`-carried record (the exact `GoU64` shape, rendered Go `uint`), FAITHFUL across the whole `[0, 2⁶⁴)`
+and wrapping at the true `2⁶⁴` — no longer the `Sint63`/uint63 `int` carrier (faithful only in `[0, 2⁶²)`).
+Literals are the proof-carrying `uint_lit z (pf : in_u64 z)`, NoInline'd and plugin-folded to `uint(<decimal>)`
+(an out-of-range constant is unrepresentable — `eq_refl` cannot prove `in_u64 (2⁶⁴)`). The ONLY residual
+platform assumption is the 64-bit *width* choice (shared with `GoInt`), NOT a carrier deviation. Platform
+`int` (the index carrier above) is the remaining half of #13, re-carriered next.
 **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
 carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
 `spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z

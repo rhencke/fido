@@ -435,7 +435,7 @@ Fail Check (GoInt32 : Type).
     [int] flips these and moves the golden ⇒ caught.  Runtime companion to the model-side
     [tag_runtime_agrees] lock, now covering the platform-uint tag. *)
 Definition uint_lock_demo : IO unit :=
-  let uv := uint_lit 5%uint63 in
+  let uv := uint_lit 5 eq_refl in
   type_assert_safe TUint  (any uv) (fun _ a =>    (* uint .(uint) → true  *)
   type_assert_safe TInt64 (any uv) (fun _ b =>    (* uint .(int)  → FALSE (platform uint <> platform int) *)
     println [any a; any b])).
@@ -3460,7 +3460,7 @@ Extraction NoInline
   u16_gtb u16_geb u16_neqb i16_gtb i16_geb i16_neqb
   u32_gtb u32_geb u32_neqb i32_gtb i32_geb i32_neqb
   i64_div i64_mod i64_and i64_or i64_xor i64_andnot i64_not i64_shl i64_shr
-  u64_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
+  u64_lit uint_lit u64_add u64_sub u64_mul u64_eqb u64_ltb u64_leb
   u64_div u64_mod u64_and u64_or u64_xor u64_andnot u64_not u64_shl u64_shr
   sret sbind ssend srecv slift run_session
   ceqb ceq_i64 ceq_u64 ceq_str ceq_point map_put vec3_eqb vec2_eqb

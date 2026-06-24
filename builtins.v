@@ -234,23 +234,21 @@ Record GoI64 := MkI64 { i64raw : Z ; i64ok : Squash (in_i64 i64raw = true) }.
 Record GoU64 := MkU64 { u64raw : Z ; u64ok : Squash (in_u64 u64raw = true) }.
 
 (* Go's platform-width UNSIGNED [uint] — a GENUINELY DISTINCT record (review #4 P0 #1), NOT a
-   transparent [int] alias.  Carried by the 63-bit primitive [int] viewed UNSIGNED (uint63): the
-   platform [int]/[uint] pair both ride the [Sint63]/[Uint63] substrate, exactly as the fixed-width
-   [int64]/[uint64] pair both ride [Z] ([GoI64]/[GoU64]).  BOUNDED DEVIATION (a SUBSTRATE LIMIT, the
-   kind CLAUDE.md rule 2 permits — IDENTICAL to [GoInt]'s): faithful to Go's [uint] within [0, 2^63);
-   for the full 64-bit unsigned range use [GoU64].  [uintok] is a PHANTOM SProp field whose SOLE role
-   is to defeat Coq's single-field-record unboxing — so the wrapper SURVIVES extraction as a distinct
-   type (rendered [uint], its struct decl suppressed, ctor/proj erased) instead of collapsing to its
-   [int] carrier.  There is no range to seal: EVERY 63-bit [int] is a valid platform-uint in the
-   unsigned view (so [MkUint] is total, unlike the range-sealed [MkU8]).  Distinctness is what gives
-   [Tagged_GoUint := TUint] a UNIQUE resolution ([Tagged_int] no longer applies, since [GoUint <> int]),
-   closing the model/runtime tag inversion. *)
-Record GoUint := MkUint { uintraw : int ; uintok : Squash True }.
-(* The canonical platform-uint constructor — [uint_lit n] is Go's typed [uint(n)].  At extraction
-   [MkUint]/[uint_lit] render [uint(<carrier>)] and [uintraw] renders [int(<value>)], so a [GoUint]
-   value is valid Go in EVERY position (param/return/field/[any]-box): [any (uint_lit 5)] boxes as
-   Go [uint], so [.(uint)] SUCCEEDS and [.(int)] FAILS — model and runtime agree. *)
-Definition uint_lit (n : int) : GoUint := MkUint n (squash I).
+   transparent [int] alias.  Carried by [Z] (NOT the 63-bit [int]), EXACTLY like the fixed-width
+   [GoU64]: so the model is FAITHFUL across the whole platform-uint range [0, 2^64) and wraps at the
+   true [2^64] — closing review #6 #13's "platform-uint 63-bit deviation" (the old [int]/uint63
+   carrier was faithful only within [0, 2^63); for the full range you HAD to switch to [GoU64]).  We
+   MODEL Go's platform [uint] at 64-bit width (its width on every 64-bit target); that single width
+   choice is the only residual platform assumption, shared with [GoInt] — NOT a carrier deviation.
+   [uintok] carries the range invariant [in_u64] AND (as a kept SProp field) defeats Coq's
+   single-field-record unboxing — so the wrapper SURVIVES extraction as a distinct type (rendered Go
+   [uint], struct decl suppressed, ctor/proj erased) instead of collapsing to its [Z] carrier.
+   Distinctness is what gives [Tagged_GoUint := TUint] a UNIQUE resolution ([Tagged_int] no longer
+   applies, since [GoUint <> int]), closing the model/runtime tag inversion.  Literals are the
+   range-checked [Number Notation] [(_)%uint] (defined with [uint_of_Z] alongside [GoU64]'s, below):
+   an out-of-range constant is UNREPRESENTABLE (the notation fails to parse), so there is no
+   silent-wrap escape. *)
+Record GoUint := MkUint { uintraw : Z ; uintok : Squash (in_u64 uintraw = true) }.
 (* Go's [rune] is an alias for [int32] — the FAITHFUL [GoI32] record (NOT the retired [GoInt32]
    placeholder), so a [rune] value (e.g. [i32wrap c]) is a real, distinct int32. *)
 Notation GoRune := GoI32.
@@ -505,7 +503,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TI64 => i64wrap 0%Z
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
-  | TUint    => uint_lit 0%uint63
+  | TUint    => MkUint 0%Z (squash eq_refl)   (* platform-uint zero — [Z]-carried (mirrors [TU64]), faithful [0,2^64) *)
   | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
   | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0%uint63)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
   | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0%uint63)    (* zero box: {0, nil-chan} (proof-only) *)
@@ -599,7 +597,7 @@ Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interf
 Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
-  | TInt64   => PrimInt63.eqb | TUint   => fun a b => PrimInt63.eqb (uintraw a) (uintraw b)
+  | TInt64   => PrimInt63.eqb | TUint   => fun a b => Z.eqb (uintraw a) (uintraw b)
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
@@ -1600,6 +1598,13 @@ Definition u64wrap (z : Z) : GoU64 := MkU64 (wrapU64 z) (squash (in_u64_wrapU64 
 (* [u64_lit z _]: a uint64 constant; the proof is a representability check
    (must be in [0, 2^64)); an out-of-range literal is unrepresentable. *)
 Definition u64_lit (z : Z) (pf : in_u64 z = true) : GoU64 := MkU64 z (squash pf).
+(* Platform-uint [GoUint] literal — the EXACT [GoU64] shape (review #6 #13): a proof-carrying smart
+   constructor demanding [in_u64 z] (so [z] is in [[0, 2^64)]).  Like [u64_lit] it is [NoInline]'d and
+   the plugin folds [uint_lit z _] → Go [uint(<decimal>)] — the wrapper unboxes to its [Z] carrier
+   (SProp proof erased), so the [uint(…)] cast MUST come from this op (a raw [MkUint] would render the
+   bare carrier, which Go infers as [int]).  An out-of-range constant is unrepresentable: [eq_refl]
+   cannot prove [in_u64 z = true] when [z] ∉ [[0, 2^64)]. *)
+Definition uint_lit (z : Z) (pf : in_u64 z = true) : GoUint := MkUint z (squash pf).
 Definition u64_add (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a + u64raw b)).
 Definition u64_sub (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a - u64raw b)).
 (* Unary negation: [-x] mod 2^64 (so [-1 = 2^64-1]).  Lowers to the prefix [-x]. *)
@@ -1806,6 +1811,9 @@ Infix "<=?" := u64_leb : u64_scope.
    overflow).  [2^63] overflows int64 (max [2^63-1]); [2^64] overflows uint64. *)
 Fail Definition i64_lit_oob : GoI64 := (9223372036854775808)%i64.   (* = 2^63 *)
 Fail Definition u64_lit_oob : GoU64 := (18446744073709551616)%u64.  (* = 2^64 *)
+(* Platform-uint: the proof-carrying [uint_lit] range-checks too — [eq_refl] cannot prove
+   [in_u64 (2^64) = true], so an out-of-range platform-uint constant is unrepresentable. *)
+Fail Definition uint_lit_oob : GoUint := uint_lit 18446744073709551616 eq_refl.  (* = 2^64 *)
 
 (** ---- Full-width int64 <-> uint64 CONVERSIONS (Go spec "Conversions") ----
     Go's [uint64(x)] / [int64(x)] between the two 64-bit integer types REINTERPRET
