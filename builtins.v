@@ -4593,13 +4593,52 @@ Qed.
 
 (* [ref_get] carries a [GoTypeTag] so that, when a read is bound inside a loop
    block, the lowering knows the Go type to hoist its declaration. *)
+(** Review #6 #7: a CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
+    cell is absent or carries the WRONG tag, which silently accepts a FORGED / dangling / retyped handle.
+    [ref_sel_opt] instead returns [None] in those cases, so a reader can FAIL LOUD rather than fabricate a
+    zero (the reviewer's "mismatched/missing cells should be impossible in safe APIs, not silently
+    zero-filled").  A genuinely allocated, correctly-typed cell still reads [Some] ([ref_sel_opt_upd_same]),
+    so real programs are unaffected.  [ref_sel] stays for the pure proof/bridge layer. *)
+Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
+  match w_refs w (r_loc r) with
+  | Some (existT _ _ (tag0, x0)) => tag_coerce (r_tag r) tag0 x0
+  | None => None
+  end.
+Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel_opt r (ref_upd r v w) = Some v.
+Proof.
+  intros A r v w. unfold ref_sel_opt, ref_upd; cbn.
+  rewrite (Uint63.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
+Qed.
+Lemma ref_sel_opt_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
+  r_loc r <> r_loc r' -> ref_sel_opt r (ref_upd r' v w) = ref_sel_opt r w.
+Proof.
+  intros A B r r' v w Hne. unfold ref_sel_opt, ref_upd; cbn.
+  rewrite (Uint63.eqb_false_complete (r_loc r) (r_loc r') Hne). reflexivity.
+Qed.
+
+(** [ref_get] — FAILS LOUD (review #6 #7) on a missing/retyped cell: dereferencing a forged / dangling
+    [Ref] (e.g. [mkRef 5 …] at an unallocated location) panics with the Go nil-pointer/invalid-address
+    message instead of fabricating a zero.  Body is plugin-lowered to [*r], so the loud check never reaches
+    the emitted Go (a real [r] is always allocated); it only rules out the model accepting a forged read. *)
 Definition ref_get {A} (tag : GoTypeTag A) (r : Ref A) : IO A :=
-  fun w => ORet (ref_sel r w) w.
+  fun w => match ref_sel_opt r w with
+           | Some a => ORet a w
+           | None   => OPanic rt_nil_deref w
+           end.
 Definition ref_set {A} (r : Ref A) (v : A) : IO unit :=
   fun w => ORet tt (ref_upd r v w).
 Lemma run_ref_get : forall {A} (tag : GoTypeTag A) (r : Ref A) (w : World),
-  run_io (ref_get tag r) w = ORet (ref_sel r w) w.
+  run_io (ref_get tag r) w =
+    match ref_sel_opt r w with
+    | Some a => ORet a w
+    | None   => OPanic rt_nil_deref w
+    end.
 Proof. reflexivity. Qed.
+(** On an allocated, correctly-typed cell (the only case a valid program hits) the read delivers the value. *)
+Lemma run_ref_get_some : forall {A} (tag : GoTypeTag A) (r : Ref A) (a : A) (w : World),
+  ref_sel_opt r w = Some a -> run_io (ref_get tag r) w = ORet a w.
+Proof. intros A tag r a w H. unfold run_io, ref_get. rewrite H. reflexivity. Qed.
 Lemma run_ref_set : forall {A} (r : Ref A) (v : A) (w : World),
   run_io (ref_set r v) w = ORet tt (ref_upd r v w).
 Proof. reflexivity. Qed.
@@ -4622,7 +4661,7 @@ Lemma ref_get_set_same : forall {A} (tag : GoTypeTag A) (r : Ref A) (v : A),
 Proof.
   intros. intro w.
   rewrite !run_bind, !run_ref_set. cbn.
-  rewrite run_ref_get, ref_sel_upd_same, run_ret. reflexivity.
+  rewrite run_ref_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
 Qed.
 
 (** ---- Pointers (Go spec "Pointer types", Phase B1) ----
@@ -4668,16 +4707,24 @@ Definition go_new {A} (tag : GoTypeTag A) : IO (Ptr A) := ptr_new tag (zero_val 
     nil sentinel is location 0, which [ValidWorld] RESERVES (no allocation ever returns it — break #5),
     so the [eqb (p_loc p) 0] guard exactly separates "live cell" from "nil".  These are the catch-able
     escape hatches (rule 4); [ptr_get_ok] is the safe-by-construction comma-ok form. *)
+(** [ptr_get] already panics on a NIL pointer; review #6 #7 extends the loudness to a DANGLING one — a
+    non-nil but unallocated/retyped cell now panics (checked [ref_sel_opt]) instead of fabricating a zero. *)
 Definition ptr_get {A} (tag : GoTypeTag A) (p : Ptr A) : IO A :=
   fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
-           else ORet (ref_sel (ptr_as_ref tag p) w) w.
+           else match ref_sel_opt (ptr_as_ref tag p) w with
+                | Some a => ORet a w
+                | None   => OPanic rt_nil_deref w
+                end.
 Definition ptr_set {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) : IO unit :=
   fun w => if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
            else ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Lemma run_ptr_get : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
   run_io (ptr_get tag p) w =
     if PrimInt63.eqb (p_loc p) 0%uint63 then OPanic rt_nil_deref w
-    else ORet (ref_sel (ptr_as_ref tag p) w) w.
+    else match ref_sel_opt (ptr_as_ref tag p) w with
+         | Some a => ORet a w
+         | None   => OPanic rt_nil_deref w
+         end.
 Proof. reflexivity. Qed.
 Lemma run_ptr_set : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : World),
   run_io (ptr_set tag p v) w =
@@ -4704,7 +4751,7 @@ Proof.
   rewrite !run_bind, !run_ptr_set.
   destruct (PrimInt63.eqb (p_loc p) 0%uint63) eqn:Hnil.
   - reflexivity.
-  - cbn. rewrite run_ptr_get, Hnil, ref_sel_upd_same, run_ret. reflexivity.
+  - cbn. rewrite run_ptr_get, Hnil. cbn. rewrite ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
 Qed.
 
 (** ---- [&x]: the ADDRESS-OF operator (Go's `&`) — the missing inverse of [ptr_as_ref] ----
@@ -4732,13 +4779,14 @@ Lemma ref_as_ptr_not_nil : forall {A} (r : Ref A),
 Proof. intros A r Hnz. rewrite ref_as_ptr_loc. exact Hnz. Qed.
 
 (* READ through [&x]: [*(&x)] reads [x]'s value (with x's tag) and NEVER panics. *)
-Lemma ptr_get_ref_as_ptr : forall {A} (r : Ref A) (w : World),
+Lemma ptr_get_ref_as_ptr : forall {A} (r : Ref A) (a : A) (w : World),
   r_loc r <> 0%uint63 ->
-  run_io (ptr_get (r_tag r) (ref_as_ptr r)) w = ORet (ref_sel r w) w.
+  ref_sel_opt r w = Some a ->
+  run_io (ptr_get (r_tag r) (ref_as_ptr r)) w = ORet a w.
 Proof.
-  intros A r w Hnz. rewrite run_ptr_get, ref_as_ptr_loc.
+  intros A r a w Hnz Hpres. rewrite run_ptr_get, ref_as_ptr_loc.
   rewrite (Uint63.eqb_false_complete (r_loc r) 0%uint63 Hnz).
-  rewrite ptr_as_ref_of_ref_as_ptr. reflexivity.
+  rewrite ptr_as_ref_of_ref_as_ptr, Hpres. reflexivity.
 Qed.
 
 (* WRITE through [&x]: [*(&x) = v] updates [x]'s OWN cell and never panics. *)
@@ -4795,10 +4843,11 @@ Lemma ptr_set_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (v : A) (w : W
   PrimInt63.eqb (p_loc p) 0%uint63 = false ->
   run_io (ptr_set tag p v) w = ORet tt (ref_upd (ptr_as_ref tag p) v w).
 Proof. intros A tag p v w Hnn. rewrite run_ptr_set, Hnn. reflexivity. Qed.
-Lemma ptr_get_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (w : World),
+Lemma ptr_get_nonnil : forall {A} (tag : GoTypeTag A) (p : Ptr A) (a : A) (w : World),
   PrimInt63.eqb (p_loc p) 0%uint63 = false ->
-  run_io (ptr_get tag p) w = ORet (ref_sel (ptr_as_ref tag p) w) w.
-Proof. intros A tag p w Hnn. rewrite run_ptr_get, Hnn. reflexivity. Qed.
+  ref_sel_opt (ptr_as_ref tag p) w = Some a ->
+  run_io (ptr_get tag p) w = ORet a w.
+Proof. intros A tag p a w Hnn Hpres. rewrite run_ptr_get, Hnn, Hpres. reflexivity. Qed.
 
 (** CLOSED-WORLD GUARANTEE: allocate a pointer, then assign through it — provably NO panic. *)
 Corollary ptr_alloc_assign_no_panic : forall {A} (tag : GoTypeTag A) (v v' : A) (w : World) p w',
@@ -5137,29 +5186,7 @@ Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
     [any]/channels/maps (all blocked by the same wall).  Every law is inherited from
     [ref_sel_upd_same] — NO new heap, NO new axiom. *)
 Record HStruct := mkHStruct { hs_base : int }.
-(** Review #6 #7: a CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
-    cell is absent or carries the WRONG tag, which silently accepts a FORGED / dangling / retyped handle.
-    [ref_sel_opt] instead returns [None] in those cases, so a reader can FAIL LOUD rather than fabricate a
-    zero (the reviewer's "mismatched/missing cells should be impossible in safe APIs, not silently
-    zero-filled").  A genuinely allocated, correctly-typed cell still reads [Some] (so real programs are
-    unaffected; [ref_sel_opt_upd_same]).  [ref_sel] stays for the pure proof/bridge layer. *)
-Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
-  match w_refs w (r_loc r) with
-  | Some (existT _ _ (tag0, x0)) => tag_coerce (r_tag r) tag0 x0
-  | None => None
-  end.
-Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
-  ref_sel_opt r (ref_upd r v w) = Some v.
-Proof.
-  intros A r v w. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (Uint63.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
-Qed.
-Lemma ref_sel_opt_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
-  r_loc r <> r_loc r' -> ref_sel_opt r (ref_upd r' v w) = ref_sel_opt r w.
-Proof.
-  intros A B r r' v w Hne. unfold ref_sel_opt, ref_upd; cbn.
-  rewrite (Uint63.eqb_false_complete (r_loc r) (r_loc r') Hne). reflexivity.
-Qed.
+(* [ref_sel_opt] + its laws were moved UP to just before [ref_get] (needed there for the fail-loud read). *)
 
 Definition hfield_cell {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : Ref A :=
   mkRef (PrimInt63.add (hs_base h) k) tag.
@@ -5216,6 +5243,17 @@ Proof. intros. unfold chan_send_upd. apply ref_sel_chan_write_frame. Qed.
 Lemma ref_sel_chan_recv_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
   ref_sel r (chan_recv_upd tag ch w) = ref_sel r w.
 Proof. intros. unfold chan_recv_upd. apply ref_sel_chan_write_frame. Qed.
+(* The CHECKED selector [ref_sel_opt] is framed by channel ops the same way (refs and channel cells are
+   independent World components) — needed by the heap bridge after the fail-loud read (review #6 #7). *)
+Lemma ref_sel_opt_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl (r : Ref B) (w : World),
+  ref_sel_opt r (chan_write tag ch buf cl w) = ref_sel_opt r w.
+Proof. intros. unfold ref_sel_opt, chan_write. reflexivity. Qed.
+Lemma ref_sel_opt_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
+  ref_sel_opt r (chan_send_upd tag ch v w) = ref_sel_opt r w.
+Proof. intros. unfold chan_send_upd. apply ref_sel_opt_chan_write_frame. Qed.
+Lemma ref_sel_opt_chan_recv_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
+  ref_sel_opt r (chan_recv_upd tag ch w) = ref_sel_opt r w.
+Proof. intros. unfold chan_recv_upd. apply ref_sel_opt_chan_write_frame. Qed.
 
 Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (v : B) (w : World),
   chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.

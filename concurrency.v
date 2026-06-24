@@ -4243,7 +4243,7 @@ Section Keystone.
   (* World <-> config on one location [l]: the IO ref's value is the calculus heap
      value, coded.  Single location, frame-free, same as [WMatch1] for channels. *)
   Definition WHMatch1 (l : nat) (w : World) (cfg : RConfig) : Prop :=
-    ref_sel (locenv l) w = inj (rc_heap cfg l).
+    ref_sel_opt (locenv l) w = Some (inj (rc_heap cfg l)).
 
   (** A WRITE step: the deep [CWrite] run-reduces to its continuation at the world
       after [ref_upd], the heap match holding by [ref_sel_upd_same] — mirroring
@@ -4260,7 +4260,7 @@ Section Keystone.
     inversion HD as [| | | l0 v0 k0 m' HDk Hl Hm | ]; subst.
     exists m'. split; [exact HDk | split].
     - rewrite run_bind, (run_ref_set (locenv l) (inj v) w). cbn. reflexivity.
-    - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, ref_sel_upd_same. reflexivity.
+    - unfold WHMatch1. cbn [rc_heap]. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
   Qed.
 
   (** A READ step: the deep [CRead] run-reduces by BINDING the ref value (no world
@@ -4280,7 +4280,7 @@ Section Keystone.
     unfold WHMatch1 in HM. cbn [rc_heap] in HM.
     exists (g (inj (h l))). split; [| split].
     - specialize (HDg (inj (h l))). rewrite (Hret (h l) Hv) in HDg. exact HDg.
-    - rewrite run_bind, (run_ref_get TI64 (locenv l) w). cbn. rewrite HM. reflexivity.
+    - rewrite run_bind, (run_ref_get TI64 (locenv l) w), HM. cbn. reflexivity.
     - unfold WHMatch1. cbn [rc_heap]. exact HM.
   Qed.
 
@@ -4593,7 +4593,7 @@ Section KeystonePtr.
 
   (* one-cell heap match: the IO world value at [ptrenv l] codes the calculus heap value. *)
   Definition PHMatch (l : nat) (w : World) (h : nat -> nat) : Prop :=
-    ref_sel (plocenv l) w = inj (h l).
+    ref_sel_opt (plocenv l) w = Some (inj (h l)).
 
   (** WRITE through the EXTRACTABLE pointer simulates [rstep_write]: the IO world advances by
       [ref_upd] exactly as the operational heap advances by [upd h l v], and the one-cell match
@@ -4605,7 +4605,7 @@ Section KeystonePtr.
   Proof.
     intros l v h w. split.
     - rewrite ptr_set_is_ref, run_ref_set. reflexivity.
-    - unfold PHMatch. rewrite upd_same, ref_sel_upd_same. reflexivity.
+    - unfold PHMatch. rewrite upd_same, ref_sel_opt_upd_same. reflexivity.
   Qed.
 
   (** READ through the EXTRACTABLE pointer simulates [rstep_read]: no world change, and the value
@@ -4626,7 +4626,7 @@ Section KeystonePtr.
     run_io (ptr_get TI64 (ptrenv l)) (ref_upd (plocenv l) v w)
       = ORet v (ref_upd (plocenv l) v w).
   Proof.
-    intros l v w. rewrite ptr_get_is_ref, run_ref_get, ref_sel_upd_same. reflexivity.
+    intros l v w. rewrite ptr_get_is_ref, run_ref_get, ref_sel_opt_upd_same. reflexivity.
   Qed.
 End KeystonePtr.
 
@@ -5245,8 +5245,9 @@ Section MpTyped.
     rewrite run_bind, (run_recv TI64 (chenv 0) (inj v1) (@nil GoI64))
       by (rewrite chan_buf_send, chan_buf_ref_upd_frame, Hbuf; reflexivity); cbv beta iota.
     rewrite run_bind, run_ptr_get, ptrenv_live; cbv beta iota.
-    rewrite run_ret, ref_sel_chan_recv_upd, ref_sel_chan_send_upd, ref_sel_upd_same.
-    eexists. reflexivity.
+    unfold plocenv; rewrite ref_sel_opt_chan_recv_upd, ref_sel_opt_chan_send_upd, ref_sel_opt_upd_same;
+      cbv beta iota.
+    rewrite run_ret. eexists. reflexivity.
   Qed.
 End MpTyped.
 
