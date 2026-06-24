@@ -225,12 +225,12 @@ Lemma in_i32_norm : forall z, in_i32 (i32_norm_z z) = true.
 Proof. intro z. unfold in_i32, i32_norm_z. pose proof (Z.mod_pos_bound (z + 2147483648) 4294967296 ltac:(lia)) as [Hlo Hhi]. apply andb_true_intro; split; [apply Z.leb_le | apply Z.ltb_lt]; lia. Qed.
 
 (* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
-Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true) }.
-Record GoI8 := MkI8 { i8raw : int ; i8ok : Squash (exists a, i8raw = i8_norm a) }.
+Record GoU8 := MkU8 { u8raw : Z ; u8ok : Squash (in_u8 u8raw = true) }.
+Record GoI8 := MkI8 { i8raw : Z ; i8ok : Squash (in_i8 i8raw = true) }.
 Record GoU16 := MkU16 { u16raw : Z ; u16ok : Squash (in_u16 u16raw = true) }.
 Record GoI16 := MkI16 { i16raw : Z ; i16ok : Squash (in_i16 i16raw = true) }.
 Record GoU32 := MkU32 { u32raw : Z ; u32ok : Squash (in_u32 u32raw = true) }.
-Record GoI32 := MkI32 { i32raw : int ; i32ok : Squash (exists a, i32raw = i32_norm a) }.
+Record GoI32 := MkI32 { i32raw : Z ; i32ok : Squash (in_i32 i32raw = true) }.
 (* FULL-WIDTH signed int64 (Go spec "Numeric types": [int64] is the set of all
    signed 64-bit integers).  Carried by [Z] — NOT the 63-bit [int] — so the model
    is faithful across the WHOLE int64 range and wraps at the true [2^63], unlike
@@ -518,9 +518,9 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TInt64   => MkGoInt 0%Z (squash eq_refl)   (* platform-int zero — Z-carried record (mirrors TI64/TU64) *)
   | TFloat64 => 0%float
   | TString  => EmptyString
-  | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
+  | TU8  => MkU8 0%Z (squash eq_refl)  | TI8  => MkI8 0%Z (squash eq_refl)
   | TU16 => MkU16 0%Z (squash eq_refl) | TI16 => MkI16 0%Z (squash eq_refl)
-  | TU32 => MkU32 0%Z (squash eq_refl) | TI32 => MkI32 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
+  | TU32 => MkU32 0%Z (squash eq_refl) | TI32 => MkI32 0%Z (squash eq_refl)
   | TI64 => i64wrap 0%Z
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
@@ -621,12 +621,12 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TInt64   => fun a b => Z.eqb (intraw a) (intraw b) | TUint   => fun a b => Z.eqb (uintraw a) (uintraw b)
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
-  | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
-  | TI8  => fun a b => PrimInt63.eqb (i8raw a) (i8raw b)
+  | TU8  => fun a b => Z.eqb (u8raw a) (u8raw b)
+  | TI8  => fun a b => Z.eqb (i8raw a) (i8raw b)
   | TU16 => fun a b => Z.eqb (u16raw a) (u16raw b)
   | TI16 => fun a b => Z.eqb (i16raw a) (i16raw b)
   | TU32 => fun a b => Z.eqb (u32raw a) (u32raw b)
-  | TI32 => fun a b => PrimInt63.eqb (i32raw a) (i32raw b)
+  | TI32 => fun a b => Z.eqb (i32raw a) (i32raw b)
   | TI64 => fun a b => Z.eqb (i64raw a) (i64raw b)
   | TU64 => fun a b => Z.eqb (u64raw a) (u64raw b)
   | TUnit => fun _ _ => true
@@ -1074,22 +1074,20 @@ Qed.
     computed [GoU8]: it MASKS and carries the (SProp-erased) proof, so the forged [MkU8 300 _] is
     UNCONSTRUCTABLE ([300 < 256] is false).  SProp ⇒ proof irrelevance ⇒ two [GoU8] with equal
     [u8raw] are definitionally equal (so value witnesses ignore the proof). *)
-Lemma land255_lt256 : forall x, (PrimInt63.land x 255 <? 256)%uint63 = true.
+Lemma in_u8_mod256 : forall z, in_u8 (Z.modulo z 256) = true.
 Proof.
-  intro x. apply Uint63.ltb_spec. rewrite Uint63.land_spec'.
-  pose proof (Uint63.to_Z_bounded x) as Hb.
-  change (Uint63.to_Z 255) with 255%Z. change (Uint63.to_Z 256) with 256%Z.
-  replace 255%Z with (Z.ones 8) by reflexivity.
-  rewrite Z.land_ones by lia. apply Z.mod_pos_bound. lia.
+  intro z. unfold in_u8.
+  pose proof (Z.mod_pos_bound z 256 ltac:(lia)) as [Hlo Hhi].
+  apply andb_true_intro; split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
-Definition u8wrap (x : int) : GoU8 := MkU8 (PrimInt63.land x 255) (squash (land255_lt256 x)).
-Definition u8_lit (x : int) (pf : (x <? 256)%uint63 = true) : GoU8 := MkU8 x (squash pf).
-Definition u8_add (a b : GoU8) : GoU8 := u8wrap (PrimInt63.land (PrimInt63.add (u8raw a) (u8raw b)) 255).
-Definition u8_sub (a b : GoU8) : GoU8 := u8wrap (PrimInt63.land (PrimInt63.sub (u8raw a) (u8raw b)) 255).
-Definition u8_mul (a b : GoU8) : GoU8 := u8wrap (PrimInt63.land (PrimInt63.mul (u8raw a) (u8raw b)) 255).
-Definition u8_eqb (a b : GoU8) : bool := PrimInt63.eqb (u8raw a) (u8raw b).  (* in-range ⇒ exact *)
-Definition u8_ltb (a b : GoU8) : bool := PrimInt63.ltb (u8raw a) (u8raw b).  (* in-range ⇒ unsigned = signed *)
-Definition u8_leb (a b : GoU8) : bool := PrimInt63.leb (u8raw a) (u8raw b).
+Definition u8wrap (z : Z) : GoU8 := MkU8 (Z.modulo z 256) (squash (in_u8_mod256 z)).
+Definition u8_lit (z : Z) (pf : in_u8 z = true) : GoU8 := MkU8 z (squash pf).
+Definition u8_add (a b : GoU8) : GoU8 := u8wrap (u8raw a + u8raw b).
+Definition u8_sub (a b : GoU8) : GoU8 := u8wrap (u8raw a - u8raw b).
+Definition u8_mul (a b : GoU8) : GoU8 := u8wrap (u8raw a * u8raw b).
+Definition u8_eqb (a b : GoU8) : bool := Z.eqb (u8raw a) (u8raw b).
+Definition u8_ltb (a b : GoU8) : bool := Z.ltb (u8raw a) (u8raw b).
+Definition u8_leb (a b : GoU8) : bool := Z.leb (u8raw a) (u8raw b).
 
 (* Build-checked: [uint8] and [int] do NOT mix — no implicit conversion. *)
 Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : int).
@@ -1119,14 +1117,14 @@ Notation GoByte := GoU8.
 (* [i8_norm] is hoisted up to the wrapper-record block (the GoI8 provenance invariant needs it).
    [i8wrap] is the internal constructor: normalize to 8-bit signed + carry the (trivial) provenance
    proof, so a forged [MkI8 200 _] is unconstructable (200 is not in [i8_norm]'s image). *)
-Definition i8wrap (x : int) : GoI8 := MkI8 (i8_norm x) (squash (ex_intro _ x eq_refl)).
-Definition i8_lit (x : int) (_ : (Sint63.leb (-128)%sint63 x && Sint63.ltb x 128)%bool = true) : GoI8 := i8wrap x.
-Definition i8_add (a b : GoI8) : GoI8 := i8wrap (PrimInt63.add (i8raw a) (i8raw b)).
-Definition i8_sub (a b : GoI8) : GoI8 := i8wrap (PrimInt63.sub (i8raw a) (i8raw b)).
-Definition i8_mul (a b : GoI8) : GoI8 := i8wrap (PrimInt63.mul (i8raw a) (i8raw b)).
-Definition i8_eqb (a b : GoI8) : bool := PrimInt63.eqb (i8raw a) (i8raw b).
-Definition i8_ltb (a b : GoI8) : bool := Sint63.ltb (i8raw a) (i8raw b).   (* SIGNED comparison *)
-Definition i8_leb (a b : GoI8) : bool := Sint63.leb (i8raw a) (i8raw b).
+Definition i8wrap (z : Z) : GoI8 := MkI8 (i8_norm_z z) (squash (in_i8_norm z)).
+Definition i8_lit (z : Z) (pf : in_i8 z = true) : GoI8 := MkI8 z (squash pf).
+Definition i8_add (a b : GoI8) : GoI8 := i8wrap (i8raw a + i8raw b).
+Definition i8_sub (a b : GoI8) : GoI8 := i8wrap (i8raw a - i8raw b).
+Definition i8_mul (a b : GoI8) : GoI8 := i8wrap (i8raw a * i8raw b).
+Definition i8_eqb (a b : GoI8) : bool := Z.eqb (i8raw a) (i8raw b).
+Definition i8_ltb (a b : GoI8) : bool := Z.ltb (i8raw a) (i8raw b).   (* SIGNED comparison *)
+Definition i8_leb (a b : GoI8) : bool := Z.leb (i8raw a) (i8raw b).
 
 (** Direct [>] / [>=] / [!=] for the fixed-width types, completing Go's six comparison
     operators (here for [uint8]/[int8] — representative; the plugin's [fw_is] recognizes
@@ -1205,16 +1203,16 @@ Fail Definition i16_forged : GoI16 := MkI16 40000 (squash (ex_intro _ 40000 eq_r
     Go's [&^] (AND-NOT) and unary [^] (complement) are single operators.  The
     plugin emits the bare Go infix [& | ^ &^] / unary [^] (no wrap) — faithful
     because the operands are in range / sign-extended (verified on int64). *)
-Definition u8_and     (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.land (u8raw a) (u8raw b)).
-Definition u8_or      (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.lor  (u8raw a) (u8raw b)).
-Definition u8_xor     (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.lxor (u8raw a) (u8raw b)).
-Definition u8_andnot  (a b : GoU8)  : GoU8  := u8wrap (PrimInt63.land (u8raw a) (PrimInt63.lxor (u8raw b) 255)).
-Definition u8_not     (a   : GoU8)  : GoU8  := u8wrap (PrimInt63.lxor (u8raw a) 255).
-Definition i8_and     (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.land (i8raw a) (i8raw b))).
-Definition i8_or      (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lor  (i8raw a) (i8raw b))).
-Definition i8_xor     (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) (i8raw b))).
-Definition i8_andnot  (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.land (i8raw a) (PrimInt63.lxor (i8raw b) 255))).
-Definition i8_not     (a   : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) 255)).
+Definition u8_and     (a b : GoU8)  : GoU8  := u8wrap (Z.land (u8raw a) (u8raw b)).
+Definition u8_or      (a b : GoU8)  : GoU8  := u8wrap (Z.lor  (u8raw a) (u8raw b)).
+Definition u8_xor     (a b : GoU8)  : GoU8  := u8wrap (Z.lxor (u8raw a) (u8raw b)).
+Definition u8_andnot  (a b : GoU8)  : GoU8  := u8wrap (Z.land (u8raw a) (Z.lxor (u8raw b) 255)).
+Definition u8_not     (a   : GoU8)  : GoU8  := u8wrap (Z.lxor (u8raw a) 255).
+Definition i8_and     (a b : GoI8)  : GoI8  := i8wrap (Z.land (i8raw a) (i8raw b)).
+Definition i8_or      (a b : GoI8)  : GoI8  := i8wrap (Z.lor  (i8raw a) (i8raw b)).
+Definition i8_xor     (a b : GoI8)  : GoI8  := i8wrap (Z.lxor (i8raw a) (i8raw b)).
+Definition i8_andnot  (a b : GoI8)  : GoI8  := i8wrap (Z.land (i8raw a) (Z.lxor (i8raw b) 255)).
+Definition i8_not     (a   : GoI8)  : GoI8  := i8wrap (Z.lxor (i8raw a) 255).
 Definition u16_and    (a b : GoU16) : GoU16 := u16wrap (Z.land (u16raw a) (u16raw b)).
 Definition u16_or     (a b : GoU16) : GoU16 := u16wrap (Z.lor  (u16raw a) (u16raw b)).
 Definition u16_xor    (a b : GoU16) : GoU16 := u16wrap (Z.lxor (u16raw a) (u16raw b)).
@@ -1246,10 +1244,10 @@ Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : int).
     The plugin emits Go [x << k] / [x >> k]: for [>>], the int64 carrier is
     non-negative for [uintN] (so Go's [>>] is logical) and sign-extended for
     [intN] (so Go's [>>] is arithmetic) — both correct with no mask. *)
-Definition u8_shl  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := u8wrap (PrimInt63.land (PrimInt63.lsl (u8raw x) k) 255).
-Definition u8_shr  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := u8wrap (PrimInt63.lsr (u8raw x) k).
-Definition i8_shl  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.lsl (i8raw x) k)).
-Definition i8_shr  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.asr (i8raw x) k)).
+Definition u8_shl  (x : GoU8)  (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU8  := u8wrap (Z.shiftl (u8raw x) (intraw k)).
+Definition u8_shr  (x : GoU8)  (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU8  := u8wrap (Z.shiftr (u8raw x) (intraw k)).
+Definition i8_shl  (x : GoI8)  (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI8  := i8wrap (Z.shiftl (i8raw x) (intraw k)).
+Definition i8_shr  (x : GoI8)  (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI8  := i8wrap (Z.shiftr (i8raw x) (intraw k)).
 Definition u16_shl (x : GoU16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU16 := u16wrap (Z.shiftl (u16raw x) (intraw k)).
 Definition u16_shr (x : GoU16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU16 := u16wrap (Z.shiftr (u16raw x) (intraw k)).
 Definition i16_shl (x : GoI16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI16 := i16wrap (Z.shiftl (i16raw x) (intraw k)).
@@ -1277,12 +1275,12 @@ Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_re
       representability proof (unlike [*_lit]): a conversion truncates, it does not
       reject.  Composition handles cross-width ([uint8(int16val)] =
       [u8_of_int (int_of_i16 x)] = low 8 bits, faithful). *)
-Definition int_of_u8  (x : GoU8)  : GoInt := intwrap (Sint63.to_Z (u8raw  x)).
-Definition int_of_i8  (x : GoI8)  : GoInt := intwrap (Sint63.to_Z (i8raw  x)).
+Definition int_of_u8  (x : GoU8)  : GoInt := intwrap (u8raw  x).
+Definition int_of_i8  (x : GoI8)  : GoInt := intwrap (i8raw  x).
 Definition int_of_u16 (x : GoU16) : GoInt := intwrap (u16raw x).
 Definition int_of_i16 (x : GoI16) : GoInt := intwrap (i16raw x).
-Definition u8_of_int  (x : GoInt) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 255).
-Definition i8_of_int  (x : GoInt) : GoI8  := i8wrap (i8_norm (Uint63.of_Z (intraw x))).
+Definition u8_of_int  (x : GoInt) : GoU8  := u8wrap (intraw x).
+Definition i8_of_int  (x : GoInt) : GoI8  := i8wrap (intraw x).
 Definition u16_of_int (x : GoInt) : GoU16 := u16wrap (intraw x).
 Definition i16_of_int (x : GoInt) : GoI16 := i16wrap (intraw x).
 
@@ -1307,12 +1305,12 @@ Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
     ([Sint63Axioms.to_Z] -> the DELIBERATELY-REJECTED unsigned [Uint63.ltb], Tier 3 #9)
     fights clean extraction-suppression.  A runtime form needs an int63 -> Z that drags
     no match-bodied stdlib decls.  Mirrors [f64_of_i64] (modeled, lowering deferred). *)
-Definition i64_of_u8  (a : GoU8)  : GoI64 := i64wrap (Sint63.to_Z (u8raw  a)).
-Definition i64_of_i8  (a : GoI8)  : GoI64 := i64wrap (Sint63.to_Z (i8raw  a)).
+Definition i64_of_u8  (a : GoU8)  : GoI64 := i64wrap (u8raw  a).
+Definition i64_of_i8  (a : GoI8)  : GoI64 := i64wrap (i8raw  a).
 Definition i64_of_u16 (a : GoU16) : GoI64 := i64wrap (u16raw a).
 Definition i64_of_i16 (a : GoI16) : GoI64 := i64wrap (i16raw a).
 Definition i64_of_u32 (a : GoU32) : GoI64 := i64wrap (u32raw a).
-Definition i64_of_i32 (a : GoI32) : GoI64 := i64wrap (Sint63.to_Z (i32raw a)).
+Definition i64_of_i32 (a : GoI32) : GoI64 := i64wrap (i32raw a).
 
 (** ---- Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]) ----
     EVIDENCE-CARRYING like [div_nz]: demand the divisor be non-zero (Go panics on a
@@ -1323,10 +1321,10 @@ Definition i64_of_i32 (a : GoI32) : GoI64 := i64wrap (Sint63.to_Z (i32raw a)).
     - [intN]: SIGNED div/mod (truncate toward zero), wrapped to the width ([norm]) —
       this is where the most-negative / [-1] overflow lands: Go [int8(-128)/int8(-1)
       = -128] (two's-complement wrap), and [norm] gives exactly that. *)
-Definition u8_div  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (PrimInt63.divs (u8raw a) (u8raw b)).
-Definition u8_mod  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (PrimInt63.mods (u8raw a) (u8raw b)).
-Definition i8_div  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.divs (i8raw a) (i8raw b))).
-Definition i8_mod  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.mods (i8raw a) (i8raw b))).
+Definition u8_div  (a b : GoU8)  (_ : (Z.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (Z.quot (u8raw a) (u8raw b)).
+Definition u8_mod  (a b : GoU8)  (_ : (Z.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (Z.rem (u8raw a) (u8raw b)).
+Definition i8_div  (a b : GoI8)  (_ : (Z.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (Z.quot (i8raw a) (i8raw b)).
+Definition i8_mod  (a b : GoI8)  (_ : (Z.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (Z.rem (i8raw a) (i8raw b)).
 Definition u16_div (a b : GoU16) (_ : (Z.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (Z.quot (u16raw a) (u16raw b)).
 Definition u16_mod (a b : GoU16) (_ : (Z.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (Z.rem (u16raw a) (u16raw b)).
 Definition i16_div (a b : GoI16) (_ : (Z.eqb (i16raw b) 0) = false) : GoI16 := i16wrap (Z.quot (i16raw a) (i16raw b)).
@@ -1381,14 +1379,14 @@ Definition u32_of_int (x : GoInt) : GoU32 := u32wrap (intraw x).
 (* [i32_norm] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
    [i32wrap] = normalize + carry the trivial provenance proof, so [MkI32 5000000000 _] is
    unconstructable. *)
-Definition i32wrap (x : int) : GoI32 := MkI32 (i32_norm x) (squash (ex_intro _ x eq_refl)).
-Definition i32_lit (x : int) (_ : (Sint63.leb (-2147483648)%sint63 x && Sint63.ltb x 2147483648)%bool = true) : GoI32 := i32wrap x.
-Definition i32_add (a b : GoI32) : GoI32 := i32wrap (PrimInt63.add (i32raw a) (i32raw b)).
-Definition i32_sub (a b : GoI32) : GoI32 := i32wrap (PrimInt63.sub (i32raw a) (i32raw b)).
-Definition i32_mul (a b : GoI32) : GoI32 := i32wrap (PrimInt63.mul (i32raw a) (i32raw b)).
-Definition i32_eqb (a b : GoI32) : bool := PrimInt63.eqb (i32raw a) (i32raw b).
-Definition i32_ltb (a b : GoI32) : bool := Sint63.ltb (i32raw a) (i32raw b).
-Definition i32_leb (a b : GoI32) : bool := Sint63.leb (i32raw a) (i32raw b).
+Definition i32wrap (z : Z) : GoI32 := MkI32 (i32_norm_z z) (squash (in_i32_norm z)).
+Definition i32_lit (z : Z) (pf : in_i32 z = true) : GoI32 := MkI32 z (squash pf).
+Definition i32_add (a b : GoI32) : GoI32 := i32wrap (i32raw a + i32raw b).
+Definition i32_sub (a b : GoI32) : GoI32 := i32wrap (i32raw a - i32raw b).
+Definition i32_mul (a b : GoI32) : GoI32 := i32wrap (i32raw a * i32raw b).
+Definition i32_eqb (a b : GoI32) : bool := Z.eqb (i32raw a) (i32raw b).
+Definition i32_ltb (a b : GoI32) : bool := Z.ltb (i32raw a) (i32raw b).
+Definition i32_leb (a b : GoI32) : bool := Z.leb (i32raw a) (i32raw b).
 
 (** Direct [>] / [>=] / [!=] for the remaining fixed widths (u16/i16/u32/i32),
     completing Go's six comparison operators for EVERY integer type.  Same trivial
@@ -1405,17 +1403,17 @@ Definition u32_neqb (a b : GoU32) : bool := negb (u32_eqb a b).
 Definition i32_gtb  (a b : GoI32) : bool := i32_ltb b a.
 Definition i32_geb  (a b : GoI32) : bool := i32_leb b a.
 Definition i32_neqb (a b : GoI32) : bool := negb (i32_eqb a b).
-Definition i32_and    (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.land (i32raw a) (i32raw b))).
-Definition i32_or     (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lor  (i32raw a) (i32raw b))).
-Definition i32_xor    (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lxor (i32raw a) (i32raw b))).
-Definition i32_andnot (a b : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.land (i32raw a) (PrimInt63.lxor (i32raw b) 4294967295))).
-Definition i32_not    (a   : GoI32) : GoI32 := i32wrap (i32_norm (PrimInt63.lxor (i32raw a) 4294967295)).
-Definition i32_shl (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := i32wrap (i32_norm (PrimInt63.lsl (i32raw x) k)).
-Definition i32_shr (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := i32wrap (i32_norm (PrimInt63.asr (i32raw x) k)).
-Definition i32_div (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.divs (i32raw a) (i32raw b))).
-Definition i32_mod (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.mods (i32raw a) (i32raw b))).
-Definition int_of_i32 (x : GoI32) : GoInt := intwrap (Sint63.to_Z (i32raw x)).
-Definition i32_of_int (x : GoInt) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (intraw x))).
+Definition i32_and    (a b : GoI32) : GoI32 := i32wrap (Z.land (i32raw a) (i32raw b)).
+Definition i32_or     (a b : GoI32) : GoI32 := i32wrap (Z.lor  (i32raw a) (i32raw b)).
+Definition i32_xor    (a b : GoI32) : GoI32 := i32wrap (Z.lxor (i32raw a) (i32raw b)).
+Definition i32_andnot (a b : GoI32) : GoI32 := i32wrap (Z.land (i32raw a) (Z.lxor (i32raw b) 4294967295)).
+Definition i32_not    (a   : GoI32) : GoI32 := i32wrap (Z.lxor (i32raw a) 4294967295).
+Definition i32_shl (x : GoI32) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI32 := i32wrap (Z.shiftl (i32raw x) (intraw k)).
+Definition i32_shr (x : GoI32) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI32 := i32wrap (Z.shiftr (i32raw x) (intraw k)).
+Definition i32_div (a b : GoI32) (_ : (Z.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (Z.quot (i32raw a) (i32raw b)).
+Definition i32_mod (a b : GoI32) (_ : (Z.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (Z.rem (i32raw a) (i32raw b)).
+Definition int_of_i32 (x : GoI32) : GoInt := intwrap (i32raw x).
+Definition i32_of_int (x : GoInt) : GoI32 := i32wrap (intraw x).
 
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
 Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
@@ -1963,12 +1961,12 @@ Definition f64_of_i64 (a : GoI64) : float := SF2Prim (binary_normalize 53 1024 (
     recognized by name (`fw_is r "of_i64"`) and its decl suppressed (`fixed_width_op`), exactly
     as the [of_int] narrows are.  Mirrors each [uN_of_int]/[iN_of_int] structure so it stays a
     NAMED call the recognizer fires on (not force-inlined). *)
-Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 255).
-Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i8_norm  (Uint63.of_Z (i64raw a))).
+Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (i64raw a).
+Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i64raw a).
 Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (i64raw a).
 Definition i16_of_i64 (a : GoI64) : GoI16 := i16wrap (i64raw a).
 Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (i64raw a).
-Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (i64raw a))).
+Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i64raw a).
 
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for |i| < 2^53,
     rounds beyond — exactly Go's rule).  Rounds the EXACT [Z] mantissa ONCE via [binary_normalize] at
@@ -3868,14 +3866,9 @@ Fixpoint str_len (s : GoString) : GoInt :=
 Definition ascii_byte (c : ascii) : GoByte :=
   match c with
   | Ascii b0 b1 b2 b3 b4 b5 b6 b7 =>
-      let v (b : bool) (k : int) : int := if b then k else 0%uint63 in
-      u8wrap (PrimInt63.add (v b0 1%uint63)
-           (PrimInt63.add (v b1 2%uint63)
-           (PrimInt63.add (v b2 4%uint63)
-           (PrimInt63.add (v b3 8%uint63)
-           (PrimInt63.add (v b4 16%uint63)
-           (PrimInt63.add (v b5 32%uint63)
-           (PrimInt63.add (v b6 64%uint63) (v b7 128%uint63))))))))
+      let v (b : bool) (k : Z) : Z := if b then k else 0%Z in
+      u8wrap (v b0 1 + (v b1 2 + (v b2 4 + (v b3 8 +
+             (v b4 16 + (v b5 32 + (v b6 64 + v b7 128)))))))%Z
   end.
 Fixpoint go_str_byte (s : GoString) (i : int) : GoByte :=
   match s with
@@ -3894,9 +3887,9 @@ Fixpoint go_str_byte (s : GoString) (i : int) : GoByte :=
     byte count is preserved ([len([]byte(s)) == len(s)]); the value round-trip is golden. *)
 Definition byte_ascii (b : GoByte) : ascii :=
   let n := u8raw b in
-  let bit (k : int) : bool := PrimInt63.eqb (PrimInt63.land (PrimInt63.lsr n k) 1%uint63) 1%uint63 in
-  Ascii (bit 0%uint63) (bit 1%uint63) (bit 2%uint63) (bit 3%uint63)
-        (bit 4%uint63) (bit 5%uint63) (bit 6%uint63) (bit 7%uint63).
+  let bit (k : Z) : bool := Z.testbit n k in
+  Ascii (bit 0%Z) (bit 1%Z) (bit 2%Z) (bit 3%Z)
+        (bit 4%Z) (bit 5%Z) (bit 6%Z) (bit 7%Z).
 Fixpoint str_to_bytes (s : GoString) : list GoByte :=
   match s with
   | EmptyString   => nil
@@ -3940,7 +3933,7 @@ Definition str_slice (s : GoString) (a b : nat)
     the Coq bodies below are the proof-side model (suppressed + NoInline), a full 1–4 byte
     UTF-8 codec.  [byte_chr] is a byte value → [ascii]; the codec is verified by the
     round-trip examples (ASCII and a 3-byte CJK code point). *)
-Definition byte_chr (v : int) : ascii := byte_ascii (u8wrap v).
+Definition byte_chr (v : Z) : ascii := byte_ascii (u8wrap v).
 
 (** Break #10: [str_to_runes] is now a FAITHFUL UTF-8 decoder — exactly Go's [utf8.DecodeRune] /
     range-over-string.  An invalid sequence yields [RuneError] (U+FFFD) and advances by exactly ONE byte
@@ -3955,57 +3948,57 @@ Definition byte_chr (v : int) : ascii := byte_ascii (u8wrap v).
     accumulates into byte offsets (review #6 P1 #9): for source [0x80 'A'] Go yields
     [(0,U+FFFD) (1,'A')], and so does the model now (the FFFD consumed ONE byte, not
     [rune_width U+FFFD] = 3).  [str_to_runes] (rune-only) is [map fst] of this — one decoder. *)
-Fixpoint str_to_runes_w (s : GoString) : list (GoI32 * int) :=
+Fixpoint str_to_runes_w (s : GoString) : list (GoI32 * Z) :=
   match s with
   | EmptyString => nil
   | String c0 r0 =>
       (* [rerr]/[isc] are LOCAL (not top-level Definitions): the whole body is suppressed and lowered by
          name to native [[]rune(s)], so the unsigned [ltb]/[leb] here are proof-only and never extracted. *)
-      let rerr := i32wrap 65533%uint63 in              (* U+FFFD *)
-      let isc  := fun v => andb (PrimInt63.leb 128%uint63 v) (PrimInt63.ltb v 192%uint63) in  (* cont byte 0x80–0xBF *)
+      let rerr := i32wrap 65533%Z in              (* U+FFFD *)
+      let isc  := fun v => andb (Z.leb 128%Z v) (Z.ltb v 192%Z) in  (* cont byte 0x80–0xBF *)
       let v0 := u8raw (ascii_byte c0) in
-      if PrimInt63.ltb v0 128%uint63 then              (* 1-byte: ASCII 0x00–0x7F *)
-        (i32wrap v0, 1%uint63) :: str_to_runes_w r0
-      else if PrimInt63.ltb v0 194%uint63 then         (* 0x80–0xC1: cont-as-lead OR overlong-2 → error *)
-        (rerr, 1%uint63) :: str_to_runes_w r0
-      else if PrimInt63.ltb v0 224%uint63 then         (* 0xC2–0xDF: 2-byte (result ≥ 0x80, non-overlong) *)
+      if Z.ltb v0 128%Z then              (* 1-byte: ASCII 0x00–0x7F *)
+        (i32wrap v0, 1%Z) :: str_to_runes_w r0
+      else if Z.ltb v0 194%Z then         (* 0x80–0xC1: cont-as-lead OR overlong-2 → error *)
+        (rerr, 1%Z) :: str_to_runes_w r0
+      else if Z.ltb v0 224%Z then         (* 0xC2–0xDF: 2-byte (result ≥ 0x80, non-overlong) *)
         match r0 with
         | String c1 r1 =>
             let v1 := u8raw (ascii_byte c1) in
             if isc v1 then
-              (i32wrap (PrimInt63.lor (PrimInt63.lsl (PrimInt63.land v0 31%uint63) 6%uint63)
-                                     (PrimInt63.land v1 63%uint63)), 2%uint63) :: str_to_runes_w r1
-            else (rerr, 1%uint63) :: str_to_runes_w r0   (* bad continuation → error, advance 1 *)
-        | EmptyString => (rerr, 1%uint63) :: nil         (* truncated → advance 1 (the lead) *)
+              (i32wrap (Z.lor (Z.shiftl (Z.land v0 31%Z) 6%Z)
+                                     (Z.land v1 63%Z)), 2%Z) :: str_to_runes_w r1
+            else (rerr, 1%Z) :: str_to_runes_w r0   (* bad continuation → error, advance 1 *)
+        | EmptyString => (rerr, 1%Z) :: nil         (* truncated → advance 1 (the lead) *)
         end
-      else if PrimInt63.ltb v0 240%uint63 then         (* 0xE0–0xEF: 3-byte *)
+      else if Z.ltb v0 240%Z then         (* 0xE0–0xEF: 3-byte *)
         match r0 with
         | String c1 r1' =>
             let v1 := u8raw (ascii_byte c1) in
             let v1ok :=                                 (* accept-range: 0xE0→[0xA0,0xBF] (overlong); 0xED→[0x80,0x9F] (surrogate) *)
-              if PrimInt63.eqb v0 224%uint63 then andb (PrimInt63.leb 160%uint63 v1) (PrimInt63.ltb v1 192%uint63)
-              else if PrimInt63.eqb v0 237%uint63 then andb (PrimInt63.leb 128%uint63 v1) (PrimInt63.ltb v1 160%uint63)
+              if Z.eqb v0 224%Z then andb (Z.leb 160%Z v1) (Z.ltb v1 192%Z)
+              else if Z.eqb v0 237%Z then andb (Z.leb 128%Z v1) (Z.ltb v1 160%Z)
               else isc v1 in
             match r1' with
             | String c2 r2 =>
                 let v2 := u8raw (ascii_byte c2) in
                 if andb v1ok (isc v2) then
-                  (i32wrap (PrimInt63.lor (PrimInt63.lor
-                           (PrimInt63.lsl (PrimInt63.land v0 15%uint63) 12%uint63)
-                           (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 6%uint63))
-                           (PrimInt63.land v2 63%uint63)), 3%uint63) :: str_to_runes_w r2
-                else (rerr, 1%uint63) :: str_to_runes_w r0
-            | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
+                  (i32wrap (Z.lor (Z.lor
+                           (Z.shiftl (Z.land v0 15%Z) 12%Z)
+                           (Z.shiftl (Z.land v1 63%Z) 6%Z))
+                           (Z.land v2 63%Z)), 3%Z) :: str_to_runes_w r2
+                else (rerr, 1%Z) :: str_to_runes_w r0
+            | EmptyString => (rerr, 1%Z) :: str_to_runes_w r0
             end
-        | EmptyString => (rerr, 1%uint63) :: nil
+        | EmptyString => (rerr, 1%Z) :: nil
         end
-      else if PrimInt63.ltb v0 245%uint63 then         (* 0xF0–0xF4: 4-byte *)
+      else if Z.ltb v0 245%Z then         (* 0xF0–0xF4: 4-byte *)
         match r0 with
         | String c1 r1' =>
             let v1 := u8raw (ascii_byte c1) in
             let v1ok :=                                 (* accept-range: 0xF0→[0x90,0xBF] (overlong); 0xF4→[0x80,0x8F] (>MaxRune) *)
-              if PrimInt63.eqb v0 240%uint63 then andb (PrimInt63.leb 144%uint63 v1) (PrimInt63.ltb v1 192%uint63)
-              else if PrimInt63.eqb v0 244%uint63 then andb (PrimInt63.leb 128%uint63 v1) (PrimInt63.ltb v1 144%uint63)
+              if Z.eqb v0 240%Z then andb (Z.leb 144%Z v1) (Z.ltb v1 192%Z)
+              else if Z.eqb v0 244%Z then andb (Z.leb 128%Z v1) (Z.ltb v1 144%Z)
               else isc v1 in
             match r1' with
             | String c2 r2' =>
@@ -4014,24 +4007,24 @@ Fixpoint str_to_runes_w (s : GoString) : list (GoI32 * int) :=
                 | String c3 r3 =>
                     let v3 := u8raw (ascii_byte c3) in
                     if andb v1ok (andb (isc v2) (isc v3)) then
-                      (i32wrap (PrimInt63.lor (PrimInt63.lor (PrimInt63.lor
-                               (PrimInt63.lsl (PrimInt63.land v0 7%uint63) 18%uint63)
-                               (PrimInt63.lsl (PrimInt63.land v1 63%uint63) 12%uint63))
-                               (PrimInt63.lsl (PrimInt63.land v2 63%uint63) 6%uint63))
-                               (PrimInt63.land v3 63%uint63)), 4%uint63) :: str_to_runes_w r3
-                    else (rerr, 1%uint63) :: str_to_runes_w r0
-                | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
+                      (i32wrap (Z.lor (Z.lor (Z.lor
+                               (Z.shiftl (Z.land v0 7%Z) 18%Z)
+                               (Z.shiftl (Z.land v1 63%Z) 12%Z))
+                               (Z.shiftl (Z.land v2 63%Z) 6%Z))
+                               (Z.land v3 63%Z)), 4%Z) :: str_to_runes_w r3
+                    else (rerr, 1%Z) :: str_to_runes_w r0
+                | EmptyString => (rerr, 1%Z) :: str_to_runes_w r0
                 end
-            | EmptyString => (rerr, 1%uint63) :: str_to_runes_w r0
+            | EmptyString => (rerr, 1%Z) :: str_to_runes_w r0
             end
-        | EmptyString => (rerr, 1%uint63) :: nil
+        | EmptyString => (rerr, 1%Z) :: nil
         end
       else                                             (* 0xF5–0xFF: invalid lead → error *)
-        (rerr, 1%uint63) :: str_to_runes_w r0
+        (rerr, 1%Z) :: str_to_runes_w r0
   end.
 (* rune-only view = drop the consumed-width tags.  A manual fixpoint (not [List.map]) so the
    suppressed body pulls no generic [map] into the extraction closure. *)
-Fixpoint str_runes_fst (rs : list (GoI32 * int)) : list GoI32 :=
+Fixpoint str_runes_fst (rs : list (GoI32 * Z)) : list GoI32 :=
   match rs with
   | nil              => nil
   | cons (r, _) rest => cons r (str_runes_fst rest)
@@ -4043,23 +4036,25 @@ Definition rune_bytes (r : GoI32) : GoString :=
      because [i32_norm] sign-extends it into a huge uint63 — or [r] in the UTF-16 surrogate
      range [0xD800,0xDFFF].  Without this the raw bits were emitted as a bogus encoding. *)
   let c0 := i32raw r in
-  let c := if andb (PrimInt63.leb c0 1114111%uint63)
-                   (negb (andb (PrimInt63.leb 55296%uint63 c0) (PrimInt63.leb c0 57343%uint63)))
-           then c0 else 65533%uint63 in
-  if PrimInt63.ltb c 128%uint63 then
+  (* out-of-range (incl. NEGATIVE — on the [Z] carrier that is [c0 < 0], not a huge unsigned as the
+     old int63 carrier sign-extended it) or UTF-16 surrogate → U+FFFD (review #6 P1 #9 / #13). *)
+  let c := if andb (andb (Z.leb 0 c0) (Z.leb c0 1114111))
+                   (negb (andb (Z.leb 55296 c0) (Z.leb c0 57343)))
+           then c0 else 65533%Z in
+  if Z.ltb c 128 then
     String (byte_chr c) EmptyString
-  else if PrimInt63.ltb c 2048%uint63 then
-    String (byte_chr (PrimInt63.lor 192%uint63 (PrimInt63.lsr c 6%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString)
-  else if PrimInt63.ltb c 65536%uint63 then
-    String (byte_chr (PrimInt63.lor 224%uint63 (PrimInt63.lsr c 12%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 6%uint63) 63%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString))
+  else if Z.ltb c 2048 then
+    String (byte_chr (Z.lor 192 (Z.shiftr c 6)))
+   (String (byte_chr (Z.lor 128 (Z.land c 63))) EmptyString)
+  else if Z.ltb c 65536 then
+    String (byte_chr (Z.lor 224 (Z.shiftr c 12)))
+   (String (byte_chr (Z.lor 128 (Z.land (Z.shiftr c 6) 63)))
+   (String (byte_chr (Z.lor 128 (Z.land c 63))) EmptyString))
   else
-    String (byte_chr (PrimInt63.lor 240%uint63 (PrimInt63.lsr c 18%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 12%uint63) 63%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land (PrimInt63.lsr c 6%uint63) 63%uint63)))
-   (String (byte_chr (PrimInt63.lor 128%uint63 (PrimInt63.land c 63%uint63))) EmptyString))).
+    String (byte_chr (Z.lor 240 (Z.shiftr c 18)))
+   (String (byte_chr (Z.lor 128 (Z.land (Z.shiftr c 12) 63)))
+   (String (byte_chr (Z.lor 128 (Z.land (Z.shiftr c 6) 63)))
+   (String (byte_chr (Z.lor 128 (Z.land c 63))) EmptyString))).
 Fixpoint runes_to_str (rs : list GoI32) : GoString :=
   match rs with
   | nil => EmptyString
@@ -4069,50 +4064,50 @@ Fixpoint runes_to_str (rs : list GoI32) : GoString :=
 (** Codec verified by ROUND-TRIP: encode→decode is the identity for ASCII and for a 3-byte
     CJK code point (中 = U+4E2D = 20013, UTF-8 E4 B8 AD). *)
 Example rune_roundtrip_ascii :
-  str_to_runes (runes_to_str (i32wrap 65%uint63 :: i32wrap 66%uint63 :: nil))
-    = i32wrap 65%uint63 :: i32wrap 66%uint63 :: nil.
+  str_to_runes (runes_to_str (i32wrap 65 :: i32wrap 66 :: nil))
+    = i32wrap 65 :: i32wrap 66 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example rune_roundtrip_cjk :
-  str_to_runes (runes_to_str (i32wrap 20013%uint63 :: nil)) = i32wrap 20013%uint63 :: nil.
+  str_to_runes (runes_to_str (i32wrap 20013 :: nil)) = i32wrap 20013 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 
 (** Break #10 witnesses (machine-checked): INVALID UTF-8 now decodes to U+FFFD (65533) per offending
     byte, advancing ONE byte — exactly Go's [utf8.DecodeRune].  (Before the fix these produced bogus
     code points or swallowed bytes.)  [byte_chr v] is the byte with value [v]. *)
 Example utf8_cont_as_lead :                  (* lone continuation 0x80 — not a valid lead → one U+FFFD *)
-  str_to_runes (String (byte_chr 128%uint63) EmptyString) = i32wrap 65533%uint63 :: nil.
+  str_to_runes (String (byte_chr 128) EmptyString) = i32wrap 65533 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example utf8_overlong_2 :                     (* 0xC0 0x80 (overlong NUL): 0xC0 bad lead, 0x80 cont → two U+FFFD *)
-  str_to_runes (String (byte_chr 192%uint63) (String (byte_chr 128%uint63) EmptyString))
-    = i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: nil.
+  str_to_runes (String (byte_chr 192) (String (byte_chr 128) EmptyString))
+    = i32wrap 65533 :: i32wrap 65533 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example utf8_surrogate :                      (* 0xED 0xA0 0x80 (would be U+D800, a UTF-16 surrogate) → three U+FFFD *)
-  str_to_runes (String (byte_chr 237%uint63) (String (byte_chr 160%uint63) (String (byte_chr 128%uint63) EmptyString)))
-    = i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: i32wrap 65533%uint63 :: nil.
+  str_to_runes (String (byte_chr 237) (String (byte_chr 160) (String (byte_chr 128) EmptyString)))
+    = i32wrap 65533 :: i32wrap 65533 :: i32wrap 65533 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example utf8_truncated_2 :                     (* 0xC2 with no continuation → one U+FFFD *)
-  str_to_runes (String (byte_chr 194%uint63) EmptyString) = i32wrap 65533%uint63 :: nil.
+  str_to_runes (String (byte_chr 194) EmptyString) = i32wrap 65533 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Example utf8_valid_2byte :                     (* 0xC2 0xA9 = U+00A9 (©) still decodes correctly *)
-  str_to_runes (String (byte_chr 194%uint63) (String (byte_chr 169%uint63) EmptyString)) = i32wrap 169%uint63 :: nil.
+  str_to_runes (String (byte_chr 194) (String (byte_chr 169) EmptyString)) = i32wrap 169 :: nil.
 Proof. vm_compute. reflexivity. Qed.
 
 (** Single rune → string (Go's [string(rune)]): the 1-code-point UTF-8 string.  Reuses the
     [rune_bytes] encoder; lowers to the native [string(rune(r))] (the explicit [rune] cast
     keeps it out of the deprecated [string(int)] form). *)
 Definition rune_to_str (r : GoI32) : GoString := rune_bytes r.
-Example rune_to_str_ascii : rune_to_str (i32wrap 65%uint63) = "A"%string.
+Example rune_to_str_ascii : rune_to_str (i32wrap 65) = "A"%string.
 Proof. vm_compute. reflexivity. Qed.
 (** Review #6 P1 #9 / minimum-suite #4: an out-of-range or surrogate rune encodes to U+FFFD,
     exactly Go's [string(rune)].  Witnessed against the explicit FFFD encoding [EF BF BD]: a
     UTF-16 surrogate (0xD800), a code point past MaxRune (0x110000), and a NEGATIVE rune (-1,
     built by [i32_sub] so it is a genuine negative int32) all collapse to U+FFFD. *)
-Example rune_to_str_surrogate : rune_to_str (i32wrap 55296%uint63) = rune_to_str (i32wrap 65533%uint63).
+Example rune_to_str_surrogate : rune_to_str (i32wrap 55296) = rune_to_str (i32wrap 65533).
 Proof. vm_compute. reflexivity. Qed.
-Example rune_to_str_above_max : rune_to_str (i32wrap 1114112%uint63) = rune_to_str (i32wrap 65533%uint63).
+Example rune_to_str_above_max : rune_to_str (i32wrap 1114112) = rune_to_str (i32wrap 65533).
 Proof. vm_compute. reflexivity. Qed.
 Example rune_to_str_negative :
-  rune_to_str (i32_sub (i32wrap 0%uint63) (i32wrap 1%uint63)) = rune_to_str (i32wrap 65533%uint63).
+  rune_to_str (i32_sub (i32wrap 0) (i32wrap 1)) = rune_to_str (i32wrap 65533).
 Proof. vm_compute. reflexivity. Qed.
 
 (** String COMPARISON (Go spec "Comparison operators": strings are comparable AND
@@ -4184,8 +4179,8 @@ Fixpoint str_ltb (a b : GoString) : bool :=
   | String ca ra, String cb rb =>
       let na := u8raw (ascii_byte ca) in  (* byte value 0..255 *)
       let nb := u8raw (ascii_byte cb) in
-      if PrimInt63.ltb na nb then true
-      else if PrimInt63.ltb nb na then false
+      if Z.ltb na nb then true
+      else if Z.ltb nb na then false
       else str_ltb ra rb
   end.
 
@@ -5672,20 +5667,20 @@ Fixpoint for_each {A : Type} (xs : GoSlice A) (body : A -> IO unit) : IO unit :=
     model is proof-only (recognized by name, decl suppressed), so the emitted Go is the
     idiomatic range loop — never a [[]rune] materialisation.  The index is the Go [int] index
     type ([Sint63], → the loop's [int] variable). *)
-Definition rune_width (r : GoI32) : int :=
+Definition rune_width (r : GoI32) : Z :=
   let c := i32raw r in
-  if PrimInt63.ltb c 128%uint63   then 1%uint63    (* 1-byte (ASCII) *)
-  else if PrimInt63.ltb c 2048%uint63  then 2%uint63    (* 2-byte *)
-  else if PrimInt63.ltb c 65536%uint63 then 3%uint63    (* 3-byte *)
-  else 4%uint63.                                          (* 4-byte *)
+  if Z.ltb c 128   then 1    (* 1-byte (ASCII) *)
+  else if Z.ltb c 2048  then 2    (* 2-byte *)
+  else if Z.ltb c 65536 then 3    (* 3-byte *)
+  else 4.                          (* 4-byte *)
 (** Byte offsets are the running prefix sums of the CONSUMED SOURCE widths (the [int] tag from
     [str_to_runes_w]), so an invalid byte advances the offset by ONE — matching Go's range even
     for invalid UTF-8 (review #6 P1 #9).  Re-encoding the decoded rune (via [rune_width]) would
     OVER-count: U+FFFD is 3 bytes encoded but a malformed byte consumes only 1. *)
-Fixpoint runes_with_offsets (off : GoInt) (rs : list (GoI32 * int)) : list (GoInt * GoI32) :=
+Fixpoint runes_with_offsets (off : GoInt) (rs : list (GoI32 * Z)) : list (GoInt * GoI32) :=
   match rs with
   | nil              => nil
-  | cons (r, w) rest => cons (off, r) (runes_with_offsets (int_add off (intwrap (Sint63.to_Z w))) rest)
+  | cons (r, w) rest => cons (off, r) (runes_with_offsets (int_add off (intwrap w)) rest)
   end.
 Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO unit) : IO unit :=
   match xs with

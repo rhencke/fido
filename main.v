@@ -891,19 +891,19 @@ Definition bitwise_demo : IO unit :=
     over-width `<<` → 0 (no upper limit); signed `<<` wraps two's-complement;
     `>>` is ARITHMETIC for signed — `-3>>1 = -2` (toward −∞), distinct from
     `-3/2 = -1` (toward zero), and `-1>>3 = -1` (NOT 0). *)
-Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) 3 eq_refl = u8_lit 8    eq_refl. Proof. reflexivity. Qed.
-Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) 8 eq_refl = u8_lit 0    eq_refl. Proof. reflexivity. Qed.
-Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) 4 eq_refl = u8_lit 15   eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) 1 eq_refl = i8_lit (-128) eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) 1 eq_refl = i8_lit (-2) eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) 3 eq_refl = i8_lit (-1) eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_shl     : u8_shl (u8_lit 1   eq_refl) (int_lit 3 eq_refl) eq_refl = u8_lit 8    eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_shl_ovf : u8_shl (u8_lit 1   eq_refl) (int_lit 8 eq_refl) eq_refl = u8_lit 0    eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_shr     : u8_shr (u8_lit 255 eq_refl) (int_lit 4 eq_refl) eq_refl = u8_lit 15   eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_shl_wrp : i8_shl (i8_lit 64  eq_refl) (int_lit 1 eq_refl) eq_refl = i8_lit (-128) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_shr_flr : i8_shr (i8_lit (-3) eq_refl) (int_lit 1 eq_refl) eq_refl = i8_lit (-2) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_shr_neg : i8_shr (i8_lit (-1) eq_refl) (int_lit 3 eq_refl) eq_refl = i8_lit (-1) eq_refl. Proof. reflexivity. Qed.
 Definition shift_demo : IO unit :=
-  bind (println [ any (u8_shl (u8_lit 1   eq_refl) 3 eq_refl)      (* 8  *)
-                ; any (u8_shl (u8_lit 1   eq_refl) 8 eq_refl)      (* 0  (over-width) *)
-                ; any (u8_shr (u8_lit 255 eq_refl) 4 eq_refl) ])   (* 15 *)
+  bind (println [ any (u8_shl (u8_lit 1   eq_refl) (int_lit 3 eq_refl) eq_refl)      (* 8  *)
+                ; any (u8_shl (u8_lit 1   eq_refl) (int_lit 8 eq_refl) eq_refl)      (* 0  (over-width) *)
+                ; any (u8_shr (u8_lit 255 eq_refl) (int_lit 4 eq_refl) eq_refl) ])   (* 15 *)
        (fun _ =>
-  println [ any (i8_shl (i8_lit 64  eq_refl) 1 eq_refl)           (* -128 (wrap) *)
-          ; any (i8_shr (i8_lit (-3) eq_refl) 1 eq_refl) ]).      (* -2 (arithmetic) *)
+  println [ any (i8_shl (i8_lit 64  eq_refl) (int_lit 1 eq_refl) eq_refl)           (* -128 (wrap) *)
+          ; any (i8_shr (i8_lit (-3) eq_refl) (int_lit 1 eq_refl) eq_refl) ]).      (* -2 (arithmetic) *)
 
 (** Numeric conversions (Go spec "Conversions").  Widen ([int_of_*]) preserves the
     value; narrow ([*_of_int]) TRUNCATES to the width — Go's [uint8(x)]/[int8(x)].
@@ -914,7 +914,7 @@ Definition shift_demo : IO unit :=
     (two's-complement), widen [int(uint8 200)=200], cross-width [int16(uint8 200)]. *)
 Example spec_u8_of_int_trunc : u8_of_int (int_lit 1000 eq_refl)  = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_of_int_neg   : u8_of_int (int_lit (-1) eq_refl) = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_of_int_wrap  : i8_of_int (int_lit 200 eq_refl)  = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_of_int_wrap  : i8_of_int (int_lit 200 eq_refl)  = i8_lit (-56) eq_refl. Proof. reflexivity. Qed.
 Example spec_int_of_u8_widen : intraw (int_of_u8 (u8_lit 200 eq_refl)) = 200%Z. Proof. now vm_compute. Qed.
 Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. reflexivity. Qed.
 Definition convert_demo : IO unit :=
@@ -961,8 +961,8 @@ Example widen_i32 : i64_of_i32 (i32_of_int (int_lit (-7) eq_refl))     = (-7)%i6
     case wraps two's-complement (`int8(-128)/int8(-1) = -128`). *)
 Example spec_u8_div       : u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 28 eq_refl. Proof. reflexivity. Qed.
 Example spec_u8_mod       : u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl = u8_lit 4  eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_div_trunc : i8_div (i8_lit (-7) eq_refl) (i8_lit 2 eq_refl) eq_refl = i8_lit (-3) eq_refl. Proof. now vm_compute. Qed.
-Example spec_i8_div_ovf   : i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl = i8_lit (-128) eq_refl. Proof. now vm_compute. Qed.
+Example spec_i8_div_trunc : i8_div (i8_lit (-7) eq_refl) (i8_lit 2 eq_refl) eq_refl = i8_lit (-3) eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_div_ovf   : i8_div (i8_lit (-128) eq_refl) (i8_lit (-1) eq_refl) eq_refl = i8_lit (-128) eq_refl. Proof. reflexivity. Qed.
 Definition divmod_demo : IO unit :=
   println [ any (u8_div (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 28 *)
           ; any (u8_mod (u8_lit 200 eq_refl) (u8_lit 7 eq_refl) eq_refl)            (* 4  *)
@@ -1866,7 +1866,7 @@ Definition rune_demo : IO unit :=
 
 (** Single rune → string (Go's [string(rune)]): code point 65 → "A". *)
 Definition rune_to_str_demo : IO unit :=
-  println [any (rune_to_str (i32wrap 65%uint63))].   (* string(rune(65)) → "A" *)
+  println [any (rune_to_str (i32wrap 65))].   (* string(rune(65)) → "A" *)
 
 (** Go [for i, r := range s]: [i] the BYTE offset of each code point, [r] the rune.
     Byte offsets are faithful to UTF-8 widths — for [A 中 B] (1/3/1 bytes) the offsets are
@@ -1875,8 +1875,8 @@ Definition rune_to_str_demo : IO unit :=
 Example str_range_offsets :
   List.map (fun p => (intraw (fst p), snd p))
     (runes_with_offsets (int_lit 0 eq_refl)
-      (str_to_runes_w (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil))))
-  = (0%Z, i32wrap 65%uint63) :: (1%Z, i32wrap 20013%uint63) :: (4%Z, i32wrap 66%uint63) :: nil.
+      (str_to_runes_w (runes_to_str (i32wrap 65 :: i32wrap 20013 :: i32wrap 66 :: nil))))
+  = (0%Z, i32wrap 65) :: (1%Z, i32wrap 20013) :: (4%Z, i32wrap 66) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 (** Review #6 P1 #9 / minimum-suite #3: INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
     a lone continuation, then 'A'.  Go's range yields [(0,U+FFFD) (1,'A')]: the bad byte consumed
@@ -1885,13 +1885,13 @@ Proof. vm_compute. reflexivity. Qed.
 Example str_range_invalid_offsets :
   List.map (fun p => (intraw (fst p), snd p))
     (runes_with_offsets (int_lit 0 eq_refl)
-      (str_to_runes_w (String (byte_chr 128%uint63) (String (byte_chr 65%uint63) EmptyString))))
-  = (0%Z, i32wrap 65533%uint63) :: (1%Z, i32wrap 65%uint63) :: nil.
+      (str_to_runes_w (String (byte_chr 128) (String (byte_chr 65) EmptyString))))
+  = (0%Z, i32wrap 65533) :: (1%Z, i32wrap 65) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Definition str_range_demo : IO unit :=
-  str_range (str_concat (rune_to_str (i32wrap 72%uint63))
-            (str_concat (rune_to_str (i32wrap 8364%uint63))
-                        (rune_to_str (i32wrap 33%uint63))))   (* "H€!" — H(1 byte) €(3) !(1) *)
+  str_range (str_concat (rune_to_str (i32wrap 72))
+            (str_concat (rune_to_str (i32wrap 8364))
+                        (rune_to_str (i32wrap 33))))   (* "H€!" — H(1 byte) €(3) !(1) *)
     (fun i r => println [any i; any r]).   (* 0 72 / 1 8364 / 4 33 (byte offset, rune) *)
 
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
