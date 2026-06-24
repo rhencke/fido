@@ -196,23 +196,26 @@ PARSE (out-of-range → parse error = Go's untyped-constant overflow; `i64_lit_o
 make them map-key types; end-to-end `i64_pipeline_demo`/`u64_pipeline_demo` flow int64
 and a `≥2^63` uint64 through a typed channel AND map (golden-locked).  The concurrency.v
 bridge value carrier was migrated to `GoI64` (axiom-free preserved).  The primitive
-`Sint63` `int` (⚠ ±2⁶², Tier 2 #4 / review R6) → **Go's platform `int`** (break #7 slice 7c — NO longer
-`int64`; a DISTINCT Go type from `GoI64`), the carrier for loop counters / slice indices /
-`len`/`cap` / `nat`-coding / small-value demos.  ⚠ **SUBSTRATE/PLATFORM bounded deviation, honestly scoped
-(rule 2):** Go's `int` is 32-OR-64-bit BY SPEC (implementation-specific), so NO deterministic model is
-faithful on every platform — un-modelability is inherent to `int`.  The 63-bit `Sint63` carrier is faithful
-to a 64-bit Go `int` in [−2⁶², 2⁶²) (within [−2³¹, 2³¹) on 32-bit Go); an op reaching ±2⁶² (≈4.6e18) wraps
-in the model where 64-bit Go would not, but that is far above any realistic index/length/size, so the
-divergence is UNREACHABLE in the index/size use case (no demo/theorem touches the boundary).  Deliberately
-NOT enforced by a per-op range proof (invasive for an unreachable case); **use `GoI64`/`GoU64` (faithful,
-Z-carried, wrap exactly at 2⁶⁴/2⁶³) for the guaranteed full width.**
-**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED (review #6 #13):** the companion platform-UINT is now a
-DISTINCT `Z`-carried record (the exact `GoU64` shape, rendered Go `uint`), FAITHFUL across the whole `[0, 2⁶⁴)`
-and wrapping at the true `2⁶⁴` — no longer the `Sint63`/uint63 `int` carrier (faithful only in `[0, 2⁶²)`).
-Literals are the proof-carrying `uint_lit z (pf : in_u64 z)`, NoInline'd and plugin-folded to `uint(<decimal>)`
-(an out-of-range constant is unrepresentable — `eq_refl` cannot prove `in_u64 (2⁶⁴)`). The ONLY residual
-platform assumption is the 64-bit *width* choice (shared with `GoInt`), NOT a carrier deviation. Platform
-`int` (the index carrier above) is the remaining half of #13, re-carriered next.
+**✓ Platform `int` (`GoInt`) — DEVIATION CLOSED (review #6 #13):** Go's platform `int` is now a DISTINCT
+`Z`-carried record (the exact `GoI64` shape, rendered Go `int`, the carrier for loop counters / slice indices /
+`len`/`cap` / small-value demos), FAITHFUL across the whole int64 range `[−2⁶³, 2⁶³)` and wrapping at the true
+`2⁶³` — **no longer the bounded 63-bit `Sint63` carrier** (faithful only in `[−2⁶², 2⁶²)`, the old Tier-2 #4 /
+review-R6 deviation).  Arithmetic is `int_add`/`int_sub`/`int_mul` (wrap-`2⁶³`), `int_div`/`int_mod` (truncating
+`Z.quot`/`Z.rem`, evidence-gated nonzero divisor); the `MININT/−1` overflow corner now wraps the TRUE int64
+`−9223372036854775808` to itself (faithful — was the `Sint63` `−2⁶²`).  Literals are the proof-carrying
+`int_lit z (pf : in_i64 z)`, NoInline'd and plugin-folded — a BARE decimal in expression/index position
+(`xs[5]`, `a + 5`), `int(N)` when a Go type must be pinned; out-of-range constants are unrepresentable.
+The ONLY residual platform assumption is the 64-bit *width* choice (Go's `int` is 32-or-64 by spec; we model
+64), NOT a carrier deviation.  **Golden BYTE-IDENTICAL** (the emitted Go is unchanged — `func Add(n int, m int) int`,
+`xs[5]`, `i := int(0)`).
+**✓ Platform `uint` (`GoUint`) — DEVIATION CLOSED (review #6 #13):** the companion platform-UINT is likewise a
+DISTINCT `Z`-carried record (the `GoU64` shape, rendered Go `uint`), FAITHFUL across `[0, 2⁶⁴)`, literals the
+proof-carrying `uint_lit z (pf : in_u64 z)` folded to `uint(<decimal>)`.
+⚠ **UNIFORMITY RESIDUAL (not a deviation — faithful, follow-up):** the sub-64 narrows (`GoU8`…`GoI32`) and the
+heap-slice (`SliceH`) INDEX args still ride the int63 carrier; both are FAITHFUL there (sub-63 values / indices
+never reach `2⁶²`), so this is a carrier-uniformity tail of the user's "all ints → Z", not a correctness gap.
+The internal heap LOCATION handles stay `int` (they are not Go `int` *values*), so `PrimInt63` remains in the
+trust base regardless — this fix is platform-int correctness + value-int uniformity, not `PrimInt63` removal.
 **`u32_mul`/`i32_mul` ✓** (mask-after-multiply: the product may exceed the 63-bit
 carrier but the masked LOW 32 bits are exact since 2³²∣2⁶³ —
 `spec_u32_mul_wrap`/`spec_i32_mul_wrap`); **`uint64` (full width) ✓ — `GoU64`** (same Z

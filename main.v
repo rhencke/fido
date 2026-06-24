@@ -16,13 +16,13 @@ Import ListNotations.
 Open Scope uint63_scope.
 Open Scope float_scope.
 
-(** [add]/[sub] over the [Sint63] [int] survive ONLY as INDEX arithmetic (loop
-    counters, computed slice indices like [sub 0 1]) — the Go [int] index type.
-    All int64 VALUE arithmetic was migrated to the full-width [GoI64] (A4.3); the
-    Sint63 VALUE-overflow theory ([add_nz]/[no_overflow_*]/[*_no_overflow_exact]/
-    the signed-value conformance) is gone, replaced by the [GoI64] versions below. *)
-Definition add (n m : int) : int := PrimInt63.add n m.
-Definition sub (n m : int) : int := PrimInt63.sub n m.
+(** [add]/[sub] on the platform [GoInt] (Go's [int]) — index/value arithmetic (loop
+    counters, computed slice indices like [sub 0 1]).  [GoInt] is now the FAITHFUL
+    [Z]-carried record (review #6 #13), so these wrap at the true [2^63] (via [int_add]/
+    [int_sub]) — no longer the bounded [Sint63] carrier.  Full-width int64 VALUE arithmetic
+    has its own [GoI64] versions below. *)
+Definition add (n m : GoInt) : GoInt := int_add n m.
+Definition sub (n m : GoInt) : GoInt := int_sub n m.
 
 (** WHY the plugin REJECTS [Nat.sub] (Coq nat → Go uint): nat subtraction is
     TRUNCATED monus, so [3 - 5 = 0] — lowering it to Go uint's WRAPPING [-]
@@ -160,11 +160,12 @@ Definition cmp_ops_demo : IO unit :=
     [div_nz]/[mod_nz] are evidence-carrying: they DEMAND a proof that the divisor
     is non-zero ([(d =? 0) = false], discharged by [eq_refl] for a literal), and
     only then extract to Go's unguarded [n / d] / [n % d] — the proof has already
-    ruled out the panic.  Underneath they are [PrimInt63.divs]/[mods], the signed
-    primitives that truncate toward zero exactly like Go's int64.  (Raw
-    [PrimInt63.divs] remains the escape hatch — Go panics on a zero divisor.) *)
-Definition div_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.divs n d.
-Definition mod_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.mods n d.
+    ruled out the panic.  Underneath they are [int_div]/[int_mod] on the [Z]-carried
+    [GoInt] ([Z.quot]/[Z.rem], truncating toward zero exactly like Go's int64, wrapping
+    at the true [2^63] — review #6 #13).  (Raw division remains the escape hatch — Go
+    panics on a zero divisor.) *)
+Definition div_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_div n d pf.
+Definition mod_nz (n d : GoInt) (pf : Z.eqb (intraw d) 0%Z = false) : GoInt := int_mod n d pf.
 
 (** ===== Go spec conformance: "Integer operators" (go.dev/ref/spec#Integer_operators)
     plus "Integer overflow" (#Integer_overflow) — the SOURCE of div_nz/mod_nz's
@@ -174,31 +175,32 @@ Definition mod_nz (n d : int) (_ : (d =? 0)%uint63 = false) : int := PrimInt63.m
     x = q*y + r  and  |r| < |y|, with x / y truncated towards zero".  The spec's
     own example table is reproduced below and machine-checked against our model
     (so this is conformance, not assertion). *)
-Example spec_div_5_3    : Sint63.to_Z (div_nz 5 3 eq_refl)            = 1%Z.    Proof. now vm_compute. Qed.
-Example spec_mod_5_3    : Sint63.to_Z (mod_nz 5 3 eq_refl)            = 2%Z.    Proof. now vm_compute. Qed.
-Example spec_div_n5_3   : Sint63.to_Z (div_nz (-5)%sint63 3 eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
-Example spec_mod_n5_3   : Sint63.to_Z (mod_nz (-5)%sint63 3 eq_refl)  = (-2)%Z. Proof. now vm_compute. Qed.
-Example spec_div_5_n3   : Sint63.to_Z (div_nz 5 (-3)%sint63 eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
-Example spec_mod_5_n3   : Sint63.to_Z (mod_nz 5 (-3)%sint63 eq_refl)  = 2%Z.    Proof. now vm_compute. Qed.
-Example spec_div_n5_n3  : Sint63.to_Z (div_nz (-5)%sint63 (-3)%sint63 eq_refl) = 1%Z.    Proof. now vm_compute. Qed.
-Example spec_mod_n5_n3  : Sint63.to_Z (mod_nz (-5)%sint63 (-3)%sint63 eq_refl) = (-2)%Z. Proof. now vm_compute. Qed.
+Example spec_div_5_3    : intraw (div_nz (int_lit 5 eq_refl) (int_lit 3 eq_refl) eq_refl)            = 1%Z.    Proof. now vm_compute. Qed.
+Example spec_mod_5_3    : intraw (mod_nz (int_lit 5 eq_refl) (int_lit 3 eq_refl) eq_refl)            = 2%Z.    Proof. now vm_compute. Qed.
+Example spec_div_n5_3   : intraw (div_nz (int_lit (-5) eq_refl) (int_lit 3 eq_refl) eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
+Example spec_mod_n5_3   : intraw (mod_nz (int_lit (-5) eq_refl) (int_lit 3 eq_refl) eq_refl)  = (-2)%Z. Proof. now vm_compute. Qed.
+Example spec_div_5_n3   : intraw (div_nz (int_lit 5 eq_refl) (int_lit (-3) eq_refl) eq_refl)  = (-1)%Z. Proof. now vm_compute. Qed.
+Example spec_mod_5_n3   : intraw (mod_nz (int_lit 5 eq_refl) (int_lit (-3) eq_refl) eq_refl)  = 2%Z.    Proof. now vm_compute. Qed.
+Example spec_div_n5_n3  : intraw (div_nz (int_lit (-5) eq_refl) (int_lit (-3) eq_refl) eq_refl) = 1%Z.    Proof. now vm_compute. Qed.
+Example spec_mod_n5_n3  : intraw (mod_nz (int_lit (-5) eq_refl) (int_lit (-3) eq_refl) eq_refl) = (-2)%Z. Proof. now vm_compute. Qed.
 
 (** Spec, the ONE exception: "if the dividend x is the most negative value for the
     int type of x, the quotient q = x / -1 is equal to x (and r = 0) due to
-    two's-complement integer overflow".  For our [int] = Sint63 the most-negative
-    value is [Sint63.min_int] (= -2^62, the analogue of int64's -2^63); we honor
-    the rule — no panic, wraps to itself. *)
+    two's-complement integer overflow".  [GoInt] is now the FAITHFUL [Z]-carried int64
+    (review #6 #13), so the most-negative value is the TRUE [int64] minimum [-2^63]
+    ([-9223372036854775808]) — no longer the bounded [Sint63] [-2^62].  We honor the
+    rule — no panic, [int_div] wraps it to itself (via [wrap64]). *)
 Example spec_div_minint_neg1 :
-  div_nz Sint63.min_int (-1)%sint63 eq_refl = Sint63.min_int.
+  intraw (div_nz (int_lit (-9223372036854775808) eq_refl) (int_lit (-1) eq_refl) eq_refl) = (-9223372036854775808)%Z.
 Proof. now vm_compute. Qed.
 Example spec_mod_minint_neg1 :
-  Sint63.to_Z (mod_nz Sint63.min_int (-1)%sint63 eq_refl) = 0%Z.
+  intraw (mod_nz (int_lit (-9223372036854775808) eq_refl) (int_lit (-1) eq_refl) eq_refl) = 0%Z.
 Proof. now vm_compute. Qed.
 
 (** Division you can only call with a proven-nonzero divisor.  Prints 17/5 = 3
     and 17%5 = 2.  The [eq_refl] discharges [(5 =? 0) = false] at compile time. *)
 Definition div_demo : IO unit :=
-  println [any (div_nz 17 5 eq_refl); any (mod_nz 17 5 eq_refl)].   (* prints: 3 2 *)
+  println [any (div_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl); any (mod_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl)].   (* prints: 3 2 *)
 
 (** float64 is Rocq's primitive [PrimFloat] = IEEE 754 double, the same as Go's
     float64, so arithmetic agrees bit-for-bit.  This exercises the otherwise-
@@ -302,13 +304,12 @@ Proof. now vm_compute. Qed.
 Example f64_of_i64_neg : PrimFloat.eqb (f64_of_i64 (-3)%i64) (PrimFloat.opp 3%float) = true.
 Proof. now vm_compute. Qed.
 
-(** int → float64 (Go [float64(i)]) — DOES lower (unlike [f64_of_i64]): the [int] (Sint63)
-    is already an int63, so the body needs only the leaf primitive [of_uint63] (no
-    match-bodied [Uint63.of_Z]); recognized by name → native [float64(i)], the sign-split
-    body suppressed.  Machine-checked across the sign. *)
-Example f64_of_int_pos : PrimFloat.eqb (f64_of_int 5%sint63) 5%float = true.
+(** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)], the sign-split
+    body (now over the [Z]-carried [GoInt], review #6 #13) suppressed.  Machine-checked across
+    the sign. *)
+Example f64_of_int_pos : PrimFloat.eqb (f64_of_int (int_lit 5 eq_refl)) 5%float = true.
 Proof. now vm_compute. Qed.
-Example f64_of_int_neg : PrimFloat.eqb (f64_of_int (-3)%sint63) (PrimFloat.opp 3%float) = true.
+Example f64_of_int_neg : PrimFloat.eqb (f64_of_int (int_lit (-3) eq_refl)) (PrimFloat.opp 3%float) = true.
 Proof. now vm_compute. Qed.
 
 (** FLOAT32 faithfulness witnesses (the SpecFloat-based binary32 model).  The decisive one:
@@ -338,7 +339,7 @@ Definition f32_demo : IO unit :=
     [to_Z]-crossing body is suppressed; the op is recognised as identity. *)
 Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
-          ; any (i64_of_i8  (i8_of_int (-5)%sint63))      (* -5  (signed widen keeps sign) *)
+          ; any (i64_of_i8  (i8_of_int (int_lit (-5) eq_refl)))      (* -5  (signed widen keeps sign) *)
           ; any (i64_of_u16 (u16_lit 60000 eq_refl)) ].   (* 60000 *)
 (** review #4 P1 #4 — the narrow→wide widening through a narrow PARAM (the case the constant-operand
     demos above could NOT see).  The param is a REAL Go [uint8]/[int8], so the widen is NOT identity:
@@ -350,7 +351,7 @@ Definition widen_i8_to_i64 (x : GoI8) : GoI64 := i64_of_i8 x.   (* int8  → int
 Definition widen_u8_to_int (x : GoU8) : GoInt := int_of_u8 x.   (* uint8 → platform int (sibling op) *)
 Definition widen_param_demo : IO unit :=
   println [ any (widen_u8_to_i64 (u8_lit 200 eq_refl))     (* int64(uint8 200) = 200 *)
-          ; any (widen_i8_to_i64 (i8_of_int (-5)%sint63))  (* int64(int8 -5)   = -5  (sign kept) *)
+          ; any (widen_i8_to_i64 (i8_of_int (int_lit (-5) eq_refl)))  (* int64(int8 -5)   = -5  (sign kept) *)
           ; any (widen_u8_to_int (u8_lit 100 eq_refl)) ].  (* int(uint8 100)   = 100 *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
@@ -488,8 +489,8 @@ Definition narrow_field_demo : IO unit :=
 Definition narrow_elem_demo : IO unit :=
   let s := slice_of_list TU8 [u8_of_i64 (i64_lit 300 eq_refl); u8_lit 5 eq_refl] in   (* []uint8{44,5} *)
   let a := arr_lit       TU8 [u8_of_i64 (i64_lit 301 eq_refl); u8_lit 6 eq_refl] in   (* [2]uint8{45,6} *)
-  bind (slice_get TU8 s (0:int)) (fun s0 =>           (* s[0] = uint8 44 *)
-  arr_get_ok TU8 a (1:int) (fun av _ok =>             (* a[1] = uint8 6  *)
+  bind (slice_get TU8 s (int_lit 0 eq_refl)) (fun s0 =>           (* s[0] = uint8 44 *)
+  arr_get_ok TU8 a (int_lit 1 eq_refl) (fun av _ok =>             (* a[1] = uint8 6  *)
     println [ any (i64_of_u8 s0)         (* 44 *)
             ; any (i64_of_u8 av) ])).    (* 6  *)
   (* 44 6 *)
@@ -564,7 +565,7 @@ Definition vlet_demo : IO unit := println [ any (vlet (5)%i64 (1)%i64) ].   (* (
     bit 7 set narrows to a NEGATIVE signed ([int8(uint64 255) = -1]). *)
 Example u64_of_u8_widen    : u64raw (u64_of_i64 (i64_of_u8 (u8_lit 200 eq_refl)))             = 200%Z.
 Proof. vm_compute. reflexivity. Qed.
-Example u64_of_i8_reinterp : u64raw (u64_of_i64 (i64_of_i8 (i8_of_int (-1)%sint63)))          = 18446744073709551615%Z.
+Example u64_of_i8_reinterp : u64raw (u64_of_i64 (i64_of_i8 (i8_of_int (int_lit (-1) eq_refl))))          = 18446744073709551615%Z.
 Proof. vm_compute. reflexivity. Qed.
 Example u8_of_u64_trunc    : i64raw (i64_of_u8 (u8_of_i64 (i64_of_u64 (u64_lit 511 eq_refl)))) = 255%Z.
 Proof. vm_compute. reflexivity. Qed.
@@ -572,7 +573,7 @@ Example i8_of_u64_signed   : i64raw (i64_of_i8 (i8_of_i64 (i64_of_u64 (u64_lit 2
 Proof. vm_compute. reflexivity. Qed.
 Definition narrow_u64_demo : IO unit :=
   println [ any (u64_of_i64 (i64_of_u8  (u8_lit 200 eq_refl)))     (* uint64(uint8 200) = 200    *)
-          ; any (u64_of_i64 (i64_of_i8  (i8_of_int (-1)%sint63)))  (* uint64(int8 -1)   = 2^64-1 *)
+          ; any (u64_of_i64 (i64_of_i8  (i8_of_int (int_lit (-1) eq_refl))))  (* uint64(int8 -1)   = 2^64-1 *)
           ; any (u8_of_i64  (i64_of_u64 (u64_lit 511 eq_refl)))    (* uint8(uint64 511) = 255    *)
           ; any (i8_of_i64  (i64_of_u64 (u64_lit 255 eq_refl))) ]. (* int8(uint64 255)  = -1     *)
 
@@ -623,7 +624,7 @@ Example f32_overflow  : PrimFloat.eqb (widen64 (f32_lit 1e40)) (PrimFloat.div 1 
 Proof. vm_compute. reflexivity. Qed.
 Example f32_underflow : PrimFloat.eqb (widen64 (f32_lit 1e-50)) 0 = true.                     (* below min subnormal → 0 *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_of_int_rounds : f32_eqb (f32_of_f64 (f64_of_int 16777217%sint63)) (f32_lit 16777216) = true. (* float32(2^24+1)=2^24 *)
+Example f32_of_int_rounds : f32_eqb (f32_of_f64 (f64_of_int (int_lit 16777217 eq_refl))) (f32_lit 16777216) = true. (* float32(2^24+1)=2^24 *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_to_int_trunc  : i64raw (i64_of_f64 (f64_of_f32 (f32_lit 3.7))) = 3%Z.             (* int(float32 3.7) trunc → 3 *)
 Proof. vm_compute. reflexivity. Qed.
@@ -631,7 +632,7 @@ Example f32_const_fold : f32_eqb (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) 
                                  (f32_of_f64 (f64_of_fconst (mkFC 3 10))) = true.   (* float32(0.1+0.2)=float32(0.3), exact fold *)
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_conv_demo : IO unit :=
-  println [ any (f32_of_f64 (f64_of_int 16777217%sint63))                       (* float32(2^24+1) = 1.6777216e7 *)
+  println [ any (f32_of_f64 (f64_of_int (int_lit 16777217 eq_refl)))                       (* float32(2^24+1) = 1.6777216e7 *)
           ; any (f32_of_f64 (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10)))) ]. (* float32(0.1+0.2) = 0.3 *)
 (** narrow ↔ float32 is COMPOSABLE — no DIRECT [f32_of_u8]/[u8_of_f32] op is required: a uint8 reaches
     float32 via [f32_of_i64 ∘ i64_of_u8], and back via [i64_of_f64 ∘ f64_of_f32] — exactly Go's
@@ -778,7 +779,7 @@ Definition u64conv_demo : IO unit :=
           ; any (u64_trunc (u64_to_f64 (u64_lit 13835058055282163712 eq_refl))) ].      (* round-trip 1.5·2^63 (exact) *)
 
 Definition f64_of_int_demo : IO unit :=
-  println [ any (f64_of_int 5%sint63) ; any (f64_of_int (-3)%sint63) ].
+  println [ any (f64_of_int (int_lit 5 eq_refl)) ; any (f64_of_int (int_lit (-3) eq_refl)) ].
   (* prints: +5.000000e+000 -3.000000e+000 (int → float64 cast) *)
 
 (** GoI64 → float64 (Go [float64(i64)]) — NOW lowers too: same recognize-and-suppress as
@@ -911,10 +912,10 @@ Definition shift_demo : IO unit :=
     conversions are what make the distinct numeric types usable together.
     MACHINE-CHECKED: [uint8(1000)=232] (mod 256), [uint8(-1)=255], [int8(200)=-56]
     (two's-complement), widen [int(uint8 200)=200], cross-width [int16(uint8 200)]. *)
-Example spec_u8_of_int_trunc : u8_of_int 1000        = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
-Example spec_u8_of_int_neg   : u8_of_int (-1)%sint63 = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
-Example spec_i8_of_int_wrap  : i8_of_int 200         = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
-Example spec_int_of_u8_widen : int_of_u8 (u8_lit 200 eq_refl) = 200%uint63. Proof. now vm_compute. Qed.
+Example spec_u8_of_int_trunc : u8_of_int (int_lit 1000 eq_refl)  = u8_lit 232 eq_refl. Proof. reflexivity. Qed.
+Example spec_u8_of_int_neg   : u8_of_int (int_lit (-1) eq_refl) = u8_lit 255 eq_refl. Proof. reflexivity. Qed.
+Example spec_i8_of_int_wrap  : i8_of_int (int_lit 200 eq_refl)  = i8_lit (-56) eq_refl. Proof. now vm_compute. Qed.
+Example spec_int_of_u8_widen : intraw (int_of_u8 (u8_lit 200 eq_refl)) = 200%Z. Proof. now vm_compute. Qed.
 Example spec_i16_of_u8_cross : i16_of_int (int_of_u8 (u8_lit 200 eq_refl)) = i16_lit 200 eq_refl. Proof. reflexivity. Qed.
 Definition convert_demo : IO unit :=
   let a := u8_lit 200 eq_refl in           (* uint8 200 *)
@@ -949,10 +950,10 @@ Definition convert_demo : IO unit :=
     MkI64 (u8raw a)] is a pure IDENTITY ([u8raw : GoU8 -> Z], no [to_Z], no match), lowering
     to [a].  A focused all-6-types carrier refactor, deferred to its own iteration. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
-Example widen_i8  : i64_of_i8  (i8_of_int (-5)%sint63)      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
+Example widen_i8  : i64_of_i8  (i8_of_int (int_lit (-5) eq_refl))      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
 Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.
 Example widen_u32 : i64_of_u32 (u32_lit 4000000000 eq_refl) = (4000000000)%i64. Proof. vm_compute. reflexivity. Qed.
-Example widen_i32 : i64_of_i32 (i32_of_int (-7)%sint63)     = (-7)%i64.         Proof. vm_compute. reflexivity. Qed.
+Example widen_i32 : i64_of_i32 (i32_of_int (int_lit (-7) eq_refl))     = (-7)%i64.         Proof. vm_compute. reflexivity. Qed.
 
 (** Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]).
     Evidence-carrying: the divisor must be proven non-zero (`u8_div_zero` `Fail`).
@@ -1161,9 +1162,9 @@ Definition const_demo : IO unit :=
     [int], slice [make([]T,n)], and map [clear].  [min]/[max] machine-checked;
     [slice_make]'s length is a THEOREM; [clear] empties the map (get-after-clear is
     a theorem, [map_get_clear]). *)
-Example spec_go_min       : go_min 3 5 = 3%uint63. Proof. now vm_compute. Qed.
-Example spec_go_max       : go_max 3 5 = 5%uint63. Proof. now vm_compute. Qed.
-Example spec_go_min_neg   : go_min (-2)%sint63 1 = (-2)%sint63. Proof. now vm_compute. Qed.
+Example spec_go_min       : intraw (go_min (int_lit 3 eq_refl) (int_lit 5 eq_refl)) = 3%Z. Proof. now vm_compute. Qed.
+Example spec_go_max       : intraw (go_max (int_lit 3 eq_refl) (int_lit 5 eq_refl)) = 5%Z. Proof. now vm_compute. Qed.
+Example spec_go_min_neg   : intraw (go_min (int_lit (-2) eq_refl) (int_lit 1 eq_refl)) = (-2)%Z. Proof. now vm_compute. Qed.
 (** [min]/[max] on the canonical full-width types: int64 (SIGNED — so a negative is
     the min) and uint64 (UNSIGNED — so a value >= 2^63 is LARGER than a small one,
     NOT negative).  [u64_max] of [2^64-1] and [1] is [2^64-1] (unsigned), the case
@@ -1186,7 +1187,7 @@ Definition minmax64_demo : IO unit :=
           ; any (u64_max (u64_of_i64 (-1)%i64) (1)%u64) ].        (* 18446744073709551615 (unsigned: big > 1) *)
 Example spec_slice_make_n : List.length (slice_make TI64 3) = 3%nat. Proof. reflexivity. Qed.
 Definition builtins_demo : IO unit :=
-  bind (println [ any (go_min (3 : int) (5 : int)); any (go_max (3 : int) (5 : int)) ]) (fun _ =>  (* 3 5 — go_min/max are the min/max BUILTIN demo, kept on int *)
+  bind (println [ any (go_min (int_lit 3 eq_refl) (int_lit 5 eq_refl)); any (go_max (int_lit 3 eq_refl) (int_lit 5 eq_refl)) ]) (fun _ =>  (* 3 5 — go_min/max BUILTIN demo on GoInt *)
   bind (println [ any (len (slice_make TI64 3)) ]) (fun _ =>                                     (* 3 *)
   bind (map_make_typed TI64 TI64) (fun m =>
   bind (map_set TI64 TI64 (1)%i64 (10)%i64 m) (fun _ =>
@@ -1201,12 +1202,12 @@ Definition builtins_demo : IO unit :=
     byte-sequence [string], so these are THEOREMS (computable), not assertions:
     [str_len] is the BYTE count, [str_concat] is byte append, and a string is its
     OWN type (no implicit conversion from [int], per "Numeric/string distinct"). *)
-Example spec_str_len_Go    : str_len "Go"%string  = 2%uint63. Proof. reflexivity. Qed.
-Example spec_str_len_empty : str_len ""%string    = 0%uint63. Proof. reflexivity. Qed.
+Example spec_str_len_Go    : intraw (str_len "Go"%string)  = 2%Z. Proof. reflexivity. Qed.
+Example spec_str_len_empty : intraw (str_len ""%string)    = 0%Z. Proof. reflexivity. Qed.
 Example spec_str_concat    : str_concat "Go"%string "!"%string = "Go!"%string.
 Proof. reflexivity. Qed.
 (* Build-checked: a string does not implicitly accept an [int] (distinct types). *)
-Fail Definition str_no_implicit : GoString := str_concat "x"%string (5 : int).
+Fail Definition str_no_implicit : GoString := str_concat "x"%string (int_lit 5 eq_refl).
 
 (** String slicing [s[a:b]] (the byte-substring) — proof-gated, so it cannot panic.  THEOREM:
     [s[7:12]] of "Hello, world" is "world".  Build-checked negative: out-of-range bounds
@@ -1289,10 +1290,10 @@ Definition map_alias_demo : IO unit :=
 Definition slice_demo : IO unit :=
   let xs := slice_of_list TI64 [(1)%i64; (2)%i64; (3)%i64; (4)%i64; (5)%i64] in
   let n  := len xs in
-  bind (slice_get TI64 xs (2:int)) (fun v =>   (* xs[2] = 3, valid (index is Go int) *)
+  bind (slice_get TI64 xs (int_lit 2 eq_refl)) (fun v =>   (* xs[2] = 3, valid (index is Go int) *)
   println [any n; any v] >>'                      (* prints: 5 3 *)
   catch
-    (bind (@slice_get GoI64 TI64 xs (9:int)) (fun _ =>  (* xs[9] panics — OOB *)
+    (bind (@slice_get GoI64 TI64 xs (int_lit 9 eq_refl)) (fun _ =>  (* xs[9] panics — OOB *)
      ret tt))
     (fun _ => println [any false])).              (* caught: prints false *)
 
@@ -1533,9 +1534,9 @@ Definition cond_op_demo : IO unit :=
     through) instead of being duplicated into both arms — so this lowers to three
     flat sequential [if/else]s, not a 2^2-copy tree.  Prints 1 / 0 / 1. *)
 Definition inline_if_demo : IO unit :=
-  bind (if Sint63.ltb 3 10  then println [any (1:int)] else println [any (0:int)]) (fun _ =>
-  bind (if Sint63.ltb 30 10 then println [any (1:int)] else println [any (0:int)]) (fun _ =>
-  if Sint63.ltb 5 10        then println [any (1:int)] else println [any (0:int)])).
+  bind (if int_ltb (int_lit 3 eq_refl) (int_lit 10 eq_refl)  then println [any (int_lit 1 eq_refl)] else println [any (int_lit 0 eq_refl)]) (fun _ =>
+  bind (if int_ltb (int_lit 30 eq_refl) (int_lit 10 eq_refl) then println [any (int_lit 1 eq_refl)] else println [any (int_lit 0 eq_refl)]) (fun _ =>
+  if int_ltb (int_lit 5 eq_refl) (int_lit 10 eq_refl)        then println [any (int_lit 1 eq_refl)] else println [any (int_lit 0 eq_refl)])).
 
 (** [map_get_opt] is an IO read; binding it then matching the [option] lowers to
     Go's comma-ok lookup: [bind (map_get_opt k m) (fun o => match o with Some v =>
@@ -1571,14 +1572,14 @@ Definition list_demo : IO unit :=
     versus the [slice_get] escape hatch used in [slice_demo] above. *)
 Definition slice_safe_demo : IO unit :=
   let xs := slice_of_list TI64 [(10)%i64; (20)%i64; (30)%i64] in
-  slice_at_ok TI64 xs (1 : int) (fun v ok =>      (* in bounds → 20 true *)
+  slice_at_ok TI64 xs (int_lit 1 eq_refl) (fun v ok =>      (* in bounds → 20 true *)
   println [any v; any ok] >>'
-  slice_at_ok TI64 xs (9 : int) (fun v2 ok2 =>    (* above range → 0 false *)
+  slice_at_ok TI64 xs (int_lit 9 eq_refl) (fun v2 ok2 =>    (* above range → 0 false *)
   println [any v2; any ok2] >>'
   (* runtime-NEGATIVE index (sub 0 1 = -1) — a *constant* negative index is a Go
      compile error, so use a computed one; the lower-bound check must reject it.
      The index is a Go [int], so [sub] (Sint63) is kept for index arithmetic. *)
-  slice_at_ok TI64 xs (sub 0 1) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
+  slice_at_ok TI64 xs (sub (int_lit 0 eq_refl) (int_lit 1 eq_refl)) (fun v3 ok3 =>    (* negative (signed) → 0 false *)
   println [any v3; any ok3]))).
 
 (** Array (Go spec "Array types"): a FIXED-SIZE [3]int64 VALUE.  [arr_lit] lowers to
@@ -1588,12 +1589,12 @@ Definition slice_safe_demo : IO unit :=
     a fixed-size [N]T value (value-copy + comparability are later B4 pieces). *)
 Definition arr_demo : IO unit :=
   let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in   (* [3]int64{10,20,30} *)
-  arr_get_ok TI64 a (1 : int) (fun v ok =>        (* a[1] in bounds → 20 true *)
+  arr_get_ok TI64 a (int_lit 1 eq_refl) (fun v ok =>        (* a[1] in bounds → 20 true *)
   println [any v; any ok] >>'
   (* a CONSTANT out-of-range index on an array is a Go COMPILE error (arrays are
      statically bounds-checked, unlike slices), so use a COMPUTED index [sub 10 5 = 5]
      (lowers to a runtime [Sub(10,5)]); [arr_get_ok]'s guard then rejects it at runtime *)
-  arr_get_ok TI64 a (sub 10 5) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
+  arr_get_ok TI64 a (sub (int_lit 10 eq_refl) (int_lit 5 eq_refl)) (fun v2 ok2 =>     (* a[5] out of range → 0 false *)
   println [any v2; any ok2])).
 
 (** Array in a TYPED POSITION (the previously fail-loud case): [GoArr3 GoI64] = Go [[3]int64], the
@@ -1640,7 +1641,7 @@ Definition arr_eq_demo : IO unit :=
     share the backing.  The size [3] is passed explicitly (it is erased from the Coq
     type).  Machine-checked that the update lands and the original is untouched. *)
 Example arr_set_copy :
-  arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (0:int) (99)%i64 eq_refl)
+  arr_data (arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (int_lit 0 eq_refl) (99)%i64 eq_refl)
   = [(99)%i64;(20)%i64;(30)%i64].
 Proof. reflexivity. Qed.
 (** Review #6 P1 #11 / minimum-suite #7: [mkArr3 []] is UNCONSTRUCTABLE (its length proof
@@ -1650,10 +1651,10 @@ Example arr3_has_length_3 : forall {A} (a : GoArr3 A), List.length (arr3_data a)
 Proof. intros A a. exact (arr3_len a). Qed.
 Fail Definition mkArr3_wrong_length : GoArr3 GoI64 := mkArr3 nil eq_refl.
 Fail Definition arr_set_oob : GoArray GoI64 :=
-  arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (5:int) (99)%i64 eq_refl.
+  arr_set 3 TI64 (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]) (int_lit 5 eq_refl) (99)%i64 eq_refl.
 Definition arr_copy_demo : IO unit :=
   let a := arr_lit TI64 [(10)%i64; (20)%i64; (30)%i64] in
-  let b := arr_set 3 TI64 a (0:int) (99)%i64 eq_refl in   (* b = a with [0]=99; a UNCHANGED (value-copy) *)
+  let b := arr_set 3 TI64 a (int_lit 0 eq_refl) (99)%i64 eq_refl in   (* b = a with [0]=99; a UNCHANGED (value-copy) *)
   println [ any (arr_eqb a (arr_lit TI64 [(10)%i64;(20)%i64;(30)%i64]))    (* a STILL [10,20,30] → true *)
           ; any (arr_eqb b (arr_lit TI64 [(99)%i64;(20)%i64;(30)%i64])) ]. (* b IS [99,20,30] → true *)
 
@@ -1676,9 +1677,9 @@ Definition assert_safe_demo (n : GoI64) : IO unit :=
 Definition string_demo : IO unit :=
   let s := "Go"%string in
   println [any (str_len s)] >>'                     (* 2 *)
-  str_at_ok s (0 : int) (fun b ok =>                (* 71 ('G') true *)
+  str_at_ok s (int_lit 0 eq_refl) (fun b ok =>                (* 71 ('G') true *)
   println [any b; any ok] >>'
-  str_at_ok s (5 : int) (fun b2 ok2 =>              (* out of range → 0 false *)
+  str_at_ok s (int_lit 5 eq_refl) (fun b2 ok2 =>              (* out of range → 0 false *)
   println [any b2; any ok2] >>'
   println [any (str_concat s "!"%string)])).        (* Go! *)
 
@@ -1872,18 +1873,20 @@ Definition rune_to_str_demo : IO unit :=
     [0 1 4], machine-checked here on the model; [str_range] lowers to the native two-variable
     range loop.  The decode round-trips ([str_to_runes ∘ runes_to_str = id], [rune_roundtrip_*]). *)
 Example str_range_offsets :
-  runes_with_offsets 0%uint63
-    (str_to_runes_w (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil)))
-  = (0%uint63, i32wrap 65%uint63) :: (1%uint63, i32wrap 20013%uint63) :: (4%uint63, i32wrap 66%uint63) :: nil.
+  List.map (fun p => (intraw (fst p), snd p))
+    (runes_with_offsets (int_lit 0 eq_refl)
+      (str_to_runes_w (runes_to_str (i32wrap 65%uint63 :: i32wrap 20013%uint63 :: i32wrap 66%uint63 :: nil))))
+  = (0%Z, i32wrap 65%uint63) :: (1%Z, i32wrap 20013%uint63) :: (4%Z, i32wrap 66%uint63) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 (** Review #6 P1 #9 / minimum-suite #3: INVALID UTF-8 byte offsets.  Source bytes [0x80 'A'] —
     a lone continuation, then 'A'.  Go's range yields [(0,U+FFFD) (1,'A')]: the bad byte consumed
     exactly ONE source byte, so 'A' is at offset 1 — NOT 3, which re-encoding U+FFFD (3 bytes)
     would have wrongly given.  This is the offset bug the consumed-width decoder fixes. *)
 Example str_range_invalid_offsets :
-  runes_with_offsets 0%uint63
-    (str_to_runes_w (String (byte_chr 128%uint63) (String (byte_chr 65%uint63) EmptyString)))
-  = (0%uint63, i32wrap 65533%uint63) :: (1%uint63, i32wrap 65%uint63) :: nil.
+  List.map (fun p => (intraw (fst p), snd p))
+    (runes_with_offsets (int_lit 0 eq_refl)
+      (str_to_runes_w (String (byte_chr 128%uint63) (String (byte_chr 65%uint63) EmptyString))))
+  = (0%Z, i32wrap 65533%uint63) :: (1%Z, i32wrap 65%uint63) :: nil.
 Proof. vm_compute. reflexivity. Qed.
 Definition str_range_demo : IO unit :=
   str_range (str_concat (rune_to_str (i32wrap 72%uint63))
@@ -1895,12 +1898,12 @@ Definition str_range_demo : IO unit :=
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
     return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
 Definition defer_loop_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>
-      if Sint63.ltb iv 3 then
+      if int_ltb iv (int_lit 3 eq_refl) then
         bind (defer_call (println [any iv]))  (fun _ =>
-        bind (ref_set i (add iv 1))           (fun _ =>
+        bind (ref_set i (add iv (int_lit 1 eq_refl)))           (fun _ =>
         ret (Jump 0%nat)))
       else ret (Jump 1%nat)) ;
     ret Done
@@ -1909,16 +1912,16 @@ Definition defer_loop_demo : IO unit :=
 (** Function-scoped defer: [defer_call] runs at function return, LIFO across all
     defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1. *)
 Definition defer_demo : IO unit :=
-  bind (defer_call (println [any (1 : int)])) (fun _ =>   (* runs 3rd (LIFO) *)
-  bind (defer_call (println [any (2 : int)])) (fun _ =>   (* runs 2nd *)
-  println [any (3 : int)])).                               (* runs now *)
+  bind (defer_call (println [any (int_lit 1 eq_refl)])) (fun _ =>   (* runs 3rd (LIFO) *)
+  bind (defer_call (println [any (int_lit 2 eq_refl)])) (fun _ =>   (* runs 2nd *)
+  println [any (int_lit 3 eq_refl)])).                               (* runs now *)
 
 (** Mutable local variable: declare, read, reassign, read again — straight-line
     (no control flow, so trivially scope-correct). *)
 Definition mut_demo : IO unit :=
-  bind (ref_new TInt64 (10 : int))        (fun r =>  (* r := 10        *)
+  bind (ref_new TInt64 (int_lit 10 eq_refl))        (fun r =>  (* r := 10        *)
   bind (ref_get TInt64 r)          (fun a =>  (* a := r  (= 10) *)
-  bind (ref_set r (add a 5))       (fun _ =>  (* r = a + 5 (= 15) *)
+  bind (ref_set r (add a (int_lit 5 eq_refl)))       (fun _ =>  (* r = a + 5 (= 15) *)
   bind (ref_get TInt64 r)          (fun b =>  (* b := r  (= 15) *)
   println [any b])))).                         (* prints 15 *)
 
@@ -2026,7 +2029,7 @@ Definition hub_demo : IO unit :=
   bind (make_chan_buf TI64 1) (fun ch0 =>
   bind (make_chan_buf TI64 1) (fun ch1 =>
   let hub := MkHub (slice_of_list (TChan TI64) [ch0; ch1]) (7)%i64 in   (* Hub{[]chan int64{ch0,ch1}, 7} *)
-  bind (slice_get (TChan TI64) (hub_chans hub) (1:int)) (fun c =>       (* c := hub.Hub_chans[1] (= ch1) *)
+  bind (slice_get (TChan TI64) (hub_chans hub) (int_lit 1 eq_refl)) (fun c =>       (* c := hub.Hub_chans[1] (= ch1) *)
   bind (send TI64 c (99)%i64) (fun _ =>                                  (* c <- 99 *)
   recv_ok TI64 c (fun v _ =>                                             (* v := <-c *)
   println [any (hub_id hub); any v]))))).                                (* prints: 7 99 *)
@@ -2066,8 +2069,8 @@ Definition pool_demo : IO unit :=
   go_spawn (send TI64 c0 (5)%i64) >>'                         (* worker 0: c0 <- 5 *)
   go_spawn (send TI64 c1 (7)%i64) >>'                         (* worker 1: c1 <- 7 *)
   let pool := MkPool (slice_of_list (TChan TI64) [c0; c1]) (10)%i64 in
-  ch0 <-' slice_get (TChan TI64) (pool_chans pool) (0:int) ;; (* ch0 := pool.Pool_chans[0] *)
-  ch1 <-' slice_get (TChan TI64) (pool_chans pool) (1:int) ;; (* ch1 := pool.Pool_chans[1] *)
+  ch0 <-' slice_get (TChan TI64) (pool_chans pool) (int_lit 0 eq_refl) ;; (* ch0 := pool.Pool_chans[0] *)
+  ch1 <-' slice_get (TChan TI64) (pool_chans pool) (int_lit 1 eq_refl) ;; (* ch1 := pool.Pool_chans[1] *)
   v0 <-' recv TI64 ch0 ;;                                     (* v0 := <-ch0 (= 5) *)
   v1 <-' recv TI64 ch1 ;;                                     (* v1 := <-ch1 (= 7) *)
   println [any (i64_add (pool_base pool) (i64_add v0 v1))].   (* 10 + (5+7) = 22 *)
@@ -2122,8 +2125,8 @@ Definition cursed_demo : IO unit :=
   t2 <-' ptr_new TListNode (MkListNode (2)%i64 t3) ;;
   t1 <-' ptr_new TListNode (MkListNode (1)%i64 t2) ;;
   let cu := MkCursed (slice_of_list (TChan TChanBox) [c0; c1]) t1 in (* struct{ []chan ChanBox ; *ListNode } *)
-  ch0 <-' slice_get (TChan TChanBox) (cu_chans cu) (0:int) ;;      (* pull each channel OUT of the slice-in-struct *)
-  ch1 <-' slice_get (TChan TChanBox) (cu_chans cu) (1:int) ;;
+  ch0 <-' slice_get (TChan TChanBox) (cu_chans cu) (int_lit 0 eq_refl) ;;      (* pull each channel OUT of the slice-in-struct *)
+  ch1 <-' slice_get (TChan TChanBox) (cu_chans cu) (int_lit 1 eq_refl) ;;
   go_spawn (send TChanBox ch0 (MkChanBox (90)%i64 ch0)) >>'        (* goroutine 0: ch0 <- ChanBox{90, ch0} — SENDS ITSELF *)
   go_spawn (send TChanBox ch1 (MkChanBox (9)%i64 ch1)) >>'         (* goroutine 1: ch1 <- ChanBox{9, ch1}  — SENDS ITSELF *)
   ( v0 <-' recv TChanBox ch0 ;;                                    (* receive both self-boxes...             *)
@@ -2220,12 +2223,12 @@ Definition slice_copy_demo : IO unit :=
     its declaration is hoisted to [var iv int64] (dominating the loop) and
     assigned with [=].  [ref_set] also assigns with [=].  Prints 0,1,2. *)
 Definition count_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>            (* block 0: loop header *)
-      if Sint63.ltb iv 3 then
+      if int_ltb iv (int_lit 3 eq_refl) then
         bind (println [any iv])      (fun _ =>
-        bind (ref_set i (add iv 1))  (fun _ =>
+        bind (ref_set i (add iv (int_lit 1 eq_refl)))  (fun _ =>
         ret (Jump 0%nat)))                        (* goto block0 (backward) *)
       else ret (Jump 1%nat)) ;                    (* exit *)
     ret Done                                       (* block 1 *)
@@ -2236,8 +2239,8 @@ Definition count_demo : IO unit :=
     block 1 prints 5 then jumps to block 0 (so block 0 is reachable, not dead); block 0 prints 7. *)
 Definition cfg_nonzero_entry_demo : IO unit :=
   run_blocks 1%nat [
-    bind (println [any (7 : int)]) (fun _ => ret Done) ;           (* block 0 — reached via block 1's jump *)
-    bind (println [any (5 : int)]) (fun _ => ret (Jump 0%nat))     (* block 1 — the ENTRY, then → block 0 *)
+    bind (println [any (int_lit 7 eq_refl)]) (fun _ => ret Done) ;           (* block 0 — reached via block 1's jump *)
+    bind (println [any (int_lit 5 eq_refl)]) (fun _ => ret (Jump 0%nat))     (* block 1 — the ENTRY, then → block 0 *)
   ].
 
 (** Control flow as a goto-CFG.  Three blocks; block 0 conditionally jumps to
@@ -2246,10 +2249,10 @@ Definition cfg_nonzero_entry_demo : IO unit :=
     early ⇒ 1,3 ; else ⇒ 1,2,3. *)
 Definition cond_goto_demo (early : bool) : IO unit :=
   run_blocks 0%nat [
-    bind (println [any (1 : int)]) (fun _ =>
+    bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
       if early then ret (Jump 2%nat) else ret (Jump 1%nat)) ;
-    bind (println [any (2 : int)]) (fun _ => ret (Jump 2%nat)) ;
-    bind (println [any (3 : int)]) (fun _ => ret Done)
+    bind (println [any (int_lit 2 eq_refl)]) (fun _ => ret (Jump 2%nat)) ;
+    bind (println [any (int_lit 3 eq_refl)]) (fun _ => ret Done)
   ].
 
 (** Diamond: block 0 branches to two non-empty arms (blocks 1 and 2) that
@@ -2258,11 +2261,11 @@ Definition cond_goto_demo (early : bool) : IO unit :=
     emitting the merge once.  b ⇒ 1,10,99 ; else ⇒ 1,20,99. *)
 Definition diamond_demo (b : bool) : IO unit :=
   run_blocks 0%nat [
-    bind (println [any (1 : int)]) (fun _ =>
+    bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
       if b then ret (Jump 1%nat) else ret (Jump 2%nat)) ;
-    bind (println [any (10 : int)]) (fun _ => ret (Jump 3%nat)) ;
-    bind (println [any (20 : int)]) (fun _ => ret (Jump 3%nat)) ;
-    bind (println [any (99 : int)]) (fun _ => ret Done)
+    bind (println [any (int_lit 10 eq_refl)]) (fun _ => ret (Jump 3%nat)) ;
+    bind (println [any (int_lit 20 eq_refl)]) (fun _ => ret (Jump 3%nat)) ;
+    bind (println [any (int_lit 99 eq_refl)]) (fun _ => ret Done)
   ].
 
 (** Loop containing a branch: a counting loop (block 0 header, block 3 the
@@ -2272,16 +2275,16 @@ Definition diamond_demo (b : bool) : IO unit :=
     nested [if … < 1 { println(100) }].  Counter is a [Ref], re-read per block
     (separate goto-blocks don't share Rocq scope).  Prints 100, 0, 1, 2. *)
 Definition loopif_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
-      if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 4%nat)) ;
+      if int_ltb iv (int_lit 3 eq_refl) then ret (Jump 1%nat) else ret (Jump 4%nat)) ;
     bind (ref_get TInt64 i) (fun iv =>                              (* block 1: in-loop branch *)
-      if Sint63.ltb iv 1 then ret (Jump 2%nat) else ret (Jump 3%nat)) ;
-    bind (println [any (100 : int)]) (fun _ => ret (Jump 3%nat)) ;  (* block 2: first-iter marker *)
+      if int_ltb iv (int_lit 1 eq_refl) then ret (Jump 2%nat) else ret (Jump 3%nat)) ;
+    bind (println [any (int_lit 100 eq_refl)]) (fun _ => ret (Jump 3%nat)) ;  (* block 2: first-iter marker *)
     bind (ref_get TInt64 i) (fun iv =>                              (* block 3: body, incr, loop *)
     bind (println [any iv]) (fun _ =>
-    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat)))) ;
+    bind (ref_set i (add iv (int_lit 1 eq_refl))) (fun _ => ret (Jump 0%nat)))) ;
     ret Done                                                        (* block 4: exit *)
   ]).
 
@@ -2292,19 +2295,19 @@ Definition loopif_demo : IO unit :=
     outer [break] (to block 5).  Two [Ref]s; [j] is reset each outer pass.
     Prints 0,1 (inner, i=0) then 0,1 (inner, i=1). *)
 Definition nested_loop_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
-  bind (ref_new TInt64 (0 : int)) (fun j =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
-      if Sint63.ltb iv 2 then ret (Jump 1%nat) else ret (Jump 5%nat)) ;
-    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+      if int_ltb iv (int_lit 2 eq_refl) then ret (Jump 1%nat) else ret (Jump 5%nat)) ;
+    bind (ref_set j (int_lit 0 eq_refl)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
     bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
-      if Sint63.ltb jv 2 then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
+      if int_ltb jv (int_lit 2 eq_refl) then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
     bind (ref_get TInt64 j) (fun jv =>                              (* block 3: inner body *)
     bind (println [any jv]) (fun _ =>
-    bind (ref_set j (add jv 1)) (fun _ => ret (Jump 2%nat)))) ;
+    bind (ref_set j (add jv (int_lit 1 eq_refl))) (fun _ => ret (Jump 2%nat)))) ;
     bind (ref_get TInt64 i) (fun iv =>                              (* block 4: outer tail *)
-    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat))) ;
+    bind (ref_set i (add iv (int_lit 1 eq_refl))) (fun _ => ret (Jump 0%nat))) ;
     ret Done                                                        (* block 5: exit *)
   ])).
 
@@ -2314,16 +2317,16 @@ Definition nested_loop_demo : IO unit :=
     for the exit edge, and the block-3 tail after the [for].  Prints 0, 1, then
     returns (so block 3's 999 is never reached). *)
 Definition early_return_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: header *)
-      if Sint63.ltb iv 9 then ret (Jump 1%nat) else ret (Jump 3%nat)) ;
+      if int_ltb iv (int_lit 9 eq_refl) then ret (Jump 1%nat) else ret (Jump 3%nat)) ;
     bind (ref_get TInt64 i) (fun iv =>                              (* block 1: early return *)
-      if Sint63.ltb iv 2 then ret (Jump 2%nat) else ret Done) ;
+      if int_ltb iv (int_lit 2 eq_refl) then ret (Jump 2%nat) else ret Done) ;
     bind (ref_get TInt64 i) (fun iv =>                              (* block 2: body, incr, loop *)
     bind (println [any iv]) (fun _ =>
-    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat)))) ;
-    bind (println [any (999 : int)]) (fun _ => ret Done)           (* block 3: normal exit *)
+    bind (ref_set i (add iv (int_lit 1 eq_refl))) (fun _ => ret (Jump 0%nat)))) ;
+    bind (println [any (int_lit 999 eq_refl)]) (fun _ => ret Done)           (* block 3: normal exit *)
   ]).
 
 (** Labeled break: from inside the inner loop, block 3 jumps to the *outer*
@@ -2333,21 +2336,21 @@ Definition early_return_demo : IO unit :=
     normal exit is block 5, plus the labeled escape to block 6), which the
     primary-exit analysis accepts.  Prints 0, 1, 2 then stops entirely. *)
 Definition labeled_break_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
-  bind (ref_new TInt64 (0 : int)) (fun j =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header *)
-      if Sint63.ltb iv 3 then ret (Jump 1%nat) else ret (Jump 6%nat)) ;
-    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+      if int_ltb iv (int_lit 3 eq_refl) then ret (Jump 1%nat) else ret (Jump 6%nat)) ;
+    bind (ref_set j (int_lit 0 eq_refl)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
     bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
-      if Sint63.ltb jv 3 then ret (Jump 3%nat) else ret (Jump 5%nat)) ;
+      if int_ltb jv (int_lit 3 eq_refl) then ret (Jump 3%nat) else ret (Jump 5%nat)) ;
     bind (ref_get TInt64 j) (fun jv =>                              (* block 3: print; break L0 at 2 *)
     bind (println [any jv]) (fun _ =>
-      if Sint63.ltb jv 2 then ret (Jump 4%nat) else ret (Jump 6%nat))) ;
+      if int_ltb jv (int_lit 2 eq_refl) then ret (Jump 4%nat) else ret (Jump 6%nat))) ;
     bind (ref_get TInt64 j) (fun jv =>                              (* block 4: inner tail, j++ *)
-    bind (ref_set j (add jv 1)) (fun _ => ret (Jump 2%nat))) ;
+    bind (ref_set j (add jv (int_lit 1 eq_refl))) (fun _ => ret (Jump 2%nat))) ;
     bind (ref_get TInt64 i) (fun iv =>                              (* block 5: outer tail, i++ *)
-    bind (ref_set i (add iv 1)) (fun _ => ret (Jump 0%nat))) ;
+    bind (ref_set i (add iv (int_lit 1 eq_refl))) (fun _ => ret (Jump 0%nat))) ;
     ret Done                                                        (* block 6: exit *)
   ])).
 
@@ -2357,19 +2360,19 @@ Definition labeled_break_demo : IO unit :=
     [continue L0] (the outer [for] is labeled).  The outer header increments [i]
     so it still terminates.  Prints 0, 1 (inner, i=0) then 0, 1 (i=1). *)
 Definition labeled_continue_demo : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun i =>
-  bind (ref_new TInt64 (0 : int)) (fun j =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun j =>
   run_blocks 0%nat [
     bind (ref_get TInt64 i) (fun iv =>                              (* block 0: outer header, i++ *)
-    bind (ref_set i (add iv 1)) (fun _ =>
-      if Sint63.ltb iv 2 then ret (Jump 1%nat) else ret (Jump 5%nat))) ;
-    bind (ref_set j (0 : int)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
+    bind (ref_set i (add iv (int_lit 1 eq_refl))) (fun _ =>
+      if int_ltb iv (int_lit 2 eq_refl) then ret (Jump 1%nat) else ret (Jump 5%nat))) ;
+    bind (ref_set j (int_lit 0 eq_refl)) (fun _ => ret (Jump 2%nat)) ;        (* block 1: reset j *)
     bind (ref_get TInt64 j) (fun jv =>                              (* block 2: inner header *)
-      if Sint63.ltb jv 3 then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
+      if int_ltb jv (int_lit 3 eq_refl) then ret (Jump 3%nat) else ret (Jump 4%nat)) ;
     bind (ref_get TInt64 j) (fun jv =>                              (* block 3: print; continue L0 *)
     bind (println [any jv]) (fun _ =>
-    bind (ref_set j (add jv 1)) (fun _ =>
-      if Sint63.ltb jv 1 then ret (Jump 2%nat) else ret (Jump 0%nat)))) ;
+    bind (ref_set j (add jv (int_lit 1 eq_refl))) (fun _ =>
+      if int_ltb jv (int_lit 1 eq_refl) then ret (Jump 2%nat) else ret (Jump 0%nat)))) ;
     ret (Jump 0%nat) ;                                              (* block 4: inner exit → outer *)
     ret Done                                                        (* block 5: exit *)
   ])).
@@ -2381,22 +2384,22 @@ Definition labeled_continue_demo : IO unit :=
     control flow lowers, structured or not.  enter_high ⇒ 2,1,2,1,2 ; else ⇒
     1,2,1,2. *)
 Definition irreducible_demo (enter_high : bool) : IO unit :=
-  bind (ref_new TInt64 (0 : int)) (fun n =>
+  bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun n =>
   run_blocks 0%nat [
     (if enter_high then ret (Jump 2%nat) else ret (Jump 1%nat)) ;  (* block 0: two-entry *)
     bind (ref_get TInt64 n) (fun nv =>                             (* block 1 *)
-    bind (println [any (1 : int)]) (fun _ =>
-    bind (ref_set n (add nv 1)) (fun _ => ret (Jump 2%nat)))) ;
+    bind (println [any (int_lit 1 eq_refl)]) (fun _ =>
+    bind (ref_set n (add nv (int_lit 1 eq_refl))) (fun _ => ret (Jump 2%nat)))) ;
     bind (ref_get TInt64 n) (fun nv =>                             (* block 2 *)
-    bind (println [any (2 : int)]) (fun _ =>
-    bind (ref_set n (add nv 1)) (fun _ =>
-      if Sint63.ltb nv 3 then ret (Jump 1%nat) else ret (Jump 3%nat)))) ;
+    bind (println [any (int_lit 2 eq_refl)]) (fun _ =>
+    bind (ref_set n (add nv (int_lit 1 eq_refl))) (fun _ =>
+      if int_ltb nv (int_lit 3 eq_refl) then ret (Jump 1%nat) else ret (Jump 3%nat)))) ;
     ret Done                                                       (* block 3: exit *)
   ]).
 
 (** Bounded loop: [for_each] over a slice lowers to a Go [for ... range]. *)
 Definition foreach_demo : IO unit :=
-  let xs := slice_of_list TInt64 [10%uint63; 20%uint63; 30%uint63] in
+  let xs := slice_of_list TInt64 [int_lit 10 eq_refl; int_lit 20 eq_refl; int_lit 30 eq_refl] in
   for_each xs (fun x => println [any x]).   (* prints 10 / 20 / 30 *)
 
 (** User VARIADIC function (Go [func f(xs ...int64)]): inside the func the param is a slice;

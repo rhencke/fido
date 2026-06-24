@@ -792,6 +792,20 @@ let is_any_i64_op r =
      "gtb"; "geb"; "neqb"; "neg";
      "div"; "mod"; "and"; "or"; "xor"; "andnot"; "not"; "shl"; "shr"]
 
+(* Platform-int [GoInt] ops (review #6 #13): the EXACT [GoI64] shape but rendered Go [int].
+   [GoInt]/[MkGoInt]/[intraw] erase to the [Z] carrier (rendered [int] via [go_prim_type_table]);
+   arithmetic/comparison lower to BARE Go operators via [binop_of].  [int_lit] folds its [Z] literal
+   — BARE decimal in expression position (the Go [int] default; e.g. an index [xs[5]]), [int(N)] when a
+   Go type must be pinned (a [:=] binding / box), matching the OLD [PrimInt63] literal's position-
+   dependent rendering ([MLuint] in [pp_expr] vs [pp_typed_lit]). *)
+let is_int_op r name = from_builtins r && String.equal (global_basename r) ("int_" ^ name)
+let is_int_lit r = is_int_op r "lit"
+let is_any_int_op r =
+  List.exists (is_int_op r)
+    ["lit"; "add"; "sub"; "mul"; "neg"; "eqb"; "ltb"; "leb"; "div"; "mod"]
+let is_goint_ctor r = from_builtins r && String.equal (global_basename r) "MkGoInt"
+let is_goint_proj r = from_builtins r && String.equal (global_basename r) "intraw"
+
 (* Full-width uint64 ops ([u64_add]/[u64_lit]/…).  [GoU64]/[MkU64]/[u64raw]
    ride the numint machinery (erased type/ctor/proj, rendered uint64), but the
    OPS are NOT masked (a [GoU64] is a real Go uint64, wrapping unsigned-natively
@@ -1212,6 +1226,16 @@ let binop_of r =
   else if is_i64_op r "gtb"    then Some (3, " > ")
   else if is_i64_op r "geb"    then Some (3, " >= ")
   else if is_i64_op r "neqb"   then Some (3, " != ")
+  (* platform int (GoInt, review #6 #13): a Go int wraps natively (64-bit), so arithmetic /
+     comparison lower to the same BARE Go operators as int64; division truncates toward zero. *)
+  else if is_int_op r "add"    then Some (4, " + ")
+  else if is_int_op r "sub"    then Some (4, " - ")
+  else if is_int_op r "mul"    then Some (5, " * ")
+  else if is_int_op r "div"    then Some (5, " / ")
+  else if is_int_op r "mod"    then Some (5, " % ")
+  else if is_int_op r "ltb"    then Some (3, " < ")
+  else if is_int_op r "leb"    then Some (3, " <= ")
+  else if is_int_op r "eqb"    then Some (3, " == ")
   (* full-width uint64 (GoU64): same bare Go operators as i64 — Go uint64 wraps
      unsigned-natively at 2^64, arithmetic / bitwise / shift lower identically.
      Comparison is unsigned uint64 </<=/==, which matches [Z.ltb]/[Z.leb] on the
@@ -2085,7 +2109,7 @@ let rec pp_expr state env = function
            else str "func(x complex128) complex128 { return -x }(" ++ pp_expr state env c ++ str ")"
 
        (* numeric-wrapper projection [u8raw g] → [g] (the wrapper is erased) *)
-       | MLglob r, [g] when is_numint_proj r ->
+       | MLglob r, [g] when is_numint_proj r || is_goint_proj r ->
            pp_expr state env g
        (* range-carrying numeric-wrapper constructor [iNwrap x]/[uNwrap x] → [x] (the wrapper +
           its normalization erase, exactly like the bare [MkU8] ctor; the carrier IS the value).
@@ -2279,6 +2303,14 @@ let rec pp_expr state env = function
             (* TYPE the literal [uint64(N)] (same int-vs-uint64 boxing fix as i64_lit). *)
             | Some v -> str ("uint64(" ^ Printf.sprintf "%Lu" v ^ ")")
             | None   -> unsupported "u64_lit of a non-constant Z (only statically-known uint64 constant expressions are modeled)")
+       (* [int_lit z] — a platform-int (GoInt) constant: fold its [Z] literal to a BARE signed
+          decimal.  Go's untyped-constant default IS [int], so a bare [N] is correctly [int]-typed in
+          an EXPRESSION/index position ([xs[5]], [a + 5]); a TYPED position pins it via [pp_typed_lit]
+          -> [int(N)] (the OLD [PrimInt63]-literal position-dependence; review #6 #13). *)
+       | MLglob r, [z] when is_int_lit r ->
+           (match z_eval z with
+            | Some v -> str (Int64.to_string v)
+            | None   -> unsupported "int_lit of a non-constant Z (only statically-known platform-int constant expressions are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
           surrounding operator, so the operands are printed at this op's level
@@ -2509,7 +2541,7 @@ let rec pp_expr state env = function
                 | Some gt -> str (gt ^ "(") ++ v ++ str ")"
                 | None    -> v)
            (* numeric-wrapper constructor [MkU8 v] → [v] (erase the wrapper) *)
-           | MLcons (_, r, [v]) when is_numint_ctor r -> pp_expr state env v
+           | MLcons (_, r, [v]) when is_numint_ctor r || is_goint_ctor r -> pp_expr state env v
            (* GoFloat32 constructor [mkF32 v] → [v] (the proof field is erased; the carrier
               IS the float32).  Should only appear inside by-name-lowered ops, but emit
               identity for safety. *)
@@ -2565,6 +2597,9 @@ and pp_atom state env e =
   match e with
   | MLrel _ | MLglob _ | MLcons _ | MLuint _ | MLfloat _ | MLmagic _ ->
       pp_expr state env e
+  (* a folded [int_lit N] (GoInt literal) is atomic like a bare [MLuint] — no operand parens
+     (Go's unary [-] binds tighter than the binary operators it appears under); review #6 #13. *)
+  | MLapp (MLglob r, [_]) when is_int_lit r -> pp_expr state env e
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
 
@@ -2599,6 +2634,9 @@ and pp_prec state env ctx e =
 and pp_typed_lit state env e =
   match strip_magic e with
   | MLuint _  -> str "int("     ++ pp_expr state env e ++ str ")"
+  (* platform-int [GoInt] literal [int_lit z] — bare in [pp_expr], so pin [int(N)] in a typed
+     position (a [:=] binding / box), exactly as the old [MLuint] arm did (review #6 #13). *)
+  | MLapp (MLglob r, [_]) when is_int_lit r -> str "int(" ++ pp_expr state env e ++ str ")"
   | MLfloat _ -> str "float64(" ++ pp_expr state env e ++ str ")"
   (* A full-width [GoI64]/[GoU64] LITERAL erases (single-field record) to a bare [Z]
      decimal, which Go defaults to [int]; in a typed position it mismatches the
@@ -2618,6 +2656,7 @@ and pp_typed_lit state env e =
 and pp_typed_lit_tagged state env tagdoc e =
   match strip_magic e with
   | MLuint _ | MLfloat _ -> tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
+  | MLapp (MLglob r, [_]) when is_int_lit r -> tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
   | MLcons _ as z when Option.has_some (z_value z) ->
       tagdoc ++ str "(" ++ pp_expr state env e ++ str ")"
   | _ -> pp_expr state env e
@@ -4250,7 +4289,7 @@ let pp_function state name body typ =
 let proof_only_names =
   [ "ref_sel"; "ref_sel_opt"; "ref_upd";
     "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
-    "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
+    "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_count"; "map_clear_upd"; "run_io";
     "map_get_fn"; "map_write"; "key_eqb"; "eqb";   (* map-cell read/write + key equality;
       bare [eqb] suppresses the FIVE stdlib eqb decls pulled into the proof-only key_eqb
       closure — Bool/String/Ascii/PrimFloat/PrimInt63 — all dead in emitted Go (== lowers
@@ -4289,6 +4328,9 @@ let is_inlined_ref r =
   Option.has_some (fixed_width_op r) ||  (* all uN_*/iN_* incl. the iN_norm helper *)
   is_any_i64_op r ||  (* full-width int64 ops — lowered via binop_of / i64_lit fold *)
   is_any_u64_op r ||  (* full-width uint64 ops — lowered via binop_of / u64_lit fold *)
+  is_any_int_op r ||  (* platform-int [GoInt] ops — lowered via binop_of / int_lit fold (review #6 #13) *)
+  is_goint_proj r || is_goint_ctor r ||  (* erased [GoInt] proj [intraw] / ctor [MkGoInt] decls *)
+  String.equal (global_basename r) "intwrap" ||  (* internal range-carrying GoInt constructor *)
   is_zarith_helper r ||  (* Z/positive arith dragged in by GoI64/GoU64 bodies — never emitted *)
   is_numint_proj r || is_numint_ctor r ||  (* erased numeric-wrapper proj/ctor decls *)
   String.equal (global_basename r) "u8wrap" ||  (* internal range-carrying u8 constructor; only inside by-name-lowered op bodies *)

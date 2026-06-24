@@ -52,35 +52,28 @@ From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloa
     the layer.  DIVERGENCE is idealised away: [run_io] is total (terminates). *)
 
 (** Signed integer types.
-    [GoInt] models Go's [int].  Go's [int] is, BY SPEC, 32-OR-64-bit (implementation-specific,
-    go.dev/ref/spec#Numeric_types), so NO deterministic model is faithful on every platform —
-    this is an inherent property of [int], not a backend defect.  [GoInt := int] uses Rocq's
-    primitive 63-bit machine integer ([PrimInt63]) with SIGNED (Sint63) semantics: [+]/[-]/[*]
-    are two's-complement (so [2 - 5 = -3] as in Go, NOT the unsigned reading [2^63 - 3]);
-    comparison and division use the signed Sint63 ops.  It renders to Go [int] (idiomatic — it
-    matches [len]/[cap]/indexing, which are Go-[int]-typed; rendering as [int64] would force a
-    cast at every such interop).  HONEST BOUNDED DEVIATION (a SUBSTRATE LIMIT — exactly the
-    kind CLAUDE.md rule 2 permits): the 63-bit carrier is faithful to a 64-bit Go [int] only
-    within [-2^62, 2^62) (and within [-2^31, 2^31) on a 32-bit Go).  An operation whose result
-    reaches [±2^62] WRAPS in the model where 64-bit Go would not — but [2^62 ≈ 4.6e18] is far
-    above any realistic index/length/size, so the divergence is UNREACHABLE in the index/size
-    use case.  This is NOT enforced by a per-op range proof (that would be invasive for an
-    unreachable case); for code that NEEDS the guaranteed full 64-bit range, use the FAITHFUL
-    [GoI64]/[GoU64] records below (Z-carried, wrap EXACTLY at [2^64]). *)
-(** Go's platform-width [int] — the 63-bit [Sint63] substrate (bounded deviation, see above).
-    It IS Go's [int]: a transparent [int] alias is correct HERE, because the plugin ALSO renders
-    [int] as Go [int] (no type-vs-rendering mismatch) and it boxes via [Tagged_int].
+    [GoInt] models Go's [int] as a GENUINELY DISTINCT [Z]-carried record (defined just below the
+    [GoI64] machinery, since it shares [in_i64]/[wrap64]/[i64wrap]) — NOT a transparent [int] alias
+    and NOT the 63-bit [Sint63] substrate.  Carried by [Z] in the int64 range [[-2^63, 2^63)] EXACTLY
+    like [GoI64], so [+]/[-]/[*]/[/]/[%] are two's-complement-faithful across the WHOLE 64-bit range
+    and wrap at the true [2^63] — closing review #6 #13's "platform-int 63-bit deviation" (the old
+    [Sint63] carrier was faithful only within [-2^62, 2^62), wrapping one bit early).  We MODEL Go's
+    platform [int] at 64-bit width (its width on every 64-bit target); that single width choice is the
+    only residual platform assumption, shared with [GoUint] — NOT a carrier deviation.  It renders to
+    Go [int] (idiomatic — [len]/[cap]/indexing are Go-[int]-typed); the wrapper unboxes to its [Z]
+    carrier at extraction (like [GoI64]), so a [GoInt] LITERAL is the proof-carrying [int_lit z (pf :
+    in_i64 z)] (NoInline'd, plugin-folded — bare decimal in expression position, [int(N)] in a typed
+    position), never a raw ctor (which would render the bare carrier, mis-typed [int64]).
 
-    The OTHER integer types are NOT transparent [int] aliases.  That was review #4 P0 #1: a
-    transparent alias ([GoUint := int]) is freely cross-assignable in Rocq, yet the plugin renders
-    it as a DISTINCT Go type ([uint]) — so [fun (x:GoInt) => (x:GoUint)] type-checks but extracts to
-    the INVALID Go [func(x int) uint { return x }], and [any (x:GoUint)] mis-tags (only [Tagged_int]
-    resolves, so it boxes as [int] not [uint]).  The fixed-width signed/unsigned family
-    ([int8]…[uint64]) are the GENUINELY DISTINCT records [GoI8]/[GoU8]/…/[GoI64]/[GoU64] below, and
-    Go's platform [uint] is the distinct record [GoUint] (defined by [GoU64]).  The dead bare-[int]
-    placeholders [GoInt8]/[GoInt16]/[GoInt32]/[GoUint8]/…/[GoUint64] are RETIRED (one Rocq type per
-    Go type); [GoRune] is now the faithful [GoI32] (bound after the records). *)
-Definition GoInt : Type := int.   (* Go's platform-dependent int; 63-bit Sint63 substrate — bounded deviation, see above *)
+    DISTINCTNESS matters (review #4 P0 #1): a transparent alias is freely cross-assignable in Rocq yet
+    the plugin renders each integer type as a DISTINCT Go type — so [fun (x:GoInt) => (x:GoUint)] would
+    type-check but extract to the INVALID Go [func(x int) uint { return x }].  As a distinct record
+    [GoInt <> GoUint <> GoI64], that confusion is UNREPRESENTABLE.  The fixed-width signed/unsigned
+    family ([int8]…[uint64]) are the DISTINCT records [GoI8]/[GoU8]/…/[GoI64]/[GoU64] below, Go's
+    platform [uint] is [GoUint], and the dead bare-[int] placeholders [GoInt8]/…/[GoUint64] are RETIRED
+    (one Rocq type per Go type); [GoRune] is the faithful [GoI32] (bound after the records). *)
+(* [GoInt] (the record) + [intwrap] are defined just after [i64wrap] below (they need [in_i64_wrap64]);
+   [TInt64 : GoTypeTag GoInt] indexes it.  [int_lit]/[int_add]/… live with the [GoI64] ops. *)
 (* [GoByte] (Go's [byte] = an alias for [uint8]) is bound after [GoU8] below, to
    the FAITHFUL [GoU8] record (NOT a bare-int placeholder). *)
 
@@ -288,6 +281,14 @@ Proof.
 Qed.
 Definition i64wrap (z : Z) : GoI64 := MkI64 (wrap64 z) (squash (in_i64_wrap64 z)).
 
+(* Go's platform-width SIGNED [int] — a GENUINELY DISTINCT [Z]-carried record (review #6 #13), the
+   EXACT [GoI64] shape rendered Go [int] instead of [int64].  Faithful across [[-2^63, 2^63)], wrapping
+   at the true [2^63]; [intok] carries the range invariant AND (as a kept SProp field) defeats
+   single-field unboxing so the wrapper survives extraction as a distinct type.  [intwrap] wraps an
+   arbitrary [Z] into range (mirrors [i64wrap]) — the internal constructor for computed [GoInt]s. *)
+Record GoInt := MkGoInt { intraw : Z ; intok : Squash (in_i64 intraw = true) }.
+Definition intwrap (z : Z) : GoInt := MkGoInt (wrap64 z) (squash (in_i64_wrap64 z)).
+
 (** Go function VALUES are NULLABLE references — a [func] variable defaults to [nil] and CALLING
     a nil func PANICS (Go's nil-pointer dereference).  A total Coq [A -> B] cannot model that: it
     is always callable, so a "zero function" would be a fake callable inhabitant (review #8).  We
@@ -305,7 +306,7 @@ Arguments SomeFunc {A B} _.
 
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
-  | TInt64   : GoTypeTag int             (* → int64 *)
+  | TInt64   : GoTypeTag GoInt           (* platform int — DISTINCT Z-carried record (review #6 #13); → Go [int] *)
   | TFloat64 : GoTypeTag float            (* → float64 *)
   | TString  : GoTypeTag GoString
   | TU8  : GoTypeTag GoU8  | TI8  : GoTypeTag GoI8
@@ -494,7 +495,7 @@ Proof. reflexivity. Qed.
 Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   match t in GoTypeTag A' return A' with
   | TBool    => false
-  | TInt64   => 0%uint63
+  | TInt64   => MkGoInt 0%Z (squash eq_refl)   (* platform-int zero — Z-carried record (mirrors TI64/TU64) *)
   | TFloat64 => 0%float
   | TString  => EmptyString
   | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
@@ -543,7 +544,7 @@ Notation any x := (anyt (the_tag _) x).
 
 (** Tag instances for every type put into an [any] (printed / panicked / asserted). *)
 #[global] Instance Tagged_bool   : Tagged bool     := TBool.
-#[global] Instance Tagged_int    : Tagged int      := TInt64.
+#[global] Instance Tagged_GoInt  : Tagged GoInt    := TInt64.   (* platform int — distinct Z-carried record (review #6 #13) *)
 #[global] Instance Tagged_float  : Tagged float    := TFloat64.
 #[global] Instance Tagged_string : Tagged GoString := TString.
 #[global] Instance Tagged_unit   : Tagged unit     := TUnit.
@@ -597,7 +598,7 @@ Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interf
 Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   match t in GoTypeTag K' return K' -> K' -> bool with
   | TBool    => Bool.eqb
-  | TInt64   => PrimInt63.eqb | TUint   => fun a b => Z.eqb (uintraw a) (uintraw b)
+  | TInt64   => fun a b => Z.eqb (intraw a) (intraw b) | TUint   => fun a b => Z.eqb (uintraw a) (uintraw b)
   | TString  => String.eqb
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
@@ -635,8 +636,14 @@ Definition Comparable {K} (t : GoTypeTag K) : Prop :=
   forall a b : K, key_eqb t a b = true <-> a = b.
 
 (** The scalar key types ARE comparable (used by every map demo: int keys). *)
+(* Platform int [GoInt] is comparable: [key_eqb TInt64] decides equality via [Z.eqb] on the [Z]
+   carrier (now a DISTINCT record like [GoI64], review #6 #13), so it is a first-class MAP KEY type. *)
 Lemma comparable_TInt64 : Comparable TInt64.
-Proof. intros a b. cbn. apply Uint63.eqb_spec. Qed.
+Proof.
+  intros [za] [zb]. cbn. split.
+  - intro H. apply Z.eqb_eq in H. subst. reflexivity.
+  - intro H. injection H as ->. apply Z.eqb_refl.
+Qed.
 
 (** The full-width [GoI64]/[GoU64] are comparable too (A4.2b): [key_eqb] decides
     equality via [Z.eqb] on the carrier, so they are first-class MAP KEY types —
@@ -1252,14 +1259,14 @@ Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_re
       representability proof (unlike [*_lit]): a conversion truncates, it does not
       reject.  Composition handles cross-width ([uint8(int16val)] =
       [u8_of_int (int_of_i16 x)] = low 8 bits, faithful). *)
-Definition int_of_u8  (x : GoU8)  : int := u8raw x.
-Definition int_of_i8  (x : GoI8)  : int := i8raw x.
-Definition int_of_u16 (x : GoU16) : int := u16raw x.
-Definition int_of_i16 (x : GoI16) : int := i16raw x.
-Definition u8_of_int  (x : int) : GoU8  := u8wrap (PrimInt63.land x 255).
-Definition i8_of_int  (x : int) : GoI8  := i8wrap (i8_norm x).
-Definition u16_of_int (x : int) : GoU16 := u16wrap (PrimInt63.land x 65535).
-Definition i16_of_int (x : int) : GoI16 := i16wrap (i16_norm x).
+Definition int_of_u8  (x : GoU8)  : GoInt := intwrap (Sint63.to_Z (u8raw  x)).
+Definition int_of_i8  (x : GoI8)  : GoInt := intwrap (Sint63.to_Z (i8raw  x)).
+Definition int_of_u16 (x : GoU16) : GoInt := intwrap (Sint63.to_Z (u16raw x)).
+Definition int_of_i16 (x : GoI16) : GoInt := intwrap (Sint63.to_Z (i16raw x)).
+Definition u8_of_int  (x : GoInt) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 255).
+Definition i8_of_int  (x : GoInt) : GoI8  := i8wrap (i8_norm (Uint63.of_Z (intraw x))).
+Definition u16_of_int (x : GoInt) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 65535).
+Definition i16_of_int (x : GoInt) : GoI16 := i16wrap (i16_norm (Uint63.of_Z (intraw x))).
 
 (* Build-checked: a conversion takes an [int], NOT another fixed-width type — so a
    cross-type conversion MUST go through [int] (e.g. [u8_of_int (int_of_i16 y)]),
@@ -1352,8 +1359,8 @@ Definition u32_shl (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 :
 Definition u32_shr (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := u32wrap (PrimInt63.lsr (u32raw x) k).
 Definition u32_div (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.divs (u32raw a) (u32raw b)).
 Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.mods (u32raw a) (u32raw b)).
-Definition int_of_u32 (x : GoU32) : int := u32raw x.
-Definition u32_of_int (x : int) : GoU32 := u32wrap (PrimInt63.land x 4294967295).
+Definition int_of_u32 (x : GoU32) : GoInt := intwrap (Sint63.to_Z (u32raw x)).
+Definition u32_of_int (x : GoInt) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 4294967295).
 
 (* [i32_norm] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
    [i32wrap] = normalize + carry the trivial provenance proof, so [MkI32 5000000000 _] is
@@ -1391,8 +1398,8 @@ Definition i32_shl (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 :
 Definition i32_shr (x : GoI32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI32 := i32wrap (i32_norm (PrimInt63.asr (i32raw x) k)).
 Definition i32_div (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.divs (i32raw a) (i32raw b))).
 Definition i32_mod (a b : GoI32) (_ : (PrimInt63.eqb (i32raw b) 0) = false) : GoI32 := i32wrap (i32_norm (PrimInt63.mods (i32raw a) (i32raw b))).
-Definition int_of_i32 (x : GoI32) : int := i32raw x.
-Definition i32_of_int (x : int) : GoI32 := i32wrap (i32_norm x).
+Definition int_of_i32 (x : GoI32) : GoInt := intwrap (Sint63.to_Z (i32raw x)).
+Definition i32_of_int (x : GoInt) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (intraw x))).
 
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
 Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
@@ -1428,6 +1435,23 @@ Definition i64_neg (a : GoI64) : GoI64 := i64wrap (wrap64 (Z.opp (i64raw a))).
 Definition i64_eqb (a b : GoI64) : bool := Z.eqb (i64raw a) (i64raw b).
 Definition i64_ltb (a b : GoI64) : bool := Z.ltb (i64raw a) (i64raw b).
 Definition i64_leb (a b : GoI64) : bool := Z.leb (i64raw a) (i64raw b).
+
+(* Platform-int [GoInt] ops — the EXACT [GoI64] shape (review #6 #13), rendered with Go [int] operators
+   instead of [int64].  [int_lit] is the proof-carrying literal (NoInline'd, plugin-folded — bare
+   decimal in expression position, [int(N)] when a Go type must be pinned); arithmetic wraps at the
+   true [2^63] via [wrap64].  [int_div]/[int_mod] are evidence-gated (nonzero divisor) — Go's truncated
+   [/]/[%] ([Z.quot]/[Z.rem]); [MININT/-1] overflows and wraps to MININT, now the TRUE int64 [-2^63]
+   (faithful — the old [Sint63] carrier's [min_int] was [-2^62]). *)
+Definition int_lit (z : Z) (pf : in_i64 z = true) : GoInt := MkGoInt z (squash pf).
+Definition int_add (a b : GoInt) : GoInt := intwrap (intraw a + intraw b).
+Definition int_sub (a b : GoInt) : GoInt := intwrap (intraw a - intraw b).
+Definition int_mul (a b : GoInt) : GoInt := intwrap (intraw a * intraw b).
+Definition int_neg (a : GoInt) : GoInt := intwrap (wrap64 (Z.opp (intraw a))).
+Definition int_eqb (a b : GoInt) : bool := Z.eqb (intraw a) (intraw b).
+Definition int_ltb (a b : GoInt) : bool := Z.ltb (intraw a) (intraw b).
+Definition int_leb (a b : GoInt) : bool := Z.leb (intraw a) (intraw b).
+Definition int_div (a b : GoInt) (_ : Z.eqb (intraw b) 0%Z = false) : GoInt := intwrap (wrap64 (Z.quot (intraw a) (intraw b))).
+Definition int_mod (a b : GoInt) (_ : Z.eqb (intraw b) 0%Z = false) : GoInt := intwrap (wrap64 (Z.rem (intraw a) (intraw b))).
 
 (** ── GoI64 ARITHMETIC has the commutative-semiring CORE mod 2^64 (signed two's-complement) — the
     signed analogue of the GoU64 laws.  Key: the SIGNED [wrap64] preserves the residue mod 2^64
@@ -1939,10 +1963,10 @@ Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (i64
     is suppressed, so it never reaches the emitted Go.  Machine-checked by [f64_of_int_pos]/
     [f64_of_int_neg] (main.v).  Returns [float] (not a record), so no unbox-renaming collapse
     — it stays a NAMED call the recognizer fires on. *)
-Definition f64_of_int (i : int) : float :=
-  if Sint63.ltb i 0%sint63
-  then PrimFloat.opp (PrimFloat.of_uint63 (PrimInt63.sub 0%uint63 i))
-  else PrimFloat.of_uint63 i.
+Definition f64_of_int (i : GoInt) : float :=
+  if Z.leb 0 (intraw i)
+  then PrimFloat.of_uint63 (Uint63.of_Z (intraw i))
+  else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (intraw i)))).
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  Built on the stdlib's VERIFIED
     decomposition [Prim2SF f] — a finite [f = (-1)^s * m * 2^e] ([m] positive, [e : Z]).  The
@@ -2084,7 +2108,7 @@ Definition f32_of_i64 (a : GoI64) : GoFloat32 :=
 Definition f32_of_u64 (a : GoU64) : GoFloat32 :=
   f32_of_f64 (SF2Prim (binary_normalize 24 128 (u64raw a) 0 false)).
 Definition f32_of_int (i : GoInt) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (binary_normalize 24 128 (Sint63.to_Z i) 0 false)).
+  f32_of_f64 (SF2Prim (binary_normalize 24 128 (intraw i) 0 false)).
 
 (** DIRECT exact float CONSTANT → float32 (Go [float32(num.0 / den.0)]): round the EXACT rational
     [num/den] ONCE to binary32 via [SFdiv] of the EXACT-integer spec_floats (no intermediate binary64
@@ -2258,10 +2282,10 @@ Definition type_assert_safe {T B : Type}
 
 (** Build-checked: a WRONG-type assertion does NOT silently return the value — the
     coercion is [None], so the result is a panic / [ok = false], never [ret x]. *)
-Example type_assert_safe_ok : forall {B} (x : int) (k : int -> bool -> IO B),
+Example type_assert_safe_ok : forall {B} (x : GoInt) (k : GoInt -> bool -> IO B),
   type_assert_safe TInt64 (anyt TInt64 x) k = k x true.
 Proof. intros B x k. unfold type_assert_safe. rewrite tag_coerce_refl. reflexivity. Qed.
-Example type_assert_safe_mismatch : forall {B} (x : int) (k : bool -> bool -> IO B),
+Example type_assert_safe_mismatch : forall {B} (x : GoInt) (k : bool -> bool -> IO B),
   type_assert_safe TBool (anyt TInt64 x) k = k false false.
 Proof. intros B x k. reflexivity. Qed.
 
@@ -2298,7 +2322,7 @@ Proof. intros. unfold type_switch2. rewrite tag_coerce_refl. reflexivity. Qed.
 
 (** …and a value whose type matches NEITHER case falls through to the default — the
     coercions are both [None], so no arm can fire on a type mismatch. *)
-Example type_switch2_default : forall {B} (x : int) k1 k2 (d : IO B),
+Example type_switch2_default : forall {B} (x : GoInt) k1 k2 (d : IO B),
   type_switch2 (anyt TInt64 x) TBool k1 TString k2 d = d.
 Proof. intros. reflexivity. Qed.
 
@@ -2354,7 +2378,7 @@ Proof. intros. unfold type_switch_or2. rewrite tag_coerce_refl. reflexivity. Qed
 Example type_switch_or2_second : forall {B} (x : GoString) (k d : IO B),
   type_switch_or2 (anyt TString x) TBool TString k d = k.
 Proof. intros. unfold type_switch_or2. rewrite tag_coerce_refl. reflexivity. Qed.
-Example type_switch_or2_default : forall {B} (x : int) (k d : IO B),
+Example type_switch_or2_default : forall {B} (x : GoInt) (k d : IO B),
   type_switch_or2 (anyt TInt64 x) TBool TString k d = d.
 Proof. intros. reflexivity. Qed.
 
@@ -2376,7 +2400,7 @@ Definition type_switch_or3 {A1 A2 A3 B : Type} (a : GoAny)
 Example type_switch_or3_third : forall {B} (x : GoI64) (k d : IO B),
   type_switch_or3 (anyt TI64 x) TBool TString TI64 k d = k.
 Proof. intros. unfold type_switch_or3. rewrite tag_coerce_refl. reflexivity. Qed.
-Example type_switch_or3_default : forall {B} (x : int) (k d : IO B),
+Example type_switch_or3_default : forall {B} (x : GoInt) (k d : IO B),
   type_switch_or3 (anyt TInt64 x) TBool TString TFloat64 k d = d.
 Proof. intros. reflexivity. Qed.
 
@@ -2512,18 +2536,23 @@ Definition map_sel {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
   map_get_fn kt vt m w k.
 (** [map_size] = Go's [len(m)]: the live-key count stored in the map's cell (0 if the map has no cell yet
     / is nil).  The plugin lowers [map_len] by name to Go [len(m)]; this model now AGREES with it. *)
-Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
+(* The map's live-key count as the RAW heap-internal [int] (the cell stores [int]); [map_upd]/[map_rem]
+   do their +1/-1 bookkeeping here.  [map_size] is the Go-facing [len(m)] — the same count widened to
+   the [Z]-carried [GoInt] (review #6 #13). *)
+Definition map_count {K V} (m : GoMap K V) (w : World) : int :=
   match w_maps w (gm_loc m) with Some (sz, _) => sz | None => 0%uint63 end.
+Definition map_size {K V} (m : GoMap K V) (w : World) : GoInt :=
+  intwrap (Sint63.to_Z (map_count m w)).
 Definition map_upd {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (v : V) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then Some v else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len UNCHANGED on an existing key; +1 on a new one *)
-     | Some _ => map_size m w | None => PrimInt63.add (map_size m w) 1%uint63 end) w.
+     | Some _ => map_count m w | None => PrimInt63.add (map_count m w) 1%uint63 end) w.
 Definition map_rem {K V} (kt : GoTypeTag K) (vt : GoTypeTag V)
                    (k : K) (m : GoMap K V) (w : World) : World :=
   map_write kt vt m (fun k' => if key_eqb kt k k' then None else map_get_fn kt vt m w k')
     (match map_get_fn kt vt m w k with         (* len −1 on a present key; UNCHANGED if absent *)
-     | Some _ => PrimInt63.sub (map_size m w) 1%uint63 | None => map_size m w end) w.
+     | Some _ => PrimInt63.sub (map_count m w) 1%uint63 | None => map_count m w end) w.
 
 (** Read-back-after-write: [map_get_fn] of a [map_write] (with the SAME tags) is
     the written function — via [eqb_refl] (location hit) + [tag_eq_refl] (the K/V
@@ -2545,8 +2574,8 @@ Example map_len_counts :
       let w3 := map_upd TI64 TI64 (i64wrap 2%Z) (i64wrap 20%Z) m w2 in
       let w4 := map_upd TI64 TI64 (i64wrap 1%Z) (i64wrap 99%Z) m w3 in  (* overwrite key 1 — len stays 2 *)
       let w5 := map_rem TI64 TI64 (i64wrap 2%Z) m w4 in                 (* delete key 2 — len → 1 *)
-      andb (PrimInt63.eqb (map_size m w4) 2%uint63)
-           (PrimInt63.eqb (map_size m w5) 1%uint63) = true
+      andb (Z.eqb (intraw (map_size m w4)) 2%Z)
+           (Z.eqb (intraw (map_size m w5)) 1%Z) = true
   | OPanic _ _ => False
   end.
 Proof. vm_compute. reflexivity. Qed.
@@ -3580,7 +3609,7 @@ Qed.
 
 (* [GoInt] is now [int]; [len] counts elements (lowered to Go [len] — body suppressed). *)
 Fixpoint len {A} (xs : GoSlice A) : GoInt :=
-  match xs with nil => 0%uint63 | _ :: r => PrimInt63.add 1%uint63 (len r) end.
+  match xs with nil => intwrap 0 | _ :: r => intwrap (1 + intraw (len r)) end.
 (* review R5: [cap] on a functional (value) [GoSlice] is NOT Go's capacity.  Go's [cap] after [append]
    is IMPLEMENTATION-DEFINED (append may over-allocate), so no value-slice model can predict it; this
    [cap = len] is a proof-only convenience and is NOT extractable — the plugin emits [unsupported] for
@@ -3595,8 +3624,8 @@ Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice 
     3] is a THEOREM); the plugin lowers the call to Go's builtin.  (Go's [min]/[max]
     also apply to floats — with NaN/`-0` corner cases — and strings; those follow
     once those orderings are settled.) *)
-Definition go_min (a b : int) : int := if Sint63.ltb a b then a else b.
-Definition go_max (a b : int) : int := if Sint63.ltb a b then b else a.
+Definition go_min (a b : GoInt) : GoInt := if int_ltb a b then a else b.
+Definition go_max (a b : GoInt) : GoInt := if int_ltb a b then b else a.
 
 (** [min]/[max] on the CANONICAL full-width types: [int64] ([GoI64], SIGNED order via
     [i64_ltb]) and [uint64] ([GoU64], UNSIGNED order via [u64_ltb]) — each exactly Go's
@@ -3693,9 +3722,9 @@ Fixpoint go_list_nth {A : Type} (xs : list A) (i : int) (d : A) : A :=
   | x :: rest  => if PrimInt63.eqb i 0%uint63 then x
                   else go_list_nth rest (PrimInt63.sub i 1%uint63) d
   end.
-Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : int) : IO A :=
-  fun w => if (Sint63.leb 0 i && Sint63.ltb i (len xs))%bool
-           then ORet (go_list_nth xs i (zero_val tag)) w
+Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) : IO A :=
+  fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
+           then ORet (go_list_nth xs (Uint63.of_Z (intraw i)) (zero_val tag)) w
            else OPanic rt_index_oob w.   (* out of bounds / negative: Go panics *)
 
 (** Safe checked index (the safe-by-construction default for slice access).
@@ -3711,9 +3740,9 @@ Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : int) :
     range ⇒ [k v true], else ⇒ [k zero false].  Lowered BY NAME (body suppressed
     + NoInline), so it affects only proofs. *)
 Definition slice_at_ok {A B : Type}
-  (tag : GoTypeTag A) (xs : GoSlice A) (i : int) (k : A -> bool -> IO B) : IO B :=
-  if (Sint63.leb 0 i && Sint63.ltb i (len xs))%bool
-  then k (go_list_nth xs i (zero_val tag)) true
+  (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) (k : A -> bool -> IO B) : IO B :=
+  if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
+  then k (go_list_nth xs (Uint63.of_Z (intraw i)) (zero_val tag)) true
   else k (zero_val tag) false.
 
 (** ---- Arrays (Go spec "Array types"): a FIXED-SIZE [N]T VALUE (Phase B4.1) ----
@@ -3753,9 +3782,9 @@ Definition arr2_lit {A} (_ : GoTypeTag A) (x y : A) : GoArr2 A := mkArr2 (x :: y
     in range ⇒ [k a[i] true], else [k zero false].  The signed guard covers both ends.
     Lowers IDENTICALLY to [slice_at_ok] (array and slice both index [a[i]] with [len(a)]),
     so the plugin reuses that arm. *)
-Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : int) (k : A -> bool -> IO B) : IO B :=
-  if (Sint63.leb 0 i && Sint63.ltb i (len (arr_data a)))%bool
-  then k (go_list_nth (arr_data a) i (zero_val tag)) true
+Definition arr_get_ok {A B} (tag : GoTypeTag A) (a : GoArray A) (i : GoInt) (k : A -> bool -> IO B) : IO B :=
+  if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool
+  then k (go_list_nth (arr_data a) (Uint63.of_Z (intraw i)) (zero_val tag)) true
   else k (zero_val tag) false.
 
 (* The construction round-trips: [arr_lit]'s data IS the given list (so [arr_get_ok]
@@ -3796,9 +3825,9 @@ Fixpoint go_list_set {A} (xs : list A) (i : int) (v : A) : list A :=
   | x :: xs' => if PrimInt63.eqb i 0%uint63 then v :: xs'
                 else x :: go_list_set xs' (PrimInt63.sub i 1%uint63) v
   end.
-Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : int) (v : A)
-                   (_h : (Sint63.leb 0 i && Sint63.ltb i (len (arr_data a)))%bool = true) : GoArray A :=
-  mkArray (go_list_set (arr_data a) i v).
+Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : GoInt) (v : A)
+                   (_h : (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len (arr_data a))))%bool = true) : GoArray A :=
+  mkArray (go_list_set (arr_data a) (Uint63.of_Z (intraw i)) v).
 
 (** ---- String operations (Go spec "String types") ----
 
@@ -3819,10 +3848,10 @@ Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : int) (v
     "abcd"] is a THEOREM.  Defined by its OWN recursion (no [String.append]
     dependency to drag into extraction); suppressed in the plugin, lowered to Go
     [a + b]. *)
-Fixpoint str_len (s : GoString) : int :=
+Fixpoint str_len (s : GoString) : GoInt :=
   match s with
-  | EmptyString   => 0%uint63
-  | String _ rest => PrimInt63.add 1%uint63 (str_len rest)
+  | EmptyString   => intwrap 0
+  | String _ rest => intwrap (1 + intraw (str_len rest))
   end.
 
 (** DEFINITION (not an axiom): the i'th BYTE of the string at the signed index,
@@ -3878,9 +3907,9 @@ Fixpoint str_from_bytes (b : list GoByte) : GoString :=
 Lemma str_to_bytes_length : forall s, Datatypes.length (str_to_bytes s) = String.length s.
 Proof. induction s as [|c rest IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
 Definition str_at_ok {B : Type}
-  (s : GoString) (i : int) (k : GoByte -> bool -> IO B) : IO B :=
-  if (Sint63.leb 0 i && Sint63.ltb i (str_len s))%bool
-  then k (go_str_byte s i) true
+  (s : GoString) (i : GoInt) (k : GoByte -> bool -> IO B) : IO B :=
+  if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (str_len s)))%bool
+  then k (go_str_byte s (Uint63.of_Z (intraw i))) true
   else k (u8wrap 0) false.
 
 Fixpoint str_concat (a b : GoString) : GoString :=
@@ -5650,31 +5679,31 @@ Definition rune_width (r : GoI32) : int :=
     [str_to_runes_w]), so an invalid byte advances the offset by ONE — matching Go's range even
     for invalid UTF-8 (review #6 P1 #9).  Re-encoding the decoded rune (via [rune_width]) would
     OVER-count: U+FFFD is 3 bytes encoded but a malformed byte consumes only 1. *)
-Fixpoint runes_with_offsets (off : int) (rs : list (GoI32 * int)) : list (int * GoI32) :=
+Fixpoint runes_with_offsets (off : GoInt) (rs : list (GoI32 * int)) : list (GoInt * GoI32) :=
   match rs with
   | nil              => nil
-  | cons (r, w) rest => cons (off, r) (runes_with_offsets (PrimInt63.add off w) rest)
+  | cons (r, w) rest => cons (off, r) (runes_with_offsets (int_add off (intwrap (Sint63.to_Z w))) rest)
   end.
 Fixpoint for_each_pairs {A B : Type} (xs : list (A * B)) (body : A -> B -> IO unit) : IO unit :=
   match xs with
   | nil              => ret tt
   | cons (a, b) rest => bind (body a b) (fun _ => for_each_pairs rest body)
   end.
-Definition str_range (s : GoString) (body : int -> GoI32 -> IO unit) : IO unit :=
-  for_each_pairs (runes_with_offsets 0%uint63 (str_to_runes_w s)) body.
+Definition str_range (s : GoString) (body : GoInt -> GoI32 -> IO unit) : IO unit :=
+  for_each_pairs (runes_with_offsets (intwrap 0) (str_to_runes_w s)) body.
 
 (** ---- Indexed [range] over a slice (Go spec "For statements: For range"): [for i, x := range xs] ----
     [i] is the element INDEX (0, 1, 2, …), [x] the element — the indexed counterpart of
     [for_each] (which discards the index).  The index is the Go [int] index type ([Sint63]).
     Lowers to the native two-variable [for i, x := range xs]; the accumulator model below is
     proof-only (recognized by name, decl suppressed). *)
-Fixpoint for_each_idx_from {A : Type} (i : int) (xs : GoSlice A) (body : int -> A -> IO unit) : IO unit :=
+Fixpoint for_each_idx_from {A : Type} (i : GoInt) (xs : GoSlice A) (body : GoInt -> A -> IO unit) : IO unit :=
   match xs with
   | nil         => ret tt
-  | cons x rest => bind (body i x) (fun _ => for_each_idx_from (PrimInt63.add i 1%uint63) rest body)
+  | cons x rest => bind (body i x) (fun _ => for_each_idx_from (int_add i (intwrap 1)) rest body)
   end.
-Definition for_each_idx {A : Type} (xs : GoSlice A) (body : int -> A -> IO unit) : IO unit :=
-  for_each_idx_from 0%uint63 xs body.
+Definition for_each_idx {A : Type} (xs : GoSlice A) (body : GoInt -> A -> IO unit) : IO unit :=
+  for_each_idx_from (intwrap 0) xs body.
 
 (** ---- Integer [range] (Go 1.22, spec "For statements: For range" over an integer): [for i := range n] ----
     Produces [i = 0, 1, …, n-1] (and runs zero times when [n = 0], exactly Go's rule).
@@ -5682,13 +5711,13 @@ Definition for_each_idx {A : Type} (xs : GoSlice A) (body : int -> A -> IO unit)
     fuel, so termination is by construction with no carrier conversion); the produced index
     [i] is the Go [int] index type ([Sint63]).  Recognized by name + decl suppressed, so the
     lowering is the native [for i := range n] (the [nat] count renders as the bound). *)
-Fixpoint int_range_aux (i : int) (n : nat) (body : int -> IO unit) : IO unit :=
+Fixpoint int_range_aux (i : GoInt) (n : nat) (body : GoInt -> IO unit) : IO unit :=
   match n with
   | O    => ret tt
-  | S f  => bind (body i) (fun _ => int_range_aux (PrimInt63.add i 1%uint63) f body)
+  | S f  => bind (body i) (fun _ => int_range_aux (int_add i (intwrap 1)) f body)
   end.
-Definition int_range (n : nat) (body : int -> IO unit) : IO unit :=
-  int_range_aux 0%uint63 n body.
+Definition int_range (n : nat) (body : GoInt -> IO unit) : IO unit :=
+  int_range_aux (intwrap 0) n body.
 
 (** [slice_fold xs init step] is a pure left fold: it threads an accumulator
     through the slice, [step]ping it with each element.  A total Fixpoint, so
