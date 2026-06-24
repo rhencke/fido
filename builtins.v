@@ -1931,10 +1931,11 @@ Notation u64c e :=
     [float64(i)] once that gap closes.  *Boundary:* float64→int64 TRUNCATION — [PrimFloat]
     has no truncation primitive, so [int64(f)] cannot be modeled here (a [math.Abs]/
     [math.Sqrt]-style boundary). *)
-Definition f64_of_i64 (a : GoI64) : float :=
-  if Z.leb 0 (i64raw a)
-  then PrimFloat.of_uint63 (Uint63.of_Z (i64raw a))
-  else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (i64raw a)))).
+(* int64 → float64: round the EXACT [Z] mantissa ONCE to binary64 via [binary_normalize] at format
+   (53, 1024) — the SAME Z→float path as [f32_of_int] (24, 128), so NO [PrimFloat.of_uint63] and hence
+   NO int63 detour ([Uint63.of_Z]); review #6 #13 PrimInt63-elimination.  [binary_normalize] carries the
+   sign in the (signed) mantissa, rounds to nearest-even, and spans the whole int64 range. *)
+Definition f64_of_i64 (a : GoI64) : float := SF2Prim (binary_normalize 53 1024 (i64raw a) 0 false).
 
 (** int64 → narrow (Go [uint8(x)] / [int8(x)] / … / [int32(x)]): TRUNCATE to the low W bits.
     A [GoU8]/[GoI8]/… erases to the same int64 carrier as a [GoI64], so the conversion is
@@ -1953,20 +1954,13 @@ Definition i16_of_i64 (a : GoI64) : GoI16 := i16wrap (i16_norm (Uint63.of_Z (i64
 Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
 Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (i64raw a))).
 
-(** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for
-    |i| < 2^53, rounds beyond — exactly Go's rule).  [PrimFloat.of_uint63] converts the
-    unsigned MAGNITUDE; the sign-split handles negatives ([0 - i] is the two's-complement
-    magnitude of a negative [i], then negate the float).  Unlike [f64_of_i64] (whose [Z]
-    carrier needs the match-bodied [Uint63.of_Z]), the index [int] (Sint63) IS already an
-    int63, so it passes STRAIGHT to [of_uint63] — only that one leaf primitive sits in the
-    body.  Recognized by name → native [float64(i)]; the body (the sign-split + [of_uint63])
-    is suppressed, so it never reaches the emitted Go.  Machine-checked by [f64_of_int_pos]/
-    [f64_of_int_neg] (main.v).  Returns [float] (not a record), so no unbox-renaming collapse
-    — it stays a NAMED call the recognizer fires on. *)
-Definition f64_of_int (i : GoInt) : float :=
-  if Z.leb 0 (intraw i)
-  then PrimFloat.of_uint63 (Uint63.of_Z (intraw i))
-  else PrimFloat.opp (PrimFloat.of_uint63 (Uint63.of_Z (Z.opp (intraw i)))).
+(** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for |i| < 2^53,
+    rounds beyond — exactly Go's rule).  Rounds the EXACT [Z] mantissa ONCE via [binary_normalize] at
+    (53, 1024) — the SAME Z→float path as [f32_of_int], so NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63
+    detour (review #6 #13 PrimInt63-elimination).  Recognized by name → native [float64(i)]; the body is
+    suppressed.  Machine-checked by [f64_of_int_pos]/[f64_of_int_neg] (main.v).  Returns [float] (not a
+    record), so it stays a NAMED call the recognizer fires on. *)
+Definition f64_of_int (i : GoInt) : float := SF2Prim (binary_normalize 53 1024 (intraw i) 0 false).
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  Built on the stdlib's VERIFIED
     decomposition [Prim2SF f] — a finite [f = (-1)^s * m * 2^e] ([m] positive, [e : Z]).  The
@@ -2002,19 +1996,12 @@ Definition i64_of_f64 (f : float) : GoI64 := i64wrap (wrap64 (f64_trunc_Z f)).
     an acceptable choice.  Lowered to native [uint64(f)]; the [Prim2SF]-match body suppressed. *)
 Definition u64_of_f64 (f : float) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f)).
 
-(** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  [PrimFloat.of_uint63] only
-    takes a 63-bit input, so values in [[2^63, 2^64)] cannot go through it directly.  The standard
-    round-to-odd trick handles them EXACTLY: halve ([v >> 1], now < 2^63) but OR the lost bit back
-    in ([| (v & 1)]) as a sticky bit, round THAT to binary64, then double (exact — a power-of-two
-    scale, no second rounding).  The sticky low bit makes the single rounding of [v>>1|v&1] land
-    the same way a direct rounding of [v] would (round-nearest-even preserved).  Below 2^63 it is
-    the plain [of_uint63].  Lowered to native [float64(v)]; the split/trick body suppressed. *)
-Definition f64_of_u64 (a : GoU64) : float :=
-  if Z.ltb (u64raw a) 9223372036854775808%Z   (* < 2^63 ⇒ fits the 63-bit [of_uint63] directly *)
-  then PrimFloat.of_uint63 (Uint63.of_Z (u64raw a))
-  else PrimFloat.mul
-         (PrimFloat.of_uint63 (Uint63.of_Z (Z.lor (Z.shiftr (u64raw a) 1) (Z.land (u64raw a) 1))))
-         2.
+(** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  Rounds the EXACT [Z] mantissa
+    (in [[0, 2^64)]) ONCE via [binary_normalize] at (53, 1024) — the SAME Z→float path as the int64/
+    int conversions, spanning the WHOLE uint64 range in one shot (no 63-bit split / round-to-odd trick
+    needed), and crucially NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63 detour (review #6 #13
+    PrimInt63-elimination).  Lowered to native [float64(v)]; the body suppressed. *)
+Definition f64_of_u64 (a : GoU64) : float := SF2Prim (binary_normalize 53 1024 (u64raw a) 0 false).
 
 (** UNTYPED FLOAT CONSTANTS — exact rationals, rounded ONCE at the typed boundary.  Go folds
     constant float arithmetic at ARBITRARY precision, rounding only when the constant acquires a
