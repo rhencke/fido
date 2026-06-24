@@ -4242,7 +4242,7 @@ let pp_function state name body typ =
    drops a top-level decl, and a real use fails LOUD at its call site — never silent-
    wrong).  A module-level list so it is built once, not re-allocated per call. *)
 let proof_only_names =
-  [ "ref_sel"; "ref_upd";
+  [ "ref_sel"; "ref_sel_opt"; "ref_upd";
     "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
     "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_clear_upd"; "run_io";
     "map_get_fn"; "map_write"; "key_eqb"; "eqb";   (* map-cell read/write + key equality;

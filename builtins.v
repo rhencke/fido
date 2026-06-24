@@ -5137,15 +5137,56 @@ Definition slice_copy {A} (tag : GoTypeTag A) (dst src : SliceH A) : IO int :=
     [any]/channels/maps (all blocked by the same wall).  Every law is inherited from
     [ref_sel_upd_same] — NO new heap, NO new axiom. *)
 Record HStruct := mkHStruct { hs_base : int }.
+(** Review #6 #7: a CHECKED read.  [ref_sel] (above) is TOTAL — it returns the type's zero value when the
+    cell is absent or carries the WRONG tag, which silently accepts a FORGED / dangling / retyped handle.
+    [ref_sel_opt] instead returns [None] in those cases, so a reader can FAIL LOUD rather than fabricate a
+    zero (the reviewer's "mismatched/missing cells should be impossible in safe APIs, not silently
+    zero-filled").  A genuinely allocated, correctly-typed cell still reads [Some] (so real programs are
+    unaffected; [ref_sel_opt_upd_same]).  [ref_sel] stays for the pure proof/bridge layer. *)
+Definition ref_sel_opt {A : Type} (r : Ref A) (w : World) : option A :=
+  match w_refs w (r_loc r) with
+  | Some (existT _ _ (tag0, x0)) => tag_coerce (r_tag r) tag0 x0
+  | None => None
+  end.
+Lemma ref_sel_opt_upd_same : forall {A} (r : Ref A) (v : A) (w : World),
+  ref_sel_opt r (ref_upd r v w) = Some v.
+Proof.
+  intros A r v w. unfold ref_sel_opt, ref_upd; cbn.
+  rewrite (Uint63.eqb_refl (r_loc r)); cbn. apply tag_coerce_refl.
+Qed.
+Lemma ref_sel_opt_upd_diff : forall {A B} (r : Ref A) (r' : Ref B) (v : B) (w : World),
+  r_loc r <> r_loc r' -> ref_sel_opt r (ref_upd r' v w) = ref_sel_opt r w.
+Proof.
+  intros A B r r' v w Hne. unfold ref_sel_opt, ref_upd; cbn.
+  rewrite (Uint63.eqb_false_complete (r_loc r) (r_loc r') Hne). reflexivity.
+Qed.
+
 Definition hfield_cell {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : Ref A :=
   mkRef (PrimInt63.add (hs_base h) k) tag.
+(** Read a struct field.  FAILS LOUD (review #6 #7) on a missing/retyped cell — a forged [SPtr] (e.g.
+    [mkSPtr 5] addressing an unallocated base) panics with the Go nil-pointer/invalid-address message
+    instead of fabricating a zero.  Body is plugin-lowered to [p.Field], so the loud check never reaches
+    the emitted Go (a real [p] is always allocated); it only rules out the model accepting a forged read. *)
 Definition hfield_get {A} (h : HStruct) (k : int) (tag : GoTypeTag A) : IO A :=
-  fun w => ORet (ref_sel (hfield_cell h k tag) w) w.
+  fun w => match ref_sel_opt (hfield_cell h k tag) w with
+           | Some a => ORet a w
+           | None   => OPanic rt_nil_deref w
+           end.
 Definition hfield_set {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) : IO unit :=
   fun w => ORet tt (ref_upd (hfield_cell h k tag) v w).
 Lemma run_hfield_get : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (w : World),
-  run_io (hfield_get h k tag) w = ORet (ref_sel (hfield_cell h k tag) w) w.
+  run_io (hfield_get h k tag) w =
+    match ref_sel_opt (hfield_cell h k tag) w with
+    | Some a => ORet a w
+    | None   => OPanic rt_nil_deref w
+    end.
 Proof. reflexivity. Qed.
+(** When the field cell is genuinely allocated + correctly typed (the only case real programs hit), the
+    checked read delivers the value — so read-after-write reasoning is unchanged for valid heaps. *)
+Lemma run_hfield_get_some : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (a : A) (w : World),
+  ref_sel_opt (hfield_cell h k tag) w = Some a ->
+  run_io (hfield_get h k tag) w = ORet a w.
+Proof. intros A h k tag a w H. unfold run_io, hfield_get. rewrite H. reflexivity. Qed.
 Lemma run_hfield_set : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A) (w : World),
   run_io (hfield_set h k tag v) w = ORet tt (ref_upd (hfield_cell h k tag) v w).
 Proof. reflexivity. Qed.
@@ -5226,7 +5267,7 @@ Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag 
 Proof.
   intros. intro w.
   rewrite !run_bind, run_hfield_set. cbn.
-  rewrite run_hfield_get, ref_sel_upd_same, run_ret. reflexivity.
+  rewrite run_hfield_get, ref_sel_opt_upd_same. cbn. rewrite run_ret. reflexivity.
 Qed.
 
 (** DIFFERENT fields are INDEPENDENT — writing field [k] does NOT change field [k']
@@ -5508,7 +5549,7 @@ Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_sam
     takes — true for every base, immediate by [vm_compute] for any concrete pointer.
     ([ref_sel]/[ref_upd]/[hfield_cell] are kept opaque so [cbn] reduces only the monadic
     [match]/[bind] structure, leaving the heap terms intact for the final rewrites.) *)
-Local Opaque ref_sel ref_upd hfield_cell.
+Local Opaque ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 Lemma sptr_deref_assign : forall {R} `{StructRep2Of R} (p : SPtr R) (v : R),
   r_loc (hfield_cell (sptr_hs p) 0%uint63 TI64) <> r_loc (hfield_cell (sptr_hs p) 1%uint63 TI64) ->
   bind (sptr_assign p v) (fun _ => sptr_deref p) =io=
@@ -5516,14 +5557,14 @@ Lemma sptr_deref_assign : forall {R} `{StructRep2Of R} (p : SPtr R) (v : R),
 Proof.
   intros R Hrep p v Hne. intro w.
   unfold sptr_assign, sptr_deref.
-  repeat (rewrite ?run_bind, ?run_hfield_set, ?run_hfield_get, ?run_ret; cbn).
-  rewrite (ref_sel_upd_diff (hfield_cell (sptr_hs p) 1%uint63 TI64)
-                            (hfield_cell (sptr_hs p) 0%uint63 TI64))
-    by (apply not_eq_sym; exact Hne).
-  rewrite !ref_sel_upd_same.
-  rewrite (sr2_eta (the_rep2 R) v). reflexivity.
+  rewrite !run_bind, !run_hfield_set. cbn.
+  (* field 0 read hits an ALLOCATED cell (survives the field-1 write, distinct cells) -> its value *)
+  rewrite run_bind, run_hfield_get, (ref_sel_opt_upd_diff _ _ _ _ Hne), ref_sel_opt_upd_same. cbn.
+  (* field 1 read hits its own just-written cell -> its value *)
+  rewrite run_bind, run_hfield_get, ref_sel_opt_upd_same. cbn.
+  rewrite run_ret, (sr2_eta (the_rep2 R) v). reflexivity.
 Qed.
-Local Transparent ref_sel ref_upd hfield_cell.
+Local Transparent ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 
 (** ---- Bounded iteration (loops, step 8) ----
 
