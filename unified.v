@@ -487,3 +487,75 @@ Proof.
     + eexists. eapply ustep_close_closed; [exact Hlive | exact Hp | exact Ecl].
     + eexists. eapply ustep_close; [exact Hlive | exact Hp | exact Ecl].
 Qed.
+
+(** ============================================================================
+    SLICE 4 — the unified semantics, DEMONSTRATED on concrete all-effects executions.
+
+    These are the "ordinary program combining the effects, machine-checked" the review asked for:
+    concrete [usteps] runs exercising panic + defer + output (and heap), proving the unified semantics
+    behaves faithfully — in particular the defer/panic interaction that was the cmd.v P0 bug, now
+    operational AND in the concurrent step relation. *)
+
+(** THE P0 FIX, OPERATIONAL + CONCURRENT: goroutine 0 PANICS with a deferred [print xv] pending.  The
+    deferred print STILL happens (it appears in [uc_out]), THEN the goroutine dies with the panic [pv]
+    recorded.  Pre-fix, the deferred print was provably dropped. *)
+Lemma unified_panic_runs_defer : forall (xv pv : GoAny),
+  exists cfg',
+    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
+                   (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+                   nil (fun t => if Nat.eqb t 0 then UOut (xv :: nil) URet :: nil else nil)
+                   (fun _ => None))
+           cfg'
+    /\ uc_out cfg' = (0, xv :: nil) :: nil      (* the deferred print HAPPENED *)
+    /\ uc_live cfg' 0 = false                   (* the goroutine died *)
+    /\ uc_panic cfg' 0 = Some pv.               (* ...with the panic recorded *)
+Proof.
+  intros xv pv. eexists. split.
+  - eapply usteps_step.
+    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 pv (UOut (xv :: nil) URet) nil); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (xv :: nil) URet); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_ret_done _ _ _ _ _ _ _ _ 0); reflexivity. }
+    apply usteps_refl.
+  - cbn. repeat split; reflexivity.
+Qed.
+
+(** HEAP write-then-read in the unified semantics: goroutine 0 writes [loc 0 := 7] then reads it back,
+    binding 7 — the mutable-heap effect, with the [KWrite]/[KRead] events that drive race-freedom. *)
+Lemma unified_heap_write_read : forall (k : nat -> UCmd),
+  exists cfg',
+    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UWrite 0 7 (URead 0 k) else URet)
+                   (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+                   nil (fun _ => nil) (fun _ => None))
+           cfg'
+    /\ uc_prog cfg' 0 = k 7                      (* the read bound the written value 7 *)
+    /\ uc_heap cfg' 0 = 7.
+Proof.
+  intros k. eexists. split.
+  - eapply usteps_step.
+    { apply (ustep_write _ _ _ _ _ _ _ _ 0 0 7 (URead 0 k)); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_read _ _ _ _ _ _ _ _ 0 0 k); reflexivity. }
+    apply usteps_refl.
+  - cbn. split; reflexivity.
+Qed.
+
+(** CHANNEL send+recv in the unified semantics: goroutine 0 sends 5 on channel 0 (async buffer), then
+    receives it back, binding 5 — the channel effect, with [KSend]/[KRecv] synchronisation events. *)
+Lemma unified_chan_send_recv : forall (k : nat -> UCmd),
+  exists cfg',
+    usteps (mkUCfg (fun t => if Nat.eqb t 0 then USend 0 5 (URecv 0 k) else URet)
+                   (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+                   nil (fun _ => nil) (fun _ => None))
+           cfg'
+    /\ uc_prog cfg' 0 = k 5.                     (* the recv bound the sent value 5 *)
+Proof.
+  intros k. eexists. split.
+  - eapply usteps_step.
+    { apply (ustep_send _ _ _ _ _ _ _ _ 0 0 5 (URecv 0 k)); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_recv _ _ _ _ _ _ _ _ 0 0 k 5 0 nil); reflexivity. }
+    apply usteps_refl.
+  - cbn. reflexivity.
+Qed.
