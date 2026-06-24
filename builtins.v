@@ -5806,6 +5806,104 @@ Proof.
   intros R t Hrep p q m v w Hb. apply hstruct_alias. unfold gsptr_hs. cbn. exact Hb.
 Qed.
 
+(** WHOLE-STRUCT ops — [new]/[deref]/[assign].  Generic over arity: [write_fields]/[read_fields]
+    recurse over the field-type list, writing/reading cells [k, k+1, …] with each field's tag. *)
+Fixpoint write_fields (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> Tup ts -> IO unit :=
+  match ts return TagTup ts -> Tup ts -> IO unit with
+  | nil       => fun _ _ => ret tt
+  | t :: rest => fun tgs vls =>
+      bind (hfield_set h k (fst tgs) (fst vls)) (fun _ =>
+            write_fields rest h (S k) (snd tgs) (snd vls))
+  end.
+
+Fixpoint read_fields (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> IO (Tup ts) :=
+  match ts return TagTup ts -> IO (Tup ts) with
+  | nil       => fun _ => ret tt
+  | t :: rest => fun tgs =>
+      bind (hfield_get h k (fst tgs)) (fun x =>
+      bind (read_fields rest h (S k) (snd tgs)) (fun xs =>
+      ret (x, xs)))
+  end.
+
+(** The pure world transformer [write_fields] effects — used to characterise the post-write heap. *)
+Fixpoint wr_fields (ts : list Type) (h : HStruct) (k : nat) : TagTup ts -> Tup ts -> World -> World :=
+  match ts return TagTup ts -> Tup ts -> World -> World with
+  | nil       => fun _ _ w => w
+  | t :: rest => fun tgs vls w =>
+      wr_fields rest h (S k) (snd tgs) (snd vls)
+                (ref_upd (hfield_cell h k (fst tgs)) (fst vls) w)
+  end.
+
+Definition gsptr_new {R} `{StructRepOf R} (v : R) : IO (GSPtr R) :=
+  fun w =>
+    let l := w_next w in
+    let p := mkGSPtr l in
+    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + List.length srep_ts) (w_output w) in
+    ORet p (wr_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v) wa).
+
+Definition gsptr_deref {R} `{StructRepOf R} (p : GSPtr R) : IO R :=
+  bind (read_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep)) (fun tp => ret (sr_from srep_rep tp)).
+
+Definition gsptr_assign {R} `{StructRepOf R} (p : GSPtr R) (v : R) : IO unit :=
+  write_fields srep_ts (gsptr_hs p) 0 (sr_tags srep_rep) (sr_to srep_rep v).
+
+(** A struct field cell's heap location is [base + slot] — extracted as a small lemma so the proofs
+    below can reason about cell distinctness with [hfield_cell] kept opaque (so [cbn] won't expand it
+    inside the [ref_sel_opt]/[ref_upd] redexes the [run_*] lemmas drive). *)
+Lemma hfield_cell_loc : forall {A} (h : HStruct) (k : nat) (tag : GoTypeTag A),
+  r_loc (hfield_cell h k tag) = hs_base h + k.
+Proof. reflexivity. Qed.
+
+Local Opaque run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
+
+Lemma run_write_fields : forall ts h k tgs vls w,
+  run_io (write_fields ts h k tgs vls) w = ORet tt (wr_fields ts h k tgs vls w).
+Proof.
+  induction ts as [ | t rest IH ]; intros h k tgs vls w; cbn [write_fields wr_fields].
+  - rewrite run_ret. reflexivity.
+  - rewrite run_bind, run_hfield_set. cbn. rewrite IH. reflexivity.
+Qed.
+
+(** Writes at cells [≥ j] leave a cell [k < j] untouched — the field-independence frame. *)
+Lemma wr_fields_frame : forall ts h j tgs vls A (tag : GoTypeTag A) k w,
+  k < j -> ref_sel_opt (hfield_cell h k tag) (wr_fields ts h j tgs vls w)
+         = ref_sel_opt (hfield_cell h k tag) w.
+Proof.
+  induction ts as [ | t rest IH ]; intros h j tgs vls A tag k w Hlt; cbn [wr_fields]; [ reflexivity | ].
+  rewrite IH by lia.
+  apply ref_sel_opt_upd_diff. rewrite !hfield_cell_loc. lia.
+Qed.
+
+(** Reading the fields back from the post-write heap recovers exactly the written tuple — ANY arity. *)
+Lemma read_after_wr : forall ts h k tgs vls w,
+  run_io (read_fields ts h k tgs) (wr_fields ts h k tgs vls w)
+    = ORet vls (wr_fields ts h k tgs vls w).
+Proof.
+  induction ts as [ | t rest IH ]; intros h k tgs vls w; cbn [read_fields wr_fields].
+  - rewrite run_ret. destruct vls. reflexivity.
+  - destruct tgs as [tg tgs']. destruct vls as [v0 vs]. cbn [fst snd].
+    rewrite run_bind, run_hfield_get.
+    rewrite (wr_fields_frame rest h (S k) tgs' vs _ tg k _ (Nat.lt_succ_diag_r k)).
+    rewrite ref_sel_opt_upd_same. cbn.
+    rewrite run_bind, IH. cbn. rewrite run_ret. reflexivity.
+Qed.
+
+(** WHOLE-STRUCT round-trip — a THEOREM, ANY arity: after [assign v], [deref] reconstructs [v]
+    EXACTLY ([read_after_wr] recovers the tuple, [sr_eta] reassembles the struct). *)
+Lemma gsptr_deref_assign : forall {R} `{StructRepOf R} (p : GSPtr R) (v : R),
+  bind (gsptr_assign p v) (fun _ => gsptr_deref p) =io=
+  bind (gsptr_assign p v) (fun _ => ret v).
+Proof.
+  intros R Hrep p v. intro w.
+  unfold gsptr_assign, gsptr_deref.
+  rewrite run_bind, run_write_fields. cbn.
+  rewrite run_bind, read_after_wr. cbn.
+  rewrite run_ret, run_bind, run_write_fields. cbn.
+  rewrite run_ret, (sr_eta srep_rep v). reflexivity.
+Qed.
+
+Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
