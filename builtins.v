@@ -5904,6 +5904,57 @@ Qed.
 
 Local Transparent run_io bind ret hfield_get hfield_set ref_sel_opt ref_upd hfield_cell.
 
+(** STRUCTURAL EQUALITY — Go's [==] on a struct compares fields pairwise.  Generic over arity: an
+    [EqTup ts] is a per-field equality-test bundle; [tup_eqb] [&&]s them, and [gstruct_eqb] compares two
+    [R] values through the rep.  When every field's test REFLECTS [=] ([EqTupOk]), so does the whole
+    struct ([gstruct_eqb_true_iff]) — using [sr_to] injectivity (from the iso).  This is the model that
+    the plugin lowers to [a == b]. *)
+Fixpoint EqTup (ts : list Type) : Type :=
+  match ts with
+  | nil       => unit
+  | t :: rest => ((t -> t -> bool) * EqTup rest)%type
+  end.
+
+Fixpoint tup_eqb (ts : list Type) : EqTup ts -> Tup ts -> Tup ts -> bool :=
+  match ts return EqTup ts -> Tup ts -> Tup ts -> bool with
+  | nil       => fun _ _ _ => true
+  | t :: rest => fun eqs a b => andb (fst eqs (fst a) (fst b)) (tup_eqb rest (snd eqs) (snd a) (snd b))
+  end.
+
+Fixpoint EqTupOk (ts : list Type) : EqTup ts -> Prop :=
+  match ts return EqTup ts -> Prop with
+  | nil       => fun _ => True
+  | t :: rest => fun eqs => (forall x y, fst eqs x y = true <-> x = y) /\ EqTupOk rest (snd eqs)
+  end.
+
+Lemma tup_eqb_true_iff : forall ts eqs a b, EqTupOk ts eqs -> (tup_eqb ts eqs a b = true <-> a = b).
+Proof.
+  induction ts as [ | t rest IH ]; intros eqs a b Hok.
+  - cbn. destruct a, b. split; reflexivity.
+  - destruct eqs as [eq0 eqs']. destruct a as [a0 a'], b as [b0 b']. destruct Hok as [Hok0 Hok'].
+    cbn [tup_eqb fst snd]. split.
+    + intros Hand. destruct (eq0 a0 b0) eqn:E0; cbn in Hand; [ | discriminate Hand ].
+      apply Hok0 in E0. apply (IH eqs' a' b' Hok') in Hand. subst. reflexivity.
+    + intros Heq. injection Heq as Ha0 Ha'. subst.
+      assert (E0 : eq0 b0 b0 = true) by (apply Hok0; reflexivity).
+      rewrite E0. cbn [andb]. rewrite (IH eqs' b' b' Hok'). reflexivity.
+Qed.
+
+Definition gstruct_eqb {R ts} (rep : StructRep R ts) (eqs : EqTup ts) (a b : R) : bool :=
+  tup_eqb ts eqs (sr_to rep a) (sr_to rep b).
+
+Lemma sr_to_inj : forall {R ts} (rep : StructRep R ts) a b, sr_to rep a = sr_to rep b -> a = b.
+Proof. intros R ts rep a b H. rewrite <- (sr_eta rep a), <- (sr_eta rep b), H. reflexivity. Qed.
+
+(** [struct_eqb] REFLECTS structural equality — Go [a == b] is [true] iff the structs are equal. *)
+Lemma gstruct_eqb_true_iff : forall {R ts} (rep : StructRep R ts) (eqs : EqTup ts) a b,
+  EqTupOk ts eqs -> (gstruct_eqb rep eqs a b = true <-> a = b).
+Proof.
+  intros R ts rep eqs a b Hok. unfold gstruct_eqb.
+  rewrite (tup_eqb_true_iff ts eqs (sr_to rep a) (sr_to rep b) Hok).
+  split; [ apply sr_to_inj | intros ->; reflexivity ].
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
