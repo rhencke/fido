@@ -958,6 +958,15 @@ Proof.
   - apply embed_cfg_trace.
 Qed.
 
+(** The BOUNDED-CAPACITY calculus is a fragment too: [rstepC]'s [rstepsC_embed] already shows every
+    bounded run is an unbounded [rsteps] run (a guarded send is a plain send; a cap-0 rendezvous is
+    send-then-recv), so composing with [rsteps_embeds] subsumes the capacity-aware calculus into
+    [ustep] as well — closing the 2026-06-24 review's #2/#3 ("capacity rendezvous in a detached
+    calculus").  BOTH prior operational systems are now provably fragments of the one semantics. *)
+Corollary rstepsC_embeds : forall cap cfg cfg', rstepsC cap cfg cfg' ->
+  usteps (embed_cfg cfg) (embed_cfg cfg').
+Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H). Qed.
+
 (** ============================================================================
     SLICE 10 — SESSIONS, OPERATIONALLY: a protocol is REALIZED by a [ustep] run.
 
