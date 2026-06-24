@@ -5701,6 +5701,111 @@ Proof.
 Qed.
 Local Transparent ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 
+(** ============================================================================
+    GENERIC STRUCT REPRESENTATION — one [StructRep R ts] for ALL field arities.
+
+    [StructRep2]/[StructRep3]/[StructRep2H] above are arity-monomorphised copies (2, 3, and 2
+    heterogeneous fields).  That is not a generalisation — [StructRep47] is the reductio.  The honest
+    generalisation is the standard one: a struct is a HETEROGENEOUS NESTED PRODUCT [Tup ts] over its
+    field-type list [ts : list Type], and a field is a TYPED de Bruijn INDEX [Mem ts t] ([MHere]/[MNext]
+    = Peano [FZ]/[FS]).  ONE record [StructRep R ts] (an iso [R ≅ Tup ts]) covers every arity.
+
+    This ALSO closes the review #8/#9 defect class BY CONSTRUCTION: the [StructRep2] field API took a
+    numeric slot [idx] AND a separate projection [proj], tied only by an erasable coherence [field_at2]
+    that a swapped [StructRep2Of] dictionary could satisfy with a MISMATCHED pairing (slot 0 / field-1
+    projection), yielding wrong Go.  Here a field is the SINGLE typed index [m : Mem ts t]; its
+    projection IS [mem_get m ∘ sr_to] and its slot IS [mem_depth m] — BOTH derived from [m].  There is
+    no independent [proj] to disagree with the slot, so the inconsistency is unrepresentable. *)
+
+(** The canonical carrier: a right-nested product of the field types, ending in [unit]. *)
+Fixpoint Tup (ts : list Type) : Type :=
+  match ts with
+  | nil       => unit
+  | t :: rest => (t * Tup rest)%type
+  end.
+
+(** A typed de Bruijn index: [Mem ts t] witnesses that some field of [ts] has type [t]. *)
+Inductive Mem : list Type -> Type -> Type :=
+  | MHere : forall t rest, Mem (t :: rest) t
+  | MNext : forall t s rest, Mem rest t -> Mem (s :: rest) t.
+Arguments MHere {t rest}.
+Arguments MNext {t s rest} _.
+
+(** The projection [Tup ts -> t] a field index names — the canonical accessor for that field. *)
+Fixpoint mem_get {ts t} (m : Mem ts t) : Tup ts -> t :=
+  match m in Mem ts t return Tup ts -> t with
+  | MHere      => fun tp => fst tp
+  | MNext m'   => fun tp => mem_get m' (snd tp)
+  end.
+
+(** The field's SLOT — its position, the heap cell offset and the Go declared-field index. *)
+Fixpoint mem_depth {ts t} (m : Mem ts t) : nat :=
+  match m with
+  | MHere    => 0
+  | MNext m' => S (mem_depth m')
+  end.
+
+(** Per-field type tags, parallel to [Tup], so the typed heap cells can be read/written. *)
+Fixpoint TagTup (ts : list Type) : Type :=
+  match ts with
+  | nil       => unit
+  | t :: rest => (GoTypeTag t * TagTup rest)%type
+  end.
+
+Fixpoint mem_tag {ts t} (m : Mem ts t) : TagTup ts -> GoTypeTag t :=
+  match m in Mem ts t return TagTup ts -> GoTypeTag t with
+  | MHere      => fun tgs => fst tgs
+  | MNext m'   => fun tgs => mem_tag m' (snd tgs)
+  end.
+
+(** The generic struct representation: the field tags + an iso to the canonical tuple. *)
+Record StructRep (R : Type) (ts : list Type) : Type := mkSR {
+  sr_tags : TagTup ts ;
+  sr_to   : R -> Tup ts ;
+  sr_from : Tup ts -> R ;
+  sr_eta  : forall v, sr_from (sr_to v) = v ;
+}.
+Arguments mkSR {R ts} _ _ _ _.
+Arguments sr_tags {R ts} _.  Arguments sr_to {R ts} _.
+Arguments sr_from {R ts} _.  Arguments sr_eta {R ts} _ _.
+
+(** The canonical rep is bound to the TYPE — [R] determines [srep_ts] (its field-type list) and the
+    rep.  (The same per-type binding [StructRep2Of] had, now arity-generic.) *)
+Class StructRepOf (R : Type) : Type := {
+  srep_ts  : list Type ;
+  srep_rep : StructRep R srep_ts ;
+}.
+
+(** A struct pointer — Go [*R].  Carries only its base (canonical rep, no per-handle data). *)
+Record GSPtr (R : Type) := mkGSPtr { gsp_base : nat }.
+Arguments mkGSPtr {R} _.
+Arguments gsp_base {R} _.
+Definition gsptr_hs {R} (p : GSPtr R) : HStruct := mkHStruct (gsp_base p).
+
+(** FIELD access through the pointer, by the typed index [m].  The slot is [mem_depth m] and the tag
+    is [mem_tag m] — both READ OFF [m], so no [(slot, proj)] pair can disagree (review #8/#9). *)
+Definition gsptr_get_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) : IO t :=
+  hfield_get (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)).
+Definition gsptr_set_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) (v : t) : IO unit :=
+  hfield_set (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)) v.
+
+(** Read-after-write THROUGH the pointer — a THEOREM, for ANY field, ANY arity: after writing field
+    [m], reading [m] returns the written value.  Reduces to the same generic [hfield_get_set_same]. *)
+Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) (v : t),
+  bind (gsptr_set_field m p v) (fun _ => gsptr_get_field m p) =io=
+  bind (gsptr_set_field m p v) (fun _ => ret v).
+Proof. intros. unfold gsptr_set_field, gsptr_get_field. apply hfield_get_set_same. Qed.
+
+(** Two handles to the SAME base see each other's writes to a field — the [*R]-receiver ALIASING. *)
+Lemma gsptr_alias : forall {R t} `{StructRepOf R} (p q : GSPtr R) (m : Mem srep_ts t) (v : t) (w : World),
+  gsp_base p = gsp_base q ->
+  ref_sel (hfield_cell (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)))
+          (ref_upd (hfield_cell (gsptr_hs q) (mem_depth m) (mem_tag m (sr_tags srep_rep))) v w)
+    = v.
+Proof.
+  intros R t Hrep p q m v w Hb. apply hstruct_alias. unfold gsptr_hs. cbn. exact Hb.
+Qed.
+
 (** ---- Bounded iteration (loops, step 8) ----
 
     [for_each xs body] runs [body] on each element of [xs], in order.  It is a
