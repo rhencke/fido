@@ -5180,6 +5180,29 @@ Lemma chan_buf_ref_upd_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) 
   chan_buf tag ch (ref_upd r v w) = chan_buf tag ch w.
 Proof. intros. unfold chan_buf, ref_upd. reflexivity. Qed.
 
+(** ---- review #6 #14: World-component independence for the CLOSEDNESS refinement ----
+    [chan_close_upd] touches only the channel-closed flag of ONE channel; it leaves buffers and refs
+    untouched and leaves every OTHER channel's closedness untouched; and a ref write ([ref_upd]) leaves
+    closedness untouched.  These frame the [WClosedMatch] conjunct of the combined state refinement. *)
+Lemma chan_buf_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_buf tag ch' (chan_close_upd tag ch w) = chan_buf tag ch' w.
+Proof.
+  intros A tag ch ch' w Hne. unfold chan_close_upd, chan_buf.
+  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+Qed.
+Lemma ref_sel_chan_close_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
+  ref_sel r (chan_close_upd tag ch w) = ref_sel r w.
+Proof. intros. unfold chan_close_upd. apply ref_sel_chan_write_frame. Qed.
+Lemma chan_closed_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_closed ch' (chan_close_upd tag ch w) = chan_closed ch' w.
+Proof.
+  intros A tag ch ch' w Hne. unfold chan_close_upd, chan_closed.
+  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+Qed.
+Lemma chan_closed_ref_upd : forall {A B} (r : Ref B) (v : B) (ch : GoChan A) (w : World),
+  chan_closed ch (ref_upd r v w) = chan_closed ch w.
+Proof. intros. unfold chan_closed, ref_upd. reflexivity. Qed.
+
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
     returns [v] (from [ref_sel_upd_same]). *)
 Lemma hfield_get_set_same : forall {A} (h : HStruct) (k : int) (tag : GoTypeTag A) (v : A),
