@@ -8164,3 +8164,32 @@ Proof.
     + exfalso. apply Hnpan. left. exists c, k. split; [exact Hp | exact Hcl].
     + eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
 Qed.
+
+(** ---- UNIFICATION: the unbounded [rstep] is SUBSUMED by the [rstepC cap] family ----
+    [rstepsC_embed] is one half — every bounded step is an unbounded one ([rstepC cap ⊆ rsteps]).
+    This is the other half at the step level: every UNBOUNDED step is a BOUNDED step at SUFFICIENT
+    capacity.  A buffering send needs room, so pick a capacity exceeding the current buffer on every
+    channel ([S ∘ length ∘ b]); every other step (recv/write/read/spawn/select/close/…) is
+    capacity-independent, so ANY capacity works.  ([rstep] has no rendezvous rule, so [rstepC_sync] is
+    never needed.)  Hence the two calculi are ONE parameterized family: [rstepC cap] is the
+    authoritative bounded calculus, and the unbounded [rstep] is exactly its capacity-saturated
+    limit — [rstep cfg cfg'] iff [rstepC cap cfg cfg'] for SOME (large enough) [cap]. *)
+Lemma rstep_at_some_cap : forall cfg cfg', rstep cfg cfg' -> exists cap, rstepC cap cfg cfg'.
+Proof.
+  intros cfg cfg' H. inversion H; subst.
+  - exists (fun ch => S (length (b ch))).
+    eapply rstepC_send; [ eassumption | eassumption | eassumption | cbn; lia ].
+  - exists (fun _ => 1). eapply rstepC_recv; eassumption.
+  - exists (fun _ => 1). eapply rstepC_write; eassumption.
+  - exists (fun _ => 1). eapply rstepC_read; eassumption.
+  - exists (fun _ => 1). eapply rstepC_spawn; eassumption.
+  - exists (fun _ => 1). eapply rstepC_select; eassumption.
+  - exists (fun _ => 1). eapply rstepC_close; eassumption.
+  - exists (fun _ => 1). eapply rstepC_recv_closed; eassumption.
+  - exists (fun _ => 1). eapply rstepC_select_closed; eassumption.
+Qed.
+
+(** The two halves together pin down the relationship precisely: forward, [rstep ⊆ ∃cap. rstepC cap]
+    ([rstep_at_some_cap]); backward, [rstepC cap ⊆ rsteps] ([rstepC_embed], a [rstepC_sync] rendezvous
+    collapsing to its TWO-step unbounded image — which is exactly why a clean single-step biconditional
+    does NOT hold and the bounded calculus is the genuinely finer one). *)
