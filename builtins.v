@@ -5202,6 +5202,21 @@ Qed.
 Lemma chan_closed_ref_upd : forall {A B} (r : Ref B) (v : B) (ch : GoChan A) (w : World),
   chan_closed ch (ref_upd r v w) = chan_closed ch w.
 Proof. intros. unfold chan_closed, ref_upd. reflexivity. Qed.
+(** A send/recv on one channel leaves a DIFFERENT channel's closedness untouched (the closed flag of the
+    sent/recv'd channel is itself preserved — [chan_closed_send]/[chan_closed_recv] — so [WClosedMatch] is
+    framed across every step). *)
+Lemma chan_closed_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (v : A) (w : World),
+  ch <> ch' -> chan_closed ch' (chan_send_upd tag ch v w) = chan_closed ch' w.
+Proof.
+  intros A tag ch ch' v w Hne. unfold chan_send_upd, chan_closed.
+  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+Qed.
+Lemma chan_closed_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
+  ch <> ch' -> chan_closed ch' (chan_recv_upd tag ch w) = chan_closed ch' w.
+Proof.
+  intros A tag ch ch' w Hne. unfold chan_recv_upd, chan_closed.
+  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+Qed.
 
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
     returns [v] (from [ref_sel_upd_same]). *)

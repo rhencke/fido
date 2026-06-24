@@ -5537,8 +5537,15 @@ End KeystoneHeap.
     and the [World]'s ref- and channel-heaps are INDEPENDENT ([ref_sel_chan_*_upd] /
     [chan_buf_ref_upd_frame] in builtins.v), so the untouched component stays matched in the SAME
     advanced world.  [reachable_refines_state]: every reachable state of a concurrent program — its
-    channels AND its memory — is realized by ONE [run_io] world, across all interleavings.
+    channels AND its memory — is realized by ONE [run_io] world, across all interleavings.  Open/closed
+    channel STATUS is matched too ([reachable_refines_closed], review #6 #14); capacity/nilness stay a
+    frontier (capacity lives in the bounded calculus [rstepC]).
     ============================================================================ *)
+(** [closedb] distributes over trace concatenation — moved up (was below) because [wstate_stepC]'s
+    closedness-preservation in [KeystoneState] needs it. *)
+Lemma closedb_app : forall t1 t2 c, closedb (t1 ++ t2) c = orb (closedb t1 c) (closedb t2 c).
+Proof. intros t1 t2 c. unfold closedb. apply existsb_app. Qed.
+
 Section KeystoneState.
   Variable chenv : nat -> GoChan GoI64.
   Variable locenv : nat -> Ref GoI64.
@@ -5653,8 +5660,9 @@ Section KeystoneState.
     exact (wstate_steps _ _ _ Hsteps (wstate_init p w0 Hempty Hzero)).
   Qed.
 
-  (** Capstone: that single world realizes the FULL reachable state AND (under ownership) the
-      execution is race-free with a strict-partial-order happens-before. *)
+  (** Capstone: that single world realizes the reachable BUFFER+HEAP state AND (under ownership) the
+      execution is race-free with a strict-partial-order happens-before.  (Open/closed channel STATUS is
+      also realized — [reachable_refines_closed] below, review #6 #14; capacity/nilness stay a frontier.) *)
   Theorem reachable_refines_state_and_safe : forall p cfg w0,
     (forall c, chan_buf TI64 (chenv c) w0 = []) ->
     (forall l, ref_sel (locenv l) w0 = inj 0) ->
@@ -5667,6 +5675,166 @@ Section KeystoneState.
     intros p cfg w0 Hempty Hzero Hsteps HO.
     split; [exact (reachable_refines_state p cfg w0 Hempty Hzero Hsteps) |].
     exact (reachable_owned_safe_r p cfg Hsteps HO).
+  Qed.
+
+  (** ---- review #6 #14: the refinement that ALSO tracks open/closed channel status ----
+      [WState] above matches buffers + heap but NOT closedness — a closed-channel config would refine an
+      OPEN world (the old [wstate_step] close case left the world unchanged).  [WClosedMatch] adds the
+      missing conjunct — the world's [chan_closed] flag matches the trace's [closedb] — and [wstate_stepC]
+      maps a [close] to [chan_close_upd] (advancing the world) so the FULL state, buffers AND heap AND
+      closedness, is realized by one [run_io] world.  (Capacity/nilness stay a frontier — capacity lives in
+      the bounded calculus [rstepC]; this is the closedness half of #14.) *)
+  Definition WClosedMatch (w : World) (cfg : RConfig) : Prop :=
+    forall c, chan_closed (chenv c) w = closedb (rc_trace cfg) c.
+  Definition WStateC (w : World) (cfg : RConfig) : Prop :=
+    WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WClosedMatch w cfg.
+
+  Lemma wstate_stepC : forall cfg cfg' w,
+    rstep cfg cfg' -> WStateC w cfg -> exists w', WStateC w' cfg'.
+  Proof.
+    intros cfg cfg' w Hstep [HMc [HMh HMcl]].
+    unfold WMatchC, rchan in HMc. unfold WHMatchC in HMh. unfold WClosedMatch in HMcl.
+    destruct Hstep as
+      [ p b h lv tr tid c0 v k Hlv Hp _
+      | p b h lv tr tid c0 f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c0 f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c0 k Hlv Hp _
+      | p b h lv tr tid c0 f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c0 f pos e Hlv Hp Hin Hbc Hpos Hek ].
+    - (* send *)
+      exists (chan_send_upd TI64 (chenv c0) (inj v) w). split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, chan_buf_send, (HMc c0), !map_app. cbn. reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_send_frame TI64 (chenv c0) (chenv c) (inj v) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_send_upd. exact (HMh l).
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KSend c0) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
+        * rewrite chan_closed_send. exact (HMcl c0).
+        * rewrite (chan_closed_send_frame TI64 (chenv c0) (chenv c1) (inj v) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
+          exact (HMcl c1).
+    - (* recv *)
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest))
+        by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
+      exists (chan_recv_upd TI64 (chenv c0) w). split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
+        * rewrite chan_closed_recv. exact (HMcl c0).
+        * rewrite (chan_closed_recv_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
+          exact (HMcl c1).
+    - (* write *)
+      exists (ref_upd (locenv l) (inj v) w). split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. rewrite chan_buf_ref_upd_frame. exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l0. destruct (Nat.eq_dec l0 l) as [->|Hne].
+        * rewrite upd_same, ref_sel_upd_same. reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (ref_sel_upd_diff (locenv l) (locenv l0) (inj v) w (kst_locenv_neq l l0 (not_eq_sym Hne))).
+          exact (HMh l0).
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KWrite l) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. rewrite chan_closed_ref_upd. exact (HMcl c1).
+    - (* read: world unchanged *)
+      exists w. split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc.
+      + unfold WHMatchC; cbn [rc_heap]; exact HMh.
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KRead l) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. exact (HMcl c1).
+    - (* spawn: world unchanged *)
+      exists w. split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc.
+      + unfold WHMatchC; cbn [rc_heap]; exact HMh.
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KSpawn cid) :: mkEv cid (KStart (length tr)) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. exact (HMcl c1).
+    - (* select *)
+      assert (Hbuf : chan_buf TI64 (chenv c0) w = inj v :: map inj (map fst brest))
+        by (rewrite (HMc c0); cbn [rc_bufs]; rewrite Hbc; reflexivity).
+      exists (chan_recv_upd TI64 (chenv c0) w). split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * rewrite upd_same, (chan_buf_recv TI64 (chenv c0) (inj v) (map inj (map fst brest)) w Hbuf). reflexivity.
+        * rewrite (upd_other _ _ _ _ Hne),
+            (chan_buf_recv_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_recv_upd. exact (HMh l).
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KRecv c0 s) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. destruct (Nat.eq_dec c1 c0) as [->|Hne].
+        * rewrite chan_closed_recv. exact (HMcl c0).
+        * rewrite (chan_closed_recv_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
+          exact (HMcl c1).
+    - (* close: world ADVANCES via chan_close_upd *)
+      exists (chan_close_upd TI64 (chenv c0) w). split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; intros c. destruct (Nat.eq_dec c c0) as [->|Hne].
+        * unfold chan_close_upd. rewrite chan_buf_write_same. exact (HMc c0).
+        * rewrite (chan_buf_close_frame TI64 (chenv c0) (chenv c) w (kst_chenv_neq c0 c (not_eq_sym Hne))).
+          exact (HMc c).
+      + unfold WHMatchC; cbn [rc_heap]; intros l. rewrite ref_sel_chan_close_upd. exact (HMh l).
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app. destruct (Nat.eq_dec c1 c0) as [->|Hne].
+        * rewrite chan_closed_close. symmetry. apply Bool.orb_true_intro. right.
+          cbn. rewrite Bool.orb_false_r. apply Nat.eqb_refl.
+        * rewrite (chan_closed_close_frame TI64 (chenv c0) (chenv c1) w (kst_chenv_neq c0 c1 (not_eq_sym Hne))).
+          replace (closedb (mkEv tid (KClose c0) :: nil) c1) with false
+            by (cbn; rewrite Bool.orb_false_r; symmetry; apply Nat.eqb_neq; exact (not_eq_sym Hne)).
+          rewrite Bool.orb_false_r. exact (HMcl c1).
+    - (* recv_closed: world unchanged *)
+      exists w. split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc.
+      + unfold WHMatchC; cbn [rc_heap]; exact HMh.
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KRecv c0 pos) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. exact (HMcl c1).
+    - (* select_closed: world unchanged *)
+      exists w. split; [|split].
+      + unfold WMatchC, rchan; cbn [rc_bufs]; exact HMc.
+      + unfold WHMatchC; cbn [rc_heap]; exact HMh.
+      + unfold WClosedMatch; cbn [rc_trace]; intros c1. rewrite closedb_app.
+        replace (closedb (mkEv tid (KRecv c0 pos) :: nil) c1) with false by reflexivity.
+        rewrite Bool.orb_false_r. exact (HMcl c1).
+  Qed.
+
+  Lemma wstate_stepsC : forall cfg cfg' w,
+    rsteps cfg cfg' -> WStateC w cfg -> exists w', WStateC w' cfg'.
+  Proof.
+    intros cfg cfg' w H. revert w. induction H; intros w HM; [exists w; exact HM|].
+    destruct (wstate_stepC _ _ _ H HM) as [w' HM']. exact (IHrsteps w' HM').
+  Qed.
+
+  Lemma wstate_initC : forall p w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall c, chan_closed (chenv c) w0 = false) ->
+    WStateC w0 (rinit_cfg p).
+  Proof.
+    intros p w0 Hempty Hzero Hclosed. split; [|split].
+    - intros c. unfold rchan, rinit_cfg; cbn [rc_bufs]. rewrite Hempty. reflexivity.
+    - intros l. unfold rinit_cfg; cbn [rc_heap]. exact (Hzero l).
+    - intros c. unfold rinit_cfg; cbn [rc_trace]. rewrite (Hclosed c). reflexivity.
+  Qed.
+
+  (** THE FULL COMBINED REFINEMENT (review #6 #14): every reachable state of a concurrent program — its
+      channels, its memory, AND its open/closed channel status — is realized by ONE [run_io] world. *)
+  Theorem reachable_refines_closed : forall p cfg w0,
+    (forall c, chan_buf TI64 (chenv c) w0 = []) ->
+    (forall l, ref_sel (locenv l) w0 = inj 0) ->
+    (forall c, chan_closed (chenv c) w0 = false) ->
+    rsteps (rinit_cfg p) cfg ->
+    exists w, WMatchC chenv inj w cfg /\ WHMatchC locenv inj w cfg /\ WClosedMatch w cfg.
+  Proof.
+    intros p cfg w0 Hempty Hzero Hclosed Hsteps.
+    exact (wstate_stepsC _ _ _ Hsteps (wstate_initC p w0 Hempty Hzero Hclosed)).
   Qed.
 
 End KeystoneState.
@@ -6121,8 +6289,7 @@ Qed.
     guard meaningful: a closed channel can never be validly re-closed.  That guard + a panic-aware
     deadlock characterization is the next slice.) *)
 
-Lemma closedb_app : forall t1 t2 c, closedb (t1 ++ t2) c = orb (closedb t1 c) (closedb t2 c).
-Proof. intros t1 t2 c. unfold closedb. apply existsb_app. Qed.
+(* [closedb_app] moved up to before [Section KeystoneState] (needed there by [wstate_stepC]). *)
 
 (* Every [rstep] APPENDS a non-empty suffix — one event for all rules EXCEPT [rstep_spawn], which
    appends TWO (the parent's [KSpawn] and the child's [KStart]).  Buffers/heap/liveness may change;
