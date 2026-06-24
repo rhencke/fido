@@ -131,31 +131,40 @@ Fixpoint go {A} (c : Cmd A) (w : World) : Outcome A * list (Cmd unit) :=
   | CDfr d c' => let '(oc, ds) := go c' w in (oc, ds ++ (d :: nil))
   end.
 
-(** [run_defers fuel ds w] runs the accumulated defers in order — [go] APPENDS each, so the head is the
-    LAST-deferred = runs FIRST (LIFO, as Go).  A deferred runs as its OWN func scope (its defers run too,
-    recursively), and a deferred panic PROPAGATES after the rest run.  Fuel bounds the deferred-of-deferred
-    nesting (the continuation/accumulation is not structural). *)
-Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (w : World) : option (Outcome unit) :=
+(** Project an [Outcome A] to [Outcome unit], keeping its panic value and world — the "active panic"
+    carrier threaded through defer unwinding. *)
+Definition oc_unit {A} (oc : Outcome A) : Outcome unit :=
+  match oc with ORet _ w => ORet tt w | OPanic v w => OPanic v w end.
+
+(** [run_defers fuel ds acc] runs EVERY deferred action in [ds] — [go] APPENDS each, so the head is the
+    LAST-deferred = runs FIRST (LIFO, as Go) — threading the "active panic" in [acc : Outcome unit]
+    ([ORet] = none in flight, [OPanic v] = panic [v] in flight).  Go semantics, faithfully: each deferred
+    action runs as its OWN func scope (its nested defers run, SEEDED by its body's outcome [oc_d]); if its
+    net outcome PANICS, that panic REPLACES the active one — but the REMAINING (older) defers STILL RUN
+    regardless, accumulating their effects.  So the final panic is the LAST one raised during unwinding,
+    and EVERY defer's effects happen.
+
+    REVIEW P0 (the bug this replaces): the earlier version STOPPED at the first panicking defer and
+    returned its panic WITHOUT running the older defers [ds'] — Go continues the whole LIFO stack, a newer
+    panic merely replacing the active one.  Skipping older defers permitted FALSE heap / output /
+    resource-release proofs (a deferred [Close]/unlock/log after a panicking defer was provably dropped).
+    Fuel bounds the deferred-of-deferred nesting (the accumulation is not structural). *)
+Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (acc : Outcome unit) : option (Outcome unit) :=
   match fuel with
   | O => None
   | S n =>
     match ds with
-    | nil => Some (ORet tt w)
+    | nil => Some acc
     | d :: ds' =>
-        let '(oc_d, ds_d) := go d w in
-        match oc_d with
-        | ORet _ w1 =>
-            match run_defers n ds_d w1 with
-            | Some (ORet _ w2) => run_defers n ds' w2
-            | Some (OPanic v w2) => Some (OPanic v w2)
-            | None => None
-            end
-        | OPanic v w1 =>
-            match run_defers n ds_d w1 with
-            | Some (ORet _ w2) => Some (OPanic v w2)
-            | Some (OPanic v' w2) => Some (OPanic v' w2)
-            | None => None
-            end
+        let '(oc_d, ds_d) := go d (oc_world acc) in
+        match run_defers n ds_d oc_d with             (* d's net outcome: its body THEN its own nested defers *)
+        | None => None
+        | Some net_d =>
+            let acc' := match net_d with
+                        | OPanic v' w' => OPanic v' w'        (* d panicked: REPLACE the active panic *)
+                        | ORet _ w'    => oc_set_world acc w' (* d returned: KEEP the active panic, advance world *)
+                        end in
+            run_defers n ds' acc'                     (* ...then ALWAYS run the older defers *)
         end
     end
   end.
@@ -164,7 +173,7 @@ Fixpoint run_defers (fuel : nat) (ds : list (Cmd unit)) (w : World) : option (Ou
     deferred panic.  [defer] is now FAITHFUL — the review #12 no-op is gone. *)
 Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A) :=
   let '(oc, ds) := go c w in
-  match run_defers fuel ds (oc_world oc) with
+  match run_defers fuel ds (oc_unit oc) with    (* seed the active panic with the body's own outcome *)
   | Some (ORet _ w') => Some (oc_set_world oc w')
   | Some (OPanic v w') => Some (OPanic v w')
   | None => None
@@ -190,4 +199,19 @@ Proof. reflexivity. Qed.
 Example defer_runs_on_panic : forall (a v : GoAny) (w : World),
   run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CPan v) : Cmd unit) w
     = Some (OPanic v (w_log true (a :: nil) w)).
+Proof. reflexivity. Qed.
+
+(** THE P0 FIX, LOCKED: a NEWER defer panics (runs FIRST in LIFO) — the OLDER deferred [println(a)] STILL
+    RUNS (its output [w_log a] appears) and the panic propagates.  The pre-fix interpreter STOPPED at the
+    panicking defer and returned [OPanic v w] with NO [w_log a] — a provably-dropped deferred effect. *)
+Example defer_older_runs_after_newer_panics : forall (a v : GoAny) (w : World),
+  run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (CPan v) (CRet tt)) : Cmd unit) w
+    = Some (OPanic v (w_log true (a :: nil) w)).
+Proof. reflexivity. Qed.
+
+(** Two panicking defers: the LAST to run (the EARLIER-registered [v1], deepest in LIFO) wins, replacing
+    the newer [v2] — exactly Go's "a later panic during unwinding replaces the active one". *)
+Example defer_last_panic_wins : forall (v1 v2 : GoAny) (w : World),
+  run_cmd 5 (CDfr (CPan v1) (CDfr (CPan v2) (CRet tt)) : Cmd unit) w
+    = Some (OPanic v1 w).
 Proof. reflexivity. Qed.
