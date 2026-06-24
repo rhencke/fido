@@ -89,8 +89,22 @@ a stuck config is a genuine wait-for-sender, since send/close-on-closed now pani
 recv-on-closed returns zero).  Concrete all-effects executions are machine-checked
 (`unified_panic_runs_defer`, `unified_heap_write_read`, `unified_chan_send_recv`,
 `unified_output_ordered`).  `unified.v` is the authoritative semantics; the older systems
-remain as earlier, narrower fragments.  Still open (in progress): the full `rstep`→`ustep`
-embedding (`USelect` + the translation), sessions on `ustep`, and retiring the old systems.
+are now provably narrower FRAGMENTS of it: the rich value-carrying calculus `rstep` (the most
+expressive prior system — goroutines + channels + heap + select + closed-channel semantics) is
+EMBEDDED into `ustep` by a structure-preserving translation `embed_cmd`/`embed_cfg`, and
+`rstep_embeds` proves a rule-for-rule FORWARD SIMULATION (`rstep cfg cfg' -> ustep (embed_cfg cfg)
+(embed_cfg cfg')`), lifted to runs (`rsteps_embeds`).  Because the embedding is the IDENTITY on the
+trace (`embed_cfg_trace`), every trace-based safety result already proved over `rstep` runs (WfTrace,
+happens-before, the ownership/race discipline) is — verbatim — a statement about `ustep` runs
+(`rsteps_trace_embeds`).  So `ustep` is not a competing semantics: the rich calculus is literally
+`ustep` restricted to the panic/defer/output-free sub-language, and `ustep` only ADDS the missing
+effects.  This is the formal close of the architectural finding ("no single authoritative semantics").
+*Trust note:* `rstep_embeds` commutes `embed_cmd` with the program-map `upd` via
+`functional_extensionality` — already part of the END-TO-END TRUST BASE (builtins.v `run_io_inj`),
+and NOT in `main_effect`'s cone, so `EXPECTED_ASSUMPTIONS.txt` stays empty and the axiom gate is
+unaffected.  Still open (in progress): sessions stated directly on `ustep` runs (the PSess protocol
+results are syntactic — `psess_emits_proto` — and not yet connected to a `ustep` execution), and
+retiring the old systems now that they are provably fragments.
 
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.

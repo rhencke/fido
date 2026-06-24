@@ -27,7 +27,7 @@
     [ustep_pan_defer]. *)
 
 From Fido Require Import preamble concurrency.
-From Stdlib Require Import List Lia Arith.
+From Stdlib Require Import List Lia Arith FunctionalExtensionality.
 Import ListNotations.
 
 (** THE unified command language — every admitted effect, one syntax.  (Values are [nat] and locations
@@ -766,4 +766,194 @@ Proof.
   - exists nil. rewrite app_nil_r. reflexivity.
   - destruct (ustep_trace_grows a b Hab) as [s1 H1]. destruct IH as [s2 H2].
     exists (s1 ++ s2). rewrite H2, H1, app_assoc. reflexivity.
+Qed.
+
+(** ============================================================================
+    SLICE 9 — THE EMBEDDING: the rich value-carrying calculus [rstep] IS a fragment of [ustep].
+
+    This is the formal answer to the architectural finding ("no single authoritative semantics over
+    goroutines+channels+heap+panic+defer+output").  We give a structure-preserving map [embed_cmd :
+    concurrency.Cmd -> UCmd] / [embed_cfg : RConfig -> UConfig] and prove a FORWARD SIMULATION: every
+    [rstep] is mirrored, rule-for-rule, by a [ustep] on the embedded configurations
+    ([rstep_embeds]), lifted to runs ([rsteps_embeds]).  Because the embedding is the IDENTITY on the
+    trace ([embed_cfg_trace]), every trace-based result already proved for [rstep] runs (well-formed
+    traces, happens-before, the ownership/race-freedom discipline) is — verbatim — a statement about
+    [ustep] runs.  So [ustep] is not a competing semantics: the rich calculus is literally [ustep]
+    restricted to the panic/defer/output-free sub-language, and [ustep] only ADDS the missing effects.
+
+    The one boundary subtlety: [embed_cmd] must commute with [upd] on the program map (and, at a spawn,
+    with the constant defer/panic maps).  These are pointwise equalities of FUNCTIONS, discharged by
+    [functional_extensionality] — already part of the project's trust base (builtins.v [run_io_inj]),
+    and NOT in [main_effect]'s cone, so [EXPECTED_ASSUMPTIONS.txt] stays empty and the axiom gate is
+    unaffected.  ([Print Assumptions rstep_embeds] therefore shows [functional_extensionality]; this is
+    the same funext the END-TO-END TRUST BASE already discloses, introduced nowhere new logically.) *)
+
+(* The select cases carry value-binding continuations ([nat -> Cmd]) inside a [list].  Coq's guard
+   checker cannot see a recursive [embed_cmd] call through either [List.map] OR a mutual companion
+   fixpoint ([f v] is rejected as "not a subterm of rest").  The canonical idiom that IS accepted: an
+   INLINED local fixpoint over the case list, in the [CSelect] branch — there the checker tracks that
+   [xs]'s elements are subterms of [cs], hence of [c], so [embed_cmd (f v)] is a guarded call to the
+   enclosing [embed_cmd]. *)
+Fixpoint embed_cmd (c : Cmd) : UCmd :=
+  match c with
+  | CRet         => URet
+  | CSend ch v k => USend ch v (embed_cmd k)
+  | CRecv ch f   => URecv ch (fun v => embed_cmd (f v))
+  | CWrite l v k => UWrite l v (embed_cmd k)
+  | CRead l f    => URead l (fun v => embed_cmd (f v))
+  | CSpawn ch k  => USpawn (embed_cmd ch) (embed_cmd k)
+  | CSelect cs   =>
+      USelect ((fix emb_cs (xs : list (nat * (nat -> Cmd))) : list (nat * (nat -> UCmd)) :=
+                  match xs with
+                  | []              => []
+                  | (ch, f) :: rest => (ch, fun v => embed_cmd (f v)) :: emb_cs rest
+                  end) cs)
+  | CClose ch k  => UClose ch (embed_cmd k)
+  end.
+
+(* A STANDALONE companion (no longer mutual — [embed_cmd] is already a closed constant here, so its
+   call inside is not a recursive call and needs no guard).  It is CONVERTIBLE to the [CSelect]
+   branch's inlined fix, so [embed_cmd (CSelect cs)] reduces to [USelect (embed_cases cs)] — letting
+   the select rules reason about [In] over this named form. *)
+Fixpoint embed_cases (cs : list (nat * (nat -> Cmd))) : list (nat * (nat -> UCmd)) :=
+  match cs with
+  | []             => []
+  | (ch, f) :: rest => (ch, fun v => embed_cmd (f v)) :: embed_cases rest
+  end.
+
+Lemma embed_cmd_select : forall cs, embed_cmd (CSelect cs) = USelect (embed_cases cs).
+Proof. reflexivity. Qed.
+
+Definition embed_cfg (cfg : RConfig) : UConfig :=
+  mkUCfg (fun t => embed_cmd (rc_prog cfg t))
+         (rc_bufs cfg) (rc_heap cfg) (rc_live cfg) (rc_trace cfg)
+         nil (fun _ => nil) (fun _ => None).
+
+(** [embed_cmd] commutes with a single-slot program update — the only non-definitional step. *)
+Lemma embed_upd_prog : forall (p : nat -> Cmd) (tid : nat) (k : Cmd),
+  (fun t => embed_cmd (upd p tid k t)) = upd (fun t => embed_cmd (p t)) tid (embed_cmd k).
+Proof.
+  intros p tid k. apply functional_extensionality. intro t.
+  destruct (Nat.eq_dec t tid) as [-> | Hne].
+  - rewrite !upd_same. reflexivity.
+  - rewrite !(upd_other _ _ _ _ Hne). reflexivity.
+Qed.
+
+(** A spawn resets the fresh child's defer/panic to the empty maps — which the constant embedded maps
+    already are; [upd c nil/None] of a constant map is that same constant map (pointwise). *)
+Lemma upd_const_nil : forall cid : nat, upd (fun _ : nat => @nil UCmd) cid nil = (fun _ => nil).
+Proof.
+  intro cid. apply functional_extensionality. intro x.
+  destruct (Nat.eq_dec x cid) as [-> | Hne].
+  - rewrite upd_same. reflexivity.
+  - rewrite (upd_other _ _ _ _ Hne). reflexivity.
+Qed.
+
+Lemma upd_const_none : forall cid : nat, upd (fun _ : nat => @None GoAny) cid None = (fun _ => None).
+Proof.
+  intro cid. apply functional_extensionality. intro x.
+  destruct (Nat.eq_dec x cid) as [-> | Hne].
+  - rewrite upd_same. reflexivity.
+  - rewrite (upd_other _ _ _ _ Hne). reflexivity.
+Qed.
+
+(** [In] is preserved under [embed_cases] — needed for the two select rules. *)
+Lemma in_embed_cases : forall cs c f,
+  In (c, f) cs -> In (c, fun v => embed_cmd (f v)) (embed_cases cs).
+Proof.
+  induction cs as [ | [ch g] rest IH ]; cbn; intros c f H; [ contradiction | ].
+  destruct H as [Heq | Hin].
+  - injection Heq; intros Hg Hch; subst. left; reflexivity.
+  - right. apply IH. exact Hin.
+Qed.
+
+(** THE forward simulation: every [rstep] is a [ustep] on the embedded configs — rule for rule. *)
+Theorem rstep_embeds : forall cfg cfg', rstep cfg cfg' -> ustep (embed_cfg cfg) (embed_cfg cfg').
+Proof.
+  intros cfg cfg' H. destruct H as
+    [ p b h lv tr tid c v k Hlv Hp Hcl
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcl
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ].
+  - (* send *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid k).
+    apply ustep_send; [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hcl ].
+  - (* recv *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid (f v)).
+    apply ustep_recv with (f := fun w => embed_cmd (f w)) (v := v);
+      [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hbc ].
+  - (* write *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid k).
+    apply ustep_write; [ exact Hlv | cbn beta; rewrite Hp; reflexivity ].
+  - (* read *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid (f (h l))).
+    apply ustep_read with (f := fun w => embed_cmd (f w));
+      [ exact Hlv | cbn beta; rewrite Hp; reflexivity ].
+  - (* spawn — also resets the child's (constant) defer/panic maps *)
+    assert (HT : embed_cfg (mkRCfg (upd (upd p tid k) cid child) b h (upd lv cid true)
+                    (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]))
+               = mkUCfg (upd (upd (fun t => embed_cmd (p t)) tid (embed_cmd k)) cid (embed_cmd child))
+                        b h (upd lv cid true)
+                        (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))])
+                        nil (upd (fun _ => nil) cid nil) (upd (fun _ => None) cid None)).
+    { unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace]. f_equal.
+      - rewrite (embed_upd_prog (upd p tid k) cid child), (embed_upd_prog p tid k). reflexivity.
+      - symmetry. apply upd_const_nil.
+      - symmetry. apply upd_const_none. }
+    rewrite HT. unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    apply ustep_spawn; [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hcid ].
+  - (* select *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid (f v)).
+    apply ustep_select with (cases := embed_cases cases) (c := c) (f := fun w => embed_cmd (f w)) (v := v);
+      [ exact Hlv | cbn beta; rewrite Hp; reflexivity
+      | apply in_embed_cases; exact Hin | exact Hbc ].
+  - (* close *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid k).
+    apply ustep_close; [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hcl ].
+  - (* recv from a closed, drained channel *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid (f 0)).
+    apply ustep_recv_closed with (c := c) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
+      [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hbc | exact Hpos | exact Hek ].
+  - (* select on a closed, drained case *)
+    unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
+    rewrite (embed_upd_prog p tid (f 0)).
+    apply ustep_select_closed with (cases := embed_cases cases) (c := c) (f := fun w => embed_cmd (f w)) (pos := pos) (e := e);
+      [ exact Hlv | cbn beta; rewrite Hp; reflexivity
+      | apply in_embed_cases; exact Hin | exact Hbc | exact Hpos | exact Hek ].
+Qed.
+
+(** Lifted to runs: an [rsteps] execution embeds into a [usteps] execution. *)
+Theorem rsteps_embeds : forall cfg cfg', rsteps cfg cfg' -> usteps (embed_cfg cfg) (embed_cfg cfg').
+Proof.
+  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
+  - apply usteps_refl.
+  - eapply usteps_step; [ apply rstep_embeds; exact Hab | exact IH ].
+Qed.
+
+(** The embedding is the IDENTITY on the trace — so every trace-based safety result about [rstep]
+    runs is, verbatim, a result about the corresponding [ustep] runs. *)
+Lemma embed_cfg_trace : forall cfg, uc_trace (embed_cfg cfg) = rc_trace cfg.
+Proof. intro cfg. reflexivity. Qed.
+
+(** Capstone: a rich-calculus run is mirrored step-for-step by the unified semantics with an IDENTICAL
+    trace.  This is the formal sense in which [ustep] is THE one authoritative semantics — [rstep]'s
+    every behaviour (and thus every theorem stated over [rstep]'s traces) lives inside it. *)
+Corollary rsteps_trace_embeds : forall cfg cfg', rsteps cfg cfg' ->
+  usteps (embed_cfg cfg) (embed_cfg cfg') /\ uc_trace (embed_cfg cfg') = rc_trace cfg'.
+Proof.
+  intros cfg cfg' H. split.
+  - apply rsteps_embeds; exact H.
+  - apply embed_cfg_trace.
 Qed.
