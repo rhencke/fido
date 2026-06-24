@@ -1020,17 +1020,24 @@ Lemma catch_panic : forall {A} (v : GoAny) (h : GoAny -> IO A),
   catch (panic v) h =io= h v.
 Proof. intros A v h w. rewrite run_catch, run_panic. reflexivity. Qed.
 
-(** ---- Hoare logic ----
-    [{{ P }} m {{ Q }}] is PARTIAL correctness for NORMAL completion: if [P]
-    holds before and [m] returns normally ([ORet a w']) then [Q a w'].  A panic
-    outcome satisfies the triple trivially ([True]) — honestly, since partial
-    correctness asserts nothing about abnormal exit.  This is [True], NOT
-    [False]: that is exactly what keeps [hoare_panic] from collapsing [World]. *)
+(** ---- Hoare logic (PANIC-SENSITIVE — review: the partial triple's vacuous panic) ----
+    [{{ P }} m {{ Q }}] is a PANIC-SENSITIVE correctness triple: from any [P]-world, [m]
+    runs WITHOUT PANICKING and ends in a [Q]-world.  A panic maps to [False], NOT [True]
+    — so a panicking program does NOT satisfy a (satisfiable-precondition) triple.
+
+    Why the change (review finding): the earlier triple mapped [OPanic => True], so a panic
+    VACUOUSLY satisfied ANY postcondition ([hoare_panic] proved [{{P}} panic v {{Q}}] for all
+    [Q]).  That made panic-FREEDOM — the project's core safety property (no nil-deref / OOB /
+    send-on-closed / failed assertion) — INEXPRESSIBLE in the logic.  With [OPanic => False] a
+    valid triple GUARANTEES the absence of every modelled panic ([hoare_no_panic] below extracts
+    exactly that), so the safe-by-construction APIs can now be PROVED panic-free, and [panic]
+    itself is specifiable only from a FALSE precondition ([hoare_panic_unreachable] — the
+    closed-world "this panic is unreachable" obligation). *)
 Definition hoare {A : Type} (P : World -> Prop) (m : IO A)
     (Q : A -> World -> Prop) : Prop :=
   forall w, P w -> match run_io m w with
                    | ORet a w'  => Q a w'
-                   | OPanic _ _ => True
+                   | OPanic _ _ => False
                    end.
 
 Notation "{{ P }} m {{ Q }}" :=
@@ -1054,7 +1061,7 @@ Proof.
   rewrite run_bind. specialize (Hm w Hw).
   remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
   - exact (Hf a w' Hm).
-  - exact I.
+  - exact Hm.   (* [m] panicked from a [P]-world: ruled out — [Hm : False] *)
 Qed.
 
 Lemma hoare_consequence : forall {A} (m : IO A) P P' Q Q',
@@ -1067,7 +1074,7 @@ Proof.
   specialize (H w (HP w Hw)).
   remember (run_io m w) as o eqn:Ho. destruct o as [a w' | v w'].
   - exact (HQ a w' H).
-  - exact I.
+  - exact H.   (* panic ruled out — [H : False] *)
 Qed.
 
 (** Sequencing rule for [m >>' n] (run [m], discard its result, run [n]).
@@ -1083,13 +1090,29 @@ Proof.
   - intros a. exact Hn.
 Qed.
 
-(** panic satisfies any postcondition — PROVED, and WITHOUT collapsing [World]
-    (the panic outcome maps to [True], not [False]). *)
-Lemma hoare_panic : forall {A} (v : GoAny) P (Q : A -> World -> Prop),
-  {{ P }} @panic A v {{ Q }}.
+(** [panic] is specifiable ONLY from a FALSE precondition: a triple [{{P}} panic v {{Q}}] forces
+    [P] unreachable.  This is the closed-world panic obligation — a raw [panic] in a verified program
+    must be proved UNREACHABLE (its precondition refuted), exactly the discipline the project wants
+    ([[closed-world-forbids-panics]]).  (Contrast the old [hoare_panic], which proved the triple for
+    ANY [P] by mapping panic to [True] — vacuously, defeating panic-freedom.) *)
+Lemma hoare_panic_unreachable : forall {A} (v : GoAny) (Q : A -> World -> Prop),
+  {{ fun _ => False }} @panic A v {{ Q }}.
 Proof.
-  intros. unfold hoare. intros w _.
-  rewrite run_panic. exact I.
+  intros A v Q w HF. destruct HF.
+Qed.
+
+(** THE PAYOFF — panic-FREEDOM is now EXPRESSIBLE and DERIVABLE: a valid triple GUARANTEES the
+    program runs to a NORMAL ([ORet]) outcome (no modelled panic — nil-deref / OOB / send-on-closed /
+    failed assertion) and lands in a [Q]-state.  So [{{P}} m {{fun _ _ => True}}] IS "[m] never panics
+    from a [P]-world" — the core safety property, previously inexpressible. *)
+Lemma hoare_no_panic : forall {A} (P : World -> Prop) (m : IO A) (Q : A -> World -> Prop),
+  {{ P }} m {{ Q }} ->
+  forall w, P w -> exists a w', run_io m w = ORet a w' /\ Q a w'.
+Proof.
+  intros A P m Q H w Hw. specialize (H w Hw).
+  destruct (run_io m w) as [a w' | v w'] eqn:E.
+  - exists a, w'. split; [reflexivity | exact H].
+  - destruct H.
 Qed.
 
 (** ---- Types ---- *)
@@ -2184,8 +2207,8 @@ Definition w_log (b : bool) (xs : list GoAny) (w : World) : World :=
 Definition print   (xs : list GoAny) : IO unit := fun w => ORet tt (w_log false xs w).
 Definition println (xs : list GoAny) : IO unit := fun w => ORet tt (w_log true xs w).
 
-(** [panic], [bind_panic_l], [hoare_panic] are defined up top with the panic-
-    aware semantics; [bind_panic_l] and [hoare_panic] are now proved lemmas. *)
+(** [panic], [bind_panic_l], and the PANIC-SENSITIVE Hoare logic ([hoare_panic_unreachable] /
+    [hoare_no_panic]) are defined up top with the panic-aware semantics; all are proved lemmas. *)
 
 (** ---- panic / recover semantics ----
 
