@@ -1089,9 +1089,11 @@ Qed.
     work left.  PROGRESS — "a ready goroutine means the config can step" — is now a
     THEOREM in the rich calculus ([ready_can_step], and for the bounded calculus the
     general [ready_can_stepC_general] packaged with [rstuckC_blocked] as the IFF
-    [rstuckC_iff_blocked]); what stays open is per-program deadlock-FREEDOM (showing a
-    GIVEN program never reaches a [Stuck]/[RStuckC] state).  Representing deadlock at all
-    is the honest foundation both rest on. *)
+    [rstuckC_iff_blocked]).  Per-program deadlock-FREEDOM — showing a GIVEN program never
+    reaches a [Stuck]/[RStuckC] state — is necessarily proved per program (a deadlocking
+    program is not deadlock-free); [dlf_deadlock_free] (file end) discharges it for a concrete
+    spawn+rendezvous program via a reachability invariant, the first program PROVED deadlock-free
+    in the bounded calculus.  Representing deadlock at all is the honest foundation all rest on. *)
 Definition can_step (cfg : Config) : Prop := exists cfg', step cfg cfg'.
 Definition done (cfg : Config) : Prop :=
   forall tid, cfg_live cfg tid = true -> cfg_prog cfg tid = [].
@@ -8734,4 +8736,193 @@ Proof.
       exfalso. exact (Hmax w' Hh Hw'r Hw'). }
     pose proof (tr_acc_acc_loc t w' _ Hw') as Haw'. cbn in Haw'.
     apply (owned_orders_same_loc t HO w' w Hw'w). exists l; split; assumption.
+Qed.
+
+(** ============================================================================
+    PER-PROGRAM DEADLOCK-FREEDOM — the capstone the bounded liveness theory was for.
+
+    [rstuckC_iff_blocked] / [ready_can_stepC_general] characterise WHEN a config is stuck; here we
+    discharge that characterisation for a CONCRETE program to conclude it NEVER deadlocks: every config
+    reachable under [rstepC cap0] (every channel unbuffered, [cap0 = fun _ => 0]) either CAN step or is
+    DONE — it never reaches [RStuckC].  The program is the minimal non-trivial deadlock-free concurrent
+    program: thread 0 SPAWNS a receiver child, then they RENDEZVOUS on the unbuffered channel 0.  The
+    proof is a 3-phase reachability invariant (pre-spawn / post-spawn-pre-sync / done), each phase
+    proved to step or be done, and preserved by every [rstepC] step (9 of the 10 rules ruled out by the
+    live-set + program shape at each phase).  This is the first program PROVED deadlock-free in the
+    bounded calculus — the liveness frontier [concurrency.v:1087] named. *)
+Definition cap0 : nat -> nat := fun _ => 0.
+Definition dlf_child : Cmd := CRecv 0 (fun _ => CRet).
+Definition dlf_prog : nat -> Cmd :=
+  fun t => if Nat.eqb t 0 then CSpawn dlf_child (CSend 0 7 CRet) else CRet.
+Definition dlf_init : RConfig := rinit_cfg dlf_prog.
+
+Definition dlf_inv (cfg : RConfig) : Prop :=
+  rdone cfg
+  \/ (rc_prog cfg 0 = CSpawn dlf_child (CSend 0 7 CRet)
+      /\ rc_live cfg 0 = true
+      /\ (forall t, rc_live cfg t = true -> t = 0)
+      /\ rc_bufs cfg 0 = [] /\ closedb (rc_trace cfg) 0 = false)
+  \/ (exists cid, cid <> 0
+        /\ rc_prog cfg 0 = CSend 0 7 CRet /\ rc_live cfg 0 = true
+        /\ rc_prog cfg cid = dlf_child /\ rc_live cfg cid = true
+        /\ (forall t, rc_live cfg t = true -> t = 0 \/ t = cid)
+        /\ rc_bufs cfg 0 = [] /\ closedb (rc_trace cfg) 0 = false).
+
+Lemma dlf_inv_init : dlf_inv dlf_init.
+Proof.
+  right; left. unfold dlf_init, rinit_cfg, dlf_prog; cbn [rc_prog rc_live rc_bufs rc_trace].
+  split; [reflexivity | split; [reflexivity | split; [| split; reflexivity]]].
+  intros t Ht. apply Nat.eqb_eq in Ht. exact Ht.
+Qed.
+
+(* Each invariant phase can step or is done — the progress half. *)
+Lemma dlf_progress : forall cfg, dlf_inv cfg -> rcan_stepC cap0 cfg \/ rdone cfg.
+Proof.
+  intros cfg [Hdone | [Hp0 | Hp1]].
+  - right; exact Hdone.
+  - left. destruct cfg as [p b h lv tr].
+    cbn [rc_prog rc_live rc_bufs rc_trace] in Hp0.
+    destruct Hp0 as [Hprog [Hlive0 [Hone [Hbuf Hclo]]]].
+    eexists. eapply rstepC_spawn with (tid := 0) (cid := 1).
+    + exact Hlive0.
+    + exact Hprog.
+    + destruct (lv 1) eqn:E; [exfalso; pose proof (Hone 1 E) as Hx; discriminate | reflexivity].
+  - left. destruct cfg as [p b h lv tr].
+    cbn [rc_prog rc_live rc_bufs rc_trace] in Hp1.
+    destruct Hp1 as [cid [Hcid [Hp0p [Hp0l [Hcidp [Hcidl [Hall [Hbuf Hclo]]]]]]]].
+    eexists. eapply rstepC_sync with (t0 := 0) (t1 := cid).
+    + exact (not_eq_sym Hcid).
+    + exact Hp0l.
+    + exact Hcidl.
+    + exact Hp0p.
+    + exact Hcidp.
+    + exact Hbuf.
+    + exact Hclo.
+    + reflexivity.
+Qed.
+
+(* The invariant is preserved by every bounded step. *)
+Lemma dlf_inv_step : forall cfg cfg', dlf_inv cfg -> rstepC cap0 cfg cfg' -> dlf_inv cfg'.
+Proof.
+  intros cfg cfg' Hinv Hstep.
+  destruct Hinv as [Hdone | [Hp0 | Hp1]].
+  - exfalso. destruct (rstepC_stepper_ready _ _ _ Hstep) as [tid [Hlive [Hncret _]]].
+    exact (Hncret (Hdone tid Hlive)).
+  - (* PHASE 0: only thread 0 live, about to spawn *)
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp Hcl Hroom
+      | p b h lv tr t0 t1 c v k1 f Hne Hlv0 Hlv1 Hp0s Hp1s Hbc0 Hcls Hcaps
+      | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid Hlv Hp Hcid
+      | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp Hcl
+      | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_prog rc_live rc_bufs rc_trace] in Hp0;
+      destruct Hp0 as [Hprog [Hlive0 [Hone [Hbuf Hclo]]]].
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone t0 Hlv0) as H0; pose proof (Hone t1 Hlv1) as H1.
+      apply Hne; subst t0 t1; reflexivity.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + (* SPAWN: the only enabled step -> phase 1 *)
+      pose proof (Hone tid Hlv) as Ht; subst tid.
+      rewrite Hprog in Hp. injection Hp as Hchild Hk. subst child k.
+      assert (Hcid0 : cid <> 0) by (intro; subst cid; rewrite Hlive0 in Hcid; discriminate).
+      right; right. exists cid.
+      cbn [rc_prog rc_live rc_bufs rc_trace].
+      split; [exact Hcid0 | split].
+      * rewrite upd_other by exact (not_eq_sym Hcid0). rewrite upd_same. reflexivity.
+      * split; [rewrite upd_other by (apply not_eq_sym; exact Hcid0); exact Hlive0 | split].
+        -- rewrite upd_same. reflexivity.
+        -- split; [rewrite upd_same; reflexivity | split].
+           ++ intros t Hlt. destruct (Nat.eq_dec t cid) as [->|Hne]; [right; reflexivity|].
+              rewrite upd_other in Hlt by exact Hne.
+              left. exact (Hone t Hlt).
+           ++ split; [exact Hbuf |].
+              rewrite closedb_app, Hclo. reflexivity.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+    + exfalso. pose proof (Hone tid Hlv) as Ht; subst tid. rewrite Hprog in Hp; discriminate.
+  - (* PHASE 1: thread 0 = send, cid = recv-on-0, both live, channel 0 empty+open *)
+    destruct Hp1 as [cid [Hcid [Hp0p [Hp0l [Hcidp [Hcidl [Hall [Hbuf0 Hclo0]]]]]]]].
+    destruct Hstep as
+      [ p b h lv tr tid c v k Hlv Hp Hcl Hroom
+      | p b h lv tr t0 t1 c v k1 f Hne Hlv0 Hlv1 Hp0s Hp1s Hbc0 Hcls Hcaps
+      | p b h lv tr tid c f v s brest Hlv Hp Hbc
+      | p b h lv tr tid l v k Hlv Hp
+      | p b h lv tr tid l f Hlv Hp
+      | p b h lv tr tid child k cid2 Hlv Hp Hcid2
+      | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+      | p b h lv tr tid c k Hlv Hp Hcl
+      | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+      | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ];
+      cbn [rc_prog rc_live rc_bufs rc_trace] in Hp0p, Hp0l, Hcidp, Hcidl, Hall, Hbuf0, Hclo0;
+      unfold dlf_child in Hcidp.
+    + (* send: tid=0 needs room (cap0=0, none); tid=cid is a recv not send *)
+      exfalso. destruct (Hall tid Hlv) as [-> | ->].
+      * assert (Hc0 : c = 0) by congruence. subst c.
+        rewrite Hbuf0 in Hroom; cbn [length] in Hroom; unfold cap0 in Hroom; lia.
+      * rewrite Hcidp in Hp; discriminate.
+    + (* SYNC: t0=0 (send), t1=cid (recv) -> both -> CRet -> done *)
+      assert (Ht0 : t0 = 0).
+      { destruct (Hall t0 Hlv0) as [-> | ->]; [reflexivity|]. rewrite Hcidp in Hp0s; discriminate. }
+      subst t0.
+      assert (Ht1 : t1 = cid).
+      { destruct (Hall t1 Hlv1) as [-> | ->]; [|reflexivity]. rewrite Hp0p in Hp1s; discriminate. }
+      subst t1.
+      assert (Hk1 : k1 = CRet) by congruence. subst k1.
+      rewrite Hcidp in Hp1s. injection Hp1s as Hc' Hf. subst f.
+      left. unfold rdone; cbn [rc_prog rc_live].
+      intros t Hlt. destruct (Hall t Hlt) as [-> | ->].
+      * rewrite upd_other by exact (not_eq_sym Hcid). rewrite upd_same. reflexivity.
+      * rewrite upd_same. reflexivity.
+    + (* recv: tid=cid, but channel 0 buffer is empty *)
+      exfalso. destruct (Hall tid Hlv) as [-> | ->].
+      * rewrite Hp0p in Hp; discriminate.
+      * assert (Hc0 : c = 0) by congruence. subst c. rewrite Hbuf0 in Hbc; discriminate.
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+    + (* recv_closed: tid=cid, but channel 0 is open (no KClose 0) *)
+      exfalso. destruct (Hall tid Hlv) as [-> | ->].
+      * rewrite Hp0p in Hp; discriminate.
+      * assert (Hc0 : c = 0) by congruence. subst c.
+        apply (closedb_false_not tr 0 Hclo0). exists pos, e. split; [exact Hpos | exact Hek].
+    + exfalso. destruct (Hall tid Hlv) as [-> | ->];
+        [rewrite Hp0p in Hp | rewrite Hcidp in Hp]; discriminate.
+Qed.
+
+Lemma dlf_inv_steps_gen : forall a c, rstepsC cap0 a c -> dlf_inv a -> dlf_inv c.
+Proof.
+  intros a c H. induction H as [cfg | a' b' c' Hab Hbc IH]; intros Hinv.
+  - exact Hinv.
+  - apply IH. exact (dlf_inv_step a' b' Hinv Hab).
+Qed.
+
+Theorem dlf_inv_steps : forall cfg, rstepsC cap0 dlf_init cfg -> dlf_inv cfg.
+Proof. intros cfg H. exact (dlf_inv_steps_gen dlf_init cfg H dlf_inv_init). Qed.
+
+(** DEADLOCK-FREEDOM: every [rstepC cap0]-reachable config of [dlf_prog] can step or is done — it
+    NEVER reaches [RStuckC].  Proved purely from the invariant + the bounded progress lemma. *)
+Theorem dlf_deadlock_free : forall cfg,
+  rstepsC cap0 dlf_init cfg -> rcan_stepC cap0 cfg \/ rdone cfg.
+Proof. intros cfg H. apply dlf_progress. apply dlf_inv_steps. exact H. Qed.
+
+Corollary dlf_never_stuck : forall cfg,
+  rstepsC cap0 dlf_init cfg -> ~ RStuckC cap0 cfg.
+Proof.
+  intros cfg H [Hns Hnd].
+  destruct (dlf_deadlock_free cfg H) as [Hcan | Hdone]; [exact (Hns Hcan) | exact (Hnd Hdone)].
 Qed.
