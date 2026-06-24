@@ -8105,3 +8105,62 @@ Qed.
 Corollary priv_prog_N_race_freeC : forall cap N cfg,
   rstepsC cap (priv_init_N N) cfg -> TraceRaceFree (rc_trace cfg).
 Proof. intros cap N cfg H. exact (priv_prog_N_race_free N cfg (rstepsC_embed _ _ _ H)). Qed.
+
+(** ---- PROGRESS (the converse of [rstuckC_blocked]) for the BUFFERED fragment ----
+    [rstuckC_blocked] is "stuck ⇒ every live goroutine is done / blocked / panicking".  Its CONVERSE
+    — "a ready (live, not-done, not-blocked, not-panicking) goroutine means the config CAN step" — is
+    the progress half.  For the BUFFERED fragment (every [cap c > 0], so no cap-0 rendezvous) it is
+    CONSTRUCTIVE: every enabling condition (buffer room, a buffered value, a ready select case, an
+    open channel) is DECIDABLE locally, with NO non-local "is a receiver available" search (which the
+    general cap-0 case would need, and which [¬blockedC] only yields double-negated).  Together with
+    [rstuckC_blocked] this is the deadlock characterization as an IFF on buffered programs: a config is
+    [RStuckC] exactly when every live goroutine is done or blocked.  (Unbuffered rendezvous progress is
+    witnessed operationally by [handoff_completes]; the general-cap converse stays a frontier.) *)
+Lemma ready_can_stepC_buffered : forall cap cfg tid,
+  (forall c, 0 < cap c) ->
+  FreshAvail cfg ->
+  rc_live cfg tid = true ->
+  rc_prog cfg tid <> CRet ->
+  ~ blockedC cap cfg tid ->
+  ~ rpanicking cfg tid ->
+  rcan_stepC cap cfg.
+Proof.
+  intros cap cfg tid Hcap Hfresh Hlive Hncret Hnblk Hnpan.
+  destruct cfg as [p b h lv tr]. destruct Hfresh as [cid Hcid].
+  cbn [rc_prog rc_bufs rc_trace rc_live] in *.
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
+  - congruence.
+  - (* CSend: open (else panicking); cap>0 so blocked iff no room *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. right. exists c, v, k. split; [exact Hp | exact Hcl].
+    + destruct (Nat.ltb (length (b c)) (cap c)) eqn:Hroom.
+      * apply Nat.ltb_lt in Hroom. eexists.
+        eapply rstepC_send; [exact Hlive | exact Hp | exact Hcl | exact Hroom].
+      * exfalso. apply Hnblk. right; right. exists c, v, k.
+        cbn [rc_prog rc_bufs rc_trace rc_live]. apply Nat.ltb_ge in Hroom.
+        split; [exact Hp | split; [exact Hcl | split]].
+        -- lia.
+        -- intros [Hcap0 _]. specialize (Hcap c). lia.
+  - (* CRecv: buffered or closed-drained steps; empty-open is blocked *)
+    destruct (b c) as [ | [v s] rest ] eqn:Hb.
+    + destruct (closedb tr c) eqn:Hcl.
+      * destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+        eexists. eapply rstepC_recv_closed; [exact Hlive | exact Hp | exact Hb | exact Hpos | exact Hek].
+      * exfalso. apply Hnblk. left. exists c, f. split; [exact Hp | split; [exact Hb | exact Hcl]].
+    + eexists. eapply rstepC_recv; [exact Hlive | exact Hp | exact Hb].
+  - eexists. eapply rstepC_write; [exact Hlive | exact Hp].
+  - eexists. eapply rstepC_read; [exact Hlive | exact Hp].
+  - eexists. eapply rstepC_spawn; [exact Hlive | exact Hp | exact Hcid].
+  - (* CSelect: a ready case steps; no ready case is blocked *)
+    destruct (sel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Hsel.
+    + destruct (sel_ready_cl_buf _ _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
+      eexists. eapply rstepC_select; [exact Hlive | exact Hp | exact Hin | exact Hb].
+    + destruct (sel_ready_cl_closed _ _ _ _ _ Hsel) as [Hin [Hb Hcl]].
+      destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+      eexists. eapply rstepC_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
+    + exfalso. apply Hnblk. right; left. exists cases. split; [exact Hp | exact Hsel].
+  - (* CClose: open steps; closed is panicking *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. left. exists c, k. split; [exact Hp | exact Hcl].
+    + eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
+Qed.
