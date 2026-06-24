@@ -274,27 +274,21 @@ Example f64_neqb_nan: f64_neqb (f64_div 0 0) 1 = true. Proof. now vm_compute. Qe
 Definition fcmp_demo : IO unit :=
   println [ any (f64_gtb 5 3) ; any (f64_geb 3 3) ; any (f64_neqb 5 3) ]%go64.  (* true true true *)
 
-(** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
-    checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
-    the sign over [PrimFloat.of_uint63]; >= 2^53 rounds exactly like Go).  *Runtime
-    lowering still deferred, but no longer for the if-reason:* the ladder-7b value-
-    position-[if] gap is now CLOSED for the tail case (see [i64_abs] above), so a pure
-    function whose body is an [if] DOES extract.  What [f64_of_i64] still needs is a
-    Go int->float CONVERSION primitive: its body uses [Z.leb]/[PrimFloat.of_uint63]
-    (no Go lowering), and the [of_uint63] sign-split cannot represent [|MININT| = 2^63]
-    (uint63 caps at 2^63-1).  The clean path is a dedicated [i64_to_f64] lowering to
-    Go's native [float64(x)] (which handles the sign and the [MININT] corner directly),
-    NOT extracting this proof-only sign-split body -- so it stays proof-only for now.
-    *float64 -> int64 truncation:* a BOUNDARY -- [PrimFloat] has no truncation
-    primitive (like [math.Abs]/[math.Sqrt]). *)
+(** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-checked:
+    [7 -> 7.0] and the SIGNED case [-3 -> -3.0].  The [Z]-carried [GoI64] is rounded ONCE to
+    binary64 via [SpecFloat.binary_normalize] (axiom-free; >= 2^53 rounds exactly like Go, and
+    [MININT = -2^63] is handled directly — no [of_uint63] sign-split, review #6 #13->zero-axioms).
+    Recognized by name -> native Go [float64(i)]; the body is suppressed.  The reverse,
+    float64 -> int64 TRUNCATION ([i64_of_f64]), also lowers now -- [spec_float] decomposes
+    DIRECTLY (no float-primitive needed). *)
 Example f64_of_i64_pos : f64_eqb (f64_of_i64 (7)%i64) 7%go64 = true.
 Proof. now vm_compute. Qed.
 Example f64_of_i64_neg : f64_eqb (f64_of_i64 (-3)%i64) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
-(** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)], the sign-split
-    body (now over the [Z]-carried [GoInt], review #6 #13) suppressed.  Machine-checked across
-    the sign. *)
+(** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)]; the
+    [binary_normalize] body (over the [Z]-carried [GoInt], review #6 #13) suppressed.
+    Machine-checked across the sign. *)
 Example f64_of_int_pos : f64_eqb (f64_of_int (int_lit 5 eq_refl)) 5%go64 = true.
 Proof. now vm_compute. Qed.
 Example f64_of_int_neg : f64_eqb (f64_of_int (int_lit (-3) eq_refl)) (f64_opp 3%go64) = true.
@@ -314,11 +308,10 @@ Proof. vm_compute. reflexivity. Qed.
 Example f32_mul_exact  : f32_eqb (f32_mul (f32_lit 1.5) (f32_lit 2)) (f32_lit 3) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** float32 LOWERED to native Go [float32].  The SpecFloat model body lowers to nothing — its
-    whole drag closure (the binary32 rounding machinery, plus the colliding [Sint63]/[Z]
-    helpers) is suppressed BY MODULE (`is_zarith_helper`), so the plugin emits [f32_add]/… →
-    Go [+]/[-]/[*]/[/] on real [float32] values.  Demoed through a typed-param function so the
-    call-site constants pin to [float32]. *)
+(** float32 LOWERED to native Go [float32].  The SpecFloat model body lowers to nothing — the
+    binary32 rounding machinery ([renorm]/[SF*]/[binary_normalize]) is suppressed (proof-only /
+    by module), so the plugin emits [f32_add]/… → Go [+]/[-]/[*]/[/] on real [float32] values.
+    Demoed through a typed-param function so the call-site constants pin to [float32]. *)
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
 Definition f32_demo : IO unit :=
   println [ any (f32_combine (f32_lit 1.5) (f32_lit 2.25) (f32_lit 2)) ].   (* (1.5+2.25)*2 = 7.5 *)
@@ -741,7 +734,7 @@ Definition f32_cmp_demo : IO unit :=
           ; any (f32_geb  (f32c 5.0 0.0 2) (f32c 1.5 0.0 2))    (* 10 >= 3 → true *)
           ; any (f32_neqb (f32c 1.5 0.0 2) (f32c 5.0 0.0 2)) ]. (* 3 != 10 → true *)
 (** float64 → int64 TRUNCATION LOWERED: [i64_of_f64] → native Go [int64(f)] (truncates toward
-    zero).  The model's [Prim2SF] body + its drag closure are suppressed; demoed through a
+    zero).  The model's [f64_trunc_Z] body (a direct [spec_float] decomposition) is suppressed; demoed through a
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
     compile error). *)
 Definition trunc64 (x : GoFloat64) : GoI64 := i64_of_f64 x.
@@ -749,10 +742,10 @@ Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc
 
 (** float ↔ uint64 LOWERED — the UNSIGNED counterparts.  [u64_of_f64] → native [uint64(f)]
     (truncate toward zero, parallel to [i64_of_f64]); [f64_of_u64] → native [float64(v)]
-    (correctly rounded — the model's round-to-odd split for the [>= 2^63] range is suppressed).
+    (correctly rounded — the model's single [binary_normalize] over the whole uint64 range is suppressed).
     These cover what [i64↔f64] cannot: a uint64 ABOVE [2^63] is a large POSITIVE double, not the
     negative an int64 reinterpret would give.  Machine-checked: low range exact ([255]); the
-    uint64 MAX rounds to [2^64] (the round-to-odd trick is correct, not off-by-rounding); and
+    uint64 MAX rounds to [2^64] ([binary_normalize] over the full range rounds correctly); and
     [float64 2^63 → uint64] succeeds where [int64] would overflow. *)
 Example f64_of_u64_lo  : f64_eqb (f64_of_u64 (u64_lit 255 eq_refl)) 255 = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -778,25 +771,22 @@ Definition f64_of_i64_demo : IO unit :=
   println [ any (f64_of_i64 (7)%i64) ; any (f64_of_i64 (-3)%i64) ].
   (* prints: +7.000000e+000 -3.000000e+000 (int64 → float64 cast) *)
 
-(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero, via the verified [Prim2SF]
-    decomposition.  Machine-checked across the sign, the exact case, and zero. *)
+(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero, via the direct [spec_float]
+    ([S754_finite]) decomposition.  Machine-checked across the sign, the exact case, and zero. *)
 Example i64_of_f64_pos   : i64_of_f64 3.7%go64       = (3)%i64.       Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_neg   : i64_of_f64 (-3.7)%go64    = (-3)%i64.      Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_exact : i64_of_f64 100%go64       = (100)%i64.     Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_zero  : i64_of_f64 0%go64         = (0)%i64.       Proof. vm_compute. reflexivity. Qed.
 Example i64_of_f64_big   : i64_of_f64 1000000.9%go64 = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
-(** *Lowering DEFERRED* (proof-only, like [f64_of_i64] once was): [i64_of_f64] returns
-    [GoI64] (a single-field record), so its Z-from-[Prim2SF] body hits the SAME wall as the
-    narrow→int64 widening — Coq's case-of-case fusion inlines the [match] into value position
-    regardless of [NoInline] / splitting out [f64_trunc_Z].  (The int→float directions lower
-    because they return [float], a PRIMITIVE, not a record.)  The MODEL is faithful and
-    machine-checked above; the intended lowering is the native [int64(f)] once the
-    record-result fusion is solved. *)
+(** LOWERED to native Go [int64(f)]: [i64_of_f64] is recognized by name; its [f64_trunc_Z]
+    body — which decomposes the [spec_float] [S754_finite s m e] DIRECTLY (no [Prim2SF] /
+    [normfr_mantissa] primitive, review #6 #13→zero-axioms) — is suppressed.  The MODEL is
+    faithful and machine-checked above. *)
 
 
 (** uint8 (byte): a precise, COMPUTABLE model of Go's 8-bit unsigned arithmetic.
     Each op masks the result back to [0,256), so it wraps mod 256 exactly like Go.
-    The wrap is MACHINE-CHECKED (the model is just [land]/[add] on PrimInt63, which
+    The wrap is MACHINE-CHECKED (the model is just [Z.land]/[Z.add] on the [Z] carrier, which
     [vm_compute] reduces) — not asserted.  Note the contrast with [Nat.sub]: uint8
     subtraction genuinely WRAPS ([0 - 1 = 255]), which we model faithfully, whereas
     Coq's [Nat.sub] truncates ([0 - 1 = 0]) and is therefore rejected. *)
@@ -918,25 +908,13 @@ Definition convert_demo : IO unit :=
     int64), so the byte/short value lands unchanged in the canonical [GoI64].
     Unsigned narrows stay non-negative; a signed narrow keeps its sign
     ([int64(int8 -5) = -5]).  MODELED + machine-checked across signed/unsigned and
-    small/large widths.  *Runtime lowering = Go's [int64(x)] widening (review #4 P1 #4; NOT
-    identity — a narrow PARAM is a real [uint8]/[int8]/…, so [int64(x)] is needed to land it in
-    the [int64] destination, e.g. [func Widen(x uint8) int64 { return int64(x) }]):* the faithful Coq body
-    crosses the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
-    ([Sint63Axioms.to_Z] -> [Uint63.ltb] …) includes the DELIBERATELY-REJECTED unsigned
-    [Uint63.ltb] (Tier 3 #9), so extracting the body drags a banned decl.  Kept proof-only.
-    *Root cause (deepened diagnosis 2026-06-19):* the single-field [GoI64]/[GoU8] records
-    UNBOX, so EVERY faithful widening body η-reduces to a RENAMING of [Sint63.to_Z], which
-    Coq's extraction force-inlines regardless of [Extraction NoInline] — splicing [to_Z]'s
-    [if]-body (an [MLcase] over the rejected [Uint63.ltb]) into VALUE position, where the
-    pure value-position match cannot lower (ladder 7b).  Confirmed exhaustively: routing
-    through a FIDO wrapper [i64_of_int63] (NON-renaming match body, NON-match [Z.add … 0]
-    body, called directly or via the narrows) STILL inlines into value position — yet the
-    STRUCTURALLY-IDENTICAL [i64_abs] ([GoI64 -> GoI64], match body, same NoInline list) stays
-    a named decl whose [if] lowers fine in TAIL position.  The differentiator is the
-    [int -> GoI64] carrier crossing, not NoInline per se.  The robust fix is the
-    **narrow-stored-in-Z model** (re-base [GoU8]… on [Z] like [GoI64]): then [i64_of_u8 a =
-    MkI64 (u8raw a)] is a pure IDENTITY ([u8raw : GoU8 -> Z], no [to_Z], no match), lowering
-    to [a].  A focused all-6-types carrier refactor, deferred to its own iteration. *)
+    small/large widths.  Lowering = Go's [int64(x)] widening (review #4 P1 #4; NOT identity — a
+    narrow PARAM is a real [uint8]/[int8]/…, so [int64(x)] lands it in the [int64] destination,
+    e.g. [func Widen(x uint8) int64 { return int64(x) }]).  The body is now a pure [Z] re-wrap
+    ([i64wrap (uNraw a)] — [uNraw]/[iNraw] : narrow → [Z], no [Sint63.to_Z], no match): the
+    **narrow-stored-in-Z** refactor that an earlier deep-dive deferred (the single-field records
+    used to η-reduce a [to_Z] body into value position) is DONE (review #6 #13→zero-axioms), so
+    it extracts cleanly with no banned-decl drag. *)
 Example widen_u8  : i64_of_u8  (u8_lit 200 eq_refl)         = (200)%i64.        Proof. vm_compute. reflexivity. Qed.
 Example widen_i8  : i64_of_i8  (i8_of_int (int_lit (-5) eq_refl))      = (-5)%i64.         Proof. vm_compute. reflexivity. Qed.
 Example widen_u16 : i64_of_u16 (u16_lit 60000 eq_refl)      = (60000)%i64.      Proof. vm_compute. reflexivity. Qed.

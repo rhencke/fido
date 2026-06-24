@@ -17,7 +17,8 @@
     bridge between the abstract rules and real operations.  Axiom-free. *)
 From Fido Require Import preamble.
 From Stdlib Require Import List Lia Arith.
-Require Import Stdlib.Numbers.Cyclic.Int63.PrimInt63.   (* [int] (Go int64) — the keystone value carrier *)
+(* No [PrimInt63]: the value carriers ([GoI64]/…) are [Z]-records and locations are [nat]
+   (review #6 #13→zero-axioms); this proof layer names no kernel primitive. *)
 Import ListNotations.
 
 Inductive EvKind :=

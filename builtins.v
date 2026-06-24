@@ -15,9 +15,8 @@ Require Import Coq.Lists.List.   (* app / tl for the channel FIFO buffer model *
 From Stdlib Require Import Lia.   (* happens-before timestamp arithmetic *)
 From Stdlib Require Import ZArith.   (* Z.to_nat for the slice index *)
 From Stdlib Require Import StrictProp.   (* Squash: carry a range invariant in SProp (proof-irrelevant ⇒ wrapper equality decided by the carrier alone, no axiom) *)
-Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.   (* [int] — hoisted so the numeric
-   carrier types can be DEFINED as [int] (they only appear in tags, never in Go). *)
-From Stdlib Require Import Floats.PrimFloat.          (* [float] — for [GoFloat32] *)
+(* No [PrimInt63] / [PrimFloat] imports: the numeric model is AXIOM-FREE — integers are [Z]-carried
+   records, heap locations [nat], floats [SpecFloat.spec_float] (review #6 #13→zero-axioms). *)
 
 (** ---- IO monad ----
 
@@ -1163,8 +1162,8 @@ Notation GoByte := GoU8.
     mask to 8 bits, then SIGN-EXTEND with [(m ^ 0x80) - 0x80] (flip the sign bit,
     subtract it), taking [m ∈ [0,256)] to [[-128,128)] — exactly what Go's
     [int8(x)] conversion does.  Comparison is SIGNED (values can be negative), so
-    it uses [Sint63.ltb] → Go's signed int64 [<].  Computable and faithful; the
-    plugin emits the explicit int64 mask + sign-extend, e.g.
+    it uses [Z.ltb] on the [Z]-carried sign-extended value → Go's signed int64 [<].  Computable
+    and faithful; the plugin emits the explicit int64 mask + sign-extend, e.g.
     [i8_add a b] → [((((a + b) & 0xff) ^ 0x80) - 0x80)].
     Each is a DISTINCT record over the [int] carrier (like [GoU8]) — the wrapper
     is erased in extraction, so the Go is unchanged.  The [*_norm] helpers stay
@@ -1348,19 +1347,15 @@ Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
 (** ---- Narrow -> full-width int64 WIDENING (Go [int64(x)]) ----
     Widen a fixed-width [uintN]/[intN] to the CANONICAL [int64] ([GoI64]).  The
     value is PRESERVED: an unsigned narrow ([0..2^N-1]) and a signed narrow
-    ([-2^(N-1)..2^(N-1)-1]) both fit int64 exactly, so [Sint63.to_Z] of the carrier
-    (the value's SIGNED [Z] reading — correct for both, since the unsigned narrows
-    are [< 2^32 < 2^62] and the signed narrows hold their sign-extended value) is in
+    ([-2^(N-1)..2^(N-1)-1]) both fit int64 exactly, so the carrier's [Z] reading
+    ([uNraw]/[iNraw] — the value's SIGNED reading, correct for both: unsigned narrows
+    are [< 2^32] and signed narrows hold their sign-extended value) is in
     range and lands unchanged in [GoI64].  Distinct from the narrow [int_of_FW]
     (which targets the index-[int]); these target the value-[int64].
-    MODELED + machine-checked (witnesses in main.v).  *Runtime lowering DEFERRED,
-    proof-only for now (no demo, not reachable from [main_effect] so not extracted):*
-    the lowering WOULD be identity (the narrow already erases to a Go [int64] holding
-    exactly this value, so [int64(x)] is a no-op cast), but the faithful body crosses
-    the PrimInt63 -> Z carrier via [Sint63.to_Z], whose stdlib chain
-    ([Sint63Axioms.to_Z] -> the DELIBERATELY-REJECTED unsigned [Uint63.ltb], Tier 3 #9)
-    fights clean extraction-suppression.  A runtime form needs an int63 -> Z that drags
-    no match-bodied stdlib decls.  Mirrors [f64_of_i64] (modeled, lowering deferred). *)
+    MODELED + machine-checked (witnesses in main.v).  The body is now a PURE [Z] re-wrap
+    ([i64wrap] of the narrow's [Z] reading — no int63 detour; review #6 #13→zero-axioms), and
+    the lowering is identity: the narrow already erases to a Go [int64] holding exactly this
+    value, so [int64(x)] is a no-op cast. *)
 Definition i64_of_u8  (a : GoU8)  : GoI64 := i64wrap (u8raw  a).
 Definition i64_of_i8  (a : GoI8)  : GoI64 := i64wrap (i8raw  a).
 Definition i64_of_u16 (a : GoU16) : GoI64 := i64wrap (u16raw a).
@@ -1993,30 +1988,23 @@ Notation u64c e :=
 (** ---- int64 → float64 conversion (Go spec "Conversions", Phase D) ----
 
     Go [float64(i)] converts an [int64] to an IEEE double; values past 2^53 ROUND (the
-    double's mantissa), exactly as Go does.  [PrimFloat.of_uint63] converts a uint63
-    MAGNITUDE to a double; the [Z]-carried signed [GoI64] splits the sign.  *PROOF-ONLY*
-    (machine-checked by [f64_of_i64_pos]/[f64_of_i64_neg] in main.v): the sign-split makes
-    the body a value-position [if], which the plugin cannot yet lower (the ladder-7b
-    value-position-match gap), so it is NOT extracted — the intended lowering is Go
-    [float64(i)] once that gap closes.  *Boundary:* float64→int64 TRUNCATION — [PrimFloat]
-    has no truncation primitive, so [int64(f)] cannot be modeled here (a [math.Abs]/
-    [math.Sqrt]-style boundary). *)
-(* int64 → float64: round the EXACT [Z] mantissa ONCE to binary64 via [binary_normalize] at format
-   (53, 1024) — the SAME Z→float path as [f32_of_int] (24, 128), so NO [PrimFloat.of_uint63] and hence
-   NO int63 detour ([Uint63.of_Z]); review #6 #13 PrimInt63-elimination.  [binary_normalize] carries the
-   sign in the (signed) mantissa, rounds to nearest-even, and spans the whole int64 range. *)
+    double's mantissa), exactly as Go does.  We round the EXACT signed [Z] mantissa ONCE to
+    binary64 via [SpecFloat.binary_normalize] at format (53, 1024) — axiom-free, round-to-
+    nearest-even, spanning the whole int64 range (review #6 #13→zero-axioms; the old
+    [PrimFloat.of_uint63] sign-split is GONE).  Recognised BY NAME → native Go [float64(i)]
+    (machine-checked by [f64_of_i64_pos]/[f64_of_i64_neg] in main.v); the [binary_normalize]
+    body is suppressed.  The reverse — float64→int64 TRUNCATION ([i64_of_f64]) — is modelled
+    DIRECTLY on the [spec_float] representation below (no truncation primitive needed). *)
 Definition f64_of_i64 (a : GoI64) : GoFloat64 := binary_normalize 53 1024 (i64raw a) 0 false.
 
 (** int64 → narrow (Go [uint8(x)] / [int8(x)] / … / [int32(x)]): TRUNCATE to the low W bits.
     A [GoU8]/[GoI8]/… erases to the same int64 carrier as a [GoI64], so the conversion is
     EXACTLY the narrow-from-int truncation ([fw_wrap]: mask to W bits, sign-extend for [iN]) —
-    lowered to Go's native [(x & 0xFF)] / sign-extended form, identical to [uN_of_int].  The
-    model crosses the [Z] carrier of [GoI64] into the int63 carrier via [Uint63.of_Z], then
-    masks: since [2^W | 2^63] the low W bits of [(i64raw a) mod 2^63] ARE [(i64raw a) mod 2^W]
-    (faithful for W < 63).  The [of_Z]-match body never reaches the emitted Go — the op is
-    recognized by name (`fw_is r "of_i64"`) and its decl suppressed (`fixed_width_op`), exactly
-    as the [of_int] narrows are.  Mirrors each [uN_of_int]/[iN_of_int] structure so it stays a
-    NAMED call the recognizer fires on (not force-inlined). *)
+    lowered to Go's native [(x & 0xFF)] / sign-extended form, identical to [uN_of_int].  The model
+    masks the [Z] carrier directly ([uNwrap]/[iNwrap] on [i64raw a] — all [Z], no int63 detour;
+    review #6 #13→zero-axioms): for [W < 64] the low W bits of [i64raw a] are [(i64raw a) mod 2^W].
+    The [wrap] body never reaches the emitted Go — the op is recognized by name (`fw_is r "of_i64"`)
+    and its decl suppressed (`fixed_width_op`), exactly as the [of_int] narrows are. *)
 Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (i64raw a).
 Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i64raw a).
 Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (i64raw a).
@@ -2026,28 +2014,22 @@ Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i64raw a).
 
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for |i| < 2^53,
     rounds beyond — exactly Go's rule).  Rounds the EXACT [Z] mantissa ONCE via [binary_normalize] at
-    (53, 1024) — the SAME Z→float path as [f32_of_int], so NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63
-    detour (review #6 #13 PrimInt63-elimination).  Recognized by name → native [float64(i)]; the body is
-    suppressed.  Machine-checked by [f64_of_int_pos]/[f64_of_int_neg] (main.v).  Returns [float] (not a
-    record), so it stays a NAMED call the recognizer fires on. *)
+    (53, 1024) — the SAME axiom-free Z→float path as [f64_of_i64] / [f32_of_int].  Recognized by name
+    → native [float64(i)]; the [spec_float] body is suppressed.  Machine-checked by [f64_of_int_pos]/
+    [f64_of_int_neg] (main.v). *)
 Definition f64_of_int (i : GoInt) : GoFloat64 := binary_normalize 53 1024 (intraw i) 0 false.
 
-(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  Built on the stdlib's VERIFIED
-    decomposition [Prim2SF f] — a finite [f = (-1)^s * m * 2^e] ([m] positive, [e : Z]).  The
-    truncated MAGNITUDE is [m * 2^e] when [e >= 0] (an exact integer) or [m / 2^(-e)] when
-    [e < 0] (the FLOOR of the positive magnitude = truncation toward zero); the sign is
-    applied AFTER, so the whole thing rounds toward zero — exactly Go's rule.  MODELED +
-    machine-checked (witnesses in main.v).  *Runtime lowering DEFERRED (proof-only, not
-    reachable from [main_effect], so not extracted):* the intended lowering is the native
-    [int64(f)], but [i64_of_f64] returns [GoI64] (a single-field record), so its Z-from-
-    [Prim2SF] body hits the SAME wall as the narrow→int64 widening — the [MkI64] unbox + a
-    match-bodied Z computation lets Coq's case-of-case fusion inline the [match] into VALUE
-    position, regardless of [NoInline] or splitting out [f64_trunc_Z].  (The int→float casts
-    [f64_of_int]/[f64_of_i64] DO lower — they return [float], a PRIMITIVE, not a record.)
-    *Bounded deviation:* NaN / ±Inf / out-of-int64-range inputs are
-    IMPLEMENTATION-DEFINED in Go (spec "Conversions"); the model gives [0] (and [wrap64] folds
-    overflow), so those corners are a documented model gap — the FINITE in-range case (the
-    common use) is faithful and machine-checked. *)
+(** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  [GoFloat64] is now [spec_float], so
+    the decomposition is DIRECT — a finite [f = S754_finite s m e] is [(-1)^s * m * 2^e] ([m]
+    positive, [e : Z]), no [Prim2SF]/[normfr_mantissa] primitive (review #6 #13→zero-axioms; the
+    old "needs a float-decomposition primitive" boundary DISSOLVED).  The truncated MAGNITUDE is
+    [m * 2^e] when [e >= 0] (an exact integer) or [m / 2^(-e)] when [e < 0] (the FLOOR of the
+    positive magnitude = truncation toward zero); the sign is applied AFTER, so it rounds toward
+    zero — exactly Go's rule.  [i64_of_f64] is recognised BY NAME → native [int64(f)] (the
+    [f64_trunc_Z] body suppressed); machine-checked (witnesses in main.v).  *Bounded deviation:*
+    NaN / ±Inf / out-of-int64-range inputs are IMPLEMENTATION-DEFINED in Go (spec "Conversions");
+    the model gives [0] (and [wrap64] folds overflow) — a documented model gap on those corners;
+    the FINITE in-range case (the common use) is faithful and machine-checked. *)
 Definition f64_trunc_Z (f : GoFloat64) : Z :=
   match f with
   | S754_finite s m e =>
@@ -2055,15 +2037,12 @@ Definition f64_trunc_Z (f : GoFloat64) : Z :=
       if s then (- mag)%Z else mag
   | _ => 0%Z
   end.
-(* The [match]-on-[Prim2SF] lives in [f64_trunc_Z] (returns [Z]); [i64_of_f64]'s body is then
-   [wrap64 (…)] — a function application, NOT a match — so Coq's case-of-case fusion has no
-   match-of-match to inline, and [i64_of_f64] stays a NAMED call the recognizer fires on. *)
 Definition i64_of_f64 (f : GoFloat64) : GoI64 := i64wrap (wrap64 (f64_trunc_Z f)).
 
 (** float64 → uint64 (Go [uint64(f)]): TRUNCATE toward zero — the exact parallel of [i64_of_f64],
     only wrapping into the unsigned range.  In-range ([0 <= trunc f < 2^64]) it is faithful (the
     verified [f64_trunc_Z]); out of range is Go-implementation-defined, where the defined wrap is
-    an acceptable choice.  Lowered to native [uint64(f)]; the [Prim2SF]-match body suppressed. *)
+    an acceptable choice.  Lowered to native [uint64(f)]; the [spec_float]-match body suppressed. *)
 Definition u64_of_f64 (f : GoFloat64) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f)).
 
 (** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  Rounds the EXACT [Z] mantissa
@@ -2077,13 +2056,12 @@ Definition f64_of_u64 (a : GoU64) : GoFloat64 := binary_normalize 53 1024 (u64ra
     constant float arithmetic at ARBITRARY precision, rounding only when the constant acquires a
     type: [const x float64 = 0.1 + 0.2] is [float64(3/10) = 0.3] EXACTLY, NOT the runtime
     [0.1+0.2 = 0.30000000000000004] (which rounds each operand THEN adds).  Fido's runtime floats
-    ([PrimFloat]) give the runtime answer; this models the CONSTANT one.  An [FConst] is an exact
+    ([spec_float] arithmetic) give the runtime answer; this models the CONSTANT one.  An [FConst] is an exact
     rational [num/den]; [fc_add]/[fc_sub]/[fc_mul] are EXACT ([Q]-style cross-multiply, no
     rounding); [f64_of_fconst] rounds to [float64] exactly ONCE — an IEEE divide of the two
     integer endpoints, which is correctly-rounded while [|num|, den < 2^53] (both endpoints exact,
-    so the single division carries the only rounding).  *MODEL + machine-checked; LOWERING (a
-    plugin FConst-fold → Go [float64(num)/float64(den)], which Go re-folds to the same constant)
-    is the deferred follow-on.* *)
+    so the single division carries the only rounding).  MODEL + machine-checked; LOWERED by the
+    plugin's FConst-fold → Go [float64(num)/float64(den)], which Go re-folds to the same constant. *)
 (** The denominator is a [positive] — exactly the shape of Coq's [QArith.Q] — so a Go
     float CONSTANT is an EXACT *nonzero-denominator* rational and can NEVER denote ±Inf
     or NaN (review #6 P2 #16).  A malformed [den = 0] constant is now UNCONSTRUCTABLE by
@@ -3781,7 +3759,7 @@ Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt)
     [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in
     range then [v = xs[i]] and [ok = true]; otherwise [v] is the zero value and
     [ok = false].  CPS like [recv_ok]; because the caller must handle [ok =
-    false], this form cannot panic out of bounds.  [i : int] is SIGNED (Sint63),
+    false], this form cannot panic out of bounds.  [i : GoInt] is SIGNED ([Z]-carried),
     so the check covers BOTH ends ([0 <= i < len]); a negative index is in range
     for Go's panic, so it must yield [ok = false], not slip through.
 
@@ -3883,7 +3861,7 @@ Definition arr_set {A} (_n : nat) (_ : GoTypeTag A) (a : GoArray A) (i : GoInt) 
 
     [str_len s] is the BYTE length (Go [len(s)]): a computable [int] that counts
     the [string]'s bytes, so [str_len "Go" = 2] is a THEOREM.  The plugin lowers
-    it to Go [int64(len(s))] — the byte count in the [int] (Sint63/int64) model.
+    it to Go [int64(len(s))] — the byte count in the [Z]-carried [GoInt] (int64) model.
 
     [str_at_ok] is the SAFE byte index (spec: "a string's bytes can be accessed
     by integer indices [0 <= i < len(s)]"; [s[i]] is of type [byte]).  CPS /
@@ -3968,7 +3946,7 @@ Fixpoint str_concat (a b : GoString) : GoString :=
     that [a <= b <= len(s)] (in bytes), so the emitted [s[a:b]] cannot panic — the bounds
     proof discharged Go's slice-bounds check (same discipline as [div_nz]).  Indices are
     [nat] (a string length/offset is non-negative; this also keeps the body conversion-free
-    — no [Sint63.to_Z] to bridge).  The body [String.substring a (b-a) s] is recognized
+    — no int63 carrier to bridge).  The body [String.substring a (b-a) s] is recognized
     away to the native [s[a:b]] (decl + [substring] suppressed).  [eq_refl] discharges the
     proof for literal bounds. *)
 Definition str_slice (s : GoString) (a b : nat)
@@ -4376,8 +4354,8 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
   let nr := c_re n in let ni := c_im n in
   let mr := c_re m in let mi := c_im m in
   (* branch on which denominator component is larger in magnitude — Go uses [|mr| >= |mi|], i.e.
-     [|mi| <= |mr|].  We compare ABSOLUTE VALUES via [f64_abs] (a trust-base [PrimFloat.*]
-     primitive).  This is sound to use here even though [math.Abs] would need an import: [complex_div]
+     [|mi| <= |mr|].  We compare ABSOLUTE VALUES via [f64_abs] (= [SpecFloat.SFabs], axiom-free).
+     This is sound to use here even though [math.Abs] would need an import: [complex_div]
      lowers to the NATIVE Go [/] (its body is PROOF-ONLY, suppressed by name — see the plugin), so the
      [abs] is never extracted.  (Break #9 fix: the earlier squared form [mi² <= mr²] OVERFLOWED to
      [Inf <= Inf = true] for large operands — |mi|,|mr| ≳ 1e154 — and picked the WRONG branch when
@@ -4385,7 +4363,7 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
      overflows, so the branch now matches Go's exactly.)
     The DEGENERATE-divisor postamble (C99 Annex G.5.1 step 3 — zero / Inf / NaN denominators) is
     now PORTED operand-for-operand from gc's [runtime.complex128div] (review #6 P2 #17), so the
-    model matches Go on ALL inputs, not just finite ones.  NaN/Inf are detected with [PrimFloat]
+    model matches Go on ALL inputs, not just finite ones.  NaN/Inf are detected with [spec_float]
     primitives ([eqb x x] / [|x| = +Inf]); [copysign_inf]/[inf2one] reproduce gc's [math.Copysign]
     (sign of a zero via [1.0 / c = -Inf]).  All proof-only — [complex_div] still lowers to native
     Go [/], whose runtime applies exactly this recovery. *)
@@ -5729,7 +5707,7 @@ Definition str_range (s : GoString) (body : GoInt -> GoI32 -> IO unit) : IO unit
 
 (** ---- Indexed [range] over a slice (Go spec "For statements: For range"): [for i, x := range xs] ----
     [i] is the element INDEX (0, 1, 2, …), [x] the element — the indexed counterpart of
-    [for_each] (which discards the index).  The index is the Go [int] index type ([Sint63]).
+    [for_each] (which discards the index).  The index is the Go [int] index type (the [Z]-carried [GoInt]).
     Lowers to the native two-variable [for i, x := range xs]; the accumulator model below is
     proof-only (recognized by name, decl suppressed). *)
 Fixpoint for_each_idx_from {A : Type} (i : GoInt) (xs : GoSlice A) (body : GoInt -> A -> IO unit) : IO unit :=
@@ -5744,7 +5722,7 @@ Definition for_each_idx {A : Type} (xs : GoSlice A) (body : GoInt -> A -> IO uni
     Produces [i = 0, 1, …, n-1] (and runs zero times when [n = 0], exactly Go's rule).
     The bound [n] is the iteration COUNT (a [nat] — non-negative, and the structural-recursion
     fuel, so termination is by construction with no carrier conversion); the produced index
-    [i] is the Go [int] index type ([Sint63]).  Recognized by name + decl suppressed, so the
+    [i] is the Go [int] index type (the [Z]-carried [GoInt]).  Recognized by name + decl suppressed, so the
     lowering is the native [for i := range n] (the [nat] count renders as the bound). *)
 Fixpoint int_range_aux (i : GoInt) (n : nat) (body : GoInt -> IO unit) : IO unit :=
   match n with
