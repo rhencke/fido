@@ -334,7 +334,8 @@ let go_prim_type_table = [
 
 let is_float64_type r =
   ref_has_suffix r ".PrimFloat.float" ||
-  String.equal (global_basename r) "float"
+  String.equal (global_basename r) "float" ||
+  String.equal (global_basename r) "spec_float"   (* GoFloat64 := spec_float (review #6 #13→zero-axioms) *)
 
 let classify_go_prim_type r =
   List.assoc_opt (global_basename r) go_prim_type_table
@@ -863,7 +864,10 @@ let float_op_table = [
 ]
 
 let is_float_op_ref r name =
-  ref_has_suffix r (".PrimFloat." ^ name)
+  ref_has_suffix r (".PrimFloat." ^ name) ||
+  (* GoFloat64 ops are now named [f64_<op>] Definitions over [spec_float] (review #6 #13→zero-axioms);
+     their CALLS lower to the same Go float64 operators, their DECLS are suppressed (is_inlined_ref). *)
+  (from_builtins r && String.equal (global_basename r) ("f64_" ^ name))
 
 (* Float unary negation: [PrimFloat.opp x] → Go [-x].  IEEE-exact (flips the sign
    bit), so [opp (+0.0) = -0.0] and [opp NaN] stays NaN — matching Go's unary [-]
@@ -2551,6 +2555,28 @@ let rec pp_expr state env = function
               [any]-box, where a bare [v] would box as Go [int] and disagree with the [TUint] tag
               (review #4 P0 #1).  [uint_lit n] (a Definition) renders the same via its MLglob arm above. *)
            | MLcons (_, r, [v]) when is_uint_ctor r -> str "uint(" ++ pp_expr state env v ++ str ")"
+           (* spec_float LITERAL (the GoFloat64 carrier, review #6 #13→zero-axioms): the IEEE-754
+              inductive value emits as an EXACT Go float literal.  A finite [S754_finite s m e]
+              (= ±m·2^e) is the Go HEX float [±0x<m>p<e>] — Go parses it bit-for-bit and prints the
+              same as the decimal, so runtime output is preserved.  [S754_zero false] is [0.0].
+              ±Inf/NaN have no Go constant (need math.Inf/NaN), so a LITERAL one fails loud — they
+              are produced at runtime (1.0/0.0, 0.0/0.0). *)
+           | MLcons (_, r, [s; m; e]) when String.equal (global_basename r) "S754_finite" ->
+               let sign_opt = (match s with
+                 | MLcons (_, rs, []) when is_bool_true  rs -> Some true
+                 | MLcons (_, rs, []) when is_bool_false rs -> Some false
+                 | _ -> None) in
+               (match sign_opt, pos_value m, z_eval e with
+                | Some sign, Some mv, Some ev ->
+                    str (Printf.sprintf "%s0x%Lxp%Ld" (if sign then "-" else "") mv ev)
+                | _ -> unsupported "a spec_float S754_finite literal with a non-constant sign/mantissa/exponent")
+           | MLcons (_, r, [s]) when String.equal (global_basename r) "S754_zero" ->
+               (match s with
+                | MLcons (_, rs, []) when is_bool_false rs -> str "0.0"
+                | _ -> unsupported "a spec_float negative-zero literal (Go has no -0.0 constant; use math.Copysign at runtime)")
+           | MLcons (_, r, _) when String.equal (global_basename r) "S754_infinity"
+                               || String.equal (global_basename r) "S754_nan" ->
+               unsupported "a spec_float ±Inf / NaN LITERAL (no Go Inf/NaN constant without math.Inf/math.NaN — produce it at runtime, e.g. 1.0/0.0 or 0.0/0.0)"
            | MLcons (_, r, _) as lst ->
                (* review R4: a non-empty list literal in VALUE position.  The old `append(nil, v1, …)`
                   is INVALID Go — `append`'s first argument must be a TYPED slice, and `nil` here is
@@ -4370,6 +4396,14 @@ let is_inlined_ref r =
   is_arrN_lit_ref r || arr_n_of_name "mkArr" "" (global_basename r) <> None
     || arr_n_of_name "arr" "_data" (global_basename r) <> None ||  (* GoArr<N> machinery (decl-suppressed; recognized by name) *)
   List.mem (global_basename r) ["mkFC"; "fc_num"; "fc_den"; "fc_add"; "fc_sub"; "fc_mul"; "fc_div"; "f64_of_fconst"; "f32_of_fconst"; "sf_of_Z"] ||  (* FConst machinery: folded by name *)
+  (* spec_float float64 ops + helpers (review #6 #13→zero-axioms): the [f64_<op>] CALLS lower to Go
+     float operators (is_float_op_ref / is_f64_cmp_ref / is_min/max_ref); the helpers are internal to
+     by-name-lowered op bodies / the parse-time literal notation.  All DECLS suppressed. *)
+  List.mem (global_basename r)
+    ["f64_add"; "f64_sub"; "f64_mul"; "f64_div"; "f64_opp"; "f64_abs";
+     "f64_eqb"; "f64_ltb"; "f64_leb"; "f64_gtb"; "f64_geb"; "f64_neqb"; "f64_min"; "f64_max";
+     "renorm"; "cond_Zopp"; "f64_of_frac"; "uint_to_Z"; "f64_of_decimal";
+     "parse_f64"; "print_f64"; "f32_round"] ||
   List.mem (global_basename r) ["mkArray"; "arr_data"; "goi64_list_eqb"; "go_list_set"] ||
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)

@@ -3,9 +3,6 @@
     which earn it from a concurrent operational semantics; it emits no Go.) *)
 
 From Fido Require Import preamble.
-From Stdlib Require Import Numbers.Cyclic.Int63.Uint63.
-From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
-From Stdlib Require Import Floats.PrimFloat.
 From Stdlib Require Import ZArith.
 From Stdlib Require Import Lia.
 From Stdlib Require Import Strings.String.   (* string-literal scope for the String-types demo *)
@@ -13,8 +10,10 @@ From Stdlib Require Import StrictProp.        (* [squash]: seal the [ComparableW
 Require Import Coq.Lists.List.
 Import ListNotations.
 
-Open Scope uint63_scope.
-Open Scope float_scope.
+(* Float literals parse in [go64_scope] (decimal → the binary64 [spec_float]); integer literals are
+   type-directed (nat field indices / GoInt via [int_lit] / [%i64] / [%u64]).  No int63 scope — the
+   [PrimInt63]/[Sint63]/[PrimFloat] substrate is gone (review #6 #13→zero-axioms). *)
+Open Scope go64_scope.
 
 (** [add]/[sub] on the platform [GoInt] (Go's [int]) — index/value arithmetic (loop
     counters, computed slice indices like [sub 0 1]).  [GoInt] is now the FAITHFUL
@@ -30,17 +29,6 @@ Definition sub (n m : GoInt) : GoInt := int_sub n m.
     rests on a fact, not a hunch. *)
 Example nat_sub_is_truncated : Nat.sub 3 5 = 0%nat.
 Proof. reflexivity. Qed.
-
-(** WHY the plugin REJECTS the UNSIGNED [PrimInt63.ltb]/[leb] for [int]: on a
-    high-bit value they disagree with Go's SIGNED int64 [<].  Take [-1]
-    ([PrimInt63.sub 0 1], i.e. the large [2^63-1] unsigned): unsigned [ltb (-1) 0]
-    is [false], but the SIGNED [Sint63.ltb (-1) 0] is [true] — and Go's [-1 < 0]
-    on int64 is [true].  So only the signed form (which [Sint63.ltb] reduces to)
-    matches Go.  Both machine-checked. *)
-Example ltb_unsigned_neg_false : PrimInt63.ltb (PrimInt63.sub 0 1) 0 = false.
-Proof. now vm_compute. Qed.
-Example ltb_signed_neg_true : Sint63.ltb (PrimInt63.sub 0 1) 0 = true.
-Proof. now vm_compute. Qed.
 
 (** OVERFLOW-SAFE ARITHMETIC AT THE FULL WIDTH (A4.3: the int model migrated off the
     bounded [Sint63] onto the faithful [GoI64]).  Fido's signature property — "this
@@ -208,42 +196,42 @@ Definition div_demo : IO unit :=
     scientific notation — that is Go's builtin behaviour, captured by the
     golden.) *)
 Definition float_demo : IO unit :=
-  println [ any (PrimFloat.add 1.5 2.25)%float     (* 3.75 *)
-          ; any (PrimFloat.div 1.0 4.0)%float ].   (* 0.25 (exact in binary) *)
+  println [ any (f64_add 1.5 2.25)%go64     (* 3.75 *)
+          ; any (f64_div 1.0 4.0)%go64 ].   (* 0.25 (exact in binary) *)
 
 (** Float COMPARISON lowers to Go's [<]/[<=]/[==] on [float64].  Both Coq's
     [PrimFloat] and Go follow IEEE 754, so the semantics match exactly — including
     NaN (every comparison with NaN is false) and signed zero ([0.0 == -0.0]).
     Comparisons bind looser than arithmetic, so [a + b < c] needs no parens. *)
 Definition float_cmp_demo : IO unit :=
-  bind (println [any (PrimFloat.ltb 1.5 2.5)%float]) (fun _ =>   (* 1.5 < 2.5  → true  *)
-  bind (println [any (PrimFloat.leb 2.5 2.5)%float]) (fun _ =>   (* 2.5 <= 2.5 → true  *)
-  bind (println [any (PrimFloat.eqb 1.5 1.5)%float]) (fun _ =>   (* 1.5 == 1.5 → true  *)
-  println [any (PrimFloat.ltb 3.0 2.0)%float]))).               (* 3.0 < 2.0  → false *)
+  bind (println [any (f64_ltb 1.5 2.5)%go64]) (fun _ =>   (* 1.5 < 2.5  → true  *)
+  bind (println [any (f64_leb 2.5 2.5)%go64]) (fun _ =>   (* 2.5 <= 2.5 → true  *)
+  bind (println [any (f64_eqb 1.5 1.5)%go64]) (fun _ =>   (* 1.5 == 1.5 → true  *)
+  println [any (f64_ltb 3.0 2.0)%go64]))).               (* 3.0 < 2.0  → false *)
 
 (** IEEE NaN faithfulness, MACHINE-CHECKED (Coq side): a NaN ([0.0/0.0]) is
     unordered — [NaN == NaN] and [NaN < x] are both [false].  This is exactly Go's
     float64 behaviour, so lowering [eqb]/[ltb] to [==]/[<] is faithful on the
     corner cases, not merely on ordinary values.  ([float_nan_demo] below shows
     Go agreeing at runtime.) *)
-Example nan_eqb_false : PrimFloat.eqb (PrimFloat.div 0 0) (PrimFloat.div 0 0) = false.
+Example nan_eqb_false : f64_eqb (f64_div 0 0) (f64_div 0 0) = false.
 Proof. now vm_compute. Qed.
-Example nan_ltb_false : PrimFloat.ltb (PrimFloat.div 0 0) 1 = false.
+Example nan_ltb_false : f64_ltb (f64_div 0 0) 1 = false.
 Proof. now vm_compute. Qed.
 
 (** Runtime witness (Go side) of the same NaN corner cases.  [z] is an opaque
     [float64] parameter (call site passes [0.0]) so [z/z] is a *runtime* NaN —
     a literal [0.0/0.0] would be a Go *compile-time* division-by-zero error. *)
-Definition float_nan_demo (z : float) : IO unit :=
-  bind (println [any (PrimFloat.eqb (PrimFloat.div z z) (PrimFloat.div z z))%float]) (fun _ =>
-  println [any (PrimFloat.ltb (PrimFloat.div z z) 1)%float]).   (* NaN==NaN → false ; NaN<1 → false *)
+Definition float_nan_demo (z : GoFloat64) : IO unit :=
+  bind (println [any (f64_eqb (f64_div z z) (f64_div z z))%go64]) (fun _ =>
+  println [any (f64_ltb (f64_div z z) 1)%go64]).   (* NaN==NaN → false ; NaN<1 → false *)
 
-(** Float unary negation [PrimFloat.opp] → Go [-x], IEEE-exact (flips the sign
+(** Float unary negation [f64_opp] → Go [-x], IEEE-exact (flips the sign
     bit), needing no package import.  Ordinary values: [opp 1.5 = -1.5] and
     [opp (opp 2.0) = 2.0]. *)
 Definition float_opp_demo : IO unit :=
-  bind (println [any (PrimFloat.opp 1.5)%float]) (fun _ =>               (* -1.5 *)
-  println [any (PrimFloat.opp (PrimFloat.opp 2.0))%float]).             (* 2.0 *)
+  bind (println [any (f64_opp 1.5)%go64]) (fun _ =>               (* -1.5 *)
+  println [any (f64_opp (f64_opp 2.0))%go64]).             (* 2.0 *)
 
 (** The IEEE corner case: [opp] yields NEGATIVE zero, distinct in sign from [+0.0]
     (even though [-0.0 == +0.0]).  Witnessed by [1 / -0 = -inf < 0] (whereas
@@ -251,40 +239,40 @@ Definition float_opp_demo : IO unit :=
     [float_opp_sign_demo] — with an opaque [z := 0.0], so no untyped-constant
     folding of [-0.0] to [+0.0] — shows Go agrees. *)
 Example opp_zero_is_neg :
-  PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp 0)) 0 = true.
+  f64_ltb (f64_div 1 (f64_opp 0)) 0 = true.
 Proof. now vm_compute. Qed.
-Definition float_opp_sign_demo (z : float) : IO unit :=
-  println [any (PrimFloat.ltb (PrimFloat.div 1 (PrimFloat.opp z)) 0)%float].  (* true *)
+Definition float_opp_sign_demo (z : GoFloat64) : IO unit :=
+  println [any (f64_ltb (f64_div 1 (f64_opp z)) 0)%go64].  (* true *)
 
 (** Float [min]/[max] (Go 1.21 builtins, float rules) → Go [min(a,b)]/[max(a,b)].
     Faithful on the two IEEE corners Go's builtin handles: NaN PROPAGATION (a NaN arg
     gives a NaN result — witnessed via [eqb r r = false]) and SIGNED ZERO
     ([min(-0,+0) = -0], [max(-0,+0) = +0] — witnessed via [1/r], which is [-inf < 0]
     iff [r] is [-0]).  Plus the ordinary smaller/larger. *)
-Example f64_min_ord     : f64_min 3 5 = 3%float. Proof. now vm_compute. Qed.
-Example f64_max_ord     : f64_max 3 5 = 5%float. Proof. now vm_compute. Qed.
-Example f64_min_nan     : PrimFloat.eqb (f64_min (PrimFloat.div 0 0) 1) (f64_min (PrimFloat.div 0 0) 1) = false.
+Example f64_min_ord     : f64_min 3 5 = 3%go64. Proof. now vm_compute. Qed.
+Example f64_max_ord     : f64_max 3 5 = 5%go64. Proof. now vm_compute. Qed.
+Example f64_min_nan     : f64_eqb (f64_min (f64_div 0 0) 1) (f64_min (f64_div 0 0) 1) = false.
 Proof. now vm_compute. Qed.
-Example f64_max_nan_b   : PrimFloat.eqb (f64_max 1 (PrimFloat.div 0 0)) (f64_max 1 (PrimFloat.div 0 0)) = false.
+Example f64_max_nan_b   : f64_eqb (f64_max 1 (f64_div 0 0)) (f64_max 1 (f64_div 0 0)) = false.
 Proof. now vm_compute. Qed.
-Example f64_min_negzero : PrimFloat.ltb (PrimFloat.div 1 (f64_min (PrimFloat.opp 0) 0)) 0 = true.
+Example f64_min_negzero : f64_ltb (f64_div 1 (f64_min (f64_opp 0) 0)) 0 = true.
 Proof. now vm_compute. Qed.
-Example f64_max_poszero : PrimFloat.ltb (PrimFloat.div 1 (f64_max (PrimFloat.opp 0) 0)) 0 = false.
+Example f64_max_poszero : f64_ltb (f64_div 1 (f64_max (f64_opp 0) 0)) 0 = false.
 Proof. now vm_compute. Qed.
 
 Definition fminmax_demo : IO unit :=
-  println [ any (f64_min 3 5)%float ; any (f64_max 3 5)%float ].   (* min/max of two floats *)
+  println [ any (f64_min 3 5)%go64 ; any (f64_max 3 5)%go64 ].   (* min/max of two floats *)
 
 (** Direct float [>] / [>=] / [!=] (completing the operator set).  Ordinary values
     plus the NaN corners: [NaN >= 1] is FALSE (the reason [f64_geb] is [leb b a], not
     [¬(<)], which would be true), and [NaN != 1] is TRUE. *)
 Example f64_gtb_t   : f64_gtb 5 3 = true.   Proof. now vm_compute. Qed.
 Example f64_geb_eq  : f64_geb 3 3 = true.   Proof. now vm_compute. Qed.
-Example f64_geb_nan : f64_geb (PrimFloat.div 0 0) 1 = false. Proof. now vm_compute. Qed.
-Example f64_neqb_nan: f64_neqb (PrimFloat.div 0 0) 1 = true. Proof. now vm_compute. Qed.
+Example f64_geb_nan : f64_geb (f64_div 0 0) 1 = false. Proof. now vm_compute. Qed.
+Example f64_neqb_nan: f64_neqb (f64_div 0 0) 1 = true. Proof. now vm_compute. Qed.
 
 Definition fcmp_demo : IO unit :=
-  println [ any (f64_gtb 5 3) ; any (f64_geb 3 3) ; any (f64_neqb 5 3) ]%float.  (* true true true *)
+  println [ any (f64_gtb 5 3) ; any (f64_geb 3 3) ; any (f64_neqb 5 3) ]%go64.  (* true true true *)
 
 (** int64 -> float64 conversion ([f64_of_i64], Go [float64(i)]) -- MODELED + machine-
     checked: [7 -> 7.0] and the SIGNED case [-3 -> -3.0] (the Z-carried [GoI64] splits
@@ -299,17 +287,17 @@ Definition fcmp_demo : IO unit :=
     NOT extracting this proof-only sign-split body -- so it stays proof-only for now.
     *float64 -> int64 truncation:* a BOUNDARY -- [PrimFloat] has no truncation
     primitive (like [math.Abs]/[math.Sqrt]). *)
-Example f64_of_i64_pos : PrimFloat.eqb (f64_of_i64 (7)%i64) 7%float = true.
+Example f64_of_i64_pos : f64_eqb (f64_of_i64 (7)%i64) 7%go64 = true.
 Proof. now vm_compute. Qed.
-Example f64_of_i64_neg : PrimFloat.eqb (f64_of_i64 (-3)%i64) (PrimFloat.opp 3%float) = true.
+Example f64_of_i64_neg : f64_eqb (f64_of_i64 (-3)%i64) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
 (** int → float64 (Go [float64(i)]): recognized by name → native [float64(i)], the sign-split
     body (now over the [Z]-carried [GoInt], review #6 #13) suppressed.  Machine-checked across
     the sign. *)
-Example f64_of_int_pos : PrimFloat.eqb (f64_of_int (int_lit 5 eq_refl)) 5%float = true.
+Example f64_of_int_pos : f64_eqb (f64_of_int (int_lit 5 eq_refl)) 5%go64 = true.
 Proof. now vm_compute. Qed.
-Example f64_of_int_neg : PrimFloat.eqb (f64_of_int (int_lit (-3) eq_refl)) (PrimFloat.opp 3%float) = true.
+Example f64_of_int_neg : f64_eqb (f64_of_int (int_lit (-3) eq_refl)) (f64_opp 3%go64) = true.
 Proof. now vm_compute. Qed.
 
 (** FLOAT32 faithfulness witnesses (the SpecFloat-based binary32 model).  The decisive one:
@@ -319,7 +307,7 @@ Proof. now vm_compute. Qed.
     computes the ordinary results. *)
 Example f32_add_rounds : f32_eqb (f32_add (f32_lit 16777216) (f32_lit 1)) (f32_lit 16777216) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example f32_f64_differ : PrimFloat.eqb (16777216 + 1)%float 16777217 = true.  (* float64 KEEPS the bit *)
+Example f32_f64_differ : f64_eqb (16777216 + 1)%go64 16777217 = true.  (* float64 KEEPS the bit *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_add_exact  : f32_eqb (f32_add (f32_lit 1.5) (f32_lit 2.25)) (f32_lit 3.75) = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -503,7 +491,7 @@ Definition ptr_chan_narrow_demo : IO unit :=
   bind (ptr_new TU8 (u8_of_i64 (i64_lit 300 eq_refl))) (fun p =>   (* *uint8 ← uint8(44) *)
   bind (ptr_set TU8 p (u8_of_i64 (i64_lit 7 eq_refl)))   (fun _ => (* *p = uint8(7) *)
   bind (ptr_get TU8 p) (fun pv =>                                   (* pv := *p (uint8 7) *)
-  bind (make_chan_buf TU8 1) (fun ch =>
+  bind (make_chan_buf TU8 (int_lit 1 eq_refl)) (fun ch =>
   bind (send TU8 ch (u8_of_i64 (i64_lit 301 eq_refl))) (fun _ =>    (* ch <- uint8(45) *)
   bind (recv TU8 ch) (fun cv =>                                     (* cv := <-ch (uint8 45) *)
   println [ any (i64_of_u8 pv) ; any (i64_of_u8 cv) ])))))).        (* 7 45 *)
@@ -580,7 +568,7 @@ Definition narrow_u64_demo : IO unit :=
 (** float32 ↔ float64 conversions LOWERED.  Widening [f64_of_f32] → [float64(x)] (exact);
     narrowing [f32_of_f64] → [float32(x)] (rounds to binary32).  Machine-checked that the
     narrow really rounds: [2^24 + 1] is unrepresentable in binary32, so it rounds to [2^24]. *)
-Example f32_of_f64_rounds : PrimFloat.eqb (f64_of_f32 (f32_of_f64 16777217)) 16777216 = true.
+Example f32_of_f64_rounds : f64_eqb (f64_of_f32 (f32_of_f64 16777217)) 16777216 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition narrow32 (x : GoFloat64) : GoFloat32 := f32_of_f64 x.
 Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
@@ -589,18 +577,18 @@ Definition widen64  (x : GoFloat32) : GoFloat64 := f64_of_f32 x.
     Go [-x]; [f32_min]/[f32_max] → Go [min]/[max] on float32. *)
 Example f32_neg_ex   : f32_eqb (f32_neg (f32_lit 1.5)) (f32_lit (-1.5)) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example f32_neg_zero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_neg (f32_lit 0)))) 0 = true.  (* -0 *)
+Example f32_neg_zero : f64_ltb (f64_div 1 (widen64 (f32_neg (f32_lit 0)))) 0 = true.  (* -0 *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_min_ord  : f32_eqb (f32_min (f32_lit 3) (f32_lit 5)) (f32_lit 3) = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_max_ord  : f32_eqb (f32_max (f32_lit 3) (f32_lit 5)) (f32_lit 5) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example f32_min_nan  : let r := widen64 (f32_min (f32_lit (PrimFloat.div 0 0)) (f32_lit 1)) in
-                       PrimFloat.eqb r r = false.    (* NaN propagates *)
+Example f32_min_nan  : let r := widen64 (f32_min (f32_lit (f64_div 0 0)) (f32_lit 1)) in
+                       f64_eqb r r = false.    (* NaN propagates *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_min_negzero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_min (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = true.   (* min(-0,+0) = -0 *)
+Example f32_min_negzero : f64_ltb (f64_div 1 (widen64 (f32_min (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = true.   (* min(-0,+0) = -0 *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_max_poszero : PrimFloat.ltb (PrimFloat.div 1 (widen64 (f32_max (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = false.  (* max(-0,+0) = +0 *)
+Example f32_max_poszero : f64_ltb (f64_div 1 (widen64 (f32_max (f32_neg (f32_lit 0)) (f32_lit 0)))) 0 = false.  (* max(-0,+0) = +0 *)
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_extra_demo : IO unit :=
   println [ any (f32_neg (f32_lit 1.5))             (* -1.5 *)
@@ -613,16 +601,16 @@ Definition f32_extra_demo : IO unit :=
 Definition f32_box_demo : IO unit :=
   type_assert_safe TFloat32 (any (f32_lit 1.5)) (fun _ a =>     (* float32 to float32 → true  *)
   type_assert_safe TFloat64 (any (f32_lit 1.5)) (fun _ b =>     (* float32 to float64 → FALSE *)
-  type_assert_safe TFloat64 (any (1.5)%float)   (fun _ c =>     (* float64 to float64 → true  *)
+  type_assert_safe TFloat64 (any (1.5)%go64)   (fun _ c =>     (* float64 to float64 → true  *)
     println [any a; any b; any c]))).   (* true false true *)
 (** float32 RANGE + CONVERSION faithfulness (the float32 trap list).  Every float32↔(int/float64/
     constant) path goes through binary64, which is PROVABLY single-rounding-equivalent: binary64's
     53 bits exceed [2·24 + 2 = 50], so decimal/int → binary64 → binary32 equals a DIRECT round to
     binary32 (the double-rounding-innocuous theorem — no extra error from the intermediate).
     Machine-checked across the corners: *)
-Example f32_overflow  : PrimFloat.eqb (widen64 (f32_lit 1e40)) (PrimFloat.div 1 0) = true.   (* |x|>max → +Inf *)
+Example f32_overflow  : f64_eqb (widen64 (f32_lit 1e40)) (f64_div 1 0) = true.   (* |x|>max → +Inf *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_underflow : PrimFloat.eqb (widen64 (f32_lit 1e-50)) 0 = true.                     (* below min subnormal → 0 *)
+Example f32_underflow : f64_eqb (widen64 (f32_lit 1e-50)) 0 = true.                     (* below min subnormal → 0 *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_int_rounds : f32_eqb (f32_of_f64 (f64_of_int (int_lit 16777217 eq_refl))) (f32_lit 16777216) = true. (* float32(2^24+1)=2^24 *)
 Proof. vm_compute. reflexivity. Qed.
@@ -645,15 +633,15 @@ Definition narrow_f32_demo : IO unit :=
     [float32] overflow are COMPILE ERRORS.  The extractor now forces runtime (typed IIFE) for any
     float op whose operands are not runtime variables.  Model values (machine-checked) and the
     runtime Go now agree on the IEEE results: *)
-Example f32_div0_inf  : PrimFloat.eqb (widen64 (f32_div (f32_lit 1) (f32_lit 0))) (PrimFloat.div 1 0) = true. (* +Inf *)
+Example f32_div0_inf  : f64_eqb (widen64 (f32_div (f32_lit 1) (f32_lit 0))) (f64_div 1 0) = true. (* +Inf *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_div_negzero : PrimFloat.eqb (widen64 (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))) (PrimFloat.div 1 (PrimFloat.opp 0)) = true. (* -Inf (proves -0) *)
+Example f32_div_negzero : f64_eqb (widen64 (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))) (f64_div 1 (f64_opp 0)) = true. (* -Inf (proves -0) *)
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_const_runtime_demo : IO unit :=
   println [ any (f32_div (f32_lit 1) (f32_lit 0))             (* +Inf  (pre-fix: Go compile error, constant /0) *)
           ; any (f32_div (f32_lit 1) (f32_neg (f32_lit 0)))   (* -Inf  (proves -0 preserved; pre-fix +0 → +Inf) *)
           ; any (f32_lit 1e40)                                 (* +Inf  (pre-fix: Go compile error, const overflow) *)
-          ; any (PrimFloat.div 1 0)%float ].                   (* float64 +Inf (same class) *)
+          ; any (f64_div 1 0)%go64 ].                   (* float64 +Inf (same class) *)
 (** DIRECT int → float32 (code review): [f32_of_i64]/[f32_of_int]/[f32_of_u64] round the integer
     ONCE to binary32, faithfully modelling Go's [float32(x)].  For |x| > 2^53 this DIFFERS from the
     double-rounding [f32_of_f64 (f64_of_int x)] = [float32(float64(x))], DISPROVING the earlier
@@ -663,10 +651,10 @@ Example f32_of_i64_differs :         (* direct ≠ via-float64 — double roundi
           (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl))) = false.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_i64_direct :          (* direct = 2^61+2^38 (Go float32(x) = 0x5e000001) *)
-  PrimFloat.eqb (f64_of_f32 (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))) 2305843284091600896 = true.
+  f64_eqb (f64_of_f32 (f32_of_i64 (i64_lit 2305843146652647425 eq_refl))) 2305843284091600896 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_i64_viaf64 :          (* via float64 = 2^61 (Go float32(float64(x)) = 0x5e000000) *)
-  PrimFloat.eqb (f64_of_f32 (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) 2305843009213693952 = true.
+  f64_eqb (f64_of_f32 (f32_of_f64 (f64_of_i64 (i64_lit 2305843146652647425 eq_refl)))) 2305843009213693952 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition f32_of_int_demo : IO unit :=
   (* direct float32(x) vs via float64 float32(float64(x)) DIFFER (double rounding); println truncates
@@ -677,7 +665,7 @@ Definition f32_of_int_demo : IO unit :=
     rational ONCE to binary32 (correctly-rounded for ALL num/den).  Disproves single-rounding via
     float64 for a large rational, and computes the ordinary small constant exactly. *)
 Example f32_of_fconst_direct :   (* exact 2305843146652647425/1 → 2^61+2^38 (Go float32(x) = 0x5e000001) *)
-  PrimFloat.eqb (f64_of_f32 (f32_of_fconst (mkFC 2305843146652647425 1))) 2305843284091600896 = true.
+  f64_eqb (f64_of_f32 (f32_of_fconst (mkFC 2305843146652647425 1))) 2305843284091600896 = true.
 Proof. vm_compute. reflexivity. Qed.
 Example f32_of_fconst_differs :  (* single round ≠ double round (via float64) for the large rational *)
   f32_eqb (f32_of_fconst (mkFC 2305843146652647425 1))
@@ -694,8 +682,8 @@ Definition f32_fconst_demo : IO unit :=
     endpoints exceed 2^53 (and removing the extraction's 2^53 fail-loud guard — large constants now
     lower as [float64(num.0/den.0)]). *)
 Example f64_of_fconst_no_double_round :   (* new (single round) ≠ old (double round) for a both-large rational *)
-  PrimFloat.eqb (f64_of_fconst (mkFC 9007199254740993 9007199254740995))
-                (PrimFloat.div (f64_of_i64 (i64_lit 9007199254740993 eq_refl)) (f64_of_i64 (i64_lit 9007199254740995 eq_refl))) = false.
+  f64_eqb (f64_of_fconst (mkFC 9007199254740993 9007199254740995))
+                (f64_div (f64_of_i64 (i64_lit 9007199254740993 eq_refl)) (f64_of_i64 (i64_lit 9007199254740995 eq_refl))) = false.
 Proof. vm_compute. reflexivity. Qed.
 Definition f64_fconst_big_demo : IO unit :=
   println [ any (f64_of_fconst (mkFC 9007199254740993 10)) ].   (* (2^53+1)/10 = 900719925474099.25, single round (was fail-loud) *)
@@ -706,23 +694,23 @@ Definition f64_fconst_big_demo : IO unit :=
     except through the rounding boundary [f32_lit], which rounds it to [2^24]; widening that
     yields [16777216], MATCHING Go.  (The raw injection [f64_of_f32 16777217] no longer even
     typechecks — [GoFloat32] is abstract.) *)
-Example f32_widen_sound : PrimFloat.eqb (widen64 (f32_lit 16777217)) 16777216 = true.
+Example f32_widen_sound : f64_eqb (widen64 (f32_lit 16777217)) 16777216 = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition floatconv_demo : IO unit :=
   bind (println [ any (narrow32 16777217) ])        (fun _ =>   (* float64→float32: rounds to 16777216 *)
   println [ any (widen64 (narrow32 7.5)) ]).                    (* round-trip 7.5 (exact) *)
 (** UNTYPED FLOAT CONSTANTS (model): a constant float expression is EXACT (rational) until typed,
     then rounded ONCE.  [0.1 + 0.2] as a CONSTANT is [float64(3/10) = 0.3] exactly; the RUNTIME
-    add ([PrimFloat.add 0.1 0.2]) rounds each operand first → [0.30000000000000004].  Both
+    add ([f64_add 0.1 0.2]) rounds each operand first → [0.30000000000000004].  Both
     machine-checked, proving the model captures the constant-vs-runtime distinction Go makes.
     (Proof-only: lowering of [f64_of_fconst] to Go is the deferred follow-on.) *)
-Example fconst_exact   : PrimFloat.eqb (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) 0.3 = true.
+Example fconst_exact   : f64_eqb (f64_of_fconst (fc_add (mkFC 1 10) (mkFC 2 10))) 0.3 = true.
 Proof. vm_compute. reflexivity. Qed.
-Example fconst_runtime : PrimFloat.eqb (PrimFloat.add 0.1 0.2) 0.3 = false.   (* runtime ≠ the constant 0.3 *)
+Example fconst_runtime : f64_eqb (f64_add 0.1 0.2) 0.3 = false.   (* runtime ≠ the constant 0.3 *)
 Proof. vm_compute. reflexivity. Qed.
-Example fconst_mul     : PrimFloat.eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 0.375 = true.  (* 3/2·1/4 = 3/8 = 0.375 *)
+Example fconst_mul     : f64_eqb (f64_of_fconst (fc_mul (mkFC 3 2) (mkFC 1 4))) 0.375 = true.  (* 3/2·1/4 = 3/8 = 0.375 *)
 Proof. vm_compute. reflexivity. Qed.
-Example fconst_div     : PrimFloat.eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
+Example fconst_div     : f64_eqb (f64_of_fconst (fc_div (mkFC 1 1) (mkFC 4 1) ltac:(discriminate))) 0.25 = true.   (* 1.0/4.0 = 0.25 *)
 Proof. vm_compute. reflexivity. Qed.
 (** Review #6 P2 #16 / minimum-suite #12: a constant division by a ZERO constant is
     UNCONSTRUCTABLE.  [fc_div] demands evidence [fc_num b <> 0]; for a zero divisor that
@@ -744,7 +732,7 @@ Example f32_lt_ex   : f32_ltb  (f32c 1.5 0.0 2) (f32c 5.0 0.0 2) = true.   (* 3 
 Proof. vm_compute. reflexivity. Qed.
 Example f32_ge_ex   : f32_geb  (f32c 5.0 0.0 2) (f32c 1.5 0.0 2) = true.   (* 10 >= 3 *)
 Proof. vm_compute. reflexivity. Qed.
-Example f32_geb_nan : f32_geb  (f32c 1.0 0.0 1) (f32_lit PrimFloat.nan) = false.  (* x >= NaN false *)
+Example f32_geb_nan : f32_geb  (f32c 1.0 0.0 1) (f32_lit S754_nan) = false.  (* x >= NaN false *)
 Proof. vm_compute. reflexivity. Qed.
 Example f32_neq_ex  : f32_neqb (f32c 1.5 0.0 2) (f32c 5.0 0.0 2) = true.   (* 3 != 10 *)
 Proof. vm_compute. reflexivity. Qed.
@@ -757,7 +745,7 @@ Definition f32_cmp_demo : IO unit :=
     typed-param wrapper so the cast applies to a VARIABLE ([int64(3.7)] on a constant is a Go
     compile error). *)
 Definition trunc64 (x : GoFloat64) : GoI64 := i64_of_f64 x.
-Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc64 (PrimFloat.opp 2.9)) ].   (* 3 / -2 *)
+Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc64 (f64_opp 2.9)) ].   (* 3 / -2 *)
 
 (** float ↔ uint64 LOWERED — the UNSIGNED counterparts.  [u64_of_f64] → native [uint64(f)]
     (truncate toward zero, parallel to [i64_of_f64]); [f64_of_u64] → native [float64(v)]
@@ -766,9 +754,9 @@ Definition i64_of_f64_demo : IO unit := println [ any (trunc64 3.7) ; any (trunc
     negative an int64 reinterpret would give.  Machine-checked: low range exact ([255]); the
     uint64 MAX rounds to [2^64] (the round-to-odd trick is correct, not off-by-rounding); and
     [float64 2^63 → uint64] succeeds where [int64] would overflow. *)
-Example f64_of_u64_lo  : PrimFloat.eqb (f64_of_u64 (u64_lit 255 eq_refl)) 255 = true.
+Example f64_of_u64_lo  : f64_eqb (f64_of_u64 (u64_lit 255 eq_refl)) 255 = true.
 Proof. vm_compute. reflexivity. Qed.
-Example f64_of_u64_max : PrimFloat.eqb (f64_of_u64 (u64_lit 18446744073709551615 eq_refl)) 18446744073709551616 = true.  (* → 2^64 *)
+Example f64_of_u64_max : f64_eqb (f64_of_u64 (u64_lit 18446744073709551615 eq_refl)) 18446744073709551616 = true.  (* → 2^64 *)
 Proof. vm_compute. reflexivity. Qed.
 Example u64_of_f64_big : u64raw (u64_of_f64 9223372036854775808) = 9223372036854775808%Z.  (* 2^63, beyond int64 *)
 Proof. vm_compute. reflexivity. Qed.
@@ -792,11 +780,11 @@ Definition f64_of_i64_demo : IO unit :=
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero, via the verified [Prim2SF]
     decomposition.  Machine-checked across the sign, the exact case, and zero. *)
-Example i64_of_f64_pos   : i64_of_f64 3.7%float       = (3)%i64.       Proof. vm_compute. reflexivity. Qed.
-Example i64_of_f64_neg   : i64_of_f64 (-3.7)%float    = (-3)%i64.      Proof. vm_compute. reflexivity. Qed.
-Example i64_of_f64_exact : i64_of_f64 100%float       = (100)%i64.     Proof. vm_compute. reflexivity. Qed.
-Example i64_of_f64_zero  : i64_of_f64 0%float         = (0)%i64.       Proof. vm_compute. reflexivity. Qed.
-Example i64_of_f64_big   : i64_of_f64 1000000.9%float = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_pos   : i64_of_f64 3.7%go64       = (3)%i64.       Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_neg   : i64_of_f64 (-3.7)%go64    = (-3)%i64.      Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_exact : i64_of_f64 100%go64       = (100)%i64.     Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_zero  : i64_of_f64 0%go64         = (0)%i64.       Proof. vm_compute. reflexivity. Qed.
+Example i64_of_f64_big   : i64_of_f64 1000000.9%go64 = (1000000)%i64. Proof. vm_compute. reflexivity. Qed.
 (** *Lowering DEFERRED* (proof-only, like [f64_of_i64] once was): [i64_of_f64] returns
     [GoI64] (a single-field record), so its Z-from-[Prim2SF] body hits the SAME wall as the
     narrow→int64 widening — Coq's case-of-case fusion inlines the [match] into value position
@@ -1057,7 +1045,7 @@ Definition uc_100_u8  : GoU8  := u8_lit 100 eq_refl.              (* the SAME 10
 Definition uc_u64_hi  : GoU64 := u64_lit (Z.shiftl 1 63) eq_refl.     (* 2^63: a uint64 CONSTANT EXPRESSION beyond int64 max *)
 Definition uc_u64_msk : GoU64 := u64_lit (Z.shiftl 1 32 - 1) eq_refl. (* (1<<32)-1 = 4294967295 *)
 Example uc_i64_overflow : in_i64 9223372036854775808 = false. Proof. now vm_compute. Qed.  (* 2^63 ∉ int64 *)
-Example uc_u8_overflow  : (300 <? 256)%uint63 = false.        Proof. now vm_compute. Qed.  (* 300 ∉ uint8 *)
+Example uc_u8_overflow  : (300 <? 256)%Z = false.             Proof. now vm_compute. Qed.  (* 300 ∉ uint8 *)
 Example uc_u64_hi_val   : u64raw uc_u64_hi = 9223372036854775808%Z. Proof. now vm_compute. Qed.
 Definition uconst_demo : IO unit :=
   println [ any uc_bignum ; any uc_mask ; any uc_product ; any uc_100_i64 ; any uc_100_u8
@@ -1099,12 +1087,12 @@ Definition u64_demo : IO unit :=
     must lower to [x, _ := <-ch], not the uncompilable [x, x := <-ch] (an unused
     binder the extractor left named).  Detected by de Bruijn freeness in the plugin. *)
 Definition recv_unused_ok_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (77)%i64 >>'
   recv_ok TI64 ch (fun x _ => println [ any x ]).   (* prints: 77 *)
 
 Definition i64_pipeline_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (9000000000000000001)%i64 >>'
   bind (recv TI64 ch) (fun x =>                                 (* x = 9000000000000000001 *)
   bind (map_make_typed TI64 TI64) (fun m =>
@@ -1118,7 +1106,7 @@ Definition i64_pipeline_demo : IO unit :=
     UNSIGNED ([%Lu]) and pinned to [uint64] by the channel / map element types
     (the map default [(0)%u64] pins [uint64(0)] via the value tag). *)
 Definition u64_pipeline_demo : IO unit :=
-  ch <-' make_chan_buf TU64 1 ;;
+  ch <-' make_chan_buf TU64 (int_lit 1 eq_refl) ;;
   send TU64 ch (18000000000000000000)%u64 >>'
   bind (recv TU64 ch) (fun x =>                                 (* x = 18000000000000000000 *)
   bind (map_make_typed TU64 TU64) (fun m =>
@@ -1311,7 +1299,7 @@ Definition slice_box_demo : IO unit :=
     First recv: value=42, ok=true  (buffered value still present after close).
     Second recv: value=0,  ok=false (channel drained and closed). *)
 Definition chan_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (42)%i64 >>'
   close_chan TI64 ch >>'
   recv_ok TI64 ch (fun x ok =>                   (* prints: 42 true *)
@@ -1325,7 +1313,7 @@ Definition chan_demo : IO unit :=
     modeled panic and Go's runtime panic AGREE, and the defense is catchable.  (recv-from-closed is
     [chan_demo] above; this covers the two PANICKING close interactions.) *)
 Definition closed_panic_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   close_chan TI64 ch >>'
   catch (send TI64 ch (5)%i64 >>' ret tt) (fun _ => println [any (1)%i64]) >>'  (* send-on-closed → panic → 1 *)
   catch (close_chan TI64 ch) (fun _ => println [any (2)%i64]).                   (* double-close → panic → 2 *)
@@ -1336,8 +1324,8 @@ Definition closed_panic_demo : IO unit :=
     is stable.)  The lowering is a faithful Go [select { case … }]; the choice /
     blocking semantics is the tracked frontier (like [recv]'s blocking). *)
 Definition select_demo : IO unit :=
-  ch1 <-' make_chan_buf TI64 1 ;;
-  ch2 <-' make_chan_buf TI64 1 ;;
+  ch1 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
+  ch2 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch1 (42)%i64 >>'
   select_recv2 TI64 ch1 (fun x => println [any x])     (* ch1 ready → 42 *)
                TI64 ch2 (fun y => println [any y]).
@@ -1345,7 +1333,7 @@ Definition select_demo : IO unit :=
 (** select with a default (the NON-BLOCKING form): [ch] is empty, so no case is
     ready and the [default] runs. *)
 Definition select_default_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   select_recv_default TI64 ch (fun x => println [any x])   (* ch empty → default *)
                       (println [any (99)%i64]).            (* prints: 99 *)
 
@@ -1355,7 +1343,7 @@ Definition select_default_demo : IO unit :=
     closed channel).  Here [ch] is closed+empty: the recv case runs with the zero value (0), printing 0,
     NOT 99.  A regression to the pre-fix behaviour would print 99. *)
 Definition select_closed_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   close_chan TI64 ch >>'                                   (* ch closed + empty *)
   select_recv_default TI64 ch (fun x => println [any x])   (* closed+drained ⇒ recv READY ⇒ 0 (not default) *)
                       (println [any (99)%i64]).
@@ -1365,7 +1353,7 @@ Definition select_closed_demo : IO unit :=
     and the tag constructors fail.  Here a ready channel takes the recv case (3), then execution
     CONTINUES after the select (5). *)
 Definition select_nonfinal_demo : IO unit :=
-  ch <-' make_chan_buf TI64 1 ;;
+  ch <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   send TI64 ch (3)%i64 >>'
   select_recv_default TI64 ch (fun x => println [any x]) (println [any (99)%i64]) >>'  (* ch ready → 3 *)
   println [any (5)%i64].                                                                (* continues → 5 *)
@@ -1783,21 +1771,21 @@ Definition int_sw3_demo (x : GoI64) : IO unit :=
     two float64 components, then extract them.  [go_real (go_complex re im) = re] holds by
     [reflexivity] (see builtins.v); lowers to native [complex(…)]/[real(…)]/[imag(…)]. *)
 Definition complex_demo : IO unit :=
-  let c := go_complex (1.5)%float (2.5)%float in
+  let c := go_complex (1.5)%go64 (2.5)%go64 in
   println [any (go_real c); any (go_imag c)].   (* the two components (Go float format) *)
 
 (** Complex [+] / [-] (component-wise, native Go operators): (1+2i)+(3+4i) = 4+6i,
     (1+2i)-(3+4i) = -2-2i.  Extract each component to print. *)
 Definition complex_arith_demo : IO unit :=
-  let a := go_complex (1.0)%float (2.0)%float in
-  let b := go_complex (3.0)%float (4.0)%float in
+  let a := go_complex (1.0)%go64 (2.0)%go64 in
+  let b := go_complex (3.0)%go64 (4.0)%go64 in
   let s := complex_add a b in
   let d := complex_sub a b in
   println [any (go_real s); any (go_imag s); any (go_real d); any (go_imag d)].
 
 (** Complex unary [-] (component-wise sign-flip, native operator): -(3+4i) = -3-4i. *)
 Definition complex_neg_demo : IO unit :=
-  let c := go_complex (3.0)%float (4.0)%float in
+  let c := go_complex (3.0)%go64 (4.0)%go64 in
   let n := complex_neg c in
   println [any (go_real n); any (go_imag n)].   (* -3 -4 *)
 (** REGRESSION (code review): complex ops on CONSTANTS must extract as RUNTIME IEEE — Go constants
@@ -1805,33 +1793,33 @@ Definition complex_neg_demo : IO unit :=
     float constant-vs-runtime fix).  [complex_neg] / [complex_add/sub/mul/div] are now forced to
     runtime via typed IIFEs unless an operand is a runtime variable. *)
 Example complex_neg_negzero :   (* real(-complex(0,0)) = -0, so 1/that = -Inf (was +Inf: const -0 → +0) *)
-  PrimFloat.eqb (PrimFloat.div 1 (go_real (complex_neg (go_complex 0 0))))
-                (PrimFloat.div 1 (PrimFloat.opp 0)) = true.
+  f64_eqb (f64_div 1 (go_real (complex_neg (go_complex 0 0))))
+                (f64_div 1 (f64_opp 0)) = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition complex_const_runtime_demo : IO unit :=
-  println [ any (PrimFloat.div 1 (go_real (complex_neg (go_complex 0 0)))) ].   (* -Inf (complex -0 preserved at runtime) *)
+  println [ any (f64_div 1 (go_real (complex_neg (go_complex 0 0)))) ].   (* -Inf (complex -0 preserved at runtime) *)
 
 (** Complex [*] (gc's naive cross-product, native operator): (1+2i)*(3+4i) = -5+10i. *)
 Definition complex_mul_demo : IO unit :=
-  let a := go_complex (1.0)%float (2.0)%float in
-  let b := go_complex (3.0)%float (4.0)%float in
+  let a := go_complex (1.0)%go64 (2.0)%go64 in
+  let b := go_complex (3.0)%go64 (4.0)%go64 in
   let p := complex_mul a b in
   println [any (go_real p); any (go_imag p)].   (* -5 10 *)
 
 (** Complex [/] (Smith's algorithm = gc's runtime.complex128div, native operator):
     (1+2i)/(3+4i) = 0.44 + 0.08i. *)
 Definition complex_div_demo : IO unit :=
-  let a := go_complex (1.0)%float (2.0)%float in
-  let b := go_complex (3.0)%float (4.0)%float in
+  let a := go_complex (1.0)%go64 (2.0)%go64 in
+  let b := go_complex (3.0)%go64 (4.0)%go64 in
   let q := complex_div a b in
   println [any (go_real q); any (go_imag q)].   (* 0.44 0.08 *)
 
 (** Complex [==] / [!=] (component-wise, native operators): equal complexes compare equal,
     a differing imaginary part makes them unequal. *)
 Definition complex_cmp_demo : IO unit :=
-  let a := go_complex (1.0)%float (2.0)%float in
-  let b := go_complex (1.0)%float (2.0)%float in
-  let c := go_complex (1.0)%float (3.0)%float in
+  let a := go_complex (1.0)%go64 (2.0)%go64 in
+  let b := go_complex (1.0)%go64 (2.0)%go64 in
+  let c := go_complex (1.0)%go64 (3.0)%go64 in
   println [any (complex_eqb a b); any (complex_eqb a c); any (complex_neqb a c)].  (* true false true *)
 
 (** Expression switch on a STRING (Go's [switch s { case "a": …; default: … }]). *)
@@ -2001,7 +1989,7 @@ Definition ptr_safe_demo : IO unit :=
     (it rides the same tag machinery as scalars — [Tagged_ptr] infers [TPtr (the_tag T)]). *)
 Definition ptr_chan_demo : IO unit :=
   bind (ptr_new TI64 (7)%i64)        (fun p =>      (* p := new(int64) ← 7 *)
-  bind (make_chan_buf (TPtr TI64) 1) (fun ch =>     (* ch := make(chan *int64, 1) *)
+  bind (make_chan_buf (TPtr TI64) (int_lit 1 eq_refl)) (fun ch =>     (* ch := make(chan *int64, 1) *)
   bind (send (TPtr TI64) ch p)       (fun _ =>      (* ch <- p *)
   bind (recv (TPtr TI64) ch)         (fun q =>      (* q := <-ch  (aliases p) *)
   bind (ptr_get TI64 q)              (fun v =>      (* v := *q  (= 7) *)
@@ -2013,7 +2001,7 @@ Definition ptr_chan_demo : IO unit :=
     north-star nesting (channels inside structs / slices). *)
 Record Inbox := MkInbox { ib_ch : GoChan GoI64 ; ib_name : GoString }.
 Definition inbox_demo : IO unit :=
-  bind (make_chan_buf TI64 1)            (fun ch =>   (* ch := make(chan int64, 1) *)
+  bind (make_chan_buf TI64 (int_lit 1 eq_refl))            (fun ch =>   (* ch := make(chan int64, 1) *)
   let box := MkInbox ch "fido"%string in              (* box := Inbox{Ib_ch: ch, Ib_name: "fido"} *)
   bind (send TI64 (ib_ch box) (42)%i64)  (fun _ =>    (* box.Ib_ch <- 42 *)
   recv_ok TI64 (ib_ch box) (fun v _ =>                (* v := <-box.Ib_ch *)
@@ -2026,8 +2014,8 @@ Definition inbox_demo : IO unit :=
     a slice of CHANNELS works because [TChan TI64] is a real tag.) *)
 Record Hub := MkHub { hub_chans : GoSlice (GoChan GoI64) ; hub_id : GoI64 }.
 Definition hub_demo : IO unit :=
-  bind (make_chan_buf TI64 1) (fun ch0 =>
-  bind (make_chan_buf TI64 1) (fun ch1 =>
+  bind (make_chan_buf TI64 (int_lit 1 eq_refl)) (fun ch0 =>
+  bind (make_chan_buf TI64 (int_lit 1 eq_refl)) (fun ch1 =>
   let hub := MkHub (slice_of_list (TChan TI64) [ch0; ch1]) (7)%i64 in   (* Hub{[]chan int64{ch0,ch1}, 7} *)
   bind (slice_get (TChan TI64) (hub_chans hub) (int_lit 1 eq_refl)) (fun c =>       (* c := hub.Hub_chans[1] (= ch1) *)
   bind (send TI64 c (99)%i64) (fun _ =>                                  (* c <- 99 *)
@@ -2050,8 +2038,8 @@ Definition hub_worker_demo : IO unit :=
     [reqs] channel; a worker goroutine receives that reply-channel and sends a result back through
     it — a channel VALUE flows over a channel.  Buffered + the data dependency ⇒ deterministic. *)
 Definition chan_of_chan_demo : IO unit :=
-  bind (make_chan_buf (TChan TI64) 1) (fun reqs =>            (* reqs : chan chan int64 *)
-  bind (make_chan_buf TI64 1)         (fun reply =>           (* reply : chan int64 *)
+  bind (make_chan_buf (TChan TI64) (int_lit 1 eq_refl)) (fun reqs =>            (* reqs : chan chan int64 *)
+  bind (make_chan_buf TI64 (int_lit 1 eq_refl))         (fun reply =>           (* reply : chan int64 *)
   bind (go_spawn (bind (recv (TChan TI64) reqs) (fun r => send TI64 r (77)%i64))) (fun _ =>
   bind (send (TChan TI64) reqs reply) (fun _ =>              (* reqs <- reply (a channel over a channel) *)
   recv_ok TI64 reply (fun v _ =>                             (* v := <-reply *)
@@ -2064,8 +2052,8 @@ Definition chan_of_chan_demo : IO unit :=
     shipped features composing as Go nests them — and the whole thing is a single extracted Go func. *)
 Record Pool := MkPool { pool_chans : GoSlice (GoChan GoI64) ; pool_base : GoI64 }.
 Definition pool_demo : IO unit :=
-  c0 <-' make_chan_buf TI64 1 ;;
-  c1 <-' make_chan_buf TI64 1 ;;
+  c0 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
+  c1 <-' make_chan_buf TI64 (int_lit 1 eq_refl) ;;
   go_spawn (send TI64 c0 (5)%i64) >>'                         (* worker 0: c0 <- 5 *)
   go_spawn (send TI64 c1 (7)%i64) >>'                         (* worker 1: c1 <- 7 *)
   let pool := MkPool (slice_of_list (TChan TI64) [c0; c1]) (10)%i64 in

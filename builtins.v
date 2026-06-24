@@ -104,51 +104,116 @@ Definition GoString : Type := string.
     [append] should be moved to [IO] (same reasoning as [map_set]/[map_delete]). *)
 Definition GoSlice (A : Type) : Type := list A.
 
-(** Floating-point types.
-    [GoFloat64] is Rocq's primitive [PrimFloat.float] — IEEE 754 double
-    precision, with verified arithmetic semantics in the kernel.
-    [GoFloat32] is an ABSTRACT binary32 wrapper over [float] (see below). *)
-Require Import Coq.Numbers.Cyclic.Int63.PrimInt63.
-From Stdlib Require Import Numbers.Cyclic.Int63.Sint63.
-From Stdlib Require Import Floats.PrimFloat.
-From Stdlib Require Import Floats.FloatOps Floats.SpecFloat.   (* [Prim2SF] — verified float decomposition for [int64(f)] truncation *)
-(* [BinInt] gives [Z] for the FULL-WIDTH [GoI64] model below (the 63-bit primitive
-   [int] is one bit short of int64).  Required WITHOUT [Open Scope Z_scope] so the
-   existing [%uint63]/[%sint63] defaults are untouched — all [Z] use is qualified
-   ([Z.add]/[Z.modulo]/…) with explicit [%Z] literals. *)
-From Stdlib Require Import BinInt.
-Notation GoFloat64 := float.
+(** Floating-point types — AXIOM-FREE, modelled on Rocq's [spec_float] (review #6 #13→zero-axioms).
+    [GoFloat64] is [SpecFloat.spec_float] — the IEEE-754 binary inductive [S754_zero/infinity/nan/
+    finite (s) (m) (e)] over [Z], so EVERY float operation is a COMPUTABLE [Z]-arithmetic definition
+    ([SFadd]/[SFmul]/[SFdiv]/[SFcompare]/…) with NO primitive-float axiom in the trust base.  (It
+    replaced [PrimFloat.float], whose ops are kernel axioms — [Print Assumptions] now shows zero
+    [PrimFloat.*] / zero [PrimInt63.*].)  [GoFloat32] is an ABSTRACT binary32 wrapper over a
+    [spec_float].  At extraction [GoFloat64]/[GoFloat32] → Go [float64]/[float32]; the SF ops lower
+    BY NAME to the native Go float operators, and a [spec_float] LITERAL [S754_finite s m e] (= ±m·2^e)
+    lowers to an EXACT Go hex-float literal [±0x<m>p<e>] (so runtime output is preserved). *)
+From Stdlib Require Export Floats.SpecFloat.   (* Export: [spec_float] + its [S754_*] ctors visible downstream *)
+(* [BinInt] gives [Z] for the FULL-WIDTH integer models; [Decimal] backs the float literal
+   Number Notation.  No [Open Scope Z_scope] — [Z] use stays qualified ([Z.add]/…, [%Z] literals). *)
+From Stdlib Require Import BinInt Decimal.
+Notation GoFloat64 := spec_float.
+
+(** [renorm prec emax v] re-expresses [v] in the UNIQUE canonical [(prec,emax)] representation (via
+    [binary_normalize]).  This matters because [SFcompare]/[SFeqb] are REPRESENTATION-sensitive (they
+    assume a canonical operand), so every [GoFloat64] must be binary64-canonical and every [GoFloat32]
+    binary32-canonical.  The float ops/literals already output the canonical form for their format;
+    [renorm] is needed only where a value CROSSES formats (the f32 round and the f32→f64 widen). *)
+Definition cond_Zopp (b : bool) (m : Z) : Z := if b then Z.opp m else m.
+Definition renorm (prec emax : Z) (v : spec_float) : spec_float :=
+  match v with
+  | S754_finite s m e => binary_normalize prec emax (cond_Zopp s (Zpos m)) e false
+  | x => x   (* zero / infinity / nan are format-independent *)
+  end.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 
-    Go's [float32] is IEEE binary32.  Rocq has no native 32-bit float, so a [GoFloat32]
-    is carried by a binary64 [float] holding a binary32-REPRESENTABLE value.  The faithful
-    binary32 rounding is [f32_round]: round to format (prec 24, emax 128) via SpecFloat's
-    [SFmul …·1] — exactly Go's round-to-nearest-even at binary32.
+    Go's [float32] is IEEE binary32.  A [GoFloat32] is carried by a [spec_float] holding a
+    binary32-CANONICAL value.  The faithful binary32 rounding is [f32_round v := renorm 24 128 v] —
+    round-to-nearest-even at binary32, the unique canonical (24,128) form.
 
-    SOUNDNESS — closes a code-review hole.  Previously [GoFloat32 := float] (a transparent
-    alias), so a NON-representable literal could be injected directly ([16777217%float :
-    GoFloat32]) and widened with no rounding — making Rocq disagree with Go ([f64_of_f32]
-    keeps [16777217] in Rocq, but Go's [float32] rounds it to [16777216]), which licenses
-    UNSOUND proofs.  Now [GoFloat32] is an ABSTRACT record whose proof field [f32ok]
-    witnesses that the carrier is in the IMAGE of [f32_round] — i.e. binary32-representable.
-    [mkF32 16777217 _] is unconstructable: it would demand [exists a, 16777217 = f32_round a],
-    which is false.  Every inhabitant enters through a rounding smart constructor ([f32_of_f64]
-    / [f32_lit] / the arithmetic ops), so widening [f64_of_f32] (identity on the carrier) is
-    SOUND — the carrier always equals its own binary32 value, matching Go's exact
-    [float64(float32)].  ZERO new axioms: the provenance proofs are [eq_refl]; the trust base
-    stays exactly Rocq's float primitives (machine-checked [Print Assumptions]).  At extraction
-    [GoFloat32] erases to Go [float32] and [mkF32]/[f32val] to identity (the carrier IS the
-    float32), so the emitted Go is unchanged. *)
-Definition f32_round (v : float) : float :=
-  SF2Prim (SFmul 24 128 (Prim2SF v) (Prim2SF 1%float)).
+    SOUNDNESS — closes a code-review hole.  Previously [GoFloat32 := float] (a transparent alias),
+    so a NON-representable literal could be injected directly and widened with no rounding — making
+    Rocq disagree with Go (which rounds [16777217] to [16777216]).  Now [GoFloat32] is an ABSTRACT
+    record whose proof field [f32ok] witnesses that the carrier is in the IMAGE of [f32_round] — i.e.
+    binary32-representable.  [mkF32 v _] for a non-binary32 [v] is unconstructable (it would demand
+    [exists a, v = f32_round a]).  Every inhabitant enters through a rounding smart constructor, so
+    widening [f64_of_f32] (the carrier re-canonicalised to binary64) is SOUND.  ZERO axioms: the
+    provenance proofs are [eq_refl]; the trust base is just the [Z]-arithmetic [SpecFloat] defs.  At
+    extraction [GoFloat32] erases to Go [float32] and [mkF32]/[f32val] to identity. *)
+Definition f32_round (v : spec_float) : spec_float := renorm 24 128 v.
 Record GoFloat32 : Type :=
-  mkF32 { f32val : float ; f32ok : exists a : float, f32val = f32_round a }.
+  mkF32 { f32val : spec_float ; f32ok : exists a : spec_float, f32val = f32_round a }.
 (** The only way IN: round a binary64 (or a literal) to binary32.  Provenance proof is
     [eq_refl] — the carrier is literally [f32_round a]. *)
 Definition f32_of_f64 (a : GoFloat64) : GoFloat32 := mkF32 (f32_round a) (ex_intro _ a eq_refl).
 (** A float32 LITERAL rounds at the Rocq boundary (Go rounds a typed constant the same way). *)
 Definition f32_lit (a : GoFloat64) : GoFloat32 := f32_of_f64 a.
+
+(** ---- float64 operations (axiom-free, on [spec_float] at binary64 = prec 53, emax 1024) ----
+    Arithmetic OUTPUTS the binary64-canonical form given binary64-canonical inputs (so [f64_eqb] /
+    ordering are correct).  Lowered BY NAME to the native Go float64 operators; bodies suppressed. *)
+Definition f64_add (x y : GoFloat64) : GoFloat64 := SFadd 53 1024 x y.
+Definition f64_sub (x y : GoFloat64) : GoFloat64 := SFsub 53 1024 x y.
+Definition f64_mul (x y : GoFloat64) : GoFloat64 := SFmul 53 1024 x y.
+Definition f64_div (x y : GoFloat64) : GoFloat64 := SFdiv 53 1024 x y.
+Definition f64_opp (x : GoFloat64) : GoFloat64 := SFopp x.   (* IEEE sign flip (makes -0.0) *)
+Definition f64_abs (x : GoFloat64) : GoFloat64 := SFabs x.
+Definition f64_eqb (x y : GoFloat64) : bool := SFeqb x y.
+Definition f64_ltb (x y : GoFloat64) : bool := SFltb x y.
+Definition f64_leb (x y : GoFloat64) : bool := SFleb x y.
+
+(** Exact [Z] (no rounding) → [spec_float]: mantissa [|z|], exponent 0 — a NON-canonical form, fed
+    ONLY to [SFdiv]/[binary_normalize] (which normalise), never stored or compared directly. *)
+Definition sf_of_Z (z : Z) : spec_float :=
+  match z with Z0 => S754_zero false | Zpos p => S754_finite false p 0 | Zneg p => S754_finite true p 0 end.
+(** Exact rational [num/den] → correctly-rounded binary64 (a single [SFdiv] round). *)
+Definition f64_of_frac (num den : Z) : GoFloat64 := SFdiv 53 1024 (sf_of_Z num) (sf_of_Z den).
+
+(** Float LITERAL Number Notation: a decimal [i.f] parses to the correctly-rounded binary64
+    [spec_float] via [f64_of_frac] (numerator = the digit string [i++f], denominator = [10^(#f)]).
+    Self-contained digit fold (no [DecimalZ]).  The notation REDUCES at parse time, so [1.5] becomes
+    a concrete [S754_finite false 6755399441055744 (-52)] — which the extractor emits as the exact Go
+    hex-float [0x18000000000000p-52] (= 1.5).  (Bit-exact vs [PrimFloat] — validated.) *)
+Fixpoint uint_to_Z (u : Decimal.uint) (acc : Z) : Z :=
+  match u with
+  | Decimal.Nil => acc
+  | Decimal.D0 u => uint_to_Z u (acc*10) | Decimal.D1 u => uint_to_Z u (acc*10+1)
+  | Decimal.D2 u => uint_to_Z u (acc*10+2) | Decimal.D3 u => uint_to_Z u (acc*10+3)
+  | Decimal.D4 u => uint_to_Z u (acc*10+4) | Decimal.D5 u => uint_to_Z u (acc*10+5)
+  | Decimal.D6 u => uint_to_Z u (acc*10+6) | Decimal.D7 u => uint_to_Z u (acc*10+7)
+  | Decimal.D8 u => uint_to_Z u (acc*10+8) | Decimal.D9 u => uint_to_Z u (acc*10+9)
+  end%Z.
+Definition f64_of_decimal (d : Decimal.decimal) : option GoFloat64 :=
+  (* [i.f × 10^e] (e = 0 for a plain decimal).  value = (digits i ++ digits f) × 10^(e − #frac). *)
+  let '(i, f, e) := match d with
+                    | Decimal.Decimal i f => (i, f, 0%Z)
+                    | Decimal.DecimalExp i f e =>
+                        (i, f, match e with Decimal.Pos u => uint_to_Z u 0 | Decimal.Neg u => Z.opp (uint_to_Z u 0) end)
+                    end in
+  let '(sign, u) := match i with Decimal.Pos u => (false, u) | Decimal.Neg u => (true, u) end in
+  let fd  := Decimal.nb_digits f in
+  let mag := (uint_to_Z u 0 * 10 ^ Z.of_nat fd + uint_to_Z f 0)%Z in
+  let smag := (if sign then Z.opp mag else mag)%Z in
+  let net := (e - Z.of_nat fd)%Z in
+  Some (if (0 <=? net)%Z then f64_of_frac (smag * 10 ^ net) 1 else f64_of_frac smag (10 ^ (- net))).
+Definition parse_f64 (n : Number.number) : option GoFloat64 :=
+  match n with Number.Decimal d => f64_of_decimal d | Number.Hexadecimal _ => None end.
+Definition print_f64 (_ : GoFloat64) : option Number.number := None.
+Declare Scope go64_scope.
+Delimit Scope go64_scope with go64.
+Bind Scope go64_scope with spec_float.
+Number Notation spec_float parse_f64 print_f64 : go64_scope.
+(** Infix float64 arithmetic in [go64_scope] (standard precedence), so demos read [1.5 + 2.25]. *)
+Notation "x + y" := (f64_add x y) (at level 50, left associativity) : go64_scope.
+Notation "x - y" := (f64_sub x y) (at level 50, left associativity) : go64_scope.
+Notation "x * y" := (f64_mul x y) (at level 40, left associativity) : go64_scope.
+Notation "x / y" := (f64_div x y) (at level 40, left associativity) : go64_scope.
 
 (** [GoChan]/[GoMap] are CONCRETE phantom-LOCATION records (no longer axioms): a
     [GoChan A] is a handle [{ ch_loc : nat }] into the world's channel state, the
@@ -318,7 +383,7 @@ Arguments SomeFunc {A B} _.
 Inductive GoTypeTag : Type -> Type :=
   | TBool    : GoTypeTag bool
   | TInt64   : GoTypeTag GoInt           (* platform int — DISTINCT Z-carried record (review #6 #13); → Go [int] *)
-  | TFloat64 : GoTypeTag float            (* → float64 *)
+  | TFloat64 : GoTypeTag GoFloat64        (* → float64 (spec_float) *)
   | TString  : GoTypeTag GoString
   | TU8  : GoTypeTag GoU8  | TI8  : GoTypeTag GoI8
   | TU16 : GoTypeTag GoU16 | TI16 : GoTypeTag GoI16
@@ -507,7 +572,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   match t in GoTypeTag A' return A' with
   | TBool    => false
   | TInt64   => MkGoInt 0%Z (squash eq_refl)   (* platform-int zero — Z-carried record (mirrors TI64/TU64) *)
-  | TFloat64 => 0%float
+  | TFloat64 => S754_zero false
   | TString  => EmptyString
   | TU8  => MkU8 0%Z (squash eq_refl)  | TI8  => MkI8 0%Z (squash eq_refl)
   | TU16 => MkU16 0%Z (squash eq_refl) | TI16 => MkI16 0%Z (squash eq_refl)
@@ -516,7 +581,7 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
   | TUint    => MkUint 0%Z (squash eq_refl)   (* platform-uint zero — [Z]-carried (mirrors [TU64]), faithful [0,2^64) *)
-  | TFloat32 => f32_of_f64 0%float    (* float32 zero, rounded in through the abstract type *)
+  | TFloat32 => f32_of_f64 (S754_zero false)    (* float32 zero, rounded in through the abstract type *)
   | TListNode => MkListNode (i64wrap 0%Z) (mkPtr 0)   (* zero recursive node: {0, nil} (plugin emits the Go struct zero; proof-only) *)
   | TChanBox => MkChanBox (i64wrap 0%Z) (MkChan 0)    (* zero box: {0, nil-chan} (proof-only) *)
   | TChan _  => MkChan 0       (* nil channel (handle erased; plugin emits nil) *)
@@ -556,7 +621,7 @@ Notation any x := (anyt (the_tag _) x).
 (** Tag instances for every type put into an [any] (printed / panicked / asserted). *)
 #[global] Instance Tagged_bool   : Tagged bool     := TBool.
 #[global] Instance Tagged_GoInt  : Tagged GoInt    := TInt64.   (* platform int — distinct Z-carried record (review #6 #13) *)
-#[global] Instance Tagged_float  : Tagged float    := TFloat64.
+#[global] Instance Tagged_float  : Tagged GoFloat64 := TFloat64.
 #[global] Instance Tagged_string : Tagged GoString := TString.
 #[global] Instance Tagged_unit   : Tagged unit     := TUnit.
 #[global] Instance Tagged_GoU8   : Tagged GoU8     := TU8.
@@ -611,7 +676,7 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TBool    => Bool.eqb
   | TInt64   => fun a b => Z.eqb (intraw a) (intraw b) | TUint   => fun a b => Z.eqb (uintraw a) (uintraw b)
   | TString  => String.eqb
-  | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
+  | TFloat64 => SFeqb | TFloat32 => fun a b => SFeqb (f32val a) (f32val b)
   | TU8  => fun a b => Z.eqb (u8raw a) (u8raw b)
   | TI8  => fun a b => Z.eqb (i8raw a) (i8raw b)
   | TU16 => fun a b => Z.eqb (u16raw a) (u16raw b)
@@ -1081,7 +1146,7 @@ Definition u8_ltb (a b : GoU8) : bool := Z.ltb (u8raw a) (u8raw b).
 Definition u8_leb (a b : GoU8) : bool := Z.leb (u8raw a) (u8raw b).
 
 (* Build-checked: [uint8] and [int] do NOT mix — no implicit conversion. *)
-Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : int).
+Fail Definition u8_no_implicit (x : GoU8) : GoU8 := u8_add x (5 : nat).
 (* Build-checked: an out-of-range constant is UNREPRESENTABLE (Go: "overflows uint8"). *)
 Fail Definition u8_const_oob : GoU8 := u8_lit 300 eq_refl.
 (* Build-checked: even the RAW constructor cannot forge an out-of-range uint8 — [MkU8] now demands a
@@ -1162,9 +1227,9 @@ Definition i16_leb (a b : GoI16) : bool := Z.leb (i16raw a) (i16raw b).
 
 (* Build-checked (Go spec "Numeric types": distinct types, no implicit mixing):
    neither a typed value of another numeric type nor an [int] may be passed. *)
-Fail Definition i8_no_implicit  (x : GoI8)  : GoI8  := i8_add  x (5 : int).
-Fail Definition u16_no_implicit (x : GoU16) : GoU16 := u16_add x (5 : int).
-Fail Definition i16_no_implicit (x : GoI16) : GoI16 := i16_add x (5 : int).
+Fail Definition i8_no_implicit  (x : GoI8)  : GoI8  := i8_add  x (5 : nat).
+Fail Definition u16_no_implicit (x : GoU16) : GoU16 := u16_add x (5 : nat).
+Fail Definition i16_no_implicit (x : GoI16) : GoI16 := i16_add x (5 : nat).
 (* Cross-WIDTH too: [uint8] and [uint16] are distinct types — no implicit widen. *)
 Fail Definition u8_u16_no_mix (x : GoU8) (y : GoU16) : GoU16 := u16_add y x.
 
@@ -1216,7 +1281,7 @@ Definition i16_andnot (a b : GoI16) : GoI16 := i16wrap (Z.land (i16raw a) (Z.lxo
 Definition i16_not    (a   : GoI16) : GoI16 := i16wrap (Z.lxor (i16raw a) 65535).
 
 (* Build-checked: bitwise ops respect type distinctness too (no implicit mix). *)
-Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : int).
+Fail Definition u8_and_no_implicit (x : GoU8) : GoU8 := u8_and x (5 : nat).
 
 (** ---- Fixed-width shifts (Go spec "Arithmetic operators": [<< >>]) ----
 
@@ -1245,7 +1310,7 @@ Definition i16_shl (x : GoI16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : G
 Definition i16_shr (x : GoI16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoI16 := i16wrap (Z.shiftr (i16raw x) (intraw k)).
 
 (* Build-checked: a NEGATIVE shift count is UNREPRESENTABLE (Go panics on it). *)
-Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_refl.
+Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (MkGoInt (-1)%Z (squash eq_refl)) eq_refl.
 
 (** ---- Numeric conversions (Go spec "Conversions") ----
 
@@ -1407,7 +1472,7 @@ Definition int_of_i32 (x : GoI32) : GoInt := intwrap (i32raw x).
 Definition i32_of_int (x : GoInt) : GoI32 := i32wrap (intraw x).
 
 (* Build-checked: u32/i32 are distinct, out-of-range constants unrepresentable. *)
-Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : int).
+Fail Definition u32_no_implicit (x : GoU32) : GoU32 := u32_add x (5 : nat).
 Fail Definition u32_const_oob   : GoU32 := u32_lit 5000000000 eq_refl.   (* >= 2^32 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range uint32 (SProp range proof). *)
 Fail Definition u32_forged : GoU32 := MkU32 5000000000 (squash eq_refl).
@@ -1588,7 +1653,7 @@ Definition i64_shr (x : GoI64) (k : Z) (_ : (0 <=? k)%Z = true) : GoI64 := i64wr
 Fail Definition i64_const_oob : GoI64 := i64_lit 9223372036854775808%Z eq_refl.  (* = 2^63 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range int64 (in_i64 proof false). *)
 Fail Definition i64_forged : GoI64 := MkI64 9223372036854775808%Z (squash eq_refl).
-Fail Definition i64_no_implicit (x : GoI64) : GoI64 := i64_add x (5 : int).
+Fail Definition i64_no_implicit (x : GoI64) : GoI64 := i64_add x (5 : nat).
 (* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE (Go panics). *)
 Fail Definition i64_div_zero : GoI64 := i64_div (i64_lit 1%Z eq_refl) (i64_lit 0%Z eq_refl) eq_refl.
 Fail Definition i64_shl_neg  : GoI64 := i64_shl (i64_lit 1%Z eq_refl) (-1)%Z eq_refl.
@@ -1734,7 +1799,7 @@ Definition u64_shr (x : GoU64) (k : Z) (_ : (0 <=? k)%Z = true) : GoU64 := u64wr
 Fail Definition u64_const_oob : GoU64 := u64_lit 18446744073709551616%Z eq_refl.  (* = 2^64 *)
 (* Build-checked: the RAW constructor cannot forge an out-of-range uint64 (in_u64 proof false). *)
 Fail Definition u64_forged : GoU64 := MkU64 18446744073709551616%Z (squash eq_refl).
-Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : int).
+Fail Definition u64_no_implicit (x : GoU64) : GoU64 := u64_add x (5 : nat).
 (* Build-checked: a ZERO divisor / NEGATIVE shift count is UNREPRESENTABLE. *)
 Fail Definition u64_div_zero : GoU64 := u64_div (u64_lit 1%Z eq_refl) (u64_lit 0%Z eq_refl) eq_refl.
 Fail Definition u64_shl_neg  : GoU64 := u64_shl (u64_lit 1%Z eq_refl) (-1)%Z eq_refl.
@@ -1940,7 +2005,7 @@ Notation u64c e :=
    (53, 1024) — the SAME Z→float path as [f32_of_int] (24, 128), so NO [PrimFloat.of_uint63] and hence
    NO int63 detour ([Uint63.of_Z]); review #6 #13 PrimInt63-elimination.  [binary_normalize] carries the
    sign in the (signed) mantissa, rounds to nearest-even, and spans the whole int64 range. *)
-Definition f64_of_i64 (a : GoI64) : float := SF2Prim (binary_normalize 53 1024 (i64raw a) 0 false).
+Definition f64_of_i64 (a : GoI64) : GoFloat64 := binary_normalize 53 1024 (i64raw a) 0 false.
 
 (** int64 → narrow (Go [uint8(x)] / [int8(x)] / … / [int32(x)]): TRUNCATE to the low W bits.
     A [GoU8]/[GoI8]/… erases to the same int64 carrier as a [GoI64], so the conversion is
@@ -1965,7 +2030,7 @@ Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i64raw a).
     detour (review #6 #13 PrimInt63-elimination).  Recognized by name → native [float64(i)]; the body is
     suppressed.  Machine-checked by [f64_of_int_pos]/[f64_of_int_neg] (main.v).  Returns [float] (not a
     record), so it stays a NAMED call the recognizer fires on. *)
-Definition f64_of_int (i : GoInt) : float := SF2Prim (binary_normalize 53 1024 (intraw i) 0 false).
+Definition f64_of_int (i : GoInt) : GoFloat64 := binary_normalize 53 1024 (intraw i) 0 false.
 
 (** float64 → int64 (Go [int64(f)]): TRUNCATE toward zero.  Built on the stdlib's VERIFIED
     decomposition [Prim2SF f] — a finite [f = (-1)^s * m * 2^e] ([m] positive, [e : Z]).  The
@@ -1983,8 +2048,8 @@ Definition f64_of_int (i : GoInt) : float := SF2Prim (binary_normalize 53 1024 (
     IMPLEMENTATION-DEFINED in Go (spec "Conversions"); the model gives [0] (and [wrap64] folds
     overflow), so those corners are a documented model gap — the FINITE in-range case (the
     common use) is faithful and machine-checked. *)
-Definition f64_trunc_Z (f : float) : Z :=
-  match Prim2SF f with
+Definition f64_trunc_Z (f : GoFloat64) : Z :=
+  match f with
   | S754_finite s m e =>
       let mag := if Z.leb 0 e then (Zpos m * 2 ^ e)%Z else (Zpos m / 2 ^ (- e))%Z in
       if s then (- mag)%Z else mag
@@ -1993,20 +2058,20 @@ Definition f64_trunc_Z (f : float) : Z :=
 (* The [match]-on-[Prim2SF] lives in [f64_trunc_Z] (returns [Z]); [i64_of_f64]'s body is then
    [wrap64 (…)] — a function application, NOT a match — so Coq's case-of-case fusion has no
    match-of-match to inline, and [i64_of_f64] stays a NAMED call the recognizer fires on. *)
-Definition i64_of_f64 (f : float) : GoI64 := i64wrap (wrap64 (f64_trunc_Z f)).
+Definition i64_of_f64 (f : GoFloat64) : GoI64 := i64wrap (wrap64 (f64_trunc_Z f)).
 
 (** float64 → uint64 (Go [uint64(f)]): TRUNCATE toward zero — the exact parallel of [i64_of_f64],
     only wrapping into the unsigned range.  In-range ([0 <= trunc f < 2^64]) it is faithful (the
     verified [f64_trunc_Z]); out of range is Go-implementation-defined, where the defined wrap is
     an acceptable choice.  Lowered to native [uint64(f)]; the [Prim2SF]-match body suppressed. *)
-Definition u64_of_f64 (f : float) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f)).
+Definition u64_of_f64 (f : GoFloat64) : GoU64 := u64wrap (wrapU64 (f64_trunc_Z f)).
 
 (** uint64 → float64 (Go [float64(v)]): the CORRECTLY-ROUNDED double.  Rounds the EXACT [Z] mantissa
     (in [[0, 2^64)]) ONCE via [binary_normalize] at (53, 1024) — the SAME Z→float path as the int64/
     int conversions, spanning the WHOLE uint64 range in one shot (no 63-bit split / round-to-odd trick
     needed), and crucially NO [PrimFloat.of_uint63] / [Uint63.of_Z] int63 detour (review #6 #13
     PrimInt63-elimination).  Lowered to native [float64(v)]; the body suppressed. *)
-Definition f64_of_u64 (a : GoU64) : float := SF2Prim (binary_normalize 53 1024 (u64raw a) 0 false).
+Definition f64_of_u64 (a : GoU64) : GoFloat64 := binary_normalize 53 1024 (u64raw a) 0 false.
 
 (** UNTYPED FLOAT CONSTANTS — exact rationals, rounded ONCE at the typed boundary.  Go folds
     constant float arithmetic at ARBITRARY precision, rounding only when the constant acquires a
@@ -2039,21 +2104,14 @@ Definition fc_mul (a b : FConst) : FConst := mkFC (fc_num a * fc_num b) (Pos.mul
 Definition fc_div (a b : FConst) (hb : fc_num b <> 0%Z) : FConst :=
   mkFC (Z.sgn (fc_num b) * fc_num a * Zpos (fc_den b))
        (Pos.mul (fc_den a) (Z.to_pos (Z.abs (fc_num b)))).  (* (a/b)/(c/d) = ad/bc, den kept > 0 *)
-(** Exact integer → [spec_float] (NO rounding): mantissa = [|z|], exponent 0.  Shared by the exact
-    rational → float conversions (binary64 here; binary32 for [f32_of_fconst]). *)
-Definition sf_of_Z (z : Z) : spec_float :=
-  match z with
-  | Z0     => S754_zero false
-  | Zpos p => S754_finite false p 0
-  | Zneg p => S754_finite true  p 0
-  end.
+(** ([sf_of_Z] — exact [Z] → [spec_float] — is defined up with the float64 ops.) *)
 (** Exact float CONSTANT → float64 — round the EXACT rational [num/den] ONCE to binary64 via [SFdiv]
     of the EXACT-integer spec_floats (no intermediate binary64), so correctly-rounded for ALL num/den,
     not just [< 2^53].  Lowered to Go [float64(num.0 / den.0)] (untyped-constant division, single
     round).  (The old [div (f64_of_i64 num) (f64_of_i64 den)] DOUBLE-rounds when both endpoints exceed
     2^53 — a latent model unsoundness, only masked at extraction by a fail-loud 2^53 guard.) *)
-Definition f64_of_fconst (a : FConst) : float :=
-  SF2Prim (SFdiv 53 1024 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a)))).
+Definition f64_of_fconst (a : FConst) : GoFloat64 :=
+  SFdiv 53 1024 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a))).
 
 (** FLOAT32 arithmetic — faithful binary32 (prec 24, emax 128) via [SpecFloat], then routed
     back through [f32_of_f64] so the result re-enters the abstract type WITH its provenance
@@ -2062,32 +2120,32 @@ Definition f64_of_fconst (a : FConst) : float :=
     (single round-to-nearest-even at binary32).  Lowered BY NAME to native Go [float32]
     [+]/[-]/[*]/[/]; the SpecFloat body (and the [f32val]/[mkF32] wrapping) is suppressed. *)
 Definition f32_add (x y : GoFloat32) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFadd 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+  f32_of_f64 (SFadd 24 128 (f32val x) (f32val y)).
 Definition f32_sub (x y : GoFloat32) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFsub 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+  f32_of_f64 (SFsub 24 128 (f32val x) (f32val y)).
 Definition f32_mul (x y : GoFloat32) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFmul 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+  f32_of_f64 (SFmul 24 128 (f32val x) (f32val y)).
 Definition f32_div (x y : GoFloat32) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFdiv 24 128 (Prim2SF (f32val x)) (Prim2SF (f32val y)))).
+  f32_of_f64 (SFdiv 24 128 (f32val x) (f32val y)).
 
-(** float32 COMPARISON.  The carrier holds a binary32-representable value and a comparison
-    performs NO rounding, so binary32 and binary64 ordering agree exactly on the carriers —
-    hence [PrimFloat.ltb]/[leb]/[eqb] on [f32val] ARE the float32 comparisons.  Lowered to
-    native Go [float32] [<]/[<=]/[==]/[>]/[>=]/[!=] (the operands are [float32]).  Same NaN
-    subtlety as float64: [f32_geb]/[f32_gtb] are the SWAPPED [leb]/[ltb] (so a NaN operand
-    makes [>=]/[>] FALSE, matching Go/IEEE), while [f32_neqb] is [negb (eqb)]. *)
-Definition f32_ltb  (x y : GoFloat32) : bool := PrimFloat.ltb (f32val x) (f32val y).
-Definition f32_leb  (x y : GoFloat32) : bool := PrimFloat.leb (f32val x) (f32val y).
-Definition f32_eqb  (x y : GoFloat32) : bool := PrimFloat.eqb (f32val x) (f32val y).
-Definition f32_gtb  (x y : GoFloat32) : bool := PrimFloat.ltb (f32val y) (f32val x).
-Definition f32_geb  (x y : GoFloat32) : bool := PrimFloat.leb (f32val y) (f32val x).
-Definition f32_neqb (x y : GoFloat32) : bool := negb (PrimFloat.eqb (f32val x) (f32val y)).
+(** float32 COMPARISON.  The carrier holds a binary32-CANONICAL value and a comparison performs
+    NO rounding, so [SFltb]/[SFleb]/[SFeqb] on [f32val] ARE the float32 comparisons (both operands
+    are binary32-canonical, so [SFcompare]'s representation-sensitivity is satisfied).  Lowered to
+    native Go [float32] [<]/[<=]/[==]/[>]/[>=]/[!=].  Same NaN subtlety as float64: [f32_geb]/
+    [f32_gtb] are the SWAPPED [leb]/[ltb] (so a NaN operand makes [>=]/[>] FALSE), [f32_neqb] is
+    [negb (eqb)]. *)
+Definition f32_ltb  (x y : GoFloat32) : bool := SFltb (f32val x) (f32val y).
+Definition f32_leb  (x y : GoFloat32) : bool := SFleb (f32val x) (f32val y).
+Definition f32_eqb  (x y : GoFloat32) : bool := SFeqb (f32val x) (f32val y).
+Definition f32_gtb  (x y : GoFloat32) : bool := SFltb (f32val y) (f32val x).
+Definition f32_geb  (x y : GoFloat32) : bool := SFleb (f32val y) (f32val x).
+Definition f32_neqb (x y : GoFloat32) : bool := negb (SFeqb (f32val x) (f32val y)).
 
-(** float32 → float64 WIDENING is EXACT (a binary32 value is exactly a binary64): identity on
-    the carrier — SOUND precisely because [f32ok] guarantees the carrier is binary32-representable
-    (the carrier equals its own [f32_round]).  Lowered to Go [float64(x)].  (Narrowing
-    [f32_of_f64] / [f32_lit] is defined up top, with the type.) *)
-Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := f32val x.
+(** float32 → float64 WIDENING is EXACT (a binary32 value is exactly a binary64): the carrier
+    re-canonicalised to binary64 ([renorm 53 1024] — exact, no rounding, since binary32 ⊂ binary64),
+    SOUND because [f32ok] guarantees the carrier is binary32-representable.  Lowered to Go
+    [float64(x)].  (Narrowing [f32_of_f64] / [f32_lit] is defined up top, with the type.) *)
+Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := renorm 53 1024 (f32val x).
 
 (** DIRECT integer → float32 (Go [float32(x)]) — round the EXACT integer ONCE to binary32 via
     [binary_normalize] at format (24, 128).  This is NOT [f32_of_f64 (f64_of_int x)] (= Go
@@ -2096,11 +2154,11 @@ Definition f64_of_f32 (x : GoFloat32) : GoFloat64 := f32val x.
     UP to [2^61 + 2^38]; via float64 the low bit is lost onto the float32 midpoint and ties-to-even
     rounds DOWN to [2^61].)  Lowered to Go's direct [float32(x)] cast (single round). *)
 Definition f32_of_i64 (a : GoI64) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (binary_normalize 24 128 (i64raw a) 0 false)).
+  f32_of_f64 (binary_normalize 24 128 (i64raw a) 0 false).
 Definition f32_of_u64 (a : GoU64) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (binary_normalize 24 128 (u64raw a) 0 false)).
+  f32_of_f64 (binary_normalize 24 128 (u64raw a) 0 false).
 Definition f32_of_int (i : GoInt) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (binary_normalize 24 128 (intraw i) 0 false)).
+  f32_of_f64 (binary_normalize 24 128 (intraw i) 0 false).
 
 (** DIRECT exact float CONSTANT → float32 (Go [float32(num.0 / den.0)]): round the EXACT rational
     [num/den] ONCE to binary32 via [SFdiv] of the EXACT-integer spec_floats (no intermediate binary64
@@ -2108,32 +2166,32 @@ Definition f32_of_int (i : GoInt) : GoFloat32 :=
     [|num| > 2^53]: e.g. [2305843146652647425/1] rounds to [2^61+2^38] here but [2^61] via float64).
     [SFdiv] handles arbitrary mantissas, so this is the correctly-rounded rational→binary32. *)
 Definition f32_of_fconst (a : FConst) : GoFloat32 :=
-  f32_of_f64 (SF2Prim (SFdiv 24 128 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a))))).
+  f32_of_f64 (SFdiv 24 128 (sf_of_Z (fc_num a)) (sf_of_Z (Zpos (fc_den a)))).
 
 (** float32 unary NEGATION — EXACT (IEEE sign-flip, makes [-0.0]); re-enter the abstract type
     (the round is the identity on the sign-flipped, still-representable value).  Lowered to Go
-    [-x].  Same role as [PrimFloat.opp] for float64. *)
-Definition f32_neg (x : GoFloat32) : GoFloat32 := f32_of_f64 (PrimFloat.opp (f32val x)).
+    [-x].  Same role as [f64_opp] for float64. *)
+Definition f32_neg (x : GoFloat32) : GoFloat32 := f32_of_f64 (SFopp (f32val x)).
 
 (** [min]/[max] on float32 (Go "min and max") — the SAME two IEEE corners as float64, decided on
     the binary32 carriers: NaN propagation ([eqb v v = false]) and signed zero ([min(-0,+0) = -0],
     [max(-0,+0) = +0], via [1/v]).  Each returns the chosen OPERAND, already a valid [GoFloat32],
     so there is no re-rounding.  Lowered to Go [min]/[max] on float32. *)
 Definition f32_min (x y : GoFloat32) : GoFloat32 :=
-  if negb (PrimFloat.eqb (f32val x) (f32val x)) then x            (* x is NaN → NaN *)
-  else if negb (PrimFloat.eqb (f32val y) (f32val y)) then y       (* y is NaN → NaN *)
-  else if PrimFloat.ltb (f32val x) (f32val y) then x
-  else if PrimFloat.ltb (f32val y) (f32val x) then y
-  else if PrimFloat.eqb (f32val x) 0
-       then (if PrimFloat.ltb (PrimFloat.div 1 (f32val x)) 0 then x else y)   (* min wants -0 *)
+  if negb (SFeqb (f32val x) (f32val x)) then x            (* x is NaN → NaN *)
+  else if negb (SFeqb (f32val y) (f32val y)) then y       (* y is NaN → NaN *)
+  else if SFltb (f32val x) (f32val y) then x
+  else if SFltb (f32val y) (f32val x) then y
+  else if SFeqb (f32val x) (S754_zero false)
+       then (if SFltb (SFdiv 24 128 (sf_of_Z 1) (f32val x)) (S754_zero false) then x else y)   (* min wants -0 *)
        else x.
 Definition f32_max (x y : GoFloat32) : GoFloat32 :=
-  if negb (PrimFloat.eqb (f32val x) (f32val x)) then x
-  else if negb (PrimFloat.eqb (f32val y) (f32val y)) then y
-  else if PrimFloat.ltb (f32val x) (f32val y) then y
-  else if PrimFloat.ltb (f32val y) (f32val x) then x
-  else if PrimFloat.eqb (f32val x) 0
-       then (if PrimFloat.ltb (PrimFloat.div 1 (f32val x)) 0 then y else x)   (* max wants +0 *)
+  if negb (SFeqb (f32val x) (f32val x)) then x
+  else if negb (SFeqb (f32val y) (f32val y)) then y
+  else if SFltb (f32val x) (f32val y) then y
+  else if SFltb (f32val y) (f32val x) then x
+  else if SFeqb (f32val x) (S754_zero false)
+       then (if SFltb (SFdiv 24 128 (sf_of_Z 1) (f32val x)) (S754_zero false) then y else x)   (* max wants +0 *)
        else x.
 
 (** ---- Builtins ---- *)
@@ -2806,7 +2864,7 @@ Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
     here — only the FIFO + closed flag), so a buffered channel is created exactly
     like an unbuffered one; the capacity [n] survives only in the plugin lowering
     ([make(chan T, n)]). *)
-Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : int) : IO (GoChan A) :=
+Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan A) :=
   make_chan tag.
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
     [go_spawn]) are DEFINITIONS over the concrete channel STATE below (declared
@@ -3638,23 +3696,23 @@ Definition u64_max (a b : GoU64) : GoU64 := if u64_ltb a b then b else a.
       and [min] yields [-0] (Go treats [+0 > -0]).  Detected by [eqb a 0] (both are
       [±0]) and [1/a < 0] (a is the negative zero, since [1 / -0 = -inf]).
     Otherwise the smaller / larger by [ltb].  Machine-checked on all these corners. *)
-Definition f64_min (a b : float) : float :=
-  if negb (PrimFloat.eqb a a) then a            (* a is NaN → NaN *)
-  else if negb (PrimFloat.eqb b b) then b       (* b is NaN → NaN *)
-  else if PrimFloat.ltb a b then a
-  else if PrimFloat.ltb b a then b
+Definition f64_min (a b : GoFloat64) : GoFloat64 :=
+  if negb (SFeqb a a) then a            (* a is NaN → NaN *)
+  else if negb (SFeqb b b) then b       (* b is NaN → NaN *)
+  else if SFltb a b then a
+  else if SFltb b a then b
   else (* numerically equal (incl. ±0) *)
-    if PrimFloat.eqb a 0
-    then (if PrimFloat.ltb (PrimFloat.div 1 a) 0 then a else b)   (* min wants -0 *)
+    if SFeqb a (S754_zero false)
+    then (if SFltb (SFdiv 53 1024 (sf_of_Z 1) a) (S754_zero false) then a else b)   (* min wants -0 *)
     else a.
-Definition f64_max (a b : float) : float :=
-  if negb (PrimFloat.eqb a a) then a            (* a is NaN → NaN *)
-  else if negb (PrimFloat.eqb b b) then b       (* b is NaN → NaN *)
-  else if PrimFloat.ltb a b then b
-  else if PrimFloat.ltb b a then a
+Definition f64_max (a b : GoFloat64) : GoFloat64 :=
+  if negb (SFeqb a a) then a            (* a is NaN → NaN *)
+  else if negb (SFeqb b b) then b       (* b is NaN → NaN *)
+  else if SFltb a b then b
+  else if SFltb b a then a
   else (* numerically equal (incl. ±0) *)
-    if PrimFloat.eqb a 0
-    then (if PrimFloat.ltb (PrimFloat.div 1 a) 0 then b else a)   (* max wants +0 *)
+    if SFeqb a (S754_zero false)
+    then (if SFltb (SFdiv 53 1024 (sf_of_Z 1) a) (S754_zero false) then b else a)   (* max wants +0 *)
     else a.
 
 (** Direct [>] / [>=] / [!=] for float64.  CRUCIAL NaN subtlety: [>=] is NOT
@@ -3662,9 +3720,9 @@ Definition f64_max (a b : float) : float :=
     would be TRUE.  So [f64_geb] is the SWAPPED [leb] ([b <= a]), and [f64_gtb] the
     swapped [ltb] — both correctly false on NaN.  [f64_neqb] IS [negb (eqb)] (a NaN
     compares UNEQUAL to everything, so [a != b] is true — matching [negb false]). *)
-Definition f64_gtb  (a b : float) : bool := PrimFloat.ltb b a.
-Definition f64_geb  (a b : float) : bool := PrimFloat.leb b a.
-Definition f64_neqb (a b : float) : bool := negb (PrimFloat.eqb a b).
+Definition f64_gtb  (a b : GoFloat64) : bool := SFltb b a.
+Definition f64_geb  (a b : GoFloat64) : bool := SFleb b a.
+Definition f64_neqb (a b : GoFloat64) : bool := negb (SFeqb a b).
 
 (** Construct a typed Go slice from a Rocq list literal.
     The [GoTypeTag] witness lets the plugin emit [[]T{v1, v2, ...}] with the
@@ -4228,10 +4286,10 @@ Proof. reflexivity. Qed.
     [complex(re, im)] / [real(c)] / [imag(c)] (the record's struct decl, constructor, and
     projections are all suppressed — recognised by operation name, like the numint
     wrappers).  Construction/extraction are PROVABLE ([go_real (go_complex re im) = re]). *)
-Record GoComplex128 : Type := MkComplex128 { c_re : float ; c_im : float }.
-Definition go_complex (re im : float) : GoComplex128 := MkComplex128 re im.
-Definition go_real (c : GoComplex128) : float := c_re c.
-Definition go_imag (c : GoComplex128) : float := c_im c.
+Record GoComplex128 : Type := MkComplex128 { c_re : GoFloat64 ; c_im : GoFloat64 }.
+Definition go_complex (re im : GoFloat64) : GoComplex128 := MkComplex128 re im.
+Definition go_real (c : GoComplex128) : GoFloat64 := c_re c.
+Definition go_imag (c : GoComplex128) : GoFloat64 := c_im c.
 
 Example go_real_complex : forall re im, go_real (go_complex re im) = re.
 Proof. reflexivity. Qed.
@@ -4245,19 +4303,19 @@ Proof. reflexivity. Qed.
     [*], Smith's scaling algorithm for [/] in the runtime — that a faithful model must match
     exactly; a careful follow-up, not approximated here.)* *)
 Definition complex_add (a b : GoComplex128) : GoComplex128 :=
-  MkComplex128 (PrimFloat.add (c_re a) (c_re b)) (PrimFloat.add (c_im a) (c_im b)).
+  MkComplex128 (f64_add (c_re a) (c_re b)) (f64_add (c_im a) (c_im b)).
 Definition complex_sub (a b : GoComplex128) : GoComplex128 :=
-  MkComplex128 (PrimFloat.sub (c_re a) (c_re b)) (PrimFloat.sub (c_im a) (c_im b)).
+  MkComplex128 (f64_sub (c_re a) (c_re b)) (f64_sub (c_im a) (c_im b)).
 
 (** Build-checked: each component of the sum/difference is the float add/sub of the
     corresponding components (so the native [a + b] computes exactly what Go does). *)
 Example complex_add_components : forall a b,
-  go_real (complex_add a b) = PrimFloat.add (go_real a) (go_real b)
-  /\ go_imag (complex_add a b) = PrimFloat.add (go_imag a) (go_imag b).
+  go_real (complex_add a b) = f64_add (go_real a) (go_real b)
+  /\ go_imag (complex_add a b) = f64_add (go_imag a) (go_imag b).
 Proof. intros. split; reflexivity. Qed.
 Example complex_sub_components : forall a b,
-  go_real (complex_sub a b) = PrimFloat.sub (go_real a) (go_real b)
-  /\ go_imag (complex_sub a b) = PrimFloat.sub (go_imag a) (go_imag b).
+  go_real (complex_sub a b) = f64_sub (go_real a) (go_real b)
+  /\ go_imag (complex_sub a b) = f64_sub (go_imag a) (go_imag b).
 Proof. intros. split; reflexivity. Qed.
 
 (** Complex COMPARISON — Go's [==] / [!=] on complex128.  Two complex values are equal iff
@@ -4265,13 +4323,13 @@ Proof. intros. split; reflexivity. Qed.
     is faithful including the NaN corner ([NaN != NaN] ⇒ a complex with a NaN component is
     never [==] itself).  Lowers to the native Go [==] / [!=]. *)
 Definition complex_eqb (a b : GoComplex128) : bool :=
-  andb (PrimFloat.eqb (c_re a) (c_re b)) (PrimFloat.eqb (c_im a) (c_im b)).
+  andb (f64_eqb (c_re a) (c_re b)) (f64_eqb (c_im a) (c_im b)).
 Definition complex_neqb (a b : GoComplex128) : bool := negb (complex_eqb a b).
 
 (** Build-checked: equality is the component-wise float-[==] conjunction (so the native
     [a == b] decides exactly what Go's complex [==] does). *)
 Example complex_eqb_components : forall a b,
-  complex_eqb a b = andb (PrimFloat.eqb (go_real a) (go_real b)) (PrimFloat.eqb (go_imag a) (go_imag b)).
+  complex_eqb a b = andb (f64_eqb (go_real a) (go_real b)) (f64_eqb (go_imag a) (go_imag b)).
 Proof. reflexivity. Qed.
 
 (** Complex MULTIPLY — Go's [*] on complex128.  The Go spec underspecifies the rounding of
@@ -4283,27 +4341,27 @@ Proof. reflexivity. Qed.
     Smith's scaling algorithm — a different computation a faithful model must port exactly.)* *)
 Definition complex_mul (a b : GoComplex128) : GoComplex128 :=
   MkComplex128
-    (PrimFloat.sub (PrimFloat.mul (c_re a) (c_re b)) (PrimFloat.mul (c_im a) (c_im b)))
-    (PrimFloat.add (PrimFloat.mul (c_re a) (c_im b)) (PrimFloat.mul (c_im a) (c_re b))).
+    (f64_sub (f64_mul (c_re a) (c_re b)) (f64_mul (c_im a) (c_im b)))
+    (f64_add (f64_mul (c_re a) (c_im b)) (f64_mul (c_im a) (c_re b))).
 
 (** Build-checked: the real/imag parts are exactly gc's naive cross products. *)
 Example complex_mul_components : forall a b,
   go_real (complex_mul a b)
-    = PrimFloat.sub (PrimFloat.mul (go_real a) (go_real b)) (PrimFloat.mul (go_imag a) (go_imag b))
+    = f64_sub (f64_mul (go_real a) (go_real b)) (f64_mul (go_imag a) (go_imag b))
   /\ go_imag (complex_mul a b)
-    = PrimFloat.add (PrimFloat.mul (go_real a) (go_imag b)) (PrimFloat.mul (go_imag a) (go_real b)).
+    = f64_add (f64_mul (go_real a) (go_imag b)) (f64_mul (go_imag a) (go_real b)).
 Proof. intros. split; reflexivity. Qed.
 
 (** Complex unary NEGATION — Go's [-c] on complex128.  Negates BOTH components, each a
-    single IEEE float sign-flip [PrimFloat.opp], so faithful including signed zero — note
+    single IEEE float sign-flip [f64_opp], so faithful including signed zero — note
     [-c] (sign-flip) differs from [(0+0i) - c] on a zero component ([opp (+0) = -0] but
     [0 - (+0) = +0]); we use the sign-flip, matching Go's unary [-].  Lowers to native [-c]. *)
 Definition complex_neg (c : GoComplex128) : GoComplex128 :=
-  MkComplex128 (PrimFloat.opp (c_re c)) (PrimFloat.opp (c_im c)).
+  MkComplex128 (f64_opp (c_re c)) (f64_opp (c_im c)).
 
 Example complex_neg_components : forall c,
-  go_real (complex_neg c) = PrimFloat.opp (go_real c)
-  /\ go_imag (complex_neg c) = PrimFloat.opp (go_imag c).
+  go_real (complex_neg c) = f64_opp (go_real c)
+  /\ go_imag (complex_neg c) = f64_opp (go_imag c).
 Proof. intros. split; reflexivity. Qed.
 
 (** Complex DIVIDE — Go's [/] on complex128.  Unlike [*] (a naive inline), gc lowers [/]
@@ -4318,7 +4376,7 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
   let nr := c_re n in let ni := c_im n in
   let mr := c_re m in let mi := c_im m in
   (* branch on which denominator component is larger in magnitude — Go uses [|mr| >= |mi|], i.e.
-     [|mi| <= |mr|].  We compare ABSOLUTE VALUES via [PrimFloat.abs] (a trust-base [PrimFloat.*]
+     [|mi| <= |mr|].  We compare ABSOLUTE VALUES via [f64_abs] (a trust-base [PrimFloat.*]
      primitive).  This is sound to use here even though [math.Abs] would need an import: [complex_div]
      lowers to the NATIVE Go [/] (its body is PROOF-ONLY, suppressed by name — see the plugin), so the
      [abs] is never extracted.  (Break #9 fix: the earlier squared form [mi² <= mr²] OVERFLOWED to
@@ -4331,40 +4389,40 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
     primitives ([eqb x x] / [|x| = +Inf]); [copysign_inf]/[inf2one] reproduce gc's [math.Copysign]
     (sign of a zero via [1.0 / c = -Inf]).  All proof-only — [complex_div] still lowers to native
     Go [/], whose runtime applies exactly this recovery. *)
-  let isnan := fun x => negb (PrimFloat.eqb x x) in
-  let isinf := fun x => PrimFloat.eqb (PrimFloat.abs x) PrimFloat.infinity in
+  let isnan := fun x => negb (f64_eqb x x) in
+  let isinf := fun x => f64_eqb (f64_abs x) (S754_infinity false) in
   let isfin := fun x => negb (orb (isnan x) (isinf x)) in
   (* sign bit set (x < 0, or x = -0 detected via 1.0/-0 = -Inf) *)
-  let negs  := fun x => orb (PrimFloat.ltb x 0%float)
-                            (PrimFloat.eqb (PrimFloat.div 1%float x) PrimFloat.neg_infinity) in
-  let copysign_inf := fun c => if negs c then PrimFloat.neg_infinity else PrimFloat.infinity in (* Copysign(+Inf, c) *)
-  let inf2one := fun x => let g := if isinf x then 1%float else 0%float in
-                          if negs x then PrimFloat.opp g else g in       (* Copysign(isInf?1:0, x) *)
+  let negs  := fun x => orb (f64_ltb x (0%go64))
+                            (f64_eqb (f64_div (1%go64) x) (S754_infinity true)) in
+  let copysign_inf := fun c => if negs c then (S754_infinity true) else (S754_infinity false) in (* Copysign(+Inf, c) *)
+  let inf2one := fun x => let g := if isinf x then (1%go64) else (0%go64) in
+                          if negs x then f64_opp g else g in       (* Copysign(isInf?1:0, x) *)
   let res :=
-    if PrimFloat.leb (PrimFloat.abs mi) (PrimFloat.abs mr) then
-      let ratio := PrimFloat.div mi mr in
-      let denom := PrimFloat.add mr (PrimFloat.mul ratio mi) in
-      MkComplex128 (PrimFloat.div (PrimFloat.add nr (PrimFloat.mul ni ratio)) denom)
-                   (PrimFloat.div (PrimFloat.sub ni (PrimFloat.mul nr ratio)) denom)
+    if f64_leb (f64_abs mi) (f64_abs mr) then
+      let ratio := f64_div mi mr in
+      let denom := f64_add mr (f64_mul ratio mi) in
+      MkComplex128 (f64_div (f64_add nr (f64_mul ni ratio)) denom)
+                   (f64_div (f64_sub ni (f64_mul nr ratio)) denom)
     else
-      let ratio := PrimFloat.div mr mi in
-      let denom := PrimFloat.add mi (PrimFloat.mul ratio mr) in
-      MkComplex128 (PrimFloat.div (PrimFloat.add (PrimFloat.mul nr ratio) ni) denom)
-                   (PrimFloat.div (PrimFloat.sub (PrimFloat.mul ni ratio) nr) denom) in
+      let ratio := f64_div mr mi in
+      let denom := f64_add mi (f64_mul ratio mr) in
+      MkComplex128 (f64_div (f64_add (f64_mul nr ratio) ni) denom)
+                   (f64_div (f64_sub (f64_mul ni ratio) nr) denom) in
   (* Annex-G recovery: only when BOTH components came out NaN (a degenerate divisor) *)
   if andb (isnan (c_re res)) (isnan (c_im res)) then
     let a := nr in let b := ni in let c := mr in let d := mi in
-    if andb (andb (PrimFloat.eqb c 0%float) (PrimFloat.eqb d 0%float))
+    if andb (andb (f64_eqb c (0%go64)) (f64_eqb d (0%go64)))
             (orb (negb (isnan a)) (negb (isnan b)))                          (* m == 0, n not all-NaN *)
-    then MkComplex128 (PrimFloat.mul (copysign_inf c) a) (PrimFloat.mul (copysign_inf c) b)
+    then MkComplex128 (f64_mul (copysign_inf c) a) (f64_mul (copysign_inf c) b)
     else if andb (orb (isinf a) (isinf b)) (andb (isfin c) (isfin d))        (* Inf numerator / finite denom *)
     then let a' := inf2one a in let b' := inf2one b in
-         MkComplex128 (PrimFloat.mul PrimFloat.infinity (PrimFloat.add (PrimFloat.mul a' c) (PrimFloat.mul b' d)))
-                      (PrimFloat.mul PrimFloat.infinity (PrimFloat.sub (PrimFloat.mul b' c) (PrimFloat.mul a' d)))
+         MkComplex128 (f64_mul (S754_infinity false) (f64_add (f64_mul a' c) (f64_mul b' d)))
+                      (f64_mul (S754_infinity false) (f64_sub (f64_mul b' c) (f64_mul a' d)))
     else if andb (orb (isinf c) (isinf d)) (andb (isfin a) (isfin b))        (* finite numerator / Inf denom *)
     then let c' := inf2one c in let d' := inf2one d in
-         MkComplex128 (PrimFloat.mul 0%float (PrimFloat.add (PrimFloat.mul a c') (PrimFloat.mul b d')))
-                      (PrimFloat.mul 0%float (PrimFloat.sub (PrimFloat.mul b c') (PrimFloat.mul a d')))
+         MkComplex128 (f64_mul (0%go64) (f64_add (f64_mul a c') (f64_mul b d')))
+                      (f64_mul (0%go64) (f64_sub (f64_mul b c') (f64_mul a d')))
     else res
   else res.
 
@@ -4373,19 +4431,19 @@ Definition complex_div (n m : GoComplex128) : GoComplex128 :=
     to [Inf <= Inf = true] (picks the |mr|-branch), while the NEW [|mi| <= |mr|] correctly yields [false]
     (the |mi|-branch) — exactly Go's [|mr| >= |mi|].  ([0x1p550] = 2^550, [0x1p600] = 2^600.) *)
 Example complex_div_branch_overflow_fixed :
-  let mr := 0x1p550%float in let mi := 0x1p600%float in
-     PrimFloat.leb (PrimFloat.mul mi mi) (PrimFloat.mul mr mr) = true    (* old (squared): WRONG branch *)
-  /\ PrimFloat.leb (PrimFloat.abs mi)    (PrimFloat.abs mr)    = false.  (* new (abs):     RIGHT branch *)
+  let mr := binary_normalize 53 1024 1 550 false in let mi := binary_normalize 53 1024 1 600 false in  (* 2^550, 2^600 *)
+     f64_leb (f64_mul mi mi) (f64_mul mr mr) = true    (* old (squared): WRONG branch *)
+  /\ f64_leb (f64_abs mi)    (f64_abs mr)    = false.  (* new (abs):     RIGHT branch *)
 Proof. vm_compute. split; reflexivity. Qed.
 (** Review #6 P2 #17: DEGENERATE divisors now recover per Annex G (not the bare-Smith NaN).  Finite
     nonzero / ZERO yields infinities; finite / Inf yields zero — matching gc's runtime.complex128div. *)
 Example complex_div_by_zero_is_inf :   (* (1+2i)/(0+0i) = (+Inf, +Inf) *)
-  PrimFloat.eqb (c_re (complex_div (go_complex 1%float 2%float) (go_complex 0%float 0%float))) PrimFloat.infinity = true
-  /\ PrimFloat.eqb (c_im (complex_div (go_complex 1%float 2%float) (go_complex 0%float 0%float))) PrimFloat.infinity = true.
+  f64_eqb (c_re (complex_div (go_complex (1%go64) (2%go64)) (go_complex (0%go64) (0%go64)))) (S754_infinity false) = true
+  /\ f64_eqb (c_im (complex_div (go_complex (1%go64) (2%go64)) (go_complex (0%go64) (0%go64)))) (S754_infinity false) = true.
 Proof. vm_compute. split; reflexivity. Qed.
 Example complex_div_by_inf_is_zero :   (* (1+1i)/(Inf+Inf i) = (0, 0) *)
-  PrimFloat.eqb (c_re (complex_div (go_complex 1%float 1%float) (go_complex PrimFloat.infinity PrimFloat.infinity))) 0%float = true
-  /\ PrimFloat.eqb (c_im (complex_div (go_complex 1%float 1%float) (go_complex PrimFloat.infinity PrimFloat.infinity))) 0%float = true.
+  f64_eqb (c_re (complex_div (go_complex (1%go64) (1%go64)) (go_complex (S754_infinity false) (S754_infinity false)))) (0%go64) = true
+  /\ f64_eqb (c_im (complex_div (go_complex (1%go64) (1%go64)) (go_complex (S754_infinity false) (S754_infinity false)))) (0%go64) = true.
 Proof. vm_compute. split; reflexivity. Qed.
 
 (** ---- Mutable local variables (Go spec "Variables" / "Assignment statements") ----
@@ -5387,7 +5445,7 @@ Arguments sr2_mk {R} _ _ _.  Arguments sr2_eta {R} _ _.
     *(Extraction of the idiomatic native [chan R] / [ch <- p] / [<-ch] is a separate slice: Coq's
     [prod] is the multi-return tuple, so emitting it as a Go struct needs dedicated plugin work;
     this lands the MODEL + the correctness theorem.)* *)
-Definition struct_make2 (n : int) : IO (GoChan (GoI64 * GoI64)) :=
+Definition struct_make2 (n : GoInt) : IO (GoChan (GoI64 * GoI64)) :=
   bind (make_chan_buf (TProd TI64 TI64) n) (fun ch => ret (MkChan (ch_loc ch))).
 Definition struct_send2 (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) : IO unit :=
   send (TProd TI64 TI64) (MkChan (ch_loc ch)) v.
