@@ -4318,6 +4318,9 @@ let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
 let is_inlined_ref r =
   is_proof_only_state r ||
+  (* Z-carried signed-narrow sign-extend helpers (review #6 #13): internal, only inside by-name-
+     lowered narrow op bodies (the masked Go is emitted by [fixed_width_op]); never emitted. *)
+  List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"] ||
   (* GoAny type-tag typeclass: the [Tagged_*] instances (bodies are GoTypeTag
      constructors) and the [the_tag] projection are proof-only — the runtime tag is
      erased from every [any] payload. *)
