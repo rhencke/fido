@@ -102,9 +102,21 @@ effects.  This is the formal close of the architectural finding ("no single auth
 *Trust note:* `rstep_embeds` commutes `embed_cmd` with the program-map `upd` via
 `functional_extensionality` — already part of the END-TO-END TRUST BASE (builtins.v `run_io_inj`),
 and NOT in `main_effect`'s cone, so `EXPECTED_ASSUMPTIONS.txt` stays empty and the axiom gate is
-unaffected.  Still open (in progress): sessions stated directly on `ustep` runs (the PSess protocol
-results are syntactic — `psess_emits_proto` — and not yet connected to a `ustep` execution), and
-retiring the old systems now that they are provably fragments.
+unaffected.
+
+SESSIONS are now ported onto `ustep` too (review finding #10 — they had been "primarily about
+protocol SYNTAX": `PEmits`/`psess_emits_proto` read the send/recv sequence off a session TERM but
+never tied it to an execution).  `proto_ucmd` compiles a `Proto` to a `UCmd` (send on an open channel
+`cs`, recv on a pre-CLOSED+drained `cr` — Go's "partner finished and closed", so every recv is ready
+and yields zero), and `proto_ucmd_realizes` proves its `ustep` run RUNS TO COMPLETION emitting a trace
+whose send/recv polarity sequence is EXACTLY the protocol's (`proto_polarity`).  `psess_realized_
+operationally` composes this with the syntactic `psess_full_emits_proto`: a COMPLETE session-typed term
+(`PSess i PEnd A`, the forge-proof extracted `Sess`) has its `PEmits` behavioural spec realized,
+step-for-step, by a concrete execution of the unified semantics — the indices are no longer just
+syntax.  Still open: retiring the old systems now that they are provably fragments, and a multi-
+goroutine session rendezvous (the realization runs the client against a closed-channel environment,
+which suffices for the polarity-sequence guarantee; a two-party `ustep` handoff is the natural next
+extension).
 
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.

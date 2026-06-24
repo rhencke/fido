@@ -957,3 +957,147 @@ Proof.
   - apply rsteps_embeds; exact H.
   - apply embed_cfg_trace.
 Qed.
+
+(** ============================================================================
+    SLICE 10 — SESSIONS, OPERATIONALLY: a protocol is REALIZED by a [ustep] run.
+
+    The 2026-06-24 review's finding #10: the session theory (concurrency.v [PSess]/[PEmits]/
+    [psess_emits_proto]) is "primarily about protocol SYNTAX" — it reads the send/recv sequence off a
+    session TERM's structure ([PEmits]) but never ties it to an EXECUTION.  Here we give a protocol an
+    OPERATIONAL meaning on the one authoritative semantics.  [proto_ucmd] compiles a [Proto] to a
+    [UCmd]: each [PSend] is a [USend] on an open channel [cs]; each [PRecv] is a [URecv] on a channel
+    [cr] that is already CLOSED + drained — Go's "the partner has finished and closed", so every recv
+    is READY and yields the zero value (no rendezvous bookkeeping needed).  [proto_ucmd_realizes] then
+    proves: the [ustep] run of [proto_ucmd ... p] runs to completion and emits a trace whose SEND/RECV
+    polarity sequence is EXACTLY the protocol's ([proto_polarity p]).  Composed with the syntactic
+    [psess_full_emits_proto], this is the port: a session-typed term's behavioural spec ([PEmits]) is
+    realized, step-for-step, by a concrete execution of the unified semantics. *)
+
+(** The send/recv polarity sequence a protocol prescribes (send = [true]). *)
+Fixpoint proto_polarity (p : Proto) : list bool :=
+  match p with
+  | builtins.PSend _ p' => true  :: proto_polarity p'
+  | builtins.PRecv _ p' => false :: proto_polarity p'
+  | PEnd                 => []
+  end.
+
+(** The polarity an event contributes (only channel send/recv are communication). *)
+Definition ev_polarity (e : Ev) : option bool :=
+  match e_kind e with KSend _ => Some true | KRecv _ _ => Some false | _ => None end.
+
+Fixpoint trace_polarity (tr : Trace) : list bool :=
+  match tr with
+  | []        => []
+  | e :: rest => match ev_polarity e with Some b => b :: trace_polarity rest | None => trace_polarity rest end
+  end.
+
+Lemma trace_polarity_app : forall t1 t2, trace_polarity (t1 ++ t2) = trace_polarity t1 ++ trace_polarity t2.
+Proof.
+  induction t1 as [ | e rest IH ]; intro t2; cbn; [ reflexivity | ].
+  destruct (ev_polarity e); cbn; rewrite IH; reflexivity.
+Qed.
+
+(** Compile a protocol to a unified-semantics program: send on [cs], recv on the pre-closed [cr]. *)
+Fixpoint proto_ucmd (cs cr val : nat) (p : Proto) : UCmd :=
+  match p with
+  | builtins.PSend _ p' => USend cs val (proto_ucmd cs cr val p')
+  | builtins.PRecv _ p' => URecv cr (fun _ => proto_ucmd cs cr val p')
+  | PEnd                 => URet
+  end.
+
+(** THE operational realization: the [ustep] run of [proto_ucmd ... p] for goroutine [tid] terminates
+    ([URet]) having emitted EXACTLY the protocol's send/recv polarity sequence, given only that [cs] is
+    open and [cr] is closed+drained in the starting state.  (Carried through the induction: appending
+    [KSend cs]/[KRecv cr] never closes [cs], never fills [cr], and preserves [cr]'s close at [pos].) *)
+Theorem proto_ucmd_realizes :
+  forall (p : Proto) (cs cr val tid pos : nat) (prg : nat -> UCmd)
+         (b : nat -> list (nat * nat)) (h : nat -> nat) (lv : nat -> bool)
+         (tr : Trace) (o : list (nat * list GoAny)) (df : nat -> list UCmd)
+         (pa : nat -> option GoAny) (ecl : Ev),
+    cs <> cr ->
+    lv tid = true ->
+    b cr = [] ->
+    closedb tr cs = false ->
+    nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
+    prg tid = proto_ucmd cs cr val p ->
+    exists cfg',
+      usteps (mkUCfg prg b h lv tr o df pa) cfg'
+      /\ uc_prog cfg' tid = URet
+      /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ proto_polarity p.
+Proof.
+  induction p as [ A p' IH | A p' IH | ]; intros cs cr val tid pos prg b h lv tr o df pa ecl
+    Hne Hlv Hbcr Hcs Hpos Hek Hprg.
+  - (* PSend: a send on the open [cs] fires, then recurse *)
+    pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
+    pose (b'   := upd b cs (b cs ++ [(val, length tr)])).
+    assert (Hstep : ustep (mkUCfg prg b h lv tr o df pa)
+                          (mkUCfg prg' b' h lv (tr ++ [mkEv tid (KSend cs)]) o df pa)).
+    { apply ustep_send; [ exact Hlv | rewrite Hprg; reflexivity | exact Hcs ]. }
+    assert (Hcr' : b' cr = []) by (unfold b'; rewrite (upd_other _ _ _ _ (not_eq_sym Hne)); exact Hbcr).
+    assert (Hcs' : closedb (tr ++ [mkEv tid (KSend cs)]) cs = false)
+      by (rewrite closedb_app, Hcs; reflexivity).
+    assert (Hpos' : nth_error (tr ++ [mkEv tid (KSend cs)]) pos = Some ecl)
+      by (rewrite nth_error_app_old by (eapply nth_error_lt; exact Hpos); exact Hpos).
+    assert (Hprg' : prg' tid = proto_ucmd cs cr val p') by (unfold prg'; rewrite upd_same; reflexivity).
+    destruct (IH cs cr val tid pos prg' b' h lv (tr ++ [mkEv tid (KSend cs)]) o df pa ecl
+                 Hne Hlv Hcr' Hcs' Hpos' Hek Hprg') as [cfg' [Hrun [Hdone Htr]]].
+    exists cfg'. split; [ eapply usteps_step; [ exact Hstep | exact Hrun ] | split; [ exact Hdone | ] ].
+    rewrite Htr, trace_polarity_app. cbn. rewrite <- app_assoc. reflexivity.
+  - (* PRecv: a recv on the closed+drained [cr] fires (yields zero), then recurse *)
+    pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
+    assert (Hstep : ustep (mkUCfg prg b h lv tr o df pa)
+                          (mkUCfg prg' b h lv (tr ++ [mkEv tid (KRecv cr pos)]) o df pa)).
+    { apply ustep_recv_closed with (c := cr) (f := fun _ => proto_ucmd cs cr val p') (pos := pos) (e := ecl);
+        [ exact Hlv | rewrite Hprg; reflexivity | exact Hbcr | exact Hpos | exact Hek ]. }
+    assert (Hcs' : closedb (tr ++ [mkEv tid (KRecv cr pos)]) cs = false)
+      by (rewrite closedb_app, Hcs; reflexivity).
+    assert (Hpos' : nth_error (tr ++ [mkEv tid (KRecv cr pos)]) pos = Some ecl)
+      by (rewrite nth_error_app_old by (eapply nth_error_lt; exact Hpos); exact Hpos).
+    assert (Hprg' : prg' tid = proto_ucmd cs cr val p') by (unfold prg'; rewrite upd_same; reflexivity).
+    destruct (IH cs cr val tid pos prg' b h lv (tr ++ [mkEv tid (KRecv cr pos)]) o df pa ecl
+                 Hne Hlv Hbcr Hcs' Hpos' Hek Hprg') as [cfg' [Hrun [Hdone Htr]]].
+    exists cfg'. split; [ eapply usteps_step; [ exact Hstep | exact Hrun ] | split; [ exact Hdone | ] ].
+    rewrite Htr, trace_polarity_app. cbn. rewrite <- app_assoc. reflexivity.
+  - (* PEnd: already at URet, no step, no events *)
+    exists (mkUCfg prg b h lv tr o df pa).
+    split; [ apply usteps_refl | split ].
+    + cbn [uc_prog]. rewrite Hprg. reflexivity.
+    + cbn [uc_trace]. rewrite app_nil_r. reflexivity.
+Qed.
+
+(** [proto_polarity] is [proto_steps] with the value-types erased to polarities — the bridge to the
+    syntactic session theory, whose [PEmits] sequence is in [StepKind]. *)
+Definition step_polarity (sk : StepKind) : bool :=
+  match sk with PKSend _ => true | PKRecv _ => false end.
+
+Lemma proto_polarity_steps : forall p, proto_polarity p = map step_polarity (proto_steps p).
+Proof. induction p as [ A p' IH | A p' IH | ]; cbn; [ rewrite IH | rewrite IH | ]; reflexivity. Qed.
+
+(** THE PORT: a COMPLETE session-typed term ([PSess i PEnd A]) — the forge-proof extracted [Sess] —
+    has its syntactic communication spec ([PEmits s steps], hence [steps = proto_steps i]) REALIZED by
+    a concrete [ustep] execution: running [proto_ucmd] for protocol [i] terminates having emitted a
+    trace whose send/recv polarity sequence is precisely [map step_polarity steps].  The session
+    indices are no longer "just syntax" — they are a behavioural spec the unified semantics enacts. *)
+Corollary psess_realized_operationally :
+  forall (i : Proto) (A : Type) (s : PSess i PEnd A) (steps : list StepKind)
+         (cs cr val tid pos : nat) (prg : nat -> UCmd)
+         (b : nat -> list (nat * nat)) (h : nat -> nat) (lv : nat -> bool)
+         (tr : Trace) (o : list (nat * list GoAny)) (df : nat -> list UCmd)
+         (pa : nat -> option GoAny) (ecl : Ev),
+    PEmits s steps ->
+    cs <> cr -> lv tid = true -> b cr = [] -> closedb tr cs = false ->
+    nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
+    prg tid = proto_ucmd cs cr val i ->
+    exists cfg',
+      usteps (mkUCfg prg b h lv tr o df pa) cfg'
+      /\ uc_prog cfg' tid = URet
+      /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ map step_polarity steps.
+Proof.
+  intros i A s steps cs cr val tid pos prg b h lv tr o df pa ecl Hem
+         Hne Hlv Hbcr Hcs Hpos Hek Hprg.
+  apply psess_full_emits_proto in Hem. subst steps.
+  destruct (proto_ucmd_realizes i cs cr val tid pos prg b h lv tr o df pa ecl
+              Hne Hlv Hbcr Hcs Hpos Hek Hprg) as [cfg' [Hrun [Hdone Htr]]].
+  exists cfg'. split; [ exact Hrun | split; [ exact Hdone | ] ].
+  rewrite Htr, proto_polarity_steps. reflexivity.
+Qed.
