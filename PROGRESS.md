@@ -888,7 +888,11 @@ proved — see the RELEASE REVIEW #4 resolution below).** The
    multi-goroutine→Go bridge is prose, not an end-to-end adequacy theorem (gap #10). (The specific
    model-faithfulness gaps the 2026-06-23 review #6 flagged here are CLOSED at the model level: channels
    are now BOUNDED — the capacity-guarded `rstepC` with a cap-0 rendezvous + a send-block-aware deadlock
-   theory `rstuckC_blocked`/`send_block_rstuckC`, #2; `go_spawn` and `defer_call` FAIL LOUD in the
+   theory `rstuckC_blocked`/`send_block_rstuckC`, now completed to the SINGLE biconditional
+   `rstuckC_iff_blocked` (a config is `RStuckC` iff every live goroutine is done/blocked/panicking) over
+   ALL bounded programs — buffered AND unbuffered — via the general-cap progress converse
+   `ready_can_stepC_general` (its cap-0 rendezvous decided by a bounded `find_partner` search) and
+   `rstepC_stepper_ready`, #2; `go_spawn` and `defer_call` FAIL LOUD in the
    sequential `run_io` rather than sequentializing / discarding a child panic / dropping the deferred —
    the faithful semantics are `rstep_spawn` and `run_cmd`'s `CDfr`, #5/#12; `run_blocks` exhaustion is a
    LOUD distinct panic, never a silent success, #6; the function zero is a non-callable `NilFunc`, #8.)

@@ -1086,8 +1086,12 @@ Qed.
 
 (** Unlike the (sequential, total) [run_io] model, this operational semantics
     REPRESENTS deadlock: a config that cannot step yet has a live goroutine with
-    work left.  Proving deadlock-FREEDOM (progress) is the open liveness frontier;
-    showing deadlock is representable is its honest foundation. *)
+    work left.  PROGRESS — "a ready goroutine means the config can step" — is now a
+    THEOREM in the rich calculus ([ready_can_step], and for the bounded calculus the
+    general [ready_can_stepC_general] packaged with [rstuckC_blocked] as the IFF
+    [rstuckC_iff_blocked]); what stays open is per-program deadlock-FREEDOM (showing a
+    GIVEN program never reaches a [Stuck]/[RStuckC] state).  Representing deadlock at all
+    is the honest foundation both rest on. *)
 Definition can_step (cfg : Config) : Prop := exists cfg', step cfg cfg'.
 Definition done (cfg : Config) : Prop :=
   forall tid, cfg_live cfg tid = true -> cfg_prog cfg tid = [].
@@ -8110,12 +8114,15 @@ Proof. intros cap N cfg H. exact (priv_prog_N_race_free N cfg (rstepsC_embed _ _
     [rstuckC_blocked] is "stuck ⇒ every live goroutine is done / blocked / panicking".  Its CONVERSE
     — "a ready (live, not-done, not-blocked, not-panicking) goroutine means the config CAN step" — is
     the progress half.  For the BUFFERED fragment (every [cap c > 0], so no cap-0 rendezvous) it is
-    CONSTRUCTIVE: every enabling condition (buffer room, a buffered value, a ready select case, an
-    open channel) is DECIDABLE locally, with NO non-local "is a receiver available" search (which the
-    general cap-0 case would need, and which [¬blockedC] only yields double-negated).  Together with
-    [rstuckC_blocked] this is the deadlock characterization as an IFF on buffered programs: a config is
-    [RStuckC] exactly when every live goroutine is done or blocked.  (Unbuffered rendezvous progress is
-    witnessed operationally by [handoff_completes]; the general-cap converse stays a frontier.) *)
+    CONSTRUCTIVE WITHOUT ANY SEARCH: every enabling condition (buffer room, a buffered value, a ready
+    select case, an open channel) is DECIDABLE locally, with NO non-local "is a receiver available"
+    question (which the general cap-0 case DOES face, and which [¬blockedC] only yields double-negated).
+    This buffered lemma is the easy fragment; the GENERAL-cap converse [ready_can_stepC_general] below
+    discharges the cap-0 rendezvous too, by deciding the receiver question with a bounded
+    [find_partner] search — so the frontier this comment once named is CLOSED, and the deadlock
+    characterization is now the single IFF [rstuckC_iff_blocked] over ALL bounded programs (buffered and
+    unbuffered).  (Unbuffered rendezvous progress is additionally witnessed operationally by
+    [handoff_completes].) *)
 Lemma ready_can_stepC_buffered : forall cap cfg tid,
   (forall c, 0 < cap c) ->
   FreshAvail cfg ->
@@ -8193,3 +8200,323 @@ Qed.
     ([rstep_at_some_cap]); backward, [rstepC cap ⊆ rsteps] ([rstepC_embed], a [rstepC_sync] rendezvous
     collapsing to its TWO-step unbounded image — which is exactly why a clean single-step biconditional
     does NOT hold and the bounded calculus is the genuinely finer one). *)
+
+(** ============================================================================
+    GENERAL-CAP PROGRESS — the cap-0 rendezvous converse, closing the frontier
+    that [ready_can_stepC_buffered] left open.
+
+    [ready_can_stepC_buffered] proved progress only for the buffered fragment ([cap c > 0]
+    everywhere): there it could DODGE the one non-local question — "is a rendezvous receiver
+    available?" — because a [cap > 0] send never rendezvous-steps.  The GENERAL case must
+    ANSWER it, and [~ blockedC] only yields the answer DOUBLE-NEGATED (constructively unusable).
+    We answer it CONSTRUCTIVELY with a decidable bounded search [find_partner] over the live
+    threads: [LiveFin] bounds the live set by some [n], so scanning [0..n-1] is COMPLETE — a
+    receiver outside that range is dead, hence no receiver.  With the search deciding the
+    rendezvous, and the cap-0-empty-buffer well-formedness side condition [Hwf] (which EVERY
+    reachable config satisfies — a cap-0 channel can never buffer, since [rstepC_send] needs
+    [length < cap = 0]), progress holds for EVERY capacity. *)
+
+(* Decidable rendezvous-partner search: the FIRST live thread [t1 < n], [t1 <> tid], whose
+   program is [CRecv c _] — or [None] if the scan [0..n-1] finds no such receiver. *)
+Fixpoint find_partner (p : nat -> Cmd) (lv : nat -> bool) (c tid n : nat) : option nat :=
+  match n with
+  | 0 => None
+  | S n' => if (negb (Nat.eqb n' tid) &&
+                (lv n' && match p n' with CRecv c' _ => Nat.eqb c c' | _ => false end))%bool
+            then Some n'
+            else find_partner p lv c tid n'
+  end.
+
+(* A [Some] result is a genuine rendezvous partner: distinct, live, and receiving on [c]. *)
+Lemma find_partner_some : forall p lv c tid n t1,
+  find_partner p lv c tid n = Some t1 ->
+  t1 <> tid /\ lv t1 = true /\ exists f, p t1 = CRecv c f.
+Proof.
+  induction n as [|n' IH]; intros t1 H; cbn in H; [discriminate|].
+  destruct (negb (Nat.eqb n' tid) &&
+            (lv n' && match p n' with CRecv c' _ => Nat.eqb c c' | _ => false end))%bool eqn:Hc.
+  - injection H as E; subst t1.
+    apply andb_prop in Hc as [Hne Hc2]. apply andb_prop in Hc2 as [Hlv Hm].
+    split; [| split].
+    + intro Heq. rewrite Heq, Nat.eqb_refl in Hne. discriminate.
+    + exact Hlv.
+    + destruct (p n') as [|?|c' f|?|?|?|?|?] eqn:Hpe; cbn in Hm; try discriminate Hm.
+      apply Nat.eqb_eq in Hm. subst c'. exists f. reflexivity.
+  - apply IH; exact H.
+Qed.
+
+(* A [None] result is conclusive over the scanned range: no [t1 < n] is a partner. *)
+Lemma find_partner_none : forall p lv c tid n,
+  find_partner p lv c tid n = None ->
+  forall t1, t1 < n -> ~ (t1 <> tid /\ lv t1 = true /\ exists f, p t1 = CRecv c f).
+Proof.
+  induction n as [|n' IH]; intros H t1 Hlt; [lia|].
+  cbn in H.
+  destruct (negb (Nat.eqb n' tid) &&
+            (lv n' && match p n' with CRecv c' _ => Nat.eqb c c' | _ => false end))%bool eqn:Hc;
+    [discriminate H|].
+  intros [Hne [Hlv [f Hpf]]].
+  destruct (Nat.eq_dec t1 n') as [He|Hne2].
+  - subst t1.
+    assert (Hcontra : (negb (Nat.eqb n' tid) &&
+              (lv n' && match p n' with CRecv c' _ => Nat.eqb c c' | _ => false end))%bool = true).
+    { rewrite Hpf, Hlv. cbn. rewrite Nat.eqb_refl, (proj2 (Nat.eqb_neq n' tid) Hne). reflexivity. }
+    rewrite Hcontra in Hc. discriminate.
+  - apply (IH H t1); [lia|].
+    split; [exact Hne | split; [exact Hlv | exists f; exact Hpf]].
+Qed.
+
+(** PROGRESS for EVERY capacity (the converse [ready_can_stepC_buffered] left as a frontier): a live,
+    not-finished, not-blocked, not-panicking goroutine means the config CAN step — buffered OR
+    unbuffered.  Every case is identical to the buffered proof EXCEPT the no-room [CSend], where a
+    [cap c = 0] channel may still step by RENDEZVOUS: the decidable [find_partner] either exhibits a
+    receiver (so [rstepC_sync] fires) or proves there is none (so the send is genuinely [blockedC],
+    contradicting [~ blockedC]).  This needs the cap-0-empty-buffer side condition [Hwf] and the
+    finite-live bound [LiveFin] — both hold of every reachable config. *)
+Lemma ready_can_stepC_general : forall cap cfg tid,
+  (forall c, cap c = 0 -> rc_bufs cfg c = []) ->
+  LiveFin cfg ->
+  rc_live cfg tid = true ->
+  rc_prog cfg tid <> CRet ->
+  ~ blockedC cap cfg tid ->
+  ~ rpanicking cfg tid ->
+  rcan_stepC cap cfg.
+Proof.
+  intros cap cfg tid Hwf Hfin Hlive Hncret Hnblk Hnpan.
+  destruct (livefin_fresh _ Hfin) as [cid Hcid].
+  destruct Hfin as [n Hdead].
+  destruct cfg as [p b h lv tr].
+  cbn [rc_prog rc_bufs rc_trace rc_live] in *.
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
+  - congruence.
+  - (* CSend: open (else panicking); steps by buffer room OR cap-0 rendezvous, else blocked *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. right. exists c, v, k. split; [exact Hp | exact Hcl].
+    + destruct (Nat.ltb (length (b c)) (cap c)) eqn:Hroom.
+      * apply Nat.ltb_lt in Hroom. eexists.
+        eapply rstepC_send; [exact Hlive | exact Hp | exact Hcl | exact Hroom].
+      * apply Nat.ltb_ge in Hroom.
+        destruct (Nat.eq_dec (cap c) 0) as [Hcap0 | Hcapn].
+        -- (* cap 0: search for a rendezvous receiver among the (finitely many) live threads *)
+           assert (Hbc : b c = []) by (apply Hwf; exact Hcap0).
+           destruct (find_partner p lv c tid n) as [t1|] eqn:Hfp.
+           ++ destruct (find_partner_some _ _ _ _ _ _ Hfp) as [Hne [Hlv1 [f Hpf]]].
+              eexists. eapply rstepC_sync with (t0 := tid) (t1 := t1);
+                [ exact (not_eq_sym Hne) | exact Hlive | exact Hlv1
+                | exact Hp | exact Hpf | exact Hbc | exact Hcl | exact Hcap0 ].
+           ++ (* no receiver: the send is genuinely blocked *)
+              exfalso. apply Hnblk. right; right. exists c, v, k.
+              cbn [rc_prog rc_bufs rc_trace rc_live].
+              split; [exact Hp | split; [exact Hcl | split]].
+              ** lia.
+              ** intros [_ [_ [t1 [f [Hne1 [Hlv1 Hpf]]]]]].
+                 assert (Ht1n : t1 < n).
+                 { destruct (Nat.lt_ge_cases t1 n) as [Hlt | Hge]; [exact Hlt|].
+                   specialize (Hdead t1 Hge). rewrite Hdead in Hlv1. discriminate. }
+                 apply (find_partner_none _ _ _ _ _ Hfp t1 Ht1n).
+                 split; [exact Hne1 | split; [exact Hlv1 | exists f; exact Hpf]].
+        -- (* cap > 0, no room: genuinely blocked (no cap-0 rendezvous applies) *)
+           exfalso. apply Hnblk. right; right. exists c, v, k.
+           cbn [rc_prog rc_bufs rc_trace rc_live].
+           split; [exact Hp | split; [exact Hcl | split]].
+           ++ lia.
+           ++ intros [Hcap0 _]. apply Hcapn; exact Hcap0.
+  - (* CRecv: buffered or closed-drained steps; empty-open is blocked *)
+    destruct (b c) as [ | [v s] rest ] eqn:Hb.
+    + destruct (closedb tr c) eqn:Hcl.
+      * destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+        eexists. eapply rstepC_recv_closed; [exact Hlive | exact Hp | exact Hb | exact Hpos | exact Hek].
+      * exfalso. apply Hnblk. left. exists c, f. split; [exact Hp | split; [exact Hb | exact Hcl]].
+    + eexists. eapply rstepC_recv; [exact Hlive | exact Hp | exact Hb].
+  - eexists. eapply rstepC_write; [exact Hlive | exact Hp].
+  - eexists. eapply rstepC_read; [exact Hlive | exact Hp].
+  - eexists. eapply rstepC_spawn; [exact Hlive | exact Hp | exact Hcid].
+  - (* CSelect: a ready case steps; no ready case is blocked *)
+    destruct (sel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Hsel.
+    + destruct (sel_ready_cl_buf _ _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
+      eexists. eapply rstepC_select; [exact Hlive | exact Hp | exact Hin | exact Hb].
+    + destruct (sel_ready_cl_closed _ _ _ _ _ Hsel) as [Hin [Hb Hcl]].
+      destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+      eexists. eapply rstepC_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
+    + exfalso. apply Hnblk. right; left. exists cases. split; [exact Hp | exact Hsel].
+  - (* CClose: open steps; closed is panicking *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. left. exists c, k. split; [exact Hp | exact Hcl].
+    + eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
+Qed.
+
+(** ============================================================================
+    THE BOUNDED DEADLOCK CHARACTERIZATION AS A SINGLE IFF — for ALL bounded programs.
+
+    [rstuckC_blocked] is the [->] half (stuck => every live goroutine done/blocked/panicking) and
+    [ready_can_stepC_general] is the constructive engine of the [<-] half.  We now PACKAGE them as one
+    machine-checked biconditional, with the [<-] direction proved via [rstepC_stepper_ready]: EVERY
+    bounded step is taken by some goroutine that is live, not finished, NOT blocked, and not panicking
+    (for a [rstepC_sync] rendezvous it is the SENDER — whose [blockedC] send-condition is refuted by the
+    very receiver it synchronises with).  So if every live goroutine is done/blocked/panicking, NO step
+    is possible — the config is [RStuckC].  This upgrades the characterization from the buffered-only
+    IFF to one covering unbuffered rendezvous, closing the last frontier. *)
+
+(* [None] from the select-readiness scan is conclusive: every case channel is empty AND open. *)
+Lemma sel_ready_cl_none : forall b tr cases,
+  sel_ready_cl b tr cases = None ->
+  forall c f, In (c, f) cases -> b c = [] /\ closedb tr c = false.
+Proof.
+  induction cases as [|[c0 f0] rest IH]; intros H c f Hin; cbn in H; [inversion Hin|].
+  destruct (b c0) as [|[v0 s0] brest] eqn:Hb0.
+  - destruct (closedb tr c0) eqn:Hcl0; [discriminate|].
+    destruct Hin as [Heq | Hin].
+    + injection Heq as Hc Hf. subst c0. split; [exact Hb0 | exact Hcl0].
+    + exact (IH H c f Hin).
+  - discriminate H.
+Qed.
+
+(* A goroutine whose program is none of recv/select/send is never [blockedC]. *)
+Lemma not_blockedC_prog : forall cap p b h lv tr tid,
+  (forall c f, p tid <> CRecv c f) ->
+  (forall cs, p tid <> CSelect cs) ->
+  (forall c v k, p tid <> CSend c v k) ->
+  ~ blockedC cap (mkRCfg p b h lv tr) tid.
+Proof.
+  intros cap p b h lv tr tid Hr Hs Hsd Hb.
+  unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+  destruct Hb as [ [c [f [Hp _]]] | [ [cs [Hp _]] | [c [v [k [Hp _]]]] ] ].
+  - exact (Hr _ _ Hp).
+  - exact (Hs _ Hp).
+  - exact (Hsd _ _ _ Hp).
+Qed.
+
+(* A goroutine whose program is neither close nor send is never [rpanicking]. *)
+Lemma not_rpanicking_prog : forall p b h lv tr tid,
+  (forall c k, p tid <> CClose c k) ->
+  (forall c v k, p tid <> CSend c v k) ->
+  ~ rpanicking (mkRCfg p b h lv tr) tid.
+Proof.
+  intros p b h lv tr tid Hc Hs Hp0.
+  unfold rpanicking in Hp0. cbn [rc_prog rc_bufs rc_trace rc_live] in Hp0.
+  destruct Hp0 as [ [c [k [Hp _]]] | [c [v [k [Hp _]]]] ].
+  - exact (Hc _ _ Hp).
+  - exact (Hs _ _ _ Hp).
+Qed.
+
+(* Every bounded step is taken by a READY goroutine: live, unfinished, not blocked, not panicking. *)
+Lemma rstepC_stepper_ready : forall cap cfg cfg',
+  rstepC cap cfg cfg' ->
+  exists tid, rc_live cfg tid = true /\ rc_prog cfg tid <> CRet
+              /\ ~ blockedC cap cfg tid /\ ~ rpanicking cfg tid.
+Proof.
+  intros cap cfg cfg' H. destruct H as
+    [ p b h lv tr tid c v k Hlv Hp Hcl Hroom
+    | p b h lv tr t0 t1 c v k1 f Hne Hlv0 Hlv1 Hp0 Hp1 Hbc Hcl Hcap
+    | p b h lv tr tid c f v s brest Hlv Hp Hbc
+    | p b h lv tr tid l v k Hlv Hp
+    | p b h lv tr tid l f Hlv Hp
+    | p b h lv tr tid child k cid Hlv Hp Hcid
+    | p b h lv tr tid cases c f v s brest Hlv Hp Hin Hbc
+    | p b h lv tr tid c k Hlv Hp Hcl
+    | p b h lv tr tid c f pos e Hlv Hp Hbc Hpos Hek
+    | p b h lv tr tid cases c f pos e Hlv Hp Hin Hbc Hpos Hek ].
+  - (* send: stepper tid, buffer has room *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr _]]] | [ [cs [Hpr _]] | [c0 [v0 [k0 [Hpr [_ [Hnr _]]]]]] ] ];
+        [ congruence | congruence | ].
+      assert (Hcc : c0 = c) by congruence. subst c0. apply Hnr. exact Hroom.
+    + intro Hpan. unfold rpanicking in Hpan. cbn [rc_prog rc_trace] in Hpan.
+      destruct Hpan as [ [c0 [k0 [Hpr _]]] | [c0 [v0 [k0 [Hpr Hcl0]]]] ]; [congruence|].
+      assert (Hcc : c0 = c) by congruence. subst c0. rewrite Hcl in Hcl0. discriminate.
+  - (* sync: stepper t0 (sender); the receiver t1 refutes its block *)
+    exists t0. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv0 | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr _]]] | [ [cs [Hpr _]] | [c0 [v0 [k0 [Hpr [_ [_ Hrdz]]]]]] ] ];
+        [ congruence | congruence | ].
+      assert (Hcc : c0 = c) by congruence. subst c0.
+      apply Hrdz. split; [exact Hcap | split; [exact Hbc | exists t1, f;
+        split; [exact (not_eq_sym Hne) | split; [exact Hlv1 | exact Hp1]]]].
+    + intro Hpan. unfold rpanicking in Hpan. cbn [rc_prog rc_trace] in Hpan.
+      destruct Hpan as [ [c0 [k0 [Hpr _]]] | [c0 [v0 [k0 [Hpr Hcl0]]]] ]; [congruence|].
+      assert (Hcc : c0 = c) by congruence. subst c0. rewrite Hcl in Hcl0. discriminate.
+  - (* recv: stepper tid, buffer non-empty *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr [Hb0 _]]]] | [ [cs [Hpr _]] | [c0 [v0 [k0 [Hpr _]]]] ] ];
+        [ | congruence | congruence ].
+      assert (Hcc : c0 = c) by congruence. subst c0. rewrite Hbc in Hb0. discriminate.
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* write *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + apply (not_blockedC_prog cap p b h lv tr tid); intros; congruence.
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* read *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + apply (not_blockedC_prog cap p b h lv tr tid); intros; congruence.
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* spawn *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + apply (not_blockedC_prog cap p b h lv tr tid); intros; congruence.
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* select: stepper tid, ready case (c,f) buffered *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr _]]] | [ [cs [Hpr Hsel]] | [c0 [v0 [k0 [Hpr _]]]] ] ];
+        [ congruence | | congruence ].
+      assert (Hcc : cs = cases) by congruence. subst cs.
+      destruct (sel_ready_cl_none _ _ _ Hsel c f Hin) as [Hb0 _]. rewrite Hbc in Hb0. discriminate.
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* close: stepper tid, channel open *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + apply (not_blockedC_prog cap p b h lv tr tid); intros; congruence.
+    + intro Hpan. unfold rpanicking in Hpan. cbn [rc_prog rc_trace] in Hpan.
+      destruct Hpan as [ [c0 [k0 [Hpr Hcl0]]] | [c0 [v0 [k0 [Hpr _]]]] ]; [|congruence].
+      assert (Hcc : c0 = c) by congruence. subst c0. rewrite Hcl in Hcl0. discriminate.
+  - (* recv_closed: stepper tid, empty buffer but channel CLOSED *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr [_ Hcl0]]]] | [ [cs [Hpr _]] | [c0 [v0 [k0 [Hpr _]]]] ] ];
+        [ | congruence | congruence ].
+      assert (Hcc : c0 = c) by congruence. subst c0.
+      apply (closedb_false_not tr c Hcl0). exists pos, e. split; [exact Hpos | exact Hek].
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+  - (* select_closed: stepper tid, ready case (c,f) closed-drained *)
+    exists tid. cbn [rc_prog rc_bufs rc_trace rc_live].
+    split; [exact Hlv | split; [congruence | split]].
+    + intro Hb. unfold blockedC in Hb. cbn [rc_prog rc_bufs rc_trace rc_live] in Hb.
+      destruct Hb as [ [c0 [f0 [Hpr _]]] | [ [cs [Hpr Hsel]] | [c0 [v0 [k0 [Hpr _]]]] ] ];
+        [ congruence | | congruence ].
+      assert (Hcc : cs = cases) by congruence. subst cs.
+      destruct (sel_ready_cl_none _ _ _ Hsel c f Hin) as [_ Hcl0].
+      apply (closedb_false_not tr c Hcl0). exists pos, e. split; [exact Hpos | exact Hek].
+    + apply (not_rpanicking_prog p b h lv tr tid); intros; congruence.
+Qed.
+
+(** THE IFF: a well-formed (cap-0 channels empty), finitely-live, not-yet-done config is [RStuckC]
+    EXACTLY when every live goroutine is finished, blocked, or panicking — for ALL capacities, buffered
+    and unbuffered alike.  [->] is [rstuckC_blocked]; [<-] is the contrapositive engine [rstepC_stepper_ready]. *)
+Theorem rstuckC_iff_blocked : forall cap cfg,
+  (forall c, cap c = 0 -> rc_bufs cfg c = []) ->
+  LiveFin cfg ->
+  ~ rdone cfg ->
+  RStuckC cap cfg <->
+  (forall tid, rc_live cfg tid = true ->
+     rc_prog cfg tid = CRet \/ blockedC cap cfg tid \/ rpanicking cfg tid).
+Proof.
+  intros cap cfg Hwf Hfin Hndone. split.
+  - intros Hstuck tid Hlive.
+    exact (rstuckC_blocked cap cfg (livefin_fresh _ Hfin) Hstuck tid Hlive).
+  - intros Hall. split; [| exact Hndone].
+    intros [cfg' Hstep].
+    destruct (rstepC_stepper_ready _ _ _ Hstep) as [tid [Hlive [Hncret [Hnblk Hnpan]]]].
+    destruct (Hall tid Hlive) as [Hret | [Hblk | Hpan]].
+    + exact (Hncret Hret).
+    + exact (Hnblk Hblk).
+    + exact (Hnpan Hpan).
+Qed.
