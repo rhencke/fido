@@ -7786,3 +7786,80 @@ Theorem reachableC_inv : forall cap p cfg, rstepsC cap (rinit_cfg p) cfg -> RInv
 Proof.
   intros cap p cfg H. exact (rsteps_preserves_inv _ _ (rstepsC_embed _ _ _ H) (rinit_inv p)).
 Qed.
+
+(** ============================================================================
+    BOUNDED DEADLOCK CHARACTERIZATION — review #6 #2, the heart of the fix.
+
+    The unbounded [rstuck_blocked] characterizes a stuck config as "every live goroutine is finished,
+    blocked on an empty-open RECV, or panicking" — it CANNOT see a blocked SEND because [rstep_send]
+    is unconditional ("[CSend] always enabled").  Under [rstepC] a send to a FULL buffer (or an
+    unbuffered channel with no ready receiver) genuinely cannot step, so [blockedC] adds that third
+    way to block, and [rstuckC_blocked] proves the now-COMPLETE characterization.  The blocked-send
+    conditions are DERIVED from [~ rcan_stepC] (had there been room, [rstepC_send] would step; had
+    there been a rendezvous partner, [rstepC_sync] would) — so the proof is constructive, needing no
+    decision procedure for the non-local "is a receiver available" question. *)
+Definition rcan_stepC (cap : nat -> nat) (cfg : RConfig) : Prop := exists cfg', rstepC cap cfg cfg'.
+Definition RStuckC (cap : nat -> nat) (cfg : RConfig) : Prop := ~ rcan_stepC cap cfg /\ ~ rdone cfg.
+
+Definition blockedC (cap : nat -> nat) (cfg : RConfig) (tid : nat) : Prop :=
+  (exists c f, rc_prog cfg tid = CRecv c f
+               /\ rc_bufs cfg c = [] /\ closedb (rc_trace cfg) c = false)
+  \/ (exists cases, rc_prog cfg tid = CSelect cases
+                    /\ sel_ready_cl (rc_bufs cfg) (rc_trace cfg) cases = None)
+  \/ (exists c v k, rc_prog cfg tid = CSend c v k
+                    /\ closedb (rc_trace cfg) c = false
+                    /\ ~ (length (rc_bufs cfg c) < cap c)                         (* no buffer room *)
+                    /\ ~ (cap c = 0 /\ rc_bufs cfg c = []                          (* no cap-0 rendezvous: *)
+                          /\ exists t1 f, t1 <> tid /\ rc_live cfg t1 = true
+                                          /\ rc_prog cfg t1 = CRecv c f)).         (* ...no ready receiver *)
+
+Theorem rstuckC_blocked : forall cap cfg,
+  FreshAvail cfg -> RStuckC cap cfg ->
+  forall tid, rc_live cfg tid = true ->
+    rc_prog cfg tid = CRet \/ blockedC cap cfg tid \/ rpanicking cfg tid.
+Proof.
+  intros cap cfg Hfresh [Hnstep _] tid Hlive.
+  destruct cfg as [p b h lv tr]. destruct Hfresh as [cid Hcid].
+  cbn [rc_prog rc_bufs rc_trace rc_live] in *.
+  destruct (rpanicking_dec (mkRCfg p b h lv tr) tid) as [Hpan | Hnpan]; [right; right; exact Hpan |].
+  destruct (p tid) as [ | c v k | c f | l v k | l f | child k | cases | c k ] eqn:Hp.
+  - left. reflexivity.
+  - (* CSend: open (else panicking); blocked iff no room AND no rendezvous partner *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. right. exists c, v, k. split; [exact Hp | exact Hcl].
+    + right; left. right; right. exists c, v, k.
+      split; [exact Hp | split; [exact Hcl | split]].
+      * (* no room: a buffered send would step *)
+        intro Hroom. apply Hnstep. eexists.
+        eapply rstepC_send; [exact Hlive | exact Hp | exact Hcl | exact Hroom].
+      * (* no rendezvous partner: a cap-0 handoff would step *)
+        intros [Hcap0 [Hbemp [t1 [f [Hne [Hlv1 Hp1]]]]]].
+        apply Hnstep. eexists.
+        eapply rstepC_sync with (t0 := tid) (t1 := t1);
+          [exact (not_eq_sym Hne) | exact Hlive | exact Hlv1 | exact Hp | exact Hp1
+           | exact Hbemp | exact Hcl | exact Hcap0].
+  - (* CRecv: empty-open is blocked; buffered or closed-drained steps *)
+    destruct (b c) as [ | [v s] rest ] eqn:Hb.
+    + destruct (closedb tr c) eqn:Hcl.
+      * exfalso. destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+        apply Hnstep. eexists.
+        eapply rstepC_recv_closed; [exact Hlive | exact Hp | exact Hb | exact Hpos | exact Hek].
+      * right; left. left. exists c, f. split; [exact Hp | split; [exact Hb | exact Hcl]].
+    + exfalso. apply Hnstep. eexists. eapply rstepC_recv; [exact Hlive | exact Hp | exact Hb].
+  - exfalso. apply Hnstep. eexists. eapply rstepC_write; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. eexists. eapply rstepC_read; [exact Hlive | exact Hp].
+  - exfalso. apply Hnstep. eexists. eapply rstepC_spawn; [exact Hlive | exact Hp | exact Hcid].
+  - (* CSelect: a ready case steps; no ready case is blocked *)
+    destruct (sel_ready_cl b tr cases) as [[c f v s | c f]|] eqn:Hsel.
+    + exfalso. destruct (sel_ready_cl_buf _ _ _ _ _ _ _ Hsel) as [Hin [rest Hb]].
+      apply Hnstep. eexists. eapply rstepC_select; [exact Hlive | exact Hp | exact Hin | exact Hb].
+    + exfalso. destruct (sel_ready_cl_closed _ _ _ _ _ Hsel) as [Hin [Hb Hcl]].
+      destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
+      apply Hnstep. eexists.
+      eapply rstepC_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
+    + right; left. right; left. exists cases. split; [exact Hp | exact Hsel].
+  - (* CClose: open steps; closed is panicking (handled above) *)
+    destruct (closedb tr c) eqn:Hcl.
+    + exfalso. apply Hnpan. left. exists c, k. split; [exact Hp | exact Hcl].
+    + exfalso. apply Hnstep. eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
+Qed.
