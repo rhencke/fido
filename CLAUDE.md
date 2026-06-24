@@ -37,15 +37,19 @@ status, and roadmap live in `PROGRESS.md`.
    scope is fine; *wrong* or *partial* semantics is not. "It's hard" means do the
    work, not model less. The plugin's `unsupported` ABORTS extraction for anything
    it can't lower correctly — the meta-invariant. The only acceptable deviations
-   are principled and bounded (a deliberate safety guarantee, or a substrate limit
-   like Rocq's 63-bit primitive int) — and documented as such.
-3. **Zero Fido axioms — preserve it.** The whole IO / heap / channel / session
-   model is `Definition`s over a concrete `World` / `Outcome`; every law is a
-   *derived theorem*. The trust base is EXACTLY Rocq's own primitives (`int` /
-   `float`, `PrimInt63.*` / `PrimFloat.*`). Model every new builtin as a
-   `Definition` / `Record`, **never** an `Axiom` / `Parameter` / `Admitted` (even
-   hard cases — e.g. a soft-float `float32`). Run `Print Assumptions <thm>` after a
-   significant result and state the base honestly.
+   are principled and bounded (a deliberate safety guarantee) — and documented as such.
+3. **Zero axioms — the model's trust base is now EMPTY; preserve it.** The whole IO /
+   heap / channel / session AND numeric (int/float) model is `Definition`s / `Record`s
+   over concrete Rocq data (`Z` for integers, `SpecFloat.spec_float` for IEEE-754
+   floats, a concrete `World` / `Outcome`); every law is a *derived theorem*. As of
+   commit 445aca3, `Print Assumptions main_effect` is **"Closed under the global
+   context" — ZERO axioms** (the old `PrimInt63.*` / `PrimFloat.*` substrate is gone:
+   integers are `Z`, locations `nat`, floats `spec_float`). Model every new builtin as
+   a `Definition` / `Record`, **never** an `Axiom` / `Parameter` / `Admitted` AND never
+   a kernel PRIMITIVE (`PrimInt63` / `PrimFloat`) — those are axioms too; model in
+   `Z` / `spec_float`. Run `Print Assumptions <thm>` after a significant result and keep
+   it empty. (This is the MODEL's logical trust base; the extraction plugin is a
+   SEPARATE, still-trusted/unverified TCB — gap #10.)
 4. **Partial / unsafe ops are safe-by-construction or proof-gated.** The unsafe
    primitives (nil deref, OOB, div-by-zero, send-on-closed, failed assertion) are
    modelled, but their unsafe use is forbidden: prefer an **evidence-carrying** API
@@ -100,10 +104,12 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
 - `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set `Print
-  Assumptions main_effect` may depend on (the PrimInt63/PrimFloat substrate). The
+  Assumptions main_effect` may depend on. As of 445aca3 this file is **EMPTY** — the
+  model is axiom-free ("Closed under the global context"); the old PrimInt63/PrimFloat
+  substrate is gone (integers `Z`, locations `nat`, floats `spec_float`). The
   Dockerfile's prover stage diffs the live `Print Assumptions` against it and FAILS
-  the build on any drift (a new transitive/imported axiom). If a change *intentionally*
-  alters the trust base, regenerate it (C-locale sort, from a fresh local build):
+  the build on any drift (ANY axiom now reappearing is a regression). If a change
+  *intentionally* alters the trust base, regenerate it (C-locale sort, from a fresh local build):
   `rm -f _build/default/main.vo && dune build 2>&1 | awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
 - `negtests/` — the fail-closed regression harness (`make negtest`, review #4 R10). Each
   `negtests/*.v` is a program that hits a fail-CLOSED backend site; its first line declares

@@ -120,16 +120,19 @@ axioms** — confirmed AFTER this session's additions (custom enums, user/mutual
 generics over functions & types, struct embedding, IO-value methods, defined types over
 every underlying).  `main.v` now keeps a standing `Print Assumptions main_effect.` before the
 `Go Main Extraction`, so EVERY build re-confirms the base (continuous verification; it prints
-to the build log and does not affect the runtime golden).  The printed base is EXACTLY Rocq's
-machine primitives — `int : Set`, `float : Set`, `PrimInt63.*`, `PrimFloat.*`, and
-`of_uint63` — with no `chan_*`/`map_*`/`ref_*`/`wrap*` or any other Fido name.  `builtins.v`,
-`main.v`, `concurrency.v` declare NO `Axiom`/`Parameter`/`Admitted`; the IO /
-heap / channel / session model is `Definition`s over a concrete `World`/`Outcome`, and
-every law (`run_bind`, channel & heap get-after-put, `ref_sel_upd_same`, …) is a DERIVED
-THEOREM.  The extracted program rests on EXACTLY Rocq's own machine primitives — `int :
-Set`, `float : Set`, and the `PrimInt63.*` / `PrimFloat.*` operations — and nothing else
-*at the Rocq-model level* (this is the AXIOM base of `main_effect`; it is NOT the
-end-to-end trust base of the emitted bytes — see **END-TO-END TRUST BASE** below).
+to the build log and does not affect the runtime golden).  As of commit 445aca3 the printed base
+is **EMPTY — `Print Assumptions main_effect` = "Closed under the global context" (ZERO axioms)**.
+The former `PrimInt63.*` / `PrimFloat.*` substrate (`int : Set`, `float : Set`, `of_uint63`, …)
+is GONE: integers are `Z` (`GoI64`/`GoU64`/`GoInt`/the narrows are Z-carried records), heap
+locations are `nat`, and floats are `SpecFloat.spec_float` (the axiom-free Z-based IEEE-754
+inductive — every float op is a computable `SF*` / `binary_normalize` definition).  `builtins.v`,
+`main.v`, `concurrency.v` declare NO `Axiom`/`Parameter`/`Admitted` AND use no kernel primitive;
+the IO / heap / channel / session / numeric model is `Definition`s over concrete Rocq data, and
+every law (`run_bind`, channel & heap get-after-put, `ref_sel_upd_same`, float `SFadd`/… specs, …)
+is a DERIVED THEOREM.  The extracted program's `main_effect` rests on NOTHING beyond Rocq's kernel
+*at the Rocq-model level* (this is the AXIOM base of `main_effect` — now empty; it is NOT the
+end-to-end trust base of the emitted bytes, which still includes the trusted plugin — see
+**END-TO-END TRUST BASE** below).
 The only *Fido-declared* assumptions anywhere are two `concurrency.v` SECTION hypotheses
 (the abstract-calculus ↔ IO coding round-trip) — proof-only, parameterised (discharged at
 section close via the concrete keystone coding), emit no Go, NOT in the extracted program's

@@ -190,17 +190,17 @@ Proof. now vm_compute. Qed.
 Definition div_demo : IO unit :=
   println [any (div_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl); any (mod_nz (int_lit 17 eq_refl) (int_lit 5 eq_refl) eq_refl)].   (* prints: 3 2 *)
 
-(** float64 is Rocq's primitive [PrimFloat] = IEEE 754 double, the same as Go's
-    float64, so arithmetic agrees bit-for-bit.  This exercises the otherwise-
-    unused float primitive end-to-end.  (Go's [println] formats float64 in
-    scientific notation — that is Go's builtin behaviour, captured by the
-    golden.) *)
+(** float64 is the AXIOM-FREE [SpecFloat.spec_float] (IEEE 754 double over [Z]; review #6
+    #13→zero-axioms), the same binary64 as Go's float64, so arithmetic agrees bit-for-bit
+    ([f64_add]/[f64_div]/… are [SF*] definitions; literals like [1.5] are parsed to the
+    correctly-rounded [spec_float] and emitted as the exact Go hex-float).  (Go's [println]
+    formats float64 in scientific notation — Go's builtin behaviour, captured by the golden.) *)
 Definition float_demo : IO unit :=
   println [ any (f64_add 1.5 2.25)%go64     (* 3.75 *)
           ; any (f64_div 1.0 4.0)%go64 ].   (* 0.25 (exact in binary) *)
 
-(** Float COMPARISON lowers to Go's [<]/[<=]/[==] on [float64].  Both Coq's
-    [PrimFloat] and Go follow IEEE 754, so the semantics match exactly — including
+(** Float COMPARISON lowers to Go's [<]/[<=]/[==] on [float64].  Both [spec_float]'s
+    [SFcompare] and Go follow IEEE 754, so the semantics match exactly — including
     NaN (every comparison with NaN is false) and signed zero ([0.0 == -0.0]).
     Comparisons bind looser than arithmetic, so [a + b < c] needs no parens. *)
 Definition float_cmp_demo : IO unit :=
