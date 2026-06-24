@@ -579,3 +579,48 @@ Proof.
     apply usteps_refl.
   - cbn. reflexivity.
 Qed.
+
+(** ============================================================================
+    SLICE 6 — the review's exact ask, machine-checked: ONE ordinary program combining the effects.
+
+    A single goroutine that MUTATES the heap, SENDS on a channel and RECEIVES it back, DEFERS a print,
+    then PANICS — exercising heap + channel + defer + panic + output TOGETHER in the ONE semantics.  The
+    review said no authoritative semantics covered such a program; here is one, run end to end: the
+    deferred print STILL happens at the panic (the P0 fix), the heap holds its write, the channel
+    round-trips, and the goroutine dies with the panic recorded. *)
+Lemma unified_all_effects : forall (msg boom : GoAny),
+  exists cfg',
+    usteps (mkUCfg
+              (fun t => if Nat.eqb t 0
+                        then UWrite 0 9 (USend 0 5 (URecv 0 (fun _ =>
+                               UDfr (UOut (msg :: nil) URet) (UPan boom))))
+                        else URet)
+              (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+              nil (fun _ => nil) (fun _ => None))
+           cfg'
+    /\ uc_heap cfg' 0 = 9               (* the heap write landed *)
+    /\ uc_out cfg' = (0, msg :: nil) :: nil   (* the deferred print happened, despite the panic *)
+    /\ uc_panic cfg' 0 = Some boom      (* the panic was recorded *)
+    /\ uc_live cfg' 0 = false.          (* the goroutine died *)
+Proof.
+  intros msg boom. eexists. split.
+  - eapply usteps_step.
+    { apply (ustep_write _ _ _ _ _ _ _ _ 0 0 9
+               (USend 0 5 (URecv 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom))))); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_send _ _ _ _ _ _ _ _ 0 0 5
+               (URecv 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom)))); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_recv _ _ _ _ _ _ _ _ 0 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom))
+               5 1 nil); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_defer _ _ _ _ _ _ _ _ 0 (UOut (msg :: nil) URet) (UPan boom)); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 boom (UOut (msg :: nil) URet) nil); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (msg :: nil) URet); reflexivity. }
+    eapply usteps_step.
+    { apply (ustep_ret_done _ _ _ _ _ _ _ _ 0); reflexivity. }
+    apply usteps_refl.
+  - cbn. repeat split; reflexivity.
+Qed.
