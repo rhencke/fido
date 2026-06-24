@@ -982,7 +982,7 @@ Definition u32_demo : IO unit :=
   bind (println [ any (u32_add (u32_lit 4000000000 eq_refl) (u32_lit 1000000000 eq_refl))  (* 705032704 *)
                 ; any (i32_add (i32_lit 2000000000 eq_refl) (i32_lit 2000000000 eq_refl)) ])  (* -294967296 *)
        (fun _ =>
-  bind (println [ any (u32_shl (u32_lit 1 eq_refl) 31 eq_refl) ])  (* 2147483648 = 2^31 *)
+  bind (println [ any (u32_shl (u32_lit 1 eq_refl) (int_lit 31 eq_refl) eq_refl) ])  (* 2147483648 = 2^31 *)
        (fun _ =>
   println [ any (u32_mul (u32_lit 100000 eq_refl) (u32_lit 100000 eq_refl))   (* 1410065408 *)
           ; any (i32_mul (i32_lit 46341 eq_refl) (i32_lit 46341 eq_refl)) ])).  (* -2147479015 *)

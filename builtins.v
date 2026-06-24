@@ -203,13 +203,22 @@ Definition in_u64 (z : Z) : bool :=
   andb (0 <=? z)%Z (z <? 18446744073709551616)%Z.
 Definition wrapU64 (z : Z) : Z :=
   Z.modulo z 18446744073709551616%Z.
+(* Sub-64 narrow range predicates (review #6 #13 PrimInt63-elimination): the [Z]-carried analogue of
+   the old [land … mask]/[*_norm] int63 invariants.  Unsigned [uN] in [[0, 2^N)]; signed [iN] in
+   [[-2^(N-1), 2^(N-1))]. *)
+Definition in_u8  (z : Z) : bool := andb (0 <=? z)%Z (z <? 256)%Z.
+Definition in_u16 (z : Z) : bool := andb (0 <=? z)%Z (z <? 65536)%Z.
+Definition in_u32 (z : Z) : bool := andb (0 <=? z)%Z (z <? 4294967296)%Z.
+Definition in_i8  (z : Z) : bool := andb (-128 <=? z)%Z (z <? 128)%Z.
+Definition in_i16 (z : Z) : bool := andb (-32768 <=? z)%Z (z <? 32768)%Z.
+Definition in_i32 (z : Z) : bool := andb (-2147483648 <=? z)%Z (z <? 2147483648)%Z.
 
 (* Numeric-wrapper records, hoisted ABOVE GoTypeTag so TU8../TUnit can index them. *)
 Record GoU8 := MkU8 { u8raw : int ; u8ok : Squash ((u8raw <? 256)%uint63 = true) }.
 Record GoI8 := MkI8 { i8raw : int ; i8ok : Squash (exists a, i8raw = i8_norm a) }.
-Record GoU16 := MkU16 { u16raw : int ; u16ok : Squash ((u16raw <? 65536)%uint63 = true) }.
+Record GoU16 := MkU16 { u16raw : Z ; u16ok : Squash (in_u16 u16raw = true) }.
 Record GoI16 := MkI16 { i16raw : int ; i16ok : Squash (exists a, i16raw = i16_norm a) }.
-Record GoU32 := MkU32 { u32raw : int ; u32ok : Squash ((u32raw <? 4294967296)%uint63 = true) }.
+Record GoU32 := MkU32 { u32raw : Z ; u32ok : Squash (in_u32 u32raw = true) }.
 Record GoI32 := MkI32 { i32raw : int ; i32ok : Squash (exists a, i32raw = i32_norm a) }.
 (* FULL-WIDTH signed int64 (Go spec "Numeric types": [int64] is the set of all
    signed 64-bit integers).  Carried by [Z] — NOT the 63-bit [int] — so the model
@@ -499,8 +508,8 @@ Fixpoint zero_val {A : Type} (t : GoTypeTag A) {struct t} : A :=
   | TFloat64 => 0%float
   | TString  => EmptyString
   | TU8  => MkU8 0%uint63 (squash eq_refl)  | TI8  => MkI8 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
-  | TU16 => MkU16 0%uint63 (squash eq_refl) | TI16 => MkI16 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
-  | TU32 => MkU32 0%uint63 (squash eq_refl) | TI32 => MkI32 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
+  | TU16 => MkU16 0%Z (squash eq_refl) | TI16 => MkI16 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
+  | TU32 => MkU32 0%Z (squash eq_refl) | TI32 => MkI32 0%uint63 (squash (ex_intro _ 0%uint63 eq_refl))
   | TI64 => i64wrap 0%Z
   | TU64 => MkU64 0%Z (squash eq_refl)
   | TUnit => tt
@@ -603,9 +612,9 @@ Fixpoint key_eqb {K} (t : GoTypeTag K) {struct t} : K -> K -> bool :=
   | TFloat64 => PrimFloat.eqb | TFloat32 => fun a b => PrimFloat.eqb (f32val a) (f32val b)
   | TU8  => fun a b => PrimInt63.eqb (u8raw a) (u8raw b)
   | TI8  => fun a b => PrimInt63.eqb (i8raw a) (i8raw b)
-  | TU16 => fun a b => PrimInt63.eqb (u16raw a) (u16raw b)
+  | TU16 => fun a b => Z.eqb (u16raw a) (u16raw b)
   | TI16 => fun a b => PrimInt63.eqb (i16raw a) (i16raw b)
-  | TU32 => fun a b => PrimInt63.eqb (u32raw a) (u32raw b)
+  | TU32 => fun a b => Z.eqb (u32raw a) (u32raw b)
   | TI32 => fun a b => PrimInt63.eqb (i32raw a) (i32raw b)
   | TI64 => fun a b => Z.eqb (i64raw a) (i64raw b)
   | TU64 => fun a b => Z.eqb (u64raw a) (u64raw b)
@@ -1125,22 +1134,20 @@ Definition i8_neqb (a b : GoI8) : bool := negb (i8_eqb a b).
     [< 2^32], far below the [2^62] boundary, so [mul] is exact too. *)
 (** [land x 65535] is always [< 65536] — the [uint16] range invariant (parallel to [land255_lt256]).
     [u16wrap] masks + carries the SProp proof, so a forged [MkU16 70000 _] is unconstructable. *)
-Lemma land65535_lt65536 : forall x, (PrimInt63.land x 65535 <? 65536)%uint63 = true.
+Lemma in_u16_mod65536 : forall z, in_u16 (Z.modulo z 65536) = true.
 Proof.
-  intro x. apply Uint63.ltb_spec. rewrite Uint63.land_spec'.
-  pose proof (Uint63.to_Z_bounded x) as Hb.
-  change (Uint63.to_Z 65535) with 65535%Z. change (Uint63.to_Z 65536) with 65536%Z.
-  replace 65535%Z with (Z.ones 16) by reflexivity.
-  rewrite Z.land_ones by lia. apply Z.mod_pos_bound. lia.
+  intro z. unfold in_u16.
+  pose proof (Z.mod_pos_bound z 65536 ltac:(lia)) as [Hlo Hhi].
+  apply andb_true_intro; split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
-Definition u16wrap (x : int) : GoU16 := MkU16 (PrimInt63.land x 65535) (squash (land65535_lt65536 x)).
-Definition u16_lit (x : int) (pf : (x <? 65536)%uint63 = true) : GoU16 := MkU16 x (squash pf).
-Definition u16_add (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (PrimInt63.add (u16raw a) (u16raw b)) 65535).
-Definition u16_sub (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (PrimInt63.sub (u16raw a) (u16raw b)) 65535).
-Definition u16_mul (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (PrimInt63.mul (u16raw a) (u16raw b)) 65535).
-Definition u16_eqb (a b : GoU16) : bool := PrimInt63.eqb (u16raw a) (u16raw b).
-Definition u16_ltb (a b : GoU16) : bool := PrimInt63.ltb (u16raw a) (u16raw b).
-Definition u16_leb (a b : GoU16) : bool := PrimInt63.leb (u16raw a) (u16raw b).
+Definition u16wrap (z : Z) : GoU16 := MkU16 (Z.modulo z 65536) (squash (in_u16_mod65536 z)).
+Definition u16_lit (z : Z) (pf : in_u16 z = true) : GoU16 := MkU16 z (squash pf).
+Definition u16_add (a b : GoU16) : GoU16 := u16wrap (u16raw a + u16raw b).
+Definition u16_sub (a b : GoU16) : GoU16 := u16wrap (u16raw a - u16raw b).
+Definition u16_mul (a b : GoU16) : GoU16 := u16wrap (u16raw a * u16raw b).
+Definition u16_eqb (a b : GoU16) : bool := Z.eqb (u16raw a) (u16raw b).
+Definition u16_ltb (a b : GoU16) : bool := Z.ltb (u16raw a) (u16raw b).
+Definition u16_leb (a b : GoU16) : bool := Z.leb (u16raw a) (u16raw b).
 
 (* [i16_norm] hoisted to the wrapper-record block (the GoI16 provenance invariant needs it).
    [i16wrap] = normalize + carry the trivial provenance proof, so [MkI16 40000 _] is unconstructable. *)
@@ -1197,11 +1204,11 @@ Definition i8_or      (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lor  (
 Definition i8_xor     (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) (i8raw b))).
 Definition i8_andnot  (a b : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.land (i8raw a) (PrimInt63.lxor (i8raw b) 255))).
 Definition i8_not     (a   : GoI8)  : GoI8  := i8wrap (i8_norm (PrimInt63.lxor (i8raw a) 255)).
-Definition u16_and    (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (u16raw a) (u16raw b)).
-Definition u16_or     (a b : GoU16) : GoU16 := u16wrap (PrimInt63.lor  (u16raw a) (u16raw b)).
-Definition u16_xor    (a b : GoU16) : GoU16 := u16wrap (PrimInt63.lxor (u16raw a) (u16raw b)).
-Definition u16_andnot (a b : GoU16) : GoU16 := u16wrap (PrimInt63.land (u16raw a) (PrimInt63.lxor (u16raw b) 65535)).
-Definition u16_not    (a   : GoU16) : GoU16 := u16wrap (PrimInt63.lxor (u16raw a) 65535).
+Definition u16_and    (a b : GoU16) : GoU16 := u16wrap (Z.land (u16raw a) (u16raw b)).
+Definition u16_or     (a b : GoU16) : GoU16 := u16wrap (Z.lor  (u16raw a) (u16raw b)).
+Definition u16_xor    (a b : GoU16) : GoU16 := u16wrap (Z.lxor (u16raw a) (u16raw b)).
+Definition u16_andnot (a b : GoU16) : GoU16 := u16wrap (Z.land (u16raw a) (Z.lxor (u16raw b) 65535)).
+Definition u16_not    (a   : GoU16) : GoU16 := u16wrap (Z.lxor (u16raw a) 65535).
 Definition i16_and    (a b : GoI16) : GoI16 := i16wrap (i16_norm (PrimInt63.land (i16raw a) (i16raw b))).
 Definition i16_or     (a b : GoI16) : GoI16 := i16wrap (i16_norm (PrimInt63.lor  (i16raw a) (i16raw b))).
 Definition i16_xor    (a b : GoI16) : GoI16 := i16wrap (i16_norm (PrimInt63.lxor (i16raw a) (i16raw b))).
@@ -1232,8 +1239,8 @@ Definition u8_shl  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  :
 Definition u8_shr  (x : GoU8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoU8  := u8wrap (PrimInt63.lsr (u8raw x) k).
 Definition i8_shl  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.lsl (i8raw x) k)).
 Definition i8_shr  (x : GoI8)  (k : int) (_ : (Sint63.leb 0 k) = true) : GoI8  := i8wrap (i8_norm (PrimInt63.asr (i8raw x) k)).
-Definition u16_shl (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := u16wrap (PrimInt63.land (PrimInt63.lsl (u16raw x) k) 65535).
-Definition u16_shr (x : GoU16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU16 := u16wrap (PrimInt63.lsr (u16raw x) k).
+Definition u16_shl (x : GoU16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU16 := u16wrap (Z.shiftl (u16raw x) (intraw k)).
+Definition u16_shr (x : GoU16) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU16 := u16wrap (Z.shiftr (u16raw x) (intraw k)).
 Definition i16_shl (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 := i16wrap (i16_norm (PrimInt63.lsl (i16raw x) k)).
 Definition i16_shr (x : GoI16) (k : int) (_ : (Sint63.leb 0 k) = true) : GoI16 := i16wrap (i16_norm (PrimInt63.asr (i16raw x) k)).
 
@@ -1261,11 +1268,11 @@ Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (-1)%sint63 eq_re
       [u8_of_int (int_of_i16 x)] = low 8 bits, faithful). *)
 Definition int_of_u8  (x : GoU8)  : GoInt := intwrap (Sint63.to_Z (u8raw  x)).
 Definition int_of_i8  (x : GoI8)  : GoInt := intwrap (Sint63.to_Z (i8raw  x)).
-Definition int_of_u16 (x : GoU16) : GoInt := intwrap (Sint63.to_Z (u16raw x)).
+Definition int_of_u16 (x : GoU16) : GoInt := intwrap (u16raw x).
 Definition int_of_i16 (x : GoI16) : GoInt := intwrap (Sint63.to_Z (i16raw x)).
 Definition u8_of_int  (x : GoInt) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 255).
 Definition i8_of_int  (x : GoInt) : GoI8  := i8wrap (i8_norm (Uint63.of_Z (intraw x))).
-Definition u16_of_int (x : GoInt) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 65535).
+Definition u16_of_int (x : GoInt) : GoU16 := u16wrap (intraw x).
 Definition i16_of_int (x : GoInt) : GoI16 := i16wrap (i16_norm (Uint63.of_Z (intraw x))).
 
 (* Build-checked: a conversion takes an [int], NOT another fixed-width type — so a
@@ -1291,9 +1298,9 @@ Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
     no match-bodied stdlib decls.  Mirrors [f64_of_i64] (modeled, lowering deferred). *)
 Definition i64_of_u8  (a : GoU8)  : GoI64 := i64wrap (Sint63.to_Z (u8raw  a)).
 Definition i64_of_i8  (a : GoI8)  : GoI64 := i64wrap (Sint63.to_Z (i8raw  a)).
-Definition i64_of_u16 (a : GoU16) : GoI64 := i64wrap (Sint63.to_Z (u16raw a)).
+Definition i64_of_u16 (a : GoU16) : GoI64 := i64wrap (u16raw a).
 Definition i64_of_i16 (a : GoI16) : GoI64 := i64wrap (Sint63.to_Z (i16raw a)).
-Definition i64_of_u32 (a : GoU32) : GoI64 := i64wrap (Sint63.to_Z (u32raw a)).
+Definition i64_of_u32 (a : GoU32) : GoI64 := i64wrap (u32raw a).
 Definition i64_of_i32 (a : GoI32) : GoI64 := i64wrap (Sint63.to_Z (i32raw a)).
 
 (** ---- Fixed-width division / remainder (Go spec "Arithmetic operators": [/ %]) ----
@@ -1309,8 +1316,8 @@ Definition u8_div  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : Go
 Definition u8_mod  (a b : GoU8)  (_ : (PrimInt63.eqb (u8raw b)  0) = false) : GoU8  := u8wrap (PrimInt63.mods (u8raw a) (u8raw b)).
 Definition i8_div  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.divs (i8raw a) (i8raw b))).
 Definition i8_mod  (a b : GoI8)  (_ : (PrimInt63.eqb (i8raw b)  0) = false) : GoI8  := i8wrap (i8_norm (PrimInt63.mods (i8raw a) (i8raw b))).
-Definition u16_div (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (PrimInt63.divs (u16raw a) (u16raw b)).
-Definition u16_mod (a b : GoU16) (_ : (PrimInt63.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (PrimInt63.mods (u16raw a) (u16raw b)).
+Definition u16_div (a b : GoU16) (_ : (Z.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (Z.quot (u16raw a) (u16raw b)).
+Definition u16_mod (a b : GoU16) (_ : (Z.eqb (u16raw b) 0) = false) : GoU16 := u16wrap (Z.rem (u16raw a) (u16raw b)).
 Definition i16_div (a b : GoI16) (_ : (PrimInt63.eqb (i16raw b) 0) = false) : GoI16 := i16wrap (i16_norm (PrimInt63.divs (i16raw a) (i16raw b))).
 Definition i16_mod (a b : GoI16) (_ : (PrimInt63.eqb (i16raw b) 0) = false) : GoI16 := i16wrap (i16_norm (PrimInt63.mods (i16raw a) (i16raw b))).
 
@@ -1334,33 +1341,31 @@ Fail Definition u8_div_zero : GoU8 := u8_div (u8_lit 1 eq_refl) (u8_lit 0 eq_ref
 (** [land x (2^32-1)] is always [< 2^32] — the [uint32] range invariant (parallel to
     [land255_lt256]).  [u32wrap] masks + carries the SProp proof; forged [MkU32 5000000000 _] is
     unconstructable. *)
-Lemma land32_lt : forall x, (PrimInt63.land x 4294967295 <? 4294967296)%uint63 = true.
+Lemma in_u32_mod : forall z, in_u32 (Z.modulo z 4294967296) = true.
 Proof.
-  intro x. apply Uint63.ltb_spec. rewrite Uint63.land_spec'.
-  pose proof (Uint63.to_Z_bounded x) as Hb.
-  change (Uint63.to_Z 4294967295) with 4294967295%Z. change (Uint63.to_Z 4294967296) with 4294967296%Z.
-  replace 4294967295%Z with (Z.ones 32) by reflexivity.
-  rewrite Z.land_ones by lia. apply Z.mod_pos_bound. lia.
+  intro z. unfold in_u32.
+  pose proof (Z.mod_pos_bound z 4294967296 ltac:(lia)) as [Hlo Hhi].
+  apply andb_true_intro; split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
-Definition u32wrap (x : int) : GoU32 := MkU32 (PrimInt63.land x 4294967295) (squash (land32_lt x)).
-Definition u32_lit (x : int) (pf : (x <? 4294967296)%uint63 = true) : GoU32 := MkU32 x (squash pf).
-Definition u32_add (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.add (u32raw a) (u32raw b)) 4294967295).
-Definition u32_sub (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.sub (u32raw a) (u32raw b)) 4294967295).
-Definition u32_mul (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.mul (u32raw a) (u32raw b)) 4294967295).  (* low 32 bits exact: 2^32 | 2^63 *)
-Definition u32_eqb (a b : GoU32) : bool := PrimInt63.eqb (u32raw a) (u32raw b).
-Definition u32_ltb (a b : GoU32) : bool := PrimInt63.ltb (u32raw a) (u32raw b).
-Definition u32_leb (a b : GoU32) : bool := PrimInt63.leb (u32raw a) (u32raw b).
-Definition u32_and    (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (u32raw a) (u32raw b)).
-Definition u32_or     (a b : GoU32) : GoU32 := u32wrap (PrimInt63.lor  (u32raw a) (u32raw b)).
-Definition u32_xor    (a b : GoU32) : GoU32 := u32wrap (PrimInt63.lxor (u32raw a) (u32raw b)).
-Definition u32_andnot (a b : GoU32) : GoU32 := u32wrap (PrimInt63.land (u32raw a) (PrimInt63.lxor (u32raw b) 4294967295)).
-Definition u32_not    (a   : GoU32) : GoU32 := u32wrap (PrimInt63.lxor (u32raw a) 4294967295).
-Definition u32_shl (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := u32wrap (PrimInt63.land (PrimInt63.lsl (u32raw x) k) 4294967295).
-Definition u32_shr (x : GoU32) (k : int) (_ : (Sint63.leb 0 k) = true) : GoU32 := u32wrap (PrimInt63.lsr (u32raw x) k).
-Definition u32_div (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.divs (u32raw a) (u32raw b)).
-Definition u32_mod (a b : GoU32) (_ : (PrimInt63.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (PrimInt63.mods (u32raw a) (u32raw b)).
-Definition int_of_u32 (x : GoU32) : GoInt := intwrap (Sint63.to_Z (u32raw x)).
-Definition u32_of_int (x : GoInt) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (intraw x)) 4294967295).
+Definition u32wrap (z : Z) : GoU32 := MkU32 (Z.modulo z 4294967296) (squash (in_u32_mod z)).
+Definition u32_lit (z : Z) (pf : in_u32 z = true) : GoU32 := MkU32 z (squash pf).
+Definition u32_add (a b : GoU32) : GoU32 := u32wrap (u32raw a + u32raw b).
+Definition u32_sub (a b : GoU32) : GoU32 := u32wrap (u32raw a - u32raw b).
+Definition u32_mul (a b : GoU32) : GoU32 := u32wrap (u32raw a * u32raw b).
+Definition u32_eqb (a b : GoU32) : bool := Z.eqb (u32raw a) (u32raw b).
+Definition u32_ltb (a b : GoU32) : bool := Z.ltb (u32raw a) (u32raw b).
+Definition u32_leb (a b : GoU32) : bool := Z.leb (u32raw a) (u32raw b).
+Definition u32_and    (a b : GoU32) : GoU32 := u32wrap (Z.land (u32raw a) (u32raw b)).
+Definition u32_or     (a b : GoU32) : GoU32 := u32wrap (Z.lor  (u32raw a) (u32raw b)).
+Definition u32_xor    (a b : GoU32) : GoU32 := u32wrap (Z.lxor (u32raw a) (u32raw b)).
+Definition u32_andnot (a b : GoU32) : GoU32 := u32wrap (Z.land (u32raw a) (Z.lxor (u32raw b) 4294967295)).
+Definition u32_not    (a   : GoU32) : GoU32 := u32wrap (Z.lxor (u32raw a) 4294967295).
+Definition u32_shl (x : GoU32) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU32 := u32wrap (Z.shiftl (u32raw x) (intraw k)).
+Definition u32_shr (x : GoU32) (k : GoInt) (_ : (Z.leb 0 (intraw k)) = true) : GoU32 := u32wrap (Z.shiftr (u32raw x) (intraw k)).
+Definition u32_div (a b : GoU32) (_ : (Z.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (Z.quot (u32raw a) (u32raw b)).
+Definition u32_mod (a b : GoU32) (_ : (Z.eqb (u32raw b) 0) = false) : GoU32 := u32wrap (Z.rem (u32raw a) (u32raw b)).
+Definition int_of_u32 (x : GoU32) : GoInt := intwrap (u32raw x).
+Definition u32_of_int (x : GoInt) : GoU32 := u32wrap (intraw x).
 
 (* [i32_norm] hoisted to the wrapper-record block (the GoI32 provenance invariant needs it).
    [i32wrap] = normalize + carry the trivial provenance proof, so [MkI32 5000000000 _] is
@@ -1949,9 +1954,9 @@ Definition f64_of_i64 (a : GoI64) : float := SF2Prim (binary_normalize 53 1024 (
     NAMED call the recognizer fires on (not force-inlined). *)
 Definition u8_of_i64  (a : GoI64) : GoU8  := u8wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 255).
 Definition i8_of_i64  (a : GoI64) : GoI8  := i8wrap (i8_norm  (Uint63.of_Z (i64raw a))).
-Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 65535).
+Definition u16_of_i64 (a : GoI64) : GoU16 := u16wrap (i64raw a).
 Definition i16_of_i64 (a : GoI64) : GoI16 := i16wrap (i16_norm (Uint63.of_Z (i64raw a))).
-Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (PrimInt63.land (Uint63.of_Z (i64raw a)) 4294967295).
+Definition u32_of_i64 (a : GoI64) : GoU32 := u32wrap (i64raw a).
 Definition i32_of_i64 (a : GoI64) : GoI32 := i32wrap (i32_norm (Uint63.of_Z (i64raw a))).
 
 (** int → float64 (Go [float64(i)]): the IEEE double NEAREST the integer (EXACT for |i| < 2^53,
