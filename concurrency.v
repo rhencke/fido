@@ -7863,3 +7863,28 @@ Proof.
     + exfalso. apply Hnpan. left. exists c, k. split; [exact Hp | exact Hcl].
     + exfalso. apply Hnstep. eexists. eapply rstepC_close; [exact Hlive | exact Hp | exact Hcl].
 Qed.
+
+(** ---- #2 CAPSTONE: the bounded calculus CATCHES a deadlock the unbounded one MASKS ----
+    [send_block_cfg]: one live goroutine wants to send on an unbuffered channel with no receiver — a
+    textbook Go deadlock ("fatal error: all goroutines are asleep - deadlock").  Under the UNBOUNDED
+    [rstep] the send fires straight into the (unbounded) buffer, so the config CAN step and the deadlock
+    is invisible.  Under [rstepC zerocap] (every channel unbuffered) it is genuinely [RStuckC]: neither
+    [rstepC_send] (no room, cap 0) nor [rstepC_sync] (no partner) fires, yet no goroutine is done.  This
+    is exactly the class of deadlock #2 says the unbounded calculus cannot represent. *)
+Definition send_block_cfg : RConfig :=
+  mkRCfg (fun t => if Nat.eqb t 0 then CSend 0 7 CRet else CRet)
+         (fun _ => []) (fun _ => 0) (fun t => Nat.eqb t 0) [].
+Definition zerocap : nat -> nat := fun _ => 0.
+
+Lemma send_block_unbounded_steps : rcan_step send_block_cfg.
+Proof. eexists. eapply rstep_send with (tid := 0); reflexivity. Qed.
+
+Lemma send_block_rstuckC : RStuckC zerocap send_block_cfg.
+Proof.
+  split.
+  - intros [cfg' Hstep]. exfalso. unfold zerocap, send_block_cfg in *.
+    inversion Hstep; subst; cbn in *;
+      repeat match goal with H : Nat.eqb ?t 0 = true |- _ => apply Nat.eqb_eq in H end;
+      subst; cbn in *; (discriminate || lia || congruence).
+  - intros Hdone. specialize (Hdone 0 eq_refl). discriminate.
+Qed.
