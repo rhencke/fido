@@ -8611,3 +8611,127 @@ Proof.
   - exact (reachable_refines chenv inj Hci p cfg w0 Hempty (rstepsC_embed _ _ _ Hsteps)).
   - exact (reachableC_bounded cap p cfg Hsteps).
 Qed.
+
+(** ============================================================================
+    THE VISIBLE WRITE [W(r)] — review #6 #19: which write does a read observe?
+
+    The reviewer flagged that the memory model gave no [W(r)] / visible-write condition.  Operationally
+    this model is SEQUENTIALLY CONSISTENT: a [CRead l] returns [rc_heap l], the value of the LAST write
+    to [l] in the linearised (trace) order — so the observed writer is, BY CONSTRUCTION, the trace-last
+    write to [l] strictly before the read [r] ([last_write_before]).  The CONTENT of #19 is then a
+    HAPPENS-BEFORE theorem: under the ownership discipline ([Owned], which every reachable race-free
+    execution of a disciplined program satisfies — e.g. [mp]) this operational [W(r)] is the UNIQUE
+    hb-maximal write that happens-before the read, and NO write to [l] is concurrent with the read.  So
+    the value a read observes is happens-before-determined, not interleaving-dependent — the DRF
+    visible-write condition the review asked for, proved CONSTRUCTIVELY ([hbt] is undecidable, so this
+    rests on [owned_orders_same_loc]'s POSITIVE ordering, never classical reasoning). *)
+
+(* A position's access location, read straight off its [tr_acc] label. *)
+Lemma tr_acc_acc_loc : forall t i a,
+  tr_acc t i = Some a -> acc_loc_at t i = Some (acc_loc a).
+Proof.
+  intros t i a H. unfold tr_acc, acc_loc_at in *.
+  destruct (nth_error t i) as [e|]; [|discriminate].
+  destruct (e_kind e); cbn in *; try discriminate; injection H as <-; reflexivity.
+Qed.
+
+(* THE VISIBLE-WRITE CONDITION: under [Owned], a read and any write to the SAME location are never
+   concurrent — they are happens-before ordered.  So no read has an ambiguous, racing writer. *)
+Theorem read_write_hb_ordered : forall t,
+  Owned t ->
+  forall r w l,
+    tr_acc t r = Some (ARead l) -> tr_acc t w = Some (AWrite l) -> w <> r ->
+    hbt t w r \/ hbt t r w.
+Proof.
+  intros t HO r w l Hr Hw Hne.
+  pose proof (tr_acc_acc_loc t r _ Hr) as Har. cbn in Har.
+  pose proof (tr_acc_acc_loc t w _ Hw) as Haw. cbn in Haw.
+  destruct (Nat.lt_total w r) as [Hlt | [Heq | Hgt]].
+  - left.  apply (owned_orders_same_loc t HO w r Hlt). exists l; split; assumption.
+  - contradiction.
+  - right. apply (owned_orders_same_loc t HO r w Hgt). exists l; split; assumption.
+Qed.
+
+(* W(r): the trace-LAST write to [l] strictly before [r] — the writer the SC read [rc_heap l] returns. *)
+Fixpoint last_write_before (t : Trace) (l r : nat) : option nat :=
+  match r with
+  | 0 => None
+  | S r' => match tr_acc t r' with
+            | Some (AWrite l') => if Nat.eqb l l' then Some r' else last_write_before t l r'
+            | _ => last_write_before t l r'
+            end
+  end.
+
+Lemma last_write_before_spec : forall t l r w,
+  last_write_before t l r = Some w ->
+  w < r /\ tr_acc t w = Some (AWrite l)
+        /\ (forall w', w < w' -> w' < r -> tr_acc t w' <> Some (AWrite l)).
+Proof.
+  induction r as [|r' IH]; intros w H; cbn in H; [discriminate|].
+  destruct (tr_acc t r') as [[l'|l']|] eqn:Ha.
+  - destruct (Nat.eqb l l') eqn:Hl.
+    + injection H as <-. apply Nat.eqb_eq in Hl. subst l'.
+      split; [lia | split; [exact Ha | intros w' Hw1 Hw2; lia]].
+    + destruct (IH w H) as [Hlt [Hacc Hmax]].
+      split; [lia | split; [exact Hacc |]].
+      intros w' Hw1 Hw2. destruct (Nat.eq_dec w' r') as [->|Hne].
+      * rewrite Ha. intro Hc. injection Hc as <-. apply Nat.eqb_neq in Hl. apply Hl; reflexivity.
+      * apply Hmax; [exact Hw1 | lia].
+  - destruct (IH w H) as [Hlt [Hacc Hmax]].
+    split; [lia | split; [exact Hacc |]].
+    intros w' Hw1 Hw2. destruct (Nat.eq_dec w' r') as [->|Hne];
+      [rewrite Ha; discriminate | apply Hmax; [exact Hw1 | lia]].
+  - destruct (IH w H) as [Hlt [Hacc Hmax]].
+    split; [lia | split; [exact Hacc |]].
+    intros w' Hw1 Hw2. destruct (Nat.eq_dec w' r') as [->|Hne];
+      [rewrite Ha; discriminate | apply Hmax; [exact Hw1 | lia]].
+Qed.
+
+Lemma last_write_before_none : forall t l r,
+  last_write_before t l r = None ->
+  forall w, w < r -> tr_acc t w <> Some (AWrite l).
+Proof.
+  induction r as [|r' IH]; intros H w Hw; [lia|]. cbn in H.
+  destruct (tr_acc t r') as [[l'|l']|] eqn:Ha.
+  - destruct (Nat.eqb l l') eqn:Hl; [discriminate|].
+    destruct (Nat.eq_dec w r') as [->|Hne].
+    + rewrite Ha. intro Hc. injection Hc as <-. apply Nat.eqb_neq in Hl. apply Hl; reflexivity.
+    + apply (IH H w); lia.
+  - destruct (Nat.eq_dec w r') as [->|Hne]; [rewrite Ha; discriminate | apply (IH H w); lia].
+  - destruct (Nat.eq_dec w r') as [->|Hne]; [rewrite Ha; discriminate | apply (IH H w); lia].
+Qed.
+
+(* If ANY write to [l] precedes the read, the visible write EXISTS (the search finds the last one). *)
+Lemma last_write_before_exists : forall t l r w0,
+  w0 < r -> tr_acc t w0 = Some (AWrite l) ->
+  exists w, last_write_before t l r = Some w.
+Proof.
+  intros t l r w0 Hw0 Hacc. destruct (last_write_before t l r) as [w|] eqn:E; [exists w; reflexivity|].
+  exfalso. exact (last_write_before_none t l r E w0 Hw0 Hacc).
+Qed.
+
+(** THE [W(r)] THEOREM: under [Owned], the operational visible write [W(r) = last_write_before] is the
+    UNIQUE hb-maximal write that happens-before the read — it hb-precedes the read, and EVERY other
+    write to [l] before the read hb-precedes IT.  So the read observes a single, happens-before-
+    determined writer: [W(r)] is well-defined and the value is not a race artifact (DRF). *)
+Theorem visible_write_hb_maximal : forall t,
+  Owned t ->
+  forall r l w,
+    tr_acc t r = Some (ARead l) ->
+    last_write_before t l r = Some w ->
+    hbt t w r
+    /\ (forall w', tr_acc t w' = Some (AWrite l) -> w' < r -> w' <> w -> hbt t w' w).
+Proof.
+  intros t HO r l w Hr Hlwb.
+  destruct (last_write_before_spec t l r w Hlwb) as [Hwr [Hww Hmax]].
+  pose proof (tr_acc_acc_loc t w _ Hww) as Haw. cbn in Haw.
+  pose proof (tr_acc_acc_loc t r _ Hr)  as Har. cbn in Har.
+  split.
+  - apply (owned_orders_same_loc t HO w r Hwr). exists l; split; assumption.
+  - intros w' Hw' Hw'r Hne.
+    assert (Hw'w : w' < w).
+    { destruct (Nat.lt_total w' w) as [Hh|[Hh|Hh]]; [exact Hh | congruence |].
+      exfalso. exact (Hmax w' Hh Hw'r Hw'). }
+    pose proof (tr_acc_acc_loc t w' _ Hw') as Haw'. cbn in Haw'.
+    apply (owned_orders_same_loc t HO w' w Hw'w). exists l; split; assumption.
+Qed.

@@ -61,6 +61,18 @@ its send completes; the kth receive on a capacity-C channel happens-before the
 intuition; happens-before is the honest foundation, and the cross-goroutine
 proofs cannot even be *stated* without it.
 
+The memory model now also answers **which write a read observes** (review #6 #19).
+The read is sequentially consistent — it returns `rc_heap l`, the value of the
+last write to `l` in the linearised order — so the observed writer is, by
+construction, the trace-last write before the read (`last_write_before` =
+`W(r)`).  Under the ownership discipline (`Owned`, which every reachable
+race-free execution satisfies) this `W(r)` is proved the *unique hb-maximal
+write that happens-before the read* (`visible_write_hb_maximal`), and no write to
+`l` is ever concurrent with the read (`read_write_hb_ordered`).  So a read's value
+is happens-before-determined, not interleaving-dependent — the DRF visible-write
+condition, proved constructively (no classical reasoning; it rests on
+`owned_orders_same_loc`'s positive ordering).
+
 We don't need all of this now. The architecture supports adding each layer
 without redesigning what came before.
 
