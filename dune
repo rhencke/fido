@@ -3,4 +3,4 @@
  (synopsis "Fido verified theories — extracted to Go via rocq-go-extraction")
  (plugins rocq-go-extraction)
  (theories Stdlib)
- (modules builtins preamble main concurrency relooper cmd unified))
+ (modules builtins preamble main concurrency relooper cmd unified goprint))
