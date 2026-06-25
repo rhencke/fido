@@ -570,7 +570,40 @@ let classify_go_type_tag r =
 
 (** Recursive tag → Go type string.  Handles composite tags (TChan, TSlice, TMap)
     by recursing into their argument tags. *)
-let rec go_type_of_tag = function
+(* ── Bridge to the VERIFIED, Rocq-extracted printer (goprint.v → printer.ml, module [Printer]) ──
+   The hand-written renderer below is being REPLACED, one fragment at a time, by [Printer.print_ty]
+   (a Rocq function with [print_ty_inj] proved).  [coq_string_to_ocaml] crosses the Coq-string ↔
+   OCaml-string boundary; [coq_goty_of_tag] builds the [Printer.goTy] for the fragment the verified
+   AST currently covers (base scalars + pointer/slice of them); [None] ⇒ fall back to the raw renderer
+   (uint subtypes / maps / chans / nominal structs — not yet in the Rocq AST). *)
+let char_of_coq_ascii = function
+  | Printer.Ascii (a0,a1,a2,a3,a4,a5,a6,a7) ->
+      let b v i = (match v with Printer.True -> 1 lsl i | Printer.False -> 0) in
+      Char.chr (b a0 0 + b a1 1 + b a2 2 + b a3 3 + b a4 4 + b a5 5 + b a6 6 + b a7 7)
+let coq_string_to_ocaml s =
+  let buf = Buffer.create 16 in
+  let rec go = function
+    | Printer.EmptyString -> ()
+    | Printer.String (c, rest) -> Buffer.add_char buf (char_of_coq_ascii c); go rest
+  in go s; Buffer.contents buf
+let rec coq_goty_of_tag = function
+  | MLcons (_, r, []) ->
+      (match global_basename r with
+       | "TInt64"   -> Some Printer.GTInt      (* GoInt = Go's platform [int] *)
+       | "TI64"     -> Some Printer.GTInt64    (* GoI64 = full-width [int64] *)
+       | "TBool"    -> Some Printer.GTBool
+       | "TString"  -> Some Printer.GTString
+       | "TFloat64" -> Some Printer.GTFloat64
+       | _          -> None)
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr" ->
+      (match coq_goty_of_tag inner with Some g -> Some (Printer.GTPtr g) | None -> None)
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TSlice" ->
+      (match coq_goty_of_tag inner with Some g -> Some (Printer.GTSlice g) | None -> None)
+  | _ -> None
+
+let rec go_type_of_tag t = match coq_goty_of_tag t with
+  | Some g -> coq_string_to_ocaml (Printer.print_ty g)   (* ← the VERIFIED Rocq printer *)
+  | None -> (match t with
   | MLcons (_, r, []) ->
       (match List.assoc_opt (global_basename r) go_type_tag_map with
        | Some t -> t
@@ -587,7 +620,7 @@ let rec go_type_of_tag = function
       "map[" ^ go_type_of_tag kt ^ "]" ^ go_type_of_tag vt
   | t -> unsupported (Printf.sprintf
       "go_type_of_tag: type tag '%s' has no faithful Go rendering (e.g. TUnit / TArrow / TProd, or an unhandled composite tag) — refusing to emit `any`"
-      (match t with MLcons (_, r, _) -> global_basename r | _ -> "<non-constructor term>"))
+      (match t with MLcons (_, r, _) -> global_basename r | _ -> "<non-constructor term>")))
 
 (** Zero value for a Go type given its tag. *)
 let zero_of_tag tag =

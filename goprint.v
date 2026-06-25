@@ -17,9 +17,11 @@ From Stdlib Require Import String List Ascii.
 Import ListNotations.
 Open Scope string_scope.
 
-(** A Go type, as the plugin renders them: the four no-import scalars, pointers, slices, and a nominal
-    (named) type [GTNamed "Cell"]. *)
+(** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
+    tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
+    is exactly the kind of bug the verified printer rules out (it caught one in the first integration). *)
 Inductive GoTy : Type :=
+  | GTInt     : GoTy
   | GTInt64   : GoTy
   | GTBool    : GoTy
   | GTString  : GoTy
@@ -31,6 +33,7 @@ Inductive GoTy : Type :=
 (** The pretty-printer: a Go type to its source text. *)
 Fixpoint print_ty (t : GoTy) : string :=
   match t with
+  | GTInt     => "int"
   | GTInt64   => "int64"
   | GTBool    => "bool"
   | GTString  => "string"
@@ -56,8 +59,8 @@ Fixpoint structural (t : GoTy) : bool :=
 Theorem print_ty_inj : forall t1 t2,
   structural t1 = true -> structural t2 = true -> print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  induction t1 as [ | | | | u IHu | u IHu | n ];
-    intros [ | | | | v | v | m ] H1 H2 He; cbn in *;
+  induction t1 as [ | | | | | u IHu | u IHu | n ];
+    intros [ | | | | | v | v | m ] H1 H2 He; cbn in *;
     try reflexivity; try discriminate.
   - (* GTPtr u vs GTPtr v *) injection He as He'. f_equal. apply IHu; assumption.
   - (* GTSlice u vs GTSlice v *) injection He as He'. f_equal. apply IHu; assumption.
