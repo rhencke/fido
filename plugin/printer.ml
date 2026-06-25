@@ -35,6 +35,7 @@ type goTy =
 | GTPtr of goTy
 | GTSlice of goTy
 | GTChan of goTy
+| GTMap of goTy * goTy
 | GTNamed of string
 
 (** val print_ty : goTy -> string **)
@@ -155,4 +156,13 @@ let rec print_ty = function
     False)), (String ((Ascii (False, True, True, True, False, True, True,
     False)), (String ((Ascii (False, False, False, False, False, True, False,
     False)), EmptyString)))))))))) (print_ty u)
+| GTMap (k, v) ->
+  append (String ((Ascii (True, False, True, True, False, True, True,
+    False)), (String ((Ascii (True, False, False, False, False, True, True,
+    False)), (String ((Ascii (False, False, False, False, True, True, True,
+    False)), (String ((Ascii (True, True, False, True, True, False, True,
+    False)), EmptyString))))))))
+    (append (print_ty k)
+      (append (String ((Ascii (True, False, True, True, True, False, True,
+        False)), EmptyString)) (print_ty v)))
 | GTNamed n -> n

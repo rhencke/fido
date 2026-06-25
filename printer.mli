@@ -30,6 +30,7 @@ type goTy =
 | GTPtr of goTy
 | GTSlice of goTy
 | GTChan of goTy
+| GTMap of goTy * goTy
 | GTNamed of string
 
 val print_ty : goTy -> string

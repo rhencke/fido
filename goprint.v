@@ -38,6 +38,7 @@ Inductive GoTy : Type :=
   | GTPtr     : GoTy -> GoTy
   | GTSlice   : GoTy -> GoTy
   | GTChan    : GoTy -> GoTy
+  | GTMap     : GoTy -> GoTy -> GoTy
   | GTNamed   : string -> GoTy.
 
 (** The pretty-printer: a Go type to its source text. *)
@@ -60,6 +61,7 @@ Fixpoint print_ty (t : GoTy) : string :=
   | GTPtr u   => "*"  ++ print_ty u
   | GTSlice u => "[]" ++ print_ty u
   | GTChan u  => "chan " ++ print_ty u
+  | GTMap k v => "map[" ++ print_ty k ++ "]" ++ print_ty v
   | GTNamed n => n
   end.
 
@@ -67,11 +69,14 @@ Fixpoint print_ty (t : GoTy) : string :=
     — Go forbids it too — so injectivity is stated on the shadow-free fragment). *)
 Fixpoint structural (t : GoTy) : bool :=
   match t with
-  | GTNamed _ => false
-  | GTPtr u   => structural u
-  | GTSlice u => structural u
-  | GTChan u  => structural u
-  | _         => true
+  | GTNamed _  => false
+  | GTMap _ _  => false   (* maps are EXCLUDED from the injectivity fragment for now: the "]" between
+                             key and value clashes with "[]" slices, so unambiguity needs balanced-
+                             bracket reasoning — a later proof slice (the RENDERING is already verified). *)
+  | GTPtr u    => structural u
+  | GTSlice u  => structural u
+  | GTChan u   => structural u
+  | _          => true
   end.
 
 (** FAITHFULNESS — the type printer is INJECTIVE on the structural fragment: two structural Go types
@@ -80,10 +85,11 @@ Fixpoint structural (t : GoTy) : bool :=
 Theorem print_ty_inj : forall t1 t2,
   structural t1 = true -> structural t2 = true -> print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | n ];
+  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | k IHk v IHv | n ];
     intros t2 H1 H2 He; destruct t2; cbn in *;
     try reflexivity; try discriminate.
-  (* the three composite cases (ptr/slice/chan) — peel the constant prefix, recurse via the IH *)
+  (* the three composite cases (ptr/slice/chan) — peel the constant prefix, recurse via the IH;
+     maps are killed by [structural _ = false] in H1/H2 (discriminate above) *)
   all: repeat (injection He as He); f_equal; apply IHu; assumption.
 Qed.
 
