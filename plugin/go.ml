@@ -593,6 +593,21 @@ let coq_ascii_of_char c =
 let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
+(* Build the extracted Coq [positive] from a NONZERO 64-bit pattern (interpreted UNSIGNED, LSB-first)
+   — so it serves both signed and unsigned, and [min_int]'s magnitude [2^63] falls out of its bits. *)
+let rec coq_pos_of_bits v =
+  if v = 1L then Printer.XH
+  else let half = Int64.shift_right_logical v 1 in
+       if Int64.logand v 1L = 1L then Printer.XI (coq_pos_of_bits half) else Printer.XO (coq_pos_of_bits half)
+let coq_z_of_int64 v =            (* signed int64 value -> Coq Z (neg uses the magnitude's bits) *)
+  if v = 0L then Printer.Z0
+  else if v > 0L then Printer.Zpos (coq_pos_of_bits v)
+  else Printer.Zneg (coq_pos_of_bits (Int64.neg v))
+let coq_z_of_uint64 v =           (* unsigned interpretation of the bit pattern -> Coq Z (always >= 0) *)
+  if v = 0L then Printer.Z0 else Printer.Zpos (coq_pos_of_bits v)
+(* the VERIFIED decimal renderings (replacing Int64.to_string / Printf "%Lu") *)
+let print_i64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_int64 v))
+let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
@@ -2187,7 +2202,7 @@ let rec pp_expr state env = function
           erased proof arg guaranteed [in_u64 z]. *)
        | MLglob r, [z] when is_uint_lit r ->
            (match zu_eval z with
-            | Some v -> str ("uint(" ^ Printf.sprintf "%Lu" v ^ ")")
+            | Some v -> str ("uint(" ^ print_u64_dec v ^ ")")
             | None   -> unsupported "uint_lit of a non-constant Z (only statically-known platform-uint constant expressions are modeled)")
 
        (* record projection [field recv …] → field access [recv.Field], and when
@@ -2346,7 +2361,7 @@ let rec pp_expr state env = function
             (* TYPE the literal [int64(N)] not bare [N]: a bare decimal makes Go infer
                [int] for a binding ([x := 9]) or box ([any 9]) — diverging from the
                [TI64] tag (int64) and breaking [.(int64)] (review R10 differential). *)
-            | Some v -> str ("int64(" ^ Int64.to_string v ^ ")")
+            | Some v -> str ("int64(" ^ print_i64_dec v ^ ")")
             | None   -> unsupported "i64_lit of a non-constant Z (only statically-known int64 constant expressions are modeled)")
        (* [u64_lit z] — a full-width uint64 constant: fold its [Z] literal to the
           UNSIGNED decimal ([Printf.sprintf "%Lu"] handles values in [2^63, 2^64)
@@ -2355,7 +2370,7 @@ let rec pp_expr state env = function
        | MLglob r, [z] when is_u64_lit r ->
            (match zu_eval z with
             (* TYPE the literal [uint64(N)] (same int-vs-uint64 boxing fix as i64_lit). *)
-            | Some v -> str ("uint64(" ^ Printf.sprintf "%Lu" v ^ ")")
+            | Some v -> str ("uint64(" ^ print_u64_dec v ^ ")")
             | None   -> unsupported "u64_lit of a non-constant Z (only statically-known uint64 constant expressions are modeled)")
        (* [int_lit z] — a platform-int (GoInt) constant: fold its [Z] literal to a BARE signed
           decimal.  Go's untyped-constant default IS [int], so a bare [N] is correctly [int]-typed in
@@ -2363,7 +2378,7 @@ let rec pp_expr state env = function
           -> [int(N)] (the OLD [PrimInt63]-literal position-dependence; review #6 #13). *)
        | MLglob r, [z] when is_int_lit r ->
            (match z_eval z with
-            | Some v -> str (Int64.to_string v)
+            | Some v -> str (print_i64_dec v)
             | None   -> unsupported "int_lit of a non-constant Z (only statically-known platform-int constant expressions are modeled)")
        (* Inlined binary operator (bool / float / nat / int63 / signed int63),
           printed with Go operator precedence.  At top level there is no
@@ -2571,8 +2586,8 @@ let rec pp_expr state env = function
          int64 negatives) prints signed. *)
       let v = Option.get (z_value e) in
       if z_is_nonneg e && Int64.compare v 0L < 0
-      then str (Printf.sprintf "%Lu" v)
-      else str (Int64.to_string v)
+      then str (print_u64_dec v)
+      else str (print_i64_dec v)
 
   | MLcons _ as e ->
       (match nat_value e with
@@ -2664,8 +2679,8 @@ let rec pp_expr state env = function
       let i64 = Uint63.to_int64 n in
       let s =
         if Int64.compare i64 0x4000000000000000L >= 0   (* sign bit set (>= 2^62) *)
-        then Int64.to_string (Int64.add i64 Int64.min_int)  (* i64 - 2^63 (two's comp.) *)
-        else Int64.to_string i64 in
+        then print_i64_dec (Int64.add i64 Int64.min_int)    (* i64 - 2^63 (two's comp.) *)
+        else print_i64_dec i64 in
       str s
   | _         -> unsupported "this expression (unmodeled MiniML node in value position)"
 

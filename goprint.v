@@ -13,7 +13,7 @@
     printer can NEVER conflate two types (the property every [v.(T)] cast / tag rendering depends on).
     [Extraction "printer.ml"] emits the OCaml the plugin will call. *)
 
-From Stdlib Require Import String List Ascii.
+From Stdlib Require Import String List Ascii ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -93,8 +93,33 @@ Proof.
   all: repeat (injection He as He); f_equal; apply IHu; assumption.
 Qed.
 
-(** Extract the Rocq printer to the OCaml the plugin will call (slice 2 wires [go.ml] to it). *)
+(** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value (replacing go.ml's raw
+    [Printf.sprintf "%Ld"/"%Lu"]).  Magnitude is carried by [Z], so this is faithful for the FULL
+    int64 AND uint64 ranges (the unsigned [2^63,2^64) values that wrap as a negative [Int64.t] are
+    just large [Zpos] here — no special-casing). *)
+Definition dec_digit (n : nat) : ascii := ascii_of_nat (48 + n).
+Fixpoint z_digits (fuel : nat) (z : Z) (acc : string) : string :=
+  match fuel with
+  | O    => acc
+  | S f  => let d := dec_digit (Z.to_nat (z mod 10)) in
+            if (z / 10 =? 0)%Z then String d acc
+            else z_digits f (z / 10)%Z (String d acc)
+  end.
+Definition print_Z (z : Z) : string :=
+  if (z =? 0)%Z then "0"
+  else if (z <? 0)%Z then ("-" ++ z_digits 64 (- z) "")%string
+  else z_digits 64 z "".
+
+(** Computational checks: the decimal printer is correct on samples spanning the int64/uint64 range
+    (incl. the unsigned value [2^63] that an [Int64.t]-based printer renders only via [%Lu]). *)
+Example print_Z_0    : print_Z 0 = "0".                                       Proof. reflexivity. Qed.
+Example print_Z_42   : print_Z 42 = "42".                                     Proof. reflexivity. Qed.
+Example print_Z_neg  : print_Z (-7) = "-7".                                   Proof. reflexivity. Qed.
+Example print_Z_imax : print_Z 9223372036854775807 = "9223372036854775807".  Proof. reflexivity. Qed.
+Example print_Z_u63  : print_Z 9223372036854775808 = "9223372036854775808".  Proof. reflexivity. Qed.
+
+(** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty.
+Extraction "printer.ml" print_ty print_Z.
