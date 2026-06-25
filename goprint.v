@@ -460,6 +460,53 @@ Example ph_ff : print_hex 255 = "0xff". Proof. reflexivity. Qed.
 Example ph_0  : print_hex 0   = "0x0".  Proof. reflexivity. Qed.
 Example ph_80 : print_hex 128 = "0x80". Proof. reflexivity. Qed.
 
+(** ---- HEX FAITHFULNESS (round-trip) ---- the analog of [print_parse_Z] for the [0x]-hex printer
+    ([hex_digits] is structurally [z_digits] in base 16; [unhex]/[unhex_hexdig] from the string section
+    already invert [hexdig]).  [print_hex] is only ever called on NON-NEGATIVE values (bit masks), so the
+    statement is for [0 <= z < 16^64] — again far beyond any fixed-width mask. *)
+Fixpoint parseHex_pos (acc : Z) (s : string) : Z :=
+  match s with EmptyString => acc | String c s' => parseHex_pos (acc * 16 + Z.of_nat (unhex c))%Z s' end.
+Definition parse_hex (s : string) : Z :=
+  match s with String _ (String _ rest) => parseHex_pos 0 rest | _ => 0%Z end.
+
+Lemma parse_hex_0x : forall X, parse_hex ("0x" ++ X)%string = parseHex_pos 0 X.
+Proof. intro X. reflexivity. Qed.
+Lemma print_hex_pos : forall z, (z <> 0)%Z -> print_hex z = ("0x" ++ hex_digits 64 z "")%string.
+Proof. intros z H. apply Z.eqb_neq in H. unfold print_hex. rewrite H. reflexivity. Qed.
+
+Lemma parseHex_pos_hex_digits : forall fuel z acc,
+  (0 <= z)%Z -> (z < 16 ^ Z.of_nat fuel)%Z -> parseHex_pos 0 (hex_digits fuel z acc) = parseHex_pos z acc.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hz Hb.
+  - cbn [hex_digits]. assert (z = 0%Z) by (cbn in Hb; lia). subst z. reflexivity.
+  - cbn [hex_digits].
+    pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hmod.
+    assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
+    destruct (Z.eqb (z / 16) 0) eqn:E.
+    + apply Z.eqb_eq in E.
+      cbn [parseHex_pos]. rewrite unhex_hexdig by exact Hk. rewrite Z2Nat.id by lia.
+      replace (0 * 16 + z mod 16)%Z with z by (pose proof (Z.div_mod z 16 ltac:(lia)); lia).
+      reflexivity.
+    + apply Z.eqb_neq in E.
+      assert (Hdpos : (0 <= z / 16)%Z) by (apply Z.div_pos; lia).
+      assert (Hdlt : (z / 16 < 16 ^ Z.of_nat f)%Z).
+      { apply Z.div_lt_upper_bound; [ lia | ].
+        rewrite Nat2Z.inj_succ, Z.pow_succ_r in Hb by lia. lia. }
+      rewrite (IH (z / 16)%Z (String (hexdig (Z.to_nat (z mod 16))) acc) Hdpos Hdlt).
+      cbn [parseHex_pos]. rewrite unhex_hexdig by exact Hk. rewrite Z2Nat.id by lia.
+      replace (z / 16 * 16 + z mod 16)%Z with z by (pose proof (Z.div_mod z 16 ltac:(lia)); lia).
+      reflexivity.
+Qed.
+
+Theorem print_parse_hex : forall z, (0 <= z < 16 ^ 64)%Z -> parse_hex (print_hex z) = z.
+Proof.
+  intros z [Hlo Hhi]. destruct (Z.eqb z 0) eqn:E0.
+  - apply Z.eqb_eq in E0; subst z. reflexivity.
+  - apply Z.eqb_neq in E0. rewrite print_hex_pos by exact E0. rewrite parse_hex_0x.
+    rewrite parseHex_pos_hex_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    cbn [parseHex_pos]. reflexivity.
+Qed.
+
 (** ---- PROOFS ATOP THE PRINTERS ---- WELL-FORMEDNESS: every printer yields a NON-EMPTY string, so no
     emitted token is ever blank (which would be malformed Go).  [print_ty] on the structural fragment,
     and the literal printers unconditionally.  (Injectivity AND the print-parse round-trip are already
