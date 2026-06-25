@@ -214,10 +214,35 @@ val print_hex : z -> string
 
 val print_float_hex : bool -> z -> z -> string
 
-type goExpr =
-| GERaw of string
-| GEBin of nat * string * goExpr * goExpr
+type binOp =
+| BMul
+| BDiv
+| BRem
+| BShl
+| BShr
+| BAnd
+| BAndNot
+| BAdd
+| BSub
+| BOr
+| BXor
+| BEq
+| BNe
+| BLt
+| BLe
+| BGt
+| BGe
+| BLAnd
+| BLOr
 
-val print_prec : nat -> goExpr -> string
+val binop_prec : binOp -> nat
+
+val binop_text : binOp -> string
+
+type goExpr =
+| EAtom of string
+| EBin of binOp * goExpr * goExpr
+
+val print_expr : nat -> goExpr -> string
 
 val print_sep : string -> string list -> string

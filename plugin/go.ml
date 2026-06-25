@@ -594,6 +594,20 @@ let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
+(* Map a recognised operator string to its VERIFIED [Printer.binOp] constructor.  The precedence and
+   surface text are then DERIVED in Rocq ([binop_prec]/[binop_text]) — the plugin no longer supplies
+   them, so it cannot mis-pair an operator with the wrong precedence (the redesign that killed the old
+   caller-supplied [GEBin (nat) (string) …]).  [binop_of]'s opstrs are exactly these 19; an unknown one
+   is a fail-loud bug, not silently mis-rendered. *)
+let binop_ctor (opstr : string) : Printer.binOp =
+  match opstr with
+  | " * "  -> Printer.BMul | " / "  -> Printer.BDiv | " % "  -> Printer.BRem
+  | " << " -> Printer.BShl | " >> " -> Printer.BShr | " & "  -> Printer.BAnd | " &^ " -> Printer.BAndNot
+  | " + "  -> Printer.BAdd | " - "  -> Printer.BSub | " | "  -> Printer.BOr  | " ^ "  -> Printer.BXor
+  | " == " -> Printer.BEq  | " != " -> Printer.BNe  | " < "  -> Printer.BLt  | " <= " -> Printer.BLe
+  | " > "  -> Printer.BGt  | " >= " -> Printer.BGe
+  | " && " -> Printer.BLAnd | " || " -> Printer.BLOr
+  | _ -> unsupported ("binop_ctor: operator string not in the verified BinOp set: " ^ opstr)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
    no leading/trailing separator and to stay well-bracketed): render each element [f x] to text (the
@@ -2404,12 +2418,11 @@ let rec pp_expr state env = function
               re-collects [MLapp (head, all_args)] to the same head/operands. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
-          witness [eqb] is dropped (it discharged the side condition).  Comparison level 3,
-          rendered through the verified [Printer.print_prec] as a [GEBin]. *)
+          witness [eqb] is dropped (it discharged the side condition).  Rendered through the
+          verified [Printer.print_expr] as an [EBin BEq] (== derives precedence 3 in Rocq). *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
-           str (coq_string_to_ocaml (Printer.print_prec (coq_nat_of_int 0)
-             (Printer.GEBin (coq_nat_of_int 3, coq_string_of_ocaml " == ",
-                             build_goexpr state env a, build_goexpr state env b))))
+           str (coq_string_to_ocaml (Printer.print_expr (coq_nat_of_int 0)
+             (Printer.EBin (Printer.BEq, build_goexpr state env a, build_goexpr state env b))))
        (* complex-number builtins → Go's predeclared [complex]/[real]/[imag] *)
        | MLglob r, [re; im] when is_go_complex_ref r ->
            str "complex(" ++ pp_expr state env re ++ str ", " ++ pp_expr state env im ++ str ")"
@@ -2718,32 +2731,32 @@ and pp_atom state env e =
    (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
-  let raw d = Printer.GERaw (coq_string_of_ocaml (Pp.string_of_ppcmds d)) in
+  let atom d = Printer.EAtom (coq_string_of_ocaml (Pp.string_of_ppcmds d)) in
   match strip_magic e with
   | MLapp (h, args) ->
       let h2, all = collect_app h args in
       let vis = List.filter (fun a -> not (is_erased a)) all in
       (match h2, vis with
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
-           let (p, opstr) = Option.get (binop_of r) in
+           let (_, opstr) = Option.get (binop_of r) in
            (match arith_force_go_type r with
             | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
-                (* the typed-IIFE force-wrapper is a CALL — atomic, never parenthesised: a GERaw atom *)
-                raw (str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
-                     ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
+                (* the typed-IIFE force-wrapper is a CALL — atomic, never parenthesised: an EAtom *)
+                atom (str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
+                      ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
             | _ ->
-                Printer.GEBin (coq_nat_of_int p, coq_string_of_ocaml opstr,
-                               build_goexpr state env a, build_goexpr state env b))
-       | _ -> raw (pp_expr state env e))
-  | _ -> raw (pp_expr state env e)
+                (* derive the operator (and hence its precedence/text) in Rocq — no caller-supplied prec *)
+                Printer.EBin (binop_ctor opstr, build_goexpr state env a, build_goexpr state env b))
+       | _ -> atom (pp_expr state env e))
+  | _ -> atom (pp_expr state env e)
 
 (* Print [e] as an operand inside a binary operator whose context requires precedence [>= ctx].
-   The parenthesisation is now the VERIFIED [Printer.print_prec] (proved to emit well-bracketed
-   output): a [GEBin] of precedence [p] is wrapped exactly when [p < ctx], operands recurse at
-   [p]/[p+1] (left-associativity) — atoms and calls (GERaw) never wrap.  [build_goexpr] supplies
-   the tree; the raw OCaml parenthesise/concat is gone. *)
+   The parenthesisation is the VERIFIED [Printer.print_expr] (proved to emit well-bracketed output):
+   an [EBin o] of precedence [binop_prec o] is wrapped exactly when that [< ctx], operands recurse at
+   [p]/[p+1] (left-associativity) — [EAtom]s (atoms/calls) never wrap.  [build_goexpr] supplies the
+   tree; the operator and its precedence are derived in Rocq, the raw OCaml parenthesise/concat is gone. *)
 and pp_prec state env ctx e =
-  str (coq_string_to_ocaml (Printer.print_prec (coq_nat_of_int ctx) (build_goexpr state env e)))
+  str (coq_string_to_ocaml (Printer.print_expr (coq_nat_of_int ctx) (build_goexpr state env e)))
 
 (* An integer/float literal carries no Go type, so where the target type must be
    fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare

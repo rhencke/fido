@@ -1021,16 +1021,165 @@ let print_float_hex sign mant exp =
       (append (String ((Ascii (False, False, False, False, True, True, True,
         False)), EmptyString)) (print_Z exp)))
 
+type binOp =
+| BMul
+| BDiv
+| BRem
+| BShl
+| BShr
+| BAnd
+| BAndNot
+| BAdd
+| BSub
+| BOr
+| BXor
+| BEq
+| BNe
+| BLt
+| BLe
+| BGt
+| BGe
+| BLAnd
+| BLOr
+
+(** val binop_prec : binOp -> nat **)
+
+let binop_prec = function
+| BAdd -> S (S (S (S O)))
+| BSub -> S (S (S (S O)))
+| BOr -> S (S (S (S O)))
+| BXor -> S (S (S (S O)))
+| BEq -> S (S (S O))
+| BNe -> S (S (S O))
+| BLt -> S (S (S O))
+| BLe -> S (S (S O))
+| BGt -> S (S (S O))
+| BGe -> S (S (S O))
+| BLAnd -> S (S O)
+| BLOr -> S O
+| _ -> S (S (S (S (S O))))
+
+(** val binop_text : binOp -> string **)
+
+let binop_text = function
+| BMul ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, False, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BDiv ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, True, True, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BRem ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BShl ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BShr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BAnd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BAndNot ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, False, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BAdd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, True, False, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BSub ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BOr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BXor ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, False, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BEq ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BNe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLt ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BLe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BGt ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BGe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLAnd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLOr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+
 type goExpr =
-| GERaw of string
-| GEBin of nat * string * goExpr * goExpr
+| EAtom of string
+| EBin of binOp * goExpr * goExpr
 
-(** val print_prec : nat -> goExpr -> string **)
+(** val print_expr : nat -> goExpr -> string **)
 
-let rec print_prec ctx = function
-| GERaw s -> s
-| GEBin (p, op, l, r) ->
-  let inner = append (print_prec p l) (append op (print_prec (S p) r)) in
+let rec print_expr ctx = function
+| EAtom s -> s
+| EBin (o, l, r) ->
+  let p = binop_prec o in
+  let inner =
+    append (print_expr p l) (append (binop_text o) (print_expr (S p) r))
+  in
   (match Nat.ltb p ctx with
    | True ->
      append (String ((Ascii (False, False, False, True, False, True, False,

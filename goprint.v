@@ -664,34 +664,69 @@ Qed.
     as [a+b*c], silently changing the program's meaning.  This is the hardest correctness property of the
     structural printer, so it is the right first target.
 
-    [GoExpr] models the tree the plugin assembles: [GERaw s] is a pre-rendered ATOM — an operand the
-    plugin already printed (a literal, variable, call, field access): atomic, binds tightest, never needs
-    wrapping — and [GEBin p op l r] is a LEFT-ASSOCIATIVE binary operator at precedence level [p] (lower
-    [p] = looser).  [print_prec ctx e] renders [e] where the context demands precedence >= [ctx]: a
-    [GEBin] at level [p] is parenthesized exactly when [p < ctx].  The operands recurse at [p] (left) and
-    [S p] (right, one tighter — left-associativity), MIRRORING [pp_prec] byte-for-byte. *)
-Inductive GoExpr : Type :=
-  | GERaw : string -> GoExpr
-  | GEBin : nat -> string -> GoExpr -> GoExpr -> GoExpr.
+    [GoExpr] models the binary-operator tree the plugin assembles.  CRUCIALLY the operator text and its
+    precedence are NOT supplied by the caller — they are DERIVED from a [BinOp] constructor, so a caller
+    cannot mis-state them.  (The old [GEBin (p:nat) (op:string) …] let a caller pass " * " at precedence 5
+    with a looser raw operand — e.g. [GEBin 5 " * " (GERaw "a + b") (GERaw "c")] — which printed
+    [a + b * c] for what should be [(a + b) * c]: the balance theorem held yet the parse was wrong.)
+    [EAtom s] is a pre-rendered ATOM — an operand that binds tightest (literal / variable / call / field /
+    index); [EBin o l r] is a LEFT-ASSOCIATIVE binary operator [o].  [print_expr ctx e] renders [e] where
+    the context demands precedence >= [ctx]: an [EBin] of precedence [binop_prec o] is parenthesized
+    exactly when that [< ctx]; operands recurse at [p] (left) and [S p] (right, one tighter — left
+    associativity), MIRRORING the plugin's [pp_prec] byte-for-byte. *)
+Inductive BinOp : Type :=
+  (* Go precedence 5: *  /  %  <<  >>  &  &^ *)
+  | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot
+  (* Go precedence 4: +  -  |  ^ *)
+  | BAdd | BSub | BOr | BXor
+  (* Go precedence 3: ==  !=  <  <=  >  >= *)
+  | BEq | BNe | BLt | BLe | BGt | BGe
+  (* Go precedence 2 / 1: &&  || *)
+  | BLAnd | BLOr.
 
-Fixpoint print_prec (ctx : nat) (e : GoExpr) : string :=
+(** Operator precedence and surface text DERIVED from the constructor — the single source of truth. *)
+Definition binop_prec (o : BinOp) : nat :=
+  match o with
+  | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot => 5
+  | BAdd | BSub | BOr | BXor => 4
+  | BEq | BNe | BLt | BLe | BGt | BGe => 3
+  | BLAnd => 2
+  | BLOr => 1
+  end.
+Definition binop_text (o : BinOp) : string :=
+  match o with
+  | BMul => " * "  | BDiv => " / "  | BRem => " % "  | BShl => " << " | BShr => " >> "
+  | BAnd => " & "  | BAndNot => " &^ "
+  | BAdd => " + "  | BSub => " - "  | BOr  => " | "  | BXor => " ^ "
+  | BEq  => " == " | BNe  => " != " | BLt  => " < "  | BLe  => " <= " | BGt => " > " | BGe => " >= "
+  | BLAnd => " && " | BLOr => " || "
+  end.
+
+Inductive GoExpr : Type :=
+  | EAtom : string -> GoExpr
+  | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
+
+Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
   match e with
-  | GERaw s => s
-  | GEBin p op l r =>
-      let inner := (print_prec p l ++ op ++ print_prec (S p) r)%string in
+  | EAtom s => s
+  | EBin o l r =>
+      let p := binop_prec o in
+      let inner := (print_expr p l ++ binop_text o ++ print_expr (S p) r)%string in
       if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
   end.
 
-(** CHARACTERIZATION — [print_prec]'s exact behaviour, the basis of the safety proof below and of the
-    byte-identical claim against [pp_prec]: an atom prints verbatim; a binop wraps iff [p < ctx]. *)
-Lemma print_prec_raw : forall ctx s, print_prec ctx (GERaw s) = s.
+(** CHARACTERIZATION — exact behaviour and the byte-identical basis vs [pp_prec]: an atom prints
+    verbatim; a binop wraps iff [binop_prec o < ctx]. *)
+Lemma print_expr_atom : forall ctx s, print_expr ctx (EAtom s) = s.
 Proof. reflexivity. Qed.
-Lemma print_prec_unwrapped : forall p op l r ctx, Nat.ltb p ctx = false ->
-  print_prec ctx (GEBin p op l r) = (print_prec p l ++ op ++ print_prec (S p) r)%string.
-Proof. intros p op l r ctx H. cbn [print_prec]. rewrite H. reflexivity. Qed.
-Lemma print_prec_wrapped : forall p op l r ctx, Nat.ltb p ctx = true ->
-  print_prec ctx (GEBin p op l r) = ("(" ++ (print_prec p l ++ op ++ print_prec (S p) r) ++ ")")%string.
-Proof. intros p op l r ctx H. cbn [print_prec]. rewrite H. reflexivity. Qed.
+Lemma print_expr_unwrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = false ->
+  print_expr ctx (EBin o l r)
+    = (print_expr (binop_prec o) l ++ binop_text o ++ print_expr (S (binop_prec o)) r)%string.
+Proof. intros o l r ctx H. cbn [print_expr]. rewrite H. reflexivity. Qed.
+Lemma print_expr_wrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = true ->
+  print_expr ctx (EBin o l r)
+    = ("(" ++ (print_expr (binop_prec o) l ++ binop_text o ++ print_expr (S (binop_prec o)) r) ++ ")")%string.
+Proof. intros o l r ctx H. cbn [print_expr]. rewrite H. reflexivity. Qed.
 
 (** SAFETY — [print_prec] emits WELL-BRACKETED Go: scanning the output left to right, the parenthesis
     depth never goes negative and ends at zero (so no dangling/unmatched paren — always syntactically
@@ -731,11 +766,16 @@ Proof.
   - apply (IH (d + pv c)%Z); [ lia | exact Hrest ].
 Qed.
 
-(** A well-bracketed-leaves predicate over the tree: every atom and operator is balanced. *)
+(** Every operator render is paren-free, hence balanced — so [wf] need only constrain the ATOMS. *)
+Lemma binop_text_balanced : forall o, balanced (binop_text o).
+Proof. intro o. destruct o; unfold balanced; cbn; repeat split; (lia || exact I). Qed.
+
+(** A well-bracketed-atoms predicate over the tree: every [EAtom] string is balanced (operators are
+    derived and provably balanced, so they need no hypothesis). *)
 Fixpoint wf (e : GoExpr) : Prop :=
   match e with
-  | GERaw s => balanced s
-  | GEBin _ op l r => balanced op /\ wf l /\ wf r
+  | EAtom s => balanced s
+  | EBin _ l r => wf l /\ wf r
   end.
 
 (** The single ascii of "(" / ")" scans as depth +1 / -1, and the matching non-negativity facts. *)
@@ -768,39 +808,44 @@ Qed.
     and never dips below it.  Generalized over [ctx] and [d] so the recursive sub-calls (at [p], [S p],
     and inside the wrap) are covered by the IH.  Uses the [print_prec_wrapped]/[_unwrapped]
     characterization to expose the printed string without fighting [cbn]. *)
-Lemma print_prec_depth_nneg : forall e ctx d, (0 <= d)%Z -> wf e ->
-  depth d (print_prec ctx e) = d /\ nneg d (print_prec ctx e).
+Lemma print_expr_depth_nneg : forall e ctx d, (0 <= d)%Z -> wf e ->
+  depth d (print_expr ctx e) = d /\ nneg d (print_expr ctx e).
 Proof.
-  induction e as [ s | p op l IHl r IHr ]; intros ctx d Hd Hwf.
-  - (* GERaw s *) cbn [print_prec wf] in *. destruct Hwf as [Hz Hn]. split.
+  induction e as [ s | o l IHl r IHr ]; intros ctx d Hd Hwf.
+  - (* EAtom s *) cbn [print_expr wf] in *. destruct Hwf as [Hz Hn]. split.
     + rewrite depth_shift, Hz. lia.
     + apply (nneg_raise s 0 d); [ lia | exact Hn ].
-  - (* GEBin p op l r *)
-    cbn [wf] in Hwf. destruct Hwf as [Hop [Hwl Hwr]]. destruct Hop as [Hopz Hopn].
-    destruct (IHl p d Hd Hwl) as [Hld Hln]. destruct (IHr (S p) d Hd Hwr) as [Hrd Hrn].
-    (* the inner string [l ++ op ++ r] returns to [d] and never dips below it *)
-    assert (Hinner_d : depth d (print_prec p l ++ op ++ print_prec (S p) r) = d).
-    { rewrite !depth_app, Hld, (depth_shift op d), Hopz, Z.add_0_r, Hrd. reflexivity. }
-    assert (Hinner0 : depth 0 (print_prec p l ++ op ++ print_prec (S p) r) = 0%Z)
+  - (* EBin o l r *)
+    cbn [wf] in Hwf. destruct Hwf as [Hwl Hwr].
+    destruct (binop_text_balanced o) as [Hopz Hopn].
+    destruct (IHl (binop_prec o) d Hd Hwl) as [Hld Hln].
+    destruct (IHr (S (binop_prec o)) d Hd Hwr) as [Hrd Hrn].
+    (* the inner string [l ++ binop_text o ++ r] returns to [d] and never dips below it *)
+    assert (Hinner_d : depth d (print_expr (binop_prec o) l ++ binop_text o
+                                ++ print_expr (S (binop_prec o)) r) = d).
+    { rewrite !depth_app, Hld, (depth_shift (binop_text o) d), Hopz, Z.add_0_r, Hrd. reflexivity. }
+    assert (Hinner0 : depth 0 (print_expr (binop_prec o) l ++ binop_text o
+                               ++ print_expr (S (binop_prec o)) r) = 0%Z)
       by (rewrite depth_shift in Hinner_d; lia).
-    assert (Hinner_n : nneg d (print_prec p l ++ op ++ print_prec (S p) r)).
+    assert (Hinner_n : nneg d (print_expr (binop_prec o) l ++ binop_text o
+                               ++ print_expr (S (binop_prec o)) r)).
     { rewrite !nneg_app. split; [ exact Hln | ]. rewrite Hld. split.
-      - apply (nneg_raise op 0 d); [ lia | exact Hopn ].
-      - rewrite (depth_shift op d), Hopz, Z.add_0_r. exact Hrn. }
-    destruct (Nat.ltb p ctx) eqn:E.
+      - apply (nneg_raise (binop_text o) 0 d); [ lia | exact Hopn ].
+      - rewrite (depth_shift (binop_text o) d), Hopz, Z.add_0_r. exact Hrn. }
+    destruct (Nat.ltb (binop_prec o) ctx) eqn:E.
     + (* wrapped: "(" ++ inner ++ ")" *)
-      rewrite (print_prec_wrapped p op l r ctx E). split.
+      rewrite (print_expr_wrapped o l r ctx E). split.
       * rewrite depth_wrap. exact Hinner_d.
       * apply nneg_wrap; [ lia | exact Hinner0 | exact Hinner_n ].
     + (* not wrapped *)
-      rewrite (print_prec_unwrapped p op l r ctx E).
+      rewrite (print_expr_unwrapped o l r ctx E).
       split; [ exact Hinner_d | exact Hinner_n ].
 Qed.
 
-Theorem print_prec_balanced : forall e ctx, wf e -> balanced (print_prec ctx e).
+Theorem print_expr_balanced : forall e ctx, wf e -> balanced (print_expr ctx e).
 Proof.
   intros e ctx Hwf. unfold balanced.
-  destruct (print_prec_depth_nneg e ctx 0 (Z.le_refl 0) Hwf) as [Hd Hn].
+  destruct (print_expr_depth_nneg e ctx 0 (Z.le_refl 0) Hwf) as [Hd Hn].
   split; assumption.
 Qed.
 
@@ -857,11 +902,11 @@ Print Assumptions esc_string_roundtrip.
 Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
-Print Assumptions print_prec_balanced.
+Print Assumptions print_expr_balanced.
 Print Assumptions print_sep_balanced.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec print_sep print_float_hex.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex.
