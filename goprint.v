@@ -1067,6 +1067,78 @@ with parse_climb (fuel k : nat) (l : GoExpr) (s : string) : option (GoExpr * str
     end
   end.
 
+(** One-step unfolders for the three fuelled parsers (so proofs expose the body without [cbn]
+    over-reducing [op_match]/[scan_atom]). *)
+Lemma parse_expr_S : forall f k s, parse_expr (S f) k s =
+  match parse_primary f s with Some (l, s1) => parse_climb f k l s1 | None => None end.
+Proof. reflexivity. Qed.
+Lemma parse_primary_S : forall f s, parse_primary (S f) s =
+  match s with
+  | EmptyString => None
+  | String c s' =>
+      if is_open c then
+        match parse_expr f 0 s' with
+        | Some (e, s1) => match s1 with String c1 s2 => if is_close c1 then Some (e, s2) else None
+                          | EmptyString => None end
+        | None => None end
+      else match scan_atom 0 s with (EmptyString, _) => None | (a, rest) => Some (EAtom a, rest) end
+  end.
+Proof. reflexivity. Qed.
+Lemma parse_climb_S : forall f k l s, parse_climb (S f) k l s =
+  match op_match s with
+  | Some (o, s1) =>
+      if Nat.leb k (binop_prec o)
+      then match parse_expr f (S (binop_prec o)) s1 with
+           | Some (r, s2) => parse_climb f k (EBin o l r) s2 | None => None end
+      else Some (l, s)
+  | None => Some (l, s)
+  end.
+Proof. reflexivity. Qed.
+
+(** FUEL MONOTONICITY — more fuel never changes a [Some] answer.  Proven as a single S-step over the
+    three mutually-recursive parsers, then lifted to any [f <= f'].  This lets the round-trip proof use a
+    canonical fuel and bridge the off-by-one fuel mismatches the climb recursion introduces. *)
+Lemma parse_mono_S : forall f,
+  (forall k s r, parse_expr f k s = Some r -> parse_expr (S f) k s = Some r) /\
+  (forall s r, parse_primary f s = Some r -> parse_primary (S f) s = Some r) /\
+  (forall k l s r, parse_climb f k l s = Some r -> parse_climb (S f) k l s = Some r).
+Proof.
+  induction f as [ | f IH ].
+  - repeat split; intros; discriminate.
+  - destruct IH as [ IHe [ IHp IHc ] ]. repeat split.
+    + intros k s r H. rewrite parse_expr_S in H. rewrite parse_expr_S.
+      destruct (parse_primary f s) as [ [l0 s1] | ] eqn:Ep; [ | discriminate H ].
+      rewrite (IHp _ _ Ep). apply IHc. exact H.
+    + intros s r H. destruct s as [ | c s' ]; [ discriminate H | ].
+      rewrite parse_primary_S in H. rewrite parse_primary_S.
+      destruct (is_open c).
+      * destruct (parse_expr f 0 s') as [ [e s1] | ] eqn:Epe; [ | discriminate H ].
+        rewrite (IHe _ _ _ Epe). exact H.
+      * exact H.
+    + intros k l s r H. rewrite parse_climb_S in H. rewrite parse_climb_S.
+      destruct (op_match s) as [ [o s1] | ]; [ | exact H ].
+      destruct (Nat.leb k (binop_prec o)); [ | exact H ].
+      destruct (parse_expr f (S (binop_prec o)) s1) as [ [r0 s2] | ] eqn:Epe; [ | discriminate H ].
+      rewrite (IHe _ _ _ Epe). apply IHc. exact H.
+Qed.
+
+Lemma parse_mono : forall f' f, f <= f' ->
+  (forall k s r, parse_expr f k s = Some r -> parse_expr f' k s = Some r) /\
+  (forall s r, parse_primary f s = Some r -> parse_primary f' s = Some r) /\
+  (forall k l s r, parse_climb f k l s = Some r -> parse_climb f' k l s = Some r).
+Proof.
+  induction f' as [ | f' IH ]; intros f Hle.
+  - inversion Hle; subst. repeat split; intros; assumption.
+  - destruct (Nat.eq_dec f (S f')) as [ -> | Hne ].
+    + repeat split; intros; assumption.
+    + assert (Hle' : f <= f') by lia. destruct (IH f Hle') as [ He [ Hp Hc ] ].
+      destruct (parse_mono_S f') as [ Se [ Sp Sc ] ].
+      repeat split; intros.
+      * apply Se, He; assumption.
+      * apply Sp, Hp; assumption.
+      * apply Sc, Hc; assumption.
+Qed.
+
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
 Example rt_atom : parse_expr 9 0 (print_expr 0 (EAtom "a")) = Some (EAtom "a", "").

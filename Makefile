@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -54,16 +54,39 @@ negtest:
 	dune build
 	@sh negtests/run.sh
 
-# Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from goprint.v.  goprint.v compiles
-# STANDALONE (Stdlib only, no plugin), so this sidesteps the build circularity (the plugin links
-# printer.ml, but printer.ml is extracted FROM a Rocq file — a normal `dune build` would try the
-# plugin first).  Run after editing goprint.v, then commit plugin/printer.ml (a GENERATED file, like
-# the *.go).  `make check` then verifies the plugin + golden against it.
-printer:
-	rocq c goprint.v
-	@mv -f printer.ml plugin/printer.ml
-	@rm -f goprint.vo goprint.glob .goprint.aux
-	@echo "fido: regenerated plugin/printer.ml from goprint.v (commit it — generated, like *.go)"
+# Shared gate for the VERIFIED printer: compile goprint.v STANDALONE (Stdlib only, no plugin — sidesteps
+# the build circularity, since the plugin LINKS printer.ml which is extracted FROM a Rocq file) and assert
+# its Print-Assumptions show ZERO axioms (goprint.v is part of the trust base, not just main_effect).  On
+# success it leaves the freshly-extracted printer.ml + build artifacts in the CWD for the caller to use.
+# Recursively-expanded (=) so each user inlines it into a SINGLE recipe line (one shell, `set -e` honoured).
+GOPRINT_GATE = rocq c goprint.v > /tmp/goprint.log 2>&1 || { echo "fido: goprint.v failed to compile:"; cat /tmp/goprint.log; exit 1; }; \
+	if grep -q '^Axioms:' /tmp/goprint.log; then \
+	  echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a goprint.v theorem depends on an axiom (Print Assumptions):"; \
+	  cat /tmp/goprint.log; rm -f goprint.vo goprint.glob .goprint.aux printer.ml; exit 1; \
+	fi
+GOPRINT_CLEAN = rm -f goprint.vo goprint.glob .goprint.aux printer.ml
+
+# Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from goprint.v.  A PROPER file dependency:
+# remade only when goprint.v is newer.  The recipe runs the shared gate (compile + zero-axiom) then moves
+# the fresh extraction into place.  Commit plugin/printer.ml afterwards (a GENERATED file, like the *.go);
+# `make check` (Docker) re-derives it and FAILS on drift.
+plugin/printer.ml: goprint.v
+	@set -e; $(GOPRINT_GATE); \
+	  mv -f printer.ml plugin/printer.ml; rm -f goprint.vo goprint.glob .goprint.aux; \
+	  echo "fido: regenerated plugin/printer.ml from goprint.v — zero axioms ✓ (commit it, like *.go)"
+printer: plugin/printer.ml
+
+# Read-only LOCAL mirror of the Docker prover-stage printer gate: compile goprint.v, assert ZERO axioms,
+# and assert the committed plugin/printer.ml is EXACTLY goprint.v's extraction (drift = the PROVED printer
+# differs from the EXECUTED one).  Modifies nothing — run it after editing goprint.v / before committing
+# for a fast check without the full Docker `make check`.
+printer-verify:
+	@set -e; $(GOPRINT_GATE); \
+	  if ! diff plugin/printer.ml printer.ml > /dev/null; then \
+	    echo "fido: PRINTER DRIFT — committed plugin/printer.ml != goprint.v's extraction; run 'make printer' and commit it."; \
+	    $(GOPRINT_CLEAN); exit 1; \
+	  fi; \
+	  $(GOPRINT_CLEAN); echo "fido: goprint.v OK — zero axioms, plugin/printer.ml in sync ✓"
 
 # Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
 # ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can
