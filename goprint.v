@@ -1943,6 +1943,23 @@ Proof.
     [ lia | left; reflexivity | lia ].
 Qed.
 
+(** FAITHFULNESS COROLLARY — INJECTIVITY of the expression printer (the analog of [print_ty_inj], now for
+    [GoExpr]): two expressions that print alike re-parse to the same tree, hence are equal.  So the emitted
+    expression text NEVER conflates two distinct expressions — derived directly from the (unconditional)
+    round-trip, lifting both parses to a common fuel via [parse_mono]. *)
+Corollary print_expr_inj : forall e1 e2, print_expr 0 e1 = print_expr 0 e2 -> e1 = e2.
+Proof.
+  intros e1 e2 He.
+  set (F := 3 * esize e1 + 3 + (3 * esize e2 + 3)).
+  assert (HF1 : 3 * esize e1 + 3 <= F) by (unfold F; lia).
+  assert (HF2 : 3 * esize e2 + 3 <= F) by (unfold F; lia).
+  assert (R1 : parse_expr F 0 (print_expr 0 e1) = Some (e1, "")).
+  { apply (proj1 (parse_mono F _ HF1)). apply print_parse_expr. }
+  assert (R2 : parse_expr F 0 (print_expr 0 e2) = Some (e2, "")).
+  { apply (proj1 (parse_mono F _ HF2)). apply print_parse_expr. }
+  rewrite He in R1. rewrite R1 in R2. injection R2 as Ht. exact Ht.
+Qed.
+
 (** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
     (function arguments, composite-literal elements, type-argument lists, multi-return values, struct
@@ -1998,6 +2015,7 @@ Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
 Print Assumptions print_expr_balanced.
 Print Assumptions print_parse_expr.
+Print Assumptions print_expr_inj.
 Print Assumptions print_sep_balanced.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
