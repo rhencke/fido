@@ -1578,19 +1578,13 @@ let rec decode_go_string e =
    printable ASCII (and backslash / double-quote) use Go's hex byte escape
    [backslash-x-NN], so the literal denotes EXACTLY those bytes (byte-faithful,
    like the Coq model). *)
+(* the Go string-literal escaper is now the VERIFIED Printer.print_string_lit: build the Coq string
+   from the byte list and render it (quoting + escaping all happen in the Rocq function). *)
 let go_string_lit bytes =
-  let buf = Buffer.create (List.length bytes + 2) in
-  Buffer.add_char buf '"';
-  List.iter (fun b ->
-    if b = Char.code '"' then Buffer.add_string buf "\\\""
-    else if b = Char.code '\\' then Buffer.add_string buf "\\\\"
-    else if b = Char.code '\n' then Buffer.add_string buf "\\n"
-    else if b = Char.code '\t' then Buffer.add_string buf "\\t"
-    else if b = Char.code '\r' then Buffer.add_string buf "\\r"
-    else if b >= 0x20 && b < 0x7f then Buffer.add_char buf (Char.chr b)
-    else Buffer.add_string buf (Printf.sprintf "\\x%02x" b)) bytes;
-  Buffer.add_char buf '"';
-  Buffer.contents buf
+  let cs = List.fold_right
+             (fun b acc -> Printer.String (coq_ascii_of_char (Char.chr (b land 0xff)), acc))
+             bytes Printer.EmptyString in
+  coq_string_to_ocaml (Printer.print_string_lit cs)
 
 
 (*s Fold a Peano nat literal to an integer, or return None. *)

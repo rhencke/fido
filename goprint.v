@@ -118,8 +118,34 @@ Example print_Z_neg  : print_Z (-7) = "-7".                                   Pr
 Example print_Z_imax : print_Z 9223372036854775807 = "9223372036854775807".  Proof. reflexivity. Qed.
 Example print_Z_u63  : print_Z 9223372036854775808 = "9223372036854775808".  Proof. reflexivity. Qed.
 
+(** ---- STRING LITERALS ---- escape a Go double-quoted string literal (replacing go.ml's raw
+    [go_string_lit]): wrap in dquotes, escape dquote/backslash/newline/tab/CR, pass printable ASCII
+    through, and emit a hex escape (backslash-x, lowercase, 2 digits) for everything else.  ASCII
+    codes: 34 dquote, 92 backslash, 10 newline, 9 tab, 13 CR, 110 n, 116 t, 114 r, 120 x. *)
+Definition ch (n : nat) : ascii := ascii_of_nat n.
+Definition hexdig (n : nat) : ascii := ascii_of_nat (if Nat.ltb n 10 then 48 + n else 87 + n).
+Definition esc_byte (b : nat) (acc : string) : string :=
+  if Nat.eqb b 34 then String (ch 92) (String (ch 34) acc)
+  else if Nat.eqb b 92 then String (ch 92) (String (ch 92) acc)
+  else if Nat.eqb b 10 then String (ch 92) (String (ch 110) acc)
+  else if Nat.eqb b 9  then String (ch 92) (String (ch 116) acc)
+  else if Nat.eqb b 13 then String (ch 92) (String (ch 114) acc)
+  else if andb (Nat.leb 32 b) (Nat.ltb b 127) then String (ch b) acc
+  else String (ch 92) (String (ch 120)
+         (String (hexdig (Nat.div b 16)) (String (hexdig (Nat.modulo b 16)) acc))).
+Fixpoint esc_string (s : string) : string :=
+  match s with
+  | EmptyString   => EmptyString
+  | String c rest => esc_byte (nat_of_ascii c) (esc_string rest)
+  end.
+Definition print_string_lit (s : string) : string :=
+  String (ch 34) (esc_string s ++ String (ch 34) EmptyString).
+
+Example psl_empty : print_string_lit "" = String (ch 34) (String (ch 34) ""). Proof. reflexivity. Qed.
+Example psl_fido  : print_string_lit "fido" = String (ch 34) ("fido" ++ String (ch 34) ""). Proof. reflexivity. Qed.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z.
+Extraction "printer.ml" print_ty print_Z print_string_lit.

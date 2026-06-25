@@ -10,6 +10,20 @@ type nat =
 type ('a, 'b) prod =
 | Pair of 'a * 'b
 
+(** val fst : ('a1, 'a2) prod -> 'a1 **)
+
+let fst = function
+| Pair (x, _) -> x
+
+(** val snd : ('a1, 'a2) prod -> 'a2 **)
+
+let snd = function
+| Pair (_, y) -> y
+
+type 'a list =
+| Nil
+| Cons of 'a * 'a list
+
 type comparison =
 | Eq
 | Lt
@@ -31,6 +45,65 @@ module Coq__1 = struct
    | S p -> S (add p m)
 end
 include Coq__1
+
+module Nat =
+ struct
+  (** val sub : nat -> nat -> nat **)
+
+  let rec sub n0 m =
+    match n0 with
+    | O -> n0
+    | S k -> (match m with
+              | O -> n0
+              | S l -> sub k l)
+
+  (** val eqb : nat -> nat -> bool **)
+
+  let rec eqb n0 m =
+    match n0 with
+    | O -> (match m with
+            | O -> True
+            | S _ -> False)
+    | S n' -> (match m with
+               | O -> False
+               | S m' -> eqb n' m')
+
+  (** val leb : nat -> nat -> bool **)
+
+  let rec leb n0 m =
+    match n0 with
+    | O -> True
+    | S n' -> (match m with
+               | O -> False
+               | S m' -> leb n' m')
+
+  (** val ltb : nat -> nat -> bool **)
+
+  let ltb n0 m =
+    leb (S n0) m
+
+  (** val divmod : nat -> nat -> nat -> nat -> (nat, nat) prod **)
+
+  let rec divmod x y q u =
+    match x with
+    | O -> Pair (q, u)
+    | S x' ->
+      (match u with
+       | O -> divmod x' y (S q) y
+       | S u' -> divmod x' y q u')
+
+  (** val div : nat -> nat -> nat **)
+
+  let div x y = match y with
+  | O -> y
+  | S y' -> fst (divmod x y' O y')
+
+  (** val modulo : nat -> nat -> nat **)
+
+  let modulo x = function
+  | O -> x
+  | S y' -> sub y' (snd (divmod x y' O y'))
+ end
 
 type positive =
 | XI of positive
@@ -166,8 +239,89 @@ module Pos =
   | S x -> succ (of_succ_nat x)
  end
 
+module Coq_Pos =
+ struct
+  (** val succ : positive -> positive **)
+
+  let rec succ = function
+  | XI p -> XO (succ p)
+  | XO p -> XI p
+  | XH -> XO XH
+
+  (** val add : positive -> positive -> positive **)
+
+  let rec add x y =
+    match x with
+    | XI p ->
+      (match y with
+       | XI q -> XO (add_carry p q)
+       | XO q -> XI (add p q)
+       | XH -> XO (succ p))
+    | XO p ->
+      (match y with
+       | XI q -> XI (add p q)
+       | XO q -> XO (add p q)
+       | XH -> XI p)
+    | XH -> (match y with
+             | XI q -> XO (succ q)
+             | XO q -> XI q
+             | XH -> XO XH)
+
+  (** val add_carry : positive -> positive -> positive **)
+
+  and add_carry x y =
+    match x with
+    | XI p ->
+      (match y with
+       | XI q -> XI (add_carry p q)
+       | XO q -> XO (add_carry p q)
+       | XH -> XI (succ p))
+    | XO p ->
+      (match y with
+       | XI q -> XO (add_carry p q)
+       | XO q -> XI (add p q)
+       | XH -> XO (succ p))
+    | XH ->
+      (match y with
+       | XI q -> XI (succ q)
+       | XO q -> XO (succ q)
+       | XH -> XI XH)
+
+  (** val mul : positive -> positive -> positive **)
+
+  let rec mul x y =
+    match x with
+    | XI p -> add y (XO (mul p y))
+    | XO p -> XO (mul p y)
+    | XH -> y
+ end
+
 module N =
  struct
+  (** val add : n -> n -> n **)
+
+  let add n0 m =
+    match n0 with
+    | N0 -> m
+    | Npos p -> (match m with
+                 | N0 -> n0
+                 | Npos q -> Npos (Coq_Pos.add p q))
+
+  (** val mul : n -> n -> n **)
+
+  let mul n0 m =
+    match n0 with
+    | N0 -> N0
+    | Npos p -> (match m with
+                 | N0 -> N0
+                 | Npos q -> Npos (Coq_Pos.mul p q))
+
+  (** val to_nat : n -> nat **)
+
+  let to_nat = function
+  | N0 -> O
+  | Npos p -> Pos.to_nat p
+
   (** val of_nat : nat -> n **)
 
   let of_nat = function
@@ -217,6 +371,28 @@ let ascii_of_N = function
 
 let ascii_of_nat a =
   ascii_of_N (N.of_nat a)
+
+(** val n_of_digits : bool list -> n **)
+
+let rec n_of_digits = function
+| Nil -> N0
+| Cons (b, l') ->
+  N.add (match b with
+         | True -> Npos XH
+         | False -> N0)
+    (N.mul (Npos (XO XH)) (n_of_digits l'))
+
+(** val n_of_ascii : ascii -> n **)
+
+let n_of_ascii = function
+| Ascii (a0, a1, a2, a3, a4, a5, a6, a7) ->
+  n_of_digits (Cons (a0, (Cons (a1, (Cons (a2, (Cons (a3, (Cons (a4, (Cons
+    (a5, (Cons (a6, (Cons (a7, Nil))))))))))))))))
+
+(** val nat_of_ascii : ascii -> nat **)
+
+let nat_of_ascii a =
+  N.to_nat (n_of_ascii a)
 
 type string =
 | EmptyString
@@ -617,3 +793,188 @@ let print_Z z0 =
          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
          EmptyString)
+
+(** val ch : nat -> ascii **)
+
+let ch =
+  ascii_of_nat
+
+(** val hexdig : nat -> ascii **)
+
+let hexdig n0 =
+  ascii_of_nat
+    (match Nat.ltb n0 (S (S (S (S (S (S (S (S (S (S O)))))))))) with
+     | True ->
+       add (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S O)))))))))))))))))))))))))))))))))))))))))))))))) n0
+     | False ->
+       add (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+         n0)
+
+(** val esc_byte : nat -> string -> string **)
+
+let esc_byte b acc =
+  match Nat.eqb b (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          O)))))))))))))))))))))))))))))))))) with
+  | True ->
+    String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S
+         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+      (String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S
+         O))))))))))))))))))))))))))))))))))),
+      acc)))
+  | False ->
+    (match Nat.eqb b (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S
+             O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+     | True ->
+       String
+         ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S
+            O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+         (String
+         ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S
+            O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+         acc)))
+     | False ->
+       (match Nat.eqb b (S (S (S (S (S (S (S (S (S (S O)))))))))) with
+        | True ->
+          String
+            ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S
+               O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+            (String
+            ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S
+               O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+            acc)))
+        | False ->
+          (match Nat.eqb b (S (S (S (S (S (S (S (S (S O))))))))) with
+           | True ->
+             String
+               ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+               (String
+               ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+               acc)))
+           | False ->
+             (match Nat.eqb b (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      O))))))))))))) with
+              | True ->
+                String
+                  ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+                  (String
+                  ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+                  acc)))
+              | False ->
+                (match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S
+                               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                               (S (S (S (S O)))))))))))))))))))))))))))))))) b with
+                       | True ->
+                         Nat.ltb b (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S
+                           O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                       | False -> False with
+                 | True -> String ((ch b), acc)
+                 | False ->
+                   String
+                     ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S
+                        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+                     (String
+                     ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+                     (String
+                     ((hexdig
+                        (Nat.div b (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S O)))))))))))))))))),
+                     (String
+                     ((hexdig
+                        (Nat.modulo b (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S O)))))))))))))))))),
+                     acc))))))))))))
+
+(** val esc_string : string -> string **)
+
+let rec esc_string = function
+| EmptyString -> EmptyString
+| String (c, rest) -> esc_byte (nat_of_ascii c) (esc_string rest)
+
+(** val print_string_lit : string -> string **)
+
+let print_string_lit s =
+  String
+    ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S O))))))))))))))))))))))))))))))))))),
+    (append (esc_string s) (String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S
+         O))))))))))))))))))))))))))))))))))),
+      EmptyString))))

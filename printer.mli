@@ -10,6 +10,14 @@ type nat =
 type ('a, 'b) prod =
 | Pair of 'a * 'b
 
+val fst : ('a1, 'a2) prod -> 'a1
+
+val snd : ('a1, 'a2) prod -> 'a2
+
+type 'a list =
+| Nil
+| Cons of 'a * 'a list
+
 type comparison =
 | Eq
 | Lt
@@ -18,6 +26,23 @@ type comparison =
 val compOpp : comparison -> comparison
 
 val add : nat -> nat -> nat
+
+module Nat :
+ sig
+  val sub : nat -> nat -> nat
+
+  val eqb : nat -> nat -> bool
+
+  val leb : nat -> nat -> bool
+
+  val ltb : nat -> nat -> bool
+
+  val divmod : nat -> nat -> nat -> nat -> (nat, nat) prod
+
+  val div : nat -> nat -> nat
+
+  val modulo : nat -> nat -> nat
+ end
 
 type positive =
 | XI of positive
@@ -58,8 +83,25 @@ module Pos :
   val of_succ_nat : nat -> positive
  end
 
+module Coq_Pos :
+ sig
+  val succ : positive -> positive
+
+  val add : positive -> positive -> positive
+
+  val add_carry : positive -> positive -> positive
+
+  val mul : positive -> positive -> positive
+ end
+
 module N :
  sig
+  val add : n -> n -> n
+
+  val mul : n -> n -> n
+
+  val to_nat : n -> nat
+
   val of_nat : nat -> n
  end
 
@@ -77,6 +119,12 @@ val ascii_of_pos : positive -> ascii
 val ascii_of_N : n -> ascii
 
 val ascii_of_nat : nat -> ascii
+
+val n_of_digits : bool list -> n
+
+val n_of_ascii : ascii -> n
+
+val nat_of_ascii : ascii -> nat
 
 type string =
 | EmptyString
@@ -149,3 +197,13 @@ val dec_digit : nat -> ascii
 val z_digits : nat -> z -> string -> string
 
 val print_Z : z -> string
+
+val ch : nat -> ascii
+
+val hexdig : nat -> ascii
+
+val esc_byte : nat -> string -> string
+
+val esc_string : string -> string
+
+val print_string_lit : string -> string
