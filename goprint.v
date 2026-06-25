@@ -1187,6 +1187,177 @@ Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "f(a, b)")
 Proof. reflexivity. Qed.
 
 (** ============================================================================
+    ---- THE UNIVERSAL EXPRESSION ROUND-TRIP ---- the EXAMPLES above fix the precedence-critical cases
+    by reflexivity; this is the theorem for EVERY well-formed tree with [atomic] atoms.  So the
+    parenthesisation [print_expr] emits is precedence-CORRECT, not merely balanced: Go re-parses the
+    text to the SAME tree [e].  Proven by a combined strong induction on tree size of two facts — [P e]
+    (round-trip with a stopping tail) and [Left e] (the spine equation: parsing the print of [e] as a
+    left operand reduces to [parse_climb] with [e] as the accumulator).  Climb-recursion fuel mismatches
+    are bridged by [parse_mono]. *)
+
+Fixpoint esize (e : GoExpr) : nat :=
+  match e with EAtom _ => 1 | EBin _ l r => S (esize l + esize r) end.
+
+Fixpoint atomic_tree (e : GoExpr) : Prop :=
+  match e with EAtom s => atomic s = true | EBin _ l r => atomic_tree l /\ atomic_tree r end.
+
+(** A [rest] at which BOTH [parse_climb k] and [scan_atom] stop cleanly: empty, ")"-led, or led by an
+    operator binding LOOSER than [k] (precedence [< k]). *)
+Definition tail_ok (k : nat) (rest : string) : Prop :=
+  rest = EmptyString
+  \/ (exists c rs, rest = String c rs /\ is_close c = true)
+  \/ (exists o s1, op_match rest = Some (o, s1) /\ binop_prec o < k).
+
+Lemma is_close_not_space : forall c, is_close c = true -> is_space c = false.
+Proof. intros c H. unfold is_close in H. apply Ascii.eqb_eq in H. subst c. reflexivity. Qed.
+
+Lemma leb_false_of_lt : forall a b, a < b -> Nat.leb b a = false.
+Proof. intros a b H. destruct (Nat.leb b a) eqn:E; [ apply Nat.leb_le in E; lia | reflexivity ]. Qed.
+
+Lemma tail_ok_mono : forall k k' rest, tail_ok k rest -> k <= k' -> tail_ok k' rest.
+Proof.
+  intros k k' rest H Hle. destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  - left; exact He.
+  - right; left; exact Hc.
+  - right; right. exists o, s1. split; [ exact Hop | lia ].
+Qed.
+
+Lemma tail_ok_good_seam : forall k rest, tail_ok k rest -> good_seam rest = true.
+Proof.
+  intros k rest H. destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  - subst rest; reflexivity.
+  - destruct Hc as [ c [ rs [ Hr Hcl ] ] ]. subst rest. unfold good_seam. rewrite Hcl, orb_true_r. reflexivity.
+  - destruct rest as [ | c rs ]; [ discriminate Hop | ]. unfold good_seam, opens. rewrite Hop. reflexivity.
+Qed.
+
+Lemma tail_ok_climb_stop : forall k rest F l, tail_ok k rest -> parse_climb (S F) k l rest = Some (l, rest).
+Proof.
+  intros k rest F l H. rewrite parse_climb_S.
+  destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  - subst rest; reflexivity.
+  - destruct Hc as [ c [ rs [ Hr Hcl ] ] ]. subst rest.
+    rewrite (op_match_not_space c rs (is_close_not_space c Hcl)). reflexivity.
+  - rewrite Hop, (leb_false_of_lt _ _ Hp). reflexivity.
+Qed.
+
+(** The per-tree round-trip property, abbreviated so it can be carried as a hypothesis for sub-trees
+    (operands) inside the spine-fold lemma below. *)
+Definition Pexpr (e : GoExpr) : Prop :=
+  forall k ctx rest F, k <= ctx -> tail_ok k rest -> esize e < F ->
+    parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest).
+
+(** A LEFT-LEANING spine, as a base operand and a list of (operator, right-operand) pairs printed in
+    sequence; [fold_pairs] rebuilds the (left-associative) tree, [print_pairs] the surface text. *)
+Fixpoint print_pairs (ps : list (BinOp * GoExpr)) : string :=
+  match ps with
+  | [] => ""
+  | (o, r) :: ps' => (binop_text o ++ print_expr (S (binop_prec o)) r ++ print_pairs ps')%string
+  end.
+Fixpoint fold_pairs (base : GoExpr) (ps : list (BinOp * GoExpr)) : GoExpr :=
+  match ps with [] => base | (o, r) :: ps' => fold_pairs (EBin o base r) ps' end.
+Fixpoint pairs_fuel (ps : list (BinOp * GoExpr)) : nat :=
+  match ps with [] => 1 | (_, r) :: ps' => S (esize r + pairs_fuel ps') end.
+(** Climb-readiness: every operator binds at precedence [>= k], consecutive operators are NON-increasing
+    (left-associativity — so each right operand's parse stops before the next operator), and every right
+    operand already round-trips ([Pexpr]). *)
+Fixpoint spine_ok (k : nat) (ps : list (BinOp * GoExpr)) : Prop :=
+  match ps with
+  | [] => True
+  | (o, r) :: ps' => k <= binop_prec o /\ Pexpr r
+      /\ (match ps' with [] => True | (o2, _) :: _ => binop_prec o2 <= binop_prec o end)
+      /\ spine_ok k ps'
+  end.
+
+Lemma pairs_fuel_pos : forall ps, 1 <= pairs_fuel ps.
+Proof. intro ps. destruct ps as [ | [o r] ps' ]; cbn; lia. Qed.
+
+(** SPINE FOLD — [parse_climb] consumes a printed left-leaning spine EXACTLY, left-folding it back to
+    [fold_pairs base ps] and stopping at the [good] tail.  Induction on the pair list; each step recovers
+    one operator ([op_match_binop]), parses the right operand ([Pexpr]), folds, and recurses. *)
+Lemma parse_climb_pairs : forall ps k base rest F,
+  spine_ok k ps -> tail_ok k rest -> pairs_fuel ps <= F ->
+  parse_climb F k base (print_pairs ps ++ rest) = Some (fold_pairs base ps, rest).
+Proof.
+  induction ps as [ | [o r] ps' IH ]; intros k base rest F Hsp Htl HF.
+  - cbn [print_pairs fold_pairs] in *. destruct F as [ | f ]; [ cbn in HF; lia | ].
+    apply tail_ok_climb_stop; exact Htl.
+  - cbn [pairs_fuel] in HF. destruct F as [ | f ]; [ lia | ].
+    destruct Hsp as [ Hk [ Hpr [ Hnext Hsp' ] ] ].
+    cbn [print_pairs fold_pairs]. rewrite parse_climb_S.
+    (* expose the leading operator *)
+    rewrite sapp_assoc, op_match_binop.
+    assert (Hleb : Nat.leb k (binop_prec o) = true) by (apply Nat.leb_le; exact Hk).
+    rewrite Hleb.
+    (* parse the right operand at level S(prec o), tail = print_pairs ps' ++ rest *)
+    assert (Htl2 : tail_ok (S (binop_prec o)) (print_pairs ps' ++ rest)).
+    { destruct ps' as [ | [o2 r2] ps'' ].
+      - cbn [print_pairs]. apply (tail_ok_mono k); [ exact Htl | lia ].
+      - right; right. cbn [print_pairs]. rewrite sapp_assoc, op_match_binop.
+        eexists; eexists; split; [ reflexivity | lia ]. }
+    pose proof (pairs_fuel_pos ps') as Hpos.
+    rewrite sapp_assoc.
+    rewrite (Hpr (S (binop_prec o)) (S (binop_prec o)) (print_pairs ps' ++ rest) f
+                 (le_n _) Htl2 ltac:(lia)).
+    apply IH; [ exact Hsp' | exact Htl | lia ].
+Qed.
+
+(** ---- LEFT-SPINE DECOMPOSITION ---- [lspine fl e] peels [e]'s left children as long as they print
+    UNWRAPPED at the running floor (operator precedence [>= floor]), yielding the leftmost PRIMARY
+    [base] (an atom, or a subtree that prints parenthesised), the floor [bfl] it sits at, and the spine
+    of [(operator, right-operand)] pairs above it.  [print_expr fl e = print_expr bfl base ++ print_pairs
+    ps] and [fold_pairs base ps = e]: the decomposition is print- and structure-faithful. *)
+Fixpoint lspine (fl : nat) (e : GoExpr) : nat * GoExpr * list (BinOp * GoExpr) :=
+  match e with
+  | EAtom s => (fl, EAtom s, [])
+  | EBin o l r =>
+      if Nat.leb fl (binop_prec o)
+      then let '(bfl, base, ps) := lspine (binop_prec o) l in (bfl, base, (ps ++ [(o, r)])%list)
+      else (fl, EBin o l r, [])
+  end.
+
+Lemma ltb_false_of_leb : forall fl p, Nat.leb fl p = true -> Nat.ltb p fl = false.
+Proof.
+  intros fl p H. destruct (Nat.ltb p fl) eqn:E; [ | reflexivity ].
+  apply Nat.ltb_lt in E. apply Nat.leb_le in H. lia.
+Qed.
+
+Lemma print_pairs_app : forall a b, print_pairs (a ++ b)%list = (print_pairs a ++ print_pairs b)%string.
+Proof.
+  induction a as [ | [o r] a IH ]; intro b; cbn [print_pairs app]; [ reflexivity | ].
+  rewrite IH, !sapp_assoc. reflexivity.
+Qed.
+
+Lemma fold_pairs_app : forall a b base, fold_pairs base (a ++ b)%list = fold_pairs (fold_pairs base a) b.
+Proof.
+  induction a as [ | [o r] a IH ]; intros b base; cbn [fold_pairs app]; [ reflexivity | apply IH ].
+Qed.
+
+Lemma lspine_print : forall e fl bfl base ps,
+  lspine fl e = (bfl, base, ps) -> print_expr fl e = (print_expr bfl base ++ print_pairs ps)%string.
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
+  - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst. clear H.
+      rewrite (print_expr_unwrapped o l r fl (ltb_false_of_leb _ _ Eleb)), (IHl _ _ _ _ El),
+              print_pairs_app. cbn [print_pairs]. rewrite sapp_nil_r, !sapp_assoc. reflexivity.
+    + inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
+Qed.
+
+Lemma lspine_fold : forall e fl bfl base ps,
+  lspine fl e = (bfl, base, ps) -> fold_pairs base ps = e.
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  - cbn in H. inversion H; subst. reflexivity.
+  - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst. clear H.
+      rewrite fold_pairs_app. cbn [fold_pairs]. rewrite (IHl _ _ _ _ El). reflexivity.
+    + inversion H; subst. reflexivity.
+Qed.
+
+(** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
     (function arguments, composite-literal elements, type-argument lists, multi-return values, struct
     fields).  [go.ml] rendered these with Coq's [prlist_with_sep]; [print_sep] is the verified
