@@ -5441,15 +5441,6 @@ Qed.
     for a 2-field, [int64]-fielded struct; wider/heterogeneous reps generalise it.
     Lowers (Bs.2 lowering, separate): [SPtr R] → [*R], [sptr_new] → [&R{…}],
     [sptr_deref] → [*p], [sptr_assign] → [*p = R{…}], reusing the [Ptr] arms. *)
-Record StructRep2 (R : Type) := mkSR2 {
-  sr2_f0 : R -> GoI64 ;                                   (* field 0 projection *)
-  sr2_f1 : R -> GoI64 ;                                   (* field 1 projection *)
-  sr2_mk : GoI64 -> GoI64 -> R ;                          (* constructor *)
-  sr2_eta : forall v, sr2_mk (sr2_f0 v) (sr2_f1 v) = v ;  (* the record eta law *)
-}.
-Arguments mkSR2 {R} _ _ _ _.
-Arguments sr2_f0 {R} _ _.  Arguments sr2_f1 {R} _ _.
-Arguments sr2_mk {R} _ _ _.  Arguments sr2_eta {R} _ _.
 
 (** ---- STRUCT CHANNELS (a 2-field [int64 x int64] struct over a channel) ----
 
@@ -5499,220 +5490,20 @@ Proof.
   eexists; reflexivity.
 Qed.
 
-(** The canonical 2-field rep is bound to the TYPE by [StructRep2Of] (review #6 #10(b)/(c)): every
-    handle of type [R] reconstructs/marshals with the SAME [the_rep2 R], so two handles to one base
-    can NEVER disagree (the old per-handle [sp_rep] is gone — the pointer carries ONLY its base), and
-    field access is COHERENT against it ([field_at2], below). *)
-Class StructRep2Of (R : Type) : Type := the_rep2 : StructRep2 R.
-Arguments the_rep2 R {_}.
-Record SPtr (R : Type) := mkSPtr { sp_base : nat }.
-Arguments mkSPtr {R} _.
-Arguments sp_base {R} _.
-
-Definition sptr_hs {R} (p : SPtr R) : HStruct := mkHStruct (sp_base p).
-
-(** [sptr_new v] — Go [p := &R{…}]: allocate a FRESH base, write each field cell from [v]'s
-    projections (via the CANONICAL [the_rep2 R]), bump the allocator by the field count (2). *)
-Definition sptr_new {R} `{StructRep2Of R} (v : R) : IO (SPtr R) :=
-  fun w =>
-    let l := w_next w in
-    let p := mkSPtr l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 2) (w_output w) in  (* bump allocator *)
-    let w0 := ref_upd (hfield_cell (sptr_hs p) 0 TI64) (sr2_f0 (the_rep2 R) v) wa in
-    let w1 := ref_upd (hfield_cell (sptr_hs p) 1 TI64) (sr2_f1 (the_rep2 R) v) w0 in
-    ORet p w1.
-
-(** [sptr_deref p] — Go [*p]: read both field cells, RECONSTRUCT via the canonical rep. *)
-Definition sptr_deref {R} `{StructRep2Of R} (p : SPtr R) : IO R :=
-  bind (hfield_get (sptr_hs p) 0 TI64) (fun a =>
-  bind (hfield_get (sptr_hs p) 1 TI64) (fun b =>
-  ret (sr2_mk (the_rep2 R) a b))).
-
-(** [sptr_assign p v] — Go [*p = R{…}]: write both field cells from [v] (whole-struct
-    write through the pointer; mutation is observed by any handle to the same base). *)
-Definition sptr_assign {R} `{StructRep2Of R} (p : SPtr R) (v : R) : IO unit :=
-  bind (hfield_set (sptr_hs p) 0 TI64 (sr2_f0 (the_rep2 R) v)) (fun _ =>
-        hfield_set (sptr_hs p) 1 TI64 (sr2_f1 (the_rep2 R) v)).
-
-(** FIELD-level access through the pointer — Go [p.Field] / [p.Field = v] (the idiomatic form the
-    Bs.2 lowering targets).  [idx] selects the field cell; [proj] names it (the plugin's
-    [proj → field-name] map) AND must be COHERENT with it — review #6 #10(c): the erased [field_at2]
-    evidence ties [proj] to the canonical rep's [idx]-th projection, so you cannot claim to read field
-    [proj] while addressing a DIFFERENT cell.  ([proj]/[ftag]/[coh] erase; the cell op is the substrate.) *)
-Definition field_at2 {R} (rep : StructRep2 R) (idx : nat) (proj : R -> GoI64) : Prop :=
-  (idx = 0 /\ proj = sr2_f0 rep) \/ (idx = 1 /\ proj = sr2_f1 rep).
-Definition sptr_get_field {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) : IO GoI64 :=
-  hfield_get (sptr_hs p) idx ftag.
-Definition sptr_set_field {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64) : IO unit :=
-  hfield_set (sptr_hs p) idx ftag v.
-
-(** Field read-after-write THROUGH the pointer — a THEOREM: after [sptr_set_field … v], reading the
-    SAME (coherent) field returns [v].  The mutation-through-pointer a [*T] receiver relies on. *)
-Lemma sptr_field_get_set : forall {R} `{StructRep2Of R} (p : SPtr R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at2 (the_rep2 R) idx proj) (v : GoI64),
-  bind (sptr_set_field p idx proj ftag coh v) (fun _ => sptr_get_field p idx proj ftag coh) =io=
-  bind (sptr_set_field p idx proj ftag coh v) (fun _ => ret v).
-Proof.
-  intros. unfold sptr_set_field, sptr_get_field. apply hfield_get_set_same.
-Qed.
-
-(** Two handles to the SAME pointer (same base) see each other's field writes — the
-    ALIASING a [*T] receiver relies on, reduced to [hstruct_alias].  (The whole-struct
-    [sptr_deref]-after-[sptr_assign] round-trip — reassembling via [sr2_eta] across both
-    field cells — follows from this + field independence; deferred, fiddlier [run_bind]
-    sequencing.) *)
-Lemma sptr_field_alias : forall {R F} (p q : SPtr R) (idx : nat)
-    (ftag : GoTypeTag F) (v : F) (w : World),
-  sp_base p = sp_base q ->
-  ref_sel (hfield_cell (sptr_hs p) idx ftag) (ref_upd (hfield_cell (sptr_hs q) idx ftag) v w) = v.
-Proof.
-  intros R F p q idx ftag v w Hb. apply hstruct_alias. unfold sptr_hs. cbn. exact Hb.
-Qed.
-
-(** ---- N-FIELD struct pointers (THREE fields) ----  The same field-cell substrate,
-    generalised from [StructRep2]/[SPtr] to a third field.  Field access ([sptr3_get_field]/
-    [sptr3_set_field]) and the read-after-write THEOREM are the SAME generic [hfield] ops
-    (so no new heap reasoning) — only the rep and the allocation widen by one field.  A
-    function whose first param is [SPtr3 R] becomes a pointer-receiver method on a 3-field
-    [*R], exactly like the 2-field case. *)
-Record StructRep3 (R : Type) := mkSR3 {
-  sr3_f0 : R -> GoI64 ; sr3_f1 : R -> GoI64 ; sr3_f2 : R -> GoI64 ;
-  sr3_mk : GoI64 -> GoI64 -> GoI64 -> R ;
-  sr3_eta : forall v, sr3_mk (sr3_f0 v) (sr3_f1 v) (sr3_f2 v) = v ;
-}.
-Arguments mkSR3 {R} _ _ _ _ _.
-Arguments sr3_f0 {R} _ _.  Arguments sr3_f1 {R} _ _.  Arguments sr3_f2 {R} _ _.
-Arguments sr3_mk {R} _ _ _ _.
-Class StructRep3Of (R : Type) : Type := the_rep3 : StructRep3 R.
-Arguments the_rep3 R {_}.
-Record SPtr3 (R : Type) := mkSPtr3 { sp3_base : nat }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
-Arguments mkSPtr3 {R} _.
-Arguments sp3_base {R} _.
-Definition sptr3_hs {R} (p : SPtr3 R) : HStruct := mkHStruct (sp3_base p).
-Definition sptr3_new {R} `{StructRep3Of R} (v : R) : IO (SPtr3 R) :=
-  fun w =>
-    let l := w_next w in
-    let p := mkSPtr3 l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 3) (w_output w) in  (* bump by 3 *)
-    let w0 := ref_upd (hfield_cell (sptr3_hs p) 0 TI64) (sr3_f0 (the_rep3 R) v) wa in
-    let w1 := ref_upd (hfield_cell (sptr3_hs p) 1 TI64) (sr3_f1 (the_rep3 R) v) w0 in
-    let w2 := ref_upd (hfield_cell (sptr3_hs p) 2 TI64) (sr3_f2 (the_rep3 R) v) w1 in
-    ORet p w2.
-(** Field coherence (review #6 #10(c)) for the 3-field rep — [proj] is the [idx]-th projection. *)
-Definition field_at3 {R} (rep : StructRep3 R) (idx : nat) (proj : R -> GoI64) : Prop :=
-  (idx = 0 /\ proj = sr3_f0 rep) \/ (idx = 1 /\ proj = sr3_f1 rep)
-  \/ (idx = 2 /\ proj = sr3_f2 rep).
-Definition sptr3_get_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) : IO GoI64 :=
-  hfield_get (sptr3_hs p) idx ftag.
-Definition sptr3_set_field {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64) : IO unit :=
-  hfield_set (sptr3_hs p) idx ftag v.
-Lemma sptr3_field_get_set : forall {R} `{StructRep3Of R} (p : SPtr3 R) (idx : nat) (proj : R -> GoI64)
-    (ftag : GoTypeTag GoI64) (coh : field_at3 (the_rep3 R) idx proj) (v : GoI64),
-  bind (sptr3_set_field p idx proj ftag coh v) (fun _ => sptr3_get_field p idx proj ftag coh) =io=
-  bind (sptr3_set_field p idx proj ftag coh v) (fun _ => ret v).
-Proof. intros. unfold sptr3_set_field, sptr3_get_field. apply hfield_get_set_same. Qed.
-
-(** ---- HETEROGENEOUS 2-field struct pointer ([SPtrH R A B]) ----
-    The common real-Go case: a pointer to a struct whose fields have DIFFERENT types
-    (e.g. [*struct{ N int64; B bool }]).  The field-cell heap ([hfield_cell]) is already
-    GENERIC over the field type (it takes a [GoTypeTag]), so this only generalises the rep
-    to carry per-field types [A], [B] and their tags; the field read/write THEOREM is again
-    the 2-field/[hfield_get_set_same] proof verbatim.  Lowers exactly like [SPtr]/[SPtr3]
-    ([*R], [&R{…}], [p.Field]); the only plugin change is taking the FIRST type arg of the
-    3-arg [SPtrH R A B] (vs [SPtr R]'s single arg). *)
-Record StructRep2H (R A B : Type) := mkSR2H {
-  sr2h_f0 : R -> A ;                                       (* field 0 projection (type A) *)
-  sr2h_f1 : R -> B ;                                       (* field 1 projection (type B) *)
-  sr2h_ta : GoTypeTag A ;                                  (* field 0 type tag *)
-  sr2h_tb : GoTypeTag B ;                                  (* field 1 type tag *)
-  sr2h_mk : A -> B -> R ;                                  (* constructor *)
-  sr2h_eta : forall v, sr2h_mk (sr2h_f0 v) (sr2h_f1 v) = v ;
-}.
-Arguments mkSR2H {R A B} _ _ _ _ _ _.
-Arguments sr2h_f0 {R A B} _ _.  Arguments sr2h_f1 {R A B} _ _.
-Arguments sr2h_ta {R A B} _.    Arguments sr2h_tb {R A B} _.
-Arguments sr2h_mk {R A B} _ _ _.  Arguments sr2h_eta {R A B} _ _.
-
-Class StructRep2HOf (R A B : Type) : Type := the_repH : StructRep2H R A B.
-Arguments the_repH R A B {_}.
-Record SPtrH (R A B : Type) := mkSPtrH { sph_base : nat }.   (* canonical rep (review #6 #10(b)): no per-handle rep *)
-Arguments mkSPtrH {R A B} _.
-Arguments sph_base {R A B} _.
-
-Definition sptrh_hs {R A B} (p : SPtrH R A B) : HStruct := mkHStruct (sph_base p).
-
-(** [sptrh_new v] — Go [p := &R{…}]: write field 0 at tag [A], field 1 at tag [B] (canonical rep). *)
-Definition sptrh_new {R A B} `{StructRep2HOf R A B} (v : R) : IO (SPtrH R A B) :=
-  fun w =>
-    let l := w_next w in
-    let p := mkSPtrH l in
-    let wa := mkWorld (w_refs w) (w_chans w) (w_maps w) (l + 2) (w_output w) in
-    let w0 := ref_upd (hfield_cell (sptrh_hs p) 0 (sr2h_ta (the_repH R A B))) (sr2h_f0 (the_repH R A B) v) wa in
-    let w1 := ref_upd (hfield_cell (sptrh_hs p) 1 (sr2h_tb (the_repH R A B))) (sr2h_f1 (the_repH R A B) v) w0 in
-    ORet p w1.
-
-(** HETEROGENEOUS field coherence (review #6 #10(c)): the field type [F] varies, so [proj] AND its
-    [ftag] are pinned TOGETHER to the rep's [idx]-th (projection, tag) by a dependent [existT] — you
-    cannot read field 1 ([bool]) with field 0's projection/tag, nor mislabel either cell's type. *)
-Definition field_atH {R A B} (rep : StructRep2H R A B) (idx : nat)
-    {F} (proj : R -> F) (ftag : GoTypeTag F) : Prop :=
-  (idx = 0 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
-                   = existT (fun T => ((R -> T) * GoTypeTag T)%type) A (sr2h_f0 rep, sr2h_ta rep))
-  \/ (idx = 1 /\ existT (fun T => ((R -> T) * GoTypeTag T)%type) F (proj, ftag)
-                      = existT (fun T => ((R -> T) * GoTypeTag T)%type) B (sr2h_f1 rep, sr2h_tb rep)).
-Definition sptrh_get_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
-    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) : IO F :=
-  hfield_get (sptrh_hs p) idx ftag.
-Definition sptrh_set_field {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
-    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F) : IO unit :=
-  hfield_set (sptrh_hs p) idx ftag v.
-
-Lemma sptrh_field_get_set : forall {R A B F} `{StructRep2HOf R A B} (p : SPtrH R A B) (idx : nat) (proj : R -> F)
-    (ftag : GoTypeTag F) (coh : field_atH (the_repH R A B) idx proj ftag) (v : F),
-  bind (sptrh_set_field p idx proj ftag coh v) (fun _ => sptrh_get_field p idx proj ftag coh) =io=
-  bind (sptrh_set_field p idx proj ftag coh v) (fun _ => ret v).
-Proof. intros. unfold sptrh_set_field, sptrh_get_field. apply hfield_get_set_same. Qed.
-
-(** WHOLE-STRUCT deref-after-assign — a THEOREM: after [sptr_assign p v], [sptr_deref p]
-    reassembles [v].  Field 0 survives the field-1 write (distinct cells, [ref_sel_upd_diff]),
-    field 1 read sees its write ([ref_sel_upd_same]), and [sr2_eta] rebuilds [v].  The
-    field-cell distinctness ([base+0 ≠ base+1]) is the same hypothesis [hfield_independent]
-    takes — true for every base, immediate by [vm_compute] for any concrete pointer.
-    ([ref_sel]/[ref_upd]/[hfield_cell] are kept opaque so [cbn] reduces only the monadic
-    [match]/[bind] structure, leaving the heap terms intact for the final rewrites.) *)
-Local Opaque ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
-Lemma sptr_deref_assign : forall {R} `{StructRep2Of R} (p : SPtr R) (v : R),
-  r_loc (hfield_cell (sptr_hs p) 0 TI64) <> r_loc (hfield_cell (sptr_hs p) 1 TI64) ->
-  bind (sptr_assign p v) (fun _ => sptr_deref p) =io=
-  bind (sptr_assign p v) (fun _ => ret v).
-Proof.
-  intros R Hrep p v Hne. intro w.
-  unfold sptr_assign, sptr_deref.
-  rewrite !run_bind, !run_hfield_set. cbn.
-  (* field 0 read hits an ALLOCATED cell (survives the field-1 write, distinct cells) -> its value *)
-  rewrite run_bind, run_hfield_get, (ref_sel_opt_upd_diff _ _ _ _ Hne), ref_sel_opt_upd_same. cbn.
-  (* field 1 read hits its own just-written cell -> its value *)
-  rewrite run_bind, run_hfield_get, ref_sel_opt_upd_same. cbn.
-  rewrite run_ret, (sr2_eta (the_rep2 R) v). reflexivity.
-Qed.
 Local Transparent ref_sel ref_upd hfield_cell ref_sel_opt hfield_get run_io.
 
 (** ============================================================================
     GENERIC STRUCT REPRESENTATION — one [StructRep R ts] for ALL field arities.
 
-    [StructRep2]/[StructRep3]/[StructRep2H] above are arity-monomorphised copies (2, 3, and 2
-    heterogeneous fields).  That is not a generalisation — [StructRep47] is the reductio.  The honest
-    generalisation is the standard one: a struct is a HETEROGENEOUS NESTED PRODUCT [Tup ts] over its
-    field-type list [ts : list Type], and a field is a TYPED de Bruijn INDEX [Mem ts t] ([MHere]/[MNext]
-    = Peano [FZ]/[FS]).  ONE record [StructRep R ts] (an iso [R ≅ Tup ts]) covers every arity.
+    This REPLACED the arity-monomorphised [StructRep2]/[StructRep3]/[StructRep2H] (2-, 3-, and 2-hetero-
+    field copies — not a generalisation; [StructRep47] is the reductio).  The honest generalisation is
+    the standard one: a struct is a HETEROGENEOUS NESTED PRODUCT [Tup ts] over its field-type list
+    [ts : list Type], and a field is a TYPED de Bruijn INDEX [Mem ts t] ([MHere]/[MNext] = Peano
+    [FZ]/[FS]).  ONE record [StructRep R ts] (an iso [R ≅ Tup ts]) covers every arity.
 
-    This ALSO closes the review #8/#9 defect class BY CONSTRUCTION: the [StructRep2] field API took a
-    numeric slot [idx] AND a separate projection [proj], tied only by an erasable coherence [field_at2]
-    that a swapped [StructRep2Of] dictionary could satisfy with a MISMATCHED pairing (slot 0 / field-1
+    This ALSO closes the review #8/#9 defect class BY CONSTRUCTION: the old field API took a numeric
+    slot [idx] AND a separate projection [proj], tied only by an erasable coherence ([field_at2]) that
+    a swapped canonical-rep dictionary could satisfy with a MISMATCHED pairing (slot 0 / field-1
     projection), yielding wrong Go.  Here a field is the SINGLE typed index [m : Mem ts t]; its
     projection IS [mem_get m ∘ sr_to] and its slot IS [mem_depth m] — BOTH derived from [m].  There is
     no independent [proj] to disagree with the slot, so the inconsistency is unrepresentable. *)
