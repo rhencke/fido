@@ -879,29 +879,21 @@ Qed.
     parses BACK to [e]: the parenthesisation is precedence-CORRECT, not merely balanced.  (That is the
     guarantee the balance theorem could not give — e.g. it would have accepted a looser-operator atom.) *)
 
-(** The [BinOp] whose surface text is a prefix of [s] (no [binop_text] is a prefix of another — the
-    trailing space disambiguates — so at most one matches), paired with the remainder after it. *)
-Definition op_match (s : string) : option (BinOp * string) :=
-  match strip " << " s with Some r => Some (BShl, r)    | None =>
-  match strip " >> " s with Some r => Some (BShr, r)    | None =>
-  match strip " &^ " s with Some r => Some (BAndNot, r) | None =>
-  match strip " && " s with Some r => Some (BLAnd, r)   | None =>
-  match strip " || " s with Some r => Some (BLOr, r)    | None =>
-  match strip " == " s with Some r => Some (BEq, r)     | None =>
-  match strip " != " s with Some r => Some (BNe, r)     | None =>
-  match strip " <= " s with Some r => Some (BLe, r)     | None =>
-  match strip " >= " s with Some r => Some (BGe, r)     | None =>
-  match strip " * " s  with Some r => Some (BMul, r)    | None =>
-  match strip " / " s  with Some r => Some (BDiv, r)    | None =>
-  match strip " % " s  with Some r => Some (BRem, r)    | None =>
-  match strip " & " s  with Some r => Some (BAnd, r)    | None =>
-  match strip " + " s  with Some r => Some (BAdd, r)    | None =>
-  match strip " - " s  with Some r => Some (BSub, r)    | None =>
-  match strip " | " s  with Some r => Some (BOr, r)     | None =>
-  match strip " ^ " s  with Some r => Some (BXor, r)    | None =>
-  match strip " < " s  with Some r => Some (BLt, r)     | None =>
-  match strip " > " s  with Some r => Some (BGt, r)     | None =>
-  None end end end end end end end end end end end end end end end end end end end.
+(** The operator-recognition table: every [BinOp], longest-text-first so a shorter operator can never
+    pre-empt a longer one (in fact no [binop_text] is a prefix of another — the trailing space
+    disambiguates — so the order is immaterial; we keep the longest-first order for clarity).  The
+    surface text is taken from [binop_text] (the single source of truth), never duplicated here. *)
+Definition op_order : list BinOp :=
+  [ BShl; BShr; BAndNot; BLAnd; BLOr; BEq; BNe; BLe; BGe;
+    BMul; BDiv; BRem; BAnd; BAdd; BSub; BOr; BXor; BLt; BGt ].
+Fixpoint op_match_in (tbl : list BinOp) (s : string) : option (BinOp * string) :=
+  match tbl with
+  | [] => None
+  | o :: tl => match strip (binop_text o) s with Some r => Some (o, r) | None => op_match_in tl s end
+  end.
+(** The [BinOp] whose surface text is a prefix of [s] (at most one — see above), paired with the
+    remainder after it. *)
+Definition op_match (s : string) : option (BinOp * string) := op_match_in op_order s.
 
 (** [op_match] recovers exactly the printed operator and its remainder. *)
 Lemma op_match_binop : forall o rest, op_match (binop_text o ++ rest)%string = Some (o, rest).
@@ -909,6 +901,36 @@ Proof. intros o rest. destruct o; reflexivity. Qed.
 
 Example op_match_ident : op_match "foo" = None. Proof. reflexivity. Qed.
 Example op_match_plus  : op_match (" + " ++ "x") = Some (BAdd, "x"). Proof. reflexivity. Qed.
+
+(** [strip] only succeeds when [s]'s head matches the pattern's head — so a successful strip pins down
+    [s]'s first character. *)
+Lemma strip_head : forall pc p' s r, strip (String pc p') s = Some r ->
+  exists s', s = String pc s'.
+Proof.
+  intros pc p' s r H. destruct s as [ | c s' ]; cbn in H; [ discriminate | ].
+  destruct (Ascii.eqb pc c) eqn:E; [ | discriminate ].
+  apply Ascii.eqb_eq in E; subst c. exists s'. reflexivity.
+Qed.
+
+Definition is_space (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 32).  (* ' ' *)
+
+(** Every operator text begins with a space (ascii 32) — so [op_match] can fire ONLY on a string whose
+    first character is a space.  Contrapositive: a non-space-led string never matches an operator.  This
+    is the operator-seam guarantee — at any depth-0, non-space position inside an atom, no operator can
+    begin (whatever follows), so [scan_atom] cannot split the atom early. *)
+Lemma binop_text_head_space : forall o, exists t, binop_text o = String (ascii_of_nat 32) t.
+Proof. intro o. destruct o; eexists; reflexivity. Qed.
+Lemma op_match_not_space : forall c s, is_space c = false -> op_match (String c s) = None.
+Proof.
+  intros c s Hns. unfold op_match.
+  assert (forall tbl, op_match_in tbl (String c s) = None) as Hgen.
+  { induction tbl as [ | o tl IH ]; cbn; [ reflexivity | ].
+    destruct (strip (binop_text o) (String c s)) as [ r | ] eqn:E; [ | exact IH ].
+    exfalso. destruct (binop_text_head_space o) as [ t Ht ]. rewrite Ht in E.
+    destruct (strip_head _ _ _ _ E) as [ s' Hs ]. inversion Hs; subst c.
+    unfold is_space in Hns. rewrite Ascii.eqb_refl in Hns. discriminate. }
+  apply Hgen.
+Qed.
 
 Definition is_open  (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 40).  (* '(' *)
 Definition is_close (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 41).  (* ')' *)
@@ -928,19 +950,80 @@ Fixpoint scan_atom (d : nat) (s : string) : string * string :=
   end.
 
 (** [atomic s] — [s] is a legal primary atom: non-empty, not "("-led (else it is a parenthesised group),
-    paren-balanced, and with NO depth-0 operator (so [scan_atom] consumes it whole and the operator that
-    follows is unambiguously the parent's).  The plugin's rendered operands satisfy this: any operator
-    inside is within the operand's own parens, or written space-free (the typed-IIFE "x+y"). *)
+    paren-balanced, with NO depth-0 operator AND NO depth-0 space (so [scan_atom] consumes it whole and
+    the operator that follows is unambiguously the parent's).  The depth-0-space ban is what closes the
+    operator SEAM: every operator text begins with a space, so a depth-0 space could let an operator
+    straddle the atom/remainder boundary ([op_match_not_space] turns "no depth-0 space" into "no operator
+    starts here").  The plugin's rendered operands satisfy this: identifiers / literals / calls have no
+    depth-0 space (the only spaces are inside the call's own parens, at depth >0), and any operator inside
+    is within the operand's own parens. *)
 Fixpoint atomic_from (d : nat) (s : string) : bool :=
   match s with
   | EmptyString => Nat.eqb d 0
   | String c s' =>
-      if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+      if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_close c)) (is_space c))
       then false
       else atomic_from (if is_open c then S d else if is_close c then Nat.pred d else d) s'
   end.
 Definition atomic (s : string) : bool :=
   match s with EmptyString => false | String c _ => andb (negb (is_open c)) (atomic_from 0 s) end.
+
+(** One-step unfolding lemmas — used to expose [scan_atom]/[atomic_from] on a cons without [cbn]
+    over-reducing the [opens]/[op_match] guard (which we must instead rewrite via the seam lemma). *)
+Lemma scan_atom_cons : forall d c s',
+  scan_atom d (String c s') =
+    if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+    then (EmptyString, String c s')
+    else let (a, rest) := scan_atom (if is_open c then S d else if is_close c then Nat.pred d else d) s'
+         in (String c a, rest).
+Proof. reflexivity. Qed.
+Lemma atomic_from_cons : forall d c s',
+  atomic_from d (String c s') =
+    if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_close c)) (is_space c))
+    then false
+    else atomic_from (if is_open c then S d else if is_close c then Nat.pred d else d) s'.
+Proof. reflexivity. Qed.
+
+(** A [rest] at which [scan_atom] stops cleanly: empty, or its head is ")" or begins an operator. *)
+Definition good_seam (rest : string) : bool :=
+  match rest with EmptyString => true | String c _ => orb (opens rest) (is_close c) end.
+
+(** SCAN CORRECTNESS — an [atomic_from d] string [a] followed by a [good_seam] remainder is consumed
+    EXACTLY: [scan_atom] returns [a] and the untouched [rest].  At every in-[a] depth-0 position the char
+    is neither ")" (would be a depth-0 close, banned) nor space (so [op_match_not_space] makes [opens]
+    false WHATEVER [rest] is — the seam cannot be straddled); deeper positions never trigger the depth-0
+    guard.  Generalized over [d] for the paren recursion. *)
+Lemma scan_atom_gen : forall a d rest, atomic_from d a = true -> good_seam rest = true ->
+  scan_atom d (a ++ rest) = (a, rest).
+Proof.
+  induction a as [ | c a' IH ]; intros d rest Hat Hseam.
+  - (* a = "" : atomic_from forces d = 0; scan stops immediately on the good seam *)
+    cbn in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
+    destruct rest as [ | rc rs ]; [ reflexivity | ].
+    rewrite scan_atom_cons. unfold good_seam in Hseam. rewrite Hseam. reflexivity.
+  - (* a = String c a' *)
+    rewrite atomic_from_cons in Hat.
+    destruct (andb (Nat.eqb d 0) (orb (orb (opens (String c a')) (is_close c)) (is_space c))) eqn:Estop;
+      [ discriminate Hat | ].
+    cbn [append]. rewrite scan_atom_cons.
+    assert (Estop2 : andb (Nat.eqb d 0) (orb (opens (String c (a' ++ rest))) (is_close c)) = false).
+    { destruct (Nat.eqb d 0) eqn:Ed; cbn [andb] in Estop |- *; [ | reflexivity ].
+      apply orb_false_iff in Estop. destruct Estop as [Hoc Hsp].
+      apply orb_false_iff in Hoc. destruct Hoc as [_ Hclose].
+      unfold opens. rewrite (op_match_not_space c (a' ++ rest) Hsp), Hclose. reflexivity. }
+    rewrite Estop2.
+    rewrite (IH (if is_open c then S d else if is_close c then Nat.pred d else d) rest Hat Hseam).
+    reflexivity.
+Qed.
+
+Lemma scan_atom_correct : forall a rest, atomic a = true -> good_seam rest = true ->
+  scan_atom 0 (a ++ rest) = (a, rest).
+Proof.
+  intros a rest Hat Hseam. unfold atomic in Hat.
+  destruct a as [ | c a' ]; [ discriminate | ].
+  apply andb_true_iff in Hat. destruct Hat as [_ Hfrom].
+  apply scan_atom_gen; assumption.
+Qed.
 
 (** The precedence-climbing parser (Go's binary-operator grammar): [parse_expr k] reads the maximal
     expression whose operators all bind at precedence [>= k]; [parse_primary] reads an atom or a
