@@ -2258,7 +2258,7 @@ let rec pp_expr state env = function
        | MLglob r, [fc] when named "f64_of_fconst" r ->
            (match fc_eval fc with
             | Some (num, den) when den <> 0L ->
-                str (Printf.sprintf "float64(%Ld.0 / %Ld.0)" num den)
+                str ("float64(" ^ print_i64_dec num ^ ".0 / " ^ print_i64_dec den ^ ".0)")
             (* den=0 is now UNREACHABLE: [fc_den] is a [positive] and [fc_div] is nonzero-divisor
                gated (review #6 P2 #16), so a 0 denominator cannot be constructed — this stays as
                a defensive boundary guard (closed-world tenet), not a reachable fail-loud path. *)
@@ -2271,7 +2271,7 @@ let rec pp_expr state env = function
        | MLglob r, [fc] when named "f32_of_fconst" r ->
            (match fc_eval fc with
             | Some (num, den) when den <> 0L ->
-                str (Printf.sprintf "float32(%Ld.0 / %Ld.0)" num den)
+                str ("float32(" ^ print_i64_dec num ^ ".0 / " ^ print_i64_dec den ^ ".0)")
             | Some _ -> unsupported "f32_of_fconst: den = 0 (a float32 constant cannot be ±Inf)"
             | None -> unsupported "f32_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
        (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
