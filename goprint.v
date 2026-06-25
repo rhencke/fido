@@ -991,12 +991,15 @@ Proof.
 Qed.
 
 (** ============================================================================
-    ---- EXPRESSION PRINT-PARSE ROUND-TRIP (the formal Go-operator grammar) ---- the balance theorem
-    above proves the output is WELL-BRACKETED but NOT that Go re-parses it to the INTENDED tree.  This
-    section models Go's binary-operator grammar (the same 5 precedence levels, left-associative) as a
-    parser and proves [parse_expr 0 (print_expr 0 e) = Some (e, "")] — so [print_expr] emits text that
-    parses BACK to [e]: the parenthesisation is precedence-CORRECT, not merely balanced.  (That is the
-    guarantee the balance theorem could not give — e.g. it would have accepted a looser-operator atom.) *)
+    ---- EXPRESSION PRINTER/PARSER SELF-CONSISTENCY (the Rocq expression grammar) ---- the balance theorem
+    above proves the output is WELL-BRACKETED, but not that the parenthesisation is PRECEDENCE-correct.
+    This section defines a precedence-climbing PARSER for a Rocq MODEL of Go's binary-operator grammar
+    (the same 5 levels, left-associative) and proves [parse_expr 0 (print_expr 0 e) = Some (e, "")] — so
+    [print_expr] and this parser are mutually inverse: the parenthesisation [print_expr] emits is exactly
+    what the parser re-reads to [e].  HONEST SCOPE: this is printer/parser SELF-CONSISTENCY for the Rocq
+    grammar — NOT yet a theorem that Go's own parser accepts the text with the intended structure (that
+    needs a Go-subset grammar / a recognition theorem; gap to close).  It is strictly stronger than
+    bracket balance and rules out the precedence counterexamples the balance theorem could not. *)
 
 (** The operator-recognition table: every [BinOp], longest-text-first so a shorter operator can never
     pre-empt a longer one (in fact no [binop_text] is a prefix of another — the trailing space
@@ -1395,8 +1398,14 @@ Proof. reflexivity. Qed.
 (** ============================================================================
     ---- THE UNIVERSAL EXPRESSION ROUND-TRIP ---- the EXAMPLES above fix the precedence-critical cases
     by reflexivity; this is the theorem for EVERY well-formed tree with [atomic] atoms.  So the
-    parenthesisation [print_expr] emits is precedence-CORRECT, not merely balanced: Go re-parses the
-    text to the SAME tree [e].  Proven by a combined strong induction on tree size of two facts — [P e]
+    parenthesisation [print_expr] emits is precedence-CORRECT (not merely balanced): the Rocq parser
+    re-reads the text to the SAME tree [e] — printer/parser SELF-CONSISTENCY (see the section header;
+    this is NOT yet a claim about Go's own parser).  NOTE the [atomic_tree] hypothesis is the real
+    caveat: [EAtom] still carries an arbitrary STRING, and [atomic] is a hand-rolled lexer (it treats
+    operators as space-delimited), so this theorem is CONDITIONAL on every atom passing [atomic] — and
+    [build_goexpr] does not yet enforce that.  The structural-[GoAtom] redesign (atoms unrepresentable-
+    when-malformed) is what removes this caveat.  Proven by a combined strong induction on tree size of
+    two facts — [P e]
     (round-trip with a stopping tail) and [Left e] (the spine equation: parsing the print of [e] as a
     left operand reduces to [parse_climb] with [e] as the accumulator).  Climb-recursion fuel mismatches
     are bridged by [parse_mono]. *)
@@ -1809,8 +1818,12 @@ Proof.
                    | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
 Qed.
 
-(** The headline: every well-formed expression with [atomic] atoms round-trips — [print_expr] emits text
-    that parses BACK to the SAME tree (precedence-correct, not merely balanced). *)
+(** The headline (printer/parser SELF-CONSISTENCY for the Rocq grammar, CONDITIONAL on [atomic_tree]):
+    every well-formed expression whose atoms all pass [atomic] round-trips — [print_expr] emits text the
+    Rocq [parse_expr] re-reads to the SAME tree (precedence-correct, not merely balanced).  Caveats, to
+    be honest: (1) it is the Rocq parser, not Go's; (2) [EAtom] carries a raw string and [atomic] is a
+    hand-rolled lexer, so the guarantee holds only for atoms passing [atomic] — the structural-[GoAtom]
+    redesign is what makes that unconditional. *)
 Theorem print_parse_expr : forall e, wf e -> atomic_tree e ->
   parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
 Proof.
