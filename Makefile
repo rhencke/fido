@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -53,6 +53,17 @@ run-local: extract
 negtest:
 	dune build
 	@sh negtests/run.sh
+
+# Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from goprint.v.  goprint.v compiles
+# STANDALONE (Stdlib only, no plugin), so this sidesteps the build circularity (the plugin links
+# printer.ml, but printer.ml is extracted FROM a Rocq file — a normal `dune build` would try the
+# plugin first).  Run after editing goprint.v, then commit plugin/printer.ml (a GENERATED file, like
+# the *.go).  `make check` then verifies the plugin + golden against it.
+printer:
+	rocq c goprint.v
+	@mv -f printer.ml plugin/printer.ml
+	@rm -f goprint.vo goprint.glob .goprint.aux
+	@echo "fido: regenerated plugin/printer.ml from goprint.v (commit it — generated, like *.go)"
 
 # Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
 # ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can

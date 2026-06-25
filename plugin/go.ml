@@ -594,6 +594,15 @@ let rec coq_goty_of_tag = function
        | "TBool"    -> Some Printer.GTBool
        | "TString"  -> Some Printer.GTString
        | "TFloat64" -> Some Printer.GTFloat64
+       | "TFloat32" -> Some Printer.GTFloat32
+       | "TUint"    -> Some Printer.GTUint
+       | "TU8"      -> Some Printer.GTU8
+       | "TI8"      -> Some Printer.GTI8
+       | "TU16"     -> Some Printer.GTU16
+       | "TI16"     -> Some Printer.GTI16
+       | "TU32"     -> Some Printer.GTU32
+       | "TI32"     -> Some Printer.GTI32
+       | "TU64"     -> Some Printer.GTU64
        | _          -> None)
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr" ->
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTPtr g) | None -> None)

@@ -26,6 +26,15 @@ Inductive GoTy : Type :=
   | GTBool    : GoTy
   | GTString  : GoTy
   | GTFloat64 : GoTy
+  | GTFloat32 : GoTy
+  | GTUint    : GoTy
+  | GTU8      : GoTy
+  | GTI8      : GoTy
+  | GTU16     : GoTy
+  | GTI16     : GoTy
+  | GTU32     : GoTy
+  | GTI32     : GoTy
+  | GTU64     : GoTy
   | GTPtr     : GoTy -> GoTy
   | GTSlice   : GoTy -> GoTy
   | GTNamed   : string -> GoTy.
@@ -38,6 +47,15 @@ Fixpoint print_ty (t : GoTy) : string :=
   | GTBool    => "bool"
   | GTString  => "string"
   | GTFloat64 => "float64"
+  | GTFloat32 => "float32"
+  | GTUint    => "uint"
+  | GTU8      => "uint8"
+  | GTI8      => "int8"
+  | GTU16     => "uint16"
+  | GTI16     => "int16"
+  | GTU32     => "uint32"
+  | GTI32     => "int32"
+  | GTU64     => "uint64"
   | GTPtr u   => "*"  ++ print_ty u
   | GTSlice u => "[]" ++ print_ty u
   | GTNamed n => n
@@ -59,8 +77,8 @@ Fixpoint structural (t : GoTy) : bool :=
 Theorem print_ty_inj : forall t1 t2,
   structural t1 = true -> structural t2 = true -> print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  induction t1 as [ | | | | | u IHu | u IHu | n ];
-    intros [ | | | | | v | v | m ] H1 H2 He; cbn in *;
+  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | n ];
+    intros t2 H1 H2 He; destruct t2; cbn in *;
     try reflexivity; try discriminate.
   - (* GTPtr u vs GTPtr v *) injection He as He'. f_equal. apply IHu; assumption.
   - (* GTSlice u vs GTSlice v *) injection He as He'. f_equal. apply IHu; assumption.
