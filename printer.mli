@@ -92,6 +92,8 @@ module Coq_Pos :
   val add_carry : positive -> positive -> positive
 
   val mul : positive -> positive -> positive
+
+  val size : positive -> positive
  end
 
 module N :
@@ -167,6 +169,8 @@ module Z :
   val div : z -> z -> z
 
   val modulo : z -> z -> z
+
+  val log2 : z -> z
  end
 
 type goTy =
@@ -195,6 +199,8 @@ val print_ty : goTy -> string
 val dec_digit : nat -> ascii
 
 val z_digits : nat -> z -> string -> string
+
+val digit_fuel : z -> nat
 
 val print_Z : z -> string
 

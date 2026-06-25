@@ -218,10 +218,16 @@ Fixpoint z_digits (fuel : nat) (z : Z) (acc : string) : string :=
             if (z / 10 =? 0)%Z then String d acc
             else z_digits f (z / 10)%Z (String d acc)
   end.
+(** Adaptive fuel — at least as many steps as [z] has decimal digits, so [z_digits] NEVER truncates a
+    large input (the old fixed [64] silently dropped digits for |z| >= 10^64 — accepted arbitrary [Z] but
+    was correct only under a bound).  [Z.log2 z + 1] is the BIT width, which exceeds the decimal-digit
+    count (since 10 > 2), so it is always enough; and it is cheap (no astronomically large [nat]).  Only
+    ever applied to [z > 0] ([print_Z] special-cases 0 and negates negatives). *)
+Definition digit_fuel (z : Z) : nat := S (Z.to_nat (Z.log2 z)).
 Definition print_Z (z : Z) : string :=
   if (z =? 0)%Z then "0"
-  else if (z <? 0)%Z then ("-" ++ z_digits 64 (- z) "")%string
-  else z_digits 64 z "".
+  else if (z <? 0)%Z then ("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string
+  else z_digits (digit_fuel z) z "".
 
 (** Computational checks: the decimal printer is correct on samples spanning the int64/uint64 range
     (incl. the unsigned value [2^63] that an [Int64.t]-based printer renders only via [%Lu]). *)
@@ -306,21 +312,35 @@ Lemma parse_Z_nonminus : forall c X, Ascii.eqb c (ascii_of_nat 45) = false ->
   parse_Z (String c X) = parseZ_pos 0 (String c X).
 Proof. intros c X H. cbn [parse_Z]. rewrite H. reflexivity. Qed.
 
-Theorem print_parse_Z : forall z, (- (10 ^ 64) < z < 10 ^ 64)%Z -> parse_Z (print_Z z) = z.
+(** The adaptive fuel is always enough for ANY base [b >= 2]: [z < b ^ digit_fuel z] for [z > 0].
+    [digit_fuel z] is the bit width [Z.log2 z + 1]; [z < 2^(log2 z + 1)] and [2^k <= b^k], so
+    [z < b^(log2 z + 1)].  (Instantiated at b=10 for [print_Z], b=16 for [print_hex].) *)
+Lemma z_lt_pow_digit_fuel : forall b z, (2 <= b)%Z -> (0 < z)%Z -> (z < b ^ Z.of_nat (digit_fuel z))%Z.
 Proof.
-  intros z [Hlo Hhi]. unfold print_Z.
+  intros b z Hb Hz. unfold digit_fuel.
+  rewrite Nat2Z.inj_succ, Z2Nat.id by apply Z.log2_nonneg.
+  apply Z.lt_le_trans with (2 ^ Z.succ (Z.log2 z))%Z.
+  - apply (proj2 (Z.log2_spec z Hz)).
+  - apply Z.pow_le_mono_l; lia.
+Qed.
+
+(** FAITHFULNESS, now UNCONDITIONAL — with the adaptive fuel [print_Z] never truncates, so the round-trip
+    holds for EVERY [z] (no |z| < 10^64 side condition). *)
+Theorem print_parse_Z : forall z, parse_Z (print_Z z) = z.
+Proof.
+  intro z. unfold print_Z.
   destruct (Z.eqb z 0) eqn:E0; [ apply Z.eqb_eq in E0; subst z; reflexivity | ].
   apply Z.eqb_neq in E0. destruct (Z.ltb z 0) eqn:Eneg.
   - (* z < 0 *) apply Z.ltb_lt in Eneg.
-    replace (("-" ++ z_digits 64 (- z) "")%string)
-       with (String (ascii_of_nat 45) (z_digits 64 (- z) "")) by reflexivity.
+    replace (("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string)
+       with (String (ascii_of_nat 45) (z_digits (digit_fuel (- z)) (- z) "")) by reflexivity.
     rewrite parse_Z_neg.
-    rewrite parseZ_pos_z_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    rewrite parseZ_pos_z_digits by (try (apply (z_lt_pow_digit_fuel 10)); lia).
     cbn [parseZ_pos]. lia.
-  - (* z > 0 *) apply Z.ltb_ge in Eneg.
-    destruct (z_digits_head 64 z "" ltac:(lia)) as [k [r [Hk Hr]]].
+  - (* z > 0 *) apply Z.ltb_ge in Eneg. assert (Hz : (0 < z)%Z) by lia.
+    destruct (z_digits_head (digit_fuel z) z "" ltac:(unfold digit_fuel; lia)) as [k [r [Hk Hr]]].
     rewrite Hr, (parse_Z_nonminus _ _ (dec_digit_ne_minus k Hk)), <- Hr.
-    rewrite parseZ_pos_z_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    rewrite parseZ_pos_z_digits by (try (apply (z_lt_pow_digit_fuel 10)); lia).
     cbn [parseZ_pos]. reflexivity.
 Qed.
 
@@ -455,7 +475,7 @@ Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
            if (z / 16 =? 0)%Z then String d acc else hex_digits f (z / 16)%Z (String d acc)
   end.
 Definition print_hex (z : Z) : string :=
-  ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits 64 z ""))%string.
+  ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits (digit_fuel z) z ""))%string.
 Example ph_ff : print_hex 255 = "0xff". Proof. reflexivity. Qed.
 Example ph_0  : print_hex 0   = "0x0".  Proof. reflexivity. Qed.
 Example ph_80 : print_hex 128 = "0x80". Proof. reflexivity. Qed.
@@ -471,7 +491,7 @@ Definition parse_hex (s : string) : Z :=
 
 Lemma parse_hex_0x : forall X, parse_hex ("0x" ++ X)%string = parseHex_pos 0 X.
 Proof. intro X. reflexivity. Qed.
-Lemma print_hex_pos : forall z, (z <> 0)%Z -> print_hex z = ("0x" ++ hex_digits 64 z "")%string.
+Lemma print_hex_pos : forall z, (z <> 0)%Z -> print_hex z = ("0x" ++ hex_digits (digit_fuel z) z "")%string.
 Proof. intros z H. apply Z.eqb_neq in H. unfold print_hex. rewrite H. reflexivity. Qed.
 
 Lemma parseHex_pos_hex_digits : forall fuel z acc,
@@ -498,12 +518,13 @@ Proof.
       reflexivity.
 Qed.
 
-Theorem print_parse_hex : forall z, (0 <= z < 16 ^ 64)%Z -> parse_hex (print_hex z) = z.
+(** UNCONDITIONAL for every non-negative [z] (the adaptive fuel never truncates). *)
+Theorem print_parse_hex : forall z, (0 <= z)%Z -> parse_hex (print_hex z) = z.
 Proof.
-  intros z [Hlo Hhi]. destruct (Z.eqb z 0) eqn:E0.
+  intros z Hlo. destruct (Z.eqb z 0) eqn:E0.
   - apply Z.eqb_eq in E0; subst z. reflexivity.
   - apply Z.eqb_neq in E0. rewrite print_hex_pos by exact E0. rewrite parse_hex_0x.
-    rewrite parseHex_pos_hex_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    rewrite parseHex_pos_hex_digits by (try (apply (z_lt_pow_digit_fuel 16)); lia).
     cbn [parseHex_pos]. reflexivity.
 Qed.
 
@@ -606,13 +627,14 @@ Lemma parse_float_hex_eq : forall s mpart epart, split_p s = (mpart, epart) ->
 Proof. intros s mpart epart H. unfold parse_float_hex. rewrite H. reflexivity. Qed.
 
 Local Opaque print_hex print_Z parse_hex parse_Z.
+(** UNCONDITIONAL but for the mantissa's non-negativity (hex is unsigned); [exp] is any [Z]. *)
 Theorem print_parse_float_hex : forall sign mant exp,
-  (0 <= mant < 16 ^ 64)%Z -> (- (10 ^ 64) < exp < 10 ^ 64)%Z ->
+  (0 <= mant)%Z ->
   parse_float_hex (print_float_hex sign mant exp) = (sign, mant, exp).
 Proof.
-  intros sign mant exp Hm He.
+  intros sign mant exp Hm.
   assert (Hmrt : parse_hex (print_hex mant) = mant) by (apply print_parse_hex; lia).
-  assert (Hert : parse_Z (print_Z exp) = exp) by (apply print_parse_Z; lia).
+  assert (Hert : parse_Z (print_Z exp) = exp) by (apply print_parse_Z).
   unfold print_float_hex. destruct sign; cbv iota.
   - (* sign = true: prefix "-" *)
     rewrite (parse_float_hex_eq _ _ _

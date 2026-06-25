@@ -294,6 +294,13 @@ module Coq_Pos =
     | XI p -> add y (XO (mul p y))
     | XO p -> XO (mul p y)
     | XH -> y
+
+  (** val size : positive -> positive **)
+
+  let rec size = function
+  | XI p0 -> succ (size p0)
+  | XO p0 -> succ (size p0)
+  | XH -> XH
  end
 
 module N =
@@ -597,6 +604,16 @@ module Z =
 
   let modulo a b =
     let Pair (_, r) = div_eucl a b in r
+
+  (** val log2 : z -> z **)
+
+  let log2 = function
+  | Zpos p0 ->
+    (match p0 with
+     | XI p -> Zpos (Coq_Pos.size p)
+     | XO p -> Zpos (Coq_Pos.size p)
+     | XH -> Z0)
+  | _ -> Z0
  end
 
 type goTy =
@@ -769,6 +786,11 @@ let rec z_digits fuel z0 acc =
      | False ->
        z_digits f (Z.div z0 (Zpos (XO (XI (XO XH))))) (String (d, acc)))
 
+(** val digit_fuel : z -> nat **)
+
+let digit_fuel z0 =
+  S (Z.to_nat (Z.log2 z0))
+
 (** val print_Z : z -> string **)
 
 let print_Z z0 =
@@ -781,18 +803,8 @@ let print_Z z0 =
      | True ->
        append (String ((Ascii (True, False, True, True, False, True, False,
          False)), EmptyString))
-         (z_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-           (S
-           O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-           (Z.opp z0) EmptyString)
-     | False ->
-       z_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
-         EmptyString)
+         (z_digits (digit_fuel (Z.opp z0)) (Z.opp z0) EmptyString)
+     | False -> z_digits (digit_fuel z0) z0 EmptyString)
 
 (** val ch : nat -> ascii **)
 
@@ -1001,12 +1013,7 @@ let print_hex z0 =
      | True ->
        String ((Ascii (False, False, False, False, True, True, False,
          False)), EmptyString)
-     | False ->
-       hex_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
-         EmptyString)
+     | False -> hex_digits (digit_fuel z0) z0 EmptyString)
 
 (** val print_float_hex : bool -> z -> z -> string **)
 
