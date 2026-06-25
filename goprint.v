@@ -872,6 +872,136 @@ Proof.
 Qed.
 
 (** ============================================================================
+    ---- EXPRESSION PRINT-PARSE ROUND-TRIP (the formal Go-operator grammar) ---- the balance theorem
+    above proves the output is WELL-BRACKETED but NOT that Go re-parses it to the INTENDED tree.  This
+    section models Go's binary-operator grammar (the same 5 precedence levels, left-associative) as a
+    parser and proves [parse_expr 0 (print_expr 0 e) = Some (e, "")] — so [print_expr] emits text that
+    parses BACK to [e]: the parenthesisation is precedence-CORRECT, not merely balanced.  (That is the
+    guarantee the balance theorem could not give — e.g. it would have accepted a looser-operator atom.) *)
+
+(** The [BinOp] whose surface text is a prefix of [s] (no [binop_text] is a prefix of another — the
+    trailing space disambiguates — so at most one matches), paired with the remainder after it. *)
+Definition op_match (s : string) : option (BinOp * string) :=
+  match strip " << " s with Some r => Some (BShl, r)    | None =>
+  match strip " >> " s with Some r => Some (BShr, r)    | None =>
+  match strip " &^ " s with Some r => Some (BAndNot, r) | None =>
+  match strip " && " s with Some r => Some (BLAnd, r)   | None =>
+  match strip " || " s with Some r => Some (BLOr, r)    | None =>
+  match strip " == " s with Some r => Some (BEq, r)     | None =>
+  match strip " != " s with Some r => Some (BNe, r)     | None =>
+  match strip " <= " s with Some r => Some (BLe, r)     | None =>
+  match strip " >= " s with Some r => Some (BGe, r)     | None =>
+  match strip " * " s  with Some r => Some (BMul, r)    | None =>
+  match strip " / " s  with Some r => Some (BDiv, r)    | None =>
+  match strip " % " s  with Some r => Some (BRem, r)    | None =>
+  match strip " & " s  with Some r => Some (BAnd, r)    | None =>
+  match strip " + " s  with Some r => Some (BAdd, r)    | None =>
+  match strip " - " s  with Some r => Some (BSub, r)    | None =>
+  match strip " | " s  with Some r => Some (BOr, r)     | None =>
+  match strip " ^ " s  with Some r => Some (BXor, r)    | None =>
+  match strip " < " s  with Some r => Some (BLt, r)     | None =>
+  match strip " > " s  with Some r => Some (BGt, r)     | None =>
+  None end end end end end end end end end end end end end end end end end end end.
+
+(** [op_match] recovers exactly the printed operator and its remainder. *)
+Lemma op_match_binop : forall o rest, op_match (binop_text o ++ rest)%string = Some (o, rest).
+Proof. intros o rest. destruct o; reflexivity. Qed.
+
+Example op_match_ident : op_match "foo" = None. Proof. reflexivity. Qed.
+Example op_match_plus  : op_match (" + " ++ "x") = Some (BAdd, "x"). Proof. reflexivity. Qed.
+
+Definition is_open  (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 40).  (* '(' *)
+Definition is_close (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 41).  (* ')' *)
+Definition opens (s : string) : bool := match op_match s with Some _ => true | None => false end.
+
+(** Read a primary's ATOM: from paren-depth [d], stop (returning the unconsumed remainder) at a depth-0
+    operator or a depth-0 ")" or end-of-string; otherwise consume the char, tracking paren depth.  Since
+    an [atomic] operand has no depth-0 operator and is paren-balanced, this consumes EXACTLY the atom. *)
+Fixpoint scan_atom (d : nat) (s : string) : string * string :=
+  match s with
+  | EmptyString => (EmptyString, EmptyString)
+  | String c s' =>
+      if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+      then (EmptyString, String c s')
+      else let d' := if is_open c then S d else if is_close c then Nat.pred d else d in
+           let (a, rest) := scan_atom d' s' in (String c a, rest)
+  end.
+
+(** [atomic s] — [s] is a legal primary atom: non-empty, not "("-led (else it is a parenthesised group),
+    paren-balanced, and with NO depth-0 operator (so [scan_atom] consumes it whole and the operator that
+    follows is unambiguously the parent's).  The plugin's rendered operands satisfy this: any operator
+    inside is within the operand's own parens, or written space-free (the typed-IIFE "x+y"). *)
+Fixpoint atomic_from (d : nat) (s : string) : bool :=
+  match s with
+  | EmptyString => Nat.eqb d 0
+  | String c s' =>
+      if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+      then false
+      else atomic_from (if is_open c then S d else if is_close c then Nat.pred d else d) s'
+  end.
+Definition atomic (s : string) : bool :=
+  match s with EmptyString => false | String c _ => andb (negb (is_open c)) (atomic_from 0 s) end.
+
+(** The precedence-climbing parser (Go's binary-operator grammar): [parse_expr k] reads the maximal
+    expression whose operators all bind at precedence [>= k]; [parse_primary] reads an atom or a
+    "("-delimited sub-expression; [parse_climb] left-folds operators of precedence [>= k].  Fuel bounds
+    the recursion (every call strictly decreases it). *)
+Fixpoint parse_expr (fuel k : nat) (s : string) : option (GoExpr * string) :=
+  match fuel with
+  | O => None
+  | S f => match parse_primary f s with Some (l, s1) => parse_climb f k l s1 | None => None end
+  end
+with parse_primary (fuel : nat) (s : string) : option (GoExpr * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => None
+    | String c s' =>
+        if is_open c then
+          match parse_expr f 0 s' with
+          | Some (e, s1) => match s1 with
+                            | String c1 s2 => if is_close c1 then Some (e, s2) else None
+                            | EmptyString => None end
+          | None => None end
+        else match scan_atom 0 s with
+             | (EmptyString, _) => None
+             | (a, rest) => Some (EAtom a, rest) end
+    end
+  end
+with parse_climb (fuel k : nat) (l : GoExpr) (s : string) : option (GoExpr * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match op_match s with
+    | Some (o, s1) =>
+        if Nat.leb k (binop_prec o)
+        then match parse_expr f (S (binop_prec o)) s1 with
+             | Some (r, s2) => parse_climb f k (EBin o l r) s2
+             | None => None end
+        else Some (l, s)
+    | None => Some (l, s)
+    end
+  end.
+
+(** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
+    [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
+Example rt_atom : parse_expr 9 0 (print_expr 0 (EAtom "a")) = Some (EAtom "a", "").
+Proof. reflexivity. Qed.
+Example rt_add : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "a") (EAtom "b")))
+              = Some (EBin BAdd (EAtom "a") (EAtom "b"), "").
+Proof. reflexivity. Qed.
+Example rt_prec : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "a") (EBin BMul (EAtom "b") (EAtom "c"))))
+               = Some (EBin BAdd (EAtom "a") (EBin BMul (EAtom "b") (EAtom "c")), "").
+Proof. reflexivity. Qed.
+Example rt_wrap : parse_expr 9 0 (print_expr 0 (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c")))
+               = Some (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c"), "").
+Proof. reflexivity. Qed.
+Example rt_leftassoc : parse_expr 9 0 (print_expr 0 (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c")))
+                     = Some (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c"), "").
+Proof. reflexivity. Qed.
+
+(** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
     (function arguments, composite-literal elements, type-argument lists, multi-return values, struct
     fields).  [go.ml] rendered these with Coq's [prlist_with_sep]; [print_sep] is the verified
