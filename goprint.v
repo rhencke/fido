@@ -1000,6 +1000,36 @@ Proof. reflexivity. Qed.
 Example rt_leftassoc : parse_expr 9 0 (print_expr 0 (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c")))
                      = Some (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c"), "").
 Proof. reflexivity. Qed.
+(** Across ALL five precedence levels and both wrap directions — the parenthesisation is recovered
+    exactly (these are the cases bracket-balance alone could not tell apart). *)
+Example rt_or_and : parse_expr 9 0 (print_expr 0 (EBin BLOr (EAtom "a") (EBin BLAnd (EAtom "b") (EAtom "c"))))
+                  = Some (EBin BLOr (EAtom "a") (EBin BLAnd (EAtom "b") (EAtom "c")), "").  (* a || b && c *)
+Proof. reflexivity. Qed.
+Example rt_and_or_wrap : parse_expr 9 0 (print_expr 0 (EBin BLAnd (EBin BLOr (EAtom "a") (EAtom "b")) (EAtom "c")))
+                       = Some (EBin BLAnd (EBin BLOr (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* (a || b) && c *)
+Proof. reflexivity. Qed.
+Example rt_cmp_arith : parse_expr 9 0 (print_expr 0 (EBin BEq (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c")))
+                     = Some (EBin BEq (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* a + b == c *)
+Proof. reflexivity. Qed.
+Example rt_shift_or : parse_expr 9 0 (print_expr 0 (EBin BOr (EBin BShl (EAtom "a") (EAtom "b")) (EAtom "c")))
+                    = Some (EBin BOr (EBin BShl (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* a << b | c *)
+Proof. reflexivity. Qed.
+Example rt_rightassoc_wrap : parse_expr 9 0 (print_expr 0 (EBin BSub (EAtom "a") (EBin BSub (EAtom "b") (EAtom "c"))))
+                           = Some (EBin BSub (EAtom "a") (EBin BSub (EAtom "b") (EAtom "c")), "").  (* a - (b - c) *)
+Proof. reflexivity. Qed.
+Example rt_sumofprods : parse_expr 12 0 (print_expr 0
+                          (EBin BAdd (EBin BMul (EAtom "a") (EAtom "b")) (EBin BMul (EAtom "c") (EAtom "d"))))
+                      = Some (EBin BAdd (EBin BMul (EAtom "a") (EAtom "b")) (EBin BMul (EAtom "c") (EAtom "d")), "").
+Proof. reflexivity. Qed.  (* a * b + c * d *)
+Example rt_prodofsums : parse_expr 12 0 (print_expr 0
+                          (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EBin BAdd (EAtom "c") (EAtom "d"))))
+                      = Some (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EBin BAdd (EAtom "c") (EAtom "d")), "").
+Proof. reflexivity. Qed.  (* (a + b) * (c + d) *)
+(** Atoms with their OWN parens/spaces (a call) — the operator inside is at paren-depth > 0, so the
+    scanner reads the whole call as one atom and the top-level " + " still splits correctly. *)
+Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "f(a, b)") (EAtom "c")))
+                     = Some (EBin BAdd (EAtom "f(a, b)") (EAtom "c"), "").  (* f(a, b) + c *)
+Proof. reflexivity. Qed.
 
 (** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
