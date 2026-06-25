@@ -1126,6 +1126,21 @@ let fw_wrap signed width inner =
     let sbit = print_hex_int (1 lsl (width - 1)) in
     str "((" ++ masked ++ str (" ^ " ^ sbit ^ ") - " ^ sbit ^ ")")
 
+(* The verified-printer [GoExpr] TREE for [fw_wrap]'s width-[w] wrap of [inner] (a [GoExpr]): mask to [w]
+   bits ([inner & 0x..]); for a SIGNED width, sign-extend via [(masked ^ 2^(w-1)) - 2^(w-1)].  Same
+   SEMANTICS as [fw_wrap], but the parenthesisation is left to the VERIFIED [Printer.print_expr]: the
+   defensive outer parens [fw_wrap] hard-codes become precedence-correct ones, and — crucially — when a
+   masked op is a binop OPERAND the operand is now a proper [EBin] of ATOMIC leaves (hex masks / the
+   structured inner) instead of a "("-led OPAQUE atom that escapes the round-trip ([atomic] would reject
+   it).  Used by [build_goexpr]; the masks are atomic hex literals. *)
+let build_fw_masked signed width inner =
+  let hexatom n = Printer.EAtom (coq_string_of_ocaml (print_hex_int n)) in
+  let masked = Printer.EBin (Printer.BAnd, inner, hexatom ((1 lsl width) - 1)) in
+  if not signed then masked
+  else
+    let sbit = hexatom (1 lsl (width - 1)) in
+    Printer.EBin (Printer.BSub, Printer.EBin (Printer.BXor, masked, sbit), sbit)
+
 let classify_float_op r =
   List.find_map
     (fun (name, op) -> if is_float_op_ref r name then Some op else None)
@@ -2731,7 +2746,19 @@ and pp_atom state env e =
    (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
-  let atom d = Printer.EAtom (coq_string_of_ocaml (Pp.string_of_ppcmds d)) in
+  (* FAIL-CLOSED (rule 2): an [EAtom] is only sound as a round-trip leaf if it is [Printer.atomic] —
+     the same predicate [print_parse_expr]'s [atomic_tree] hypothesis demands.  build_goexpr must not
+     emit an atom the theorem cannot cover (a "("-led group, a depth-0 operator); abort instead.  This
+     closes the gap the reviewer flagged: the theorem is conditional on [atomic], so the executed path
+     must enforce it, not assume it. *)
+  let atom d =
+    let s = Pp.string_of_ppcmds d in
+    let cs = coq_string_of_ocaml s in
+    match Printer.atomic cs with
+    | Printer.True  -> Printer.EAtom cs
+    | Printer.False -> unsupported (Printf.sprintf
+      "build_goexpr: a non-atomic operand would escape the verified expression round-trip: %s" s)
+  in
   match strip_magic e with
   | MLapp (h, args) ->
       let h2, all = collect_app h args in
@@ -2747,6 +2774,12 @@ and build_goexpr state env e =
             | _ ->
                 (* derive the operator (and hence its precedence/text) in Rocq — no caller-supplied prec *)
                 Printer.EBin (binop_ctor opstr, build_goexpr state env a, build_goexpr state env b))
+       (* fixed-width MASK (uN/iN lit / of_int / of_i64): structure as an [EBin] mask tree (see
+          [build_fw_masked]) rather than [pp_expr]'s defensively-parenthesised string — so a masked op
+          used as a binop OPERAND is a proper tree of atomic leaves, not an opaque "("-led atom. *)
+       | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" || fw_is r "of_i64" ->
+           let (s, w, _) = Option.get (fixed_width_op r) in
+           build_fw_masked s w (build_goexpr state env x)
        | _ -> atom (pp_expr state env e))
   | _ -> atom (pp_expr state env e)
 

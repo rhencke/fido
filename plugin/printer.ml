@@ -3,9 +3,19 @@ type bool =
 | True
 | False
 
+(** val negb : bool -> bool **)
+
+let negb = function
+| True -> False
+| False -> True
+
 type nat =
 | O
 | S of nat
+
+type 'a option =
+| Some of 'a
+| None
 
 type ('a, 'b) prod =
 | Pair of 'a * 'b
@@ -49,8 +59,23 @@ module Coq__1 = struct
 end
 include Coq__1
 
+(** val eqb : bool -> bool -> bool **)
+
+let eqb b1 b2 =
+  match b1 with
+  | True -> b2
+  | False -> (match b2 with
+              | True -> False
+              | False -> True)
+
 module Nat =
  struct
+  (** val pred : nat -> nat **)
+
+  let pred n0 = match n0 with
+  | O -> n0
+  | S u -> u
+
   (** val sub : nat -> nat -> nat **)
 
   let rec sub n0 m =
@@ -357,6 +382,27 @@ let one =
 let shift c = function
 | Ascii (a1, a2, a3, a4, a5, a6, a7, _) ->
   Ascii (c, a1, a2, a3, a4, a5, a6, a7)
+
+(** val eqb0 : ascii -> ascii -> bool **)
+
+let eqb0 a b =
+  let Ascii (a0, a1, a2, a3, a4, a5, a6, a7) = a in
+  let Ascii (b0, b1, b2, b3, b4, b5, b6, b7) = b in
+  (match match match match match match match eqb a0 b0 with
+                                       | True -> eqb a1 b1
+                                       | False -> False with
+                                 | True -> eqb a2 b2
+                                 | False -> False with
+                           | True -> eqb a3 b3
+                           | False -> False with
+                     | True -> eqb a4 b4
+                     | False -> False with
+               | True -> eqb a5 b5
+               | False -> False with
+         | True -> eqb a6 b6
+         | False -> False with
+   | True -> eqb a7 b7
+   | False -> False)
 
 (** val ascii_of_pos : positive -> ascii **)
 
@@ -770,6 +816,19 @@ let rec print_ty = function
       (append (String ((Ascii (True, False, True, True, True, False, True,
         False)), EmptyString)) (print_ty v)))
 | GTNamed n0 -> n0
+
+(** val strip : string -> string -> string option **)
+
+let rec strip p s =
+  match p with
+  | EmptyString -> Some s
+  | String (pc, p') ->
+    (match s with
+     | EmptyString -> None
+     | String (sc, s') ->
+       (match eqb0 pc sc with
+        | True -> strip p' s'
+        | False -> None))
 
 (** val dec_digit : nat -> ascii **)
 
@@ -1199,6 +1258,228 @@ let rec print_expr ctx = function
        (append inner (String ((Ascii (True, False, False, True, False, True,
          False, False)), EmptyString)))
    | False -> inner)
+
+(** val op_order : binOp list **)
+
+let op_order =
+  Cons (BShl, (Cons (BShr, (Cons (BAndNot, (Cons (BLAnd, (Cons (BLOr, (Cons
+    (BEq, (Cons (BNe, (Cons (BLe, (Cons (BGe, (Cons (BMul, (Cons (BDiv, (Cons
+    (BRem, (Cons (BAnd, (Cons (BAdd, (Cons (BSub, (Cons (BOr, (Cons (BXor,
+    (Cons (BLt, (Cons (BGt, Nil)))))))))))))))))))))))))))))))))))))
+
+(** val op_match_in : binOp list -> string -> (binOp, string) prod option **)
+
+let rec op_match_in tbl s =
+  match tbl with
+  | Nil -> None
+  | Cons (o, tl) ->
+    (match strip (binop_text o) s with
+     | Some r -> Some (Pair (o, r))
+     | None -> op_match_in tl s)
+
+(** val op_match : string -> (binOp, string) prod option **)
+
+let op_match s =
+  op_match_in op_order s
+
+(** val is_space : ascii -> bool **)
+
+let is_space c =
+  eqb0 c
+    (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S O)))))))))))))))))))))))))))))))))
+
+(** val is_op_char : ascii -> bool **)
+
+let is_op_char c =
+  let n0 = nat_of_ascii c in
+  (match match match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S
+                       O)))))))))))))))))))))))))))))))))))))))))) with
+               | True -> True
+               | False ->
+                 Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))) with
+         | True -> True
+         | False ->
+           (match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S O))))))))))))))))))))))))))))))))))))) with
+            | True -> True
+            | False ->
+              Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+   | True -> True
+   | False ->
+     (match match match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                  | True -> True
+                  | False ->
+                    Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S O)))))))))))))))))))))))))))))))))))))) with
+            | True -> True
+            | False ->
+              (match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S
+                       O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+               | True -> True
+               | False ->
+                 Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S
+                   O)))))))))))))))))))))))))))))))))))))))))))) with
+      | True -> True
+      | False ->
+        (match match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S
+                       O))))))))))))))))))))))))))))))))))))))))))))) with
+               | True -> True
+               | False ->
+                 Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+         | True -> True
+         | False ->
+           (match Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S
+                    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+            | True -> True
+            | False ->
+              Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                O)))))))))))))))))))))))))))))))))))))
+
+(** val is_bopen : ascii -> bool **)
+
+let is_bopen c =
+  match match eqb0 c
+                (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S O))))))))))))))))))))))))))))))))))))))))) with
+        | True -> True
+        | False ->
+          eqb0 c
+            (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S
+              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+  | True -> True
+  | False ->
+    eqb0 c
+      (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S
+        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val is_bclose : ascii -> bool **)
+
+let is_bclose c =
+  match match eqb0 c
+                (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S O)))))))))))))))))))))))))))))))))))))))))) with
+        | True -> True
+        | False ->
+          eqb0 c
+            (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S
+              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+  | True -> True
+  | False ->
+    eqb0 c
+      (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val is_open : ascii -> bool **)
+
+let is_open c =
+  eqb0 c
+    (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      O)))))))))))))))))))))))))))))))))))))))))
+
+(** val opens : string -> bool **)
+
+let opens s =
+  match op_match s with
+  | Some _ -> True
+  | None -> False
+
+(** val op_after : string -> bool **)
+
+let op_after = function
+| EmptyString -> False
+| String (c, _) -> is_op_char c
+
+(** val atomic_from : nat -> string -> bool **)
+
+let rec atomic_from d = function
+| EmptyString -> Nat.eqb d O
+| String (c, s') ->
+  (match match Nat.eqb d O with
+         | True ->
+           (match match opens (String (c, s')) with
+                  | True -> True
+                  | False -> is_bclose c with
+            | True -> True
+            | False ->
+              (match is_space c with
+               | True -> op_after s'
+               | False -> False))
+         | False -> False with
+   | True -> False
+   | False ->
+     atomic_from
+       (match is_bopen c with
+        | True -> S d
+        | False -> (match is_bclose c with
+                    | True -> Nat.pred d
+                    | False -> d))
+       s')
+
+(** val atomic : string -> bool **)
+
+let atomic s = match s with
+| EmptyString -> False
+| String (c, _) ->
+  (match negb (is_open c) with
+   | True -> atomic_from O s
+   | False -> False)
 
 (** val print_sep : string -> string list -> string **)
 

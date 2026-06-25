@@ -3,9 +3,15 @@ type bool =
 | True
 | False
 
+val negb : bool -> bool
+
 type nat =
 | O
 | S of nat
+
+type 'a option =
+| Some of 'a
+| None
 
 type ('a, 'b) prod =
 | Pair of 'a * 'b
@@ -30,8 +36,12 @@ type 'a sig0 = 'a
 
 val add : nat -> nat -> nat
 
+val eqb : bool -> bool -> bool
+
 module Nat :
  sig
+  val pred : nat -> nat
+
   val sub : nat -> nat -> nat
 
   val eqb : nat -> nat -> bool
@@ -119,6 +129,8 @@ val one : ascii
 
 val shift : bool -> ascii -> ascii
 
+val eqb0 : ascii -> ascii -> bool
+
 val ascii_of_pos : positive -> ascii
 
 val ascii_of_N : n -> ascii
@@ -201,6 +213,8 @@ type goTy =
 
 val print_ty : goTy -> string
 
+val strip : string -> string -> string option
+
 val dec_digit : nat -> ascii
 
 val z_digits : nat -> z -> string -> string
@@ -255,5 +269,29 @@ type goExpr =
 | EBin of binOp * goExpr * goExpr
 
 val print_expr : nat -> goExpr -> string
+
+val op_order : binOp list
+
+val op_match_in : binOp list -> string -> (binOp, string) prod option
+
+val op_match : string -> (binOp, string) prod option
+
+val is_space : ascii -> bool
+
+val is_op_char : ascii -> bool
+
+val is_bopen : ascii -> bool
+
+val is_bclose : ascii -> bool
+
+val is_open : ascii -> bool
+
+val opens : string -> bool
+
+val op_after : string -> bool
+
+val atomic_from : nat -> string -> bool
+
+val atomic : string -> bool
 
 val print_sep : string -> string list -> string

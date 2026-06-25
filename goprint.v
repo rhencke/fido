@@ -1933,4 +1933,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic.
