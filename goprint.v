@@ -1242,8 +1242,11 @@ Qed.
 
 (** The per-tree round-trip property, abbreviated so it can be carried as a hypothesis for sub-trees
     (operands) inside the spine-fold lemma below. *)
+(** Fuel budget [3*esize e + 2 < F]: the [+2] is the slack a WRAPPED [e] needs (its "(" + inner parse
+    cost 2 fuel over the unwrapped parse it reduces to); the [3*] covers the left spine, whose length plus
+    operand sizes together make up [esize e] — see [lspine_fuel3]. *)
 Definition Pexpr (e : GoExpr) : Prop :=
-  forall k ctx rest F, k <= ctx -> tail_ok k rest -> esize e < F ->
+  forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e + 2 < F ->
     parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest).
 
 (** A LEFT-LEANING spine, as a base operand and a list of (operator, right-operand) pairs printed in
@@ -1256,7 +1259,7 @@ Fixpoint print_pairs (ps : list (BinOp * GoExpr)) : string :=
 Fixpoint fold_pairs (base : GoExpr) (ps : list (BinOp * GoExpr)) : GoExpr :=
   match ps with [] => base | (o, r) :: ps' => fold_pairs (EBin o base r) ps' end.
 Fixpoint pairs_fuel (ps : list (BinOp * GoExpr)) : nat :=
-  match ps with [] => 1 | (_, r) :: ps' => S (esize r + pairs_fuel ps') end.
+  match ps with [] => 1 | (_, r) :: ps' => S (3 * esize r + 2 + pairs_fuel ps') end.
 (** Climb-readiness: every operator binds at precedence [>= k], consecutive operators are NON-increasing
     (left-associativity — so each right operand's parse stops before the next operator), and every right
     operand already round-trips ([Pexpr]). *)
@@ -1357,6 +1360,259 @@ Proof.
     + inversion H; subst. reflexivity.
 Qed.
 
+(** [spine_ok] tolerates a LOWER climb level (more operators qualify), and accepts an operator [o]
+    appended at the spine end when the existing spine already binds at [>= prec o] (the junction is
+    non-increasing because every spine operator is [>= prec o]). *)
+Lemma spine_ok_weaken : forall ps k k', spine_ok k ps -> k' <= k -> spine_ok k' ps.
+Proof.
+  induction ps as [ | [o r] ps' IH ]; intros k k' H Hle; cbn in *; [ exact I | ].
+  destruct H as [ Hk [ Hpr [ Hnext Hsp' ] ] ].
+  split; [ lia | split; [ exact Hpr | split; [ exact Hnext | apply (IH k); assumption ] ] ].
+Qed.
+
+Lemma spine_ok_snoc : forall ps o r, spine_ok (binop_prec o) ps -> Pexpr r ->
+  spine_ok (binop_prec o) (ps ++ [(o, r)])%list.
+Proof.
+  induction ps as [ | [o1 r1] ps' IH ]; intros o r Hsp Hpr.
+  - cbn. split; [ lia | split; [ exact Hpr | split; exact I ] ].
+  - cbn [app spine_ok] in *. destruct Hsp as [ Hk1 [ Hpr1 [ Hnext1 Hsp1 ] ] ].
+    split; [ exact Hk1 | split; [ exact Hpr1 | split ] ].
+    + destruct ps' as [ | [o2 r2] ps'' ]; cbn [app]; [ exact Hk1 | exact Hnext1 ].
+    + apply IH; [ exact Hsp1 | exact Hpr ].
+Qed.
+
+(** [spine_ok] of the decomposed spine: every operator binds at [>= fl], consecutive operators are
+    non-increasing, and every right operand round-trips (the last via the strong IH, the rest via the
+    structural IH on [l]).  This is where the per-operand [Pexpr] obligations are discharged. *)
+Lemma lspine_spine_ok : forall e fl bfl base ps,
+  (forall e', esize e' < esize e -> wf e' -> atomic_tree e' -> Pexpr e') ->
+  wf e -> atomic_tree e -> lspine fl e = (bfl, base, ps) -> spine_ok fl ps.
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps Hsih Hwf Hat H.
+  - cbn in H. inversion H; subst. exact I.
+  - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
+    destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst.
+      apply (spine_ok_weaken _ (binop_prec o)); [ | apply Nat.leb_le; exact Eleb ].
+      apply spine_ok_snoc.
+      * eapply IHl; [ | exact Hwl | exact Hal | exact El ].
+        intros e' He' We Ae. apply Hsih; [ cbn; lia | exact We | exact Ae ].
+      * apply Hsih; [ cbn; lia | exact Hwr | exact Har ].
+    + inversion H; subst. exact I.
+Qed.
+
+(** Appending one [(o,r)] to a spine adds exactly [S (esize r)] fuel; hence base size and spine fuel
+    partition [S (esize e)] — so [esize e < F] alone bounds BOTH the base parse and the spine fold. *)
+Lemma pairs_fuel_snoc : forall ps o r, pairs_fuel (ps ++ [(o, r)])%list = pairs_fuel ps + (3 * esize r + 3).
+Proof.
+  induction ps as [ | [o1 r1] ps' IH ]; intros o r; cbn [app pairs_fuel]; [ lia | rewrite IH; lia ].
+Qed.
+
+Lemma esize_pos : forall e, 1 <= esize e.
+Proof. induction e as [ | o l IHl r IHr ]; cbn [esize]; lia. Qed.
+
+(** The crucial fuel accounting: base size and spine fuel partition exactly [S (3*esize e)].  Each spine
+    pair [(o, r)] contributes [3*esize r + 3] (operand budget [3*esize r] + 2 wrap slack + 1 climb step),
+    and [esize base + sum(esize r) + length = esize e] — so [3*esize base + pairs_fuel ps = 3*esize e + 1].
+    Hence [pairs_fuel ps <= 3*esize e - 2] (base parse) and [3*esize base <= 3*esize e - 6] (spine fold)
+    both sit under the [3*esize e] budget. *)
+Lemma lspine_fuel3 : forall e fl bfl base ps,
+  lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (3 * esize e).
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
+  - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst. clear H. rewrite pairs_fuel_snoc.
+      pose proof (IHl _ _ _ _ El) as IH. cbn [esize]. lia.
+    + inversion H; subst. cbn [esize pairs_fuel]. lia.
+Qed.
+
+(** The base prints as a PRIMARY at its floor [bfl] (an atom, or an [EBin] wrapped because [bfl] exceeds
+    its operator precedence) and is well-formed / atomic — so [parse_primary] reads it. *)
+Lemma lspine_base : forall e fl bfl base ps,
+  lspine fl e = (bfl, base, ps) -> wf e -> atomic_tree e ->
+  wf base /\ atomic_tree base /\
+  match base with EAtom _ => True | EBin o' _ _ => binop_prec o' < bfl end.
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H Hwf Hat.
+  - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
+    split; [ exact Hwf | split; [ exact Hat | exact I ] ].
+  - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
+    destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst. clear H. apply (IHl _ _ _ _ El Hwl Hal).
+    + inversion H; subst. cbn [wf atomic_tree].
+      repeat split; [ exact Hwl | exact Hwr | exact Hal | exact Har | ].
+      apply Nat.leb_gt in Eleb. exact Eleb.
+Qed.
+
+Lemma lspine_base_le : forall e fl bfl base ps, lspine fl e = (bfl, base, ps) -> esize base <= esize e.
+Proof.
+  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  - cbn in H. inversion H; subst. cbn [esize]. lia.
+  - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
+    + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
+      inversion H; subst. pose proof (IHl _ _ _ _ El). cbn [esize]. lia.
+    + inversion H; subst. cbn [esize]. lia.
+Qed.
+
+(** [parse_primary] on a "(" reads the parenthesised sub-expression (parses it at level 0, demands the
+    closing ")"). *)
+Lemma parse_primary_paren : forall f X, parse_primary (S f) ("(" ++ X)%string =
+  match parse_expr f 0 X with
+  | Some (e, s1) => match s1 with String c1 s2 => if is_close c1 then Some (e, s2) else None
+                    | EmptyString => None end
+  | None => None end.
+Proof. intros f X. rewrite parse_primary_S. cbn [append]. reflexivity. Qed.
+
+(** A string at which [op_match] fires is a good seam (it is non-empty and operator-led). *)
+Lemma good_seam_opens : forall s, opens s = true -> good_seam s = true.
+Proof.
+  intros s H. destruct s as [ | c s' ]; [ unfold opens in H; cbn in H; discriminate | ].
+  unfold good_seam. rewrite H. reflexivity.
+Qed.
+
+(** A printed non-empty spine, followed by anything, is operator-led — hence a good seam for the base
+    scan that precedes it. *)
+Lemma good_seam_pairs : forall ps rest, ps <> [] -> good_seam (print_pairs ps ++ rest) = true.
+Proof.
+  intros ps rest H. destruct ps as [ | [o r] ps' ]; [ contradiction | ].
+  apply good_seam_opens. unfold opens. cbn [print_pairs]. rewrite !sapp_assoc, op_match_binop. reflexivity.
+Qed.
+
+(** [parse_primary] reads the decomposed base EXACTLY: an atom via [scan_atom], a wrapped sub-tree via
+    the paren rule and its own round-trip ([Pexpr]).  [S (2*esize base) < F] gives the one extra unit the
+    "(" consumes before the inner parse. *)
+Lemma parse_primary_base : forall base bfl TAIL F,
+  wf base -> atomic_tree base -> Pexpr base ->
+  match base with EAtom _ => True | EBin o' _ _ => binop_prec o' < bfl end ->
+  good_seam TAIL = true -> 3 * esize base + 3 < F ->
+  parse_primary F (print_expr bfl base ++ TAIL)%string = Some (base, TAIL).
+Proof.
+  intros base bfl TAIL F Hwf Hat Hpr Hprim Hgs HF.
+  destruct base as [ s | o' l' r' ].
+  - (* EAtom s *) cbn [print_expr]. cbn [atomic_tree] in Hat.
+    destruct F as [ | f ]; [ cbn in HF; lia | ].
+    destruct s as [ | c s' ]; [ cbn in Hat; discriminate | ].
+    rewrite parse_primary_S.
+    assert (Hopen : is_open c = false).
+    { unfold atomic in Hat. apply andb_true_iff in Hat. destruct Hat as [ Hno _ ].
+      apply negb_true_iff in Hno. exact Hno. }
+    cbn [append]. rewrite Hopen.
+    assert (Hscan : scan_atom 0 ((String c s') ++ TAIL)%string = (String c s', TAIL))
+      by (apply scan_atom_correct; [ exact Hat | exact Hgs ]).
+    change ((String c s') ++ TAIL)%string with (String c (s' ++ TAIL))%string in Hscan.
+    rewrite Hscan. reflexivity.
+  - (* EBin o' l' r' : wrapped at bfl since binop_prec o' < bfl *)
+    assert (Hwrap : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
+    rewrite (print_expr_wrapped o' l' r' bfl Hwrap).
+    destruct F as [ | f ]; [ cbn in HF; lia | ].
+    rewrite sapp_assoc, parse_primary_paren, sapp_assoc.
+    assert (Hpo : Nat.ltb (binop_prec o') (binop_prec o') = false) by (apply Nat.ltb_ge; lia).
+    rewrite <- (print_expr_unwrapped o' l' r' (binop_prec o') Hpo).
+    assert (Htl0 : tail_ok 0 (")" ++ TAIL)%string).
+    { right; left. exists ")"%char, TAIL. split; [ cbn [append]; reflexivity | reflexivity ]. }
+    rewrite (Hpr 0 (binop_prec o') (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
+    cbn [append]. reflexivity.
+Qed.
+
+(** THE UNIVERSAL ROUND-TRIP — by strong induction on tree size.  [Hunwr] proves the cases where [e]
+    prints UNWRAPPED at [ctx] (an atom, or an [EBin] with [ctx <= prec]); the dispatch below sends an
+    atom and the unwrapped [EBin] straight to it, and a WRAPPED [EBin] (prec < ctx) — whose text is
+    "(" ++ (e printed unwrapped at prec) ++ ")" — through the paren rule to [Hunwr] at the SAME [e].  No
+    circularity: [Hunwr] recurses only into strictly smaller sub-trees (operands and base) via the IH. *)
+Lemma print_parse_expr_n : forall n e, esize e <= n -> wf e -> atomic_tree e -> Pexpr e.
+Proof.
+  induction n as [ | n IH ]; intros e Hsz Hwf Hat; [ destruct e; cbn [esize] in Hsz; lia | ].
+  assert (Hunwr : forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e < F ->
+            match e with EAtom _ => True | EBin o _ _ => ctx <= binop_prec o end ->
+            parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest)).
+  { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r ].
+    - (* EAtom s *) cbn [print_expr]. cbn [atomic_tree] in Hat.
+      destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
+      destruct s as [ | c s' ]; [ cbn in Hat; discriminate | ].
+      destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
+      rewrite parse_expr_S.
+      assert (Hopen : is_open c = false).
+      { unfold atomic in Hat. apply andb_true_iff in Hat. destruct Hat as [ Hno _ ].
+        apply negb_true_iff in Hno. exact Hno. }
+      assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
+      assert (Hpp : parse_primary (S f1) ((String c s') ++ rest)%string = Some (EAtom (String c s'), rest)).
+      { rewrite parse_primary_S. cbn [append]. rewrite Hopen.
+        assert (Hscan : scan_atom 0 ((String c s') ++ rest)%string = (String c s', rest))
+          by (apply scan_atom_correct; [ exact Hat | exact Hgs ]).
+        change ((String c s') ++ rest)%string with (String c (s' ++ rest))%string in Hscan.
+        rewrite Hscan. reflexivity. }
+      rewrite Hpp. apply tail_ok_climb_stop. exact Htl.
+    - (* EBin o l r, unwrapped: Hctx : ctx <= binop_prec o *)
+      assert (Hleb : Nat.leb ctx (binop_prec o) = true) by (apply Nat.leb_le; exact Hctx).
+      destruct (lspine (binop_prec o) l) as [ [ bfl base ] ps0 ] eqn:El.
+      assert (Els : lspine ctx (EBin o l r) = (bfl, base, (ps0 ++ [(o, r)])%list))
+        by (cbn [lspine]; rewrite Hleb, El; reflexivity).
+      pose proof (lspine_fold _ _ _ _ _ Els) as Hfold.
+      destruct (lspine_base _ _ _ _ _ Els Hwf Hat) as [ Hwb [ Hab Hprim ] ].
+      pose proof (lspine_fuel3 _ _ _ _ _ Els) as Hf3.
+      pose proof (lspine_base_le _ _ _ _ _ El) as Hble.
+      pose proof (pairs_fuel_snoc ps0 o r) as Hpfs.
+      pose proof (pairs_fuel_pos ps0) as Hpp0. pose proof (esize_pos r) as Her.
+      pose proof (esize_pos base) as Heb.
+      assert (HPbase : Pexpr base) by (apply (IH base); [ cbn [esize] in Hsz; lia | exact Hwb | exact Hab ]).
+      assert (Hspine : spine_ok k (ps0 ++ [(o, r)])%list).
+      { apply (spine_ok_weaken _ ctx); [ | exact Hk ].
+        eapply lspine_spine_ok; [ | exact Hwf | exact Hat | exact Els ].
+        intros e' He' We Ae. apply (IH e'); [ lia | exact We | exact Ae ]. }
+      rewrite (lspine_print _ _ _ _ _ Els), sapp_assoc.
+      destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
+      assert (Hpp : parse_primary f0 (print_expr bfl base ++ (print_pairs (ps0 ++ [(o, r)]) ++ rest))%string
+                  = Some (base, print_pairs (ps0 ++ [(o, r)]) ++ rest)).
+      { apply parse_primary_base;
+          [ exact Hwb | exact Hab | exact HPbase | exact Hprim
+          | apply good_seam_pairs; destruct ps0; discriminate
+          | cbn [esize] in HF, Hf3; rewrite Hpfs in Hf3; lia ]. }
+      rewrite parse_expr_S, Hpp.
+      change (parse_climb f0 k base (print_pairs (ps0 ++ [(o, r)]) ++ rest) = Some (EBin o l r, rest)).
+      rewrite (parse_climb_pairs (ps0 ++ [(o, r)]) k base rest f0 Hspine Htl
+                 ltac:(cbn [esize] in HF, Hf3; rewrite Hpfs in Hf3; lia)).
+      rewrite Hfold. reflexivity. }
+  unfold Pexpr. intros k ctx rest F Hk Htl HF.
+  destruct e as [ s | o l r ].
+  - apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
+  - destruct (Nat.ltb (binop_prec o) ctx) eqn:Ewrap.
+    + (* wrapped *)
+      rewrite (print_expr_wrapped o l r ctx Ewrap).
+      destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
+      destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
+      assert (Hpo : Nat.ltb (binop_prec o) (binop_prec o) = false) by (apply Nat.ltb_ge; lia).
+      assert (Htl0 : tail_ok 0 (")" ++ rest)%string)
+        by (right; left; exists ")"%char, rest; split; [ cbn [append]; reflexivity | reflexivity ]).
+      assert (Hpp_w : parse_primary (S f1)
+                (("(" ++ (print_expr (binop_prec o) l ++ binop_text o ++ print_expr (S (binop_prec o)) r) ++ ")") ++ rest)%string
+              = Some (EBin o l r, rest)).
+      { rewrite sapp_assoc, parse_primary_paren, sapp_assoc.
+        rewrite <- (print_expr_unwrapped o l r (binop_prec o) Hpo).
+        rewrite (Hunwr 0 (binop_prec o) (")" ++ rest)%string f1 (Nat.le_0_l _) Htl0
+                   ltac:(cbn [esize] in HF |- *; lia) (Nat.le_refl _)).
+        cbn [append]. reflexivity. }
+      rewrite parse_expr_S, Hpp_w.
+      change (parse_climb (S f1) k (EBin o l r) rest = Some (EBin o l r, rest)).
+      apply tail_ok_climb_stop. exact Htl.
+    + (* unwrapped *)
+      apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia
+                   | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
+Qed.
+
+(** The headline: every well-formed expression with [atomic] atoms round-trips — [print_expr] emits text
+    that parses BACK to the SAME tree (precedence-correct, not merely balanced). *)
+Theorem print_parse_expr : forall e, wf e -> atomic_tree e ->
+  parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
+Proof.
+  intros e Hwf Hat.
+  rewrite <- (sapp_nil_r (print_expr 0 e)).
+  apply (print_parse_expr_n (esize e) e (le_n _) Hwf Hat); [ lia | left; reflexivity | lia ].
+Qed.
+
 (** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
     (function arguments, composite-literal elements, type-argument lists, multi-return values, struct
@@ -1411,6 +1667,7 @@ Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
 Print Assumptions print_expr_balanced.
+Print Assumptions print_parse_expr.
 Print Assumptions print_sep_balanced.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
