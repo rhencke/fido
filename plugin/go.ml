@@ -405,7 +405,17 @@ let is_ptr_get_ok_ref = named "ptr_get_ok"   (* safe (nil-checked) deref, CPS *)
    shares the same field-cell substrate and pointer lowering as the homogeneous SPtr/SPtr3,
    only the field TYPES differ.  Its [Tglob] carries 3 type args ([R; A; B]) vs SPtr's 1, so
    the record-type extractors below take the FIRST arg ([arg :: _]). *)
-let is_sptr_type r = from_builtins r && (let n = global_basename r in n = "SPtr" || n = "SPtr3" || n = "SPtrH")
+let is_sptr_type r = from_builtins r && (let n = global_basename r in n = "SPtr" || n = "SPtr3" || n = "SPtrH" || n = "GSPtr")
+(* The GENERIC struct pointer ([GSPtr R] over the arity-generic [StructRep R ts]) — replaces the
+   arity-specific SPtr/SPtr3/SPtrH.  Field access is by the typed de Bruijn index [m] ([mem_depth m]
+   slot); the backend names the field by the COHERENCE-PINNED projection arg ([proj = mem_get m . sr_to]
+   — so slot and name cannot disagree, review #8/#9).  [GSPtr] is already in [is_sptr_type] (→ [*R]). *)
+let is_gsptr_new_ref r       = from_builtins r && global_basename r = "gsptr_new"
+let is_gsptr_deref_ref r     = from_builtins r && global_basename r = "gsptr_deref"
+let is_gsptr_assign_ref r    = from_builtins r && global_basename r = "gsptr_assign"
+let is_gsptr_get_field_ref r = from_builtins r && global_basename r = "gsptr_get_field"
+let is_gsptr_set_field_ref r = from_builtins r && global_basename r = "gsptr_set_field"
+let is_gstruct_eqb_ref r     = from_builtins r && global_basename r = "gstruct_eqb"
 let is_sptr_new_ref r       = from_builtins r && (let n = global_basename r in n = "sptr_new"       || n = "sptr3_new"       || n = "sptrh_new")
 let is_sptr_deref_ref r     = from_builtins r && (let n = global_basename r in n = "sptr_deref"     || n = "sptr3_deref"     || n = "sptrh_deref")
 let is_sptr_get_field_ref r = from_builtins r && (let n = global_basename r in n = "sptr_get_field" || n = "sptr3_get_field" || n = "sptrh_get_field")
@@ -426,6 +436,17 @@ let is_sptr_machinery r =          (* every proof-side struct-pointer name → s
      "sph_base"; "sph_rep"; "mkSR2H"; "sr2h_f0"; "sr2h_f1"; "sr2h_ta"; "sr2h_tb"; "sr2h_mk"; "sr2h_eta";
      (* Bs.1 field-cell substrate (proof-only; dragged in by the sptr op bodies) *)
      "hfield_cell"; "hfield_get"; "hfield_set"; "mkHStruct"; "hs_base"]
+(* GENERIC arity-free struct rep (replaces SPtr/StructRep2/3/2H): every proof-side name → suppress decl.
+   The ops lower by name ([gsptr_*]/[gstruct_eqb]); the carrier ([Tup]/[Mem]/[TagTup]/[EqTup]/[StructRep]),
+   the index ops ([mem_get]/[mem_depth]/[mem_tag], [MHere]/[MNext]), the iso/tags, the field-fold
+   ([write_fields]/[read_fields]/[wr_fields]) and the eq machinery are all proof-only. *)
+let is_gsptr_machinery r =
+  List.mem (global_basename r)
+    ["gsptr_new"; "gsptr_deref"; "gsptr_assign"; "gsptr_get_field"; "gsptr_set_field";
+     "gsptr_hs"; "mkGSPtr"; "gsp_base"; "gstruct_eqb"; "gfield_coh";
+     "mkSR"; "sr_tags"; "sr_to"; "sr_from"; "sr_eta"; "srep_ts"; "srep_rep";
+     "MHere"; "MNext"; "mem_get"; "mem_depth"; "mem_tag";
+     "write_fields"; "read_fields"; "wr_fields"; "tup_eqb"; "EqTupOk"; "hfield_cell_loc"]
 (* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
 let is_sliceh_type = named "SliceH"
 let is_slice_make_h_ref = named "slice_make_h"
@@ -699,6 +720,8 @@ let is_erased_record_typename s =
   || String.equal s "SPtrH" || String.equal s "StructRep2H" (* heterogeneous 2-field variant *)
   || String.equal s "StructRep2Of" || String.equal s "StructRep3Of"
   || String.equal s "StructRep2HOf"  (* canonical-rep typeclasses (review #6 #10(b)): single-field, proof-only *)
+  || String.equal s "GSPtr" || String.equal s "StructRep" || String.equal s "StructRepOf"
+  || String.equal s "Mem" || String.equal s "Tup" || String.equal s "TagTup" || String.equal s "EqTup"  (* GENERIC arity-free struct rep: nested-product carrier + typed de Bruijn index, all proof-only *)
   || String.equal s "GoArray"   (* fixed-size array (B4): size-erased; ops recognized by name *)
   || arr_n_of_name "GoArr" "" s <> None    (* GoArr<N>: fixed-size [N]T array, rendered [N]T, ops by name *)
   || String.equal s "FConst"    (* untyped float constant: folds to a Go float literal, never a struct *)
@@ -1885,6 +1908,31 @@ let rec pp_expr state env = function
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a struct-pointer field write whose field arg is not a projection") in
            pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
+       (* GENERIC struct pointer (arity-generic [StructRep R ts]).  The leading [_dict] is the
+          [StructRepOf R] instance (proof-side, stripped).  [gsptr_new dict v] → [&v];
+          [gsptr_deref dict p] → [*p]; [gsptr_assign dict p v] → [*p = v].  Field access carries the
+          typed index [_m] (model slot, stripped here) and the COHERENCE-PINNED [proj] that NAMES the
+          field ([coh] is erased); the backend emits [p.<proj field>], exactly as for the value [x.Field]
+          and the old SPtr — and [coh] guarantees that name is the slot [_m] denotes (review #8/#9). *)
+       | MLglob r, [_dict; v] when is_gsptr_new_ref r ->
+           str "&" ++ pp_atom state env v
+       | MLglob r, [_dict; p] when is_gsptr_deref_ref r ->
+           str "*" ++ pp_atom state env p
+       | MLglob r, [_dict; p; v] when is_gsptr_assign_ref r ->
+           str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
+       | MLglob r, [_dict; _m; proj; p] when is_gsptr_get_field_ref r ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a generic struct-pointer field read whose proj arg is not a record projection") in
+           pp_atom state env p ++ str "." ++ str fld
+       | MLglob r, [_dict; _m; proj; p; v] when is_gsptr_set_field_ref r ->
+           let fld = (match strip_magic proj with
+             | MLglob rp when is_record_proj rp -> proj_field_name rp
+             | _ -> unsupported "a generic struct-pointer field write whose proj arg is not a record projection") in
+           pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
+       (* generic struct structural equality → Go [a == b] (strip the rep + per-field eqb dicts) *)
+       | MLglob r, [_rep; _eqs; a; b] when is_gstruct_eqb_ref r ->
+           str "(" ++ pp_atom state env a ++ str " == " ++ pp_atom state env b ++ str ")"
        (* a TYPED nil pointer conversion to *T — so a [p != nil] comparison (in the
           safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)
        | MLglob r, [tag] when is_ptr_nil_ref r ->
@@ -4414,8 +4462,11 @@ let is_inlined_ref r =
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
   is_ptr_nil_ref r || is_ptr_nil_tf_ref r || is_ptr_as_ref_ref r || is_ref_as_ptr_ref r || is_ptr_get_ok_ref r ||
   is_sptr_machinery r ||   (* struct-pointer ops + StructRep/SPtr proof-side machinery *)
+  is_gsptr_machinery r ||  (* GENERIC arity-free struct rep machinery (replaces the arity-specific trio) *)
+  String.equal (global_basename r) "length" ||  (* Coq [Datatypes.length]: dragged in ONLY by [gsptr_new]'s proof-only allocator bump (the call lowers to [&v]); no reachable caller, dead decl *)
   str_prefix "StructRep2Of" (global_basename r) || str_prefix "StructRep3Of" (global_basename r) ||
   str_prefix "StructRep2HOf" (global_basename r) ||  (* canonical-rep typeclass + its instances (review #6 #10(b)) *)
+  str_prefix "StructRepOf" (global_basename r) ||  (* the generic canonical-rep typeclass + its per-record instances *)
   is_sliceh_type r || is_slice_make_h_ref r || is_slice_idx_get_ref r ||
   is_slice_idx_set_ref r || is_subslice_ref r || String.equal (global_basename r) "subslice_desc" || is_slice_append_h_ref r ||
   is_slice_make_lc_ref r || is_slice_clear_h_ref r || is_slice_copy_ref r ||

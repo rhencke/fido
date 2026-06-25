@@ -2644,6 +2644,29 @@ Definition sptr_demo : IO unit :=
   bind (sptr_get_field p 1 cy TI64 cell_f1) (fun b =>            (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
+(** GENERIC struct rep (review #8/#9): the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
+    machinery, replacing [StructRep2]/[StructRep3]/[StructRep2H].  Same heap-backed [*GCell], but a
+    field is the SINGLE typed index ([MHere]/[MNext]); the named projection ([gca]/[gcb]) is PINNED to
+    it by [gfield_coh] ([= eq_refl]: the index denotes exactly that projection), so a slot can never
+    name the wrong field.  Lowers to the same native Go: [&GCell{…}], [*p], [p.Gca = v], [p.Gca]. *)
+Record GCell := MkGCell { gca : GoI64 ; gcb : GoI64 }.
+#[local] Instance StructRepOf_GCell : StructRepOf GCell := {|
+  srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: nil ;
+  srep_rep := @mkSR GCell ((GoI64 : Type) :: (GoI64 : Type) :: nil)
+                (TI64, (TI64, tt))
+                (fun v => (gca v, (gcb v, tt)))
+                (fun t => MkGCell (fst t) (fst (snd t)))
+                (fun v => match v with MkGCell a b => eq_refl end) |}.
+Definition gca_coh : gfield_coh (R:=GCell) MHere gca := eq_refl.
+Definition gcb_coh : gfield_coh (R:=GCell) (MNext MHere) gcb := eq_refl.
+Definition gcell_demo : IO unit :=
+  bind (gsptr_new (MkGCell (30)%i64 (40)%i64)) (fun p =>           (* p := &GCell{30,40} *)
+  bind (gsptr_set_field MHere gca gca_coh p (99)%i64) (fun _ =>    (* p.Gca = 99 (mutate through *p) *)
+  bind (gsptr_deref p) (fun v =>                                   (* v := *p → GCell{99,40} *)
+  bind (gsptr_assign p (MkGCell (1)%i64 (2)%i64)) (fun _ =>        (* *p = GCell{1,2} *)
+  bind (gsptr_get_field (MNext MHere) gcb gcb_coh p) (fun b =>     (* b := p.Gcb → 2 *)
+  println [any (gca v); any b]))))).                              (* prints: 99 2 *)
+
 (** POINTER-RECEIVER method (Phase B2): a method whose first param is [SPtr Cell] (a
     [*Cell]) and MUTATES the receiver.  The plugin detects the [SPtr (record)] first
     param → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] → [p.Cell_incx()]),
@@ -3355,6 +3378,7 @@ Definition main_effect : IO unit :=
   struct_eq_native_demo         >>'   (* prints: true false (native p == q operator) *)
   nested_struct_demo            >>'   (* prints: 5 9 (nested struct fields) *)
   sptr_demo                     >>'   (* prints: 7 4 (mutable *Cell through a pointer) *)
+  gcell_demo                    >>'   (* prints: 99 2 (generic arity-free StructRep: *GCell, typed-index fields) *)
   ptr_method_demo               >>'   (* prints: 11 (pointer-receiver method mutates *Cell) *)
   ptr_method_expr_demo          >>'   (* prints: 6 (pointer-receiver method expression) *)
   node_embed_demo               >>'   (* prints: 11 99 (embedded *Cell: promoted pointer-method through the pointer) *)

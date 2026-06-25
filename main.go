@@ -76,6 +76,9 @@ func Ceqb[T1 comparable](a T1, b T1) bool {
 	return a == b
 }
 
+type Tup = any
+type TagTup = any
+
 func Add(n int, m int) int {
 	return n + m
 }
@@ -1912,6 +1915,20 @@ func Sptr_demo() {
 	println(a, b)
 }
 
+type GCell struct {
+	Gca int64
+	Gcb int64
+}
+
+func Gcell_demo() {
+	p := &GCell{Gca: 30, Gcb: 40}
+	p.Gca = int64(99)
+	v := *p
+	*p = GCell{Gca: 1, Gcb: 2}
+	b := p.Gcb
+	println(v.Gca, b)
+}
+
 func (p *Cell) Cell_incx() {
 	a := p.Cx
 	p.Cx = a + 1
@@ -2626,6 +2643,7 @@ func main() {
 	Struct_eq_native_demo()
 	Nested_struct_demo()
 	Sptr_demo()
+	Gcell_demo()
 	Ptr_method_demo()
 	Ptr_method_expr_demo()
 	Node_embed_demo()

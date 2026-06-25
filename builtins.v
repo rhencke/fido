@@ -5782,18 +5782,28 @@ Arguments mkGSPtr {R} _.
 Arguments gsp_base {R} _.
 Definition gsptr_hs {R} (p : GSPtr R) : HStruct := mkHStruct (gsp_base p).
 
-(** FIELD access through the pointer, by the typed index [m].  The slot is [mem_depth m] and the tag
-    is [mem_tag m] — both READ OFF [m], so no [(slot, proj)] pair can disagree (review #8/#9). *)
-Definition gsptr_get_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) : IO t :=
+(** FIELD access through the pointer.  The SLOT is the typed index [m] ([mem_depth m] cell, [mem_tag m]
+    tag) — the model semantics depend ONLY on [m].  [proj] is a NAMING witness for the backend (the
+    plugin emits [p.<proj's field>], the same [record_proj_field] map [x.Field] uses) and is PINNED to
+    [m] by [gfield_coh]: [proj] must be EXACTLY the projection [m] denotes through the canonical rep
+    ([mem_get m ∘ sr_to]).  So the slot and the named field CANNOT disagree — a mismatched [(m, proj)]
+    has no [coh] witness; that unrepresentability IS the review #8/#9 closure.  [proj]/[coh] erase; the
+    cell op is the substrate. *)
+Definition gfield_coh {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t) : Prop :=
+  proj = (fun v => mem_get m (sr_to srep_rep v)).
+Definition gsptr_get_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) (p : GSPtr R) : IO t :=
   hfield_get (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)).
-Definition gsptr_set_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) (v : t) : IO unit :=
+Definition gsptr_set_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) (p : GSPtr R) (v : t) : IO unit :=
   hfield_set (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)) v.
 
 (** Read-after-write THROUGH the pointer — a THEOREM, for ANY field, ANY arity: after writing field
     [m], reading [m] returns the written value.  Reduces to the same generic [hfield_get_set_same]. *)
-Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (m : Mem srep_ts t) (p : GSPtr R) (v : t),
-  bind (gsptr_set_field m p v) (fun _ => gsptr_get_field m p) =io=
-  bind (gsptr_set_field m p v) (fun _ => ret v).
+Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) (p : GSPtr R) (v : t),
+  bind (gsptr_set_field m proj coh p v) (fun _ => gsptr_get_field m proj coh p) =io=
+  bind (gsptr_set_field m proj coh p v) (fun _ => ret v).
 Proof. intros. unfold gsptr_set_field, gsptr_get_field. apply hfield_get_set_same. Qed.
 
 (** Two handles to the SAME base see each other's writes to a field — the [*R]-receiver ALIASING. *)
