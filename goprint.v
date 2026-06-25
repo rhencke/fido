@@ -37,6 +37,7 @@ Inductive GoTy : Type :=
   | GTU64     : GoTy
   | GTPtr     : GoTy -> GoTy
   | GTSlice   : GoTy -> GoTy
+  | GTChan    : GoTy -> GoTy
   | GTNamed   : string -> GoTy.
 
 (** The pretty-printer: a Go type to its source text. *)
@@ -58,6 +59,7 @@ Fixpoint print_ty (t : GoTy) : string :=
   | GTU64     => "uint64"
   | GTPtr u   => "*"  ++ print_ty u
   | GTSlice u => "[]" ++ print_ty u
+  | GTChan u  => "chan " ++ print_ty u
   | GTNamed n => n
   end.
 
@@ -68,6 +70,7 @@ Fixpoint structural (t : GoTy) : bool :=
   | GTNamed _ => false
   | GTPtr u   => structural u
   | GTSlice u => structural u
+  | GTChan u  => structural u
   | _         => true
   end.
 
@@ -77,11 +80,11 @@ Fixpoint structural (t : GoTy) : bool :=
 Theorem print_ty_inj : forall t1 t2,
   structural t1 = true -> structural t2 = true -> print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | n ];
+  induction t1 as [ | | | | | | | | | | | | | | u IHu | u IHu | u IHu | n ];
     intros t2 H1 H2 He; destruct t2; cbn in *;
     try reflexivity; try discriminate.
-  - (* GTPtr u vs GTPtr v *) injection He as He'. f_equal. apply IHu; assumption.
-  - (* GTSlice u vs GTSlice v *) injection He as He'. f_equal. apply IHu; assumption.
+  (* the three composite cases (ptr/slice/chan) — peel the constant prefix, recurse via the IH *)
+  all: repeat (injection He as He); f_equal; apply IHu; assumption.
 Qed.
 
 (** Extract the Rocq printer to the OCaml the plugin will call (slice 2 wires [go.ml] to it). *)

@@ -34,6 +34,7 @@ type goTy =
 | GTU64
 | GTPtr of goTy
 | GTSlice of goTy
+| GTChan of goTy
 | GTNamed of string
 
 (** val print_ty : goTy -> string **)
@@ -147,4 +148,11 @@ let rec print_ty = function
   append (String ((Ascii (True, True, False, True, True, False, True,
     False)), (String ((Ascii (True, False, True, True, True, False, True,
     False)), EmptyString)))) (print_ty u)
+| GTChan u ->
+  append (String ((Ascii (True, True, False, False, False, True, True,
+    False)), (String ((Ascii (False, False, False, True, False, True, True,
+    False)), (String ((Ascii (True, False, False, False, False, True, True,
+    False)), (String ((Ascii (False, True, True, True, False, True, True,
+    False)), (String ((Ascii (False, False, False, False, False, True, False,
+    False)), EmptyString)))))))))) (print_ty u)
 | GTNamed n -> n

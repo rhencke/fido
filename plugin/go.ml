@@ -586,6 +586,13 @@ let coq_string_to_ocaml s =
     | Printer.EmptyString -> ()
     | Printer.String (c, rest) -> Buffer.add_char buf (char_of_coq_ascii c); go rest
   in go s; Buffer.contents buf
+let coq_ascii_of_char c =
+  let n = Char.code c in
+  let bit i = if (n lsr i) land 1 = 1 then Printer.True else Printer.False in
+  Printer.Ascii (bit 0, bit 1, bit 2, bit 3, bit 4, bit 5, bit 6, bit 7)
+let coq_string_of_ocaml s =
+  let r = ref Printer.EmptyString in
+  for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
@@ -603,11 +610,16 @@ let rec coq_goty_of_tag = function
        | "TU32"     -> Some Printer.GTU32
        | "TI32"     -> Some Printer.GTI32
        | "TU64"     -> Some Printer.GTU64
-       | _          -> None)
+       (* nominal struct tags (TListNode/TChanBox/…) name a Go type — render as GTNamed via the map *)
+       | name       -> (match List.assoc_opt name go_type_tag_map with
+                        | Some s -> Some (Printer.GTNamed (coq_string_of_ocaml s))
+                        | None   -> None))
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr" ->
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTPtr g) | None -> None)
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TSlice" ->
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTSlice g) | None -> None)
+  | MLcons (_, r, [inner]) when String.equal (global_basename r) "TChan" ->
+      (match coq_goty_of_tag inner with Some g -> Some (Printer.GTChan g) | None -> None)
   | _ -> None
 
 let rec go_type_of_tag t = match coq_goty_of_tag t with

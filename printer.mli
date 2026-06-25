@@ -29,6 +29,7 @@ type goTy =
 | GTU64
 | GTPtr of goTy
 | GTSlice of goTy
+| GTChan of goTy
 | GTNamed of string
 
 val print_ty : goTy -> string
