@@ -231,6 +231,99 @@ Example print_Z_neg  : print_Z (-7) = "-7".                                   Pr
 Example print_Z_imax : print_Z 9223372036854775807 = "9223372036854775807".  Proof. reflexivity. Qed.
 Example print_Z_u63  : print_Z 9223372036854775808 = "9223372036854775808".  Proof. reflexivity. Qed.
 
+(** ---- INTEGER FAITHFULNESS (round-trip) ---- a decimal PARSER recovers the [Z] from [print_Z]'s
+    output, so the emitted integer literal denotes EXACTLY the source value over the whole modelled
+    range (|z| < 10^64 — far beyond the int64/uint64 values [print_Z] is ever called with).  The
+    analog of [parse_print_ty] / [esc_string_roundtrip] for integer literals — the most-emitted leaf. *)
+Definition dval (c : ascii) : Z := Z.of_nat (nat_of_ascii c - 48).
+Fixpoint parseZ_pos (acc : Z) (s : string) : Z :=
+  match s with EmptyString => acc | String c s' => parseZ_pos (acc * 10 + dval c)%Z s' end.
+Definition parse_Z (s : string) : Z :=
+  match s with
+  | EmptyString  => 0%Z
+  | String c s'  => if Ascii.eqb c (ascii_of_nat 45) then (- parseZ_pos 0 s')%Z else parseZ_pos 0 s
+  end.
+
+(** [dval] inverts [dec_digit] on a single decimal digit. *)
+Lemma dval_dec_digit : forall n, (n < 10)%nat -> dval (dec_digit n) = Z.of_nat n.
+Proof.
+  intros n H. unfold dval, dec_digit. rewrite Ascii.nat_ascii_embedding by lia. f_equal. lia.
+Qed.
+
+(** KEY LEMMA — parsing [z_digits]' output from accumulator 0 recovers [z] into the running fold: the
+    digit-count shift would be [a * 10^k] but [a = 0] kills it, so NO power arithmetic is needed. *)
+Lemma parseZ_pos_z_digits : forall fuel z acc,
+  (0 <= z)%Z -> (z < 10 ^ Z.of_nat fuel)%Z -> parseZ_pos 0 (z_digits fuel z acc) = parseZ_pos z acc.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hz Hb.
+  - cbn [z_digits]. assert (z = 0%Z) by (cbn in Hb; lia). subst z. reflexivity.
+  - cbn [z_digits].
+    pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hmod.
+    assert (Hk : (Z.to_nat (z mod 10) < 10)%nat) by lia.
+    destruct (Z.eqb (z / 10) 0) eqn:E.
+    + apply Z.eqb_eq in E.
+      cbn [parseZ_pos]. rewrite dval_dec_digit by exact Hk. rewrite Z2Nat.id by lia.
+      replace (0 * 10 + z mod 10)%Z with z by (pose proof (Z.div_mod z 10 ltac:(lia)); lia).
+      reflexivity.
+    + apply Z.eqb_neq in E.
+      assert (Hdpos : (0 <= z / 10)%Z) by (apply Z.div_pos; lia).
+      assert (Hdlt : (z / 10 < 10 ^ Z.of_nat f)%Z).
+      { apply Z.div_lt_upper_bound; [ lia | ].
+        rewrite Nat2Z.inj_succ, Z.pow_succ_r in Hb by lia. lia. }
+      rewrite (IH (z / 10)%Z (String (dec_digit (Z.to_nat (z mod 10))) acc) Hdpos Hdlt).
+      cbn [parseZ_pos]. rewrite dval_dec_digit by exact Hk. rewrite Z2Nat.id by lia.
+      replace (z / 10 * 10 + z mod 10)%Z with z by (pose proof (Z.div_mod z 10 ltac:(lia)); lia).
+      reflexivity.
+Qed.
+
+(** The first character [z_digits] emits is a decimal digit (so, for a POSITIVE [z], it is never the
+    leading "-" — which lets [parse_Z] take the unsigned branch). *)
+Lemma z_digits_head : forall f z acc, (0 < f)%nat ->
+  exists k r, (k < 10)%nat /\ z_digits f z acc = String (dec_digit k) r.
+Proof.
+  induction f as [ | f IH ]; intros z acc Hf; [ lia | ].
+  cbn [z_digits]. pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hmod.
+  assert (Hk : (Z.to_nat (z mod 10) < 10)%nat) by lia.
+  destruct (Z.eqb (z / 10) 0) eqn:E.
+  - exists (Z.to_nat (z mod 10)), acc; split; [ exact Hk | reflexivity ].
+  - destruct f as [ | f' ].
+    + exists (Z.to_nat (z mod 10)), acc; split; [ exact Hk | reflexivity ].
+    + destruct (IH (z / 10)%Z (String (dec_digit (Z.to_nat (z mod 10))) acc) ltac:(lia))
+        as [k [r [Hk2 Hr]]].
+      exists k, r; split; [ exact Hk2 | exact Hr ].
+Qed.
+
+Lemma dec_digit_ne_minus : forall k, (k < 10)%nat -> Ascii.eqb (dec_digit k) (ascii_of_nat 45) = false.
+Proof.
+  intros k Hk. apply Bool.not_true_iff_false. intro H. apply Ascii.eqb_eq in H.
+  unfold dec_digit in H. apply (f_equal nat_of_ascii) in H.
+  rewrite !Ascii.nat_ascii_embedding in H by lia. lia.
+Qed.
+
+Lemma parse_Z_neg : forall X, parse_Z (String (ascii_of_nat 45) X) = (- parseZ_pos 0 X)%Z.
+Proof. intro X. cbn [parse_Z]. rewrite Ascii.eqb_refl. reflexivity. Qed.
+Lemma parse_Z_nonminus : forall c X, Ascii.eqb c (ascii_of_nat 45) = false ->
+  parse_Z (String c X) = parseZ_pos 0 (String c X).
+Proof. intros c X H. cbn [parse_Z]. rewrite H. reflexivity. Qed.
+
+Theorem print_parse_Z : forall z, (- (10 ^ 64) < z < 10 ^ 64)%Z -> parse_Z (print_Z z) = z.
+Proof.
+  intros z [Hlo Hhi]. unfold print_Z.
+  destruct (Z.eqb z 0) eqn:E0; [ apply Z.eqb_eq in E0; subst z; reflexivity | ].
+  apply Z.eqb_neq in E0. destruct (Z.ltb z 0) eqn:Eneg.
+  - (* z < 0 *) apply Z.ltb_lt in Eneg.
+    replace (("-" ++ z_digits 64 (- z) "")%string)
+       with (String (ascii_of_nat 45) (z_digits 64 (- z) "")) by reflexivity.
+    rewrite parse_Z_neg.
+    rewrite parseZ_pos_z_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    cbn [parseZ_pos]. lia.
+  - (* z > 0 *) apply Z.ltb_ge in Eneg.
+    destruct (z_digits_head 64 z "" ltac:(lia)) as [k [r [Hk Hr]]].
+    rewrite Hr, (parse_Z_nonminus _ _ (dec_digit_ne_minus k Hk)), <- Hr.
+    rewrite parseZ_pos_z_digits by (try (replace (Z.of_nat 64) with 64%Z by reflexivity); lia).
+    cbn [parseZ_pos]. reflexivity.
+Qed.
+
 (** ---- STRING LITERALS ---- escape a Go double-quoted string literal (replacing go.ml's raw
     [go_string_lit]): wrap in dquotes, escape dquote/backslash/newline/tab/CR, pass printable ASCII
     through, and emit a hex escape (backslash-x, lowercase, 2 digits) for everything else.  ASCII
