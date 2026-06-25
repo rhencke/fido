@@ -200,9 +200,15 @@ val all_idc : string -> bool
 
 val is_type_keyword : string -> bool
 
-val valid_ident : string -> bool
+val go_keyword : string -> bool
+
+val go_ident : string -> bool
+
+val nominal_type_ident : string -> bool
 
 type ident = string
+
+type tyName = string
 
 type goTy =
 | GTInt
@@ -223,7 +229,7 @@ type goTy =
 | GTSlice of goTy
 | GTChan of goTy
 | GTMap of goTy * goTy
-| GTNamed of ident
+| GTNamed of tyName
 
 val print_ty : goTy -> string
 

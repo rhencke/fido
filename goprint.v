@@ -34,25 +34,38 @@ Definition is_idstart (c : ascii) : bool :=
   orb (orb (andb (Nat.leb 65 n) (Nat.leb n 90)) (andb (Nat.leb 97 n) (Nat.leb n 122))) (Nat.eqb n 95).
 Fixpoint all_idc (s : string) : bool :=
   match s with EmptyString => true | String c s' => andb (is_idc c) (all_idc s') end.
-(** The Go type keywords (the 14 scalars in [classify] order, then [chan]/[map]) — a pure STRING set with
-    NO dependence on [GoTy], so it can gate [valid_ident] / [Ident] ahead of [GoTy]. *)
+(** Two [GoTy]-independent STRING keyword sets (so they gate the identifier predicates ahead of [GoTy]):
+    [is_type_keyword] is the 14 builtin scalar type names + [chan]/[map] (used for parser invertibility);
+    [go_keyword] is Go's 25 RESERVED WORDS — so an identifier is never a keyword ([func]/[return]/[var]/
+    [type]/[struct]/[interface]/[select]/… are rejected, which the old [valid_ident] wrongly accepted). *)
 Definition is_type_keyword (s : string) : bool :=
   existsb (String.eqb s)
     ["int64"; "int32"; "int16"; "int8"; "int"; "uint64"; "uint32"; "uint16"; "uint8"; "uint";
      "bool"; "string"; "float64"; "float32"; "chan"; "map"].
-(** A VALIDATED identifier: non-empty, starts with [_A-Za-z], all identifier chars, and not a type
-    keyword — exactly the names that print and parse back as a nominal [GTNamed]. *)
-Definition valid_ident (s : string) : bool :=
+Definition go_keyword (s : string) : bool :=
+  existsb (String.eqb s)
+    ["break"; "case"; "chan"; "const"; "continue"; "default"; "defer"; "else"; "fallthrough"; "for";
+     "func"; "go"; "goto"; "if"; "import"; "interface"; "map"; "package"; "range"; "return";
+     "select"; "struct"; "switch"; "type"; "var"].
+(** A Go IDENTIFIER (for an [AIdent] atom): non-empty, [_A-Za-z]-led, all identifier chars, and NOT a Go
+    keyword.  A builtin type name like [int]/[string] IS a valid identifier (predeclared, shadowable —
+    Go allows [var int = 5]), so [go_ident] ACCEPTS it; only [nominal_type_ident] rejects it. *)
+Definition go_ident (s : string) : bool :=
   match s with
   | EmptyString => false
-  | String c _  => andb (andb (is_idstart c) (all_idc s)) (negb (is_type_keyword s))
+  | String c _  => andb (andb (is_idstart c) (all_idc s)) (negb (go_keyword s))
   end.
-(** A nominal-type NAME with its validity carried IN THE TYPE (a [sig]): an invalid name is
-    unrepresentable, so [GTNamed] can never hold a keyword or non-identifier — the [valid_ty] side-
-    condition the round-trip used to carry DISAPPEARS (it is now [true] by construction).  [Ident]
-    extracts to a bare [string] (the proof component is erased), so the emitted printer is byte-identical. *)
-Definition Ident : Type := { s : string | valid_ident s = true }.
-Definition mkIdent (s : string) (H : valid_ident s = true) : Ident := exist _ s H.
+(** A NOMINAL TYPE NAME (for a [GTNamed] tag): a [go_ident] that is additionally not a builtin type name
+    (nor [chan]/[map] — those are keywords) — so it print-parses back as [GTNamed], never as a scalar /
+    chan / map.  This is the parser-INVERTIBILITY refinement; [nominal_type_ident s -> go_ident s]. *)
+Definition nominal_type_ident (s : string) : bool := andb (go_ident s) (negb (is_type_keyword s)).
+(** The two validity-carrying sig types (validity IN THE TYPE — invalid names unrepresentable; both
+    extract to a bare [string], the proof erased): [Ident] for expression identifiers ([AIdent]),
+    [TyName] for nominal type names ([GTNamed]). *)
+Definition Ident : Type := { s : string | go_ident s = true }.
+Definition mkIdent (s : string) (H : go_ident s = true) : Ident := exist _ s H.
+Definition TyName : Type := { s : string | nominal_type_ident s = true }.
+Definition mkTyName (s : string) (H : nominal_type_ident s = true) : TyName := exist _ s H.
 
 (** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
     tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
@@ -76,7 +89,7 @@ Inductive GoTy : Type :=
   | GTSlice   : GoTy -> GoTy
   | GTChan    : GoTy -> GoTy
   | GTMap     : GoTy -> GoTy -> GoTy
-  | GTNamed   : Ident -> GoTy.
+  | GTNamed   : TyName -> GoTy.
 
 (** The pretty-printer: a Go type to its source text. *)
 Fixpoint print_ty (t : GoTy) : string :=
@@ -184,8 +197,8 @@ Fixpoint parse_ty (fuel : nat) (s : string) : option (GoTy * string) :=
                               | None => None end
                           | None => None end
               | None => None end
-            else match bool_dec (valid_ident tok) true with
-                 | left H  => Some (GTNamed (mkIdent tok H), rest)
+            else match bool_dec (nominal_type_ident tok) true with
+                 | left H  => Some (GTNamed (mkTyName tok H), rest)
                  | right _ => None
                  end
         end
@@ -301,7 +314,8 @@ Proof.
     destruct i as [ s Hs ]. cbn [print_ty proj1_sig].
     pose proof Hs as Hni.
     destruct s as [ | c n' ]; [ cbn in Hni; discriminate | ].
-    unfold valid_ident in Hni. apply andb_true_iff in Hni. destruct Hni as [ Hsa Hkw ].
+    unfold nominal_type_ident in Hni. apply andb_true_iff in Hni. destruct Hni as [ Hgi Hkw ].
+    unfold go_ident in Hgi. apply andb_true_iff in Hgi. destruct Hgi as [ Hsa _ ].
     apply andb_true_iff in Hsa. destruct Hsa as [ Hstart Hall ].
     apply negb_true_iff in Hkw.
     assert (Hstar : Ascii.eqb "*"%char c = false).
@@ -316,8 +330,8 @@ Proof.
     destruct (kw_false_classify _ Hkw) as [ Hcl [ Hchanf Hmapf ] ].
     cbn [parse_ty append].
     rewrite Hss, Hsb, Hscan, Hcl, Hchanf, Hmapf.
-    destruct (bool_dec (valid_ident (String c n')) true) as [ Hd | Hd ].
-    + (* the parser's freshly-built [Ident] equals [i]: same name, proofs equal by UIP-on-[bool] *)
+    destruct (bool_dec (nominal_type_ident (String c n')) true) as [ Hd | Hd ].
+    + (* the parser's freshly-built [TyName] equals [i]: same name, proofs equal by UIP-on-[bool] *)
       assert (E : Hd = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
     + exfalso. apply Hd. exact Hs.
 Qed.
@@ -343,20 +357,20 @@ Qed.
     ([int8x] is ONE token via maximal munch, never [int8] + "x"), and composes under the constructors.
     The names are wrapped in [mkIdent _ eq_refl]: validity is now in the type, so [eq_refl] DISCHARGES it
     by computation (and a keyword like [GTNamed "int"] would not typecheck — the proof would fail). *)
-Example rt_ty_named : parse_ty 2 (print_ty (GTNamed (mkIdent "Foo" eq_refl)))
-                    = Some (GTNamed (mkIdent "Foo" eq_refl), "").
+Example rt_ty_named : parse_ty 2 (print_ty (GTNamed (mkTyName "Foo" eq_refl)))
+                    = Some (GTNamed (mkTyName "Foo" eq_refl), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_kwprefix : parse_ty 2 (print_ty (GTNamed (mkIdent "int8x" eq_refl)))
-                             = Some (GTNamed (mkIdent "int8x" eq_refl), "").
+Example rt_ty_named_kwprefix : parse_ty 2 (print_ty (GTNamed (mkTyName "int8x" eq_refl)))
+                             = Some (GTNamed (mkTyName "int8x" eq_refl), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_slice : parse_ty 3 (print_ty (GTSlice (GTNamed (mkIdent "Foo" eq_refl))))
-                          = Some (GTSlice (GTNamed (mkIdent "Foo" eq_refl)), "").
+Example rt_ty_named_slice : parse_ty 3 (print_ty (GTSlice (GTNamed (mkTyName "Foo" eq_refl))))
+                          = Some (GTSlice (GTNamed (mkTyName "Foo" eq_refl)), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_chan : parse_ty 3 (print_ty (GTChan (GTNamed (mkIdent "T" eq_refl))))
-                         = Some (GTChan (GTNamed (mkIdent "T" eq_refl)), "").
+Example rt_ty_named_chan : parse_ty 3 (print_ty (GTChan (GTNamed (mkTyName "T" eq_refl))))
+                         = Some (GTChan (GTNamed (mkTyName "T" eq_refl)), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_map : parse_ty 5 (print_ty (GTMap (GTNamed (mkIdent "Key" eq_refl)) GTInt))
-                        = Some (GTMap (GTNamed (mkIdent "Key" eq_refl)) GTInt, "").
+Example rt_ty_named_map : parse_ty 5 (print_ty (GTMap (GTNamed (mkTyName "Key" eq_refl)) GTInt))
+                        = Some (GTMap (GTNamed (mkTyName "Key" eq_refl)) GTInt, "").
 Proof. reflexivity. Qed.
 
 (** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value (replacing go.ml's raw
@@ -1125,9 +1139,9 @@ Proof.
   rewrite Hopens, (is_idc_not_bclose c Hc), (is_idc_not_space c Hc), (is_idc_not_bopen c Hc).
   cbn [orb andb Nat.eqb]. apply IH; exact Hs'.
 Qed.
-Lemma valid_ident_atom_ok : forall s, valid_ident s = true -> atom_ok s = true.
+Lemma go_ident_atom_ok : forall s, go_ident s = true -> atom_ok s = true.
 Proof.
-  intros s H. unfold valid_ident in H. destruct s as [ | c s' ]; [ discriminate | ].
+  intros s H. unfold go_ident in H. destruct s as [ | c s' ]; [ discriminate | ].
   apply andb_true_iff in H. destruct H as [ H _ ]. apply andb_true_iff in H. destruct H as [ Hstart Hall ].
   pose proof (is_idstart_is_idc c Hstart) as Hc.
   unfold atom_ok. apply andb_true_iff. split.
@@ -1142,10 +1156,10 @@ Qed.
 (** [raw_ok s] — a NON-identifier well-formed atom: [atom_ok] AND not a [valid_ident] (so identifiers
     structure SEPARATELY, as [AIdent]).  The split lets the round-trip DISAMBIGUATE: a [valid_ident]
     re-parses to [AIdent], anything else to [ARaw]. *)
-Definition raw_ok (s : string) : bool := andb (atom_ok s) (negb (valid_ident s)).
+Definition raw_ok (s : string) : bool := andb (atom_ok s) (negb (go_ident s)).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof. intros s H. apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha. Qed.
-Lemma raw_ok_not_ident : forall s, raw_ok s = true -> valid_ident s = false.
+Lemma raw_ok_not_ident : forall s, raw_ok s = true -> go_ident s = false.
 Proof. intros s H. apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn. Qed.
 
 (** A structured Go ATOM, validity carried IN THE TYPE (malformed atom text UNREPRESENTABLE): a validated
@@ -1160,7 +1174,7 @@ Definition atom_str (a : GoAtom) : string :=
 Lemma atom_str_atom_ok : forall a, atom_ok (atom_str a) = true.
 Proof.
   intros [ i | r ]; cbn [atom_str].
-  - apply valid_ident_atom_ok, (proj2_sig i).
+  - apply go_ident_atom_ok, (proj2_sig i).
   - apply raw_ok_atom_ok, (proj2_sig r).
 Qed.
 
@@ -1399,7 +1413,7 @@ Qed.
     [atom_ok] string as [ARaw]; a malformed string is rejected ([None]).  Factored out so the round-trip
     proof uses [build_atom_str] UNIFORMLY (no per-constructor case split in the climbing proof). *)
 Definition build_atom (a : string) : option GoExpr :=
-  match bool_dec (valid_ident a) true with
+  match bool_dec (go_ident a) true with
   | left Hi => Some (EAtom (AIdent (exist _ a Hi)))
   | right _ => match bool_dec (raw_ok a) true with
                | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
@@ -1410,12 +1424,12 @@ Lemma build_atom_str : forall g, build_atom (atom_str g) = Some (EAtom g).
 Proof.
   intros [ i | r ]; cbn [atom_str]; unfold build_atom.
   - destruct i as [ s Hvi ]; cbn [proj1_sig].
-    destruct (bool_dec (valid_ident s) true) as [ Hd | Hd ].
+    destruct (bool_dec (go_ident s) true) as [ Hd | Hd ].
     + do 3 f_equal. assert (E : Hd = Hvi) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
     + exfalso. apply Hd. exact Hvi.
   - destruct r as [ s Hr ]; cbn [proj1_sig].
     pose proof (raw_ok_not_ident _ Hr) as Hni.
-    destruct (bool_dec (valid_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
+    destruct (bool_dec (go_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
     destruct (bool_dec (raw_ok s) true) as [ Hd2 | Hd2 ].
     + do 3 f_equal. assert (E : Hd2 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
     + exfalso. apply Hd2. exact Hr.
@@ -2136,4 +2150,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok valid_ident.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident.

@@ -897,18 +897,173 @@ let is_type_keyword s =
     ((Ascii (False, False, False, False, True, True, True, False)),
     EmptyString)))))), Nil))))))))))))))))))))))))))))))))
 
-(** val valid_ident : string -> bool **)
+(** val go_keyword : string -> bool **)
 
-let valid_ident s = match s with
+let go_keyword s =
+  existsb (eqb1 s) (Cons ((String ((Ascii (False, True, False, False, False,
+    True, True, False)), (String ((Ascii (False, True, False, False, True,
+    True, True, False)), (String ((Ascii (True, False, True, False, False,
+    True, True, False)), (String ((Ascii (True, False, False, False, False,
+    True, True, False)), (String ((Ascii (True, True, False, True, False,
+    True, True, False)), EmptyString)))))))))), (Cons ((String ((Ascii (True,
+    True, False, False, False, True, True, False)), (String ((Ascii (True,
+    False, False, False, False, True, True, False)), (String ((Ascii (True,
+    True, False, False, True, True, True, False)), (String ((Ascii (True,
+    False, True, False, False, True, True, False)), EmptyString)))))))),
+    (Cons ((String ((Ascii (True, True, False, False, False, True, True,
+    False)), (String ((Ascii (False, False, False, True, False, True, True,
+    False)), (String ((Ascii (True, False, False, False, False, True, True,
+    False)), (String ((Ascii (False, True, True, True, False, True, True,
+    False)), EmptyString)))))))), (Cons ((String ((Ascii (True, True, False,
+    False, False, True, True, False)), (String ((Ascii (True, True, True,
+    True, False, True, True, False)), (String ((Ascii (False, True, True,
+    True, False, True, True, False)), (String ((Ascii (True, True, False,
+    False, True, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), EmptyString)))))))))), (Cons ((String
+    ((Ascii (True, True, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, True, True, False, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, False, True, False, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)), (String
+    ((Ascii (True, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)),
+    EmptyString)))))))))))))))), (Cons ((String ((Ascii (False, False, True,
+    False, False, True, True, False)), (String ((Ascii (True, False, True,
+    False, False, True, True, False)), (String ((Ascii (False, True, True,
+    False, False, True, True, False)), (String ((Ascii (True, False, False,
+    False, False, True, True, False)), (String ((Ascii (True, False, True,
+    False, True, True, True, False)), (String ((Ascii (False, False, True,
+    True, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), EmptyString)))))))))))))), (Cons
+    ((String ((Ascii (False, False, True, False, False, True, True, False)),
+    (String ((Ascii (True, False, True, False, False, True, True, False)),
+    (String ((Ascii (False, True, True, False, False, True, True, False)),
+    (String ((Ascii (True, False, True, False, False, True, True, False)),
+    (String ((Ascii (False, True, False, False, True, True, True, False)),
+    EmptyString)))))))))), (Cons ((String ((Ascii (True, False, True, False,
+    False, True, True, False)), (String ((Ascii (False, False, True, True,
+    False, True, True, False)), (String ((Ascii (True, True, False, False,
+    True, True, True, False)), (String ((Ascii (True, False, True, False,
+    False, True, True, False)), EmptyString)))))))), (Cons ((String ((Ascii
+    (False, True, True, False, False, True, True, False)), (String ((Ascii
+    (True, False, False, False, False, True, True, False)), (String ((Ascii
+    (False, False, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (False, False, False, True, False, True, True, False)), (String ((Ascii
+    (False, True, False, False, True, True, True, False)), (String ((Ascii
+    (True, True, True, True, False, True, True, False)), (String ((Ascii
+    (True, False, True, False, True, True, True, False)), (String ((Ascii
+    (True, True, True, False, False, True, True, False)), (String ((Ascii
+    (False, False, False, True, False, True, True, False)),
+    EmptyString)))))))))))))))))))))), (Cons ((String ((Ascii (False, True,
+    True, False, False, True, True, False)), (String ((Ascii (True, True,
+    True, True, False, True, True, False)), (String ((Ascii (False, True,
+    False, False, True, True, True, False)), EmptyString)))))), (Cons
+    ((String ((Ascii (False, True, True, False, False, True, True, False)),
+    (String ((Ascii (True, False, True, False, True, True, True, False)),
+    (String ((Ascii (False, True, True, True, False, True, True, False)),
+    (String ((Ascii (True, True, False, False, False, True, True, False)),
+    EmptyString)))))))), (Cons ((String ((Ascii (True, True, True, False,
+    False, True, True, False)), (String ((Ascii (True, True, True, True,
+    False, True, True, False)), EmptyString)))), (Cons ((String ((Ascii
+    (True, True, True, False, False, True, True, False)), (String ((Ascii
+    (True, True, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (True, True, True, True, False, True, True, False)), EmptyString)))))))),
+    (Cons ((String ((Ascii (True, False, False, True, False, True, True,
+    False)), (String ((Ascii (False, True, True, False, False, True, True,
+    False)), EmptyString)))), (Cons ((String ((Ascii (True, False, False,
+    True, False, True, True, False)), (String ((Ascii (True, False, True,
+    True, False, True, True, False)), (String ((Ascii (False, False, False,
+    False, True, True, True, False)), (String ((Ascii (True, True, True,
+    True, False, True, True, False)), (String ((Ascii (False, True, False,
+    False, True, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), EmptyString)))))))))))), (Cons ((String
+    ((Ascii (True, False, False, True, False, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)), (String
+    ((Ascii (False, True, False, False, True, True, True, False)), (String
+    ((Ascii (False, True, True, False, False, True, True, False)), (String
+    ((Ascii (True, False, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, False, False, False, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)),
+    EmptyString)))))))))))))))))), (Cons ((String ((Ascii (True, False, True,
+    True, False, True, True, False)), (String ((Ascii (True, False, False,
+    False, False, True, True, False)), (String ((Ascii (False, False, False,
+    False, True, True, True, False)), EmptyString)))))), (Cons ((String
+    ((Ascii (False, False, False, False, True, True, True, False)), (String
+    ((Ascii (True, False, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, False, True, False, True, True, False)), (String
+    ((Ascii (True, False, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, True, False, False, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)),
+    EmptyString)))))))))))))), (Cons ((String ((Ascii (False, True, False,
+    False, True, True, True, False)), (String ((Ascii (True, False, False,
+    False, False, True, True, False)), (String ((Ascii (False, True, True,
+    True, False, True, True, False)), (String ((Ascii (True, True, True,
+    False, False, True, True, False)), (String ((Ascii (True, False, True,
+    False, False, True, True, False)), EmptyString)))))))))), (Cons ((String
+    ((Ascii (False, True, False, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, True, True, True, False)), (String
+    ((Ascii (False, True, False, False, True, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)),
+    EmptyString)))))))))))), (Cons ((String ((Ascii (True, True, False,
+    False, True, True, True, False)), (String ((Ascii (True, False, True,
+    False, False, True, True, False)), (String ((Ascii (False, False, True,
+    True, False, True, True, False)), (String ((Ascii (True, False, True,
+    False, False, True, True, False)), (String ((Ascii (True, True, False,
+    False, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), EmptyString)))))))))))), (Cons ((String
+    ((Ascii (True, True, False, False, True, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (False, True, False, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, True, False, False, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)),
+    EmptyString)))))))))))), (Cons ((String ((Ascii (True, True, False,
+    False, True, True, True, False)), (String ((Ascii (True, True, True,
+    False, True, True, True, False)), (String ((Ascii (True, False, False,
+    True, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), (String ((Ascii (True, True, False,
+    False, False, True, True, False)), (String ((Ascii (False, False, False,
+    True, False, True, True, False)), EmptyString)))))))))))), (Cons ((String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, False, True, True, True, True, False)), (String
+    ((Ascii (False, False, False, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)),
+    EmptyString)))))))), (Cons ((String ((Ascii (False, True, True, False,
+    True, True, True, False)), (String ((Ascii (True, False, False, False,
+    False, True, True, False)), (String ((Ascii (False, True, False, False,
+    True, True, True, False)), EmptyString)))))),
+    Nil))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val go_ident : string -> bool **)
+
+let go_ident s = match s with
 | EmptyString -> False
 | String (c, _) ->
   (match match is_idstart c with
          | True -> all_idc s
          | False -> False with
-   | True -> negb (is_type_keyword s)
+   | True -> negb (go_keyword s)
    | False -> False)
 
+(** val nominal_type_ident : string -> bool **)
+
+let nominal_type_ident s =
+  match go_ident s with
+  | True -> negb (is_type_keyword s)
+  | False -> False
+
 type ident = string
+
+type tyName = string
 
 type goTy =
 | GTInt
@@ -929,7 +1084,7 @@ type goTy =
 | GTSlice of goTy
 | GTChan of goTy
 | GTMap of goTy * goTy
-| GTNamed of ident
+| GTNamed of tyName
 
 (** val print_ty : goTy -> string **)
 

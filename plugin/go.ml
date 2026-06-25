@@ -653,9 +653,16 @@ let rec coq_goty_of_tag = function
        | "TU32"     -> Some Printer.GTU32
        | "TI32"     -> Some Printer.GTI32
        | "TU64"     -> Some Printer.GTU64
-       (* nominal struct tags (TListNode/TChanBox/…) name a Go type — render as GTNamed via the map *)
+       (* nominal struct tags (TListNode/TChanBox/…) name a Go type — render as GTNamed via the map.
+          FAIL-CLOSED (rule 2): [GTNamed : TyName] carries [nominal_type_ident] IN THE TYPE, but that
+          proof erases in OCaml — so RE-CHECK it here before constructing (a Go keyword / builtin type
+          name as a nominal type would emit invalid Go and bypass the verified invariant). *)
        | name       -> (match List.assoc_opt name go_type_tag_map with
-                        | Some s -> Some (Printer.GTNamed (coq_string_of_ocaml s))
+                        | Some s -> let cs = coq_string_of_ocaml s in
+                                    (match Printer.nominal_type_ident cs with
+                                     | Printer.True  -> Some (Printer.GTNamed cs)
+                                     | Printer.False -> unsupported (Printf.sprintf
+                                         "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
                         | None   -> None))
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr" ->
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTPtr g) | None -> None)
@@ -2749,14 +2756,15 @@ and pp_atom state env e =
 and build_goexpr state env e =
   (* FAIL-CLOSED (rule 2) + STRUCTURE: an [EAtom] carries a structured [GoAtom] whose validity is in the
      type (making [print_parse_expr] UNCONDITIONAL).  Since the OCaml [GoAtom] erases to bare strings,
-     build_goexpr re-establishes the invariant at runtime AND picks the constructor: a [valid_ident]
-     becomes [AIdent], any other [atom_ok] string [ARaw]; a malformed operand (not atom_ok — a "("-led
-     group, a depth-0 operator, an unbalanced bracket) ABORTS.  This mirrors the parser's [build_atom]
-     disambiguation exactly, so the executed path lands in the same structured atom the round-trip covers. *)
+     build_goexpr re-establishes the invariant at runtime AND picks the constructor: a [go_ident] (a Go
+     identifier — not a keyword) becomes [AIdent], any other [atom_ok] string [ARaw]; a malformed operand
+     (not atom_ok — a "("-led group, a depth-0 operator, an unbalanced bracket) ABORTS.  This mirrors the
+     parser's [build_atom] disambiguation exactly, so the executed path lands in the same structured atom
+     the round-trip covers. *)
   let atom d =
     let s = Pp.string_of_ppcmds d in
     let cs = coq_string_of_ocaml s in
-    match Printer.valid_ident cs with
+    match Printer.go_ident cs with
     | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
     | Printer.False ->
       (match Printer.atom_ok cs with
