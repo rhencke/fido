@@ -1020,6 +1020,54 @@ Fixpoint atomic_from (d : nat) (s : string) : bool :=
 Definition atomic (s : string) : bool :=
   match s with EmptyString => false | String c _ => andb (negb (is_open c)) (atomic_from 0 s) end.
 
+(** SAFETY — [print_prec] emits WELL-BRACKETED Go: scanning the output left to right, the parenthesis
+    depth never goes negative and ends at zero (so no dangling/unmatched paren — always syntactically
+    valid bracketing), PROVIDED every atom and operator string is itself well-bracketed (Go operands and
+    operators are — calls like [f(a, b)] balance their own parens).  This certifies the parenthesization
+    DISCIPLINE: the only parens [print_prec] adds are matched pairs around a balanced inner string. *)
+Definition pv (c : ascii) : Z :=
+  if Ascii.eqb c (ascii_of_nat 40) then 1%Z         (* '(' *)
+  else if Ascii.eqb c (ascii_of_nat 41) then (-1)%Z (* ')' *)
+  else 0%Z.
+Fixpoint depth (d : Z) (s : string) : Z :=
+  match s with EmptyString => d | String c s' => depth (d + pv c)%Z s' end.
+Fixpoint nneg (d : Z) (s : string) : Prop :=
+  match s with EmptyString => True | String c s' => (0 <= d + pv c)%Z /\ nneg (d + pv c)%Z s' end.
+Definition balanced (s : string) : Prop := depth 0 s = 0%Z /\ nneg 0 s.
+
+(** A BOOLEAN paren-balance, sound w.r.t. [balanced], so the [Atom] predicate (below) can carry it. *)
+Fixpoint nneg_b (d : Z) (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (0 <=? d + pv c)%Z (nneg_b (d + pv c)%Z s') end.
+Definition balanced_b (s : string) : bool := andb (depth 0 s =? 0)%Z (nneg_b 0 s).
+Lemma nneg_b_sound : forall s d, nneg_b d s = true -> nneg d s.
+Proof.
+  induction s as [ | c s' IH ]; intros d H.
+  - exact I.
+  - cbn [nneg_b] in H. cbn [nneg]. apply andb_true_iff in H. destruct H as [ Hle Hrest ].
+    split; [ apply Z.leb_le; exact Hle | apply IH; exact Hrest ].
+Qed.
+Lemma balanced_b_sound : forall s, balanced_b s = true -> balanced s.
+Proof.
+  intros s H. unfold balanced_b in H. apply andb_true_iff in H. destruct H as [ Hd Hn ].
+  unfold balanced. split; [ apply Z.eqb_eq; exact Hd | apply nneg_b_sound; exact Hn ].
+Qed.
+
+(** The ATOM well-formedness, carried IN THE TYPE below: ATOMIC (a primary binding tighter than any
+    operator — no depth-0 operator, not "("-led) AND paren-BALANCED.  [atomic] alone does NOT imply
+    [balanced] (atomic_from tracks COMBINED bracket depth, so e.g. "[)" is atomic but unbalanced), so
+    BOTH are required; the plugin's build_goexpr guard checks exactly [atom_ok]. *)
+Definition atom_ok (s : string) : bool := andb (atomic s) (balanced_b s).
+Lemma atom_ok_atomic : forall s, atom_ok s = true -> atomic s = true.
+Proof. intros s H. apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha. Qed.
+Lemma atom_ok_balanced : forall s, atom_ok s = true -> balanced s.
+Proof. intros s H. apply andb_true_iff in H. destruct H as [ _ Hb ]. apply balanced_b_sound; exact Hb. Qed.
+
+(** A well-formed ATOM with validity carried IN THE TYPE (a [sig], like [Ident]): malformed atom text is
+    UNREPRESENTABLE.  [Atom] extracts to a bare [string] (the proof is erased), so the printer is
+    byte-identical; the round-trip ([print_parse_expr]) becomes UNCONDITIONAL. *)
+Definition Atom : Type := { s : string | atom_ok s = true }.
+Definition mkAtom (s : string) (H : atom_ok s = true) : Atom := exist _ s H.
+
 Inductive GoExpr : Type :=
   | EAtom : string -> GoExpr
   | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
@@ -1046,20 +1094,6 @@ Lemma print_expr_wrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = true -
     = ("(" ++ (print_expr (binop_prec o) l ++ binop_text o ++ print_expr (S (binop_prec o)) r) ++ ")")%string.
 Proof. intros o l r ctx H. cbn [print_expr]. rewrite H. reflexivity. Qed.
 
-(** SAFETY — [print_prec] emits WELL-BRACKETED Go: scanning the output left to right, the parenthesis
-    depth never goes negative and ends at zero (so no dangling/unmatched paren — always syntactically
-    valid bracketing), PROVIDED every atom and operator string is itself well-bracketed (Go operands and
-    operators are — calls like [f(a, b)] balance their own parens).  This certifies the parenthesization
-    DISCIPLINE: the only parens [print_prec] adds are matched pairs around a balanced inner string. *)
-Definition pv (c : ascii) : Z :=
-  if Ascii.eqb c (ascii_of_nat 40) then 1%Z         (* '(' *)
-  else if Ascii.eqb c (ascii_of_nat 41) then (-1)%Z (* ')' *)
-  else 0%Z.
-Fixpoint depth (d : Z) (s : string) : Z :=
-  match s with EmptyString => d | String c s' => depth (d + pv c)%Z s' end.
-Fixpoint nneg (d : Z) (s : string) : Prop :=
-  match s with EmptyString => True | String c s' => (0 <= d + pv c)%Z /\ nneg (d + pv c)%Z s' end.
-Definition balanced (s : string) : Prop := depth 0 s = 0%Z /\ nneg 0 s.
 
 (** [depth]/[nneg] are homomorphic over append, and tolerant of a raised starting floor. *)
 Lemma depth_app : forall a b d, depth d (a ++ b) = depth (depth d a) b.
