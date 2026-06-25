@@ -212,6 +212,8 @@ val hex_digits : nat -> z -> string -> string
 
 val print_hex : z -> string
 
+val print_float_hex : bool -> z -> z -> string
+
 type goExpr =
 | GERaw of string
 | GEBin of nat * string * goExpr * goExpr

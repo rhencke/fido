@@ -507,6 +507,124 @@ Proof.
     cbn [parseHex_pos]. reflexivity.
 Qed.
 
+(** ---- FLOAT-HEX LITERAL ---- the IEEE [spec_float] finite value ±m·2^e emits as Go's hex float
+    [±0x<m>p<e>].  Slice 15 verified the mantissa/exponent PIECES (print_hex / print_Z); this moves the
+    ASSEMBLY into Rocq too (the last leaf whose glue was raw OCaml [^]).  [sign] = sign, [mant] =
+    mantissa (rendered hex), [exp] = exponent (signed decimal). *)
+Definition print_float_hex (sign : bool) (mant exp : Z) : string :=
+  ((if sign then "-" else "") ++ print_hex mant ++ "p" ++ print_Z exp)%string.
+
+Example pfh_pos : print_float_hex false 24 (-52) = "0x18p-52". Proof. reflexivity. Qed.
+Example pfh_neg : print_float_hex true 18 51   = "-0x12p51". Proof. reflexivity. Qed.
+
+(** FAITHFULNESS — the float literal round-trips: a parser recovers [(sign, mant, exp)] EXACTLY.  The
+    "p" delimiter is unambiguous because the mantissa render [print_hex] contains no "p" (hex digits are
+    0-9a-f); [split_p] cuts there, then [parse_hex] / [parse_Z] recover the parts (slices 20/21). *)
+Definition is_p (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 112).  (* 'p' = 112 *)
+Fixpoint no_p (s : string) : Prop :=
+  match s with EmptyString => True | String c s' => is_p c = false /\ no_p s' end.
+Lemma no_p_app : forall a b, no_p a -> no_p b -> no_p (a ++ b).
+Proof.
+  induction a as [ | c a IH ]; intros b Ha Hb; [ exact Hb | ].
+  cbn [no_p append] in *. destruct Ha as [Hc Ha]. split; [ exact Hc | apply IH; assumption ].
+Qed.
+
+Lemma is_p_hexdig : forall k, (k < 16)%nat -> is_p (hexdig k) = false.
+Proof.
+  intros k Hk. unfold is_p, hexdig.
+  destruct (Nat.ltb k 10) eqn:E; cbv iota;
+    [ apply Nat.ltb_lt in E | apply Nat.ltb_ge in E ];
+    apply Bool.not_true_iff_false; intro H; apply Ascii.eqb_eq in H;
+    apply (f_equal nat_of_ascii) in H; rewrite !Ascii.nat_ascii_embedding in H by lia; lia.
+Qed.
+
+Lemma hex_digits_no_p : forall fuel z acc, no_p acc -> no_p (hex_digits fuel z acc).
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
+  cbn [hex_digits]. pose proof (Z.mod_pos_bound z 16 ltac:(lia)) as Hmod.
+  assert (Hk : (Z.to_nat (z mod 16) < 16)%nat) by lia.
+  destruct (Z.eqb (z / 16) 0).
+  - cbn [no_p]. split; [ apply is_p_hexdig; exact Hk | exact Hacc ].
+  - apply IH. cbn [no_p]. split; [ apply is_p_hexdig; exact Hk | exact Hacc ].
+Qed.
+
+Lemma no_p_print_hex : forall z, no_p (print_hex z).
+Proof.
+  intro z. unfold print_hex. apply no_p_app.
+  - cbn [no_p]. repeat split; (reflexivity || exact I).
+  - destruct (Z.eqb z 0); [ cbn [no_p]; repeat split; (reflexivity || exact I)
+                          | apply hex_digits_no_p; exact I ].
+Qed.
+
+Fixpoint split_p (s : string) : string * string :=
+  match s with
+  | EmptyString  => (""%string, ""%string)
+  | String c s'  => if is_p c then (""%string, s') else let (a, b) := split_p s' in (String c a, b)
+  end.
+Lemma split_p_app : forall pre suf, no_p pre ->
+  split_p (pre ++ String (ascii_of_nat 112) suf) = (pre, suf).
+Proof.
+  induction pre as [ | c pre IH ]; intros suf Hnp.
+  - cbn. reflexivity.
+  - cbn [no_p] in Hnp. destruct Hnp as [Hc Hnp].
+    cbn [split_p append]. rewrite Hc, (IH suf Hnp). reflexivity.
+Qed.
+
+(** [print_hex mant ++ "p" ++ print_Z exp] (optionally prefixed by a "p"-free [pre]) splits at the
+    delimiter into the mantissa render and the exponent render. *)
+Lemma split_p_float : forall pre mant exp, no_p pre ->
+  split_p (pre ++ print_hex mant ++ "p" ++ print_Z exp)%string
+    = ((pre ++ print_hex mant)%string, print_Z exp).
+Proof.
+  intros pre mant exp Hpre.
+  assert (Heq : (pre ++ print_hex mant ++ "p" ++ print_Z exp)%string
+              = ((pre ++ print_hex mant) ++ String (ascii_of_nat 112) (print_Z exp))%string)
+    by (rewrite !sapp_assoc; reflexivity).
+  rewrite Heq. apply split_p_app. apply no_p_app; [ exact Hpre | apply no_p_print_hex ].
+Qed.
+
+(** [print_hex] always begins with the digit "0" (of its "0x" prefix), so a positive float's mantissa
+    part never looks like the leading "-". *)
+Lemma print_hex_head : forall z, exists rest, print_hex z = String (ascii_of_nat 48) rest.
+Proof. intro z. unfold print_hex. eexists. reflexivity. Qed.
+
+Definition parse_float_hex (s : string) : bool * Z * Z :=
+  let (mpart, epart) := split_p s in
+  let e := parse_Z epart in
+  match mpart with
+  | String c rest => if Ascii.eqb c (ascii_of_nat 45) then (true, parse_hex rest, e)
+                     else (false, parse_hex mpart, e)
+  | EmptyString => (false, 0%Z, e)
+  end.
+Lemma parse_float_hex_eq : forall s mpart epart, split_p s = (mpart, epart) ->
+  parse_float_hex s =
+    (match mpart with
+     | String c rest => if Ascii.eqb c (ascii_of_nat 45) then (true, parse_hex rest, parse_Z epart)
+                        else (false, parse_hex mpart, parse_Z epart)
+     | EmptyString => (false, 0%Z, parse_Z epart)
+     end).
+Proof. intros s mpart epart H. unfold parse_float_hex. rewrite H. reflexivity. Qed.
+
+Local Opaque print_hex print_Z parse_hex parse_Z.
+Theorem print_parse_float_hex : forall sign mant exp,
+  (0 <= mant < 16 ^ 64)%Z -> (- (10 ^ 64) < exp < 10 ^ 64)%Z ->
+  parse_float_hex (print_float_hex sign mant exp) = (sign, mant, exp).
+Proof.
+  intros sign mant exp Hm He.
+  assert (Hmrt : parse_hex (print_hex mant) = mant) by (apply print_parse_hex; lia).
+  assert (Hert : parse_Z (print_Z exp) = exp) by (apply print_parse_Z; lia).
+  unfold print_float_hex. destruct sign; cbv iota.
+  - (* sign = true: prefix "-" *)
+    rewrite (parse_float_hex_eq _ _ _
+              (split_p_float "-" mant exp ltac:(cbn [no_p]; repeat split; (reflexivity || exact I)))).
+    cbn. rewrite Hmrt, Hert. reflexivity.
+  - (* sign = false: empty prefix *)
+    destruct (print_hex_head mant) as [rest Hph].
+    rewrite (parse_float_hex_eq _ _ _ (split_p_float "" mant exp ltac:(exact I))).
+    cbn [append]. rewrite Hph at 1. cbn. rewrite Hmrt, Hert. reflexivity.
+Qed.
+Local Transparent print_hex print_Z parse_hex parse_Z.
+
 (** ---- PROOFS ATOP THE PRINTERS ---- WELL-FORMEDNESS: every printer yields a NON-EMPTY string, so no
     emitted token is ever blank (which would be malformed Go).  [print_ty] on the structural fragment,
     and the literal printers unconditionally.  (Injectivity AND the print-parse round-trip are already
@@ -733,4 +851,4 @@ Qed.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec print_sep.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec print_sep print_float_hex.

@@ -1008,6 +1008,19 @@ let print_hex z0 =
          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
          EmptyString)
 
+(** val print_float_hex : bool -> z -> z -> string **)
+
+let print_float_hex sign mant exp =
+  append
+    (match sign with
+     | True ->
+       String ((Ascii (True, False, True, True, False, True, False, False)),
+         EmptyString)
+     | False -> EmptyString)
+    (append (print_hex mant)
+      (append (String ((Ascii (False, False, False, False, True, True, True,
+        False)), EmptyString)) (print_Z exp)))
+
 type goExpr =
 | GERaw of string
 | GEBin of nat * string * goExpr * goExpr

@@ -2644,7 +2644,11 @@ let rec pp_expr state env = function
                  | _ -> None) in
                (match sign_opt, pos_value m, z_eval e with
                 | Some sign, Some mv, Some ev ->
-                    str ((if sign then "-" else "") ^ print_hex_i64 mv ^ "p" ^ print_i64_dec ev)
+                    (* the WHOLE hex-float assembly is now the verified Printer.print_float_hex
+                       (sign + "0x"<mantissa> + "p" + <exponent>); pieces unchanged (print_hex / print_Z) *)
+                    str (coq_string_to_ocaml
+                      (Printer.print_float_hex (if sign then Printer.True else Printer.False)
+                         (coq_z_of_uint64 mv) (coq_z_of_int64 ev)))
                 | _ -> unsupported "a spec_float S754_finite literal with a non-constant sign/mantissa/exponent")
            | MLcons (_, r, [s]) when String.equal (global_basename r) "S754_zero" ->
                (match s with
