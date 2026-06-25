@@ -680,11 +680,23 @@ separate tracks.
    carry per-field types + tags, so a `*Pair{ N int64; B bool }` mutates through the pointer
    (`pair_bump` → `func (p *Pair) Pair_bump()` bumps the int64 field, bool preserved); the
    field-cell heap was already generic over the field type, so `sptrh_field_get_set` is again
-   the `hfield_get_set_same` proof verbatim.  The only plugin change: the record-type
-   extractors take the FIRST type arg of the 3-arg `SPtrH R A B` (`arg :: _` vs `SPtr R`'s
-   `[arg]`).  `het_ptr_demo` → `11 true`, golden-locked, axiom-free.  *Not yet:* the same
-   template at arbitrary N (4+, mechanical); pointer-receiver method expressions `(*T).M`;
-   method-name namespacing via Rocq `Module`s (so two types can share a basename like `Area`).
+   the `hfield_get_set_same` proof verbatim.  `het_ptr_demo` → `11 true`, golden-locked, axiom-free.
+   **GENERIC ARITY-FREE STRUCT REP DONE (2026-06-25, review #8/#9):** `StructRep2`/`StructRep3`/
+   `StructRep2H` were arity-monomorphised copies (not a generalisation — `StructRep47` is the reductio).
+   They are now REPLACED + DELETED in favour of ONE `StructRep R ts`: a struct is the heterogeneous
+   NESTED PRODUCT `Tup ts` over its field-type list, a field is a TYPED de Bruijn index `Mem ts t`
+   (`MHere`/`MNext` = Peano `FZ`/`FS`), and `GSPtr R` → `*R`.  This ALSO closes the #8/#9 defect class BY
+   CONSTRUCTION: the old field API took a numeric slot AND a separate projection, tied by an erasable
+   coherence a swapped dictionary could satisfy with a MISMATCHED pairing (wrong Go); here a field is the
+   SINGLE index `m`, the projection is the COHERENCE-PINNED name (`gfield_coh m proj := proj = mem_get m
+   ∘ sr_to`, erased), so slot and name CANNOT disagree.  Lowers to native Go (`&T{…}`, `*p`, `p.F = v`,
+   `p.F`, `a == b`).  Stress-tested by `big64_demo`: a **64-field** heterogeneous struct (cycling
+   `int64`/`bool`/`float64`/`string`) extracts a real 64-field Go struct and runs (`0 true x 999 x true
+   false` — read at depths 0/1/3/4/63, mutate-through-pointer, structural `==`); all earlier demos
+   (`Cell`/`Cell3`/`Pair` + pointer-receiver methods + `Node` embedding) migrated onto it, output
+   byte-identical.  API is receiver-first (`p` before the index).  Residual: full canonicity of the rep
+   vs the Go field order remains the trusted-plugin bridge (gap #10).  *Not yet:* pointer-receiver method
+   expressions `(*T).M`; method-name namespacing via Rocq `Module`s (so two types can share `Area`).
    **DEFINED TYPES over a primitive with methods DONE (2026-06-19)** — Go's `type MyI64 int64`
    (a distinct named type with the primitive's representation, carrying methods).  Modeled as a
    2-field record whose 2nd field is a `GoTypeTag` PHANTOM: extraction KEEPS that field, so Coq does
