@@ -1785,7 +1785,7 @@ let raw_term tab next =
       let lbl = match nat_value n with
         | Some v -> v
         | None -> unsupported "a run_blocks Jump to a non-literal block target (the goto label must be statically known; defaulting to block0 would jump to the WRONG block and silently run a different program)" in
-      str tab ++ str (Printf.sprintf "goto block%d" lbl) ++ fnl ()
+      str tab ++ str ("goto block" ^ print_i64_dec (Int64.of_int lbl)) ++ fnl ()
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
@@ -3197,12 +3197,12 @@ let pp_io_body ?(ret_val=false) state tab env body =
                       then String.sub tab 0 (String.length tab - 1) else "" in
                     let initial =
                       if start_v = 0 then mt ()
-                      else str tab ++ str (Printf.sprintf "goto block%d" start_v) ++ fnl () in
+                      else str tab ++ str ("goto block" ^ print_i64_dec (Int64.of_int start_v)) ++ fnl () in
                     let rec emit_all i = function
                       | [] -> mt ()
                       | bi :: rest ->
                           (if is_target i
-                           then str lbl_indent ++ str (Printf.sprintf "block%d:" i) ++ fnl ()
+                           then str lbl_indent ++ str ("block" ^ print_i64_dec (Int64.of_int i) ^ ":") ++ fnl ()
                            else mt ()) ++
                           emit_block true state hoists raw_term tab env bi ++
                           emit_all (i + 1) rest
