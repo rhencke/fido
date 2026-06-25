@@ -5953,6 +5953,15 @@ Qed.
 Definition gstruct_eqb {R ts} (rep : StructRep R ts) (eqs : EqTup ts) (a b : R) : bool :=
   tup_eqb ts eqs (sr_to rep a) (sr_to rep b).
 
+(** Build the per-field equality bundle straight from the field TAGS — [key_eqb] is the tag-indexed
+    Go-comparable equality, so a struct of comparable fields gets its [EqTup] for free (no N-tuple of
+    eqbs to write by hand).  [gstruct_eqb rep (eqs_of_tags …)] is the canonical struct [==]. *)
+Fixpoint eqs_of_tags (ts : list Type) : TagTup ts -> EqTup ts :=
+  match ts return TagTup ts -> EqTup ts with
+  | nil       => fun _ => tt
+  | t :: rest => fun tgs => (key_eqb (fst tgs), eqs_of_tags rest (snd tgs))
+  end.
+
 Lemma sr_to_inj : forall {R ts} (rep : StructRep R ts) a b, sr_to rep a = sr_to rep b -> a = b.
 Proof. intros R ts rep a b H. rewrite <- (sr_eta rep a), <- (sr_eta rep b), H. reflexivity. Qed.
 

@@ -269,6 +269,7 @@ true false
 5 9
 7 4
 99 2
+0 true x 999 x true false
 11
 6
 11 99

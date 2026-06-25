@@ -446,7 +446,7 @@ let is_gsptr_machinery r =
      "gsptr_hs"; "mkGSPtr"; "gsp_base"; "gstruct_eqb"; "gfield_coh";
      "mkSR"; "sr_tags"; "sr_to"; "sr_from"; "sr_eta"; "srep_ts"; "srep_rep";
      "MHere"; "MNext"; "mem_get"; "mem_depth"; "mem_tag";
-     "write_fields"; "read_fields"; "wr_fields"; "tup_eqb"; "EqTupOk"; "hfield_cell_loc"]
+     "write_fields"; "read_fields"; "wr_fields"; "tup_eqb"; "EqTupOk"; "eqs_of_tags"; "hfield_cell_loc"]
 (* Slices as aliasing handles (Phase B3): SliceH A → Go []T; sub-slicing shares. *)
 let is_sliceh_type = named "SliceH"
 let is_slice_make_h_ref = named "slice_make_h"
@@ -1930,8 +1930,9 @@ let rec pp_expr state env = function
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a generic struct-pointer field write whose proj arg is not a record projection") in
            pp_atom state env p ++ str "." ++ str fld ++ str " = " ++ pp_typed_lit state env v
-       (* generic struct structural equality → Go [a == b] (strip the rep + per-field eqb dicts) *)
-       | MLglob r, [_rep; _eqs; a; b] when is_gstruct_eqb_ref r ->
+       (* generic struct structural equality → Go [a == b].  [ts] (a [list Type]) survives extraction
+          as a leading data arg, then the rep + per-field eqb bundle — all proof-side, stripped. *)
+       | MLglob r, [_ts; _rep; _eqs; a; b] when is_gstruct_eqb_ref r ->
            str "(" ++ pp_atom state env a ++ str " == " ++ pp_atom state env b ++ str ")"
        (* a TYPED nil pointer conversion to *T — so a [p != nil] comparison (in the
           safe deref) type-checks (a bare untyped [nil != nil] is a Go error). *)

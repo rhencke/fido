@@ -78,6 +78,7 @@ func Ceqb[T1 comparable](a T1, b T1) bool {
 
 type Tup = any
 type TagTup = any
+type EqTup = any
 
 func Add(n int, m int) int {
 	return n + m
@@ -1929,6 +1930,88 @@ func Gcell_demo() {
 	println(v.Gca, b)
 }
 
+type Big64 struct {
+	F0  int64
+	F1  bool
+	F2  float64
+	F3  string
+	F4  int64
+	F5  bool
+	F6  float64
+	F7  string
+	F8  int64
+	F9  bool
+	F10 float64
+	F11 string
+	F12 int64
+	F13 bool
+	F14 float64
+	F15 string
+	F16 int64
+	F17 bool
+	F18 float64
+	F19 string
+	F20 int64
+	F21 bool
+	F22 float64
+	F23 string
+	F24 int64
+	F25 bool
+	F26 float64
+	F27 string
+	F28 int64
+	F29 bool
+	F30 float64
+	F31 string
+	F32 int64
+	F33 bool
+	F34 float64
+	F35 string
+	F36 int64
+	F37 bool
+	F38 float64
+	F39 string
+	F40 int64
+	F41 bool
+	F42 float64
+	F43 string
+	F44 int64
+	F45 bool
+	F46 float64
+	F47 string
+	F48 int64
+	F49 bool
+	F50 float64
+	F51 string
+	F52 int64
+	F53 bool
+	F54 float64
+	F55 string
+	F56 int64
+	F57 bool
+	F58 float64
+	F59 string
+	F60 int64
+	F61 bool
+	F62 float64
+	F63 string
+}
+
+var Big64_val Big64 = Big64{F0: 0, F1: true, F2: 0x18000000000000p-52, F3: "x", F4: 4, F5: false, F6: 0x18000000000000p-52, F7: "x", F8: 8, F9: true, F10: 0x18000000000000p-52, F11: "x", F12: 12, F13: false, F14: 0x18000000000000p-52, F15: "x", F16: 16, F17: true, F18: 0x18000000000000p-52, F19: "x", F20: 20, F21: false, F22: 0x18000000000000p-52, F23: "x", F24: 24, F25: true, F26: 0x18000000000000p-52, F27: "x", F28: 28, F29: false, F30: 0x18000000000000p-52, F31: "x", F32: 32, F33: true, F34: 0x18000000000000p-52, F35: "x", F36: 36, F37: false, F38: 0x18000000000000p-52, F39: "x", F40: 40, F41: true, F42: 0x18000000000000p-52, F43: "x", F44: 44, F45: false, F46: 0x18000000000000p-52, F47: "x", F48: 48, F49: true, F50: 0x18000000000000p-52, F51: "x", F52: 52, F53: false, F54: 0x18000000000000p-52, F55: "x", F56: 56, F57: true, F58: 0x18000000000000p-52, F59: "x", F60: 60, F61: false, F62: 0x18000000000000p-52, F63: "x"}
+
+var Big64_valB Big64 = Big64{F0: 777, F1: true, F2: 0x18000000000000p-52, F3: "x", F4: 4, F5: false, F6: 0x18000000000000p-52, F7: "x", F8: 8, F9: true, F10: 0x18000000000000p-52, F11: "x", F12: 12, F13: false, F14: 0x18000000000000p-52, F15: "x", F16: 16, F17: true, F18: 0x18000000000000p-52, F19: "x", F20: 20, F21: false, F22: 0x18000000000000p-52, F23: "x", F24: 24, F25: true, F26: 0x18000000000000p-52, F27: "x", F28: 28, F29: false, F30: 0x18000000000000p-52, F31: "x", F32: 32, F33: true, F34: 0x18000000000000p-52, F35: "x", F36: 36, F37: false, F38: 0x18000000000000p-52, F39: "x", F40: 40, F41: true, F42: 0x18000000000000p-52, F43: "x", F44: 44, F45: false, F46: 0x18000000000000p-52, F47: "x", F48: 48, F49: true, F50: 0x18000000000000p-52, F51: "x", F52: 52, F53: false, F54: 0x18000000000000p-52, F55: "x", F56: 56, F57: true, F58: 0x18000000000000p-52, F59: "x", F60: 60, F61: false, F62: 0x18000000000000p-52, F63: "x"}
+
+func Big64_demo() {
+	p := &Big64{F0: 0, F1: true, F2: 0x18000000000000p-52, F3: "x", F4: 4, F5: false, F6: 0x18000000000000p-52, F7: "x", F8: 8, F9: true, F10: 0x18000000000000p-52, F11: "x", F12: 12, F13: false, F14: 0x18000000000000p-52, F15: "x", F16: 16, F17: true, F18: 0x18000000000000p-52, F19: "x", F20: 20, F21: false, F22: 0x18000000000000p-52, F23: "x", F24: 24, F25: true, F26: 0x18000000000000p-52, F27: "x", F28: 28, F29: false, F30: 0x18000000000000p-52, F31: "x", F32: 32, F33: true, F34: 0x18000000000000p-52, F35: "x", F36: 36, F37: false, F38: 0x18000000000000p-52, F39: "x", F40: 40, F41: true, F42: 0x18000000000000p-52, F43: "x", F44: 44, F45: false, F46: 0x18000000000000p-52, F47: "x", F48: 48, F49: true, F50: 0x18000000000000p-52, F51: "x", F52: 52, F53: false, F54: 0x18000000000000p-52, F55: "x", F56: 56, F57: true, F58: 0x18000000000000p-52, F59: "x", F60: 60, F61: false, F62: 0x18000000000000p-52, F63: "x"}
+	p.F4 = int64(999)
+	a0 := p.F0
+	a1 := p.F1
+	a3 := p.F3
+	a4 := p.F4
+	a63 := p.F63
+	println(a0, a1, a3, a4, a63, (Big64_val == Big64_val), (Big64_val == Big64_valB))
+}
+
 func (p *Cell) Cell_incx() {
 	a := p.Cx
 	p.Cx = a + 1
@@ -2644,6 +2727,7 @@ func main() {
 	Nested_struct_demo()
 	Sptr_demo()
 	Gcell_demo()
+	Big64_demo()
 	Ptr_method_demo()
 	Ptr_method_expr_demo()
 	Node_embed_demo()
