@@ -57,6 +57,8 @@ module Nat :
   val modulo : nat -> nat -> nat
  end
 
+val existsb : ('a1 -> bool) -> 'a1 list -> bool
+
 type positive =
 | XI of positive
 | XO of positive
@@ -147,6 +149,8 @@ type string =
 | EmptyString
 | String of ascii * string
 
+val eqb1 : string -> string -> bool
+
 val append : string -> string -> string
 
 module Z :
@@ -187,6 +191,16 @@ module Z :
 
   val log2 : z -> z
  end
+
+val is_idc : ascii -> bool
+
+val is_idstart : ascii -> bool
+
+val all_idc : string -> bool
+
+val is_type_keyword : string -> bool
+
+val valid_ident : string -> bool
 
 type ident = string
 
@@ -298,10 +312,14 @@ val balanced_b : string -> bool
 
 val atom_ok : string -> bool
 
-type atom = string
+type goAtom =
+| AIdent of ident
+| ARaw of string
+
+val atom_str : goAtom -> string
 
 type goExpr =
-| EAtom of atom
+| EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
 
 val print_expr : nat -> goExpr -> string

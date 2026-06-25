@@ -1134,7 +1134,8 @@ let fw_wrap signed width inner =
    structured inner) instead of a "("-led OPAQUE atom that escapes the round-trip ([atomic] would reject
    it).  Used by [build_goexpr]; the masks are atomic hex literals. *)
 let build_fw_masked signed width inner =
-  let hexatom n = Printer.EAtom (coq_string_of_ocaml (print_hex_int n)) in
+  (* a hex mask (e.g. "0xff") is a non-identifier atom -> [ARaw] *)
+  let hexatom n = Printer.EAtom (Printer.ARaw (coq_string_of_ocaml (print_hex_int n))) in
   let masked = Printer.EBin (Printer.BAnd, inner, hexatom ((1 lsl width) - 1)) in
   if not signed then masked
   else
@@ -2746,18 +2747,22 @@ and pp_atom state env e =
    (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
-  (* FAIL-CLOSED (rule 2): an [EAtom] is only sound as a round-trip leaf if it satisfies [Printer.atom_ok]
-     (= atomic AND paren-balanced) — exactly the [Atom] invariant [EAtom : Atom] now carries in the type,
-     which makes [print_parse_expr] UNCONDITIONAL.  Since the OCaml [atom] erases to a bare string (the
-     proof is gone), build_goexpr must re-establish that invariant at runtime: check [atom_ok] and abort
-     (not assume) on a malformed operand (a "("-led group, a depth-0 operator, an unbalanced bracket). *)
+  (* FAIL-CLOSED (rule 2) + STRUCTURE: an [EAtom] carries a structured [GoAtom] whose validity is in the
+     type (making [print_parse_expr] UNCONDITIONAL).  Since the OCaml [GoAtom] erases to bare strings,
+     build_goexpr re-establishes the invariant at runtime AND picks the constructor: a [valid_ident]
+     becomes [AIdent], any other [atom_ok] string [ARaw]; a malformed operand (not atom_ok — a "("-led
+     group, a depth-0 operator, an unbalanced bracket) ABORTS.  This mirrors the parser's [build_atom]
+     disambiguation exactly, so the executed path lands in the same structured atom the round-trip covers. *)
   let atom d =
     let s = Pp.string_of_ppcmds d in
     let cs = coq_string_of_ocaml s in
-    match Printer.atom_ok cs with
-    | Printer.True  -> Printer.EAtom cs
-    | Printer.False -> unsupported (Printf.sprintf
-      "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s)
+    match Printer.valid_ident cs with
+    | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
+    | Printer.False ->
+      (match Printer.atom_ok cs with
+       | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
+       | Printer.False -> unsupported (Printf.sprintf
+         "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s))
   in
   match strip_magic e with
   | MLapp (h, args) ->

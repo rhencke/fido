@@ -133,6 +133,14 @@ module Nat =
   | S y' -> sub y' (snd (divmod x y' O y'))
  end
 
+(** val existsb : ('a1 -> bool) -> 'a1 list -> bool **)
+
+let rec existsb f = function
+| Nil -> False
+| Cons (a, l0) -> (match f a with
+                   | True -> True
+                   | False -> existsb f l0)
+
 type positive =
 | XI of positive
 | XO of positive
@@ -454,6 +462,22 @@ type string =
 | EmptyString
 | String of ascii * string
 
+(** val eqb1 : string -> string -> bool **)
+
+let rec eqb1 s1 s2 =
+  match s1 with
+  | EmptyString ->
+    (match s2 with
+     | EmptyString -> True
+     | String (_, _) -> False)
+  | String (c1, s1') ->
+    (match s2 with
+     | EmptyString -> False
+     | String (c2, s2') ->
+       (match eqb0 c1 c2 with
+        | True -> eqb1 s1' s2'
+        | False -> False))
+
 (** val append : string -> string -> string **)
 
 let rec append s1 s2 =
@@ -664,6 +688,225 @@ module Z =
      | XH -> Z0)
   | _ -> Z0
  end
+
+(** val is_idc : ascii -> bool **)
+
+let is_idc c =
+  let n0 = nat_of_ascii c in
+  (match match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       O)))))))))))))))))))))))))))))))))))))))))))))))) n0 with
+               | True ->
+                 Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S
+                   O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+               | False -> False with
+         | True -> True
+         | False ->
+           (match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S
+                    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                    n0 with
+            | True ->
+              Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False) with
+   | True -> True
+   | False ->
+     (match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S
+                    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                    n0 with
+            | True ->
+              Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False with
+      | True -> True
+      | False ->
+        Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S
+          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val is_idstart : ascii -> bool **)
+
+let is_idstart c =
+  let n0 = nat_of_ascii c in
+  (match match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                       n0 with
+               | True ->
+                 Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+               | False -> False with
+         | True -> True
+         | False ->
+           (match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S
+                    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                    n0 with
+            | True ->
+              Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False) with
+   | True -> True
+   | False ->
+     Nat.eqb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S
+       O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val all_idc : string -> bool **)
+
+let rec all_idc = function
+| EmptyString -> True
+| String (c, s') -> (match is_idc c with
+                     | True -> all_idc s'
+                     | False -> False)
+
+(** val is_type_keyword : string -> bool **)
+
+let is_type_keyword s =
+  existsb (eqb1 s) (Cons ((String ((Ascii (True, False, False, True, False,
+    True, True, False)), (String ((Ascii (False, True, True, True, False,
+    True, True, False)), (String ((Ascii (False, False, True, False, True,
+    True, True, False)), (String ((Ascii (False, True, True, False, True,
+    True, False, False)), (String ((Ascii (False, False, True, False, True,
+    True, False, False)), EmptyString)))))))))), (Cons ((String ((Ascii
+    (True, False, False, True, False, True, True, False)), (String ((Ascii
+    (False, True, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (True, True, False, False, True, True, False, False)), (String ((Ascii
+    (False, True, False, False, True, True, False, False)),
+    EmptyString)))))))))), (Cons ((String ((Ascii (True, False, False, True,
+    False, True, True, False)), (String ((Ascii (False, True, True, True,
+    False, True, True, False)), (String ((Ascii (False, False, True, False,
+    True, True, True, False)), (String ((Ascii (True, False, False, False,
+    True, True, False, False)), (String ((Ascii (False, True, True, False,
+    True, True, False, False)), EmptyString)))))))))), (Cons ((String ((Ascii
+    (True, False, False, True, False, True, True, False)), (String ((Ascii
+    (False, True, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (False, False, False, True, True, True, False, False)),
+    EmptyString)))))))), (Cons ((String ((Ascii (True, False, False, True,
+    False, True, True, False)), (String ((Ascii (False, True, True, True,
+    False, True, True, False)), (String ((Ascii (False, False, True, False,
+    True, True, True, False)), EmptyString)))))), (Cons ((String ((Ascii
+    (True, False, True, False, True, True, True, False)), (String ((Ascii
+    (True, False, False, True, False, True, True, False)), (String ((Ascii
+    (False, True, True, True, False, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (False, True, True, False, True, True, False, False)), (String ((Ascii
+    (False, False, True, False, True, True, False, False)),
+    EmptyString)))))))))))), (Cons ((String ((Ascii (True, False, True,
+    False, True, True, True, False)), (String ((Ascii (True, False, False,
+    True, False, True, True, False)), (String ((Ascii (False, True, True,
+    True, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), (String ((Ascii (True, True, False,
+    False, True, True, False, False)), (String ((Ascii (False, True, False,
+    False, True, True, False, False)), EmptyString)))))))))))), (Cons
+    ((String ((Ascii (True, False, True, False, True, True, True, False)),
+    (String ((Ascii (True, False, False, True, False, True, True, False)),
+    (String ((Ascii (False, True, True, True, False, True, True, False)),
+    (String ((Ascii (False, False, True, False, True, True, True, False)),
+    (String ((Ascii (True, False, False, False, True, True, False, False)),
+    (String ((Ascii (False, True, True, False, True, True, False, False)),
+    EmptyString)))))))))))), (Cons ((String ((Ascii (True, False, True,
+    False, True, True, True, False)), (String ((Ascii (True, False, False,
+    True, False, True, True, False)), (String ((Ascii (False, True, True,
+    True, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), (String ((Ascii (False, False, False,
+    True, True, True, False, False)), EmptyString)))))))))), (Cons ((String
+    ((Ascii (True, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, False, True, False, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)),
+    EmptyString)))))))), (Cons ((String ((Ascii (False, True, False, False,
+    False, True, True, False)), (String ((Ascii (True, True, True, True,
+    False, True, True, False)), (String ((Ascii (True, True, True, True,
+    False, True, True, False)), (String ((Ascii (False, False, True, True,
+    False, True, True, False)), EmptyString)))))))), (Cons ((String ((Ascii
+    (True, True, False, False, True, True, True, False)), (String ((Ascii
+    (False, False, True, False, True, True, True, False)), (String ((Ascii
+    (False, True, False, False, True, True, True, False)), (String ((Ascii
+    (True, False, False, True, False, True, True, False)), (String ((Ascii
+    (False, True, True, True, False, True, True, False)), (String ((Ascii
+    (True, True, True, False, False, True, True, False)),
+    EmptyString)))))))))))), (Cons ((String ((Ascii (False, True, True,
+    False, False, True, True, False)), (String ((Ascii (False, False, True,
+    True, False, True, True, False)), (String ((Ascii (True, True, True,
+    True, False, True, True, False)), (String ((Ascii (True, False, False,
+    False, False, True, True, False)), (String ((Ascii (False, False, True,
+    False, True, True, True, False)), (String ((Ascii (False, True, True,
+    False, True, True, False, False)), (String ((Ascii (False, False, True,
+    False, True, True, False, False)), EmptyString)))))))))))))), (Cons
+    ((String ((Ascii (False, True, True, False, False, True, True, False)),
+    (String ((Ascii (False, False, True, True, False, True, True, False)),
+    (String ((Ascii (True, True, True, True, False, True, True, False)),
+    (String ((Ascii (True, False, False, False, False, True, True, False)),
+    (String ((Ascii (False, False, True, False, True, True, True, False)),
+    (String ((Ascii (True, True, False, False, True, True, False, False)),
+    (String ((Ascii (False, True, False, False, True, True, False, False)),
+    EmptyString)))))))))))))), (Cons ((String ((Ascii (True, True, False,
+    False, False, True, True, False)), (String ((Ascii (False, False, False,
+    True, False, True, True, False)), (String ((Ascii (True, False, False,
+    False, False, True, True, False)), (String ((Ascii (False, True, True,
+    True, False, True, True, False)), EmptyString)))))))), (Cons ((String
+    ((Ascii (True, False, True, True, False, True, True, False)), (String
+    ((Ascii (True, False, False, False, False, True, True, False)), (String
+    ((Ascii (False, False, False, False, True, True, True, False)),
+    EmptyString)))))), Nil))))))))))))))))))))))))))))))))
+
+(** val valid_ident : string -> bool **)
+
+let valid_ident s = match s with
+| EmptyString -> False
+| String (c, _) ->
+  (match match is_idstart c with
+         | True -> all_idc s
+         | False -> False with
+   | True -> negb (is_type_keyword s)
+   | False -> False)
 
 type ident = string
 
@@ -1505,16 +1748,24 @@ let atom_ok s =
   | True -> balanced_b s
   | False -> False
 
-type atom = string
+type goAtom =
+| AIdent of ident
+| ARaw of string
+
+(** val atom_str : goAtom -> string **)
+
+let atom_str = function
+| AIdent i -> i
+| ARaw r -> r
 
 type goExpr =
-| EAtom of atom
+| EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
 
 (** val print_expr : nat -> goExpr -> string **)
 
 let rec print_expr ctx = function
-| EAtom a -> a
+| EAtom a -> atom_str a
 | EBin (o, l, r) ->
   let p = binop_prec o in
   let inner =

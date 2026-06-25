@@ -1139,19 +1139,38 @@ Proof.
     + apply all_idc_nneg_b; [ apply Z.le_refl | exact Hall ].
 Qed.
 
-(** A well-formed ATOM with validity carried IN THE TYPE (a [sig], like [Ident]): malformed atom text is
-    UNREPRESENTABLE.  [Atom] extracts to a bare [string] (the proof is erased), so the printer is
-    byte-identical; the round-trip ([print_parse_expr]) becomes UNCONDITIONAL. *)
-Definition Atom : Type := { s : string | atom_ok s = true }.
-Definition mkAtom (s : string) (H : atom_ok s = true) : Atom := exist _ s H.
+(** [raw_ok s] — a NON-identifier well-formed atom: [atom_ok] AND not a [valid_ident] (so identifiers
+    structure SEPARATELY, as [AIdent]).  The split lets the round-trip DISAMBIGUATE: a [valid_ident]
+    re-parses to [AIdent], anything else to [ARaw]. *)
+Definition raw_ok (s : string) : bool := andb (atom_ok s) (negb (valid_ident s)).
+Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
+Proof. intros s H. apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha. Qed.
+Lemma raw_ok_not_ident : forall s, raw_ok s = true -> valid_ident s = false.
+Proof. intros s H. apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn. Qed.
+
+(** A structured Go ATOM, validity carried IN THE TYPE (malformed atom text UNREPRESENTABLE): a validated
+    IDENTIFIER ([AIdent], the first richer constructor), or a "raw" atom ([ARaw] — [atom_ok] but not an
+    identifier: a call, cast, literal, …).  [GoAtom] extracts to a 2-constructor type over bare strings
+    (proofs erased); [atom_str] is the underlying text, always [atom_ok]. *)
+Inductive GoAtom : Type :=
+  | AIdent : Ident -> GoAtom
+  | ARaw   : { s : string | raw_ok s = true } -> GoAtom.
+Definition atom_str (a : GoAtom) : string :=
+  match a with AIdent i => proj1_sig i | ARaw r => proj1_sig r end.
+Lemma atom_str_atom_ok : forall a, atom_ok (atom_str a) = true.
+Proof.
+  intros [ i | r ]; cbn [atom_str].
+  - apply valid_ident_atom_ok, (proj2_sig i).
+  - apply raw_ok_atom_ok, (proj2_sig r).
+Qed.
 
 Inductive GoExpr : Type :=
-  | EAtom : Atom -> GoExpr
+  | EAtom : GoAtom -> GoExpr
   | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
 
 Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
   match e with
-  | EAtom a => proj1_sig a
+  | EAtom a => atom_str a
   | EBin o l r =>
       let p := binop_prec o in
       let inner := (print_expr p l ++ binop_text o ++ print_expr (S p) r)%string in
@@ -1160,7 +1179,7 @@ Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
 
 (** CHARACTERIZATION — exact behaviour and the byte-identical basis vs [pp_prec]: an atom prints
     verbatim; a binop wraps iff [binop_prec o < ctx]. *)
-Lemma print_expr_atom : forall ctx (a : Atom), print_expr ctx (EAtom a) = proj1_sig a.
+Lemma print_expr_atom : forall ctx (a : GoAtom), print_expr ctx (EAtom a) = atom_str a.
 Proof. reflexivity. Qed.
 Lemma print_expr_unwrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = false ->
   print_expr ctx (EBin o l r)
@@ -1203,7 +1222,7 @@ Proof. intro o. destruct o; unfold balanced; cbn; repeat split; (lia || exact I)
     derived and provably balanced, so they need no hypothesis). *)
 Fixpoint wf (e : GoExpr) : Prop :=
   match e with
-  | EAtom a => balanced (proj1_sig a)
+  | EAtom a => balanced (atom_str a)
   | EBin _ l r => wf l /\ wf r
   end.
 
@@ -1243,7 +1262,7 @@ Proof.
   induction e as [ s | o l IHl r IHr ]; intros ctx d Hd Hwf.
   - (* EAtom a *) cbn [print_expr wf] in *. destruct Hwf as [Hz Hn]. split.
     + rewrite depth_shift, Hz. lia.
-    + apply (nneg_raise (proj1_sig s) 0 d); [ lia | exact Hn ].
+    + apply (nneg_raise (atom_str s) 0 d); [ lia | exact Hn ].
   - (* EBin o l r *)
     cbn [wf] in Hwf. destruct Hwf as [Hwl Hwr].
     destruct (binop_text_balanced o) as [Hopz Hopn].
@@ -1376,10 +1395,36 @@ Proof.
   apply scan_atom_gen; assumption.
 Qed.
 
+(** [build_atom a] — the atom DISAMBIGUATION: a [valid_ident] string structures as [AIdent], any other
+    [atom_ok] string as [ARaw]; a malformed string is rejected ([None]).  Factored out so the round-trip
+    proof uses [build_atom_str] UNIFORMLY (no per-constructor case split in the climbing proof). *)
+Definition build_atom (a : string) : option GoExpr :=
+  match bool_dec (valid_ident a) true with
+  | left Hi => Some (EAtom (AIdent (exist _ a Hi)))
+  | right _ => match bool_dec (raw_ok a) true with
+               | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
+               | right _ => None
+               end
+  end.
+Lemma build_atom_str : forall g, build_atom (atom_str g) = Some (EAtom g).
+Proof.
+  intros [ i | r ]; cbn [atom_str]; unfold build_atom.
+  - destruct i as [ s Hvi ]; cbn [proj1_sig].
+    destruct (bool_dec (valid_ident s) true) as [ Hd | Hd ].
+    + do 3 f_equal. assert (E : Hd = Hvi) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd. exact Hvi.
+  - destruct r as [ s Hr ]; cbn [proj1_sig].
+    pose proof (raw_ok_not_ident _ Hr) as Hni.
+    destruct (bool_dec (valid_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
+    destruct (bool_dec (raw_ok s) true) as [ Hd2 | Hd2 ].
+    + do 3 f_equal. assert (E : Hd2 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd2. exact Hr.
+Qed.
+
 (** The precedence-climbing parser (Go's binary-operator grammar): [parse_expr k] reads the maximal
-    expression whose operators all bind at precedence [>= k]; [parse_primary] reads an atom or a
-    "("-delimited sub-expression; [parse_climb] left-folds operators of precedence [>= k].  Fuel bounds
-    the recursion (every call strictly decreases it). *)
+    expression whose operators all bind at precedence [>= k]; [parse_primary] reads an atom (via
+    [build_atom]) or a "("-delimited sub-expression; [parse_climb] left-folds operators of precedence
+    [>= k].  Fuel bounds the recursion (every call strictly decreases it). *)
 Fixpoint parse_expr (fuel k : nat) (s : string) : option (GoExpr * string) :=
   match fuel with
   | O => None
@@ -1400,10 +1445,7 @@ with parse_primary (fuel : nat) (s : string) : option (GoExpr * string) :=
           | None => None end
         else match scan_atom 0 s with
              | (EmptyString, _) => None
-             | (a, rest) => match bool_dec (atom_ok a) true with
-                            | left H  => Some (EAtom (mkAtom a H), rest)
-                            | right _ => None
-                            end
+             | (a, rest) => match build_atom a with Some e => Some (e, rest) | None => None end
              end
     end
   end
@@ -1438,8 +1480,7 @@ Lemma parse_primary_S : forall f s, parse_primary (S f) s =
         | None => None end
       else match scan_atom 0 s with
            | (EmptyString, _) => None
-           | (a, rest) => match bool_dec (atom_ok a) true with
-                          | left H => Some (EAtom (mkAtom a H), rest) | right _ => None end
+           | (a, rest) => match build_atom a with Some e => Some (e, rest) | None => None end
            end
   end.
 Proof. reflexivity. Qed.
@@ -1498,9 +1539,12 @@ Proof.
       * apply Sc, Hc; assumption.
 Qed.
 
-(** A concrete atom: the [atom_ok] proof is discharged by [eq_refl] (computes), so a malformed atom
-    string would fail to typecheck here — atoms are unrepresentable-when-malformed. *)
-Notation EA s := (EAtom (mkAtom s eq_refl)).
+(** Concrete atoms: [EA] is an IDENTIFIER atom, [EAr] a "raw" (non-identifier) atom.  The [valid_ident] /
+    [raw_ok] proof is discharged by [eq_refl] (it computes), so a malformed atom string — or an identifier
+    written as [EAr] / a non-identifier as [EA] — fails to typecheck: atoms are unrepresentable-when-
+    malformed, AND the ident/raw split is enforced at the type. *)
+Notation EA s := (EAtom (AIdent (exist _ s eq_refl))).
+Notation EAr s := (EAtom (ARaw (exist _ s eq_refl))).
 
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
@@ -1545,8 +1589,8 @@ Example rt_prodofsums : parse_expr 12 0 (print_expr 0
 Proof. reflexivity. Qed.  (* (a + b) * (c + d) *)
 (** Atoms with their OWN parens/spaces (a call) — the operator inside is at paren-depth > 0, so the
     scanner reads the whole call as one atom and the top-level " + " still splits correctly. *)
-Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "f(a, b)") (EA "c")))
-                     = Some (EBin BAdd (EA "f(a, b)") (EA "c"), "").  (* f(a, b) + c *)
+Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "f(a, b)") (EA "c")))
+                     = Some (EBin BAdd (EAr "f(a, b)") (EA "c"), "").  (* f(a, b) + c *)
 Proof. reflexivity. Qed.
 (** A FUNCTION-LITERAL atom — exactly the plugin's arith-force typed-IIFE (e.g. main.go line 322) — is
     now [atomic] (its `-` is inside `{ }`, its `) T {` spaces precede non-op chars) and round-trips even
@@ -1556,9 +1600,9 @@ Example atomic_funclit :
   atomic "func(x int64, y int64) int64 { return x - y }(0, 7)" = true.
 Proof. reflexivity. Qed.
 Example rt_funclit :
-  parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "func(x int64, y int64) int64 { return x - y }(0, 7)")
+  parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)")
                                           (EA "z")))
-  = Some (EBin BAdd (EA "func(x int64, y int64) int64 { return x - y }(0, 7)") (EA "z"), "").
+  = Some (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)") (EA "z"), "").
 Proof. reflexivity. Qed.
 
 (** ============================================================================
@@ -1579,17 +1623,17 @@ Fixpoint esize (e : GoExpr) : nat :=
   match e with EAtom _ => 1 | EBin _ l r => S (esize l + esize r) end.
 
 Fixpoint atomic_tree (e : GoExpr) : Prop :=
-  match e with EAtom a => atomic (proj1_sig a) = true | EBin _ l r => atomic_tree l /\ atomic_tree r end.
+  match e with EAtom a => atomic (atom_str a) = true | EBin _ l r => atomic_tree l /\ atomic_tree r end.
 
 (** Now that [EAtom] carries an [Atom] (its [atom_ok] proof IN THE TYPE), both round-trip side-conditions
     hold for EVERY tree — discharged structurally, no hypothesis needed. *)
 Lemma atomic_tree_always : forall e, atomic_tree e.
 Proof.
-  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_atomic; exact (proj2_sig a) | cbn; split; assumption ].
+  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_atomic, atom_str_atom_ok | cbn; split; assumption ].
 Qed.
 Lemma wf_always : forall e, wf e.
 Proof.
-  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_balanced; exact (proj2_sig a) | cbn; split; assumption ].
+  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_balanced, atom_str_atom_ok | cbn; split; assumption ].
 Qed.
 
 (** A [rest] at which BOTH [parse_climb k] and [scan_atom] stop cleanly: empty, ")"-led, or led by an
@@ -1884,11 +1928,11 @@ Lemma parse_primary_base : forall base bfl TAIL F,
 Proof.
   intros base bfl TAIL F Hwf Hat Hpr Hprim Hgs HF.
   destruct base as [ s | o' l' r' ].
-  - (* EAtom a — [a : Atom] carries its [atom_ok] proof *)
-    destruct s as [ str Hok ]. cbn [print_expr proj1_sig].
-    pose proof (atom_ok_atomic _ Hok) as Hatm.
+  - (* EAtom s — [s : GoAtom]; [build_atom_str] recovers the structured atom uniformly *)
+    cbn [print_expr].
+    pose proof (atom_ok_atomic _ (atom_str_atom_ok s)) as Hatm.
     destruct F as [ | f ]; [ cbn in HF; lia | ].
-    destruct str as [ | c s' ]; [ cbn in Hatm; discriminate | ].
+    destruct (atom_str s) as [ | c s' ] eqn:Estr; [ cbn in Hatm; discriminate | ].
     rewrite parse_primary_S.
     assert (Hopen : is_open c = false).
     { unfold atomic in Hatm. apply andb_true_iff in Hatm. destruct Hatm as [ Hno _ ].
@@ -1897,10 +1941,7 @@ Proof.
     assert (Hscan : scan_atom 0 ((String c s') ++ TAIL)%string = (String c s', TAIL))
       by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
     change ((String c s') ++ TAIL)%string with (String c (s' ++ TAIL))%string in Hscan.
-    rewrite Hscan.
-    destruct (bool_dec (atom_ok (String c s')) true) as [ H' | H' ].
-    + assert (E : H' = Hok) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
-    + exfalso. apply H'. exact Hok.
+    rewrite Hscan, <- Estr, build_atom_str. reflexivity.
   - (* EBin o' l' r' : wrapped at bfl since binop_prec o' < bfl *)
     assert (Hwrap : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
     rewrite (print_expr_wrapped o' l' r' bfl Hwrap).
@@ -1926,27 +1967,23 @@ Proof.
             match e with EAtom _ => True | EBin o _ _ => ctx <= binop_prec o end ->
             parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest)).
   { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r ].
-    - (* EAtom a — [a : Atom] carries its [atom_ok] proof *)
-      destruct s as [ str Hok ]. cbn [print_expr proj1_sig].
-      pose proof (atom_ok_atomic _ Hok) as Hatm.
+    - (* EAtom s — [s : GoAtom]; [build_atom_str] recovers it uniformly *)
+      cbn [print_expr].
+      pose proof (atom_ok_atomic _ (atom_str_atom_ok s)) as Hatm.
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
-      destruct str as [ | c s' ]; [ cbn in Hatm; discriminate | ].
+      destruct (atom_str s) as [ | c s' ] eqn:Estr; [ cbn in Hatm; discriminate | ].
       destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
       rewrite parse_expr_S.
       assert (Hopen : is_open c = false).
       { unfold atomic in Hatm. apply andb_true_iff in Hatm. destruct Hatm as [ Hno _ ].
         apply negb_true_iff in Hno. exact Hno. }
       assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
-      assert (Hpp : parse_primary (S f1) ((String c s') ++ rest)%string
-                  = Some (EAtom (exist _ (String c s') Hok), rest)).
+      assert (Hpp : parse_primary (S f1) ((String c s') ++ rest)%string = Some (EAtom s, rest)).
       { rewrite parse_primary_S. cbn [append]. rewrite Hopen.
         assert (Hscan : scan_atom 0 ((String c s') ++ rest)%string = (String c s', rest))
           by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
         change ((String c s') ++ rest)%string with (String c (s' ++ rest))%string in Hscan.
-        rewrite Hscan.
-        destruct (bool_dec (atom_ok (String c s')) true) as [ H' | H' ].
-        + assert (E : H' = Hok) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
-        + exfalso. apply H'. exact Hok. }
+        rewrite Hscan, <- Estr, build_atom_str. reflexivity. }
       rewrite Hpp. apply tail_ok_climb_stop. exact Htl.
     - (* EBin o l r, unwrapped: Hctx : ctx <= binop_prec o *)
       assert (Hleb : Nat.leb ctx (binop_prec o) = true) by (apply Nat.leb_le; exact Hctx).
@@ -2099,4 +2136,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok valid_ident.
