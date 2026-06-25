@@ -593,6 +593,7 @@ let coq_ascii_of_char c =
 let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
+let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
 (* Build the extracted Coq [positive] from a NONZERO 64-bit pattern (interpreted UNSIGNED, LSB-first)
    — so it serves both signed and unsigned, and [min_int]'s magnitude [2^63] falls out of its bits. *)
 let rec coq_pos_of_bits v =
@@ -2387,20 +2388,19 @@ let rec pp_expr state env = function
           surrounding operator, so the operands are printed at this op's level
           (left) and one tighter (right, for left-associativity); [pp_prec] adds
           parens only where genuinely needed. *)
-       | MLglob r, [a; b] when Option.has_some (binop_of r) ->
-           let (p, opstr) = Option.get (binop_of r) in
-           (match arith_force_go_type r with
-            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
-                (* all-constant float arith would constant-fold under Go's (non-IEEE) constant
-                   rules — force runtime via a typed IIFE *)
-                str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
-                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
-            | _ ->
-                pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b)
+       | MLglob r, [_; _] when Option.has_some (binop_of r) ->
+           (* the whole binop tree — operator splice, operand parenthesisation, and the typed-IIFE
+              force-wrapper — is built by [build_goexpr] and rendered by the VERIFIED
+              [Printer.print_prec]; ctx 0 = no outer parens at the top level.  [build_goexpr]
+              re-collects [MLapp (head, all_args)] to the same head/operands. *)
+           pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
-          witness [eqb] is dropped (it discharged the side condition).  Comparison level 3. *)
+          witness [eqb] is dropped (it discharged the side condition).  Comparison level 3,
+          rendered through the verified [Printer.print_prec] as a [GEBin]. *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
-           pp_prec state env 3 a ++ str " == " ++ pp_prec state env 4 b
+           str (coq_string_to_ocaml (Printer.print_prec (coq_nat_of_int 0)
+             (Printer.GEBin (coq_nat_of_int 3, coq_string_of_ocaml " == ",
+                             build_goexpr state env a, build_goexpr state env b))))
        (* complex-number builtins → Go's predeclared [complex]/[real]/[imag] *)
        | MLglob r, [re; im] when is_go_complex_ref r ->
            str "complex(" ++ pp_expr state env re ++ str ", " ++ pp_expr state env im ++ str ")"
@@ -2696,14 +2696,16 @@ and pp_atom state env e =
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
 
-(* Print [e] as an operand inside a binary operator whose context requires
-   precedence [>= ctx].  If [e] is itself a binary operator of lower precedence,
-   wrap it in parens; otherwise emit it bare (atoms and calls bind tightest, so
-   they never need parens — unlike [pp_atom], which parenthesises every non-atom).
-   A binop at the same precedence as [ctx] does NOT need parens on the left (Go's
-   operators are left-associative); the caller passes [p+1] for the right
-   operand to force parens there. *)
-and pp_prec state env ctx e =
+(* Build the VERIFIED-printer [GoExpr] for [e]: a [GEBin] node for an inlined binary
+   operator (so the parenthesisation is decided by the proven [Printer.print_prec], not
+   here), and a [GERaw] atom — the already-rendered Go text — for everything else (atoms,
+   calls, the typed-IIFE force-wrapper: all bind tighter than any operator, so they never
+   need parens).  A non-binop operand's rendering goes through [pp_expr] and is flattened
+   to a string via [Pp.string_of_ppcmds]; the plugin's expression docs are pure text
+   (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
+   binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
+and build_goexpr state env e =
+  let raw d = Printer.GERaw (coq_string_of_ocaml (Pp.string_of_ppcmds d)) in
   match strip_magic e with
   | MLapp (h, args) ->
       let h2, all = collect_app h args in
@@ -2713,13 +2715,22 @@ and pp_prec state env ctx e =
            let (p, opstr) = Option.get (binop_of r) in
            (match arith_force_go_type r with
             | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
-                str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
-                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+                (* the typed-IIFE force-wrapper is a CALL — atomic, never parenthesised: a GERaw atom *)
+                raw (str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
+                     ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
             | _ ->
-                let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
-                if p < ctx then str "(" ++ inner ++ str ")" else inner)
-       | _ -> pp_expr state env e)
-  | _ -> pp_expr state env e
+                Printer.GEBin (coq_nat_of_int p, coq_string_of_ocaml opstr,
+                               build_goexpr state env a, build_goexpr state env b))
+       | _ -> raw (pp_expr state env e))
+  | _ -> raw (pp_expr state env e)
+
+(* Print [e] as an operand inside a binary operator whose context requires precedence [>= ctx].
+   The parenthesisation is now the VERIFIED [Printer.print_prec] (proved to emit well-bracketed
+   output): a [GEBin] of precedence [p] is wrapped exactly when [p < ctx], operands recurse at
+   [p]/[p+1] (left-associativity) — atoms and calls (GERaw) never wrap.  [build_goexpr] supplies
+   the tree; the raw OCaml parenthesise/concat is gone. *)
+and pp_prec state env ctx e =
+  str (coq_string_to_ocaml (Printer.print_prec (coq_nat_of_int ctx) (build_goexpr state env e)))
 
 (* An integer/float literal carries no Go type, so where the target type must be
    fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare

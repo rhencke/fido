@@ -256,8 +256,155 @@ Proof.
   - apply z_digits_first_nonempty.        (* z_digits 64 z "" = z_digits (S 63) z "" *)
 Qed.
 
+(** ============================================================================
+    ---- EXPRESSIONS: OPERATOR PRECEDENCE ---- the first STRUCTURAL (recursive) piece of the printer to
+    move into Rocq.  [go.ml]'s [pp_prec] renders a binary-operator tree, inserting parentheses ONLY
+    where an operand's operator binds LOOSER than its context — get this wrong and [(a+b)*c] misprints
+    as [a+b*c], silently changing the program's meaning.  This is the hardest correctness property of the
+    structural printer, so it is the right first target.
+
+    [GoExpr] models the tree the plugin assembles: [GERaw s] is a pre-rendered ATOM — an operand the
+    plugin already printed (a literal, variable, call, field access): atomic, binds tightest, never needs
+    wrapping — and [GEBin p op l r] is a LEFT-ASSOCIATIVE binary operator at precedence level [p] (lower
+    [p] = looser).  [print_prec ctx e] renders [e] where the context demands precedence >= [ctx]: a
+    [GEBin] at level [p] is parenthesized exactly when [p < ctx].  The operands recurse at [p] (left) and
+    [S p] (right, one tighter — left-associativity), MIRRORING [pp_prec] byte-for-byte. *)
+Inductive GoExpr : Type :=
+  | GERaw : string -> GoExpr
+  | GEBin : nat -> string -> GoExpr -> GoExpr -> GoExpr.
+
+Fixpoint print_prec (ctx : nat) (e : GoExpr) : string :=
+  match e with
+  | GERaw s => s
+  | GEBin p op l r =>
+      let inner := (print_prec p l ++ op ++ print_prec (S p) r)%string in
+      if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
+  end.
+
+(** CHARACTERIZATION — [print_prec]'s exact behaviour, the basis of the safety proof below and of the
+    byte-identical claim against [pp_prec]: an atom prints verbatim; a binop wraps iff [p < ctx]. *)
+Lemma print_prec_raw : forall ctx s, print_prec ctx (GERaw s) = s.
+Proof. reflexivity. Qed.
+Lemma print_prec_unwrapped : forall p op l r ctx, Nat.ltb p ctx = false ->
+  print_prec ctx (GEBin p op l r) = (print_prec p l ++ op ++ print_prec (S p) r)%string.
+Proof. intros p op l r ctx H. cbn [print_prec]. rewrite H. reflexivity. Qed.
+Lemma print_prec_wrapped : forall p op l r ctx, Nat.ltb p ctx = true ->
+  print_prec ctx (GEBin p op l r) = ("(" ++ (print_prec p l ++ op ++ print_prec (S p) r) ++ ")")%string.
+Proof. intros p op l r ctx H. cbn [print_prec]. rewrite H. reflexivity. Qed.
+
+(** SAFETY — [print_prec] emits WELL-BRACKETED Go: scanning the output left to right, the parenthesis
+    depth never goes negative and ends at zero (so no dangling/unmatched paren — always syntactically
+    valid bracketing), PROVIDED every atom and operator string is itself well-bracketed (Go operands and
+    operators are — calls like [f(a, b)] balance their own parens).  This certifies the parenthesization
+    DISCIPLINE: the only parens [print_prec] adds are matched pairs around a balanced inner string. *)
+Definition pv (c : ascii) : Z :=
+  if Ascii.eqb c (ascii_of_nat 40) then 1%Z         (* '(' *)
+  else if Ascii.eqb c (ascii_of_nat 41) then (-1)%Z (* ')' *)
+  else 0%Z.
+Fixpoint depth (d : Z) (s : string) : Z :=
+  match s with EmptyString => d | String c s' => depth (d + pv c)%Z s' end.
+Fixpoint nneg (d : Z) (s : string) : Prop :=
+  match s with EmptyString => True | String c s' => (0 <= d + pv c)%Z /\ nneg (d + pv c)%Z s' end.
+Definition balanced (s : string) : Prop := depth 0 s = 0%Z /\ nneg 0 s.
+
+(** [depth]/[nneg] are homomorphic over append, and tolerant of a raised starting floor. *)
+Lemma depth_app : forall a b d, depth d (a ++ b) = depth (depth d a) b.
+Proof. induction a as [ | c a IH ]; intros b d; [ reflexivity | cbn; apply IH ]. Qed.
+Lemma depth_shift : forall s d, depth d s = (d + depth 0 s)%Z.
+Proof.
+  induction s as [ | c s IH ]; intro d; cbn [depth].
+  - lia.
+  - rewrite (IH (d + pv c)%Z), (IH (0 + pv c)%Z). lia.
+Qed.
+Lemma nneg_app : forall a b d, nneg d (a ++ b) <-> nneg d a /\ nneg (depth d a) b.
+Proof.
+  induction a as [ | c a IH ]; intros b d; cbn.
+  - intuition.
+  - rewrite IH. intuition.
+Qed.
+Lemma nneg_raise : forall s d d', (d <= d')%Z -> nneg d s -> nneg d' s.
+Proof.
+  induction s as [ | c s IH ]; intros d d' Hle Hn; cbn in *; [ exact I | ].
+  destruct Hn as [Hpos Hrest]. split.
+  - lia.
+  - apply (IH (d + pv c)%Z); [ lia | exact Hrest ].
+Qed.
+
+(** A well-bracketed-leaves predicate over the tree: every atom and operator is balanced. *)
+Fixpoint wf (e : GoExpr) : Prop :=
+  match e with
+  | GERaw s => balanced s
+  | GEBin _ op l r => balanced op /\ wf l /\ wf r
+  end.
+
+(** The single ascii of "(" / ")" scans as depth +1 / -1, and the matching non-negativity facts. *)
+Lemma depth_lparen : forall d, depth d "(" = (d + 1)%Z.
+Proof. intro d. reflexivity. Qed.
+Lemma depth_rparen : forall d, depth d ")" = (d - 1)%Z.
+Proof. intro d. cbn. lia. Qed.
+Lemma nneg_lparen : forall d, (0 <= d)%Z -> nneg d "(".
+Proof. intros d Hd. cbn. split; [ lia | exact I ]. Qed.
+Lemma nneg_rparen : forall d, (1 <= d)%Z -> nneg d ")".
+Proof. intros d Hd. cbn. split; [ lia | exact I ]. Qed.
+
+(** Wrapping a string in a matched paren pair leaves its net depth-change unchanged, and preserves
+    non-negativity when the inner string is itself net-zero and balanced ([s] abstract → the inner
+    appends stay opaque, so these don't decompose the operand). *)
+Lemma depth_wrap : forall d s, depth d ("(" ++ s ++ ")") = depth d s.
+Proof.
+  intros d s. rewrite !depth_app, depth_lparen, depth_rparen,
+                      (depth_shift s (d + 1)%Z), (depth_shift s d). lia.
+Qed.
+Lemma nneg_wrap : forall d s, (0 <= d)%Z -> depth 0 s = 0%Z -> nneg d s -> nneg d ("(" ++ s ++ ")").
+Proof.
+  intros d s Hd Hs Hn. rewrite nneg_app. split; [ apply nneg_lparen; lia | ].
+  rewrite depth_lparen, nneg_app. split.
+  - apply (nneg_raise s d (d + 1)%Z); [ lia | exact Hn ].
+  - rewrite (depth_shift s (d + 1)%Z), Hs. apply nneg_rparen. lia.
+Qed.
+
+(** Core: from any non-negative starting depth, printing a well-formed expr returns to that exact depth
+    and never dips below it.  Generalized over [ctx] and [d] so the recursive sub-calls (at [p], [S p],
+    and inside the wrap) are covered by the IH.  Uses the [print_prec_wrapped]/[_unwrapped]
+    characterization to expose the printed string without fighting [cbn]. *)
+Lemma print_prec_depth_nneg : forall e ctx d, (0 <= d)%Z -> wf e ->
+  depth d (print_prec ctx e) = d /\ nneg d (print_prec ctx e).
+Proof.
+  induction e as [ s | p op l IHl r IHr ]; intros ctx d Hd Hwf.
+  - (* GERaw s *) cbn [print_prec wf] in *. destruct Hwf as [Hz Hn]. split.
+    + rewrite depth_shift, Hz. lia.
+    + apply (nneg_raise s 0 d); [ lia | exact Hn ].
+  - (* GEBin p op l r *)
+    cbn [wf] in Hwf. destruct Hwf as [Hop [Hwl Hwr]]. destruct Hop as [Hopz Hopn].
+    destruct (IHl p d Hd Hwl) as [Hld Hln]. destruct (IHr (S p) d Hd Hwr) as [Hrd Hrn].
+    (* the inner string [l ++ op ++ r] returns to [d] and never dips below it *)
+    assert (Hinner_d : depth d (print_prec p l ++ op ++ print_prec (S p) r) = d).
+    { rewrite !depth_app, Hld, (depth_shift op d), Hopz, Z.add_0_r, Hrd. reflexivity. }
+    assert (Hinner0 : depth 0 (print_prec p l ++ op ++ print_prec (S p) r) = 0%Z)
+      by (rewrite depth_shift in Hinner_d; lia).
+    assert (Hinner_n : nneg d (print_prec p l ++ op ++ print_prec (S p) r)).
+    { rewrite !nneg_app. split; [ exact Hln | ]. rewrite Hld. split.
+      - apply (nneg_raise op 0 d); [ lia | exact Hopn ].
+      - rewrite (depth_shift op d), Hopz, Z.add_0_r. exact Hrn. }
+    destruct (Nat.ltb p ctx) eqn:E.
+    + (* wrapped: "(" ++ inner ++ ")" *)
+      rewrite (print_prec_wrapped p op l r ctx E). split.
+      * rewrite depth_wrap. exact Hinner_d.
+      * apply nneg_wrap; [ lia | exact Hinner0 | exact Hinner_n ].
+    + (* not wrapped *)
+      rewrite (print_prec_unwrapped p op l r ctx E).
+      split; [ exact Hinner_d | exact Hinner_n ].
+Qed.
+
+Theorem print_prec_balanced : forall e ctx, wf e -> balanced (print_prec ctx e).
+Proof.
+  intros e ctx Hwf. unfold balanced.
+  destruct (print_prec_depth_nneg e ctx 0 (Z.le_refl 0) Hwf) as [Hd Hn].
+  split; assumption.
+Qed.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec.

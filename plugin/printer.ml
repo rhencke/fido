@@ -1007,3 +1007,21 @@ let print_hex z0 =
          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
          EmptyString)
+
+type goExpr =
+| GERaw of string
+| GEBin of nat * string * goExpr * goExpr
+
+(** val print_prec : nat -> goExpr -> string **)
+
+let rec print_prec ctx = function
+| GERaw s -> s
+| GEBin (p, op, l, r) ->
+  let inner = append (print_prec p l) (append op (print_prec (S p) r)) in
+  (match Nat.ltb p ctx with
+   | True ->
+     append (String ((Ascii (False, False, False, True, False, True, False,
+       False)), EmptyString))
+       (append inner (String ((Ascii (True, False, False, True, False, True,
+         False, False)), EmptyString)))
+   | False -> inner)
