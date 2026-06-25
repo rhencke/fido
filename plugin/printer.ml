@@ -1025,3 +1025,12 @@ let rec print_prec ctx = function
        (append inner (String ((Ascii (True, False, False, True, False, True,
          False, False)), EmptyString)))
    | False -> inner)
+
+(** val print_sep : string -> string list -> string **)
+
+let rec print_sep sep = function
+| Nil -> EmptyString
+| Cons (x, xs') ->
+  (match xs' with
+   | Nil -> x
+   | Cons (_, _) -> append x (append sep (print_sep sep xs')))

@@ -403,8 +403,51 @@ Proof.
   split; assumption.
 Qed.
 
+(** ============================================================================
+    ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
+    (function arguments, composite-literal elements, type-argument lists, multi-return values, struct
+    fields).  [go.ml] rendered these with Coq's [prlist_with_sep]; [print_sep] is the verified
+    replacement — it joins the already-rendered pieces with [sep], NO leading or trailing separator
+    (the off-by-one a hand-rolled join gets wrong).  The empty list prints empty, a singleton prints
+    itself, and only INTERIOR gaps get a separator. *)
+Fixpoint print_sep (sep : string) (xs : list string) : string :=
+  match xs with
+  | []        => ""
+  | x :: xs'  => match xs' with
+                 | []     => x
+                 | _ :: _ => (x ++ sep ++ print_sep sep xs')%string
+                 end
+  end.
+
+Example print_sep_empty  : print_sep ", " [] = "".              Proof. reflexivity. Qed.
+Example print_sep_single : print_sep ", " ["a"] = "a".          Proof. reflexivity. Qed.
+Example print_sep_three  : print_sep ", " ["a"; "b"; "c"] = "a, b, c". Proof. reflexivity. Qed.
+
+(** Concatenation of two balanced strings is balanced (depth/nneg are homomorphic over append). *)
+Lemma balanced_app : forall a b, balanced a -> balanced b -> balanced (a ++ b).
+Proof.
+  intros a b [Ha Hna] [Hb Hnb]. unfold balanced. split.
+  - rewrite depth_app, Ha. exact Hb.
+  - rewrite nneg_app, Ha. split; assumption.
+Qed.
+
+(** SAFETY — a separated list of well-bracketed pieces (and a well-bracketed separator) is itself
+    well-bracketed: [print_sep] never introduces an unmatched paren. *)
+Theorem print_sep_balanced : forall xs sep,
+  balanced sep -> (forall x, In x xs -> balanced x) -> balanced (print_sep sep xs).
+Proof.
+  induction xs as [ | x xs IH ]; intros sep Hsep Hall.
+  - (* [] *) unfold balanced; cbn [print_sep depth nneg]. split; [ reflexivity | exact I ].
+  - (* x :: xs *) destruct xs as [ | y xs' ].
+    + (* singleton *) cbn [print_sep]. apply Hall. left. reflexivity.
+    + (* x :: y :: xs' *) cbn [print_sep].
+      apply balanced_app; [ apply Hall; left; reflexivity | ].
+      apply balanced_app; [ exact Hsep | ].
+      apply IH; [ exact Hsep | ]. intros z Hz. apply Hall. right. exact Hz.
+Qed.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_prec print_sep.

@@ -594,6 +594,15 @@ let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
+let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
+(* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
+   no leading/trailing separator and to stay well-bracketed): render each element [f x] to text (the
+   plugin's expression docs are pure str/++/fnl — no soft breaks — so [string_of_ppcmds] round-trips
+   byte-for-byte), then join in Rocq.  Replaces [prlist_with_sep (fun () -> str sep) f xs]. *)
+let pp_sep_list sep f xs =
+  str (coq_string_to_ocaml
+    (Printer.print_sep (coq_string_of_ocaml sep)
+       (coq_list_of_ocaml (List.map (fun x -> coq_string_of_ocaml (Pp.string_of_ppcmds (f x))) xs))))
 (* Build the extracted Coq [positive] from a NONZERO 64-bit pattern (interpreted UNSIGNED, LSB-first)
    — so it serves both signed and unsigned, and [min_int]'s magnitude [2^63] falls out of its bits. *)
 let rec coq_pos_of_bits v =
@@ -1423,7 +1432,7 @@ let rec pp_type state = function
       let tys = flatten_prod_type a @ [b] in
       if List.exists (function Tglob (rr, _) -> is_prod_type rr | _ -> false) tys
       then unsupported "a non-left-nested product return type — Go's multiple-return tuple is FLAT, so only the left-nested `A * B * … * Z` lowers (a `A * (B * C)` cannot be a nested Go tuple)"
-      else str "(" ++ prlist_with_sep (fun () -> str ", ") (pp_type state) tys ++ str ")"
+      else str "(" ++ pp_sep_list ", " (pp_type state) tys ++ str ")"
   | Tglob (r, []) when is_go_prim_type r -> str (Option.get (classify_go_prim_type r))
   | Tglob (r, []) when is_unit_type r   -> str "struct{}"
   | Tglob (r, []) when is_uint63_type r -> str "int"   (* PrimInt63 = Go's platform [int]
@@ -1448,7 +1457,7 @@ let rec pp_type state = function
       (if args = [] then mt ()
        else
          str "[" ++
-         prlist_with_sep (fun () -> str ", ") (pp_type state) args ++
+         pp_sep_list ", " (pp_type state) args ++
          str "]")
   | Tvar i | Tvar' i -> str ("T" ^ string_of_int i)
   | Tdummy _ | Tunknown | Taxiom | Tmeta _ -> str "any"
@@ -1844,7 +1853,7 @@ let rec pp_expr state env = function
            (match unfold_list [] lst with
             | Some elems ->
                 str ("[]" ^ go_elem ^ "{") ++
-                prlist_with_sep (fun () -> str ", ") pp_el elems ++
+                pp_sep_list ", " pp_el elems ++
                 str "}"
             | None -> unsupported "slice_of_list of a non-literal list (only a statically-known element list is modeled; an opaque Coq list has no faithful []T lowering yet — emitting []T(nil) would silently discard the runtime data)")
        (* arr_lit tag list → [N]T{v1, …, vN} — a FIXED-SIZE array literal (B4); the
@@ -1858,7 +1867,7 @@ let rec pp_expr state env = function
            (match unfold_list [] lst with
             | Some elems ->
                 str ("[" ^ string_of_int (List.length elems) ^ "]" ^ go_elem ^ "{") ++
-                prlist_with_sep (fun () -> str ", ") pp_el elems ++
+                pp_sep_list ", " pp_el elems ++
                 str "}"
             | None -> unsupported "arr_lit of a non-literal list (an array's size must be statically known)")
        (* arr<N>_lit tag e1 … eN → [N]T{e1, …, eN} — a fixed-size array literal in a typed position *)
@@ -1869,7 +1878,7 @@ let rec pp_expr state env = function
              | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
              | None    -> pp_expr state env e in
            str (("[" ^ print_i64_dec (Int64.of_int n) ^ "]" ^ go_elem ^ "{")) ++
-           prlist_with_sep (fun () -> str ", ") pp_el elems ++ str "}"
+           pp_sep_list ", " pp_el elems ++ str "}"
        (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
           func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
        | MLglob r, (size :: tag :: a :: i :: v :: _) when is_arr_set_ref r ->   (* trailing _ = erased bounds proof *)
@@ -2111,7 +2120,7 @@ let rec pp_expr state env = function
            (match xs with
             | MLapp (MLglob r2, [_; lst]) when is_slice_of_list_ref r2
                   && Option.has_some (unfold_list [] lst) ->
-                prlist_with_sep (fun () -> str ", ") (pp_expr state env)
+                pp_sep_list ", " (pp_expr state env)
                   (Option.get (unfold_list [] lst))
             | _ -> pp_expr state env xs ++ str "...")
        (* [va_slice xs] inside a variadic func → the slice itself (identity) *)
@@ -2130,7 +2139,7 @@ let rec pp_expr state env = function
            (match unfold_list [] lst with
             | Some pargs ->
                 str (fname ^ "(") ++
-                prlist_with_sep (fun () -> str ", ") pp_pa pargs ++
+                pp_sep_list ", " pp_pa pargs ++
                 str ")"
             | None ->
                 unsupported (fname ^ " of a non-literal list (only statically-known argument lists are modeled)"))
@@ -2222,14 +2231,14 @@ let rec pp_expr state env = function
            (match rest with
             | [] -> cast
             | _  -> cast ++ str "(" ++
-                    prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
+                    pp_sep_list ", " (pp_expr state env) rest ++
                     str ")")
        | MLglob r, (recv :: rest) when is_record_proj r ->
            let fld = pp_atom state env (peel_embedded recv) ++ str "." ++ str (proj_field_name r) in
            (match rest with
             | [] -> fld
             | _  -> fld ++ str "(" ++
-                    prlist_with_sep (fun () -> str ", ") (pp_expr state env) rest ++
+                    pp_sep_list ", " (pp_expr state env) rest ++
                     str ")")
 
        (* Fixed-width integer arithmetic (uN/iN, any width via [fixed_width_op]):
@@ -2430,7 +2439,7 @@ let rec pp_expr state env = function
            let drop = Hashtbl.find comparable_witness (global_path r) in
            let kept = List.filteri (fun i _ -> not (List.mem i drop)) args in
            str (go_export (global_basename r)) ++ str "(" ++
-           prlist_with_sep (fun () -> str ", ") (pp_expr state env) kept ++ str ")"
+           pp_sep_list ", " (pp_expr state env) kept ++ str ")"
        (* method call [m recv a1 … an] → [recv.M(a1, …, an)] (value receiver).
           The first visible arg is the receiver, pulled out before the dot. *)
        | MLglob r, (recv :: rest) when is_method r ->
@@ -2456,7 +2465,7 @@ let rec pp_expr state env = function
                | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
                | None    -> pp_expr state env a in
              dot ++ str "(" ++
-             prlist_with_sep (fun () -> str ", ") (fun x -> x) (List.mapi pp_arg rest) ++ str ")"
+             pp_sep_list ", " (fun x -> x) (List.mapi pp_arg rest) ++ str ")"
        | _ ->
            (* review #4 P1 #4: a wide value into a NARROW PARAM of a user function needs the
               destination cast ([f(uint8(x))]).  Use the callee's param types when they ALIGN 1:1 with
@@ -2476,7 +2485,7 @@ let rec pp_expr state env = function
              | Some gt -> str (gt ^ "(") ++ pp_expr state env a ++ str ")"
              | None    -> pp_expr state env a in
            pp_atom state env head ++ str "(" ++
-           prlist_with_sep (fun () -> str ", ")
+           pp_sep_list ", "
              (fun x -> x) (List.mapi pp_arg vis) ++
            str ")")
 
@@ -2485,7 +2494,7 @@ let rec pp_expr state env = function
       let vis = List.filter (fun id -> not (is_dummy id)) ids in
       let new_env = List.rev ids @ env in
       str "func(" ++
-      prlist_with_sep (fun () -> str ", ")
+      pp_sep_list ", "
         (fun id -> pp_mlident id ++ str " any") vis ++
       str ") any {" ++ fnl () ++
       str "\treturn " ++ pp_expr state new_env body ++ fnl () ++
@@ -2522,7 +2531,7 @@ let rec pp_expr state env = function
       (match xs with
        | MLapp (MLglob r2, [_; lst]) when is_slice_of_list_ref r2
              && Option.has_some (unfold_list [] lst) ->
-           prlist_with_sep (fun () -> str ", ") (pp_expr state env)
+           pp_sep_list ", " (pp_expr state env)
              (Option.get (unfold_list [] lst))
        | _ -> pp_expr state env xs ++ str "...")
 
@@ -2563,7 +2572,7 @@ let rec pp_expr state env = function
          concrete type ([Box[int64]{…}]).  A non-generic record has no args → no brackets. *)
       let tyargs = match cty with
         | Tglob (_, (_ :: _ as ta)) ->
-            str "[" ++ prlist_with_sep (fun () -> str ", ") (pp_type state) ta ++ str "]"
+            str "[" ++ pp_sep_list ", " (pp_type state) ta ++ str "]"
         | _ -> mt () in
       (* KEYED struct literal [T{Field: v, …}] (field-order-independent, self-documenting —
          what Go style prefers) when a field name is known per value; positional fallback. *)
@@ -2572,7 +2581,7 @@ let rec pp_expr state env = function
         then List.map2 (fun f v -> str f ++ str ": " ++ v) fields vals
         else vals in
       str (record_ctor_tyname r) ++ tyargs ++ str "{" ++
-      prlist_with_sep (fun () -> str ", ") (fun x -> x) entries ++ str "}"
+      pp_sep_list ", " (fun x -> x) entries ++ str "}"
 
   | MLcons _ as e when Option.has_some (decode_go_string e) ->
       (* Coq [string] literal → Go string literal (byte-faithful). *)
@@ -2803,7 +2812,7 @@ and pp_typed_closure state env ftype lam =
   let sig_pairs = List.filter (fun (_, t) -> not (is_unit_arg t)) pairs in
   let new_env = List.rev ids @ env in
   str "func(" ++
-  prlist_with_sep (fun () -> str ", ")
+  pp_sep_list ", "
     (fun (id, t) -> pp_mlident id ++ str " " ++ pp_type state t) sig_pairs ++
   str ") " ++ pp_type state rettype ++ str " {" ++ fnl () ++
   str "\treturn " ++ pp_expr state new_env body ++ fnl () ++
@@ -2889,7 +2898,7 @@ and block_hoists b acc =
      statement. *)
 and emit_action state hoists tab env ids action =
   let emit_closure kw body =
-    let sep = prlist_with_sep (fun () -> str ", ") (fun x -> x) in
+    let sep = pp_sep_list ", " (fun x -> x) in
     let params = List.map (fun (x, t) -> pp_mlident x ++ str " " ++ str t) hoists in
     let args   = List.map (fun (x, _) -> pp_mlident x) hoists in
     str tab ++ str kw ++ str " func(" ++ sep params ++ str ") {" ++ fnl () ++
@@ -2932,7 +2941,7 @@ and emit_block terminating state hoists term tab env b =
               when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                    && List.length ids = 2 ->
                 let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
-                str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
+                str tab ++ pp_sep_list ", " (pp_destr_binder fenv fbody) flat_ids
                 ++ str " := " ++ pp_expr state env scrut ++ fnl ()
                 ++ emit_block terminating state hoists term tab fenv fbody
             | [ (_, p1, body1); (_, p2, body2) ] ->
@@ -3828,7 +3837,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
              let tags = List.filteri (fun i _ -> i < n - 2) rest in
              str tab ++ str "switch " ++ payload ++ str ".(type) {" ++ fnl () ++
              str tab ++ str "case " ++
-             prlist_with_sep (fun () -> str ", ")
+             pp_sep_list ", "
                (fun t -> str (go_type_of_tag t)) tags ++ str ":" ++ fnl () ++
              pp_stmts (tab ^ "\t") env k ++
              str tab ++ str "default:" ++ fnl () ++
@@ -3906,7 +3915,7 @@ let pp_io_body ?(ret_val=false) state tab env body =
            when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
                 && List.length ids = 2 ->
              let flat_ids, fbody, fenv = flatten_destructure ids body1 env in   (* N-ary: x, y, z := f() *)
-             str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
+             str tab ++ pp_sep_list ", " (pp_destr_binder fenv fbody) flat_ids
              ++ str " := " ++ pp_expr state env scrut ++ fnl ()
              ++ pp_stmts tab fenv fbody
          | _ -> emit_case tab env typ scrut branches (fun _nb b -> b))
@@ -4209,7 +4218,7 @@ let rec pp_pure_tail state tab env e =
     when (match pat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
          && List.length ids = 2 ->
       let flat_ids, fbody, fenv = flatten_destructure ids body1 env in
-      str tab ++ prlist_with_sep (fun () -> str ", ") (pp_destr_binder fenv fbody) flat_ids
+      str tab ++ pp_sep_list ", " (pp_destr_binder fenv fbody) flat_ids
       ++ str " := " ++ pp_expr state env scrut ++ fnl ()
       ++ pp_pure_tail state tab fenv fbody
   (* VALUE-position ENUM match → a Go [switch] each of whose arms [return]s (e.g. a
@@ -4286,7 +4295,7 @@ let rec pp_pure_tail state tab env e =
         match value_narrow_conv env v with
         | Some gt -> str (gt ^ "(") ++ pp_expr state env v ++ str ")"
         | None    -> pp_expr state env v in
-      str tab ++ str "return " ++ prlist_with_sep (fun () -> str ", ") pp_val vals ++ fnl ()
+      str tab ++ str "return " ++ pp_sep_list ", " pp_val vals ++ fnl ()
   | _ -> return_fallback ()
 
 (** Emit a top-level function, collecting leading lambdas for the signature
@@ -4342,7 +4351,7 @@ let pp_function state name body typ =
   let tparams_doc =
     if tvars = [] then mt ()
     else str "[" ++
-         prlist_with_sep (fun () -> str ", ")
+         pp_sep_list ", "
            (fun i -> str ("T" ^ string_of_int i) ++
                      str (if List.mem i comparable_tvars then " comparable" else " any")) tvars ++
          str "]" in
@@ -4351,10 +4360,10 @@ let pp_function state name body typ =
     | (rid, rt) :: rest when is_record_tglob rt || is_sptr_record_tglob rt ->  (* value- or pointer-receiver method *)
         str "func (" ++ pp_param (rid, rt) ++ str ") " ++
         str (go_export name) ++ str "(" ++
-        prlist_with_sep (fun () -> str ", ") pp_param rest
+        pp_sep_list ", " pp_param rest
     | _ ->
         str "func " ++ str (go_export name) ++ tparams_doc ++ str "(" ++
-        prlist_with_sep (fun () -> str ", ") pp_param render_pairs
+        pp_sep_list ", " pp_param render_pairs
   in
   (* IO-returning functions use pp_io_body; pure functions use return+expr *)
   match fullwidth_conv_name name with
@@ -4670,7 +4679,7 @@ let pp_decl state decl =
            let tparams =
              if tvars = [] then mt ()
              else str "[" ++
-                  prlist_with_sep (fun () -> str ", ")
+                  pp_sep_list ", "
                     (fun i -> str ("T" ^ string_of_int i) ++ str " any") tvars ++
                   str "]" in
            str "type " ++ str (go_export (Id.to_string pkt.ip_typename)) ++ tparams ++

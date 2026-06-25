@@ -217,3 +217,5 @@ type goExpr =
 | GEBin of nat * string * goExpr * goExpr
 
 val print_prec : nat -> goExpr -> string
+
+val print_sep : string -> string list -> string
