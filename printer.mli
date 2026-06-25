@@ -288,8 +288,20 @@ val atomic_from : nat -> string -> bool
 
 val atomic : string -> bool
 
+val pv : ascii -> z
+
+val depth : z -> string -> z
+
+val nneg_b : z -> string -> bool
+
+val balanced_b : string -> bool
+
+val atom_ok : string -> bool
+
+type atom = string
+
 type goExpr =
-| EAtom of string
+| EAtom of atom
 | EBin of binOp * goExpr * goExpr
 
 val print_expr : nat -> goExpr -> string

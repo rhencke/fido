@@ -1069,12 +1069,12 @@ Definition Atom : Type := { s : string | atom_ok s = true }.
 Definition mkAtom (s : string) (H : atom_ok s = true) : Atom := exist _ s H.
 
 Inductive GoExpr : Type :=
-  | EAtom : string -> GoExpr
+  | EAtom : Atom -> GoExpr
   | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
 
 Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
   match e with
-  | EAtom s => s
+  | EAtom a => proj1_sig a
   | EBin o l r =>
       let p := binop_prec o in
       let inner := (print_expr p l ++ binop_text o ++ print_expr (S p) r)%string in
@@ -1083,7 +1083,7 @@ Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
 
 (** CHARACTERIZATION — exact behaviour and the byte-identical basis vs [pp_prec]: an atom prints
     verbatim; a binop wraps iff [binop_prec o < ctx]. *)
-Lemma print_expr_atom : forall ctx s, print_expr ctx (EAtom s) = s.
+Lemma print_expr_atom : forall ctx (a : Atom), print_expr ctx (EAtom a) = proj1_sig a.
 Proof. reflexivity. Qed.
 Lemma print_expr_unwrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = false ->
   print_expr ctx (EBin o l r)
@@ -1126,7 +1126,7 @@ Proof. intro o. destruct o; unfold balanced; cbn; repeat split; (lia || exact I)
     derived and provably balanced, so they need no hypothesis). *)
 Fixpoint wf (e : GoExpr) : Prop :=
   match e with
-  | EAtom s => balanced s
+  | EAtom a => balanced (proj1_sig a)
   | EBin _ l r => wf l /\ wf r
   end.
 
@@ -1164,9 +1164,9 @@ Lemma print_expr_depth_nneg : forall e ctx d, (0 <= d)%Z -> wf e ->
   depth d (print_expr ctx e) = d /\ nneg d (print_expr ctx e).
 Proof.
   induction e as [ s | o l IHl r IHr ]; intros ctx d Hd Hwf.
-  - (* EAtom s *) cbn [print_expr wf] in *. destruct Hwf as [Hz Hn]. split.
+  - (* EAtom a *) cbn [print_expr wf] in *. destruct Hwf as [Hz Hn]. split.
     + rewrite depth_shift, Hz. lia.
-    + apply (nneg_raise s 0 d); [ lia | exact Hn ].
+    + apply (nneg_raise (proj1_sig s) 0 d); [ lia | exact Hn ].
   - (* EBin o l r *)
     cbn [wf] in Hwf. destruct Hwf as [Hwl Hwr].
     destruct (binop_text_balanced o) as [Hopz Hopn].
@@ -1323,7 +1323,11 @@ with parse_primary (fuel : nat) (s : string) : option (GoExpr * string) :=
           | None => None end
         else match scan_atom 0 s with
              | (EmptyString, _) => None
-             | (a, rest) => Some (EAtom a, rest) end
+             | (a, rest) => match bool_dec (atom_ok a) true with
+                            | left H  => Some (EAtom (mkAtom a H), rest)
+                            | right _ => None
+                            end
+             end
     end
   end
 with parse_climb (fuel k : nat) (l : GoExpr) (s : string) : option (GoExpr * string) :=
@@ -1355,7 +1359,11 @@ Lemma parse_primary_S : forall f s, parse_primary (S f) s =
         | Some (e, s1) => match s1 with String c1 s2 => if is_close c1 then Some (e, s2) else None
                           | EmptyString => None end
         | None => None end
-      else match scan_atom 0 s with (EmptyString, _) => None | (a, rest) => Some (EAtom a, rest) end
+      else match scan_atom 0 s with
+           | (EmptyString, _) => None
+           | (a, rest) => match bool_dec (atom_ok a) true with
+                          | left H => Some (EAtom (mkAtom a H), rest) | right _ => None end
+           end
   end.
 Proof. reflexivity. Qed.
 Lemma parse_climb_S : forall f k l s, parse_climb (S f) k l s =
@@ -1413,51 +1421,55 @@ Proof.
       * apply Sc, Hc; assumption.
 Qed.
 
+(** A concrete atom: the [atom_ok] proof is discharged by [eq_refl] (computes), so a malformed atom
+    string would fail to typecheck here — atoms are unrepresentable-when-malformed. *)
+Notation EA s := (EAtom (mkAtom s eq_refl)).
+
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
-Example rt_atom : parse_expr 9 0 (print_expr 0 (EAtom "a")) = Some (EAtom "a", "").
+Example rt_atom : parse_expr 9 0 (print_expr 0 (EA "a")) = Some (EA "a", "").
 Proof. reflexivity. Qed.
-Example rt_add : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "a") (EAtom "b")))
-              = Some (EBin BAdd (EAtom "a") (EAtom "b"), "").
+Example rt_add : parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "a") (EA "b")))
+              = Some (EBin BAdd (EA "a") (EA "b"), "").
 Proof. reflexivity. Qed.
-Example rt_prec : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "a") (EBin BMul (EAtom "b") (EAtom "c"))))
-               = Some (EBin BAdd (EAtom "a") (EBin BMul (EAtom "b") (EAtom "c")), "").
+Example rt_prec : parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "a") (EBin BMul (EA "b") (EA "c"))))
+               = Some (EBin BAdd (EA "a") (EBin BMul (EA "b") (EA "c")), "").
 Proof. reflexivity. Qed.
-Example rt_wrap : parse_expr 9 0 (print_expr 0 (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c")))
-               = Some (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c"), "").
+Example rt_wrap : parse_expr 9 0 (print_expr 0 (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EA "c")))
+               = Some (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EA "c"), "").
 Proof. reflexivity. Qed.
-Example rt_leftassoc : parse_expr 9 0 (print_expr 0 (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c")))
-                     = Some (EBin BSub (EBin BSub (EAtom "a") (EAtom "b")) (EAtom "c"), "").
+Example rt_leftassoc : parse_expr 9 0 (print_expr 0 (EBin BSub (EBin BSub (EA "a") (EA "b")) (EA "c")))
+                     = Some (EBin BSub (EBin BSub (EA "a") (EA "b")) (EA "c"), "").
 Proof. reflexivity. Qed.
 (** Across ALL five precedence levels and both wrap directions — the parenthesisation is recovered
     exactly (these are the cases bracket-balance alone could not tell apart). *)
-Example rt_or_and : parse_expr 9 0 (print_expr 0 (EBin BLOr (EAtom "a") (EBin BLAnd (EAtom "b") (EAtom "c"))))
-                  = Some (EBin BLOr (EAtom "a") (EBin BLAnd (EAtom "b") (EAtom "c")), "").  (* a || b && c *)
+Example rt_or_and : parse_expr 9 0 (print_expr 0 (EBin BLOr (EA "a") (EBin BLAnd (EA "b") (EA "c"))))
+                  = Some (EBin BLOr (EA "a") (EBin BLAnd (EA "b") (EA "c")), "").  (* a || b && c *)
 Proof. reflexivity. Qed.
-Example rt_and_or_wrap : parse_expr 9 0 (print_expr 0 (EBin BLAnd (EBin BLOr (EAtom "a") (EAtom "b")) (EAtom "c")))
-                       = Some (EBin BLAnd (EBin BLOr (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* (a || b) && c *)
+Example rt_and_or_wrap : parse_expr 9 0 (print_expr 0 (EBin BLAnd (EBin BLOr (EA "a") (EA "b")) (EA "c")))
+                       = Some (EBin BLAnd (EBin BLOr (EA "a") (EA "b")) (EA "c"), "").  (* (a || b) && c *)
 Proof. reflexivity. Qed.
-Example rt_cmp_arith : parse_expr 9 0 (print_expr 0 (EBin BEq (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c")))
-                     = Some (EBin BEq (EBin BAdd (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* a + b == c *)
+Example rt_cmp_arith : parse_expr 9 0 (print_expr 0 (EBin BEq (EBin BAdd (EA "a") (EA "b")) (EA "c")))
+                     = Some (EBin BEq (EBin BAdd (EA "a") (EA "b")) (EA "c"), "").  (* a + b == c *)
 Proof. reflexivity. Qed.
-Example rt_shift_or : parse_expr 9 0 (print_expr 0 (EBin BOr (EBin BShl (EAtom "a") (EAtom "b")) (EAtom "c")))
-                    = Some (EBin BOr (EBin BShl (EAtom "a") (EAtom "b")) (EAtom "c"), "").  (* a << b | c *)
+Example rt_shift_or : parse_expr 9 0 (print_expr 0 (EBin BOr (EBin BShl (EA "a") (EA "b")) (EA "c")))
+                    = Some (EBin BOr (EBin BShl (EA "a") (EA "b")) (EA "c"), "").  (* a << b | c *)
 Proof. reflexivity. Qed.
-Example rt_rightassoc_wrap : parse_expr 9 0 (print_expr 0 (EBin BSub (EAtom "a") (EBin BSub (EAtom "b") (EAtom "c"))))
-                           = Some (EBin BSub (EAtom "a") (EBin BSub (EAtom "b") (EAtom "c")), "").  (* a - (b - c) *)
+Example rt_rightassoc_wrap : parse_expr 9 0 (print_expr 0 (EBin BSub (EA "a") (EBin BSub (EA "b") (EA "c"))))
+                           = Some (EBin BSub (EA "a") (EBin BSub (EA "b") (EA "c")), "").  (* a - (b - c) *)
 Proof. reflexivity. Qed.
 Example rt_sumofprods : parse_expr 12 0 (print_expr 0
-                          (EBin BAdd (EBin BMul (EAtom "a") (EAtom "b")) (EBin BMul (EAtom "c") (EAtom "d"))))
-                      = Some (EBin BAdd (EBin BMul (EAtom "a") (EAtom "b")) (EBin BMul (EAtom "c") (EAtom "d")), "").
+                          (EBin BAdd (EBin BMul (EA "a") (EA "b")) (EBin BMul (EA "c") (EA "d"))))
+                      = Some (EBin BAdd (EBin BMul (EA "a") (EA "b")) (EBin BMul (EA "c") (EA "d")), "").
 Proof. reflexivity. Qed.  (* a * b + c * d *)
 Example rt_prodofsums : parse_expr 12 0 (print_expr 0
-                          (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EBin BAdd (EAtom "c") (EAtom "d"))))
-                      = Some (EBin BMul (EBin BAdd (EAtom "a") (EAtom "b")) (EBin BAdd (EAtom "c") (EAtom "d")), "").
+                          (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EBin BAdd (EA "c") (EA "d"))))
+                      = Some (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EBin BAdd (EA "c") (EA "d")), "").
 Proof. reflexivity. Qed.  (* (a + b) * (c + d) *)
 (** Atoms with their OWN parens/spaces (a call) — the operator inside is at paren-depth > 0, so the
     scanner reads the whole call as one atom and the top-level " + " still splits correctly. *)
-Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "f(a, b)") (EAtom "c")))
-                     = Some (EBin BAdd (EAtom "f(a, b)") (EAtom "c"), "").  (* f(a, b) + c *)
+Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "f(a, b)") (EA "c")))
+                     = Some (EBin BAdd (EA "f(a, b)") (EA "c"), "").  (* f(a, b) + c *)
 Proof. reflexivity. Qed.
 (** A FUNCTION-LITERAL atom — exactly the plugin's arith-force typed-IIFE (e.g. main.go line 322) — is
     now [atomic] (its `-` is inside `{ }`, its `) T {` spaces precede non-op chars) and round-trips even
@@ -1467,21 +1479,20 @@ Example atomic_funclit :
   atomic "func(x int64, y int64) int64 { return x - y }(0, 7)" = true.
 Proof. reflexivity. Qed.
 Example rt_funclit :
-  parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "func(x int64, y int64) int64 { return x - y }(0, 7)")
-                                          (EAtom "z")))
-  = Some (EBin BAdd (EAtom "func(x int64, y int64) int64 { return x - y }(0, 7)") (EAtom "z"), "").
+  parse_expr 9 0 (print_expr 0 (EBin BAdd (EA "func(x int64, y int64) int64 { return x - y }(0, 7)")
+                                          (EA "z")))
+  = Some (EBin BAdd (EA "func(x int64, y int64) int64 { return x - y }(0, 7)") (EA "z"), "").
 Proof. reflexivity. Qed.
 
 (** ============================================================================
     ---- THE UNIVERSAL EXPRESSION ROUND-TRIP ---- the EXAMPLES above fix the precedence-critical cases
-    by reflexivity; this is the theorem for EVERY well-formed tree with [atomic] atoms.  So the
-    parenthesisation [print_expr] emits is precedence-CORRECT (not merely balanced): the Rocq parser
-    re-reads the text to the SAME tree [e] — printer/parser SELF-CONSISTENCY (see the section header;
-    this is NOT yet a claim about Go's own parser).  NOTE the [atomic_tree] hypothesis is the real
-    caveat: [EAtom] still carries an arbitrary STRING, and [atomic] is a hand-rolled lexer (it treats
-    operators as space-delimited), so this theorem is CONDITIONAL on every atom passing [atomic] — and
-    [build_goexpr] does not yet enforce that.  The structural-[GoAtom] redesign (atoms unrepresentable-
-    when-malformed) is what removes this caveat.  Proven by a combined strong induction on tree size of
+    by reflexivity; this is the theorem for EVERY tree — UNCONDITIONALLY (no [wf]/[atomic_tree]
+    hypothesis), because [EAtom] now carries an [Atom] (its [atom_ok] proof in the type), so a malformed
+    atom is unrepresentable.  So the parenthesisation [print_expr] emits is precedence-CORRECT (not merely
+    balanced): the Rocq parser re-reads the text to the SAME tree [e] — printer/parser SELF-CONSISTENCY
+    (see the section header; this is NOT yet a claim about Go's own parser — the remaining gap).  The
+    internal lemmas below still THREAD [wf]/[atomic_tree] (the headline discharges them via
+    [wf_always]/[atomic_tree_always]).  Proven by a combined strong induction on tree size of
     two facts — [P e]
     (round-trip with a stopping tail) and [Left e] (the spine equation: parsing the print of [e] as a
     left operand reduces to [parse_climb] with [e] as the accumulator).  Climb-recursion fuel mismatches
@@ -1491,7 +1502,18 @@ Fixpoint esize (e : GoExpr) : nat :=
   match e with EAtom _ => 1 | EBin _ l r => S (esize l + esize r) end.
 
 Fixpoint atomic_tree (e : GoExpr) : Prop :=
-  match e with EAtom s => atomic s = true | EBin _ l r => atomic_tree l /\ atomic_tree r end.
+  match e with EAtom a => atomic (proj1_sig a) = true | EBin _ l r => atomic_tree l /\ atomic_tree r end.
+
+(** Now that [EAtom] carries an [Atom] (its [atom_ok] proof IN THE TYPE), both round-trip side-conditions
+    hold for EVERY tree — discharged structurally, no hypothesis needed. *)
+Lemma atomic_tree_always : forall e, atomic_tree e.
+Proof.
+  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_atomic; exact (proj2_sig a) | cbn; split; assumption ].
+Qed.
+Lemma wf_always : forall e, wf e.
+Proof.
+  induction e as [ a | o l IHl r IHr ]; [ cbn; apply atom_ok_balanced; exact (proj2_sig a) | cbn; split; assumption ].
+Qed.
 
 (** A [rest] at which BOTH [parse_climb k] and [scan_atom] stop cleanly: empty, ")"-led, or led by an
     operator binding LOOSER than [k] (precedence [< k]). *)
@@ -1785,18 +1807,23 @@ Lemma parse_primary_base : forall base bfl TAIL F,
 Proof.
   intros base bfl TAIL F Hwf Hat Hpr Hprim Hgs HF.
   destruct base as [ s | o' l' r' ].
-  - (* EAtom s *) cbn [print_expr]. cbn [atomic_tree] in Hat.
+  - (* EAtom a — [a : Atom] carries its [atom_ok] proof *)
+    destruct s as [ str Hok ]. cbn [print_expr proj1_sig].
+    pose proof (atom_ok_atomic _ Hok) as Hatm.
     destruct F as [ | f ]; [ cbn in HF; lia | ].
-    destruct s as [ | c s' ]; [ cbn in Hat; discriminate | ].
+    destruct str as [ | c s' ]; [ cbn in Hatm; discriminate | ].
     rewrite parse_primary_S.
     assert (Hopen : is_open c = false).
-    { unfold atomic in Hat. apply andb_true_iff in Hat. destruct Hat as [ Hno _ ].
+    { unfold atomic in Hatm. apply andb_true_iff in Hatm. destruct Hatm as [ Hno _ ].
       apply negb_true_iff in Hno. exact Hno. }
     cbn [append]. rewrite Hopen.
     assert (Hscan : scan_atom 0 ((String c s') ++ TAIL)%string = (String c s', TAIL))
-      by (apply scan_atom_correct; [ exact Hat | exact Hgs ]).
+      by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
     change ((String c s') ++ TAIL)%string with (String c (s' ++ TAIL))%string in Hscan.
-    rewrite Hscan. reflexivity.
+    rewrite Hscan.
+    destruct (bool_dec (atom_ok (String c s')) true) as [ H' | H' ].
+    + assert (E : H' = Hok) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply H'. exact Hok.
   - (* EBin o' l' r' : wrapped at bfl since binop_prec o' < bfl *)
     assert (Hwrap : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
     rewrite (print_expr_wrapped o' l' r' bfl Hwrap).
@@ -1822,21 +1849,27 @@ Proof.
             match e with EAtom _ => True | EBin o _ _ => ctx <= binop_prec o end ->
             parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest)).
   { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r ].
-    - (* EAtom s *) cbn [print_expr]. cbn [atomic_tree] in Hat.
+    - (* EAtom a — [a : Atom] carries its [atom_ok] proof *)
+      destruct s as [ str Hok ]. cbn [print_expr proj1_sig].
+      pose proof (atom_ok_atomic _ Hok) as Hatm.
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
-      destruct s as [ | c s' ]; [ cbn in Hat; discriminate | ].
+      destruct str as [ | c s' ]; [ cbn in Hatm; discriminate | ].
       destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
       rewrite parse_expr_S.
       assert (Hopen : is_open c = false).
-      { unfold atomic in Hat. apply andb_true_iff in Hat. destruct Hat as [ Hno _ ].
+      { unfold atomic in Hatm. apply andb_true_iff in Hatm. destruct Hatm as [ Hno _ ].
         apply negb_true_iff in Hno. exact Hno. }
       assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
-      assert (Hpp : parse_primary (S f1) ((String c s') ++ rest)%string = Some (EAtom (String c s'), rest)).
+      assert (Hpp : parse_primary (S f1) ((String c s') ++ rest)%string
+                  = Some (EAtom (exist _ (String c s') Hok), rest)).
       { rewrite parse_primary_S. cbn [append]. rewrite Hopen.
         assert (Hscan : scan_atom 0 ((String c s') ++ rest)%string = (String c s', rest))
-          by (apply scan_atom_correct; [ exact Hat | exact Hgs ]).
+          by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
         change ((String c s') ++ rest)%string with (String c (s' ++ rest))%string in Hscan.
-        rewrite Hscan. reflexivity. }
+        rewrite Hscan.
+        destruct (bool_dec (atom_ok (String c s')) true) as [ H' | H' ].
+        + assert (E : H' = Hok) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+        + exfalso. apply H'. exact Hok. }
       rewrite Hpp. apply tail_ok_climb_stop. exact Htl.
     - (* EBin o l r, unwrapped: Hctx : ctx <= binop_prec o *)
       assert (Hleb : Nat.leb ctx (binop_prec o) = true) by (apply Nat.leb_le; exact Hctx).
@@ -1895,18 +1928,19 @@ Proof.
                    | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
 Qed.
 
-(** The headline (printer/parser SELF-CONSISTENCY for the Rocq grammar, CONDITIONAL on [atomic_tree]):
-    every well-formed expression whose atoms all pass [atomic] round-trips — [print_expr] emits text the
-    Rocq [parse_expr] re-reads to the SAME tree (precedence-correct, not merely balanced).  Caveats, to
-    be honest: (1) it is the Rocq parser, not Go's; (2) [EAtom] carries a raw string and [atomic] is a
-    hand-rolled lexer, so the guarantee holds only for atoms passing [atomic] — the structural-[GoAtom]
-    redesign is what makes that unconditional. *)
-Theorem print_parse_expr : forall e, wf e -> atomic_tree e ->
+(** The headline — UNCONDITIONAL now.  [EAtom] carries an [Atom] (its [atom_ok = atomic && balanced_b]
+    proof IN THE TYPE), so [wf e] and [atomic_tree e] hold for EVERY [e] by construction (discharged via
+    [wf_always]/[atomic_tree_always]) — a malformed atom is unrepresentable, so there is no side-condition
+    to assume.  [print_expr] emits text the Rocq [parse_expr] re-reads to the SAME tree (precedence-correct,
+    not merely balanced).  HONEST SCOPE: this remains printer/parser SELF-CONSISTENCY for the Rocq grammar —
+    NOT yet a theorem about Go's OWN parser (a Go-subset recognition theorem is the remaining gap, #10). *)
+Theorem print_parse_expr : forall e,
   parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
 Proof.
-  intros e Hwf Hat.
+  intros e.
   rewrite <- (sapp_nil_r (print_expr 0 e)).
-  apply (print_parse_expr_n (esize e) e (le_n _) Hwf Hat); [ lia | left; reflexivity | lia ].
+  apply (print_parse_expr_n (esize e) e (le_n _) (wf_always e) (atomic_tree_always e));
+    [ lia | left; reflexivity | lia ].
 Qed.
 
 (** ============================================================================
@@ -1970,4 +2004,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok.

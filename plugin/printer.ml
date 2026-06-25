@@ -1460,14 +1460,61 @@ let atomic s = match s with
    | True -> atomic_from O s
    | False -> False)
 
+(** val pv : ascii -> z **)
+
+let pv c =
+  match eqb0 c
+          (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            O))))))))))))))))))))))))))))))))))))))))) with
+  | True -> Zpos XH
+  | False ->
+    (match eqb0 c
+             (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S O)))))))))))))))))))))))))))))))))))))))))) with
+     | True -> Zneg XH
+     | False -> Z0)
+
+(** val depth : z -> string -> z **)
+
+let rec depth d = function
+| EmptyString -> d
+| String (c, s') -> depth (Z.add d (pv c)) s'
+
+(** val nneg_b : z -> string -> bool **)
+
+let rec nneg_b d = function
+| EmptyString -> True
+| String (c, s') ->
+  (match Z.leb Z0 (Z.add d (pv c)) with
+   | True -> nneg_b (Z.add d (pv c)) s'
+   | False -> False)
+
+(** val balanced_b : string -> bool **)
+
+let balanced_b s =
+  match Z.eqb (depth Z0 s) Z0 with
+  | True -> nneg_b Z0 s
+  | False -> False
+
+(** val atom_ok : string -> bool **)
+
+let atom_ok s =
+  match atomic s with
+  | True -> balanced_b s
+  | False -> False
+
+type atom = string
+
 type goExpr =
-| EAtom of string
+| EAtom of atom
 | EBin of binOp * goExpr * goExpr
 
 (** val print_expr : nat -> goExpr -> string **)
 
 let rec print_expr ctx = function
-| EAtom s -> s
+| EAtom a -> a
 | EBin (o, l, r) ->
   let p = binop_prec o in
   let inner =

@@ -2746,18 +2746,18 @@ and pp_atom state env e =
    (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
-  (* FAIL-CLOSED (rule 2): an [EAtom] is only sound as a round-trip leaf if it is [Printer.atomic] —
-     the same predicate [print_parse_expr]'s [atomic_tree] hypothesis demands.  build_goexpr must not
-     emit an atom the theorem cannot cover (a "("-led group, a depth-0 operator); abort instead.  This
-     closes the gap the reviewer flagged: the theorem is conditional on [atomic], so the executed path
-     must enforce it, not assume it. *)
+  (* FAIL-CLOSED (rule 2): an [EAtom] is only sound as a round-trip leaf if it satisfies [Printer.atom_ok]
+     (= atomic AND paren-balanced) — exactly the [Atom] invariant [EAtom : Atom] now carries in the type,
+     which makes [print_parse_expr] UNCONDITIONAL.  Since the OCaml [atom] erases to a bare string (the
+     proof is gone), build_goexpr must re-establish that invariant at runtime: check [atom_ok] and abort
+     (not assume) on a malformed operand (a "("-led group, a depth-0 operator, an unbalanced bracket). *)
   let atom d =
     let s = Pp.string_of_ppcmds d in
     let cs = coq_string_of_ocaml s in
-    match Printer.atomic cs with
+    match Printer.atom_ok cs with
     | Printer.True  -> Printer.EAtom cs
     | Printer.False -> unsupported (Printf.sprintf
-      "build_goexpr: a non-atomic operand would escape the verified expression round-trip: %s" s)
+      "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s)
   in
   match strip_magic e with
   | MLapp (h, args) ->
