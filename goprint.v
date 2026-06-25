@@ -1062,6 +1062,83 @@ Proof. intros s H. apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha. Q
 Lemma atom_ok_balanced : forall s, atom_ok s = true -> balanced s.
 Proof. intros s H. apply andb_true_iff in H. destruct H as [ _ Hb ]. apply balanced_b_sound; exact Hb. Qed.
 
+(** ---- IDENTIFIERS ARE ATOMS ---- an identifier char is never a space, bracket, or paren, so an
+    all-identifier string is [atomic] (no depth-0 operator — operators are space-led — / close / bracket)
+    and paren-BALANCED (no parens).  Hence [valid_ident s -> atom_ok s]: an identifier structures as a
+    well-formed atom — letting a future [GoAtom]'s [AIdent] case carry only a [valid_ident] proof. *)
+Lemma is_idc_eqb_false : forall c k, is_idc c = true -> is_idc (ascii_of_nat k) = false ->
+  Ascii.eqb c (ascii_of_nat k) = false.
+Proof.
+  intros c k Hc Hk. destruct (Ascii.eqb c (ascii_of_nat k)) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E. subst c. rewrite Hk in Hc. discriminate.
+Qed.
+Lemma is_idc_not_space : forall c, is_idc c = true -> is_space c = false.
+Proof. intros c H. unfold is_space. apply is_idc_eqb_false; [ exact H | reflexivity ]. Qed.
+Lemma is_idc_not_open : forall c, is_idc c = true -> is_open c = false.
+Proof. intros c H. unfold is_open. apply is_idc_eqb_false; [ exact H | reflexivity ]. Qed.
+Lemma is_idc_not_bopen : forall c, is_idc c = true -> is_bopen c = false.
+Proof.
+  intros c H. unfold is_bopen.
+  rewrite (is_idc_eqb_false c 40 H eq_refl), (is_idc_eqb_false c 91 H eq_refl),
+          (is_idc_eqb_false c 123 H eq_refl). reflexivity.
+Qed.
+Lemma is_idc_not_bclose : forall c, is_idc c = true -> is_bclose c = false.
+Proof.
+  intros c H. unfold is_bclose.
+  rewrite (is_idc_eqb_false c 41 H eq_refl), (is_idc_eqb_false c 93 H eq_refl),
+          (is_idc_eqb_false c 125 H eq_refl). reflexivity.
+Qed.
+Lemma is_idc_pv0 : forall c, is_idc c = true -> pv c = 0%Z.
+Proof.
+  intros c H. unfold pv.
+  rewrite (is_idc_eqb_false c 40 H eq_refl), (is_idc_eqb_false c 41 H eq_refl). reflexivity.
+Qed.
+Lemma is_idstart_is_idc : forall c, is_idstart c = true -> is_idc c = true.
+Proof.
+  intros c H. unfold is_idstart in H. unfold is_idc.
+  apply orb_true_iff in H. destruct H as [ H | H ].
+  - apply orb_true_iff in H. destruct H as [ Hu | Hl ].
+    + apply orb_true_iff. left. apply orb_true_iff. right. exact Hu.
+    + apply orb_true_iff. right. apply orb_true_iff. left. exact Hl.
+  - apply orb_true_iff. right. apply orb_true_iff. right. exact H.
+Qed.
+Lemma all_idc_depth : forall s d, all_idc s = true -> depth d s = d.
+Proof.
+  induction s as [ | c s' IH ]; intros d H; cbn [depth]; [ reflexivity | ].
+  cbn [all_idc] in H. apply andb_true_iff in H. destruct H as [ Hc Hs' ].
+  rewrite (is_idc_pv0 c Hc), Z.add_0_r. apply IH; exact Hs'.
+Qed.
+Lemma all_idc_nneg_b : forall s d, (0 <= d)%Z -> all_idc s = true -> nneg_b d s = true.
+Proof.
+  induction s as [ | c s' IH ]; intros d Hd H; cbn [nneg_b]; [ reflexivity | ].
+  cbn [all_idc] in H. apply andb_true_iff in H. destruct H as [ Hc Hs' ].
+  rewrite (is_idc_pv0 c Hc), Z.add_0_r, (proj2 (Z.leb_le 0 d) Hd). cbn [andb].
+  apply IH; [ exact Hd | exact Hs' ].
+Qed.
+Lemma all_idc_atomic_from : forall s, all_idc s = true -> atomic_from 0 s = true.
+Proof.
+  induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
+  cbn [all_idc] in H. apply andb_true_iff in H. destruct H as [ Hc Hs' ].
+  cbn [atomic_from].
+  assert (Hopens : opens (String c s') = false).
+  { unfold opens. rewrite (op_match_not_space c s' (is_idc_not_space c Hc)). reflexivity. }
+  rewrite Hopens, (is_idc_not_bclose c Hc), (is_idc_not_space c Hc), (is_idc_not_bopen c Hc).
+  cbn [orb andb Nat.eqb]. apply IH; exact Hs'.
+Qed.
+Lemma valid_ident_atom_ok : forall s, valid_ident s = true -> atom_ok s = true.
+Proof.
+  intros s H. unfold valid_ident in H. destruct s as [ | c s' ]; [ discriminate | ].
+  apply andb_true_iff in H. destruct H as [ H _ ]. apply andb_true_iff in H. destruct H as [ Hstart Hall ].
+  pose proof (is_idstart_is_idc c Hstart) as Hc.
+  unfold atom_ok. apply andb_true_iff. split.
+  - unfold atomic. apply andb_true_iff. split.
+    + apply negb_true_iff. apply is_idc_not_open; exact Hc.
+    + apply all_idc_atomic_from; exact Hall.
+  - unfold balanced_b. apply andb_true_iff. split.
+    + rewrite (all_idc_depth (String c s') 0 Hall). reflexivity.
+    + apply all_idc_nneg_b; [ apply Z.le_refl | exact Hall ].
+Qed.
+
 (** A well-formed ATOM with validity carried IN THE TYPE (a [sig], like [Ident]): malformed atom text is
     UNREPRESENTABLE.  [Atom] extracts to a bare [string] (the proof is erased), so the printer is
     byte-identical; the round-trip ([print_parse_expr]) becomes UNCONDITIONAL. *)
