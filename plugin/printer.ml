@@ -978,3 +978,32 @@ let print_string_lit s =
          (S (S (S (S (S (S (S (S (S (S (S (S
          O))))))))))))))))))))))))))))))))))),
       EmptyString))))
+
+(** val hex_digits : nat -> z -> string -> string **)
+
+let rec hex_digits fuel z0 acc =
+  match fuel with
+  | O -> acc
+  | S f ->
+    let d = hexdig (Z.to_nat (Z.modulo z0 (Zpos (XO (XO (XO (XO XH))))))) in
+    (match Z.eqb (Z.div z0 (Zpos (XO (XO (XO (XO XH)))))) Z0 with
+     | True -> String (d, acc)
+     | False ->
+       hex_digits f (Z.div z0 (Zpos (XO (XO (XO (XO XH)))))) (String (d, acc)))
+
+(** val print_hex : z -> string **)
+
+let print_hex z0 =
+  append (String ((Ascii (False, False, False, False, True, True, False,
+    False)), (String ((Ascii (False, False, False, True, True, True, True,
+    False)), EmptyString))))
+    (match Z.eqb z0 Z0 with
+     | True ->
+       String ((Ascii (False, False, False, False, True, True, False,
+         False)), EmptyString)
+     | False ->
+       hex_digits (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) z0
+         EmptyString)

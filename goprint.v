@@ -144,8 +144,22 @@ Definition print_string_lit (s : string) : string :=
 Example psl_empty : print_string_lit "" = String (ch 34) (String (ch 34) ""). Proof. reflexivity. Qed.
 Example psl_fido  : print_string_lit "fido" = String (ch 34) ("fido" ++ String (ch 34) ""). Proof. reflexivity. Qed.
 
+(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex (replacing go.ml's [Printf.sprintf "0x%x"] for
+    fixed-width bit masks / sign bits). *)
+Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
+  match fuel with
+  | O   => acc
+  | S f => let d := hexdig (Z.to_nat (z mod 16)) in
+           if (z / 16 =? 0)%Z then String d acc else hex_digits f (z / 16)%Z (String d acc)
+  end.
+Definition print_hex (z : Z) : string :=
+  ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits 64 z ""))%string.
+Example ph_ff : print_hex 255 = "0xff". Proof. reflexivity. Qed.
+Example ph_0  : print_hex 0   = "0x0".  Proof. reflexivity. Qed.
+Example ph_80 : print_hex 128 = "0x80". Proof. reflexivity. Qed.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex.

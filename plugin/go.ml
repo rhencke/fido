@@ -608,6 +608,7 @@ let coq_z_of_uint64 v =           (* unsigned interpretation of the bit pattern 
 (* the VERIFIED decimal renderings (replacing Int64.to_string / Printf "%Lu") *)
 let print_i64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_int64 v))
 let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
+let print_hex_int n = coq_string_to_ocaml (Printer.print_hex (coq_z_of_int64 (Int64.of_int n)))
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
@@ -1091,11 +1092,11 @@ let narrow_conv_of env e =
    SIGNED width, additionally sign-extend via [(m ^ 2^(w-1)) - 2^(w-1)].  Matches
    Go's uintW / intW wrap exactly on the int64 carrier. *)
 let fw_wrap signed width inner =
-  let mask = Printf.sprintf "0x%x" ((1 lsl width) - 1) in
+  let mask = print_hex_int ((1 lsl width) - 1) in
   let masked = str "(" ++ inner ++ str (" & " ^ mask ^ ")") in
   if not signed then masked
   else
-    let sbit = Printf.sprintf "0x%x" (1 lsl (width - 1)) in
+    let sbit = print_hex_int (1 lsl (width - 1)) in
     str "((" ++ masked ++ str (" ^ " ^ sbit ^ ") - " ^ sbit ^ ")")
 
 let classify_float_op r =

@@ -207,3 +207,7 @@ val esc_byte : nat -> string -> string
 val esc_string : string -> string
 
 val print_string_lit : string -> string
+
+val hex_digits : nat -> z -> string -> string
+
+val print_hex : z -> string
