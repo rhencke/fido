@@ -13,7 +13,7 @@
     printer can NEVER conflate two types (the property every [v.(T)] cast / tag rendering depends on).
     [Extraction "printer.ml"] emits the OCaml the plugin will call. *)
 
-From Stdlib Require Import String List Ascii ZArith.
+From Stdlib Require Import String List Ascii ZArith Lia.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -91,6 +91,72 @@ Proof.
   (* the three composite cases (ptr/slice/chan) — peel the constant prefix, recurse via the IH;
      maps are killed by [structural _ = false] in H1/H2 (discriminate above) *)
   all: repeat (injection He as He); f_equal; apply IHu; assumption.
+Qed.
+
+(** PRINT-PARSE ROUND-TRIP — the deeper faithfulness: a PARSER recovers the type from its printed
+    text.  So the type printer is not just injective but UNAMBIGUOUSLY DECODABLE — the emitted text
+    denotes exactly the source type, no information lost or aliased (the verified-printer milestone,
+    here for the type sub-language; maps/named are out of the structural fragment as for injectivity). *)
+Fixpoint strip (p s : string) : option string :=
+  match p with
+  | EmptyString  => Some s
+  | String pc p' => match s with
+                    | String sc s' => if Ascii.eqb pc sc then strip p' s' else None
+                    | EmptyString  => None
+                    end
+  end.
+
+(** Keyword scalars — LONGEST first (so [int8] is read before [int], etc.). *)
+Definition kw_match (s : string) : option (GoTy * string) :=
+  match strip "int64" s   with Some r => Some (GTInt64, r)   | None =>
+  match strip "int32" s   with Some r => Some (GTI32, r)     | None =>
+  match strip "int16" s   with Some r => Some (GTI16, r)     | None =>
+  match strip "int8" s    with Some r => Some (GTI8, r)      | None =>
+  match strip "int" s     with Some r => Some (GTInt, r)     | None =>
+  match strip "uint64" s  with Some r => Some (GTU64, r)     | None =>
+  match strip "uint32" s  with Some r => Some (GTU32, r)     | None =>
+  match strip "uint16" s  with Some r => Some (GTU16, r)     | None =>
+  match strip "uint8" s   with Some r => Some (GTU8, r)      | None =>
+  match strip "uint" s    with Some r => Some (GTUint, r)    | None =>
+  match strip "bool" s    with Some r => Some (GTBool, r)    | None =>
+  match strip "string" s  with Some r => Some (GTString, r)  | None =>
+  match strip "float64" s with Some r => Some (GTFloat64, r) | None =>
+  match strip "float32" s with Some r => Some (GTFloat32, r) | None =>
+  None end end end end end end end end end end end end end end.
+
+Fixpoint parse_ty (fuel : nat) (s : string) : option (GoTy * string) :=
+  match fuel with
+  | O   => None
+  | S f =>
+    match strip "*" s with
+    | Some r => match parse_ty f r with Some (u, r') => Some (GTPtr u, r') | None => None end
+    | None =>
+    match strip "[]" s with
+    | Some r => match parse_ty f r with Some (u, r') => Some (GTSlice u, r') | None => None end
+    | None =>
+    match strip "chan " s with
+    | Some r => match parse_ty f r with Some (u, r') => Some (GTChan u, r') | None => None end
+    | None => kw_match s
+    end end end
+  end.
+
+Fixpoint ty_depth (t : GoTy) : nat :=
+  match t with
+  | GTPtr u | GTSlice u | GTChan u => S (ty_depth u)
+  | GTMap a b => S (Nat.max (ty_depth a) (ty_depth b))
+  | _ => O
+  end.
+
+Theorem parse_print_ty : forall t f,
+  structural t = true -> ty_depth t < f -> parse_ty f (print_ty t) = Some (t, ""%string).
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IH | u IH | u IH | a IHa b IHb | n ];
+    intros f Hs Hf; try (cbn in Hs; discriminate Hs);
+    destruct f as [ | f ]; cbn in Hf; try lia;
+    try reflexivity.
+  - (* GTPtr u *)  cbn in *. rewrite (IH f Hs ltac:(lia)). reflexivity.
+  - (* GTSlice u *) cbn in *. rewrite (IH f Hs ltac:(lia)). reflexivity.
+  - (* GTChan u *) cbn in *. rewrite (IH f Hs ltac:(lia)). reflexivity.
 Qed.
 
 (** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value (replacing go.ml's raw
