@@ -158,6 +158,38 @@ Example ph_ff : print_hex 255 = "0xff". Proof. reflexivity. Qed.
 Example ph_0  : print_hex 0   = "0x0".  Proof. reflexivity. Qed.
 Example ph_80 : print_hex 128 = "0x80". Proof. reflexivity. Qed.
 
+(** ---- PROOFS ATOP THE PRINTERS ---- WELL-FORMEDNESS: every printer yields a NON-EMPTY string, so no
+    emitted token is ever blank (which would be malformed Go).  [print_ty] on the structural fragment,
+    and the literal printers unconditionally.  (Injectivity / print-parse round-trip are the deeper
+    follow-ups; [print_ty_inj] already covers type injectivity on the structural fragment.) *)
+Lemma print_ty_nonempty : forall t, structural t = true -> print_ty t <> ""%string.
+Proof. induction t; intro H; cbn in *; try discriminate; intro Hc; discriminate Hc. Qed.
+Lemma print_string_lit_nonempty : forall s, print_string_lit s <> ""%string.
+Proof. intros s Hc. unfold print_string_lit in Hc. discriminate Hc. Qed.
+Lemma print_hex_nonempty : forall z, print_hex z <> ""%string.
+Proof. intros z Hc. unfold print_hex in Hc. discriminate Hc. Qed.
+
+(** [z_digits] with a non-empty accumulator stays non-empty; hence [print_Z] is never blank. *)
+Lemma z_digits_acc_nonempty : forall fuel z c rest, z_digits fuel z (String c rest) <> ""%string.
+Proof.
+  induction fuel as [ | f IH ]; intros z c rest; cbn [z_digits]; [ discriminate | ].
+  destruct (z / 10 =? 0)%Z; [ discriminate | apply IH ].
+Qed.
+(* one unfold step, with the fuel kept ABSTRACT (so cbn does not expand all 64 nested levels) *)
+Lemma z_digits_first_nonempty : forall f z, z_digits (S f) z ""%string <> ""%string.
+Proof.
+  intros f z. cbn [z_digits].
+  destruct (z / 10 =? 0)%Z; [ discriminate | apply z_digits_acc_nonempty ].
+Qed.
+Lemma print_Z_nonempty : forall z, print_Z z <> ""%string.
+Proof.
+  intro z. unfold print_Z.
+  destruct (z =? 0)%Z. { discriminate. }
+  destruct (z <? 0)%Z.
+  - intro Hc. discriminate Hc.            (* "-" ++ … reduces (whnf) to String "-" … *)
+  - apply z_digits_first_nonempty.        (* z_digits 64 z "" = z_digits (S 63) z "" *)
+Qed.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
