@@ -25,6 +25,9 @@ type comparison =
 
 val compOpp : comparison -> comparison
 
+type 'a sig0 = 'a
+  (* singleton inductive, whose constructor was exist *)
+
 val add : nat -> nat -> nat
 
 module Nat :
@@ -173,6 +176,8 @@ module Z :
   val log2 : z -> z
  end
 
+type ident = string
+
 type goTy =
 | GTInt
 | GTInt64
@@ -192,7 +197,7 @@ type goTy =
 | GTSlice of goTy
 | GTChan of goTy
 | GTMap of goTy * goTy
-| GTNamed of string
+| GTNamed of ident
 
 val print_ty : goTy -> string
 

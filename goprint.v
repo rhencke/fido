@@ -9,14 +9,50 @@
     cover the emitted fragment, rewire [go.ml] to call the extracted printer, and delete the raw OCaml.
 
     Slice 1: the Go TYPE sub-language.  [print_ty] renders a [GoTy] to Go source; [print_ty_inj] proves
-    it is INJECTIVE on the [valid_ty] fragment (structural types, maps, and validated nominal names) —
-    distinct Go types render to distinct strings, so the printer can NEVER conflate two types (the
-    property every [v.(T)] cast / tag rendering depends on).
+    it is INJECTIVE over ALL of [GoTy] unconditionally (nominal names carry a validated [Ident], so an
+    invalid name is unrepresentable) — distinct Go types render to distinct strings, so the printer can
+    NEVER conflate two types (the property every [v.(T)] cast / tag rendering depends on).
     [Extraction "printer.ml"] emits the OCaml the plugin will call. *)
 
-From Stdlib Require Import String List Ascii ZArith Lia Bool.
+From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
+
+(** ---- IDENTIFIER VALIDITY (for nominal [GTNamed] types) ---- a Go identifier is [_A-Za-z][_A-Za-z0-9]*.
+    These come BEFORE [GoTy] because [GTNamed] carries a VALIDATED identifier ([Ident], a [sig]): the
+    validity is part of the TYPE, so an invalid nominal name (a keyword, or non-identifier text) is
+    UNREPRESENTABLE — not merely excluded by a side-condition theorem.  The would-be cycle ([valid_ident]
+    must reject type keywords, but the keyword→[GoTy] map [classify] needs [GoTy]) is broken by factoring
+    out [is_type_keyword]: the keyword SET is just strings, independent of [GoTy]; [classify] (below
+    [GoTy]) reuses that set to assign each keyword its type. *)
+Definition is_idc (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  orb (orb (andb (Nat.leb 48 n) (Nat.leb n 57)) (andb (Nat.leb 65 n) (Nat.leb n 90)))
+      (orb (andb (Nat.leb 97 n) (Nat.leb n 122)) (Nat.eqb n 95)).
+Definition is_idstart (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  orb (orb (andb (Nat.leb 65 n) (Nat.leb n 90)) (andb (Nat.leb 97 n) (Nat.leb n 122))) (Nat.eqb n 95).
+Fixpoint all_idc (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (is_idc c) (all_idc s') end.
+(** The Go type keywords (the 14 scalars in [classify] order, then [chan]/[map]) — a pure STRING set with
+    NO dependence on [GoTy], so it can gate [valid_ident] / [Ident] ahead of [GoTy]. *)
+Definition is_type_keyword (s : string) : bool :=
+  existsb (String.eqb s)
+    ["int64"; "int32"; "int16"; "int8"; "int"; "uint64"; "uint32"; "uint16"; "uint8"; "uint";
+     "bool"; "string"; "float64"; "float32"; "chan"; "map"].
+(** A VALIDATED identifier: non-empty, starts with [_A-Za-z], all identifier chars, and not a type
+    keyword — exactly the names that print and parse back as a nominal [GTNamed]. *)
+Definition valid_ident (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c _  => andb (andb (is_idstart c) (all_idc s)) (negb (is_type_keyword s))
+  end.
+(** A nominal-type NAME with its validity carried IN THE TYPE (a [sig]): an invalid name is
+    unrepresentable, so [GTNamed] can never hold a keyword or non-identifier — the [valid_ty] side-
+    condition the round-trip used to carry DISAPPEARS (it is now [true] by construction).  [Ident]
+    extracts to a bare [string] (the proof component is erased), so the emitted printer is byte-identical. *)
+Definition Ident : Type := { s : string | valid_ident s = true }.
+Definition mkIdent (s : string) (H : valid_ident s = true) : Ident := exist _ s H.
 
 (** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
     tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
@@ -40,7 +76,7 @@ Inductive GoTy : Type :=
   | GTSlice   : GoTy -> GoTy
   | GTChan    : GoTy -> GoTy
   | GTMap     : GoTy -> GoTy -> GoTy
-  | GTNamed   : string -> GoTy.
+  | GTNamed   : Ident -> GoTy.
 
 (** The pretty-printer: a Go type to its source text. *)
 Fixpoint print_ty (t : GoTy) : string :=
@@ -63,16 +99,16 @@ Fixpoint print_ty (t : GoTy) : string :=
   | GTSlice u => "[]" ++ print_ty u
   | GTChan u  => "chan " ++ print_ty u
   | GTMap k v => "map[" ++ print_ty k ++ "]" ++ print_ty v
-  | GTNamed n => n
+  | GTNamed n => proj1_sig n
   end.
 
-(** FAITHFULNESS — the type printer is INJECTIVE and print-parse-INVERTIBLE on the [valid_ty] fragment
-    (defined with the parser below): the structural types, maps, AND nominal [GTNamed] types with a
-    VALIDATED identifier name.  So the emitted type text never conflates [int64] with [bool], [*int64]
-    with [[]int64], [map[int]int] with [map[int8]int], or two distinct named types — and a named type
-    with a keyword prefix ([int8x]) is never confused with the keyword ([int8]).  Both are DERIVED from
-    the print-parse round-trip [parse_print_ty] / [print_ty_inj].  (A name is validated — [valid_ident] —
-    when it is a real Go identifier that is not a type keyword; the trusted plugin only ever emits such.) *)
+(** FAITHFULNESS — the type printer is INJECTIVE and print-parse-INVERTIBLE over the WHOLE [GoTy], with NO
+    side-condition: a nominal [GTNamed] carries an [Ident] (a name validated IN THE TYPE), so an invalid
+    name is unrepresentable and the old [valid_ty] hypothesis disappears.  So the emitted type text never
+    conflates [int64] with [bool], [*int64] with [[]int64], [map[int]int] with [map[int8]int], or two
+    distinct named types — and a named type with a keyword prefix ([int8x]) is never confused with the
+    keyword ([int8]), nor can a keyword ([int]) ever appear AS a nominal name.  Both are DERIVED from the
+    print-parse round-trip [parse_print_ty] / [print_ty_inj] (now unconditional). *)
 
 (** PRINT-PARSE ROUND-TRIP — the deeper faithfulness: a PARSER recovers the type from its printed
     text.  So the type printer is not just injective but UNAMBIGUOUSLY DECODABLE — the emitted text
@@ -88,21 +124,12 @@ Fixpoint strip (p s : string) : option string :=
                     end
   end.
 
-(** ---- IDENTIFIER LEXING (for nominal [GTNamed] types) ---- a Go identifier is [_A-Za-z][_A-Za-z0-9]*.
-    [scan_id] consumes the maximal run of identifier characters (so it stops at "]", a space, or
+(** [scan_id] consumes the maximal run of identifier characters (so it stops at "]", a space, or
     end-of-string — exactly the boundaries [print_ty] places after a type), and [classify] maps a complete
     token to its scalar type (or [None] for a nominal name).  Token-FIRST parsing (scan the run, then
     classify) gives maximal munch for free: "int8x" scans whole and classifies as nominal, never as
-    [int8] + "x". *)
-Definition is_idc (c : ascii) : bool :=
-  let n := nat_of_ascii c in
-  orb (orb (andb (Nat.leb 48 n) (Nat.leb n 57)) (andb (Nat.leb 65 n) (Nat.leb n 90)))
-      (orb (andb (Nat.leb 97 n) (Nat.leb n 122)) (Nat.eqb n 95)).
-Definition is_idstart (c : ascii) : bool :=
-  let n := nat_of_ascii c in
-  orb (orb (andb (Nat.leb 65 n) (Nat.leb n 90)) (andb (Nat.leb 97 n) (Nat.leb n 122))) (Nat.eqb n 95).
-Fixpoint all_idc (s : string) : bool :=
-  match s with EmptyString => true | String c s' => andb (is_idc c) (all_idc s') end.
+    [int8] + "x".  ([is_idc]/[is_idstart]/[all_idc]/[is_type_keyword]/[valid_ident]/[Ident] are defined
+    above [GoTy], since [GTNamed] carries an [Ident].) *)
 Fixpoint scan_id (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
@@ -125,29 +152,6 @@ Definition classify (s : string) : option GoTy :=
   else if String.eqb s "float64" then Some GTFloat64
   else if String.eqb s "float32" then Some GTFloat32
   else None.
-(** A name is RESERVED (cannot be a nominal type) if it classifies as a scalar or is the [chan]/[map]
-    keyword (those are handled compositely, not as leaves). *)
-Definition reserved (s : string) : bool :=
-  match classify s with Some _ => true | None => orb (String.eqb s "chan") (String.eqb s "map") end.
-(** A VALIDATED identifier: non-empty, starts with [_A-Za-z], all identifier chars, and not reserved —
-    exactly the names that print and parse back as a nominal [GTNamed]. *)
-Definition valid_ident (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c _  => andb (andb (is_idstart c) (all_idc s)) (negb (reserved s))
-  end.
-
-(** The round-trippable fragment: the structural types (scalars + ptr/slice/chan/map) AND nominal types
-    with a [valid_ident] name. *)
-Fixpoint valid_ty (t : GoTy) : bool :=
-  match t with
-  | GTNamed n => valid_ident n
-  | GTMap k v => andb (valid_ty k) (valid_ty v)
-  | GTPtr u   => valid_ty u
-  | GTSlice u => valid_ty u
-  | GTChan u  => valid_ty u
-  | _         => true
-  end.
 
 Fixpoint parse_ty (fuel : nat) (s : string) : option (GoTy * string) :=
   match fuel with
@@ -180,7 +184,10 @@ Fixpoint parse_ty (fuel : nat) (s : string) : option (GoTy * string) :=
                               | None => None end
                           | None => None end
               | None => None end
-            else Some (GTNamed tok, rest)
+            else match bool_dec (valid_ident tok) true with
+                 | left H  => Some (GTNamed (mkIdent tok H), rest)
+                 | right _ => None
+                 end
         end
     end end end
   end.
@@ -234,45 +241,69 @@ Lemma parse_ty_map : forall f s, parse_ty (S f) ("map[" ++ s)%string =
   | None => None end.
 Proof. reflexivity. Qed.
 
-(** A non-reserved name classifies as nominal and is neither the [chan] nor [map] keyword. *)
-Lemma reserved_false : forall s, reserved s = false ->
+(** A non-keyword name classifies as nominal and is neither the [chan] nor [map] keyword.  Bridges the
+    [GoTy]-independent [is_type_keyword] (which gates [Ident]) to [classify] (which assigns the [GoTy]):
+    if [s] is none of the 16 keyword strings, then [classify s = None] and [s] is not [chan]/[map]. *)
+Lemma kw_false_classify : forall s, is_type_keyword s = false ->
   classify s = None /\ String.eqb s "chan" = false /\ String.eqb s "map" = false.
 Proof.
-  intros s H. unfold reserved in H. destruct (classify s) eqn:Ec; [ discriminate H | ].
-  apply orb_false_iff in H. destruct H as [ Hc Hm ]. split; [ reflexivity | split; assumption ].
+  intros s H. unfold is_type_keyword in H. cbn [existsb] in H.
+  apply orb_false_iff in H; destruct H as [ Hi64 H ].
+  apply orb_false_iff in H; destruct H as [ Hi32 H ].
+  apply orb_false_iff in H; destruct H as [ Hi16 H ].
+  apply orb_false_iff in H; destruct H as [ Hi8  H ].
+  apply orb_false_iff in H; destruct H as [ Hint H ].
+  apply orb_false_iff in H; destruct H as [ Hu64 H ].
+  apply orb_false_iff in H; destruct H as [ Hu32 H ].
+  apply orb_false_iff in H; destruct H as [ Hu16 H ].
+  apply orb_false_iff in H; destruct H as [ Hu8  H ].
+  apply orb_false_iff in H; destruct H as [ Hu   H ].
+  apply orb_false_iff in H; destruct H as [ Hbool   H ].
+  apply orb_false_iff in H; destruct H as [ Hstr    H ].
+  apply orb_false_iff in H; destruct H as [ Hf64    H ].
+  apply orb_false_iff in H; destruct H as [ Hf32    H ].
+  apply orb_false_iff in H; destruct H as [ Hchan   H ].
+  apply orb_false_iff in H; destruct H as [ Hmap    _ ].
+  unfold classify.
+  rewrite Hi64, Hi32, Hi16, Hi8, Hint, Hu64, Hu32, Hu16, Hu8, Hu, Hbool, Hstr, Hf64, Hf32.
+  split; [ reflexivity | split; [ exact Hchan | exact Hmap ] ].
 Qed.
 
-(** PRINT-PARSE ROUND-TRIP (prefix form): [parse_ty] consumes EXACTLY [print_ty t], leaving [rest], now
-    over the FULL [valid_ty] fragment — structural types AND validated nominal names.  The map case needs
-    the prefix generality (after the key comes "]" then the value); the [rbound] discipline keeps the
-    maximal-munch leaf parse correct (a token never bleeds into the trailing "]" or end). *)
+(** PRINT-PARSE ROUND-TRIP (prefix form): [parse_ty] consumes EXACTLY [print_ty t], leaving [rest], for
+    EVERY [t] — UNCONDITIONALLY, with no [valid_ty] hypothesis.  A nominal name now carries its validity
+    in the [Ident] type, so the side-condition the old statement threaded is discharged BY CONSTRUCTION
+    (and a colliding name like [GTNamed "int"] is unrepresentable).  The map case needs the prefix
+    generality (after the key comes "]" then the value); the [rbound] discipline keeps the maximal-munch
+    leaf parse correct (a token never bleeds into the trailing "]" or end). *)
 Theorem parse_print_ty : forall t f rest,
-  valid_ty t = true -> ty_depth t < f -> rbound rest ->
+  ty_depth t < f -> rbound rest ->
   parse_ty f (print_ty t ++ rest) = Some (t, rest).
 Proof.
-  induction t as [ | | | | | | | | | | | | | | u IH | u IH | u IH | a IHa b IHb | n ];
-    intros f rest Hs Hf Hrb;
+  induction t as [ | | | | | | | | | | | | | | u IH | u IH | u IH | a IHa b IHb | i ];
+    intros f rest Hf Hrb;
     destruct f as [ | f ]; cbn [ty_depth] in Hf; try lia.
   (* 14 scalar leaves: [print_ty] is a complete keyword; with [rest] empty or "]"-led the scan + classify
      is concrete, so cbn + reflexivity closes it *)
   all: try (destruct Hrb as [-> | [r ->]]; cbn; reflexivity).
-  - (* GTPtr u *)  cbn [valid_ty] in Hs. cbn. rewrite (IH f rest Hs ltac:(lia) Hrb). reflexivity.
-  - (* GTSlice u *) cbn [valid_ty] in Hs. cbn. rewrite (IH f rest Hs ltac:(lia) Hrb). reflexivity.
-  - (* GTChan u *)  cbn [valid_ty] in Hs. cbn [print_ty]. rewrite sapp_assoc, parse_ty_chan.
-    rewrite (IH f rest Hs ltac:(lia) Hrb). reflexivity.
-  - (* GTMap a b *) cbn [valid_ty] in Hs. apply andb_prop in Hs. destruct Hs as [Hsa Hsb].
+  - (* GTPtr u *)  cbn. rewrite (IH f rest ltac:(lia) Hrb). reflexivity.
+  - (* GTSlice u *) cbn. rewrite (IH f rest ltac:(lia) Hrb). reflexivity.
+  - (* GTChan u *)  cbn [print_ty]. rewrite sapp_assoc, parse_ty_chan.
+    rewrite (IH f rest ltac:(lia) Hrb). reflexivity.
+  - (* GTMap a b *)
     assert (Hk : parse_ty f (print_ty a ++ ("]" ++ (print_ty b ++ rest)))%string
                = Some (a, ("]" ++ (print_ty b ++ rest))%string))
-      by (apply IHa; [ exact Hsa | lia | right; eexists; reflexivity ]).
+      by (apply IHa; [ lia | right; eexists; reflexivity ]).
     assert (Hv : parse_ty f (print_ty b ++ rest)%string = Some (b, rest))
-      by (apply IHb; [ exact Hsb | lia | exact Hrb ]).
+      by (apply IHb; [ lia | exact Hrb ]).
     cbn [print_ty]. rewrite !sapp_assoc, parse_ty_map, Hk.
     cbn. rewrite Hv. reflexivity.
-  - (* GTNamed n : nominal, valid_ident n *)
-    cbn [valid_ty] in Hs. destruct n as [ | c n' ]; [ cbn in Hs; discriminate | ].
-    unfold valid_ident in Hs. apply andb_true_iff in Hs. destruct Hs as [ Hsa Hres ].
+  - (* GTNamed i : nominal — validity carried by [i] *)
+    destruct i as [ s Hs ]. cbn [print_ty proj1_sig].
+    pose proof Hs as Hni.
+    destruct s as [ | c n' ]; [ cbn in Hni; discriminate | ].
+    unfold valid_ident in Hni. apply andb_true_iff in Hni. destruct Hni as [ Hsa Hkw ].
     apply andb_true_iff in Hsa. destruct Hsa as [ Hstart Hall ].
-    apply negb_true_iff in Hres.
+    apply negb_true_iff in Hkw.
     assert (Hstar : Ascii.eqb "*"%char c = false).
     { destruct (Ascii.eqb "*"%char c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; cbn in Hstart; discriminate | reflexivity ]. }
     assert (Hbrack : Ascii.eqb "["%char c = false).
@@ -282,41 +313,50 @@ Proof.
     assert (Hscan : scan_id (String c (n' ++ rest))%string = (String c n', rest)).
     { change (String c (n' ++ rest))%string with ((String c n') ++ rest)%string.
       apply scan_id_all; [ exact Hall | apply rbound_not_idc; exact Hrb ]. }
-    destruct (reserved_false _ Hres) as [ Hcl [ Hchanf Hmapf ] ].
-    cbn [print_ty]. cbn [parse_ty append].
-    rewrite Hss, Hsb, Hscan, Hcl, Hchanf, Hmapf. reflexivity.
+    destruct (kw_false_classify _ Hkw) as [ Hcl [ Hchanf Hmapf ] ].
+    cbn [parse_ty append].
+    rewrite Hss, Hsb, Hscan, Hcl, Hchanf, Hmapf.
+    destruct (bool_dec (valid_ident (String c n')) true) as [ Hd | Hd ].
+    + (* the parser's freshly-built [Ident] equals [i]: same name, proofs equal by UIP-on-[bool] *)
+      assert (E : Hd = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd. exact Hs.
 Qed.
 
-(** FAITHFULNESS COROLLARY — INJECTIVITY on the [valid_ty] fragment (structural types, maps, AND validated
-    nominal names), derived from the round-trip: two valid types that print alike parse to the same tree,
-    hence are equal.  So the emitted type text never conflates ANY two distinct valid Go types. *)
-Corollary print_ty_inj : forall t1 t2,
-  valid_ty t1 = true -> valid_ty t2 = true -> print_ty t1 = print_ty t2 -> t1 = t2.
+(** FAITHFULNESS COROLLARY — INJECTIVITY, now UNCONDITIONAL (over ALL [GoTy], no [valid_ty] side-
+    condition): two types that print alike parse to the same tree, hence are equal.  So the emitted type
+    text never conflates ANY two distinct Go types — and because an invalid nominal name is
+    unrepresentable, there is no escape hatch (e.g. no [GTNamed "int"] aliasing [GTInt]). *)
+Corollary print_ty_inj : forall t1 t2, print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
-  intros t1 t2 H1 H2 He.
+  intros t1 t2 He.
   set (f := S (Nat.max (ty_depth t1) (ty_depth t2))).
   assert (R1 : parse_ty f (print_ty t1) = Some (t1, "")).
   { rewrite <- (sapp_nil_r (print_ty t1)).
-    apply parse_print_ty; [ exact H1 | unfold f; lia | left; reflexivity ]. }
+    apply parse_print_ty; [ unfold f; lia | left; reflexivity ]. }
   assert (R2 : parse_ty f (print_ty t2) = Some (t2, "")).
   { rewrite <- (sapp_nil_r (print_ty t2)).
-    apply parse_print_ty; [ exact H2 | unfold f; lia | left; reflexivity ]. }
+    apply parse_print_ty; [ unfold f; lia | left; reflexivity ]. }
   rewrite He in R1. rewrite R1 in R2. injection R2 as Ht. exact Ht.
 Qed.
 
 (** Concrete nominal round-trips — a validated name parses back as [GTNamed], even with a keyword PREFIX
-    ([int8x] is ONE token via maximal munch, never [int8] + "x"), and composes under the constructors. *)
-Example rt_ty_named : parse_ty 2 (print_ty (GTNamed "Foo")) = Some (GTNamed "Foo", "").
+    ([int8x] is ONE token via maximal munch, never [int8] + "x"), and composes under the constructors.
+    The names are wrapped in [mkIdent _ eq_refl]: validity is now in the type, so [eq_refl] DISCHARGES it
+    by computation (and a keyword like [GTNamed "int"] would not typecheck — the proof would fail). *)
+Example rt_ty_named : parse_ty 2 (print_ty (GTNamed (mkIdent "Foo" eq_refl)))
+                    = Some (GTNamed (mkIdent "Foo" eq_refl), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_kwprefix : parse_ty 2 (print_ty (GTNamed "int8x")) = Some (GTNamed "int8x", "").
+Example rt_ty_named_kwprefix : parse_ty 2 (print_ty (GTNamed (mkIdent "int8x" eq_refl)))
+                             = Some (GTNamed (mkIdent "int8x" eq_refl), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_slice : parse_ty 3 (print_ty (GTSlice (GTNamed "Foo")))
-                          = Some (GTSlice (GTNamed "Foo"), "").
+Example rt_ty_named_slice : parse_ty 3 (print_ty (GTSlice (GTNamed (mkIdent "Foo" eq_refl))))
+                          = Some (GTSlice (GTNamed (mkIdent "Foo" eq_refl)), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_chan : parse_ty 3 (print_ty (GTChan (GTNamed "T"))) = Some (GTChan (GTNamed "T"), "").
+Example rt_ty_named_chan : parse_ty 3 (print_ty (GTChan (GTNamed (mkIdent "T" eq_refl))))
+                         = Some (GTChan (GTNamed (mkIdent "T" eq_refl)), "").
 Proof. reflexivity. Qed.
-Example rt_ty_named_map : parse_ty 5 (print_ty (GTMap (GTNamed "Key") GTInt))
-                        = Some (GTMap (GTNamed "Key") GTInt, "").
+Example rt_ty_named_map : parse_ty 5 (print_ty (GTMap (GTNamed (mkIdent "Key" eq_refl)) GTInt))
+                        = Some (GTMap (GTNamed (mkIdent "Key" eq_refl)) GTInt, "").
 Proof. reflexivity. Qed.
 
 (** ---- INTEGER LITERALS ---- the decimal rendering of a [Z] value (replacing go.ml's raw
@@ -761,16 +801,16 @@ Qed.
 Local Transparent print_hex print_Z parse_hex parse_Z.
 
 (** ---- PROOFS ATOP THE PRINTERS ---- WELL-FORMEDNESS: every printer yields a NON-EMPTY string, so no
-    emitted token is ever blank (which would be malformed Go).  [print_ty] on the [valid_ty] fragment
-    (a validated nominal name is non-empty too), and the literal printers unconditionally.  (Injectivity
-    AND the print-parse round-trip are proved above for the full [valid_ty] fragment, maps and nominal
-    names included — [print_ty_inj] / [parse_print_ty].) *)
-Lemma print_ty_nonempty : forall t, valid_ty t = true -> print_ty t <> ""%string.
+    emitted token is ever blank (which would be malformed Go).  [print_ty] UNCONDITIONALLY now (a nominal
+    name is a validated [Ident], hence non-empty), and the literal printers too.  (Injectivity AND the
+    print-parse round-trip are likewise unconditional — [print_ty_inj] / [parse_print_ty].) *)
+Lemma print_ty_nonempty : forall t, print_ty t <> ""%string.
 Proof.
-  induction t as [ | | | | | | | | | | | | | | | | | | n ]; intro H; cbn [valid_ty print_ty] in *;
-    try discriminate; try (intro Hc; discriminate Hc).
-  (* GTNamed n : valid_ident n forces n non-empty *)
-  destruct n as [ | c n' ]; [ discriminate H | intro Hc; discriminate Hc ].
+  induction t as [ | | | | | | | | | | | | | | | | | | i ]; cbn [print_ty];
+    try (intro Hc; discriminate Hc).
+  (* GTNamed i : the [Ident] proof forces the name non-empty *)
+  destruct i as [ s Hs ]. cbn [proj1_sig].
+  destruct s as [ | c n' ]; [ cbn in Hs; discriminate Hs | intro Hc; discriminate Hc ].
 Qed.
 Lemma print_string_lit_nonempty : forall s, print_string_lit s <> ""%string.
 Proof. intros s Hc. unfold print_string_lit in Hc. discriminate Hc. Qed.
