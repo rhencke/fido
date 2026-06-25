@@ -257,6 +257,102 @@ Definition print_string_lit (s : string) : string :=
 Example psl_empty : print_string_lit "" = String (ch 34) (String (ch 34) ""). Proof. reflexivity. Qed.
 Example psl_fido  : print_string_lit "fido" = String (ch 34) ("fido" ++ String (ch 34) ""). Proof. reflexivity. Qed.
 
+(** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: a decoder [unescape]
+    recovers the exact original bytes from [esc_string], so [print_string_lit] denotes precisely its
+    argument — no byte dropped, merged, or corrupted by an escape.  This is the data-faithfulness
+    property for string literals (the analog of [parse_print_ty] for the type sub-language). *)
+Lemma nat_of_ascii_lt_256 : forall c, nat_of_ascii c < 256.
+Proof. intro c. destruct c. repeat match goal with b : bool |- _ => destruct b end; cbn; lia. Qed.
+Lemma nat_of_ch : forall n, n < 256 -> nat_of_ascii (ch n) = n.
+Proof. intros n H. unfold ch. apply Ascii.nat_ascii_embedding. exact H. Qed.
+Lemma ch_nat : forall c, ch (nat_of_ascii c) = c.
+Proof. intro c. unfold ch. apply Ascii.ascii_nat_embedding. Qed.
+
+(** Inverse of [hexdig] on a single hex nibble. *)
+Definition unhex (c : ascii) : nat :=
+  let v := nat_of_ascii c in if Nat.leb v 57 then v - 48 else v - 87.
+Lemma unhex_hexdig : forall k, k < 16 -> unhex (hexdig k) = k.
+Proof.
+  intros k H. unfold unhex, hexdig. destruct (Nat.ltb k 10) eqn:E.
+  - apply Nat.ltb_lt in E. rewrite Ascii.nat_ascii_embedding by lia.
+    destruct (Nat.leb (48 + k) 57) eqn:E2; [ lia | apply Nat.leb_gt in E2; lia ].
+  - apply Nat.ltb_ge in E. rewrite Ascii.nat_ascii_embedding by lia.
+    destruct (Nat.leb (87 + k) 57) eqn:E2; [ apply Nat.leb_le in E2; lia | lia ].
+Qed.
+
+(** The decoder: reverse [esc_byte].  A backslash (92) introduces an escape — the next byte selects
+    the special char or, for "x" (120), the two hex nibbles; any other byte is itself.  Structural on
+    sub-terms of [s] (so no fuel needed). *)
+Fixpoint unescape (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c1 rest =>
+      if Nat.eqb (nat_of_ascii c1) 92 then
+        match rest with
+        | EmptyString => EmptyString
+        | String c2 rest2 =>
+            let d := nat_of_ascii c2 in
+            if Nat.eqb d 34 then String (ch 34) (unescape rest2)
+            else if Nat.eqb d 92 then String (ch 92) (unescape rest2)
+            else if Nat.eqb d 110 then String (ch 10) (unescape rest2)
+            else if Nat.eqb d 116 then String (ch 9) (unescape rest2)
+            else if Nat.eqb d 114 then String (ch 13) (unescape rest2)
+            else if Nat.eqb d 120 then
+              match rest2 with
+              | String h1 (String h2 rest3) => String (ch (16 * unhex h1 + unhex h2)) (unescape rest3)
+              | _ => EmptyString
+              end
+            else EmptyString
+        end
+      else String c1 (unescape rest)
+  end.
+
+(* Keep [ch]/[nat_of_ascii]/[unhex]/[hexdig] opaque so [cbn] reduces only the [Nat.eqb] dispatch and
+   the matches, leaving [ch <v>] / [nat_of_ascii (ch _)] / [unhex (hexdig _)] symbolic for the rewrites. *)
+Local Opaque ch nat_of_ascii unhex hexdig Nat.div Nat.modulo.
+Lemma unescape_esc_byte : forall c X, unescape (esc_byte (nat_of_ascii c) X) = String c (unescape X).
+Proof.
+  intros c X. assert (Hc : nat_of_ascii c < 256) by apply nat_of_ascii_lt_256.
+  unfold esc_byte.
+  destruct (Nat.eqb (nat_of_ascii c) 34) eqn:E34.
+  { apply Nat.eqb_eq in E34.
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 34) by lia. cbn.
+    rewrite <- E34, ch_nat. reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 92) eqn:E92.
+  { apply Nat.eqb_eq in E92.
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn.
+    rewrite <- E92, ch_nat. reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 10) eqn:E10.
+  { apply Nat.eqb_eq in E10.
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 110) by lia. cbn.
+    rewrite <- E10, ch_nat. reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 9) eqn:E9.
+  { apply Nat.eqb_eq in E9.
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 116) by lia. cbn.
+    rewrite <- E9, ch_nat. reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 13) eqn:E13.
+  { apply Nat.eqb_eq in E13.
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 114) by lia. cbn.
+    rewrite <- E13, ch_nat. reflexivity. }
+  destruct (andb (Nat.leb 32 (nat_of_ascii c)) (Nat.ltb (nat_of_ascii c) 127)) eqn:Eprint.
+  { (* printable byte: emitted as-is, decoded as-is (not a backslash since c <> 92 by E92) *)
+    cbn [unescape]. rewrite (nat_of_ch (nat_of_ascii c)) by exact Hc.
+    rewrite E92. cbn. rewrite ch_nat. reflexivity. }
+  { (* hex escape: \xHL with H = b/16, L = b mod 16; 16*H + L = b *)
+    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 120) by lia. cbn. f_equal.
+    rewrite (unhex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
+    rewrite (unhex_hexdig (Nat.modulo (nat_of_ascii c) 16)) by (apply Nat.mod_upper_bound; lia).
+    transitivity (ch (nat_of_ascii c));
+      [ f_equal; pose proof (Nat.div_mod_eq (nat_of_ascii c) 16); lia | apply ch_nat ]. }
+Qed.
+Local Transparent ch nat_of_ascii unhex hexdig Nat.div Nat.modulo.
+
+Theorem esc_string_roundtrip : forall s, unescape (esc_string s) = s.
+Proof.
+  induction s as [ | c rest IH ]; [ reflexivity | ].
+  cbn [esc_string]. rewrite unescape_esc_byte, IH. reflexivity.
+Qed.
+
 (** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex (replacing go.ml's [Printf.sprintf "0x%x"] for
     fixed-width bit masks / sign bits). *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
