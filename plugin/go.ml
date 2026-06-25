@@ -1586,6 +1586,10 @@ let go_string_lit bytes =
              (fun b acc -> Printer.String (coq_ascii_of_char (Char.chr (b land 0xff)), acc))
              bytes Printer.EmptyString in
   coq_string_to_ocaml (Printer.print_string_lit cs)
+(* an OCaml string -> its VERIFIED Go string literal (not OCaml's [%S]/[String.escaped], which emit
+   [\NNN] DECIMAL for non-printables — Go reads [\NNN] as OCTAL, a different character). *)
+let go_string_lit_of_ocaml s =
+  go_string_lit (List.init (String.length s) (fun i -> Char.code s.[i]))
 
 
 (*s Fold a Peano nat literal to an integer, or return None. *)
@@ -2663,8 +2667,8 @@ let rec pp_expr state env = function
                  || String.contains s 'E' || String.contains s 'n'
               then s else s ^ ".0" in
       str s
-  | MLexn s   -> str ("panic(" ^ Printf.sprintf "%S" s ^ ")")
-  | MLaxiom s -> str ("panic(\"axiom: " ^ String.escaped s ^ "\")")
+  | MLexn s   -> str ("panic(" ^ go_string_lit_of_ocaml s ^ ")")
+  | MLaxiom s -> str ("panic(" ^ go_string_lit_of_ocaml ("axiom: " ^ s) ^ ")")
   | MLuint n  ->
       (* [int] is SIGNED (Sint63): a 63-bit value with its sign bit (bit 62) set
          — i.e. [>= 2^62] — denotes a NEGATIVE number ([value - 2^63]).  The raw
