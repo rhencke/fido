@@ -1051,87 +1051,162 @@ Proof.
   apply Hgen.
 Qed.
 
+(** An ASCII char that appears as the SECOND character of some operator text, i.e. an operator's leading
+    op-char ([* / % < > & ^ + - | = !]).  Every operator text is `" " ++ op-char ++ ...`, so a space
+    followed by a NON-op-char can never begin an operator — the seam guarantee that lets [scan_atom]
+    consume an atom containing interior depth-0 spaces (e.g. a function-literal's `) T {`). *)
+Definition is_op_char (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  orb (orb (orb (Nat.eqb n 42) (Nat.eqb n 47)) (orb (Nat.eqb n 37) (Nat.eqb n 60)))
+      (orb (orb (orb (Nat.eqb n 62) (Nat.eqb n 38)) (orb (Nat.eqb n 94) (Nat.eqb n 43)))
+           (orb (orb (Nat.eqb n 45) (Nat.eqb n 124)) (orb (Nat.eqb n 61) (Nat.eqb n 33)))).
+Lemma binop_text_second_opchar : forall o, exists opc t,
+  binop_text o = String (ascii_of_nat 32) (String opc t) /\ is_op_char opc = true.
+Proof. intro o. destruct o; do 2 eexists; split; reflexivity. Qed.
+(** A successful strip of a two-char-or-longer pattern pins down [s]'s first two characters. *)
+Lemma strip_two : forall a b p s r, strip (String a (String b p)) s = Some r ->
+  exists s', s = String a (String b s').
+Proof.
+  intros a b p s r H. destruct s as [ | sa s1 ]; cbn in H; [ discriminate | ].
+  destruct (Ascii.eqb a sa) eqn:Ea; [ | discriminate H ]. apply Ascii.eqb_eq in Ea; subst sa.
+  destruct s1 as [ | sb s2 ]; cbn in H; [ discriminate | ].
+  destruct (Ascii.eqb b sb) eqn:Eb; [ | discriminate H ]. apply Ascii.eqb_eq in Eb; subst sb.
+  exists s2. reflexivity.
+Qed.
+Lemma op_match_second_nonop : forall c1 c2 s, is_op_char c2 = false ->
+  op_match (String c1 (String c2 s)) = None.
+Proof.
+  intros c1 c2 s Hns. unfold op_match.
+  assert (forall tbl, op_match_in tbl (String c1 (String c2 s)) = None) as Hgen.
+  { induction tbl as [ | o tl IH ]; cbn [op_match_in]; [ reflexivity | ].
+    destruct (strip (binop_text o) (String c1 (String c2 s))) as [ r | ] eqn:E; [ | exact IH ].
+    exfalso. destruct (binop_text_second_opchar o) as [ opc [ t [ Ht Hopc ] ] ]. rewrite Ht in E.
+    destruct (strip_two _ _ _ _ _ E) as [ s' Hs' ]. injection Hs' as _ Hc2 _. subst c2.
+    rewrite Hopc in Hns. discriminate Hns. }
+  apply Hgen.
+Qed.
+
+(** Bracket depth tracks ALL of ( [ { vs ) ] } — so an operator inside a function-literal's `{ … }` body
+    (or a slice/composite literal) sits at depth >0 and does not end the atom.  [is_open]/[is_close] stay
+    "(" / ")" — they are the EXPRESSION-level precedence-paren that [parse_primary] and the climb use. *)
+Definition is_bopen (c : ascii) : bool :=
+  orb (orb (Ascii.eqb c (ascii_of_nat 40)) (Ascii.eqb c (ascii_of_nat 91))) (Ascii.eqb c (ascii_of_nat 123)).
+Definition is_bclose (c : ascii) : bool :=
+  orb (orb (Ascii.eqb c (ascii_of_nat 41)) (Ascii.eqb c (ascii_of_nat 93))) (Ascii.eqb c (ascii_of_nat 125)).
 Definition is_open  (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 40).  (* '(' *)
 Definition is_close (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 41).  (* ')' *)
 Definition opens (s : string) : bool := match op_match s with Some _ => true | None => false end.
 
-(** Read a primary's ATOM: from paren-depth [d], stop (returning the unconsumed remainder) at a depth-0
-    operator or a depth-0 ")" or end-of-string; otherwise consume the char, tracking paren depth.  Since
-    an [atomic] operand has no depth-0 operator and is paren-balanced, this consumes EXACTLY the atom. *)
+(** Read a primary's ATOM: from BRACKET-depth [d], stop at a depth-0 operator or a depth-0 ")" or end;
+    otherwise consume the char, tracking ALL bracket depths ( [ { vs ) ] }.  An [atomic] operand has no
+    depth-0 operator and is bracket-balanced — and any operator inside its own brackets is at depth >0 —
+    so this consumes EXACTLY the atom, INCLUDING a function-literal `func(…) T { return x - y }(a, b)`
+    whose `-` lives in the `{ }` body and whose `) T {` spaces sit between non-operator characters. *)
 Fixpoint scan_atom (d : nat) (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
   | String c s' =>
       if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
       then (EmptyString, String c s')
-      else let d' := if is_open c then S d else if is_close c then Nat.pred d else d in
+      else let d' := if is_bopen c then S d else if is_bclose c then Nat.pred d else d in
            let (a, rest) := scan_atom d' s' in (String c a, rest)
   end.
 
-(** [atomic s] — [s] is a legal primary atom: non-empty, not "("-led (else it is a parenthesised group),
-    paren-balanced, with NO depth-0 operator AND NO depth-0 space (so [scan_atom] consumes it whole and
-    the operator that follows is unambiguously the parent's).  The depth-0-space ban is what closes the
-    operator SEAM: every operator text begins with a space, so a depth-0 space could let an operator
-    straddle the atom/remainder boundary ([op_match_not_space] turns "no depth-0 space" into "no operator
-    starts here").  The plugin's rendered operands satisfy this: identifiers / literals / calls have no
-    depth-0 space (the only spaces are inside the call's own parens, at depth >0), and any operator inside
-    is within the operand's own parens. *)
+(** A depth-0 space is only dangerous when an OP-CHAR follows it (it could begin an operator straddling
+    into the remainder); a space followed by a non-op char (or end) is harmless. *)
+Definition op_after (s : string) : bool :=
+  match s with EmptyString => false | String c _ => is_op_char c end.
+
+(** [atomic s] — a legal primary atom: non-empty, not "("-led (else a parenthesised group), BRACKET-
+    balanced, with NO depth-0 operator AND no depth-0 space IMMEDIATELY FOLLOWED BY AN OP-CHAR (the seam
+    condition; interior spaces — a function-literal's return type, a struct literal's fields — are fine).
+    The plugin's operands satisfy this: their operators sit inside their own brackets, and their depth-0
+    spaces are followed by non-op characters (a type name, "{", ")", …). *)
 Fixpoint atomic_from (d : nat) (s : string) : bool :=
   match s with
   | EmptyString => Nat.eqb d 0
   | String c s' =>
-      if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_close c)) (is_space c))
+      if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
       then false
-      else atomic_from (if is_open c then S d else if is_close c then Nat.pred d else d) s'
+      else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
   end.
 Definition atomic (s : string) : bool :=
   match s with EmptyString => false | String c _ => andb (negb (is_open c)) (atomic_from 0 s) end.
 
-(** One-step unfolding lemmas — used to expose [scan_atom]/[atomic_from] on a cons without [cbn]
-    over-reducing the [opens]/[op_match] guard (which we must instead rewrite via the seam lemma). *)
+(** One-step unfolders — expose [scan_atom]/[atomic_from] on a cons without [cbn] over-reducing the
+    [opens]/[op_match] guards (which we instead rewrite via the seam lemmas). *)
 Lemma scan_atom_cons : forall d c s',
   scan_atom d (String c s') =
     if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
     then (EmptyString, String c s')
-    else let (a, rest) := scan_atom (if is_open c then S d else if is_close c then Nat.pred d else d) s'
+    else let (a, rest) := scan_atom (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
          in (String c a, rest).
 Proof. reflexivity. Qed.
 Lemma atomic_from_cons : forall d c s',
   atomic_from d (String c s') =
-    if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_close c)) (is_space c))
+    if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
     then false
-    else atomic_from (if is_open c then S d else if is_close c then Nat.pred d else d) s'.
+    else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'.
 Proof. reflexivity. Qed.
 
 (** A [rest] at which [scan_atom] stops cleanly: empty, or its head is ")" or begins an operator. *)
 Definition good_seam (rest : string) : bool :=
   match rest with EmptyString => true | String c _ => orb (opens rest) (is_close c) end.
 
+Lemma is_close_of_bclose : forall c, is_bclose c = false -> is_close c = false.
+Proof.
+  intros c H. unfold is_bclose in H. unfold is_close.
+  apply orb_false_iff in H. destruct H as [ H _ ]. apply orb_false_iff in H. destruct H as [ H _ ]. exact H.
+Qed.
+Lemma op_match_space_nil : op_match (String (ascii_of_nat 32) "") = None.
+Proof. reflexivity. Qed.
+
+(** A [good_seam] remainder begins with a non-op character (a space — operator-led — or ")") or is empty;
+    so a depth-0 trailing space in the atom cannot straddle into it. *)
+Lemma good_seam_first_nonop : forall rest, good_seam rest = true ->
+  match rest with EmptyString => True | String c2 _ => is_op_char c2 = false end.
+Proof.
+  intros rest H. destruct rest as [ | c2 rs ]; [ exact I | ].
+  unfold good_seam in H. apply orb_true_iff in H. destruct H as [ Hop | Hcl ].
+  - unfold opens in Hop. destruct (op_match (String c2 rs)) eqn:Eop; [ | discriminate Hop ].
+    destruct (is_space c2) eqn:Esp.
+    + unfold is_space in Esp. apply Ascii.eqb_eq in Esp; subst c2. reflexivity.
+    + rewrite (op_match_not_space c2 rs Esp) in Eop. discriminate Eop.
+  - unfold is_close in Hcl. apply Ascii.eqb_eq in Hcl; subst c2. reflexivity.
+Qed.
+
 (** SCAN CORRECTNESS — an [atomic_from d] string [a] followed by a [good_seam] remainder is consumed
-    EXACTLY: [scan_atom] returns [a] and the untouched [rest].  At every in-[a] depth-0 position the char
-    is neither ")" (would be a depth-0 close, banned) nor space (so [op_match_not_space] makes [opens]
-    false WHATEVER [rest] is — the seam cannot be straddled); deeper positions never trigger the depth-0
-    guard.  Generalized over [d] for the paren recursion. *)
+    EXACTLY.  At a depth-0, non-space position [op_match_not_space] kills [opens]; at a depth-0 space, the
+    next character (in [a] or, for a trailing space, in [rest] via [good_seam_first_nonop]) is a non-op
+    char, so [op_match_second_nonop] kills [opens] — the seam cannot be straddled. *)
 Lemma scan_atom_gen : forall a d rest, atomic_from d a = true -> good_seam rest = true ->
   scan_atom d (a ++ rest) = (a, rest).
 Proof.
   induction a as [ | c a' IH ]; intros d rest Hat Hseam.
-  - (* a = "" : atomic_from forces d = 0; scan stops immediately on the good seam *)
-    cbn in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
+  - cbn in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
     destruct rest as [ | rc rs ]; [ reflexivity | ].
     rewrite scan_atom_cons. unfold good_seam in Hseam. rewrite Hseam. reflexivity.
-  - (* a = String c a' *)
-    rewrite atomic_from_cons in Hat.
-    destruct (andb (Nat.eqb d 0) (orb (orb (opens (String c a')) (is_close c)) (is_space c))) eqn:Estop;
+  - rewrite atomic_from_cons in Hat.
+    destruct (andb (Nat.eqb d 0)
+               (orb (orb (opens (String c a')) (is_bclose c)) (andb (is_space c) (op_after a')))) eqn:Estop;
       [ discriminate Hat | ].
     cbn [append]. rewrite scan_atom_cons.
     assert (Estop2 : andb (Nat.eqb d 0) (orb (opens (String c (a' ++ rest))) (is_close c)) = false).
     { destruct (Nat.eqb d 0) eqn:Ed; cbn [andb] in Estop |- *; [ | reflexivity ].
-      apply orb_false_iff in Estop. destruct Estop as [Hoc Hsp].
-      apply orb_false_iff in Hoc. destruct Hoc as [_ Hclose].
-      unfold opens. rewrite (op_match_not_space c (a' ++ rest) Hsp), Hclose. reflexivity. }
+      apply orb_false_iff in Estop. destruct Estop as [ Hocb Hsp ].
+      apply orb_false_iff in Hocb. destruct Hocb as [ Hop Hbcl ].
+      rewrite (is_close_of_bclose c Hbcl), orb_false_r. unfold opens.
+      destruct (is_space c) eqn:Esc.
+      - cbn [andb] in Hsp.
+        destruct a' as [ | c2 a'' ]; cbn [append].
+        + destruct rest as [ | rc rs ].
+          * unfold is_space in Esc. apply Ascii.eqb_eq in Esc; subst c. rewrite op_match_space_nil. reflexivity.
+          * pose proof (good_seam_first_nonop (String rc rs) Hseam) as Hrc.
+            rewrite (op_match_second_nonop c rc rs Hrc). reflexivity.
+        + cbn [op_after] in Hsp. rewrite (op_match_second_nonop c c2 (a'' ++ rest) Hsp). reflexivity.
+      - rewrite (op_match_not_space c (a' ++ rest) Esc). reflexivity. }
     rewrite Estop2.
-    rewrite (IH (if is_open c then S d else if is_close c then Nat.pred d else d) rest Hat Hseam).
+    rewrite (IH (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) rest Hat Hseam).
     reflexivity.
 Qed.
 
@@ -1303,6 +1378,18 @@ Proof. reflexivity. Qed.  (* (a + b) * (c + d) *)
     scanner reads the whole call as one atom and the top-level " + " still splits correctly. *)
 Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "f(a, b)") (EAtom "c")))
                      = Some (EBin BAdd (EAtom "f(a, b)") (EAtom "c"), "").  (* f(a, b) + c *)
+Proof. reflexivity. Qed.
+(** A FUNCTION-LITERAL atom — exactly the plugin's arith-force typed-IIFE (e.g. main.go line 322) — is
+    now [atomic] (its `-` is inside `{ }`, its `) T {` spaces precede non-op chars) and round-trips even
+    as a binary-operator operand.  This is the coverage hole that the depth-0-space ban used to leave
+    open: such an atom was NOT atomic, so the round-trip silently did not cover IIFE-containing exprs. *)
+Example atomic_funclit :
+  atomic "func(x int64, y int64) int64 { return x - y }(0, 7)" = true.
+Proof. reflexivity. Qed.
+Example rt_funclit :
+  parse_expr 9 0 (print_expr 0 (EBin BAdd (EAtom "func(x int64, y int64) int64 { return x - y }(0, 7)")
+                                          (EAtom "z")))
+  = Some (EBin BAdd (EAtom "func(x int64, y int64) int64 { return x - y }(0, 7)") (EAtom "z"), "").
 Proof. reflexivity. Qed.
 
 (** ============================================================================
