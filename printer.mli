@@ -264,12 +264,6 @@ val binop_prec : binOp -> nat
 
 val binop_text : binOp -> string
 
-type goExpr =
-| EAtom of string
-| EBin of binOp * goExpr * goExpr
-
-val print_expr : nat -> goExpr -> string
-
 val op_order : binOp list
 
 val op_match_in : binOp list -> string -> (binOp, string) prod option
@@ -293,5 +287,11 @@ val op_after : string -> bool
 val atomic_from : nat -> string -> bool
 
 val atomic : string -> bool
+
+type goExpr =
+| EAtom of string
+| EBin of binOp * goExpr * goExpr
+
+val print_expr : nat -> goExpr -> string
 
 val print_sep : string -> string list -> string

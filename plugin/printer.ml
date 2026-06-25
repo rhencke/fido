@@ -1238,27 +1238,6 @@ let binop_text = function
     (String ((Ascii (False, False, False, False, False, True, False, False)),
     EmptyString)))))))
 
-type goExpr =
-| EAtom of string
-| EBin of binOp * goExpr * goExpr
-
-(** val print_expr : nat -> goExpr -> string **)
-
-let rec print_expr ctx = function
-| EAtom s -> s
-| EBin (o, l, r) ->
-  let p = binop_prec o in
-  let inner =
-    append (print_expr p l) (append (binop_text o) (print_expr (S p) r))
-  in
-  (match Nat.ltb p ctx with
-   | True ->
-     append (String ((Ascii (False, False, False, True, False, True, False,
-       False)), EmptyString))
-       (append inner (String ((Ascii (True, False, False, True, False, True,
-         False, False)), EmptyString)))
-   | False -> inner)
-
 (** val op_order : binOp list **)
 
 let op_order =
@@ -1480,6 +1459,27 @@ let atomic s = match s with
   (match negb (is_open c) with
    | True -> atomic_from O s
    | False -> False)
+
+type goExpr =
+| EAtom of string
+| EBin of binOp * goExpr * goExpr
+
+(** val print_expr : nat -> goExpr -> string **)
+
+let rec print_expr ctx = function
+| EAtom s -> s
+| EBin (o, l, r) ->
+  let p = binop_prec o in
+  let inner =
+    append (print_expr p l) (append (binop_text o) (print_expr (S p) r))
+  in
+  (match Nat.ltb p ctx with
+   | True ->
+     append (String ((Ascii (False, False, False, True, False, True, False,
+       False)), EmptyString))
+       (append inner (String ((Ascii (True, False, False, True, False, True,
+         False, False)), EmptyString)))
+   | False -> inner)
 
 (** val print_sep : string -> string list -> string **)
 
