@@ -86,8 +86,24 @@ COPY --chown=opam:opam negtests/ negtests/
 #      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
 #      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
 #      the defect class the happy-path golden cannot see.  Now NON-bypassable (runs every build).
+#  (5) PRINTER GENERATION GATE: the plugin LINKS the committed plugin/printer.ml, but that file MUST be
+#      exactly goprint.v's extraction or the EXECUTED printer drifts from the PROVED one (the verified-
+#      printer guarantee is vacuous if they differ).  Regenerate it from goprint.v here, FAIL on drift,
+#      and assert goprint.v's `Print Assumptions` show no "Axioms:" (goprint.v is part of the trust gate,
+#      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
-    rm -f _build/default/*.go \
+    (rocq c goprint.v > /tmp/goprint.log 2>&1 || (echo "fido: goprint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
+    && if grep -q '^Axioms:' /tmp/goprint.log; then \
+         echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a goprint.v theorem depends on an axiom (Print Assumptions):"; \
+         cat /tmp/goprint.log; exit 1; \
+       fi \
+    && if ! diff plugin/printer.ml printer.ml; then \
+         echo "fido: PRINTER DRIFT — committed plugin/printer.ml != goprint.v's extraction; run 'make printer' and commit it."; \
+         exit 1; \
+       fi \
+    && cp printer.ml plugin/printer.ml \
+    && rm -f goprint.vo goprint.glob .goprint.aux printer.ml \
+    && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
     && awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' /tmp/build.log \

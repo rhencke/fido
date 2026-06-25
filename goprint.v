@@ -847,6 +847,19 @@ Proof.
       apply IH; [ exact Hsep | ]. intros z Hz. apply Hall. right. exact Hz.
 Qed.
 
+(** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
+    they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
+    if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
+    Keep this list in sync with the headline results below. *)
+Print Assumptions parse_print_ty.
+Print Assumptions print_ty_inj.
+Print Assumptions esc_string_roundtrip.
+Print Assumptions print_parse_Z.
+Print Assumptions print_parse_hex.
+Print Assumptions print_parse_float_hex.
+Print Assumptions print_prec_balanced.
+Print Assumptions print_sep_balanced.
+
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
