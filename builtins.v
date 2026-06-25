@@ -5791,19 +5791,22 @@ Definition gsptr_hs {R} (p : GSPtr R) : HStruct := mkHStruct (gsp_base p).
     cell op is the substrate. *)
 Definition gfield_coh {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t) : Prop :=
   proj = (fun v => mem_get m (sr_to srep_rep v)).
-Definition gsptr_get_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
-    (coh : gfield_coh m proj) (p : GSPtr R) : IO t :=
+(** Receiver-FIRST ([p] before the index [m]): [p : GSPtr R] fixes [R] immediately, so the typed index
+    [m : Mem srep_ts t] resolves against the right instance (with several structs in scope, [m]-first
+    would force a premature, possibly-wrong [StructRepOf] choice). *)
+Definition gsptr_get_field {R t} `{StructRepOf R} (p : GSPtr R) (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) : IO t :=
   hfield_get (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)).
-Definition gsptr_set_field {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
-    (coh : gfield_coh m proj) (p : GSPtr R) (v : t) : IO unit :=
+Definition gsptr_set_field {R t} `{StructRepOf R} (p : GSPtr R) (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) (v : t) : IO unit :=
   hfield_set (gsptr_hs p) (mem_depth m) (mem_tag m (sr_tags srep_rep)) v.
 
 (** Read-after-write THROUGH the pointer — a THEOREM, for ANY field, ANY arity: after writing field
     [m], reading [m] returns the written value.  Reduces to the same generic [hfield_get_set_same]. *)
-Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (m : Mem srep_ts t) (proj : R -> t)
-    (coh : gfield_coh m proj) (p : GSPtr R) (v : t),
-  bind (gsptr_set_field m proj coh p v) (fun _ => gsptr_get_field m proj coh p) =io=
-  bind (gsptr_set_field m proj coh p v) (fun _ => ret v).
+Lemma gsptr_field_get_set : forall {R t} `{StructRepOf R} (p : GSPtr R) (m : Mem srep_ts t) (proj : R -> t)
+    (coh : gfield_coh m proj) (v : t),
+  bind (gsptr_set_field p m proj coh v) (fun _ => gsptr_get_field p m proj coh) =io=
+  bind (gsptr_set_field p m proj coh v) (fun _ => ret v).
 Proof. intros. unfold gsptr_set_field, gsptr_get_field. apply hfield_get_set_same. Qed.
 
 (** Two handles to the SAME base see each other's writes to a field — the [*R]-receiver ALIASING. *)

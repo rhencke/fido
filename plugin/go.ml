@@ -1920,12 +1920,12 @@ let rec pp_expr state env = function
            str "*" ++ pp_atom state env p
        | MLglob r, [_dict; p; v] when is_gsptr_assign_ref r ->
            str "*" ++ pp_atom state env p ++ str " = " ++ pp_typed_lit state env v
-       | MLglob r, [_dict; _m; proj; p] when is_gsptr_get_field_ref r ->
+       | MLglob r, [_dict; p; _m; proj] when is_gsptr_get_field_ref r ->
            let fld = (match strip_magic proj with
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a generic struct-pointer field read whose proj arg is not a record projection") in
            pp_atom state env p ++ str "." ++ str fld
-       | MLglob r, [_dict; _m; proj; p; v] when is_gsptr_set_field_ref r ->
+       | MLglob r, [_dict; p; _m; proj; v] when is_gsptr_set_field_ref r ->
            let fld = (match strip_magic proj with
              | MLglob rp when is_record_proj rp -> proj_field_name rp
              | _ -> unsupported "a generic struct-pointer field write whose proj arg is not a record projection") in

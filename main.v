@@ -2634,14 +2634,18 @@ Proof. intros [a b]; reflexivity. Qed.
 (* The CANONICAL rep for [Cell] (review #6 #10(b)): bound once to the type, so every [*Cell] handle
    reconstructs the same way.  [cell_f0]/[cell_f1] are the field-COHERENCE evidence (#10(c)) — they
    tie [cx]↔cell 0 and [cy]↔cell 1 to that rep, so a field access cannot name the wrong cell. *)
-#[local] Instance StructRep2Of_Cell : StructRep2Of Cell := mkSR2 cx cy MkCell cell_eta.
-Definition cell_f0 : field_at2 (the_rep2 Cell) 0 cx := or_introl (conj eq_refl eq_refl).
-Definition cell_f1 : field_at2 (the_rep2 Cell) 1 cy := or_intror (conj eq_refl eq_refl).
+#[local] Instance StructRepOf_Cell : StructRepOf Cell := {|
+  srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: nil ;
+  srep_rep := @mkSR Cell ((GoI64 : Type) :: (GoI64 : Type) :: nil) (TI64, (TI64, tt))
+                (fun v => (cx v, (cy v, tt))) (fun t => MkCell (fst t) (fst (snd t)))
+                (fun v => match v with MkCell a b => eq_refl end) |}.
+Definition cell_c0 : gfield_coh (R:=Cell) MHere cx := eq_refl.
+Definition cell_c1 : gfield_coh (R:=Cell) (MNext MHere) cy := eq_refl.
 Definition sptr_demo : IO unit :=
-  bind (sptr_new (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
-  bind (sptr_set_field p 0 cx TI64 cell_f0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
-  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>            (* a := p.Cx → 7 *)
-  bind (sptr_get_field p 1 cy TI64 cell_f1) (fun b =>            (* b := p.Cy → 4 *)
+  bind (gsptr_new (MkCell (3)%i64 (4)%i64)) (fun p =>  (* p := &Cell{3,4} *)
+  bind (gsptr_set_field p MHere cx cell_c0 (7)%i64) (fun _ =>     (* p.Cx = 7 (mutate through *p) *)
+  bind (gsptr_get_field p MHere cx cell_c0) (fun a =>            (* a := p.Cx → 7 *)
+  bind (gsptr_get_field p (MNext MHere) cy cell_c1) (fun b =>    (* b := p.Cy → 4 *)
   println [any a; any b])))).                                   (* prints: 7 4 *)
 
 (** GENERIC struct rep (review #8/#9): the ARITY-FREE [StructRep R ts] / typed de Bruijn index [Mem]
@@ -2661,10 +2665,10 @@ Definition gca_coh : gfield_coh (R:=GCell) MHere gca := eq_refl.
 Definition gcb_coh : gfield_coh (R:=GCell) (MNext MHere) gcb := eq_refl.
 Definition gcell_demo : IO unit :=
   bind (gsptr_new (MkGCell (30)%i64 (40)%i64)) (fun p =>           (* p := &GCell{30,40} *)
-  bind (gsptr_set_field MHere gca gca_coh p (99)%i64) (fun _ =>    (* p.Gca = 99 (mutate through *p) *)
+  bind (gsptr_set_field p MHere gca gca_coh (99)%i64) (fun _ =>    (* p.Gca = 99 (mutate through *p) *)
   bind (gsptr_deref p) (fun v =>                                   (* v := *p → GCell{99,40} *)
   bind (gsptr_assign p (MkGCell (1)%i64 (2)%i64)) (fun _ =>        (* *p = GCell{1,2} *)
-  bind (gsptr_get_field (MNext MHere) gcb gcb_coh p) (fun b =>     (* b := p.Gcb → 2 *)
+  bind (gsptr_get_field p (MNext MHere) gcb gcb_coh) (fun b =>     (* b := p.Gcb → 2 *)
   println [any (gca v); any b]))))).                              (* prints: 99 2 *)
 
 (** ============================================================================
@@ -2692,12 +2696,12 @@ Definition big64_val  : Big64 := MkBig64 (0)%i64 true (1.5)%go64 "x"%string (4)%
 Definition big64_valB : Big64 := MkBig64 (777)%i64 true (1.5)%go64 "x"%string (4)%i64 false (1.5)%go64 "x"%string (8)%i64 true (1.5)%go64 "x"%string (12)%i64 false (1.5)%go64 "x"%string (16)%i64 true (1.5)%go64 "x"%string (20)%i64 false (1.5)%go64 "x"%string (24)%i64 true (1.5)%go64 "x"%string (28)%i64 false (1.5)%go64 "x"%string (32)%i64 true (1.5)%go64 "x"%string (36)%i64 false (1.5)%go64 "x"%string (40)%i64 true (1.5)%go64 "x"%string (44)%i64 false (1.5)%go64 "x"%string (48)%i64 true (1.5)%go64 "x"%string (52)%i64 false (1.5)%go64 "x"%string (56)%i64 true (1.5)%go64 "x"%string (60)%i64 false (1.5)%go64 "x"%string.
 Definition big64_demo : IO unit :=
   bind (gsptr_new (MkBig64 (0)%i64 true (1.5)%go64 "x"%string (4)%i64 false (1.5)%go64 "x"%string (8)%i64 true (1.5)%go64 "x"%string (12)%i64 false (1.5)%go64 "x"%string (16)%i64 true (1.5)%go64 "x"%string (20)%i64 false (1.5)%go64 "x"%string (24)%i64 true (1.5)%go64 "x"%string (28)%i64 false (1.5)%go64 "x"%string (32)%i64 true (1.5)%go64 "x"%string (36)%i64 false (1.5)%go64 "x"%string (40)%i64 true (1.5)%go64 "x"%string (44)%i64 false (1.5)%go64 "x"%string (48)%i64 true (1.5)%go64 "x"%string (52)%i64 false (1.5)%go64 "x"%string (56)%i64 true (1.5)%go64 "x"%string (60)%i64 false (1.5)%go64 "x"%string)) (fun p =>
-  bind (gsptr_set_field (MNext (MNext (MNext (MNext MHere)))) f4 big64_c4 p (999)%i64) (fun _ =>
-  bind (gsptr_get_field MHere f0 big64_c0 p) (fun a0 =>
-  bind (gsptr_get_field (MNext MHere) f1 big64_c1 p) (fun a1 =>
-  bind (gsptr_get_field (MNext (MNext (MNext MHere))) f3 big64_c3 p) (fun a3 =>
-  bind (gsptr_get_field (MNext (MNext (MNext (MNext MHere)))) f4 big64_c4 p) (fun a4 =>
-  bind (gsptr_get_field (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext MHere))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) f63 big64_c63 p) (fun a63 =>
+  bind (gsptr_set_field p (MNext (MNext (MNext (MNext MHere)))) f4 big64_c4 (999)%i64) (fun _ =>
+  bind (gsptr_get_field p MHere f0 big64_c0) (fun a0 =>
+  bind (gsptr_get_field p (MNext MHere) f1 big64_c1) (fun a1 =>
+  bind (gsptr_get_field p (MNext (MNext (MNext MHere))) f3 big64_c3) (fun a3 =>
+  bind (gsptr_get_field p (MNext (MNext (MNext (MNext MHere)))) f4 big64_c4) (fun a4 =>
+  bind (gsptr_get_field p (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext (MNext MHere))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) f63 big64_c63) (fun a63 =>
   println [any a0; any a1; any a3; any a4; any a63;
            any (gstruct_eqb srep_rep (eqs_of_tags srep_ts (sr_tags srep_rep)) big64_val big64_val);
            any (gstruct_eqb srep_rep (eqs_of_tags srep_ts (sr_tags srep_rep)) big64_val big64_valB)]
@@ -2709,25 +2713,25 @@ Definition big64_demo : IO unit :=
     param → [func (p *Cell) Cell_incx() { … }] (and a call [cell_incx p] → [p.Cell_incx()]),
     exactly the value-receiver path but through a pointer.  The mutation is observed by
     the CALLER (the defining pointer-receiver behaviour), backed by [sptr_field_get_set]. *)
-Definition cell_incx (p : SPtr Cell) : IO unit :=
-  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* read p.Cx *)
-        sptr_set_field p 0 cx TI64 cell_f0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
+Definition cell_incx (p : GSPtr Cell) : IO unit :=
+  bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* read p.Cx *)
+        gsptr_set_field p MHere cx cell_c0 (i64_add a (1)%i64)).  (* p.Cx = p.Cx + 1 *)
 
 Definition ptr_method_demo : IO unit :=
-  bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
+  bind (gsptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   bind (cell_incx p) (fun _ =>                                (* p.Cell_incx() — mutates p.Cx *)
-  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 11 *)
+  bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* a := p.Cx → 11 *)
   println [any a]))).                                          (* prints: 11 *)
 
 (** POINTER-receiver method EXPRESSION (the parenthesized-star-Cell dot Cell_incx form) — the
     pointer-receiver method referenced UNBOUND is Go's [func] taking a [*Cell] receiver.
     Passed to a HOF [apply_cell] taking that func; the plugin records the receiver type as the
     PARENTHESIZED pointer form (vs the value-receiver [Point.Sum_coords]). *)
-Definition apply_cell (f : SPtr Cell -> IO unit) (p : SPtr Cell) : IO unit := f p.
+Definition apply_cell (f : GSPtr Cell -> IO unit) (p : GSPtr Cell) : IO unit := f p.
 Definition ptr_method_expr_demo : IO unit :=
-  bind (sptr_new (MkCell (5)%i64 (6)%i64)) (fun p =>
+  bind (gsptr_new (MkCell (5)%i64 (6)%i64)) (fun p =>
   bind (apply_cell cell_incx p) (fun _ =>                     (* pointer-receiver method expr via the HOF — mutates p.Cx *)
-  bind (sptr_get_field p 0 cx TI64 cell_f0) (fun a =>          (* a := p.Cx → 6 *)
+  bind (gsptr_get_field p MHere cx cell_c0) (fun a =>          (* a := p.Cx → 6 *)
   println [any a]))).                                          (* prints: 6 *)
 
 (** EMBEDDING a POINTER-to-struct ([*Cell]) in a struct (Go's [type Node struct { *Cell; tag int64 }]):
@@ -2735,12 +2739,12 @@ Definition ptr_method_expr_demo : IO unit :=
     base type name" rule, now for an [SPtr Cell] field → an anonymous [*Cell] field.  The pointer-receiver
     method [cell_incx] is PROMOTED: [cell_incx (cell nd)] → [nd.Cell_incx()] (peeling the embedded
     projection, exactly like struct-in-struct, but through the pointer); the struct's own [ntag] coexists. *)
-Record Node := MkNode { cell : SPtr Cell ; ntag : GoI64 }.
+Record Node := MkNode { cell : GSPtr Cell ; ntag : GoI64 }.
 Definition node_embed_demo : IO unit :=
-  bind (sptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
+  bind (gsptr_new (MkCell (10)%i64 (20)%i64)) (fun p =>
   let nd := MkNode p (99)%i64 in
   bind (cell_incx (cell nd)) (fun _ =>                         (* PROMOTED: nd.Cell_incx() mutates the embedded *Cell *)
-  bind (sptr_get_field (cell nd) 0 cx TI64 cell_f0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
+  bind (gsptr_get_field (cell nd) MHere cx cell_c0) (fun a =>   (* read through the embed: nd.Cell.Cx → 11 *)
   println [any a; any (ntag nd)]))).                           (* prints: 11 99 *)
 
 (** N-FIELD struct pointer: a 3-field [*Cell3] with a pointer-receiver method that mutates
@@ -2749,15 +2753,19 @@ Definition node_embed_demo : IO unit :=
 Record Cell3 := MkCell3 { c3x : GoI64 ; c3y : GoI64 ; c3z : GoI64 }.
 Lemma cell3_eta : forall v, MkCell3 (c3x v) (c3y v) (c3z v) = v.
 Proof. intros [a b c]; reflexivity. Qed.
-#[local] Instance StructRep3Of_Cell3 : StructRep3Of Cell3 := mkSR3 c3x c3y c3z MkCell3 cell3_eta.
-Definition cell3_f2 : field_at3 (the_rep3 Cell3) 2 c3z := or_intror (or_intror (conj eq_refl eq_refl)).
-Definition cell3_inc_z (p : SPtr3 Cell3) : IO unit :=
-  bind (sptr3_get_field p 2 c3z TI64 cell3_f2) (fun z =>          (* read p.C3z *)
-        sptr3_set_field p 2 c3z TI64 cell3_f2 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
+#[local] Instance StructRepOf_Cell3 : StructRepOf Cell3 := {|
+  srep_ts := (GoI64 : Type) :: (GoI64 : Type) :: (GoI64 : Type) :: nil ;
+  srep_rep := @mkSR Cell3 ((GoI64 : Type) :: (GoI64 : Type) :: (GoI64 : Type) :: nil) (TI64, (TI64, (TI64, tt)))
+                (fun v => (c3x v, (c3y v, (c3z v, tt)))) (fun t => MkCell3 (fst t) (fst (snd t)) (fst (snd (snd t))))
+                (fun v => match v with MkCell3 a b c => eq_refl end) |}.
+Definition cell3_c2 : gfield_coh (R:=Cell3) (MNext (MNext MHere)) c3z := eq_refl.
+Definition cell3_inc_z (p : GSPtr Cell3) : IO unit :=
+  bind (gsptr_get_field p (MNext (MNext MHere)) c3z cell3_c2) (fun z =>          (* read p.C3z *)
+        gsptr_set_field p (MNext (MNext MHere)) c3z cell3_c2 (i64_add z (1)%i64)).  (* p.C3z = p.C3z + 1 *)
 Definition nfield_ptr_demo : IO unit :=
-  bind (sptr3_new (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
+  bind (gsptr_new (MkCell3 (10)%i64 (20)%i64 (30)%i64)) (fun p =>
   bind (cell3_inc_z p) (fun _ =>                                (* p.Cell3_inc_z() — mutates p.C3z *)
-  bind (sptr3_get_field p 2 c3z TI64 cell3_f2) (fun z =>          (* z := p.C3z → 31 *)
+  bind (gsptr_get_field p (MNext (MNext MHere)) c3z cell3_c2) (fun z =>          (* z := p.C3z → 31 *)
   println [any z]))).                                           (* prints: 31 *)
 
 (** HETEROGENEOUS struct pointer: a [*Pair] whose two fields have DIFFERENT types
@@ -2767,26 +2775,30 @@ Definition nfield_ptr_demo : IO unit :=
 Record Pair := MkPair { p_n : GoI64 ; p_b : bool }.
 Lemma pair_eta : forall v, MkPair (p_n v) (p_b v) = v.
 Proof. intros [a b]; reflexivity. Qed.
-#[local] Instance StructRep2HOf_Pair : StructRep2HOf Pair GoI64 bool := mkSR2H p_n p_b TI64 TBool MkPair pair_eta.
-Definition pair_f0 : field_atH (the_repH Pair GoI64 bool) 0 p_n TI64 := or_introl (conj eq_refl eq_refl).
-Definition pair_f1 : field_atH (the_repH Pair GoI64 bool) 1 p_b TBool := or_intror (conj eq_refl eq_refl).
-Definition pair_bump (p : SPtrH Pair GoI64 bool) : IO unit :=
-  bind (sptrh_get_field p 0 p_n TI64 pair_f0) (fun n =>          (* read p.P_n *)
-        sptrh_set_field p 0 p_n TI64 pair_f0 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
+#[local] Instance StructRepOf_Pair : StructRepOf Pair := {|
+  srep_ts := (GoI64 : Type) :: (bool : Type) :: nil ;
+  srep_rep := @mkSR Pair ((GoI64 : Type) :: (bool : Type) :: nil) (TI64, (TBool, tt))
+                (fun v => (p_n v, (p_b v, tt))) (fun t => MkPair (fst t) (fst (snd t)))
+                (fun v => match v with MkPair a b => eq_refl end) |}.
+Definition pair_c0 : gfield_coh (R:=Pair) MHere p_n := eq_refl.
+Definition pair_c1 : gfield_coh (R:=Pair) (MNext MHere) p_b := eq_refl.
+Definition pair_bump (p : GSPtr Pair) : IO unit :=
+  bind (gsptr_get_field p MHere p_n pair_c0) (fun n =>          (* read p.P_n *)
+        gsptr_set_field p MHere p_n pair_c0 (i64_add n (1)%i64)).  (* p.P_n = p.P_n + 1 *)
 Definition het_ptr_demo : IO unit :=
-  bind (sptrh_new (MkPair (10)%i64 true)) (fun p =>
+  bind (gsptr_new (MkPair (10)%i64 true)) (fun p =>
   bind (pair_bump p) (fun _ =>                                  (* p.Pair_bump() — mutates p.P_n *)
-  bind (sptrh_get_field p 0 p_n TI64 pair_f0) (fun n =>          (* n := p.P_n → 11 *)
-  bind (sptrh_get_field p 1 p_b TBool pair_f1) (fun b =>         (* b := p.P_b → true *)
+  bind (gsptr_get_field p MHere p_n pair_c0) (fun n =>          (* n := p.P_n → 11 *)
+  bind (gsptr_get_field p (MNext MHere) p_b pair_c1) (fun b =>         (* b := p.P_b → true *)
   println [any n; any b])))).                                  (* prints: 11 true *)
 
 (** review #6 #10(c) — the field COHERENCE is ENFORCED, not decorative: a [field_at…] witness for a
     MISMATCHED (idx, proj) or (proj, tag) pairing does NOT typecheck, so a struct-pointer access can
     never name one field while addressing another cell (the exact defect the review flagged). *)
-Fail Definition cell_bad_coh   (* cy is field 1, not field 0 *)
-  : field_at2 (the_rep2 Cell) 0 cy := or_introl (conj eq_refl eq_refl).
-Fail Definition pair_bad_type  (* field 1 is bool — cannot be read as the int64 p_n with tag TI64 *)
-  : field_atH (the_repH Pair GoI64 bool) 1 p_n TI64 := or_intror (conj eq_refl eq_refl).
+Fail Definition cell_bad_coh   (* cy is field 1 (MNext MHere), not field 0 (MHere) — coh unprovable *)
+  : gfield_coh (R:=Cell) MHere cy := eq_refl.
+Fail Definition pair_bad_type  (* field 0 is p_n:int64, not p_b:bool — the typed index rejects the mismatch *)
+  : gfield_coh (R:=Pair) MHere p_b := eq_refl.
 
 (** ── Interfaces (the method-dictionary model) ───────────────────────────────
     A Go interface is a method DICTIONARY that is EXISTENTIAL at runtime: it holds
