@@ -1020,7 +1020,7 @@ let fw_value_type r =
   | Some (signed, width, op)
     when width <= 32 &&
          not (List.mem op ["ltb"; "leb"; "eqb"; "gtb"; "geb"; "neqb"]) ->
-      Some (Printf.sprintf "%s%d" (if signed then "int" else "uint") width)
+      Some ((if signed then "int" else "uint") ^ print_i64_dec (Int64.of_int width))
   | _ -> None
 (* Head constructor / global ref of a payload value term — peeling the [MLmagic]
    coercions extraction wraps around an [existT] payload (its value type is erased). *)
@@ -1389,7 +1389,7 @@ let rec pp_type state = function
   | Tglob (r, arg :: _) when is_sptr_type r -> str "*" ++ pp_type state arg  (* SPtr R / SPtrH R A B → *R *)
   (* GoArr<N> A → [N]T — a fixed-size array in a typed position (size N from the type name) *)
   | Tglob (r, [a]) when is_arrN_type r ->
-      str (Printf.sprintf "[%d]" (Option.get (arrN_size_of_type r))) ++ pp_type state a
+      str (("[" ^ print_i64_dec (Int64.of_int (Option.get (arrN_size_of_type r))) ^ "]")) ++ pp_type state a
   | Tglob (r, _) when is_arr_type r ->
       unsupported "an array type in a position needing an explicit [N]T (param / field / return / typed var decl); only LOCAL arrays are supported — write `a := arr_lit […]` so Go infers the size from the literal (the size lives in the construction, not the Coq type)"
   (* SliceH A → []T (Go's slice IS the aliasing handle; sub-slices share) *)
@@ -1864,7 +1864,7 @@ let rec pp_expr state env = function
            let pp_el e = match narrow_go_name go_elem with   (* narrow element cast — review #4 P1 #4 *)
              | Some gt -> str (gt ^ "(") ++ pp_expr state env e ++ str ")"
              | None    -> pp_expr state env e in
-           str (Printf.sprintf "[%d]%s{" n go_elem) ++
+           str (("[" ^ print_i64_dec (Int64.of_int n) ^ "]" ^ go_elem ^ "{")) ++
            prlist_with_sep (fun () -> str ", ") pp_el elems ++ str "}"
        (* arr_set n tag a i v → the copy-mutate-return IIFE (value-copy: a is unchanged)
           func(_a [n]T) [n]T { _a[i] = v; return _a }(a) *)
@@ -1873,7 +1873,7 @@ let rec pp_expr state env = function
              | Some n -> n
              | None -> unsupported "arr_set with a non-literal size (the array size must be statically known)") in
            let t = go_type_of_tag (strip_magic tag) in
-           let arrty = Printf.sprintf "[%d]%s" n t in
+           let arrty = ("[" ^ print_i64_dec (Int64.of_int n) ^ "]" ^ t) in
            str ("func(_a " ^ arrty ^ ") " ^ arrty ^ " { _a[") ++ pp_expr state env i ++
            str "] = " ++ pp_typed_lit state env v ++ str "; return _a }(" ++ pp_atom state env a ++ str ")"
 
