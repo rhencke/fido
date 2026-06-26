@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify smart-ctor-gate
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -53,6 +53,13 @@ run-local: extract
 negtest:
 	dune build
 	@sh negtests/run.sh
+
+# Smart-constructor gate (review #4): ban DIRECT proof-carrying Printer constructors
+# (AIdent/AIntLit/ARaw/GTNamed) outside the smart-constructor block in plugin/go.ml — the erased
+# Rocq proofs make a direct call a trust hole.  Pure static check (no build); runs here, in the
+# pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
+smart-ctor-gate:
+	@sh plugin/smart-ctor-gate.sh
 
 # Shared gate for the VERIFIED printer: compile goprint.v STANDALONE (Stdlib only, no plugin — sidesteps
 # the build circularity, since the plugin LINKS printer.ml which is extracted FROM a Rocq file) and assert

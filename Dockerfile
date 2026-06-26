@@ -91,8 +91,13 @@ COPY --chown=opam:opam negtests/ negtests/
 #      printer guarantee is vacuous if they differ).  Regenerate it from goprint.v here, FAIL on drift,
 #      and assert goprint.v's `Print Assumptions` show no "Axioms:" (goprint.v is part of the trust gate,
 #      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
+#  (6) SMART-CTOR GATE (review #4): the proof-carrying Printer constructors (AIdent/AIntLit/ARaw/GTNamed)
+#      erase their Rocq proofs in OCaml, so a DIRECT call would bypass the verified invariant.  Assert
+#      plugin/go.ml constructs them ONLY via the re-checking smart constructors (mk_atom/mk_named_ty) —
+#      a pure static scan, run FIRST so a side-door construction fails fast.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
-    (rocq c goprint.v > /tmp/goprint.log 2>&1 || (echo "fido: goprint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
+    sh plugin/smart-ctor-gate.sh \
+    && (rocq c goprint.v > /tmp/goprint.log 2>&1 || (echo "fido: goprint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
     && if grep -q '^Axioms:' /tmp/goprint.log; then \
          echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a goprint.v theorem depends on an axiom (Print Assumptions):"; \
          cat /tmp/goprint.log; exit 1; \

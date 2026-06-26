@@ -11,6 +11,14 @@
 # Extraction failure (e.g. a broken proof) aborts the commit.
 set -e
 
+# Smart-constructor gate (review #4): when the plugin is staged, assert plugin/go.ml constructs the
+# proof-carrying Printer atoms/types ONLY via the re-checking smart constructors (a direct AIdent/
+# AIntLit/ARaw/GTNamed would bypass the erased Rocq invariant).  Cheap static scan; the Docker prover
+# stage runs it non-bypassably too, this is the fast local backstop.
+if git diff --cached --name-only | grep -qE '^plugin/'; then
+  sh plugin/smart-ctor-gate.sh
+fi
+
 if git diff --cached --name-only | grep -qE '\.v$|^plugin/|\.go$'; then
   echo "fido: prover inputs (or a generated .go) staged — re-extracting and staging Go..."
   echo "fido: (.go is GENERATED from the .v; any hand-edit is reverted to prover output here)"

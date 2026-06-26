@@ -594,6 +594,41 @@ let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
+(* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
+   The SOLE sanctioned construction sites for the PROOF-CARRYING [Printer] atoms / types.  The
+   extracted [GoAtom] / [GoTy] constructors erase their Rocq validity proofs to a bare string / [Z],
+   so a DIRECT [Printer.AIdent s] / [Printer.AIntLit z] / [Printer.ARaw s] / [Printer.GTNamed s]
+   would let invalid text bypass the very invariant [print_parse_expr] / [parse_print_ty] rely on
+   (review #4 directive: an erased proof MUST be re-checked at the boundary).  Each smart constructor
+   re-checks the EXACT predicate its sig demands and fail-louds otherwise; the [make smart-ctor-gate]
+   target (run in the Docker prover stage AND pre-commit) BANS any direct use of those four
+   constructors ANYWHERE outside this block.  ([printer.ml] DEFINES them — a separate file — so it
+   is naturally out of scope.) *)
+let mk_atom s =
+  (* the atom DISAMBIGUATION, mirroring the parser's [build_atom]: a Go identifier -> [AIdent]; a
+     decimal integer literal -> [AIntLit] (its [Z] via [parse_Z]); any other [raw_ok] string ->
+     [ARaw]; a malformed operand (not [atom_ok]) ABORTS — so the executed path lands in exactly the
+     structured atom the round-trip covers. *)
+  let cs = coq_string_of_ocaml s in
+  (match Printer.go_ident cs with
+   | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
+   | Printer.False ->
+     (match Printer.is_dec cs with
+      | Printer.True  -> Printer.EAtom (Printer.AIntLit (Printer.parse_Z cs))
+      | Printer.False ->
+        (match Printer.raw_ok cs with
+         | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
+         | Printer.False -> unsupported (Printf.sprintf
+             "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s))))
+let mk_named_ty s =
+  (* a nominal type name -> [GTNamed], re-checking [nominal_type_ident] (not a Go keyword / builtin
+     type name — either would emit invalid Go and bypass the verified GTNamed invariant). *)
+  let cs = coq_string_of_ocaml s in
+  (match Printer.nominal_type_ident cs with
+   | Printer.True  -> Printer.GTNamed cs
+   | Printer.False -> unsupported (Printf.sprintf
+       "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
+(* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
 (* Map a recognised operator string to its VERIFIED [Printer.binOp] constructor.  The precedence and
    surface text are then DERIVED in Rocq ([binop_prec]/[binop_text]) — the plugin no longer supplies
    them, so it cannot mis-pair an operator with the wrong precedence (the redesign that killed the old
@@ -653,16 +688,11 @@ let rec coq_goty_of_tag = function
        | "TU32"     -> Some Printer.GTU32
        | "TI32"     -> Some Printer.GTI32
        | "TU64"     -> Some Printer.GTU64
-       (* nominal struct tags (TListNode/TChanBox/…) name a Go type — render as GTNamed via the map.
-          FAIL-CLOSED (rule 2): [GTNamed : TyName] carries [nominal_type_ident] IN THE TYPE, but that
-          proof erases in OCaml — so RE-CHECK it here before constructing (a Go keyword / builtin type
-          name as a nominal type would emit invalid Go and bypass the verified invariant). *)
+       (* nominal struct tags (TListNode/TChanBox/…) name a Go type — render as GTNamed via the map,
+          through the [mk_named_ty] smart constructor (which RE-CHECKS [nominal_type_ident], since that
+          proof erases in OCaml — a Go keyword / builtin type name would bypass the verified invariant). *)
        | name       -> (match List.assoc_opt name go_type_tag_map with
-                        | Some s -> let cs = coq_string_of_ocaml s in
-                                    (match Printer.nominal_type_ident cs with
-                                     | Printer.True  -> Some (Printer.GTNamed cs)
-                                     | Printer.False -> unsupported (Printf.sprintf
-                                         "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
+                        | Some s -> Some (mk_named_ty s)
                         | None   -> None))
   | MLcons (_, r, [inner]) when String.equal (global_basename r) "TPtr" ->
       (match coq_goty_of_tag inner with Some g -> Some (Printer.GTPtr g) | None -> None)
@@ -1141,8 +1171,9 @@ let fw_wrap signed width inner =
    structured inner) instead of a "("-led OPAQUE atom that escapes the round-trip ([atomic] would reject
    it).  Used by [build_goexpr]; the masks are atomic hex literals. *)
 let build_fw_masked signed width inner =
-  (* a hex mask (e.g. "0xff") is a non-identifier atom -> [ARaw] *)
-  let hexatom n = Printer.EAtom (Printer.ARaw (coq_string_of_ocaml (print_hex_int n))) in
+  (* a hex mask (e.g. "0xff") is a non-identifier atom; [mk_atom] re-checks it ([raw_ok]) and lands
+     it in [ARaw] — the same smart constructor as every other atom, no direct raw construction. *)
+  let hexatom n = mk_atom (print_hex_int n) in
   let masked = Printer.EBin (Printer.BAnd, inner, hexatom ((1 lsl width) - 1)) in
   if not signed then masked
   else
@@ -2755,28 +2786,10 @@ and pp_atom state env e =
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
   (* FAIL-CLOSED (rule 2) + STRUCTURE: an [EAtom] carries a structured [GoAtom] whose validity is in the
-     type (making [print_parse_expr] UNCONDITIONAL).  Since the OCaml [GoAtom] erases to bare strings / [Z]
-     (the validity proofs ERASE), build_goexpr re-establishes EACH constructor's exact invariant at runtime
-     AND picks the constructor — mirroring the parser's [build_atom] disambiguation exactly: a [go_ident]
-     (a Go identifier, not a keyword) becomes [AIdent]; an [is_dec] string (a decimal integer literal) an
-     [AIntLit] carrying the [Z] that [parse_Z] recovers; any other [raw_ok] string [ARaw]; a malformed
-     operand (not atom_ok — a "("-led group, depth-0 operator, unbalanced bracket) ABORTS.  Re-checking the
-     EXACT predicate each sig demands ([raw_ok], not just [atom_ok]) is mandatory: the erased proof cannot
-     be trusted, so a decimal slipping into [ARaw] (whose sig now excludes [is_dec]) must be impossible. *)
-  let atom d =
-    let s = Pp.string_of_ppcmds d in
-    let cs = coq_string_of_ocaml s in
-    match Printer.go_ident cs with
-    | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
-    | Printer.False ->
-      (match Printer.is_dec cs with
-       | Printer.True  -> Printer.EAtom (Printer.AIntLit (Printer.parse_Z cs))
-       | Printer.False ->
-         (match Printer.raw_ok cs with
-          | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
-          | Printer.False -> unsupported (Printf.sprintf
-            "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s)))
-  in
+     type (making [print_parse_expr] UNCONDITIONAL).  Construction goes through the [mk_atom] smart
+     constructor — the SOLE site that re-establishes each constructor's exact erased invariant and picks
+     the right one (ident -> [AIdent], decimal -> [AIntLit], else [raw_ok] -> [ARaw], malformed -> ABORT). *)
+  let atom d = mk_atom (Pp.string_of_ppcmds d) in
   match strip_magic e with
   | MLapp (h, args) ->
       let h2, all = collect_app h args in
