@@ -2990,15 +2990,22 @@ Qed.
 
 (** The channel OPERATIONS, DEFINED over the state above.  Extraction lowers each by
     NAME to Go (the bodies — which mention the proof-only state — are suppressed).
-    BLOCKING is idealised away (like [run_io] totality): a [recv]/[recv_ok]/[select]
-    on an empty OPEN channel returns the zero/default rather than blocking — no proof
-    depends on that case (the laws below cover only the non-empty / closed cases). *)
+    review #7: [recv] on an open EMPTY channel no longer fabricates a zero — Go BLOCKS
+    there (a deadlock in a single-goroutine [run_io]), which has no synchronous value,
+    so per rule 2 it is a LOUD panic.  A CLOSED, drained channel correctly yields the
+    zero value (Go's "receive from a closed channel"), so that case is KEPT.  ([select]
+    with a [default] is NON-blocking by DESIGN — firing [default] on an open-empty
+    channel is FAITHFUL Go, not an idealisation; [recv_ok] gets the same blocking-panic
+    split below.) *)
 Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
   fun w => if chan_closed ch w then OPanic rt_send_closed w else ORet tt (chan_send_upd tag ch v w).
 Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
   fun w => match chan_buf tag ch w with
            | v :: _ => ORet v (chan_recv_upd tag ch w)
-           | nil    => ORet (zero_val tag) w
+           | nil    => if chan_closed ch w
+                       then ORet (zero_val tag) w   (* closed + drained: Go yields the zero value immediately *)
+                       else OPanic (anyt TString
+                         "fido: recv on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value (review #7)"%string) w
            end.
 (** Break #6 (channels): [close] on a NIL channel ([MkChan 0]) PANICS — Go's "close of nil channel" —
     instead of fabricating a close at the reserved location 0.  (Go also panics on a double-close, the
@@ -3012,7 +3019,10 @@ Definition close_chan {A} (tag : GoTypeTag A) (ch : GoChan A) : IO unit :=
 Definition recv_ok {A B} (tag : GoTypeTag A) (ch : GoChan A) (f : A -> bool -> IO B) : IO B :=
   fun w => match chan_buf tag ch w with
            | v :: _ => f v true (chan_recv_upd tag ch w)
-           | nil    => f (zero_val tag) false w
+           | nil    => if chan_closed ch w
+                       then f (zero_val tag) false w   (* closed + drained: (zero, ok=false) — Go's comma-ok on a closed channel *)
+                       else OPanic (anyt TString
+                         "fido: recv_ok on an open EMPTY channel blocks — a deadlock in a sequential run_io, with no synchronous value (review #7)"%string) w
            end.
 Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
                                  (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) : IO C :=
@@ -3231,7 +3241,7 @@ Lemma run_recv_ok_closed_empty : forall {A B} (tag : GoTypeTag A) (ch : GoChan A
     (f : A -> bool -> IO B) (w : World),
   chan_buf tag ch w = nil -> chan_closed ch w = true ->
   run_io (recv_ok tag ch f) w = run_io (f (zero_val tag) false) w.
-Proof. intros A B tag ch f w H _. unfold recv_ok, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A B tag ch f w H Hc. unfold recv_ok, run_io. rewrite H, Hc. reflexivity. Qed.
 Lemma run_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   Nat.eqb (ch_loc ch) 0 = false ->
   chan_closed ch w = false ->
