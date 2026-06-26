@@ -2098,29 +2098,57 @@ let rec bstack_ok st = function
                   | Nil -> True
                   | Cons (_, _) -> False)
 | String (c, s') ->
-  (match match st with
-         | Nil ->
-           (match opens (String (c, s')) with
-            | True -> True
-            | False ->
-              (match is_space c with
-               | True -> op_after s'
-               | False -> False))
-         | Cons (_, _) -> False with
-   | True -> False
+  (match eqb0 c
+           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))) with
+   | True ->
+     let rec skip = function
+     | EmptyString -> False
+     | String (d, t') ->
+       (match eqb0 d
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))) with
+        | True -> bstack_ok st t'
+        | False ->
+          (match eqb0 d
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+           | True ->
+             (match t' with
+              | EmptyString -> False
+              | String (_, t'') -> skip t'')
+           | False -> skip t'))
+     in skip s'
    | False ->
-     (match is_bopen c with
-      | True -> bstack_ok (Cons ((close_of c), st)) s'
+     (match match st with
+            | Nil ->
+              (match opens (String (c, s')) with
+               | True -> True
+               | False ->
+                 (match is_space c with
+                  | True -> op_after s'
+                  | False -> False))
+            | Cons (_, _) -> False with
+      | True -> False
       | False ->
-        (match is_bclose c with
-         | True ->
-           (match st with
-            | Nil -> False
-            | Cons (top, st') ->
-              (match eqb0 c top with
-               | True -> bstack_ok st' s'
-               | False -> False))
-         | False -> bstack_ok st s')))
+        (match is_bopen c with
+         | True -> bstack_ok (Cons ((close_of c), st)) s'
+         | False ->
+           (match is_bclose c with
+            | True ->
+              (match st with
+               | Nil -> False
+               | Cons (top, st') ->
+                 (match eqb0 c top with
+                  | True -> bstack_ok st' s'
+                  | False -> False))
+            | False -> bstack_ok st s'))))
 
 (** val atomic : string -> bool **)
 

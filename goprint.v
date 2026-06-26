@@ -1214,11 +1214,62 @@ Fixpoint scan_atom (d : nat) (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
   | String c s' =>
-      if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+      if Ascii.eqb c (ch 34) then
+        (* QUOTE-AWARE: the string literal is part of the atom — reconstruct dquote ++ body ++ dquote and continue
+           scanning AT THE SAME DEPTH after the close quote (no bracket/seam inside the literal). *)
+        let (a, rest) :=
+          (fix skip (t : string) : string * string :=
+             match t with
+             | EmptyString => (EmptyString, EmptyString)                 (* unterminated *)
+             | String e t' =>
+                 if Ascii.eqb e (ch 34) then
+                   let (a2, r2) := scan_atom d t' in (String e a2, r2)   (* close quote, then resume *)
+                 else if Ascii.eqb e (ch 92) then
+                   match t' with
+                   | EmptyString => (String e EmptyString, EmptyString)
+                   | String f t'' => let (a2, r2) := skip t'' in (String e (String f a2), r2)
+                   end
+                 else let (a2, r2) := skip t' in (String e a2, r2)
+             end) s'
+        in (String c a, rest)
+      else if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
       then (EmptyString, String c s')
       else let d' := if is_bopen c then S d else if is_bclose c then Nat.pred d else d in
            let (a, rest) := scan_atom d' s' in (String c a, rest)
   end.
+(** [scan_skip d t] — the in-string reconstruction of [scan_atom] (named, mirrors [bstack_skip]). *)
+Fixpoint scan_skip (d : nat) (t : string) : string * string :=
+  match t with
+  | EmptyString => (EmptyString, EmptyString)
+  | String e t' =>
+      if Ascii.eqb e (ch 34) then let (a2, r2) := scan_atom d t' in (String e a2, r2)
+      else if Ascii.eqb e (ch 92) then
+        match t' with
+        | EmptyString => (String e EmptyString, EmptyString)
+        | String f t'' => let (a2, r2) := scan_skip d t'' in (String e (String f a2), r2)
+        end
+      else let (a2, r2) := scan_skip d t' in (String e a2, r2)
+  end.
+Lemma scan_atom_quote : forall d s',
+  scan_atom d (String (ch 34) s') = (let (a, rest) := scan_skip d s' in (String (ch 34) a, rest)).
+Proof.
+  intros d s'. cbn [scan_atom]. rewrite Ascii.eqb_refl.
+  assert (Hskip : (fix skip (t : string) : string * string :=
+             match t with
+             | EmptyString => (EmptyString, EmptyString)
+             | String e t' =>
+                 if Ascii.eqb e (ch 34) then let (a2, r2) := scan_atom d t' in (String e a2, r2)
+                 else if Ascii.eqb e (ch 92) then
+                   match t' with EmptyString => (String e EmptyString, EmptyString)
+                   | String f t'' => let (a2, r2) := skip t'' in (String e (String f a2), r2) end
+                 else let (a2, r2) := skip t' in (String e a2, r2)
+             end) s' = scan_skip d s').
+  { generalize s'. fix IH 1. intro t. destruct t as [ | e t' ]; [ reflexivity | ].
+    cbn [scan_skip]. destruct (Ascii.eqb e (ch 34)); [ reflexivity | ].
+    destruct (Ascii.eqb e (ch 92)); [ destruct t' as [ | f t'' ]; [ reflexivity | rewrite IH; reflexivity ]
+                                    | rewrite IH; reflexivity ]. }
+  rewrite Hskip. reflexivity.
+Qed.
 
 (** A depth-0 space is only dangerous when an OP-CHAR follows it (it could begin an operator straddling
     into the remainder); a space followed by a non-op char (or end) is harmless. *)
@@ -1234,10 +1285,37 @@ Fixpoint atomic_from (d : nat) (s : string) : bool :=
   match s with
   | EmptyString => Nat.eqb d 0
   | String c s' =>
-      if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
+      if Ascii.eqb c (ch 34) then
+        (fix skip (t : string) : bool :=                          (* QUOTE-AWARE — skip the opaque literal *)
+           match t with
+           | EmptyString => false
+           | String e t' =>
+               if Ascii.eqb e (ch 34) then atomic_from d t'
+               else if Ascii.eqb e (ch 92) then
+                 match t' with EmptyString => false | String _ t'' => skip t'' end
+               else skip t'
+           end) s'
+      else if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
       then false
       else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
   end.
+(** [atomic_skip d t] — the string-literal skip of [atomic_from], named (mirrors [bstack_skip]). *)
+Fixpoint atomic_skip (d : nat) (t : string) : bool :=
+  match t with
+  | EmptyString => false
+  | String e t' =>
+      if Ascii.eqb e (ch 34) then atomic_from d t'
+      else if Ascii.eqb e (ch 92) then
+        match t' with EmptyString => false | String _ t'' => atomic_skip d t'' end
+      else atomic_skip d t'
+  end.
+Lemma atomic_from_quote : forall d s', atomic_from d (String (ch 34) s') = atomic_skip d s'.
+Proof.
+  intros d s'. cbn [atomic_from]. rewrite Ascii.eqb_refl.
+  generalize s'. fix IH 1. intro t. destruct t as [ | e t' ]; [ reflexivity | ].
+  cbn [atomic_skip]. destruct (Ascii.eqb e (ch 34)); [ reflexivity | ].
+  destruct (Ascii.eqb e (ch 92)); [ destruct t' as [ | f t'' ]; [ reflexivity | apply IH ] | apply IH ].
+Qed.
 (** STRICT bracket validation — a real bracket STACK.  The looser [atomic_from] above tracks only
     COMBINED depth (one counter), so [ [} ] / [ {] ] / [ f([}) ] slip through (combined depth returns to
     0).  [close_of] maps an open bracket to its required close; [bstack_ok st] PUSHES that close on an
@@ -1253,7 +1331,20 @@ Fixpoint bstack_ok (st : list ascii) (s : string) : bool :=
   match s with
   | EmptyString => match st with nil => true | _ => false end
   | String c s' =>
-      if andb (match st with nil => true | _ => false end)
+      if Ascii.eqb c (ch 34) then
+        (* QUOTE-AWARE: a string literal is OPAQUE — skip its body (backslash takes the next byte; the
+           first UNescaped quote ends it, mirroring [scan_strlit_body]) so a bracket/operator char inside
+           a literal is not counted by the stack/seam.  Continue [bstack_ok st] after the close quote. *)
+        (fix skip (t : string) : bool :=
+           match t with
+           | EmptyString => false                                   (* unterminated literal *)
+           | String d t' =>
+               if Ascii.eqb d (ch 34) then bstack_ok st t'          (* close quote: resume after it *)
+               else if Ascii.eqb d (ch 92) then
+                 match t' with EmptyString => false | String _ t'' => skip t'' end   (* backslash: skip next byte *)
+               else skip t'
+           end) s'
+      else if andb (match st with nil => true | _ => false end)
               (orb (opens (String c s')) (andb (is_space c) (op_after s')))
       then false
       else if is_bopen c then bstack_ok (cons (close_of c) st) s'
@@ -1263,7 +1354,17 @@ Fixpoint bstack_ok (st : list ascii) (s : string) : bool :=
   end.
 Lemma bstack_ok_cons : forall st c s',
   bstack_ok st (String c s') =
-    if andb (match st with nil => true | _ => false end)
+    if Ascii.eqb c (ch 34) then
+      (fix skip (t : string) : bool :=
+         match t with
+         | EmptyString => false
+         | String d t' =>
+             if Ascii.eqb d (ch 34) then bstack_ok st t'
+             else if Ascii.eqb d (ch 92) then
+               match t' with EmptyString => false | String _ t'' => skip t'' end
+             else skip t'
+         end) s'
+    else if andb (match st with nil => true | _ => false end)
             (orb (opens (String c s')) (andb (is_space c) (op_after s')))
     then false
     else if is_bopen c then bstack_ok (cons (close_of c) st) s'
@@ -1271,6 +1372,25 @@ Lemma bstack_ok_cons : forall st c s',
       match st with nil => false | cons top st' => if Ascii.eqb c top then bstack_ok st' s' else false end
     else bstack_ok st s'.
 Proof. reflexivity. Qed.
+(** [bstack_skip st t] — the string-literal SKIP as a standalone fixpoint (the same body inlined in
+    [bstack_ok]'s quote branch), so the quote case of downstream proofs can name it.  [bstack_ok_quote]
+    rewrites the quote branch to it. *)
+Fixpoint bstack_skip (st : list ascii) (t : string) : bool :=
+  match t with
+  | EmptyString => false
+  | String d t' =>
+      if Ascii.eqb d (ch 34) then bstack_ok st t'
+      else if Ascii.eqb d (ch 92) then
+        match t' with EmptyString => false | String _ t'' => bstack_skip st t'' end
+      else bstack_skip st t'
+  end.
+Lemma bstack_ok_quote : forall st s', bstack_ok st (String (ch 34) s') = bstack_skip st s'.
+Proof.
+  intros st s'. rewrite bstack_ok_cons, Ascii.eqb_refl.
+  generalize s'. fix IH 1. intro t. destruct t as [ | d t' ]; [ reflexivity | ].
+  cbn [bstack_skip]. destruct (Ascii.eqb d (ch 34)); [ reflexivity | ].
+  destruct (Ascii.eqb d (ch 92)); [ destruct t' as [ | e t'' ]; [ reflexivity | apply IH ] | apply IH ].
+Qed.
 (** Bracket chars are not spaces, an open is not a close, and a bracket never begins an operator. *)
 Lemma bopen_not_bclose : forall c, is_bopen c = true -> is_bclose c = false.
 Proof.
@@ -1349,6 +1469,10 @@ Proof.
   intros c k Hc Hk. destruct (Ascii.eqb c (ascii_of_nat k)) eqn:E; [ | reflexivity ].
   apply Ascii.eqb_eq in E. subst c. rewrite Hk in Hc. discriminate.
 Qed.
+(** An identifier char is never the dquote (ch 34) — dispatches the QUOTE-AWARE scanner's quote branch to
+    [false] for ident / decimal chars (stated with [ch 34] so it rewrites the scanner [if] directly). *)
+Lemma is_idc_not_quote : forall c, is_idc c = true -> Ascii.eqb c (ch 34) = false.
+Proof. intros c Hc. apply (is_idc_eqb_false c 34 Hc); reflexivity. Qed.
 Lemma is_idc_not_space : forall c, is_idc c = true -> is_space c = false.
 Proof. intros c H. unfold is_space. apply is_idc_eqb_false; [ exact H | reflexivity ]. Qed.
 Lemma is_idc_not_open : forall c, is_idc c = true -> is_open c = false.
@@ -1396,7 +1520,7 @@ Lemma all_idc_bstack_ok : forall s, all_idc s = true -> bstack_ok nil s = true.
 Proof.
   induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
   cbn [all_idc] in H. apply andb_true_iff in H. destruct H as [ Hc Hs' ].
-  rewrite bstack_ok_cons.
+  rewrite bstack_ok_cons, (is_idc_not_quote c Hc).
   assert (Hopens : opens (String c s') = false).
   { unfold opens. rewrite (op_match_not_space c s' (is_idc_not_space c Hc)). reflexivity. }
   rewrite Hopens, (is_idc_not_space c Hc), (is_idc_not_bopen c Hc), (is_idc_not_bclose c Hc).
@@ -1466,10 +1590,11 @@ Qed.
     opens an operator — operators are space-led — nor pushes/pops the bracket stack).  The leading '-' of
     a negative literal is exactly such a char; so is every identifier/decimal char. *)
 Lemma bstack_ok_nil_plain : forall c s,
+  Ascii.eqb c (ch 34) = false ->
   is_space c = false -> is_bopen c = false -> is_bclose c = false ->
   bstack_ok nil s = true -> bstack_ok nil (String c s) = true.
 Proof.
-  intros c s Hsp Hbo Hbc Hs. rewrite bstack_ok_cons.
+  intros c s Hq Hsp Hbo Hbc Hs. rewrite bstack_ok_cons, Hq.
   assert (Ho : opens (String c s) = false)
     by (unfold opens; rewrite (op_match_not_space c s Hsp); reflexivity).
   rewrite Ho, Hsp, Hbo, Hbc. cbn [andb orb]. exact Hs.
@@ -1478,42 +1603,73 @@ Qed.
     suffix adds no bracket, and — its leading '.' being a NON-operator char — cannot create or straddle a
     depth-0 operator seam (the "seam cannot be straddled" argument of [scan_atom_gen], via
     [op_match_second_nonop]).  Generalized over the stack for the induction.  Foundation for [ASelector]. *)
+(** Combined with the string-literal SKIP state, by STRONG induction on a length bound (the backslash case
+    of [bstack_skip] consumes TWO chars, so structural induction on [base] is too weak).  Proves BOTH that
+    [bstack_ok] and [bstack_skip] are preserved by the [".f"] append; the quote / close-quote cases bridge
+    between the two via [bstack_ok_quote]. *)
+Lemma bstack_app_dotid : forall fld n base st, all_idc fld = true -> String.length base <= n ->
+  (bstack_ok st base = true -> bstack_ok st (base ++ String (ch 46) fld)%string = true) /\
+  (bstack_skip st base = true -> bstack_skip st (base ++ String (ch 46) fld)%string = true).
+Proof.
+  intros fld n. induction n as [ | n IH ]; intros base st Hf Hlen.
+  - destruct base as [ | c base' ]; [ | cbn [String.length] in Hlen; lia ].
+    split; [ | intro Hb; cbn [bstack_skip] in Hb; discriminate Hb ].
+    intro Hb. cbn [bstack_ok] in Hb. destruct st as [ | t st0 ]; [ | discriminate Hb ].
+    cbn [append]. rewrite bstack_ok_cons. assert (Hq : Ascii.eqb (ch 46) (ch 34) = false) by reflexivity.
+    rewrite Hq. assert (Ho : opens (String (ch 46) fld) = false)
+      by (unfold opens; rewrite (op_match_not_space (ch 46) fld eq_refl); reflexivity).
+    rewrite Ho. cbn [is_space is_bopen is_bclose andb orb]. apply all_idc_bstack_ok; exact Hf.
+  - destruct base as [ | c base' ].
+    + split; [ | intro Hb; cbn [bstack_skip] in Hb; discriminate Hb ].
+      intro Hb. cbn [bstack_ok] in Hb. destruct st as [ | t st0 ]; [ | discriminate Hb ].
+      cbn [append]. rewrite bstack_ok_cons. assert (Hq : Ascii.eqb (ch 46) (ch 34) = false) by reflexivity.
+      rewrite Hq. assert (Ho : opens (String (ch 46) fld) = false)
+        by (unfold opens; rewrite (op_match_not_space (ch 46) fld eq_refl); reflexivity).
+      rewrite Ho. cbn [is_space is_bopen is_bclose andb orb]. apply all_idc_bstack_ok; exact Hf.
+    + cbn [String.length] in Hlen. assert (Hl' : String.length base' <= n) by lia.
+      split.
+      * intro Hb. cbn [append]. destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+        -- apply Ascii.eqb_eq in Eq. subst c. rewrite bstack_ok_quote in Hb |- *.
+           apply (proj2 (IH base' st Hf Hl')); exact Hb.
+        -- rewrite bstack_ok_cons in Hb. rewrite Eq in Hb. rewrite bstack_ok_cons. rewrite Eq.
+           destruct (andb (match st with nil => true | _ => false end)
+                          (orb (opens (String c base')) (andb (is_space c) (op_after base')))) eqn:Eseam;
+             [ discriminate Hb | ].
+           assert (Eseam2 : andb (match st with nil => true | _ => false end)
+                     (orb (opens (String c (base' ++ String (ch 46) fld)))
+                          (andb (is_space c) (op_after (base' ++ String (ch 46) fld)))) = false).
+           { destruct st as [ | t st0 ]; cbn [andb] in Eseam |- *; [ | reflexivity ].
+             apply orb_false_iff in Eseam. destruct Eseam as [ Hop Hsp ].
+             apply orb_false_iff. split.
+             - destruct (is_space c) eqn:Esc.
+               + destruct base' as [ | c2 base'' ]; cbn [append].
+                 * unfold opens. rewrite (op_match_second_nonop c (ch 46) fld eq_refl). reflexivity.
+                 * cbn [andb op_after] in Hsp.
+                   unfold opens. rewrite (op_match_second_nonop c c2 (base'' ++ String (ch 46) fld) Hsp). reflexivity.
+               + unfold opens. rewrite (op_match_not_space c (base' ++ String (ch 46) fld) Esc). reflexivity.
+             - destruct base' as [ | c2 base'' ]; cbn [append op_after].
+               + assert (Hdot : is_op_char (ch 46) = false) by reflexivity. rewrite Hdot. apply andb_false_r.
+               + cbn [op_after] in Hsp. exact Hsp. }
+           rewrite Eseam2. destruct (is_bopen c) eqn:Ebo.
+           ++ apply (proj1 (IH base' (close_of c :: st) Hf Hl')); exact Hb.
+           ++ destruct (is_bclose c) eqn:Ebc.
+              ** destruct st as [ | t st0 ]; [ discriminate Hb | ].
+                 destruct (Ascii.eqb c t) eqn:Et;
+                   [ apply (proj1 (IH base' st0 Hf Hl')); exact Hb | discriminate Hb ].
+              ** apply (proj1 (IH base' st Hf Hl')); exact Hb.
+      * intro Hb. cbn [append]. cbn [bstack_skip] in Hb |- *. destruct (Ascii.eqb c (ch 34)) eqn:Eq1.
+        -- apply (proj1 (IH base' st Hf Hl')); exact Hb.
+        -- destruct (Ascii.eqb c (ch 92)) eqn:Eq2.
+           ++ destruct base' as [ | d base'' ]; [ cbn [bstack_skip] in Hb; discriminate Hb | ].
+              cbn [append]. assert (Hl'' : String.length base'' <= n) by (cbn [String.length] in Hl'; lia).
+              apply (proj2 (IH base'' st Hf Hl'')); exact Hb.
+           ++ apply (proj2 (IH base' st Hf Hl')); exact Hb.
+Qed.
 Lemma bstack_ok_app_dotid : forall fld base st, all_idc fld = true ->
   bstack_ok st base = true -> bstack_ok st (base ++ String (ch 46) fld)%string = true.
 Proof.
-  intros fld. induction base as [ | c base' IH ]; intros st Hf Hb.
-  - cbn [bstack_ok] in Hb. destruct st as [ | t st0 ]; [ | discriminate Hb ].
-    cbn [append]. rewrite bstack_ok_cons.
-    assert (Ho : opens (String (ch 46) fld) = false)
-      by (unfold opens; rewrite (op_match_not_space (ch 46) fld eq_refl); reflexivity).
-    rewrite Ho. cbn [is_space is_bopen is_bclose andb orb].
-    apply all_idc_bstack_ok; exact Hf.
-  - rewrite bstack_ok_cons in Hb. cbn [append]. rewrite bstack_ok_cons.
-    destruct (andb (match st with nil => true | _ => false end)
-                   (orb (opens (String c base')) (andb (is_space c) (op_after base')))) eqn:Eseam;
-      [ discriminate Hb | ].
-    assert (Eseam2 : andb (match st with nil => true | _ => false end)
-              (orb (opens (String c (base' ++ String (ch 46) fld)))
-                   (andb (is_space c) (op_after (base' ++ String (ch 46) fld)))) = false).
-    { destruct st as [ | t st0 ]; cbn [andb] in Eseam |- *; [ | reflexivity ].
-      apply orb_false_iff in Eseam. destruct Eseam as [ Hop Hsp ].
-      apply orb_false_iff. split.
-      - destruct (is_space c) eqn:Esc.
-        + destruct base' as [ | c2 base'' ]; cbn [append].
-          * unfold opens. rewrite (op_match_second_nonop c (ch 46) fld eq_refl). reflexivity.
-          * cbn [andb op_after] in Hsp.
-            unfold opens. rewrite (op_match_second_nonop c c2 (base'' ++ String (ch 46) fld) Hsp). reflexivity.
-        + unfold opens. rewrite (op_match_not_space c (base' ++ String (ch 46) fld) Esc). reflexivity.
-      - destruct base' as [ | c2 base'' ]; cbn [append op_after].
-        + assert (Hdot : is_op_char (ch 46) = false) by reflexivity. rewrite Hdot. apply andb_false_r.
-        + cbn [op_after] in Hsp. exact Hsp. }
-    rewrite Eseam2.
-    destruct (is_bopen c) eqn:Ebo.
-    + apply (IH (close_of c :: st)); [ exact Hf | exact Hb ].
-    + destruct (is_bclose c) eqn:Ebc.
-      * destruct st as [ | t st0 ]; [ discriminate Hb | ].
-        destruct (Ascii.eqb c t) eqn:Et; [ apply (IH st0); [ exact Hf | exact Hb ] | discriminate Hb ].
-      * apply (IH st); [ exact Hf | exact Hb ].
+  intros fld base st Hf Hb.
+  exact (proj1 (bstack_app_dotid fld (String.length base) base st Hf (le_n _)) Hb).
 Qed.
 Lemma is_dec_atom_ok : forall s, is_dec s = true -> atom_ok s = true.
 Proof.
@@ -1526,7 +1682,8 @@ Proof.
     unfold atom_ok. apply andb_true_iff. split.
     + unfold atomic. apply andb_true_iff. split.
       * apply negb_true_iff. reflexivity.
-      * apply bstack_ok_nil_plain; [ reflexivity | reflexivity | reflexivity | apply all_idc_bstack_ok; exact Hidc ].
+      * apply bstack_ok_nil_plain;
+          [ reflexivity | reflexivity | reflexivity | reflexivity | apply all_idc_bstack_ok; exact Hidc ].
     + unfold balanced_b. apply andb_true_iff. split.
       * assert (Hd : depth 0 (String (ascii_of_nat 45) (String c2 r2)) = depth 0 (String c2 r2)) by reflexivity.
         rewrite Hd, (all_idc_depth (String c2 r2) 0 Hidc). reflexivity.
@@ -1919,51 +2076,91 @@ Qed.
     [opens]/[op_match] guards (which we instead rewrite via the seam lemmas). *)
 Lemma scan_atom_cons : forall d c s',
   scan_atom d (String c s') =
-    if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
+    if Ascii.eqb c (ch 34) then (let (a, rest) := scan_skip d s' in (String c a, rest))
+    else if andb (Nat.eqb d 0) (orb (opens (String c s')) (is_close c))
     then (EmptyString, String c s')
     else let (a, rest) := scan_atom (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
          in (String c a, rest).
-Proof. reflexivity. Qed.
+Proof.
+  intros d c s'. destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+  - apply Ascii.eqb_eq in Eq. subst c. apply scan_atom_quote.
+  - cbn [scan_atom]. rewrite Eq. reflexivity.
+Qed.
 Lemma atomic_from_cons : forall d c s',
   atomic_from d (String c s') =
-    if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
+    if Ascii.eqb c (ch 34) then atomic_skip d s'
+    else if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (andb (is_space c) (op_after s')))
     then false
     else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'.
-Proof. reflexivity. Qed.
+Proof.
+  intros d c s'. destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+  - apply Ascii.eqb_eq in Eq. subst c. apply atomic_from_quote.
+  - cbn [atomic_from]. rewrite Eq. reflexivity.
+Qed.
 
 (** BRIDGE — the strict bracket STACK implies the loose combined-depth COUNT (matched brackets are
     balanced), the count being the stack's LENGTH.  This lets [atomic] (now stack-validated) still feed
     [scan_atom_correct] (stated over the count [atomic_from]) — the scan works unchanged while [atom_ok]
     now rejects mismatched brackets. *)
-Lemma bstack_ok_atomic_from : forall s st, bstack_ok st s = true -> atomic_from (length st) s = true.
+(** Combined with the skip state, by STRONG induction on length (the backslash case consumes two chars). *)
+Lemma bstack_atomic_from : forall n s st, String.length s <= n ->
+  (bstack_ok st s = true -> atomic_from (length st) s = true) /\
+  (bstack_skip st s = true -> atomic_skip (length st) s = true).
 Proof.
-  induction s as [ | c s' IH ]; intros st H.
-  - cbn [bstack_ok] in H. destruct st as [ | top st' ]; [ reflexivity | discriminate H ].
-  - rewrite bstack_ok_cons in H. rewrite atomic_from_cons. destruct st as [ | top st' ].
-    + (* empty stack — count 0 *)
-      cbn [andb] in H.
-      destruct (orb (opens (String c s')) (andb (is_space c) (op_after s'))) eqn:Eos; [ discriminate H | ].
-      apply orb_false_iff in Eos. destruct Eos as [ Hop Hsp ]. cbn [length].
-      destruct (is_bopen c) eqn:Ebo.
-      * rewrite Hop, (bopen_not_bclose c Ebo), Hsp. cbn [orb andb Nat.eqb].
-        change (S 0) with (length (cons (close_of c) nil)). apply IH; exact H.
-      * destruct (is_bclose c) eqn:Ebc; [ discriminate H | ].
-        rewrite Hop, Hsp. cbn [orb andb Nat.eqb].
-        change 0 with (length (@nil ascii)). apply IH; exact H.
-    + (* non-empty stack — count [S (length st')] *)
-      cbn [andb] in H. cbn [length].
-      assert (Hne : Nat.eqb (S (length st')) 0 = false) by reflexivity. rewrite Hne. cbn [andb].
-      destruct (is_bopen c) eqn:Ebo.
-      * change (S (S (length st'))) with (length (cons (close_of c) (cons top st'))). apply IH; exact H.
-      * destruct (is_bclose c) eqn:Ebc.
-        -- destruct (Ascii.eqb c top) eqn:Em; [ | discriminate H ].
-           cbn [Nat.pred]. apply IH; exact H.
-        -- change (S (length st')) with (length (cons top st')). apply IH; exact H.
+  intros n. induction n as [ | n IH ]; intros s st Hlen.
+  - destruct s as [ | c s' ]; [ | cbn [String.length] in Hlen; lia ].
+    split; [ intro H | intro H; cbn [bstack_skip] in H; discriminate H ].
+    cbn [bstack_ok] in H. destruct st as [ | top st' ]; [ reflexivity | discriminate H ].
+  - destruct s as [ | c s' ].
+    + split; [ intro H | intro H; cbn [bstack_skip] in H; discriminate H ].
+      cbn [bstack_ok] in H. destruct st as [ | top st' ]; [ reflexivity | discriminate H ].
+    + cbn [String.length] in Hlen. assert (Hl' : String.length s' <= n) by lia. split.
+      * intro H. destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+        -- apply Ascii.eqb_eq in Eq. subst c. rewrite bstack_ok_quote in H. rewrite atomic_from_quote.
+           apply (proj2 (IH s' st Hl')); exact H.
+        -- rewrite bstack_ok_cons in H. rewrite Eq in H. rewrite atomic_from_cons. rewrite Eq.
+           destruct st as [ | top st' ].
+           ++ cbn [andb] in H.
+              destruct (orb (opens (String c s')) (andb (is_space c) (op_after s'))) eqn:Eos; [ discriminate H | ].
+              apply orb_false_iff in Eos. destruct Eos as [ Hop Hsp ]. cbn [length].
+              destruct (is_bopen c) eqn:Ebo.
+              ** rewrite Hop, (bopen_not_bclose c Ebo), Hsp. cbn [orb andb Nat.eqb].
+                 change (S 0) with (length (cons (close_of c) nil)). apply (proj1 (IH s' _ Hl')); exact H.
+              ** destruct (is_bclose c) eqn:Ebc; [ discriminate H | ].
+                 rewrite Hop, Hsp. cbn [orb andb Nat.eqb].
+                 change 0 with (length (@nil ascii)). apply (proj1 (IH s' _ Hl')); exact H.
+           ++ cbn [andb] in H. cbn [length].
+              assert (Hne : Nat.eqb (S (length st')) 0 = false) by reflexivity. rewrite Hne. cbn [andb].
+              destruct (is_bopen c) eqn:Ebo.
+              ** change (S (S (length st'))) with (length (cons (close_of c) (cons top st'))).
+                 apply (proj1 (IH s' _ Hl')); exact H.
+              ** destruct (is_bclose c) eqn:Ebc.
+                 --- destruct (Ascii.eqb c top) eqn:Em; [ | discriminate H ].
+                     cbn [Nat.pred]. apply (proj1 (IH s' _ Hl')); exact H.
+                 --- change (S (length st')) with (length (cons top st')). apply (proj1 (IH s' _ Hl')); exact H.
+      * intro H. cbn [bstack_skip] in H. cbn [atomic_skip]. destruct (Ascii.eqb c (ch 34)) eqn:Eq1.
+        -- apply (proj1 (IH s' st Hl')); exact H.
+        -- destruct (Ascii.eqb c (ch 92)) eqn:Eq2.
+           ++ destruct s' as [ | d s'' ]; [ discriminate H | ].
+              assert (Hl'' : String.length s'' <= n) by (cbn [String.length] in Hl'; lia).
+              apply (proj2 (IH s'' st Hl'')); exact H.
+           ++ apply (proj2 (IH s' st Hl')); exact H.
 Qed.
+Lemma bstack_ok_atomic_from : forall s st, bstack_ok st s = true -> atomic_from (length st) s = true.
+Proof. intros s st H. exact (proj1 (bstack_atomic_from (String.length s) s st (le_n _)) H). Qed.
 
 (** A [rest] at which [scan_atom] stops cleanly: empty, or its head is ")" or begins an operator. *)
 Definition good_seam (rest : string) : bool :=
   match rest with EmptyString => true | String c _ => orb (opens rest) (is_close c) end.
+(** A seam char is never a dquote: an operator is space-led ([opens] needs [op_match], which fails on a
+    non-space head) and ')' is not a dquote.  So the QUOTE-AWARE [scan_atom] does NOT mistake a [good_seam]
+    remainder for a nested string literal. *)
+Lemma good_seam_not_quote : forall c rs, good_seam (String c rs) = true -> Ascii.eqb c (ch 34) = false.
+Proof.
+  intros c rs H. destruct (Ascii.eqb c (ch 34)) eqn:Eq; [ | reflexivity ].
+  apply Ascii.eqb_eq in Eq. subst c. exfalso. unfold good_seam in H. unfold opens in H.
+  rewrite (op_match_not_space (ch 34) rs eq_refl) in H. cbn in H. discriminate H.
+Qed.
 
 Lemma is_close_of_bclose : forall c, is_bclose c = false -> is_close c = false.
 Proof.
@@ -1991,35 +2188,66 @@ Qed.
     EXACTLY.  At a depth-0, non-space position [op_match_not_space] kills [opens]; at a depth-0 space, the
     next character (in [a] or, for a trailing space, in [rest] via [good_seam_first_nonop]) is a non-op
     char, so [op_match_second_nonop] kills [opens] — the seam cannot be straddled. *)
+(** Combined with the in-string reconstruction [scan_skip], by STRONG induction on length (backslash
+    consumes two chars).  The [atomic_from]/[scan_atom] conjunct is the ORIGINAL seam proof (the quote
+    branch dispatched to [scan_skip] via [scan_atom_quote]); the [atomic_skip]/[scan_skip] conjunct
+    reconstructs the literal char-by-char, bridging back at the close quote. *)
+Lemma scan_atom_gen_skip : forall n a d rest, String.length a <= n -> good_seam rest = true ->
+  (atomic_from d a = true -> scan_atom d (a ++ rest) = (a, rest)) /\
+  (atomic_skip d a = true -> scan_skip d (a ++ rest) = (a, rest)).
+Proof.
+  intros n. induction n as [ | n IH ]; intros a d rest Hlen Hseam.
+  - destruct a as [ | c a' ]; [ | cbn [String.length] in Hlen; lia ].
+    split; [ | intro Hat; cbn [atomic_skip] in Hat; discriminate Hat ].
+    intro Hat. cbn [atomic_from] in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
+    destruct rest as [ | rc rs ]; [ reflexivity | ].
+    rewrite scan_atom_cons, (good_seam_not_quote rc rs Hseam).
+    unfold good_seam in Hseam. rewrite Hseam. reflexivity.
+  - destruct a as [ | c a' ].
+    + split; [ | intro Hat; cbn [atomic_skip] in Hat; discriminate Hat ].
+      intro Hat. cbn [atomic_from] in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
+      destruct rest as [ | rc rs ]; [ reflexivity | ].
+      rewrite scan_atom_cons, (good_seam_not_quote rc rs Hseam).
+      unfold good_seam in Hseam. rewrite Hseam. reflexivity.
+    + cbn [String.length] in Hlen. assert (Hl' : String.length a' <= n) by lia. split.
+      * intro Hat. cbn [append]. destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+        -- apply Ascii.eqb_eq in Eq. subst c. rewrite atomic_from_quote in Hat. rewrite scan_atom_quote.
+           rewrite (proj2 (IH a' d rest Hl' Hseam) Hat). reflexivity.
+        -- rewrite atomic_from_cons in Hat. rewrite Eq in Hat. rewrite scan_atom_cons. rewrite Eq.
+           destruct (andb (Nat.eqb d 0)
+                      (orb (orb (opens (String c a')) (is_bclose c)) (andb (is_space c) (op_after a')))) eqn:Estop;
+             [ discriminate Hat | ].
+           assert (Estop2 : andb (Nat.eqb d 0) (orb (opens (String c (a' ++ rest))) (is_close c)) = false).
+           { destruct (Nat.eqb d 0) eqn:Ed; cbn [andb] in Estop |- *; [ | reflexivity ].
+             apply orb_false_iff in Estop. destruct Estop as [ Hocb Hsp ].
+             apply orb_false_iff in Hocb. destruct Hocb as [ Hop Hbcl ].
+             rewrite (is_close_of_bclose c Hbcl), orb_false_r. unfold opens.
+             destruct (is_space c) eqn:Esc.
+             - cbn [andb] in Hsp.
+               destruct a' as [ | c2 a'' ]; cbn [append].
+               + destruct rest as [ | rc rs ].
+                 * unfold is_space in Esc. apply Ascii.eqb_eq in Esc; subst c. rewrite op_match_space_nil. reflexivity.
+                 * pose proof (good_seam_first_nonop (String rc rs) Hseam) as Hrc.
+                   rewrite (op_match_second_nonop c rc rs Hrc). reflexivity.
+               + cbn [op_after] in Hsp. rewrite (op_match_second_nonop c c2 (a'' ++ rest) Hsp). reflexivity.
+             - rewrite (op_match_not_space c (a' ++ rest) Esc). reflexivity. }
+           rewrite Estop2.
+           rewrite (proj1 (IH a' (if is_bopen c then S d else if is_bclose c then Nat.pred d else d)
+                             rest Hl' Hseam) Hat). reflexivity.
+      * intro Hat. cbn [append]. cbn [scan_skip]. cbn [atomic_skip] in Hat.
+        destruct (Ascii.eqb c (ch 34)) eqn:Eq1.
+        -- rewrite (proj1 (IH a' d rest Hl' Hseam) Hat). reflexivity.
+        -- destruct (Ascii.eqb c (ch 92)) eqn:Eq2.
+           ++ destruct a' as [ | f a'' ]; [ discriminate Hat | ].
+              cbn [append]. assert (Hl'' : String.length a'' <= n) by (cbn [String.length] in Hl'; lia).
+              rewrite (proj2 (IH a'' d rest Hl'' Hseam) Hat). reflexivity.
+           ++ rewrite (proj2 (IH a' d rest Hl' Hseam) Hat). reflexivity.
+Qed.
 Lemma scan_atom_gen : forall a d rest, atomic_from d a = true -> good_seam rest = true ->
   scan_atom d (a ++ rest) = (a, rest).
 Proof.
-  induction a as [ | c a' IH ]; intros d rest Hat Hseam.
-  - cbn in Hat. apply Nat.eqb_eq in Hat; subst d. cbn [append].
-    destruct rest as [ | rc rs ]; [ reflexivity | ].
-    rewrite scan_atom_cons. unfold good_seam in Hseam. rewrite Hseam. reflexivity.
-  - rewrite atomic_from_cons in Hat.
-    destruct (andb (Nat.eqb d 0)
-               (orb (orb (opens (String c a')) (is_bclose c)) (andb (is_space c) (op_after a')))) eqn:Estop;
-      [ discriminate Hat | ].
-    cbn [append]. rewrite scan_atom_cons.
-    assert (Estop2 : andb (Nat.eqb d 0) (orb (opens (String c (a' ++ rest))) (is_close c)) = false).
-    { destruct (Nat.eqb d 0) eqn:Ed; cbn [andb] in Estop |- *; [ | reflexivity ].
-      apply orb_false_iff in Estop. destruct Estop as [ Hocb Hsp ].
-      apply orb_false_iff in Hocb. destruct Hocb as [ Hop Hbcl ].
-      rewrite (is_close_of_bclose c Hbcl), orb_false_r. unfold opens.
-      destruct (is_space c) eqn:Esc.
-      - cbn [andb] in Hsp.
-        destruct a' as [ | c2 a'' ]; cbn [append].
-        + destruct rest as [ | rc rs ].
-          * unfold is_space in Esc. apply Ascii.eqb_eq in Esc; subst c. rewrite op_match_space_nil. reflexivity.
-          * pose proof (good_seam_first_nonop (String rc rs) Hseam) as Hrc.
-            rewrite (op_match_second_nonop c rc rs Hrc). reflexivity.
-        + cbn [op_after] in Hsp. rewrite (op_match_second_nonop c c2 (a'' ++ rest) Hsp). reflexivity.
-      - rewrite (op_match_not_space c (a' ++ rest) Esc). reflexivity. }
-    rewrite Estop2.
-    rewrite (IH (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) rest Hat Hseam).
-    reflexivity.
+  intros a d rest Hat Hseam.
+  exact (proj1 (scan_atom_gen_skip (String.length a) a d rest (le_n _) Hseam) Hat).
 Qed.
 
 Lemma scan_atom_correct : forall a rest, atomic a = true -> good_seam rest = true ->
@@ -2397,6 +2625,18 @@ Proof. reflexivity. Qed.
 Example bstack_rejects_mismatch :
   atomic "[}" = false /\ atomic "{]" = false /\ atomic "f([})" = false /\ atomic "([)]" = false.
 Proof. repeat split; reflexivity. Qed.
+(** QUOTE-AWARE scanning (review #5 item 1, the NESTED-literal half): a bracket / operator-seam char INSIDE
+    a string literal nested in an atom is now OPAQUE — so [m["["]] (a map index whose key is the string
+    "[") and [f("a + b")] (a call whose arg is the string "a + b") are [atomic] / [atom_ok], where the
+    quote-UNAWARE scanner miscounted the inner '[' (or tripped the ' + ' seam) and REJECTED them.  The
+    inner [""] are escaped dquotes in Coq string syntax. *)
+Example atomic_index_bracket_string : atomic "m[""[""]" = true.
+Proof. reflexivity. Qed.
+Example atomic_call_seam_string : atomic "f(""a + b"")" = true.
+Proof. reflexivity. Qed.
+Example scan_index_bracket_string :
+  scan_atom 0 ("m[""[""]" ++ " + x") = ("m[""[""]", " + x").
+Proof. reflexivity. Qed.
 (** DECIMAL INTEGER-LITERAL atoms ([AIntLit], carrying the [Z] — its text is the canonical [print_Z]):
     [build_atom] DISAMBIGUATES a digit-led (or '-'-led) atom into [AIntLit], an identifier into [AIdent],
     and the round-trip recovers the EXACT [Z] — across the full int64/uint64 range, negatives included. *)
