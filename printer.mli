@@ -346,6 +346,8 @@ val is_dec : string -> bool
 
 val strlit_ok : string -> bool
 
+val quote_led : string -> bool
+
 val raw_ok : string -> bool
 
 type goAtom =

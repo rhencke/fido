@@ -2182,10 +2182,17 @@ let is_dec = function
 
 (** val strlit_ok : string -> bool **)
 
-let strlit_ok s =
-  match atom_ok s with
-  | True -> is_strlit s
-  | False -> False
+let strlit_ok =
+  is_strlit
+
+(** val quote_led : string -> bool **)
+
+let quote_led = function
+| EmptyString -> False
+| String (c, _) ->
+  eqb0 c
+    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S O)))))))))))))))))))))))))))))))))))
 
 (** val raw_ok : string -> bool **)
 
@@ -2195,7 +2202,7 @@ let raw_ok s =
                     | False -> False with
               | True -> negb (is_dec s)
               | False -> False with
-        | True -> negb (is_strlit s)
+        | True -> negb (quote_led s)
         | False -> False with
   | True -> negb (go_keyword s)
   | False -> False
