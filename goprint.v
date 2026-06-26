@@ -669,6 +669,85 @@ Proof. reflexivity. Qed.
 Example scan_escaped_quote : scan_strlit_body (esc_string "a""b" ++ String (ch 34) "X") = Some (esc_string "a""b", "X").
 Proof. reflexivity. Qed.
 
+(** [scan_strlit_body] INVERTS [esc_string]: scanning a printed body up to the closing quote recovers
+    EXACTLY that body (no early stop on an escaped quote, no over-run).  This is the round-trip key for
+    the string-literal primary.  Helpers + an [esc_byte]-case lemma (mirroring [unescape_esc_byte]). *)
+Lemma eqb_ch_false : forall c k, k < 256 -> nat_of_ascii c <> k -> Ascii.eqb c (ch k) = false.
+Proof.
+  intros c k Hk Hne. destruct (Ascii.eqb c (ch k)) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E. exfalso. apply Hne. rewrite E. apply nat_of_ch. exact Hk.
+Qed.
+Lemma ch_ch_eqb : forall a b, a < 256 -> b < 256 -> Ascii.eqb (ch a) (ch b) = Nat.eqb a b.
+Proof.
+  intros a b Ha Hb. destruct (Nat.eqb a b) eqn:E.
+  - apply Nat.eqb_eq in E. subst. apply Ascii.eqb_refl.
+  - apply Nat.eqb_neq in E. apply eqb_ch_false; [ exact Hb | ]. rewrite nat_of_ch by exact Ha. exact E.
+Qed.
+Lemma esc_byte_app : forall b acc X, (esc_byte b acc ++ X)%string = esc_byte b (acc ++ X)%string.
+Proof.
+  intros b acc X. unfold esc_byte.
+  destruct (Nat.eqb b 34); [ reflexivity | ].
+  destruct (Nat.eqb b 92); [ reflexivity | ].
+  destruct (Nat.eqb b 10); [ reflexivity | ].
+  destruct (Nat.eqb b 9);  [ reflexivity | ].
+  destruct (Nat.eqb b 13); [ reflexivity | ].
+  destruct (andb (Nat.leb 32 b) (Nat.ltb b 127)); reflexivity.
+Qed.
+Lemma hexdig_ne_q : forall k, k < 16 -> Ascii.eqb (hexdig k) (ch 34) = false.
+Proof.
+  intros k Hk. apply eqb_ch_false; [ lia | ]. unfold hexdig.
+  rewrite Ascii.nat_ascii_embedding by (destruct (Nat.ltb k 10); lia).
+  destruct (Nat.ltb k 10) eqn:Eh; [ apply Nat.ltb_lt in Eh | apply Nat.ltb_ge in Eh ]; lia.
+Qed.
+Lemma hexdig_ne_bs : forall k, k < 16 -> Ascii.eqb (hexdig k) (ch 92) = false.
+Proof.
+  intros k Hk. apply eqb_ch_false; [ lia | ]. unfold hexdig.
+  rewrite Ascii.nat_ascii_embedding by (destruct (Nat.ltb k 10); lia).
+  destruct (Nat.ltb k 10) eqn:Eh; [ apply Nat.ltb_lt in Eh | apply Nat.ltb_ge in Eh ]; lia.
+Qed.
+Local Opaque ch.
+Lemma scan_strlit_body_esc_byte : forall c Y,
+  scan_strlit_body (esc_byte (nat_of_ascii c) Y) =
+    match scan_strlit_body Y with Some (b, r) => Some (esc_byte (nat_of_ascii c) b, r) | None => None end.
+Proof.
+  intros c Y. assert (Hc : nat_of_ascii c < 256) by apply nat_of_ascii_lt_256.
+  unfold esc_byte.
+  destruct (Nat.eqb (nat_of_ascii c) 34) eqn:E34.
+  { cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 92) eqn:E92.
+  { cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 10) eqn:E10.
+  { cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 9) eqn:E9.
+  { cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  destruct (Nat.eqb (nat_of_ascii c) 13) eqn:E13.
+  { cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  destruct (andb (Nat.leb 32 (nat_of_ascii c)) (Nat.ltb (nat_of_ascii c) 127)) eqn:Eprint.
+  { cbn [scan_strlit_body].
+    rewrite (ch_ch_eqb (nat_of_ascii c) 34) by lia. rewrite E34.
+    rewrite (ch_ch_eqb (nat_of_ascii c) 92) by lia. rewrite E92.
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+  { assert (Hhi : Nat.div (nat_of_ascii c) 16 < 16) by (apply Nat.Div0.div_lt_upper_bound; lia).
+    assert (Hlo : Nat.modulo (nat_of_ascii c) 16 < 16) by (apply Nat.mod_upper_bound; lia).
+    cbn [scan_strlit_body]. rewrite (ch_ch_eqb 92 34) by lia. rewrite (ch_ch_eqb 92 92) by lia.
+    cbn [scan_strlit_body]. rewrite (hexdig_ne_q _ Hhi), (hexdig_ne_bs _ Hhi).
+    cbn [scan_strlit_body]. rewrite (hexdig_ne_q _ Hlo), (hexdig_ne_bs _ Hlo).
+    destruct (scan_strlit_body Y) as [ [b r] | ]; reflexivity. }
+Qed.
+Local Transparent ch.
+Lemma scan_strlit_body_esc : forall s rest,
+  scan_strlit_body (esc_string s ++ String (ch 34) rest) = Some (esc_string s, rest).
+Proof.
+  induction s as [ | c s' IH ]; intro rest.
+  - cbn [esc_string String.append scan_strlit_body]. rewrite (ch_ch_eqb 34 34) by lia. reflexivity.
+  - cbn [esc_string]. rewrite esc_byte_app, scan_strlit_body_esc_byte, IH. reflexivity.
+Qed.
+
 (** ---- STRING-LITERAL ATOM RECOGNITION ---- [is_strlit a] decides whether [a] is a CANONICAL Go
     string literal — i.e. [a = print_string_lit s] for the [s] it decodes to.  It strips the opening
     and closing quote chars ([but_last] drops the trailing one), [unescape]s the body, and RE-PRINTS:
