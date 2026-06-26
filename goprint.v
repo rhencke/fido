@@ -665,6 +665,41 @@ Example is_strlit_hello : is_strlit (print_string_lit "hello") = true. Proof. re
 Example is_strlit_empty : is_strlit (print_string_lit "") = true.      Proof. reflexivity. Qed.
 Example is_strlit_lone_quote : is_strlit (String (ch 34) "") = false.  Proof. reflexivity. Qed.
 
+(** ---- SELECTOR SPLITTING ---- [split_last_dot s] splits [s] at its LAST '.' into [(operand, field)]
+    with [operand ++ "." ++ field = s] (or [None] if no '.').  Used to recover a selector atom [x.f]:
+    a selector's field is an IDENTIFIER (dot-free), so the LAST '.' is the outermost selector's '.'.
+    NO bracket-depth tracking is needed — a '.' inside brackets (e.g. [f(a.b)]) leaves a non-identifier
+    suffix that the [go_ident field] check in [build_atom] rejects, so only a genuine selector '.' ever
+    splits.  ([split_last_dot_snoc] is the round-trip key: re-splitting a printed [operand."."field]
+    recovers exactly [(operand, field)] when the field is dot-free.) *)
+Fixpoint split_last_dot (s : string) : option (string * string) :=
+  match s with
+  | EmptyString  => None
+  | String c rest =>
+      match split_last_dot rest with
+      | Some (op, fld) => Some (String c op, fld)
+      | None => if Ascii.eqb c (ch 46) then Some (EmptyString, rest) else None
+      end
+  end.
+Fixpoint dot_free (s : string) : bool :=
+  match s with EmptyString => true | String c rest => andb (negb (Ascii.eqb c (ch 46))) (dot_free rest) end.
+Lemma dot_free_no_split : forall s, dot_free s = true -> split_last_dot s = None.
+Proof.
+  induction s as [ | c rest IH ]; intro H; [ reflexivity | ].
+  cbn [dot_free] in H. apply andb_true_iff in H. destruct H as [ Hc Hr ].
+  cbn [split_last_dot]. rewrite (IH Hr). apply negb_true_iff in Hc. rewrite Hc. reflexivity.
+Qed.
+Lemma split_last_dot_snoc : forall op fld, dot_free fld = true ->
+  split_last_dot (op ++ String (ch 46) fld) = Some (op, fld).
+Proof.
+  induction op as [ | c op' IH ]; intros fld Hdf.
+  - cbn [String.append split_last_dot]. rewrite (dot_free_no_split fld Hdf), Ascii.eqb_refl. reflexivity.
+  - cbn [String.append split_last_dot]. rewrite (IH fld Hdf). reflexivity.
+Qed.
+Example split_xf   : split_last_dot "x.f"   = Some ("x", "f").    Proof. reflexivity. Qed.
+Example split_abc  : split_last_dot "a.b.c" = Some ("a.b", "c").  Proof. reflexivity. Qed.
+Example split_none : split_last_dot "xyz"   = None.               Proof. reflexivity. Qed.
+
 (** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex (replacing go.ml's [Printf.sprintf "0x%x"] for
     fixed-width bit masks / sign bits). *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
