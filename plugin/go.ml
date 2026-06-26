@@ -2755,22 +2755,27 @@ and pp_atom state env e =
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
 and build_goexpr state env e =
   (* FAIL-CLOSED (rule 2) + STRUCTURE: an [EAtom] carries a structured [GoAtom] whose validity is in the
-     type (making [print_parse_expr] UNCONDITIONAL).  Since the OCaml [GoAtom] erases to bare strings,
-     build_goexpr re-establishes the invariant at runtime AND picks the constructor: a [go_ident] (a Go
-     identifier — not a keyword) becomes [AIdent], any other [atom_ok] string [ARaw]; a malformed operand
-     (not atom_ok — a "("-led group, a depth-0 operator, an unbalanced bracket) ABORTS.  This mirrors the
-     parser's [build_atom] disambiguation exactly, so the executed path lands in the same structured atom
-     the round-trip covers. *)
+     type (making [print_parse_expr] UNCONDITIONAL).  Since the OCaml [GoAtom] erases to bare strings / [Z]
+     (the validity proofs ERASE), build_goexpr re-establishes EACH constructor's exact invariant at runtime
+     AND picks the constructor — mirroring the parser's [build_atom] disambiguation exactly: a [go_ident]
+     (a Go identifier, not a keyword) becomes [AIdent]; an [is_dec] string (a decimal integer literal) an
+     [AIntLit] carrying the [Z] that [parse_Z] recovers; any other [raw_ok] string [ARaw]; a malformed
+     operand (not atom_ok — a "("-led group, depth-0 operator, unbalanced bracket) ABORTS.  Re-checking the
+     EXACT predicate each sig demands ([raw_ok], not just [atom_ok]) is mandatory: the erased proof cannot
+     be trusted, so a decimal slipping into [ARaw] (whose sig now excludes [is_dec]) must be impossible. *)
   let atom d =
     let s = Pp.string_of_ppcmds d in
     let cs = coq_string_of_ocaml s in
     match Printer.go_ident cs with
     | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
     | Printer.False ->
-      (match Printer.atom_ok cs with
-       | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
-       | Printer.False -> unsupported (Printf.sprintf
-         "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s))
+      (match Printer.is_dec cs with
+       | Printer.True  -> Printer.EAtom (Printer.AIntLit (Printer.parse_Z cs))
+       | Printer.False ->
+         (match Printer.raw_ok cs with
+          | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
+          | Printer.False -> unsupported (Printf.sprintf
+            "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s)))
   in
   match strip_magic e with
   | MLapp (h, args) ->

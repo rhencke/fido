@@ -1195,42 +1195,193 @@ Proof.
   rewrite Hopens, (is_idc_not_space c Hc), (is_idc_not_bopen c Hc), (is_idc_not_bclose c Hc).
   cbn [orb andb]. apply IH; exact Hs'.
 Qed.
+(** The CORE "[identifier char] + [identifier tail] is an atom", factored so BOTH [go_ident] atoms and
+    decimal-literal atoms reuse it (DRY): a leading [is_idc] char + [all_idc] tail is [atomic] (not
+    "("-led, no depth-0 bracket / operator — operators are space-led) and paren-BALANCED (no parens). *)
+Lemma all_idc_cons_atom_ok : forall c s, is_idc c = true -> all_idc s = true -> atom_ok (String c s) = true.
+Proof.
+  intros c s Hc Hs.
+  assert (Hcs : all_idc (String c s) = true)
+    by (cbn [all_idc]; apply andb_true_iff; split; [ exact Hc | exact Hs ]).
+  unfold atom_ok. apply andb_true_iff. split.
+  - unfold atomic. apply andb_true_iff. split.
+    + apply negb_true_iff, is_idc_not_open; exact Hc.
+    + apply all_idc_bstack_ok; exact Hcs.
+  - unfold balanced_b. apply andb_true_iff. split.
+    + rewrite (all_idc_depth (String c s) 0 Hcs); reflexivity.
+    + apply all_idc_nneg_b; [ apply Z.le_refl | exact Hcs ].
+Qed.
 Lemma go_ident_atom_ok : forall s, go_ident s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold go_ident in H. destruct s as [ | c s' ]; [ discriminate | ].
-  apply andb_true_iff in H. destruct H as [ H _ ]. apply andb_true_iff in H. destruct H as [ Hstart Hall ].
-  pose proof (is_idstart_is_idc c Hstart) as Hc.
-  unfold atom_ok. apply andb_true_iff. split.
-  - unfold atomic. apply andb_true_iff. split.
-    + apply negb_true_iff. apply is_idc_not_open; exact Hc.
-    + apply all_idc_bstack_ok; exact Hall.
-  - unfold balanced_b. apply andb_true_iff. split.
-    + rewrite (all_idc_depth (String c s') 0 Hall). reflexivity.
-    + apply all_idc_nneg_b; [ apply Z.le_refl | exact Hall ].
+  apply andb_true_iff in H. destruct H as [ H _ ]. apply andb_true_iff in H. destruct H as [ _ Hall ].
+  cbn [all_idc] in Hall. apply andb_true_iff in Hall. destruct Hall as [ Hc Hs' ].
+  apply all_idc_cons_atom_ok; [ exact Hc | exact Hs' ].
 Qed.
 
-(** [raw_ok s] — a NON-identifier well-formed atom: [atom_ok] AND not a [valid_ident] (so identifiers
-    structure SEPARATELY, as [AIdent]).  The split lets the round-trip DISAMBIGUATE: a [valid_ident]
-    re-parses to [AIdent], anything else to [ARaw]. *)
-Definition raw_ok (s : string) : bool := andb (atom_ok s) (negb (go_ident s)).
+(** ---- DECIMAL INTEGER LITERALS ARE ATOMS ---- a decimal digit (or a single leading '-') is never a
+    space, bracket, or paren, so an optional-'-'-then-digits string is [atomic] (no depth-0 operator —
+    operators are space-led) and paren-balanced; hence [is_dec s -> atom_ok s].  This lets [GoAtom]'s
+    [AIntLit] carry only the [Z] (its text is [print_Z]), and — since a decimal is never [is_idstart]-led
+    — [is_dec s -> go_ident s = false], so the round-trip DISAMBIGUATES a decimal from an identifier. *)
+Definition is_dec_char (c : ascii) : bool :=
+  andb (Nat.leb 48 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 57).
+Fixpoint all_dec (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (is_dec_char c) (all_dec s') end.
+Definition is_dec (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c rest =>
+      if Ascii.eqb c (ascii_of_nat 45)        (* leading '-' — the only non-digit a decimal literal admits *)
+      then match rest with EmptyString => false | String _ _ => all_dec rest end
+      else andb (is_dec_char c) (all_dec rest)
+  end.
+Lemma is_dec_char_is_idc : forall c, is_dec_char c = true -> is_idc c = true.
+Proof.
+  intros c H. unfold is_dec_char in H. unfold is_idc.
+  apply orb_true_iff; left. apply orb_true_iff; left. exact H.
+Qed.
+Lemma all_dec_all_idc : forall s, all_dec s = true -> all_idc s = true.
+Proof.
+  induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
+  cbn [all_dec] in H. apply andb_true_iff in H. destruct H as [ Hc Hs ].
+  cbn [all_idc]. apply andb_true_iff. split; [ apply is_dec_char_is_idc; exact Hc | apply IH; exact Hs ].
+Qed.
+Lemma is_dec_char_not_idstart : forall c, is_dec_char c = true -> is_idstart c = false.
+Proof.
+  intros c H. unfold is_dec_char in H. apply andb_true_iff in H. destruct H as [ Hlo Hhi ].
+  apply Nat.leb_le in Hlo, Hhi. unfold is_idstart.
+  apply orb_false_iff. split.
+  - apply orb_false_iff. split; apply andb_false_iff; left; apply Nat.leb_gt; lia.
+  - apply Nat.eqb_neq. lia.
+Qed.
+(** A non-space, non-bracket char prepended to a [bstack_ok nil] string stays [bstack_ok nil] (it neither
+    opens an operator — operators are space-led — nor pushes/pops the bracket stack).  The leading '-' of
+    a negative literal is exactly such a char; so is every identifier/decimal char. *)
+Lemma bstack_ok_nil_plain : forall c s,
+  is_space c = false -> is_bopen c = false -> is_bclose c = false ->
+  bstack_ok nil s = true -> bstack_ok nil (String c s) = true.
+Proof.
+  intros c s Hsp Hbo Hbc Hs. rewrite bstack_ok_cons.
+  assert (Ho : opens (String c s) = false)
+    by (unfold opens; rewrite (op_match_not_space c s Hsp); reflexivity).
+  rewrite Ho, Hsp, Hbo, Hbc. cbn [andb orb]. exact Hs.
+Qed.
+Lemma is_dec_atom_ok : forall s, is_dec s = true -> atom_ok s = true.
+Proof.
+  intros s H. unfold is_dec in H. destruct s as [ | c rest ]; [ discriminate | ].
+  destruct (Ascii.eqb c (ascii_of_nat 45)) eqn:Em.
+  - (* leading '-': the digit tail is an atom, and prepending '-' preserves atomic + balanced *)
+    apply Ascii.eqb_eq in Em. subst c.
+    destruct rest as [ | c2 r2 ]; [ discriminate | ].
+    pose proof (all_dec_all_idc _ H) as Hidc.
+    unfold atom_ok. apply andb_true_iff. split.
+    + unfold atomic. apply andb_true_iff. split.
+      * apply negb_true_iff. reflexivity.
+      * apply bstack_ok_nil_plain; [ reflexivity | reflexivity | reflexivity | apply all_idc_bstack_ok; exact Hidc ].
+    + unfold balanced_b. apply andb_true_iff. split.
+      * assert (Hd : depth 0 (String (ascii_of_nat 45) (String c2 r2)) = depth 0 (String c2 r2)) by reflexivity.
+        rewrite Hd, (all_idc_depth (String c2 r2) 0 Hidc). reflexivity.
+      * assert (Hn : nneg_b 0 (String (ascii_of_nat 45) (String c2 r2)) = nneg_b 0 (String c2 r2)) by reflexivity.
+        rewrite Hn. apply all_idc_nneg_b; [ apply Z.le_refl | exact Hidc ].
+  - (* leading digit: the whole string is all-idc, so reuse the identifier-atom core *)
+    apply andb_true_iff in H. destruct H as [ Hc Hrest ].
+    apply all_idc_cons_atom_ok; [ apply is_dec_char_is_idc; exact Hc | apply all_dec_all_idc; exact Hrest ].
+Qed.
+Lemma is_dec_not_go_ident : forall s, is_dec s = true -> go_ident s = false.
+Proof.
+  intros s H. unfold is_dec in H. destruct s as [ | c rest ]; [ discriminate | ].
+  unfold go_ident. destruct (Ascii.eqb c (ascii_of_nat 45)) eqn:Em.
+  - apply Ascii.eqb_eq in Em. subst c. reflexivity.
+  - apply andb_true_iff in H. destruct H as [ Hc _ ].
+    rewrite (is_dec_char_not_idstart c Hc). reflexivity.
+Qed.
+
+(** [print_Z] STRUCTURE: its output is always [is_dec] — "0", a run of decimal digits, or '-' then digits.
+    [z_digits] emits only decimal digits ([all_dec_z_digits]); its first char is one ([z_digits_head]), so
+    a positive number is digit-led and a negative is '-'-led.  Hence [is_dec (print_Z z) = true] for EVERY
+    [z] — the witness that [AIntLit z]'s printed text is a well-formed atom (via [is_dec_atom_ok]). *)
+Lemma is_dec_char_dec_digit : forall k, (k < 10)%nat -> is_dec_char (dec_digit k) = true.
+Proof.
+  intros k Hk. unfold is_dec_char, dec_digit. rewrite Ascii.nat_ascii_embedding by lia.
+  apply andb_true_iff. split; apply Nat.leb_le; lia.
+Qed.
+Lemma all_dec_z_digits : forall fuel z acc, all_dec acc = true -> all_dec (z_digits fuel z acc) = true.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hacc; cbn [z_digits]; [ exact Hacc | ].
+  pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hmod.
+  assert (Hk : (Z.to_nat (z mod 10) < 10)%nat) by lia.
+  destruct (z / 10 =? 0)%Z eqn:E.
+  - cbn [all_dec]. apply andb_true_iff. split; [ apply is_dec_char_dec_digit; exact Hk | exact Hacc ].
+  - apply IH. cbn [all_dec]. apply andb_true_iff. split; [ apply is_dec_char_dec_digit; exact Hk | exact Hacc ].
+Qed.
+Lemma is_dec_String_dec_digit : forall k r, (k < 10)%nat -> all_dec r = true -> is_dec (String (dec_digit k) r) = true.
+Proof.
+  intros k r Hk Hr. unfold is_dec. rewrite (dec_digit_ne_minus k Hk).
+  change (andb (is_dec_char (dec_digit k)) (all_dec r) = true).
+  apply andb_true_iff. split; [ apply is_dec_char_dec_digit; exact Hk | exact Hr ].
+Qed.
+Lemma is_dec_String_minus : forall k r, (k < 10)%nat -> all_dec r = true ->
+  is_dec (String (ascii_of_nat 45) (String (dec_digit k) r)) = true.
+Proof.
+  intros k r Hk Hr. unfold is_dec. rewrite Ascii.eqb_refl.
+  change (all_dec (String (dec_digit k) r) = true).
+  cbn [all_dec]. apply andb_true_iff. split; [ apply is_dec_char_dec_digit; exact Hk | exact Hr ].
+Qed.
+Lemma is_dec_print_Z : forall z, is_dec (print_Z z) = true.
+Proof.
+  intro z. unfold print_Z. destruct (z =? 0)%Z eqn:E0; [ reflexivity | ].
+  destruct (z <? 0)%Z eqn:Eneg.
+  - destruct (z_digits_head (digit_fuel (- z)) (- z) ""%string ltac:(unfold digit_fuel; lia))
+      as [ k [ r [ Hk Hz ] ] ].
+    rewrite Hz. change (is_dec (String (ascii_of_nat 45) (String (dec_digit k) r)) = true).
+    apply is_dec_String_minus; [ exact Hk | ].
+    pose proof (all_dec_z_digits (digit_fuel (- z)) (- z) ""%string eq_refl) as HD.
+    rewrite Hz in HD. cbn [all_dec] in HD. apply andb_true_iff in HD. apply HD.
+  - destruct (z_digits_head (digit_fuel z) z ""%string ltac:(unfold digit_fuel; lia))
+      as [ k [ r [ Hk Hz ] ] ].
+    rewrite Hz. apply is_dec_String_dec_digit; [ exact Hk | ].
+    pose proof (all_dec_z_digits (digit_fuel z) z ""%string eq_refl) as HD.
+    rewrite Hz in HD. cbn [all_dec] in HD. apply andb_true_iff in HD. apply HD.
+Qed.
+
+(** [raw_ok s] — a NON-identifier, NON-decimal well-formed atom: [atom_ok] AND not a [go_ident] AND not
+    [is_dec] (so identifiers structure as [AIdent] and decimals as [AIntLit] — [ARaw] is everything else:
+    a call, cast, string literal, …).  The 3-way split lets the round-trip DISAMBIGUATE uniquely. *)
+Definition raw_ok (s : string) : bool := andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
-Proof. intros s H. apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha. Qed.
+Proof.
+  intros s H. apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha.
+Qed.
 Lemma raw_ok_not_ident : forall s, raw_ok s = true -> go_ident s = false.
-Proof. intros s H. apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn. Qed.
+Proof.
+  intros s H. apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
+Qed.
+Lemma raw_ok_not_dec : forall s, raw_ok s = true -> is_dec s = false.
+Proof.
+  intros s H. apply andb_true_iff in H. destruct H as [ _ Hn ].
+  apply negb_true_iff in Hn. exact Hn.
+Qed.
 
 (** A structured Go ATOM, validity carried IN THE TYPE (malformed atom text UNREPRESENTABLE): a validated
-    IDENTIFIER ([AIdent], the first richer constructor), or a "raw" atom ([ARaw] — [atom_ok] but not an
-    identifier: a call, cast, literal, …).  [GoAtom] extracts to a 2-constructor type over bare strings
-    (proofs erased); [atom_str] is the underlying text, always [atom_ok]. *)
+    IDENTIFIER ([AIdent]), a DECIMAL INTEGER LITERAL ([AIntLit], carrying the [Z] itself — its text is the
+    canonical [print_Z], so NO proof is needed: every [Z] prints to a well-formed atom), or a "raw" atom
+    ([ARaw] — [atom_ok] but neither an identifier nor a decimal: a call, cast, string literal, …).
+    [GoAtom] extracts to a 3-constructor type over bare strings / [Z] (proofs erased); [atom_str] is the
+    underlying text, always [atom_ok]. *)
 Inductive GoAtom : Type :=
-  | AIdent : Ident -> GoAtom
-  | ARaw   : { s : string | raw_ok s = true } -> GoAtom.
+  | AIdent  : Ident -> GoAtom
+  | AIntLit : Z -> GoAtom
+  | ARaw    : { s : string | raw_ok s = true } -> GoAtom.
 Definition atom_str (a : GoAtom) : string :=
-  match a with AIdent i => proj1_sig i | ARaw r => proj1_sig r end.
+  match a with AIdent i => proj1_sig i | AIntLit z => print_Z z | ARaw r => proj1_sig r end.
 Lemma atom_str_atom_ok : forall a, atom_ok (atom_str a) = true.
 Proof.
-  intros [ i | r ]; cbn [atom_str].
+  intros [ i | z | r ]; cbn [atom_str].
   - apply go_ident_atom_ok, (proj2_sig i).
+  - apply is_dec_atom_ok, is_dec_print_Z.
   - apply raw_ok_atom_ok, (proj2_sig r).
 Qed.
 
@@ -1495,30 +1646,42 @@ Proof.
   apply scan_atom_gen; [ exact (bstack_ok_atomic_from _ nil Hstk) | exact Hseam ].
 Qed.
 
-(** [build_atom a] — the atom DISAMBIGUATION: a [valid_ident] string structures as [AIdent], any other
-    [atom_ok] string as [ARaw]; a malformed string is rejected ([None]).  Factored out so the round-trip
-    proof uses [build_atom_str] UNIFORMLY (no per-constructor case split in the climbing proof). *)
+(** [build_atom a] — the atom DISAMBIGUATION: a [go_ident] string structures as [AIdent], an [is_dec]
+    string as [AIntLit] (its [Z] recovered by [parse_Z]), any other [atom_ok] string as [ARaw]; a malformed
+    string is rejected ([None]).  The order matches [raw_ok]'s exclusions, so each [atom_ok] string takes
+    exactly one arm — letting the round-trip proof use [build_atom_str] UNIFORMLY (no per-constructor case
+    split in the climbing proof). *)
 Definition build_atom (a : string) : option GoExpr :=
   match bool_dec (go_ident a) true with
   | left Hi => Some (EAtom (AIdent (exist _ a Hi)))
-  | right _ => match bool_dec (raw_ok a) true with
-               | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
-               | right _ => None
+  | right _ => match bool_dec (is_dec a) true with
+               | left _  => Some (EAtom (AIntLit (parse_Z a)))
+               | right _ => match bool_dec (raw_ok a) true with
+                            | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
+                            | right _ => None
+                            end
                end
   end.
 Lemma build_atom_str : forall g, build_atom (atom_str g) = Some (EAtom g).
 Proof.
-  intros [ i | r ]; cbn [atom_str]; unfold build_atom.
+  intros [ i | z | r ]; cbn [atom_str]; unfold build_atom.
   - destruct i as [ s Hvi ]; cbn [proj1_sig].
     destruct (bool_dec (go_ident s) true) as [ Hd | Hd ].
     + do 3 f_equal. assert (E : Hd = Hvi) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
     + exfalso. apply Hd. exact Hvi.
+  - (* AIntLit z: [print_Z z] is [is_dec] (so not [go_ident]); [parse_Z] inverts [print_Z] *)
+    pose proof (is_dec_print_Z z) as Hdec. pose proof (is_dec_not_go_ident _ Hdec) as Hni.
+    destruct (bool_dec (go_ident (print_Z z)) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
+    destruct (bool_dec (is_dec (print_Z z)) true) as [ Hd2 | Hd2 ].
+    + do 3 f_equal. apply print_parse_Z.
+    + exfalso. apply Hd2. exact Hdec.
   - destruct r as [ s Hr ]; cbn [proj1_sig].
-    pose proof (raw_ok_not_ident _ Hr) as Hni.
+    pose proof (raw_ok_not_ident _ Hr) as Hni. pose proof (raw_ok_not_dec _ Hr) as Hnd.
     destruct (bool_dec (go_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
-    destruct (bool_dec (raw_ok s) true) as [ Hd2 | Hd2 ].
-    + do 3 f_equal. assert (E : Hd2 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
-    + exfalso. apply Hd2. exact Hr.
+    destruct (bool_dec (is_dec s) true) as [ Hd2 | Hd2 ]; [ exfalso; congruence | ].
+    destruct (bool_dec (raw_ok s) true) as [ Hd3 | Hd3 ].
+    + do 3 f_equal. assert (E : Hd3 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd3. exact Hr.
 Qed.
 
 (** The precedence-climbing parser (Go's binary-operator grammar): [parse_expr k] reads the maximal
@@ -1645,6 +1808,7 @@ Qed.
     malformed, AND the ident/raw split is enforced at the type. *)
 Notation EA s := (EAtom (AIdent (exist _ s eq_refl))).
 Notation EAr s := (EAtom (ARaw (exist _ s eq_refl))).
+Notation EAi z := (EAtom (AIntLit z)).  (* a decimal integer-literal atom — carries the [Z], no proof *)
 
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
@@ -1704,6 +1868,18 @@ Proof. reflexivity. Qed.
 Example bstack_rejects_mismatch :
   atomic "[}" = false /\ atomic "{]" = false /\ atomic "f([})" = false /\ atomic "([)]" = false.
 Proof. repeat split; reflexivity. Qed.
+(** DECIMAL INTEGER-LITERAL atoms ([AIntLit], carrying the [Z] — its text is the canonical [print_Z]):
+    [build_atom] DISAMBIGUATES a digit-led (or '-'-led) atom into [AIntLit], an identifier into [AIdent],
+    and the round-trip recovers the EXACT [Z] — across the full int64/uint64 range, negatives included. *)
+Example build_atom_dec   : build_atom "42"  = Some (EAi 42).        Proof. reflexivity. Qed.
+Example build_atom_neg   : build_atom "-7"  = Some (EAi (-7)).      Proof. reflexivity. Qed.
+Example build_atom_ident : build_atom "x42" = Some (EA "x42").      Proof. reflexivity. Qed.
+Example rt_intlit : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAi 42) (EAi 7)))
+                  = Some (EBin BAdd (EAi 42) (EAi 7), "").  (* 42 + 7 *)
+Proof. reflexivity. Qed.
+Example rt_intlit_u63 : parse_expr 9 0 (print_expr 0 (EAi 9223372036854775808))
+                      = Some (EAi 9223372036854775808, "").  (* the unsigned 2^63 — exact, no truncation *)
+Proof. reflexivity. Qed.
 Example rt_funclit :
   parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)")
                                           (EA "z")))
@@ -2241,4 +2417,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z.

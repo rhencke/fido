@@ -36,6 +36,8 @@ type 'a sig0 = 'a
 
 val add : nat -> nat -> nat
 
+val sub : nat -> nat -> nat
+
 val eqb : bool -> bool -> bool
 
 module Nat :
@@ -179,6 +181,8 @@ module Z :
 
   val to_nat : z -> nat
 
+  val of_nat : nat -> z
+
   val pos_div_eucl : positive -> z -> (z, z) prod
 
   val div_eucl : z -> z -> (z, z) prod
@@ -240,6 +244,12 @@ val z_digits : nat -> z -> string -> string
 val digit_fuel : z -> nat
 
 val print_Z : z -> string
+
+val dval : ascii -> z
+
+val parseZ_pos : z -> string -> z
+
+val parse_Z : string -> z
 
 val ch : nat -> ascii
 
@@ -318,8 +328,17 @@ val balanced_b : string -> bool
 
 val atom_ok : string -> bool
 
+val is_dec_char : ascii -> bool
+
+val all_dec : string -> bool
+
+val is_dec : string -> bool
+
+val raw_ok : string -> bool
+
 type goAtom =
 | AIdent of ident
+| AIntLit of z
 | ARaw of string
 
 val atom_str : goAtom -> string

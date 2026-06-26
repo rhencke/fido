@@ -59,6 +59,15 @@ module Coq__1 = struct
 end
 include Coq__1
 
+(** val sub : nat -> nat -> nat **)
+
+let rec sub n0 m =
+  match n0 with
+  | O -> n0
+  | S k -> (match m with
+            | O -> n0
+            | S l -> sub k l)
+
 (** val eqb : bool -> bool -> bool **)
 
 let eqb b1 b2 =
@@ -615,6 +624,12 @@ module Z =
   let to_nat = function
   | Zpos p -> Pos.to_nat p
   | _ -> O
+
+  (** val of_nat : nat -> z **)
+
+  let of_nat = function
+  | O -> Z0
+  | S n1 -> Zpos (Pos.of_succ_nat n1)
 
   (** val pos_div_eucl : positive -> z -> (z, z) prod **)
 
@@ -1261,6 +1276,34 @@ let print_Z z0 =
          False)), EmptyString))
          (z_digits (digit_fuel (Z.opp z0)) (Z.opp z0) EmptyString)
      | False -> z_digits (digit_fuel z0) z0 EmptyString)
+
+(** val dval : ascii -> z **)
+
+let dval c =
+  Z.of_nat
+    (sub (nat_of_ascii c) (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S O)))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val parseZ_pos : z -> string -> z **)
+
+let rec parseZ_pos acc = function
+| EmptyString -> acc
+| String (c, s') ->
+  parseZ_pos (Z.add (Z.mul acc (Zpos (XO (XI (XO XH))))) (dval c)) s'
+
+(** val parse_Z : string -> z **)
+
+let parse_Z s = match s with
+| EmptyString -> Z0
+| String (c, s') ->
+  (match eqb0 c
+           (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S
+             O)))))))))))))))))))))))))))))))))))))))))))))) with
+   | True -> Z.opp (parseZ_pos Z0 s')
+   | False -> parseZ_pos Z0 s)
 
 (** val ch : nat -> ascii **)
 
@@ -1937,14 +1980,66 @@ let atom_ok s =
   | True -> balanced_b s
   | False -> False
 
+(** val is_dec_char : ascii -> bool **)
+
+let is_dec_char c =
+  match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))))
+          (nat_of_ascii c) with
+  | True ->
+    Nat.leb (nat_of_ascii c) (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  | False -> False
+
+(** val all_dec : string -> bool **)
+
+let rec all_dec = function
+| EmptyString -> True
+| String (c, s') ->
+  (match is_dec_char c with
+   | True -> all_dec s'
+   | False -> False)
+
+(** val is_dec : string -> bool **)
+
+let is_dec = function
+| EmptyString -> False
+| String (c, rest) ->
+  (match eqb0 c
+           (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S
+             O)))))))))))))))))))))))))))))))))))))))))))))) with
+   | True ->
+     (match rest with
+      | EmptyString -> False
+      | String (_, _) -> all_dec rest)
+   | False -> (match is_dec_char c with
+               | True -> all_dec rest
+               | False -> False))
+
+(** val raw_ok : string -> bool **)
+
+let raw_ok s =
+  match match atom_ok s with
+        | True -> negb (go_ident s)
+        | False -> False with
+  | True -> negb (is_dec s)
+  | False -> False
+
 type goAtom =
 | AIdent of ident
+| AIntLit of z
 | ARaw of string
 
 (** val atom_str : goAtom -> string **)
 
 let atom_str = function
 | AIdent i -> i
+| AIntLit z0 -> print_Z z0
 | ARaw r -> r
 
 type goExpr =
