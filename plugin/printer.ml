@@ -70,12 +70,6 @@ let eqb b1 b2 =
 
 module Nat =
  struct
-  (** val pred : nat -> nat **)
-
-  let pred n0 = match n0 with
-  | O -> n0
-  | S u -> u
-
   (** val sub : nat -> nat -> nat **)
 
   let rec sub n0 m =
@@ -1823,31 +1817,71 @@ let op_after = function
 | EmptyString -> False
 | String (c, _) -> is_op_char c
 
-(** val atomic_from : nat -> string -> bool **)
+(** val close_of : ascii -> ascii **)
 
-let rec atomic_from d = function
-| EmptyString -> Nat.eqb d O
+let close_of c =
+  match eqb0 c
+          (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            O))))))))))))))))))))))))))))))))))))))))) with
+  | True ->
+    ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      O)))))))))))))))))))))))))))))))))))))))))
+  | False ->
+    (match eqb0 c
+             (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S
+               O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+     | True ->
+       ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S
+         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+     | False ->
+       ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val bstack_ok : ascii list -> string -> bool **)
+
+let rec bstack_ok st = function
+| EmptyString -> (match st with
+                  | Nil -> True
+                  | Cons (_, _) -> False)
 | String (c, s') ->
-  (match match Nat.eqb d O with
-         | True ->
-           (match match opens (String (c, s')) with
-                  | True -> True
-                  | False -> is_bclose c with
+  (match match st with
+         | Nil ->
+           (match opens (String (c, s')) with
             | True -> True
             | False ->
               (match is_space c with
                | True -> op_after s'
                | False -> False))
-         | False -> False with
+         | Cons (_, _) -> False with
    | True -> False
    | False ->
-     atomic_from
-       (match is_bopen c with
-        | True -> S d
-        | False -> (match is_bclose c with
-                    | True -> Nat.pred d
-                    | False -> d))
-       s')
+     (match is_bopen c with
+      | True -> bstack_ok (Cons ((close_of c), st)) s'
+      | False ->
+        (match is_bclose c with
+         | True ->
+           (match st with
+            | Nil -> False
+            | Cons (top, st') ->
+              (match eqb0 c top with
+               | True -> bstack_ok st' s'
+               | False -> False))
+         | False -> bstack_ok st s')))
 
 (** val atomic : string -> bool **)
 
@@ -1855,7 +1889,7 @@ let atomic s = match s with
 | EmptyString -> False
 | String (c, _) ->
   (match negb (is_open c) with
-   | True -> atomic_from O s
+   | True -> bstack_ok Nil s
    | False -> False)
 
 (** val pv : ascii -> z **)

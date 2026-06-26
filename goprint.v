@@ -1031,8 +1031,64 @@ Fixpoint atomic_from (d : nat) (s : string) : bool :=
       then false
       else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
   end.
+(** STRICT bracket validation — a real bracket STACK.  The looser [atomic_from] above tracks only
+    COMBINED depth (one counter), so [ [} ] / [ {] ] / [ f([}) ] slip through (combined depth returns to
+    0).  [close_of] maps an open bracket to its required close; [bstack_ok st] PUSHES that close on an
+    open and POPS-IF-MATCHING on a close (a mismatched close, or a close on an empty stack, FAILS) — so
+    [(] closes only with [)], [[] with []], [{] with [}].  Same depth-0 SEAM guard as [atomic_from] (at
+    the top — empty stack — no operator and no space-then-op).  [atomic] uses THIS for its bracket check;
+    [atomic_from] is retained only as the parser scan's depth helper, linked by [bstack_ok_atomic_from]. *)
+Definition close_of (c : ascii) : ascii :=
+  if Ascii.eqb c (ascii_of_nat 40) then ascii_of_nat 41
+  else if Ascii.eqb c (ascii_of_nat 91) then ascii_of_nat 93
+  else ascii_of_nat 125.
+Fixpoint bstack_ok (st : list ascii) (s : string) : bool :=
+  match s with
+  | EmptyString => match st with nil => true | _ => false end
+  | String c s' =>
+      if andb (match st with nil => true | _ => false end)
+              (orb (opens (String c s')) (andb (is_space c) (op_after s')))
+      then false
+      else if is_bopen c then bstack_ok (cons (close_of c) st) s'
+      else if is_bclose c then
+        match st with nil => false | cons top st' => if Ascii.eqb c top then bstack_ok st' s' else false end
+      else bstack_ok st s'
+  end.
+Lemma bstack_ok_cons : forall st c s',
+  bstack_ok st (String c s') =
+    if andb (match st with nil => true | _ => false end)
+            (orb (opens (String c s')) (andb (is_space c) (op_after s')))
+    then false
+    else if is_bopen c then bstack_ok (cons (close_of c) st) s'
+    else if is_bclose c then
+      match st with nil => false | cons top st' => if Ascii.eqb c top then bstack_ok st' s' else false end
+    else bstack_ok st s'.
+Proof. reflexivity. Qed.
+(** Bracket chars are not spaces, an open is not a close, and a bracket never begins an operator. *)
+Lemma bopen_not_bclose : forall c, is_bopen c = true -> is_bclose c = false.
+Proof.
+  intros c H. unfold is_bopen in H. unfold is_bclose.
+  apply orb_true_iff in H. destruct H as [ H | H ];
+    [ apply orb_true_iff in H; destruct H as [ H | H ] | ]; apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+Lemma bopen_not_space : forall c, is_bopen c = true -> is_space c = false.
+Proof.
+  intros c H. unfold is_bopen in H. unfold is_space.
+  apply orb_true_iff in H. destruct H as [ H | H ];
+    [ apply orb_true_iff in H; destruct H as [ H | H ] | ]; apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+Lemma bclose_not_space : forall c, is_bclose c = true -> is_space c = false.
+Proof.
+  intros c H. unfold is_bclose in H. unfold is_space.
+  apply orb_true_iff in H. destruct H as [ H | H ];
+    [ apply orb_true_iff in H; destruct H as [ H | H ] | ]; apply Ascii.eqb_eq in H; subst c; reflexivity.
+Qed.
+Lemma bopen_not_opens : forall c s', is_bopen c = true -> opens (String c s') = false.
+Proof. intros c s' H. unfold opens. rewrite (op_match_not_space c s' (bopen_not_space c H)). reflexivity. Qed.
+Lemma bclose_not_opens : forall c s', is_bclose c = true -> opens (String c s') = false.
+Proof. intros c s' H. unfold opens. rewrite (op_match_not_space c s' (bclose_not_space c H)). reflexivity. Qed.
 Definition atomic (s : string) : bool :=
-  match s with EmptyString => false | String c _ => andb (negb (is_open c)) (atomic_from 0 s) end.
+  match s with EmptyString => false | String c _ => andb (negb (is_open c)) (bstack_ok nil s) end.
 
 (** SAFETY — [print_prec] emits WELL-BRACKETED Go: scanning the output left to right, the parenthesis
     depth never goes negative and ends at zero (so no dangling/unmatched paren — always syntactically
@@ -1129,15 +1185,15 @@ Proof.
   rewrite (is_idc_pv0 c Hc), Z.add_0_r, (proj2 (Z.leb_le 0 d) Hd). cbn [andb].
   apply IH; [ exact Hd | exact Hs' ].
 Qed.
-Lemma all_idc_atomic_from : forall s, all_idc s = true -> atomic_from 0 s = true.
+Lemma all_idc_bstack_ok : forall s, all_idc s = true -> bstack_ok nil s = true.
 Proof.
   induction s as [ | c s' IH ]; intro H; [ reflexivity | ].
   cbn [all_idc] in H. apply andb_true_iff in H. destruct H as [ Hc Hs' ].
-  cbn [atomic_from].
+  rewrite bstack_ok_cons.
   assert (Hopens : opens (String c s') = false).
   { unfold opens. rewrite (op_match_not_space c s' (is_idc_not_space c Hc)). reflexivity. }
-  rewrite Hopens, (is_idc_not_bclose c Hc), (is_idc_not_space c Hc), (is_idc_not_bopen c Hc).
-  cbn [orb andb Nat.eqb]. apply IH; exact Hs'.
+  rewrite Hopens, (is_idc_not_space c Hc), (is_idc_not_bopen c Hc), (is_idc_not_bclose c Hc).
+  cbn [orb andb]. apply IH; exact Hs'.
 Qed.
 Lemma go_ident_atom_ok : forall s, go_ident s = true -> atom_ok s = true.
 Proof.
@@ -1147,7 +1203,7 @@ Proof.
   unfold atom_ok. apply andb_true_iff. split.
   - unfold atomic. apply andb_true_iff. split.
     + apply negb_true_iff. apply is_idc_not_open; exact Hc.
-    + apply all_idc_atomic_from; exact Hall.
+    + apply all_idc_bstack_ok; exact Hall.
   - unfold balanced_b. apply andb_true_iff. split.
     + rewrite (all_idc_depth (String c s') 0 Hall). reflexivity.
     + apply all_idc_nneg_b; [ apply Z.le_refl | exact Hall ].
@@ -1339,6 +1395,36 @@ Lemma atomic_from_cons : forall d c s',
     else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'.
 Proof. reflexivity. Qed.
 
+(** BRIDGE — the strict bracket STACK implies the loose combined-depth COUNT (matched brackets are
+    balanced), the count being the stack's LENGTH.  This lets [atomic] (now stack-validated) still feed
+    [scan_atom_correct] (stated over the count [atomic_from]) — the scan works unchanged while [atom_ok]
+    now rejects mismatched brackets. *)
+Lemma bstack_ok_atomic_from : forall s st, bstack_ok st s = true -> atomic_from (length st) s = true.
+Proof.
+  induction s as [ | c s' IH ]; intros st H.
+  - cbn [bstack_ok] in H. destruct st as [ | top st' ]; [ reflexivity | discriminate H ].
+  - rewrite bstack_ok_cons in H. rewrite atomic_from_cons. destruct st as [ | top st' ].
+    + (* empty stack — count 0 *)
+      cbn [andb] in H.
+      destruct (orb (opens (String c s')) (andb (is_space c) (op_after s'))) eqn:Eos; [ discriminate H | ].
+      apply orb_false_iff in Eos. destruct Eos as [ Hop Hsp ]. cbn [length].
+      destruct (is_bopen c) eqn:Ebo.
+      * rewrite Hop, (bopen_not_bclose c Ebo), Hsp. cbn [orb andb Nat.eqb].
+        change (S 0) with (length (cons (close_of c) nil)). apply IH; exact H.
+      * destruct (is_bclose c) eqn:Ebc; [ discriminate H | ].
+        rewrite Hop, Hsp. cbn [orb andb Nat.eqb].
+        change 0 with (length (@nil ascii)). apply IH; exact H.
+    + (* non-empty stack — count [S (length st')] *)
+      cbn [andb] in H. cbn [length].
+      assert (Hne : Nat.eqb (S (length st')) 0 = false) by reflexivity. rewrite Hne. cbn [andb].
+      destruct (is_bopen c) eqn:Ebo.
+      * change (S (S (length st'))) with (length (cons (close_of c) (cons top st'))). apply IH; exact H.
+      * destruct (is_bclose c) eqn:Ebc.
+        -- destruct (Ascii.eqb c top) eqn:Em; [ | discriminate H ].
+           cbn [Nat.pred]. apply IH; exact H.
+        -- change (S (length st')) with (length (cons top st')). apply IH; exact H.
+Qed.
+
 (** A [rest] at which [scan_atom] stops cleanly: empty, or its head is ")" or begins an operator. *)
 Definition good_seam (rest : string) : bool :=
   match rest with EmptyString => true | String c _ => orb (opens rest) (is_close c) end.
@@ -1405,8 +1491,8 @@ Lemma scan_atom_correct : forall a rest, atomic a = true -> good_seam rest = tru
 Proof.
   intros a rest Hat Hseam. unfold atomic in Hat.
   destruct a as [ | c a' ]; [ discriminate | ].
-  apply andb_true_iff in Hat. destruct Hat as [_ Hfrom].
-  apply scan_atom_gen; assumption.
+  apply andb_true_iff in Hat. destruct Hat as [_ Hstk].
+  apply scan_atom_gen; [ exact (bstack_ok_atomic_from _ nil Hstk) | exact Hseam ].
 Qed.
 
 (** [build_atom a] — the atom DISAMBIGUATION: a [valid_ident] string structures as [AIdent], any other
@@ -1613,6 +1699,11 @@ Proof. reflexivity. Qed.
 Example atomic_funclit :
   atomic "func(x int64, y int64) int64 { return x - y }(0, 7)" = true.
 Proof. reflexivity. Qed.
+(** The bracket STACK rejects mismatched / cross-nested brackets that the old combined-DEPTH counter
+    accepted (combined depth returned to 0 but the kinds don't match). *)
+Example bstack_rejects_mismatch :
+  atomic "[}" = false /\ atomic "{]" = false /\ atomic "f([})" = false /\ atomic "([)]" = false.
+Proof. repeat split; reflexivity. Qed.
 Example rt_funclit :
   parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)")
                                           (EA "z")))

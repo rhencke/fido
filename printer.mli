@@ -40,8 +40,6 @@ val eqb : bool -> bool -> bool
 
 module Nat :
  sig
-  val pred : nat -> nat
-
   val sub : nat -> nat -> nat
 
   val eqb : nat -> nat -> bool
@@ -304,7 +302,9 @@ val opens : string -> bool
 
 val op_after : string -> bool
 
-val atomic_from : nat -> string -> bool
+val close_of : ascii -> ascii
+
+val bstack_ok : ascii list -> string -> bool
 
 val atomic : string -> bool
 
