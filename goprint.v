@@ -2648,6 +2648,39 @@ Proof.
         pose proof (IH d s') as Hih. rewrite Erest in Hih. cbn [fst snd] in Hih.
         cbn [append]. f_equal. exact Hih.
 Qed.
+Lemma scan_bal_split : forall f d s a r, scan_bal f d s = Some (a, r) -> (a ++ r)%string = s.
+Proof.
+  induction f as [ | f IH ]; intros d s a r H; cbn [scan_bal] in H; [ discriminate | ].
+  destruct s as [ | c s' ]; [ discriminate | ].
+  destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+  - apply Ascii.eqb_eq in Eq. subst c.
+    destruct (scan_strlit_body s') as [ [body rest] | ] eqn:Eb; [ | discriminate ].
+    destruct (scan_bal f d rest) as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    injection H as <- <-.
+    pose proof (scan_strlit_body_split s' body rest Eb) as Hs'.
+    pose proof (IH d rest a2 r2 E2) as Hih.
+    cbn [append]. f_equal. rewrite sapp_assoc. cbn [append]. rewrite Hih. symmetry; exact Hs'.
+  - destruct (is_bopen c) eqn:Eo.
+    + destruct (scan_bal f (S d) s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+      injection H as <- <-. cbn [append]. f_equal. apply (IH (S d) s' a2 r2 E2).
+    + destruct (is_bclose c) eqn:Ec.
+      * destruct d as [ | d0 ]; [ discriminate | ]. destruct d0 as [ | d1 ].
+        -- injection H as <- <-. cbn [append]. reflexivity.
+        -- destruct (scan_bal f (S d1) s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+           injection H as <- <-. cbn [append]. f_equal. apply (IH (S d1) s' a2 r2 E2).
+      * destruct (scan_bal f d s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+        injection H as <- <-. cbn [append]. f_equal. apply (IH d s' a2 r2 E2).
+Qed.
+Lemma scan_to_brace_split : forall f s a r, scan_to_brace f s = Some (a, r) -> (a ++ r)%string = s.
+Proof.
+  induction f as [ | f IH ]; intros s a r H; cbn [scan_to_brace] in H; [ discriminate | ].
+  destruct s as [ | c s' ]; [ discriminate | ].
+  destruct (Ascii.eqb c (ch 123)) eqn:Eq.
+  - apply Ascii.eqb_eq in Eq. subst c. destruct (scan_bal f 1 s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    injection H as <- <-. cbn [append]. f_equal. apply (scan_bal_split f 1 s' a2 r2 E2).
+  - destruct (scan_to_brace f s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    injection H as <- <-. cbn [append]. f_equal. apply (IH s' a2 r2 E2).
+Qed.
 
 (** ---- THE RECURSIVE ATOM PARSER ---- [build_satom] is [build_atom]'s engine: it DISAMBIGUATES an
     [atom_ok] string into the [SAtom] tree.  [go_ident] -> [SIdent]; [is_dec] -> [SIntLit] (its [Z] via
