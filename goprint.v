@@ -1474,6 +1474,47 @@ Proof.
     by (unfold opens; rewrite (op_match_not_space c s Hsp); reflexivity).
   rewrite Ho, Hsp, Hbo, Hbc. cbn [andb orb]. exact Hs.
 Qed.
+(** Appending a SELECTOR suffix ["." ++ <identifier chars>] to a [bstack_ok] string keeps it valid: the
+    suffix adds no bracket, and — its leading '.' being a NON-operator char — cannot create or straddle a
+    depth-0 operator seam (the "seam cannot be straddled" argument of [scan_atom_gen], via
+    [op_match_second_nonop]).  Generalized over the stack for the induction.  Foundation for [ASelector]. *)
+Lemma bstack_ok_app_dotid : forall fld base st, all_idc fld = true ->
+  bstack_ok st base = true -> bstack_ok st (base ++ String (ch 46) fld)%string = true.
+Proof.
+  intros fld. induction base as [ | c base' IH ]; intros st Hf Hb.
+  - cbn [bstack_ok] in Hb. destruct st as [ | t st0 ]; [ | discriminate Hb ].
+    cbn [append]. rewrite bstack_ok_cons.
+    assert (Ho : opens (String (ch 46) fld) = false)
+      by (unfold opens; rewrite (op_match_not_space (ch 46) fld eq_refl); reflexivity).
+    rewrite Ho. cbn [is_space is_bopen is_bclose andb orb].
+    apply all_idc_bstack_ok; exact Hf.
+  - rewrite bstack_ok_cons in Hb. cbn [append]. rewrite bstack_ok_cons.
+    destruct (andb (match st with nil => true | _ => false end)
+                   (orb (opens (String c base')) (andb (is_space c) (op_after base')))) eqn:Eseam;
+      [ discriminate Hb | ].
+    assert (Eseam2 : andb (match st with nil => true | _ => false end)
+              (orb (opens (String c (base' ++ String (ch 46) fld)))
+                   (andb (is_space c) (op_after (base' ++ String (ch 46) fld)))) = false).
+    { destruct st as [ | t st0 ]; cbn [andb] in Eseam |- *; [ | reflexivity ].
+      apply orb_false_iff in Eseam. destruct Eseam as [ Hop Hsp ].
+      apply orb_false_iff. split.
+      - destruct (is_space c) eqn:Esc.
+        + destruct base' as [ | c2 base'' ]; cbn [append].
+          * unfold opens. rewrite (op_match_second_nonop c (ch 46) fld eq_refl). reflexivity.
+          * cbn [andb op_after] in Hsp.
+            unfold opens. rewrite (op_match_second_nonop c c2 (base'' ++ String (ch 46) fld) Hsp). reflexivity.
+        + unfold opens. rewrite (op_match_not_space c (base' ++ String (ch 46) fld) Esc). reflexivity.
+      - destruct base' as [ | c2 base'' ]; cbn [append op_after].
+        + assert (Hdot : is_op_char (ch 46) = false) by reflexivity. rewrite Hdot. apply andb_false_r.
+        + cbn [op_after] in Hsp. exact Hsp. }
+    rewrite Eseam2.
+    destruct (is_bopen c) eqn:Ebo.
+    + apply (IH (close_of c :: st)); [ exact Hf | exact Hb ].
+    + destruct (is_bclose c) eqn:Ebc.
+      * destruct st as [ | t st0 ]; [ discriminate Hb | ].
+        destruct (Ascii.eqb c t) eqn:Et; [ apply (IH st0); [ exact Hf | exact Hb ] | discriminate Hb ].
+      * apply (IH st); [ exact Hf | exact Hb ].
+Qed.
 Lemma is_dec_atom_ok : forall s, is_dec s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold is_dec in H. destruct s as [ | c rest ]; [ discriminate | ].
