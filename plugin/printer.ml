@@ -2258,10 +2258,12 @@ type sAtom =
 | SIntLit of z
 | SRaw of string
 | SSelector of sAtom * ident
-
-type goAtom =
+and goAtom =
 | AScanned of sAtom
 | AStringLit of string
+and goExpr =
+| EAtom of goAtom
+| EBin of binOp * goExpr * goExpr
 
 (** val satom_str : sAtom -> string **)
 
@@ -2281,10 +2283,6 @@ let rec satom_str = function
 let atom_str = function
 | AScanned s -> satom_str s
 | AStringLit r -> r
-
-type goExpr =
-| EAtom of goAtom
-| EBin of binOp * goExpr * goExpr
 
 (** val print_expr : nat -> goExpr -> string **)
 

@@ -1705,14 +1705,23 @@ Qed.
       - [GoAtom] — a scanned atom ([AScanned]) or a STRING LITERAL ([AStringLit] — a [strlit_ok] atom,
         recovered by its own quote-aware primary, NOT by the generic scanner).
     Both extract to bare strings / [Z] / nested constructors (proofs erased); [atom_str] is the text. *)
+(** [SAtom]/[GoAtom]/[GoExpr] are ONE MUTUAL block — atoms can contain expressions (a future [SIndex]
+    [a[i]] / [SCall] [f(args)] carries [GoExpr] children) and expressions contain atoms ([EAtom]), so the
+    three families are mutually recursive.  TODAY no atom constructor references [GoExpr] yet (the cycle is
+    latent), so the auto-generated per-type induction principles are exactly the non-mutual ones and every
+    existing proof is unchanged; grouping them now is the structural prerequisite for the recursive
+    expression-carrying atoms. *)
 Inductive SAtom : Type :=
   | SIdent    : Ident -> SAtom
   | SIntLit   : Z -> SAtom
   | SRaw      : { s : string | raw_ok s = true } -> SAtom
-  | SSelector : SAtom -> Ident -> SAtom.
-Inductive GoAtom : Type :=
+  | SSelector : SAtom -> Ident -> SAtom
+with GoAtom : Type :=
   | AScanned   : SAtom -> GoAtom
-  | AStringLit : { s : string | strlit_ok s = true } -> GoAtom.
+  | AStringLit : { s : string | strlit_ok s = true } -> GoAtom
+with GoExpr : Type :=
+  | EAtom : GoAtom -> GoExpr
+  | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
 Fixpoint satom_str (a : SAtom) : string :=
   match a with
   | SIdent i      => proj1_sig i
@@ -1727,11 +1736,8 @@ Definition atom_str (a : GoAtom) : string :=
     text is [atom_ok] (a string literal's text need not be — review #5 item 1). *)
 Definition atom_scanned (a : GoAtom) : bool := match a with AStringLit _ => false | _ => true end.
 (** [satom_ok] / [satom_not_quote_led] and their [GoAtom] wrappers [atom_str_atom_ok] /
-    [atom_scanned_not_quote_led] are proved BELOW [atom_ok_app_dotid] (the [SSelector] case needs it). *)
-
-Inductive GoExpr : Type :=
-  | EAtom : GoAtom -> GoExpr
-  | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
+    [atom_scanned_not_quote_led] are proved BELOW [atom_ok_app_dotid] (the [SSelector] case needs it).
+    ([GoExpr] is defined ABOVE, in the mutual [SAtom]/[GoAtom]/[GoExpr] block.) *)
 
 Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
   match e with
