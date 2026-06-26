@@ -2190,12 +2190,14 @@ let strlit_ok s =
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match match atom_ok s with
-              | True -> negb (go_ident s)
+  match match match match atom_ok s with
+                    | True -> negb (go_ident s)
+                    | False -> False with
+              | True -> negb (is_dec s)
               | False -> False with
-        | True -> negb (is_dec s)
+        | True -> negb (is_strlit s)
         | False -> False with
-  | True -> negb (is_strlit s)
+  | True -> negb (go_keyword s)
   | False -> False
 
 type goAtom =

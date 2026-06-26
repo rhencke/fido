@@ -1431,15 +1431,26 @@ Proof.
   destruct (is_strlit_cons s Hs) as [ rest -> ]. reflexivity.
 Qed.
 
-(** [raw_ok s] — a well-formed atom that is NONE of the structured forms: [atom_ok] AND not [go_ident]
-    AND not [is_dec] AND not [is_strlit] (so identifiers -> [AIdent], decimals -> [AIntLit], string
-    literals -> [AStringLit]; [ARaw] is the QUARANTINED escape hatch for everything still unstructured —
-    a call, cast, selector, …).  The 4-way split lets the round-trip DISAMBIGUATE uniquely. *)
+(** [raw_ok s] / [ARaw] — ⚠️ NOT a "simple Go atom".  BRUTALLY HONEST MEANING (external review #5 item 3):
+    [ARaw] is an OPAQUE-TIGHT-EXPRESSION escape hatch — a checked string the plugin promises represents a
+    Go expression that BINDS TIGHTER THAN ALL BINARY OPERATORS (so [print_expr] may treat it as a primary
+    for precedence).  It is a TRANSITION strategy, NOT a faithful grammar node: a function-literal call or
+    a cast is a COMPLEX expression we are choosing to render opaquely, not a real atom.  The name [ARaw] is
+    deliberately treated as suspect — KEEP MOVING CASES OUT of it (selector / call / index / conversion /
+    composite-literal / func-literal-call), and KEEP TIGHTENING [raw_ok] so it cannot smuggle in grammar
+    nonsense.  [raw_ok s] = [atom_ok] AND none of the structured forms ([go_ident] / [is_dec] / [is_strlit])
+    AND not a Go KEYWORD ([go_keyword] — review #5 item 2: [return]/[func]/[type] are not [go_ident] but
+    the simple scanner would otherwise pass them).  STILL-LOOSE (documented, not yet closed): [atom_ok]'s
+    [op_match] only recognises the printer's SPACED operators, so unspaced [a+b] is still [atom_ok] though
+    Go parses it as a binary expression — a proof-boundary smell the plugin never feeds [mk_atom], to be
+    closed by further structuring.  The 5-way split lets the round-trip DISAMBIGUATE uniquely. *)
 Definition raw_ok (s : string) : bool :=
-  andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s))) (negb (is_strlit s)).
+  andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s))) (negb (is_strlit s)))
+       (negb (go_keyword s)).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha.
@@ -1449,15 +1460,23 @@ Proof.
   intros s H. unfold raw_ok in H.
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_dec : forall s, raw_ok s = true -> is_dec s = false.
 Proof.
   intros s H. unfold raw_ok in H.
   apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_strlit : forall s, raw_ok s = true -> is_strlit s = false.
+Proof.
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
+Qed.
+Lemma raw_ok_not_keyword : forall s, raw_ok s = true -> go_keyword s = false.
 Proof.
   intros s H. unfold raw_ok in H.
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
