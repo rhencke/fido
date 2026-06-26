@@ -2599,6 +2599,56 @@ Example scan_base_sel  : scan_base ("foo" ++ String (ch 46) "bar") = ("foo", Str
 Proof. reflexivity. Qed.
 Example scan_base_hexf : scan_base "0x14000000000000p-51" = ("0x14000000000000p-51", ""). Proof. reflexivity. Qed.
 
+(** FAITHFUL SPLIT — every operand scanner loses no bytes: the consumed span ++ the returned rest
+    reconstructs the input.  A necessary component of the round-trip (the operand recovered IS a prefix
+    of the printed atom).  [scan_strlit_body] first (the quote case of the others reduces to it). *)
+Lemma scan_strlit_body_split_n : forall n s body rest, String.length s <= n ->
+  scan_strlit_body s = Some (body, rest) -> s = (body ++ String (ch 34) rest)%string.
+Proof.
+  induction n as [ | n IH ]; intros s body rest Hlen H.
+  - destruct s; [ cbn in H; discriminate | cbn in Hlen; lia ].
+  - destruct s as [ | c s' ]; cbn [scan_strlit_body] in H; [ discriminate | ].
+    destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+    + apply Ascii.eqb_eq in Eq. subst c. injection H as <- <-. reflexivity.
+    + destruct (Ascii.eqb c (ch 92)) eqn:Eb.
+      * destruct s' as [ | c2 s'' ]; [ discriminate | ].
+        destruct (scan_strlit_body s'') as [ [b r] | ] eqn:Er; [ | discriminate ].
+        injection H as <- <-. cbn [append]. do 2 f_equal.
+        apply (IH s'' b r); [ cbn [String.length] in Hlen; lia | exact Er ].
+      * destruct (scan_strlit_body s') as [ [b r] | ] eqn:Er; [ | discriminate ].
+        injection H as <- <-. cbn [append]. f_equal.
+        apply (IH s' b r); [ cbn [String.length] in Hlen; lia | exact Er ].
+Qed.
+Lemma scan_strlit_body_split : forall s body rest,
+  scan_strlit_body s = Some (body, rest) -> s = (body ++ String (ch 34) rest)%string.
+Proof. intros s body rest H. exact (scan_strlit_body_split_n (String.length s) s body rest (le_n _) H). Qed.
+Lemma scan_rest_split : forall f d s,
+  (fst (scan_rest f d s) ++ snd (scan_rest f d s))%string = s.
+Proof.
+  induction f as [ | f IH ]; intros d s; [ destruct s; reflexivity | ].
+  cbn [scan_rest]. destruct s as [ | c s' ]; [ reflexivity | ].
+  destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+  - apply Ascii.eqb_eq in Eq. subst c. destruct (scan_strlit_body s') as [ [body rest] | ] eqn:Er.
+    + pose proof (scan_strlit_body_split s' body rest Er) as Hs'.
+      destruct (scan_rest f d rest) as [a r] eqn:Erest. cbn [fst snd].
+      pose proof (IH d rest) as Hih. rewrite Erest in Hih. cbn [fst snd] in Hih.
+      cbn [append]. f_equal. rewrite sapp_assoc. cbn [append]. rewrite Hih. symmetry; exact Hs'.
+    + cbn [fst snd]. reflexivity.
+  - destruct (andb (Nat.eqb d 0) (is_postfix_start c)) eqn:Ep; [ cbn [fst snd]; reflexivity | ].
+    destruct (is_bopen c) eqn:Eo.
+    + destruct (scan_rest f (S d) s') as [a r] eqn:Erest. cbn [fst snd].
+      pose proof (IH (S d) s') as Hih. rewrite Erest in Hih. cbn [fst snd] in Hih.
+      cbn [append]. f_equal. exact Hih.
+    + destruct (is_bclose c) eqn:Ec.
+      * destruct d as [ | d' ]; [ cbn [fst snd]; reflexivity | ].
+        destruct (scan_rest f d' s') as [a r] eqn:Erest. cbn [fst snd].
+        pose proof (IH d' s') as Hih. rewrite Erest in Hih. cbn [fst snd] in Hih.
+        cbn [append]. f_equal. exact Hih.
+      * destruct (scan_rest f d s') as [a r] eqn:Erest. cbn [fst snd].
+        pose proof (IH d s') as Hih. rewrite Erest in Hih. cbn [fst snd] in Hih.
+        cbn [append]. f_equal. exact Hih.
+Qed.
+
 (** ---- THE RECURSIVE ATOM PARSER ---- [build_satom] is [build_atom]'s engine: it DISAMBIGUATES an
     [atom_ok] string into the [SAtom] tree.  [go_ident] -> [SIdent]; [is_dec] -> [SIntLit] (its [Z] via
     [parse_Z]); else if the string is SELECTOR-SHAPED (last '.' followed by a [go_ident] field) peel that
