@@ -14,6 +14,19 @@ set -e
 if git diff --cached --name-only | grep -qE '\.v$|^plugin/|\.go$'; then
   echo "fido: prover inputs (or a generated .go) staged — re-extracting and staging Go..."
   echo "fido: (.go is GENERATED from the .v; any hand-edit is reverted to prover output here)"
+  # plugin/printer.ml is ITSELF a generated artifact — extracted from goprint.v by a
+  # plugin-free `rocq c` step (it's the OCaml the plugin LINKS).  Treat it exactly like
+  # the *.go below: when goprint.v is staged, regenerate and stage it, so a goprint.v
+  # change can NEVER leave plugin/printer.ml stale — which the Docker drift gate inside
+  # `make extract` (below) would otherwise reject, forcing a manual `make printer` re-do.
+  # `make printer` also runs the zero-axiom gate, so a broken / axiom-bearing goprint.v
+  # aborts the commit right here (like a failed extraction).  Needs host rocq, as the
+  # sibling local printer targets (printer / printer-verify) already do.
+  if git diff --cached --name-only | grep -qE '(^|/)goprint\.v$'; then
+    echo "fido: goprint.v staged — regenerating plugin/printer.ml (make printer)..."
+    make printer
+    git add -- plugin/printer.ml
+  fi
   make extract
   git add -A -- '*.go'
   echo "fido: staged fresh extraction."
