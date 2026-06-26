@@ -1,15 +1,16 @@
 #!/bin/sh
 # Smart-constructor gate (external review #4 directive; review #5 widened it to ALL plugin OCaml).
 #
-# The proof-carrying Printer atom/type constructors — AIdent / AIntLit / AStringLit / ARaw / GTNamed —
-# erase their Rocq validity proofs to a bare string / Z in the extracted OCaml.  So a DIRECT call like
-# `Printer.ARaw "a+b"` or `Printer.GTNamed "func"` would inject text the verified round-trip
-# (print_parse_expr) / type round-trip (parse_print_ty) never proved valid — re-opening exactly the
-# hand-written-printer trust hole, through a side door.
+# The proof-carrying Printer atom/type constructors — SIdent / SIntLit / SRaw / SSelector / AScanned /
+# AStringLit / GTNamed — erase their Rocq validity proofs to bare strings in the extracted OCaml.  So a
+# DIRECT call like `Printer.SRaw "a+b"` or `Printer.GTNamed "func"` would inject text the verified
+# round-trip (print_parse_expr) / type round-trip (parse_print_ty) never proved valid — re-opening
+# exactly the hand-written-printer trust hole, through a side door.  (The SCANNED atoms are built only by
+# the verified Printer.build_atom; mk_atom uses the lone proof-carrying AStringLit directly.)
 #
 # The mk_atom / mk_named_ty smart constructors (the SMART-CONSTRUCTORS block of plugin/go.ml) are the
 # SOLE sanctioned construction sites: each re-checks the EXACT predicate its sig demands and fail-louds
-# otherwise.  This gate asserts NOTHING ELSE constructs those five directly — scanning EVERY hand-written
+# otherwise.  This gate asserts NOTHING ELSE constructs those directly — scanning EVERY hand-written
 # plugin OCaml file (go.ml AND the .mlg vernac glue), not just go.ml, so a future helper file cannot
 # reopen the hole (review #5 item 4).  The GENERATED plugin/printer.ml DEFINES the constructors, so it is
 # the one file excluded.
@@ -40,7 +41,7 @@ offenders=$(awk '
   FNR==1 { s=0 }
   /SMART-CONSTRUCTORS-BEGIN/{s=1}
   /SMART-CONSTRUCTORS-END/{s=0; next}
-  !s && /Printer\.(AIdent|AIntLit|AStringLit|ARaw|GTNamed)/ {print FILENAME ":" FNR ": " $0}
+  !s && /Printer\.(SIdent|SIntLit|SRaw|SSelector|AScanned|AStringLit|GTNamed)/ {print FILENAME ":" FNR ": " $0}
 ' $files)
 
 if [ -n "$offenders" ]; then

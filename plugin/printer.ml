@@ -49,6 +49,10 @@ let compOpp = function
 type 'a sig0 = 'a
   (* singleton inductive, whose constructor was exist *)
 
+type sumbool =
+| Left
+| Right
+
 module Coq__1 = struct
  (** val add : nat -> nat -> nat **)
 
@@ -74,6 +78,17 @@ let rec sub n0 m =
   | S k -> (match m with
             | O -> n0
             | S l -> sub k l)
+
+(** val bool_dec : bool -> bool -> sumbool **)
+
+let bool_dec b1 b2 =
+  match b1 with
+  | True -> (match b2 with
+             | True -> Left
+             | False -> Right)
+  | False -> (match b2 with
+              | True -> Right
+              | False -> Left)
 
 (** val eqb : bool -> bool -> bool **)
 
@@ -494,6 +509,12 @@ let rec append s1 s2 =
   match s1 with
   | EmptyString -> s2
   | String (c, s1') -> String (c, (append s1' s2))
+
+(** val length : string -> nat **)
+
+let rec length = function
+| EmptyString -> O
+| String (_, s') -> S (length s')
 
 module Z =
  struct
@@ -1649,6 +1670,22 @@ let is_strlit a = match a with
       | String (_, _) -> eqb1 (print_string_lit (unescape (but_last rest))) a)
    | False -> False)
 
+(** val split_last_dot : string -> (string, string) prod option **)
+
+let rec split_last_dot = function
+| EmptyString -> None
+| String (c, rest) ->
+  (match split_last_dot rest with
+   | Some p -> let Pair (op, fld) = p in Some (Pair ((String (c, op)), fld))
+   | None ->
+     (match eqb0 c
+              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))) with
+      | True -> Some (Pair (EmptyString, rest))
+      | False -> None))
+
 (** val hex_digits : nat -> z -> string -> string **)
 
 let rec hex_digits fuel z0 acc =
@@ -2194,32 +2231,56 @@ let quote_led = function
     (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
       (S (S (S (S (S (S (S (S (S (S (S O)))))))))))))))))))))))))))))))))))
 
+(** val is_selector_shaped : string -> bool **)
+
+let is_selector_shaped s =
+  match split_last_dot s with
+  | Some p -> let Pair (_, fld) = p in go_ident fld
+  | None -> False
+
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match match match atom_ok s with
-                    | True -> negb (go_ident s)
+  match match match match match atom_ok s with
+                          | True -> negb (go_ident s)
+                          | False -> False with
+                    | True -> negb (is_dec s)
                     | False -> False with
-              | True -> negb (is_dec s)
+              | True -> negb (quote_led s)
               | False -> False with
-        | True -> negb (quote_led s)
+        | True -> negb (go_keyword s)
         | False -> False with
-  | True -> negb (go_keyword s)
+  | True -> negb (is_selector_shaped s)
   | False -> False
 
+type sAtom =
+| SIdent of ident
+| SIntLit of z
+| SRaw of string
+| SSelector of sAtom * ident
+
 type goAtom =
-| AIdent of ident
-| AIntLit of z
+| AScanned of sAtom
 | AStringLit of string
-| ARaw of string
+
+(** val satom_str : sAtom -> string **)
+
+let rec satom_str = function
+| SIdent i -> i
+| SIntLit z0 -> print_Z z0
+| SRaw r -> r
+| SSelector (a0, f) ->
+  append (satom_str a0) (String
+    ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       O))))))))))))))))))))))))))))))))))))))))))))))),
+    f))
 
 (** val atom_str : goAtom -> string **)
 
 let atom_str = function
-| AIdent i -> i
-| AIntLit z0 -> print_Z z0
+| AScanned s -> satom_str s
 | AStringLit r -> r
-| ARaw r -> r
 
 type goExpr =
 | EAtom of goAtom
@@ -2241,6 +2302,42 @@ let rec print_expr ctx = function
        (append inner (String ((Ascii (True, False, False, True, False, True,
          False, False)), EmptyString)))
    | False -> inner)
+
+(** val build_satom : nat -> string -> sAtom option **)
+
+let rec build_satom fuel a =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match bool_dec (go_ident a) True with
+     | Left -> Some (SIdent a)
+     | Right ->
+       (match bool_dec (is_dec a) True with
+        | Left -> Some (SIntLit (parse_Z a))
+        | Right ->
+          (match split_last_dot a with
+           | Some p ->
+             let Pair (op, fld) = p in
+             (match bool_dec (go_ident fld) True with
+              | Left ->
+                (match build_satom f op with
+                 | Some sa -> Some (SSelector (sa, fld))
+                 | None -> None)
+              | Right ->
+                (match bool_dec (raw_ok a) True with
+                 | Left -> Some (SRaw a)
+                 | Right -> None))
+           | None ->
+             (match bool_dec (raw_ok a) True with
+              | Left -> Some (SRaw a)
+              | Right -> None))))
+
+(** val build_atom : string -> goExpr option **)
+
+let build_atom a =
+  match build_satom (length a) a with
+  | Some sa -> Some (EAtom (AScanned sa))
+  | None -> None
 
 (** val print_sep : string -> string list -> string **)
 

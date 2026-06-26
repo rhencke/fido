@@ -34,11 +34,17 @@ val compOpp : comparison -> comparison
 type 'a sig0 = 'a
   (* singleton inductive, whose constructor was exist *)
 
+type sumbool =
+| Left
+| Right
+
 val add : nat -> nat -> nat
 
 val mul : nat -> nat -> nat
 
 val sub : nat -> nat -> nat
+
+val bool_dec : bool -> bool -> sumbool
 
 val eqb : bool -> bool -> bool
 
@@ -154,6 +160,8 @@ type string =
 val eqb1 : string -> string -> bool
 
 val append : string -> string -> string
+
+val length : string -> nat
 
 module Z :
  sig
@@ -271,6 +279,8 @@ val but_last : string -> string
 
 val is_strlit : string -> bool
 
+val split_last_dot : string -> (string, string) prod option
+
 val hex_digits : nat -> z -> string -> string
 
 val print_hex : z -> string
@@ -348,13 +358,21 @@ val strlit_ok : string -> bool
 
 val quote_led : string -> bool
 
+val is_selector_shaped : string -> bool
+
 val raw_ok : string -> bool
 
+type sAtom =
+| SIdent of ident
+| SIntLit of z
+| SRaw of string
+| SSelector of sAtom * ident
+
 type goAtom =
-| AIdent of ident
-| AIntLit of z
+| AScanned of sAtom
 | AStringLit of string
-| ARaw of string
+
+val satom_str : sAtom -> string
 
 val atom_str : goAtom -> string
 
@@ -363,5 +381,9 @@ type goExpr =
 | EBin of binOp * goExpr * goExpr
 
 val print_expr : nat -> goExpr -> string
+
+val build_satom : nat -> string -> sAtom option
+
+val build_atom : string -> goExpr option
 
 val print_sep : string -> string list -> string
