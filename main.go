@@ -807,6 +807,10 @@ func Cond_op_demo() {
 	Not_cond(30)
 }
 
+func Unop_in_binop_demo(x int64, y int64) {
+	println(^x&y, ^x|y)
+}
+
 func Inline_if_demo() {
 	if 3 < 10 {
 		println(1)
@@ -2616,6 +2620,7 @@ func main() {
 	Control_flow_demo()
 	Bool_op_demo(true, false, true)
 	Cond_op_demo()
+	Unop_in_binop_demo(0, 255)
 	Inline_if_demo()
 	Lookup_demo()
 	List_demo()

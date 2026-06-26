@@ -314,6 +314,16 @@ val binop_prec : binOp -> nat
 
 val binop_text : binOp -> string
 
+type unaryOp =
+| UNot
+| UXor
+| UDeref
+| UAddr
+
+val unop_text : unaryOp -> string
+
+val is_unop_char : ascii -> bool
+
 val op_order : binOp list
 
 val op_match_in : binOp list -> string -> (binOp, string) prod option
@@ -362,6 +372,8 @@ val quote_led : string -> bool
 
 val is_selector_shaped : string -> bool
 
+val unary_op_led : string -> bool
+
 val d0_sep_aux : bool -> bool -> nat -> string -> bool
 
 val has_d0_sep : string -> bool
@@ -385,6 +397,7 @@ and goAtom =
 and goExpr =
 | EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
+| EUnary of unaryOp * goExpr
 
 val satom_str : sAtom -> string
 

@@ -1494,6 +1494,20 @@ Definition cond_op_demo : IO unit :=
   bind (or_cond (30)%i64 (4)%i64)  (fun _ =>   (* F || T → 1 *)
   not_cond (30)%i64)).                   (* !F      → 1 *)
 
+(** A unary [^] as a binary-operator OPERAND, rendered through the VERIFIED printer (review #6 #4/#6).
+    [i64_not x] (the full-width complement) sitting INSIDE [i64_and]/[i64_or] is emitted by
+    [build_goexpr] as the proven [Printer.EUnary UXor] node — NOT a raw "^x" [SRaw] atom.  ([raw_ok]
+    now REJECTS unary-led strings: a raw "^x" would re-parse as a unary expression, breaking
+    [print_parse_expr]'s round-trip — so the backend MUST build [EUnary] for it or fail loud.)
+    Precedence is the proven [print_expr]'s, so the operand needs no defensive parens: [^x & y], [^x | y]
+    (Go's unary [^] binds tighter than the binary [&]/[|]).  Operands are RUNTIME params (not literals),
+    so the op survives extraction instead of constant-folding.  (NB: Coq's stdlib [andb]/[orb]/[negb]
+    are NOT Fido builtins, so they extract as the helper functions [Andb]/[Orb]/[Negb] — the [!]/[&&]
+    lowering, and hence [EUnary UNot], fire only for a builtin bool op, none of which exists yet.) *)
+Definition unop_in_binop_demo (x y : GoI64) : IO unit :=
+  println [ any (i64_and (i64_not x) y)         (* ^x & y *)
+          ; any (i64_or  (i64_not x) y) ].       (* ^x | y *)
+
 (** Regression for inline-[if] continuation de-duplication: three INLINE [if]s
     chained in one [bind], each discarding its [unit] result.  Because the result
     is discarded, the continuation is emitted ONCE after each [if] (both arms fall
@@ -3311,6 +3325,7 @@ Definition main_effect : IO unit :=
   control_flow_demo             >>'   (* prints: 5 true / 20 false / 1 *)
   bool_op_demo true false true  >>'   (* prints: false / true / true / true *)
   cond_op_demo                  >>'   (* prints: 1 / 1 / 1 *)
+  unop_in_binop_demo (0)%i64 (255)%i64 >>'  (* prints: 255 -1  ([^x & y], [^x | y] via verified EUnary UXor) *)
   inline_if_demo                >>'   (* prints: 1 / 0 / 1 *)
   lookup_demo                   >>'   (* prints: 700 true / false *)
   list_demo                     >>'   (* prints: 10 2 *)

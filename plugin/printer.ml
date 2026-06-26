@@ -1875,6 +1875,57 @@ let binop_text = function
     (String ((Ascii (False, False, False, False, False, True, False, False)),
     EmptyString)))))))
 
+type unaryOp =
+| UNot
+| UXor
+| UDeref
+| UAddr
+
+(** val unop_text : unaryOp -> string **)
+
+let unop_text = function
+| UNot ->
+  String ((Ascii (True, False, False, False, False, True, False, False)),
+    EmptyString)
+| UXor ->
+  String ((Ascii (False, True, True, True, True, False, True, False)),
+    EmptyString)
+| UDeref ->
+  String ((Ascii (False, True, False, True, False, True, False, False)),
+    EmptyString)
+| UAddr ->
+  String ((Ascii (False, True, True, False, False, True, False, False)),
+    EmptyString)
+
+(** val is_unop_char : ascii -> bool **)
+
+let is_unop_char c =
+  match match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O)))))))))))))))))))))))))))))))))) with
+        | True -> True
+        | False ->
+          eqb0 c
+            (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S
+              O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+  | True -> True
+  | False ->
+    (match eqb0 c
+             (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S O))))))))))))))))))))))))))))))))))))))))))) with
+     | True -> True
+     | False ->
+       eqb0 c
+         (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           O))))))))))))))))))))))))))))))))))))))))
+
 (** val op_order : binOp list **)
 
 let op_order =
@@ -2272,6 +2323,12 @@ let is_selector_shaped s =
   | Some p -> let Pair (_, fld) = p in go_ident fld
   | None -> False
 
+(** val unary_op_led : string -> bool **)
+
+let unary_op_led = function
+| EmptyString -> False
+| String (c, _) -> is_unop_char c
+
 (** val d0_sep_aux : bool -> bool -> nat -> string -> bool **)
 
 let rec d0_sep_aux instr esc d = function
@@ -2453,8 +2510,10 @@ let raw_ok s =
         | True -> negb (is_selector_shaped s)
         | False -> False with
   | True ->
-    (match negb (has_d0_sep s) with
-     | True -> negb (leading_is_keyword s)
+    (match match negb (has_d0_sep s) with
+           | True -> negb (leading_is_keyword s)
+           | False -> False with
+     | True -> negb (unary_op_led s)
      | False -> False)
   | False -> False
 
@@ -2469,6 +2528,7 @@ and goAtom =
 and goExpr =
 | EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
+| EUnary of unaryOp * goExpr
 
 (** val satom_str : sAtom -> string **)
 
@@ -2505,6 +2565,8 @@ let rec print_expr ctx = function
        (append inner (String ((Ascii (True, False, False, True, False, True,
          False, False)), EmptyString)))
    | False -> inner)
+| EUnary (o, e0) ->
+  append (unop_text o) (print_expr (S (S (S (S (S (S O)))))) e0)
 
 (** val build_satom : nat -> string -> sAtom option **)
 

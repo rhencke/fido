@@ -2814,6 +2814,26 @@ and build_goexpr state env e =
        | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" || fw_is r "of_i64" ->
            let (s, w, _) = Option.get (fixed_width_op r) in
            build_fw_masked s w (build_goexpr state env x)
+       (* PREFIX-UNARY ops → the VERIFIED [Printer.EUnary] node (operand built recursively, so its
+          precedence-parenthesisation is decided by the proven [Printer.print_expr], not [pp_atom]'s
+          defensive "("-wrap).  These DELETE the old SRaw "!x"/"^x"/"*p"/"&x" atoms — now REJECTED by
+          [raw_ok]'s [unary_op_led] guard (a raw atom starting with !/^/*/& would re-parse as a unary
+          expression, breaking the round-trip), so [build_goexpr] MUST emit [EUnary] for them or fail
+          loud.  Every operand here is a runtime value / pointer / local var — never a space-bearing
+          struct literal — so [build_goexpr] yields a clean atomic/EBin tree.  ([gsptr_new]'s "&v" is
+          NOT wired: its [v] can be a struct literal (spaces → [raw_ok] reject), and it only ever
+          appears in value position, never as a binop operand, so it stays a raw [pp_expr] doc.) *)
+       | MLglob r, [b] when is_negb_ref r ->
+           Printer.EUnary (Printer.UNot, build_goexpr state env b)        (* !b *)
+       | MLglob r, [x] when (is_i64_op r "not" || is_u64_op r "not") && operand_is_runtime x ->
+           Printer.EUnary (Printer.UXor, build_goexpr state env x)        (* ^x (full-width complement) *)
+       | MLglob r, [rf] when is_ref_as_ptr_ref r
+                             && (match strip_magic rf with MLrel _ -> true | _ -> false) ->
+           Printer.EUnary (Printer.UAddr, build_goexpr state env rf)      (* &x (address of a local Ref) *)
+       | MLglob r, ([p] | [_; p]) when is_ptr_get_ref r ->
+           Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (pointer deref read) *)
+       | MLglob r, ([p] | [_; p]) when is_gsptr_deref_ref r ->
+           Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (generic struct-ptr deref) *)
        | _ -> atom (pp_expr state env e))
   | _ -> atom (pp_expr state env e)
 

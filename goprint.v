@@ -1104,6 +1104,29 @@ Definition binop_text (o : BinOp) : string :=
   | BLAnd => " && " | BLOr => " || "
   end.
 
+(** UNARY operators (review #6 — [EUnary], the prefix node that shrinks [SRaw]): negate / not / bitwise-
+    complement / dereference / address-of.  UNSPACED single-char prefixes (Go: [-x] [!b] [^x] [*p] [&x]),
+    binding TIGHTER than every binary operator.  ([+] unary is omitted — the plugin never emits it; channel
+    receive [<-] is a separate comma-ok form.)  [unop_char_of] gives the leading char the parser dispatches
+    on; a [-] FOLLOWED BY A DIGIT is a negative literal ([is_dec] -> [SIntLit]), NOT [UNeg]. *)
+(** NB: unary [-] is DELIBERATELY OMITTED.  [-5] is a negative LITERAL ([SIntLit]); were [-] a unary op,
+    [EUnary UNeg (lit 5)] would also print [-5] and the round-trip could not disambiguate.  So [EUnary]
+    carries only the four UNAMBIGUOUS prefixes [!]/[^]/[*]/[&] (and [-x] of a non-literal stays [SRaw]). *)
+Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr.
+Definition unop_text (o : UnaryOp) : string :=
+  match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" end.
+Definition is_unop_char (c : ascii) : bool :=
+  orb (orb (Ascii.eqb c (ch 33)) (Ascii.eqb c (ch 94))) (orb (Ascii.eqb c (ch 42)) (Ascii.eqb c (ch 38))).
+Definition unop_char_of (c : ascii) : option UnaryOp :=
+  if Ascii.eqb c (ch 33) then Some UNot
+  else if Ascii.eqb c (ch 94) then Some UXor
+  else if Ascii.eqb c (ch 42) then Some UDeref
+  else if Ascii.eqb c (ch 38) then Some UAddr
+  else None.
+Lemma unop_text_char_of : forall o, exists c s,
+  unop_text o = String c s /\ s = EmptyString /\ unop_char_of c = Some o /\ is_unop_char c = true.
+Proof. intro o; destruct o; cbn; eauto 10. Qed.
+
 
 (* ---- ATOM LEXER (moved ABOVE GoExpr: [GoAtom] below carries an [atomic] proof) ---- *)
 (** The operator-recognition table: every [BinOp], longest-text-first so a shorter operator can never
@@ -1516,6 +1539,14 @@ Qed.
     [false] for ident / decimal chars (stated with [ch 34] so it rewrites the scanner [if] directly). *)
 Lemma is_idc_not_quote : forall c, is_idc c = true -> Ascii.eqb c (ch 34) = false.
 Proof. intros c Hc. apply (is_idc_eqb_false c 34 Hc); reflexivity. Qed.
+(** An identifier char is never a unary-operator char (so an ident/decimal-led atom is never [unary_op_led]
+    — dispatches [parse_primary] past the unary branch to [scan_atom]). *)
+Lemma is_idc_not_unop : forall c, is_idc c = true -> is_unop_char c = false.
+Proof.
+  intros c Hc. unfold is_unop_char, ch.
+  rewrite (is_idc_eqb_false c 33 Hc eq_refl), (is_idc_eqb_false c 94 Hc eq_refl),
+          (is_idc_eqb_false c 42 Hc eq_refl), (is_idc_eqb_false c 38 Hc eq_refl). reflexivity.
+Qed.
 Lemma is_idc_not_space : forall c, is_idc c = true -> is_space c = false.
 Proof. intros c H. unfold is_space. apply is_idc_eqb_false; [ exact H | reflexivity ]. Qed.
 Lemma is_idc_not_open : forall c, is_idc c = true -> is_open c = false.
@@ -1845,6 +1876,13 @@ Qed.
     [split_last_dot] + [go_ident] only (NOT [build_satom]) — so there is no circular definition. *)
 Definition is_selector_shaped (s : string) : bool :=
   match split_last_dot s with Some (_, fld) => go_ident fld | None => false end.
+(** [unary_op_led s] — [s] starts with an unspaced unary-operator prefix ([!]/[^]/[*]/[&], or [-] NOT
+    followed by a digit) — EXACTLY [parse_primary]'s unary-dispatch condition (review #6 [EUnary]).
+    [raw_ok] excludes it: a string [parse_primary] reads as an [EUnary] must NOT also be a representable
+    [SRaw] (else the round-trip is not unique — [build_satom_str (SRaw "*p")] would fail).  [-]+digit is a
+    negative LITERAL ([SIntLit]), not unary, so it is NOT excluded. *)
+Definition unary_op_led (s : string) : bool :=
+  match s with String c _ => is_unop_char c | _ => false end.
 (** RAW HARDENING (review #6 item 1) — the bracket+quote scanner alone is too permissive for atom shapes.
     [has_d0_sep s]: a depth-0 ',' (ch 44) or ';' (ch 59) — separators that NEVER occur in a single atom
     (commas live INSIDE brackets, semicolons separate statements), tracked quote/bracket-aware like
@@ -1890,7 +1928,7 @@ Definition leading_is_keyword (s : string) : bool :=
 Definition raw_ok (s : string) : bool :=
   andb (andb (andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)))
                    (negb (quote_led s))) (negb (go_keyword s))) (negb (is_selector_shaped s)))
-       (andb (negb (has_d0_sep s)) (negb (leading_is_keyword s))).
+       (andb (andb (negb (has_d0_sep s)) (negb (leading_is_keyword s))) (negb (unary_op_led s))).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold raw_ok in H.
@@ -1941,6 +1979,12 @@ Proof.
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
+Lemma raw_ok_not_unary : forall s, raw_ok s = true -> unary_op_led s = false.
+Proof.
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ _ H ].
+  apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
+Qed.
 (** DESIRED-FAILURE regressions (review #6 item 1): the hardened [raw_ok] makes these non-atom shapes
     UNREPRESENTABLE as [SRaw] — each [Fail] asserts the proof-carrying construction does NOT type-check
     (depth-0 comma/semicolon, statement-keyword-led).  A [func]-literal-call ([func]-led but valid) is NOT
@@ -1987,8 +2031,9 @@ with GoAtom : Type :=
   | AScanned   : SAtom -> GoAtom
   | AStringLit : { s : string | strlit_ok s = true } -> GoAtom
 with GoExpr : Type :=
-  | EAtom : GoAtom -> GoExpr
-  | EBin  : BinOp -> GoExpr -> GoExpr -> GoExpr.
+  | EAtom  : GoAtom -> GoExpr
+  | EBin   : BinOp -> GoExpr -> GoExpr -> GoExpr
+  | EUnary : UnaryOp -> GoExpr -> GoExpr.
 Fixpoint satom_str (a : SAtom) : string :=
   match a with
   | SIdent i      => proj1_sig i
@@ -2013,6 +2058,10 @@ Fixpoint print_expr (ctx : nat) (e : GoExpr) : string :=
       let p := binop_prec o in
       let inner := (print_expr p l ++ binop_text o ++ print_expr (S p) r)%string in
       if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
+  | EUnary o e =>
+      (* unary binds TIGHTER than every binop (prec 5 max), so [EUnary] is a PRIMARY — it never wraps for
+         [ctx], and its operand prints at prec 6 so an [EBin] operand parenthesises ([-(a + b)]). *)
+      (unop_text o ++ print_expr 6 e)%string
   end.
 
 (** CHARACTERIZATION — exact behaviour and the byte-identical basis vs [pp_prec]: an atom prints
@@ -2113,6 +2162,33 @@ Lemma atom_scanned_not_quote_led : forall a, atom_scanned a = true -> quote_led 
 Proof.
   intros [ s | r ] H; cbn [atom_str atom_scanned] in *; [ apply satom_not_quote_led | discriminate H ].
 Qed.
+(** A scanned atom is never [unary_op_led] (so [parse_primary] dispatches it past the unary branch to
+    [scan_atom]): an identifier is [is_idstart]-led, a decimal is digit-or-'-'-led (the '-' is a negative
+    LITERAL — its second char is a digit, so the unary condition is false), a raw atom is [raw_ok] (which
+    EXCLUDES [unary_op_led]), and a selector begins with its operand (non-unary by IH, second char
+    invariant under the appended ".f"). *)
+Lemma satom_unary_op_led_false : forall a : SAtom, unary_op_led (satom_str a) = false.
+Proof.
+  induction a as [ i | z | r | a IH f ]; cbn [satom_str].
+  - destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
+    destruct s as [ | c s' ]; [ discriminate | ].
+    apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
+    cbn [unary_op_led]. apply (is_idc_not_unop c (is_idstart_is_idc c Hstart)).
+  - pose proof (is_dec_print_Z z) as Hd. unfold is_dec in Hd.
+    destruct (print_Z z) as [ | c rest ] eqn:EP; [ discriminate Hd | ].
+    cbn [unary_op_led]. destruct (Ascii.eqb c (ascii_of_nat 45)) eqn:Em.
+    + apply Ascii.eqb_eq in Em. subst c. reflexivity.
+    + apply andb_true_iff in Hd. destruct Hd as [ Hcd _ ].
+      apply (is_idc_not_unop c (is_dec_char_is_idc c Hcd)).
+  - destruct r as [ s Hr ]; cbn [proj1_sig]. apply raw_ok_not_unary; exact Hr.
+  - destruct (satom_str a) as [ | c rest ] eqn:Ea.
+    + exfalso. pose proof (satom_ok a) as Hok. rewrite Ea in Hok. discriminate Hok.
+    + cbn [String.append]. cbn [unary_op_led] in IH |- *. exact IH.
+Qed.
+Lemma atom_scanned_unary_op_led_false : forall a, atom_scanned a = true -> unary_op_led (atom_str a) = false.
+Proof.
+  intros [ s | r ] H; cbn [atom_str atom_scanned] in *; [ apply satom_unary_op_led_false | discriminate H ].
+Qed.
 Lemma nneg_raise : forall s d d', (d <= d')%Z -> nneg d s -> nneg d' s.
 Proof.
   induction s as [ | c s IH ]; intros d d' Hle Hn; cbn in *; [ exact I | ].
@@ -2132,6 +2208,7 @@ Fixpoint wf (e : GoExpr) : Prop :=
   | EAtom (AStringLit _) => True   (* a string literal is parsed by its own primary, not by paren-balance *)
   | EAtom a => balanced (atom_str a)
   | EBin _ l r => wf l /\ wf r
+  | EUnary _ e => wf e
   end.
 
 (** The single ascii of "(" / ")" scans as depth +1 / -1, and the matching non-negativity facts. *)
@@ -2552,6 +2629,13 @@ with parse_primary (fuel : nat) (s : string) : option (GoExpr * string) :=
                             | EmptyString => None end
           | None => None end
         else if Ascii.eqb c (ch 34) then parse_strlit_prim s
+        else if is_unop_char c then
+          (* UNARY PREFIX (review #6): an unspaced unary op ([!]/[^]/[*]/[&]).  The operand is a recursive
+             primary.  ('-' is NOT a unop char — a '-'-led string is a negative literal via [scan_atom]). *)
+          match unop_char_of c with
+          | Some op => match parse_primary f s' with Some (e, s1) => Some (EUnary op e, s1) | None => None end
+          | None => None
+          end
         else match scan_atom 0 s with
              | (EmptyString, _) => None
              | (a, rest) => match build_atom a with Some e => Some (e, rest) | None => None end
@@ -2588,6 +2672,11 @@ Lemma parse_primary_S : forall f s, parse_primary (S f) s =
                           | EmptyString => None end
         | None => None end
       else if Ascii.eqb c (ch 34) then parse_strlit_prim s
+      else if is_unop_char c then
+        match unop_char_of c with
+        | Some op => match parse_primary f s' with Some (e, s1) => Some (EUnary op e, s1) | None => None end
+        | None => None
+        end
       else match scan_atom 0 s with
            | (EmptyString, _) => None
            | (a, rest) => match build_atom a with Some e => Some (e, rest) | None => None end
@@ -2624,7 +2713,12 @@ Proof.
       destruct (is_open c).
       * destruct (parse_expr f 0 s') as [ [e s1] | ] eqn:Epe; [ | discriminate H ].
         rewrite (IHe _ _ _ Epe). exact H.
-      * exact H.
+      * destruct (Ascii.eqb c (ch 34)); [ exact H | ].
+        destruct (is_unop_char c).
+        -- destruct (unop_char_of c) as [ op | ]; [ | exact H ].
+           destruct (parse_primary f s') as [ [e s1] | ] eqn:Epp; [ | discriminate H ].
+           rewrite (IHp _ _ Epp). exact H.
+        -- exact H.
     + intros k l s r H. rewrite parse_climb_S in H. rewrite parse_climb_S.
       destruct (op_match s) as [ [o s1] | ]; [ | exact H ].
       destruct (Nat.leb k (binop_prec o)); [ | exact H ].
@@ -2801,30 +2895,38 @@ Proof. reflexivity. Qed.
     are bridged by [parse_mono]. *)
 
 Fixpoint esize (e : GoExpr) : nat :=
-  match e with EAtom _ => 1 | EBin _ l r => S (esize l + esize r) end.
+  match e with
+  | EAtom _ => 1 | EBin _ l r => S (esize l + esize r)
+  | EUnary _ e => S (S (esize e))   (* +2: the unary op consumes a [parse_primary] step + leaves fuel budget *)
+  end.
 
 Fixpoint atomic_tree (e : GoExpr) : Prop :=
   match e with
   | EAtom (AStringLit _) => True   (* the string literal is parsed by its own primary, not [scan_atom] *)
   | EAtom a => atomic (atom_str a) = true
   | EBin _ l r => atomic_tree l /\ atomic_tree r
+  | EUnary _ e => atomic_tree e
   end.
 
 (** Both round-trip side-conditions hold for EVERY tree — a SCANNED atom via its [atom_ok] proof in the
     type, an [AStringLit] trivially (it is parsed by [parse_strlit_prim], so needs neither). *)
 Lemma atomic_tree_always : forall e, atomic_tree e.
 Proof.
-  induction e as [ a | o l IHl r IHr ]; [ | cbn; split; assumption ].
-  cbn. destruct a as [ s | r ].
-  - apply atom_ok_atomic, (atom_str_atom_ok (AScanned s) eq_refl).
-  - exact I.
+  induction e as [ a | o l IHl r IHr | o e IHe ].
+  - cbn. destruct a as [ s | r ].
+    + apply atom_ok_atomic, (atom_str_atom_ok (AScanned s) eq_refl).
+    + exact I.
+  - cbn; split; assumption.
+  - cbn; exact IHe.
 Qed.
 Lemma wf_always : forall e, wf e.
 Proof.
-  induction e as [ a | o l IHl r IHr ]; [ | cbn; split; assumption ].
-  cbn. destruct a as [ s | r ].
-  - apply atom_ok_balanced, (atom_str_atom_ok (AScanned s) eq_refl).
-  - exact I.
+  induction e as [ a | o l IHl r IHr | o e IHe ].
+  - cbn. destruct a as [ s | r ].
+    + apply atom_ok_balanced, (atom_str_atom_ok (AScanned s) eq_refl).
+    + exact I.
+  - cbn; split; assumption.
+  - cbn; exact IHe.
 Qed.
 
 (** A [rest] at which BOTH [parse_climb k] and [scan_atom] stop cleanly: empty, ")"-led, or led by an
@@ -2938,6 +3040,7 @@ Qed.
 Fixpoint lspine (fl : nat) (e : GoExpr) : nat * GoExpr * list (BinOp * GoExpr) :=
   match e with
   | EAtom s => (fl, EAtom s, [])
+  | EUnary o e => (fl, EUnary o e, [])   (* a unary expr is a PRIMARY base — no binary left-spine *)
   | EBin o l r =>
       if Nat.leb fl (binop_prec o)
       then let '(bfl, base, ps) := lspine (binop_prec o) l in (bfl, base, (ps ++ [(o, r)])%list)
@@ -2964,7 +3067,7 @@ Qed.
 Lemma lspine_print : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> print_expr fl e = (print_expr bfl base ++ print_pairs ps)%string.
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
@@ -2972,18 +3075,20 @@ Proof.
       rewrite (print_expr_unwrapped o l r fl (ltb_false_of_leb _ _ Eleb)), (IHl _ _ _ _ El),
               print_pairs_app. cbn [print_pairs]. rewrite sapp_nil_r, !sapp_assoc. reflexivity.
     + inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
+  - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
 Qed.
 
 Lemma lspine_fold : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> fold_pairs base ps = e.
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. clear H.
       rewrite fold_pairs_app. cbn [fold_pairs]. rewrite (IHl _ _ _ _ El). reflexivity.
     + inversion H; subst. reflexivity.
+  - cbn in H. inversion H; subst. reflexivity.
 Qed.
 
 (** [spine_ok] tolerates a LOWER climb level (more operators qualify), and accepts an operator [o]
@@ -3014,7 +3119,7 @@ Lemma lspine_spine_ok : forall e fl bfl base ps,
   (forall e', esize e' < esize e -> wf e' -> atomic_tree e' -> Pexpr e') ->
   wf e -> atomic_tree e -> lspine fl e = (bfl, base, ps) -> spine_ok fl ps.
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps Hsih Hwf Hat H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps Hsih Hwf Hat H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
     destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
@@ -3026,6 +3131,7 @@ Proof.
         intros e' He' We Ae. apply Hsih; [ cbn; lia | exact We | exact Ae ].
       * apply Hsih; [ cbn; lia | exact Hwr | exact Har ].
     + inversion H; subst. exact I.
+  - cbn in H. inversion H; subst. exact I.
 Qed.
 
 (** Appending one [(o,r)] to a spine adds exactly [S (esize r)] fuel; hence base size and spine fuel
@@ -3036,7 +3142,7 @@ Proof.
 Qed.
 
 Lemma esize_pos : forall e, 1 <= esize e.
-Proof. induction e as [ | o l IHl r IHr ]; cbn [esize]; lia. Qed.
+Proof. induction e as [ | o l IHl r IHr | o e0 IHe ]; cbn [esize]; lia. Qed.
 
 (** The crucial fuel accounting: base size and spine fuel partition exactly [S (3*esize e)].  Each spine
     pair [(o, r)] contributes [3*esize r + 3] (operand budget [3*esize r] + 2 wrap slack + 1 climb step),
@@ -3046,13 +3152,14 @@ Proof. induction e as [ | o l IHl r IHr ]; cbn [esize]; lia. Qed.
 Lemma lspine_fuel3 : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (3 * esize e).
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. clear H. rewrite pairs_fuel_snoc.
       pose proof (IHl _ _ _ _ El) as IH. cbn [esize]. lia.
     + inversion H; subst. cbn [esize pairs_fuel]. lia.
+  - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
 Qed.
 
 (** The base prints as a PRIMARY at its floor [bfl] (an atom, or an [EBin] wrapped because [bfl] exceeds
@@ -3060,9 +3167,9 @@ Qed.
 Lemma lspine_base : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> wf e -> atomic_tree e ->
   wf base /\ atomic_tree base /\
-  match base with EAtom _ => True | EBin o' _ _ => binop_prec o' < bfl end.
+  match base with EAtom _ => True | EUnary _ _ => True | EBin o' _ _ => binop_prec o' < bfl end.
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H Hwf Hat.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H Hwf Hat.
   - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
     split; [ exact Hwf | split; [ exact Hat | exact I ] ].
   - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
@@ -3072,16 +3179,19 @@ Proof.
     + inversion H; subst. cbn [wf atomic_tree].
       repeat split; [ exact Hwl | exact Hwr | exact Hal | exact Har | ].
       apply Nat.leb_gt in Eleb. exact Eleb.
+  - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
+    split; [ exact Hwf | split; [ exact Hat | exact I ] ].
 Qed.
 
 Lemma lspine_base_le : forall e fl bfl base ps, lspine fl e = (bfl, base, ps) -> esize base <= esize e.
 Proof.
-  induction e as [ s | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. pose proof (IHl _ _ _ _ El). cbn [esize]. lia.
     + inversion H; subst. cbn [esize]. lia.
+  - cbn in H. inversion H; subst. cbn [esize]. lia.
 Qed.
 
 (** [parse_primary] on a "(" reads the parenthesised sub-expression (parses it at level 0, demands the
@@ -3127,6 +3237,10 @@ Proof.
     apply negb_true_iff in Hno. exact Hno. }
   assert (Hq : Ascii.eqb c (ch 34) = false) by exact Hqnq.
   cbn [append]. rewrite Hopen, Hq.
+  assert (Huol : is_unop_char c = false).
+  { change (unary_op_led (String c s') = false). rewrite <- Estr.
+    apply atom_scanned_unary_op_led_false; exact Hsc. }
+  rewrite Huol.
   assert (Hscan : scan_atom 0 ((String c s') ++ TAIL)%string = (String c s', TAIL))
     by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
   change ((String c s') ++ TAIL)%string with (String c (s' ++ TAIL))%string in Hscan.
@@ -3164,30 +3278,60 @@ Proof.
   cbn [String.append]. rewrite Ho, Hq.
   rewrite <- Hin. apply (parse_strlit_prim_correct val TAIL Hlit).
 Qed.
-Lemma parse_primary_base : forall base bfl TAIL F,
+Lemma binop_prec_lt6 : forall o, binop_prec o < 6.
+Proof. intro o; destruct o; cbn [binop_prec]; lia. Qed.
+Lemma is_unop_not_open : forall c, is_unop_char c = true -> is_open c = false.
+Proof.
+  intros c H. unfold is_open. destruct (Ascii.eqb c (ascii_of_nat 40)) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E. subst c. cbn in H. discriminate H.
+Qed.
+Lemma is_unop_not_quote : forall c, is_unop_char c = true -> Ascii.eqb c (ch 34) = false.
+Proof.
+  intros c H. destruct (Ascii.eqb c (ch 34)) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E. subst c. cbn in H. discriminate H.
+Qed.
+(** A PRIMARY base (atom, [EUnary], or an [EBin] wrapped because [binop_prec o' < bfl]) is read by
+    [parse_primary].  STRONG induction on [esize base] (the new [EUnary] case recurses on its operand,
+    whose round-trip [Pexpr] is supplied by [print_parse_expr_n]'s size-IH [Hsih]). *)
+Lemma parse_primary_base : forall n base bfl TAIL F, esize base <= n ->
+  (forall e', esize e' < esize base -> wf e' -> atomic_tree e' -> Pexpr e') ->
   wf base -> atomic_tree base -> Pexpr base ->
-  match base with EAtom _ => True | EBin o' _ _ => binop_prec o' < bfl end ->
+  match base with EAtom _ => True | EUnary _ _ => True | EBin o' _ _ => binop_prec o' < bfl end ->
   good_seam TAIL = true -> 3 * esize base + 3 < F ->
   parse_primary F (print_expr bfl base ++ TAIL)%string = Some (base, TAIL).
 Proof.
-  intros base bfl TAIL F Hwf Hat Hpr Hprim Hgs HF.
-  destruct base as [ s | o' l' r' ].
-  - (* EAtom s — split: a STRING LITERAL via [parse_primary_strlit], any other atom via [_scanned] *)
-    cbn [print_expr]. destruct F as [ | f ]; [ cbn in HF; lia | ].
-    destruct s as [ sc | rs ].
-    + apply (parse_primary_scanned (AScanned sc) TAIL f eq_refl Hgs).
-    + apply (parse_primary_strlit rs TAIL f).
-  - (* EBin o' l' r' : wrapped at bfl since binop_prec o' < bfl *)
-    assert (Hwrap : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
-    rewrite (print_expr_wrapped o' l' r' bfl Hwrap).
-    destruct F as [ | f ]; [ cbn in HF; lia | ].
-    rewrite sapp_assoc, parse_primary_paren, sapp_assoc.
-    assert (Hpo : Nat.ltb (binop_prec o') (binop_prec o') = false) by (apply Nat.ltb_ge; lia).
-    rewrite <- (print_expr_unwrapped o' l' r' (binop_prec o') Hpo).
-    assert (Htl0 : tail_ok 0 (")" ++ TAIL)%string).
-    { right; left. exists ")"%char, TAIL. split; [ cbn [append]; reflexivity | reflexivity ]. }
-    rewrite (Hpr 0 (binop_prec o') (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
-    cbn [append]. reflexivity.
+  induction n as [ | n IHn ]; intros base bfl TAIL F Hn Hsih Hwf Hat Hpr Hprim Hgs HF.
+  - destruct base; cbn [esize] in Hn; lia.
+  - destruct base as [ s | o' l' r' | op e ].
+    + cbn [print_expr]. destruct F as [ | f ]; [ cbn in HF; lia | ].
+      destruct s as [ sc | rs ].
+      * apply (parse_primary_scanned (AScanned sc) TAIL f eq_refl Hgs).
+      * apply (parse_primary_strlit rs TAIL f).
+    + assert (Hwrap : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
+      rewrite (print_expr_wrapped o' l' r' bfl Hwrap).
+      destruct F as [ | f ]; [ cbn in HF; lia | ].
+      rewrite sapp_assoc, parse_primary_paren, sapp_assoc.
+      assert (Hpo : Nat.ltb (binop_prec o') (binop_prec o') = false) by (apply Nat.ltb_ge; lia).
+      rewrite <- (print_expr_unwrapped o' l' r' (binop_prec o') Hpo).
+      assert (Htl0 : tail_ok 0 (")" ++ TAIL)%string).
+      { right; left. exists ")"%char, TAIL. split; [ cbn [append]; reflexivity | reflexivity ]. }
+      rewrite (Hpr 0 (binop_prec o') (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
+      cbn [append]. reflexivity.
+    + (* EUnary op e : [unop_text op ++ print_expr 6 e], a recursive primary *)
+      cbn [print_expr]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+      destruct (unop_text_char_of op) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
+      rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
+      rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
+      cbn [wf atomic_tree] in Hwf, Hat.
+      rewrite (IHn e 6 TAIL f
+                 ltac:(cbn [esize] in Hn; lia)
+                 ltac:(intros e' He' We Ae; apply Hsih; [ cbn [esize]; lia | exact We | exact Ae ])
+                 Hwf Hat
+                 ltac:(apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ])
+                 ltac:(destruct e as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                 Hgs
+                 ltac:(cbn [esize] in HF; lia)).
+      reflexivity.
 Qed.
 
 (** THE UNIVERSAL ROUND-TRIP — by strong induction on tree size.  [Hunwr] proves the cases where [e]
@@ -3199,9 +3343,9 @@ Lemma print_parse_expr_n : forall n e, esize e <= n -> wf e -> atomic_tree e -> 
 Proof.
   induction n as [ | n IH ]; intros e Hsz Hwf Hat; [ destruct e; cbn [esize] in Hsz; lia | ].
   assert (Hunwr : forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e < F ->
-            match e with EAtom _ => True | EBin o _ _ => ctx <= binop_prec o end ->
+            match e with EAtom _ => True | EUnary _ _ => True | EBin o _ _ => ctx <= binop_prec o end ->
             parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest)).
-  { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r ].
+  { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r | op e0 ].
     - (* EAtom s — split: a STRING LITERAL via [parse_primary_strlit], any other atom via [_scanned] *)
       cbn [print_expr].
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
@@ -3233,17 +3377,39 @@ Proof.
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
       assert (Hpp : parse_primary f0 (print_expr bfl base ++ (print_pairs (ps0 ++ [(o, r)]) ++ rest))%string
                   = Some (base, print_pairs (ps0 ++ [(o, r)]) ++ rest)).
-      { apply parse_primary_base;
-          [ exact Hwb | exact Hab | exact HPbase | exact Hprim
+      { apply (parse_primary_base (esize base) base bfl _ f0 (le_n _));
+          [ intros e' He' We Ae; apply (IH e'); [ cbn [esize] in Hsz; lia | exact We | exact Ae ]
+          | exact Hwb | exact Hab | exact HPbase | exact Hprim
           | apply good_seam_pairs; destruct ps0; discriminate
           | cbn [esize] in HF, Hf3; rewrite Hpfs in Hf3; lia ]. }
       rewrite parse_expr_S, Hpp.
       change (parse_climb f0 k base (print_pairs (ps0 ++ [(o, r)]) ++ rest) = Some (EBin o l r, rest)).
       rewrite (parse_climb_pairs (ps0 ++ [(o, r)]) k base rest f0 Hspine Htl
                  ltac:(cbn [esize] in HF, Hf3; rewrite Hpfs in Hf3; lia)).
-      rewrite Hfold. reflexivity. }
+      rewrite Hfold. reflexivity.
+    - (* EUnary op e0 — a PRIMARY: [unop_text op ++ print_expr 6 e0], NOT ctx-wrapped.
+         The leading unary char dispatches [parse_primary] to its unop branch, then [parse_primary_base]
+         re-parses the operand [e0] (Pexpr e0 supplied by the OUTER strong IH, not circular). *)
+      cbn [print_expr]. rewrite sapp_assoc.
+      destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
+      destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
+      assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
+      destruct (unop_text_char_of op) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
+      assert (Hpp : parse_primary (S f1) (unop_text op ++ (print_expr 6 e0 ++ rest))%string
+                  = Some (EUnary op e0, rest)).
+      { rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
+        rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
+        cbn [wf atomic_tree] in Hwf, Hat.
+        rewrite (parse_primary_base (esize e0) e0 6 rest f1 (le_n _)
+                   ltac:(intros e' He' We Ae; apply (IH e'); [ cbn [esize] in Hsz; lia | exact We | exact Ae ])
+                   Hwf Hat
+                   ltac:(apply (IH e0); [ cbn [esize] in Hsz; lia | exact Hwf | exact Hat ])
+                   ltac:(destruct e0 as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                   Hgs ltac:(cbn [esize] in HF; lia)).
+        reflexivity. }
+      rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl. }
   unfold Pexpr. intros k ctx rest F Hk Htl HF.
-  destruct e as [ s | o l r ].
+  destruct e as [ s | o l r | op e0 ].
   - apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
   - destruct (Nat.ltb (binop_prec o) ctx) eqn:Ewrap.
     + (* wrapped *)
@@ -3267,6 +3433,8 @@ Proof.
     + (* unwrapped *)
       apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia
                    | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
+  - (* EUnary op e0 — never ctx-wrapped (a primary), so [Hunwr] applies directly. *)
+    apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
 Qed.
 
 (** The headline — UNCONDITIONAL now.  [EAtom] carries an [Atom] (its [atom_ok = atomic && balanced_b]
