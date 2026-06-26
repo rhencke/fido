@@ -3516,7 +3516,7 @@ Extraction NoInline
   map_empty map_make map_make_typed
   map_get_opt map_len map_get_or map_set map_delete map_clear
   print println defer_call append slice_of_list run_blocks str_range for_each_idx int_range
-  len cap slice_get slice_at_ok str_at_ok str_slice str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
+  len slice_get slice_at_ok str_at_ok str_slice str_eqb str_ltb str_to_bytes str_from_bytes str_to_runes runes_to_str rune_to_str
   type_assert type_assert_safe type_switch2 type_switch3 type_switch_or2 type_switch_or3 struct_eqb int_switch2 int_switch3 str_switch2 str_switch3
   go_complex go_real go_imag complex_add complex_sub complex_mul complex_div complex_neg complex_eqb complex_neqb
   arr_lit arr_get_ok arr_eqb arr_set

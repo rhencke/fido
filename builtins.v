@@ -3661,12 +3661,12 @@ Qed.
 (* [GoInt] is now [int]; [len] counts elements (lowered to Go [len] — body suppressed). *)
 Fixpoint len {A} (xs : GoSlice A) : GoInt :=
   match xs with nil => intwrap 0 | _ :: r => intwrap (1 + intraw (len r)) end.
-(* review R5: [cap] on a functional (value) [GoSlice] is NOT Go's capacity.  Go's [cap] after [append]
-   is IMPLEMENTATION-DEFINED (append may over-allocate), so no value-slice model can predict it; this
-   [cap = len] is a proof-only convenience and is NOT extractable — the plugin emits [unsupported] for
-   any [cap] use (a value that [go build] would accept but that is WRONG at runtime).  Capacity-aware
-   code uses the heap-backed [SliceH], whose capacity ([sh_cap]) is an explicit field of the value. *)
-Definition cap {A} (xs : GoSlice A) : GoInt := len xs.   (* proof-only; NOT Go's cap — see R5 note above *)
+(* review #7: a functional (value-)[GoSlice] [cap] is INTENTIONALLY NOT MODELLED (the old proof-only
+   [cap = len] is DELETED).  Go's [cap] after [append] is IMPLEMENTATION-DEFINED (append may over-allocate),
+   so NO value-slice model can predict it faithfully; a [cap = len] Definition was a shape one could
+   "reason with accidentally" toward a value [go build] accepts but is WRONG at runtime.  This is a
+   PRINCIPLED, bounded NON-modelling (rule 2), not a documented shortcoming: capacity-aware code uses the
+   heap-backed [SliceH], whose capacity ([sh_cap]) is an explicit, faithful field of the value. *)
 Definition append {A} (xs ys : GoSlice A) : GoSlice A := xs ++ ys.   (* GoSlice A = list A *)
 
 (** [min]/[max] (Go 1.21 predeclared builtins) on [int] — the smaller / larger of
@@ -6060,12 +6060,18 @@ Notation "m >>> k" := (sbind m (fun _ => k))
 Notation "x <<- m ;;; k" := (sbind m (fun x => k))
   (at level 80, m at level 90, right associativity).
 
-(** Run two complementary roles concurrently: the client realises [P] to
-    completion, the server realises [dual P].  Allocates one shared channel,
-    spawns the server, runs the client.
-    Lowers to: [_sess_ch := make(chan any); go func(){ <server> }(); <client>]. *)
+(** Run two complementary roles concurrently: the client realises [P] to completion, the server realises
+    [dual P].  Like [go_spawn], a session run is CONCURRENT — it spawns the server and runs the client
+    against a shared channel — so it has NO sequential [run_io] meaning.  review #7: the old [ret tt] was
+    a plausible-but-WRONG placeholder (the model claimed a no-op while the plugin emits real concurrency).
+    Per rule 2 the sequential meaning is now a LOUD panic: any source-level proof that tries to compute a
+    session program's [run_io] hits this wall instead of silently succeeding with [tt].  The FAITHFUL
+    semantics lives in the session calculus / concurrent transition system; extraction is unaffected — the
+    plugin lowers [run_session] BY NAME (in main.v's [Extraction NoInline]) to
+    [_sess_ch := make(chan any); go func(){ <server> }(); <client>] (this body suppressed), so the emitted
+    Go is genuinely concurrent and the golden run is unchanged. *)
 Definition run_session {P : Proto}
   (client : Sess P PEnd unit) (server : Sess (dual P) PEnd unit) : IO unit :=
-  ret tt.
+  fun w => OPanic (anyt TString "fido: run_session has no sequential run_io meaning — a session run is concurrent (spawns the server); the faithful semantics is the session calculus (review #7)"%string) w.
 
 
