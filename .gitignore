@@ -10,6 +10,12 @@ vendor/
 # Negtest harness scratch output (a negtest that wrongly EXTRACTS leaves this; run.sh cleans it)
 /neg_out.go
 
+# goprint.v's [Extraction "printer.ml"] drops these in the repo ROOT as a side effect of
+# `rocq c goprint.v`; the COMMITTED copy is plugin/printer.ml (moved there by `make printer`).
+# Root-anchored so plugin/printer.ml stays tracked.
+/printer.ml
+/printer.mli
+
 # Rocq build artifacts — .v and .go sources are checked in, these are not
 *.glob
 *.vo
