@@ -2498,6 +2498,107 @@ Proof.
   apply scan_atom_gen; [ exact (bstack_ok_atomic_from _ nil Hstk) | exact Hseam ].
 Qed.
 
+(** ============================================================================
+    POSTFIX PrimaryExpr grammar — the OPERAND scanner (review #7 item 2; validated in scratchpad
+    scanbase2.v).  [scan_base s] splits an atom into [(operand, rest)]: [operand] is the leftmost Go
+    Operand (an ident / number / opaque func-lit / composite literal) and [rest] is the trailing postfix
+    ops ([.f] / [\[e\]] / [(args)]) + remainder.  The KEY corrections over a naive maximal-ident scan:
+    (1) read until a DEPTH-0 POSTFIX char ('.'/'['/'(' — [is_postfix_start]), NOT an ident boundary, so a
+    hex float [0x..p-51] reads WHOLE (the '-' exponent is not a break); (2) QUOTE-AWARE (a string literal
+    body is opaque, via [scan_strlit_body]) so a bracket inside a literal does not miscount depth;
+    (3) a leading "func" is the one special case — its own [(params){body}] are part of the operand, so
+    consume them ([scan_bal] the params, [scan_to_brace] the body) BEFORE [scan_rest].  ('{' is NOT a
+    postfix start — it opens a composite literal whose [{...}] joins the operand.)  DORMANT until the
+    parser is rewired; the faithful-split + round-trip lemmas + the [SIndex]/[SSlice]/[SCall] postfix
+    constructors land in the following slices. *)
+Definition is_postfix_start (c : ascii) : bool :=
+  orb (orb (Ascii.eqb c (ch 46)) (Ascii.eqb c (ch 91))) (Ascii.eqb c (ch 40)).   (* . [ ( *)
+(** [scan_bal f d s] consumes a BALANCED bracket span (already inside [d] open brackets), quote-aware;
+    returns [(span-incl-the-close-returning-to-d-1, rest)]. *)
+Fixpoint scan_bal (fuel d : nat) (s : string) : option (string * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => None
+    | String c s' =>
+        if Ascii.eqb c (ch 34) then
+          match scan_strlit_body s' with
+          | Some (body, rest) =>
+              match scan_bal f d rest with
+              | Some (a, r) => Some (String c (body ++ String (ch 34) a), r) | None => None end
+          | None => None end
+        else if is_bopen c then
+          match scan_bal f (S d) s' with Some (a, r) => Some (String c a, r) | None => None end
+        else if is_bclose c then
+          (match d with
+           | S O => Some (String c EmptyString, s')
+           | S d' => match scan_bal f d' s' with Some (a, r) => Some (String c a, r) | None => None end
+           | O => None end)
+        else match scan_bal f d s' with Some (a, r) => Some (String c a, r) | None => None end
+    end
+  end.
+(** [scan_to_brace f s] consumes up to and INCLUDING the next balanced "{...}" (the func-lit's return
+    type + body span — everything from here to the matching close of the FIRST '{'). *)
+Fixpoint scan_to_brace (fuel : nat) (s : string) : option (string * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => None
+    | String c s' =>
+        if Ascii.eqb c (ch 123) then
+          match scan_bal f 1 s' with Some (a, r) => Some (String c a, r) | None => None end
+        else match scan_to_brace f s' with Some (a, r) => Some (String c a, r) | None => None end
+    end
+  end.
+(** [scan_rest f d s] reads operand bytes until a DEPTH-0 [is_postfix_start] char, quote-aware. *)
+Fixpoint scan_rest (fuel d : nat) (s : string) : string * string :=
+  match fuel with
+  | O => (EmptyString, s)
+  | S f =>
+    match s with
+    | EmptyString => (EmptyString, EmptyString)
+    | String c s' =>
+        if Ascii.eqb c (ch 34) then
+          match scan_strlit_body s' with
+          | Some (body, rest) =>
+              let (a, r) := scan_rest f d rest in (String c (body ++ String (ch 34) a), r)
+          | None => (EmptyString, s) end
+        else if andb (Nat.eqb d 0) (is_postfix_start c) then (EmptyString, s)
+        else if is_bopen c then let (a, r) := scan_rest f (S d) s' in (String c a, r)
+        else if is_bclose c then
+          (match d with S d' => let (a, r) := scan_rest f d' s' in (String c a, r) | O => (EmptyString, s) end)
+        else let (a, r) := scan_rest f d s' in (String c a, r)
+    end
+  end.
+(** [scan_base s] — the leading operand.  [leading_ident s = "func"] ⇒ a func-lit (consume its
+    [(params){body}], then any trailing postfix is found by [scan_rest]); else [scan_rest] from depth 0. *)
+Definition scan_base (s : string) : string * string :=
+  if String.eqb (leading_ident s) "func" then
+    match s with
+    | String _ (String _ (String _ (String _ afterfunc))) =>
+        match afterfunc with
+        | String c r1 =>
+            if Ascii.eqb c (ch 40) then
+              match scan_bal (String.length afterfunc) 1 r1 with
+              | Some (params, r2) =>
+                  match scan_to_brace (String.length r2) r2 with
+                  | Some (body, r3) =>
+                      let funclit := ("func" ++ String (ch 40) params ++ body)%string in
+                      let (more, rest) := scan_rest (String.length r3) 0 r3 in
+                      ((funclit ++ more)%string, rest)
+                  | None => scan_rest (String.length s) 0 s end
+              | None => scan_rest (String.length s) 0 s end
+            else scan_rest (String.length s) 0 s
+        | EmptyString => ("func", EmptyString) end
+    | _ => scan_rest (String.length s) 0 s end
+  else scan_rest (String.length s) 0 s.
+(** Sanity (computational): the operand splits validated in scanbase2.v hold over goprint's helpers too. *)
+Example scan_base_sel  : scan_base ("foo" ++ String (ch 46) "bar") = ("foo", String (ch 46) "bar").
+Proof. reflexivity. Qed.
+Example scan_base_hexf : scan_base "0x14000000000000p-51" = ("0x14000000000000p-51", ""). Proof. reflexivity. Qed.
+
 (** ---- THE RECURSIVE ATOM PARSER ---- [build_satom] is [build_atom]'s engine: it DISAMBIGUATES an
     [atom_ok] string into the [SAtom] tree.  [go_ident] -> [SIdent]; [is_dec] -> [SIntLit] (its [Z] via
     [parse_Z]); else if the string is SELECTOR-SHAPED (last '.' followed by a [go_ident] field) peel that
