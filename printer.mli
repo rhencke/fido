@@ -50,6 +50,8 @@ val eqb : bool -> bool -> bool
 
 module Nat :
  sig
+  val pred : nat -> nat
+
   val sub : nat -> nat -> nat
 
   val eqb : nat -> nat -> bool
@@ -359,6 +361,16 @@ val strlit_ok : string -> bool
 val quote_led : string -> bool
 
 val is_selector_shaped : string -> bool
+
+val d0_sep_aux : bool -> bool -> nat -> string -> bool
+
+val has_d0_sep : string -> bool
+
+val leading_ident : string -> string
+
+val operand_lead_kw : string -> bool
+
+val leading_is_keyword : string -> bool
 
 val raw_ok : string -> bool
 

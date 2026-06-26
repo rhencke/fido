@@ -101,6 +101,12 @@ let eqb b1 b2 =
 
 module Nat =
  struct
+  (** val pred : nat -> nat **)
+
+  let pred n0 = match n0 with
+  | O -> n0
+  | S u -> u
+
   (** val sub : nat -> nat -> nat **)
 
   let rec sub n0 m =
@@ -2266,19 +2272,190 @@ let is_selector_shaped s =
   | Some p -> let Pair (_, fld) = p in go_ident fld
   | None -> False
 
+(** val d0_sep_aux : bool -> bool -> nat -> string -> bool **)
+
+let rec d0_sep_aux instr esc d = function
+| EmptyString -> False
+| String (c, s') ->
+  (match esc with
+   | True ->
+     let p = Pair ((Pair (instr, False)), d) in
+     let found = False in
+     let Pair (p0, d') = p in
+     let Pair (instr', esc') = p0 in
+     (match found with
+      | True -> True
+      | False -> d0_sep_aux instr' esc' d' s')
+   | False ->
+     (match instr with
+      | True ->
+        (match eqb0 c
+                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+         | True ->
+           let p = Pair ((Pair (True, True)), d) in
+           let found = False in
+           let Pair (p0, d') = p in
+           let Pair (instr', esc') = p0 in
+           (match found with
+            | True -> True
+            | False -> d0_sep_aux instr' esc' d' s')
+         | False ->
+           (match eqb0 c
+                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      O))))))))))))))))))))))))))))))))))) with
+            | True ->
+              let p = Pair ((Pair (False, False)), d) in
+              let found = False in
+              let Pair (p0, d') = p in
+              let Pair (instr', esc') = p0 in
+              (match found with
+               | True -> True
+               | False -> d0_sep_aux instr' esc' d' s')
+            | False ->
+              let p = Pair ((Pair (True, False)), d) in
+              let found = False in
+              let Pair (p0, d') = p in
+              let Pair (instr', esc') = p0 in
+              (match found with
+               | True -> True
+               | False -> d0_sep_aux instr' esc' d' s')))
+      | False ->
+        (match eqb0 c
+                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))) with
+         | True ->
+           let p = Pair ((Pair (True, False)), d) in
+           let found = False in
+           let Pair (p0, d') = p in
+           let Pair (instr', esc') = p0 in
+           (match found with
+            | True -> True
+            | False -> d0_sep_aux instr' esc' d' s')
+         | False ->
+           (match is_bopen c with
+            | True ->
+              let p = Pair ((Pair (False, False)), (S d)) in
+              let found = False in
+              let Pair (p0, d') = p in
+              let Pair (instr', esc') = p0 in
+              (match found with
+               | True -> True
+               | False -> d0_sep_aux instr' esc' d' s')
+            | False ->
+              (match is_bclose c with
+               | True ->
+                 let p = Pair ((Pair (False, False)), (Nat.pred d)) in
+                 let found = False in
+                 let Pair (p0, d') = p in
+                 let Pair (instr', esc') = p0 in
+                 (match found with
+                  | True -> True
+                  | False -> d0_sep_aux instr' esc' d' s')
+               | False ->
+                 let p = Pair ((Pair (False, False)), d) in
+                 let found =
+                   match Nat.eqb d O with
+                   | True ->
+                     (match eqb0 c
+                              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                O))))))))))))))))))))))))))))))))))))))))))))) with
+                      | True -> True
+                      | False ->
+                        eqb0 c
+                          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S
+                            O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                   | False -> False
+                 in
+                 let Pair (p0, d') = p in
+                 let Pair (instr', esc') = p0 in
+                 (match found with
+                  | True -> True
+                  | False -> d0_sep_aux instr' esc' d' s'))))))
+
+(** val has_d0_sep : string -> bool **)
+
+let has_d0_sep s =
+  d0_sep_aux False False O s
+
+(** val leading_ident : string -> string **)
+
+let rec leading_ident = function
+| EmptyString -> EmptyString
+| String (c, s') ->
+  (match is_idc c with
+   | True -> String (c, (leading_ident s'))
+   | False -> EmptyString)
+
+(** val operand_lead_kw : string -> bool **)
+
+let operand_lead_kw s =
+  existsb (eqb1 s) (Cons ((String ((Ascii (False, True, True, False, False,
+    True, True, False)), (String ((Ascii (True, False, True, False, True,
+    True, True, False)), (String ((Ascii (False, True, True, True, False,
+    True, True, False)), (String ((Ascii (True, True, False, False, False,
+    True, True, False)), EmptyString)))))))), (Cons ((String ((Ascii (True,
+    False, True, True, False, True, True, False)), (String ((Ascii (True,
+    False, False, False, False, True, True, False)), (String ((Ascii (False,
+    False, False, False, True, True, True, False)), EmptyString)))))), (Cons
+    ((String ((Ascii (True, True, False, False, False, True, True, False)),
+    (String ((Ascii (False, False, False, True, False, True, True, False)),
+    (String ((Ascii (True, False, False, False, False, True, True, False)),
+    (String ((Ascii (False, True, True, True, False, True, True, False)),
+    EmptyString)))))))), (Cons ((String ((Ascii (True, True, False, False,
+    True, True, True, False)), (String ((Ascii (False, False, True, False,
+    True, True, True, False)), (String ((Ascii (False, True, False, False,
+    True, True, True, False)), (String ((Ascii (True, False, True, False,
+    True, True, True, False)), (String ((Ascii (True, True, False, False,
+    False, True, True, False)), (String ((Ascii (False, False, True, False,
+    True, True, True, False)), EmptyString)))))))))))), (Cons ((String
+    ((Ascii (True, False, False, True, False, True, True, False)), (String
+    ((Ascii (False, True, True, True, False, True, True, False)), (String
+    ((Ascii (False, False, True, False, True, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)), (String
+    ((Ascii (False, True, False, False, True, True, True, False)), (String
+    ((Ascii (False, True, True, False, False, True, True, False)), (String
+    ((Ascii (True, False, False, False, False, True, True, False)), (String
+    ((Ascii (True, True, False, False, False, True, True, False)), (String
+    ((Ascii (True, False, True, False, False, True, True, False)),
+    EmptyString)))))))))))))))))), Nil))))))))))
+
+(** val leading_is_keyword : string -> bool **)
+
+let leading_is_keyword s =
+  match go_keyword (leading_ident s) with
+  | True -> negb (operand_lead_kw (leading_ident s))
+  | False -> False
+
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match match match match atom_ok s with
-                          | True -> negb (go_ident s)
+  match match match match match match atom_ok s with
+                                | True -> negb (go_ident s)
+                                | False -> False with
+                          | True -> negb (is_dec s)
                           | False -> False with
-                    | True -> negb (is_dec s)
+                    | True -> negb (quote_led s)
                     | False -> False with
-              | True -> negb (quote_led s)
+              | True -> negb (go_keyword s)
               | False -> False with
-        | True -> negb (go_keyword s)
+        | True -> negb (is_selector_shaped s)
         | False -> False with
-  | True -> negb (is_selector_shaped s)
+  | True ->
+    (match negb (has_d0_sep s) with
+     | True -> negb (leading_is_keyword s)
+     | False -> False)
   | False -> False
 
 type sAtom =

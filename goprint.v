@@ -1845,12 +1845,56 @@ Qed.
     [split_last_dot] + [go_ident] only (NOT [build_satom]) — so there is no circular definition. *)
 Definition is_selector_shaped (s : string) : bool :=
   match split_last_dot s with Some (_, fld) => go_ident fld | None => false end.
+(** RAW HARDENING (review #6 item 1) — the bracket+quote scanner alone is too permissive for atom shapes.
+    [has_d0_sep s]: a depth-0 ',' (ch 44) or ';' (ch 59) — separators that NEVER occur in a single atom
+    (commas live INSIDE brackets, semicolons separate statements), tracked quote/bracket-aware like
+    [split_idx_aux].  [leading_is_keyword s]: the leading identifier RUN is a Go keyword — so [return()] /
+    [func()] (whole string not a keyword, but keyword-LED) are rejected, which the existing whole-string
+    [go_keyword] check misses.  KNOWN-STILL-ALLOWED (documented, NOT yet rejected — see the regression
+    [raw_unspaced_binop_KNOWN_ALLOWANCE] below): unspaced binary [a+b] — the operator-vs-unary ambiguity
+    ([a+b] binary vs [-5]/[*p]/[&x] unary) makes it un-rejectable at the STRING layer; it is eliminated by
+    STRUCTURE (the [EBin] node / future [SUnary]), not by [raw_ok], so the plugin never emits it as an atom. *)
+Fixpoint d0_sep_aux (instr esc : bool) (d : nat) (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c s' =>
+      let '(instr', esc', d', found) :=
+        if esc then (instr, false, d, false)
+        else if instr then
+          (if Ascii.eqb c (ch 92) then (true, true, d, false)
+           else if Ascii.eqb c (ch 34) then (false, false, d, false)
+           else (true, false, d, false))
+        else
+          (if Ascii.eqb c (ch 34) then (true, false, d, false)
+           else if is_bopen c then (false, false, S d, false)
+           else if is_bclose c then (false, false, Nat.pred d, false)
+           else (false, false, d, andb (Nat.eqb d 0) (orb (Ascii.eqb c (ch 44)) (Ascii.eqb c (ch 59)))))
+      in
+      if found then true else d0_sep_aux instr' esc' d' s'
+  end.
+Definition has_d0_sep (s : string) : bool := d0_sep_aux false false 0 s.
+Fixpoint leading_ident (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c s' => if is_idc c then String c (leading_ident s') else EmptyString
+  end.
+(** Keywords that legitimately LEAD an operand atom (a func-literal / composite-literal type / channel
+    type) are EXCLUDED from the rejection — so [func(x int64) int64 {...}(0)] and [map[K]V{...}] are kept
+    while [return()] / [if()] / [for()] are rejected.  Distinguishing a valid [func]-lit from [func()]
+    nonsense needs the parser, so the operand-leading keywords are conservatively ALLOWED here (the plugin
+    only emits well-formed ones; they are caught downstream if malformed). *)
+Definition operand_lead_kw (s : string) : bool :=
+  existsb (String.eqb s) ["func"; "map"; "chan"; "struct"; "interface"].
+Definition leading_is_keyword (s : string) : bool :=
+  andb (go_keyword (leading_ident s)) (negb (operand_lead_kw (leading_ident s))).
 Definition raw_ok (s : string) : bool :=
-  andb (andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)))
-                   (negb (quote_led s))) (negb (go_keyword s))) (negb (is_selector_shaped s)).
+  andb (andb (andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)))
+                   (negb (quote_led s))) (negb (go_keyword s))) (negb (is_selector_shaped s)))
+       (andb (negb (has_d0_sep s)) (negb (leading_is_keyword s))).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -1864,11 +1908,13 @@ Proof.
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_dec : forall s, raw_ok s = true -> is_dec s = false.
 Proof.
   intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -1879,19 +1925,40 @@ Proof.
   intros s H. unfold raw_ok in H.
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_keyword : forall s, raw_ok s = true -> go_keyword s = false.
 Proof.
   intros s H. unfold raw_ok in H.
   apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_selector : forall s, raw_ok s = true -> is_selector_shaped s = false.
 Proof.
   intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
+(** DESIRED-FAILURE regressions (review #6 item 1): the hardened [raw_ok] makes these non-atom shapes
+    UNREPRESENTABLE as [SRaw] — each [Fail] asserts the proof-carrying construction does NOT type-check
+    (depth-0 comma/semicolon, statement-keyword-led).  A [func]-literal-call ([func]-led but valid) is NOT
+    rejected — see [raw_ok_funclit_call_kept]. *)
+Fail Definition raw_d0_comma  : { s : string | raw_ok s = true } := exist _ "a,b" eq_refl.
+Fail Definition raw_d0_semi   : { s : string | raw_ok s = true } := exist _ "a;b" eq_refl.
+Fail Definition raw_kw_return : { s : string | raw_ok s = true } := exist _ "return()" eq_refl.
+Fail Definition raw_kw_if     : { s : string | raw_ok s = true } := exist _ "if(x)" eq_refl.
+Example raw_d0_comma_rejected  : raw_ok "a,b"      = false. Proof. reflexivity. Qed.
+Example raw_d0_semi_rejected   : raw_ok "a;b"      = false. Proof. reflexivity. Qed.
+Example raw_kw_return_rejected : raw_ok "return()" = false. Proof. reflexivity. Qed.
+Example raw_ok_funclit_call_kept :
+  raw_ok "func(x int64, y int64) int64 { return x - y }(0, 7)" = true. Proof. reflexivity. Qed.
+(** KNOWN STILL-ALLOWED (documented, review #6 item 1): unspaced binary [a+b] passes [raw_ok].  The
+    operator-vs-unary ambiguity ([a+b] binary vs [-5]/[*p]/[&x] unary) makes it un-rejectable at the STRING
+    layer; it is eliminated by STRUCTURE (the [EBin] node / future [SUnary]), not [raw_ok] — the plugin
+    never emits an unspaced binop as an atom (it prints binops as spaced [EBin] trees). *)
+Example raw_unspaced_binop_KNOWN_ALLOWANCE : raw_ok "a+b" = true. Proof. reflexivity. Qed.
 
 (** A structured Go ATOM.  Validity is carried IN THE TYPE (malformed atom text UNREPRESENTABLE), and a
     SELECTOR is RECURSIVE ([x.f.g] = nested [SSelector]).  Two layers, because a selector's operand must be
