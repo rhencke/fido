@@ -1754,6 +1754,35 @@ Proof.
   - intuition.
   - rewrite IH. intuition.
 Qed.
+Lemma nneg_b_app : forall a b d, nneg_b d (a ++ b)%string = andb (nneg_b d a) (nneg_b (depth d a) b).
+Proof.
+  induction a as [ | c a' IH ]; intros b d; cbn [String.append nneg_b depth].
+  - reflexivity.
+  - rewrite IH, andb_assoc. reflexivity.
+Qed.
+(** [atom_ok] is preserved by appending a SELECTOR suffix ["." ++ <identifier chars>]: ATOMIC via
+    [bstack_ok_app_dotid] (same first char, no new bracket / seam), and BALANCED since the suffix carries
+    no parens ([depth]/[nneg] are unchanged by it).  The [atom_ok] foundation for [ASelector]. *)
+Lemma atom_ok_app_dotid : forall base f, atom_ok base = true -> all_idc f = true ->
+  atom_ok (base ++ String (ch 46) f)%string = true.
+Proof.
+  intros base f Hb Hf. pose proof (atom_ok_atomic _ Hb) as Hatm.
+  unfold atom_ok in Hb. apply andb_true_iff in Hb. destruct Hb as [ _ Hbal ].
+  unfold balanced_b in Hbal. apply andb_true_iff in Hbal. destruct Hbal as [ Hd0 Hn0 ].
+  apply Z.eqb_eq in Hd0.
+  assert (Hpv : pv (ch 46) = 0%Z) by reflexivity.
+  unfold atom_ok. apply andb_true_iff. split.
+  - destruct base as [ | c base' ]; [ cbn in Hatm; discriminate Hatm | ].
+    cbn [String.append]. unfold atomic in Hatm |- *.
+    apply andb_true_iff in Hatm. destruct Hatm as [ Hno Hbs ].
+    apply andb_true_iff. split; [ exact Hno | ].
+    change (String c (base' ++ String (ch 46) f)%string) with ((String c base') ++ String (ch 46) f)%string.
+    apply bstack_ok_app_dotid; [ exact Hf | exact Hbs ].
+  - unfold balanced_b. apply andb_true_iff. split.
+    + rewrite depth_app, Hd0. cbn [depth]. rewrite Hpv, Z.add_0_r, (all_idc_depth f 0 Hf). reflexivity.
+    + rewrite nneg_b_app, Hn0, andb_true_l, Hd0. cbn [nneg_b].
+      rewrite Hpv, Z.add_0_r. apply (all_idc_nneg_b f 0 (Z.le_refl 0) Hf).
+Qed.
 Lemma nneg_raise : forall s d d', (d <= d')%Z -> nneg d s -> nneg d' s.
 Proof.
   induction s as [ | c s IH ]; intros d d' Hle Hn; cbn in *; [ exact I | ].
