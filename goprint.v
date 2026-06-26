@@ -633,6 +633,42 @@ Proof.
   cbn [esc_string]. rewrite unescape_esc_byte, IH. reflexivity.
 Qed.
 
+(** ---- QUOTE-AWARE STRING-LITERAL SCANNER (external review #5 item 1) ---- [scan_strlit_body s] reads
+    the BODY of a string literal — the bytes AFTER the opening quote — in STRING/ESCAPE mode: a backslash
+    takes the NEXT byte verbatim (so [\] then a quote is body, NOT the close), every other byte is body,
+    and the first UNescaped quote ends the body.  Returns [(body, rest-after-the-closing-quote)], or
+    [None] if unterminated.  This is the lexical core that lets a quoted literal be parsed as its OWN
+    primary — NOT scanned as generic Go source — so a valid Go string whose CONTENTS would confuse the
+    expression atom scanner (a space-then-operator like "a + b", or an unmatched bracket like "[") is
+    handled correctly, instead of being rejected by [atom_ok]'s seam / bracket-stack checks. *)
+Fixpoint scan_strlit_body (s : string) : option (string * string) :=
+  match s with
+  | EmptyString => None
+  | String c rest =>
+      if Ascii.eqb c (ch 34) then Some (EmptyString, rest)               (* unescaped quote ends the body *)
+      else if Ascii.eqb c (ch 92) then                                   (* backslash: next byte is verbatim *)
+        match rest with
+        | EmptyString      => None
+        | String c2 rest2  =>
+            match scan_strlit_body rest2 with
+            | Some (body, r) => Some (String c (String c2 body), r)
+            | None           => None
+            end
+        end
+      else
+        match scan_strlit_body rest with
+        | Some (body, r) => Some (String c body, r)
+        | None           => None
+        end
+  end.
+(** The flagged cases — contents that the generic atom scanner mishandles — scan correctly here. *)
+Example scan_plus_space : scan_strlit_body (esc_string "a + b" ++ String (ch 34) "X") = Some (esc_string "a + b", "X").
+Proof. reflexivity. Qed.
+Example scan_unmatched_bracket : scan_strlit_body (esc_string "[" ++ String (ch 34) "X") = Some (esc_string "[", "X").
+Proof. reflexivity. Qed.
+Example scan_escaped_quote : scan_strlit_body (esc_string "a""b" ++ String (ch 34) "X") = Some (esc_string "a""b", "X").
+Proof. reflexivity. Qed.
+
 (** ---- STRING-LITERAL ATOM RECOGNITION ---- [is_strlit a] decides whether [a] is a CANONICAL Go
     string literal — i.e. [a = print_string_lit s] for the [s] it decodes to.  It strips the opening
     and closing quote chars ([but_last] drops the trailing one), [unescape]s the body, and RE-PRINTS:
