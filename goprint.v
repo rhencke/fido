@@ -8,6 +8,14 @@
     CORRECTNESS theorems are layered atop it.  This file is the foundation; later slices grow the AST to
     cover the emitted fragment, rewire [go.ml] to call the extracted printer, and delete the raw OCaml.
 
+    ⚠️ HONEST SCOPE OF "VERIFIED" (review #7 item 3) — "verified printer" here means: the printer is
+    verified AGAINST THE Rocq PARSER in this file (a printer/parser round-trip + injectivity for THIS
+    Rocq grammar), NOT against Go's own parser.  There is NO theorem yet that Go's compiler reads the
+    emitted text as the same AST — that Go-subset RECOGNITION theorem (emitted grammar ⊆ Go grammar) is
+    the remaining gap (#10).  So [print_parse_expr] / [print_ty_inj] are ROCQ-GRAMMAR self-consistency
+    results, and must not be read as "Go printer correctness."  (The plugin → emitted-bytes path also has
+    a trusted [gofmt] post-step — see the Makefile — so even the byte-exact final text is not yet in-proof.)
+
     Slice 1: the Go TYPE sub-language.  [print_ty] renders a [GoTy] to Go source; [print_ty_inj] proves
     it is INJECTIVE over ALL of [GoTy] unconditionally (nominal names carry a validated [Ident], so an
     invalid name is unrepresentable) — distinct Go types render to distinct strings, so the printer can
@@ -1847,10 +1855,11 @@ Proof. intros s H. destruct (is_strlit_cons s H) as [ rest -> ]. reflexivity. Qe
     composite-literal / func-literal-call), and KEEP TIGHTENING [raw_ok] so it cannot smuggle in grammar
     nonsense.  [raw_ok s] = [atom_ok] AND none of the structured forms ([go_ident] / [is_dec] / [is_strlit])
     AND not a Go KEYWORD ([go_keyword] — review #5 item 2: [return]/[func]/[type] are not [go_ident] but
-    the simple scanner would otherwise pass them).  STILL-LOOSE (documented, not yet closed): [atom_ok]'s
-    [op_match] only recognises the printer's SPACED operators, so unspaced [a+b] is still [atom_ok] though
-    Go parses it as a binary expression — a proof-boundary smell the plugin never feeds [mk_atom], to be
-    closed by further structuring.  The 5-way split lets the round-trip DISAMBIGUATE uniquely.  The
+    the simple scanner would otherwise pass them) AND not [unary_op_led] / [is_selector_shaped] / a
+    depth-0 break ([has_d0_break]).  review #7 — the unspaced-[a+b] hole is CLOSED: [atom_ok]'s [op_match]
+    only sees SPACED operators, but [has_d0_break] now rejects ANY depth-0 binary-operator char (the
+    hex-float exponent sign excepted, exactly), so [raw_ok "a+b" = false] is machine-checked — no longer
+    a documented smell.  The split lets the round-trip DISAMBIGUATE uniquely.  The
     string-literal exclusion is by [quote_led] (ANY dquote-led string), not [is_strlit]: a dquote-led
     string is the string-literal PRIMARY's domain (canonical -> [AStringLit], non-canonical -> rejected),
     so [ARaw] must never be dquote-led — else [parse_primary] would intercept it as a literal. *)
