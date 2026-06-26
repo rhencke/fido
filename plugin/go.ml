@@ -617,7 +617,10 @@ let mk_atom s =
      exactly the structured atom the round-trip covers. *)
   let cs = coq_string_of_ocaml s in
   (match Printer.strlit_ok cs with
-   | Printer.True  -> Printer.EAtom (Printer.AStringLit cs)
+   (* [AStringLit] carries the SEMANTIC VALUE (review #7 item 4), not the printed lexeme [cs].  [cs] is a
+      canonical literal ([strlit_ok] = true), so [Printer.strlit_value] (the verified inverse of
+      [print_string_lit]) recovers the value, and [print_string_lit value = cs] byte-for-byte. *)
+   | Printer.True  -> Printer.EAtom (Printer.AStringLit (Printer.strlit_value cs))
    | Printer.False ->
      (match Printer.build_atom cs with
       | Printer.Some e -> e

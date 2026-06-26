@@ -1676,6 +1676,12 @@ let is_strlit a = match a with
       | String (_, _) -> eqb1 (print_string_lit (unescape (but_last rest))) a)
    | False -> False)
 
+(** val strlit_value : string -> string **)
+
+let strlit_value = function
+| EmptyString -> EmptyString
+| String (_, body) -> unescape (but_last body)
+
 (** val split_last_dot : string -> (string, string) prod option **)
 
 let rec split_last_dot = function
@@ -2796,7 +2802,7 @@ let rec satom_str = function
 
 let atom_str = function
 | AScanned s -> satom_str s
-| AStringLit r -> r
+| AStringLit v -> print_string_lit v
 
 (** val print_expr : nat -> goExpr -> string **)
 

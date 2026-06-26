@@ -813,6 +813,17 @@ Proof.
   exists (unescape (but_last (String c2 rest2))). apply String.eqb_eq in Hrest. symmetry. exact Hrest.
 Qed.
 
+(** [strlit_value lit] recovers the SEMANTIC VALUE from a printed literal [lit = "<esc body>"]: drop the
+    opening quote, [but_last] drops the closing quote, [unescape] decodes the body.  The exact inverse of
+    [print_string_lit] ([strlit_value_print_string_lit]) — used by the plugin's [mk_atom] to build
+    [AStringLit value] from the literal text it already holds (review #7 item 4). *)
+Definition strlit_value (lit : string) : string :=
+  match lit with EmptyString => EmptyString | String _ body => unescape (but_last body) end.
+Lemma strlit_value_print_string_lit : forall v, strlit_value (print_string_lit v) = v.
+Proof.
+  intro v. unfold strlit_value, print_string_lit. rewrite but_last_snoc, esc_string_roundtrip. reflexivity.
+Qed.
+
 (** ---- SELECTOR SPLITTING ---- [split_last_dot s] splits [s] at its LAST '.' into [(operand, field)]
     with [operand ++ "." ++ field = s] (or [None] if no '.').  Used to recover a selector atom [x.f]:
     a selector's field is an IDENTIFIER (dot-free), so the LAST '.' is the outermost selector's '.'.
@@ -2068,7 +2079,9 @@ Inductive SAtom : Type :=
   | SSelector : SAtom -> Ident -> SAtom
 with GoAtom : Type :=
   | AScanned   : SAtom -> GoAtom
-  | AStringLit : { s : string | strlit_ok s = true } -> GoAtom
+  | AStringLit : string -> GoAtom   (* the SEMANTIC string VALUE (review #7 item 4: AST-first, not the
+                                       printed lexeme).  ANY value is printable, so no proof is needed —
+                                       an invalid literal SOURCE is unrepresentable by construction. *)
 with GoExpr : Type :=
   | EAtom  : GoAtom -> GoExpr
   | EBin   : BinOp -> GoExpr -> GoExpr -> GoExpr
@@ -2081,7 +2094,7 @@ Fixpoint satom_str (a : SAtom) : string :=
   | SSelector a f => (satom_str a ++ String (ch 46) (proj1_sig f))%string
   end.
 Definition atom_str (a : GoAtom) : string :=
-  match a with AScanned s => satom_str s | AStringLit r => proj1_sig r end.
+  match a with AScanned s => satom_str s | AStringLit v => print_string_lit v end.
 (** [atom_scanned a] — the atom is recovered by the GENERIC atom scanner ([scan_atom] + [build_atom]):
     [AScanned], but not [AStringLit] (recovered by its own quote-aware primary).  Only a scanned atom's
     text is [atom_ok] (a string literal's text need not be — review #5 item 1). *)
@@ -2630,20 +2643,16 @@ Qed.
     [>= k].  Fuel bounds the recursion (every call strictly decreases it). *)
 (** The STRING-LITERAL PRIMARY (review #5 item 1): a quoted literal is parsed HERE, in quote/escape mode
     via [scan_strlit_body] — NOT by [scan_atom], which would mis-read its CONTENTS as Go source.  It reads
-    the body to the closing quote, RE-FORMS the literal, and re-checks it is canonical ([strlit_ok] =
-    [is_strlit]) before structuring it as [AStringLit].  So a valid Go string like "a + b" / "[" parses
-    correctly.  No fuel: [scan_strlit_body] is structural. *)
+    the body to the closing quote and [unescape]s it to the SEMANTIC VALUE, returning [AStringLit value]
+    (review #7 item 4: AST-first).  So a valid Go string like "a + b" / "[" parses correctly.  No
+    canonicality re-check / UIP is needed — [print_string_lit (unescape (esc_string v)) = print_string_lit v]
+    holds by [esc_string_roundtrip].  No fuel: [scan_strlit_body] is structural. *)
 Definition parse_strlit_prim (s : string) : option (GoExpr * string) :=
   match s with
   | String c s' =>
       if Ascii.eqb c (ch 34) then
         match scan_strlit_body s' with
-        | Some (body, rest) =>
-            let lit := String (ch 34) (body ++ String (ch 34) EmptyString)%string in
-            match bool_dec (strlit_ok lit) true with
-            | left H => Some (EAtom (AStringLit (exist _ lit H)), rest)
-            | right _ => None
-            end
+        | Some (body, rest) => Some (EAtom (AStringLit (unescape body)), rest)
         | None => None
         end
       else None
@@ -2790,7 +2799,7 @@ Notation EA s := (EAtom (AScanned (SIdent (exist _ s eq_refl)))).
 Notation EAr s := (EAtom (AScanned (SRaw (exist _ s eq_refl)))).
 Notation EAi z := (EAtom (AScanned (SIntLit z))).  (* a decimal integer-literal atom — carries the [Z], no proof *)
 Notation EAsel a f := (EAtom (AScanned (SSelector a (exist _ f eq_refl)))).  (* a selector [operand.field] *)
-Notation EAs v := (EAtom (AStringLit (exist _ (print_string_lit v) eq_refl))).  (* a string literal of value [v] *)
+Notation EAs v := (EAtom (AStringLit v)).  (* a string literal of value [v] *)
 
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
@@ -3287,26 +3296,21 @@ Proof.
 Qed.
 (** [parse_strlit_prim] recovers an [AStringLit] from its printed text (the EAtom round-trip case for a
     STRING LITERAL — quote/escape mode, NOT generic atom scanning). *)
-Lemma parse_strlit_prim_correct : forall val TAIL H,
+Lemma parse_strlit_prim_correct : forall val TAIL,
   parse_strlit_prim (print_string_lit val ++ TAIL)%string
-    = Some (EAtom (AStringLit (exist _ (print_string_lit val) H)), TAIL).
+    = Some (EAtom (AStringLit val), TAIL).
 Proof.
-  intros val TAIL H.
+  intros val TAIL.
   assert (Hin : (print_string_lit val ++ TAIL)%string
               = String (ch 34) (esc_string val ++ String (ch 34) TAIL)%string).
   { unfold print_string_lit. cbn [String.append]. rewrite sapp_assoc. cbn [String.append]. reflexivity. }
   rewrite Hin. cbn [parse_strlit_prim]. rewrite Ascii.eqb_refl, scan_strlit_body_esc.
-  replace (String (ch 34) (esc_string val ++ String (ch 34) EmptyString)%string)
-    with (print_string_lit val) by reflexivity.
-  destruct (bool_dec (strlit_ok (print_string_lit val)) true) as [ H2 | H2 ].
-  - do 3 f_equal. assert (E : H2 = H) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
-  - exfalso. apply H2. exact H.
+  rewrite esc_string_roundtrip. reflexivity.
 Qed.
-Lemma parse_primary_strlit : forall (r : { s : string | strlit_ok s = true }) TAIL f,
-  parse_primary (S f) (atom_str (AStringLit r) ++ TAIL)%string = Some (EAtom (AStringLit r), TAIL).
+Lemma parse_primary_strlit : forall (val : string) TAIL f,
+  parse_primary (S f) (atom_str (AStringLit val) ++ TAIL)%string = Some (EAtom (AStringLit val), TAIL).
 Proof.
-  intros [ lit Hlit ] TAIL f. cbn [atom_str proj1_sig].
-  destruct (is_strlit_print lit Hlit) as [ val Hval ]. subst lit.
+  intros val TAIL f. cbn [atom_str].
   rewrite parse_primary_S.
   assert (Hin : (print_string_lit val ++ TAIL)%string
               = String (ch 34) (esc_string val ++ String (ch 34) TAIL)%string).
@@ -3315,7 +3319,7 @@ Proof.
   assert (Ho : is_open (ch 34) = false) by reflexivity.
   assert (Hq : Ascii.eqb (ch 34) (ch 34) = true) by apply Ascii.eqb_refl.
   cbn [String.append]. rewrite Ho, Hq.
-  rewrite <- Hin. apply (parse_strlit_prim_correct val TAIL Hlit).
+  rewrite <- Hin. apply (parse_strlit_prim_correct val TAIL).
 Qed.
 Lemma binop_prec_lt6 : forall o, binop_prec o < 6.
 Proof. intro o; destruct o; cbn [binop_prec]; lia. Qed.
@@ -3569,4 +3573,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z strlit_ok build_atom.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z strlit_ok strlit_value build_atom.
