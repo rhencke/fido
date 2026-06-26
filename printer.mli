@@ -374,9 +374,11 @@ val is_selector_shaped : string -> bool
 
 val unary_op_led : string -> bool
 
-val d0_sep_aux : bool -> bool -> nat -> string -> bool
+val is_hex_led : string -> bool
 
-val has_d0_sep : string -> bool
+val d0_break_aux : bool -> bool -> bool -> bool -> nat -> string -> bool
+
+val has_d0_break : string -> bool
 
 val leading_ident : string -> string
 

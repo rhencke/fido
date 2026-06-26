@@ -2329,9 +2329,44 @@ let unary_op_led = function
 | EmptyString -> False
 | String (c, _) -> is_unop_char c
 
-(** val d0_sep_aux : bool -> bool -> nat -> string -> bool **)
+(** val is_hex_led : string -> bool **)
 
-let rec d0_sep_aux instr esc d = function
+let is_hex_led = function
+| EmptyString -> False
+| String (c0, s0) ->
+  (match s0 with
+   | EmptyString -> False
+   | String (c1, _) ->
+     (match eqb0 c0
+              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))) with
+      | True ->
+        (match eqb0 c1
+                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+         | True -> True
+         | False ->
+           eqb0 c1
+             (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S
+               O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+      | False -> False))
+
+(** val d0_break_aux :
+    bool -> bool -> bool -> bool -> nat -> string -> bool **)
+
+let rec d0_break_aux hexf prevp instr esc d = function
 | EmptyString -> False
 | String (c, s') ->
   (match esc with
@@ -2340,9 +2375,30 @@ let rec d0_sep_aux instr esc d = function
      let found = False in
      let Pair (p0, d') = p in
      let Pair (instr', esc') = p0 in
+     let prevp' =
+       match negb instr with
+       | True ->
+         (match eqb0 c
+                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+          | True -> True
+          | False ->
+            eqb0 c
+              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+       | False -> False
+     in
      (match found with
       | True -> True
-      | False -> d0_sep_aux instr' esc' d' s')
+      | False -> d0_break_aux hexf prevp' instr' esc' d' s')
    | False ->
      (match instr with
       | True ->
@@ -2358,9 +2414,32 @@ let rec d0_sep_aux instr esc d = function
            let found = False in
            let Pair (p0, d') = p in
            let Pair (instr', esc') = p0 in
+           let prevp' =
+             match negb instr with
+             | True ->
+               (match eqb0 c
+                        (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S
+                          O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                | True -> True
+                | False ->
+                  eqb0 c
+                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S
+                      O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+             | False -> False
+           in
            (match found with
             | True -> True
-            | False -> d0_sep_aux instr' esc' d' s')
+            | False -> d0_break_aux hexf prevp' instr' esc' d' s')
          | False ->
            (match eqb0 c
                     (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
@@ -2371,17 +2450,65 @@ let rec d0_sep_aux instr esc d = function
               let found = False in
               let Pair (p0, d') = p in
               let Pair (instr', esc') = p0 in
+              let prevp' =
+                match negb instr with
+                | True ->
+                  (match eqb0 c
+                           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S
+                             O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                   | True -> True
+                   | False ->
+                     eqb0 c
+                       (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S
+                         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                | False -> False
+              in
               (match found with
                | True -> True
-               | False -> d0_sep_aux instr' esc' d' s')
+               | False -> d0_break_aux hexf prevp' instr' esc' d' s')
             | False ->
               let p = Pair ((Pair (True, False)), d) in
               let found = False in
               let Pair (p0, d') = p in
               let Pair (instr', esc') = p0 in
+              let prevp' =
+                match negb instr with
+                | True ->
+                  (match eqb0 c
+                           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S
+                             O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                   | True -> True
+                   | False ->
+                     eqb0 c
+                       (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S
+                         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                | False -> False
+              in
               (match found with
                | True -> True
-               | False -> d0_sep_aux instr' esc' d' s')))
+               | False -> d0_break_aux hexf prevp' instr' esc' d' s')))
       | False ->
         (match eqb0 c
                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
@@ -2392,9 +2519,32 @@ let rec d0_sep_aux instr esc d = function
            let found = False in
            let Pair (p0, d') = p in
            let Pair (instr', esc') = p0 in
+           let prevp' =
+             match negb instr with
+             | True ->
+               (match eqb0 c
+                        (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S
+                          O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                | True -> True
+                | False ->
+                  eqb0 c
+                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S
+                      O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+             | False -> False
+           in
            (match found with
             | True -> True
-            | False -> d0_sep_aux instr' esc' d' s')
+            | False -> d0_break_aux hexf prevp' instr' esc' d' s')
          | False ->
            (match is_bopen c with
             | True ->
@@ -2402,9 +2552,33 @@ let rec d0_sep_aux instr esc d = function
               let found = False in
               let Pair (p0, d') = p in
               let Pair (instr', esc') = p0 in
+              let prevp' =
+                match negb instr with
+                | True ->
+                  (match eqb0 c
+                           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S
+                             O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                   | True -> True
+                   | False ->
+                     eqb0 c
+                       (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                         (S (S (S (S (S (S (S (S (S (S (S (S
+                         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                | False -> False
+              in
               (match found with
                | True -> True
-               | False -> d0_sep_aux instr' esc' d' s')
+               | False -> d0_break_aux hexf prevp' instr' esc' d' s')
             | False ->
               (match is_bclose c with
                | True ->
@@ -2412,39 +2586,114 @@ let rec d0_sep_aux instr esc d = function
                  let found = False in
                  let Pair (p0, d') = p in
                  let Pair (instr', esc') = p0 in
-                 (match found with
-                  | True -> True
-                  | False -> d0_sep_aux instr' esc' d' s')
-               | False ->
-                 let p = Pair ((Pair (False, False)), d) in
-                 let found =
-                   match Nat.eqb d O with
+                 let prevp' =
+                   match negb instr with
                    | True ->
                      (match eqb0 c
                               (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                                O))))))))))))))))))))))))))))))))))))))))))))) with
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S
+                                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
                       | True -> True
                       | False ->
                         eqb0 c
                           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                            (S (S (S (S (S (S (S (S (S (S (S
-                            O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                   | False -> False
+                 in
+                 (match found with
+                  | True -> True
+                  | False -> d0_break_aux hexf prevp' instr' esc' d' s')
+               | False ->
+                 let p = Pair ((Pair (False, False)), d) in
+                 let found =
+                   match Nat.eqb d O with
+                   | True ->
+                     (match match eqb0 c
+                                    (ch (S (S (S (S (S (S (S (S (S (S (S (S
+                                      (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                      (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                      (S (S (S (S (S (S
+                                      O))))))))))))))))))))))))))))))))))))))))))))) with
+                            | True -> True
+                            | False ->
+                              eqb0 c
+                                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                  (S (S (S
+                                  O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                      | True -> True
+                      | False ->
+                        (match is_op_char c with
+                         | True ->
+                           negb
+                             (match match hexf with
+                                    | True -> prevp
+                                    | False -> False with
+                              | True ->
+                                (match eqb0 c
+                                         (ch (S (S (S (S (S (S (S (S (S (S (S
+                                           (S (S (S (S (S (S (S (S (S (S (S
+                                           (S (S (S (S (S (S (S (S (S (S (S
+                                           (S (S (S (S (S (S (S (S (S (S
+                                           O)))))))))))))))))))))))))))))))))))))))))))) with
+                                 | True -> True
+                                 | False ->
+                                   eqb0 c
+                                     (ch (S (S (S (S (S (S (S (S (S (S (S (S
+                                       (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                       (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                       (S (S (S (S (S (S (S
+                                       O)))))))))))))))))))))))))))))))))))))))))))))))
+                              | False -> False)
+                         | False -> False))
                    | False -> False
                  in
                  let Pair (p0, d') = p in
                  let Pair (instr', esc') = p0 in
+                 let prevp' =
+                   match negb instr with
+                   | True ->
+                     (match eqb0 c
+                              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S
+                                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                      | True -> True
+                      | False ->
+                        eqb0 c
+                          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                   | False -> False
+                 in
                  (match found with
                   | True -> True
-                  | False -> d0_sep_aux instr' esc' d' s'))))))
+                  | False -> d0_break_aux hexf prevp' instr' esc' d' s'))))))
 
-(** val has_d0_sep : string -> bool **)
+(** val has_d0_break : string -> bool **)
 
-let has_d0_sep s =
-  d0_sep_aux False False O s
+let has_d0_break s =
+  d0_break_aux (is_hex_led s) False False False O s
 
 (** val leading_ident : string -> string **)
 
@@ -2510,7 +2759,7 @@ let raw_ok s =
         | True -> negb (is_selector_shaped s)
         | False -> False with
   | True ->
-    (match match negb (has_d0_sep s) with
+    (match match negb (has_d0_break s) with
            | True -> negb (leading_is_keyword s)
            | False -> False with
      | True -> negb (unary_op_led s)

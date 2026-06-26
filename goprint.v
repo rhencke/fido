@@ -1883,16 +1883,31 @@ Definition is_selector_shaped (s : string) : bool :=
     negative LITERAL ([SIntLit]), not unary, so it is NOT excluded. *)
 Definition unary_op_led (s : string) : bool :=
   match s with String c _ => is_unop_char c | _ => false end.
-(** RAW HARDENING (review #6 item 1) — the bracket+quote scanner alone is too permissive for atom shapes.
-    [has_d0_sep s]: a depth-0 ',' (ch 44) or ';' (ch 59) — separators that NEVER occur in a single atom
-    (commas live INSIDE brackets, semicolons separate statements), tracked quote/bracket-aware like
-    [split_idx_aux].  [leading_is_keyword s]: the leading identifier RUN is a Go keyword — so [return()] /
-    [func()] (whole string not a keyword, but keyword-LED) are rejected, which the existing whole-string
-    [go_keyword] check misses.  KNOWN-STILL-ALLOWED (documented, NOT yet rejected — see the regression
-    [raw_unspaced_binop_KNOWN_ALLOWANCE] below): unspaced binary [a+b] — the operator-vs-unary ambiguity
-    ([a+b] binary vs [-5]/[*p]/[&x] unary) makes it un-rejectable at the STRING layer; it is eliminated by
-    STRUCTURE (the [EBin] node / future [SUnary]), not by [raw_ok], so the plugin never emits it as an atom. *)
-Fixpoint d0_sep_aux (instr esc : bool) (d : nat) (s : string) : bool :=
+(** RAW HARDENING (review #6 item 1; review #7 — the unspaced-binop hole CLOSED) — the bracket+quote
+    scanner alone is too permissive for atom shapes.  [has_d0_break s]: a depth-0 char that BREAKS the
+    string into more than one token — a separator ',' (ch 44) / ';' (ch 59), OR a binary-OPERATOR char
+    ([is_op_char]: + - * / % < > & ^ | = !) — tracked quote/bracket-aware like [split_idx_aux].  These
+    NEVER occur at depth 0 in a single PRIMARY atom (commas/operators live INSIDE brackets; a depth-0
+    operator means a binary expression).  This is what makes the unspaced [a+b] FAIL [raw_ok] (review #7:
+    a known-accepted invalid shape is a bug, not an allowance) — the [-5] negative literal is NOT affected
+    (it is [SIntLit] via [is_dec], built BEFORE [raw_ok]); a depth-0 leading unary [!]/[^]/[*]/[&] is
+    separately rejected by [unary_op_led] (it is an [EUnary], not an atom).  [leading_is_keyword s]: the
+    leading identifier RUN is a Go keyword — so [return()] / [if()] (keyword-LED, not whole-keyword) are
+    rejected, which the whole-string [go_keyword] check misses. *)
+(** A HEX-led atom ([0x]/[0X]…) — the only context where a depth-0 '+'/'-' can be a (hex-float) EXPONENT
+    sign rather than a binary operator.  Go hex-float literals are [0x<mantissa>p<sign><exp>]; the [p]/[P]
+    immediately precedes the exponent sign.  (Decimal floats would use [e]/[E], but the plugin emits floats
+    as HEX via [print_float_hex], so only the hex case occurs — checked against the golden.) *)
+Definition is_hex_led (s : string) : bool :=
+  match s with
+  | String c0 (String c1 _) =>
+      andb (Ascii.eqb c0 (ch 48)) (orb (Ascii.eqb c1 (ch 120)) (Ascii.eqb c1 (ch 88)))
+  | _ => false
+  end.
+(** [prevp] = the previous depth-0 char was [p]/[P] (a hex-float exponent marker).  A '+'/'-' right after
+    it, in a [hexf] atom, is the exponent SIGN (part of the literal) — NOT a break.  Every OTHER depth-0
+    operator char, and any other '+'/'-', breaks the atom (it is a binary expression, not a primary). *)
+Fixpoint d0_break_aux (hexf prevp instr esc : bool) (d : nat) (s : string) : bool :=
   match s with
   | EmptyString => false
   | String c s' =>
@@ -1906,11 +1921,17 @@ Fixpoint d0_sep_aux (instr esc : bool) (d : nat) (s : string) : bool :=
           (if Ascii.eqb c (ch 34) then (true, false, d, false)
            else if is_bopen c then (false, false, S d, false)
            else if is_bclose c then (false, false, Nat.pred d, false)
-           else (false, false, d, andb (Nat.eqb d 0) (orb (Ascii.eqb c (ch 44)) (Ascii.eqb c (ch 59)))))
+           else (false, false, d,
+                 andb (Nat.eqb d 0)
+                   (orb (orb (Ascii.eqb c (ch 44)) (Ascii.eqb c (ch 59)))
+                        (andb (is_op_char c)
+                              (negb (andb (andb hexf prevp)
+                                          (orb (Ascii.eqb c (ch 43)) (Ascii.eqb c (ch 45)))))))))
       in
-      if found then true else d0_sep_aux instr' esc' d' s'
+      let prevp' := andb (negb instr) (orb (Ascii.eqb c (ch 112)) (Ascii.eqb c (ch 80))) in
+      if found then true else d0_break_aux hexf prevp' instr' esc' d' s'
   end.
-Definition has_d0_sep (s : string) : bool := d0_sep_aux false false 0 s.
+Definition has_d0_break (s : string) : bool := d0_break_aux (is_hex_led s) false false false 0 s.
 Fixpoint leading_ident (s : string) : string :=
   match s with
   | EmptyString => EmptyString
@@ -1928,7 +1949,7 @@ Definition leading_is_keyword (s : string) : bool :=
 Definition raw_ok (s : string) : bool :=
   andb (andb (andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)))
                    (negb (quote_led s))) (negb (go_keyword s))) (negb (is_selector_shaped s)))
-       (andb (andb (negb (has_d0_sep s)) (negb (leading_is_keyword s))) (negb (unary_op_led s))).
+       (andb (andb (negb (has_d0_break s)) (negb (leading_is_keyword s))) (negb (unary_op_led s))).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
   intros s H. unfold raw_ok in H.
@@ -1998,11 +2019,20 @@ Example raw_d0_semi_rejected   : raw_ok "a;b"      = false. Proof. reflexivity. 
 Example raw_kw_return_rejected : raw_ok "return()" = false. Proof. reflexivity. Qed.
 Example raw_ok_funclit_call_kept :
   raw_ok "func(x int64, y int64) int64 { return x - y }(0, 7)" = true. Proof. reflexivity. Qed.
-(** KNOWN STILL-ALLOWED (documented, review #6 item 1): unspaced binary [a+b] passes [raw_ok].  The
-    operator-vs-unary ambiguity ([a+b] binary vs [-5]/[*p]/[&x] unary) makes it un-rejectable at the STRING
-    layer; it is eliminated by STRUCTURE (the [EBin] node / future [SUnary]), not [raw_ok] — the plugin
-    never emits an unspaced binop as an atom (it prints binops as spaced [EBin] trees). *)
-Example raw_unspaced_binop_KNOWN_ALLOWANCE : raw_ok "a+b" = true. Proof. reflexivity. Qed.
+(** review #7 — the unspaced-binop hole is CLOSED: a depth-0 operator char makes [raw_ok] FALSE, so an
+    unspaced binary [a+b] is REJECTED as an atom (it is not a primary).  The [-5] negative literal is
+    unaffected (built as [SIntLit] before [raw_ok]); [*p]/[&x]/[!b] are [EUnary], rejected by
+    [unary_op_led].  These were the cases the old "known allowance" hand-waved — now machine-checked dead. *)
+Example raw_unspaced_binop_rejected : raw_ok "a+b" = false. Proof. reflexivity. Qed.
+Example raw_unspaced_mul_rejected   : raw_ok "a*b" = false. Proof. reflexivity. Qed.
+Example raw_unspaced_or_rejected    : raw_ok "x|y" = false. Proof. reflexivity. Qed.
+Example raw_unspaced_sub_rejected   : raw_ok "a-b" = false. Proof. reflexivity. Qed.
+Example raw_neg_dec_still_intlit    : is_dec "-5" = true.   Proof. reflexivity. Qed.
+(* the hex-float EXPONENT sign [p-51] is part of the literal, NOT a binary op — still a valid raw atom *)
+Example raw_hex_float_exp_kept      : raw_ok "0x14000000000000p-51" = true. Proof. reflexivity. Qed.
+Example raw_hex_float_pos_exp_kept  : raw_ok "0x18000000000000p+3"  = true. Proof. reflexivity. Qed.
+(* but a hex-INT followed by a binary '-' ([0x1E-5] = [0x1E - 5]) is NOT exempt (E is a hex digit, not p) *)
+Example raw_hexint_minus_rejected   : raw_ok "0x1E-5" = false. Proof. reflexivity. Qed.
 
 (** A structured Go ATOM.  Validity is carried IN THE TYPE (malformed atom text UNREPRESENTABLE), and a
     SELECTOR is RECURSIVE ([x.f.g] = nested [SSelector]).  Two layers, because a selector's operand must be
