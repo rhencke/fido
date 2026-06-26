@@ -36,6 +36,8 @@ type 'a sig0 = 'a
 
 val add : nat -> nat -> nat
 
+val mul : nat -> nat -> nat
+
 val sub : nat -> nat -> nat
 
 val eqb : bool -> bool -> bool
@@ -261,6 +263,14 @@ val esc_string : string -> string
 
 val print_string_lit : string -> string
 
+val unhex : ascii -> nat
+
+val unescape : string -> string
+
+val but_last : string -> string
+
+val is_strlit : string -> bool
+
 val hex_digits : nat -> z -> string -> string
 
 val print_hex : z -> string
@@ -334,11 +344,14 @@ val all_dec : string -> bool
 
 val is_dec : string -> bool
 
+val strlit_ok : string -> bool
+
 val raw_ok : string -> bool
 
 type goAtom =
 | AIdent of ident
 | AIntLit of z
+| AStringLit of string
 | ARaw of string
 
 val atom_str : goAtom -> string

@@ -597,18 +597,19 @@ let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_i
 (* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
    The SOLE sanctioned construction sites for the PROOF-CARRYING [Printer] atoms / types.  The
    extracted [GoAtom] / [GoTy] constructors erase their Rocq validity proofs to a bare string / [Z],
-   so a DIRECT [Printer.AIdent s] / [Printer.AIntLit z] / [Printer.ARaw s] / [Printer.GTNamed s]
-   would let invalid text bypass the very invariant [print_parse_expr] / [parse_print_ty] rely on
-   (review #4 directive: an erased proof MUST be re-checked at the boundary).  Each smart constructor
-   re-checks the EXACT predicate its sig demands and fail-louds otherwise; the [make smart-ctor-gate]
-   target (run in the Docker prover stage AND pre-commit) BANS any direct use of those four
-   constructors ANYWHERE outside this block.  ([printer.ml] DEFINES them — a separate file — so it
-   is naturally out of scope.) *)
+   so a DIRECT [Printer.AIdent s] / [Printer.AIntLit z] / [Printer.AStringLit s] / [Printer.ARaw s] /
+   [Printer.GTNamed s] would let invalid text bypass the very invariant [print_parse_expr] /
+   [parse_print_ty] rely on (review #4 directive: an erased proof MUST be re-checked at the boundary).
+   Each smart constructor re-checks the EXACT predicate its sig demands and fail-louds otherwise; the
+   [make smart-ctor-gate] target (run in the Docker prover stage AND pre-commit) BANS any direct use of
+   those five constructors ANYWHERE outside this block.  ([printer.ml] DEFINES them — a separate file —
+   so it is naturally out of scope.) *)
 let mk_atom s =
   (* the atom DISAMBIGUATION, mirroring the parser's [build_atom]: a Go identifier -> [AIdent]; a
-     decimal integer literal -> [AIntLit] (its [Z] via [parse_Z]); any other [raw_ok] string ->
-     [ARaw]; a malformed operand (not [atom_ok]) ABORTS — so the executed path lands in exactly the
-     structured atom the round-trip covers. *)
+     decimal integer literal -> [AIntLit] (its [Z] via [parse_Z]); a canonical string literal ->
+     [AStringLit] ([strlit_ok]); any other [raw_ok] string -> [ARaw] (the quarantined hatch); a
+     malformed operand (not [atom_ok]) ABORTS — so the executed path lands in exactly the structured
+     atom the round-trip covers. *)
   let cs = coq_string_of_ocaml s in
   (match Printer.go_ident cs with
    | Printer.True  -> Printer.EAtom (Printer.AIdent cs)
@@ -616,10 +617,13 @@ let mk_atom s =
      (match Printer.is_dec cs with
       | Printer.True  -> Printer.EAtom (Printer.AIntLit (Printer.parse_Z cs))
       | Printer.False ->
-        (match Printer.raw_ok cs with
-         | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
-         | Printer.False -> unsupported (Printf.sprintf
-             "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s))))
+        (match Printer.strlit_ok cs with
+         | Printer.True  -> Printer.EAtom (Printer.AStringLit cs)
+         | Printer.False ->
+           (match Printer.raw_ok cs with
+            | Printer.True  -> Printer.EAtom (Printer.ARaw cs)
+            | Printer.False -> unsupported (Printf.sprintf
+                "build_goexpr: a malformed operand (not atom_ok) would escape the verified expression round-trip: %s" s)))))
 let mk_named_ty s =
   (* a nominal type name -> [GTNamed], re-checking [nominal_type_ident] (not a Go keyword / builtin
      type name — either would emit invalid Go and bypass the verified GTNamed invariant). *)

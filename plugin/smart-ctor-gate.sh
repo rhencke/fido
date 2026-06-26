@@ -1,7 +1,7 @@
 #!/bin/sh
 # Smart-constructor gate (external review #4 directive).
 #
-# The proof-carrying Printer atom/type constructors — AIdent / AIntLit / ARaw / GTNamed — erase
+# The proof-carrying Printer atom/type constructors — AIdent / AIntLit / AStringLit / ARaw / GTNamed — erase
 # their Rocq validity proofs to a bare string / Z in the extracted OCaml.  So a DIRECT call like
 # `Printer.ARaw "a+b"` or `Printer.GTNamed "func"` would inject text the verified round-trip
 # (print_parse_expr) / type round-trip (parse_print_ty) never proved valid — re-opening exactly the
@@ -9,7 +9,7 @@
 #
 # The mk_atom / mk_named_ty smart constructors (the SMART-CONSTRUCTORS block of plugin/go.ml) are the
 # SOLE sanctioned construction sites: each re-checks the EXACT predicate its sig demands and fail-louds
-# otherwise.  This gate asserts nothing else constructs those four directly.  plugin/printer.ml DEFINES
+# otherwise.  This gate asserts nothing else constructs those five directly.  plugin/printer.ml DEFINES
 # them (a separate file) so it is naturally out of scope — we only scan plugin/go.ml.
 #
 # Run from the repo root: locally via `make smart-ctor-gate` and the pre-commit hook, and
@@ -29,7 +29,7 @@ fi
 offenders=$(awk '
   /SMART-CONSTRUCTORS-BEGIN/{s=1}
   /SMART-CONSTRUCTORS-END/{s=0; next}
-  !s && /Printer\.(AIdent|AIntLit|ARaw|GTNamed)/ {print FILENAME ":" NR ": " $0}
+  !s && /Printer\.(AIdent|AIntLit|AStringLit|ARaw|GTNamed)/ {print FILENAME ":" NR ": " $0}
 ' "$f")
 
 if [ -n "$offenders" ]; then

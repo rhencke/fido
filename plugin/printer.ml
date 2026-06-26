@@ -59,6 +59,13 @@ module Coq__1 = struct
 end
 include Coq__1
 
+(** val mul : nat -> nat -> nat **)
+
+let rec mul n0 m =
+  match n0 with
+  | O -> O
+  | S p -> add m (mul p m)
+
 (** val sub : nat -> nat -> nat **)
 
 let rec sub n0 m =
@@ -1490,6 +1497,158 @@ let print_string_lit s =
          O))))))))))))))))))))))))))))))))))),
       EmptyString))))
 
+(** val unhex : ascii -> nat **)
+
+let unhex c =
+  let v = nat_of_ascii c in
+  (match Nat.leb v (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           O))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+   | True ->
+     sub v (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))))
+   | False ->
+     sub v (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val unescape : string -> string **)
+
+let rec unescape = function
+| EmptyString -> EmptyString
+| String (c1, rest) ->
+  (match Nat.eqb (nat_of_ascii c1) (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S
+           O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+   | True ->
+     (match rest with
+      | EmptyString -> EmptyString
+      | String (c2, rest2) ->
+        let d = nat_of_ascii c2 in
+        (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 O)))))))))))))))))))))))))))))))))) with
+         | True ->
+           String
+             ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))),
+             (unescape rest2))
+         | False ->
+           (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+            | True ->
+              String
+                ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+                (unescape rest2))
+            | False ->
+              (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S
+                       O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+               | True ->
+                 String ((ch (S (S (S (S (S (S (S (S (S (S O))))))))))),
+                   (unescape rest2))
+               | False ->
+                 (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                  | True ->
+                    String ((ch (S (S (S (S (S (S (S (S (S O)))))))))),
+                      (unescape rest2))
+                  | False ->
+                    (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                             (S (S (S (S (S
+                             O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                     | True ->
+                       String
+                         ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S
+                            O)))))))))))))),
+                         (unescape rest2))
+                     | False ->
+                       (match Nat.eqb d (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S
+                                O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                        | True ->
+                          (match rest2 with
+                           | EmptyString -> EmptyString
+                           | String (h1, s0) ->
+                             (match s0 with
+                              | EmptyString -> EmptyString
+                              | String (h2, rest3) ->
+                                String
+                                  ((ch
+                                     (add
+                                       (mul (S (S (S (S (S (S (S (S (S (S (S
+                                         (S (S (S (S (S O))))))))))))))))
+                                         (unhex h1))
+                                       (unhex h2))),
+                                  (unescape rest3))))
+                        | False -> EmptyString)))))))
+   | False -> String (c1, (unescape rest)))
+
+(** val but_last : string -> string **)
+
+let rec but_last = function
+| EmptyString -> EmptyString
+| String (c, rest) ->
+  (match rest with
+   | EmptyString -> EmptyString
+   | String (_, _) -> String (c, (but_last rest)))
+
+(** val is_strlit : string -> bool **)
+
+let is_strlit a = match a with
+| EmptyString -> False
+| String (c, rest) ->
+  (match eqb0 c
+           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))) with
+   | True ->
+     (match rest with
+      | EmptyString -> False
+      | String (_, _) -> eqb1 (print_string_lit (unescape (but_last rest))) a)
+   | False -> False)
+
 (** val hex_digits : nat -> z -> string -> string **)
 
 let rec hex_digits fuel z0 acc =
@@ -2021,18 +2180,28 @@ let is_dec = function
                | True -> all_dec rest
                | False -> False))
 
+(** val strlit_ok : string -> bool **)
+
+let strlit_ok s =
+  match atom_ok s with
+  | True -> is_strlit s
+  | False -> False
+
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match atom_ok s with
-        | True -> negb (go_ident s)
+  match match match atom_ok s with
+              | True -> negb (go_ident s)
+              | False -> False with
+        | True -> negb (is_dec s)
         | False -> False with
-  | True -> negb (is_dec s)
+  | True -> negb (is_strlit s)
   | False -> False
 
 type goAtom =
 | AIdent of ident
 | AIntLit of z
+| AStringLit of string
 | ARaw of string
 
 (** val atom_str : goAtom -> string **)
@@ -2040,6 +2209,7 @@ type goAtom =
 let atom_str = function
 | AIdent i -> i
 | AIntLit z0 -> print_Z z0
+| AStringLit r -> r
 | ARaw r -> r
 
 type goExpr =

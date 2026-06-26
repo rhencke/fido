@@ -633,6 +633,38 @@ Proof.
   cbn [esc_string]. rewrite unescape_esc_byte, IH. reflexivity.
 Qed.
 
+(** ---- STRING-LITERAL ATOM RECOGNITION ---- [is_strlit a] decides whether [a] is a CANONICAL Go
+    string literal — i.e. [a = print_string_lit s] for the [s] it decodes to.  It strips the opening
+    and closing quote chars ([but_last] drops the trailing one), [unescape]s the body, and RE-PRINTS:
+    the re-print equality IS the validator (it rejects a missing close, an internal UNescaped quote, or
+    any non-canonical escaping — all of which re-escape to something not equal to [a]).  This lets
+    [GoAtom]'s [AStringLit] structure a string literal SEPARATELY from a generic [ARaw] atom, so the
+    printer surface is Go-shaped, not string-shaped. *)
+Fixpoint but_last (s : string) : string :=
+  match s with
+  | EmptyString  => EmptyString
+  | String c rest => match rest with EmptyString => EmptyString | String _ _ => String c (but_last rest) end
+  end.
+Definition is_strlit (a : string) : bool :=
+  match a with
+  | EmptyString  => false
+  | String c rest =>
+      andb (Ascii.eqb c (ch 34))
+           (match rest with
+            | EmptyString => false   (* a lone opening quote is not a literal *)
+            | String _ _  => String.eqb (print_string_lit (unescape (but_last rest))) a
+            end)
+  end.
+Lemma is_strlit_cons : forall a, is_strlit a = true -> exists rest, a = String (ch 34) rest.
+Proof.
+  intros a H. unfold is_strlit in H. destruct a as [ | c rest ]; [ discriminate | ].
+  apply andb_true_iff in H. destruct H as [ Hq _ ]. apply Ascii.eqb_eq in Hq. subst c.
+  exists rest. reflexivity.
+Qed.
+Example is_strlit_hello : is_strlit (print_string_lit "hello") = true. Proof. reflexivity. Qed.
+Example is_strlit_empty : is_strlit (print_string_lit "") = true.      Proof. reflexivity. Qed.
+Example is_strlit_lone_quote : is_strlit (String (ch 34) "") = false.  Proof. reflexivity. Qed.
+
 (** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex (replacing go.ml's [Printf.sprintf "0x%x"] for
     fixed-width bit masks / sign bits). *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
@@ -1345,43 +1377,82 @@ Proof.
     rewrite Hz in HD. cbn [all_dec] in HD. apply andb_true_iff in HD. apply HD.
 Qed.
 
-(** [raw_ok s] — a NON-identifier, NON-decimal well-formed atom: [atom_ok] AND not a [go_ident] AND not
-    [is_dec] (so identifiers structure as [AIdent] and decimals as [AIntLit] — [ARaw] is everything else:
-    a call, cast, string literal, …).  The 3-way split lets the round-trip DISAMBIGUATE uniquely. *)
-Definition raw_ok (s : string) : bool := andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)).
+(** A STRING-LITERAL atom: [atom_ok] (so it scans / round-trips) AND a canonical [is_strlit].  Quote-led,
+    so DISJOINT from [go_ident] (identifier-led) and [is_dec] (digit/'-'-led) — the round-trip
+    DISAMBIGUATES it from [AIdent] / [AIntLit]. *)
+Definition strlit_ok (s : string) : bool := andb (atom_ok s) (is_strlit s).
+Lemma strlit_ok_atom_ok : forall s, strlit_ok s = true -> atom_ok s = true.
+Proof. intros s H. apply andb_true_iff in H. apply H. Qed.
+Lemma strlit_ok_is_strlit : forall s, strlit_ok s = true -> is_strlit s = true.
+Proof. intros s H. apply andb_true_iff in H. apply H. Qed.
+Lemma strlit_ok_not_go_ident : forall s, strlit_ok s = true -> go_ident s = false.
+Proof.
+  intros s H. apply andb_true_iff in H. destruct H as [ _ Hs ].
+  destruct (is_strlit_cons s Hs) as [ rest -> ]. reflexivity.
+Qed.
+Lemma strlit_ok_not_is_dec : forall s, strlit_ok s = true -> is_dec s = false.
+Proof.
+  intros s H. apply andb_true_iff in H. destruct H as [ _ Hs ].
+  destruct (is_strlit_cons s Hs) as [ rest -> ]. reflexivity.
+Qed.
+
+(** [raw_ok s] — a well-formed atom that is NONE of the structured forms: [atom_ok] AND not [go_ident]
+    AND not [is_dec] AND not [is_strlit] (so identifiers -> [AIdent], decimals -> [AIntLit], string
+    literals -> [AStringLit]; [ARaw] is the QUARANTINED escape hatch for everything still unstructured —
+    a call, cast, selector, …).  The 4-way split lets the round-trip DISAMBIGUATE uniquely. *)
+Definition raw_ok (s : string) : bool :=
+  andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s))) (negb (is_strlit s)).
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
-  intros s H. apply andb_true_iff in H. destruct H as [ H _ ].
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ Ha _ ]. exact Ha.
 Qed.
 Lemma raw_ok_not_ident : forall s, raw_ok s = true -> go_ident s = false.
 Proof.
-  intros s H. apply andb_true_iff in H. destruct H as [ H _ ].
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_dec : forall s, raw_ok s = true -> is_dec s = false.
 Proof.
-  intros s H. apply andb_true_iff in H. destruct H as [ _ Hn ].
-  apply negb_true_iff in Hn. exact Hn.
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ H _ ].
+  apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
+Qed.
+Lemma raw_ok_not_strlit : forall s, raw_ok s = true -> is_strlit s = false.
+Proof.
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 
 (** A structured Go ATOM, validity carried IN THE TYPE (malformed atom text UNREPRESENTABLE): a validated
     IDENTIFIER ([AIdent]), a DECIMAL INTEGER LITERAL ([AIntLit], carrying the [Z] itself — its text is the
-    canonical [print_Z], so NO proof is needed: every [Z] prints to a well-formed atom), or a "raw" atom
-    ([ARaw] — [atom_ok] but neither an identifier nor a decimal: a call, cast, string literal, …).
-    [GoAtom] extracts to a 3-constructor type over bare strings / [Z] (proofs erased); [atom_str] is the
+    canonical [print_Z], so NO proof is needed: every [Z] prints to a well-formed atom), a STRING LITERAL
+    ([AStringLit] — a [strlit_ok] atom: a canonical [print_string_lit]), or a "raw" atom ([ARaw] — the
+    QUARANTINED escape hatch: [atom_ok] but none of the structured forms, e.g. a call / cast / selector).
+    [GoAtom] extracts to a 4-constructor type over bare strings / [Z] (proofs erased); [atom_str] is the
     underlying text, always [atom_ok]. *)
 Inductive GoAtom : Type :=
-  | AIdent  : Ident -> GoAtom
-  | AIntLit : Z -> GoAtom
-  | ARaw    : { s : string | raw_ok s = true } -> GoAtom.
+  | AIdent     : Ident -> GoAtom
+  | AIntLit    : Z -> GoAtom
+  | AStringLit : { s : string | strlit_ok s = true } -> GoAtom
+  | ARaw       : { s : string | raw_ok s = true } -> GoAtom.
 Definition atom_str (a : GoAtom) : string :=
-  match a with AIdent i => proj1_sig i | AIntLit z => print_Z z | ARaw r => proj1_sig r end.
+  match a with
+  | AIdent i     => proj1_sig i
+  | AIntLit z    => print_Z z
+  | AStringLit r => proj1_sig r
+  | ARaw r       => proj1_sig r
+  end.
 Lemma atom_str_atom_ok : forall a, atom_ok (atom_str a) = true.
 Proof.
-  intros [ i | z | r ]; cbn [atom_str].
+  intros [ i | z | r | r ]; cbn [atom_str].
   - apply go_ident_atom_ok, (proj2_sig i).
   - apply is_dec_atom_ok, is_dec_print_Z.
+  - apply strlit_ok_atom_ok, (proj2_sig r).
   - apply raw_ok_atom_ok, (proj2_sig r).
 Qed.
 
@@ -1656,15 +1727,18 @@ Definition build_atom (a : string) : option GoExpr :=
   | left Hi => Some (EAtom (AIdent (exist _ a Hi)))
   | right _ => match bool_dec (is_dec a) true with
                | left _  => Some (EAtom (AIntLit (parse_Z a)))
-               | right _ => match bool_dec (raw_ok a) true with
-                            | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
-                            | right _ => None
+               | right _ => match bool_dec (strlit_ok a) true with
+                            | left Hs => Some (EAtom (AStringLit (exist _ a Hs)))
+                            | right _ => match bool_dec (raw_ok a) true with
+                                         | left Hr => Some (EAtom (ARaw (exist _ a Hr)))
+                                         | right _ => None
+                                         end
                             end
                end
   end.
 Lemma build_atom_str : forall g, build_atom (atom_str g) = Some (EAtom g).
 Proof.
-  intros [ i | z | r ]; cbn [atom_str]; unfold build_atom.
+  intros [ i | z | r | r ]; cbn [atom_str]; unfold build_atom.
   - destruct i as [ s Hvi ]; cbn [proj1_sig].
     destruct (bool_dec (go_ident s) true) as [ Hd | Hd ].
     + do 3 f_equal. assert (E : Hd = Hvi) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
@@ -1675,13 +1749,25 @@ Proof.
     destruct (bool_dec (is_dec (print_Z z)) true) as [ Hd2 | Hd2 ].
     + do 3 f_equal. apply print_parse_Z.
     + exfalso. apply Hd2. exact Hdec.
-  - destruct r as [ s Hr ]; cbn [proj1_sig].
-    pose proof (raw_ok_not_ident _ Hr) as Hni. pose proof (raw_ok_not_dec _ Hr) as Hnd.
+  - (* AStringLit r: [strlit_ok], so not [go_ident] / not [is_dec] *)
+    destruct r as [ s Hr ]; cbn [proj1_sig].
+    pose proof (strlit_ok_not_go_ident _ Hr) as Hni. pose proof (strlit_ok_not_is_dec _ Hr) as Hnd.
     destruct (bool_dec (go_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
     destruct (bool_dec (is_dec s) true) as [ Hd2 | Hd2 ]; [ exfalso; congruence | ].
-    destruct (bool_dec (raw_ok s) true) as [ Hd3 | Hd3 ].
+    destruct (bool_dec (strlit_ok s) true) as [ Hd3 | Hd3 ].
     + do 3 f_equal. assert (E : Hd3 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
     + exfalso. apply Hd3. exact Hr.
+  - (* ARaw r: the quarantined hatch — not [go_ident] / not [is_dec] / not [strlit_ok] *)
+    destruct r as [ s Hr ]; cbn [proj1_sig].
+    pose proof (raw_ok_not_ident _ Hr) as Hni. pose proof (raw_ok_not_dec _ Hr) as Hnd.
+    pose proof (raw_ok_not_strlit _ Hr) as Hns.
+    destruct (bool_dec (go_ident s) true) as [ Hd | Hd ]; [ exfalso; congruence | ].
+    destruct (bool_dec (is_dec s) true) as [ Hd2 | Hd2 ]; [ exfalso; congruence | ].
+    destruct (bool_dec (strlit_ok s) true) as [ Hd3 | Hd3 ];
+      [ exfalso; pose proof (strlit_ok_is_strlit _ Hd3); congruence | ].
+    destruct (bool_dec (raw_ok s) true) as [ Hd4 | Hd4 ].
+    + do 3 f_equal. assert (E : Hd4 = Hr) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd4. exact Hr.
 Qed.
 
 (** The precedence-climbing parser (Go's binary-operator grammar): [parse_expr k] reads the maximal
@@ -1809,6 +1895,7 @@ Qed.
 Notation EA s := (EAtom (AIdent (exist _ s eq_refl))).
 Notation EAr s := (EAtom (ARaw (exist _ s eq_refl))).
 Notation EAi z := (EAtom (AIntLit z)).  (* a decimal integer-literal atom — carries the [Z], no proof *)
+Notation EAs v := (EAtom (AStringLit (exist _ (print_string_lit v) eq_refl))).  (* a string literal of value [v] *)
 
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
@@ -1879,6 +1966,16 @@ Example rt_intlit : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAi 42) (EAi 7)))
 Proof. reflexivity. Qed.
 Example rt_intlit_u63 : parse_expr 9 0 (print_expr 0 (EAi 9223372036854775808))
                       = Some (EAi 9223372036854775808, "").  (* the unsigned 2^63 — exact, no truncation *)
+Proof. reflexivity. Qed.
+(** STRING-LITERAL atoms ([AStringLit] — a canonical [print_string_lit]): [build_atom] DISAMBIGUATES a
+    quote-led canonical literal to [AStringLit], NOT [ARaw]; it round-trips, even as a binop operand, and
+    even with an embedded space (the interior space is not an operator seam). *)
+Example build_atom_strlit : build_atom (print_string_lit "hi") = Some (EAs "hi"). Proof. reflexivity. Qed.
+Example rt_strlit : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAs "a") (EAs "b")))
+                  = Some (EBin BAdd (EAs "a") (EAs "b"), "").  (* "a" + "b" *)
+Proof. reflexivity. Qed.
+Example rt_strlit_space : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAs "hello world") (EA "z")))
+                        = Some (EBin BAdd (EAs "hello world") (EA "z"), "").  (* "hello world" + z *)
 Proof. reflexivity. Qed.
 Example rt_funclit :
   parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)")
@@ -2417,4 +2514,4 @@ Print Assumptions print_sep_balanced.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z strlit_ok.
