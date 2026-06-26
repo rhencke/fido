@@ -779,6 +779,31 @@ Qed.
 Example is_strlit_hello : is_strlit (print_string_lit "hello") = true. Proof. reflexivity. Qed.
 Example is_strlit_empty : is_strlit (print_string_lit "") = true.      Proof. reflexivity. Qed.
 Example is_strlit_lone_quote : is_strlit (String (ch 34) "") = false.  Proof. reflexivity. Qed.
+(** [is_strlit] EXACTLY characterises a printed literal — both directions, for the string-literal primary:
+    EVERY [print_string_lit val] is [is_strlit] (so [AStringLit] needs no [atom_ok]), and every [is_strlit]
+    string IS some [print_string_lit val] (so the parser recovers the value).  [but_last_snoc] drops the
+    appended closing quote. *)
+Lemma but_last_snoc : forall X c, but_last (X ++ String c "")%string = X.
+Proof.
+  induction X as [ | a X' IH ]; intro c; [ reflexivity | ].
+  cbn [String.append but_last]. destruct (X' ++ String c "")%string eqn:E.
+  - destruct X'; cbn in E; discriminate.
+  - rewrite <- E, IH. reflexivity.
+Qed.
+Lemma is_strlit_print_string_lit : forall val, is_strlit (print_string_lit val) = true.
+Proof.
+  intro val. unfold print_string_lit, is_strlit. rewrite Ascii.eqb_refl. cbn [andb].
+  destruct (esc_string val ++ String (ch 34) "")%string eqn:E.
+  - exfalso. destruct (esc_string val); cbn in E; discriminate.
+  - rewrite <- E, but_last_snoc, esc_string_roundtrip. apply String.eqb_refl.
+Qed.
+Lemma is_strlit_print : forall lit, is_strlit lit = true -> exists val, lit = print_string_lit val.
+Proof.
+  intros lit H. unfold is_strlit in H. destruct lit as [ | c rest ]; [ discriminate | ].
+  apply andb_true_iff in H. destruct H as [ _ Hrest ].
+  destruct rest as [ | c2 rest2 ]; [ discriminate | ].
+  exists (unescape (but_last (String c2 rest2))). apply String.eqb_eq in Hrest. symmetry. exact Hrest.
+Qed.
 
 (** ---- SELECTOR SPLITTING ---- [split_last_dot s] splits [s] at its LAST '.' into [(operand, field)]
     with [operand ++ "." ++ field = s] (or [None] if no '.').  Used to recover a selector atom [x.f]:
