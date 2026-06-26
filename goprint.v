@@ -1203,6 +1203,49 @@ Definition is_bclose (c : ascii) : bool :=
   orb (orb (Ascii.eqb c (ascii_of_nat 41)) (Ascii.eqb c (ascii_of_nat 93))) (Ascii.eqb c (ascii_of_nat 125)).
 Definition is_open  (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 40).  (* '(' *)
 Definition is_close (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 41).  (* ')' *)
+(** ---- INDEX SPLITTING ---- [split_last_idx s] splits an index atom [operand[index]] at the '[' matching
+    its FINAL ']' (the LAST top-level '['), returning [(operand, index)].  QUOTE-AWARE: brackets inside a
+    string literal are opaque (so [m["["]] splits as [(m, "[")], not at the inner '['), tracking in-string
+    ([instr]) and escape ([esc]) state.  [split_idx_aux] keeps the LAST depth-0 '[' by preferring a split
+    found later in the string; the foundation for [SIndex], analogous to [split_last_dot] for [SSelector]. *)
+Fixpoint split_idx_aux (instr esc : bool) (d : nat) (s : string) : option (string * string) :=
+  match s with
+  | EmptyString => None
+  | String c s' =>
+      let '(instr', esc', d', is_split) :=
+        if esc then (instr, false, d, false)
+        else if instr then
+          (if Ascii.eqb c (ch 92) then (true, true, d, false)
+           else if Ascii.eqb c (ch 34) then (false, false, d, false)
+           else (true, false, d, false))
+        else
+          (if Ascii.eqb c (ch 34) then (true, false, d, false)
+           else if is_bopen c then (false, false, S d, andb (Nat.eqb d 0) (Ascii.eqb c (ch 91)))
+           else if is_bclose c then (false, false, Nat.pred d, false)
+           else (false, false, d, false))
+      in
+      match split_idx_aux instr' esc' d' s' with
+      | Some (op', idx') => Some (String c op', idx')
+      | None => if is_split then Some (EmptyString, s') else None
+      end
+  end.
+Fixpoint last_char (s : string) : option ascii :=
+  match s with EmptyString => None | String c EmptyString => Some c | String _ s' => last_char s' end.
+Definition split_last_idx (s : string) : option (string * string) :=
+  match split_idx_aux false false 0 s with
+  | Some (op, idxb) =>
+      match last_char idxb with
+      | Some lc => if Ascii.eqb lc (ch 93) then Some (op, but_last idxb) else None
+      | None => None
+      end
+  | None => None
+  end.
+Example split_idx_ai   : split_last_idx "a[i]"    = Some ("a", "i").       Proof. reflexivity. Qed.
+Example split_idx_aij  : split_last_idx "a[i][j]" = Some ("a[i]", "j").    Proof. reflexivity. Qed.
+Example split_idx_call : split_last_idx "f(x)[k]" = Some ("f(x)", "k").    Proof. reflexivity. Qed.
+Example split_idx_none : split_last_idx "xyz"     = None.                  Proof. reflexivity. Qed.
+(* QUOTE-AWARE: the '[' INSIDE the string-literal index "[" is opaque — the split is the operand's '['. *)
+Example split_idx_strkey : split_last_idx "m[""[""]" = Some ("m", """[""").  Proof. reflexivity. Qed.
 Definition opens (s : string) : bool := match op_match s with Some _ => true | None => false end.
 
 (** Read a primary's ATOM: from BRACKET-depth [d], stop at a depth-0 operator or a depth-0 ")" or end;
