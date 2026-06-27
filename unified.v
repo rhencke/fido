@@ -61,6 +61,21 @@ Record UConfig := mkUCfg {
 (** THE single small-step relation.  Concurrency/heap/channel rules mirror [rstep] (so the embedding in
     the next slice is rule-for-rule); the genuinely NEW rules are output, panic, defer-register, and the
     defer-running RETURN/PANIC rules that make defer + panic operational and faithful. *)
+(** Channel CAPACITY (review #8 P0-7): [ucap c] is channel [c]'s capacity — [None] = unbounded, [Some n] =
+    a buffer holding at most [n].  [uroom ucap b c] is "[c] has room for one more send": always for unbounded,
+    else iff the FIFO is shorter than the capacity.  A send STEPS only with room; a full-buffer send BLOCKS
+    (it is a [ublocked] shape), exactly Go's buffered-channel semantics — so [ustep_send] is no longer the
+    UNBOUNDED append the review flagged.  The relation is parametrised by [ucap]; the [rstep] embedding
+    instantiates it to [fun _ => None] (unbounded), matching the unbounded [rstep] buffer. *)
+Definition uroom (ucap : nat -> option nat) (b : nat -> list (nat * nat)) (c : nat) : bool :=
+  match ucap c with
+  | None   => true
+  | Some n => Nat.ltb (length (b c)) n
+  end.
+
+Section UStepCap.
+Variable ucap : nat -> option nat.
+
 Inductive ustep : UConfig -> UConfig -> Prop :=
   (* ---- heap ---- *)
   | ustep_write : forall p b h lv tr o df pa tid l v k,
@@ -73,7 +88,7 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
             (mkUCfg (upd p tid (f (h l))) b h lv (tr ++ [mkEv tid (KRead l)]) o df pa)
   (* ---- channels ---- *)
   | ustep_send : forall p b h lv tr o df pa tid c v k,
-      lv tid = true -> p tid = USend c v k -> closedb tr c = false ->
+      lv tid = true -> p tid = USend c v k -> closedb tr c = false -> uroom ucap b c = true ->
       ustep (mkUCfg p b h lv tr o df pa)
             (mkUCfg (upd p tid k) (upd b c (b c ++ [(v, length tr)])) h lv
                     (tr ++ [mkEv tid (KSend c)]) o df pa)
@@ -513,7 +528,9 @@ Definition ublocked (cfg : UConfig) (tid : nat) : Prop :=
   (exists c f, uc_prog cfg tid = URecv c f
                /\ uc_bufs cfg c = [] /\ closedb (uc_trace cfg) c = false)
   \/ (exists cases, uc_prog cfg tid = USelect cases
-                    /\ usel_ready_cl (uc_bufs cfg) (uc_trace cfg) cases = None).
+                    /\ usel_ready_cl (uc_bufs cfg) (uc_trace cfg) cases = None)
+  \/ (exists c v k, uc_prog cfg tid = USend c v k        (* blocked on a FULL buffer (review #8 P0-4/P0-7) *)
+                    /\ closedb (uc_trace cfg) c = false /\ uroom ucap (uc_bufs cfg) c = false).
 
 (** PROGRESS: a live goroutine that is NOT blocked-on-empty-open-recv means the whole config can step. *)
 Theorem uready_can_step : forall cfg tid,
@@ -532,7 +549,9 @@ Proof.
   - eexists. eapply ustep_defer; [exact Hlive | exact Hp].
   - (* USend *) destruct (closedb tr c) eqn:Ecl.
     + eexists. eapply ustep_send_closed; [exact Hlive | exact Hp | exact Ecl].
-    + eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl].
+    + destruct (uroom ucap b c) eqn:Er.
+      * eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl | exact Er].
+      * exfalso. apply Hnblk. right. right. exists c, v, k. split; [exact Hp | split; [exact Ecl | exact Er]].
   - (* URecv *) destruct (b c) as [|[v s] rest] eqn:Eb.
     + destruct (closedb tr c) eqn:Ecl.
       * destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
@@ -551,7 +570,7 @@ Proof.
     + destruct (usel_ready_cl_closed _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
       destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
       eexists. eapply ustep_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
-    + exfalso. apply Hnblk. right. exists cases. split; [exact Hp | exact Esel].
+    + exfalso. apply Hnblk. right. left. exists cases. split; [exact Hp | exact Esel].
 Qed.
 
 (** DEADLOCK CHARACTERIZATION (the converse): a STUCK config — one that cannot step yet has a live
@@ -572,9 +591,11 @@ Proof.
     + eexists. eapply ustep_pan_done; [exact Hlive | exact Hp | exact E].
     + eexists. eapply ustep_pan_defer; [exact Hlive | exact Hp | exact E].
   - exfalso. apply Hnstep. eexists. eapply ustep_defer; [exact Hlive | exact Hp].
-  - exfalso. apply Hnstep. destruct (closedb tr c) eqn:Ecl.
-    + eexists. eapply ustep_send_closed; [exact Hlive | exact Hp | exact Ecl].
-    + eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl].
+  - (* USend *) destruct (closedb tr c) eqn:Ecl.
+    + exfalso. apply Hnstep. eexists. eapply ustep_send_closed; [exact Hlive | exact Hp | exact Ecl].
+    + destruct (uroom ucap b c) eqn:Er.
+      * exfalso. apply Hnstep. eexists. eapply ustep_send; [exact Hlive | exact Hp | exact Ecl | exact Er].
+      * (* full buffer: a blocking shape *) right. right. exists c, v, k. split; [exact Hp | split; [exact Ecl | exact Er]].
   - (* URecv: a blocking shape *) destruct (b c) as [|[v s] rest] eqn:Eb.
     + destruct (closedb tr c) eqn:Ecl.
       * exfalso. apply Hnstep. destruct (closedb_true_witness _ _ Ecl) as [pos [e [Hpos Hek]]].
@@ -594,8 +615,24 @@ Proof.
     + exfalso. apply Hnstep. destruct (usel_ready_cl_closed _ _ _ _ _ Esel) as [Hin [Hb Hcl]].
       destruct (closedb_true_witness _ _ Hcl) as [pos [e [Hpos Hek]]].
       eexists. eapply ustep_select_closed; [exact Hlive | exact Hp | exact Hin | exact Hb | exact Hpos | exact Hek].
-    + right. exists cases. split; [exact Hp | exact Esel].
+    + right. left. exists cases. split; [exact Hp | exact Esel].
 Qed.
+
+End UStepCap.
+
+(** Make the capacity [ucap] IMPLICIT on the constructors (a section [Variable] generalises explicit, unlike
+    an inductive parameter) — so the positional [apply (ustep_X _ … )] proofs and the [embed] cases infer it
+    from the goal, while the RELATION [ustep ucap …] keeps it explicit for statements. *)
+Arguments ustep_write {ucap}.   Arguments ustep_read {ucap}.
+Arguments ustep_send {ucap}.    Arguments ustep_recv {ucap}.
+Arguments ustep_close {ucap}.   Arguments ustep_spawn {ucap}.
+Arguments ustep_out {ucap}.     Arguments ustep_defer {ucap}.
+Arguments ustep_ret_defer {ucap}.  Arguments ustep_ret_done {ucap}.
+Arguments ustep_pan_defer {ucap}.  Arguments ustep_pan_done {ucap}.
+Arguments ustep_send_closed {ucap}.  Arguments ustep_close_closed {ucap}.
+Arguments ustep_recv_closed {ucap}.  Arguments ustep_select {ucap}.
+Arguments ustep_select_closed {ucap}.
+Arguments usteps_refl {ucap}.   Arguments usteps_step {ucap}.
 
 (** ============================================================================
     SLICE 4 — the unified semantics, DEMONSTRATED on concrete all-effects executions.
@@ -610,7 +647,7 @@ Qed.
     recorded.  Pre-fix, the deferred print was provably dropped. *)
 Lemma unified_panic_runs_defer : forall (xv pv : GoAny),
   exists cfg',
-    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun t => if Nat.eqb t 0 then UOut (xv :: nil) URet :: nil else nil)
                    (fun _ => None))
@@ -634,7 +671,7 @@ Qed.
     binding 7 — the mutable-heap effect, with the [KWrite]/[KRead] events that drive race-freedom. *)
 Lemma unified_heap_write_read : forall (k : nat -> UCmd),
   exists cfg',
-    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UWrite 0 7 (URead 0 k) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UWrite 0 7 (URead 0 k) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None))
            cfg'
@@ -654,7 +691,7 @@ Qed.
     receives it back, binding 5 — the channel effect, with [KSend]/[KRecv] synchronisation events. *)
 Lemma unified_chan_send_recv : forall (k : nat -> UCmd),
   exists cfg',
-    usteps (mkUCfg (fun t => if Nat.eqb t 0 then USend 0 5 (URecv 0 k) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then USend 0 5 (URecv 0 k) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None))
            cfg'
@@ -674,7 +711,7 @@ Qed.
     (the shallow [run_io] made differently-printing programs provably equal; [ustep]'s [uc_out] does not). *)
 Lemma unified_output_ordered : forall (x y : GoAny),
   exists cfg',
-    usteps (mkUCfg (fun t => if Nat.eqb t 0 then UOut (x :: nil) (UOut (y :: nil) URet) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UOut (x :: nil) (UOut (y :: nil) URet) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None))
            cfg'
@@ -699,7 +736,7 @@ Qed.
     round-trips, and the goroutine dies with the panic recorded. *)
 Lemma unified_all_effects : forall (msg boom : GoAny),
   exists cfg',
-    usteps (mkUCfg
+    usteps (fun _ => None) (mkUCfg
               (fun t => if Nat.eqb t 0
                         then UWrite 0 9 (USend 0 5 (URecv 0 (fun _ =>
                                UDfr (UOut (msg :: nil) URet) (UPan boom))))
@@ -740,29 +777,29 @@ Qed.
     A structural faithfulness property the shallow [run_io] could not have (it erased output): every
     step EXTENDS the output log and the event trace by a suffix — nothing already emitted is ever lost,
     overwritten, or reordered.  (Reinforces review #6 #12 on the authoritative semantics.) *)
-Lemma ustep_out_grows : forall cfg cfg', ustep cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
+Lemma ustep_out_grows : forall {ucap} cfg cfg', ustep ucap cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
 Proof.
-  intros cfg cfg' H. destruct H; cbn [uc_out];
+  intros ucap cfg cfg' H. destruct H; cbn [uc_out];
     first [ exists (@nil (nat * list GoAny)); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
 Qed.
 
-Lemma ustep_trace_grows : forall cfg cfg', ustep cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
+Lemma ustep_trace_grows : forall {ucap} cfg cfg', ustep ucap cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
 Proof.
-  intros cfg cfg' H. destruct H; cbn [uc_trace];
+  intros ucap cfg cfg' H. destruct H; cbn [uc_trace];
     first [ exists (@nil Ev); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
 Qed.
 
-Lemma usteps_out_grows : forall cfg cfg', usteps cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
+Lemma usteps_out_grows : forall {ucap} cfg cfg', usteps ucap cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
 Proof.
-  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
+  intros ucap cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
   - exists nil. rewrite app_nil_r. reflexivity.
   - destruct (ustep_out_grows a b Hab) as [s1 H1]. destruct IH as [s2 H2].
     exists (s1 ++ s2). rewrite H2, H1, app_assoc. reflexivity.
 Qed.
 
-Lemma usteps_trace_grows : forall cfg cfg', usteps cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
+Lemma usteps_trace_grows : forall {ucap} cfg cfg', usteps ucap cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
 Proof.
-  intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
+  intros ucap cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
   - exists nil. rewrite app_nil_r. reflexivity.
   - destruct (ustep_trace_grows a b Hab) as [s1 H1]. destruct IH as [s2 H2].
     exists (s1 ++ s2). rewrite H2, H1, app_assoc. reflexivity.
@@ -868,7 +905,7 @@ Proof.
 Qed.
 
 (** THE forward simulation: every [rstep] is a [ustep] on the embedded configs — rule for rule. *)
-Theorem rstep_embeds : forall cfg cfg', rstep cfg cfg' -> ustep (embed_cfg cfg) (embed_cfg cfg').
+Theorem rstep_embeds : forall cfg cfg', rstep cfg cfg' -> ustep (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof.
   intros cfg cfg' H. destruct H as
     [ p b h lv tr tid c v k Hlv Hp Hcl
@@ -883,7 +920,7 @@ Proof.
   - (* send *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid k).
-    apply ustep_send; [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hcl ].
+    apply ustep_send; [ exact Hlv | cbn beta; rewrite Hp; reflexivity | exact Hcl | reflexivity ].
   - (* recv *)
     unfold embed_cfg; cbn [rc_prog rc_bufs rc_heap rc_live rc_trace].
     rewrite (embed_upd_prog p tid (f v)).
@@ -935,7 +972,7 @@ Proof.
 Qed.
 
 (** Lifted to runs: an [rsteps] execution embeds into a [usteps] execution. *)
-Theorem rsteps_embeds : forall cfg cfg', rsteps cfg cfg' -> usteps (embed_cfg cfg) (embed_cfg cfg').
+Theorem rsteps_embeds : forall cfg cfg', rsteps cfg cfg' -> usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof.
   intros cfg cfg' H. induction H as [c | a b c Hab Hbc IH].
   - apply usteps_refl.
@@ -951,7 +988,7 @@ Proof. intro cfg. reflexivity. Qed.
     trace.  This is the formal sense in which [ustep] is THE one authoritative semantics — [rstep]'s
     every behaviour (and thus every theorem stated over [rstep]'s traces) lives inside it. *)
 Corollary rsteps_trace_embeds : forall cfg cfg', rsteps cfg cfg' ->
-  usteps (embed_cfg cfg) (embed_cfg cfg') /\ uc_trace (embed_cfg cfg') = rc_trace cfg'.
+  usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg') /\ uc_trace (embed_cfg cfg') = rc_trace cfg'.
 Proof.
   intros cfg cfg' H. split.
   - apply rsteps_embeds; exact H.
@@ -964,7 +1001,7 @@ Qed.
     [ustep] as well — closing the 2026-06-24 review's #2/#3 ("capacity rendezvous in a detached
     calculus").  BOTH prior operational systems are now provably fragments of the one semantics. *)
 Corollary rstepsC_embeds : forall cap cfg cfg', rstepsC cap cfg cfg' ->
-  usteps (embed_cfg cfg) (embed_cfg cfg').
+  usteps (fun _ => None) (embed_cfg cfg) (embed_cfg cfg').
 Proof. intros cap cfg cfg' H. apply rsteps_embeds. exact (rstepsC_embed _ _ _ H). Qed.
 
 (** ============================================================================
@@ -1030,7 +1067,7 @@ Theorem proto_ucmd_realizes :
     nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
     prg tid = proto_ucmd cs cr val p ->
     exists cfg',
-      usteps (mkUCfg prg b h lv tr o df pa) cfg'
+      usteps (fun _ => None) (mkUCfg prg b h lv tr o df pa) cfg'
       /\ uc_prog cfg' tid = URet
       /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ proto_polarity p.
 Proof.
@@ -1039,9 +1076,9 @@ Proof.
   - (* PSend: a send on the open [cs] fires, then recurse *)
     pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
     pose (b'   := upd b cs (b cs ++ [(val, length tr)])).
-    assert (Hstep : ustep (mkUCfg prg b h lv tr o df pa)
+    assert (Hstep : ustep (fun _ => None) (mkUCfg prg b h lv tr o df pa)
                           (mkUCfg prg' b' h lv (tr ++ [mkEv tid (KSend cs)]) o df pa)).
-    { apply ustep_send; [ exact Hlv | rewrite Hprg; reflexivity | exact Hcs ]. }
+    { apply ustep_send; [ exact Hlv | rewrite Hprg; reflexivity | exact Hcs | reflexivity ]. }
     assert (Hcr' : b' cr = []) by (unfold b'; rewrite (upd_other _ _ _ _ (not_eq_sym Hne)); exact Hbcr).
     assert (Hcs' : closedb (tr ++ [mkEv tid (KSend cs)]) cs = false)
       by (rewrite closedb_app, Hcs; reflexivity).
@@ -1054,7 +1091,7 @@ Proof.
     rewrite Htr, trace_polarity_app. cbn. rewrite <- app_assoc. reflexivity.
   - (* PRecv: a recv on the closed+drained [cr] fires (yields zero), then recurse *)
     pose (prg' := upd prg tid (proto_ucmd cs cr val p')).
-    assert (Hstep : ustep (mkUCfg prg b h lv tr o df pa)
+    assert (Hstep : ustep (fun _ => None) (mkUCfg prg b h lv tr o df pa)
                           (mkUCfg prg' b h lv (tr ++ [mkEv tid (KRecv cr pos)]) o df pa)).
     { apply ustep_recv_closed with (c := cr) (f := fun _ => proto_ucmd cs cr val p') (pos := pos) (e := ecl);
         [ exact Hlv | rewrite Hprg; reflexivity | exact Hbcr | exact Hpos | exact Hek ]. }
@@ -1098,7 +1135,7 @@ Corollary psess_realized_operationally :
     nth_error tr pos = Some ecl -> e_kind ecl = KClose cr ->
     prg tid = proto_ucmd cs cr val i ->
     exists cfg',
-      usteps (mkUCfg prg b h lv tr o df pa) cfg'
+      usteps (fun _ => None) (mkUCfg prg b h lv tr o df pa) cfg'
       /\ uc_prog cfg' tid = URet
       /\ trace_polarity (uc_trace cfg') = trace_polarity tr ++ map step_polarity steps.
 Proof.
@@ -1110,3 +1147,19 @@ Proof.
   exists cfg'. split; [ exact Hrun | split; [ exact Hdone | ] ].
   rewrite Htr, proto_polarity_steps. reflexivity.
 Qed.
+
+(** ============================================================================
+    REVIEW #8 P0-7 REGRESSION — [ustep_send] is no longer the UNBOUNDED append.
+    A send onto a FULL bounded channel ([Some n], buffer already length n) has NO room, so it does NOT
+    step — instead the goroutine is [ublocked] on a full buffer (Go's buffered-send-blocks).  Contrast: an
+    [None] (unbounded) channel always has room.  These witness that [ustep_send]'s new [uroom] premise
+    actually bites (the capacity is enforced, not vacuous). *)
+Example uroom_full_no_room  : uroom (fun _ => Some 1) (fun _ => [(7, 0)]) 0 = false.
+Proof. reflexivity. Qed.
+Example uroom_unbounded_ok  : uroom (fun _ => None) (fun _ => [(7, 0)]) 0 = true.
+Proof. reflexivity. Qed.
+Example full_send_is_ublocked :
+  ublocked (fun _ => Some 1)
+           (mkUCfg (fun _ => USend 0 9 URet) (fun _ => [(7, 0)]) (fun _ => 0)
+                   (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)) 0.
+Proof. right. right. exists 0, 9, URet. cbn. split; [ reflexivity | split; reflexivity ]. Qed.
