@@ -3321,6 +3321,22 @@ Definition dir_sign (d : Direction) : IO unit :=
 Definition enum_default_demo : IO unit :=
   bind (dir_sign North) (fun _ => dir_sign South).   (* 1 (North) / 0 (the expanded South) *)
 
+(** ENUM EQUALITY ([d1 == d2]) — an iota-enum is a Go-COMPARABLE type ([type Direction int]), so it gets a
+    [ComparableW Direction] witness ([Direction_eqb] + its sealed correctness proof) exactly like the scalar/
+    string/struct witnesses, and [ceqb] over it lowers to native Go [==] (the witness ERASED).  This closes
+    the construct-layer "enum ==" item: comparing enum VALUES directly ([East == West]), not via a [switch]. *)
+Definition Direction_eqb (a b : Direction) : bool :=
+  match a, b with
+  | North, North | South, South | East, East | West, West => true
+  | _, _ => false
+  end.
+Lemma Direction_eqb_spec : forall x y, Direction_eqb x y = true <-> x = y.
+Proof. intros x y; destruct x, y; cbn; split; intro H; (reflexivity || discriminate H). Qed.
+Definition cw_Direction : ComparableW Direction := MkComparableW Direction_eqb (squash Direction_eqb_spec).
+Definition ceq_dir (a b : Direction) : bool := ceqb cw_Direction a b.
+Definition enum_eq_demo : IO unit :=
+  println [ any (ceq_dir East East) ; any (ceq_dir East West) ].   (* East == East / East == West → true false *)
+
 (** Sequenced with the [>>'] notation ([m >>' k := bind m (fun _ => k)]) — each
     demo's [unit] result is discarded, so this is a flat sequence, not a 45-deep
     nest of [bind … (fun _ => …)] closed by a wall of parens.  ([>>'] is
@@ -3558,6 +3574,7 @@ Definition main_effect : IO unit :=
   enum_demo                     >>'   (* prints: 2 (custom enum + switch, dir_io East) *)
   enum_value_demo               >>'   (* prints: W (value-position enum switch, dir_name West) *)
   enum_default_demo             >>'   (* prints: 1 / 0 (enum switch with a default arm) *)
+  enum_eq_demo                  >>'   (* prints: true false (enum == via ComparableW: East==East / East==West) *)
   ret tt.
 
 (** The IO ops are now DEFINITIONS (zero-axioms refactor); [Extraction NoInline]

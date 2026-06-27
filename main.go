@@ -2602,6 +2602,63 @@ func Enum_default_demo() {
 	Dir_sign(South)
 }
 
+func Direction_eqb(a Direction, b Direction) bool {
+	switch a {
+	case North:
+		switch b {
+		case North:
+			return true
+		case South:
+			return false
+		case East:
+			return false
+		default:
+			return false
+		}
+	case South:
+		switch b {
+		case North:
+			return false
+		case South:
+			return true
+		case East:
+			return false
+		default:
+			return false
+		}
+	case East:
+		switch b {
+		case North:
+			return false
+		case South:
+			return false
+		case East:
+			return true
+		default:
+			return false
+		}
+	default:
+		switch b {
+		case North:
+			return false
+		case South:
+			return false
+		case East:
+			return false
+		default:
+			return true
+		}
+	}
+}
+
+func Ceq_dir(a Direction, b Direction) bool {
+	return Ceqb(a, b)
+}
+
+func Enum_eq_demo() {
+	println(Ceq_dir(East, East), Ceq_dir(East, West))
+}
+
 func main() {
 	println(func(x int64, y int64) int64 { return x + y }(1, 2))
 	Panic_and_recover(func(x int64, y int64) int64 { return x + y }(40, 2))
@@ -2834,4 +2891,5 @@ func main() {
 	Enum_demo()
 	Enum_value_demo()
 	Enum_default_demo()
+	Enum_eq_demo()
 }
