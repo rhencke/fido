@@ -2007,13 +2007,13 @@ Fixpoint leading_ident (s : string) : string :=
   | EmptyString => EmptyString
   | String c s' => if is_idc c then String c (leading_ident s') else EmptyString
   end.
-(** Keywords that legitimately LEAD an operand atom (a func-literal / composite-literal type / channel
-    type) are EXCLUDED from the rejection — so [func(x int64) int64 {...}(0)] and [map[K]V{...}] are kept
-    while [return()] / [if()] / [for()] are rejected.  Distinguishing a valid [func]-lit from [func()]
-    nonsense needs the parser, so the operand-leading keywords are conservatively ALLOWED here (the plugin
-    only emits well-formed ones; they are caught downstream if malformed). *)
+(** Keywords that legitimately LEAD an operand ATOM-VALUE: only [func]-literals ([func(..){..}(..)]) and
+    [map] composite literals ([map[K]V{..}]) — these carry interior depth-0 whitespace / braces and are the
+    real primary forms.  [chan]/[struct]/[interface] are TYPE expressions, not atom values, so they are NOT
+    exempted (review #8 P0-1: [chan int64] is rejected by [leading_is_keyword]).  A bare [func()] with no
+    body is rejected by [raw_wellshaped]'s [has_char "{"] rule — no "the plugin won't emit it" hand-wave. *)
 Definition operand_lead_kw (s : string) : bool :=
-  existsb (String.eqb s) ["func"; "map"; "chan"; "struct"; "interface"].
+  existsb (String.eqb s) ["func"; "map"].
 Definition leading_is_keyword (s : string) : bool :=
   andb (go_keyword (leading_ident s)) (negb (operand_lead_kw (leading_ident s))).
 Definition is_postfix_start (c : ascii) : bool :=
@@ -2115,15 +2115,79 @@ Definition is_comp_lead (s : string) : bool :=
   orb (String.eqb (leading_ident s) "map")
       (match s with String c _ => Ascii.eqb c (ch 91) | EmptyString => false end).
 
+(** ── REVIEW #8 P0-1: [raw_ok] now MECHANICALLY enforces the Go PRIMARY-atom LEXICAL invariants, so it
+    REJECTS non-atoms (interior spaces, malformed numbers/hex, bare keyword forms) instead of trusting
+    "the plugin only emits well-formed ones".  Each conjunct of [raw_wellshaped] is a real Go lexer rule —
+    a primary atom is ONE token-run — not an ever-growing ad-hoc scanner. *)
+Definition is_ws (c : ascii) : bool :=
+  orb (Ascii.eqb c (ch 32)) (orb (Ascii.eqb c (ch 9)) (Ascii.eqb c (ch 10))).
+(* quote/bracket-aware DEPTH-0 whitespace: a space/tab/newline outside every bracket and string literal
+   splits the atom into >1 token.  (A func-literal's interior ") T {" spaces ARE at depth 0, so func/map
+   operand-lead forms are EXEMPTED below — they are the primary forms with legit interior depth-0 space.) *)
+Fixpoint has_d0_ws_aux (instr esc : bool) (d : nat) (s : string) : bool :=
+  match s with
+  | EmptyString => false
+  | String c s' =>
+      if esc then has_d0_ws_aux instr false d s'
+      else if instr then (if Ascii.eqb c (ch 92) then has_d0_ws_aux true true d s'
+                          else if Ascii.eqb c (ch 34) then has_d0_ws_aux false false d s'
+                          else has_d0_ws_aux true false d s')
+      else if Ascii.eqb c (ch 34) then has_d0_ws_aux true false d s'
+      else if is_bopen c then has_d0_ws_aux false false (S d) s'
+      else if is_bclose c then has_d0_ws_aux false false (Nat.pred d) s'
+      else if andb (Nat.eqb d 0) (is_ws c) then true
+      else has_d0_ws_aux false false d s'
+  end.
+Definition has_d0_ws (s : string) : bool := has_d0_ws_aux false false 0 s.
+Definition is_hex_digit (c : ascii) : bool :=
+  let n := nat_of_ascii c in
+  orb (andb (Nat.leb 48 n) (Nat.leb n 57))
+      (orb (andb (Nat.leb 97 n) (Nat.leb n 102)) (andb (Nat.leb 65 n) (Nat.leb n 70))).
+(* the chars a Go hex literal admits after "0x": hex digits, '.', 'p'/'P' exponent, '+'/'-' sign *)
+Definition is_hexlit_char (c : ascii) : bool :=
+  orb (is_hex_digit c)
+      (orb (Ascii.eqb c (ch 46)) (orb (Ascii.eqb c (ch 112)) (orb (Ascii.eqb c (ch 80))
+           (orb (Ascii.eqb c (ch 43)) (Ascii.eqb c (ch 45)))))).
+Fixpoint all_hexlit (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (is_hexlit_char c) (all_hexlit s') end.
+Definition hex_body_ok (s : string) : bool :=
+  match s with String _ (String _ body) => all_hexlit body | _ => true end.
+Fixpoint has_char (target : ascii) (s : string) : bool :=
+  match s with EmptyString => false | String c s' => orb (Ascii.eqb c target) (has_char target s') end.
+Definition is_digit_led (s : string) : bool :=
+  match s with String c _ => is_dec_char c | _ => false end.
+Definition func_led (s : string) : bool := String.eqb (leading_ident s) "func".
+(** Whole-atom lexical well-shapedness — EACH conjunct a real Go lexer rule. *)
+Definition raw_wellshaped (s : string) : bool :=
+  andb (andb (orb (operand_lead_kw (leading_ident s)) (negb (has_d0_ws s)))  (* depth-0 ws only in func/map forms *)
+             (orb (negb (is_hex_led s)) (hex_body_ok s)))                    (* a 0x-literal has only hex chars *)
+       (andb (orb (negb (is_digit_led s)) (orb (is_dec s) (is_hex_led s)))   (* digit-led ⟹ a decimal or hex *)
+             (orb (negb (func_led s)) (has_char (ch 123) s))).               (* a func-lit carries a "{" body *)
+
 Definition raw_ok (s : string) : bool :=
-  andb
+  andb (raw_wellshaped s)
+  (andb
    (andb (andb (andb (andb (andb (andb (atom_ok s) (negb (go_ident s))) (negb (is_dec s)))
                    (negb (quote_led s))) (negb (go_keyword s))) (negb (is_selector_shaped s)))
        (andb (andb (negb (has_d0_break s)) (negb (leading_is_keyword s))) (negb (unary_op_led s))))
-   (whole_base s).
+   (whole_base s)).
+
+(** REVIEW #8 P0-1 REGRESSION TESTS.  An earlier [vm_compute] confirmed [raw_ok] ACCEPTED all six of these
+    non-atoms (silent fail-open).  They are now mechanically REJECTED — and a func-literal, a multi-arg
+    call, and a valid hex mask still PASS, so the real opaque atoms go.ml emits keep extracting. *)
+Example raw_space_rejected      : raw_ok "foo bar"     = false. Proof. reflexivity. Qed.
+Example raw_space2_rejected     : raw_ok "x y"         = false. Proof. reflexivity. Qed.
+Example raw_bad_digit_rejected  : raw_ok "123abc"      = false. Proof. reflexivity. Qed.
+Example raw_bad_hex_rejected    : raw_ok "0xzz"        = false. Proof. reflexivity. Qed.
+Example raw_bad_func_rejected   : raw_ok "func()"      = false. Proof. reflexivity. Qed.
+Example raw_chan_type_rejected  : raw_ok "chan int64"  = false. Proof. reflexivity. Qed.
+Example raw_call_ok      : raw_ok "f(a, b)" = true. Proof. reflexivity. Qed.
+Example raw_hex_ok       : raw_ok "0xff"    = true. Proof. reflexivity. Qed.
+Example raw_funclit_ok   : raw_ok "func(x int64) int64 { return x }(7)" = true. Proof. reflexivity. Qed.
+
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -2134,7 +2198,7 @@ Proof.
 Qed.
 Lemma raw_ok_not_ident : forall s, raw_ok s = true -> go_ident s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -2145,7 +2209,7 @@ Proof.
 Qed.
 Lemma raw_ok_not_dec : forall s, raw_ok s = true -> is_dec s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -2155,7 +2219,7 @@ Proof.
 Qed.
 Lemma raw_ok_not_quote_led : forall s, raw_ok s = true -> quote_led s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -2164,7 +2228,7 @@ Proof.
 Qed.
 Lemma raw_ok_not_keyword : forall s, raw_ok s = true -> go_keyword s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ H _ ].
@@ -2172,14 +2236,14 @@ Proof.
 Qed.
 Lemma raw_ok_not_selector : forall s, raw_ok s = true -> is_selector_shaped s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ H _ ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
 Qed.
 Lemma raw_ok_not_unary : forall s, raw_ok s = true -> unary_op_led s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H. destruct H as [ _ H ].
   apply andb_true_iff in H. destruct H as [ _ Hn ]. apply negb_true_iff in Hn. exact Hn.
@@ -2476,7 +2540,8 @@ Proof.
     destruct s as [ | c s' ]; [ apply raw_ok_atom_ok in Hr; cbn in Hr; discriminate Hr | ].
     cbn [append neg_paren_led]. destruct (Ascii.eqb c (ch 45)) eqn:Em; [ | reflexivity ].
     exfalso. apply Ascii.eqb_eq in Em. subst c.
-    unfold raw_ok in Hr. apply andb_true_iff in Hr. destruct Hr as [ Hr _ ].
+    unfold raw_ok in Hr. apply andb_true_iff in Hr. destruct Hr as [ _ Hr ].
+    apply andb_true_iff in Hr. destruct Hr as [ Hr _ ].
     apply andb_true_iff in Hr. destruct Hr as [ _ Hr ].
     apply andb_true_iff in Hr. destruct Hr as [ Hr _ ].
     apply andb_true_iff in Hr. destruct Hr as [ Hnb _ ].
@@ -4707,7 +4772,7 @@ Qed.
 
 Lemma raw_ok_no_d0_break : forall s, raw_ok s = true -> has_d0_break s = false.
 Proof.
-  intros s H. unfold raw_ok in H.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].  (* drop the outer [whole_base] conjunct *)
   apply andb_true_iff in H; destruct H as [ _ H ].
   apply andb_true_iff in H; destruct H as [ H _ ].
@@ -4886,7 +4951,8 @@ Proof.
       [ apply op_plain_op_clean, is_dec_op_plain, is_dec_print_Z
       | apply is_comp_lead_dec, is_dec_print_Z ].
   - pose proof (proj2_sig r) as Hraw. cbn beta in Hraw.
-    unfold raw_ok in Hraw. apply andb_true_iff in Hraw. destruct Hraw as [ _ Hwb ]. exact Hwb.
+    unfold raw_ok in Hraw. apply andb_true_iff in Hraw. destruct Hraw as [ _ Hraw ].
+    apply andb_true_iff in Hraw. destruct Hraw as [ _ Hwb ]. exact Hwb.
 Qed.
 
 (** [pops] of a non-empty op list is led by a postfix-start char ('.' / '['). *)

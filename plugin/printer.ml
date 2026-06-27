@@ -2870,28 +2870,7 @@ let operand_lead_kw s =
     True, True, False)), EmptyString)))))))), (Cons ((String ((Ascii (True,
     False, True, True, False, True, True, False)), (String ((Ascii (True,
     False, False, False, False, True, True, False)), (String ((Ascii (False,
-    False, False, False, True, True, True, False)), EmptyString)))))), (Cons
-    ((String ((Ascii (True, True, False, False, False, True, True, False)),
-    (String ((Ascii (False, False, False, True, False, True, True, False)),
-    (String ((Ascii (True, False, False, False, False, True, True, False)),
-    (String ((Ascii (False, True, True, True, False, True, True, False)),
-    EmptyString)))))))), (Cons ((String ((Ascii (True, True, False, False,
-    True, True, True, False)), (String ((Ascii (False, False, True, False,
-    True, True, True, False)), (String ((Ascii (False, True, False, False,
-    True, True, True, False)), (String ((Ascii (True, False, True, False,
-    True, True, True, False)), (String ((Ascii (True, True, False, False,
-    False, True, True, False)), (String ((Ascii (False, False, True, False,
-    True, True, True, False)), EmptyString)))))))))))), (Cons ((String
-    ((Ascii (True, False, False, True, False, True, True, False)), (String
-    ((Ascii (False, True, True, True, False, True, True, False)), (String
-    ((Ascii (False, False, True, False, True, True, True, False)), (String
-    ((Ascii (True, False, True, False, False, True, True, False)), (String
-    ((Ascii (False, True, False, False, True, True, True, False)), (String
-    ((Ascii (False, True, True, False, False, True, True, False)), (String
-    ((Ascii (True, False, False, False, False, True, True, False)), (String
-    ((Ascii (True, True, False, False, False, True, True, False)), (String
-    ((Ascii (True, False, True, False, False, True, True, False)),
-    EmptyString)))))))))))))))))), Nil))))))))))
+    False, False, False, True, True, True, False)), EmptyString)))))), Nil))))
 
 (** val leading_is_keyword : string -> bool **)
 
@@ -3087,28 +3066,262 @@ let whole_base s =
    | True -> eqb1 r EmptyString
    | False -> False)
 
+(** val is_ws : ascii -> bool **)
+
+let is_ws c =
+  match eqb0 c
+          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S
+            O))))))))))))))))))))))))))))))))) with
+  | True -> True
+  | False ->
+    (match eqb0 c (ch (S (S (S (S (S (S (S (S (S O)))))))))) with
+     | True -> True
+     | False -> eqb0 c (ch (S (S (S (S (S (S (S (S (S (S O))))))))))))
+
+(** val has_d0_ws_aux : bool -> bool -> nat -> string -> bool **)
+
+let rec has_d0_ws_aux instr esc d = function
+| EmptyString -> False
+| String (c, s') ->
+  (match esc with
+   | True -> has_d0_ws_aux instr False d s'
+   | False ->
+     (match instr with
+      | True ->
+        (match eqb0 c
+                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+         | True -> has_d0_ws_aux True True d s'
+         | False ->
+           (match eqb0 c
+                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      O))))))))))))))))))))))))))))))))))) with
+            | True -> has_d0_ws_aux False False d s'
+            | False -> has_d0_ws_aux True False d s'))
+      | False ->
+        (match eqb0 c
+                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                   O))))))))))))))))))))))))))))))))))) with
+         | True -> has_d0_ws_aux True False d s'
+         | False ->
+           (match is_bopen c with
+            | True -> has_d0_ws_aux False False (S d) s'
+            | False ->
+              (match is_bclose c with
+               | True -> has_d0_ws_aux False False (Nat.pred d) s'
+               | False ->
+                 (match match Nat.eqb d O with
+                        | True -> is_ws c
+                        | False -> False with
+                  | True -> True
+                  | False -> has_d0_ws_aux False False d s'))))))
+
+(** val has_d0_ws : string -> bool **)
+
+let has_d0_ws s =
+  has_d0_ws_aux False False O s
+
+(** val is_hex_digit : ascii -> bool **)
+
+let is_hex_digit c =
+  let n0 = nat_of_ascii c in
+  (match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S (S (S (S
+                 O)))))))))))))))))))))))))))))))))))))))))))))))) n0 with
+         | True ->
+           Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+         | False -> False with
+   | True -> True
+   | False ->
+     (match match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S
+                    O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                    n0 with
+            | True ->
+              Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False with
+      | True -> True
+      | False ->
+        (match Nat.leb (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                 (S (S (S (S (S (S (S
+                 O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                 n0 with
+         | True ->
+           Nat.leb n0 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+         | False -> False)))
+
+(** val is_hexlit_char : ascii -> bool **)
+
+let is_hexlit_char c =
+  match is_hex_digit c with
+  | True -> True
+  | False ->
+    (match eqb0 c
+             (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))) with
+     | True -> True
+     | False ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+        | True -> True
+        | False ->
+          (match eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+           | True -> True
+           | False ->
+             (match eqb0 c
+                      (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S
+                        O)))))))))))))))))))))))))))))))))))))))))))) with
+              | True -> True
+              | False ->
+                eqb0 c
+                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S
+                    O))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val all_hexlit : string -> bool **)
+
+let rec all_hexlit = function
+| EmptyString -> True
+| String (c, s') ->
+  (match is_hexlit_char c with
+   | True -> all_hexlit s'
+   | False -> False)
+
+(** val hex_body_ok : string -> bool **)
+
+let hex_body_ok = function
+| EmptyString -> True
+| String (_, s0) ->
+  (match s0 with
+   | EmptyString -> True
+   | String (_, body) -> all_hexlit body)
+
+(** val has_char : ascii -> string -> bool **)
+
+let rec has_char target = function
+| EmptyString -> False
+| String (c, s') ->
+  (match eqb0 c target with
+   | True -> True
+   | False -> has_char target s')
+
+(** val is_digit_led : string -> bool **)
+
+let is_digit_led = function
+| EmptyString -> False
+| String (c, _) -> is_dec_char c
+
+(** val func_led : string -> bool **)
+
+let func_led s =
+  eqb1 (leading_ident s) (String ((Ascii (False, True, True, False, False,
+    True, True, False)), (String ((Ascii (True, False, True, False, True,
+    True, True, False)), (String ((Ascii (False, True, True, True, False,
+    True, True, False)), (String ((Ascii (True, True, False, False, False,
+    True, True, False)), EmptyString))))))))
+
+(** val raw_wellshaped : string -> bool **)
+
+let raw_wellshaped s =
+  match match match operand_lead_kw (leading_ident s) with
+              | True -> True
+              | False -> negb (has_d0_ws s) with
+        | True ->
+          (match negb (is_hex_led s) with
+           | True -> True
+           | False -> hex_body_ok s)
+        | False -> False with
+  | True ->
+    (match match negb (is_digit_led s) with
+           | True -> True
+           | False ->
+             (match is_dec s with
+              | True -> True
+              | False -> is_hex_led s) with
+     | True ->
+       (match negb (func_led s) with
+        | True -> True
+        | False ->
+          has_char
+            (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            s)
+     | False -> False)
+  | False -> False
+
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match match match match match match atom_ok s with
-                                      | True -> negb (go_ident s)
-                                      | False -> False with
-                                | True -> negb (is_dec s)
-                                | False -> False with
-                          | True -> negb (quote_led s)
-                          | False -> False with
-                    | True -> negb (go_keyword s)
-                    | False -> False with
-              | True -> negb (is_selector_shaped s)
-              | False -> False with
-        | True ->
-          (match match negb (has_d0_break s) with
-                 | True -> negb (leading_is_keyword s)
+  match raw_wellshaped s with
+  | True ->
+    (match match match match match match match atom_ok s with
+                                         | True -> negb (go_ident s)
+                                         | False -> False with
+                                   | True -> negb (is_dec s)
+                                   | False -> False with
+                             | True -> negb (quote_led s)
+                             | False -> False with
+                       | True -> negb (go_keyword s)
+                       | False -> False with
+                 | True -> negb (is_selector_shaped s)
                  | False -> False with
-           | True -> negb (unary_op_led s)
-           | False -> False)
-        | False -> False with
-  | True -> whole_base s
+           | True ->
+             (match match negb (has_d0_break s) with
+                    | True -> negb (leading_is_keyword s)
+                    | False -> False with
+              | True -> negb (unary_op_led s)
+              | False -> False)
+           | False -> False with
+     | True -> whole_base s
+     | False -> False)
   | False -> False
 
 type sAtom =
