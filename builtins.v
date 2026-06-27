@@ -658,6 +658,12 @@ Definition rt_send_closed  : GoAny := anyt TString "send on closed channel"%stri
 Definition rt_close_closed : GoAny := anyt TString "close of closed channel"%string.
 Definition rt_close_nil    : GoAny := anyt TString "close of nil channel"%string.
 Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interface is not the asserted type"%string.
+(** Model-INTERNAL fail-loud for a [select] whose every case would block and that has no [default]: the
+    sequential [IO] model has no Blocked outcome, so rather than FABRICATE a value (the old plausible-but-wrong
+    [k1 (zero_val ta)] — review #8 P0-5) it refuses LOUDLY.  Unreachable in a well-formed program (you do not
+    select on channels that can never become ready); the EXTRACTION is the native Go [select{}] which blocks
+    faithfully, so this value lives only in the suppressed body — like the [rt_*] above, in [is_inlined_ref]. *)
+Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -3032,7 +3038,7 @@ Definition select_recv2 {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> I
                        else match chan_buf tb ch2 w with
                             | v :: _ => k2 v (chan_recv_upd tb ch2 w)
                             | nil    => if chan_closed ch2 w then k2 (zero_val tb) w  (* ch2 closed+drained: zero *)
-                                        else k1 (zero_val ta) w        (* both empty+OPEN: fabricated zero — Go BLOCKS (documented unsoundness) *)
+                                        else OPanic rt_select_block w  (* both empty+OPEN: FAIL-LOUD (Go blocks; the IO model has no Blocked outcome) — NEVER a fabricated value *)
                             end
            end.
 (** [select_recv_default] — recv case + [default].  A CLOSED, DRAINED channel's recv is READY in
@@ -3079,13 +3085,16 @@ Proof. intros A C ta ch k1 d w He Hc. unfold select_recv_default. rewrite He, Hc
           executable test interpreter, NON-AUTHORITATIVE as a spec.  The authoritative spec is
           relational/nondeterministic, and a safety property must hold for EVERY permitted choice,
           not just ch1.
-      (2) BLOCKING: none ready and no default ⇒ it returns the fabricated [(0, zero)]; Go BLOCKS.  But
-          blocking is NOT divergence: in a concurrent program this goroutine merely has NO TRANSITION
-          right now while *other* goroutines may still step — it is DEADLOCK only when the WHOLE
-          program cannot step.  [concurrency.v] already models exactly this (a goroutine like
-          [block_cfg]'s [PRecv 0] with no sender has no [step]; [Stuck := ~ can_step /\ ~ done] is the
-          GLOBAL deadlock property).  So empty-select is a LOCAL non-step — never a fabricated value,
-          never collapsed into permanent nontermination.
+      (2) BLOCKING: none ready and no default ⇒ Go BLOCKS, which the sequential [IO] model cannot
+          represent (no Blocked outcome).  It no longer FABRICATES [(0, zero)] (review #8 P0-5 — the old
+          plausible-but-wrong value that let proofs continue past a select Go blocks on); it now FAIL-LOUDS
+          ([OPanic rt_select_block], witnessed by [select_recv2_both_empty_open_panics] /
+          [select_wait2_both_empty_open_panics]).  Blocking is NOT divergence: in a concurrent program this
+          goroutine merely has NO TRANSITION right now while *other* goroutines may still step — DEADLOCK only
+          when the WHOLE program cannot step.  [concurrency.v] models exactly this (a goroutine like
+          [block_cfg]'s [PRecv 0] with no sender has no [step]; [Stuck := ~ can_step /\ ~ done] is the GLOBAL
+          deadlock property) — so the relational select is a LOCAL non-step, never a value.  Here in [IO],
+          fail-loud is the SOUND stand-in: a proof cannot derive a false result through a blocked select.
     The EXTRACTION is faithful (native Go [select{}]); it is the MODEL that licenses unsound *proofs*
     about correct Go.  The robust fix belongs in the [rstep] calculus, NOT this sequential [IO] model:
     a NONDETERMINISTIC/relational [select_wait] ranging over every ready case, the lift quantified over
@@ -3129,7 +3138,7 @@ Definition select_wait2 {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) : IO (nat * 
                        else match chan_buf ta ch2 w with
                             | v :: _ => ORet (1, v) (chan_recv_upd ta ch2 w)
                             | nil    => if chan_closed ch2 w then ORet (1, zero_val ta) w  (* ch2 closed+drained: case 1, zero *)
-                                        else ORet (0, zero_val ta) w
+                                        else OPanic rt_select_block w  (* both empty+OPEN: FAIL-LOUD — Go blocks; never a fabricated case index/value *)
                             end
            end.
 Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C) : IO C :=
@@ -3138,7 +3147,8 @@ Definition select2 {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> I
 
 (** The desugar is faithful TO THE IDEALISED MODEL: select-via-(wait + index-goto) IS the current
     [select_recv2].  (NOT equivalence to Go — see the ⚠ scope note above: the model is a
-    deterministic, blocking-idealised under-approximation of Go's nondeterministic select.) *)
+    deterministic under-approximation of Go's nondeterministic select — ch1-priority CHOICE; the
+    both-empty-open block now FAIL-LOUDS rather than fabricating, see (2) above.) *)
 Theorem select2_eq_recv2 :
   forall {A C} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (k1 k2 : A -> IO C),
     select2 ta ch1 ch2 k1 k2 =io= select_recv2 ta ch1 k1 ta ch2 k2.
@@ -3149,7 +3159,7 @@ Proof.
   - destruct (chan_closed ch1 w).
     + reflexivity.                                    (* ch1 closed+drained: both → k1 zero *)
     + destruct (chan_buf ta ch2 w) as [|v2 r2].
-      * destruct (chan_closed ch2 w); reflexivity.    (* ch2 closed → k2 zero; else fabricated k1 zero *)
+      * destruct (chan_closed ch2 w); reflexivity.    (* ch2 closed → k2 zero; else both OPanic rt_select_block *)
       * reflexivity.                                  (* ch2 ready *)
   - reflexivity.                                      (* ch1 ready *)
 Qed.
@@ -3162,7 +3172,7 @@ Qed.
     ([denote_sim_recv] / [rstep_recv]); the calculus-level [det_select_sound] (concurrency.v) used
     [sel_first_ready] as a STAND-IN for [select_recv2] — these connect the real [select_recv2] to
     [run_io] directly.  Faithful for the cases that CAN proceed (Go's "communication can proceed");
-    the both-empty-open fall-through stays the documented blocking-idealisation. *)
+    the both-empty-open fall-through now FAIL-LOUDS ([OPanic rt_select_block]), never fabricates. *)
 
 (* ch1 BUFFERED ⇒ select dequeues ch1's head = recv ch1 >>= k1. *)
 Theorem select_recv2_ch1_buffered :
@@ -3197,6 +3207,25 @@ Theorem select_recv2_ch2_closed :
   chan_buf tb ch2 w = nil -> chan_closed ch2 w = true ->
   run_io (select_recv2 ta ch1 k1 tb ch2 k2) w = run_io (bind (recv tb ch2) k2) w.
 Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2, recv, bind, run_io. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
+
+(** REVIEW #8 P0-5 REGRESSION — both channels EMPTY and OPEN (no case can proceed, no default): [select_recv2]
+    / [select_wait2] now FAIL LOUD ([OPanic rt_select_block]) instead of FABRICATING [k1 (zero_val ta)] /
+    [(0, zero_val ta)].  The old plausible-but-wrong value (which let proofs continue past a select Go would
+    BLOCK on) is gone; a proof that reaches this state now hits an [OPanic] it must discharge, never a forged
+    value.  Unreachable in the demos ([select_demo]'s ch1 is buffered ⇒ [select_recv2_ch1_buffered] fires). *)
+Lemma select_recv2_both_empty_open_panics :
+  forall {A B C} (ta : GoTypeTag A) (ch1 : GoChan A) (k1 : A -> IO C)
+                 (tb : GoTypeTag B) (ch2 : GoChan B) (k2 : B -> IO C) (w : World),
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
+  chan_buf tb ch2 w = nil -> chan_closed ch2 w = false ->
+  select_recv2 ta ch1 k1 tb ch2 k2 w = OPanic rt_select_block w.
+Proof. intros A B C ta ch1 k1 tb ch2 k2 w He1 Hc1 He2 Hc2. unfold select_recv2. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
+Lemma select_wait2_both_empty_open_panics :
+  forall {A} (ta : GoTypeTag A) (ch1 ch2 : GoChan A) (w : World),
+  chan_buf ta ch1 w = nil -> chan_closed ch1 w = false ->
+  chan_buf ta ch2 w = nil -> chan_closed ch2 w = false ->
+  select_wait2 ta ch1 ch2 w = OPanic rt_select_block w.
+Proof. intros A ta ch1 ch2 w He1 Hc1 He2 Hc2. unfold select_wait2. rewrite He1, Hc1, He2, Hc2. reflexivity. Qed.
 
 (** [go_spawn m] (Go spec "Go statements") — FAILS LOUD in the sequential [run_io] semantics (review #6
     #5).  A goroutine is CONCURRENT, not a synchronous call: the prior "run [m] to completion, import its

@@ -4597,7 +4597,7 @@ let is_inlined_ref r =
      (* runtime-panic VALUES (review #6 P1 #15) — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
      "rt_nil_deref"; "rt_index_oob"; "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
-     "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"] ||
+     "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
