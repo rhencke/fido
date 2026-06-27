@@ -6185,6 +6185,113 @@ Qed.
     byte).  Starts with the LINEAR statements (return / expr-stmt / assign / short-decl); nested blocks
     ([SIf]/[SFor]/…) and the universal [print_stmt_inj] (which needs cross-constructor keyword
     disambiguation — a func-lit / expr never prints a leading statement keyword) are the next slices. *)
+(** ── DISAMBIGUATION (B0 slice 2): a printed EXPRESSION never has the leading identifier-run "return", so
+    an [SExprStmt]'s text is never confused with an [SReturn]'s "return " prefix — the crux for the
+    statement round-trip / [print_stmt_inj].  ([raw_ok] rejects a "return"-led raw atom via
+    [leading_is_keyword]; a [func]/[map]-led raw atom IS keyword-led but "return" is neither, so the
+    SPECIFIC <> "return" holds even though general keyword-freeness does not.) *)
+Lemma raw_ok_not_leading_kw : forall s, raw_ok s = true -> leading_is_keyword s = false.
+Proof.
+  intros s H. unfold raw_ok in H.
+  apply andb_true_iff in H; destruct H as [ _ H ].
+  apply andb_true_iff in H; destruct H as [ H _ ].   (* drop [whole_base] *)
+  apply andb_true_iff in H; destruct H as [ _ H ].   (* keep the [has_d0_break/leading_is_keyword/unary] group *)
+  apply andb_true_iff in H; destruct H as [ H _ ].   (* keep [andb (negb has_d0_break) (negb leading_is_keyword)] *)
+  apply andb_true_iff in H; destruct H as [ _ H ].   (* keep [negb leading_is_keyword] *)
+  apply negb_true_iff in H; exact H.
+Qed.
+
+Lemma satom_leading_not_return : forall sa, leading_ident (satom_str sa) <> "return"%string.
+Proof.
+  induction sa as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
+  - (* SIdent : a go_ident, hence all_idc and NOT a keyword *)
+    rewrite (leading_ident_all_idc _ (go_ident_all_idc _ (proj2_sig i))).
+    intro Heq. pose proof (proj2_sig i) as Hgi. rewrite Heq in Hgi. discriminate Hgi.
+  - (* SIntLit : print_Z is '-'-led or digit-led — neither is 'r' *)
+    pose proof (is_dec_print_Z z) as Hd. unfold is_dec in Hd.
+    destruct (print_Z z) as [ | c rest ] eqn:Epz; [ discriminate Hd | ].
+    cbn [leading_ident].
+    destruct (Ascii.eqb c (ascii_of_nat 45)) eqn:Edash.
+    + apply Ascii.eqb_eq in Edash; subst c. cbn. discriminate.
+    + apply andb_true_iff in Hd. destruct Hd as [ Hdc _ ].
+      rewrite (is_dec_char_is_idc c Hdc).
+      intro Heq. injection Heq as Hc _. subst c. discriminate Hdc.
+  - (* SHexLit : print_hex is '0'-led *)
+    destruct (print_hex_head (Z.of_N hz)) as [ rest Hph ]. rewrite Hph.
+    cbn [leading_ident]. intro Heq. injection Heq as Hc _. discriminate Hc.
+  - (* SRaw : raw_ok rejects a keyword-led atom, and "return" is a non-operand keyword *)
+    intro Heq. pose proof (raw_ok_not_leading_kw _ (proj2_sig r)) as Hlk.
+    unfold leading_is_keyword in Hlk. rewrite Heq in Hlk. vm_compute in Hlk. discriminate Hlk.
+  - (* SSelector : rest is '.'-led → leading run stays in the head *)
+    rewrite (leading_ident_app (satom_str a) _
+      (or_intror (ex_intro _ (ch 46) (ex_intro _ (proj1_sig f) (conj eq_refl eq_refl))))).
+    exact IH.
+  - (* SIndex : rest is '['-led *)
+    rewrite (leading_ident_app (satom_str a) _
+      (or_intror (ex_intro _ (ch 91) (ex_intro _ _ (conj eq_refl eq_refl))))).
+    exact IH.
+  - (* SSlice : rest is '['-led *)
+    rewrite (leading_ident_app (satom_str a) _
+      (or_intror (ex_intro _ (ch 91) (ex_intro _ _ (conj eq_refl eq_refl))))).
+    exact IH.
+  - (* SApply : rest is '('-led *)
+    rewrite (leading_ident_app (satom_str a) _
+      (or_intror (ex_intro _ (ch 40) (ex_intro _ _ (conj eq_refl eq_refl))))).
+    exact IH.
+Qed.
+
+(** A printed EXPRESSION (at any precedence ctx) never has the leading identifier-run "return": atoms via
+    [satom_leading_not_return]; a string literal / paren-wrap / unary op is non-idc-led (empty run); an
+    [EBin]'s leading run is its left operand's (the operator text is space-led). *)
+Lemma print_expr_leading_not_return : forall e ctx, leading_ident (print_expr ctx e) <> "return"%string.
+Proof.
+  induction e as [ a | o l IHl r IHr | op e IHe ]; intro ctx.
+  - rewrite print_expr_atom. destruct a as [ sa | v ].
+    + change (atom_str (AScanned sa)) with (satom_str sa). apply satom_leading_not_return.
+    + change (atom_str (AStringLit v)) with (print_string_lit v).
+      unfold print_string_lit. cbn [leading_ident]. discriminate.
+  - destruct (Nat.ltb (binop_prec o) ctx) eqn:Ew.
+    + rewrite (print_expr_wrapped o l r ctx Ew). cbn [leading_ident]. discriminate.
+    + rewrite (print_expr_unwrapped o l r ctx Ew).
+      destruct (binop_text_head_space o) as [ t Ht ].
+      assert (Hrest : (binop_text o ++ print_expr (S (binop_prec o)) r)%string
+                    = String (ch 32) (t ++ print_expr (S (binop_prec o)) r)%string)
+        by (rewrite Ht; reflexivity).
+      rewrite (leading_ident_app (print_expr (binop_prec o) l)
+                 (binop_text o ++ print_expr (S (binop_prec o)) r)
+                 (or_intror (ex_intro _ (ch 32) (ex_intro _ _ (conj Hrest eq_refl))))).
+      apply IHl.
+  - destruct op;
+      [ rewrite (print_expr_unary UNot e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UXor e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UDeref e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UAddr e ctx ltac:(discriminate))
+      | rewrite (print_expr_uneg e ctx) ];
+      cbn [unop_text leading_ident]; discriminate.
+Qed.
+
+(** [strip p s = Some r] means [s = p ++ r] (a literal prefix peeled off). *)
+Lemma strip_app : forall p s r, strip p s = Some r -> s = (p ++ r)%string.
+Proof.
+  induction p as [ | pc p IH ]; intros s r H; cbn [strip] in H.
+  - injection H as <-. reflexivity.
+  - destruct s as [ | sc s' ]; [ discriminate | ].
+    destruct (Ascii.eqb pc sc) eqn:E; [ | discriminate ].
+    apply Ascii.eqb_eq in E; subst sc. cbn [String.append]. f_equal. apply IH; exact H.
+Qed.
+(** So a [strip "return "]-able string has leading identifier-run "return". *)
+Lemma leading_ident_of_strip_return : forall s r,
+  strip "return " s = Some r -> leading_ident s = "return"%string.
+Proof. intros s r H. apply strip_app in H. subst s. reflexivity. Qed.
+
+(** ★The disambiguation: a printed expression is NEVER "return "-prefixed — so [parse_stmt] reading
+    [print_stmt (SExprStmt e)] cannot mistake it for an [SReturn]. *)
+Lemma strip_return_print_expr : forall e ctx, strip "return " (print_expr ctx e) = None.
+Proof.
+  intros e ctx. destruct (strip "return " (print_expr ctx e)) as [ r | ] eqn:E; [ exfalso | reflexivity ].
+  apply (print_expr_leading_not_return e ctx). apply (leading_ident_of_strip_return _ r E).
+Qed.
+
 Inductive GoStmt : Type :=
   | SReturn    : GoExpr -> GoStmt            (* [return e]  → cmd.v: the IO [ret] value / a function result *)
   | SExprStmt  : GoExpr -> GoStmt            (* [e]         → cmd.v: an effectful call, sequenced by [CBind] *)
@@ -6258,6 +6365,47 @@ Example st_decl    : print_stmt (SShortDecl (mkIdent "z" eq_refl) (EBin BAdd (EA
 Example st_seq     : print_stmts (SShortDecl (mkIdent "z" eq_refl) (EAi 1) :: SReturn (EA "z") :: nil)
                                                              = "z := 1; return z". Proof. reflexivity. Qed.
 
+(** ── STATEMENT ROUND-TRIP (B0 slice 2): a PARSER recovers the statement from its printed text, for the
+    [SReturn] / [SExprStmt] forms (exactly the func-lit-body shapes — the A4 force-wrappers are all
+    [return …]).  This is printer/parser SELF-CONSISTENCY for the statement layer (the analog of
+    [print_parse_expr]); it SUBSUMES injectivity for these forms.  The disambiguation ([SExprStmt]'s text is
+    never "return "-led, [strip_return_print_expr]) is what makes [parse_stmt]'s dispatch exact.
+    ([SAssign]/[SShortDecl] need the " = "/" := " seam parsing — a later slice; [parse_stmt] inverts
+    [print_stmt] on the two forms proved here.) *)
+Lemma strip_prefix : forall p s, strip p (p ++ s)%string = Some s.
+Proof.
+  induction p as [ | c p IH ]; intro s; cbn [strip String.append];
+    [ reflexivity | rewrite Ascii.eqb_refl; apply IH ].
+Qed.
+Definition parse_stmt (fuel : nat) (s : string) : option (GoStmt * string) :=
+  match strip "return " s with
+  | Some r => match parse_expr fuel 0 r with Some (e, rest) => Some (SReturn e, rest)   | None => None end
+  | None   => match parse_expr fuel 0 s with Some (e, rest) => Some (SExprStmt e, rest) | None => None end
+  end.
+
+Theorem parse_print_stmt_return : forall e, atomic_tree e ->
+  parse_stmt (3 * esize e + 3) (print_stmt (SReturn e)) = Some (SReturn e, ""%string).
+Proof.
+  intros e Hat. unfold parse_stmt, print_stmt.
+  rewrite strip_prefix, (print_parse_expr e Hat). reflexivity.
+Qed.
+
+Theorem parse_print_stmt_expr : forall e, atomic_tree e ->
+  parse_stmt (3 * esize e + 3) (print_stmt (SExprStmt e)) = Some (SExprStmt e, ""%string).
+Proof.
+  intros e Hat. unfold parse_stmt, print_stmt.
+  rewrite (strip_return_print_expr e 0), (print_parse_expr e Hat). reflexivity.
+Qed.
+
+(** Concrete: a [return]-statement and an expr-statement round-trip through [parse_stmt]. *)
+Example rt_stmt_return : parse_stmt (3 * esize (EBin BAdd (EA "x") (EA "y")) + 3)
+                           (print_stmt (SReturn (EBin BAdd (EA "x") (EA "y"))))
+                       = Some (SReturn (EBin BAdd (EA "x") (EA "y")), ""%string).
+Proof. apply parse_print_stmt_return. repeat constructor. Qed.
+Example rt_stmt_expr : parse_stmt (3 * esize (EAi 7) + 3) (print_stmt (SExprStmt (EAi 7)))
+                     = Some (SExprStmt (EAi 7), ""%string).
+Proof. apply parse_print_stmt_expr. repeat constructor. Qed.
+
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
     they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
@@ -6278,6 +6426,8 @@ Print Assumptions build_atom_atomic_tree.
 Print Assumptions build_base_correct.
 Print Assumptions build_apply_roundtrip.
 Print Assumptions parse_args_roundtrip_mut.
+Print Assumptions parse_print_stmt_return.
+Print Assumptions parse_print_stmt_expr.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
