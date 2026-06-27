@@ -664,6 +664,11 @@ Definition rt_assert_fail  : GoAny := anyt TString "interface conversion: interf
     select on channels that can never become ready); the EXTRACTION is the native Go [select{}] which blocks
     faithfully, so this value lives only in the suppressed body — like the [rt_*] above, in [is_inlined_ref]. *)
 Definition rt_select_block : GoAny := anyt TString "go: select would block (no ready case, no default)"%string.
+(** Model-INTERNAL fail-loud for a [send] with no buffer room (full [Some n], or unbuffered [Some 0] with no
+    waiting receiver): Go BLOCKS, which the sequential IO model cannot represent, so it refuses LOUDLY rather
+    than over-append (review #8 P0-4).  Lives only in the suppressed [send] body (native Go [ch <- v] blocks
+    faithfully) — like the [rt_*] above, in [is_inlined_ref]. *)
+Definition rt_chan_send_block : GoAny := anyt TString "go: send would block (buffer full / unbuffered, no receiver)"%string.
 
 (** ---- Decidable key equality (Go map keys must be COMPARABLE) ----
 
@@ -860,7 +865,9 @@ Definition RefHeap : Type := nat -> option RefCell.
     (a [list E]), and the closed flag.  The stored [GoTypeTag] lets an accessor
     coerce the buffer back to its own view's element type (they are equal by
     construction; [tag_eq] recovers the proof). *)
-Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * bool))%type }.
+(** A channel cell carries its element tag, FIFO buffer, closed flag, and CAPACITY ([option nat]: [None] =
+    unbounded, [Some n] = a bounded buffer — review #8 P0-4). *)
+Definition ChanCell : Type := { E : Type & (GoTypeTag E * (list E * (bool * option nat)))%type }.
 Definition ChanHeap : Type := nat -> option ChanCell.
 (** A map cell: the key type [K] + its tag, then existentially the value type [V]
     + its tag, then the contents as a finite-support function [K -> option V].
@@ -2859,20 +2866,23 @@ Qed.
     channel's cell is INITIALISED in [w_chans] (empty buffer, not closed, tagged
     with the element type [tag]).  Lowered by name to [make(chan T)] /
     [make(chan T, n)]; the world-threading body is proof-only. *)
-Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
+(** The channel cell now carries a CAPACITY ([option nat]: [None] = unbounded, [Some n] = a buffer that
+    holds at most [n]).  [make_chan] is UNBUFFERED, [Some 0] — an IO send to it finds no room and FAILS LOUD
+    (Go BLOCKS pending a receiver; the sequential IO model has no rendezvous).  [make_chan_buf n] is [Some n].
+    Review #8 P0-4: capacity is no longer ignored ([make_chan_buf] is no longer [= make_chan]), and [send]
+    (below) is capacity-aware. *)
+Definition make_chan_cap {A : Type} (tag : GoTypeTag A) (cap : option nat) : IO (GoChan A) :=
   fun w => let l := w_next w in
            ORet (MkChan l)
                 (mkWorld (w_refs w)
                          (fun k => if Nat.eqb k l
-                                   then Some (existT _ A (tag, (nil, false)))
+                                   then Some (existT _ A (tag, (nil, (false, cap))))
                                    else w_chans w k)
                          (w_maps w) (S l) (w_output w)).
-(** Buffering is idealised away in the proof model (capacity has no denotation
-    here — only the FIFO + closed flag), so a buffered channel is created exactly
-    like an unbuffered one; the capacity [n] survives only in the plugin lowering
-    ([make(chan T, n)]). *)
+Definition make_chan {A : Type} (tag : GoTypeTag A) : IO (GoChan A) :=
+  make_chan_cap tag (Some 0%nat).
 Definition make_chan_buf {A : Type} (tag : GoTypeTag A) (n : GoInt) : IO (GoChan A) :=
-  make_chan tag.
+  make_chan_cap tag (Some (Z.to_nat (intraw n))).
 (** The channel OPERATIONS ([send]/[recv]/[close_chan]/[recv_ok]/[select_*]/
     [go_spawn]) are DEFINITIONS over the concrete channel STATE below (declared
     after it, so they can reference it); their [run_*] laws and the channel laws
@@ -2912,36 +2922,55 @@ Definition chan_buf {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) :
   end.
 Definition chan_closed {A : Type} (ch : GoChan A) (w : World) : bool :=
   match w_chans w (ch_loc ch) with
-  | Some (existT _ _ (_, (_, cl))) => cl
+  | Some (existT _ _ (_, (_, (cl, _)))) => cl
   | None => false
   end.
-(** Write a channel cell at [ch]'s location, tagged with [tag]. *)
+(** [chan_cap ch w] — the channel's capacity ([None] = unbounded; an absent cell reads [None]). *)
+Definition chan_cap {A : Type} (ch : GoChan A) (w : World) : option nat :=
+  match w_chans w (ch_loc ch) with
+  | Some (existT _ _ (_, (_, (_, cap)))) => cap
+  | None => None
+  end.
+(** [chan_room tag ch w] — is there room for one more send?  [None] (unbounded) always; [Some n] iff the
+    current FIFO is shorter than [n].  An IO [send] is permitted only when this holds (else it FAILS LOUD). *)
+Definition chan_room {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : bool :=
+  match chan_cap ch w with
+  | None   => true
+  | Some n => Nat.ltb (List.length (chan_buf tag ch w)) n
+  end.
+(** Write a channel cell at [ch]'s location, tagged with [tag], preserving its capacity [cap]. *)
 Definition chan_write {A : Type} (tag : GoTypeTag A) (ch : GoChan A)
-                      (buf : list A) (cl : bool) (w : World) : World :=
+                      (buf : list A) (cl : bool) (cap : option nat) (w : World) : World :=
   mkWorld (w_refs w)
           (fun k => if Nat.eqb k (ch_loc ch)
-                    then Some (existT _ A (tag, (buf, cl)))
+                    then Some (existT _ A (tag, (buf, (cl, cap))))
                     else w_chans w k)
           (w_maps w) (w_next w) (w_output w).
 Definition chan_send_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World) : World :=
-  chan_write tag ch (chan_buf tag ch w ++ (v :: nil)) (chan_closed ch w) w.
+  chan_write tag ch (chan_buf tag ch w ++ (v :: nil)) (chan_closed ch w) (chan_cap ch w) w.
 Definition chan_recv_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : World :=
-  chan_write tag ch (tl (chan_buf tag ch w)) (chan_closed ch w) w.
+  chan_write tag ch (tl (chan_buf tag ch w)) (chan_closed ch w) (chan_cap ch w) w.
 Definition chan_close_upd {A : Type} (tag : GoTypeTag A) (ch : GoChan A) (w : World) : World :=
-  chan_write tag ch (chan_buf tag ch w) true w.
+  chan_write tag ch (chan_buf tag ch w) true (chan_cap ch w) w.
 
 (** Reading back what [chan_write] wrote (with the SAME tag) — the heap-cell
     round-trip, via [eqb_refl] (location hit) + [tag_eq_refl] (coercion identity). *)
-Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl w,
-  chan_buf tag ch (chan_write tag ch buf cl w) = buf.
+Lemma chan_buf_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  chan_buf tag ch (chan_write tag ch buf cl cap w) = buf.
 Proof.
-  intros A tag ch buf cl w. unfold chan_buf, chan_write. cbn.
+  intros A tag ch buf cl cap w. unfold chan_buf, chan_write. cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)), tag_eq_refl. reflexivity.
 Qed.
-Lemma chan_closed_write_same : forall {A} (tag : GoTypeTag A) ch buf cl w,
-  chan_closed ch (chan_write tag ch buf cl w) = cl.
+Lemma chan_closed_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  chan_closed ch (chan_write tag ch buf cl cap w) = cl.
 Proof.
-  intros A tag ch buf cl w. unfold chan_closed, chan_write. cbn.
+  intros A tag ch buf cl cap w. unfold chan_closed, chan_write. cbn.
+  rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
+Qed.
+Lemma chan_cap_write_same : forall {A} (tag : GoTypeTag A) ch buf cl cap w,
+  chan_cap ch (chan_write tag ch buf cl cap w) = cap.
+Proof.
+  intros A tag ch buf cl cap w. unfold chan_cap, chan_write. cbn.
   rewrite (Nat.eqb_refl (ch_loc ch)). reflexivity.
 Qed.
 (** A write to [ch] leaves a DIFFERENT channel's cell ([ch']) untouched — record
@@ -2951,10 +2980,10 @@ Proof.
   intros A ch ch' Hne Hloc. apply Hne.
   destruct ch as [l]; destruct ch' as [l']; cbn in Hloc; subst; reflexivity.
 Qed.
-Lemma chan_read_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl w,
-  ch <> ch' -> w_chans (chan_write tag ch buf cl w) (ch_loc ch') = w_chans w (ch_loc ch').
+Lemma chan_read_write_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) buf cl cap w,
+  ch <> ch' -> w_chans (chan_write tag ch buf cl cap w) (ch_loc ch') = w_chans w (ch_loc ch').
 Proof.
-  intros A tag ch ch' buf cl w Hne. unfold chan_write. cbn.
+  intros A tag ch ch' buf cl cap w Hne. unfold chan_write. cbn.
   rewrite (proj2 (Nat.eqb_neq (ch_loc ch') (ch_loc ch))).
   - reflexivity.
   - intro H. apply (chan_loc_neq ch ch' Hne). symmetry; exact H.
@@ -2977,6 +3006,17 @@ Proof. intros. unfold chan_recv_upd. rewrite chan_closed_write_same. reflexivity
 Theorem chan_closed_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
   chan_closed ch (chan_close_upd tag ch w) = true.
 Proof. intros. unfold chan_close_upd. rewrite chan_closed_write_same. reflexivity. Qed.
+(** Capacity is INVARIANT under send/recv/close (the cell's [cap] is re-written unchanged) — needed so a
+    capacity-aware [send] can reason across updates, and so the [WMatch1] bridge keeps its [None] channels. *)
+Theorem chan_cap_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  chan_cap ch (chan_send_upd tag ch v w) = chan_cap ch w.
+Proof. intros. unfold chan_send_upd. rewrite chan_cap_write_same. reflexivity. Qed.
+Theorem chan_cap_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cap ch (chan_recv_upd tag ch w) = chan_cap ch w.
+Proof. intros. unfold chan_recv_upd. rewrite chan_cap_write_same. reflexivity. Qed.
+Theorem chan_cap_close : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (w : World),
+  chan_cap ch (chan_close_upd tag ch w) = chan_cap ch w.
+Proof. intros. unfold chan_close_upd. rewrite chan_cap_write_same. reflexivity. Qed.
 
 (** Channel SEPARATION (frame) — now THEOREMS: a send/receive on one channel leaves
     every OTHER channel's buffer untouched (distinct cells are independent). *)
@@ -2984,13 +3024,13 @@ Theorem chan_buf_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A)
   ch <> ch' -> chan_buf tag ch' (chan_send_upd tag ch v w) = chan_buf tag ch' w.
 Proof.
   intros A tag ch ch' v w Hne. unfold chan_send_upd, chan_buf.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 Theorem chan_buf_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
   ch <> ch' -> chan_buf tag ch' (chan_recv_upd tag ch w) = chan_buf tag ch' w.
 Proof.
   intros A tag ch ch' w Hne. unfold chan_recv_upd, chan_buf.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 
 
@@ -3003,8 +3043,15 @@ Qed.
     with a [default] is NON-blocking by DESIGN — firing [default] on an open-empty
     channel is FAITHFUL Go, not an idealisation; [recv_ok] gets the same blocking-panic
     split below.) *)
+(** [send] is CAPACITY-AWARE (review #8 P0-4): a send onto a CLOSED channel panics (Go's "send on closed
+    channel"); a send with NO ROOM ([chan_room] false — a full [Some n] buffer, or an UNBUFFERED [Some 0]
+    channel with no waiting receiver) FAILS LOUD (Go BLOCKS; the sequential IO model has no rendezvous), it
+    does NOT silently over-append; otherwise it enqueues.  [None]-capacity (unbounded) channels always have
+    room — used by the concurrency bridge's abstract channels. *)
 Definition send {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) : IO unit :=
-  fun w => if chan_closed ch w then OPanic rt_send_closed w else ORet tt (chan_send_upd tag ch v w).
+  fun w => if chan_closed ch w then OPanic rt_send_closed w
+           else if chan_room tag ch w then ORet tt (chan_send_upd tag ch v w)
+                else OPanic rt_chan_send_block w.
 Definition recv {A} (tag : GoTypeTag A) (ch : GoChan A) : IO A :=
   fun w => match chan_buf tag ch w with
            | v :: _ => ORet v (chan_recv_upd tag ch w)
@@ -3250,9 +3297,14 @@ Definition go_spawn (m : IO unit) : IO unit :=
     [recv]/[close_chan] carry the element [tag] (the typed-heap accessors need it
     since [GoChan] is tag-free). *)
 Lemma run_send : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  chan_closed ch w = false ->
+  chan_closed ch w = false -> chan_room tag ch w = true ->
   run_io (send tag ch v) w = ORet tt (chan_send_upd tag ch v w).
-Proof. intros A tag ch v w H. unfold send, run_io. rewrite H. reflexivity. Qed.
+Proof. intros A tag ch v w H Hr. unfold send, run_io. rewrite H, Hr. reflexivity. Qed.
+(** A send with NO room FAILS LOUD (the model has no Blocked outcome — review #8 P0-4). *)
+Lemma run_send_blocked : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
+  chan_closed ch w = false -> chan_room tag ch w = false ->
+  run_io (send tag ch v) w = OPanic rt_chan_send_block w.
+Proof. intros A tag ch v w H Hr. unfold send, run_io. rewrite H, Hr. reflexivity. Qed.
 Lemma run_send_closed : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
   chan_closed ch w = true ->
   run_io (send tag ch v) w = OPanic rt_send_closed w.
@@ -3296,12 +3348,12 @@ Proof. reflexivity. Qed.
     closed channel, and FIFO means [recv] returns [v] only when [v] is at the
     head — i.e. the buffer was empty before the send.) *)
 Theorem send_recv : forall {A} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (w : World),
-  chan_closed ch w = false -> chan_buf tag ch w = nil ->
+  chan_closed ch w = false -> chan_buf tag ch w = nil -> chan_room tag ch w = true ->
   run_io (bind (send tag ch v) (fun _ => recv tag ch)) w
   = ORet v (chan_recv_upd tag ch (chan_send_upd tag ch v w)).
 Proof.
-  intros A tag ch v w Hclosed Hempty.
-  rewrite run_bind, (run_send tag ch v w Hclosed). cbn.
+  intros A tag ch v w Hclosed Hempty Hroom.
+  rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv tag ch v nil).
   rewrite chan_buf_send, Hempty. reflexivity.
 Qed.
@@ -3310,14 +3362,33 @@ Qed.
     delivers [(v, true)] and runs the continuation in the dequeued world. *)
 Theorem send_recv_ok : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A)
     (f : A -> bool -> IO B) (w : World),
-  chan_closed ch w = false -> chan_buf tag ch w = nil ->
+  chan_closed ch w = false -> chan_buf tag ch w = nil -> chan_room tag ch w = true ->
   run_io (bind (send tag ch v) (fun _ => recv_ok tag ch f)) w
   = run_io (f v true) (chan_recv_upd tag ch (chan_send_upd tag ch v w)).
 Proof.
-  intros A B tag ch v f w Hclosed Hempty.
-  rewrite run_bind, (run_send tag ch v w Hclosed). cbn.
+  intros A B tag ch v f w Hclosed Hempty Hroom.
+  rewrite run_bind, (run_send tag ch v w Hclosed Hroom). cbn.
   apply (run_recv_ok tag ch f v nil).
   rewrite chan_buf_send, Hempty. reflexivity.
+Qed.
+
+(** REVIEW #8 P0-4 REGRESSION — capacity is no longer ignored.  [make_chan_buf n] STORES the capacity
+    [Some n] (it was [:= make_chan], dropping [n]); [make_chan] is UNBUFFERED [Some 0], so an IO send to a
+    freshly-made unbuffered channel FAILS LOUD ([rt_chan_send_block]) — Go blocks pending a receiver — rather
+    than silently over-appending.  (The buffered [send]-then-[recv] path stays sound: [send_recv] now carries
+    [chan_room = true].) *)
+Lemma make_chan_buf_caps : forall {A} (tag : GoTypeTag A) (n : GoInt) (w : World) ch w',
+  run_io (make_chan_buf tag n) w = ORet ch w' -> chan_cap ch w' = Some (Z.to_nat (intraw n)).
+Proof.
+  intros A tag n w ch w' H. unfold make_chan_buf, make_chan_cap, run_io in H.
+  injection H as Hch Hw. subst ch w'. unfold chan_cap. cbn. rewrite Nat.eqb_refl. reflexivity.
+Qed.
+Lemma make_chan_unbuffered_send_blocks : forall {A} (tag : GoTypeTag A) (v : A) (w : World) ch w',
+  run_io (make_chan tag) w = ORet ch w' -> run_io (send tag ch v) w' = OPanic rt_chan_send_block w'.
+Proof.
+  intros A tag v w ch w' H. unfold make_chan, make_chan_cap, run_io in H.
+  injection H as Hch Hw. subst ch w'. unfold send, run_io, chan_closed, chan_room, chan_cap, chan_buf. cbn.
+  rewrite !Nat.eqb_refl. cbn. reflexivity.
 Qed.
 
 (** Sending on a closed channel panics (Go spec): close then send → panic.  (On a non-nil channel — a
@@ -4618,13 +4689,13 @@ Proof.
     rewrite Hneq. repeat split; assumption.
 Qed.
 
-Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (w : World),
+Lemma valid_alloc_chan : forall {A} (tag : GoTypeTag A) (cap : option nat) (w : World),
   ValidWorld w ->
   ValidWorld (mkWorld (w_refs w)
-    (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, (nil, false))) else w_chans w k)
+    (fun k => if Nat.eqb k (w_next w) then Some (existT _ A (tag, (nil, (false, cap)))) else w_chans w k)
     (w_maps w) (S (w_next w)) (w_output w)).
 Proof.
-  intros A tag w HV. destruct HV as [Hpos Hfresh]. split.
+  intros A tag cap w HV. destruct HV as [Hpos Hfresh]. split.
   - cbn [w_next]. apply Nat.ltb_lt. lia.
   - intros l' Hle. cbn [w_next w_refs w_chans w_maps] in *.
     assert (Hle0 : (w_next w <=? l')%nat = true) by (apply (bump_le w l' Hle)).
@@ -4674,7 +4745,7 @@ Qed.
 Corollary valid_run_make_chan : forall {A} (tag : GoTypeTag A) (w : World) r w',
   ValidWorld w -> run_io (make_chan tag) w = ORet r w' -> ValidWorld w'.
 Proof.
-  intros A tag w r w' HV Hrun. unfold run_io, make_chan in Hrun. cbv zeta in Hrun.
+  intros A tag w r w' HV Hrun. unfold run_io, make_chan, make_chan_cap in Hrun. cbv zeta in Hrun.
   injection Hrun as _ Hw. subst w'. apply valid_alloc_chan; assumption.
 Qed.
 
@@ -5366,8 +5437,8 @@ Qed.
     ([w_refs] vs [w_chans]), so a CHANNEL op leaves every ref untouched and a REF op leaves every
     channel untouched.  These let a single [run_io] world match BOTH the calculus's channel AND heap
     state at once (the combined state refinement). *)
-Lemma ref_sel_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl (r : Ref B) (w : World),
-  ref_sel r (chan_write tag ch buf cl w) = ref_sel r w.
+Lemma ref_sel_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
+  ref_sel r (chan_write tag ch buf cl cap w) = ref_sel r w.
 Proof. intros. unfold ref_sel, chan_write. reflexivity. Qed.
 
 Lemma ref_sel_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
@@ -5379,8 +5450,8 @@ Lemma ref_sel_chan_recv_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (
 Proof. intros. unfold chan_recv_upd. apply ref_sel_chan_write_frame. Qed.
 (* The CHECKED selector [ref_sel_opt] is framed by channel ops the same way (refs and channel cells are
    independent World components) — needed by the heap bridge after the fail-loud read (review #6 #7). *)
-Lemma ref_sel_opt_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl (r : Ref B) (w : World),
-  ref_sel_opt r (chan_write tag ch buf cl w) = ref_sel_opt r w.
+Lemma ref_sel_opt_chan_write_frame : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) buf cl cap (r : Ref B) (w : World),
+  ref_sel_opt r (chan_write tag ch buf cl cap w) = ref_sel_opt r w.
 Proof. intros. unfold ref_sel_opt, chan_write. reflexivity. Qed.
 Lemma ref_sel_opt_chan_send_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (v : A) (r : Ref B) (w : World),
   ref_sel_opt r (chan_send_upd tag ch v w) = ref_sel_opt r w.
@@ -5401,7 +5472,7 @@ Lemma chan_buf_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) 
   ch <> ch' -> chan_buf tag ch' (chan_close_upd tag ch w) = chan_buf tag ch' w.
 Proof.
   intros A tag ch ch' w Hne. unfold chan_close_upd, chan_buf.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 Lemma ref_sel_chan_close_upd : forall {A B} (tag : GoTypeTag A) (ch : GoChan A) (r : Ref B) (w : World),
   ref_sel r (chan_close_upd tag ch w) = ref_sel r w.
@@ -5410,7 +5481,7 @@ Lemma chan_closed_close_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan 
   ch <> ch' -> chan_closed ch' (chan_close_upd tag ch w) = chan_closed ch' w.
 Proof.
   intros A tag ch ch' w Hne. unfold chan_close_upd, chan_closed.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 Lemma chan_closed_ref_upd : forall {A B} (r : Ref B) (v : B) (ch : GoChan A) (w : World),
   chan_closed ch (ref_upd r v w) = chan_closed ch w.
@@ -5422,13 +5493,13 @@ Lemma chan_closed_send_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A
   ch <> ch' -> chan_closed ch' (chan_send_upd tag ch v w) = chan_closed ch' w.
 Proof.
   intros A tag ch ch' v w Hne. unfold chan_send_upd, chan_closed.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 Lemma chan_closed_recv_frame : forall {A} (tag : GoTypeTag A) (ch ch' : GoChan A) (w : World),
   ch <> ch' -> chan_closed ch' (chan_recv_upd tag ch w) = chan_closed ch' w.
 Proof.
   intros A tag ch ch' w Hne. unfold chan_recv_upd, chan_closed.
-  rewrite (chan_read_write_frame tag ch ch' _ _ w Hne). reflexivity.
+  rewrite (chan_read_write_frame tag ch ch' _ _ _ w Hne). reflexivity.
 Qed.
 
 (** Field read-after-write — a THEOREM: after [hfield_set h k tag v], reading field [k]
@@ -5515,13 +5586,14 @@ Theorem struct_chan_roundtrip2 :
   forall (ch : GoChan (GoI64 * GoI64)) (v : GoI64 * GoI64) (w : World),
     @chan_closed (GoI64 * GoI64)%type (MkChan (ch_loc ch)) w = false ->
     chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch)) w = nil ->
+    chan_room (TProd TI64 TI64) (MkChan (ch_loc ch)) w = true ->
     exists w', run_io (bind (struct_send2 ch v)
                             (fun _ => struct_recv2 ch)) w = ORet v w'.
 Proof.
-  intros ch v w Hopen Hempty.
+  intros ch v w Hopen Hempty Hroom.
   unfold struct_send2, struct_recv2.
   rewrite run_bind.
-  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w Hopen).
+  rewrite (run_send (TProd TI64 TI64) (MkChan (ch_loc ch)) v w Hopen Hroom).
   assert (Hbuf1 : chan_buf (TProd TI64 TI64) (MkChan (ch_loc ch))
             (chan_send_upd (TProd TI64 TI64) (MkChan (ch_loc ch)) v w) = v :: nil)
     by (rewrite chan_buf_send, Hempty; reflexivity).

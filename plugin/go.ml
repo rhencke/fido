@@ -486,6 +486,7 @@ let is_gofunc_of_ref = named "gofunc_of"
 let is_gofunc_call_ref = named "gofunc_call"
 let is_make_chan_ref = named "make_chan"
 let is_make_chan_buf_ref = named "make_chan_buf"
+let is_make_chan_cap_ref = named "make_chan_cap"
 let is_send_ref = named "send"
 let is_recv_ref = named "recv"
 let is_close_chan_ref = named "close_chan"
@@ -4522,7 +4523,7 @@ let pp_function state name body typ =
    wrong).  A module-level list so it is built once, not re-allocated per call. *)
 let proof_only_names =
   [ "ref_sel"; "ref_sel_opt"; "ref_upd";
-    "chan_buf"; "chan_closed"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
+    "chan_buf"; "chan_closed"; "chan_cap"; "chan_room"; "chan_send_upd"; "chan_recv_upd"; "chan_close_upd";
     "map_sel"; "map_upd"; "map_rem"; "map_size"; "map_count"; "map_clear_upd"; "run_io";
     "map_get_fn"; "map_write"; "key_eqb"; "eqb";   (* map-cell read/write + key equality;
       bare [eqb] suppresses the FIVE stdlib eqb decls pulled into the proof-only key_eqb
@@ -4597,7 +4598,8 @@ let is_inlined_ref r =
      (* runtime-panic VALUES (review #6 P1 #15) — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
      "rt_nil_deref"; "rt_index_oob"; "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
-     "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block"] ||
+     "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
+     "rt_chan_send_block"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||
   is_slice_of_list_ref r || is_slice_get_ref r || is_slice_at_ok_ref r ||
   is_arr_lit_ref r || is_arr_eqb_ref r || is_arr_set_ref r ||
@@ -4632,7 +4634,7 @@ let is_inlined_ref r =
   is_map_get_opt_ref r || is_map_clear_ref r ||
   is_min_ref r || is_max_ref r || is_slice_make_ref r || is_repeat_ref r ||
   is_gofunc_type r || is_gofunc_of_ref r || is_gofunc_call_ref r ||  (* nullable func values (review #8) *)
-  is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r ||
+  is_go_chan_type r || is_make_chan_ref r || is_make_chan_buf_ref r || is_make_chan_cap_ref r ||
   is_send_ref r || is_recv_ref r || is_close_chan_ref r || is_recv_ok_ref r ||
   is_select_recv2_ref r || is_select_recv_default_ref r ||
   is_go_spawn_ref r || is_defer_call_ref r ||
