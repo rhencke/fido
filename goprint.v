@@ -6406,6 +6406,171 @@ Example rt_stmt_expr : parse_stmt (3 * esize (EAi 7) + 3) (print_stmt (SExprStmt
                      = Some (SExprStmt (EAi 7), ""%string).
 Proof. apply parse_print_stmt_expr. repeat constructor. Qed.
 
+(** ── PARAM-LIST ROUND-TRIP (B0, toward the func-lit round-trip / [EFuncLit]).  A func-lit parameter list
+    [x int64, y int64] round-trips: each [name type] pair, ", "-separated, terminated by the func-lit's ")".
+    A param TYPE is followed by ", " or ") " (NOT [rbound] = ""/"]"-led), so [parse_print_ty] does not apply;
+    [parse_print_ty_nonidc] generalises it to any NON-idc-led tail (a ','/')' cannot extend a type token,
+    exactly like a ']' cannot — [rbound] was stronger than necessary). *)
+Definition tbound (rest : string) : Prop :=
+  rest = ""%string \/ exists c r, rest = String c r /\ is_idc c = false.
+
+Theorem parse_print_ty_nonidc : forall t f rest,
+  ty_depth t < f -> tbound rest -> parse_ty f (print_ty t ++ rest) = Some (t, rest).
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IH | u IH | u IH | a IHa b IHb | i ];
+    intros f rest Hf Htb;
+    destruct f as [ | f ]; cbn [ty_depth] in Hf; try lia.
+  (* 14 scalar leaves: a complete keyword; with [rest] empty or non-idc-led the scan stops, classify is concrete *)
+  all: try (destruct Htb as [ -> | [ c [ r [ -> Hc ] ] ] ];
+            [ cbn; reflexivity
+            | cbn [parse_ty strip Ascii.eqb]; rewrite scan_id_all; [ reflexivity | reflexivity | exact Hc ] ]).
+  - (* GTPtr u *)  cbn. rewrite (IH f rest ltac:(lia) Htb). reflexivity.
+  - (* GTSlice u *) cbn. rewrite (IH f rest ltac:(lia) Htb). reflexivity.
+  - (* GTChan u *)  cbn [print_ty]. rewrite sapp_assoc, parse_ty_chan.
+    rewrite (IH f rest ltac:(lia) Htb). reflexivity.
+  - (* GTMap a b *)
+    assert (Hk : parse_ty f (print_ty a ++ ("]" ++ (print_ty b ++ rest)))%string
+               = Some (a, ("]" ++ (print_ty b ++ rest))%string))
+      by (apply IHa; [ lia | right; exists "]"%char, (print_ty b ++ rest)%string; split; reflexivity ]).
+    assert (Hv : parse_ty f (print_ty b ++ rest)%string = Some (b, rest))
+      by (apply IHb; [ lia | exact Htb ]).
+    cbn [print_ty]. rewrite !sapp_assoc, parse_ty_map, Hk.
+    cbn. rewrite Hv. reflexivity.
+  - (* GTNamed i *)
+    destruct i as [ s Hs ]. cbn [print_ty proj1_sig].
+    pose proof Hs as Hni.
+    destruct s as [ | c n' ]; [ cbn in Hni; discriminate | ].
+    unfold nominal_type_ident in Hni. apply andb_true_iff in Hni. destruct Hni as [ Hgi Hkw ].
+    unfold go_ident in Hgi. apply andb_true_iff in Hgi. destruct Hgi as [ Hsa _ ].
+    apply andb_true_iff in Hsa. destruct Hsa as [ Hstart Hall ].
+    apply negb_true_iff in Hkw.
+    assert (Hstar : Ascii.eqb "*"%char c = false).
+    { destruct (Ascii.eqb "*"%char c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; cbn in Hstart; discriminate | reflexivity ]. }
+    assert (Hbrack : Ascii.eqb "["%char c = false).
+    { destruct (Ascii.eqb "["%char c) eqn:E; [ apply Ascii.eqb_eq in E; subst c; cbn in Hstart; discriminate | reflexivity ]. }
+    assert (Hss : strip "*" (String c (n' ++ rest))%string = None) by (cbn [strip]; rewrite Hstar; reflexivity).
+    assert (Hsb : strip "[]" (String c (n' ++ rest))%string = None) by (cbn [strip]; rewrite Hbrack; reflexivity).
+    assert (Hscan : scan_id (String c (n' ++ rest))%string = (String c n', rest)).
+    { change (String c (n' ++ rest))%string with ((String c n') ++ rest)%string.
+      apply scan_id_all; [ exact Hall | destruct Htb as [ -> | [ c0 [ r0 [ -> Hc0 ] ] ] ]; [ exact I | exact Hc0 ] ]. }
+    destruct (kw_false_classify _ Hkw) as [ Hcl [ Hchanf Hmapf ] ].
+    cbn [parse_ty append].
+    rewrite Hss, Hsb, Hscan, Hcl, Hchanf, Hmapf.
+    destruct (bool_dec (nominal_type_ident (String c n')) true) as [ Hd | Hd ].
+    + assert (E : Hd = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+    + exfalso. apply Hd. exact Hs.
+Qed.
+
+(** Parse ONE [name type] parameter: scan the identifier, re-validate [go_ident] (so the recovered name is
+    a genuine [Ident]), strip the separating space, parse the type. *)
+Definition parse_param (fuel : nat) (s : string) : option ((Ident * GoTy) * string) :=
+  let (name, rest) := scan_id s in
+  match bool_dec (go_ident name) true with        (* [go_ident ""] = false, so this also rejects an empty name *)
+  | left H =>
+      match strip " " rest with
+      | Some r => match parse_ty fuel r with
+                  | Some (t, rest2) => Some ((mkIdent name H, t), rest2)
+                  | None => None end
+      | None => None end
+  | right _ => None
+  end.
+
+(** Parse a parameter LIST: empty (the ")" terminator, not consumed) or ≥1 [parse_param], ", "-separated. *)
+Fixpoint parse_params (fuel : nat) (s : string) : option (list (Ident * GoTy) * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+      match strip ")" s with
+      | Some _ => Some (nil, s)            (* empty list: leave the ")" for the func-lit parse *)
+      | None =>
+          match parse_param f s with
+          | Some (p, rest) =>
+              match strip ", " rest with
+              | Some r2 => match parse_params f r2 with Some (ps, r3) => Some (p :: ps, r3) | None => None end
+              | None => Some (p :: nil, rest)
+              end
+          | None => None
+          end
+      end
+  end.
+
+(** Fuel measure: one unit per param + each param-type's depth. *)
+Fixpoint params_measure (ps : list (Ident * GoTy)) : nat :=
+  match ps with nil => 0 | (_, t) :: rest => S (ty_depth t + params_measure rest) end.
+
+(** One-step [print_params] unfolders (so [cbn] does not over-unfold the recursive tail into a [let]-form). *)
+Lemma print_params_cons2 : forall x t p ps,
+  print_params ((x, t) :: p :: ps) = (proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params (p :: ps))%string.
+Proof. reflexivity. Qed.
+
+(** A [go_ident]-led string (and anything after it) is never ")"-led: its first char is [is_idstart], not ')'. *)
+Lemma go_ident_not_close_led : forall s suf, go_ident s = true -> strip ")" (s ++ suf)%string = None.
+Proof.
+  intros s suf Hg. destruct s as [ | xc xr ]; [ discriminate Hg | ].
+  unfold go_ident in Hg. apply andb_true_iff in Hg. destruct Hg as [ Hg _ ].
+  apply andb_true_iff in Hg. destruct Hg as [ Hstart _ ].
+  cbn [String.append strip].
+  destruct (Ascii.eqb ")" xc) eqn:Erp;
+    [ apply Ascii.eqb_eq in Erp; subst xc; cbn in Hstart; discriminate | reflexivity ].
+Qed.
+
+(** ★The param-list ROUND-TRIP: [parse_params] inverts [print_params], for any ")"-led terminator (the
+    func-lit's ") ").  Each param-type uses [parse_print_ty_nonidc] (its ", "/")" tail is non-idc-led); the
+    recovered [Ident] equals the original (UIP on [bool] proofs, as in [parse_print_ty]'s [GTNamed]). *)
+Theorem parse_print_params : forall ps fuel rest,
+  params_measure ps < fuel -> (exists t, rest = String (ch 41) t) ->
+  parse_params fuel (print_params ps ++ rest)%string = Some (ps, rest).
+Proof.
+  induction ps as [ | [x t] ps' IH ]; intros fuel rest Hfuel Hrest;
+    destruct fuel as [ | f ]; cbn [params_measure] in Hfuel; try lia.
+  - (* nil: print_params nil = "" → strip ")" succeeds *)
+    destruct Hrest as [ tl -> ]. cbn [print_params String.append parse_params strip Ascii.eqb]. reflexivity.
+  - (* cons (x,t) ps' *)
+    assert (Hgo : go_ident (proj1_sig x) = true) by exact (proj2_sig x).
+    assert (Htbsep : forall sep, (exists c r, sep = String c r /\ is_idc c = false) ->
+              parse_param f (proj1_sig x ++ " " ++ print_ty t ++ sep)%string
+              = Some ((x, t), sep)).
+    { intros sep [ c [ r [ Hsep Hc ] ] ]. unfold parse_param.
+      destruct (scan_id (proj1_sig x ++ " " ++ print_ty t ++ sep)%string) as [ name rst ] eqn:Esc.
+      assert (Hnr : (name, rst) = (proj1_sig x, (" " ++ print_ty t ++ sep)%string)).
+      { rewrite <- Esc. apply scan_id_all; [ exact (go_ident_all_idc _ Hgo) | reflexivity ]. }
+      injection Hnr as Hn Hr. subst name rst.
+      destruct (bool_dec (go_ident (proj1_sig x)) true) as [ Hd | Hd ]; [ | exfalso; apply Hd; exact Hgo ].
+      cbn -[parse_ty print_ty].
+      rewrite (parse_print_ty_nonidc t f sep ltac:(lia) (or_intror (ex_intro _ c (ex_intro _ r (conj Hsep Hc))))).
+      assert (E : mkIdent (proj1_sig x) Hd = x).
+      { unfold mkIdent. destruct x as [ xs xH ]. cbn [proj1_sig] in *.
+        assert (Hd = xH) by apply (Eqdep_dec.UIP_dec bool_dec). subst. reflexivity. }
+      rewrite E. reflexivity. }
+    destruct ps' as [ | p2 ps2 ].
+    + (* singleton *)
+      destruct Hrest as [ tl Hrt ].
+      cbn [print_params]. rewrite !sapp_assoc.
+      cbn [parse_params].
+      assert (Hnp : strip ")" (proj1_sig x ++ " " ++ print_ty t ++ rest)%string = None)
+        by (apply go_ident_not_close_led; exact Hgo).
+      rewrite Hnp. rewrite (Htbsep rest (ex_intro _ (ch 41) (ex_intro _ tl (conj Hrt eq_refl)))).
+      rewrite Hrt. cbn [strip Ascii.eqb]. reflexivity.
+    + (* ≥2 params: the ", " separator then recurse *)
+      rewrite (print_params_cons2 x t p2 ps2). rewrite !sapp_assoc.
+      cbn [parse_params].
+      assert (Hnp : strip ")" (proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params (p2 :: ps2) ++ rest)%string = None)
+        by (apply go_ident_not_close_led; exact Hgo).
+      rewrite Hnp.
+      rewrite (Htbsep (", " ++ print_params (p2 :: ps2) ++ rest)%string
+                 (ex_intro _ (ch 44) (ex_intro _ (" " ++ print_params (p2 :: ps2) ++ rest)%string (conj eq_refl eq_refl)))).
+      cbn -[parse_params print_params parse_param].
+      rewrite (IH f rest ltac:(cbn [params_measure] in Hfuel |- *; lia) Hrest).
+      reflexivity.
+Qed.
+
+(** Concrete: the force-wrapper's [x int64, y int64] parameter list round-trips (")" terminator). *)
+Example rt_params_xy :
+  parse_params 10
+    (print_params ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil) ++ ")")%string
+  = Some ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil, ")"%string).
+Proof. apply parse_print_params; [ cbn; lia | exists ""%string; reflexivity ]. Qed.
+
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
     they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
@@ -6428,6 +6593,8 @@ Print Assumptions build_apply_roundtrip.
 Print Assumptions parse_args_roundtrip_mut.
 Print Assumptions parse_print_stmt_return.
 Print Assumptions parse_print_stmt_expr.
+Print Assumptions parse_print_ty_nonidc.
+Print Assumptions parse_print_params.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
