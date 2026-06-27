@@ -610,8 +610,9 @@ let mk_atom s =
   (* the atom DISAMBIGUATION, mirroring the parser's [parse_primary]: a canonical string literal
      ([strlit_ok]) -> [AStringLit]; ANY OTHER atom is routed through the VERIFIED [Printer.build_atom],
      which disambiguates the SCANNED atom into [AScanned] of a structured [SAtom] (identifier -> [SIdent];
-     decimal -> [SIntLit]; a SELECTOR [operand.field] -> nested [SSelector] (recursively); any other
-     [raw_ok] string -> [SRaw] the quarantined hatch).  Doing the construction INSIDE [build_atom] (which
+     decimal -> [SIntLit]; a hex INT [0x…] -> [SHexLit] (review #9 A2, before [raw_ok]); a SELECTOR
+     [operand.field] -> nested [SSelector] (recursively); any other [raw_ok] string -> [SRaw] the
+     quarantined hatch).  Doing the construction INSIDE [build_atom] (which
      lives in the generated [printer.ml]) keeps the proof-carrying [SAtom]/[GoAtom] constructors off the
      hand-written path entirely — the smart-ctor gate need only police the lone [AStringLit] below.  A
      malformed operand (no structured atom) returns [None] and ABORTS, so the executed path lands in

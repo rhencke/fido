@@ -1699,6 +1699,38 @@ Proof.
   apply all_idc_cons_atom_ok; [ exact Hc | exact Hs' ].
 Qed.
 
+(** ---- HEX LITERALS ARE ATOMS (review #9 A2) ---- every char of [print_hex z] is [is_idc] ('0','x', and
+    the hex digits 0-9/a-f), so a hex literal is a plain [atom_ok] atom — exactly like a decimal. *)
+Lemma hexdig_is_idc : forall n, (n < 16)%nat -> is_idc (hexdig n) = true.
+Proof. intros n H. do 16 (destruct n as [ | n ]; [ vm_compute; reflexivity | ]); lia. Qed.
+Lemma zmod16_lt16 : forall z, (Z.to_nat (z mod 16) < 16)%nat.
+Proof.
+  intro z. assert (Hb : (0 <= z mod 16 < 16)%Z) by (apply Z.mod_pos_bound; lia).
+  apply Nat2Z.inj_lt. rewrite Z2Nat.id by lia. lia.
+Qed.
+Lemma hex_digits_all_idc : forall fuel z acc, all_idc acc = true -> all_idc (hex_digits fuel z acc) = true.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hacc; cbn [hex_digits]; [ exact Hacc | ].
+  assert (Hd : is_idc (hexdig (Z.to_nat (z mod 16))) = true) by (apply hexdig_is_idc, zmod16_lt16).
+  destruct (z / 16 =? 0)%Z.
+  - cbn [all_idc]. apply andb_true_iff. split; [ exact Hd | exact Hacc ].
+  - apply IH. cbn [all_idc]. apply andb_true_iff. split; [ exact Hd | exact Hacc ].
+Qed.
+Lemma print_hex_all_idc : forall z, all_idc (print_hex z) = true.
+Proof.
+  intro z. unfold print_hex. destruct (z =? 0)%Z; [ reflexivity | ].
+  cbn [String.append all_idc]. apply andb_true_iff; split; [ reflexivity | ].
+  apply andb_true_iff; split; [ reflexivity | ].
+  apply (hex_digits_all_idc (digit_fuel z) z "" eq_refl).
+Qed.
+Lemma print_hex_atom_ok : forall z, atom_ok (print_hex z) = true.
+Proof.
+  intro z. pose proof (print_hex_all_idc z) as Hall.
+  destruct (print_hex_head z) as [ rest Hr ]. rewrite Hr in Hall |- *.
+  cbn [all_idc] in Hall. apply andb_true_iff in Hall. destruct Hall as [ Hc Hrest ].
+  apply all_idc_cons_atom_ok; [ exact Hc | exact Hrest ].
+Qed.
+
 (** ---- DECIMAL INTEGER LITERALS ARE ATOMS ---- a decimal digit (or a single leading '-') is never a
     space, bracket, or paren, so an optional-'-'-then-digits string is [atomic] (no depth-0 operator —
     operators are space-led) and paren-balanced; hence [is_dec s -> atom_ok s].  This lets [GoAtom]'s
@@ -2188,6 +2220,18 @@ Fixpoint all_hexlit (s : string) : bool :=
   match s with EmptyString => true | String c s' => andb (is_hexlit_char c) (all_hexlit s') end.
 Definition hex_body_ok (s : string) : bool :=
   match s with String _ (String _ body) => all_hexlit body | _ => true end.
+(** [is_hexint s] — [s] is a hex INTEGER literal "0x" + (>=1) hex DIGITS only (no '.'/'p'/exponent — those
+    are hex FLOATS, which stay [SRaw]).  Review #9 A2: such a string is the structured [SHexLit], so [raw_ok]
+    must REJECT it (else an [SRaw] holding it would collide with [SHexLit] and break the universal round-trip). *)
+Fixpoint all_hex_digit (s : string) : bool :=
+  match s with EmptyString => true | String c s' => andb (is_hex_digit c) (all_hex_digit s') end.
+Definition is_hexint (s : string) : bool :=
+  match s with
+  | String c0 (String c1 body) =>
+      andb (andb (Ascii.eqb c0 (ch 48)) (Ascii.eqb c1 (ch 120)))   (* "0x"-led *)
+           (all_hex_digit body)                                    (* body is hex DIGITS only (no exponent) *)
+  | _ => false
+  end.
 Fixpoint has_char (target : ascii) (s : string) : bool :=
   match s with EmptyString => false | String c s' => orb (Ascii.eqb c target) (has_char target s') end.
 Definition is_digit_led (s : string) : bool :=
@@ -2195,10 +2239,11 @@ Definition is_digit_led (s : string) : bool :=
 Definition func_led (s : string) : bool := String.eqb (leading_ident s) "func".
 (** Whole-atom lexical well-shapedness — EACH conjunct a real Go lexer rule. *)
 Definition raw_wellshaped (s : string) : bool :=
-  andb (andb (orb (operand_lead_kw (leading_ident s)) (negb (has_d0_ws s)))  (* depth-0 ws only in func/map forms *)
-             (orb (negb (is_hex_led s)) (hex_body_ok s)))                    (* a 0x-literal has only hex chars *)
-       (andb (orb (negb (is_digit_led s)) (orb (is_dec s) (is_hex_led s)))   (* digit-led ⟹ a decimal or hex *)
-             (orb (negb (func_led s)) (has_char (ch 123) s))).               (* a func-lit carries a "{" body *)
+  andb (andb (andb (orb (operand_lead_kw (leading_ident s)) (negb (has_d0_ws s)))  (* depth-0 ws only in func/map forms *)
+                   (orb (negb (is_hex_led s)) (hex_body_ok s)))                    (* a 0x-literal has only hex chars *)
+             (andb (orb (negb (is_digit_led s)) (orb (is_dec s) (is_hex_led s)))   (* digit-led ⟹ a decimal or hex *)
+                   (orb (negb (func_led s)) (has_char (ch 123) s))))               (* a func-lit carries a "{" body *)
+       (negb (is_hexint s)).  (* review #9 A2: a hex INTEGER is the structured [SHexLit], never raw *)
 
 Definition raw_ok (s : string) : bool :=
   andb (raw_wellshaped s)
@@ -2224,7 +2269,9 @@ Example raw_bad_hex_rejected    : raw_ok "0xzz"        = false. Proof. reflexivi
 Example raw_bad_func_rejected   : raw_ok "func()"      = false. Proof. reflexivity. Qed.
 Example raw_chan_type_rejected  : raw_ok "chan int64"  = false. Proof. reflexivity. Qed.
 Example raw_call_rejected : raw_ok "f(a, b)" = false. Proof. reflexivity. Qed.  (* a CALL is [SApply], never raw *)
-Example raw_hex_ok        : raw_ok "0xff"    = true.  Proof. reflexivity. Qed.
+Example raw_hexint_rejected : raw_ok "0xff" = false. Proof. reflexivity. Qed.  (* review #9 A2: a hex INT is [SHexLit] *)
+(* a hex FLOAT ([0x..p..]) is NOT a hex INTEGER ([is_hexint] rejects the 'p'/exponent) — it stays a raw atom *)
+Example raw_hexfloat_kept : raw_ok "0x14000000000000p-51" = true. Proof. reflexivity. Qed.
 (* QUARANTINED non-core: func-lit + IIFE stay whole-opaque until Phase-B [GoFuncLit] — NOT verified syntax. *)
 Example raw_funclit_body_quarantined : raw_ok "func(x int64) int64 { return x }" = true. Proof. reflexivity. Qed.
 Example raw_funclit_call_quarantined : raw_ok "func(x int64) int64 { return x }(7)" = true. Proof. reflexivity. Qed.
@@ -2343,6 +2390,12 @@ Example raw_hexint_minus_rejected   : raw_ok "0x1E-5" = false. Proof. reflexivit
 Inductive SAtom : Type :=
   | SIdent    : Ident -> SAtom
   | SIntLit   : Z -> SAtom
+  | SHexLit   : N -> SAtom                          (* 0x… hex literal (review #9 A2): a STRUCTURED leaf
+                                                       (prints via [print_hex (Z.of_N n)]), replacing the
+                                                       hex-mask [SRaw].  The value is [N] — a Go hex literal
+                                                       is NON-NEGATIVE, so a negative is UNREPRESENTABLE by
+                                                       type and the round-trip ([print_parse_hex] needs 0<=z)
+                                                       is total.  A leaf like [SIntLit], base-16 surface. *)
   | SRaw      : { s : string | raw_ok s = true } -> SAtom
   | SSelector : SAtom -> Ident -> SAtom
   | SIndex    : SAtom -> GoExpr -> SAtom            (* a[i]    — postfix index (review #8: the postfix
@@ -2377,6 +2430,7 @@ Fixpoint satom_str (a : SAtom) : string :=
   match a with
   | SIdent i      => proj1_sig i
   | SIntLit z     => print_Z z
+  | SHexLit z     => print_hex (Z.of_N z)
   | SRaw r        => proj1_sig r
   | SSelector a f => (satom_str a ++ String (ch 46) (proj1_sig f))%string
   | SIndex a i    => (satom_str a ++ String (ch 91) (print_expr 0 i ++ String (ch 93) EmptyString))%string
@@ -2491,10 +2545,11 @@ Qed.
     only NONEMPTINESS of the operand, captured here. *)
 Lemma satom_nonempty : forall a : SAtom, satom_str a <> EmptyString.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig].
     destruct s as [ | c s' ]; [ unfold go_ident in Hs; discriminate Hs | discriminate ].
   - pose proof (is_dec_print_Z z) as Hd. destruct (print_Z z) as [ | c rest ]; [ discriminate Hd | discriminate ].
+  - exact (print_hex_nonempty (Z.of_N hz)).
   - destruct r as [ s Hr ]; cbn [proj1_sig].
     destruct s as [ | c s' ]; [ apply raw_ok_atom_ok in Hr; discriminate Hr | discriminate ].
   - destruct (satom_str a) as [ | c rest ]; discriminate.
@@ -2507,7 +2562,7 @@ Qed.
     SELECTOR begins with its operand (non-dquote by IH; its text is [atom_ok], hence nonempty). *)
 Lemma satom_not_quote_led : forall a : SAtom, quote_led (satom_str a) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate | ].
     apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
@@ -2519,6 +2574,7 @@ Proof.
     + apply Ascii.eqb_eq in Em. subst c. reflexivity.
     + apply andb_true_iff in Hd. destruct Hd as [ Hc _ ].
       apply (is_idc_eqb_false c 34); [ apply is_dec_char_is_idc; exact Hc | reflexivity ].
+  - destruct (print_hex_head (Z.of_N hz)) as [ rest Hr ]. rewrite Hr. reflexivity.
   - destruct r as [ s Hr ]; cbn [proj1_sig]. apply raw_ok_not_quote_led; exact Hr.
   - destruct (satom_str a) as [ | c rest ] eqn:Ea;
       [ exfalso; apply (satom_nonempty a); exact Ea
@@ -2544,7 +2600,7 @@ Qed.
     invariant under the appended ".f"). *)
 Lemma satom_unary_op_led_false : forall a : SAtom, unary_op_led (satom_str a) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate | ].
     apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
@@ -2555,6 +2611,7 @@ Proof.
     + apply Ascii.eqb_eq in Em. subst c. reflexivity.
     + apply andb_true_iff in Hd. destruct Hd as [ Hcd _ ].
       apply (is_idc_not_unop c (is_dec_char_is_idc c Hcd)).
+  - destruct (print_hex_head (Z.of_N hz)) as [ rest Hr ]. rewrite Hr. reflexivity.
   - destruct r as [ s Hr ]; cbn [proj1_sig]. apply raw_ok_not_unary; exact Hr.
   - destruct (satom_str a) as [ | c rest ] eqn:Ea;
       [ exfalso; apply (satom_nonempty a); exact Ea
@@ -2595,7 +2652,7 @@ Proof. intros c H. exact (is_idc_eqb_false c 45 H eq_refl). Qed.
 Lemma satom_not_neg_paren_app : forall (a : SAtom) (tail : string),
   neg_paren_led (satom_str a ++ tail) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro tail; cbn [satom_str].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro tail; cbn [satom_str].
   - (* SIdent — go_ident-led, first char is_idstart, never '-' *)
     destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate Hs | ].
@@ -2609,6 +2666,8 @@ Proof.
     destruct rest as [ | d t ]; [ discriminate Hd | ].
     cbn [all_dec] in Hd. apply andb_true_iff in Hd. destruct Hd as [ Hdc _ ].
     cbn [andb append]. rewrite (is_idc_not_open d (is_dec_char_is_idc d Hdc)). reflexivity.
+  - (* SHexLit — print_hex is '0'-led, never '-' *)
+    destruct (print_hex_head (Z.of_N hz)) as [ rest Hr ]. rewrite Hr. cbn [append neg_paren_led]. reflexivity.
   - (* SRaw — raw_ok excludes a depth-0 '-' (has_d0_break) *)
     destruct r as [ s Hr ]; cbn [proj1_sig].
     destruct s as [ | c s' ]; [ apply raw_ok_atom_ok in Hr; cbn in Hr; discriminate Hr | ].
@@ -3153,8 +3212,14 @@ Definition build_base (a : string) : option SAtom :=
     match bool_dec (is_dec a) true with
     | left _ => Some (SIntLit (parse_Z a))
     | right _ =>
-      match bool_dec (raw_ok a) true with
-      | left Hr => Some (SRaw (exist _ a Hr)) | right _ => None end
+      (* review #9 A2: a hex INTEGER literal is the structured [SHexLit] (its [N] via [parse_hex]),
+         checked BEFORE [raw_ok] (which now REJECTS hex ints) — disjoint, so the round-trip is unique. *)
+      match bool_dec (is_hexint a) true with
+      | left _ => Some (SHexLit (Z.to_N (parse_hex a)))
+      | right _ =>
+        match bool_dec (raw_ok a) true with
+        | left Hr => Some (SRaw (exist _ a Hr)) | right _ => None end
+      end
     end
   end.
 (** The old [build_satom]/[build_atom] whole-atom round-trip ([build_satom_str_fuel]/[build_atom_str]) is
@@ -3548,6 +3613,7 @@ Qed.
 Notation EA s := (EAtom (AScanned (SIdent (exist _ s eq_refl)))).
 Notation EAr s := (EAtom (AScanned (SRaw (exist _ s eq_refl)))).
 Notation EAi z := (EAtom (AScanned (SIntLit z))).  (* a decimal integer-literal atom — carries the [Z], no proof *)
+Notation EAh n := (EAtom (AScanned (SHexLit n))).  (* a hex integer-literal atom [0x…] — carries the [N], no proof (review #9 A2) *)
 Notation EAsel a f := (EAtom (AScanned (SSelector a (exist _ f eq_refl)))).  (* a selector [operand.field] *)
 Notation EAs v := (EAtom (AStringLit v)).  (* a string literal of value [v] *)
 Notation EApply hd args := (EAtom (AScanned (SApply hd args))).  (* a call [hd(args)] — review #8 SApply *)
@@ -3703,6 +3769,13 @@ Proof. reflexivity. Qed.
 Example build_base_dec   : build_base "42"  = Some (SIntLit 42).      Proof. reflexivity. Qed.
 Example build_base_neg   : build_base "-7"  = Some (SIntLit (-7)).    Proof. reflexivity. Qed.
 Example build_base_ident : build_base "x42" = Some (SIdent (exist _ "x42" eq_refl)). Proof. reflexivity. Qed.
+(* review #9 A2: a hex INT literal is a VERIFIED [SHexLit] node, NOT an opaque [SRaw] — [build_base]
+   recognises [0x…] (the [is_hexint] arm, before [raw_ok]) and round-trips through [print_hex]. *)
+Example build_base_hex   : build_base "0xff" = Some (SHexLit 255).  Proof. reflexivity. Qed.
+Example build_base_hex0  : build_base "0x0"  = Some (SHexLit 0).    Proof. reflexivity. Qed.
+Example rt_hexlit : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAh 255) (EAh 16)))
+                  = Some (EBin BAdd (EAh 255) (EAh 16), "").  (* 0xff + 0x10 *)
+Proof. reflexivity. Qed.
 Example rt_intlit : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAi 42) (EAi 7)))
                   = Some (EBin BAdd (EAi 42) (EAi 7), "").  (* 42 + 7 *)
 Proof. reflexivity. Qed.
@@ -3769,7 +3842,7 @@ with gsize (a : GoAtom) : nat :=
   match a with AScanned sa => asize sa | AStringLit _ => 1 end
 with asize (a : SAtom) : nat :=
   match a with
-  | SIdent _ => 1 | SIntLit _ => 1 | SRaw _ => 1
+  | SIdent _ => 1 | SIntLit _ => 1 | SHexLit _ => 1 | SRaw _ => 1
   | SSelector a _ => S (asize a)
   | SIndex a i => S (asize a + esize i)
   | SSlice a lo hi => S (asize a + esize lo + esize hi)
@@ -4017,6 +4090,9 @@ Proof.
   - (* SIntLit z *)
     intros z st rest Hne. change (satom_str (SIntLit z)) with (print_Z z).
     apply atom_ok_neutral; [ apply is_dec_atom_ok, is_dec_print_Z | exact Hne ].
+  - (* SHexLit z *)
+    intros z st rest Hne. change (satom_str (SHexLit z)) with (print_hex (Z.of_N z)).
+    apply atom_ok_neutral; [ apply (print_hex_atom_ok (Z.of_N z)) | exact Hne ].
   - (* SRaw r *)
     intros r st rest Hne. change (satom_str (SRaw r)) with (proj1_sig r).
     apply atom_ok_neutral; [ apply raw_ok_atom_ok; exact (proj2_sig r) | exact Hne ].
@@ -4222,11 +4298,13 @@ Proof. intros c r' Ho Hb. cbn [atomic]. rewrite Ho, Hb. reflexivity. Qed.
     quote-aware, so the quote-aware bracket balance the parser actually relies on holds. *)
 Lemma satom_atomic : forall s : SAtom, atomic (satom_str s) = true.
 Proof.
-  induction s as [ i | z | r | a IHa f | a IHa i | a IHa lo hi | a IHa args ].
+  induction s as [ i | z | hz | r | a IHa f | a IHa i | a IHa lo hi | a IHa args ].
   - change (satom_str (SIdent i)) with (proj1_sig i).
     apply atom_ok_atomic, go_ident_atom_ok, (proj2_sig i).
   - change (satom_str (SIntLit z)) with (print_Z z).
     apply atom_ok_atomic, is_dec_atom_ok, is_dec_print_Z.
+  - change (satom_str (SHexLit hz)) with (print_hex (Z.of_N hz)).
+    apply atom_ok_atomic, (print_hex_atom_ok (Z.of_N hz)).
   - change (satom_str (SRaw r)) with (proj1_sig r).
     apply atom_ok_atomic, raw_ok_atom_ok, (proj2_sig r).
   - change (satom_str (SSelector a f)) with (satom_str a ++ String (ch 46) (proj1_sig f))%string.
@@ -4277,11 +4355,11 @@ Qed.
     spine (= [snd (spine sa) <> nil])? *)
 Fixpoint sa_leaf_comp (sa : SAtom) : bool :=
   match sa with
-  | SIdent _ | SIntLit _ | SRaw _ => is_comp_lead (satom_str sa)
+  | SIdent _ | SIntLit _ | SHexLit _ | SRaw _ => is_comp_lead (satom_str sa)
   | SSelector a _ | SIndex a _ | SSlice a _ _ | SApply a _ => sa_leaf_comp a
   end.
 Definition sa_has_ops (sa : SAtom) : bool :=
-  match sa with SIdent _ | SIntLit _ | SRaw _ => false | _ => true end.
+  match sa with SIdent _ | SIntLit _ | SHexLit _ | SRaw _ => false | _ => true end.
 (** [atomic_tree] — the round-trip's structural well-formedness, MUTUAL over [GoExpr]/[GoAtom]/[SAtom]:
     every scanned atom's text is [atomic] AND its base is non-composite-OR-spineless (the rule-2 bounded
     exclusion of a composite LITERAL carrying a postfix index/selector — [ []int{1,2,3}[0] ] is valid Go but
@@ -4302,7 +4380,7 @@ with atomic_atom (a : GoAtom) : Prop :=
   end
 with atomic_satom (sa : SAtom) : Prop :=
   match sa with
-  | SIdent _ => True | SIntLit _ => True | SRaw _ => True
+  | SIdent _ => True | SIntLit _ => True | SHexLit _ => True | SRaw _ => True
   | SSelector a _ => atomic_satom a
   | SIndex a i => atomic_satom a /\ atomic_tree i
   | SSlice a lo hi => atomic_satom a /\ atomic_tree lo /\ atomic_tree hi
@@ -4333,7 +4411,7 @@ with atomic_atom_b (a : GoAtom) : bool :=
   end
 with atomic_satom_b (sa : SAtom) : bool :=
   match sa with
-  | SIdent _ => true | SIntLit _ => true | SRaw _ => true
+  | SIdent _ => true | SIntLit _ => true | SHexLit _ => true | SRaw _ => true
   | SSelector a _ => atomic_satom_b a
   | SIndex a i => andb (atomic_satom_b a) (atomic_tree_b i)
   | SSlice a lo hi => andb (andb (atomic_satom_b a) (atomic_tree_b lo)) (atomic_tree_b hi)
@@ -4360,6 +4438,7 @@ Proof.
   - intros v. cbn [atomic_atom_b atomic_atom]. split; [ reflexivity | reflexivity ].
   - intros i. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
   - intros z. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
+  - intros hz. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
   - intros r. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
   - intros a IHa f. cbn [atomic_satom_b atomic_satom]. exact IHa.
   - intros a IHa i IHi. cbn [atomic_satom_b atomic_satom].
@@ -4744,13 +4823,14 @@ Proof.
 Qed.
 Lemma spine_correct : forall a, applyops (fst (spine a)) (snd (spine a)) = a.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine]; try reflexivity;
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine]; try reflexivity;
     (destruct (spine a) as [ b ops ] eqn:Es; cbn [fst snd] in *;
      rewrite applyops_app; cbn [applyops]; rewrite IH; reflexivity).
 Qed.
 Lemma print_spine : forall a, satom_str a = (satom_str (fst (spine a)) ++ pops (snd (spine a)))%string.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
+  - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
@@ -4788,7 +4868,8 @@ Proof.
 Qed.
 Lemma spine_fuel_a : forall a, opsz (snd (spine a)) + 3 <= 3 * asize a.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
+  - cbn [snd opsz]. lia.
   - cbn [snd opsz]. lia.
   - cbn [snd opsz]. lia.
   - cbn [snd opsz]. lia.
@@ -5004,13 +5085,45 @@ Proof. intros P s H1 H2. f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec). Qed.
 Lemma sig_eta_pi : forall (P : string -> bool) (i : { s | P s = true }) (H : P (proj1_sig i) = true),
   exist (fun s => P s = true) (proj1_sig i) H = i.
 Proof. intros P [ s Hs ] H; cbn [proj1_sig]. apply sig_pi. Qed.
+(** ---- HEX-INT RECOGNITION (review #9 A2) ---- [print_hex] is "0x"+hex-DIGITS, so it is [is_hexint] and is
+    NOT [go_ident]/[is_dec]; and the value round-trips via [parse_hex] (0<=z). *)
+Lemma hexdig_is_hex_digit : forall n, (n < 16)%nat -> is_hex_digit (hexdig n) = true.
+Proof. intros n H. do 16 (destruct n as [ | n ]; [ vm_compute; reflexivity | ]); lia. Qed.
+Lemma hex_digits_all_hex_digit : forall fuel z acc,
+  all_hex_digit acc = true -> all_hex_digit (hex_digits fuel z acc) = true.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hacc; cbn [hex_digits]; [ exact Hacc | ].
+  assert (Hd : is_hex_digit (hexdig (Z.to_nat (z mod 16))) = true) by (apply hexdig_is_hex_digit, zmod16_lt16).
+  destruct (z / 16 =? 0)%Z.
+  - cbn [all_hex_digit]. apply andb_true_iff. split; [ exact Hd | exact Hacc ].
+  - apply IH. cbn [all_hex_digit]. apply andb_true_iff. split; [ exact Hd | exact Hacc ].
+Qed.
+Lemma print_hex_is_hexint : forall z, is_hexint (print_hex z) = true.
+Proof.
+  intro z. unfold print_hex. destruct (z =? 0)%Z; [ reflexivity | ].
+  cbn [String.append is_hexint]. apply andb_true_iff; split; [ reflexivity | ].
+  apply (hex_digits_all_hex_digit (digit_fuel z) z "" eq_refl).
+Qed.
+Lemma print_hex_not_is_dec : forall z, is_dec (print_hex z) = false.
+Proof. intro z. unfold print_hex. destruct (z =? 0)%Z; reflexivity. Qed.
+Lemma print_hex_not_go_ident : forall z, go_ident (print_hex z) = false.
+Proof. intro z. unfold print_hex. destruct (z =? 0)%Z; reflexivity. Qed.
+Lemma print_hex_to_N : forall n, Z.to_N (parse_hex (print_hex (Z.of_N n))) = n.
+Proof. intro n. rewrite (print_parse_hex (Z.of_N n) (N2Z.is_nonneg n)). apply N2Z.id. Qed.
+Lemma raw_ok_not_hexint : forall s, raw_ok s = true -> is_hexint s = false.
+Proof.
+  intros s H. unfold raw_ok in H. apply andb_true_iff in H. destruct H as [ Hw _ ].
+  unfold raw_wellshaped in Hw. apply andb_true_iff in Hw. destruct Hw as [ _ Hh ].
+  apply negb_true_iff in Hh. exact Hh.
+Qed.
+
 (** [build_base] inverts a LEAF operand's printed text: [go_ident]→[SIdent], [is_dec]→[SIntLit] (via
-    [print_parse_Z]), else [SRaw] — the three categories are disjoint ([raw_ok] excludes ident/dec). *)
+    [print_parse_Z]), [is_hexint]→[SHexLit] (via [parse_hex]), else [SRaw] — the categories are disjoint. *)
 Lemma build_base_correct : forall sa,
-  match sa with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end ->
+  match sa with SIdent _ => True | SIntLit _ => True | SHexLit _ => True | SRaw _ => True | _ => False end ->
   build_base (satom_str sa) = Some sa.
 Proof.
-  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
+  intros sa Hleaf. destruct sa as [ i | z | hz | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
   - unfold build_base.
     destruct (bool_dec (go_ident (proj1_sig i)) true) as [ Hi | Hn ];
       [ | exfalso; apply Hn; exact (proj2_sig i) ].
@@ -5021,11 +5134,22 @@ Proof.
     destruct (bool_dec (is_dec (print_Z z)) true) as [ Hd | Hnd ];
       [ | exfalso; apply Hnd; apply is_dec_print_Z ].
     rewrite (print_parse_Z z). reflexivity.
+  - (* SHexLit hz : print_hex (Z.of_N hz) → is_hexint → SHexLit (Z.to_N (parse_hex …)) = SHexLit hz *)
+    unfold build_base.
+    destruct (bool_dec (go_ident (print_hex (Z.of_N hz))) true) as [ Hi | _ ];
+      [ exfalso; rewrite print_hex_not_go_ident in Hi; discriminate | ].
+    destruct (bool_dec (is_dec (print_hex (Z.of_N hz))) true) as [ Hd | _ ];
+      [ exfalso; rewrite print_hex_not_is_dec in Hd; discriminate | ].
+    destruct (bool_dec (is_hexint (print_hex (Z.of_N hz))) true) as [ _ | Hx ];
+      [ | exfalso; apply Hx; apply print_hex_is_hexint ].
+    rewrite print_hex_to_N. reflexivity.
   - unfold build_base.
     destruct (bool_dec (go_ident (proj1_sig r)) true) as [ Hi | Hn ];
       [ exfalso; pose proof (raw_ok_not_ident _ (proj2_sig r)) as Hng; rewrite Hng in Hi; discriminate | ].
     destruct (bool_dec (is_dec (proj1_sig r)) true) as [ Hd | Hnd ];
       [ exfalso; pose proof (raw_ok_not_dec _ (proj2_sig r)) as Hng; rewrite Hng in Hd; discriminate | ].
+    destruct (bool_dec (is_hexint (proj1_sig r)) true) as [ Hx | Hnx ];
+      [ exfalso; pose proof (raw_ok_not_hexint _ (proj2_sig r)) as Hng; rewrite Hng in Hx; discriminate | ].
     destruct (bool_dec (raw_ok (proj1_sig r)) true) as [ Hr | Hnr ];
       [ | exfalso; apply Hnr; exact (proj2_sig r) ].
     rewrite (sig_eta_pi raw_ok r Hr). reflexivity.
@@ -5033,9 +5157,10 @@ Qed.
 
 (** The base of every atom's spine is a LEAF operand ([SIdent]/[SIntLit]/[SRaw]) — [build_base]'s domain. *)
 Lemma spine_base_leaf : forall a,
-  match fst (spine a) with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end.
+  match fst (spine a) with SIdent _ => True | SIntLit _ => True | SHexLit _ => True | SRaw _ => True | _ => False end.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
+  - exact I.
   - exact I.
   - exact I.
   - exact I.
@@ -5325,7 +5450,8 @@ Proof.
   { intros a n Hle o Ho. destruct o as [ g | i | lo hi | args ];
       [ exact I | lia | destruct Ho; split; lia
       | eapply argl_forall_mono; [ | exact Ho ]; intros e He; cbn beta in He |- *; lia ]. }
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
+  induction a as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
+  - cbn [snd]; constructor.
   - cbn [snd]; constructor.
   - cbn [snd]; constructor.
   - cbn [snd]; constructor.
@@ -5346,7 +5472,7 @@ Qed.
     [fst (spine sa)] composite-test / the [snd (spine sa) = nil] test). *)
 Lemma sa_leaf_comp_spine : forall sa, sa_leaf_comp sa = is_comp_lead (satom_str (fst (spine sa))).
 Proof.
-  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [sa_leaf_comp spine]; try reflexivity;
+  induction sa as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [sa_leaf_comp spine]; try reflexivity;
     (destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH).
 Qed.
 Lemma sa_has_ops_nil : forall sa, sa_has_ops sa = false -> snd (spine sa) = nil.
@@ -5358,8 +5484,8 @@ Lemma atomic_satom_child : forall sa, atomic_satom sa ->
                    | OSlc lo hi => atomic_tree lo /\ atomic_tree hi
                    | OApply args => atomic_arglist args end) (snd (spine sa)).
 Proof.
-  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro Hat; cbn [spine] in *;
-    [ cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | | | | ];
+  induction sa as [ i | z | hz | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro Hat; cbn [spine] in *;
+    [ cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | | | | ];
     cbn [atomic_satom] in Hat.
   - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
       [ apply IH; exact Hat | apply Forall_cons; [ exact I | apply Forall_nil ] ].
@@ -5490,18 +5616,29 @@ Proof.
         cbn [String.eqb]. destruct (Ascii.eqb c "f"%char) eqn:Ef; [ apply Ascii.eqb_eq in Ef; subst c; vm_compute in Hdc; discriminate Hdc | reflexivity ].
     + apply (is_idc_eqb_false c 91 (is_dec_char_is_idc c Hdc)). reflexivity.
 Qed.
+(* [print_hex z] is '0'-led + all-[is_idc], so it is never a composite LEAD (not '['-led, not "map"/"func"). *)
+Lemma print_hex_not_comp_lead : forall z, is_comp_lead (print_hex z) = false.
+Proof.
+  intro z. destruct (print_hex_head z) as [ rest Hph ].
+  unfold is_comp_lead.
+  rewrite (leading_ident_all_idc _ (print_hex_all_idc z)).
+  rewrite Hph. reflexivity.
+Qed.
 (** Every LEAF operand ([SIdent]/[SIntLit]/[SRaw]) is a WHOLE base ([scan_base] reads it entirely). *)
 Lemma leaf_whole_base : forall sa,
-  match sa with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end ->
+  match sa with SIdent _ => True | SIntLit _ => True | SHexLit _ => True | SRaw _ => True | _ => False end ->
   whole_base (satom_str sa) = true.
 Proof.
-  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
+  intros sa Hleaf. destruct sa as [ i | z | hz | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
   - apply whole_base_of_op_clean;
       [ apply op_plain_op_clean, all_idc_op_plain, go_ident_all_idc, (proj2_sig i)
       | apply is_comp_lead_ident, (proj2_sig i) ].
   - apply whole_base_of_op_clean;
       [ apply op_plain_op_clean, is_dec_op_plain, is_dec_print_Z
       | apply is_comp_lead_dec, is_dec_print_Z ].
+  - apply whole_base_of_op_clean;
+      [ apply op_plain_op_clean, all_idc_op_plain, print_hex_all_idc
+      | apply print_hex_not_comp_lead ].
   - pose proof (proj2_sig r) as Hraw. cbn beta in Hraw.
     unfold raw_ok in Hraw. apply andb_true_iff in Hraw. destruct Hraw as [ _ Hraw ].
     apply andb_true_iff in Hraw. destruct Hraw as [ _ Hwb ]. exact Hwb.
@@ -5868,6 +6005,7 @@ Proof.
   - (* AStringLit v *) intros v. cbn [gsize atom_str]. lia.
   - (* SIdent i *) intros i. cbn [asize satom_str]. lia.
   - (* SIntLit z *) intros z. cbn [asize satom_str]. lia.
+  - (* SHexLit hz *) intros hz. cbn [asize satom_str]. lia.
   - (* SRaw r *) intros r. cbn [asize satom_str]. lia.
   - (* SSelector a f *) intros a IHa f. cbn [asize satom_str]. rewrite slen_app. cbn [String.length]. lia.
   - (* SIndex a i *) intros a IHa i IHi. cbn [asize satom_str]. specialize (IHi 0).
@@ -6047,6 +6185,7 @@ Print Assumptions print_sep_balanced.
 (* review #9: the plugin-boundary BUILDER theorems are gated DIRECTLY (not "they only depend on gated ones"). *)
 Print Assumptions build_atom_roundtrip.
 Print Assumptions build_atom_atomic_tree.
+Print Assumptions build_base_correct.
 Print Assumptions build_apply_roundtrip.
 Print Assumptions parse_args_roundtrip_mut.
 

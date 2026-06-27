@@ -665,6 +665,12 @@ module Z =
   | O -> Z0
   | S n1 -> Zpos (Pos.of_succ_nat n1)
 
+  (** val of_N : n -> z **)
+
+  let of_N = function
+  | N0 -> Z0
+  | Npos p -> Zpos p
+
   (** val pos_div_eucl : positive -> z -> (z, z) prod **)
 
   let rec pos_div_eucl a b =
@@ -720,6 +726,12 @@ module Z =
 
   let modulo a b =
     let Pair (_, r) = div_eucl a b in r
+
+  (** val to_N : z -> n **)
+
+  let to_N = function
+  | Zpos p -> Npos p
+  | _ -> N0
 
   (** val log2 : z -> z **)
 
@@ -1754,6 +1766,23 @@ let print_hex z0 =
        String ((Ascii (False, False, False, False, True, True, False,
          False)), EmptyString)
      | False -> hex_digits (digit_fuel z0) z0 EmptyString)
+
+(** val parseHex_pos : z -> string -> z **)
+
+let rec parseHex_pos acc = function
+| EmptyString -> acc
+| String (c, s') ->
+  parseHex_pos
+    (Z.add (Z.mul acc (Zpos (XO (XO (XO (XO XH)))))) (Z.of_nat (unhex c))) s'
+
+(** val parse_hex : string -> z **)
+
+let parse_hex = function
+| EmptyString -> Z0
+| String (_, s0) ->
+  (match s0 with
+   | EmptyString -> Z0
+   | String (_, rest) -> parseHex_pos Z0 rest)
 
 (** val print_float_hex : bool -> z -> z -> string **)
 
@@ -3318,6 +3347,42 @@ let hex_body_ok = function
    | EmptyString -> True
    | String (_, body) -> all_hexlit body)
 
+(** val all_hex_digit : string -> bool **)
+
+let rec all_hex_digit = function
+| EmptyString -> True
+| String (c, s') ->
+  (match is_hex_digit c with
+   | True -> all_hex_digit s'
+   | False -> False)
+
+(** val is_hexint : string -> bool **)
+
+let is_hexint = function
+| EmptyString -> False
+| String (c0, s0) ->
+  (match s0 with
+   | EmptyString -> False
+   | String (c1, body) ->
+     (match match eqb0 c0
+                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                      (S (S (S (S (S (S (S (S (S (S (S (S
+                      O))))))))))))))))))))))))))))))))))))))))))))))))) with
+            | True ->
+              eqb0 c1
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S
+                  O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False with
+      | True -> all_hex_digit body
+      | False -> False))
+
 (** val has_char : ascii -> string -> bool **)
 
 let rec has_char target = function
@@ -3345,35 +3410,38 @@ let func_led s =
 (** val raw_wellshaped : string -> bool **)
 
 let raw_wellshaped s =
-  match match match operand_lead_kw (leading_ident s) with
-              | True -> True
-              | False -> negb (has_d0_ws s) with
+  match match match match operand_lead_kw (leading_ident s) with
+                    | True -> True
+                    | False -> negb (has_d0_ws s) with
+              | True ->
+                (match negb (is_hex_led s) with
+                 | True -> True
+                 | False -> hex_body_ok s)
+              | False -> False with
         | True ->
-          (match negb (is_hex_led s) with
-           | True -> True
-           | False -> hex_body_ok s)
-        | False -> False with
-  | True ->
-    (match match negb (is_digit_led s) with
-           | True -> True
-           | False ->
-             (match is_dec s with
+          (match match negb (is_digit_led s) with
+                 | True -> True
+                 | False ->
+                   (match is_dec s with
+                    | True -> True
+                    | False -> is_hex_led s) with
+           | True ->
+             (match negb (func_led s) with
               | True -> True
-              | False -> is_hex_led s) with
-     | True ->
-       (match negb (func_led s) with
-        | True -> True
-        | False ->
-          has_char
-            (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-              O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
-            s)
-     | False -> False)
+              | False ->
+                has_char
+                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S
+                    O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                  s)
+           | False -> False)
+        | False -> False with
+  | True -> negb (is_hexint s)
   | False -> False
 
 (** val raw_ok : string -> bool **)
@@ -3406,6 +3474,7 @@ let raw_ok s =
 type sAtom =
 | SIdent of ident
 | SIntLit of z
+| SHexLit of n
 | SRaw of string
 | SSelector of sAtom * ident
 | SIndex of sAtom * goExpr
@@ -3427,6 +3496,7 @@ and argList =
 let rec satom_str = function
 | SIdent i -> i
 | SIntLit z0 -> print_Z z0
+| SHexLit z0 -> print_hex (Z.of_N z0)
 | SRaw r -> r
 | SSelector (a0, f) ->
   append (satom_str a0) (String
@@ -3538,9 +3608,12 @@ let build_base a =
     (match bool_dec (is_dec a) True with
      | Left -> Some (SIntLit (parse_Z a))
      | Right ->
-       (match bool_dec (raw_ok a) True with
-        | Left -> Some (SRaw a)
-        | Right -> None))
+       (match bool_dec (is_hexint a) True with
+        | Left -> Some (SHexLit (Z.to_N (parse_hex a)))
+        | Right ->
+          (match bool_dec (raw_ok a) True with
+           | Left -> Some (SRaw a)
+           | Right -> None)))
 
 (** val parse_strlit_prim : string -> (goExpr, string) prod option **)
 
@@ -3826,6 +3899,7 @@ let rec sa_leaf_comp sa = match sa with
 let sa_has_ops = function
 | SIdent _ -> False
 | SIntLit _ -> False
+| SHexLit _ -> False
 | SRaw _ -> False
 | _ -> True
 
