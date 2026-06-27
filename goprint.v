@@ -6333,20 +6333,24 @@ Inductive GoFuncLit : Type :=
 Definition print_funclit (f : GoFuncLit) : string :=
   match f with
   | MkFuncLit params ret body =>
-      "func(" ++ print_params params ++ ") " ++ print_ty ret ++ " { " ++ print_stmts body ++ " }"
+      (* NOTE the CLOSING brace has NO leading space ("}" not " }"): that keeps the body's last expr
+         followed by a [tail_ok] [is_bclose] seam (a " }" space-before-brace is NOT a clean parse seam,
+         and extending [good_seam]/[tail_ok] for it ripples across ~29 consumers).  gofmt (the accepted
+         normaliser) re-adds the space, so the COMMITTED .go is byte-identical to the golden ` … }`. *)
+      "func(" ++ print_params params ++ ") " ++ print_ty ret ++ " { " ++ print_stmts body ++ "}"
   end.
 
-(** ★The A4 force-wrappers, now byte-exact from a STRUCTURED [GoFuncLit] (not opaque [SRaw]).  The BINARY
-    IIFE `func(x int64, y int64) int64 { return x + y }` and the CONVERSION IIFE
-    `func(x float64) float32 { return float32(x) }` print byte-for-byte — so the dominant remaining opaque
-    SRaw class is REPRESENTABLE as verified statement AST.  (The unary `-x` body prints `-(x)` via the
-    verified parenthesising [EUnary UNeg] — a body-context bare-`-x` is a B1 byte reconciliation.) *)
+(** ★The A4 force-wrappers, now from a STRUCTURED [GoFuncLit] (not opaque [SRaw]).  The BINARY IIFE
+    `func(x int64, y int64) int64 { return x + y}` and the CONVERSION IIFE
+    `func(x float64) float32 { return float32(x)}` are the verified-printer bytes (gofmt re-adds the space
+    before "}" to match the golden ` … }`) — so the dominant remaining opaque SRaw class is REPRESENTABLE
+    as verified statement AST.  (The unary `-x` body prints `-(x)` via [EUnary UNeg] — a B1 reconciliation.) *)
 Example fl_binary_force_wrapper :
   print_funclit (MkFuncLit
     ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil)
     GTInt64
     (SReturn (EBin BAdd (EA "x") (EA "y")) :: nil))
-  = "func(x int64, y int64) int64 { return x + y }".
+  = "func(x int64, y int64) int64 { return x + y}".
 Proof. reflexivity. Qed.
 
 Example fl_conversion_force_wrapper :
@@ -6354,7 +6358,7 @@ Example fl_conversion_force_wrapper :
     ((mkIdent "x" eq_refl, GTFloat64) :: nil)
     GTFloat32
     (SReturn (EApply (SIdent (mkIdent "float32" eq_refl)) (ACons (EA "x") ANil)) :: nil))
-  = "func(x float64) float32 { return float32(x) }".
+  = "func(x float64) float32 { return float32(x)}".
 Proof. reflexivity. Qed.
 
 (** The linear statements print as expected (the leaf forms a func-lit body / a B1 leaf-emitter target). *)
@@ -6571,6 +6575,79 @@ Example rt_params_xy :
   = Some ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil, ")"%string).
 Proof. apply parse_print_params; [ cbn; lia | exists ""%string; reflexivity ]. Qed.
 
+(** ── FUNC-LIT ROUND-TRIP (B0 slice 4): [parse_funclit] inverts [print_funclit] for a single-[SReturn]
+    body (the A4 force-wrapper shape) — the bridge to [EFuncLit] (then go.ml's IIFE → [SApply (EFuncLit …)
+    args] retires the func-lit [SRaw]).  Assembles [parse_print_params] + [parse_print_ty_nonidc] + a
+    PREFIX statement round-trip ([parse_print_stmt_return_tail], via [Pexpr_always] — the body's [return e]
+    is followed by the [tail_ok] "}" seam, not end-of-string). *)
+Theorem parse_print_stmt_return_tail : forall e tail F,
+  atomic_tree e -> tail_ok 0 tail -> 3 * esize e + 2 < F ->
+  parse_stmt F (print_stmt (SReturn e) ++ tail)%string = Some (SReturn e, tail).
+Proof.
+  intros e tail F Hat Htl HF. unfold parse_stmt, print_stmt.
+  rewrite sapp_assoc, strip_prefix.
+  rewrite (Pexpr_always e Hat 0 0 tail F (le_n _) Htl HF). reflexivity.
+Qed.
+
+Definition parse_funclit (fuel : nat) (s : string) : option (GoFuncLit * string) :=
+  match strip "func(" s with
+  | Some r1 =>
+      match parse_params fuel r1 with
+      | Some (params, r2) =>
+          match strip ") " r2 with
+          | Some r3 =>
+              match parse_ty fuel r3 with
+              | Some (ret, r4) =>
+                  match strip " { " r4 with
+                  | Some r5 =>
+                      match parse_stmt fuel r5 with
+                      | Some (st, r6) =>
+                          match strip "}" r6 with
+                          | Some r7 => Some (MkFuncLit params ret (st :: nil), r7)
+                          | None => None end
+                      | None => None end
+                  | None => None end
+              | None => None end
+          | None => None end
+      | None => None end
+  | None => None end.
+
+Theorem parse_print_funclit : forall params ret e fuel,
+  params_measure params < fuel -> ty_depth ret < fuel -> atomic_tree e -> 3 * esize e + 2 < fuel ->
+  parse_funclit fuel (print_funclit (MkFuncLit params ret (SReturn e :: nil)))
+  = Some (MkFuncLit params ret (SReturn e :: nil), ""%string).
+Proof.
+  intros params ret e fuel Hpm Hrd Hat HF. unfold parse_funclit, print_funclit.
+  (* strip "func(" *)
+  rewrite strip_prefix.
+  (* parse_params: the ") "-led terminator *)
+  rewrite (parse_print_params params fuel (") " ++ print_ty ret ++ " { " ++ print_stmts (SReturn e :: nil) ++ "}")%string
+             Hpm (ex_intro _ (" " ++ print_ty ret ++ " { " ++ print_stmts (SReturn e :: nil) ++ "}")%string eq_refl)).
+  (* strip ") " *)
+  rewrite strip_prefix.
+  (* parse_ty: the " { "-led (non-idc) tail *)
+  rewrite (parse_print_ty_nonidc ret fuel (" { " ++ print_stmts (SReturn e :: nil) ++ "}")%string Hrd
+             (or_intror (ex_intro _ (ch 32) (ex_intro _ ("{ " ++ print_stmts (SReturn e :: nil) ++ "}")%string (conj eq_refl eq_refl))))).
+  (* strip " { " *)
+  rewrite strip_prefix.
+  (* parse the body statement: print_stmts [SReturn e] = print_stmt (SReturn e); tail "}" is tail_ok *)
+  cbn [print_stmts].
+  rewrite (parse_print_stmt_return_tail e "}"%string fuel Hat
+             (or_intror (or_introl (ex_intro _ (ch 125) (ex_intro _ ""%string (conj eq_refl eq_refl)))) : tail_ok 0 "}"%string) HF).
+  (* strip "}" "}" = Some "" (closed) *)
+  reflexivity.
+Qed.
+
+(** Concrete: the binary force-wrapper round-trips through [parse_funclit]. *)
+Example rt_funclit_binary :
+  parse_funclit 20 (print_funclit (MkFuncLit
+    ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil)
+    GTInt64 (SReturn (EBin BAdd (EA "x") (EA "y")) :: nil)))
+  = Some (MkFuncLit
+    ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil)
+    GTInt64 (SReturn (EBin BAdd (EA "x") (EA "y")) :: nil), ""%string).
+Proof. apply parse_print_funclit; [ cbn; lia | cbn; lia | repeat constructor | cbn; lia ]. Qed.
+
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
     they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
@@ -6595,6 +6672,8 @@ Print Assumptions parse_print_stmt_return.
 Print Assumptions parse_print_stmt_expr.
 Print Assumptions parse_print_ty_nonidc.
 Print Assumptions parse_print_params.
+Print Assumptions parse_print_stmt_return_tail.
+Print Assumptions parse_print_funclit.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
