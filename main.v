@@ -2094,6 +2094,29 @@ Definition struct_slice_demo : IO unit :=
   bind (slice_get TListNode s (int_lit 1 eq_refl)) (fun n =>   (* n := s[1] = ListNode{20, nil} *)
   println [any (ln_val n)]).                                   (* prints: 20 *)
 
+(** A SLICE OF SLICES ([[][]int64]) — nested [TSlice] composes ([TSlice (TSlice TI64)] renders [[][]int64]),
+    so a 2-D grid is a first-class value: build [[][]int64{{1,2},{3,4}}], index [grid[1]] to a row, then
+    [row[0]] to a scalar — both bounds-checked.  The element TAG of the outer slice is itself a slice tag. *)
+Definition slice2d_demo : IO unit :=
+  let row0 := slice_of_list TI64 [ (1)%i64 ; (2)%i64 ] in
+  let row1 := slice_of_list TI64 [ (3)%i64 ; (4)%i64 ] in
+  let grid := slice_of_list (TSlice TI64) [ row0 ; row1 ] in        (* [][]int64{{1,2},{3,4}} *)
+  bind (slice_get (TSlice TI64) grid (int_lit 1 eq_refl)) (fun r => (* r := grid[1] = {3,4} *)
+  bind (slice_get TI64 r (int_lit 0 eq_refl)) (fun v =>             (* v := r[0] = 3 *)
+  println [any v])).                                                 (* prints: 3 *)
+
+(** A SLICE of STRUCT VALUES that EACH HOLD A CHANNEL ([[]ChanBox], where [ChanBox = { Id int64 ;
+    Ch chan ChanBox }]) — struct values carrying a channel HANDLE, living in a slice by value (the copy
+    SHARES the channel).  Deeper than [[]ListNode] (a channel field) and than the cursed demo's
+    [[]chan ChanBox] (the struct VALUES, not bare channels, are the elements).  Build two boxes over real
+    channels, slice them, index [s[1]], read its [Id]. *)
+Definition chanbox_slice_demo : IO unit :=
+  bind (make_chan_buf TChanBox (int_lit 1 eq_refl)) (fun ch0 =>
+  bind (make_chan_buf TChanBox (int_lit 1 eq_refl)) (fun ch1 =>
+  let s := slice_of_list TChanBox [ MkChanBox (1)%i64 ch0 ; MkChanBox (2)%i64 ch1 ] in  (* []ChanBox{{1,ch0},{2,ch1}} *)
+  bind (slice_get TChanBox s (int_lit 1 eq_refl)) (fun b =>   (* b := s[1] = ChanBox{2, ch1} *)
+  println [any (cb_id b)]))).                                  (* prints: 2 *)
+
 (** "A CHANNEL THAT SENDS ITSELF" — the north-star horror, realized.  [ChanBox] (builtins.v) is
     [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
     [Ch] field IS that very channel, so the channel transmits a value containing ITSELF.  (Stronger than
@@ -3432,6 +3455,8 @@ Definition main_effect : IO unit :=
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
   struct_slice_demo             >>'   (* prints: 20 (a SLICE of struct VALUES []ListNode — the line-2015 slice-of-structs gap closed via the TListNode tag) *)
+  slice2d_demo                  >>'   (* prints: 3 (a SLICE OF SLICES [][]int64 — nested TSlice; grid[1][0]) *)
+  chanbox_slice_demo            >>'   (* prints: 2 (a SLICE of struct VALUES that each hold a channel, []ChanBox) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
   cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)

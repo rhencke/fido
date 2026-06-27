@@ -1365,6 +1365,23 @@ func Struct_slice_demo() {
 	println(n.Ln_val)
 }
 
+func Slice2d_demo() {
+	row0 := []int64{1, 2}
+	row1 := []int64{3, 4}
+	grid := [][]int64{row0, row1}
+	r := grid[1]
+	v := r[0]
+	println(v)
+}
+
+func Chanbox_slice_demo() {
+	ch0 := make(chan ChanBox, 1)
+	ch1 := make(chan ChanBox, 1)
+	s := []ChanBox{ChanBox{Cb_id: 1, Cb_chan: ch0}, ChanBox{Cb_id: 2, Cb_chan: ch1}}
+	b := s[1]
+	println(b.Cb_id)
+}
+
 func Chanbox_demo() {
 	c := make(chan ChanBox)
 	go func() {
@@ -2715,6 +2732,8 @@ func main() {
 	Pool_demo()
 	Linked_list_demo()
 	Struct_slice_demo()
+	Slice2d_demo()
+	Chanbox_slice_demo()
 	Chanbox_demo()
 	Cursed_demo()
 	Slice_alias_demo()
