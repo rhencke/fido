@@ -1382,6 +1382,16 @@ func Chanbox_slice_demo() {
 	println(b.Cb_id)
 }
 
+func Map_struct_demo() {
+	m := make(map[int64]ListNode)
+	m[5] = ListNode{Ln_val: 99, Ln_next: nil}
+	n := ListNode{Ln_val: 0, Ln_next: nil}
+	if _v, _ok := m[5]; _ok {
+		n = _v
+	}
+	println(n.Ln_val)
+}
+
 func Chanbox_demo() {
 	c := make(chan ChanBox)
 	go func() {
@@ -2734,6 +2744,7 @@ func main() {
 	Struct_slice_demo()
 	Slice2d_demo()
 	Chanbox_slice_demo()
+	Map_struct_demo()
 	Chanbox_demo()
 	Cursed_demo()
 	Slice_alias_demo()

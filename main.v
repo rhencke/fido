@@ -2117,6 +2117,17 @@ Definition chanbox_slice_demo : IO unit :=
   bind (slice_get TChanBox s (int_lit 1 eq_refl)) (fun b =>   (* b := s[1] = ChanBox{2, ch1} *)
   println [any (cb_id b)]))).                                  (* prints: 2 *)
 
+(** A MAP with STRUCT VALUES ([map[int64]ListNode]) — the last container after slices/channels: struct
+    values keyed in a map ([TMap TI64 TListNode] renders [map[int64]ListNode]).  Set [m[5] =
+    ListNode{99,nil}], read it back (comma-ok via [map_get_or]'s default), read its [Val] field.  Together
+    with [struct_slice_demo] ([[]ListNode]) and [chanbox_slice_demo] this shows struct values nest in EVERY
+    container — slice, channel field, and map value. *)
+Definition map_struct_demo : IO unit :=
+  bind (map_make_typed TI64 TListNode) (fun m =>                                          (* map[int64]ListNode *)
+  bind (map_set TI64 TListNode (5)%i64 (MkListNode (99)%i64 (ptr_nil_tf tt)) m) (fun _ => (* m[5] = ListNode{99, nil} *)
+  bind (@map_get_or GoI64 ListNode TI64 TListNode (5)%i64 (MkListNode (0)%i64 (ptr_nil_tf tt)) m) (fun n =>  (* m[5] *)
+  println [any (ln_val n)]))).                                                            (* prints: 99 *)
+
 (** "A CHANNEL THAT SENDS ITSELF" — the north-star horror, realized.  [ChanBox] (builtins.v) is
     [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
     [Ch] field IS that very channel, so the channel transmits a value containing ITSELF.  (Stronger than
@@ -3457,6 +3468,7 @@ Definition main_effect : IO unit :=
   struct_slice_demo             >>'   (* prints: 20 (a SLICE of struct VALUES []ListNode — the line-2015 slice-of-structs gap closed via the TListNode tag) *)
   slice2d_demo                  >>'   (* prints: 3 (a SLICE OF SLICES [][]int64 — nested TSlice; grid[1][0]) *)
   chanbox_slice_demo            >>'   (* prints: 2 (a SLICE of struct VALUES that each hold a channel, []ChanBox) *)
+  map_struct_demo               >>'   (* prints: 99 (a MAP with struct VALUES map[int64]ListNode — struct values nest in every container) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
   cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
