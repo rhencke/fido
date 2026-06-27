@@ -1541,10 +1541,20 @@ let rec pp_type state = function
    rendering contains a space must be parenthesised — Go parses [func(int64) int64(x)]
    wrong, needs [(func(int64) int64)(x)] — whereas a bare identifier ([int64], [string])
    must NOT be (Go rejects [(int64)(x)]… actually accepts it, but keep it clean). *)
+(* A CONVERSION's type must be PARENTHESISED when it starts with [func], [*] or [<-] (Go spec,
+   "Conversions": otherwise [func(A) B(x)] / [*T(x)] / [<-chan T(x)] are AMBIGUOUS).  Previously only [Tarr]
+   was wrapped, so a defined type whose underlying is the [GoFunc] tag ([type Handler func(A) B], a [Tglob])
+   emitted [func(A) B(h)] — INVALID/ambiguous Go that only gofmt silently repaired (caught by the extract
+   step's whitespace-only gofmt guard, review #8).  Faithful fix: implement the spec rule directly on the
+   rendered type's leading token, so the plugin emits CORRECT Go itself, never leaning on gofmt. *)
 let pp_cast_type state t =
-  match t with
-  | Tarr _ -> str "(" ++ pp_type state t ++ str ")"
-  | _ -> pp_type state t
+  let d = pp_type state t in
+  let s = Pp.string_of_ppcmds d in
+  let needs_parens =
+    (String.length s >= 1 && s.[0] = '*')
+    || (String.length s >= 2 && s.[0] = '<' && s.[1] = '-')
+    || (String.length s >= 4 && String.sub s 0 4 = "func") in
+  if needs_parens then str "(" ++ d ++ str ")" else d
 
 let rec collect_tarrs = function
   | Tarr (t, rest) -> let ts, ret = collect_tarrs rest in t :: ts, ret

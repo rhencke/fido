@@ -31,14 +31,30 @@ build:
 # Extract generated Go sources from the prover stage into the repo.
 # Wipes all *.go files first so renamed/deleted theories don't leave strays.
 extract:
-	rm -f *.go
+	rm -f *.go *.go.raw
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) \
 	  --output type=local,dest=. --target go-src .
 	# Canonicalise with gofmt: the plugin emits valid Go, but gofmt's operator-
 	# spacing heuristic (e.g. tightening `1.5 + 2.25` to `1.5+2.25`) is depth/
 	# operand-dependent and not worth replicating in the plugin.  This guarantees
 	# the committed Go is gofmt-clean regardless.
+	#
+	# gofmt is a TRUSTED post-step — but review #8 asks it not silently rewrite the verified output.  So
+	# MECHANICALLY BOUND it to WHITESPACE-ONLY: snapshot the plugin's raw output, gofmt, then assert the
+	# non-whitespace TOKEN STREAM is byte-identical.  gofmt thus provably cannot alter a token / the
+	# program's meaning — it only REFORMATS.  The verified printer's TOKENS reach the committed file; gofmt
+	# is a CHECKED normaliser, not a trusted byte-rewriter.  (String-literal contents are unchanged by
+	# gofmt, so stripping all whitespace cancels on both sides; the plugin emits no comments.)
+	for f in *.go; do cp "$$f" "$$f.raw"; done
 	docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine gofmt -w *.go
+	for f in *.go; do \
+	  if [ "`tr -d '[:space:]' < "$$f.raw"`" != "`tr -d '[:space:]' < "$$f"`" ]; then \
+	    echo "fido: GOFMT ALTERED A TOKEN (not just whitespace) in $$f — gofmt is not semantics-preserving here; refusing."; \
+	    rm -f *.go.raw; exit 1; \
+	  fi; \
+	done
+	rm -f *.go.raw
+	@echo "fido: gofmt is whitespace-only (token stream preserved) — verified printer's tokens reach the file ✓"
 
 # Run the extracted Go sources directly without Docker.
 run-local: extract
