@@ -5507,6 +5507,10 @@ Fixpoint print_sep (sep : string) (xs : list string) : string :=
 Example print_sep_empty  : print_sep ", " [] = "".              Proof. reflexivity. Qed.
 Example print_sep_single : print_sep ", " ["a"] = "a".          Proof. reflexivity. Qed.
 Example print_sep_three  : print_sep ", " ["a"; "b"; "c"] = "a, b, c". Proof. reflexivity. Qed.
+(** One-level cons unfold (keeps the tail's [print_sep] FOLDED — [cbn] would expand it recursively). *)
+Lemma print_sep_cons : forall sep x y zs,
+  print_sep sep (x :: y :: zs) = (x ++ sep ++ print_sep sep (y :: zs))%string.
+Proof. reflexivity. Qed.
 
 (** [parse_args] — the CLASSIC recursive-descent ARGUMENT-LIST parser (review #8 P0-1b, NO string splits):
     parse one expression (the lexer now HALTS it at the next depth-0 comma — step 1, commit 6532cbe), then
@@ -5517,31 +5521,24 @@ Fixpoint parse_args (fuel : nat) (s : string) : option (list GoExpr * string) :=
   match fuel with
   | O => None
   | S f =>
-    match s with
-    | EmptyString => Some (nil, EmptyString)
-    | String c _ =>
-        if Ascii.eqb c (ch 41) then Some (nil, s)
-        else match parse_expr (6 * String.length s + 6) 0 s with
-             | None => None
-             | Some (e, rest) =>
-                 match rest with
-                 | String c1 (String c2 r2) =>
-                     if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))
-                     then match parse_args f r2 with Some (es, r3) => Some (e :: es, r3) | None => None end
-                     else Some (e :: nil, rest)
-                 | _ => Some (e :: nil, rest)
-                 end
-             end
+    match parse_expr (6 * String.length s + 6) 0 s with
+    | None => None
+    | Some (e, rest) =>
+        match rest with
+        | String c1 (String c2 r2) =>
+            if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))   (* ", " separator → another arg *)
+            then match parse_args f r2 with Some (es, r3) => Some (e :: es, r3) | None => None end
+            else Some (e :: nil, rest)                              (* last arg (rest starts with ")") *)
+        | _ => Some (e :: nil, rest)
+        end
     end
   end.
+(* [parse_args] parses a NON-EMPTY arg list (>= 1 expression); the empty list [()] is recognised by the
+   caller (the [SCall] parse case checks for ")" immediately after "("), so there is no leading-")" check. *)
 
-(** Executable round-trip witnesses: [parse_args] inverts [print_sep ", " (map print_expr …)] on the empty,
-    singleton, and 3-arg lists — recovering the EXACT expression list, leaving the ")" tail.  (The earlier
-    pre-step-1 attempt FAILED on the 3-arg case because [scan_atom] blobbed "1, 2, 3"; now it halts at the
-    depth-0 commas, so the classic recursive descent works.) *)
-Example parse_args_rt_empty :
-  parse_args 8 (print_sep ", " nil ++ ")")%string = Some (nil, ")"%string).
-Proof. reflexivity. Qed.
+(** Executable witnesses (Option B parses a NON-EMPTY list): [parse_args] inverts [print_sep ", " (map
+    print_expr …)] on a singleton and a 3-arg list — the EXACT list + the ")" tail.  (The pre-step-1 attempt
+    FAILED on multi-arg because [scan_atom] blobbed "1, 2, 3"; now the lexer halts at the commas.) *)
 Example parse_args_rt_single :
   let es := [EAtom (AScanned (SIntLit 7))] in
   parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
@@ -5550,6 +5547,47 @@ Example parse_args_rt_three :
   let es := [EAtom (AScanned (SIntLit 1)); EAtom (AScanned (SIntLit 2)); EAtom (AScanned (SIntLit 3))] in
   parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
 Proof. reflexivity. Qed.
+
+(** ★THE ARG-LIST ROUND-TRIP — the crux the verified [SCall] node needs (review #8 P0-1b): [parse_args]
+    recovers the EXACT argument expression list from [print_sep ", " (map (print_expr 0) …)] followed by its
+    closing ")".  Each arg round-trips by [Pexpr] — its tail (", " for a non-last arg, ")" for the last) is a
+    clean stopping seam, so the lexer halts the expression exactly there (steps 1-2).  Fuel
+    [6*|s|+6 >= 3*esize e + 3] via [size_le_2len1] ([esize e <= 2*|print_expr 0 e| + 1]). *)
+Lemma parse_args_roundtrip : forall args e rest F,
+  Forall atomic_tree (e :: args) -> S (length args) < F ->
+  parse_args F (print_sep ", " (map (print_expr 0) (e :: args)) ++ String (ch 41) rest)%string
+    = Some (e :: args, String (ch 41) rest).
+Proof.
+  induction args as [ | e2 args' IH ]; intros e rest F Hall HF.
+  - (* singleton [e] : tail is ")" — a bclose seam *)
+    destruct F as [ | f ]; [ cbn in HF; lia | ]. apply Forall_inv in Hall.
+    cbn [map print_sep]. cbn [parse_args].
+    assert (Hp : parse_expr (6 * String.length (print_expr 0 e ++ String (ch 41) rest) + 6) 0
+                            (print_expr 0 e ++ String (ch 41) rest)%string
+                 = Some (e, String (ch 41) rest)).
+    { apply (Pexpr_always e Hall 0 0 (String (ch 41) rest)); [ apply le_n | | ].
+      - right; left. exists (ch 41), rest. split; reflexivity.
+      - rewrite slen_app. pose proof (proj1 size_le_2len1 e 0) as Hsz. cbn [String.length]. lia. }
+    rewrite Hp. destruct rest as [ | rc rrest ]; reflexivity.
+  - (* e :: e2 :: args' : the first arg's tail is ", " — a comma seam — then recurse *)
+    destruct F as [ | f ]; [ cbn in HF; lia | ].
+    assert (Hate : atomic_tree e) by (apply Forall_inv in Hall; exact Hall).
+    assert (Hall' : Forall atomic_tree (e2 :: args')) by (inversion Hall; assumption).
+    assert (Hf : S (length args') < f) by (cbn in HF; lia).
+    cbn [map]. rewrite print_sep_cons.
+    set (MID := print_sep ", " (print_expr 0 e2 :: map (print_expr 0) args')).
+    (* regroup to print_expr 0 e ++ (", " ++ MID ++ ")" ++ rest) *)
+    rewrite !sapp_assoc. cbn [parse_args].
+    assert (Hp : parse_expr (6 * String.length (print_expr 0 e ++ (", " ++ MID ++ String (ch 41) rest)) + 6) 0
+                            (print_expr 0 e ++ (", " ++ MID ++ String (ch 41) rest))%string
+                 = Some (e, (", " ++ MID ++ String (ch 41) rest)%string)).
+    { apply (Pexpr_always e Hate 0 0 ((", " ++ MID ++ String (ch 41) rest))%string); [ apply le_n | | ].
+      - right; right; right. exists (String (ch 32) (MID ++ String (ch 41) rest))%string. reflexivity.
+      - rewrite slen_app. pose proof (proj1 size_le_2len1 e 0) as Hsz. lia. }
+    rewrite Hp. cbn [append andb Ascii.eqb].
+    pose proof (IH e2 rest f Hall' Hf) as IHa.
+    cbn [map] in IHa. fold MID in IHa. rewrite IHa. reflexivity.
+Qed.
 
 (** Concatenation of two balanced strings is balanced (depth/nneg are homomorphic over append). *)
 Lemma balanced_app : forall a b, balanced a -> balanced b -> balanced (a ++ b).
