@@ -106,6 +106,16 @@ Definition neg_op_demo : IO unit :=
   println [ any (i64_neg (5)%i64)                       (* -5 *)
           ; any (i64_neg (i64_sub (0)%i64 (7)%i64)) ].  (* -(0 - 7) = 7 *)
 
+(** [UNeg] AS A BINOP OPERAND (review #7) — a RUNTIME negation in operand position.  [i64_add] is a
+    [binop_of] op, so its operands go through [build_goexpr]; the operand [i64_neg a] — a runtime PARAMETER,
+    not a constant — now lowers to the VERIFIED [Printer.EUnary UNeg] node, printed PARENTHESISED [-(a)].
+    Previously this was a "-a" [SRaw] atom that [build_atom] REJECTS (its depth-0 '-' is a [has_d0_break]) —
+    the latent [build_atom] abort this closes.  A CONSTANT operand still takes the folding IIFE (see
+    [neg_op_demo]); only a RUNTIME operand (here the parameter [a]) is the bare prefix [-(a)]. *)
+Definition uneg_binop_demo (a b : GoI64) : IO unit :=
+  println [ any (i64_add (i64_neg a) b)            (* -(a) + b *)
+          ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
+
 (** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
     two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
     [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
@@ -3277,6 +3287,7 @@ Definition main_effect : IO unit :=
   overflow_safe_demo            >>'   (* prints: 3000000000000 1000000 *)
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   neg_op_demo                   >>'   (* prints: -5 7 (unary -x) *)
+  uneg_binop_demo (5)%i64 (3)%i64 >>' (* prints: -2 -2 (-(a)+b, b+-(a) — UNeg as binop operand) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)

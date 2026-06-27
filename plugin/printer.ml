@@ -1919,6 +1919,7 @@ type unaryOp =
 | UXor
 | UDeref
 | UAddr
+| UNeg
 
 (** val unop_text : unaryOp -> string **)
 
@@ -1934,6 +1935,9 @@ let unop_text = function
     EmptyString)
 | UAddr ->
   String ((Ascii (False, True, True, False, False, True, False, False)),
+    EmptyString)
+| UNeg ->
+  String ((Ascii (True, False, True, True, False, True, False, False)),
     EmptyString)
 
 (** val is_unop_char : ascii -> bool **)
@@ -3187,7 +3191,14 @@ and print_expr ctx = function
          False, False)), EmptyString)))
    | False -> inner)
 | EUnary (o, e0) ->
-  append (unop_text o) (print_expr (S (S (S (S (S (S O)))))) e0)
+  (match o with
+   | UNeg ->
+     append (String ((Ascii (True, False, True, True, False, True, False,
+       False)), (String ((Ascii (False, False, False, True, False, True,
+       False, False)), EmptyString))))
+       (append (print_expr O e0) (String ((Ascii (True, False, False, True,
+         False, True, False, False)), EmptyString)))
+   | _ -> append (unop_text o) (print_expr (S (S (S (S (S (S O)))))) e0))
 
 (** val atom_str : goAtom -> string **)
 
@@ -3283,21 +3294,39 @@ and parse_primary fuel s =
                     | None -> None)
                  | None -> None)
               | False ->
-                let Pair (chunk, rest) = scan_atom O s in
-                (match chunk with
-                 | EmptyString -> None
-                 | String (_, _) ->
-                   let Pair (base, post) = scan_base chunk in
-                   (match build_base base with
-                    | Some a0 ->
-                      (match parse_postfix f a0 post with
-                       | Some p ->
-                         let Pair (e, s0) = p in
-                         (match s0 with
-                          | EmptyString -> Some (Pair (e, rest))
-                          | String (_, _) -> None)
-                       | None -> None)
-                    | None -> None))))))
+                (match match eqb0 c
+                               (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S
+                                 O)))))))))))))))))))))))))))))))))))))))))))))) with
+                       | True ->
+                         (match s' with
+                          | EmptyString -> False
+                          | String (c1, _) -> is_open c1)
+                       | False -> False with
+                 | True ->
+                   (match parse_primary f s' with
+                    | Some p ->
+                      let Pair (e, s1) = p in
+                      Some (Pair ((EUnary (UNeg, e)), s1))
+                    | None -> None)
+                 | False ->
+                   let Pair (chunk, rest) = scan_atom O s in
+                   (match chunk with
+                    | EmptyString -> None
+                    | String (_, _) ->
+                      let Pair (base, post) = scan_base chunk in
+                      (match build_base base with
+                       | Some a0 ->
+                         (match parse_postfix f a0 post with
+                          | Some p ->
+                            let Pair (e, s0) = p in
+                            (match s0 with
+                             | EmptyString -> Some (Pair (e, rest))
+                             | String (_, _) -> None)
+                          | None -> None)
+                       | None -> None)))))))
 
 (** val parse_postfix :
     nat -> sAtom -> string -> (goExpr, string) prod option **)

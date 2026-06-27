@@ -108,6 +108,10 @@ func Neg_op_demo() {
 	println(func(x int64) int64 { return -x }(5), func(x int64) int64 { return -x }(func(x int64, y int64) int64 { return x - y }(0, 7)))
 }
 
+func Uneg_binop_demo(a int64, b int64) {
+	println(-(a)+b, b+-(a))
+}
+
 func Conv64_demo() {
 	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
@@ -2572,6 +2576,7 @@ func main() {
 	Overflow_safe_demo()
 	I64_abs_demo()
 	Neg_op_demo()
+	Uneg_binop_demo(5, 3)
 	Conv64_demo()
 	Minmax64_demo()
 	Cmp_ops_demo()

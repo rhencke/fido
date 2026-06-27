@@ -2842,6 +2842,15 @@ and build_goexpr state env e =
            Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (pointer deref read) *)
        | MLglob r, ([p] | [_; p]) when is_gsptr_deref_ref r ->
            Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (generic struct-ptr deref) *)
+       (* PREFIX NEGATION [UNeg] (review #7): float / float32 / complex / full-width int64 / uint64 unary
+          [-x] on a RUNTIME operand → the VERIFIED [Printer.EUnary UNeg] node, which prints PARENTHESISED
+          [-(x)] (a bare "-x" atom is [raw_ok]-rejected: its depth-0 '-' is a [has_d0_break]).  On a
+          NON-runtime (constant) operand this FALLS THROUGH to the typed-IIFE [atom] below — a constant
+          [-x] would be Go-folded ([-complex(0,0)] -> [+0], constants cannot denote [-0]), so the IIFE
+          forces a runtime negate (exactly the [pp_expr] arms / the [^x] complement above). *)
+       | MLglob r, [x] when (is_float_opp_ref r || is_f32_neg_ref r || is_complex_neg_ref r
+                             || is_i64_op r "neg" || is_u64_op r "neg") && operand_is_runtime x ->
+           Printer.EUnary (Printer.UNeg, build_goexpr state env x)
        | _ -> atom (pp_expr state env e))
   | _ -> atom (pp_expr state env e)
 

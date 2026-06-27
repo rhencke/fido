@@ -1168,12 +1168,14 @@ Definition binop_text (o : BinOp) : string :=
     binding TIGHTER than every binary operator.  ([+] unary is omitted — the plugin never emits it; channel
     receive [<-] is a separate comma-ok form.)  [unop_char_of] gives the leading char the parser dispatches
     on; a [-] FOLLOWED BY A DIGIT is a negative literal ([is_dec] -> [SIntLit]), NOT [UNeg]. *)
-(** NB: unary [-] is DELIBERATELY OMITTED.  [-5] is a negative LITERAL ([SIntLit]); were [-] a unary op,
-    [EUnary UNeg (lit 5)] would also print [-5] and the round-trip could not disambiguate.  So [EUnary]
-    carries only the four UNAMBIGUOUS prefixes [!]/[^]/[*]/[&] (and [-x] of a non-literal stays [SRaw]). *)
-Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr.
+(** [UNeg] (unary [-]) IS carried — but it prints AMBIGUOUSLY against a negative LITERAL: a bare [-x]
+    collides with [-5] ([SIntLit]).  So [UNeg] alone among the unary ops prints PARENTHESISED — [-(x)] —
+    and the parser dispatches the unambiguous two-char prefix [-(] to it (see [print_expr]/[parse_primary]).
+    The other four ([!]/[^]/[*]/[&]) are single-char-unambiguous and print bare ([unop_char_of] gives the
+    dispatch char; [-] is NOT a [unop_char] — it never single-char-dispatches, only via the [-(] prefix). *)
+Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr | UNeg.
 Definition unop_text (o : UnaryOp) : string :=
-  match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" end.
+  match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" | UNeg => "-" end.
 Definition is_unop_char (c : ascii) : bool :=
   orb (orb (Ascii.eqb c (ch 33)) (Ascii.eqb c (ch 94))) (orb (Ascii.eqb c (ch 42)) (Ascii.eqb c (ch 38))).
 Definition unop_char_of (c : ascii) : option UnaryOp :=
@@ -1182,9 +1184,11 @@ Definition unop_char_of (c : ascii) : option UnaryOp :=
   else if Ascii.eqb c (ch 42) then Some UDeref
   else if Ascii.eqb c (ch 38) then Some UAddr
   else None.
-Lemma unop_text_char_of : forall o, exists c s,
+(** The single-char dispatch characterization — for the four bare-printing ops ([UNeg] excluded: it prints
+    [-(x)], parsed by the dedicated [-(] prefix branch, not the [is_unop_char] single-char dispatch). *)
+Lemma unop_text_char_of : forall o, o <> UNeg -> exists c s,
   unop_text o = String c s /\ s = EmptyString /\ unop_char_of c = Some o /\ is_unop_char c = true.
-Proof. intro o; destruct o; cbn; eauto 10. Qed.
+Proof. intro o; destruct o; intro Hne; cbn; try (eauto 10). exfalso; apply Hne; reflexivity. Qed.
 
 
 (* ---- ATOM LEXER (moved ABOVE GoExpr: [GoAtom] below carries an [atomic] proof) ---- *)
@@ -2264,8 +2268,13 @@ with print_expr (ctx : nat) (e : GoExpr) : string :=
       if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
   | EUnary o e =>
       (* unary binds TIGHTER than every binop (prec 5 max), so [EUnary] is a PRIMARY — it never wraps for
-         [ctx], and its operand prints at prec 6 so an [EBin] operand parenthesises ([!(a == b)]). *)
-      (unop_text o ++ print_expr 6 e)%string
+         [ctx].  [UNeg] prints PARENTHESISED ([-(e)], operand at prec 0 — the parens make it unambiguous
+         vs a [-5] literal and the [-(] prefix is the parser's dispatch); the other four print bare, operand
+         at prec 6 so an [EBin] operand parenthesises ([!(a == b)]). *)
+      match o with
+      | UNeg => ("-(" ++ print_expr 0 e ++ ")")%string
+      | _ => (unop_text o ++ print_expr 6 e)%string
+      end
   end
 with atom_str (a : GoAtom) : string :=
   match a with AScanned s => satom_str s | AStringLit v => print_string_lit v end.
@@ -2290,8 +2299,11 @@ Lemma print_expr_wrapped : forall o l r ctx, Nat.ltb (binop_prec o) ctx = true -
   print_expr ctx (EBin o l r)
     = ("(" ++ (print_expr (binop_prec o) l ++ binop_text o ++ print_expr (S (binop_prec o)) r) ++ ")")%string.
 Proof. intros o l r ctx H. cbn [print_expr]. rewrite H. reflexivity. Qed.
-Lemma print_expr_unary : forall op e ctx,
+Lemma print_expr_unary : forall op e ctx, op <> UNeg ->
   print_expr ctx (EUnary op e) = (unop_text op ++ print_expr 6 e)%string.
+Proof. intros op e ctx Hne. destruct op; cbn [print_expr]; try reflexivity. exfalso; apply Hne; reflexivity. Qed.
+Lemma print_expr_uneg : forall e ctx,
+  print_expr ctx (EUnary UNeg e) = ("-(" ++ print_expr 0 e ++ ")")%string.
 Proof. reflexivity. Qed.
 
 
@@ -2423,6 +2435,64 @@ Lemma atom_scanned_unary_op_led_false : forall a, atom_scanned a = true -> unary
 Proof.
   intros [ s | r ] H; cbn [atom_str atom_scanned] in *; [ apply satom_unary_op_led_false | discriminate H ].
 Qed.
+
+(** [neg_paren_led s] — [s] heads the unambiguous [UNeg] prefix [-(] (a depth-0 '-' immediately followed by
+    '(').  This is EXACTLY [parse_primary]'s [UNeg]-dispatch guard.  No SCANNED atom prints to such a string
+    (a negative literal is '-'+DIGIT, never '-'+'('; a raw atom is never '-'-led — a depth-0 '-' is a
+    [has_d0_break]), so [parse_primary] dispatches every atom PAST the [UNeg] branch to [scan_atom]. *)
+Definition neg_paren_led (s : string) : bool :=
+  match s with
+  | String c s' => andb (Ascii.eqb c (ch 45)) (match s' with String c1 _ => is_open c1 | _ => false end)
+  | EmptyString => false
+  end.
+(** A leading '-' is itself a depth-0 break (an [is_op_char] outside any bracket/hex-exponent), so it can
+    never begin a [raw_ok] atom. *)
+Lemma has_d0_break_minus : forall s', has_d0_break (String (ch 45) s') = true.
+Proof. intro s'. unfold has_d0_break. destruct (is_hex_led (String (ch 45) s')); reflexivity. Qed.
+Lemma is_idc_not_minus : forall c, is_idc c = true -> Ascii.eqb c (ch 45) = false.
+Proof. intros c H. exact (is_idc_eqb_false c 45 H eq_refl). Qed.
+(** No (scanned) atom's text — even followed by anything — heads the [-(] prefix: by structural induction,
+    the leaf base is an identifier ('-'-free), a decimal ('-'+digit, second char not '('), or a raw atom
+    ('-'-free via [has_d0_break]); the postfix spine appends AFTER the base, preserving its first two chars. *)
+Lemma satom_not_neg_paren_app : forall (a : SAtom) (tail : string),
+  neg_paren_led (satom_str a ++ tail) = false.
+Proof.
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; intro tail; cbn [satom_str].
+  - (* SIdent — go_ident-led, first char is_idstart, never '-' *)
+    destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
+    destruct s as [ | c s' ]; [ discriminate Hs | ].
+    apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
+    cbn [append neg_paren_led]. rewrite (is_idc_not_minus c (is_idstart_is_idc c Hstart)). reflexivity.
+  - (* SIntLit — print_Z: digit-led, or '-' then a digit (is_open false) *)
+    pose proof (is_dec_print_Z z) as Hd. unfold is_dec in Hd.
+    destruct (print_Z z) as [ | c rest ] eqn:EP; [ discriminate Hd | ].
+    cbn [append neg_paren_led]. destruct (Ascii.eqb c (ch 45)) eqn:Em; [ | reflexivity ].
+    unfold ch in Em. rewrite Em in Hd.
+    destruct rest as [ | d t ]; [ discriminate Hd | ].
+    cbn [all_dec] in Hd. apply andb_true_iff in Hd. destruct Hd as [ Hdc _ ].
+    cbn [andb append]. rewrite (is_idc_not_open d (is_dec_char_is_idc d Hdc)). reflexivity.
+  - (* SRaw — raw_ok excludes a depth-0 '-' (has_d0_break) *)
+    destruct r as [ s Hr ]; cbn [proj1_sig].
+    destruct s as [ | c s' ]; [ apply raw_ok_atom_ok in Hr; cbn in Hr; discriminate Hr | ].
+    cbn [append neg_paren_led]. destruct (Ascii.eqb c (ch 45)) eqn:Em; [ | reflexivity ].
+    exfalso. apply Ascii.eqb_eq in Em. subst c.
+    unfold raw_ok in Hr. apply andb_true_iff in Hr. destruct Hr as [ Hr _ ].
+    apply andb_true_iff in Hr. destruct Hr as [ _ Hr ].
+    apply andb_true_iff in Hr. destruct Hr as [ Hr _ ].
+    apply andb_true_iff in Hr. destruct Hr as [ Hnb _ ].
+    apply negb_true_iff in Hnb. rewrite has_d0_break_minus in Hnb. discriminate Hnb.
+  - (* SSelector — the spine appends after the base, first two chars from [a] *)
+    rewrite sapp_assoc. exact (IH (String (ch 46) (proj1_sig f) ++ tail)).
+  - (* SIndex *)
+    rewrite sapp_assoc.
+    exact (IH (String (ch 91) (print_expr 0 i ++ String (ch 93) EmptyString) ++ tail)).
+  - (* SSlice *)
+    rewrite sapp_assoc.
+    exact (IH (String (ch 91) (print_expr 0 lo ++ String (ch 58)
+                 (print_expr 0 hi ++ String (ch 93) EmptyString)) ++ tail)).
+Qed.
+Lemma satom_not_neg_paren : forall a : SAtom, neg_paren_led (satom_str a) = false.
+Proof. intro a. rewrite <- (sapp_nil_r (satom_str a)). apply satom_not_neg_paren_app. Qed.
 Lemma nneg_raise : forall s d d', (d <= d')%Z -> nneg d s -> nneg d' s.
 Proof.
   induction s as [ | c s IH ]; intros d d' Hle Hn; cbn in *; [ exact I | ].
@@ -2950,6 +3020,13 @@ with parse_primary (fuel : nat) (s : string) : option (GoExpr * string) :=
           | Some op => match parse_primary f s' with Some (e, s1) => Some (EUnary op e, s1) | None => None end
           | None => None
           end
+        else if andb (Ascii.eqb c (ch 45)) (match s' with String c1 _ => is_open c1 | _ => false end) then
+          (* UNARY NEGATION (review #7): the unambiguous two-char prefix [-(].  A bare [-x] would collide with
+             a [-5] literal, so [UNeg] alone prints/parses PARENTHESISED — its operand is the recursive
+             paren-primary [parse_primary f s'] ([s'] is "("-led here, so the paren rule fires).  ([-]+digit
+             does NOT match this guard ([(] vs a digit) and falls through to the atom path — a negative
+             literal via [scan_atom], NOT [UNeg]. *)
+          match parse_primary f s' with Some (e, s1) => Some (EUnary UNeg e, s1) | None => None end
         else
           (* ATOM (review #8 — the postfix PrimaryExpr grammar): [scan_atom] isolates the atomic CHUNK
              (depth-0 operator seams + negative literals + quotes — already proven); [scan_base] splits the
@@ -3046,6 +3123,8 @@ Lemma parse_primary_S : forall f s, parse_primary (S f) s =
         | Some op => match parse_primary f s' with Some (e, s1) => Some (EUnary op e, s1) | None => None end
         | None => None
         end
+      else if andb (Ascii.eqb c (ch 45)) (match s' with String c1 _ => is_open c1 | _ => false end) then
+        match parse_primary f s' with Some (e, s1) => Some (EUnary UNeg e, s1) | None => None end
       else
         let (chunk, rest) := scan_atom 0 s in
         match chunk with
@@ -3128,12 +3207,16 @@ Proof.
         -- destruct (unop_char_of c) as [ op | ]; [ | exact H ].
            destruct (parse_primary f s') as [ [e s1] | ] eqn:Epp; [ | discriminate H ].
            rewrite (IHp _ _ Epp). exact H.
-        -- destruct (scan_atom 0 (String c s')) as [ chunk rest ].
-           destruct chunk as [ | cc cr ]; [ exact H | ].
-           destruct (scan_base (String cc cr)) as [ base post ].
-           destruct (build_base base) as [ a0 | ]; [ | exact H ].
-           destruct (parse_postfix f a0 post) as [ [e leftover] | ] eqn:Epp; [ | discriminate H ].
-           rewrite (IHpf _ _ _ Epp). exact H.
+        -- destruct (andb (Ascii.eqb c (ch 45))
+                          (match s' with EmptyString => false | String c1 _ => is_open c1 end)).
+           ++ destruct (parse_primary f s') as [ [e s1] | ] eqn:Epp; [ | discriminate H ].
+              rewrite (IHp _ _ Epp). exact H.
+           ++ destruct (scan_atom 0 (String c s')) as [ chunk rest ].
+              destruct chunk as [ | cc cr ]; [ exact H | ].
+              destruct (scan_base (String cc cr)) as [ base post ].
+              destruct (build_base base) as [ a0 | ]; [ | exact H ].
+              destruct (parse_postfix f a0 post) as [ [e leftover] | ] eqn:Epp; [ | discriminate H ].
+              rewrite (IHpf _ _ _ Epp). exact H.
     + intros a s r H. rewrite parse_postfix_S in H. rewrite parse_postfix_S.
       destruct s as [ | c s' ]; [ exact H | ].
       destruct (Ascii.eqb c (ch 46)).
@@ -3250,6 +3333,33 @@ Proof. reflexivity. Qed.
 Example rt_sel_bin :
   parse_expr 11 0 (print_expr 0 (EBin BAdd (EAsel (SIdent (exist _ "p" eq_refl)) "x") (EA "c")))
   = Some (EBin BAdd (EAsel (SIdent (exist _ "p" eq_refl)) "x") (EA "c"), "").  (* p.x + c *)
+Proof. reflexivity. Qed.
+(** UNARY NEGATION [UNeg] (review #7 — closes the latent [-x] regression: the plugin's float/f32/complex/
+    i64/u64 negations emit Go [-x], which as a binop OPERAND was an [SRaw] "-x" atom [raw_ok] now REJECTS —
+    so they MUST become [EUnary UNeg] or [build_atom] aborts).  Unlike the four single-char prefixes, [UNeg]
+    prints PARENTHESISED [-(e)] (a bare [-x] would collide with the [-5] literal) and the parser dispatches
+    the unambiguous [-(] prefix; a negative LITERAL stays [SIntLit] (the [-(] guard fails on [-]+digit). *)
+Example print_uneg : print_expr 0 (EUnary UNeg (EA "x")) = "-(x)". Proof. reflexivity. Qed.
+Example rt_uneg_x : parse_expr 30 0 (print_expr 0 (EUnary UNeg (EA "x")))
+                  = Some (EUnary UNeg (EA "x"), "").  (* -(x) *)
+Proof. reflexivity. Qed.
+Example rt_uneg_lit : parse_expr 30 0 (print_expr 0 (EUnary UNeg (EAi 5)))
+                    = Some (EUnary UNeg (EAi 5), "").  (* -(5) — UNeg of a literal, distinct from -5 *)
+Proof. reflexivity. Qed.
+Example rt_neg_lit_stays : parse_expr 30 0 (print_expr 0 (EAi (-5)))
+                         = Some (EAi (-5), "").  (* -5 stays a literal, NOT [EUnary UNeg] *)
+Proof. reflexivity. Qed.
+Example rt_uneg_left : parse_expr 30 0 (print_expr 0 (EBin BAdd (EUnary UNeg (EA "x")) (EA "y")))
+                     = Some (EBin BAdd (EUnary UNeg (EA "x")) (EA "y"), "").  (* -(x) + y *)
+Proof. reflexivity. Qed.
+Example rt_uneg_right : parse_expr 30 0 (print_expr 0 (EBin BAdd (EA "a") (EUnary UNeg (EA "b"))))
+                      = Some (EBin BAdd (EA "a") (EUnary UNeg (EA "b")), "").  (* a + -(b) *)
+Proof. reflexivity. Qed.
+Example rt_uneg_compound : parse_expr 30 0 (print_expr 0 (EUnary UNeg (EBin BAdd (EA "a") (EA "b"))))
+                         = Some (EUnary UNeg (EBin BAdd (EA "a") (EA "b")), "").  (* -(a + b) *)
+Proof. reflexivity. Qed.
+Example rt_uneg_deref : parse_expr 30 0 (print_expr 0 (EUnary UNeg (EUnary UDeref (EA "p"))))
+                      = Some (EUnary UNeg (EUnary UDeref (EA "p")), "").  (* negate a pointer deref *)
 Proof. reflexivity. Qed.
 (** A FUNCTION-LITERAL atom — exactly the plugin's arith-force typed-IIFE (e.g. main.go line 322) — is
     now [atomic] (its `-` is inside `{ }`, its `) T {` spaces precede non-op chars) and round-trips even
@@ -3557,9 +3667,17 @@ Proof.
       rewrite (IHr (S (binop_prec o)) st rest Hne). reflexivity.
   - (* EUnary op e *)
     intros op e IHe c st rest Hne.
-    rewrite (print_expr_unary op e c), !sapp_assoc.
-    rewrite (unop_neutral op st _ Hne).
-    rewrite (IHe 6 st rest Hne). reflexivity.
+    assert (Hnu : forall oo, oo <> UNeg ->
+              bstack_ok st (print_expr c (EUnary oo e) ++ rest)%string = bstack_ok st rest).
+    { intros oo Hoo. rewrite (print_expr_unary oo e c Hoo), !sapp_assoc,
+        (unop_neutral oo st _ Hne), (IHe 6 st rest Hne). reflexivity. }
+    destruct op; try (apply Hnu; discriminate).
+    (* UNeg: "-(" ++ print 0 e ++ ")" — leading '-' is nonspecial, then push '(' / IHe / pop ')'. *)
+    rewrite print_expr_uneg, !sapp_assoc. cbn [String.append].
+    rewrite (nonspecial_cons (ch 45) _ st Hne ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)).
+    rewrite (bstack_ok_cons_nonnil_nq (ch 40) _ st Hne eq_refl).
+    rewrite (IHe 0 (cons (close_of (ch 40)) st) _ ltac:(discriminate)).
+    cbn [String.append]. reflexivity.
   - (* AScanned s *)
     intros s IHs st rest Hne. change (atom_str (AScanned s)) with (satom_str s). exact (IHs st rest Hne).
   - (* AStringLit v *)
@@ -4085,6 +4203,13 @@ Lemma parse_primary_paren : forall f X, parse_primary (S f) ("(" ++ X)%string =
   match parse_expr f 0 X with
   | Some (e, s1) => match s1 with String c1 s2 => if is_close c1 then Some (e, s2) else None
                     | EmptyString => None end
+  | None => None end.
+Proof. intros f X. rewrite parse_primary_S. cbn [append]. reflexivity. Qed.
+(** The [UNeg] dispatch: a [-(]-led string fires the negation branch (the leading '-' is not open/quote/unop,
+    and the following '(' makes the guard true), peeling to the recursive paren-primary on the operand. *)
+Lemma parse_primary_negparen : forall f X, parse_primary (S f) ("-(" ++ X)%string =
+  match parse_primary f ("(" ++ X)%string with
+  | Some (e, s1) => Some (EUnary UNeg e, s1)
   | None => None end.
 Proof. intros f X. rewrite parse_primary_S. cbn [append]. reflexivity. Qed.
 
@@ -4779,6 +4904,12 @@ Proof.
   { change (unary_op_led (String c s') = false). rewrite <- Estr.
     pose proof (atom_scanned_unary_op_led_false (AScanned sa) eq_refl) as HH. cbn [atom_str] in HH. exact HH. }
   rewrite Huol.
+  assert (Hnp : andb (Ascii.eqb c (ch 45))
+                     (match s' ++ TAIL with String c1 _ => is_open c1 | _ => false end)%string = false).
+  { change (neg_paren_led (String c (s' ++ TAIL)) = false).
+    change (String c (s' ++ TAIL))%string with ((String c s') ++ TAIL)%string.
+    rewrite <- Estr. apply satom_not_neg_paren_app. }
+  rewrite Hnp.
   assert (Hscan : scan_atom 0 ((String c s') ++ TAIL)%string = (String c s', TAIL))
     by (apply scan_atom_correct; [ exact Hatm | exact Hgs ]).
   change ((String c s') ++ TAIL)%string with (String c (s' ++ TAIL))%string in Hscan.
@@ -4873,21 +5004,38 @@ Proof.
       { right; left. exists ")"%char, TAIL. split; [ cbn [append]; reflexivity | reflexivity ]. }
       rewrite (Hpr 0 (binop_prec o') (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
       cbn [append]. reflexivity.
-    + (* EUnary op e : [unop_text op ++ print_expr 6 e], a recursive primary *)
-      cbn [print_expr]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-      destruct (unop_text_char_of op) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
-      rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
-      rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
+    + (* EUnary op e — the four bare ops print [unop_text op ++ print_expr 6 e] (a recursive primary,
+         dispatched by the single unary char); [UNeg] prints [-(print 0 e)] (dispatched by the [-(] prefix
+         to a paren-primary on the operand). *)
       cbn [wf atomic_tree] in Hwf, Hat.
-      rewrite (IHn e 6 TAIL f
-                 ltac:(cbn [esize] in Hn; lia)
-                 ltac:(intros e' He' We Ae; apply Hsih; [ cbn [esize]; lia | exact We | exact Ae ])
-                 Hwf Hat
-                 ltac:(apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ])
-                 ltac:(destruct e as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
-                 Hgs
-                 ltac:(cbn [esize] in HF; lia)).
-      reflexivity.
+      assert (Hnu : forall oo, oo <> UNeg ->
+                parse_primary F (print_expr bfl (EUnary oo e) ++ TAIL)%string = Some (EUnary oo e, TAIL)).
+      { intros oo Hoo. rewrite (print_expr_unary oo e bfl Hoo).
+        destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+        destruct (unop_text_char_of oo Hoo) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
+        rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
+        rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
+        rewrite (IHn e 6 TAIL f
+                   ltac:(cbn [esize] in Hn; lia)
+                   ltac:(intros e' He' We Ae; apply Hsih; [ cbn [esize]; lia | exact We | exact Ae ])
+                   Hwf Hat
+                   ltac:(apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ])
+                   ltac:(destruct e as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                   Hgs
+                   ltac:(cbn [esize] in HF; lia)).
+        reflexivity. }
+      destruct op; try (apply Hnu; discriminate).
+      (* UNeg: "-(" ++ print_expr 0 e ++ ")" *)
+      rewrite print_expr_uneg.
+      destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+      destruct f as [ | f ]; [ cbn [esize] in HF; lia | ].
+      rewrite sapp_assoc, parse_primary_negparen, parse_primary_paren.
+      rewrite (sapp_assoc (print_expr 0 e) ")"%string TAIL).
+      assert (Htl0 : tail_ok 0 (")" ++ TAIL)%string).
+      { right; left. exists ")"%char, TAIL. split; [ cbn [append]; reflexivity | reflexivity ]. }
+      assert (HPe : Pexpr e) by (apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ]).
+      rewrite (HPe 0 0 (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
+      cbn [append]. reflexivity.
 Qed.
 
 (** THE UNIVERSAL ROUND-TRIP — by strong induction on tree size.  [Hunwr] proves the cases where [e]
@@ -4949,26 +5097,44 @@ Proof.
       rewrite (parse_climb_pairs (ps0 ++ [(o, r)]) k base rest f0 Hspine Htl
                  ltac:(cbn [esize] in HF, Hf3; rewrite Hpfs in Hf3; lia)).
       rewrite Hfold. reflexivity.
-    - (* EUnary op e0 — a PRIMARY: [unop_text op ++ print_expr 6 e0], NOT ctx-wrapped.
-         The leading unary char dispatches [parse_primary] to its unop branch, then [parse_primary_base]
-         re-parses the operand [e0] (Pexpr e0 supplied by the OUTER strong IH, not circular). *)
-      cbn [print_expr]. rewrite sapp_assoc.
+    - (* EUnary op e0 — a PRIMARY (NOT ctx-wrapped).  The four bare ops dispatch on the single unary char to
+         [parse_primary_base] on the operand; [UNeg] prints [-(print 0 e0)], dispatched by the [-(] prefix to a
+         paren-primary on [e0].  [Pexpr e0] comes from the OUTER strong IH (not circular). *)
+      cbn [wf atomic_tree] in Hwf, Hat.
+      assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
+      assert (Hnu : forall oo, oo <> UNeg ->
+                parse_expr F k (print_expr ctx (EUnary oo e0) ++ rest)%string = Some (EUnary oo e0, rest)).
+      { intros oo Hoo. rewrite (print_expr_unary oo e0 ctx Hoo), sapp_assoc.
+        destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
+        destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
+        destruct (unop_text_char_of oo Hoo) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
+        assert (Hpp : parse_primary (S f1) (unop_text oo ++ (print_expr 6 e0 ++ rest))%string
+                    = Some (EUnary oo e0, rest)).
+        { rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
+          rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
+          rewrite (parse_primary_base (esize e0) e0 6 rest f1 (le_n _)
+                     ltac:(intros e' He' We Ae; apply (IH e'); [ cbn [esize] in Hsz; lia | exact We | exact Ae ])
+                     Hwf Hat
+                     ltac:(apply (IH e0); [ cbn [esize] in Hsz; lia | exact Hwf | exact Hat ])
+                     ltac:(destruct e0 as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                     Hgs ltac:(cbn [esize] in HF; lia)).
+          reflexivity. }
+        rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl. }
+      destruct op; try (apply Hnu; discriminate).
+      (* UNeg: "-(" ++ print_expr 0 e0 ++ ")" — peeled by [-(] to a paren-primary on [e0] *)
+      rewrite print_expr_uneg.
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
       destruct f0 as [ | f1 ]; [ cbn [esize] in HF; lia | ].
-      assert (Hgs : good_seam rest = true) by (apply (tail_ok_good_seam k); exact Htl).
-      destruct (unop_text_char_of op) as [ uc [ us [ Hut [ Hus [ Huc Hisu ] ] ] ] ].
-      assert (Hpp : parse_primary (S f1) (unop_text op ++ (print_expr 6 e0 ++ rest))%string
-                  = Some (EUnary op e0, rest)).
-      { rewrite Hut, Hus. cbn [append]. rewrite parse_primary_S. cbn [append].
-        rewrite (is_unop_not_open uc Hisu), (is_unop_not_quote uc Hisu), Hisu, Huc.
-        cbn [wf atomic_tree] in Hwf, Hat.
-        rewrite (parse_primary_base (esize e0) e0 6 rest f1 (le_n _)
-                   ltac:(intros e' He' We Ae; apply (IH e'); [ cbn [esize] in Hsz; lia | exact We | exact Ae ])
-                   Hwf Hat
-                   ltac:(apply (IH e0); [ cbn [esize] in Hsz; lia | exact Hwf | exact Hat ])
-                   ltac:(destruct e0 as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
-                   Hgs ltac:(cbn [esize] in HF; lia)).
-        reflexivity. }
+      destruct f1 as [ | f2 ]; [ cbn [esize] in HF; lia | ].
+      assert (Hpp : parse_primary (S (S f2)) (("-(" ++ print_expr 0 e0 ++ ")") ++ rest)%string
+                  = Some (EUnary UNeg e0, rest)).
+      { rewrite sapp_assoc, parse_primary_negparen, parse_primary_paren.
+        rewrite (sapp_assoc (print_expr 0 e0) ")"%string rest).
+        assert (Htl0 : tail_ok 0 (")" ++ rest)%string)
+          by (right; left; exists ")"%char, rest; split; [ cbn [append]; reflexivity | reflexivity ]).
+        rewrite ((IH e0 ltac:(cbn [esize] in Hsz; lia) Hwf Hat) 0 0 (")" ++ rest)%string f2 (Nat.le_0_l _) Htl0
+                   ltac:(cbn [esize] in HF |- *; lia)).
+        cbn [append]. reflexivity. }
       rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl. }
   unfold Pexpr. intros k ctx rest F Hk Htl HF.
   destruct e as [ s | o l r | op e0 ].
@@ -5050,10 +5216,12 @@ Proof.
     destruct (Nat.ltb (binop_prec o) ctx) eqn:E.
     + rewrite (print_expr_wrapped o l r ctx E), !slen_app, Ht. cbn [String.length]. lia.
     + rewrite (print_expr_unwrapped o l r ctx E), !slen_app, Ht. cbn [String.length]. lia.
-  - (* EUnary op e *) intros op e IHe ctx.
-    cbn [esize]. rewrite (print_expr_unary op e ctx), slen_app.
-    destruct (unop_text_char_of op) as [ c [ s [ Hut [ Hs _ ] ] ] ]. rewrite Hut, Hs.
-    specialize (IHe 6). cbn [String.length]. lia.
+  - (* EUnary op e *) intros op e IHe ctx. cbn [esize]. destruct op;
+      try (match goal with |- context[EUnary ?o e] =>
+             rewrite (print_expr_unary o e ctx ltac:(discriminate)) end;
+           rewrite slen_app; cbn [unop_text String.length]; specialize (IHe 6); lia).
+    (* UNeg prints "-(" ++ print 0 e ++ ")" — 3 chars over the operand, absorbed by the factor 2 *)
+    rewrite print_expr_uneg, !slen_app. cbn [String.length]. specialize (IHe 0). lia.
   - (* AScanned sa *) intros sa IHsa. cbn [gsize atom_str]. exact IHsa.
   - (* AStringLit v *) intros v. cbn [gsize atom_str]. lia.
   - (* SIdent i *) intros i. cbn [asize satom_str]. lia.
