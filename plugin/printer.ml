@@ -2232,17 +2232,24 @@ let rec scan_atom d = function
    | False ->
      (match match Nat.eqb d O with
             | True ->
-              (match match opens (String (c, s')) with
+              (match match match opens (String (c, s')) with
+                           | True -> True
+                           | False -> is_bclose c with
                      | True -> True
-                     | False -> is_bclose c with
+                     | False ->
+                       eqb0 c
+                         (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S
+                           O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
                | True -> True
                | False ->
                  eqb0 c
                    (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                     (S (S
-                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+                     (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))
             | False -> False with
       | True -> Pair (EmptyString, (String (c, s')))
       | False ->
@@ -2333,20 +2340,27 @@ let rec bstack_ok st = function
    | False ->
      (match match st with
             | Nil ->
-              (match match opens (String (c, s')) with
+              (match match match opens (String (c, s')) with
+                           | True -> True
+                           | False ->
+                             eqb0 c
+                               (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
                      | True -> True
                      | False ->
-                       eqb0 c
-                         (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                           (S (S (S (S (S (S (S (S
-                           O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                       (match is_space c with
+                        | True -> op_after s'
+                        | False -> False) with
                | True -> True
                | False ->
-                 (match is_space c with
-                  | True -> op_after s'
-                  | False -> False))
+                 eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))
             | Cons (_, _) -> False with
       | True -> False
       | False ->

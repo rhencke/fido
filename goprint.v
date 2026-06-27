@@ -1361,7 +1361,7 @@ Fixpoint scan_atom (d : nat) (s : string) : string * string :=
                  else let (a2, r2) := skip t' in (String e a2, r2)
              end) s'
         in (String c a, rest)
-      else if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
+      else if andb (Nat.eqb d 0) (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58))) (Ascii.eqb c (ch 44)))
       then (EmptyString, String c s')
       else let d' := if is_bopen c then S d else if is_bclose c then Nat.pred d else d in
            let (a, rest) := scan_atom d' s' in (String c a, rest)
@@ -1425,8 +1425,9 @@ Fixpoint atomic_from (d : nat) (s : string) : bool :=
                else skip t'
            end) s'
       else if andb (Nat.eqb d 0)
-                (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
-                     (andb (is_space c) (op_after s')))
+                (orb (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
+                          (andb (is_space c) (op_after s')))
+                     (Ascii.eqb c (ch 44)))
       then false
       else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
   end.
@@ -1476,7 +1477,8 @@ Fixpoint bstack_ok (st : list ascii) (s : string) : bool :=
                else skip t'
            end) s'
       else if andb (match st with nil => true | _ => false end)
-              (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s')))
+              (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s')))
+                   (Ascii.eqb c (ch 44)))
       then false
       else if is_bopen c then bstack_ok (cons (close_of c) st) s'
       else if is_bclose c then
@@ -1496,7 +1498,8 @@ Lemma bstack_ok_cons : forall st c s',
              else skip t'
          end) s'
     else if andb (match st with nil => true | _ => false end)
-            (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s')))
+            (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s')))
+                 (Ascii.eqb c (ch 44)))
     then false
     else if is_bopen c then bstack_ok (cons (close_of c) st) s'
     else if is_bclose c then
@@ -1604,6 +1607,11 @@ Qed.
     [false] for ident / decimal chars (stated with [ch 34] so it rewrites the scanner [if] directly). *)
 Lemma is_idc_not_quote : forall c, is_idc c = true -> Ascii.eqb c (ch 34) = false.
 Proof. intros c Hc. apply (is_idc_eqb_false c 34 Hc); reflexivity. Qed.
+(** An identifier char is never a COMMA (ch 44) — discharges the comma-delimiter guard the scanner/validators
+    now carry (review #8 P0-1b: a depth-0 comma is a lexical separator, so an ident-led atom is never broken
+    by it).  Used wherever a proof reduces [scan_atom]/[bstack_ok]/[atomic_from] past an [is_idc] head. *)
+Lemma is_idc_not_comma : forall c, is_idc c = true -> Ascii.eqb c (ch 44) = false.
+Proof. intros c Hc. apply (is_idc_eqb_false c 44 Hc); reflexivity. Qed.
 (** An identifier char is never a unary-operator char (so an ident/decimal-led atom is never [unary_op_led]
     — dispatches [parse_primary] past the unary branch to [scan_atom]). *)
 Lemma is_idc_not_unop : forall c, is_idc c = true -> is_unop_char c = false.
@@ -1663,7 +1671,8 @@ Proof.
   assert (Hopens : opens (String c s') = false).
   { unfold opens. rewrite (op_match_not_space c s' (is_idc_not_space c Hc)). reflexivity. }
   assert (Hcolon : Ascii.eqb c (ch 58) = false) by (apply (is_idc_eqb_false c 58 Hc eq_refl)).
-  rewrite Hopens, (is_idc_not_space c Hc), (is_idc_not_bopen c Hc), (is_idc_not_bclose c Hc), Hcolon.
+  rewrite Hopens, (is_idc_not_space c Hc), (is_idc_not_bopen c Hc), (is_idc_not_bclose c Hc), Hcolon,
+          (is_idc_not_comma c Hc).
   cbn [orb andb]. apply IH; exact Hs'.
 Qed.
 (** The CORE "[identifier char] + [identifier tail] is an atom", factored so BOTH [go_ident] atoms and
@@ -1730,14 +1739,14 @@ Qed.
     opens an operator — operators are space-led — nor pushes/pops the bracket stack).  The leading '-' of
     a negative literal is exactly such a char; so is every identifier/decimal char. *)
 Lemma bstack_ok_nil_plain : forall c s,
-  Ascii.eqb c (ch 34) = false -> Ascii.eqb c (ch 58) = false ->
+  Ascii.eqb c (ch 34) = false -> Ascii.eqb c (ch 58) = false -> Ascii.eqb c (ch 44) = false ->
   is_space c = false -> is_bopen c = false -> is_bclose c = false ->
   bstack_ok nil s = true -> bstack_ok nil (String c s) = true.
 Proof.
-  intros c s Hq Hcolon Hsp Hbo Hbc Hs. rewrite bstack_ok_cons, Hq.
+  intros c s Hq Hcolon Hcomma Hsp Hbo Hbc Hs. rewrite bstack_ok_cons, Hq.
   assert (Ho : opens (String c s) = false)
     by (unfold opens; rewrite (op_match_not_space c s Hsp); reflexivity).
-  rewrite Ho, Hcolon, Hsp, Hbo, Hbc. cbn [andb orb]. exact Hs.
+  rewrite Ho, Hcolon, Hsp, Hbo, Hbc, Hcomma. cbn [andb orb]. exact Hs.
 Qed.
 (** Appending a SELECTOR suffix ["." ++ <identifier chars>] to a [bstack_ok] string keeps it valid: the
     suffix adds no bracket, and — its leading '.' being a NON-operator char — cannot create or straddle a
@@ -1773,15 +1782,19 @@ Proof.
            apply (proj2 (IH base' st Hf Hl')); exact Hb.
         -- rewrite bstack_ok_cons in Hb. rewrite Eq in Hb. rewrite bstack_ok_cons. rewrite Eq.
            destruct (andb (match st with nil => true | _ => false end)
-                          (orb (orb (opens (String c base')) (Ascii.eqb c (ch 58)))
-                               (andb (is_space c) (op_after base')))) eqn:Eseam;
+                          (orb (orb (orb (opens (String c base')) (Ascii.eqb c (ch 58)))
+                                    (andb (is_space c) (op_after base')))
+                               (Ascii.eqb c (ch 44)))) eqn:Eseam;
              [ discriminate Hb | ].
            assert (Eseam2 : andb (match st with nil => true | _ => false end)
-                     (orb (orb (opens (String c (base' ++ String (ch 46) fld))) (Ascii.eqb c (ch 58)))
-                          (andb (is_space c) (op_after (base' ++ String (ch 46) fld)))) = false).
+                     (orb (orb (orb (opens (String c (base' ++ String (ch 46) fld))) (Ascii.eqb c (ch 58)))
+                               (andb (is_space c) (op_after (base' ++ String (ch 46) fld))))
+                          (Ascii.eqb c (ch 44))) = false).
            { destruct st as [ | t st0 ]; cbn [andb] in Eseam |- *; [ | reflexivity ].
-             apply orb_false_iff in Eseam. destruct Eseam as [ Hoc Hsp ].
+             apply orb_false_iff in Eseam. destruct Eseam as [ Eseam0 Hcomma ].
+             apply orb_false_iff in Eseam0. destruct Eseam0 as [ Hoc Hsp ].
              apply orb_false_iff in Hoc. destruct Hoc as [ Hop Hcolon ].
+             apply orb_false_iff. split; [ | exact Hcomma ].
              apply orb_false_iff. split.
              - apply orb_false_iff. split; [ | exact Hcolon ].
                destruct (is_space c) eqn:Esc.
@@ -1826,7 +1839,7 @@ Proof.
     + unfold atomic. apply andb_true_iff. split.
       * apply negb_true_iff. reflexivity.
       * apply bstack_ok_nil_plain;
-          [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity | apply all_idc_bstack_ok; exact Hidc ].
+          [ reflexivity | reflexivity | reflexivity | reflexivity | reflexivity | reflexivity | apply all_idc_bstack_ok; exact Hidc ].
     + unfold balanced_b. apply andb_true_iff. split.
       * assert (Hd : depth 0 (String (ascii_of_nat 45) (String c2 r2)) = depth 0 (String c2 r2)) by reflexivity.
         rewrite Hd, (all_idc_depth (String c2 r2) 0 Hidc). reflexivity.
@@ -2635,7 +2648,7 @@ Qed.
 Lemma scan_atom_cons : forall d c s',
   scan_atom d (String c s') =
     if Ascii.eqb c (ch 34) then (let (a, rest) := scan_skip d s' in (String c a, rest))
-    else if andb (Nat.eqb d 0) (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
+    else if andb (Nat.eqb d 0) (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58))) (Ascii.eqb c (ch 44)))
     then (EmptyString, String c s')
     else let (a, rest) := scan_atom (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'
          in (String c a, rest).
@@ -2648,8 +2661,9 @@ Lemma atomic_from_cons : forall d c s',
   atomic_from d (String c s') =
     if Ascii.eqb c (ch 34) then atomic_skip d s'
     else if andb (Nat.eqb d 0)
-              (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
-                   (andb (is_space c) (op_after s')))
+              (orb (orb (orb (orb (opens (String c s')) (is_bclose c)) (Ascii.eqb c (ch 58)))
+                        (andb (is_space c) (op_after s')))
+                   (Ascii.eqb c (ch 44)))
     then false
     else atomic_from (if is_bopen c then S d else if is_bclose c then Nat.pred d else d) s'.
 Proof.
@@ -2681,15 +2695,17 @@ Proof.
         -- rewrite bstack_ok_cons in H. rewrite Eq in H. rewrite atomic_from_cons. rewrite Eq.
            destruct st as [ | top st' ].
            ++ cbn [andb] in H.
-              destruct (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
-                            (andb (is_space c) (op_after s'))) eqn:Eos; [ discriminate H | ].
-              apply orb_false_iff in Eos. destruct Eos as [ Hoc Hsp ].
+              destruct (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
+                                  (andb (is_space c) (op_after s')))
+                            (Ascii.eqb c (ch 44))) eqn:Eos; [ discriminate H | ].
+              apply orb_false_iff in Eos. destruct Eos as [ Eos0 Hcomma ].
+              apply orb_false_iff in Eos0. destruct Eos0 as [ Hoc Hsp ].
               apply orb_false_iff in Hoc. destruct Hoc as [ Hop Hcolon ]. cbn [length].
               destruct (is_bopen c) eqn:Ebo.
-              ** rewrite Hop, (bopen_not_bclose c Ebo), Hcolon, Hsp. cbn [orb andb Nat.eqb].
+              ** rewrite Hop, (bopen_not_bclose c Ebo), Hcolon, Hsp, Hcomma. cbn [orb andb Nat.eqb].
                  change (S 0) with (length (cons (close_of c) nil)). apply (proj1 (IH s' _ Hl')); exact H.
               ** destruct (is_bclose c) eqn:Ebc; [ discriminate H | ].
-                 rewrite Hop, Hcolon, Hsp. cbn [orb andb Nat.eqb].
+                 rewrite Hop, Hcolon, Hsp, Hcomma. cbn [orb andb Nat.eqb].
                  change 0 with (length (@nil ascii)). apply (proj1 (IH s' _ Hl')); exact H.
            ++ cbn [andb] in H. cbn [length].
               assert (Hne : Nat.eqb (S (length st')) 0 = false) by reflexivity. rewrite Hne. cbn [andb].
@@ -2711,12 +2727,23 @@ Qed.
 Lemma bstack_ok_atomic_from : forall s st, bstack_ok st s = true -> atomic_from (length st) s = true.
 Proof. intros s st H. exact (proj1 (bstack_atomic_from (String.length s) s st (le_n _)) H). Qed.
 
+(** REVIEW #8 P0-1b REGRESSION — the lexer now treats a DEPTH-0 COMMA as a delimiter token (classic
+    lexer/parser design, USER directive: "no string splits").  [scan_atom] STOPS at it (it no longer scans
+    [a, b] as one blob), and [atomic] REJECTS a depth-0-comma string (more than one atom).  Depth-tracked: a
+    comma INSIDE brackets (a call's args) is NOT a delimiter — [f(a, b)] still scans whole, so the change is
+    golden BYTE-IDENTICAL (no current SRaw atom has a depth-0 comma).  Foundation for the verified [SCall]
+    arg-list — the parser's [expr (',' expr)*] rule will now see the comma as the next token. *)
+Example scan_atom_stops_at_comma     : scan_atom 0 "a, b"    = ("a", ", b")%string.   Proof. reflexivity. Qed.
+Example scan_atom_keeps_nested_comma : scan_atom 0 "f(a, b)" = ("f(a, b)", "")%string. Proof. reflexivity. Qed.
+Example atomic_rejects_depth0_comma  : atomic "a,b" = false.                            Proof. reflexivity. Qed.
+Example atomic_keeps_nested_comma    : atomic "f(a,b)" = true.                           Proof. reflexivity. Qed.
+
 (** A [rest] at which [scan_atom] stops cleanly: empty, a depth-0 close bracket (")" / "]" / "}"), or it
     begins an operator.  ([is_bclose], not just ")": the postfix grammar's index/slice children close on
     "]" within the chunk.) *)
 Definition good_seam (rest : string) : bool :=
   match rest with EmptyString => true
-  | String c _ => orb (orb (opens rest) (is_bclose c)) (Ascii.eqb c (ch 58)) end.
+  | String c _ => orb (orb (orb (opens rest) (is_bclose c)) (Ascii.eqb c (ch 58))) (Ascii.eqb c (ch 44)) end.
 (** A seam char is never a dquote: an operator is space-led ([opens] needs [op_match], which fails on a
     non-space head) and ')' is not a dquote.  So the QUOTE-AWARE [scan_atom] does NOT mistake a [good_seam]
     remainder for a nested string literal. *)
@@ -2741,16 +2768,18 @@ Lemma good_seam_first_nonop : forall rest, good_seam rest = true ->
   match rest with EmptyString => True | String c2 _ => is_op_char c2 = false end.
 Proof.
   intros rest H. destruct rest as [ | c2 rs ]; [ exact I | ].
-  unfold good_seam in H. apply orb_true_iff in H. destruct H as [ Hoc | Hcolon ].
-  - apply orb_true_iff in Hoc. destruct Hoc as [ Hop | Hcl ].
-    + unfold opens in Hop. destruct (op_match (String c2 rs)) eqn:Eop; [ | discriminate Hop ].
-      destruct (is_space c2) eqn:Esp.
-      * unfold is_space in Esp. apply Ascii.eqb_eq in Esp; subst c2. reflexivity.
-      * rewrite (op_match_not_space c2 rs Esp) in Eop. discriminate Eop.
-    + unfold is_bclose in Hcl. apply orb_true_iff in Hcl. destruct Hcl as [ Hcl | Hcl ];
-        [ apply orb_true_iff in Hcl; destruct Hcl as [ Hcl | Hcl ] | ];
-        apply Ascii.eqb_eq in Hcl; subst c2; reflexivity.
-  - apply Ascii.eqb_eq in Hcolon; subst c2. reflexivity.
+  unfold good_seam in H. apply orb_true_iff in H. destruct H as [ Hoc | Hcomma ].
+  - apply orb_true_iff in Hoc. destruct Hoc as [ Hoc2 | Hcolon ].
+    + apply orb_true_iff in Hoc2. destruct Hoc2 as [ Hop | Hcl ].
+      * unfold opens in Hop. destruct (op_match (String c2 rs)) eqn:Eop; [ | discriminate Hop ].
+        destruct (is_space c2) eqn:Esp.
+        -- unfold is_space in Esp. apply Ascii.eqb_eq in Esp; subst c2. reflexivity.
+        -- rewrite (op_match_not_space c2 rs Esp) in Eop. discriminate Eop.
+      * unfold is_bclose in Hcl. apply orb_true_iff in Hcl. destruct Hcl as [ Hcl | Hcl ];
+          [ apply orb_true_iff in Hcl; destruct Hcl as [ Hcl | Hcl ] | ];
+          apply Ascii.eqb_eq in Hcl; subst c2; reflexivity.
+    + apply Ascii.eqb_eq in Hcolon; subst c2. reflexivity.
+  - apply Ascii.eqb_eq in Hcomma; subst c2. reflexivity.
 Qed.
 
 (** SCAN CORRECTNESS — an [atomic_from d] string [a] followed by a [good_seam] remainder is consumed
@@ -2784,15 +2813,19 @@ Proof.
            rewrite (proj2 (IH a' d rest Hl' Hseam) Hat). reflexivity.
         -- rewrite atomic_from_cons in Hat. rewrite Eq in Hat. rewrite scan_atom_cons. rewrite Eq.
            destruct (andb (Nat.eqb d 0)
-                      (orb (orb (orb (opens (String c a')) (is_bclose c)) (Ascii.eqb c (ch 58)))
-                           (andb (is_space c) (op_after a')))) eqn:Estop;
+                      (orb (orb (orb (orb (opens (String c a')) (is_bclose c)) (Ascii.eqb c (ch 58)))
+                                (andb (is_space c) (op_after a')))
+                           (Ascii.eqb c (ch 44)))) eqn:Estop;
              [ discriminate Hat | ].
            assert (Estop2 : andb (Nat.eqb d 0)
-                     (orb (orb (opens (String c (a' ++ rest))) (is_bclose c)) (Ascii.eqb c (ch 58))) = false).
+                     (orb (orb (orb (opens (String c (a' ++ rest))) (is_bclose c)) (Ascii.eqb c (ch 58)))
+                          (Ascii.eqb c (ch 44))) = false).
            { destruct (Nat.eqb d 0) eqn:Ed; cbn [andb] in Estop |- *; [ | reflexivity ].
-             apply orb_false_iff in Estop. destruct Estop as [ Hocb Hsp ].
+             apply orb_false_iff in Estop. destruct Estop as [ Estop0 Hcomma ].
+             apply orb_false_iff in Estop0. destruct Estop0 as [ Hocb Hsp ].
              apply orb_false_iff in Hocb. destruct Hocb as [ Hocb2 Hcolon ].
              apply orb_false_iff in Hocb2. destruct Hocb2 as [ Hop Hbcl ].
+             apply orb_false_iff. split; [ | exact Hcomma ].
              apply orb_false_iff. split; [ | exact Hcolon ].
              apply orb_false_iff. split; [ | exact Hbcl ]. unfold opens.
              destruct (is_space c) eqn:Esc.
@@ -3623,7 +3656,8 @@ Qed.
 Lemma bstack_ok_cons_nq : forall c s' st, Ascii.eqb c (ch 34) = false ->
   bstack_ok st (String c s') =
     if andb (match st with nil => true | _ => false end)
-            (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s'))) then false
+            (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58))) (andb (is_space c) (op_after s')))
+                 (Ascii.eqb c (ch 44))) then false
     else if is_bopen c then bstack_ok (cons (close_of c) st) s'
     else if is_bclose c then
       match st with nil => false | cons top st' => if Ascii.eqb c top then bstack_ok st' s' else false end
@@ -3672,8 +3706,9 @@ Proof.
           by (destruct sstack; cbn [List.app]; [ exact Hne | discriminate ]).
         rewrite (bstack_ok_cons_nonnil_nq c (s' ++ rest) (sstack ++ st) Hgn Eq).
         destruct (andb (match sstack with nil => true | _ => false end)
-                       (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
-                            (andb (is_space c) (op_after s')))) eqn:Eseam;
+                       (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
+                                 (andb (is_space c) (op_after s')))
+                            (Ascii.eqb c (ch 44)))) eqn:Eseam;
           [ discriminate Hok | ].
         destruct (is_bopen c) eqn:Ebo.
         -- exact (IH s' (cons (close_of c) sstack) st rest ltac:(lia) Hne Hok).
@@ -3833,15 +3868,19 @@ Proof.
            apply (proj2 (IH base' st Hsc Hbal Hl')); exact Hb.
         -- rewrite bstack_ok_cons in Hb. rewrite Eq in Hb. rewrite bstack_ok_cons. rewrite Eq.
            destruct (andb (match st with nil => true | _ => false end)
-                          (orb (orb (opens (String c base')) (Ascii.eqb c (ch 58)))
-                               (andb (is_space c) (op_after base')))) eqn:Eseam;
+                          (orb (orb (orb (opens (String c base')) (Ascii.eqb c (ch 58)))
+                                    (andb (is_space c) (op_after base')))
+                               (Ascii.eqb c (ch 44)))) eqn:Eseam;
              [ discriminate Hb | ].
            assert (Eseam2 : andb (match st with nil => true | _ => false end)
-                     (orb (orb (opens (String c (base' ++ String sc suf'))) (Ascii.eqb c (ch 58)))
-                          (andb (is_space c) (op_after (base' ++ String sc suf')))) = false).
+                     (orb (orb (orb (opens (String c (base' ++ String sc suf'))) (Ascii.eqb c (ch 58)))
+                               (andb (is_space c) (op_after (base' ++ String sc suf'))))
+                          (Ascii.eqb c (ch 44))) = false).
            { destruct st as [ | t st0 ]; cbn [andb] in Eseam |- *; [ | reflexivity ].
-             apply orb_false_iff in Eseam. destruct Eseam as [ Hoc Hsp ].
+             apply orb_false_iff in Eseam. destruct Eseam as [ Eseam0 Hcomma ].
+             apply orb_false_iff in Eseam0. destruct Eseam0 as [ Hoc Hsp ].
              apply orb_false_iff in Hoc. destruct Hoc as [ Hop Hcolon ].
+             apply orb_false_iff. split; [ | exact Hcomma ].
              apply orb_false_iff. split.
              - apply orb_false_iff. split; [ | exact Hcolon ].
                destruct (is_space c) eqn:Esc.
@@ -3878,8 +3917,9 @@ Proof.
   intros X st Ho. rewrite bstack_ok_cons.
   assert (Hq : Ascii.eqb (ch 91) (ch 34) = false) by reflexivity. rewrite Hq.
   assert (Hseam : andb (match st with nil => true | _ => false end)
-            (orb (orb (opens (String (ch 91) X)) (Ascii.eqb (ch 91) (ch 58)))
-                 (andb (is_space (ch 91)) (op_after X))) = false)
+            (orb (orb (orb (opens (String (ch 91) X)) (Ascii.eqb (ch 91) (ch 58)))
+                      (andb (is_space (ch 91)) (op_after X)))
+                 (Ascii.eqb (ch 91) (ch 44))) = false)
     by (rewrite Ho; apply andb_false_r).
   rewrite Hseam.
   assert (Hbo : is_bopen (ch 91) = true) by reflexivity.
@@ -4091,7 +4131,7 @@ Proof.
   intros k rest H. destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
   - subst rest; reflexivity.
   - destruct Hc as [ c [ rs [ Hr Hcl ] ] ]. subst rest. unfold good_seam.
-    apply orb_true_iff in Hcl. apply orb_true_iff. destruct Hcl as [ Hbc | Hco ];
+    apply orb_true_iff in Hcl. apply orb_true_iff. left. apply orb_true_iff. destruct Hcl as [ Hbc | Hco ];
       [ left; apply orb_true_iff; right; exact Hbc | right; exact Hco ].
   - destruct rest as [ | c rs ]; [ discriminate Hop | ]. unfold good_seam, opens. rewrite Hop. reflexivity.
 Qed.
@@ -4804,8 +4844,9 @@ Proof.
         -- exfalso. cbn [snd] in Hsnd. discriminate Hsnd.
         -- rewrite bstack_ok_cons, Eq in Hb.
            destruct (andb (match st with nil => true | _ => false end)
-                       (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
-                            (andb (is_space c) (op_after s')))) eqn:Eseam; [ discriminate Hb | ].
+                       (orb (orb (orb (opens (String c s')) (Ascii.eqb c (ch 58)))
+                                 (andb (is_space c) (op_after s')))
+                            (Ascii.eqb c (ch 44)))) eqn:Eseam; [ discriminate Hb | ].
            destruct (is_bopen c) eqn:Ebo.
            ++ destruct (scan_rest f (S (length st)) s') as [ a rr ] eqn:Esr. cbn [snd] in Hsnd.
               apply (IH s' (cons (close_of c) st) ltac:(lia) Hb).
