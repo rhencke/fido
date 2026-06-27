@@ -1652,6 +1652,39 @@ let rec unescape = function
                         | False -> EmptyString)))))))
    | False -> String (c1, (unescape rest)))
 
+(** val scan_strlit_body : string -> (string, string) prod option **)
+
+let rec scan_strlit_body = function
+| EmptyString -> None
+| String (c, rest) ->
+  (match eqb0 c
+           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))) with
+   | True -> Some (Pair (EmptyString, rest))
+   | False ->
+     (match eqb0 c
+              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                (S (S (S (S (S (S (S (S (S (S (S (S
+                O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+      | True ->
+        (match rest with
+         | EmptyString -> None
+         | String (c2, rest2) ->
+           (match scan_strlit_body rest2 with
+            | Some p ->
+              let Pair (body, r) = p in
+              Some (Pair ((String (c, (String (c2, body)))), r))
+            | None -> None))
+      | False ->
+        (match scan_strlit_body rest with
+         | Some p ->
+           let Pair (body, r) = p in Some (Pair ((String (c, body)), r))
+         | None -> None)))
+
 (** val but_last : string -> string **)
 
 let rec but_last = function
@@ -1932,6 +1965,37 @@ let is_unop_char c =
            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
            O))))))))))))))))))))))))))))))))))))))))
 
+(** val unop_char_of : ascii -> unaryOp option **)
+
+let unop_char_of c =
+  match eqb0 c
+          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S
+            O)))))))))))))))))))))))))))))))))) with
+  | True -> Some UNot
+  | False ->
+    (match eqb0 c
+             (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+               (S (S (S (S (S (S (S (S (S (S (S
+               O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+     | True -> Some UXor
+     | False ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S O))))))))))))))))))))))))))))))))))))))))))) with
+        | True -> Some UDeref
+        | False ->
+          (match eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S O))))))))))))))))))))))))))))))))))))))) with
+           | True -> Some UAddr
+           | False -> None)))
+
 (** val op_order : binOp list **)
 
 let op_order =
@@ -2106,12 +2170,86 @@ let is_open c =
       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
       O)))))))))))))))))))))))))))))))))))))))))
 
+(** val is_close : ascii -> bool **)
+
+let is_close c =
+  eqb0 c
+    (ascii_of_nat (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+      O))))))))))))))))))))))))))))))))))))))))))
+
 (** val opens : string -> bool **)
 
 let opens s =
   match op_match s with
   | Some _ -> True
   | None -> False
+
+(** val scan_atom : nat -> string -> (string, string) prod **)
+
+let rec scan_atom d = function
+| EmptyString -> Pair (EmptyString, EmptyString)
+| String (c, s') ->
+  (match eqb0 c
+           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))) with
+   | True ->
+     let Pair (a, rest) =
+       let rec skip = function
+       | EmptyString -> Pair (EmptyString, EmptyString)
+       | String (e, t') ->
+         (match eqb0 e
+                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                    O))))))))))))))))))))))))))))))))))) with
+          | True ->
+            let Pair (a2, r2) = scan_atom d t' in Pair ((String (e, a2)), r2)
+          | False ->
+            (match eqb0 e
+                     (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                       (S (S (S
+                       O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+             | True ->
+               (match t' with
+                | EmptyString -> Pair ((String (e, EmptyString)), EmptyString)
+                | String (f, t'') ->
+                  let Pair (a2, r2) = skip t'' in
+                  Pair ((String (e, (String (f, a2)))), r2))
+             | False ->
+               let Pair (a2, r2) = skip t' in Pair ((String (e, a2)), r2)))
+       in skip s'
+     in
+     Pair ((String (c, a)), rest)
+   | False ->
+     (match match Nat.eqb d O with
+            | True ->
+              (match match opens (String (c, s')) with
+                     | True -> True
+                     | False -> is_bclose c with
+               | True -> True
+               | False ->
+                 eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S
+                     O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+            | False -> False with
+      | True -> Pair (EmptyString, (String (c, s')))
+      | False ->
+        let d' =
+          match is_bopen c with
+          | True -> S d
+          | False -> (match is_bclose c with
+                      | True -> Nat.pred d
+                      | False -> d)
+        in
+        let Pair (a, rest) = scan_atom d' s' in Pair ((String (c, a)), rest)))
 
 (** val op_after : string -> bool **)
 
@@ -2191,7 +2329,15 @@ let rec bstack_ok st = function
    | False ->
      (match match st with
             | Nil ->
-              (match opens (String (c, s')) with
+              (match match opens (String (c, s')) with
+                     | True -> True
+                     | False ->
+                       eqb0 c
+                         (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                           (S (S (S (S (S (S (S (S
+                           O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
                | True -> True
                | False ->
                  (match is_space c with
@@ -2750,26 +2896,215 @@ let leading_is_keyword s =
   | True -> negb (operand_lead_kw (leading_ident s))
   | False -> False
 
+(** val is_postfix_start : ascii -> bool **)
+
+let is_postfix_start c =
+  match eqb0 c
+          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+            (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))) with
+  | True -> True
+  | False ->
+    eqb0 c
+      (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
+(** val scan_bal : nat -> nat -> string -> (string, string) prod option **)
+
+let rec scan_bal fuel d s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match s with
+     | EmptyString -> None
+     | String (c, s') ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))) with
+        | True ->
+          (match scan_strlit_body s' with
+           | Some p ->
+             let Pair (body, rest) = p in
+             (match scan_bal f d rest with
+              | Some p0 ->
+                let Pair (a, r) = p0 in
+                Some (Pair ((String (c,
+                (append body (String
+                  ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))),
+                  a))))),
+                r))
+              | None -> None)
+           | None -> None)
+        | False ->
+          (match is_bopen c with
+           | True ->
+             (match scan_bal f (S d) s' with
+              | Some p ->
+                let Pair (a, r) = p in Some (Pair ((String (c, a)), r))
+              | None -> None)
+           | False ->
+             (match is_bclose c with
+              | True ->
+                (match d with
+                 | O -> None
+                 | S d' ->
+                   (match d' with
+                    | O -> Some (Pair ((String (c, EmptyString)), s'))
+                    | S _ ->
+                      (match scan_bal f d' s' with
+                       | Some p ->
+                         let Pair (a, r) = p in
+                         Some (Pair ((String (c, a)), r))
+                       | None -> None)))
+              | False ->
+                (match scan_bal f d s' with
+                 | Some p ->
+                   let Pair (a, r) = p in Some (Pair ((String (c, a)), r))
+                 | None -> None)))))
+
+(** val scan_to_brace : nat -> string -> (string, string) prod option **)
+
+let rec scan_to_brace fuel s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match s with
+     | EmptyString -> None
+     | String (c, s') ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S
+                  O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+        | True ->
+          (match scan_bal f (S O) s' with
+           | Some p -> let Pair (a, r) = p in Some (Pair ((String (c, a)), r))
+           | None -> None)
+        | False ->
+          (match scan_to_brace f s' with
+           | Some p -> let Pair (a, r) = p in Some (Pair ((String (c, a)), r))
+           | None -> None)))
+
+(** val scan_rest : nat -> nat -> string -> (string, string) prod **)
+
+let rec scan_rest fuel d s =
+  match fuel with
+  | O -> Pair (EmptyString, s)
+  | S f ->
+    (match s with
+     | EmptyString -> Pair (EmptyString, EmptyString)
+     | String (c, s') ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))) with
+        | True ->
+          (match scan_strlit_body s' with
+           | Some p ->
+             let Pair (body, rest) = p in
+             let Pair (a, r) = scan_rest f d rest in
+             Pair ((String (c,
+             (append body (String
+               ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))),
+               a))))),
+             r)
+           | None -> Pair (EmptyString, s))
+        | False ->
+          (match match Nat.eqb d O with
+                 | True -> is_postfix_start c
+                 | False -> False with
+           | True -> Pair (EmptyString, s)
+           | False ->
+             (match is_bopen c with
+              | True ->
+                let Pair (a, r) = scan_rest f (S d) s' in
+                Pair ((String (c, a)), r)
+              | False ->
+                (match is_bclose c with
+                 | True ->
+                   (match d with
+                    | O -> Pair (EmptyString, s)
+                    | S d' ->
+                      let Pair (a, r) = scan_rest f d' s' in
+                      Pair ((String (c, a)), r))
+                 | False ->
+                   let Pair (a, r) = scan_rest f d s' in
+                   Pair ((String (c, a)), r))))))
+
+(** val scan_composite_base : string -> (string, string) prod **)
+
+let scan_composite_base s =
+  match scan_to_brace (length s) s with
+  | Some p ->
+    let Pair (comp, r) = p in
+    let Pair (more, rest) = scan_rest (length r) O r in
+    Pair ((append comp more), rest)
+  | None -> scan_rest (length s) O s
+
+(** val scan_base : string -> (string, string) prod **)
+
+let scan_base s =
+  match eqb1 (leading_ident s) (String ((Ascii (True, False, True, True,
+          False, True, True, False)), (String ((Ascii (True, False, False,
+          False, False, True, True, False)), (String ((Ascii (False, False,
+          False, False, True, True, True, False)), EmptyString)))))) with
+  | True -> scan_composite_base s
+  | False ->
+    (match s with
+     | EmptyString -> Pair (EmptyString, EmptyString)
+     | String (c, _) ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S
+                  O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+        | True -> scan_composite_base s
+        | False -> scan_rest (length s) O s))
+
+(** val whole_base : string -> bool **)
+
+let whole_base s =
+  let Pair (b, r) = scan_base s in
+  (match eqb1 b s with
+   | True -> eqb1 r EmptyString
+   | False -> False)
+
 (** val raw_ok : string -> bool **)
 
 let raw_ok s =
-  match match match match match match atom_ok s with
-                                | True -> negb (go_ident s)
+  match match match match match match match atom_ok s with
+                                      | True -> negb (go_ident s)
+                                      | False -> False with
+                                | True -> negb (is_dec s)
                                 | False -> False with
-                          | True -> negb (is_dec s)
+                          | True -> negb (quote_led s)
                           | False -> False with
-                    | True -> negb (quote_led s)
+                    | True -> negb (go_keyword s)
                     | False -> False with
-              | True -> negb (go_keyword s)
+              | True -> negb (is_selector_shaped s)
               | False -> False with
-        | True -> negb (is_selector_shaped s)
+        | True ->
+          (match match negb (has_d0_break s) with
+                 | True -> negb (leading_is_keyword s)
+                 | False -> False with
+           | True -> negb (unary_op_led s)
+           | False -> False)
         | False -> False with
-  | True ->
-    (match match negb (has_d0_break s) with
-           | True -> negb (leading_is_keyword s)
-           | False -> False with
-     | True -> negb (unary_op_led s)
-     | False -> False)
+  | True -> whole_base s
   | False -> False
 
 type sAtom =
@@ -2777,6 +3112,8 @@ type sAtom =
 | SIntLit of z
 | SRaw of string
 | SSelector of sAtom * ident
+| SIndex of sAtom * goExpr
+| SSlice of sAtom * goExpr * goExpr
 and goAtom =
 | AScanned of sAtom
 | AStringLit of string
@@ -2797,16 +3134,45 @@ let rec satom_str = function
        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
        O))))))))))))))))))))))))))))))))))))))))))))))),
     f))
-
-(** val atom_str : goAtom -> string **)
-
-let atom_str = function
-| AScanned s -> satom_str s
-| AStringLit v -> print_string_lit v
+| SIndex (a0, i) ->
+  append (satom_str a0) (String
+    ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+    (append (print_expr O i) (String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S
+         O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+      EmptyString)))))
+| SSlice (a0, lo, hi) ->
+  append (satom_str a0) (String
+    ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+    (append (print_expr O lo) (String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S
+         O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+      (append (print_expr O hi) (String
+        ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S
+           O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
+        EmptyString))))))))
 
 (** val print_expr : nat -> goExpr -> string **)
 
-let rec print_expr ctx = function
+and print_expr ctx = function
 | EAtom a -> atom_str a
 | EBin (o, l, r) ->
   let p = binop_prec o in
@@ -2823,40 +3189,221 @@ let rec print_expr ctx = function
 | EUnary (o, e0) ->
   append (unop_text o) (print_expr (S (S (S (S (S (S O)))))) e0)
 
-(** val build_satom : nat -> string -> sAtom option **)
+(** val atom_str : goAtom -> string **)
 
-let rec build_satom fuel a =
+and atom_str = function
+| AScanned s -> satom_str s
+| AStringLit v -> print_string_lit v
+
+(** val build_base : string -> sAtom option **)
+
+let build_base a =
+  match bool_dec (go_ident a) True with
+  | Left -> Some (SIdent a)
+  | Right ->
+    (match bool_dec (is_dec a) True with
+     | Left -> Some (SIntLit (parse_Z a))
+     | Right ->
+       (match bool_dec (raw_ok a) True with
+        | Left -> Some (SRaw a)
+        | Right -> None))
+
+(** val parse_strlit_prim : string -> (goExpr, string) prod option **)
+
+let parse_strlit_prim = function
+| EmptyString -> None
+| String (c, s') ->
+  (match eqb0 c
+           (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+             (S (S (S (S (S (S (S (S (S (S (S (S (S
+             O))))))))))))))))))))))))))))))))))) with
+   | True ->
+     (match scan_strlit_body s' with
+      | Some p ->
+        let Pair (body, rest) = p in
+        Some (Pair ((EAtom (AStringLit (unescape body))), rest))
+      | None -> None)
+   | False -> None)
+
+(** val scan_field : string -> (string, string) prod **)
+
+let rec scan_field s = match s with
+| EmptyString -> Pair (EmptyString, EmptyString)
+| String (c, s') ->
+  (match is_idc c with
+   | True -> let Pair (i, r) = scan_field s' in Pair ((String (c, i)), r)
+   | False -> Pair (EmptyString, s))
+
+(** val parse_expr : nat -> nat -> string -> (goExpr, string) prod option **)
+
+let rec parse_expr fuel k s =
   match fuel with
   | O -> None
   | S f ->
-    (match bool_dec (go_ident a) True with
-     | Left -> Some (SIdent a)
-     | Right ->
-       (match bool_dec (is_dec a) True with
-        | Left -> Some (SIntLit (parse_Z a))
-        | Right ->
-          (match split_last_dot a with
+    (match parse_primary f s with
+     | Some p -> let Pair (l, s1) = p in parse_climb f k l s1
+     | None -> None)
+
+(** val parse_primary : nat -> string -> (goExpr, string) prod option **)
+
+and parse_primary fuel s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match s with
+     | EmptyString -> None
+     | String (c, s') ->
+       (match is_open c with
+        | True ->
+          (match parse_expr f O s' with
            | Some p ->
-             let Pair (op, fld) = p in
-             (match bool_dec (go_ident fld) True with
-              | Left ->
-                (match build_satom f op with
-                 | Some sa -> Some (SSelector (sa, fld))
+             let Pair (e, s1) = p in
+             (match s1 with
+              | EmptyString -> None
+              | String (c1, s2) ->
+                (match is_close c1 with
+                 | True -> Some (Pair (e, s2))
+                 | False -> None))
+           | None -> None)
+        | False ->
+          (match eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O))))))))))))))))))))))))))))))))))) with
+           | True -> parse_strlit_prim s
+           | False ->
+             (match is_unop_char c with
+              | True ->
+                (match unop_char_of c with
+                 | Some op ->
+                   (match parse_primary f s' with
+                    | Some p ->
+                      let Pair (e, s1) = p in
+                      Some (Pair ((EUnary (op, e)), s1))
+                    | None -> None)
                  | None -> None)
-              | Right ->
-                (match bool_dec (raw_ok a) True with
-                 | Left -> Some (SRaw a)
-                 | Right -> None))
-           | None ->
-             (match bool_dec (raw_ok a) True with
-              | Left -> Some (SRaw a)
-              | Right -> None))))
+              | False ->
+                let Pair (chunk, rest) = scan_atom O s in
+                (match chunk with
+                 | EmptyString -> None
+                 | String (_, _) ->
+                   let Pair (base, post) = scan_base chunk in
+                   (match build_base base with
+                    | Some a0 ->
+                      (match parse_postfix f a0 post with
+                       | Some p ->
+                         let Pair (e, s0) = p in
+                         (match s0 with
+                          | EmptyString -> Some (Pair (e, rest))
+                          | String (_, _) -> None)
+                       | None -> None)
+                    | None -> None))))))
+
+(** val parse_postfix :
+    nat -> sAtom -> string -> (goExpr, string) prod option **)
+
+and parse_postfix fuel a s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match s with
+     | EmptyString -> Some (Pair ((EAtom (AScanned a)), EmptyString))
+     | String (c, s') ->
+       (match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))))))))))))))) with
+        | True ->
+          let Pair (fld, rest) = scan_field s' in
+          (match bool_dec (go_ident fld) True with
+           | Left -> parse_postfix f (SSelector (a, fld)) rest
+           | Right -> None)
+        | False ->
+          (match eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+           | True ->
+             (match parse_expr f O s' with
+              | Some p ->
+                let Pair (lo, s1) = p in
+                (match s1 with
+                 | EmptyString -> None
+                 | String (c2, s2) ->
+                   (match eqb0 c2
+                            (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                    | True -> parse_postfix f (SIndex (a, lo)) s2
+                    | False ->
+                      (match eqb0 c2
+                               (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                       | True ->
+                         (match parse_expr f O s2 with
+                          | Some p0 ->
+                            let Pair (hi, s3) = p0 in
+                            (match s3 with
+                             | EmptyString -> None
+                             | String (c3, s4) ->
+                               (match eqb0 c3
+                                        (ch (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S (S (S
+                                          (S (S (S (S (S (S (S (S (S (S
+                                          O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+                                | True ->
+                                  parse_postfix f (SSlice (a, lo, hi)) s4
+                                | False -> None))
+                          | None -> None)
+                       | False -> None)))
+              | None -> None)
+           | False -> Some (Pair ((EAtom (AScanned a)), s)))))
+
+(** val parse_climb :
+    nat -> nat -> goExpr -> string -> (goExpr, string) prod option **)
+
+and parse_climb fuel k l s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match op_match s with
+     | Some p ->
+       let Pair (o, s1) = p in
+       (match Nat.leb k (binop_prec o) with
+        | True ->
+          (match parse_expr f (S (binop_prec o)) s1 with
+           | Some p0 ->
+             let Pair (r, s2) = p0 in parse_climb f k (EBin (o, l, r)) s2
+           | None -> None)
+        | False -> Some (Pair (l, s)))
+     | None -> Some (Pair (l, s)))
 
 (** val build_atom : string -> goExpr option **)
 
-let build_atom a =
-  match build_satom (length a) a with
-  | Some sa -> Some (EAtom (AScanned sa))
+let build_atom cs =
+  match parse_primary
+          (add (mul (S (S (S (S (S (S O)))))) (length cs)) (S (S (S O)))) cs with
+  | Some p ->
+    let Pair (e, s) = p in
+    (match s with
+     | EmptyString -> Some e
+     | String (_, _) -> None)
   | None -> None
 
 (** val print_sep : string -> string list -> string **)

@@ -2707,7 +2707,11 @@ let rec pp_expr state env = function
            (* spec_float LITERAL (the GoFloat64 carrier, review #6 #13→zero-axioms): the IEEE-754
               inductive value emits as an EXACT Go float literal.  A finite [S754_finite s m e]
               (= ±m·2^e) is the Go HEX float [±0x<m>p<e>] — Go parses it bit-for-bit and prints the
-              same as the decimal, so runtime output is preserved.  [S754_zero false] is [0.0].
+              same as the decimal, so runtime output is preserved.  [S754_zero false] (+0.0) is emitted
+              UNIFORMLY as the hex zero [0x0p0] (= +0·2^0), NOT the decimal [0.0]: every float Fido emits is
+              now a hex literal, so a bare numeric atom NEVER contains a '.', and the verified postfix
+              PrimaryExpr grammar's '.' is UNAMBIGUOUSLY a selector (review #8).  [0x0p0] is +0.0 bit-for-bit
+              and prints identically, so the golden runtime output is unchanged.
               ±Inf/NaN have no Go constant (need math.Inf/NaN), so a LITERAL one fails loud — they
               are produced at runtime (1.0/0.0, 0.0/0.0). *)
            | MLcons (_, r, [s; m; e]) when String.equal (global_basename r) "S754_finite" ->
@@ -2725,7 +2729,8 @@ let rec pp_expr state env = function
                 | _ -> unsupported "a spec_float S754_finite literal with a non-constant sign/mantissa/exponent")
            | MLcons (_, r, [s]) when String.equal (global_basename r) "S754_zero" ->
                (match s with
-                | MLcons (_, rs, []) when is_bool_false rs -> str "0.0"
+                | MLcons (_, rs, []) when is_bool_false rs ->
+                    str (coq_string_to_ocaml (Printer.print_float_hex Printer.False Printer.Z0 Printer.Z0))
                 | _ -> unsupported "a spec_float negative-zero literal (Go has no -0.0 constant; use math.Copysign at runtime)")
            | MLcons (_, r, _) when String.equal (global_basename r) "S754_infinity"
                                || String.equal (global_basename r) "S754_nan" ->

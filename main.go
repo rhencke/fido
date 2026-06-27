@@ -150,7 +150,7 @@ func Float_opp_demo() {
 }
 
 func Float_opp_sign_demo(z float64) {
-	println(func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, -z) < 0.0)
+	println(func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, -z) < 0x0p0)
 }
 
 func Fminmax_demo() {
@@ -359,7 +359,7 @@ func Narrow_f32_demo() {
 }
 
 func F32_const_runtime_demo() {
-	println(func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), func(x float64) float32 { return float32(x) }(0.0)), func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), func(x float32) float32 { return -x }(func(x float64) float32 { return float32(x) }(0.0))), func(x float64) float32 { return float32(x) }(0x1d6329f1c35ca5p80), func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, 0.0))
+	println(func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), func(x float64) float32 { return float32(x) }(0x0p0)), func(x float32, y float32) float32 { return x / y }(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), func(x float32) float32 { return -x }(func(x float64) float32 { return float32(x) }(0x0p0))), func(x float64) float32 { return float32(x) }(0x1d6329f1c35ca5p80), func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, 0x0p0))
 }
 
 func F32_of_int_demo() {
@@ -384,7 +384,7 @@ func Fconst_demo() {
 }
 
 func F32_cmp_demo() {
-	println(F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) < F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)), F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) >= F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)), F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) != F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0.0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)))
+	println(F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) < F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)), F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) >= F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)), F32_combine(func(x float64) float32 { return float32(x) }(0x18000000000000p-52), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)) != F32_combine(func(x float64) float32 { return float32(x) }(0x14000000000000p-50), func(x float64) float32 { return float32(x) }(0x0p0), func(x float64) float32 { return float32(x) }(0x10000000000000p-51)))
 }
 
 func Trunc64(x float64) int64 {
@@ -1101,7 +1101,7 @@ func Complex_neg_demo() {
 }
 
 func Complex_const_runtime_demo() {
-	println(func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, real(func(x complex128) complex128 { return -x }(complex(0.0, 0.0)))))
+	println(func(x float64, y float64) float64 { return x / y }(0x10000000000000p-52, real(func(x complex128) complex128 { return -x }(complex(0x0p0, 0x0p0)))))
 }
 
 func Complex_mul_demo() {
@@ -2577,9 +2577,9 @@ func main() {
 	Cmp_ops_demo()
 	Float_demo()
 	Float_cmp_demo()
-	Float_nan_demo(0.0)
+	Float_nan_demo(0x0p0)
 	Float_opp_demo()
-	Float_opp_sign_demo(0.0)
+	Float_opp_sign_demo(0x0p0)
 	Fminmax_demo()
 	F64_of_int_demo()
 	F64_of_i64_demo()
