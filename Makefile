@@ -39,22 +39,24 @@ extract:
 	# operand-dependent and not worth replicating in the plugin.  This guarantees
 	# the committed Go is gofmt-clean regardless.
 	#
-	# gofmt is a TRUSTED post-step — but review #8 asks it not silently rewrite the verified output.  So
-	# MECHANICALLY BOUND it to WHITESPACE-ONLY: snapshot the plugin's raw output, gofmt, then assert the
-	# non-whitespace TOKEN STREAM is byte-identical.  gofmt thus provably cannot alter a token / the
-	# program's meaning — it only REFORMATS.  The verified printer's TOKENS reach the committed file; gofmt
-	# is a CHECKED normaliser, not a trusted byte-rewriter.  (String-literal contents are unchanged by
-	# gofmt, so stripping all whitespace cancels on both sides; the plugin emits no comments.)
+	# ⚠️ HONEST STATUS (review #9): gofmt is a TRUSTED post-step / normaliser — it runs OUTSIDE the verified
+	# printer-proof claim.  The check below is a COARSE safety net, NOT a real tokenizer: it strips ALL
+	# whitespace ([tr -d]) from the plugin's raw output and from gofmt's, and asserts the rest is byte-equal —
+	# so it CATCHES gofmt altering any non-whitespace byte, but it is whitespace-stripping, NOT token-stream
+	# preservation (it cannot reason about token boundaries or string/comment interiors).  Do NOT read it as a
+	# proof that the verified printer's tokens reach the file unchanged.
+	# ★RUTHLESS FOLLOW-ON (tracked): make the verified printer emit gofmt-CLEAN text and run gofmt as a CHECK
+	# ONLY ([gofmt -l] → fail if it would rewrite), removing gofmt from the trusted path entirely.
 	for f in *.go; do cp "$$f" "$$f.raw"; done
 	docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine gofmt -w *.go
 	for f in *.go; do \
 	  if [ "`tr -d '[:space:]' < "$$f.raw"`" != "`tr -d '[:space:]' < "$$f"`" ]; then \
-	    echo "fido: GOFMT ALTERED A TOKEN (not just whitespace) in $$f — gofmt is not semantics-preserving here; refusing."; \
+	    echo "fido: GOFMT ALTERED A NON-WHITESPACE BYTE in $$f — gofmt is not whitespace-only here; refusing."; \
 	    rm -f *.go.raw; exit 1; \
 	  fi; \
 	done
 	rm -f *.go.raw
-	@echo "fido: gofmt is whitespace-only (token stream preserved) — verified printer's tokens reach the file ✓"
+	@echo "fido: gofmt (TRUSTED normaliser) altered whitespace only — coarse guard passed (NOT a token-preservation proof) ✓"
 
 # Run the extracted Go sources directly without Docker.
 run-local: extract

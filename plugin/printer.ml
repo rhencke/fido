@@ -2896,18 +2896,26 @@ let leading_is_keyword s =
 (** val is_postfix_start : ascii -> bool **)
 
 let is_postfix_start c =
-  match eqb0 c
-          (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-            (S (S (S O))))))))))))))))))))))))))))))))))))))))))))))) with
+  match match eqb0 c
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S
+                  O))))))))))))))))))))))))))))))))))))))))))))))) with
+        | True -> True
+        | False ->
+          eqb0 c
+            (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+              (S (S (S (S (S (S (S (S
+              O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
   | True -> True
   | False ->
     eqb0 c
       (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-        O))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+        O)))))))))))))))))))))))))))))))))))))))))
 
 (** val scan_bal : nat -> nat -> string -> (string, string) prod option **)
 
@@ -3050,27 +3058,55 @@ let scan_composite_base s =
     Pair ((append comp more), rest)
   | None -> scan_rest (length s) O s
 
-(** val scan_base : string -> (string, string) prod **)
+(** val scan_func_base : string -> (string, string) prod **)
 
-let scan_base s =
-  match eqb1 (leading_ident s) (String ((Ascii (True, False, True, True,
-          False, True, True, False)), (String ((Ascii (True, False, False,
-          False, False, True, True, False)), (String ((Ascii (False, False,
-          False, False, True, True, True, False)), EmptyString)))))) with
-  | True -> scan_composite_base s
-  | False ->
-    (match s with
-     | EmptyString -> Pair (EmptyString, EmptyString)
+let scan_func_base s =
+  match scan_to_brace (length s) s with
+  | Some p ->
+    let Pair (body, r) = p in
+    (match r with
+     | EmptyString -> Pair (body, EmptyString)
      | String (c, _) ->
        (match eqb0 c
                 (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
                   (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
-                  (S (S (S (S (S (S (S (S (S (S (S (S
-                  O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
-        | True -> scan_composite_base s
-        | False -> scan_rest (length s) O s))
+                  (S O))))))))))))))))))))))))))))))))))))))))) with
+        | True ->
+          (match scan_bal (length r) O r with
+           | Some p0 ->
+             let Pair (call, r2) = p0 in Pair ((append body call), r2)
+           | None -> Pair (body, r))
+        | False -> Pair (body, r)))
+  | None -> Pair (s, EmptyString)
+
+(** val scan_base : string -> (string, string) prod **)
+
+let scan_base s =
+  match eqb1 (leading_ident s) (String ((Ascii (False, True, True, False,
+          False, True, True, False)), (String ((Ascii (True, False, True,
+          False, True, True, True, False)), (String ((Ascii (False, True,
+          True, True, False, True, True, False)), (String ((Ascii (True,
+          True, False, False, False, True, True, False)), EmptyString)))))))) with
+  | True -> scan_func_base s
+  | False ->
+    (match eqb1 (leading_ident s) (String ((Ascii (True, False, True, True,
+             False, True, True, False)), (String ((Ascii (True, False, False,
+             False, False, True, True, False)), (String ((Ascii (False,
+             False, False, False, True, True, True, False)), EmptyString)))))) with
+     | True -> scan_composite_base s
+     | False ->
+       (match s with
+        | EmptyString -> Pair (EmptyString, EmptyString)
+        | String (c, _) ->
+          (match eqb0 c
+                   (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                     O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) with
+           | True -> scan_composite_base s
+           | False -> scan_rest (length s) O s)))
 
 (** val whole_base : string -> bool **)
 
@@ -3083,10 +3119,19 @@ let whole_base s =
 (** val is_comp_lead : string -> bool **)
 
 let is_comp_lead s =
-  match eqb1 (leading_ident s) (String ((Ascii (True, False, True, True,
-          False, True, True, False)), (String ((Ascii (True, False, False,
-          False, False, True, True, False)), (String ((Ascii (False, False,
-          False, False, True, True, True, False)), EmptyString)))))) with
+  match match eqb1 (leading_ident s) (String ((Ascii (True, False, True,
+                True, False, True, True, False)), (String ((Ascii (True,
+                False, False, False, False, True, True, False)), (String
+                ((Ascii (False, False, False, False, True, True, True,
+                False)), EmptyString)))))) with
+        | True -> True
+        | False ->
+          eqb1 (leading_ident s) (String ((Ascii (False, True, True, False,
+            False, True, True, False)), (String ((Ascii (True, False, True,
+            False, True, True, True, False)), (String ((Ascii (False, True,
+            True, True, False, True, True, False)), (String ((Ascii (True,
+            True, False, False, False, True, True, False)),
+            EmptyString)))))))) with
   | True -> True
   | False ->
     (match s with
@@ -3365,6 +3410,7 @@ type sAtom =
 | SSelector of sAtom * ident
 | SIndex of sAtom * goExpr
 | SSlice of sAtom * goExpr * goExpr
+| SApply of sAtom * argList
 and goAtom =
 | AScanned of sAtom
 | AStringLit of string
@@ -3372,6 +3418,9 @@ and goExpr =
 | EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
 | EUnary of unaryOp * goExpr
+and argList =
+| ANil
+| ACons of goExpr * argList
 
 (** val satom_str : sAtom -> string **)
 
@@ -3420,6 +3469,16 @@ let rec satom_str = function
            (S (S (S (S (S (S
            O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))),
         EmptyString))))))))
+| SApply (a0, args) ->
+  append (satom_str a0) (String
+    ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+       O))))))))))))))))))))))))))))))))))))))))),
+    (append (argl_str args) (String
+      ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+         O)))))))))))))))))))))))))))))))))))))))))),
+      EmptyString)))))
 
 (** val print_expr : nat -> goExpr -> string **)
 
@@ -3452,6 +3511,23 @@ and print_expr ctx = function
 and atom_str = function
 | AScanned s -> satom_str s
 | AStringLit v -> print_string_lit v
+
+(** val argl_str : argList -> string **)
+
+and argl_str = function
+| ANil -> EmptyString
+| ACons (e, rest) ->
+  (match rest with
+   | ANil -> print_expr O e
+   | ACons (_, _) ->
+     append (print_expr O e) (String
+       ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          O))))))))))))))))))))))))))))))))))))))))))))),
+       (String
+       ((ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+          (S (S (S (S (S (S (S (S (S (S O))))))))))))))))))))))))))))))))),
+       (argl_str rest))))))
 
 (** val build_base : string -> sAtom option **)
 
@@ -3649,7 +3725,73 @@ and parse_postfix fuel a s =
                           | None -> None)
                        | False -> None)))
               | None -> None)
-           | False -> Some (Pair ((EAtom (AScanned a)), s)))))
+           | False ->
+             (match eqb0 c
+                      (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                        (S (S (S (S (S
+                        O))))))))))))))))))))))))))))))))))))))))) with
+              | True ->
+                (match parse_args f s' with
+                 | Some p ->
+                   let Pair (args, r1) = p in
+                   (match r1 with
+                    | EmptyString -> None
+                    | String (c2, s3) ->
+                      (match eqb0 c2
+                               (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                 (S (S (S (S (S (S (S (S (S (S (S (S
+                                 O)))))))))))))))))))))))))))))))))))))))))) with
+                       | True -> parse_postfix f (SApply (a, args)) s3
+                       | False -> None))
+                 | None -> None)
+              | False -> Some (Pair ((EAtom (AScanned a)), s))))))
+
+(** val parse_args : nat -> string -> (argList, string) prod option **)
+
+and parse_args fuel s =
+  match fuel with
+  | O -> None
+  | S f ->
+    (match s with
+     | EmptyString -> None
+     | String (c0, _) ->
+       (match eqb0 c0
+                (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                  (S (S O)))))))))))))))))))))))))))))))))))))))))) with
+        | True -> Some (Pair (ANil, s))
+        | False ->
+          (match parse_expr f O s with
+           | Some p ->
+             let Pair (e, rest) = p in
+             (match rest with
+              | EmptyString -> Some (Pair ((ACons (e, ANil)), rest))
+              | String (c1, s0) ->
+                (match s0 with
+                 | EmptyString -> Some (Pair ((ACons (e, ANil)), rest))
+                 | String (c2, r2) ->
+                   (match match eqb0 c1
+                                  (ch (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                    (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                    (S (S (S
+                                    O))))))))))))))))))))))))))))))))))))))))))))) with
+                          | True ->
+                            eqb0 c2
+                              (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+                                (S (S (S O)))))))))))))))))))))))))))))))))
+                          | False -> False with
+                    | True ->
+                      (match parse_args f r2 with
+                       | Some p0 ->
+                         let Pair (es, r3) = p0 in
+                         Some (Pair ((ACons (e, es)), r3))
+                       | None -> None)
+                    | False -> Some (Pair ((ACons (e, ANil)), rest)))))
+           | None -> None)))
 
 (** val parse_climb :
     nat -> nat -> goExpr -> string -> (goExpr, string) prod option **)
@@ -3676,6 +3818,7 @@ let rec sa_leaf_comp sa = match sa with
 | SSelector (a, _) -> sa_leaf_comp a
 | SIndex (a, _) -> sa_leaf_comp a
 | SSlice (a, _, _) -> sa_leaf_comp a
+| SApply (a, _) -> sa_leaf_comp a
 | _ -> is_comp_lead (satom_str sa)
 
 (** val sa_has_ops : sAtom -> bool **)
@@ -3724,7 +3867,20 @@ and atomic_satom_b = function
          | False -> False with
    | True -> atomic_tree_b hi
    | False -> False)
+| SApply (a, args) ->
+  (match atomic_satom_b a with
+   | True -> atomic_arglist_b args
+   | False -> False)
 | _ -> True
+
+(** val atomic_arglist_b : argList -> bool **)
+
+and atomic_arglist_b = function
+| ANil -> True
+| ACons (e, rest) ->
+  (match atomic_tree_b e with
+   | True -> atomic_arglist_b rest
+   | False -> False)
 
 (** val build_atom : string -> goExpr option **)
 
@@ -3740,6 +3896,26 @@ let build_atom cs =
         | False -> None)
      | String (_, _) -> None)
   | None -> None
+
+(** val list_to_argl : goExpr list -> argList **)
+
+let rec list_to_argl = function
+| Nil -> ANil
+| Cons (e, r) -> ACons (e, (list_to_argl r))
+
+(** val build_apply : goExpr -> goExpr list -> goExpr option **)
+
+let build_apply callee args =
+  match callee with
+  | EAtom g ->
+    (match g with
+     | AScanned sa ->
+       let e = EAtom (AScanned (SApply (sa, (list_to_argl args)))) in
+       (match atomic_tree_b e with
+        | True -> Some e
+        | False -> None)
+     | AStringLit _ -> None)
+  | _ -> None
 
 (** val print_sep : string -> string list -> string **)
 

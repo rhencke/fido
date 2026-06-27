@@ -2862,6 +2862,18 @@ and build_goexpr state env e =
        | MLglob r, [x] when (is_float_opp_ref r || is_f32_neg_ref r || is_complex_neg_ref r
                              || is_i64_op r "neg" || is_u64_op r "neg") && operand_is_runtime x ->
            Printer.EUnary (Printer.UNeg, build_goexpr state env x)
+       (* ★review #9 (A1): an APPLICATION [f(x)] is CONSTRUCTED as a verified [SApply] node DIRECTLY — no
+          [pp_expr → string → build_atom] rescue.  The callee and arg are built recursively (so they are
+          verified [GoExpr]s); [Printer.build_apply] packs them into [SApply] and re-checks [atomic_tree_b]
+          (guaranteeing the round-trip).  This RETIRES the call form from the string-fallback below. *)
+       | MLglob r, [f; x] when is_gofunc_call_ref r ->
+           let callee = build_goexpr state env f in
+           let arg = build_goexpr state env x in
+           (match Printer.build_apply callee (coq_list_of_ocaml [arg]) with
+            | Printer.Some ap -> ap
+            | Printer.None -> unsupported (Printf.sprintf
+                "build_goexpr: gofunc_call %s did not form a verified SApply (callee not a scanned atom, or non-atomic_tree)"
+                (Pp.string_of_ppcmds (pp_expr state env e))))
        | _ -> atom (pp_expr state env e))
   | _ -> atom (pp_expr state env e)
 

@@ -2030,9 +2030,10 @@ Definition operand_lead_kw (s : string) : bool :=
 Definition leading_is_keyword (s : string) : bool :=
   andb (go_keyword (leading_ident s)) (negb (operand_lead_kw (leading_ident s))).
 Definition is_postfix_start (c : ascii) : bool :=
-  orb (Ascii.eqb c (ch 46)) (Ascii.eqb c (ch 91)).   (* . [ — Stage A: selector/index/slice only.  '(' is
-    NOT a postfix split: a CALL [f(x)] / func-lit-call / conversion stays an OPAQUE [SRaw] operand (read
-    whole by [scan_base], the '(' tracked as a bracket) until [SCall] lands in Stage B. *)
+  orb (orb (Ascii.eqb c (ch 46)) (Ascii.eqb c (ch 91))) (Ascii.eqb c (ch 40)).   (* . [ ( — selector / index /
+    slice / CALL (review #8 P0-1b STEP 3: '(' splits the call spine off the operand, [scan_base] → operand +
+    "(args)" → [SApply]).  A leading "func" is the composite exception ([scan_base]'s [scan_bal]/[scan_to_brace]
+    consume its own [(params){body}] BEFORE the postfix split — so a func-lit-CALL is [SApply (SRaw funclit) args]). *)
 (** [scan_bal f d s] consumes a BALANCED bracket span (already inside [d] open brackets), quote-aware;
     returns [(span-incl-the-close-returning-to-d-1, rest)]. *)
 Fixpoint scan_bal (fuel d : nat) (s : string) : option (string * string) :=
@@ -2102,12 +2103,34 @@ Definition scan_composite_base (s : string) : string * string :=
   | Some (comp, r) => let (more, rest) := scan_rest (String.length r) 0 r in ((comp ++ more)%string, rest)
   | None => scan_rest (String.length s) 0 s
   end.
-(** [scan_base s] — the leading operand.  A LEADING '[' or a "map"-led head is a COMPOSITE base (read whole
-    by [scan_composite_base], so its array/slice/map TYPE bracket is NOT mistaken for a postfix index);
-    everything else is [scan_rest] (stops at a depth-0 '.'/'[' — an operand-led index/selector spine).
-    '(' is not a postfix-start (Stage A): a call / conversion / func-lit-call is an OPAQUE whole base. *)
+(** [scan_func_base s] — a "func"-led operand is read WHOLE: [scan_to_brace] consumes the func-lit
+    [(params){body}] (so the PARAM '(' is part of the operand, never a call split), then a TRAILING call
+    [(args)] (an IIFE) is consumed by [scan_bal] (so [func(){}(args)] is one opaque [SRaw] func-lit-call —
+    func-lit bodies hold STATEMENTS, irreducibly opaque until the statement-AST layer).  No [scan_rest], so
+    [is_postfix_start]'s '(' never mis-splits a func-lit. *)
+Definition scan_func_base (s : string) : string * string :=
+  match scan_to_brace (String.length s) s with
+  | Some (body, r) =>
+      match r with
+      | String c _ =>
+          if Ascii.eqb c (ch 40)
+          then match scan_bal (String.length r) 0 r with
+               | Some (call, r2) => ((body ++ call)%string, r2)
+               | None => (body, r)
+               end
+          else (body, r)
+      | EmptyString => (body, EmptyString)
+      end
+  | None => (s, EmptyString)
+  end.
+(** [scan_base s] — the leading operand.  A LEADING '[' or a "map"-led head is read WHOLE by
+    [scan_composite_base]; a "func"-led head by [scan_func_base] (the func-lit + its IIFE call, whole);
+    everything else is [scan_rest] (stops at a depth-0 '.'/'['/'(' — an operand-led index/selector/CALL
+    spine — [is_postfix_start]).  review #8 P0-1b STEP 3: an IDENTIFIER call [f(a, b)] splits at the '(' →
+    [SApply]; a func-lit-call stays a whole opaque [SRaw] (its body is statements — Phase B [GoFuncLit]). *)
 Definition scan_base (s : string) : string * string :=
-  if String.eqb (leading_ident s) "map" then scan_composite_base s
+  if String.eqb (leading_ident s) "func" then scan_func_base s
+  else if String.eqb (leading_ident s) "map" then scan_composite_base s
   else match s with
        | String c _ => if Ascii.eqb c (ch 91) then scan_composite_base s
                        else scan_rest (String.length s) 0 s
@@ -2125,7 +2148,7 @@ Definition whole_base (s : string) : bool :=
     indexes/selects a composite LITERAL — [ []int{1,2,3}[0] ] is valid Go but unemitted); [atomic_tree] encodes
     this grammar well-formedness so the round-trip's [scan_base] split stays exact (review #8, rule-2 bounded). *)
 Definition is_comp_lead (s : string) : bool :=
-  orb (String.eqb (leading_ident s) "map")
+  orb (orb (String.eqb (leading_ident s) "map") (String.eqb (leading_ident s) "func"))
       (match s with String c _ => Ascii.eqb c (ch 91) | EmptyString => false end).
 
 (** ── REVIEW #8 P0-1: [raw_ok] now MECHANICALLY enforces the Go PRIMARY-atom LEXICAL invariants, so it
@@ -2186,17 +2209,25 @@ Definition raw_ok (s : string) : bool :=
    (whole_base s)).
 
 (** REVIEW #8 P0-1 REGRESSION TESTS.  An earlier [vm_compute] confirmed [raw_ok] ACCEPTED all six of these
-    non-atoms (silent fail-open).  They are now mechanically REJECTED — and a func-literal, a multi-arg
-    call, and a valid hex mask still PASS, so the real opaque atoms go.ml emits keep extracting. *)
+    non-atoms (silent fail-open).  They are now mechanically REJECTED.  Review #8 P0-1b STEP 3: an IDENTIFIER
+    CALL is no longer an opaque raw atom — '(' is a postfix split ([is_postfix_start]), so [f(a, b)] is now a
+    structured [SApply], NOT [raw_ok].
+    ★QUARANTINE (review #9): a func-lit and its IIFE-call ([func(x int64) int64 { return x }(7)]) are STILL
+    whole [raw_ok] — they are the bounded OPAQUE hatch ([scan_func_base] reads them whole), because a func-lit
+    BODY is Go STATEMENT syntax, irreducibly opaque until the Phase-B statement AST ([GoFuncLit]/[SFuncLitCall])
+    lands.  These are explicitly NON-CORE / not "verified syntax" — they round-trip only as an opaque string;
+    do not count them as structured.  A hex mask also still PASSes. *)
 Example raw_space_rejected      : raw_ok "foo bar"     = false. Proof. reflexivity. Qed.
 Example raw_space2_rejected     : raw_ok "x y"         = false. Proof. reflexivity. Qed.
 Example raw_bad_digit_rejected  : raw_ok "123abc"      = false. Proof. reflexivity. Qed.
 Example raw_bad_hex_rejected    : raw_ok "0xzz"        = false. Proof. reflexivity. Qed.
 Example raw_bad_func_rejected   : raw_ok "func()"      = false. Proof. reflexivity. Qed.
 Example raw_chan_type_rejected  : raw_ok "chan int64"  = false. Proof. reflexivity. Qed.
-Example raw_call_ok      : raw_ok "f(a, b)" = true. Proof. reflexivity. Qed.
-Example raw_hex_ok       : raw_ok "0xff"    = true. Proof. reflexivity. Qed.
-Example raw_funclit_ok   : raw_ok "func(x int64) int64 { return x }(7)" = true. Proof. reflexivity. Qed.
+Example raw_call_rejected : raw_ok "f(a, b)" = false. Proof. reflexivity. Qed.  (* a CALL is [SApply], never raw *)
+Example raw_hex_ok        : raw_ok "0xff"    = true.  Proof. reflexivity. Qed.
+(* QUARANTINED non-core: func-lit + IIFE stay whole-opaque until Phase-B [GoFuncLit] — NOT verified syntax. *)
+Example raw_funclit_body_quarantined : raw_ok "func(x int64) int64 { return x }" = true. Proof. reflexivity. Qed.
+Example raw_funclit_call_quarantined : raw_ok "func(x int64) int64 { return x }(7)" = true. Proof. reflexivity. Qed.
 
 Lemma raw_ok_atom_ok : forall s, raw_ok s = true -> atom_ok s = true.
 Proof.
@@ -2272,7 +2303,9 @@ Fail Definition raw_kw_if     : { s : string | raw_ok s = true } := exist _ "if(
 Example raw_d0_comma_rejected  : raw_ok "a,b"      = false. Proof. reflexivity. Qed.
 Example raw_d0_semi_rejected   : raw_ok "a;b"      = false. Proof. reflexivity. Qed.
 Example raw_kw_return_rejected : raw_ok "return()" = false. Proof. reflexivity. Qed.
-Example raw_ok_funclit_call_kept :
+(* review #9 QUARANTINE: a func-lit IIFE-call stays a WHOLE opaque [raw_ok] atom ([scan_func_base] reads the
+   body + trailing call whole) — non-core, opaque until Phase-B [GoFuncLit]; a func-lit body holds statements. *)
+Example raw_ok_funclit_call_quarantined :
   raw_ok "func(x int64, y int64) int64 { return x - y }(0, 7)" = true. Proof. reflexivity. Qed.
 (** review #7 — the unspaced-binop hole is CLOSED: a depth-0 operator char makes [raw_ok] FALSE, so an
     unspaced binary [a+b] is REJECTED as an atom (it is not a primary).  The [-5] negative literal is
@@ -2302,7 +2335,7 @@ Example raw_hexint_minus_rejected   : raw_ok "0x1E-5" = false. Proof. reflexivit
         recovered by its own quote-aware primary, NOT by the generic scanner).
     Both extract to bare strings / [Z] / nested constructors (proofs erased); [atom_str] is the text. *)
 (** [SAtom]/[GoAtom]/[GoExpr] are ONE MUTUAL block — atoms can contain expressions (a future [SIndex]
-    [a[i]] / [SCall] [f(args)] carries [GoExpr] children) and expressions contain atoms ([EAtom]), so the
+    [a[i]] / [SApply] [f(args)] carries [GoExpr] children) and expressions contain atoms ([EAtom]), so the
     three families are mutually recursive.  TODAY no atom constructor references [GoExpr] yet (the cycle is
     latent), so the auto-generated per-type induction principles are exactly the non-mutual ones and every
     existing proof is unchanged; grouping them now is the structural prerequisite for the recursive
@@ -2315,6 +2348,17 @@ Inductive SAtom : Type :=
   | SIndex    : SAtom -> GoExpr -> SAtom            (* a[i]    — postfix index (review #8: the postfix
                                                        PrimaryExpr grammar replacing SRaw for indexes) *)
   | SSlice    : SAtom -> GoExpr -> GoExpr -> SAtom  (* a[lo:hi] — postfix slice *)
+  | SApply     : SAtom -> ArgList -> SAtom           (* operand(args) — APPLICATION syntax (review #9): a Go
+                                                       function CALL [f(a, b)] AND an identifier-led CONVERSION
+                                                       [int64(x)] / [MyType(x)] are the SAME syntactic node —
+                                                       indistinguishable at the token level (call vs conversion
+                                                       depends on whether the operand denotes a type, which
+                                                       needs a type namespace).  The semantic distinction is
+                                                       carried by the GENERATOR, not faked in the parser;
+                                                       [SConvert] (Phase A3) is reserved for TYPE-FORM-led
+                                                       conversions ([[]T(x)]/[*T(x)]/[map[K]V(x)]) that ARE
+                                                       syntactically unambiguous.  args = a MUTUAL [ArgList]
+                                                       (so [GoTree_mutind] yields a per-arg IH). *)
 with GoAtom : Type :=
   | AScanned   : SAtom -> GoAtom
   | AStringLit : string -> GoAtom   (* the SEMANTIC string VALUE (review #7 item 4: AST-first, not the
@@ -2323,7 +2367,10 @@ with GoAtom : Type :=
 with GoExpr : Type :=
   | EAtom  : GoAtom -> GoExpr
   | EBin   : BinOp -> GoExpr -> GoExpr -> GoExpr
-  | EUnary : UnaryOp -> GoExpr -> GoExpr.
+  | EUnary : UnaryOp -> GoExpr -> GoExpr
+with ArgList : Type :=
+  | ANil  : ArgList
+  | ACons : GoExpr -> ArgList -> ArgList.
 (** [satom_str]/[print_expr]/[atom_str] are ONE mutual [Fixpoint]: [SIndex]/[SSlice] carry [GoExpr]
     children ([a[i]] / [a[lo:hi]]), so the atom printer recurses through the expression printer. *)
 Fixpoint satom_str (a : SAtom) : string :=
@@ -2335,6 +2382,7 @@ Fixpoint satom_str (a : SAtom) : string :=
   | SIndex a i    => (satom_str a ++ String (ch 91) (print_expr 0 i ++ String (ch 93) EmptyString))%string
   | SSlice a lo hi => (satom_str a ++ String (ch 91)
                         (print_expr 0 lo ++ String (ch 58) (print_expr 0 hi ++ String (ch 93) EmptyString)))%string
+  | SApply a args => (satom_str a ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string
   end
 with print_expr (ctx : nat) (e : GoExpr) : string :=
   match e with
@@ -2354,7 +2402,13 @@ with print_expr (ctx : nat) (e : GoExpr) : string :=
       end
   end
 with atom_str (a : GoAtom) : string :=
-  match a with AScanned s => satom_str s | AStringLit v => print_string_lit v end.
+  match a with AScanned s => satom_str s | AStringLit v => print_string_lit v end
+with argl_str (l : ArgList) : string :=
+  match l with
+  | ANil          => EmptyString
+  | ACons e ANil  => print_expr 0 e
+  | ACons e rest  => (print_expr 0 e ++ String (ch 44) (String (ch 32) (argl_str rest)))%string
+  end.
 (** [atom_scanned a] — the atom is recovered by the GENERIC atom scanner ([scan_atom] + [build_atom]):
     [AScanned], but not [AStringLit] (recovered by its own quote-aware primary).  Only a scanned atom's
     text is [atom_ok] (a string literal's text need not be — review #5 item 1). *)
@@ -2437,12 +2491,13 @@ Qed.
     only NONEMPTINESS of the operand, captured here. *)
 Lemma satom_nonempty : forall a : SAtom, satom_str a <> EmptyString.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [satom_str].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig].
     destruct s as [ | c s' ]; [ unfold go_ident in Hs; discriminate Hs | discriminate ].
   - pose proof (is_dec_print_Z z) as Hd. destruct (print_Z z) as [ | c rest ]; [ discriminate Hd | discriminate ].
   - destruct r as [ s Hr ]; cbn [proj1_sig].
     destruct s as [ | c s' ]; [ apply raw_ok_atom_ok in Hr; discriminate Hr | discriminate ].
+  - destruct (satom_str a) as [ | c rest ]; discriminate.
   - destruct (satom_str a) as [ | c rest ]; discriminate.
   - destruct (satom_str a) as [ | c rest ]; discriminate.
   - destruct (satom_str a) as [ | c rest ]; discriminate.
@@ -2452,7 +2507,7 @@ Qed.
     SELECTOR begins with its operand (non-dquote by IH; its text is [atom_ok], hence nonempty). *)
 Lemma satom_not_quote_led : forall a : SAtom, quote_led (satom_str a) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [satom_str].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate | ].
     apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
@@ -2474,6 +2529,9 @@ Proof.
   - destruct (satom_str a) as [ | c rest ] eqn:Ea;
       [ exfalso; apply (satom_nonempty a); exact Ea
       | cbn [String.append]; unfold quote_led in IH |- *; exact IH ].
+  - destruct (satom_str a) as [ | c rest ] eqn:Ea;
+      [ exfalso; apply (satom_nonempty a); exact Ea
+      | cbn [String.append]; unfold quote_led in IH |- *; exact IH ].
 Qed.
 Lemma atom_scanned_not_quote_led : forall a, atom_scanned a = true -> quote_led (atom_str a) = false.
 Proof.
@@ -2486,7 +2544,7 @@ Qed.
     invariant under the appended ".f"). *)
 Lemma satom_unary_op_led_false : forall a : SAtom, unary_op_led (satom_str a) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [satom_str].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [satom_str].
   - destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate | ].
     apply andb_true_iff in Hs. destruct Hs as [ Hs _ ]. apply andb_true_iff in Hs. destruct Hs as [ Hstart _ ].
@@ -2498,6 +2556,9 @@ Proof.
     + apply andb_true_iff in Hd. destruct Hd as [ Hcd _ ].
       apply (is_idc_not_unop c (is_dec_char_is_idc c Hcd)).
   - destruct r as [ s Hr ]; cbn [proj1_sig]. apply raw_ok_not_unary; exact Hr.
+  - destruct (satom_str a) as [ | c rest ] eqn:Ea;
+      [ exfalso; apply (satom_nonempty a); exact Ea
+      | cbn [String.append]; cbn [unary_op_led] in IH |- *; exact IH ].
   - destruct (satom_str a) as [ | c rest ] eqn:Ea;
       [ exfalso; apply (satom_nonempty a); exact Ea
       | cbn [String.append]; cbn [unary_op_led] in IH |- *; exact IH ].
@@ -2534,7 +2595,7 @@ Proof. intros c H. exact (is_idc_eqb_false c 45 H eq_refl). Qed.
 Lemma satom_not_neg_paren_app : forall (a : SAtom) (tail : string),
   neg_paren_led (satom_str a ++ tail) = false.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; intro tail; cbn [satom_str].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro tail; cbn [satom_str].
   - (* SIdent — go_ident-led, first char is_idstart, never '-' *)
     destruct i as [ s Hs ]; cbn [proj1_sig]. unfold go_ident in Hs.
     destruct s as [ | c s' ]; [ discriminate Hs | ].
@@ -2568,6 +2629,9 @@ Proof.
     rewrite sapp_assoc.
     exact (IH (String (ch 91) (print_expr 0 lo ++ String (ch 58)
                  (print_expr 0 hi ++ String (ch 93) EmptyString)) ++ tail)).
+  - (* SApply — the spine appends "(" args ")" after the base, first two chars from [a] *)
+    rewrite sapp_assoc.
+    exact (IH (String (ch 40) (argl_str args ++ String (ch 41) EmptyString) ++ tail)).
 Qed.
 Lemma satom_not_neg_paren : forall a : SAtom, neg_paren_led (satom_str a) = false.
 Proof. intro a. rewrite <- (sapp_nil_r (satom_str a)). apply satom_not_neg_paren_app. Qed.
@@ -2731,7 +2795,7 @@ Proof. intros s st H. exact (proj1 (bstack_atomic_from (String.length s) s st (l
     lexer/parser design, USER directive: "no string splits").  [scan_atom] STOPS at it (it no longer scans
     [a, b] as one blob), and [atomic] REJECTS a depth-0-comma string (more than one atom).  Depth-tracked: a
     comma INSIDE brackets (a call's args) is NOT a delimiter — [f(a, b)] still scans whole, so the change is
-    golden BYTE-IDENTICAL (no current SRaw atom has a depth-0 comma).  Foundation for the verified [SCall]
+    golden BYTE-IDENTICAL (no current SRaw atom has a depth-0 comma).  Foundation for the verified [SApply]
     arg-list — the parser's [expr (',' expr)*] rule will now see the comma as the next token. *)
 Example scan_atom_stops_at_comma     : scan_atom 0 "a, b"    = ("a", ", b")%string.   Proof. reflexivity. Qed.
 Example scan_atom_keeps_nested_comma : scan_atom 0 "f(a, b)" = ("f(a, b)", "")%string. Proof. reflexivity. Qed.
@@ -2876,7 +2940,7 @@ Qed.
     (3) a leading "func" is the one special case — its own [(params){body}] are part of the operand, so
     consume them ([scan_bal] the params, [scan_to_brace] the body) BEFORE [scan_rest].  ('{' is NOT a
     postfix start — it opens a composite literal whose [{...}] joins the operand.)  DORMANT until the
-    parser is rewired; the faithful-split + round-trip lemmas + the [SIndex]/[SSlice]/[SCall] postfix
+    parser is rewired; the faithful-split + round-trip lemmas + the [SIndex]/[SSlice]/[SApply] postfix
     constructors land in the following slices. *)
 (* [is_postfix_start]/[scan_bal]/[scan_to_brace]/[scan_rest]/[scan_base]/[whole_base] RELOCATED above [raw_ok] (so [raw_ok] can use [whole_base]). *)
 Example scan_base_sel  : scan_base ("foo" ++ String (ch 46) "bar") = ("foo", String (ch 46) "bar").
@@ -3001,6 +3065,41 @@ Proof.
     injection H as Ea Er; subst. rewrite (scan_bal_prefix f 1 s' a2 pops E2). reflexivity.
   - destruct (scan_to_brace f s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
     injection H as Ea Er; subst. rewrite (IH s' a2 pops E2). reflexivity.
+Qed.
+(** GENERALISED prefix lemmas (arbitrary remainder [r] → [r ++ pops], + the fuel can GROW by any [n] — both
+    needed because [scan_composite_base] picks fuel = the input length, which grows under [++ pops]).  Review
+    #8 P0-1b STEP 3: the func-lit operand reads via [scan_to_brace] so a TRAILING call splits off. *)
+Lemma scan_bal_app : forall f n d s a r pops, scan_bal f d s = Some (a, r) ->
+  scan_bal (f + n) d (s ++ pops)%string = Some (a, (r ++ pops)%string).
+Proof.
+  induction f as [ | f IH ]; intros n d s a r pops H; cbn [scan_bal] in H; [ discriminate | ].
+  destruct s as [ | c s' ]; [ discriminate | ]. cbn [Nat.add String.append scan_bal].
+  destruct (Ascii.eqb c (ch 34)) eqn:Eq.
+  - destruct (scan_strlit_body s') as [ [body rest] | ] eqn:Eb; [ | discriminate ].
+    rewrite (scan_strlit_body_app (String.length s') s' body rest pops (le_n _) Eb).
+    destruct (scan_bal f d rest) as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    rewrite (IH n d rest a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
+  - destruct (is_bopen c) eqn:Eo.
+    + destruct (scan_bal f (S d) s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+      rewrite (IH n (S d) s' a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
+    + destruct (is_bclose c) eqn:Ec.
+      * destruct d as [ | d0 ]; [ discriminate | ]. destruct d0 as [ | d1 ].
+        -- injection H as Ea Er; subst a r; reflexivity.
+        -- destruct (scan_bal f (S d1) s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+           rewrite (IH n (S d1) s' a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
+      * destruct (scan_bal f d s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+        rewrite (IH n d s' a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
+Qed.
+Lemma scan_to_brace_app : forall f n s a r pops, scan_to_brace f s = Some (a, r) ->
+  scan_to_brace (f + n) (s ++ pops)%string = Some (a, (r ++ pops)%string).
+Proof.
+  induction f as [ | f IH ]; intros n s a r pops H; cbn [scan_to_brace] in H; [ discriminate | ].
+  destruct s as [ | c s' ]; [ discriminate | ]. cbn [Nat.add String.append scan_to_brace].
+  destruct (Ascii.eqb c (ch 123)) eqn:Eq.
+  - destruct (scan_bal f 1 s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    rewrite (scan_bal_app f n 1 s' a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
+  - destruct (scan_to_brace f s') as [ [a2 r2] | ] eqn:E2; [ | discriminate ].
+    rewrite (IH n s' a2 r2 pops E2). injection H as Ea Er; subst a r; reflexivity.
 Qed.
 
 (** ---- THE RECURSIVE ATOM PARSER ---- [build_satom] is [build_atom]'s engine: it DISAMBIGUATES an
@@ -3182,8 +3281,47 @@ with parse_postfix (fuel : nat) (a : SAtom) (s : string) : option (GoExpr * stri
               end
           | None => None
           end
+        else if Ascii.eqb c (ch 40) then
+          (* CALL (review #8 P0-1b): "(" args ")".  [parse_args] reads the WHOLE argument list (it returns
+             [ANil] on an immediate ")" — the empty "()" — else the comma-separated expressions), then ")"
+             closes and the spine CONTINUES ([parse_postfix f] — so [g(x)(y)] / [f(x).y] chain). *)
+          match parse_args f s' with
+          | Some (args, r1) =>
+              match r1 with
+              | String c2 s3 => if Ascii.eqb c2 (ch 41) then parse_postfix f (SApply a args) s3 else None
+              | EmptyString => None
+              end
+          | None => None
+          end
         else Some (EAtom (AScanned a), s)
     | EmptyString => Some (EAtom (AScanned a), EmptyString)
+    end
+  end
+with parse_args (fuel : nat) (s : string) : option (ArgList * string) :=
+  (* the ARGUMENT LIST: an immediate ")" is the EMPTY list ([ANil]); otherwise one-or-more expressions
+     separated by a depth-0 ", " (the lexer halts each at the comma — review #8 P0-1b STEP 1).  Each arg is
+     a full [parse_expr] (the comma is a clean stopping seam, [tail_ok]'s 4th disjunct). *)
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => None
+    | String c0 _ =>
+        if Ascii.eqb c0 (ch 41) then Some (ANil, s)
+        else match parse_expr f 0 s with
+             | None => None
+             | Some (e, rest) =>
+                 match rest with
+                 | String c1 (String c2 r2) =>
+                     if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))
+                     then match parse_args f r2 with
+                          | Some (es, r3) => Some (ACons e es, r3)
+                          | None => None
+                          end
+                     else Some (ACons e ANil, rest)
+                 | _ => Some (ACons e ANil, rest)
+                 end
+             end
     end
   end
 with parse_climb (fuel k : nat) (l : GoExpr) (s : string) : option (GoExpr * string) :=
@@ -3265,8 +3403,35 @@ Lemma parse_postfix_S : forall f a s, parse_postfix (S f) a s =
             end
         | None => None
         end
+      else if Ascii.eqb c (ch 40) then
+        match parse_args f s' with
+        | Some (args, r1) =>
+            match r1 with
+            | String c2 s3 => if Ascii.eqb c2 (ch 41) then parse_postfix f (SApply a args) s3 else None
+            | EmptyString => None
+            end
+        | None => None
+        end
       else Some (EAtom (AScanned a), s)
   | EmptyString => Some (EAtom (AScanned a), EmptyString)
+  end.
+Proof. reflexivity. Qed.
+Lemma parse_args_S : forall f s, parse_args (S f) s =
+  match s with
+  | EmptyString => None
+  | String c0 _ =>
+      if Ascii.eqb c0 (ch 41) then Some (ANil, s)
+      else match parse_expr f 0 s with
+           | None => None
+           | Some (e, rest) =>
+               match rest with
+               | String c1 (String c2 r2) =>
+                   if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))
+                   then match parse_args f r2 with Some (es, r3) => Some (ACons e es, r3) | None => None end
+                   else Some (ACons e ANil, rest)
+               | _ => Some (ACons e ANil, rest)
+               end
+           end
   end.
 Proof. reflexivity. Qed.
 Lemma parse_climb_S : forall f k l s, parse_climb (S f) k l s =
@@ -3287,11 +3452,12 @@ Lemma parse_mono_S : forall f,
   (forall k s r, parse_expr f k s = Some r -> parse_expr (S f) k s = Some r) /\
   (forall s r, parse_primary f s = Some r -> parse_primary (S f) s = Some r) /\
   (forall a s r, parse_postfix f a s = Some r -> parse_postfix (S f) a s = Some r) /\
-  (forall k l s r, parse_climb f k l s = Some r -> parse_climb (S f) k l s = Some r).
+  (forall k l s r, parse_climb f k l s = Some r -> parse_climb (S f) k l s = Some r) /\
+  (forall s r, parse_args f s = Some r -> parse_args (S f) s = Some r).
 Proof.
   induction f as [ | f IH ].
   - repeat split; intros; discriminate.
-  - destruct IH as [ IHe [ IHp [ IHpf IHc ] ] ]. repeat split.
+  - destruct IH as [ IHe [ IHp [ IHpf [ IHc IHargs ] ] ] ]. repeat split.
     + intros k s r H. rewrite parse_expr_S in H. rewrite parse_expr_S.
       destruct (parse_primary f s) as [ [l0 s1] | ] eqn:Ep; [ | discriminate H ].
       rewrite (IHp _ _ Ep). apply IHc. exact H.
@@ -3333,12 +3499,29 @@ Proof.
               destruct s3 as [ | c3 s4 ]; [ discriminate H | ].
               destruct (Ascii.eqb c3 (ch 93)); [ | discriminate H ].
               apply IHpf. exact H.
-        -- exact H.
+        -- destruct (Ascii.eqb c (ch 40)).
+           ++ (* CALL: "(" args ")" *)
+              destruct (parse_args f s') as [ [args r1] | ] eqn:Epa; [ | discriminate H ].
+              rewrite (IHargs _ _ Epa).
+              destruct r1 as [ | c2 s3 ]; [ discriminate H | ].
+              destruct (Ascii.eqb c2 (ch 41)); [ | discriminate H ].
+              apply IHpf. exact H.
+           ++ exact H.
     + intros k l s r H. rewrite parse_climb_S in H. rewrite parse_climb_S.
       destruct (op_match s) as [ [o s1] | ]; [ | exact H ].
       destruct (Nat.leb k (binop_prec o)); [ | exact H ].
       destruct (parse_expr f (S (binop_prec o)) s1) as [ [r0 s2] | ] eqn:Epe; [ | discriminate H ].
       rewrite (IHe _ _ _ Epe). apply IHc. exact H.
+    + (* parse_args: more fuel preserves the parse *)
+      intros s r H. rewrite parse_args_S in H. rewrite parse_args_S.
+      destruct s as [ | c0 s' ]; [ exact H | ].
+      destruct (Ascii.eqb c0 (ch 41)); [ exact H | ].
+      destruct (parse_expr f 0 (String c0 s')) as [ [e rest] | ] eqn:Epe; [ | discriminate H ].
+      rewrite (IHe _ _ _ Epe).
+      destruct rest as [ | c1 [ | c2 r2 ] ]; [ exact H | exact H | ].
+      destruct (andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))); [ | exact H ].
+      destruct (parse_args f r2) as [ [es r3] | ] eqn:Epa; [ | discriminate H ].
+      rewrite (IHargs _ _ Epa). exact H.
 Qed.
 
 Lemma parse_mono : forall f' f, f <= f' ->
@@ -3367,6 +3550,8 @@ Notation EAr s := (EAtom (AScanned (SRaw (exist _ s eq_refl)))).
 Notation EAi z := (EAtom (AScanned (SIntLit z))).  (* a decimal integer-literal atom — carries the [Z], no proof *)
 Notation EAsel a f := (EAtom (AScanned (SSelector a (exist _ f eq_refl)))).  (* a selector [operand.field] *)
 Notation EAs v := (EAtom (AStringLit v)).  (* a string literal of value [v] *)
+Notation EApply hd args := (EAtom (AScanned (SApply hd args))).  (* a call [hd(args)] — review #8 SApply *)
+Notation EAid s := (SIdent (exist _ s eq_refl)).  (* a bare-identifier SAtom (for an SApply/SSelector head) *)
 
 (** Concrete round-trips — including the precedence cases the balance theorem could NOT distinguish:
     [a + b * c] keeps [b * c] grouped, [(a + b) * c] keeps the parens. *)
@@ -3409,10 +3594,18 @@ Example rt_prodofsums : parse_expr 12 0 (print_expr 0
                           (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EBin BAdd (EA "c") (EA "d"))))
                       = Some (EBin BMul (EBin BAdd (EA "a") (EA "b")) (EBin BAdd (EA "c") (EA "d")), "").
 Proof. reflexivity. Qed.  (* (a + b) * (c + d) *)
-(** Atoms with their OWN parens/spaces (a call) — the operator inside is at paren-depth > 0, so the
-    scanner reads the whole call as one atom and the top-level " + " still splits correctly. *)
-Example rt_call_atom : parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "f(a, b)") (EA "c")))
-                     = Some (EBin BAdd (EAr "f(a, b)") (EA "c"), "").  (* f(a, b) + c *)
+(** ★review #8 P0-1b STEP 3: a CALL is now the STRUCTURED [SApply] node (operand + arg list), no longer an
+    opaque [SRaw] — [f(a, b)] parses to [SApply (SIdent "f") [a; b]], and as a binop operand the top-level
+    " + " still splits correctly (the call's own parens are at depth > 0). *)
+Example rt_call_atom : parse_expr 12 0 (print_expr 0
+    (EBin BAdd (EApply (EAid "f") (ACons (EA "a") (ACons (EA "b") ANil))) (EA "c")))
+  = Some (EBin BAdd (EApply (EAid "f") (ACons (EA "a") (ACons (EA "b") ANil))) (EA "c"), "").  (* f(a, b) + c *)
+Proof. reflexivity. Qed.
+Example rt_call_empty : parse_expr 9 0 (print_expr 0 (EApply (EAid "f") ANil))
+                      = Some (EApply (EAid "f") ANil, "").  (* f() — empty arg list *)
+Proof. reflexivity. Qed.
+Example rt_call_nested : parse_expr 12 0 (print_expr 0 (EApply (EAid "g") (ACons (EApply (EAid "f") (ACons (EA "x") ANil)) ANil)))
+                       = Some (EApply (EAid "g") (ACons (EApply (EAid "f") (ACons (EA "x") ANil)) ANil), "").  (* g(f(x)) *)
 Proof. reflexivity. Qed.
 (** SELECTOR atoms ([SSelector] — the first RECURSIVE atom constructor, structurally shrinking [SRaw]):
     [x.f], the nested [a.b.c] (= [SSelector (SSelector a b) c]), a selector whose operand is a CALL
@@ -3425,8 +3618,8 @@ Example rt_sel_abc :
   parse_expr 9 0 (print_expr 0 (EAsel (SSelector (SIdent (exist _ "a" eq_refl)) (exist _ "b" eq_refl)) "c"))
   = Some (EAsel (SSelector (SIdent (exist _ "a" eq_refl)) (exist _ "b" eq_refl)) "c", "").  (* a.b.c *)
 Proof. reflexivity. Qed.
-Example rt_sel_call : parse_expr 9 0 (print_expr 0 (EAsel (SRaw (exist _ "f(a)" eq_refl)) "g"))
-                    = Some (EAsel (SRaw (exist _ "f(a)" eq_refl)) "g", "").  (* f(a).g *)
+Example rt_sel_call : parse_expr 12 0 (print_expr 0 (EAsel (SApply (EAid "f") (ACons (EA "a") ANil)) "g"))
+                    = Some (EAsel (SApply (EAid "f") (ACons (EA "a") ANil)) "g", "").  (* f(a).g — now SApply operand *)
 Proof. reflexivity. Qed.
 Example rt_sel_bin :
   parse_expr 11 0 (print_expr 0 (EBin BAdd (EAsel (SIdent (exist _ "p" eq_refl)) "x") (EA "c")))
@@ -3537,9 +3730,13 @@ Proof. reflexivity. Qed.
 Example rt_strlit_bracket : parse_expr 12 0 (print_expr 0 (EBin BAdd (EAs "[") (EA "z")))
                           = Some (EBin BAdd (EAs "[") (EA "z"), "").  (* contents are an unmatched bracket *)
 Proof. reflexivity. Qed.
+(** ★review #9 QUARANTINE: a func-lit CALL (IIFE) is a WHOLE opaque [SRaw] atom — the func-lit body is Go
+    STATEMENT syntax, irreducibly opaque until the Phase-B statement AST ([GoFuncLit]).  [scan_func_base]
+    reads the body + trailing call whole, so it round-trips as one string.  NON-CORE (not verified syntax);
+    it survives only as the bounded opaque hatch, exactly like the review's intent for func-lits. *)
 Example rt_funclit :
-  parse_expr 9 0 (print_expr 0 (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)")
-                                          (EA "z")))
+  parse_expr 12 0 (print_expr 0 (EBin BAdd
+    (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)") (EA "z")))
   = Some (EBin BAdd (EAr "func(x int64, y int64) int64 { return x - y }(0, 7)") (EA "z"), "").
 Proof. reflexivity. Qed.
 
@@ -3576,6 +3773,12 @@ with asize (a : SAtom) : nat :=
   | SSelector a _ => S (asize a)
   | SIndex a i => S (asize a + esize i)
   | SSlice a lo hi => S (asize a + esize lo + esize hi)
+  | SApply a args => S (S (asize a + argl_size args))   (* +2 slack: the [parse_args] fuel ([opsz OApply]) needs it *)
+  end
+with argl_size (l : ArgList) : nat :=
+  match l with
+  | ANil => 0
+  | ACons e rest => S (esize e + argl_size rest)
   end.
 Lemma asize_pos : forall a, 1 <= asize a.
 Proof. destruct a; cbn [asize]; lia. Qed.
@@ -3752,8 +3955,9 @@ Qed.
 
 Scheme GoExpr_mut := Induction for GoExpr Sort Prop
   with GoAtom_mut := Induction for GoAtom Sort Prop
-  with SAtom_mut := Induction for SAtom Sort Prop.
-Combined Scheme GoTree_mutind from GoExpr_mut, GoAtom_mut, SAtom_mut.
+  with SAtom_mut := Induction for SAtom Sort Prop
+  with ArgList_mut := Induction for ArgList Sort Prop.
+Combined Scheme GoTree_mutind from GoExpr_mut, GoAtom_mut, SAtom_mut, ArgList_mut.
 
 (** A NON-special char (not a quote / open / close) is a bstack NO-OP inside brackets ([st <> nil]):
     no quote-skip, no push, no pop, no depth-0 seam.  Used for the selector "." and the slice ":". *)
@@ -3770,7 +3974,8 @@ Qed.
 Lemma print_bstack :
   (forall e c st rest, st <> nil -> bstack_ok st (print_expr c e ++ rest)%string = bstack_ok st rest) /\
   (forall a st rest, st <> nil -> bstack_ok st (atom_str a ++ rest)%string = bstack_ok st rest) /\
-  (forall sa st rest, st <> nil -> bstack_ok st (satom_str sa ++ rest)%string = bstack_ok st rest).
+  (forall sa st rest, st <> nil -> bstack_ok st (satom_str sa ++ rest)%string = bstack_ok st rest) /\
+  (forall args st rest, st <> nil -> bstack_ok st (argl_str args ++ rest)%string = bstack_ok st rest).
 Proof.
   apply GoTree_mutind.
   - (* EAtom a *)
@@ -3839,6 +4044,24 @@ Proof.
     rewrite (nonspecial_cons (ch 58) _ (cons (close_of (ch 91)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
     rewrite sapp_assoc, (IHhi 0 (cons (close_of (ch 91)) st) _ ltac:(discriminate)).
     cbn [String.append]. reflexivity.
+  - (* SApply a args — push '(' / args neutral / pop ')' *)
+    intros a IHa args IHargs st rest Hne.
+    change (satom_str (SApply a args))
+      with (satom_str a ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string.
+    rewrite sapp_assoc, (IHa st _ Hne). cbn [String.append].
+    rewrite (bstack_ok_cons_nonnil_nq (ch 40) _ st Hne eq_refl), !sapp_assoc.
+    rewrite (IHargs (cons (close_of (ch 40)) st) _ ltac:(discriminate)). cbn [String.append]. reflexivity.
+  - (* ANil — argl_str ANil = "" *)
+    intros st rest Hne. cbn [argl_str String.append]. reflexivity.
+  - (* ACons e l — first arg, then (", " + tail) when the tail is non-empty *)
+    intros e IHe l IHl st rest Hne. destruct l as [ | e' l' ].
+    + cbn [argl_str]. exact (IHe 0 st rest Hne).
+    + change (argl_str (ACons e (ACons e' l')))
+        with (print_expr 0 e ++ String (ch 44) (String (ch 32) (argl_str (ACons e' l'))))%string.
+      rewrite sapp_assoc, (IHe 0 st _ Hne). cbn [String.append].
+      rewrite (nonspecial_cons (ch 44) _ st Hne eq_refl eq_refl eq_refl).
+      rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl).
+      exact (IHl st rest Hne).
 Qed.
 
 (** GENERALIZES [bstack_app_dotid] (review #8 postfix grammar): appending a SUFFIX [String sc suf'] to a
@@ -3952,6 +4175,33 @@ Proof.
   rewrite (proj1 print_bstack hi 0 (cons (ch 93) nil) (String (ch 93) EmptyString) ltac:(discriminate)).
   reflexivity.
 Qed.
+(** '(' pushes its matching ')' — the paren analogue of [bstack_push_bracket]. *)
+Lemma bstack_push_paren : forall X st, opens (String (ch 40) X) = false ->
+  bstack_ok st (String (ch 40) X) = bstack_ok (cons (ch 41) st) X.
+Proof.
+  intros X st Ho. rewrite bstack_ok_cons.
+  assert (Hq : Ascii.eqb (ch 40) (ch 34) = false) by reflexivity. rewrite Hq.
+  assert (Hseam : andb (match st with nil => true | _ => false end)
+            (orb (orb (orb (opens (String (ch 40) X)) (Ascii.eqb (ch 40) (ch 58)))
+                      (andb (is_space (ch 40)) (op_after X)))
+                 (Ascii.eqb (ch 40) (ch 44))) = false)
+    by (rewrite Ho; apply andb_false_r).
+  rewrite Hseam.
+  assert (Hbo : is_bopen (ch 40) = true) by reflexivity.
+  assert (Hcl : close_of (ch 40) = ch 41) by reflexivity. rewrite Hbo, Hcl. reflexivity.
+Qed.
+(** A printed call suffix "(args)" is balanced from the EMPTY stack: "(" pushes, the arg list is
+    bstack-transparent inside ([print_bstack]'s [ArgList] component), ")" pops back. *)
+Lemma call_balanced_nil : forall args,
+  bstack_ok nil (String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string = true.
+Proof.
+  intro args.
+  assert (Ho : opens (String (ch 40) (argl_str args ++ String (ch 41) EmptyString)) = false)
+    by (unfold opens; rewrite (op_match_not_space (ch 40) _ eq_refl); reflexivity).
+  rewrite (bstack_push_paren _ nil Ho).
+  rewrite (proj2 (proj2 (proj2 print_bstack)) args (cons (ch 41) nil) (String (ch 41) EmptyString) ltac:(discriminate)).
+  reflexivity.
+Qed.
 
 (** [atomic] decomposition / introduction (the predicate is [first-char-not-"(" AND bstack-balanced]). *)
 Lemma atomic_inv : forall r, atomic r = true ->
@@ -3972,7 +4222,7 @@ Proof. intros c r' Ho Hb. cbn [atomic]. rewrite Ho, Hb. reflexivity. Qed.
     quote-aware, so the quote-aware bracket balance the parser actually relies on holds. *)
 Lemma satom_atomic : forall s : SAtom, atomic (satom_str s) = true.
 Proof.
-  induction s as [ i | z | r | a IHa f | a IHa i | a IHa lo hi ].
+  induction s as [ i | z | r | a IHa f | a IHa i | a IHa lo hi | a IHa args ].
   - change (satom_str (SIdent i)) with (proj1_sig i).
     apply atom_ok_atomic, go_ident_atom_ok, (proj2_sig i).
   - change (satom_str (SIntLit z)) with (print_Z z).
@@ -4010,6 +4260,16 @@ Proof.
                    (print_expr 0 lo ++ String (ch 58) (print_expr 0 hi ++ String (ch 93) EmptyString))
                    (String.length (String c0 r0)) (String c0 r0) nil
                    eq_refl (slice_balanced_nil lo hi) (le_n _)) Hbnil).
+  - change (satom_str (SApply a args))
+      with (satom_str a ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string.
+    destruct (atomic_inv _ IHa) as [ c0 [ r0 [ Heq [ Hopen Hbnil ] ] ] ].
+    rewrite Heq in Hbnil |- *. cbn [String.append].
+    apply atomic_intro; [ exact Hopen | ].
+    change (String c0 (r0 ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString)))
+      with ((String c0 r0) ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string.
+    exact (proj1 (bstack_app_suffix (ch 40) (argl_str args ++ String (ch 41) EmptyString)
+                   (String.length (String c0 r0)) (String c0 r0) nil
+                   eq_refl (call_balanced_nil args) (le_n _)) Hbnil).
 Qed.
 
 (** [sa_leaf_comp sa] — is the DEEPEST (leftmost) base of [sa] composite-led? (= [is_comp_lead] of
@@ -4018,7 +4278,7 @@ Qed.
 Fixpoint sa_leaf_comp (sa : SAtom) : bool :=
   match sa with
   | SIdent _ | SIntLit _ | SRaw _ => is_comp_lead (satom_str sa)
-  | SSelector a _ | SIndex a _ | SSlice a _ _ => sa_leaf_comp a
+  | SSelector a _ | SIndex a _ | SSlice a _ _ | SApply a _ => sa_leaf_comp a
   end.
 Definition sa_has_ops (sa : SAtom) : bool :=
   match sa with SIdent _ | SIntLit _ | SRaw _ => false | _ => true end.
@@ -4046,6 +4306,12 @@ with atomic_satom (sa : SAtom) : Prop :=
   | SSelector a _ => atomic_satom a
   | SIndex a i => atomic_satom a /\ atomic_tree i
   | SSlice a lo hi => atomic_satom a /\ atomic_tree lo /\ atomic_tree hi
+  | SApply a args => atomic_satom a /\ atomic_arglist args
+  end
+with atomic_arglist (l : ArgList) : Prop :=
+  match l with
+  | ANil => True
+  | ACons e rest => atomic_tree e /\ atomic_arglist rest
   end.
 
 (** [atomic_tree_b] — the DECIDABLE (boolean) mirror of [atomic_tree] (review #8 P0-3).  [build_atom] checks
@@ -4071,11 +4337,18 @@ with atomic_satom_b (sa : SAtom) : bool :=
   | SSelector a _ => atomic_satom_b a
   | SIndex a i => andb (atomic_satom_b a) (atomic_tree_b i)
   | SSlice a lo hi => andb (andb (atomic_satom_b a) (atomic_tree_b lo)) (atomic_tree_b hi)
+  | SApply a args => andb (atomic_satom_b a) (atomic_arglist_b args)
+  end
+with atomic_arglist_b (l : ArgList) : bool :=
+  match l with
+  | ANil => true
+  | ACons e rest => andb (atomic_tree_b e) (atomic_arglist_b rest)
   end.
 Lemma atomic_tree_b_refl :
   (forall e, atomic_tree_b e = true <-> atomic_tree e) /\
   (forall a, atomic_atom_b a = true <-> atomic_atom a) /\
-  (forall sa, atomic_satom_b sa = true <-> atomic_satom sa).
+  (forall sa, atomic_satom_b sa = true <-> atomic_satom sa) /\
+  (forall args, atomic_arglist_b args = true <-> atomic_arglist args).
 Proof.
   apply GoTree_mutind.
   - intros a IHa. cbn [atomic_tree_b atomic_tree]. exact IHa.
@@ -4093,6 +4366,11 @@ Proof.
     rewrite Bool.andb_true_iff, IHa, IHi. reflexivity.
   - intros a IHa lo IHlo hi IHhi. cbn [atomic_satom_b atomic_satom].
     rewrite !Bool.andb_true_iff, IHa, IHlo, IHhi. tauto.
+  - intros a IHa args IHargs. cbn [atomic_satom_b atomic_satom].
+    rewrite Bool.andb_true_iff, IHa, IHargs. reflexivity.
+  - cbn [atomic_arglist_b atomic_arglist]. split; [ intros _; exact I | reflexivity ].
+  - intros e IHe l IHl. cbn [atomic_arglist_b atomic_arglist].
+    rewrite Bool.andb_true_iff, IHe, IHl. reflexivity.
 Qed.
 
 (** [atomic_tree] carries the rule-2 composite-no-spine restriction.  The round-trip theorem
@@ -4424,13 +4702,15 @@ Qed.
 Inductive POp : Type :=
   | OSel : Ident -> POp
   | OIdx : GoExpr -> POp
-  | OSlc : GoExpr -> GoExpr -> POp.
+  | OSlc : GoExpr -> GoExpr -> POp
+  | OApply : ArgList -> POp.
 
 Fixpoint spine (a : SAtom) : SAtom * list POp :=
   match a with
   | SSelector a f  => let (b, ops) := spine a in (b, (ops ++ [OSel f])%list)
   | SIndex a i     => let (b, ops) := spine a in (b, (ops ++ [OIdx i])%list)
   | SSlice a lo hi => let (b, ops) := spine a in (b, (ops ++ [OSlc lo hi])%list)
+  | SApply a args   => let (b, ops) := spine a in (b, (ops ++ [OApply args])%list)
   | b => (b, [])
   end.
 Fixpoint applyops (a : SAtom) (ops : list POp) : SAtom :=
@@ -4439,6 +4719,7 @@ Fixpoint applyops (a : SAtom) (ops : list POp) : SAtom :=
   | OSel f :: r => applyops (SSelector a f) r
   | OIdx i :: r => applyops (SIndex a i) r
   | OSlc lo hi :: r => applyops (SSlice a lo hi) r
+  | OApply args :: r => applyops (SApply a args) r
   end.
 Definition pop (o : POp) : string :=
   match o with
@@ -4446,6 +4727,7 @@ Definition pop (o : POp) : string :=
   | OIdx i => String (ch 91) (print_expr 0 i ++ String (ch 93) EmptyString)
   | OSlc lo hi => String (ch 91)
       (print_expr 0 lo ++ String (ch 58) (print_expr 0 hi ++ String (ch 93) EmptyString))
+  | OApply args => String (ch 40) (argl_str args ++ String (ch 41) EmptyString)
   end.
 Fixpoint pops (ops : list POp) : string :=
   match ops with [] => EmptyString | o :: r => (pop o ++ pops r)%string end.
@@ -4462,13 +4744,13 @@ Proof.
 Qed.
 Lemma spine_correct : forall a, applyops (fst (spine a)) (snd (spine a)) = a.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [spine]; try reflexivity;
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine]; try reflexivity;
     (destruct (spine a) as [ b ops ] eqn:Es; cbn [fst snd] in *;
      rewrite applyops_app; cbn [applyops]; rewrite IH; reflexivity).
 Qed.
 Lemma print_spine : forall a, satom_str a = (satom_str (fst (spine a)) ++ pops (snd (spine a)))%string.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [spine].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
   - cbn [fst snd pops]. rewrite sapp_nil_r; reflexivity.
@@ -4484,6 +4766,10 @@ Proof.
               (print_expr 0 lo ++ String (ch 58) (print_expr 0 hi ++ String (ch 93) EmptyString)))%string.
     destruct (spine a) as [ b ops ] eqn:Es; cbn [fst snd] in *.
     rewrite pops_app; cbn [pops pop]; rewrite sapp_nil_r, IH, sapp_assoc; reflexivity.
+  - change (satom_str (SApply a args))
+      with (satom_str a ++ String (ch 40) (argl_str args ++ String (ch 41) EmptyString))%string.
+    destruct (spine a) as [ b ops ] eqn:Es; cbn [fst snd] in *.
+    rewrite pops_app; cbn [pops pop]; rewrite sapp_nil_r, IH, sapp_assoc; reflexivity.
 Qed.
 
 (** [opsz] — the [parse_postfix] fuel an op list needs: 1 per op + [3*esize] per expr child. *)
@@ -4493,6 +4779,7 @@ Fixpoint opsz (ops : list POp) : nat :=
   | OSel _ :: r => S (opsz r)
   | OIdx i :: r => S (S (S (3 * esize i + opsz r)))         (* +3: [Pexpr] child needs [3*esize+2 < fuel] *)
   | OSlc lo hi :: r => S (S (S (3 * esize lo + 3 * esize hi + opsz r)))
+  | OApply args :: r => S (S (S (S (3 * argl_size args + opsz r))))   (* +4: [parse_args] needs [3*argl_size+4] fuel *)
   end.
 Lemma opsz_app : forall a b, opsz (a ++ b)%list = opsz a + opsz b.
 Proof.
@@ -4501,10 +4788,11 @@ Proof.
 Qed.
 Lemma spine_fuel_a : forall a, opsz (snd (spine a)) + 3 <= 3 * asize a.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [spine asize].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
   - cbn [snd opsz]. lia.
   - cbn [snd opsz]. lia.
   - cbn [snd opsz]. lia.
+  - destruct (spine a) as [ b ops ]; cbn [snd] in *. rewrite opsz_app. cbn [opsz]. lia.
   - destruct (spine a) as [ b ops ]; cbn [snd] in *. rewrite opsz_app. cbn [opsz]. lia.
   - destruct (spine a) as [ b ops ]; cbn [snd] in *. rewrite opsz_app. cbn [opsz]. lia.
   - destruct (spine a) as [ b ops ]; cbn [snd] in *. rewrite opsz_app. cbn [opsz]. lia.
@@ -4528,15 +4816,23 @@ Lemma Ident_pi : forall (s : string) (H1 H2 : go_ident s = true),
   exist (fun s => go_ident s = true) s H1 = exist _ s H2.
 Proof. intros s H1 H2. f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec). Qed.
 
+(** Every argument of a call round-trips ([Pexpr]) — the per-arg obligation [parse_args] discharges. *)
+Fixpoint argl_wf (l : ArgList) : Prop :=
+  match l with ANil => True | ACons e r => Pexpr e /\ argl_wf r end.
 (** The per-op round-trip obligation: an index/slice child round-trips as an expression ([Pexpr], supplied
-    from the size-IH); a selector field needs nothing extra (its [go_ident] proof rides in the [Ident]). *)
+    from the size-IH); a call's arguments each round-trip ([argl_wf]); a selector field needs nothing extra
+    (its [go_ident] proof rides in the [Ident]). *)
 Definition opwf (o : POp) : Prop :=
-  match o with OSel _ => True | OIdx i => Pexpr i | OSlc lo hi => Pexpr lo /\ Pexpr hi end.
+  match o with
+  | OSel _ => True | OIdx i => Pexpr i | OSlc lo hi => Pexpr lo /\ Pexpr hi
+  | OApply args => argl_wf args
+  end.
 (** The tail after the whole postfix spine: empty, or led by a char that is NOT [is_idc] (so a trailing
-    selector field's [scan_field] stops) and NOT '.'/'[' (so [parse_postfix] stops). *)
+    selector field's [scan_field] stops) and NOT '.'/'['/'(' (so [parse_postfix] stops — incl. the call
+    postfix, review #8 P0-1b: a '(' after the spine would otherwise be read as a continuation). *)
 Definition post_tail (rest : string) : Prop :=
   forall c t, rest = String c t ->
-    is_idc c = false /\ Ascii.eqb c (ch 46) = false /\ Ascii.eqb c (ch 91) = false.
+    is_idc c = false /\ Ascii.eqb c (ch 46) = false /\ Ascii.eqb c (ch 91) = false /\ Ascii.eqb c (ch 40) = false.
 
 (** The head of [pops ops ++ rest] is empty or non-[is_idc] — a pop-start '.'/'[' (non-idc) or a [post_tail]
     char — so a selector field's [scan_field] stops at it. *)
@@ -4547,13 +4843,106 @@ Proof.
   intros ops rest Hr. destruct ops as [ | o ops' ].
   - cbn [pops]. cbn [String.append]. destruct rest as [ | c t ]; [ now left | right ].
     exists c, t. split; [ reflexivity | exact (proj1 (Hr c t eq_refl)) ].
-  - right. cbn [pops]. destruct o as [ f | i | lo hi ]; cbn [pop String.append];
+  - right. cbn [pops]. destruct o as [ f | i | lo hi | args ]; cbn [pop String.append];
       eexists _, _; split; reflexivity.
+Qed.
+
+(** A ')'-led string is never bracket-balanced from the empty stack (')' pops nothing). *)
+Lemma bstack_close_nil_false : forall r', bstack_ok nil (String (ch 41) r')%string = false.
+Proof.
+  intro r'. rewrite bstack_ok_cons. unfold opens.
+  rewrite (op_match_not_space (ch 41) r' eq_refl). reflexivity.
+Qed.
+(** Hence an [atomic] string is never ')'-led. *)
+Lemma atomic_not_close_led : forall c r', atomic (String c r')%string = true -> Ascii.eqb c (ch 41) = false.
+Proof.
+  intros c r' H. destruct (Ascii.eqb c (ch 41)) eqn:E; [ | reflexivity ].
+  apply Ascii.eqb_eq in E. subst c.
+  destruct (atomic_inv _ H) as [ c0 [ r0 [ _ [ _ Hb ] ] ] ].
+  rewrite bstack_close_nil_false in Hb. discriminate Hb.
+Qed.
+(** No printed expression is ')'-led: its first char is an atom lead (never ')' — [atomic]), a "(" wrap, or
+    a unary op — checked by structural induction (the binop left spine recurses, atoms via [satom_atomic]). *)
+Lemma print_expr_first : forall e ctx,
+  exists c r, print_expr ctx e = String c r /\ Ascii.eqb c (ch 41) = false.
+Proof.
+  induction e as [ a | o l IHl r IHr | op e IHe ]; intro ctx.
+  - rewrite print_expr_atom. destruct a as [ sa | v ].
+    + change (atom_str (AScanned sa)) with (satom_str sa).
+      pose proof (satom_atomic sa) as Hat.
+      destruct (satom_str sa) as [ | c r ] eqn:E; [ exfalso; apply (satom_nonempty sa); exact E | ].
+      exists c, r. split; [ reflexivity | apply (atomic_not_close_led c r); exact Hat ].
+    + change (atom_str (AStringLit v)) with (print_string_lit v).
+      unfold print_string_lit. eexists _, _; split; reflexivity.
+  - destruct (Nat.ltb (binop_prec o) ctx) eqn:Ew.
+    + rewrite (print_expr_wrapped o l r ctx Ew). eexists _, _; split; reflexivity.
+    + rewrite (print_expr_unwrapped o l r ctx Ew).
+      destruct (IHl (binop_prec o)) as [ c [ rr [ Hl Hc ] ] ]. rewrite Hl. cbn [String.append].
+      eexists _, _; split; [ reflexivity | exact Hc ].
+  - destruct op;
+      [ rewrite (print_expr_unary UNot e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UXor e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UDeref e ctx ltac:(discriminate))
+      | rewrite (print_expr_unary UAddr e ctx ltac:(discriminate))
+      | rewrite (print_expr_uneg e ctx) ];
+      cbn [unop_text String.append]; eexists _, _; split; reflexivity.
+Qed.
+(** A non-empty arg list is never ')'-led — it begins with its first argument's print ([print_expr_first]). *)
+Lemma argl_str_first : forall args, args <> ANil ->
+  exists c r, argl_str args = String c r /\ Ascii.eqb c (ch 41) = false.
+Proof.
+  intros [ | e rest ] Hne; [ exfalso; apply Hne; reflexivity | ].
+  destruct (print_expr_first e 0) as [ c [ r [ He Hc ] ] ].
+  destruct rest as [ | e2 rest' ].
+  - cbn [argl_str]. rewrite He. exists c, r. split; [ reflexivity | exact Hc ].
+  - change (argl_str (ACons e (ACons e2 rest')))
+      with (print_expr 0 e ++ String (ch 44) (String (ch 32) (argl_str (ACons e2 rest'))))%string.
+    rewrite He. cbn [String.append]. eexists _, _; split; [ reflexivity | exact Hc ].
+Qed.
+
+(** ★THE ARG-LIST ROUND-TRIP (review #8 P0-1b): the MUTUAL [parse_args] (in the [parse_expr] fuel cycle)
+    recovers the EXACT [ArgList] from [argl_str args] followed by the closing ")".  Each arg round-trips by
+    [Pexpr] (carried in [argl_wf]); its tail is a clean stopping seam — ", " (the [tail_ok] COMMA disjunct)
+    for a non-last arg, ")" (a [bclose]) for the last.  Fuel [3*argl_size args + 4] feeds each
+    [parse_expr f 0] the [3*esize e + 3] it needs.  Caller handles the empty "()" (no [parse_args] call). *)
+Lemma parse_args_roundtrip_mut : forall args tail fuel,
+  argl_wf args -> 3 * argl_size args + 4 <= fuel ->
+  parse_args fuel (argl_str args ++ String (ch 41) tail)%string
+    = Some (args, String (ch 41) tail).
+Proof.
+  induction args as [ | e rest IH ]; intros tail fuel Hwf Hsz.
+  - (* ANil: "" ++ ")"tail = ")"tail — the leading ')' check fires, returns [ANil] *)
+    destruct fuel as [ | f ]; [ cbn in Hsz; lia | ].
+    rewrite parse_args_S. cbn [argl_str String.append]. rewrite Ascii.eqb_refl. reflexivity.
+  - destruct Hwf as [ HPe Hwfr ].
+    destruct fuel as [ | f ]; [ cbn in Hsz; lia | ].
+    rewrite parse_args_S.
+    (* the printed arg list is NOT ')'-led — expose its first char in the SCRUTINEE only ([at 1]), so the
+       [parse_expr] argument keeps its [argl_str] head (no [cbn] merge), ready for [HPe]. *)
+    destruct (argl_str_first (ACons e rest) ltac:(discriminate)) as [ c0 [ r0 [ Hf0 Hc0 ] ] ].
+    rewrite Hf0 at 1. cbn [String.append]. rewrite Hc0.
+    destruct rest as [ | e2 rest' ].
+    + (* single arg: [argl_str (ACons e ANil) = print_expr 0 e]; tail ")" is a bclose seam *)
+      cbn [argl_str]. cbn [argl_size] in Hsz.
+      rewrite (HPe 0 0 (String (ch 41) tail) f (le_n 0)
+                 ltac:(right; left; exists (ch 41), tail; split; reflexivity)
+                 ltac:(lia)).
+      destruct tail as [ | tc tt ]; reflexivity.
+    + (* multi: first arg's tail is ", " — a comma seam — then recurse on the rest *)
+      change (argl_str (ACons e (ACons e2 rest')))
+        with (print_expr 0 e ++ String (ch 44) (String (ch 32) (argl_str (ACons e2 rest'))))%string.
+      rewrite sapp_assoc. cbn [argl_size] in Hsz.
+      rewrite (HPe 0 0 (String (ch 44) (String (ch 32) (argl_str (ACons e2 rest'))) ++ String (ch 41) tail)%string
+                 f (le_n 0)
+                 ltac:(right; right; right; eexists; reflexivity)
+                 ltac:(lia)).
+      cbn [String.append andb Ascii.eqb].
+      rewrite (IH tail f Hwfr ltac:(cbn [argl_size]; lia)). reflexivity.
 Qed.
 
 (** THE POSTFIX SPINE ROUND-TRIP (transplant of blueprint [ppost_ops]): [parse_postfix] recovers the op
     list left-to-right — selector via [scan_field_app] + [Ident_pi], index/slice children via [Pexpr] (the
-    3-way fuel cycle), stopping at the [post_tail]. *)
+    3-way fuel cycle), call args via [parse_args_roundtrip_mut], stopping at the [post_tail]. *)
 Lemma ppost_ops : forall ops base rest fuel,
   Forall opwf ops -> opsz ops < fuel -> post_tail rest ->
   parse_postfix fuel base (pops ops ++ rest)%string
@@ -4562,11 +4951,11 @@ Proof.
   induction ops as [ | o ops IH ]; intros base rest fuel HF Hsz Hr.
   - cbn [pops]. cbn [String.append]. destruct fuel as [ | f ]; [ cbn in Hsz; lia | ].
     rewrite parse_postfix_S. destruct rest as [ | c t ]; [ reflexivity | ].
-    destruct (Hr c t eq_refl) as [ _ [ Hdot Hlb ] ]. rewrite Hdot, Hlb. reflexivity.
+    destruct (Hr c t eq_refl) as [ _ [ Hdot [ Hlb Hlp ] ] ]. rewrite Hdot, Hlb, Hlp. reflexivity.
   - inversion HF as [ | o0 ops0 Ho HFr ]; subst.
     destruct fuel as [ | f ]; [ cbn in Hsz; lia | ].
     cbn [pops]. rewrite sapp_assoc. rewrite parse_postfix_S.
-    destruct o as [ g | i | lo hi ]; cbn [pop opsz] in *.
+    destruct o as [ g | i | lo hi | args ]; cbn [pop opsz] in *.
     + (* OSel g : ".field" *)
       cbn [String.append]. rewrite Ascii.eqb_refl.
       rewrite (scan_field_app (proj1_sig g) (pops ops ++ rest)
@@ -4598,6 +4987,14 @@ Proof.
                  ltac:(right; left; exists (ch 93), (pops ops ++ rest); split; reflexivity)
                  ltac:(lia)).
       rewrite Ascii.eqb_refl. apply (IH (SSlice base lo hi) rest f HFr); [ lia | exact Hr ].
+    + (* OApply args : "(" args ")" — [parse_args_roundtrip_mut] recovers the whole list, then the spine continues *)
+      cbn [String.append].
+      assert (Hd1 : Ascii.eqb (ch 40) (ch 46) = false) by reflexivity.
+      assert (Hd2 : Ascii.eqb (ch 40) (ch 91) = false) by reflexivity.
+      rewrite Hd1, Hd2, Ascii.eqb_refl.
+      rewrite sapp_assoc. cbn [String.append].
+      rewrite (parse_args_roundtrip_mut args (pops ops ++ rest) f Ho ltac:(lia)).
+      apply (IH (SApply base args) rest f HFr); [ lia | exact Hr ].
 Qed.
 
 (** [exist] proof-irrelevance over any decidable-bool predicate (UIP on a [bool] equality). *)
@@ -4613,7 +5010,7 @@ Lemma build_base_correct : forall sa,
   match sa with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end ->
   build_base (satom_str sa) = Some sa.
 Proof.
-  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi ]; try contradiction; cbn [satom_str].
+  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
   - unfold build_base.
     destruct (bool_dec (go_ident (proj1_sig i)) true) as [ Hi | Hn ];
       [ | exfalso; apply Hn; exact (proj2_sig i) ].
@@ -4638,10 +5035,11 @@ Qed.
 Lemma spine_base_leaf : forall a,
   match fst (spine a) with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end.
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [spine].
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine].
   - exact I.
   - exact I.
   - exact I.
+  - destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH.
   - destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH.
   - destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH.
   - destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH.
@@ -4681,11 +5079,12 @@ Lemma scan_rest_S : forall f d s, scan_rest (S f) d s =
   end.
 Proof. reflexivity. Qed.
 
-(** A postfix-start char is never a dquote (it is '.' / '['). *)
+(** A postfix-start char is never a dquote (it is '.' / '[' / '('). *)
 Lemma postfix_start_not_quote : forall c, is_postfix_start c = true -> Ascii.eqb c (ch 34) = false.
 Proof.
   intros c H. unfold is_postfix_start in H. apply orb_true_iff in H.
-  destruct H as [ H | H ]; apply Ascii.eqb_eq in H; subst c; reflexivity.
+  destruct H as [ H | H ]; [ apply orb_true_iff in H; destruct H as [ H | H ] | ];
+    apply Ascii.eqb_eq in H; subst c; reflexivity.
 Qed.
 
 (** [scan_rest] reads an [op_clean] operand EXACTLY, stopping at the [is_postfix_start]-led (or empty) tail
@@ -4761,7 +5160,8 @@ Proof.
   unfold op_plain_char. destruct (is_idc_not_special c Hc) as [ Hq [ Hbo Hbc ] ]. rewrite Hq, Hbo, Hbc.
   assert (Hd46 : Ascii.eqb c (ch 46) = false) by apply (is_idc_eqb_false c 46 Hc eq_refl).
   assert (Hd91 : Ascii.eqb c (ch 91) = false) by apply (is_idc_eqb_false c 91 Hc eq_refl).
-  assert (Hps : is_postfix_start c = false) by (unfold is_postfix_start; rewrite Hd46, Hd91; reflexivity).
+  assert (Hd40 : Ascii.eqb c (ch 40) = false) by apply (is_idc_eqb_false c 40 Hc eq_refl).
+  assert (Hps : is_postfix_start c = false) by (unfold is_postfix_start; rewrite Hd46, Hd91, Hd40; reflexivity).
   rewrite Hps. reflexivity.
 Qed.
 Lemma is_dec_op_plain : forall s, is_dec s = true -> all_op_plain s = true.
@@ -4884,24 +5284,69 @@ Proof.
   apply andb_true_iff in Hatm. destruct Hatm as [ _ Hbs ]. exact Hbs.
 Qed.
 
+(** [argl_forall P l] — [P] holds of every argument (the call analogue of [Forall] over the arg list). *)
+Fixpoint argl_forall (P : GoExpr -> Prop) (l : ArgList) : Prop :=
+  match l with ANil => True | ACons e r => P e /\ argl_forall P r end.
+Lemma argl_forall_mono : forall (P Q : GoExpr -> Prop) l,
+  (forall e, P e -> Q e) -> argl_forall P l -> argl_forall Q l.
+Proof.
+  induction l as [ | e r IH ]; intros Himp H; cbn [argl_forall] in *; [ exact I | ].
+  destruct H as [ He Hr ]. split; [ apply Himp; exact He | apply IH; [ exact Himp | exact Hr ] ].
+Qed.
+Lemma argl_forall_lt_bound : forall args n, S (argl_size args) <= n -> argl_forall (fun e => esize e < n) args.
+Proof.
+  induction args as [ | e r IH ]; intros n Hn; [ exact I | ].
+  cbn [argl_size] in Hn. cbn [argl_forall]. split; [ lia | apply IH; lia ].
+Qed.
+(** Build [argl_wf] (each arg [Pexpr]) from the size-IH: every arg is strictly smaller and [atomic_tree]. *)
+Lemma argl_wf_build : forall args n,
+  argl_forall (fun e => esize e < n) args -> atomic_arglist args ->
+  (forall e', esize e' < n -> atomic_tree e' -> Pexpr e') -> argl_wf args.
+Proof.
+  induction args as [ | e r IH ]; intros n Hsz Hat Hsih; cbn in *; [ exact I | ].
+  destruct Hsz as [ Hse Hsr ]. destruct Hat as [ Hae Har ]. split;
+    [ apply Hsih; [ exact Hse | exact Hae ] | apply (IH n); assumption ].
+Qed.
+
 (** An atom's spine children are STRICTLY SMALLER than the atom (for the size-IH). *)
 Lemma spine_child_size : forall a,
   Forall (fun o => match o with OSel _ => True | OIdx i => esize i < asize a
-                   | OSlc lo hi => esize lo < asize a /\ esize hi < asize a end)
+                   | OSlc lo hi => esize lo < asize a /\ esize hi < asize a
+                   | OApply args => argl_forall (fun e => esize e < asize a) args end)
          (snd (spine a)).
 Proof.
-  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [spine asize];
-    [ cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | | | ];
-    (destruct (spine a) as [ b ops ]; cbn [snd] in *; apply Forall_app; split;
-       [ eapply Forall_impl; [ | exact IH ]; intros o Ho;
-         destruct o; [ exact I | lia | destruct Ho; split; lia ]
-       | apply Forall_cons; [ first [ exact I | lia | split; lia ] | apply Forall_nil ] ]).
+  assert (Hweak : forall a n, asize a <= n -> forall o,
+    (match o with OSel _ => True | OIdx i => esize i < asize a
+       | OSlc lo hi => esize lo < asize a /\ esize hi < asize a
+       | OApply args => argl_forall (fun e => esize e < asize a) args end) ->
+    (match o with OSel _ => True | OIdx i => esize i < n
+       | OSlc lo hi => esize lo < n /\ esize hi < n
+       | OApply args => argl_forall (fun e => esize e < n) args end)).
+  { intros a n Hle o Ho. destruct o as [ g | i | lo hi | args ];
+      [ exact I | lia | destruct Ho; split; lia
+      | eapply argl_forall_mono; [ | exact Ho ]; intros e He; cbn beta in He |- *; lia ]. }
+  induction a as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [spine asize].
+  - cbn [snd]; constructor.
+  - cbn [snd]; constructor.
+  - cbn [snd]; constructor.
+  - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
+      [ eapply Forall_impl; [ | exact IH ]; intros o Ho; apply (Hweak a (S (asize a))); [ lia | exact Ho ]
+      | apply Forall_cons; [ exact I | apply Forall_nil ] ].
+  - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
+      [ eapply Forall_impl; [ | exact IH ]; intros o Ho; apply (Hweak a (S (asize a + esize i))); [ lia | exact Ho ]
+      | apply Forall_cons; [ lia | apply Forall_nil ] ].
+  - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
+      [ eapply Forall_impl; [ | exact IH ]; intros o Ho; apply (Hweak a (S (asize a + esize lo + esize hi))); [ lia | exact Ho ]
+      | apply Forall_cons; [ split; lia | apply Forall_nil ] ].
+  - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
+      [ eapply Forall_impl; [ | exact IH ]; intros o Ho; apply (Hweak a (S (S (asize a + argl_size args)))); [ lia | exact Ho ]
+      | apply Forall_cons; [ apply argl_forall_lt_bound; lia | apply Forall_nil ] ].
 Qed.
 (** [sa_leaf_comp] / [sa_has_ops] vs the [spine] decomposition (the spine-free helpers compute exactly the
     [fst (spine sa)] composite-test / the [snd (spine sa) = nil] test). *)
 Lemma sa_leaf_comp_spine : forall sa, sa_leaf_comp sa = is_comp_lead (satom_str (fst (spine sa))).
 Proof.
-  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi ]; cbn [sa_leaf_comp spine]; try reflexivity;
+  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; cbn [sa_leaf_comp spine]; try reflexivity;
     (destruct (spine a) as [ b ops ]; cbn [fst] in *; exact IH).
 Qed.
 Lemma sa_has_ops_nil : forall sa, sa_has_ops sa = false -> snd (spine sa) = nil.
@@ -4910,10 +5355,11 @@ Proof. intros sa H. destruct sa; cbn [sa_has_ops] in H; (reflexivity || discrimi
     for the children, recovered from the parent atom's [atomic_tree]). *)
 Lemma atomic_satom_child : forall sa, atomic_satom sa ->
   Forall (fun o => match o with OSel _ => True | OIdx i => atomic_tree i
-                   | OSlc lo hi => atomic_tree lo /\ atomic_tree hi end) (snd (spine sa)).
+                   | OSlc lo hi => atomic_tree lo /\ atomic_tree hi
+                   | OApply args => atomic_arglist args end) (snd (spine sa)).
 Proof.
-  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi ]; intro Hat; cbn [spine] in *;
-    [ cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | | | ];
+  induction sa as [ i | z | r | a IH f | a IH i | a IH lo hi | a IH args ]; intro Hat; cbn [spine] in *;
+    [ cbn [snd]; constructor | cbn [snd]; constructor | cbn [snd]; constructor | | | | ];
     cbn [atomic_satom] in Hat.
   - destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
       [ apply IH; exact Hat | apply Forall_cons; [ exact I | apply Forall_nil ] ].
@@ -4921,6 +5367,8 @@ Proof.
       [ apply IH; exact Hata | apply Forall_cons; [ exact Hi | apply Forall_nil ] ].
   - destruct Hat as [ Hata [ Hlo Hhi ] ]. destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
       [ apply IH; exact Hata | apply Forall_cons; [ split; assumption | apply Forall_nil ] ].
+  - destruct Hat as [ Hata Hargs ]. destruct (spine a) as [ b ops ]; cbn [snd] in *. apply Forall_app; split;
+      [ apply IH; exact Hata | apply Forall_cons; [ exact Hargs | apply Forall_nil ] ].
 Qed.
 (** The per-op round-trip [Forall opwf]: a size-IH giving [Pexpr] for every strictly-smaller [atomic_tree]
     expr (the index/slice children, whose [atomic_tree] comes from [atomic_satom] via [atomic_satom_child]). *)
@@ -4931,10 +5379,11 @@ Proof.
   intros sa Hsih Hat. pose proof (spine_child_size sa) as Hcs. pose proof (atomic_satom_child sa Hat) as Hac.
   apply Forall_forall. intros o Hin. rewrite Forall_forall in Hcs, Hac.
   specialize (Hcs o Hin). specialize (Hac o Hin).
-  destruct o as [ g | i | lo hi ]; cbn [opwf] in *.
+  destruct o as [ g | i | lo hi | args ]; cbn [opwf] in *.
   - exact I.
   - apply Hsih; [ exact Hcs | exact Hac ].
   - destruct Hcs as [ Hlo Hhi ]. destruct Hac as [ Halo Hahi ]. split; apply Hsih; assumption.
+  - apply (argl_wf_build args (asize sa)); [ exact Hcs | exact Hac | exact Hsih ].
 Qed.
 
 (** [leading_ident] of [s ++ rest] is [leading_ident s] when [rest] is non-[is_idc]-led (or empty) — the
@@ -4966,17 +5415,18 @@ Proof.
       destruct (scan_base operand) as [ b r ] eqn:Esb.
       apply andb_true_iff in Hwb. destruct Hwb as [ Hb Hr ].
       apply String.eqb_eq in Hb. apply String.eqb_eq in Hr. subst b r. reflexivity. }
-  (* NON-composite (is_comp_lead operand = false): scan_base = scan_rest both for operand and operand++pops *)
-  apply orb_false_iff in Hnc. destruct Hnc as [ Hmap Hlbm ].
+  (* NON-composite (is_comp_lead operand = false → not map/func/'['): scan_base = scan_rest for both *)
+  apply orb_false_iff in Hnc. destruct Hnc as [ Hmapfunc Hlbm ].
+  apply orb_false_iff in Hmapfunc. destruct Hmapfunc as [ Hmap Hfunc ].
   destruct operand as [ | c orest ]; [ congruence | ].
   change (Ascii.eqb c (ch 91) = false) in Hlbm.
   assert (Hpidc : pops = EmptyString \/ exists c0 t, pops = String c0 t /\ is_idc c0 = false).
   { destruct Hpops as [ -> | [ c0 [ t [ -> Hps ] ] ] ]; [ now left | right; exists c0, t; split; [ reflexivity | ] ].
     unfold is_postfix_start in Hps. apply orb_true_iff in Hps. destruct Hps as [ H | H ];
-      apply Ascii.eqb_eq in H; subst c0; reflexivity. }
-  (* scan_base reads (String c orest) via the scan_rest branch (non-composite) *)
+      [ apply orb_true_iff in H; destruct H as [ H | H ] | ]; apply Ascii.eqb_eq in H; subst c0; reflexivity. }
+  (* scan_base reads (String c orest) via the scan_rest branch (not func/map/'[' led) *)
   assert (Hsb : scan_base (String c orest) = scan_rest (String.length (String c orest)) 0 (String c orest)).
-  { unfold scan_base. rewrite Hmap, Hlbm. reflexivity. }
+  { unfold scan_base. rewrite Hfunc, Hmap, Hlbm. reflexivity. }
   assert (Hsr : scan_rest (String.length (String c orest)) 0 (String c orest) = (String c orest, EmptyString)).
   { unfold whole_base in Hwb. rewrite Hsb in Hwb.
     destruct (scan_rest (String.length (String c orest)) 0 (String c orest)) as [ b r ] eqn:Esr.
@@ -4987,7 +5437,7 @@ Proof.
     cbn [Datatypes.length]. rewrite Hsr. reflexivity. }
   assert (Hsb2 : scan_base ((String c orest) ++ pops)%string
                = scan_rest (String.length ((String c orest) ++ pops)) 0 ((String c orest) ++ pops)).
-  { unfold scan_base. rewrite (leading_ident_app (String c orest) pops Hpidc), Hmap.
+  { unfold scan_base. rewrite (leading_ident_app (String c orest) pops Hpidc), Hfunc, Hmap.
     cbn [String.append]. rewrite Hlbm. reflexivity. }
   rewrite Hsb2, slen_app.
   exact (scan_rest_clean (String.length (String c orest)) (String c orest) 0 pops Hoc Hpops).
@@ -5004,10 +5454,11 @@ Qed.
 Lemma whole_base_of_op_clean : forall s,
   op_clean (String.length s) 0 s = true -> is_comp_lead s = false -> whole_base s = true.
 Proof.
-  intros s Hoc Hcl. unfold is_comp_lead in Hcl. apply orb_false_iff in Hcl. destruct Hcl as [ Hmap Hlb ].
+  intros s Hoc Hcl. unfold is_comp_lead in Hcl. apply orb_false_iff in Hcl. destruct Hcl as [ Hmapfunc Hlb ].
+  apply orb_false_iff in Hmapfunc. destruct Hmapfunc as [ Hmap Hfunc ].
   assert (Hscb : scan_base s = (s, EmptyString)).
   { assert (Hsb : scan_base s = scan_rest (String.length s) 0 s).
-    { unfold scan_base. rewrite Hmap. destruct s as [ | c rest ]; [ reflexivity | ].
+    { unfold scan_base. rewrite Hfunc, Hmap. destruct s as [ | c rest ]; [ reflexivity | ].
       change (Ascii.eqb c (ch 91) = false) in Hlb. rewrite Hlb. reflexivity. }
     rewrite Hsb.
     pose proof (scan_rest_clean (String.length s) s 0 EmptyString Hoc (or_introl eq_refl)) as Hc.
@@ -5018,8 +5469,9 @@ Qed.
 Lemma is_comp_lead_ident : forall s, go_ident s = true -> is_comp_lead s = false.
 Proof.
   intros s H. pose proof (go_ident_all_idc s H) as Hidc. unfold is_comp_lead. apply orb_false_iff. split.
-  - rewrite (leading_ident_all_idc s Hidc).
-    destruct (String.eqb s "map") eqn:E; [ apply String.eqb_eq in E; subst s; vm_compute in H; discriminate H | reflexivity ].
+  - apply orb_false_iff. rewrite (leading_ident_all_idc s Hidc). split.
+    + destruct (String.eqb s "map") eqn:E; [ apply String.eqb_eq in E; subst s; vm_compute in H; discriminate H | reflexivity ].
+    + destruct (String.eqb s "func") eqn:E; [ apply String.eqb_eq in E; subst s; vm_compute in H; discriminate H | reflexivity ].
   - destruct s as [ | c rest ]; [ discriminate H | ].
     cbn [all_idc] in Hidc. apply andb_true_iff in Hidc. destruct Hidc as [ Hc _ ].
     apply (is_idc_eqb_false c 91 Hc). reflexivity.
@@ -5031,8 +5483,11 @@ Proof.
   destruct (Ascii.eqb c (ascii_of_nat 45)) eqn:Edash.
   - apply Ascii.eqb_eq in Edash. subst c. split; reflexivity.
   - apply andb_true_iff in H. destruct H as [ Hdc _ ]. split.
-    + cbn [leading_ident]. rewrite (is_dec_char_is_idc c Hdc).
-      cbn [String.eqb]. destruct (Ascii.eqb c "m"%char) eqn:Em; [ apply Ascii.eqb_eq in Em; subst c; vm_compute in Hdc; discriminate Hdc | reflexivity ].
+    + apply orb_false_iff. split.
+      * cbn [leading_ident]. rewrite (is_dec_char_is_idc c Hdc).
+        cbn [String.eqb]. destruct (Ascii.eqb c "m"%char) eqn:Em; [ apply Ascii.eqb_eq in Em; subst c; vm_compute in Hdc; discriminate Hdc | reflexivity ].
+      * cbn [leading_ident]. rewrite (is_dec_char_is_idc c Hdc).
+        cbn [String.eqb]. destruct (Ascii.eqb c "f"%char) eqn:Ef; [ apply Ascii.eqb_eq in Ef; subst c; vm_compute in Hdc; discriminate Hdc | reflexivity ].
     + apply (is_idc_eqb_false c 91 (is_dec_char_is_idc c Hdc)). reflexivity.
 Qed.
 (** Every LEAF operand ([SIdent]/[SIntLit]/[SRaw]) is a WHOLE base ([scan_base] reads it entirely). *)
@@ -5040,7 +5495,7 @@ Lemma leaf_whole_base : forall sa,
   match sa with SIdent _ => True | SIntLit _ => True | SRaw _ => True | _ => False end ->
   whole_base (satom_str sa) = true.
 Proof.
-  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi ]; try contradiction; cbn [satom_str].
+  intros sa Hleaf. destruct sa as [ i | z | r | a f | a i | a lo hi | a args ]; try contradiction; cbn [satom_str].
   - apply whole_base_of_op_clean;
       [ apply op_plain_op_clean, all_idc_op_plain, go_ident_all_idc, (proj2_sig i)
       | apply is_comp_lead_ident, (proj2_sig i) ].
@@ -5057,7 +5512,7 @@ Lemma pops_postfix_led : forall ops,
   pops ops = EmptyString \/ exists c t, pops ops = String c t /\ is_postfix_start c = true.
 Proof.
   destruct ops as [ | o ops' ]; [ left; reflexivity | right ].
-  cbn [pops]. destruct o as [ f | i | lo hi ]; cbn [pop String.append]; eexists _, _; split; reflexivity.
+  cbn [pops]. destruct o as [ f | i | lo hi | args ]; cbn [pop String.append]; eexists _, _; split; reflexivity.
 Qed.
 
 (** THE POSTFIX-ATOM ROUND-TRIP (the rewired [parse_primary] atom branch): [scan_atom] isolates the chunk,
@@ -5392,7 +5847,8 @@ Qed.
 Lemma size_le_2len1 :
   (forall e ctx, esize e <= 2 * String.length (print_expr ctx e) + 1) /\
   (forall a, gsize a <= 2 * String.length (atom_str a) + 1) /\
-  (forall sa, asize sa <= 2 * String.length (satom_str sa) + 1).
+  (forall sa, asize sa <= 2 * String.length (satom_str sa) + 1) /\
+  (forall args, argl_size args <= 2 * String.length (argl_str args) + 2).
 Proof.
   apply GoTree_mutind.
   - (* EAtom a *) intros a IHa ctx. rewrite (print_expr_atom ctx a). cbn [esize]. exact IHa.
@@ -5420,6 +5876,15 @@ Proof.
     specialize (IHlo 0); specialize (IHhi 0).
     rewrite slen_app; cbn [String.length]; rewrite slen_app; cbn [String.length];
       rewrite slen_app; cbn [String.length]. lia.
+  - (* SApply a args : satom_str a ++ "(" ++ argl_str args ++ ")" *)
+    intros a IHa args IHargs. cbn [asize satom_str].
+    rewrite !slen_app; cbn [String.length]; rewrite !slen_app; cbn [String.length]. lia.
+  - (* ANil *) cbn [argl_size argl_str String.length]. lia.
+  - (* ACons e args *) intros e IHe args IHargs. cbn [argl_size]. destruct args as [ | e2 args' ].
+    + cbn [argl_str argl_size]. specialize (IHe 0). lia.
+    + change (argl_str (ACons e (ACons e2 args')))
+        with (print_expr 0 e ++ String (ch 44) (String (ch 32) (argl_str (ACons e2 args'))))%string.
+      rewrite !slen_app; cbn [String.length]. specialize (IHe 0). lia.
 Qed.
 
 (** The round-trip holds for EVERY tree ([wf]/[atomic_tree] are vacuous) — the size-IH [build_atom] feeds to
@@ -5459,6 +5924,35 @@ Theorem build_atom_roundtrip : forall cs e, build_atom cs = Some e ->
   parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
 Proof. intros cs e H. apply print_parse_expr, (build_atom_atomic_tree cs e H). Qed.
 
+(** [list_to_argl] — pack a [list GoExpr] into the mutual [ArgList] that [SApply] carries. *)
+Fixpoint list_to_argl (xs : list GoExpr) : ArgList :=
+  match xs with nil => ANil | cons e r => ACons e (list_to_argl r) end.
+(** ★[build_apply callee args] — the VERIFIED DIRECT constructor for an APPLICATION node (review #9: CONSTRUCT
+    syntax, do NOT rescue strings).  The plugin hands the ALREADY-BUILT [callee] [GoExpr] (a scanned atom — an
+    identifier / selector / nested application) and the ALREADY-BUILT [args] (each a verified [GoExpr]); this
+    packs them into [SApply] and RE-CHECKS [atomic_tree_b], so the result is GUARANTEED to round-trip
+    ([print_parse_expr]'s premise is ENFORCED here, never assumed of go.ml).  A callee that is not a scanned
+    atom, or a non-[atomic_tree] result, returns [None] → the plugin fails loud.  No string is printed-then-
+    reparsed — this is the construction path that replaces [pp_expr → string → build_atom] for calls. *)
+Definition build_apply (callee : GoExpr) (args : list GoExpr) : option GoExpr :=
+  match callee with
+  | EAtom (AScanned sa) =>
+      let e := EAtom (AScanned (SApply sa (list_to_argl args))) in
+      if atomic_tree_b e then Some e else None
+  | _ => None
+  end.
+Lemma build_apply_atomic_tree : forall callee args e, build_apply callee args = Some e -> atomic_tree e.
+Proof.
+  intros callee args e H. unfold build_apply in H. destruct callee as [ [ sa | v ] | | ]; try discriminate H.
+  destruct (atomic_tree_b (EAtom (AScanned (SApply sa (list_to_argl args))))) eqn:Eb; [ | discriminate H ].
+  injection H as <-. apply (proj1 atomic_tree_b_refl). exact Eb.
+Qed.
+(** Hence an [SApply] the plugin constructs DIRECTLY round-trips: [print_expr] reparses it to exactly itself —
+    the honest verified guarantee for the structured application node (NOT a string-recovery). *)
+Theorem build_apply_roundtrip : forall callee args e, build_apply callee args = Some e ->
+  parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
+Proof. intros callee args e H. apply print_parse_expr, (build_apply_atomic_tree callee args e H). Qed.
+
 (** [build_atom] recovers a SCANNED atom from its printed text ([AStringLit] is NOT scanned — it is
     recovered by [parse_strlit_prim], so excluded by the [atom_scanned] hypothesis).  The [atomic_tree_b]
     guard is satisfied because [atomic_atom g] holds (reflected to [atomic_atom_b g = true]). *)
@@ -5476,7 +5970,7 @@ Proof.
     with (S (6 * String.length (satom_str sa) + 2)) by lia.
   pose proof (parse_primary_atom sa "" (6 * String.length (satom_str sa) + 2) eq_refl
                 (fun e' _ Ae' => Pexpr_always e' Ae')
-                ltac:(pose proof (proj2 (proj2 size_le_2len1) sa); lia) Hdisj Hasat) as Hpp.
+                ltac:(pose proof (proj1 (proj2 (proj2 size_le_2len1)) sa); lia) Hdisj Hasat) as Hpp.
   rewrite sapp_nil_r in Hpp. rewrite Hpp. cbn [atomic_tree_b]. rewrite Hb. reflexivity.
 Qed.
 
@@ -5512,82 +6006,6 @@ Lemma print_sep_cons : forall sep x y zs,
   print_sep sep (x :: y :: zs) = (x ++ sep ++ print_sep sep (y :: zs))%string.
 Proof. reflexivity. Qed.
 
-(** [parse_args] — the CLASSIC recursive-descent ARGUMENT-LIST parser (review #8 P0-1b, NO string splits):
-    parse one expression (the lexer now HALTS it at the next depth-0 comma — step 1, commit 6532cbe), then
-    while the [", "] separator follows, consume it and recurse, until the closing ")" (or end of string).
-    The fuel for each arg's [parse_expr] is [6*|s|+6 >= 3*esize e + 3] ([size_le_2len1]: [esize e <= 2*|print_expr e|+1]).
-    This is the arg-list machinery the verified [SCall] node uses to reparse [f(a, b, c)] back. *)
-Fixpoint parse_args (fuel : nat) (s : string) : option (list GoExpr * string) :=
-  match fuel with
-  | O => None
-  | S f =>
-    match parse_expr (6 * String.length s + 6) 0 s with
-    | None => None
-    | Some (e, rest) =>
-        match rest with
-        | String c1 (String c2 r2) =>
-            if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))   (* ", " separator → another arg *)
-            then match parse_args f r2 with Some (es, r3) => Some (e :: es, r3) | None => None end
-            else Some (e :: nil, rest)                              (* last arg (rest starts with ")") *)
-        | _ => Some (e :: nil, rest)
-        end
-    end
-  end.
-(* [parse_args] parses a NON-EMPTY arg list (>= 1 expression); the empty list [()] is recognised by the
-   caller (the [SCall] parse case checks for ")" immediately after "("), so there is no leading-")" check. *)
-
-(** Executable witnesses (Option B parses a NON-EMPTY list): [parse_args] inverts [print_sep ", " (map
-    print_expr …)] on a singleton and a 3-arg list — the EXACT list + the ")" tail.  (The pre-step-1 attempt
-    FAILED on multi-arg because [scan_atom] blobbed "1, 2, 3"; now the lexer halts at the commas.) *)
-Example parse_args_rt_single :
-  let es := [EAtom (AScanned (SIntLit 7))] in
-  parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
-Proof. reflexivity. Qed.
-Example parse_args_rt_three :
-  let es := [EAtom (AScanned (SIntLit 1)); EAtom (AScanned (SIntLit 2)); EAtom (AScanned (SIntLit 3))] in
-  parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
-Proof. reflexivity. Qed.
-
-(** ★THE ARG-LIST ROUND-TRIP — the crux the verified [SCall] node needs (review #8 P0-1b): [parse_args]
-    recovers the EXACT argument expression list from [print_sep ", " (map (print_expr 0) …)] followed by its
-    closing ")".  Each arg round-trips by [Pexpr] — its tail (", " for a non-last arg, ")" for the last) is a
-    clean stopping seam, so the lexer halts the expression exactly there (steps 1-2).  Fuel
-    [6*|s|+6 >= 3*esize e + 3] via [size_le_2len1] ([esize e <= 2*|print_expr 0 e| + 1]). *)
-Lemma parse_args_roundtrip : forall args e rest F,
-  Forall atomic_tree (e :: args) -> S (length args) < F ->
-  parse_args F (print_sep ", " (map (print_expr 0) (e :: args)) ++ String (ch 41) rest)%string
-    = Some (e :: args, String (ch 41) rest).
-Proof.
-  induction args as [ | e2 args' IH ]; intros e rest F Hall HF.
-  - (* singleton [e] : tail is ")" — a bclose seam *)
-    destruct F as [ | f ]; [ cbn in HF; lia | ]. apply Forall_inv in Hall.
-    cbn [map print_sep]. cbn [parse_args].
-    assert (Hp : parse_expr (6 * String.length (print_expr 0 e ++ String (ch 41) rest) + 6) 0
-                            (print_expr 0 e ++ String (ch 41) rest)%string
-                 = Some (e, String (ch 41) rest)).
-    { apply (Pexpr_always e Hall 0 0 (String (ch 41) rest)); [ apply le_n | | ].
-      - right; left. exists (ch 41), rest. split; reflexivity.
-      - rewrite slen_app. pose proof (proj1 size_le_2len1 e 0) as Hsz. cbn [String.length]. lia. }
-    rewrite Hp. destruct rest as [ | rc rrest ]; reflexivity.
-  - (* e :: e2 :: args' : the first arg's tail is ", " — a comma seam — then recurse *)
-    destruct F as [ | f ]; [ cbn in HF; lia | ].
-    assert (Hate : atomic_tree e) by (apply Forall_inv in Hall; exact Hall).
-    assert (Hall' : Forall atomic_tree (e2 :: args')) by (inversion Hall; assumption).
-    assert (Hf : S (length args') < f) by (cbn in HF; lia).
-    cbn [map]. rewrite print_sep_cons.
-    set (MID := print_sep ", " (print_expr 0 e2 :: map (print_expr 0) args')).
-    (* regroup to print_expr 0 e ++ (", " ++ MID ++ ")" ++ rest) *)
-    rewrite !sapp_assoc. cbn [parse_args].
-    assert (Hp : parse_expr (6 * String.length (print_expr 0 e ++ (", " ++ MID ++ String (ch 41) rest)) + 6) 0
-                            (print_expr 0 e ++ (", " ++ MID ++ String (ch 41) rest))%string
-                 = Some (e, (", " ++ MID ++ String (ch 41) rest)%string)).
-    { apply (Pexpr_always e Hate 0 0 ((", " ++ MID ++ String (ch 41) rest))%string); [ apply le_n | | ].
-      - right; right; right. exists (String (ch 32) (MID ++ String (ch 41) rest))%string. reflexivity.
-      - rewrite slen_app. pose proof (proj1 size_le_2len1 e 0) as Hsz. lia. }
-    rewrite Hp. cbn [append andb Ascii.eqb].
-    pose proof (IH e2 rest f Hall' Hf) as IHa.
-    cbn [map] in IHa. fold MID in IHa. rewrite IHa. reflexivity.
-Qed.
 
 (** Concatenation of two balanced strings is balanced (depth/nneg are homomorphic over append). *)
 Lemma balanced_app : forall a b, balanced a -> balanced b -> balanced (a ++ b).
@@ -5626,9 +6044,14 @@ Print Assumptions print_parse_expr.
 Print Assumptions print_expr_inj.
 Print Assumptions build_atom_str.
 Print Assumptions print_sep_balanced.
+(* review #9: the plugin-boundary BUILDER theorems are gated DIRECTLY (not "they only depend on gated ones"). *)
+Print Assumptions build_atom_roundtrip.
+Print Assumptions build_atom_atomic_tree.
+Print Assumptions build_apply_roundtrip.
+Print Assumptions parse_args_roundtrip_mut.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z strlit_ok strlit_value build_atom.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_expr print_sep print_float_hex atomic atom_ok go_ident nominal_type_ident is_dec raw_ok parse_Z strlit_ok strlit_value build_atom build_apply.
