@@ -6168,6 +6168,96 @@ Proof.
       apply IH; [ exact Hsep | ]. intros z Hz. apply Hall. right. exact Hz.
 Qed.
 
+(** ════════════════════════════════════════════════════════════════════════════════════════════════
+    PHASE B (review #9 plan) — the Go STATEMENT AST.  The expression layer above prints PrimaryExpr /
+    operators; THIS layer prints STATEMENTS and func-lit bodies, so a func-lit — the A4 force-wrapper's
+    irreducible-opaque-[SRaw] holdout (`func(x T,y T) T { return x OP y }(a,b)`) — can become a STRUCTURED
+    [GoFuncLit] whose body is real [GoStmt], NOT opaque text.  This is the more-correct FULL structuring
+    that the pre-statement A4 scan-split could not reach (it would leave the func-lit body opaque, and its
+    round-trip was blocked by [bstack_ok]'s non-compositional seam-lookahead — see PROGRESS.md).
+
+    ADDITIVE: not yet wired into the plugin (golden byte-identical, [printer.ml] unchanged — [print_stmt]
+    is NOT on the [Extraction] line yet); B1 flips the go.ml leaf emitters onto [print_stmt].  Each ctor
+    notes its intended cmd.v / unified.v denotation target (amendment 10), to be connected in B3.
+
+    THIS SLICE (B0): the inductive + the printers + concrete byte-exact EXAMPLES showing the A4 force-
+    wrappers are REPRESENTABLE as a structured [GoFuncLit] (the binary and conversion IIFEs print byte-for-
+    byte).  Starts with the LINEAR statements (return / expr-stmt / assign / short-decl); nested blocks
+    ([SIf]/[SFor]/…) and the universal [print_stmt_inj] (which needs cross-constructor keyword
+    disambiguation — a func-lit / expr never prints a leading statement keyword) are the next slices. *)
+Inductive GoStmt : Type :=
+  | SReturn    : GoExpr -> GoStmt            (* [return e]  → cmd.v: the IO [ret] value / a function result *)
+  | SExprStmt  : GoExpr -> GoStmt            (* [e]         → cmd.v: an effectful call, sequenced by [CBind] *)
+  | SAssign    : GoExpr -> GoExpr -> GoStmt  (* [l = r]     → cmd.v: [CSet] / a ref or struct-field write *)
+  | SShortDecl : Ident  -> GoExpr -> GoStmt. (* [x := e]    → cmd.v: a [CLet] local binding *)
+
+(** A single statement to its source text (no leading indentation — the enclosing block adds it). *)
+Definition print_stmt (s : GoStmt) : string :=
+  match s with
+  | SReturn e      => "return " ++ print_expr 0 e
+  | SExprStmt e    => print_expr 0 e
+  | SAssign l r    => print_expr 0 l ++ " = " ++ print_expr 0 r
+  | SShortDecl x e => proj1_sig x ++ " := " ++ print_expr 0 e
+  end.
+
+(** A statement SEQUENCE, "; "-separated (a valid Go statement separator; B1 reconciles with go.ml's
+    newline+tab layout).  No leading/trailing separator — the [print_sep]/[argl_str] discipline. *)
+Fixpoint print_stmts (ss : list GoStmt) : string :=
+  match ss with
+  | nil       => ""
+  | s :: nil  => print_stmt s
+  | s :: rest => print_stmt s ++ "; " ++ print_stmts rest
+  end.
+
+(** A func-lit parameter list [x T, y T] — each [name type] pair, ", "-separated. *)
+Fixpoint print_params (ps : list (Ident * GoTy)) : string :=
+  match ps with
+  | nil            => ""
+  | (x, t) :: nil  => proj1_sig x ++ " " ++ print_ty t
+  | (x, t) :: rest => proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params rest
+  end.
+
+(** A FUNC-LITERAL: parameters, a (single) result type, a statement body.  This is the A4 force-wrapper's
+    proper home — the IIFE-call is then [SApply (the func-lit) args] in the expr layer (B4 [EFuncLit]).
+    Denotes (B3) into cmd.v's closure / the unified.v [UCmd] for a spawned/called body. *)
+Inductive GoFuncLit : Type :=
+  | MkFuncLit : list (Ident * GoTy) -> GoTy -> list GoStmt -> GoFuncLit.
+
+Definition print_funclit (f : GoFuncLit) : string :=
+  match f with
+  | MkFuncLit params ret body =>
+      "func(" ++ print_params params ++ ") " ++ print_ty ret ++ " { " ++ print_stmts body ++ " }"
+  end.
+
+(** ★The A4 force-wrappers, now byte-exact from a STRUCTURED [GoFuncLit] (not opaque [SRaw]).  The BINARY
+    IIFE `func(x int64, y int64) int64 { return x + y }` and the CONVERSION IIFE
+    `func(x float64) float32 { return float32(x) }` print byte-for-byte — so the dominant remaining opaque
+    SRaw class is REPRESENTABLE as verified statement AST.  (The unary `-x` body prints `-(x)` via the
+    verified parenthesising [EUnary UNeg] — a body-context bare-`-x` is a B1 byte reconciliation.) *)
+Example fl_binary_force_wrapper :
+  print_funclit (MkFuncLit
+    ((mkIdent "x" eq_refl, GTInt64) :: (mkIdent "y" eq_refl, GTInt64) :: nil)
+    GTInt64
+    (SReturn (EBin BAdd (EA "x") (EA "y")) :: nil))
+  = "func(x int64, y int64) int64 { return x + y }".
+Proof. reflexivity. Qed.
+
+Example fl_conversion_force_wrapper :
+  print_funclit (MkFuncLit
+    ((mkIdent "x" eq_refl, GTFloat64) :: nil)
+    GTFloat32
+    (SReturn (EApply (SIdent (mkIdent "float32" eq_refl)) (ACons (EA "x") ANil)) :: nil))
+  = "func(x float64) float32 { return float32(x) }".
+Proof. reflexivity. Qed.
+
+(** The linear statements print as expected (the leaf forms a func-lit body / a B1 leaf-emitter target). *)
+Example st_return  : print_stmt (SReturn (EAi 7))            = "return 7".  Proof. reflexivity. Qed.
+Example st_assign  : print_stmt (SAssign (EA "p") (EAi 0))   = "p = 0".     Proof. reflexivity. Qed.
+Example st_decl    : print_stmt (SShortDecl (mkIdent "z" eq_refl) (EBin BAdd (EA "a") (EA "b")))
+                                                             = "z := a + b". Proof. reflexivity. Qed.
+Example st_seq     : print_stmts (SShortDecl (mkIdent "z" eq_refl) (EAi 1) :: SReturn (EA "z") :: nil)
+                                                             = "z := 1; return z". Proof. reflexivity. Qed.
+
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
     they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
