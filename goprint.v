@@ -4110,7 +4110,10 @@ Proof. intros [ sa | v ] H; [ apply satom_atomic | discriminate H ]. Qed.
 Definition tail_ok (k : nat) (rest : string) : Prop :=
   rest = EmptyString
   \/ (exists c rs, rest = String c rs /\ orb (is_bclose c) (Ascii.eqb c (ch 58)) = true)
-  \/ (exists o s1, op_match rest = Some (o, s1) /\ binop_prec o < k).
+  \/ (exists o s1, op_match rest = Some (o, s1) /\ binop_prec o < k)
+  \/ (exists rs, rest = String (ch 44) rs).   (* a depth-0 COMMA stops the parse — the arg-list separator
+                                                  (review #8 P0-1b: the lexer now halts at it, so an arg's
+                                                  comma tail is a clean stopping seam, like ")"). *)
 
 Lemma is_close_not_space : forall c, is_close c = true -> is_space c = false.
 Proof. intros c H. unfold is_close in H. apply Ascii.eqb_eq in H. subst c. reflexivity. Qed.
@@ -4120,26 +4123,28 @@ Proof. intros a b H. destruct (Nat.leb b a) eqn:E; [ apply Nat.leb_le in E; lia 
 
 Lemma tail_ok_mono : forall k k' rest, tail_ok k rest -> k <= k' -> tail_ok k' rest.
 Proof.
-  intros k k' rest H Hle. destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  intros k k' rest H Hle. destruct H as [ He | [ Hc | [ [ o [ s1 [ Hop Hp ] ] ] | Hcomma ] ] ].
   - left; exact He.
   - right; left; exact Hc.
-  - right; right. exists o, s1. split; [ exact Hop | lia ].
+  - right; right; left. exists o, s1. split; [ exact Hop | lia ].
+  - right; right; right. exact Hcomma.
 Qed.
 
 Lemma tail_ok_good_seam : forall k rest, tail_ok k rest -> good_seam rest = true.
 Proof.
-  intros k rest H. destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  intros k rest H. destruct H as [ He | [ Hc | [ [ o [ s1 [ Hop Hp ] ] ] | Hcomma ] ] ].
   - subst rest; reflexivity.
   - destruct Hc as [ c [ rs [ Hr Hcl ] ] ]. subst rest. unfold good_seam.
     apply orb_true_iff in Hcl. apply orb_true_iff. left. apply orb_true_iff. destruct Hcl as [ Hbc | Hco ];
       [ left; apply orb_true_iff; right; exact Hbc | right; exact Hco ].
   - destruct rest as [ | c rs ]; [ discriminate Hop | ]. unfold good_seam, opens. rewrite Hop. reflexivity.
+  - destruct Hcomma as [ rs Hr ]. subst rest. unfold good_seam. apply orb_true_iff. right. reflexivity.
 Qed.
 
 Lemma tail_ok_climb_stop : forall k rest F l, tail_ok k rest -> parse_climb (S F) k l rest = Some (l, rest).
 Proof.
   intros k rest F l H. rewrite parse_climb_S.
-  destruct H as [ He | [ Hc | [ o [ s1 [ Hop Hp ] ] ] ] ].
+  destruct H as [ He | [ Hc | [ [ o [ s1 [ Hop Hp ] ] ] | Hcomma ] ] ].
   - subst rest; reflexivity.
   - destruct Hc as [ c [ rs [ Hr Hcl ] ] ]. subst rest.
     assert (Hns : is_space c = false).
@@ -4147,6 +4152,7 @@ Proof.
         [ apply bclose_not_space; exact Hbc | apply Ascii.eqb_eq in Hco; subst c; reflexivity ]. }
     rewrite (op_match_not_space c rs Hns). reflexivity.
   - rewrite Hop, (leb_false_of_lt _ _ Hp). reflexivity.
+  - destruct Hcomma as [ rs Hr ]. subst rest. rewrite (op_match_not_space (ch 44) rs eq_refl). reflexivity.
 Qed.
 
 (** The per-tree round-trip property, abbreviated so it can be carried as a hypothesis for sub-trees
@@ -4204,7 +4210,7 @@ Proof.
     assert (Htl2 : tail_ok (S (binop_prec o)) (print_pairs ps' ++ rest)).
     { destruct ps' as [ | [o2 r2] ps'' ].
       - cbn [print_pairs]. apply (tail_ok_mono k); [ exact Htl | lia ].
-      - right; right. cbn [print_pairs]. rewrite sapp_assoc, op_match_binop.
+      - right; right; left. cbn [print_pairs]. rewrite sapp_assoc, op_match_binop.
         eexists; eexists; split; [ reflexivity | lia ]. }
     pose proof (pairs_fuel_pos ps') as Hpos.
     rewrite sapp_assoc.
@@ -5501,6 +5507,49 @@ Fixpoint print_sep (sep : string) (xs : list string) : string :=
 Example print_sep_empty  : print_sep ", " [] = "".              Proof. reflexivity. Qed.
 Example print_sep_single : print_sep ", " ["a"] = "a".          Proof. reflexivity. Qed.
 Example print_sep_three  : print_sep ", " ["a"; "b"; "c"] = "a, b, c". Proof. reflexivity. Qed.
+
+(** [parse_args] — the CLASSIC recursive-descent ARGUMENT-LIST parser (review #8 P0-1b, NO string splits):
+    parse one expression (the lexer now HALTS it at the next depth-0 comma — step 1, commit 6532cbe), then
+    while the [", "] separator follows, consume it and recurse, until the closing ")" (or end of string).
+    The fuel for each arg's [parse_expr] is [6*|s|+6 >= 3*esize e + 3] ([size_le_2len1]: [esize e <= 2*|print_expr e|+1]).
+    This is the arg-list machinery the verified [SCall] node uses to reparse [f(a, b, c)] back. *)
+Fixpoint parse_args (fuel : nat) (s : string) : option (list GoExpr * string) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => Some (nil, EmptyString)
+    | String c _ =>
+        if Ascii.eqb c (ch 41) then Some (nil, s)
+        else match parse_expr (6 * String.length s + 6) 0 s with
+             | None => None
+             | Some (e, rest) =>
+                 match rest with
+                 | String c1 (String c2 r2) =>
+                     if andb (Ascii.eqb c1 (ch 44)) (Ascii.eqb c2 (ch 32))
+                     then match parse_args f r2 with Some (es, r3) => Some (e :: es, r3) | None => None end
+                     else Some (e :: nil, rest)
+                 | _ => Some (e :: nil, rest)
+                 end
+             end
+    end
+  end.
+
+(** Executable round-trip witnesses: [parse_args] inverts [print_sep ", " (map print_expr …)] on the empty,
+    singleton, and 3-arg lists — recovering the EXACT expression list, leaving the ")" tail.  (The earlier
+    pre-step-1 attempt FAILED on the 3-arg case because [scan_atom] blobbed "1, 2, 3"; now it halts at the
+    depth-0 commas, so the classic recursive descent works.) *)
+Example parse_args_rt_empty :
+  parse_args 8 (print_sep ", " nil ++ ")")%string = Some (nil, ")"%string).
+Proof. reflexivity. Qed.
+Example parse_args_rt_single :
+  let es := [EAtom (AScanned (SIntLit 7))] in
+  parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
+Proof. reflexivity. Qed.
+Example parse_args_rt_three :
+  let es := [EAtom (AScanned (SIntLit 1)); EAtom (AScanned (SIntLit 2)); EAtom (AScanned (SIntLit 3))] in
+  parse_args 8 (print_sep ", " (map (print_expr 0) es) ++ ")")%string = Some (es, ")"%string).
+Proof. reflexivity. Qed.
 
 (** Concatenation of two balanced strings is balanced (depth/nneg are homomorphic over append). *)
 Lemma balanced_app : forall a b, balanced a -> balanced b -> balanced (a ++ b).
