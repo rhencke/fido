@@ -3066,6 +3066,26 @@ let whole_base s =
    | True -> eqb1 r EmptyString
    | False -> False)
 
+(** val is_comp_lead : string -> bool **)
+
+let is_comp_lead s =
+  match eqb1 (leading_ident s) (String ((Ascii (True, False, True, True,
+          False, True, True, False)), (String ((Ascii (True, False, False,
+          False, False, True, True, False)), (String ((Ascii (False, False,
+          False, False, True, True, True, False)), EmptyString)))))) with
+  | True -> True
+  | False ->
+    (match s with
+     | EmptyString -> False
+     | String (c, _) ->
+       eqb0 c
+         (ch (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S (S
+           (S (S (S (S
+           O)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+
 (** val is_ws : ascii -> bool **)
 
 let is_ws c =
@@ -3636,6 +3656,62 @@ and parse_climb fuel k l s =
         | False -> Some (Pair (l, s)))
      | None -> Some (Pair (l, s)))
 
+(** val sa_leaf_comp : sAtom -> bool **)
+
+let rec sa_leaf_comp sa = match sa with
+| SSelector (a, _) -> sa_leaf_comp a
+| SIndex (a, _) -> sa_leaf_comp a
+| SSlice (a, _, _) -> sa_leaf_comp a
+| _ -> is_comp_lead (satom_str sa)
+
+(** val sa_has_ops : sAtom -> bool **)
+
+let sa_has_ops = function
+| SIdent _ -> False
+| SIntLit _ -> False
+| SRaw _ -> False
+| _ -> True
+
+(** val atomic_tree_b : goExpr -> bool **)
+
+let rec atomic_tree_b = function
+| EAtom a -> atomic_atom_b a
+| EBin (_, l, r) ->
+  (match atomic_tree_b l with
+   | True -> atomic_tree_b r
+   | False -> False)
+| EUnary (_, e0) -> atomic_tree_b e0
+
+(** val atomic_atom_b : goAtom -> bool **)
+
+and atomic_atom_b = function
+| AScanned sa ->
+  (match match atomic (satom_str sa) with
+         | True ->
+           (match negb (sa_leaf_comp sa) with
+            | True -> True
+            | False -> negb (sa_has_ops sa))
+         | False -> False with
+   | True -> atomic_satom_b sa
+   | False -> False)
+| AStringLit _ -> True
+
+(** val atomic_satom_b : sAtom -> bool **)
+
+and atomic_satom_b = function
+| SSelector (a, _) -> atomic_satom_b a
+| SIndex (a, i) ->
+  (match atomic_satom_b a with
+   | True -> atomic_tree_b i
+   | False -> False)
+| SSlice (a, lo, hi) ->
+  (match match atomic_satom_b a with
+         | True -> atomic_tree_b lo
+         | False -> False with
+   | True -> atomic_tree_b hi
+   | False -> False)
+| _ -> True
+
 (** val build_atom : string -> goExpr option **)
 
 let build_atom cs =
@@ -3644,7 +3720,10 @@ let build_atom cs =
   | Some p ->
     let Pair (e, s) = p in
     (match s with
-     | EmptyString -> Some e
+     | EmptyString ->
+       (match atomic_tree_b e with
+        | True -> Some e
+        | False -> None)
      | String (_, _) -> None)
   | None -> None
 

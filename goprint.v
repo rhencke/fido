@@ -3512,13 +3512,15 @@ Proof. reflexivity. Qed.
 
 (** ============================================================================
     ---- THE UNIVERSAL EXPRESSION ROUND-TRIP ---- the EXAMPLES above fix the precedence-critical cases
-    by reflexivity; this is the theorem for EVERY tree — UNCONDITIONALLY (no [wf]/[atomic_tree]
-    hypothesis), because [EAtom] now carries an [Atom] (its [atom_ok] proof in the type), so a malformed
-    atom is unrepresentable.  So the parenthesisation [print_expr] emits is precedence-CORRECT (not merely
-    balanced): the Rocq parser re-reads the text to the SAME tree [e] — printer/parser SELF-CONSISTENCY
-    (see the section header; this is NOT yet a claim about Go's own parser — the remaining gap).  The
-    internal lemmas below still THREAD [wf]/[atomic_tree] (the headline discharges them via
-    [wf_always]/[atomic_tree_always]).  Proven by a combined strong induction on tree size of
+    by reflexivity.  [wf] is discharged UNCONDITIONALLY ([wf_always]: [EAtom] carries an [Atom] with its
+    [atom_ok] proof in the type, so a malformed atom is unrepresentable).  [atomic_tree] is NOT universal —
+    it carries the rule-2 composite-no-spine restriction ([ []int{1,2,3}[0] ] is excluded) — so the headline
+    [print_parse_expr] KEEPS it as a premise; it is ENFORCED (not assumed) at the plugin's recovery boundary
+    by [build_atom]'s [atomic_tree_b] guard ([build_atom_atomic_tree]/[build_atom_roundtrip]).  The
+    parenthesisation [print_expr] emits is precedence-CORRECT (not merely balanced): the Rocq parser re-reads
+    the text to the SAME tree [e] — printer/parser SELF-CONSISTENCY (see the section header; this is NOT yet a
+    claim about Go's own parser — the remaining gap).  The internal lemmas below THREAD [wf]/[atomic_tree].
+    Proven by a combined strong induction on tree size of
     two facts — [P e]
     (round-trip with a stopping tail) and [Left e] (the spine equation: parsing the print of [e] as a
     left operand reduces to [parse_climb] with [e] as the accumulator).  Climb-recursion fuel mismatches
@@ -4006,8 +4008,56 @@ with atomic_satom (sa : SAtom) : Prop :=
   | SSlice a lo hi => atomic_satom a /\ atomic_tree lo /\ atomic_tree hi
   end.
 
-(** [atomic_tree] is no longer VACUOUS (it carries the rule-2 composite-no-spine restriction); the round-trip
-    is now CONDITIONAL on it — [go.ml]'s atoms satisfy it (selectors/indexes are over identifiers/calls). *)
+(** [atomic_tree_b] — the DECIDABLE (boolean) mirror of [atomic_tree] (review #8 P0-3).  [build_atom] checks
+    it, so a non-[atomic_tree] atom (e.g. a composite literal carrying a postfix spine, [ []int{1,2,3}[0] ])
+    is MECHANICALLY REJECTED at the boundary — the [atomic_tree] premise of [print_parse_expr] is ENFORCED on
+    everything the plugin recovers, not assumed.  Reflection [atomic_tree_b_refl] ties it to [atomic_tree]. *)
+Fixpoint atomic_tree_b (e : GoExpr) : bool :=
+  match e with
+  | EAtom a => atomic_atom_b a
+  | EBin _ l r => andb (atomic_tree_b l) (atomic_tree_b r)
+  | EUnary _ e => atomic_tree_b e
+  end
+with atomic_atom_b (a : GoAtom) : bool :=
+  match a with
+  | AStringLit _ => true
+  | AScanned sa => andb (andb (atomic (satom_str sa))
+                              (orb (negb (sa_leaf_comp sa)) (negb (sa_has_ops sa))))
+                        (atomic_satom_b sa)
+  end
+with atomic_satom_b (sa : SAtom) : bool :=
+  match sa with
+  | SIdent _ => true | SIntLit _ => true | SRaw _ => true
+  | SSelector a _ => atomic_satom_b a
+  | SIndex a i => andb (atomic_satom_b a) (atomic_tree_b i)
+  | SSlice a lo hi => andb (andb (atomic_satom_b a) (atomic_tree_b lo)) (atomic_tree_b hi)
+  end.
+Lemma atomic_tree_b_refl :
+  (forall e, atomic_tree_b e = true <-> atomic_tree e) /\
+  (forall a, atomic_atom_b a = true <-> atomic_atom a) /\
+  (forall sa, atomic_satom_b sa = true <-> atomic_satom sa).
+Proof.
+  apply GoTree_mutind.
+  - intros a IHa. cbn [atomic_tree_b atomic_tree]. exact IHa.
+  - intros o l IHl r IHr. cbn [atomic_tree_b atomic_tree].
+    rewrite Bool.andb_true_iff, IHl, IHr. reflexivity.
+  - intros o e IHe. cbn [atomic_tree_b atomic_tree]. exact IHe.
+  - intros sa IHsa. cbn [atomic_atom_b atomic_atom].
+    rewrite !Bool.andb_true_iff, Bool.orb_true_iff, !Bool.negb_true_iff, IHsa. tauto.
+  - intros v. cbn [atomic_atom_b atomic_atom]. split; [ reflexivity | reflexivity ].
+  - intros i. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
+  - intros z. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
+  - intros r. cbn [atomic_satom_b atomic_satom]. split; [ intros _; exact I | reflexivity ].
+  - intros a IHa f. cbn [atomic_satom_b atomic_satom]. exact IHa.
+  - intros a IHa i IHi. cbn [atomic_satom_b atomic_satom].
+    rewrite Bool.andb_true_iff, IHa, IHi. reflexivity.
+  - intros a IHa lo IHlo hi IHhi. cbn [atomic_satom_b atomic_satom].
+    rewrite !Bool.andb_true_iff, IHa, IHlo, IHhi. tauto.
+Qed.
+
+(** [atomic_tree] carries the rule-2 composite-no-spine restriction.  The round-trip theorem
+    [print_parse_expr] takes it as a premise — but [build_atom] (below) DECIDES it via [atomic_tree_b] and
+    rejects any atom failing it, so the premise is ENFORCED at the recovery boundary, not assumed of go.ml. *)
 (** [wf] is vacuous (the round-trip uses only [atomic_tree]); discharged trivially. *)
 Lemma wf_always : forall e, wf e.
 Proof. induction e as [ a | o l IHl r IHr | o e IHe ]; cbn; [ exact I | split; assumption | exact IHe ]. Qed.
@@ -5252,12 +5302,14 @@ Proof.
     apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
 Qed.
 
-(** The headline — UNCONDITIONAL now.  [EAtom] carries an [Atom] (its [atom_ok = atomic && balanced_b]
-    proof IN THE TYPE), so [wf e] and [atomic_tree e] hold for EVERY [e] by construction (discharged via
-    [wf_always]/[atomic_tree_always]) — a malformed atom is unrepresentable, so there is no side-condition
-    to assume.  [print_expr] emits text the Rocq [parse_expr] re-reads to the SAME tree (precedence-correct,
-    not merely balanced).  HONEST SCOPE: this remains printer/parser SELF-CONSISTENCY for the Rocq grammar —
-    NOT yet a theorem about Go's OWN parser (a Go-subset recognition theorem is the remaining gap, #10). *)
+(** The headline.  [wf e] holds for EVERY [e] by construction ([wf_always]: [EAtom] carries an [Atom] with
+    its [atom_ok = atomic && balanced_b] proof IN THE TYPE, so a malformed atom is unrepresentable) — hence no
+    [wf] side-condition.  [atomic_tree e] is a GENUINE premise (the rule-2 composite-no-spine restriction is
+    NOT universal); it is NOT assumed of the plugin — [build_atom] DECIDES it ([atomic_tree_b]) and rejects
+    any atom failing it, so [build_atom_roundtrip] is unconditional over everything the plugin recovers.
+    [print_expr] emits text the Rocq [parse_expr] re-reads to the SAME tree (precedence-correct, not merely
+    balanced).  HONEST SCOPE: printer/parser SELF-CONSISTENCY for the Rocq grammar — NOT yet a theorem about
+    Go's OWN parser (a Go-subset recognition theorem is the remaining gap, #10). *)
 Theorem print_parse_expr : forall e, atomic_tree e ->
   parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
 Proof.
@@ -5336,11 +5388,33 @@ Proof. intros e Hat. exact (print_parse_expr_n (esize e) e (le_n _) (wf_always e
     plausible-but-wrong atom. *)
 Definition build_atom (cs : string) : option GoExpr :=
   match parse_primary (6 * String.length cs + 3) cs with
-  | Some (e, EmptyString) => Some e
+  | Some (e, EmptyString) => if atomic_tree_b e then Some e else None
   | _ => None
   end.
+
+(** [build_atom]'s output is PROVABLY [atomic_tree] (review #8 P0-3): the [atomic_tree_b] guard rejects any
+    recovered atom that is not — so [print_parse_expr]'s premise is ENFORCED at the recovery boundary, never
+    assumed of go.ml.  A composite literal carrying a postfix spine ([ []int{1,2,3}[0] ], valid Go but
+    unemitted) is REJECTED here ([build_atom_rejects_comp_spine] below), not silently round-trip-mismatched. *)
+Lemma build_atom_atomic_tree : forall cs e, build_atom cs = Some e -> atomic_tree e.
+Proof.
+  intros cs e H. unfold build_atom in H.
+  destruct (parse_primary (6 * String.length cs + 3) cs) as [ [e' r] | ]; [ | discriminate H ].
+  destruct r as [ | c r' ]; [ | discriminate H ].
+  destruct (atomic_tree_b e') eqn:Eb; [ | discriminate H ].
+  injection H as <-. apply (proj1 atomic_tree_b_refl). exact Eb.
+Qed.
+
+(** Hence the round-trip is UNCONDITIONAL over everything [build_atom] recovers — no caller supplies the
+    [atomic_tree] premise; [build_atom] discharges it.  This is the honest printer guarantee for the plugin's
+    recovery path: what [build_atom] accepts, [print_expr] reparses to EXACTLY itself. *)
+Theorem build_atom_roundtrip : forall cs e, build_atom cs = Some e ->
+  parse_expr (3 * esize e + 3) 0 (print_expr 0 e) = Some (e, "").
+Proof. intros cs e H. apply print_parse_expr, (build_atom_atomic_tree cs e H). Qed.
+
 (** [build_atom] recovers a SCANNED atom from its printed text ([AStringLit] is NOT scanned — it is
-    recovered by [parse_strlit_prim], so excluded by the [atom_scanned] hypothesis). *)
+    recovered by [parse_strlit_prim], so excluded by the [atom_scanned] hypothesis).  The [atomic_tree_b]
+    guard is satisfied because [atomic_atom g] holds (reflected to [atomic_atom_b g = true]). *)
 Lemma build_atom_str : forall g, atom_scanned g = true -> atomic_atom g ->
   build_atom (atom_str g) = Some (EAtom g).
 Proof.
@@ -5348,14 +5422,24 @@ Proof.
   cbn [atom_str]. cbn [atomic_atom] in Hat. destruct Hat as [ Hatm [ Hdis Hasat ] ].
   assert (Hdisj : is_comp_lead (satom_str (fst (spine sa))) = false \/ snd (spine sa) = nil)
     by (destruct Hdis as [ H | H ]; [ left; rewrite <- sa_leaf_comp_spine; exact H | right; apply sa_has_ops_nil; exact H ]).
+  assert (Hb : atomic_atom_b (AScanned sa) = true)
+    by (apply (proj1 (proj2 atomic_tree_b_refl)); cbn [atomic_atom]; exact (conj Hatm (conj Hdis Hasat))).
   unfold build_atom.
   replace (6 * String.length (satom_str sa) + 3)
     with (S (6 * String.length (satom_str sa) + 2)) by lia.
   pose proof (parse_primary_atom sa "" (6 * String.length (satom_str sa) + 2) eq_refl
                 (fun e' _ Ae' => Pexpr_always e' Ae')
                 ltac:(pose proof (proj2 (proj2 size_le_2len1) sa); lia) Hdisj Hasat) as Hpp.
-  rewrite sapp_nil_r in Hpp. rewrite Hpp. reflexivity.
+  rewrite sapp_nil_r in Hpp. rewrite Hpp. cbn [atomic_tree_b]. rewrite Hb. reflexivity.
 Qed.
+
+(** REVIEW #8 P0-3 REGRESSION TEST — a composite literal carrying a postfix index ([ []int{1,2,3}[0] ]) is
+    valid Go but NOT [atomic_tree] (composite base + spine).  Before the [atomic_tree_b] guard, [build_atom]
+    recovered it as [Some _] (a non-round-trippable atom escaping the printer guarantee).  Now REJECTED. *)
+Example build_atom_rejects_comp_spine : build_atom "[]int{1,2,3}[0]" = None.
+Proof. reflexivity. Qed.
+Example build_atom_accepts_ident_index : exists e, build_atom "xs[0]" = Some e.
+Proof. eexists. reflexivity. Qed.
 
 (** ============================================================================
     ---- SEPARATED LISTS ---- the OTHER pervasive structural primitive: a comma-joined sequence
