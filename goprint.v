@@ -3361,6 +3361,27 @@ Proof. reflexivity. Qed.
 Example rt_uneg_deref : parse_expr 30 0 (print_expr 0 (EUnary UNeg (EUnary UDeref (EA "p"))))
                       = Some (EUnary UNeg (EUnary UDeref (EA "p")), "").  (* negate a pointer deref *)
 Proof. reflexivity. Qed.
+(** UNeg x POSTFIX-GRAMMAR interaction — the new [UNeg] node as an index/slice CHILD, and the negation OF
+    an indexed atom.  The round-trip THEOREM ([print_parse_expr]) already covers these by [atomic_tree];
+    these are the explicit WITNESSES of the [UNeg]x[SIndex]/[SSlice] combination (no un-demoed corner). *)
+Example rt_idx_uneg :  (* a[-(i)] — UNeg as an index child (parsed at ctx 0 inside [ ]) *)
+  parse_expr 30 0 (print_expr 0 (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EUnary UNeg (EA "i"))))))
+  = Some (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EUnary UNeg (EA "i")))), "").
+Proof. reflexivity. Qed.
+Example rt_slice_uneg :  (* a[-(i):n] — UNeg as a slice low bound *)
+  parse_expr 40 0 (print_expr 0 (EAtom (AScanned
+     (SSlice (SIdent (exist _ "a" eq_refl)) (EUnary UNeg (EA "i")) (EA "n")))))
+  = Some (EAtom (AScanned (SSlice (SIdent (exist _ "a" eq_refl)) (EUnary UNeg (EA "i")) (EA "n"))), "").
+Proof. reflexivity. Qed.
+Example rt_uneg_idx :  (* -(a[i]) — negation OF an indexed atom *)
+  parse_expr 30 0 (print_expr 0 (EUnary UNeg (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EA "i"))))))
+  = Some (EUnary UNeg (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EA "i")))), "").
+Proof. reflexivity. Qed.
+Example rt_uneg_idx_binop :  (* -(a[i]) + b — the negated index as a binop operand *)
+  parse_expr 40 0 (print_expr 0 (EBin BAdd
+     (EUnary UNeg (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EA "i"))))) (EA "b")))
+  = Some (EBin BAdd (EUnary UNeg (EAtom (AScanned (SIndex (SIdent (exist _ "a" eq_refl)) (EA "i"))))) (EA "b"), "").
+Proof. reflexivity. Qed.
 (** A FUNCTION-LITERAL atom — exactly the plugin's arith-force typed-IIFE (e.g. main.go line 322) — is
     now [atomic] (its `-` is inside `{ }`, its `) T {` spaces precede non-op chars) and round-trips even
     as a binary-operator operand.  This is the coverage hole that the depth-0-space ban used to leave
