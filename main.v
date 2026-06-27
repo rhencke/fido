@@ -344,6 +344,20 @@ Definition widen_param_demo : IO unit :=
   println [ any (widen_u8_to_i64 (u8_lit 200 eq_refl))     (* int64(uint8 200) = 200 *)
           ; any (widen_i8_to_i64 (i8_of_int (int_lit (-5) eq_refl)))  (* int64(int8 -5)   = -5  (sign kept) *)
           ; any (widen_u8_to_int (u8_lit 100 eq_refl)) ].  (* int(uint8 100)   = 100 *)
+(** ★review #9 (A3) — a type conversion used as a BINOP OPERAND: [y + int64(x)].  With [y] a runtime
+    [int64] PARAM the [i64_add] takes the plain [EBin] path (not the constant-IIFE force-wrapper), so its
+    operand [i64_of_u8 x] reaches [build_goexpr], which now CONSTRUCTS the verified [SApply (SIdent "int64")
+    [x]] node DIRECTLY (amendment 3: identifier-led conversions are application syntax) — before A3 this
+    round-tripped through [pp_expr → string → build_atom].  [x] is a real [uint8] PARAM, so [int64(x)] is a
+    genuine widening, not identity. *)
+Definition conv_in_binop (y : GoI64) (x : GoU8) : GoI64 := i64_add y (i64_of_u8 x).
+(** And the float64→float32 NARROWING as a comparison operand [a < float32(x)] — the sibling
+    [is_f64_to_f32_ref] arm, same direct [SApply (SIdent "float32") [x]] construction (runtime narrowing
+    cast; the constant case is a func-lit IIFE left to [pp_expr]).  [x] is a runtime [float64] PARAM. *)
+Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (f32_of_f64 x).
+Definition conv_operand_demo : IO unit :=
+  println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
+          ; any (conv_f32_in_cmp (f32_lit 1) (3.5)%go64) ].        (* 1.0 < float32(3.5) = true *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
     since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful
@@ -3544,6 +3558,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
+  conv_operand_demo             >>'   (* prints: 205 / true (conversions int64(x), float32(x) as binop operands → verified SApply; review #9 A3) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)

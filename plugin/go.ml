@@ -652,6 +652,15 @@ let binop_ctor (opstr : string) : Printer.binOp =
   | " && " -> Printer.BLAnd | " || " -> Printer.BLOr
   | _ -> unsupported ("binop_ctor: operator string not in the verified BinOp set: " ^ opstr)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
+(* ★review #9 (A3): build the verified [SApply (SIdent tyname) [arg]] node for an identifier-led type
+   conversion [tyname(arg)].  [mk_atom tyname] re-checks [tyname] is a valid identifier ([go_ident]) and
+   yields [EAtom (AScanned (SIdent tyname))]; [Printer.build_apply] packs the (recursively-built) [arg] and
+   re-checks [atomic_tree_b], so the result round-trips.  Fail-loud if it does not form an [SApply]. *)
+let build_type_conv tyname arg =
+  match Printer.build_apply (mk_atom tyname) (coq_list_of_ocaml [arg]) with
+  | Printer.Some ap -> ap
+  | Printer.None -> unsupported (Printf.sprintf
+      "build_goexpr: type conversion %s(…) did not form a verified SApply (non-atomic_tree argument)" tyname)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
    no leading/trailing separator and to stay well-bracketed): render each element [f x] to text (the
    plugin's expression docs are pure str/++/fnl — no soft breaks — so [string_of_ppcmds] round-trips
@@ -1044,6 +1053,23 @@ let is_i64_of_narrow_ref r =
     ["i64_of_u8"; "i64_of_i8"; "i64_of_u16"; "i64_of_i16"; "i64_of_u32"; "i64_of_i32"]
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
 let is_int63_of_z_ref r = let n = global_basename r in n = "of_Z" || n = "of_pos" || n = "of_pos_rec"
+
+(* ★review #9 (A3): the IDENTIFIER-LED type conversions — [T(x)] where [T] is a scalar/builtin type name
+   (int/int64/uint64/float64/float32), which is LEXICALLY an identifier.  Per amendment 3 these are
+   application syntax (a verified [SApply (SIdent T) [x]] node), NOT a distinct [SConvert].  This maps each
+   conversion ref to its Go type name; [build_goexpr] uses it to CONSTRUCT the [SApply] directly instead of
+   the old [pp_expr → string → build_atom] rescue.  (The type-FORM-led conversions — [[]T(x)] / [*T(x)] /
+   [(func…)(x)] — are reserved for [SConvert]/[SParen], but they only ever appear in VALUE / CALL positions
+   handled by the unverified [pp_expr]; none reaches [build_goexpr] (a binop / equality operand), so no
+   [SConvert] node is needed yet.  The [pp_expr] arms keep their string emission for those positions.) *)
+let conv_type_name r =
+  if      is_int_of_fw r        then Some "int"
+  else if is_int_to_f64_ref r   then Some "float64"
+  else if is_int_to_f32_ref r   then Some "float32"
+  else if is_f64_to_i64_ref r   then Some "int64"
+  else if is_f64_to_u64_ref r   then Some "uint64"
+  else if is_i64_of_narrow_ref r then Some "int64"
+  else None
 
 (* Fixed-width unsigned integer ops (builtins.v).  Carrier is int64; each op
    masks back to the width, e.g. [u8_add a b] → [((a + b) & 0xff)], matching Go's
@@ -2875,6 +2901,16 @@ and build_goexpr state env e =
             | Printer.None -> unsupported (Printf.sprintf
                 "build_goexpr: gofunc_call %s did not form a verified SApply (callee not a scanned atom, or non-atomic_tree)"
                 (Pp.string_of_ppcmds (pp_expr state env e))))
+       (* ★review #9 (A3): an IDENTIFIER-LED type conversion [T(x)] (int/int64/uint64/float64/float32 — the
+          arms mirrored from [pp_expr] at the [is_*_ref] recognizers) is CONSTRUCTED directly as a verified
+          [SApply (SIdent T) [x]] (amendment 3: identifier-led conversions ARE application syntax), RETIRING
+          the conversion form from the [atom (pp_expr e)] string-rescue below. *)
+       | MLglob r, [x] when Option.has_some (conv_type_name r) ->
+           build_type_conv (Option.get (conv_type_name r)) (build_goexpr state env x)
+       (* float64 → float32 narrowing: the RUNTIME case is the direct cast [float32(x)] (the non-runtime
+          constant case is an IIFE force-wrapper — a func-lit, left to the [pp_expr] fallback). *)
+       | MLglob r, [x] when is_f64_to_f32_ref r && operand_is_runtime x ->
+           build_type_conv "float32" (build_goexpr state env x)
        | _ -> atom (pp_expr state env e))
   | _ -> atom (pp_expr state env e)
 

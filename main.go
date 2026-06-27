@@ -193,6 +193,18 @@ func Widen_param_demo() {
 	println(Widen_u8_to_i64(uint8((200 & 0xff))), Widen_i8_to_i64(int8((((-5 & 0xff) ^ 0x80) - 0x80))), Widen_u8_to_int(uint8((100 & 0xff))))
 }
 
+func Conv_in_binop(y int64, x uint8) int64 {
+	return y + int64(x)
+}
+
+func Conv_f32_in_cmp(a float32, x float64) bool {
+	return a < float32(x)
+}
+
+func Conv_operand_demo() {
+	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51))
+}
+
 func I64_to_narrow_demo() {
 	println(uint8(((int64(4660)) & 0xff)), int8(((((int64(200)) & 0xff) ^ 0x80) - 0x80)), uint16(((int64(70000)) & 0xffff)), int32(((((int64(5000000000)) & 0xffffffff) ^ 0x80000000) - 0x80000000)))
 }
@@ -2861,6 +2873,7 @@ func main() {
 	F32_demo()
 	I64_of_narrow_demo()
 	Widen_param_demo()
+	Conv_operand_demo()
 	I64_to_narrow_demo()
 	Narrow_let_assert_demo()
 	Type_identity_lock_demo()
