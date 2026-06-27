@@ -1359,6 +1359,12 @@ func Linked_list_demo() {
 	println(n1.Ln_val, n2.Ln_val, n3.Ln_val)
 }
 
+func Struct_slice_demo() {
+	s := []ListNode{ListNode{Ln_val: 10, Ln_next: nil}, ListNode{Ln_val: 20, Ln_next: nil}}
+	n := s[1]
+	println(n.Ln_val)
+}
+
 func Chanbox_demo() {
 	c := make(chan ChanBox)
 	go func() {
@@ -2708,6 +2714,7 @@ func main() {
 	Chan_of_chan_demo()
 	Pool_demo()
 	Linked_list_demo()
+	Struct_slice_demo()
 	Chanbox_demo()
 	Cursed_demo()
 	Slice_alias_demo()

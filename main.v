@@ -2012,8 +2012,9 @@ Definition inbox_demo : IO unit :=
 (** Deeper north-star nesting: a SLICE of CHANNELS inside a STRUCT (Go's [type Hub struct {
     chans []chan int64; id int64 }]) — channels in a slice in a struct.  Build the slice with the
     channel element tag [TChan TI64], index it to a channel ([hub.Hub_chans[1]], bounds-checked),
-    then send/recv on that channel.  (A slice of STRUCTS would need a named-type tag — deferred;
-    a slice of CHANNELS works because [TChan TI64] is a real tag.) *)
+    then send/recv on that channel.  (A slice of STRUCT VALUES works the same way once the element has a
+    nominal tag — see [struct_slice_demo] below, [[]ListNode] via [TListNode]; a slice of CHANNELS works
+    because [TChan TI64] is a real tag.) *)
 Record Hub := MkHub { hub_chans : GoSlice (GoChan GoI64) ; hub_id : GoI64 }.
 Definition hub_demo : IO unit :=
   bind (make_chan_buf TI64 (int_lit 1 eq_refl)) (fun ch0 =>
@@ -2081,6 +2082,17 @@ Definition linked_list_demo : IO unit :=
   n2 <-' ptr_get TListNode (ln_next n1) ;;                          (* *(p1.Next) — follow the link *)
   n3 <-' ptr_get TListNode (ln_next n2) ;;                          (* *(p2.Next) — follow again    *)
   println [any (ln_val n1) ; any (ln_val n2) ; any (ln_val n3)].    (* prints: 1 2 3 *)
+
+(** A SLICE of STRUCT VALUES ([[]ListNode]) — the line-2015 "a slice of STRUCTS would need a named-type
+    tag — deferred" gap, now CLOSED.  The nominal [TListNode] tag makes [TSlice TListNode] render
+    [[]ListNode] (via [coq_goty_of_tag]'s nominal-tag -> [GTNamed] map), so a slice can hold struct
+    VALUES (copied by value), not only channel/scalar/pointer elements.  Build [[]ListNode{{10,nil},
+    {20,nil}}], index [s[1]] (bounds-checked), read its [Val] field — struct values living in a slice. *)
+Definition struct_slice_demo : IO unit :=
+  let s := slice_of_list TListNode
+             [ MkListNode (10)%i64 (ptr_nil_tf tt) ; MkListNode (20)%i64 (ptr_nil_tf tt) ] in
+  bind (slice_get TListNode s (int_lit 1 eq_refl)) (fun n =>   (* n := s[1] = ListNode{20, nil} *)
+  println [any (ln_val n)]).                                   (* prints: 20 *)
 
 (** "A CHANNEL THAT SENDS ITSELF" — the north-star horror, realized.  [ChanBox] (builtins.v) is
     [type ChanBox struct { Id int64 ; Ch chan ChanBox }]; a [chan ChanBox] carries a [ChanBox] whose
@@ -3419,6 +3431,7 @@ Definition main_effect : IO unit :=
   chan_of_chan_demo             >>'   (* prints: 77 (a CHANNEL OF CHANNELS: a reply-chan sent over a chan, request/reply) *)
   pool_demo                     >>'   (* prints: 22 (CAPSTONE: struct + []chan + 2 goroutines + index + concurrent sum) *)
   linked_list_demo              >>'   (* prints: 1 2 3 (a RECURSIVE struct heap-traversed: type ListNode struct { Val int64; Next *ListNode }) *)
+  struct_slice_demo             >>'   (* prints: 20 (a SLICE of struct VALUES []ListNode — the line-2015 slice-of-structs gap closed via the TListNode tag) *)
   chanbox_demo                  >>'   (* prints: 42 (a channel that SENDS ITSELF: type ChanBox struct { Id int64; Ch chan ChanBox }) *)
   cursed_demo                   >>'   (* prints: 99 1 2 3 (NORTH-STAR v2: a SLICE of 2 self-sending channels + a 3-node recursive list traversed, in one struct; concurrency shape machine-checked race-free [cursed_spawn_reachable_race_free], only the typed bridge is the limit-#2 frontier) *)
   slice_alias_demo              >>'   (* prints: 99 (sub-slice write seen through parent) *)
