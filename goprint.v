@@ -6905,6 +6905,106 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
+(** ---- THE CLEAN AST ---- the Go expression grammar, fully structured.  No [SRaw], no [SAtom]/[GoAtom]
+    intermediate.  CORE (grows: ECall/ESel/EIndex/ESlice/EConv/EFuncLit).  Literals carry their value. *)
+Inductive GExpr : Type :=
+  | EId  : Ident -> GExpr
+  | EInt : Z -> GExpr
+  | EUn  : UnaryOp -> GExpr -> GExpr
+  | EBn  : BinOp -> GExpr -> GExpr -> GExpr.
+
+(** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
+    in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
+Fixpoint gprint (ctx : nat) (e : GExpr) : string :=
+  match e with
+  | EId i  => proj1_sig i
+  | EInt z => print_Z z
+  | EUn o e => match o with
+               | UNeg => ("-(" ++ gprint 0 e ++ ")")%string
+               | _    => (unop_text o ++ gprint 6 e)%string
+               end
+  | EBn o l r =>
+      let p := binop_prec o in
+      let inner := (gprint p l ++ binop_text o ++ gprint (S p) r)%string in
+      if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
+  end.
+
+(** ---- THE PARSER ---- recursive descent + precedence climbing over the TOKEN stream.  The ambiguous
+    operator tokens are resolved by POSITION: a prefix [TStar]/[TAmp]/[TCaret]/[TBang] is a unary op
+    ([parse_primary]); an infix one is a binary op ([infix_op] in [parse_climb]).  [TMinus]+[TLP] is the
+    parenthesised unary minus [UNeg]; bare negative literals are already [TInt] from the lexer. *)
+Definition infix_op (t : Token) : option BinOp :=
+  match t with
+  | TPlus => Some BAdd | TMinus => Some BSub | TStar => Some BMul | TSlash => Some BDiv
+  | TPercent => Some BRem | TShl => Some BShl | TShr => Some BShr | TAmp => Some BAnd
+  | TAndNot => Some BAndNot | TPipe => Some BOr | TCaret => Some BXor
+  | TEq => Some BEq | TNe => Some BNe | TLt => Some BLt | TLe => Some BLe | TGt => Some BGt | TGe => Some BGe
+  | TLand => Some BLAnd | TLor => Some BLOr
+  | _ => None
+  end.
+
+Fixpoint parse_expr (fuel k : nat) (toks : list Token) : option (GExpr * list Token) :=
+  match fuel with
+  | O => None
+  | S f => match parse_primary f toks with Some (l, r) => parse_climb f k l r | None => None end
+  end
+with parse_primary (fuel : nat) (toks : list Token) : option (GExpr * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (e, r) | _ => None end
+    | TBang  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UNot e, r)   | None => None end
+    | TCaret :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UXor e, r)   | None => None end
+    | TStar  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UDeref e, r) | None => None end
+    | TAmp   :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
+    | TMinus :: TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (EUn UNeg e, r) | _ => None end
+    | TId i :: rest  => Some (EId i, rest)
+    | TInt z :: rest => Some (EInt z, rest)
+    | _ => None
+    end
+  end
+with parse_climb (fuel k : nat) (l : GExpr) (toks : list Token) : option (GExpr * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | t :: rest =>
+        match infix_op t with
+        | Some o => if Nat.leb k (binop_prec o)
+                    then match parse_expr f (S (binop_prec o)) rest with
+                         | Some (r, r2) => parse_climb f k (EBn o l r) r2
+                         | None => None end
+                    else Some (l, toks)
+        | None => Some (l, toks)
+        end
+    | nil => Some (l, toks)
+    end
+  end.
+Definition parse (toks : list Token) : option (GExpr * list Token) := parse_expr (S (List.length toks)) 0 toks.
+(** parse a STRING end-to-end: [lex] then [parse].  The frontend's front door. *)
+Definition parse_str (s : string) : option (GExpr * list Token) :=
+  match lex s with Some toks => parse toks | None => None end.
+
+(** END-TO-END round-trip by example: [parse_str (gprint 0 e) = Some (e, [])] — the printed AST lexes and
+    parses back to itself.  (The general theorem [parse_str (gprint 0 e) = Some (e, [])] is next.) *)
+Notation EX a := (EId (exist (fun s : string => go_ident s = true) a eq_refl)) (only parsing).
+Example rt_id   : parse_str (gprint 0 (EX "x")) = Some (EX "x", nil). Proof. vm_compute; reflexivity. Qed.
+Example rt_int  : parse_str (gprint 0 (EInt 42)) = Some (EInt 42, nil). Proof. vm_compute; reflexivity. Qed.
+Example rt_add  : parse_str (gprint 0 (EBn BAdd (EX "a") (EX "b"))) = Some (EBn BAdd (EX "a") (EX "b"), nil).
+Proof. vm_compute; reflexivity. Qed.
+Example rt_prec : parse_str (gprint 0 (EBn BAdd (EX "a") (EBn BMul (EX "b") (EX "c"))))
+                = Some (EBn BAdd (EX "a") (EBn BMul (EX "b") (EX "c")), nil).  (* a + b*c — no parens *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_wrap : parse_str (gprint 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c")))
+                = Some (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c"), nil).  (* (a + b)*c — parens recovered *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_un   : parse_str (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
+                = Some (EUn UNot (EBn BEq (EX "a") (EX "b")), nil).  (* !(a == b) *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_neg  : parse_str (gprint 0 (EUn UNeg (EX "x"))) = Some (EUn UNeg (EX "x"), nil).  (* -(x) *)
+Proof. vm_compute; reflexivity. Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
