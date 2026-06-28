@@ -1319,8 +1319,7 @@ Fixpoint gprint (ctx : nat) (e : GExpr) : string :=
   | EInt z => print_Z z
   | EUn o e => match o with
                | UNeg => ("-(" ++ gprint 0 e ++ ")")%string
-               | _    => (unop_text o ++ (if is_un e then ("(" ++ gprint 0 e ++ ")")%string
-                                          else gprint 6 e))%string
+               | _    => (unop_text o ++ "(" ++ gprint 0 e ++ ")")%string
                end
   | EBn o l r =>
       let p := binop_prec o in
@@ -1432,8 +1431,7 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   | EInt z => TInt z :: nil
   | EUn o e => match o with
                | UNeg => TMinus :: TLP :: (gtokens 0 e ++ TRP :: nil)
-               | _    => prefix_token o :: (if is_un e then TLP :: (gtokens 0 e ++ TRP :: nil)
-                                            else gtokens 6 e)
+               | _    => prefix_token o :: TLP :: (gtokens 0 e ++ TRP :: nil)
                end
   | EBn o l r =>
       let p := binop_prec o in
@@ -1752,6 +1750,22 @@ Lemma lex_minuslp_app : forall X fuel tX,
 Proof.
   intros X fuel tX HX Hfuel. do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]).
   cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
+(** BARE-UNOP SEAM (after the [gprint] change to always parenthesise a bare-unary operand): [unop_text o]
+    (o <> UNeg) is a single char ['!'/'^'/'*'/'&'] ALWAYS followed by '(' — a CONCRETE char that can never
+    maximal-munch into a 2-char operator — so it lexes to [prefix_token o] then TLP then [X].  No
+    first-char side condition is needed because the next char is fixed. *)
+Lemma lex_unop_lp_app : forall o X fuel tX,
+  o <> UNeg ->
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (S (S (String.length X))) <= fuel ->
+  lex_aux fuel (unop_text o ++ String (ch 40) X) = Some (prefix_token o :: TLP :: tX).
+Proof.
+  intros o X fuel tX HoNeg HX Hfuel.
+  destruct o; try (exfalso; apply HoNeg; reflexivity);
+    do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]);
+    cbn; rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia); reflexivity.
 Qed.
 
 End Front.
