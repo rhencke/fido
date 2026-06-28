@@ -66,7 +66,10 @@ echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId outsi
 # sets must never appear in ACTIVE code.  (1) The torn-down SRaw verified-EXPRESSION-printer overlay and its
 # stale "Front not wired" wiring-status comments (three review rounds kept catching these resurfacing).  (2)
 # The charter's ENUMERATED forbidden raw-syntax constructor names (RawExpr/RawStmt/RawDecl/RawType/OpaqueExpr/
-# TrustedExpr).
+# TrustedExpr).  (3) The post-split RETIRED structure names — `goprint` (the deleted file) and the `Front`
+# module — which no longer exist; active code must say GoAst / GoPrint / Printer.  (Codex caught these
+# surviving the f7d9383 split in stray comments — including one in main.v the first sweep missed; this
+# tripwire now enforces the cleanup so it cannot regress.)
 #   ⚠️ This is a NAME-REGRESSION TRIPWIRE, NOT structural protection.  It only catches these SPECIFIC names
 #   reappearing; it does NOT — and a grep CANNOT — stop a differently-named raw-syntax hatch (e.g. a new
 #   string-carrying GExpr/Program constructor under any other name).  The real, STRUCTURAL guarantee is that
@@ -78,7 +81,7 @@ echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId outsi
 # and the GENERATED plugin/printer.ml — all excluded by scope below.  Scope: hand-written Coq sources (*.v) +
 # plugin go.ml / .mlg glue.  (The "no raw emit" rule is likewise STRUCTURAL — GoEmit exports no
 # emit : Program -> string — NOT a grep, since that text legitimately appears in explanatory comments.) ----
-deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr' \
+deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr|goprint|\bFront\b' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
   echo "fido: DEAD-ARCHITECTURE / RAW-SYNTAX GATE — a deleted-overlay or forbidden raw-syntax reference is in ACTIVE code:"

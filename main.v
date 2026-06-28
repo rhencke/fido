@@ -115,7 +115,7 @@ Definition uneg_binop_demo (a b : GoI64) : IO unit :=
           ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
 
 (** ★Stage B (slice 1): a binary operator over two RUNTIME LOCALS [a OP b] — the FIRST expression class
-    the plugin prints through the VERIFIED [Module Front] printer ([Printer.Front.gprint], machine-checked
+    the plugin prints through the VERIFIED [GoPrint] printer ([Printer.gprint], machine-checked
     by [parse_print_roundtrip] / [gprint_inj]) rather than the trusted OCaml [pp_prec].  Both operands are
     [MLrel] params, so the typed-arith force-wrapper provably cannot fire and this is exactly the plain
     binop case — the emitted bytes are unchanged, but they now come from the verified node printer. *)
@@ -123,8 +123,8 @@ Definition front_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add a b)          (* a + b  *)
           ; any (i64_mul a b) ].       (* a * b  *)
 
-(** ★Stage B (slice 2): a binop TREE over runtime locals — the verified [Front] printer now bridges nested
-    binops (not just one operator), so [a*b + c] and [(a+b)*c] are emitted by [Printer.Front.gprint] in full,
+(** ★Stage B (slice 2): a binop TREE over runtime locals — the verified [GoPrint] printer now bridges nested
+    binops (not just one operator), so [a*b + c] and [(a+b)*c] are emitted by [Printer.gprint] in full,
     parentheses and all, with [pp_prec] no longer involved.  All leaves are [MLrel], so the force-wrapper
     cannot fire; the bytes are unchanged, but the whole tree now comes from the verified node printer. *)
 Definition front_nested_demo (a b c : GoI64) : IO unit :=
@@ -132,18 +132,18 @@ Definition front_nested_demo (a b c : GoI64) : IO unit :=
           ; any (i64_mul (i64_add a b) c) ].       (* (a+b) * c *)
 
 (** ★Stage B (slice 3): a platform-int ([GoInt]) LITERAL operand.  [int_lit] prints BARE (its renderer IS
-    [Printer.print_Z]), so the verified [Front] printer now bridges integer-literal leaves too — [a + 5] and
-    [a + 5 + a] are emitted in full by [Printer.Front.gprint] via [EBn]/[EId]/[EInt], byte-identical by
-    construction.  ([i64_lit]/[u64_lit] still wrap as [int64(N)]/[uint64(N)] — a conversion [Front] cannot
+    [Printer.print_Z]), so the verified [GoPrint] printer now bridges integer-literal leaves too — [a + 5] and
+    [a + 5 + a] are emitted in full by [Printer.gprint] via [EBn]/[EId]/[EInt], byte-identical by
+    construction.  ([i64_lit]/[u64_lit] still wrap as [int64(N)]/[uint64(N)] — a conversion [GoPrint] cannot
     yet represent — so they remain on the trusted [pp_prec].) *)
 Definition front_lit_demo (a : GoInt) : IO unit :=
   println [ any (int_add a (int_lit 5 eq_refl))                (* a + 5     *)
           ; any (int_add (int_add a (int_lit 5 eq_refl)) a) ]. (* a + 5 + a *)
 
 (** ★Stage B (slice 4): an [i64] literal operand prints as the CONVERSION [int64(N)] — which is Go call
-    syntax over a type name, so the verified [Front] printer emits it as [ECall (EId "int64") [EInt N]]
-    (amendment 3: identifier-led conversions ARE application syntax — Front needs NO special conversion
-    node).  So [a + int64(5)] / [a * int64(3)] are now printed entirely by [Printer.Front.gprint], with the
+    syntax over a type name, so the verified [GoPrint] printer emits it as [ECall (EId "int64") [EInt N]]
+    (amendment 3: identifier-led conversions ARE application syntax — GoPrint needs NO special conversion
+    node).  So [a + int64(5)] / [a * int64(3)] are now printed entirely by [Printer.gprint], with the
     [int64(...)] wrapper and the literal both byte-identical to the plugin by construction. *)
 Definition front_conv_demo (a : GoI64) : IO unit :=
   println [ any (i64_add a (5)%i64)          (* a + int64(5) *)
@@ -3391,10 +3391,10 @@ Definition main_effect : IO unit :=
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   neg_op_demo                   >>'   (* prints: -5 7 (unary -x) *)
   uneg_binop_demo (5)%i64 (3)%i64 >>' (* prints: -2 -2 (-(a)+b, b+-(a) — UNeg as binop operand) *)
-  front_binop_demo (5)%i64 (3)%i64 >>' (* prints: 8 15 (a+b, a*b — printed by the VERIFIED Front printer) *)
-  front_nested_demo (2)%i64 (3)%i64 (4)%i64 >>' (* prints: 10 20 (a*b+c, (a+b)*c — verified Front, nested) *)
-  front_lit_demo (int_lit 10 eq_refl) >>' (* prints: 15 25 (a+5, a+5+a — verified Front, int literal leaf) *)
-  front_conv_demo (10)%i64 >>' (* prints: 15 30 (a+int64(5), a*int64(3) — verified Front, i64-lit conversion) *)
+  front_binop_demo (5)%i64 (3)%i64 >>' (* prints: 8 15 (a+b, a*b — printed by the VERIFIED GoPrint printer) *)
+  front_nested_demo (2)%i64 (3)%i64 (4)%i64 >>' (* prints: 10 20 (a*b+c, (a+b)*c — verified GoPrint, nested) *)
+  front_lit_demo (int_lit 10 eq_refl) >>' (* prints: 15 25 (a+5, a+5+a — verified GoPrint, int literal leaf) *)
+  front_conv_demo (10)%i64 >>' (* prints: 15 30 (a+int64(5), a*int64(3) — verified GoPrint, i64-lit conversion) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)
