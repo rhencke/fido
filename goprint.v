@@ -982,6 +982,15 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
     that cannot munch into the operator before it.  (UNeg self-parenthesises as [-(x)] for the same reason,
     plus to avoid colliding with the [-5] negative-literal lexing.) *)
 
+(** [op_needs_paren e0] — does a POSTFIX operand [e0] need parentheses?  TRUE exactly for the LOOSE nodes
+    ([EUn]/[EBn], which bind looser than a postfix operator); every atom and other postfix form prints bare.
+    This is the SINGLE source of truth for operand parenthesisation, used uniformly by
+    [gprint]/[gparen]/[gtokens]/[gtparen] — so the rule lives in ONE place, and a future postfix form is bare
+    BY DEFAULT (it lands in the [_] catch-all, never wrongly wrapped).  Defined before [gprint] (it only
+    inspects the head constructor, so it needs no recursion). *)
+Definition op_needs_paren (e0 : GExpr) : bool :=
+  match e0 with EUn _ _ | EBn _ _ _ => true | _ => false end.
+
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
     in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
 Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
@@ -999,28 +1008,16 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   | ESel e0 f =>
       (* postfix never needs the ctx wrap; the OPERAND is parenthesised iff it is looser than postfix
          (a unary or binary node) — an atom or another postfix form prints bare (see [gparen]). *)
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0
-        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
-        end) ++ "." ++ proj1_sig f)%string
+      ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ "." ++ proj1_sig f)%string
   | EIndex e0 i =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0
-        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
-        end) ++ "[" ++ gprint 0 i ++ "]")%string
+      ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ "[" ++ gprint 0 i ++ "]")%string
   | ESlice e0 lo hi =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0
-        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
-        end) ++ "[" ++ gprint 0 lo ++ ":" ++ gprint 0 hi ++ "]")%string
+      ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ "[" ++ gprint 0 lo ++ ":" ++ gprint 0 hi ++ "]")%string
   | ECall e0 args =>
       (* the comma-joined arg list is a LOCAL [fix] (calling the enclosing [gprint] on each arg, a subterm)
          — a mutual [with gprint_args] is rejected by the guard checker for a list-element cross-call.  The
          standalone [gprint_args] below mirrors it; [gprint_ECall] bridges them. *)
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0
-        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
-        end) ++ "(" ++
+      ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ "(" ++
        (match args with
         | nil => ""
         | a :: r => (gprint 0 a ++ (fix gat (m : list GExpr) : string :=
@@ -1028,10 +1025,7 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
         end)
        ++ ")")%string
   | EAssert e0 T =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0
-        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
-        end) ++ ".(" ++ print_ty T ++ ")")%string
+      ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ ".(" ++ print_ty T ++ ")")%string
   end.
 
 (** the comma-joined argument list: head then a comma-prefixed tail (no trailing comma — gofmt-clean).
@@ -1045,7 +1039,7 @@ Definition gprint_args (args : list GExpr) : string :=
     binary node), factored out so proofs can [destruct e0] over it WITHOUT [cbn] over-reducing [gprint 0 e0];
     [gprint_ESel]/[gprint_EIndex] re-fold the inlined [gprint] cases onto it. *)
 Definition gparen (e0 : GExpr) : string :=
-  match e0 with EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gprint 0 e0 | _ => ("(" ++ gprint 0 e0 ++ ")")%string end.
+  if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0.
 Lemma gprint_ESel : forall ctx e0 f, gprint ctx (ESel e0 f) = (gparen e0 ++ "." ++ proj1_sig f)%string.
 Proof. reflexivity. Qed.
 Lemma gprint_EIndex : forall ctx e0 i, gprint ctx (EIndex e0 i) = (gparen e0 ++ "[" ++ gprint 0 i ++ "]")%string.
@@ -1328,34 +1322,19 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
       let inner := (gtokens p l ++ op_token o :: gtokens (S p) r)%list in
       if Nat.ltb p ctx then TLP :: (inner ++ TRP :: nil) else inner
   | ESel e0 f =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0
-        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
-        end) ++ TDot :: TId f :: nil)%list
+      ((if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0) ++ TDot :: TId f :: nil)%list
   | EIndex e0 i =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0
-        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
-        end) ++ TLB :: (gtokens 0 i ++ TRB :: nil))%list
+      ((if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0) ++ TLB :: (gtokens 0 i ++ TRB :: nil))%list
   | ESlice e0 lo hi =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0
-        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
-        end) ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list
+      ((if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0) ++ TLB :: (gtokens 0 lo ++ TColon :: (gtokens 0 hi ++ TRB :: nil)))%list
   | ECall e0 args =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0
-        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
-        end) ++ TLP :: ((match args with
+      ((if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0) ++ TLP :: ((match args with
                          | nil => nil
                          | a :: r => (gtokens 0 a ++ (fix gtt (m : list GExpr) : list Token :=
                                         match m with nil => nil | b :: m' => (TComma :: (gtokens 0 b ++ gtt m'))%list end) r)%list
                          end) ++ TRP :: nil))%list
   | EAssert e0 T =>
-      ((match e0 with
-        | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0
-        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
-        end) ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
+      ((if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0) ++ TDot :: TLP :: (gttokens_ty T ++ TRP :: nil))%list
   end.
 (** standalone arg-token list (mirrors the local [fix] in [gtokens]'s ECall case); [gtokens_ECall] bridges. *)
 Fixpoint gtokens_args_tl (args : list GExpr) : list Token :=
@@ -1365,7 +1344,7 @@ Definition gtokens_args (args : list GExpr) : list Token :=
 
 (** token analog of [gparen] + the re-fold lemmas (mirror [gprint_ESel]/[gprint_EIndex]). *)
 Definition gtparen (e0 : GExpr) : list Token :=
-  match e0 with EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => gtokens 0 e0 | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list end.
+  if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0.
 Lemma gtokens_ESel : forall ctx e0 f, gtokens ctx (ESel e0 f) = (gtparen e0 ++ TDot :: TId f :: nil)%list.
 Proof. reflexivity. Qed.
 Lemma gtokens_EIndex : forall ctx e0 i, gtokens ctx (EIndex e0 i) = (gtparen e0 ++ TLB :: (gtokens 0 i ++ TRB :: nil))%list.
@@ -1912,7 +1891,7 @@ Proof.
   intros e0 X fuel tX IHe0 HXc HX Hfuel.
   assert (Hrp : lex_aux (S (String.length (String (ch 41) X))) (String (ch 41) X) = Some (TRP :: tX))
     by (apply lex_rparen_app; [ exact HX | cbn [String.length]; lia ]).
-  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT ]; cbn [gparen gtparen] in Hfuel |- *.
+  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT ]; cbn [gparen gtparen op_needs_paren] in Hfuel |- *.
   1,2,5,6,7,8,9: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
   - (* EUn operand — parenthesised *)
     assert (Hin : lex_aux (S (String.length (gprint 0 (EUn u0 eu) ++ String (ch 41) X)))
@@ -2238,25 +2217,25 @@ Proof.
   - (* ESel es fs *) rewrite gtokens_ESel, List.length_app. cbn [esize List.length].
     assert (Hb : esize es <= List.length (gtparen es)).
     { pose proof (IHs 0) as Hi. unfold gtparen; destruct es;
-        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
     lia.
   - (* EIndex eb ix *) rewrite gtokens_EIndex, List.length_app. cbn [esize List.length].
     rewrite List.length_app. cbn [List.length].
     assert (Hb : esize eb <= List.length (gtparen eb)).
     { pose proof (IHb 0) as Hi. unfold gtparen; destruct eb;
-        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
     pose proof (IHx 0) as Hx. lia.
   - (* ESlice esl slo shi *) rewrite gtokens_ESlice, List.length_app. cbn [esize List.length].
     rewrite List.length_app. cbn [List.length]. rewrite List.length_app. cbn [List.length].
     assert (Hb : esize esl <= List.length (gtparen esl)).
     { pose proof (IHsl 0) as Hi. unfold gtparen; destruct esl;
-        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
     pose proof (IHlo 0) as Hlo'. pose proof (IHhi 0) as Hhi'. lia.
   - (* ECall ec ecargs *) rewrite esize_ECall, (gtokens_ECall ctx ec ecargs), List.length_app.
     cbn [List.length]. rewrite List.length_app. cbn [List.length].
     assert (Hb : esize ec <= List.length (gtparen ec)).
     { pose proof (IHec 0) as Hi. unfold gtparen; destruct ec;
-        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
     assert (Hat : forall l, List.Forall (fun a => forall ctx0, esize a <= List.length (gtokens ctx0 a)) l ->
                   esa l <= List.length (gtokens_args_tl l)).
     { induction l as [ | b m IHm ]; intro Hfa; [ cbn [esa gtokens_args_tl]; lia | ].
@@ -2271,7 +2250,7 @@ Proof.
     rewrite List.length_app. cbn [List.length].
     assert (Hb : esize ea <= List.length (gtparen ea)).
     { pose proof (IHea 0) as Hi. unfold gtparen; destruct ea;
-        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
     pose proof (tsize_le_len T) as Ht. lia.
 Qed.
 
@@ -3088,10 +3067,10 @@ Proof.
     [ | | | | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind ].
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
-  - cbn [gtparen]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+  - cbn [gtparen op_needs_paren]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
     cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_atom_S.
     rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I) ltac:(cbn [esize] in HF |- *; lia)). reflexivity.
-  - cbn [gtparen]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+  - cbn [gtparen op_needs_paren]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
     cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_atom_S.
     rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I) ltac:(cbn [esize] in HF |- *; lia)). reflexivity.
 Qed.

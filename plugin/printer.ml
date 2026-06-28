@@ -1661,6 +1661,13 @@ module Front =
   | ECall of coq_GExpr * coq_GExpr list
   | EAssert of coq_GExpr * goTy
 
+  (** val op_needs_paren : coq_GExpr -> bool **)
+
+  let op_needs_paren = function
+  | EUn (_, _) -> True
+  | EBn (_, _, _) -> True
+  | _ -> False
+
   (** val gprint : nat -> coq_GExpr -> string **)
 
   let rec gprint ctx = function
@@ -1693,52 +1700,37 @@ module Front =
      | False -> inner)
   | ESel (e0, f) ->
     append
-      (match e0 with
-       | EUn (_, _) ->
+      (match op_needs_paren e0 with
+       | True ->
          append (String ((Ascii (False, False, False, True, False, True,
            False, False)), EmptyString))
            (append (gprint O e0) (String ((Ascii (True, False, False, True,
              False, True, False, False)), EmptyString)))
-       | EBn (_, _, _) ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | _ -> gprint O e0)
+       | False -> gprint O e0)
       (append (String ((Ascii (False, True, True, True, False, True, False,
         False)), EmptyString)) f)
   | EIndex (e0, i) ->
     append
-      (match e0 with
-       | EUn (_, _) ->
+      (match op_needs_paren e0 with
+       | True ->
          append (String ((Ascii (False, False, False, True, False, True,
            False, False)), EmptyString))
            (append (gprint O e0) (String ((Ascii (True, False, False, True,
              False, True, False, False)), EmptyString)))
-       | EBn (_, _, _) ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | _ -> gprint O e0)
+       | False -> gprint O e0)
       (append (String ((Ascii (True, True, False, True, True, False, True,
         False)), EmptyString))
         (append (gprint O i) (String ((Ascii (True, False, True, True, True,
           False, True, False)), EmptyString))))
   | ESlice (e0, lo, hi) ->
     append
-      (match e0 with
-       | EUn (_, _) ->
+      (match op_needs_paren e0 with
+       | True ->
          append (String ((Ascii (False, False, False, True, False, True,
            False, False)), EmptyString))
            (append (gprint O e0) (String ((Ascii (True, False, False, True,
              False, True, False, False)), EmptyString)))
-       | EBn (_, _, _) ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | _ -> gprint O e0)
+       | False -> gprint O e0)
       (append (String ((Ascii (True, True, False, True, True, False, True,
         False)), EmptyString))
         (append (gprint O lo)
@@ -1748,18 +1740,13 @@ module Front =
               True, False, True, False)), EmptyString))))))
   | ECall (e0, args) ->
     append
-      (match e0 with
-       | EUn (_, _) ->
+      (match op_needs_paren e0 with
+       | True ->
          append (String ((Ascii (False, False, False, True, False, True,
            False, False)), EmptyString))
            (append (gprint O e0) (String ((Ascii (True, False, False, True,
              False, True, False, False)), EmptyString)))
-       | EBn (_, _, _) ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | _ -> gprint O e0)
+       | False -> gprint O e0)
       (append (String ((Ascii (False, False, False, True, False, True, False,
         False)), EmptyString))
         (append
@@ -1778,18 +1765,13 @@ module Front =
           False)), EmptyString))))
   | EAssert (e0, t) ->
     append
-      (match e0 with
-       | EUn (_, _) ->
+      (match op_needs_paren e0 with
+       | True ->
          append (String ((Ascii (False, False, False, True, False, True,
            False, False)), EmptyString))
            (append (gprint O e0) (String ((Ascii (True, False, False, True,
              False, True, False, False)), EmptyString)))
-       | EBn (_, _, _) ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | _ -> gprint O e0)
+       | False -> gprint O e0)
       (append (String ((Ascii (False, True, True, True, False, True, False,
         False)), (String ((Ascii (False, False, False, True, False, True,
         False, False)), EmptyString))))
