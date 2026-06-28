@@ -341,16 +341,28 @@ The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed 
 Docs and NAMES do not claim more than the live path proves.
 ```
 
-Suggested grep gates (not proofs, but they catch regressions). **Scope them to SOURCE and exclude docs +
-generated artifacts** — the docs (`ARCHITECTURE.md`, `LESSONS.md`, `PROGRESS.md`, `CLAUDE.md`) and the
-generated `plugin/printer.ml` legitimately *contain* these strings (this charter names the forbidden patterns
-on purpose), so a tree-wide `grep -RInE … .` is SELF-FAILING and must not be used. The authoritative,
-correctly-scoped live gate is `plugin/smart-ctor-gate.sh`; these are its illustrative shape:
+Two kinds of grep, and they must NOT be conflated:
+
+**(a) Enforceable gates — must be EMPTY on source.** Scope to SOURCE (hand-written `.v` + plugin OCaml/glue),
+excluding docs and the generated `plugin/printer.ml` — the docs (`ARCHITECTURE.md`, `LESSONS.md`,
+`PROGRESS.md`, `CLAUDE.md`) name these patterns on purpose, so a tree-wide `grep -RInE … .` is SELF-FAILING
+and must not be used. The authoritative live gate is `plugin/smart-ctor-gate.sh`; these are its shape (both
+currently clean):
 
 ```sh
 SRC=$(git ls-files '*.v' 'plugin/*.ml' 'plugin/*.mlg' | grep -v '^plugin/printer\.ml$')
-grep -nE 'SRaw|raw_ok|RawExpr|RawStmt|RawDecl|OpaqueExpr|TrustedExpr' $SRC
-grep -nE 'emit[ _].*GoAst\.Program' $SRC
+grep -nE 'SRaw|raw_ok|RawExpr|RawStmt|RawDecl|OpaqueExpr|TrustedExpr' $SRC   # raw-syntax ctors → must be empty
+grep -nE 'emit[ _].*GoAst\.Program' $SRC                                     # raw emit  → must be empty
+```
+
+**(b) Review HEURISTIC — NOT a pass/fail gate.** The "suspicious phrases" scan below is a prompt for human/
+Codex scrutiny per Rule 5, not an acceptance gate: honest documentation and comments legitimately use these
+words (e.g. `proof-only` correctly describes `concurrency.v`/`relooper.v`; honest TCB notes say `trusted
+fallback`/`known limitation`). It matches dozens of legitimate source lines today and is EXPECTED to be
+non-empty. Treat each hit as "read this and check it is not an overclaim," never as "fail the build."
+
+```sh
+# review aid only — non-empty is normal; judge each hit, do not gate on it
 grep -nE 'plugin never emits|known limitation|proof-only|future stage|trusted fallback' $SRC
 ```
 
