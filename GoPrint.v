@@ -3359,6 +3359,14 @@ Proof.
   rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
 Qed.
 
+(** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source.  Tiny, matching the tiny [Program]:
+    `package <pkg>` then an empty `func main()`.  The package name is a validated [Ident] (no raw text); the
+    layout bytes are the printer's only freedom.  GoEmit's blessed [emit_supported] is exactly this, gated by
+    a [SupportedProgram] certificate. *)
+Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
+Definition print_program (p : Program) : string :=
+  ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++ "}" ++ go_nl)%string.
+
 (** GATE — GoAst.v + GoPrint.v are part of the trust base: the EXTRACTED printer is governed by these
     theorems, so they MUST be axiom-free.  The build (Dockerfile prover stage) compiles GoAst.v + GoPrint.v
     standalone (`rocq c -Q . Fido`) and FAILS

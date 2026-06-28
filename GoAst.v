@@ -155,3 +155,9 @@ Inductive ConvTy : Type :=
   | CTMap   : GoTy -> GoTy -> ConvTy. (* map[K]V *)
 Definition convty_ty (c : ConvTy) : GoTy :=
   match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
+
+(** ---- A GO PROGRAM ---- the top-level unit GoEmit emits.  DELIBERATELY TINY (ARCHITECTURE.md §11): a
+    package name + an empty [func main()].  No raw strings — the package is a validated [Ident].  Grows
+    (imports, decls, a real func body of statements) as the AST does; this is just the seed so the
+    proof-gated emitter (GoEmit) has something to certify and print. *)
+Record Program : Type := mkProgram { prog_pkg : Ident }.

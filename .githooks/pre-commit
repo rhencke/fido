@@ -71,7 +71,7 @@ fi
 #      Hypothesis / Variable (discharged at Section close — NOT global axioms), so those two
 #      constructs are not grepped there (Print Assumptions would catch a mis-discharged one).
 if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture)[[:space:]]|Admitted' \
-        builtins.v main.v concurrency.v relooper.v preamble.v cmd.v unified.v GoAst.v GoPrint.v 2>/dev/null \
+        builtins.v main.v concurrency.v relooper.v preamble.v cmd.v unified.v GoAst.v GoPrint.v GoSafe.v GoEmit.v 2>/dev/null \
    || grep -nE '^[[:space:]]*(Hypothesis|Variable)[[:space:]]' builtins.v main.v 2>/dev/null; then
   echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any theory file), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
