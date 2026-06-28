@@ -1301,7 +1301,8 @@ Inductive GExpr : Type :=
   | EId  : Ident -> GExpr
   | EInt : Z -> GExpr
   | EUn  : UnaryOp -> GExpr -> GExpr
-  | EBn  : BinOp -> GExpr -> GExpr -> GExpr.
+  | EBn  : BinOp -> GExpr -> GExpr -> GExpr
+  | ESel : GExpr -> Ident -> GExpr.   (* postfix selector [e.field] — binds tighter than every operator *)
 
 (** A bare prefix operator applied DIRECTLY to another prefix operator is a LEXICAL hazard: [&] then [&]
     (nested [UAddr]) prints "&&" which the lexer maximal-munches to [TLand], and [&] then [^] (UAddr-of-
@@ -1325,7 +1326,21 @@ Fixpoint gprint (ctx : nat) (e : GExpr) : string :=
       let p := binop_prec o in
       let inner := (gprint p l ++ binop_text o ++ gprint (S p) r)%string in
       if Nat.ltb p ctx then ("(" ++ inner ++ ")")%string else inner
+  | ESel e0 f =>
+      (* postfix never needs the ctx wrap; the OPERAND is parenthesised iff it is looser than postfix
+         (a unary or binary node) — an atom or another selector prints bare (see [gparen]). *)
+      ((match e0 with
+        | EId _ | EInt _ | ESel _ _ => gprint 0 e0
+        | _ => ("(" ++ gprint 0 e0 ++ ")")%string
+        end) ++ "." ++ proj1_sig f)%string
   end.
+
+(** [gparen] = the selector's operand-printing rule, factored out so proofs can [destruct e0] over it
+    WITHOUT [cbn] over-reducing [gprint 0 e0]; [gprint_ESel] re-folds the inlined [gprint] case onto it. *)
+Definition gparen (e0 : GExpr) : string :=
+  match e0 with EId _ | EInt _ | ESel _ _ => gprint 0 e0 | _ => ("(" ++ gprint 0 e0 ++ ")")%string end.
+Lemma gprint_ESel : forall ctx e0 f, gprint ctx (ESel e0 f) = (gparen e0 ++ "." ++ proj1_sig f)%string.
+Proof. reflexivity. Qed.
 
 (** ---- THE PARSER ---- recursive descent + precedence climbing over the TOKEN stream.  The ambiguous
     operator tokens are resolved by POSITION: a prefix [TStar]/[TAmp]/[TCaret]/[TBang] is a unary op
@@ -1346,20 +1361,35 @@ Fixpoint parse_expr (fuel k : nat) (toks : list Token) : option (GExpr * list To
   | O => None
   | S f => match parse_primary f toks with Some (l, r) => parse_climb f k l r | None => None end
   end
+(** a PRIMARY = an atom then a left-to-right chain of postfix selectors. *)
 with parse_primary (fuel : nat) (toks : list Token) : option (GExpr * list Token) :=
+  match fuel with
+  | O => None
+  | S f => match parse_atom f toks with Some (a, r) => parse_postfix f a r | None => None end
+  end
+with parse_atom (fuel : nat) (toks : list Token) : option (GExpr * list Token) :=
   match fuel with
   | O => None
   | S f =>
     match toks with
     | TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (e, r) | _ => None end
-    | TBang  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UNot e, r)   | None => None end
-    | TCaret :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UXor e, r)   | None => None end
-    | TStar  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UDeref e, r) | None => None end
-    | TAmp   :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
+    | TBang  :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UNot e, r)   | None => None end
+    | TCaret :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UXor e, r)   | None => None end
+    | TStar  :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UDeref e, r) | None => None end
+    | TAmp   :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
     | TMinus :: TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (EUn UNeg e, r) | _ => None end
     | TId i :: rest  => Some (EId i, rest)
     | TInt z :: rest => Some (EInt z, rest)
     | _ => None
+    end
+  end
+with parse_postfix (fuel : nat) (a : GExpr) (toks : list Token) : option (GExpr * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TDot :: TId field :: rest => parse_postfix f (ESel a field) rest
+    | _ => Some (a, toks)
     end
   end
 with parse_climb (fuel k : nat) (l : GExpr) (toks : list Token) : option (GExpr * list Token) :=
@@ -1379,7 +1409,7 @@ with parse_climb (fuel k : nat) (l : GExpr) (toks : list Token) : option (GExpr 
     | nil => Some (l, toks)
     end
   end.
-Definition parse (toks : list Token) : option (GExpr * list Token) := parse_expr (3 * List.length toks + 3) 0 toks.
+Definition parse (toks : list Token) : option (GExpr * list Token) := parse_expr (3 * List.length toks + 4) 0 toks.
 (** parse a STRING end-to-end: [lex] then [parse].  The frontend's front door. *)
 Definition parse_str (s : string) : option (GExpr * list Token) :=
   match lex s with Some toks => parse toks | None => None end.
@@ -1410,6 +1440,19 @@ Proof. vm_compute; reflexivity. Qed.
 Example rt_addr_xor  : parse_str (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
                      = Some (EUn UAddr (EUn UXor (EX "x")), nil).
 Proof. vm_compute; reflexivity. Qed.
+(* ESel (postfix selector): atom operand bare, chain left-assoc, unary/binop operand parenthesised. *)
+Example rt_sel    : parse_str (gprint 0 (ESel (EX "x") (exist _ "f" eq_refl)))
+                  = Some (ESel (EX "x") (exist _ "f" eq_refl), nil).  (* x.f *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_sel_chain : parse_str (gprint 0 (ESel (ESel (EX "x") (exist _ "f" eq_refl)) (exist _ "g" eq_refl)))
+                  = Some (ESel (ESel (EX "x") (exist _ "f" eq_refl)) (exist _ "g" eq_refl), nil).  (* x.f.g *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_sel_bin : parse_str (gprint 0 (ESel (EBn BAdd (EX "a") (EX "b")) (exist _ "f" eq_refl)))
+                  = Some (ESel (EBn BAdd (EX "a") (EX "b")) (exist _ "f" eq_refl), nil).  (* (a + b).f *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_sel_in_bin : parse_str (gprint 0 (EBn BAdd (ESel (EX "a") (exist _ "f" eq_refl)) (EX "b")))
+                  = Some (EBn BAdd (ESel (EX "a") (exist _ "f" eq_refl)) (EX "b"), nil).  (* a.f + b *)
+Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
     [gprint]'s structure exactly; [op_token]/[prefix_token] are the inverses of [infix_op]/[prefix_op].
@@ -1437,7 +1480,18 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
       let p := binop_prec o in
       let inner := (gtokens p l ++ op_token o :: gtokens (S p) r)%list in
       if Nat.ltb p ctx then TLP :: (inner ++ TRP :: nil) else inner
+  | ESel e0 f =>
+      ((match e0 with
+        | EId _ | EInt _ | ESel _ _ => gtokens 0 e0
+        | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list
+        end) ++ TDot :: TId f :: nil)%list
   end.
+
+(** token analog of [gparen] + the re-fold lemma (mirrors [gprint_ESel]). *)
+Definition gtparen (e0 : GExpr) : list Token :=
+  match e0 with EId _ | EInt _ | ESel _ _ => gtokens 0 e0 | _ => (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list end.
+Lemma gtokens_ESel : forall ctx e0 f, gtokens ctx (ESel e0 f) = (gtparen e0 ++ TDot :: TId f :: nil)%list.
+Proof. reflexivity. Qed.
 
 (** [op_token]/[prefix_token] really invert the parser's token classifiers. *)
 Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
@@ -1781,6 +1835,59 @@ Proof. induction a as [ | x a' IH ]; intros b c; [ reflexivity | cbn; rewrite IH
 Lemma str_app_nil_r : forall s, (s ++ "" = s)%string.
 Proof. induction s as [ | c s' IH ]; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
 
+(** SELECTOR-DOT SEAM: '.' (ch 46) is a single delimiter char — never id/digit/space, [lex_op] maps it
+    to [TDot] — so it lexes to [TDot] then [X] (like the paren seams). *)
+Lemma lex_dot_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
+  lex_aux fuel (String (ch 46) X) = Some (TDot :: tX).
+Proof.
+  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
+  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
+(** OPERAND SEAM for a selector: [gparen e0] (the bare-or-parenthesised operand) lexes to [gtparen e0]
+    then [X], using the per-[e0] round-trip [IHe0] (bare cases directly; paren cases via the '('/')' seams). *)
+Lemma lex_gparen : forall e0 X fuel tX,
+  (forall ctx rest fuel tr, clean_start rest = true ->
+     lex_aux (S (String.length rest)) rest = Some tr ->
+     S (String.length (gprint ctx e0) + String.length rest) <= fuel ->
+     lex_aux fuel (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
+  clean_start X = true ->
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (String.length (gparen e0) + String.length X) <= fuel ->
+  lex_aux fuel (gparen e0 ++ X) = Some ((gtparen e0 ++ tX)%list).
+Proof.
+  intros e0 X fuel tX IHe0 HXc HX Hfuel.
+  assert (Hrp : lex_aux (S (String.length (String (ch 41) X))) (String (ch 41) X) = Some (TRP :: tX))
+    by (apply lex_rparen_app; [ exact HX | cbn [String.length]; lia ]).
+  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs ]; cbn [gparen gtparen] in Hfuel |- *.
+  1,2,5: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
+  - (* EUn operand — parenthesised *)
+    assert (Hin : lex_aux (S (String.length (gprint 0 (EUn u0 eu) ++ String (ch 41) X)))
+                          (gprint 0 (EUn u0 eu) ++ String (ch 41) X)
+                = Some (gtokens 0 (EUn u0 eu) ++ TRP :: tX)%list)
+      by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
+    rewrite !str_app_assoc.
+    change ("(" ++ (gprint 0 (EUn u0 eu) ++ (")" ++ X)))%string
+      with (String (ch 40) (gprint 0 (EUn u0 eu) ++ String (ch 41) X)).
+    rewrite (lex_lparen_app _ _ _ Hin)
+      by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
+          repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
+    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+  - (* EBn operand — parenthesised *)
+    assert (Hin : lex_aux (S (String.length (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)))
+                          (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)
+                = Some (gtokens 0 (EBn b0 lb rb) ++ TRP :: tX)%list)
+      by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
+    rewrite !str_app_assoc.
+    change ("(" ++ (gprint 0 (EBn b0 lb rb) ++ (")" ++ X)))%string
+      with (String (ch 40) (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)).
+    rewrite (lex_lparen_app _ _ _ Hin)
+      by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
+          repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
+    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+Qed.
+
 (** ---- THE LEXER ROUND-TRIP ---- [lex (gprint ctx e ++ rest) = gtokens ctx e ++ (lex rest)] for clean
     [rest] and enough fuel; by induction on [e].  Leaves via the leaf lemmas; [EUn]/[EBn] thread the seams
     around the IHs, every boundary clean (a space / a ')' / [rest]).  String scope is open, so the token
@@ -1791,7 +1898,7 @@ Lemma lex_gprint_app : forall e ctx rest fuel tr,
   S (String.length (gprint ctx e) + String.length rest) <= fuel ->
   lex_aux fuel (gprint ctx e ++ rest) = Some ((gtokens ctx e ++ tr)%list).
 Proof.
-  induction e as [ i | z | o e IHe | o l IHl r IHr ]; intros ctx rest fuel tr Hclean Hrest Hfuel.
+  induction e as [ i | z | o e IHe | o l IHl r IHr | e0 IHe0 f ]; intros ctx rest fuel tr Hclean Hrest Hfuel.
   - cbn [gprint gtokens app] in *. apply lex_gprint_id; assumption.
   - cbn [gprint gtokens app] in *. apply lex_gprint_int; assumption.
   - (* EUn: body is [<op>( gprint 0 e )] (operand always parenthesised) *)
@@ -1860,6 +1967,21 @@ Proof.
                 ltac:(repeat rewrite length_app in Hfuel; repeat rewrite length_app;
                       cbn [String.length] in Hfuel |- *; lia)).
       reflexivity.
+  - (* ESel e0 f: [gparen e0] ++ "." ++ field — operand seam ([lex_gparen]) then the '.'+field seam *)
+    rewrite gprint_ESel, gtokens_ESel.
+    assert (Hfield : lex_aux (S (String.length (proj1_sig f ++ rest))) (proj1_sig f ++ rest) = Some (TId f :: tr))
+      by (apply lex_gprint_id; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
+    assert (Hdot : lex_aux (S (String.length (String (ch 46) (proj1_sig f ++ rest))))
+                           (String (ch 46) (proj1_sig f ++ rest)) = Some (TDot :: TId f :: tr))
+      by (apply lex_dot_app; [ exact Hfield | cbn [String.length]; lia ]).
+    rewrite !str_app_assoc.
+    change ("." ++ (proj1_sig f ++ rest))%string with (String (ch 46) (proj1_sig f ++ rest)).
+    rewrite (lex_gparen e0 (String (ch 46) (proj1_sig f ++ rest)) fuel (TDot :: TId f :: tr)
+               IHe0 eq_refl Hdot
+               ltac:(rewrite gprint_ESel in Hfuel; cbn [String.length] in Hfuel |- *;
+                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+                     cbn [String.length] in Hfuel |- *; lia)).
+    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
 Qed.
 
 (** THE HEADLINE (lexer half): [lex (gprint ctx e) = Some (gtokens ctx e)] — the printed AST lexes to its
@@ -1886,8 +2008,9 @@ Qed.
 Fixpoint esize (e : GExpr) : nat :=
   match e with
   | EId _ => 1 | EInt _ => 1
-  | EUn _ e => S (S (esize e))   (* +2 for the two operand-paren tokens the unary printer always emits *)
+  | EUn _ e => S (S (S (esize e)))   (* +3: 2 operand-paren tokens + 1 for the parse_primary postfix layer *)
   | EBn _ l r => S (esize l + esize r)
+  | ESel e _ => S (S (esize e))      (* +2: the TDot + field tokens *)
   end.
 Lemma esize_pos : forall e, 1 <= esize e.
 Proof. intro e; destruct e; cbn [esize]; lia. Qed.
@@ -1896,44 +2019,66 @@ Proof. intro e; destruct e; cbn [esize]; lia. Qed.
     always covers the [3*esize+2] budget. *)
 Lemma length_gtokens_ge_esize : forall e ctx, esize e <= List.length (gtokens ctx e).
 Proof.
-  induction e as [ i | z | o e0 IH | o l IHl r IHr ]; intro ctx; cbn [esize gtokens List.length].
-  - lia.
-  - lia.
-  - destruct o; cbn [List.length]; rewrite !List.length_app; pose proof (IH 0); cbn [List.length]; lia.
-  - pose proof (IHl (binop_prec o)); pose proof (IHr (S (binop_prec o))).
+  induction e as [ i | z | o e0 IH | o l IHl r IHr | es IHs fs ]; intro ctx.
+  - cbn; lia.
+  - cbn; lia.
+  - cbn [esize gtokens List.length]. destruct o; cbn [List.length]; rewrite !List.length_app;
+      pose proof (IH 0); cbn [List.length]; lia.
+  - cbn [esize gtokens List.length]. pose proof (IHl (binop_prec o)); pose proof (IHr (S (binop_prec o))).
     destruct (Nat.ltb (binop_prec o) ctx); cbn [List.length]; rewrite !List.length_app; cbn [List.length]; lia.
+  - (* ESel es fs *) rewrite gtokens_ESel, List.length_app. cbn [esize List.length].
+    assert (Hb : esize es <= List.length (gtparen es)).
+    { pose proof (IHs 0) as Hi. unfold gtparen; destruct es;
+        cbn [List.length]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    lia.
 Qed.
 
 (** [tail_ok k rest] — a tail at which [parse_climb k] STOPS: empty, led by a NON-infix token, or led by
     an infix operator binding LOOSER than [k] (precedence [< k]).  (The token analog of the old string
     [tail_ok]; discrete tokens make it a one-line match — no [good_seam] char analysis.) *)
+(** a postfix starter — the [parse_postfix] loop consumes a [TDot]-led [.field]; a clean tail must not. *)
+Definition is_postfix_start (t : Token) : bool := match t with TDot => true | _ => false end.
+
 Definition tail_ok (k : nat) (rest : list Token) : Prop :=
   match rest with
   | nil => True
-  | t :: _ => match infix_op t with Some o => binop_prec o < k | None => True end
+  | t :: _ => is_postfix_start t = false /\ match infix_op t with Some o => binop_prec o < k | None => True end
   end.
 
 Lemma tail_ok_mono : forall k k' rest, tail_ok k rest -> k <= k' -> tail_ok k' rest.
 Proof.
   intros k k' rest H Hle. destruct rest as [ | t rs ]; [ exact I | ].
-  cbn [tail_ok] in *. destruct (infix_op t); [ lia | exact I ].
+  cbn [tail_ok] in *. destruct H as [ Hp Hi ]. split; [ exact Hp | ].
+  destruct (infix_op t); [ lia | exact I ].
 Qed.
+Lemma tail_ok_pclean : forall k rest, tail_ok k rest ->
+  match rest with nil => True | t :: _ => is_postfix_start t = false end.
+Proof. intros k rest H. destruct rest as [ | t rs ]; [ exact I | exact (proj1 H) ]. Qed.
 
 (** fuel-unfold lemmas (one [S] exposes the head match of each mutually-recursive parser). *)
 Lemma parse_expr_S : forall f k toks, parse_expr (S f) k toks =
   match parse_primary f toks with Some (l, r) => parse_climb f k l r | None => None end.
 Proof. reflexivity. Qed.
 Lemma parse_primary_S : forall f toks, parse_primary (S f) toks =
+  match parse_atom f toks with Some (a, r) => parse_postfix f a r | None => None end.
+Proof. reflexivity. Qed.
+Lemma parse_atom_S : forall f toks, parse_atom (S f) toks =
   match toks with
   | TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (e, r) | _ => None end
-  | TBang  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UNot e, r)   | None => None end
-  | TCaret :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UXor e, r)   | None => None end
-  | TStar  :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UDeref e, r) | None => None end
-  | TAmp   :: rest => match parse_primary f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
+  | TBang  :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UNot e, r)   | None => None end
+  | TCaret :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UXor e, r)   | None => None end
+  | TStar  :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UDeref e, r) | None => None end
+  | TAmp   :: rest => match parse_atom f rest with Some (e, r) => Some (EUn UAddr e, r)  | None => None end
   | TMinus :: TLP :: rest => match parse_expr f 0 rest with Some (e, TRP :: r) => Some (EUn UNeg e, r) | _ => None end
   | TId i :: rest  => Some (EId i, rest)
   | TInt z :: rest => Some (EInt z, rest)
   | _ => None
+  end.
+Proof. reflexivity. Qed.
+Lemma parse_postfix_S : forall f a toks, parse_postfix (S f) a toks =
+  match toks with
+  | TDot :: TId field :: rest => parse_postfix f (ESel a field) rest
+  | _ => Some (a, toks)
   end.
 Proof. reflexivity. Qed.
 Lemma parse_climb_S : forall f k l toks, parse_climb (S f) k l toks =
@@ -1956,14 +2101,23 @@ Lemma tail_ok_climb_stop : forall k rest F l, tail_ok k rest -> parse_climb (S F
 Proof.
   intros k rest F l H. rewrite parse_climb_S.
   destruct rest as [ | t rs ]; [ reflexivity | ].
-  cbn [tail_ok] in H. destruct (infix_op t) eqn:E; [ | reflexivity ].
-  rewrite (proj2 (Nat.leb_gt _ _) H). reflexivity.
+  cbn [tail_ok] in H. destruct H as [ _ Hi ]. destruct (infix_op t) eqn:E; [ | reflexivity ].
+  rewrite (proj2 (Nat.leb_gt _ _) Hi). reflexivity.
+Qed.
+
+(** [parse_postfix] stops (the loop consumes nothing) at a tail whose head is not a postfix starter. *)
+Lemma parse_postfix_stop : forall F a r,
+  (match r with nil => True | t :: _ => is_postfix_start t = false end) ->
+  parse_postfix (S F) a r = Some (a, r).
+Proof.
+  intros F a r H. rewrite parse_postfix_S. destruct r as [ | t rest ]; [ reflexivity | ].
+  destruct t; cbn [is_postfix_start] in H; solve [ reflexivity | discriminate H ].
 Qed.
 
 (** The per-tree round-trip property, carried as a hypothesis for sub-operands inside the spine fold.
     Budget [3*esize e + 2 < F]: the [+2] is the slack a wrapped (parenthesised) [e] needs. *)
 Definition Pexpr (e : GExpr) : Prop :=
-  forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e + 2 < F ->
+  forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e + 3 < F ->
     parse_expr F k (gtokens ctx e ++ rest)%list = Some (e, rest).
 
 (** A LEFT-LEANING spine: a [base] operand and a list of [(operator, right-operand)] pairs printed in
@@ -1976,7 +2130,7 @@ Fixpoint gtok_pairs (ps : list (BinOp * GExpr)) : list Token :=
 Fixpoint fold_pairs (base : GExpr) (ps : list (BinOp * GExpr)) : GExpr :=
   match ps with nil => base | (o, r) :: ps' => fold_pairs (EBn o base r) ps' end.
 Fixpoint pairs_fuel (ps : list (BinOp * GExpr)) : nat :=
-  match ps with nil => 1 | (_, r) :: ps' => S (3 * esize r + 2 + pairs_fuel ps') end.
+  match ps with nil => 2 | (_, r) :: ps' => S (3 * esize r + 2 + pairs_fuel ps') end.
 (** Climb-readiness: every operator binds at precedence [>= k], consecutive operators are NON-increasing
     (left-associativity — so each right operand parse stops before the next operator), and every right
     operand round-trips ([Pexpr]). *)
@@ -1988,7 +2142,7 @@ Fixpoint spine_ok (k : nat) (ps : list (BinOp * GExpr)) : Prop :=
       /\ spine_ok k ps'
   end.
 
-Lemma pairs_fuel_pos : forall ps, 1 <= pairs_fuel ps.
+Lemma pairs_fuel_pos : forall ps, 2 <= pairs_fuel ps.
 Proof. intro ps. destruct ps as [ | [o r] ps' ]; cbn [pairs_fuel]; lia. Qed.
 
 Lemma gtok_pairs_app : forall a b, gtok_pairs (a ++ b)%list = (gtok_pairs a ++ gtok_pairs b)%list.
@@ -1999,6 +2153,13 @@ Qed.
 Lemma fold_pairs_app : forall a b base, fold_pairs base (a ++ b)%list = fold_pairs (fold_pairs base a) b.
 Proof.
   induction a as [ | [o r] a IH ]; intros b base; cbn [fold_pairs app]; [ reflexivity | apply IH ].
+Qed.
+
+Lemma gtok_pairs_snoc_pclean : forall ps0 o r rest,
+  match (gtok_pairs (ps0 ++ (o, r) :: nil)%list ++ rest)%list with nil => True | t :: _ => is_postfix_start t = false end.
+Proof.
+  intros ps0 o r rest. destruct ps0 as [ | [o1 r1] ps0' ]; cbn [gtok_pairs app];
+    [ destruct o; reflexivity | destruct o1; reflexivity ].
 Qed.
 
 (** SPINE FOLD — [parse_climb] consumes a printed left-leaning spine EXACTLY, left-folding it back to
@@ -2019,7 +2180,7 @@ Proof.
     assert (Htl2 : tail_ok (S (binop_prec o)) (gtok_pairs ps' ++ rest)%list).
     { destruct ps' as [ | [o2 r2] ps'' ].
       - cbn [gtok_pairs app]. apply (tail_ok_mono k); [ exact Htl | lia ].
-      - cbn [gtok_pairs app]. cbn [tail_ok]. rewrite infix_op_token. lia. }
+      - cbn [gtok_pairs app]. cbn [tail_ok]. rewrite infix_op_token. split; [ destruct o2; reflexivity | lia ]. }
     pose proof (pairs_fuel_pos ps') as Hpos. pose proof (esize_pos r) as Her.
     rewrite <- app_assoc.
     rewrite (Hpr (S (binop_prec o)) (S (binop_prec o)) (gtok_pairs ps' ++ rest)%list f
@@ -2041,6 +2202,7 @@ Fixpoint lspine (fl : nat) (e : GExpr) : nat * GExpr * list (BinOp * GExpr) :=
   | EId i  => (fl, EId i, nil)
   | EInt z => (fl, EInt z, nil)
   | EUn o e => (fl, EUn o e, nil)
+  | ESel e0 f => (fl, ESel e0 f, nil)   (* a selector is a PRIMARY base — no binary left-spine *)
   | EBn o l r =>
       if Nat.leb fl (binop_prec o)
       then let '(bfl, base, ps) := lspine (binop_prec o) l in (bfl, base, (ps ++ (o, r) :: nil)%list)
@@ -2050,7 +2212,7 @@ Fixpoint lspine (fl : nat) (e : GExpr) : nat * GExpr * list (BinOp * GExpr) :=
 Lemma lspine_print : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> gtokens fl e = (gtokens bfl base ++ gtok_pairs ps)%list.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
@@ -2060,12 +2222,13 @@ Proof.
       cbn [gtokens]. rewrite (ltb_false_of_leb _ _ Eleb), (IHl _ _ _ _ El), gtok_pairs_app.
       cbn [gtok_pairs]. rewrite app_nil_r, <- !app_assoc. cbn [app]. reflexivity.
     + inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
+  - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma lspine_fold : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> fold_pairs base ps = e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
@@ -2074,6 +2237,7 @@ Proof.
       inversion H; subst. clear H.
       rewrite fold_pairs_app. cbn [fold_pairs]. rewrite (IHl _ _ _ _ El). reflexivity.
     + inversion H; subst. reflexivity.
+  - cbn in H. inversion H; subst. reflexivity.
 Qed.
 
 (** [spine_ok] tolerates a LOWER climb level, and accepts an operator appended at the spine end when the
@@ -2101,7 +2265,7 @@ Lemma lspine_spine_ok : forall e fl bfl base ps,
   (forall e', esize e' < esize e -> Pexpr e') ->
   lspine fl e = (bfl, base, ps) -> spine_ok fl ps.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps Hsih H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps Hsih H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
@@ -2114,15 +2278,16 @@ Proof.
         intros e' He'. apply Hsih. cbn [esize]. lia.
       * apply Hsih. cbn [esize]. lia.
     + inversion H; subst. exact I.
+  - cbn in H. inversion H; subst. exact I.
 Qed.
 
 (** The base is a PRIMARY: a literal/unary leaf, or an [EBn] wrapped because [bfl] exceeds its operator
     precedence (so it prints parenthesised). *)
 Lemma lspine_base : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) ->
-  match base with EId _ => True | EInt _ => True | EUn _ _ => True | EBn o' _ _ => binop_prec o' < bfl end.
+  match base with EBn o' _ _ => binop_prec o' < bfl | _ => True end.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
@@ -2130,11 +2295,12 @@ Proof.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. apply (IHl _ _ _ _ El).
     + inversion H; subst. apply Nat.leb_gt in Eleb. exact Eleb.
+  - cbn in H. inversion H; subst. exact I.
 Qed.
 
 Lemma lspine_base_le : forall e fl bfl base ps, lspine fl e = (bfl, base, ps) -> esize base <= esize e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
@@ -2142,6 +2308,7 @@ Proof.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. pose proof (IHl _ _ _ _ El). cbn [esize]. lia.
     + inversion H; subst. cbn [esize]. lia.
+  - cbn in H. inversion H; subst. cbn [esize]. lia.
 Qed.
 
 Lemma pairs_fuel_snoc : forall ps o r, pairs_fuel (ps ++ (o, r) :: nil)%list = pairs_fuel ps + (3 * esize r + 3).
@@ -2151,9 +2318,9 @@ Qed.
 
 (** Base size and spine fuel partition exactly [S (3*esize e)] — so [3*esize e] budget covers both. *)
 Lemma lspine_fuel3 : forall e fl bfl base ps,
-  lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (3 * esize e).
+  lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (S (3 * esize e)).
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
@@ -2162,37 +2329,49 @@ Proof.
       inversion H; subst. clear H. rewrite pairs_fuel_snoc.
       pose proof (IHl _ _ _ _ El) as IH. cbn [esize]. lia.
     + inversion H; subst. cbn [esize pairs_fuel]. lia.
+  - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
 Qed.
 
 (** [parse_primary] reads a unary node: each prints [op] then its PARENTHESISED operand (always wrapped,
     so the seam is a single ['('] — no maximal-munch hazard).  The four bare ops dispatch on their token;
     [UNeg] on the two-token [TMinus :: TLP] prefix.  Operand via [Pexpr] (the outer strong IH). *)
-Lemma parse_primary_unary : forall o e0 ctx TAIL F,
-  Pexpr e0 -> 3 * esize e0 + 4 < F ->
-  parse_primary F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
+(** a PRIMARY is its atom when the postfix loop consumes nothing (or folds a chain via [parse_postfix_pairs]). *)
+Lemma parse_primary_of_atom : forall f toks a r,
+  parse_atom (S f) toks = Some (a, r) ->
+  (match r with nil => True | t :: _ => is_postfix_start t = false end) ->
+  parse_primary (S (S f)) toks = Some (a, r).
+Proof. intros f toks a r H Hr. rewrite parse_primary_S, H. apply parse_postfix_stop; exact Hr. Qed.
+
+(** [parse_atom] reads a unary node: each prints [op] then its PARENTHESISED operand (always wrapped, so
+    the seam is a single ['('] — no maximal-munch hazard).  Operand via [Pexpr] (the outer strong IH). *)
+Lemma parse_atom_unary : forall o e0 ctx TAIL F,
+  Pexpr e0 -> 3 * esize e0 + 5 < F ->
+  parse_atom F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
 Proof.
   intros o e0 ctx TAIL F HP HF. pose proof (esize_pos e0) as Hpos.
-  (* the parenthesised operand parse, shared by all five ops *)
-  assert (Hpar : forall G, 3 * esize e0 + 2 < G ->
-            parse_primary (S G) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))%list = Some (e0, TAIL)).
-  { intros G HG. rewrite parse_primary_S.
-    rewrite (HP 0 0 (TRP :: TAIL) G (le_n 0) I ltac:(lia)). reflexivity. }
+  assert (Hpar : forall G, 3 * esize e0 + 3 < G ->
+            parse_atom (S G) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))%list = Some (e0, TAIL)).
+  { intros G HG. rewrite parse_atom_S.
+    rewrite (HP 0 0 (TRP :: TAIL) G (le_n 0) (conj eq_refl I) ltac:(lia)). reflexivity. }
   destruct o; cbn [gtokens prefix_token]; cbn [app]; rewrite <- app_assoc; cbn [app].
-  - (* UNot — TBang *)
-    destruct F as [ | f1 ]; [ lia | ]. rewrite parse_primary_S.
+  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
     destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - (* UXor — TCaret *)
-    destruct F as [ | f1 ]; [ lia | ]. rewrite parse_primary_S.
+  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
     destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - (* UDeref — TStar *)
-    destruct F as [ | f1 ]; [ lia | ]. rewrite parse_primary_S.
+  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
     destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - (* UAddr — TAmp *)
-    destruct F as [ | f1 ]; [ lia | ]. rewrite parse_primary_S.
+  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
     destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - (* UNeg — TMinus :: TLP *)
-    destruct F as [ | f1 ]; [ lia | ]. rewrite parse_primary_S.
-    rewrite (HP 0 0 (TRP :: TAIL) f1 (le_n 0) I ltac:(lia)). reflexivity.
+  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
+    rewrite (HP 0 0 (TRP :: TAIL) f1 (le_n 0) (conj eq_refl I) ltac:(lia)). reflexivity.
+Qed.
+Lemma parse_primary_unary : forall o e0 ctx TAIL F,
+  Pexpr e0 -> (match TAIL with nil => True | t :: _ => is_postfix_start t = false end) ->
+  3 * esize e0 + 6 < F ->
+  parse_primary F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
+Proof.
+  intros o e0 ctx TAIL F HP Hcl HF. destruct F as [ | F' ]; [ lia | ]. destruct F' as [ | f ]; [ lia | ].
+  apply parse_primary_of_atom; [ apply parse_atom_unary; [ exact HP | lia ] | exact Hcl ].
 Qed.
 
 (** A binop printed at a context that exceeds its precedence is PARENTHESISED: its tokens are
@@ -2205,30 +2384,166 @@ Proof.
   rewrite Hp. reflexivity.
 Qed.
 
-(** [parse_primary] reads the decomposed [base] EXACTLY: a literal/unary leaf directly, a wrapped [EBn]
-    via the paren rule + its own round-trip ([Pexpr base]). *)
+(** ---- POSTFIX SPINE ---- peel a selector chain to its innermost (non-selector) base + the field list;
+    [parse_postfix] folds the fields ([parse_postfix_pairs]), [parse_atom] reads the base ([parse_atom_gparen]). *)
+Fixpoint pspine (e : GExpr) : GExpr * list Ident :=
+  match e with
+  | ESel e0 f => let (b, fs) := pspine e0 in (b, (fs ++ f :: nil)%list)
+  | _ => (e, nil)
+  end.
+Fixpoint gtokens_psel (fs : list Ident) : list Token :=
+  match fs with nil => nil | f :: fs' => TDot :: TId f :: gtokens_psel fs' end.
+Fixpoint fold_psel (b : GExpr) (fs : list Ident) : GExpr :=
+  match fs with nil => b | f :: fs' => fold_psel (ESel b f) fs' end.
+
+Lemma gtokens_psel_app : forall a b, gtokens_psel (a ++ b)%list = (gtokens_psel a ++ gtokens_psel b)%list.
+Proof. induction a as [ | f a IH ]; intro b; cbn [gtokens_psel app]; [ reflexivity | rewrite IH; reflexivity ]. Qed.
+Lemma fold_psel_app : forall a b base, fold_psel base (a ++ b)%list = fold_psel (fold_psel base a) b.
+Proof. induction a as [ | f a IH ]; intros b base; cbn [fold_psel app]; [ reflexivity | apply IH ]. Qed.
+
+Lemma pspine_fold : forall e, fold_psel (fst (pspine e)) (snd (pspine e)) = e.
+Proof.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f ]; cbn [pspine]; try reflexivity.
+  destruct (pspine e0) as [ b fs ] eqn:Ep. cbn [fst snd] in *.
+  rewrite fold_psel_app. cbn [fold_psel]. rewrite IHe0. reflexivity.
+Qed.
+Lemma pspine_base_kind : forall e, match fst (pspine e) with ESel _ _ => False | _ => True end.
+Proof.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f ]; cbn [pspine]; try exact I.
+  destruct (pspine e0) as [ b fs ] eqn:Ep. cbn [fst] in *. exact IHe0.
+Qed.
+Lemma pspine_esize : forall e, esize (fst (pspine e)) <= esize e.
+Proof.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f ].
+  - cbn; lia.
+  - cbn; lia.
+  - cbn; lia.
+  - cbn; lia.
+  - cbn [pspine]. destruct (pspine e0) as [ b fs ] eqn:Ep. cbn [fst esize] in *. lia.
+Qed.
+Lemma pspine_esize_ESel : forall e0 f, esize (fst (pspine (ESel e0 f))) < esize (ESel e0 f).
+Proof.
+  intros e0 f. pose proof (pspine_esize e0). cbn [pspine esize].
+  destruct (pspine e0) as [ b fs ]. cbn [fst] in *. lia.
+Qed.
+Lemma pspine_flds_len : forall e, length (snd (pspine e)) <= esize e.
+Proof.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f ].
+  - cbn; lia.
+  - cbn; lia.
+  - cbn; lia.
+  - cbn; lia.
+  - cbn [pspine]. destruct (pspine e0) as [ b fs ] eqn:Ep. cbn [snd esize] in *.
+    rewrite List.length_app. cbn [length]. lia.
+Qed.
+
+(** the chain's tokens = [gtparen] of the innermost base ++ the field tokens (holds for ALL e). *)
+Lemma gtparen_pspine : forall e, gtparen e = (gtparen (fst (pspine e)) ++ gtokens_psel (snd (pspine e)))%list.
+Proof.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f ]; cbn [pspine];
+    try (cbn [fst snd gtokens_psel]; rewrite app_nil_r; reflexivity).
+  destruct (pspine e0) as [ b fs ] eqn:Ep. cbn [fst snd] in *.
+  change (gtparen (ESel e0 f)) with (gtparen e0 ++ TDot :: TId f :: nil)%list.
+  rewrite IHe0, gtokens_psel_app. cbn [gtokens_psel]. rewrite <- app_assoc. reflexivity.
+Qed.
+Lemma gtokens_ESel_gtparen : forall ctx e0 f, gtokens ctx (ESel e0 f) = gtparen (ESel e0 f).
+Proof. reflexivity. Qed.
+
+(** [parse_postfix] folds a printed field run, left-associating into [ESel]; stops at a postfix-clean tail. *)
+Lemma parse_postfix_pairs : forall fs b rest F,
+  (match rest with nil => True | t :: _ => is_postfix_start t = false end) ->
+  S (length fs) <= F ->
+  parse_postfix F b (gtokens_psel fs ++ rest)%list = Some (fold_psel b fs, rest).
+Proof.
+  induction fs as [ | f fs IH ]; intros b rest F Hcl HF.
+  - cbn [gtokens_psel app fold_psel]. destruct F as [ | F' ]; [ cbn [length] in HF; lia | ].
+    apply parse_postfix_stop; exact Hcl.
+  - cbn [gtokens_psel fold_psel]. destruct F as [ | F' ]; [ cbn [length] in HF; lia | ].
+    cbn [app]. rewrite parse_postfix_S. apply IH; [ exact Hcl | cbn [length] in HF; lia ].
+Qed.
+
+(** [parse_atom] reads a [gparen]-printed operand (a non-selector base: literal/unary/paren-binop). *)
+Lemma parse_atom_gparen : forall b TAIL F,
+  match b with ESel _ _ => False | _ => True end ->
+  Pexpr b -> 3 * esize b + 4 < F ->
+  parse_atom F (gtparen b ++ TAIL)%list = Some (b, TAIL).
+Proof.
+  intros b TAIL F Hkind HP HF.
+  destruct b as [ i | z | o e0 | o' l' r' | es fs ]; [ | | | | exfalso; exact Hkind ].
+  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
+  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
+  - cbn [gtparen]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+    cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_atom_S.
+    rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I) ltac:(cbn [esize] in HF |- *; lia)). reflexivity.
+  - cbn [gtparen]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+    cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_atom_S.
+    rewrite (HP 0 0 (TRP :: TAIL) f (le_n 0) (conj eq_refl I) ltac:(cbn [esize] in HF |- *; lia)). reflexivity.
+Qed.
+
+(** [parse_atom] reads a standalone (non-selector) base [gtokens bfl base] — literal/unary direct, a
+    wrapped binop via the paren rule. *)
+Lemma parse_atom_base : forall base bfl TAIL F,
+  (forall e', esize e' < esize base -> Pexpr e') ->
+  Pexpr base ->
+  match base with ESel _ _ => False | EBn o' _ _ => binop_prec o' < bfl | _ => True end ->
+  3 * esize base + 4 < F ->
+  parse_atom F (gtokens bfl base ++ TAIL)%list = Some (base, TAIL).
+Proof.
+  intros base bfl TAIL F Hsih HPbase Hprim HF.
+  destruct base as [ i | z | o e0 | o' l' r' | es fs ]; [ | | | | exfalso; exact Hprim ].
+  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
+  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
+  - apply parse_atom_unary; [ apply Hsih; cbn [esize]; lia | cbn [esize] in HF; lia ].
+  - assert (Hw : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
+    rewrite (gtokens_wrapped o' l' r' bfl Hw).
+    destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+    cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_atom_S.
+    rewrite (HPbase 0 (binop_prec o') (TRP :: TAIL) f (Nat.le_0_l _) (conj eq_refl I)
+               ltac:(cbn [esize] in HF |- *; lia)).
+    reflexivity.
+Qed.
+
+(** [parse_primary] reads a selector chain: [parse_atom] reads the innermost base ([parse_atom_gparen]),
+    [parse_postfix] folds the fields ([parse_postfix_pairs]).  Needs only the size-IH (NOT [Pexpr] of the
+    whole chain — which would be circular when the chain IS the expression being decided). *)
+Lemma parse_primary_sel : forall es fs ctx TAIL F,
+  (forall e', esize e' < esize (ESel es fs) -> Pexpr e') ->
+  (match TAIL with nil => True | t :: _ => is_postfix_start t = false end) ->
+  3 * esize (ESel es fs) + 2 < F ->
+  parse_primary F (gtokens ctx (ESel es fs) ++ TAIL)%list = Some (ESel es fs, TAIL).
+Proof.
+  intros es fs ctx TAIL F Hsih Hcl HF.
+  destruct F as [ | F1 ]; [ cbn [esize] in HF; lia | ].
+  destruct (pspine (ESel es fs)) as [ base' flds ] eqn:Eps.
+  pose proof (pspine_esize_ESel es fs) as Hbs. rewrite Eps in Hbs. cbn [fst] in Hbs.
+  pose proof (pspine_base_kind (ESel es fs)) as Hbk. rewrite Eps in Hbk. cbn [fst] in Hbk.
+  pose proof (pspine_fold (ESel es fs)) as Hfo. rewrite Eps in Hfo. cbn [fst snd] in Hfo.
+  pose proof (pspine_flds_len (ESel es fs)) as Hfl. rewrite Eps in Hfl. cbn [snd] in Hfl.
+  rewrite gtokens_ESel_gtparen, (gtparen_pspine (ESel es fs)), Eps. cbn [fst snd].
+  rewrite <- app_assoc.
+  rewrite parse_primary_S.
+  rewrite (parse_atom_gparen base' (gtokens_psel flds ++ TAIL)%list F1 Hbk
+             ltac:(apply Hsih; exact Hbs) ltac:(lia)).
+  rewrite (parse_postfix_pairs flds base' TAIL F1 Hcl ltac:(lia)).
+  rewrite Hfo. reflexivity.
+Qed.
+
+(** [parse_primary] reads the decomposed [base] EXACTLY: a non-selector base via [parse_atom_base] then an
+    empty postfix loop; a selector chain via [parse_primary_sel]. *)
 Lemma parse_primary_base : forall base bfl TAIL F,
   (forall e', esize e' < esize base -> Pexpr e') ->
   Pexpr base ->
-  match base with EId _ => True | EInt _ => True | EUn _ _ => True | EBn o' _ _ => binop_prec o' < bfl end ->
-  3 * esize base + 3 < F ->
+  match base with EBn o' _ _ => binop_prec o' < bfl | _ => True end ->
+  (match TAIL with nil => True | t :: _ => is_postfix_start t = false end) ->
+  3 * esize base + 5 < F ->
   parse_primary F (gtokens bfl base ++ TAIL)%list = Some (base, TAIL).
 Proof.
-  intros base bfl TAIL F Hsih HPbase Hprim HF.
-  destruct base as [ i | z | o e0 | o' l' r' ].
-  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-    cbn [gtokens app]. rewrite parse_primary_S. reflexivity.
-  - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-    cbn [gtokens app]. rewrite parse_primary_S. reflexivity.
-  - apply parse_primary_unary; [ apply Hsih; cbn [esize]; lia | cbn [esize] in HF; lia ].
-  - (* EBn wrapped: binop_prec o' < bfl *)
-    assert (Hw : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
-    rewrite (gtokens_wrapped o' l' r' bfl Hw).
-    destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-    cbn [app]. rewrite <- app_assoc. cbn [app]. rewrite parse_primary_S.
-    rewrite (HPbase 0 (binop_prec o') (TRP :: TAIL) f (Nat.le_0_l _) I
-               ltac:(cbn [esize] in HF |- *; lia)).
-    reflexivity.
+  intros base bfl TAIL F Hsih HPbase Hprim Hcl HF.
+  destruct base as [ i | z | o e0 | o' l' r' | es fs ].
+  1-4: destruct F as [ | F' ]; [ cbn [esize] in HF; lia | ]; destruct F' as [ | f ]; [ cbn [esize] in HF; lia | ];
+       apply parse_primary_of_atom; [ apply parse_atom_base; [ exact Hsih | exact HPbase | exact Hprim | cbn [esize] in HF |- *; lia ] | exact Hcl ].
+  (* ESel chain — via the postfix spine ([parse_primary_sel]) *)
+  apply parse_primary_sel; [ exact Hsih | exact Hcl | lia ].
 Qed.
 
 (** ---- THE EXPRESSION ROUND-TRIP ---- every [e] satisfies [Pexpr] (strong induction on [esize]).  An
@@ -2240,20 +2555,26 @@ Proof.
   induction n as [ | n IH ]; intros e Hsz.
   - pose proof (esize_pos e); lia.
   - assert (Hunwr : forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e < F ->
-              match e with EId _ => True | EInt _ => True | EUn _ _ => True | EBn o _ _ => ctx <= binop_prec o end ->
+              match e with EBn o _ _ => ctx <= binop_prec o | ESel _ _ => False | _ => True end ->
               parse_expr F k (gtokens ctx e ++ rest)%list = Some (e, rest)).
-    { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ i | z | o e0 | o l r ].
+    { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ i | z | o e0 | o l r | es fs ].
       - (* EId *) destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
-        cbn [gtokens app]. rewrite parse_expr_S, parse_primary_S. apply tail_ok_climb_stop; exact Htl.
+        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ]. destruct g as [ | g' ]; [ cbn [esize] in HF; lia | ].
+        cbn [gtokens app]. rewrite parse_expr_S.
+        rewrite (parse_primary_of_atom g' (TId i :: rest) (EId i) rest
+                   ltac:(rewrite parse_atom_S; reflexivity) (tail_ok_pclean _ _ Htl)).
+        apply tail_ok_climb_stop; exact Htl.
       - (* EInt *) destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
-        cbn [gtokens app]. rewrite parse_expr_S, parse_primary_S. apply tail_ok_climb_stop; exact Htl.
+        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ]. destruct g as [ | g' ]; [ cbn [esize] in HF; lia | ].
+        cbn [gtokens app]. rewrite parse_expr_S.
+        rewrite (parse_primary_of_atom g' (TInt z :: rest) (EInt z) rest
+                   ltac:(rewrite parse_atom_S; reflexivity) (tail_ok_pclean _ _ Htl)).
+        apply tail_ok_climb_stop; exact Htl.
       - (* EUn *) destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
         destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
         rewrite parse_expr_S.
         rewrite (parse_primary_unary o e0 ctx rest (S g)
-                   ltac:(apply IH; cbn [esize] in Hsz; lia) ltac:(cbn [esize] in HF; lia)).
+                   ltac:(apply IH; cbn [esize] in Hsz; lia) (tail_ok_pclean _ _ Htl) ltac:(cbn [esize] in HF; lia)).
         apply tail_ok_climb_stop; exact Htl.
       - (* EBn unwrapped: Hctx : ctx <= binop_prec o *)
         cbn [esize] in Hsz, HF.
@@ -2277,12 +2598,14 @@ Proof.
         destruct F as [ | f ]; [ lia | ].
         rewrite parse_expr_S.
         rewrite (parse_primary_base base bfl (gtok_pairs (ps0 ++ (o, r) :: nil) ++ rest)%list f
-                   ltac:(intros e' He'; apply (IH e'); lia) HPbase Hprim ltac:(lia)).
+                   ltac:(intros e' He'; apply (IH e'); lia) HPbase Hprim
+                   (gtok_pairs_snoc_pclean ps0 o r rest) ltac:(lia)).
         change (parse_climb f k base (gtok_pairs (ps0 ++ (o, r) :: nil) ++ rest)%list = Some (EBn o l r, rest)).
         rewrite (parse_climb_pairs (ps0 ++ (o, r) :: nil) k base rest f Hspine Htl ltac:(lia)).
-        rewrite Hfold. reflexivity. }
+        rewrite Hfold. reflexivity.
+      - (* ESel — Hctx : False (selectors handled directly in the outer case) *) destruct Hctx. }
     unfold Pexpr. intros k ctx rest F Hk Htl HF.
-    destruct e as [ i | z | o e0 | o l r ].
+    destruct e as [ i | z | o e0 | o l r | es fs ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
@@ -2291,14 +2614,28 @@ Proof.
         rewrite (gtokens_wrapped o l r ctx Ewrap).
         destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
         destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
+        destruct g as [ | g' ]; [ cbn [esize] in HF; lia | ].
         cbn [app]. rewrite <- app_assoc. cbn [app].
-        rewrite parse_expr_S, parse_primary_S.
-        rewrite (Hunwr 0 (binop_prec o) (TRP :: rest) g (Nat.le_0_l _) I
-                   ltac:(cbn [esize] in HF |- *; lia) (le_n _)).
+        rewrite parse_expr_S.
+        rewrite (parse_primary_of_atom g'
+                   (TLP :: (gtokens (binop_prec o) (EBn o l r) ++ TRP :: rest))%list (EBn o l r) rest
+                   ltac:(rewrite parse_atom_S;
+                         rewrite (Hunwr 0 (binop_prec o) (TRP :: rest) g' (Nat.le_0_l _) (conj eq_refl I)
+                                   ltac:(cbn [esize] in HF |- *; lia) (le_n _));
+                         reflexivity)
+                   (tail_ok_pclean _ _ Htl)).
         apply tail_ok_climb_stop; exact Htl.
       * (* unwrapped *)
         apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia
                      | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
+    + (* ESel es fs — a primary (never wrapped), via the postfix spine *)
+      destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+      destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
+      rewrite parse_expr_S.
+      rewrite (parse_primary_sel es fs ctx rest (S g)
+                 ltac:(intros e' He'; apply (IH e'); cbn [esize] in Hsz, He'; lia)
+                 (tail_ok_pclean _ _ Htl) ltac:(cbn [esize] in HF |- *; lia)).
+      apply tail_ok_climb_stop; exact Htl.
 Qed.
 
 (** THE HEADLINE (parser half): [parse] inverts [gtokens] — the canonical token list parses back to [e]. *)
@@ -2306,7 +2643,7 @@ Theorem gtokens_parse : forall e, parse (gtokens 0 e) = Some (e, nil).
 Proof.
   intro e. unfold parse.
   pose proof (length_gtokens_ge_esize e 0) as Hlen.
-  pose proof (all_Pexpr (esize e) e (le_n _) 0 0 nil (3 * List.length (gtokens 0 e) + 3)
+  pose proof (all_Pexpr (esize e) e (le_n _) 0 0 nil (3 * List.length (gtokens 0 e) + 4)
                 (le_n 0) I ltac:(lia)) as HP.
   rewrite app_nil_r in HP. exact HP.
 Qed.
