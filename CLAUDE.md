@@ -17,9 +17,14 @@ and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom`
 raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
 `goprint.v` was cut ~7100→~1500 lines to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
 `print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
-plus the in-progress Wirth-style **`Module Front`** (a from-scratch lexer/parser/AST being built to eventually
-replace the trusted OCaml `pp_expr`). Expressions are again printed by trusted OCaml strings (`pp_expr`) — the
-same trust status as before the experiment, minus the false "verified printer" claim. The remaining work is the
+plus the from-scratch Wirth-style **`Module Front`**, whose **CORE round-trip is now PROVEN at ZERO AXIOMS**:
+a `lex` + recursive-descent token `parse` + clean `GExpr` AST (`EId`/`EInt`/`EUn`/`EBn`, NO raw constructor)
+with `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (M3b `gtokens_lex` ∘ M3c
+`gtokens_parse`) + `gprint_inj`. Scope today = the binop/unary/atom CORE (self-consistency for the Rocq
+grammar, NOT Go's own parser); it is being grown form-by-form (selector/index/slice/call/conversion/func-lit)
+toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`) — NOT yet done. Until Stage B, expressions are
+still printed by trusted OCaml strings (`pp_expr`) — the same trust status as before the experiment, minus the
+false "verified printer" claim. The remaining work is the
 source→Go **compiler-correctness theorem** (gap #10, now to be built on `Front`, NOT `SRaw`), **stronger gates** (the
 axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
 wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**
