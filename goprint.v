@@ -1586,6 +1586,59 @@ Proof.
   rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
 Qed.
 
+(** Digit-shape facts for the integer leaf (re-proved; the originals died in the SRaw teardown). *)
+Lemma is_dec_char_dec_digit : forall n, (n < 10)%nat -> is_dec_char (dec_digit n) = true.
+Proof.
+  intros n Hn. unfold dec_digit, is_dec_char.
+  rewrite Ascii.nat_ascii_embedding by lia.
+  apply andb_true_intro. split; apply Nat.leb_le; lia.
+Qed.
+
+Lemma all_dec_z_digits : forall fuel z acc, (0 <= z)%Z -> all_dec acc = true ->
+  all_dec (z_digits fuel z acc) = true.
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hz Hacc; [ exact Hacc | ].
+  cbn [z_digits].
+  assert (Hd : is_dec_char (dec_digit (Z.to_nat (z mod 10))) = true).
+  { apply is_dec_char_dec_digit.
+    assert (0 <= z mod 10 < 10)%Z by (apply Z.mod_pos_bound; lia). lia. }
+  destruct (z / 10 =? 0)%Z.
+  - cbn [all_dec]. rewrite Hd. exact Hacc.
+  - apply IH; [ apply Z.div_pos; lia | cbn [all_dec]; rewrite Hd; exact Hacc ].
+Qed.
+
+Lemma is_dec_char_not_idstart : forall c, is_dec_char c = true -> is_idstart c = false.
+Proof.
+  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
+  apply Nat.leb_le in H1, H2. unfold is_idstart; cbv zeta.
+  assert (E1 : Nat.leb 65 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
+  assert (E2 : Nat.leb 97 (nat_of_ascii c) = false) by (apply Nat.leb_gt; lia).
+  assert (E3 : Nat.eqb (nat_of_ascii c) 95 = false) by (apply Nat.eqb_neq; lia).
+  rewrite E1, E2, E3. reflexivity.
+Qed.
+
+Lemma is_dec_char_not_space : forall c, is_dec_char c = true -> is_space c = false.
+Proof.
+  intros c H. unfold is_dec_char in H. apply andb_prop in H. destruct H as [H1 H2].
+  apply Nat.leb_le in H1. unfold is_space.
+  destruct (Ascii.eqb c (ascii_of_nat 32)) eqn:E; [ | reflexivity ].
+  exfalso. apply Ascii.eqb_eq in E. subst c.
+  rewrite Ascii.nat_ascii_embedding in H1 by lia. lia.
+Qed.
+
+(** [z_digits] (with [S]-fuel from an empty accumulator) is non-empty — every print_Z digit run has a
+    leading digit, so the lexer's first-char dispatch sees a [is_dec_char]. *)
+Lemma z_digits_acc_ne : forall f z acc, acc <> EmptyString -> z_digits f z acc <> EmptyString.
+Proof.
+  induction f as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
+  cbn [z_digits]. destruct (z / 10 =? 0)%Z; [ discriminate | apply IH; discriminate ].
+Qed.
+
+Lemma z_digits_S_ne : forall f z, z_digits (S f) z EmptyString <> EmptyString.
+Proof.
+  intros f z. cbn [z_digits]. destruct (z / 10 =? 0)%Z; [ discriminate | apply z_digits_acc_ne; discriminate ].
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
