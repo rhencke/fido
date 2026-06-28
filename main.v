@@ -11,12 +11,17 @@ From Stdlib Require Import StrictProp.        (* [squash]: seal the [ComparableW
 Require Import Coq.Lists.List.
 Import ListNotations.
 
-(** ★AST-FIRST SPINE (charter Phase-3 seed, ARCHITECTURE.md §7): build a Go program as a STRUCTURED
-    [GoAst.Program] and emit it ONLY through the proof-gated [GoEmit] path — never a raw [print_program].  The
-    [GoSafe.SupportedProgram] certificate is REQUIRED to build an [EmittableProgram], so an unsupported (e.g.
-    non-`main`) package could not be emitted.  This is the seed; it does NOT feed the legacy plugin extraction
-    (`main_effect` / main.go) — that path stays trusted/transitional until GoEmit subsumes it. *)
-Definition spine_prog : GoAst.Program := GoAst.mkProgram (GoAst.mkIdent "main"%string eq_refl).
+(** ★AST-FIRST SPINE (charter Phase-3, ARCHITECTURE.md §7): build a Go program as a STRUCTURED
+    [GoAst.Program] — now with a REAL [func main] body (an expression statement [println(1)], built as a
+    verified [GExpr]/[GoStmt] and printed by the machine-checked [gprint]) — and emit it ONLY through the
+    proof-gated [GoEmit] path, never a raw [print_program].  The [GoSafe.SupportedProgram] certificate is
+    REQUIRED to build an [EmittableProgram], so an unsupported (e.g. non-`main`) package could not be emitted.
+    This does NOT feed the legacy plugin extraction (`main_effect` / main.go) — that path stays
+    trusted/transitional until GoEmit subsumes it. *)
+Definition spine_prog : GoAst.Program :=
+  GoAst.mkProgram (GoAst.mkIdent "main"%string eq_refl)
+                  [GoAst.GsExprStmt (GoAst.ECall (GoAst.EId (GoAst.mkIdent "println"%string eq_refl))
+                                                 [GoAst.EInt 1])].
 Lemma spine_supported : GoSafe.SupportedProgram spine_prog. Proof. reflexivity. Qed.
 Definition spine_cert : GoEmit.EmittableProgram := GoEmit.mkEmittable spine_prog spine_supported.
 Definition spine_emit : string := GoEmit.emit_supported spine_cert.

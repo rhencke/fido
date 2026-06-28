@@ -156,8 +156,18 @@ Inductive ConvTy : Type :=
 Definition convty_ty (c : ConvTy) : GoTy :=
   match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
 
-(** ---- A GO PROGRAM ---- the top-level unit GoEmit emits.  DELIBERATELY TINY (ARCHITECTURE.md §11): a
-    package name + an empty [func main()].  No raw strings — the package is a validated [Ident].  Grows
-    (imports, decls, a real func body of statements) as the AST does; this is just the seed so the
-    proof-gated emitter (GoEmit) has something to certify and print. *)
-Record Program : Type := mkProgram { prog_pkg : Ident }.
+(** ---- GO STATEMENTS ---- the body of [func main].  PHASE-3 seed (ARCHITECTURE.md §11): one form, an
+    EXPRESSION STATEMENT [GsExprStmt e] (e.g. a function call [f(args)]) — it reuses the machine-checked
+    expression printer [gprint], so the certified emitter prints a REAL statement built from the verified AST,
+    not a hardcoded line.  Like [GExpr] this is SYNTAX only: it can represent a non-call expr statement
+    (illegal Go) — that is GoSafe's concern, not the AST's.  Grows (assignment / var / if / for / return / …)
+    form-by-form, each new constructor reusing the verified expression layer. *)
+Inductive GoStmt : Type :=
+  | GsExprStmt : GExpr -> GoStmt.  (* an expression used as a statement, e.g. a function call [f(a, b)] *)
+
+(** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
+    list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured
+    statements.  Still small (no imports / top-level decls yet) but no longer an empty shell: it carries a
+    real func body, the printer renders it via [gprint], and GoEmit certifies+prints it.  Grows as the AST
+    does. *)
+Record Program : Type := mkProgram { prog_pkg : Ident ; prog_body : list GoStmt }.

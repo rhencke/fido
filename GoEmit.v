@@ -9,7 +9,8 @@
     A raw printer (GoPrint.print_program) still exists for proofs/tests, but it is NOT this blessed emitter.
     ============================================================================ *)
 From Fido Require Import GoAst GoPrint GoSafe.
-From Stdlib Require Import String.
+From Stdlib Require Import String List ZArith.  (* List/ListNotations for the body list; ZArith for [EInt]'s Z literal *)
+Import ListNotations.
 Open Scope string_scope.
 
 (** A program cleared for the blessed printer: the AST + its supportedness certificate (the proof is part of
@@ -23,17 +24,22 @@ Record EmittableProgram : Type := mkEmittable {
     [emit : Program -> string] — that would make the certificate decorative.) *)
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
-(** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable empty `package main`, emitted
-    ONLY through the proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it,
-    and [demo_emit_bytes] pins the exact emitted Go source.  (A non-main package would fail [SupportedProgram]
-    — [reflexivity] would not close — so it could not be certified or emitted.) *)
-Definition demo_prog : Program := mkProgram (mkIdent "main" eq_refl).
+(** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
+    body is a REAL statement — [println(1)] (a Go builtin, so no import is needed: rule 5) — built as a
+    structured [GExpr]/[GoStmt] and printed by the machine-checked [gprint].  Emitted ONLY through the
+    proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
+    pins the exact emitted Go source.  (A non-main package would fail [SupportedProgram] — [reflexivity] would
+    not close — so it could not be certified or emitted.) *)
+Definition demo_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])].
 Lemma demo_supported : SupportedProgram demo_prog.
 Proof. reflexivity. Qed.
 Definition demo_cert : EmittableProgram := mkEmittable demo_prog demo_supported.
 Definition demo_emit : string := emit_supported demo_cert.
 Example demo_emit_bytes :
-  demo_emit = ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++ "}" ++ go_nl)%string.
+  demo_emit = ("package main" ++ go_nl ++ go_nl ++
+               "func main() {" ++ go_nl ++ go_tab ++ "println(1)" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 
 (** GATE — GoSafe/GoEmit are part of the trust base (the blessed path); keep them axiom-free. *)

@@ -3359,13 +3359,31 @@ Proof.
   rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
 Qed.
 
-(** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source.  Tiny, matching the tiny [Program]:
-    `package <pkg>` then an empty `func main()`.  The package name is a validated [Ident] (no raw text); the
-    layout bytes are the printer's only freedom.  GoEmit's blessed [emit_supported] is exactly this, gated by
-    a [SupportedProgram] certificate. *)
+(** ---- PROGRAM PRINTER ---- prints a [GoAst.Program] to Go source: `package <pkg>` then `func main()` whose
+    body is the program's [GoStmt] list, ONE tab-indented statement per line (gofmt's layout).  An expression
+    statement reuses the machine-checked [gprint]; the package name is a validated [Ident] (no raw text).  An
+    EMPTY body prints the same `func main() {\n}` as the pre-Phase-3 stub (so the empty-program bytes are
+    unchanged).  GoEmit's blessed [emit_supported] is exactly [print_program], gated by a [SupportedProgram]
+    certificate. *)
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
+Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
+Definition print_stmt (s : GoStmt) : string :=
+  match s with GsExprStmt e => gprint 0 e end.
+Fixpoint print_stmts (ss : list GoStmt) : string :=
+  match ss with
+  | nil => ""
+  | s :: rest => (go_tab ++ print_stmt s ++ go_nl ++ print_stmts rest)%string
+  end.
 Definition print_program (p : Program) : string :=
-  ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++ "}" ++ go_nl)%string.
+  ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++
+   "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
+
+(** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
+    print to distinct text.  For the single expression-statement form it lifts directly from [gprint_inj].
+    (List-level / whole-[print_program] injectivity needs a "gprint emits no newline" delimiter argument — it
+    is the next step, NOT claimed here.) *)
+Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
+Proof. intros [e1] [e2] H. simpl in H. f_equal. exact (gprint_inj e1 e2 H). Qed.
 
 (** GATE — GoAst.v + GoPrint.v are part of the trust base: the EXTRACTED printer is governed by these
     theorems, so they MUST be axiom-free.  The build (Dockerfile prover stage) compiles GoAst.v + GoPrint.v
@@ -3387,6 +3405,7 @@ Print Assumptions lex_print_ty.
 Print Assumptions parse_convty_roundtrip.
 Print Assumptions parse_conv_print.
 Print Assumptions parse_gty_print_ty.
+Print Assumptions print_stmt_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
