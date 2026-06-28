@@ -983,13 +983,12 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
   | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) T
   end.
 
-(** A bare prefix operator applied DIRECTLY to another prefix operator is a LEXICAL hazard: [&] then [&]
-    (nested [UAddr]) prints "&&" which the lexer maximal-munches to [TLand], and [&] then [^] (UAddr-of-
-    UXor) prints "&^" -> [TAndNot] — a token MERGE on the LEFT of the seam (the seam is two-sided: a clean
-    right-hand start does not suffice).  So a bare-unary operand that is itself a unary node is PARENTHESISED
-    — making every unary seam a single-char delimiter ['('], which cannot munch into the operator before it.
-    (This is exactly the precise seam discipline the round-trip needs; UNeg already self-parenthesises.) *)
-Definition is_un (e : GExpr) : bool := match e with EUn _ _ => true | _ => false end.
+(** A bare prefix operator applied DIRECTLY to another would be a LEXICAL hazard: [&] then [&] prints "&&"
+    which the lexer maximal-munches to [TLand], and [&] then [^] prints "&^" -> [TAndNot] — a token MERGE on
+    the LEFT of the seam (the seam is two-sided: a clean right-hand start does not suffice).  So [gprint]
+    PARENTHESISES every unary operand — [op(x)] — making the prefix always followed by a single-char ['(']
+    that cannot munch into the operator before it.  (UNeg self-parenthesises as [-(x)] for the same reason,
+    plus to avoid colliding with the [-5] negative-literal lexing.) *)
 
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
     in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
