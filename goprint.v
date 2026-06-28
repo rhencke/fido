@@ -1639,6 +1639,54 @@ Proof.
   intros f z. cbn [z_digits]. destruct (z / 10 =? 0)%Z; [ discriminate | apply z_digits_acc_ne; discriminate ].
 Qed.
 
+(** Lexing a non-empty all-decimal run [D] (no leading '-') yields [TInt (parse_Z D)] then [rest]. *)
+Lemma lex_pos_dec : forall D rest fuel tr,
+  all_dec D = true -> D <> EmptyString -> clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (String.length D + String.length rest) <= fuel ->
+  lex_aux fuel (D ++ rest) = Some (TInt (parse_Z D) :: tr).
+Proof.
+  intros D rest fuel tr Hdec Hne Hclean Hrest Hfuel.
+  destruct D as [ | d0 D' ]; [ contradiction | ].
+  cbn [all_dec] in Hdec. apply andb_prop in Hdec. destruct Hdec as [Hd0 HD'].
+  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
+  assert (HdecD : all_dec (String d0 D') = true) by (cbn [all_dec]; rewrite Hd0; exact HD').
+  cbn [lex_aux String.append].
+  rewrite (is_dec_char_not_space _ Hd0), (is_dec_char_not_idstart _ Hd0), Hd0.
+  replace (scan_digits (String d0 (D' ++ rest))) with (String d0 D', rest)
+    by (symmetry; change (String d0 (D' ++ rest)) with ((String d0 D') ++ rest);
+        apply (scan_digits_app (String d0 D') rest HdecD Hclean)).
+  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
+  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+Qed.
+
+(** Lexing a NEGATIVE literal ['-' ++ D] (D a non-empty all-decimal run) yields [TInt (parse_Z ('-'++D))]
+    via the lexer's negative-literal branch (binary '-' is always SPACED in the printer, so an unspaced
+    '-'+digit is unambiguously a literal). *)
+Lemma lex_neg_dec : forall D rest fuel tr,
+  all_dec D = true -> D <> EmptyString -> clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (S (String.length D) + String.length rest) <= fuel ->
+  lex_aux fuel (String (ch 45) D ++ rest) = Some (TInt (parse_Z (String (ch 45) D)) :: tr).
+Proof.
+  intros D rest fuel tr Hdec Hne Hclean Hrest Hfuel.
+  destruct D as [ | d0 D' ]; [ contradiction | ].
+  cbn [all_dec] in Hdec. apply andb_prop in Hdec. destruct Hdec as [Hd0 HD'].
+  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
+  assert (HdecD : all_dec (String d0 D') = true) by (cbn [all_dec]; rewrite Hd0; exact HD').
+  cbn [lex_aux String.append].
+  replace (is_space (ch 45)) with false by reflexivity.
+  replace (is_idstart (ch 45)) with false by reflexivity.
+  replace (is_dec_char (ch 45)) with false by reflexivity.
+  replace (Ascii.eqb (ch 45) (ch 45)) with true by reflexivity.
+  rewrite Hd0.
+  replace (scan_digits (String d0 (D' ++ rest))) with (String d0 D', rest)
+    by (symmetry; change (String d0 (D' ++ rest)) with ((String d0 D') ++ rest);
+        apply (scan_digits_app (String d0 D') rest HdecD Hclean)).
+  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
+  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
