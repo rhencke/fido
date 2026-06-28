@@ -223,8 +223,10 @@ Honest current status:
 ```text
 Legacy:    plugin/go.ml lowering is trusted and transitional.
 New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architecture.
-Landed:    a tiny GoAst.Program IS constructible and emittable ONLY through EmittableProgram (commit 2).
-Goal now:  grow GoAst.Program (a GoStmt AST -> a real func main body) so emit prints non-trivial programs.
+Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
+           EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
+Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms + EConv, and lift print
+           injectivity from single-statement to the whole program.
 ```
 
 ---
@@ -246,14 +248,17 @@ Do not spend time on relooper integration until the AST-first emission path exis
 
 ## 7. Immediate refactor direction
 
-> **STATUS (2026-06-28): Phases 0–2 are DONE.** The charter is committed; `goprint.v`/`Module Front` were
-> SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer) (spine commit 1, f7d9383); then `GoSafe.v`
-> (`SupportedProgram`) + `GoEmit.v` (`EmittableProgram` + `emit_supported`, no raw `emit : Program -> string`)
-> landed with a tiny `GoAst.Program` and the first proof-gated certified emission (spine commit 2, 32af69f).
-> All golden byte-identical, zero axioms. The legacy `plugin/go.ml` still calls the extracted `Printer.gprint`
-> flat (transitional). Every "Front" below names that now-retired seed (the completed migration's source), NOT
-> a current structure. **Phase 3 is next** — grow `GoAst.Program` (a `GoStmt` AST → a real `func main` body)
-> so the certified emitter prints non-trivial programs (and re-land the parked `EConv` in `GoAst`/`GoPrint`).
+> **STATUS (2026-06-28): Phases 0–3 are DONE; Phase 4 is in progress.** The charter is committed;
+> `goprint.v`/`Module Front` were SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer) (spine
+> commit 1, f7d9383); then `GoSafe.v` (`SupportedProgram`) + `GoEmit.v` (`EmittableProgram` + `emit_supported`,
+> no raw `emit : Program -> string`) landed with a `GoAst.Program` and the first proof-gated certified emission,
+> and `main.v` builds+emits a program through that blessed path (spine commit 2, 32af69f — Phases 2 AND 3).
+> **Phase 4 (grow the AST/printer) is now underway:** the first growth increment (f2b6003) added a `GoStmt` AST
+> + a real `func main` body — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`, with a
+> single-statement `print_stmt_inj`. Still ahead in Phase 4: more `GoStmt` forms, the parked `EConv`, and
+> lifting print-injectivity to the whole program. All golden byte-identical, zero axioms. The legacy
+> `plugin/go.ml` still calls the extracted `Printer.gprint` flat (transitional). Every "Front" below names that
+> now-retired seed (the completed migration's source), NOT a current structure.
 
 Not a giant rewrite in one patch. Proceed in small, structural steps. Every patch should either: move a
 concept into the correct module, delete an old wrong path, make a bad path unreachable, create/strengthen
@@ -267,7 +272,8 @@ add "future foundation" unless it replaces or deletes something.**
 - **Phase 2 — Create `GoSafe.v` + `GoEmit.v` early. ✅ DONE (commit 2, 32af69f).** `SupportedProgram` is the
   Phase-1 syntactic gate; the invariant holds: **the official emitter accepts only `EmittableProgram` (later
   `SafeProgram`)** — there is no raw `emit : Program -> string`.
-- **Phase 3 — `main.v` builds Go AST programs** and emits ONLY through the blessed path:
+- **Phase 3 — `main.v` builds Go AST programs. ✅ DONE (commit 2, 32af69f).** `spine_prog`/`spine_cert`/
+  `spine_emit` in `main.v` build a `GoAst.Program` and emit it ONLY through the blessed path:
   ```coq
   Definition p_raw  : GoAst.Program := ...
   Lemma p_supported : GoSafe.SupportedProgram p_raw. Proof. ... Qed.
@@ -275,9 +281,12 @@ add "future foundation" unless it replaces or deletes something.**
   Definition p_out  := GoEmit.emit_supported p_em.
   ```
   Unsupported ASTs can exist; they just cannot be emitted through `GoEmit`.
-- **Phase 4 — Grow the AST and printer.** Each supported form: represented in `GoAst`, printed in
-  `GoPrint`, round-tripped, used by a small example. No raw constructors. No string-splitting in place of a
-  lexer/parser. (The parked `EConv` / `ConvTy` conversion work re-lands HERE, inside `GoAst`/`GoPrint`.)
+- **Phase 4 — Grow the AST and printer. ⏳ IN PROGRESS (f2b6003 = first increment).** Each supported form:
+  represented in `GoAst`, printed in `GoPrint`, round-tripped / injectivity-proven, used by a small example.
+  No raw constructors. No string-splitting in place of a lexer/parser. Landed: `GoStmt` + `GsExprStmt` (a real
+  `func main` body, `println(1)`) with single-statement `print_stmt_inj`. Next: more `GoStmt` forms; the parked
+  `EConv` / `ConvTy` conversion work re-lands HERE inside `GoAst`/`GoPrint`; lift print-injectivity from a
+  single statement to the whole program (needs a "`gprint` emits no newline" delimiter lemma).
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/
