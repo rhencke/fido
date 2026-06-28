@@ -12,45 +12,44 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** CALLABLE-SHAPED: the top constructor of a [GExpr] that COULD denote a function value — an identifier
-    (function name / func-typed var), a selector (method / pkg.F), an index (func-typed element), another
-    call (returns a func), or a type assertion (to a func type).  A literal, a unary/binary arithmetic
-    result, or a slice is STRUCTURALLY never a function, so calling it (e.g. [1(x)]) is invalid Go.  Used to
-    reject structurally-absurd calls (the callee head must be callable-shaped). *)
-Definition callable_shape (e : GExpr) : bool :=
-  match e with
-  | EId _ | ESel _ _ | EIndex _ _ | ECall _ _ | EAssert _ _ => true
-  | EInt _ | EUn _ _ | EBn _ _ _ | ESlice _ _ _ => false
-  end.
+(** A function-NAME callee.  The ONLY call form in the supported subset (for now) is `f(args)` where [f] is an
+    identifier.  This is deliberately conservative: a literal / arithmetic / slice / concrete-type-assertion
+    callee is STRUCTURALLY never a function ([1(x)], [(a+b)(x)], [x.(int)(y)] are invalid Go), and the
+    structurally-AMBIGUOUS callees (selector [pkg.F], index [a[i]], nested call [f()()], named-type assertion
+    [x.(F)] which MIGHT be a func type) are simply DEFERRED — they re-enter, each with its own operand-shape
+    check, when added.  Admitting only [EId] makes the gate obviously sound now. *)
+Definition scallee (e : GExpr) : bool := match e with EId _ => true | _ => false end.
 
-(** STRUCTURAL well-formedness of an expression: every CALL has a callable-shaped callee, and every operand
-    is itself well-formed — so [1(x)], [(a+b)(x)], etc. are rejected.  This is STRUCTURAL only: it rules out
-    grammar/shape absurdities, it does NOT (and syntactically CANNOT) check SCOPE or TYPES — an undefined
-    identifier or a type mismatch is the GoSem/type layer's concern, not this gate's.  (The [ECall] arg list
-    uses an inline [fix] — [forallb expr_ok] is opaque to the guard checker, same as [gprint]'s arg list.) *)
-Fixpoint expr_ok (e : GExpr) : bool :=
+(** STRUCTURALLY-supported value expression — the CONSERVATIVE whitelist of [GExpr] forms with NO operand-
+    SHAPE hazard: identifiers, integer literals, arithmetic/logical binops, the value-producing unary ops
+    (!/^/-), and calls of a function NAME with supported args.  The shape-CONSTRAINED forms are NOT in the
+    subset yet — postfix selector/index/slice/type-assertion (each needs its operand to be a struct /
+    indexable / sliceable / interface, so [1.f] / [1[0]] / [1[lo:hi]] / [1.(T)] are absurd) and the unary
+    deref/addr ([*1] / [&1] are absurd) — so the gate can never certify any of those structural absurdities.
+    They re-enter WITH their operand-shape checks when supported.  STRUCTURAL only: it does NOT (and
+    syntactically cannot) check SCOPE (an undefined identifier) or TYPES (e.g. [!1], a mismatch) — those are
+    the GoSem/type layer.  (The call arg list uses an inline [fix]; [forallb svalue] is guard-opaque, as in
+    [gprint]'s arg list.) *)
+Fixpoint svalue (e : GExpr) : bool :=
   match e with
   | EId _ => true
   | EInt _ => true
-  | EUn _ e0 => expr_ok e0
-  | EBn _ l r => expr_ok l && expr_ok r
-  | ESel e0 _ => expr_ok e0
-  | EIndex e0 i => expr_ok e0 && expr_ok i
-  | ESlice e0 lo hi => expr_ok e0 && expr_ok lo && expr_ok hi
-  | EAssert e0 _ => expr_ok e0
+  | EBn _ l r => svalue l && svalue r
+  | EUn o e0 => match o with UNot | UXor | UNeg => svalue e0 | UDeref | UAddr => false end
   | ECall callee args =>
-      callable_shape callee && expr_ok callee &&
+      scallee callee &&
       (fix all_ok (l : list GExpr) : bool :=
-         match l with nil => true | a :: r => expr_ok a && all_ok r end) args
+         match l with nil => true | a :: r => svalue a && all_ok r end) args
+  | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec (ExpressionStmt) a bare expression
-    statement must be a FUNCTION CALL (or a receive op / certain builtins) — a plain value like [1] or [a + b]
-    is "evaluated but not used" and REJECTED — AND the call must be structurally well-formed ([expr_ok], so
-    [1(x)] is rejected too).  Widens later (receive, specific builtins). *)
+    statement must be a FUNCTION CALL (a plain value like [1] or [a + b] is "evaluated but not used" and
+    REJECTED) — AND that call must be a structurally-supported value ([svalue], so [1()] / [x.(int)()] /
+    [f(1[0])] are rejected too).  Widens later (receive, specific builtins). *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
-  | ECall _ _ => expr_ok e
+  | ECall _ _ => svalue e
   | _         => false
   end.
 
@@ -89,13 +88,23 @@ Proof. reflexivity. Qed.
 Fail Example value_stmt_supported : SupportedProgram unsupported_value_stmt := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up) — a CALL of a non-callable, `func main(){ 1() }`, is
-    call-SHAPED but structurally invalid Go; [expr_ok] rejects it (the callee [EInt 1] is not
-    [callable_shape]), so it is NOT supported and cannot be certified. *)
+    call-SHAPED but structurally invalid Go; [svalue] rejects it (the callee [EInt 1] is not [scallee]), so
+    it is NOT supported and cannot be certified. *)
 Definition unsupported_call_value : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EInt 1) nil)].
 Example call_value_unsupported : supported_program unsupported_call_value = false.
 Proof. reflexivity. Qed.
 Fail Example call_value_supported : SupportedProgram unsupported_call_value := eq_refl.
+
+(** REGRESSION (external review 2026-06-28, follow-up²) — a call of a type assertion, `func main(){ x.(int)() }`,
+    is call-shaped but a type-assertion callee is not a function NAME, so [scallee] rejects it (the whole
+    assertion-callee class is deferred; a concrete [x.(int)] is anyway concretely non-callable). NOT supported. *)
+Definition unsupported_assert_call : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EAssert (EId (mkIdent "x" eq_refl)) GTInt) nil)].
+Example assert_call_unsupported : supported_program unsupported_assert_call = false.
+Proof. reflexivity. Qed.
+Fail Example assert_call_supported : SupportedProgram unsupported_assert_call := eq_refl.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
