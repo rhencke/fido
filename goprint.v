@@ -1768,6 +1768,13 @@ Proof.
     cbn; rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia); reflexivity.
 Qed.
 
+Lemma length_app : forall a b, String.length (a ++ b) = String.length a + String.length b.
+Proof. induction a as [ | c a' IH ]; intro b; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
+
+(** Every [binop_text] starts with a space, so the seam after it is clean. *)
+Lemma clean_start_binop : forall o X, clean_start (binop_text o ++ X) = true.
+Proof. destruct o; reflexivity. Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
