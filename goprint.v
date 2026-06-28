@@ -7076,6 +7076,38 @@ Example gtok_addr_xor  : lex (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
                        = Some (gtokens 0 (EUn UAddr (EUn UXor (EX "x")))).
 Proof. vm_compute; reflexivity. Qed.
 
+(** ---- M3b GROUNDWORK: lexer fuel MONOTONICITY ---- adding fuel never changes a [Some] answer.  Needed to
+    bridge the fuel when composing [lex] over a concatenation (the per-token decrement makes [S (length s)]
+    exact, so a sub-lex with more-than-enough fuel still agrees).  Induction on [f]; each char-step recurses
+    with the same discriminants, so the [Some] result is preserved by the IH on the tail. *)
+Lemma lex_aux_mono : forall f s ts f',
+  lex_aux f s = Some ts -> f <= f' -> lex_aux f' s = Some ts.
+Proof.
+  induction f as [ | f IH ]; intros s ts f' H Hle; [ discriminate H | ].
+  destruct f' as [ | f' ]; [ lia | ].
+  assert (Hle' : f <= f') by lia.
+  destruct s as [ | c s' ]; [ exact H | ].
+  cbn [lex_aux] in H |- *.
+  destruct (is_space c).
+  { exact (IH _ _ _ H Hle'). }
+  destruct (is_idstart c).
+  { destruct (scan_id (String c s')) as [tok rest].
+    destruct (lex_ident tok) as [t | ]; [ | exact H ].
+    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
+    rewrite (IH _ _ _ E Hle'); exact H. }
+  destruct (is_dec_char c).
+  { destruct (scan_digits (String c s')) as [num rest].
+    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
+    rewrite (IH _ _ _ E Hle'); exact H. }
+  destruct (andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end)).
+  { destruct (scan_digits s') as [num rest].
+    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
+    rewrite (IH _ _ _ E Hle'); exact H. }
+  { destruct (lex_op c s') as [[t rest] | ]; [ | exact H ].
+    destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
+    rewrite (IH _ _ _ E Hle'); exact H. }
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
