@@ -2,6 +2,25 @@
 
 Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and architecture). This is the living reference — the full project vision and principles, the incremental ladder (what is modelled, feature by feature), the correctness-debt tiers, known gaps, the wish list, and the concurrency research plan. **Update the ladder here when a feature lands.** Not auto-loaded into context; read on demand.
 
+> ## ★ ARCHITECTURE DIRECTION (2026-06-28) — see `ARCHITECTURE.md` (the standing charter)
+> Fido is course-correcting to an **AST-first, proof-gated emission** spine. Read `ARCHITECTURE.md`; it
+> governs.
+> ```text
+> Target:   GoAst + GoPrint + GoSem + GoSafe + GoEmit.
+> Emission: ONLY via a certificate.  Phase-1 gate = EmittableProgram (Program + GoSafe.SupportedProgram,
+>           a SYNTACTIC supported-subset check — NOT behavioral safety, named accordingly).  Later, once
+>           GoSem is authoritative: SafeProgram (+ BehaviorSafe) and emit_safe.
+> Printer claim:  syntax correctness ONLY (does not imply safety).
+> Safety claim:   only for programs the certificate covers.
+> GoSem:    the ONE authoritative semantics — BRIDGE unified.v/concurrency.v/cmd.v in, do NOT fork a 2nd.
+> Legacy:   plugin/go.ml lowering stays trusted/transitional; it does NOT define the claim and is not grown.
+> Not the current center:  arbitrary Rocq→Go correctness, relooper integration, full Go parser, concurrency.
+> Residual TCB (named, not implicit):  Rocq kernel · the string→.go extraction step · the Go toolchain ·
+>           trusted foreign imports · the GoSem≈real-Go adequacy assumption (heir to gap #10).
+> ```
+> The clean `Front` work (lexer/parser/`GExpr` AST/`gprint`/round-trip + the `ConvTy` groundwork) is the
+> SEED: it MOVES into `GoAst`/`GoPrint` (rename, not a parallel copy). Parked `EConv` re-lands there.
+
 **STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
 - **Go CONSTRUCT (MODEL) LAYER is complete** — every Go construct in the no-import scope is modelled in Rocq and extracted (via the trusted plugin), with NO remaining fail-closed construct gap. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.) This is the MODEL surface; it does not make the emitted Go verified — that is the printer/gap-#10 work below.
 - **BACKEND hardened + GATED** — the fail-closed sweep (4 external reviews' defect classes) is complete, and a gate trio now *enforces* it on every build: `go vet` + the axiom-manifest (trust base == `EXPECTED_ASSUMPTIONS.txt`) + the non-bypassable negtest harness (`negtests/`), plus the hook anti-tampering fix.
