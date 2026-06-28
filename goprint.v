@@ -6913,6 +6913,14 @@ Inductive GExpr : Type :=
   | EUn  : UnaryOp -> GExpr -> GExpr
   | EBn  : BinOp -> GExpr -> GExpr -> GExpr.
 
+(** A bare prefix operator applied DIRECTLY to another prefix operator is a LEXICAL hazard: [&] then [&]
+    (nested [UAddr]) prints "&&" which the lexer maximal-munches to [TLand], and [&] then [^] (UAddr-of-
+    UXor) prints "&^" -> [TAndNot] — a token MERGE on the LEFT of the seam (the seam is two-sided: a clean
+    right-hand start does not suffice).  So a bare-unary operand that is itself a unary node is PARENTHESISED
+    — making every unary seam a single-char delimiter ['('], which cannot munch into the operator before it.
+    (This is exactly the precise seam discipline the round-trip needs; UNeg already self-parenthesises.) *)
+Definition is_un (e : GExpr) : bool := match e with EUn _ _ => true | _ => false end.
+
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
     in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
 Fixpoint gprint (ctx : nat) (e : GExpr) : string :=
@@ -6921,7 +6929,8 @@ Fixpoint gprint (ctx : nat) (e : GExpr) : string :=
   | EInt z => print_Z z
   | EUn o e => match o with
                | UNeg => ("-(" ++ gprint 0 e ++ ")")%string
-               | _    => (unop_text o ++ gprint 6 e)%string
+               | _    => (unop_text o ++ (if is_un e then ("(" ++ gprint 0 e ++ ")")%string
+                                          else gprint 6 e))%string
                end
   | EBn o l r =>
       let p := binop_prec o in
@@ -7004,6 +7013,14 @@ Example rt_un   : parse_str (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
 Proof. vm_compute; reflexivity. Qed.
 Example rt_neg  : parse_str (gprint 0 (EUn UNeg (EX "x"))) = Some (EUn UNeg (EX "x"), nil).  (* -(x) *)
 Proof. vm_compute; reflexivity. Qed.
+(* the nested-bare-unary LEXICAL HAZARD: without the operand parens these print "&&x"/"&^x" and lex to
+   [TLand]/[TAndNot] — a left-side token merge.  With the fix they print "&(&x)"/"&(^x)" and round-trip. *)
+Example rt_addr_addr : parse_str (gprint 0 (EUn UAddr (EUn UAddr (EX "x"))))
+                     = Some (EUn UAddr (EUn UAddr (EX "x")), nil).
+Proof. vm_compute; reflexivity. Qed.
+Example rt_addr_xor  : parse_str (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
+                     = Some (EUn UAddr (EUn UXor (EX "x")), nil).
+Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
     [gprint]'s structure exactly; [op_token]/[prefix_token] are the inverses of [infix_op]/[prefix_op].
@@ -7025,7 +7042,8 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   | EInt z => TInt z :: nil
   | EUn o e => match o with
                | UNeg => TMinus :: TLP :: (gtokens 0 e ++ TRP :: nil)
-               | _    => prefix_token o :: gtokens 6 e
+               | _    => prefix_token o :: (if is_un e then TLP :: (gtokens 0 e ++ TRP :: nil)
+                                            else gtokens 6 e)
                end
   | EBn o l r =>
       let p := binop_prec o in
@@ -7048,6 +7066,10 @@ Example gtok_un   : lex (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
                   = Some (gtokens 0 (EUn UNot (EBn BEq (EX "a") (EX "b")))).
 Proof. vm_compute; reflexivity. Qed.
 Example gtok_neg  : lex (gprint 0 (EUn UNeg (EX "x"))) = Some (gtokens 0 (EUn UNeg (EX "x"))).
+Proof. vm_compute; reflexivity. Qed.
+(* the hazard, at the lexer level: [lex (gprint ..)] still equals [gtokens ..] for nested bare unaries. *)
+Example gtok_addr_addr : lex (gprint 0 (EUn UAddr (EUn UAddr (EX "x"))))
+                       = Some (gtokens 0 (EUn UAddr (EUn UAddr (EX "x")))).
 Proof. vm_compute; reflexivity. Qed.
 
 End Front.
