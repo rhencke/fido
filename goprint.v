@@ -7067,9 +7067,13 @@ Example gtok_un   : lex (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
 Proof. vm_compute; reflexivity. Qed.
 Example gtok_neg  : lex (gprint 0 (EUn UNeg (EX "x"))) = Some (gtokens 0 (EUn UNeg (EX "x"))).
 Proof. vm_compute; reflexivity. Qed.
-(* the hazard, at the lexer level: [lex (gprint ..)] still equals [gtokens ..] for nested bare unaries. *)
+(* the hazard, at the lexer level: [lex (gprint ..)] still equals [gtokens ..] for nested bare unaries —
+   the direct witness at each dangerous maximal-munch seam ("&&" -> TLand, "&^" -> TAndNot). *)
 Example gtok_addr_addr : lex (gprint 0 (EUn UAddr (EUn UAddr (EX "x"))))
                        = Some (gtokens 0 (EUn UAddr (EUn UAddr (EX "x")))).
+Proof. vm_compute; reflexivity. Qed.
+Example gtok_addr_xor  : lex (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
+                       = Some (gtokens 0 (EUn UAddr (EUn UXor (EX "x")))).
 Proof. vm_compute; reflexivity. Qed.
 
 End Front.
