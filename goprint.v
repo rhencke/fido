@@ -1249,10 +1249,13 @@ Definition lex_op (c : ascii) (s' : string) : option (Token * string) :=
                 | _ => Some (TPipe, s') end
   else None.
 
-(** classify an identifier RUN: a keyword token ([func]/[return]) or a [go_ident]-validated [TId]. *)
+(** classify an identifier RUN: a keyword token ([func]/[return]/[chan]/[map]) or a [go_ident]-validated
+    [TId].  [chan]/[map] are Go reserved words (not [go_ident]s), so they get dedicated tokens. *)
 Definition lex_ident (tok : string) : option Token :=
   if String.eqb tok "func" then Some TFunc
   else if String.eqb tok "return" then Some TReturn
+  else if String.eqb tok "chan" then Some TChan
+  else if String.eqb tok "map" then Some TMap
   else match bool_dec (go_ident tok) true with left H => Some (TId (exist _ tok H)) | right _ => None end.
 
 (** THE LEXER.  Skip whitespace; an [is_idstart] head is an identifier/keyword; a digit (or [-]+digit, the
@@ -1841,6 +1844,10 @@ Proof.
   { apply String.eqb_eq in Ef. subst s. vm_compute in Hs. discriminate Hs. }
   destruct (String.eqb s "return") eqn:Er.
   { apply String.eqb_eq in Er. subst s. vm_compute in Hs. discriminate Hs. }
+  destruct (String.eqb s "chan") eqn:Ec.
+  { apply String.eqb_eq in Ec. subst s. vm_compute in Hs. discriminate Hs. }
+  destruct (String.eqb s "map") eqn:Em.
+  { apply String.eqb_eq in Em. subst s. vm_compute in Hs. discriminate Hs. }
   destruct (bool_dec (go_ident s) true) as [H | H].
   - assert (E : H = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
   - exfalso. apply H. exact Hs.
@@ -2105,6 +2112,41 @@ Lemma lex_comma_app : forall X fuel tX,
 Proof.
   intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
   cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+(** POINTER SEAM: '*' (ch 42) → TStar (single-char op, like the brackets). *)
+Lemma lex_star_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
+  lex_aux fuel (String (ch 42) X) = Some (TStar :: tX).
+Proof.
+  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
+  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+(** WHITESPACE SKIP: a leading space is consumed (no token), then the rest lexes. *)
+Lemma lex_space_app : forall Z fuel tZ,
+  lex_aux (S (String.length Z)) Z = Some tZ -> S (S (String.length Z)) <= fuel ->
+  lex_aux fuel (String (ch 32) Z) = Some tZ.
+Proof.
+  intros Z fuel tZ HZ Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
+  cbn [lex_aux]. replace (is_space (ch 32)) with true by reflexivity.
+  rewrite (lex_aux_mono _ _ _ _ HZ) by (cbn [String.length] in Hfuel; lia). reflexivity.
+Qed.
+(** KEYWORD SEAM: an identifier RUN [kw] (here [chan]/[map]) lexing to its keyword token, then the rest.
+    Mirrors [lex_gprint_id] but with an arbitrary [lex_ident kw] classification. *)
+Lemma lex_kw_app : forall c0 kw0 tok Y fuel tY,
+  is_idstart c0 = true -> all_idc (String c0 kw0) = true ->
+  lex_ident (String c0 kw0) = Some tok ->
+  clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
+  S (S (String.length Y)) <= fuel ->   (* the id-run scan is ONE [lex_aux] step regardless of [kw] length *)
+  lex_aux fuel ((String c0 kw0 ++ Y)%string) = Some (tok :: tY).
+Proof.
+  intros c0 kw0 tok Y fuel tY Hidstart Hallidc Hkw Hclean HY Hfuel.
+  destruct fuel as [ | f ]; [ cbn [String.length] in Hfuel; lia | ].
+  cbn [lex_aux String.append].
+  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
+  replace (scan_id (String c0 (kw0 ++ Y))) with (String c0 kw0, Y)
+    by (symmetry; apply (scan_id_app (String c0 kw0) Y Hallidc Hclean)).
+  rewrite Hkw.
+  rewrite (lex_aux_mono _ _ _ _ HY) by (cbn [String.length] in Hfuel; lia). reflexivity.
 Qed.
 
 (** OPERAND SEAM for a selector: [gparen e0] (the bare-or-parenthesised operand) lexes to [gtparen e0]
@@ -3548,6 +3590,122 @@ Proof.
     assert (E : H = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
 Qed.
 
+(** THE TYPE LEX ROUND-TRIP: [lex (print_ty t)] yields [gttokens_ty t] — connecting the string type printer
+    [print_ty] to the token layer (rest-threaded, like [lex_gprint_app]).  Scalars/named via [lex_gprint_id];
+    [*]/[[]] via the bracket seams; [chan ]/[map[] via [lex_kw_app] (+ [lex_space_app] for chan's space). *)
+Lemma gttokens_ty_lex : forall t rest fuel tr,
+  clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (String.length (print_ty t) + String.length rest) <= fuel ->
+  lex_aux fuel (print_ty t ++ rest)%string = Some (gttokens_ty t ++ tr)%list.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHt | u IHt | u IHt | t1 IHt1 t2 IHt2 | n ];
+    intros rest fuel tr Hclean Hrest HF.
+  1-14: cbn [print_ty gttokens_ty app];
+        match goal with |- _ = Some (TId ?i :: _) => apply (lex_gprint_id i) end;
+        [ exact Hclean | exact Hrest | cbn [print_ty proj1_sig mkIdent String.length] in HF |- *; lia ].
+  - (* GTPtr u: "*" ++ print_ty u *)
+    cbn [print_ty gttokens_ty].
+    assert (Hu : lex_aux (S (String.length (print_ty u ++ rest))) (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
+      by (apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
+    rewrite str_app_assoc.
+    change ("*" ++ (print_ty u ++ rest))%string with (String (ch 42) (print_ty u ++ rest)).
+    rewrite (lex_star_app _ _ _ Hu)
+      by (cbn [print_ty] in HF; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia).
+    cbn [app]; reflexivity.
+  - (* GTSlice u: "[]" ++ print_ty u *)
+    cbn [print_ty gttokens_ty].
+    assert (Hu : lex_aux (S (String.length (print_ty u ++ rest))) (print_ty u ++ rest) = Some (gttokens_ty u ++ tr)%list)
+      by (apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
+    assert (Hrb : lex_aux (S (String.length (String (ch 93) (print_ty u ++ rest)))) (String (ch 93) (print_ty u ++ rest))
+                = Some (TRB :: (gttokens_ty u ++ tr))%list)
+      by (apply lex_rbrack_app; [ exact Hu | cbn [String.length]; lia ]).
+    assert (Hlb : lex_aux (S (String.length (String (ch 91) (String (ch 93) (print_ty u ++ rest))))) (String (ch 91) (String (ch 93) (print_ty u ++ rest)))
+                = Some (TLB :: TRB :: (gttokens_ty u ++ tr))%list)
+      by (apply lex_lbrack_app; [ exact Hrb | cbn [String.length]; lia ]).
+    rewrite str_app_assoc.
+    change ("[]" ++ (print_ty u ++ rest))%string with (String (ch 91) (String (ch 93) (print_ty u ++ rest))).
+    rewrite (lex_aux_mono _ _ _ _ Hlb)
+      by (cbn [print_ty] in HF; cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia).
+    cbn [app]; reflexivity.
+  - (* GTChan u: "chan " ++ print_ty u *)
+    cbn [print_ty gttokens_ty].
+    assert (Hsp : lex_aux (S (String.length (String (ch 32) (print_ty u ++ rest)))) (String (ch 32) (print_ty u ++ rest))
+                = Some (gttokens_ty u ++ tr)%list)
+      by (apply lex_space_app; [ apply IHt; [ exact Hclean | exact Hrest | rewrite length_app; lia ] | cbn [String.length]; rewrite length_app; lia ]).
+    rewrite str_app_assoc.
+    change ("chan " ++ (print_ty u ++ rest))%string
+      with ((String (ch 99) "han") ++ (String (ch 32) (print_ty u ++ rest)))%string.
+    rewrite (lex_kw_app (ch 99) "han" TChan (String (ch 32) (print_ty u ++ rest)) fuel (gttokens_ty u ++ tr)
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hsp
+               ltac:(cbn [print_ty] in HF; cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app; cbn [String.length] in HF |- *; lia)).
+    cbn [app]; reflexivity.
+  - (* GTMap k v: "map[" ++ print_ty k ++ "]" ++ print_ty v *)
+    cbn [print_ty gttokens_ty].
+    assert (Hv : lex_aux (S (String.length (print_ty t2 ++ rest))) (print_ty t2 ++ rest) = Some (gttokens_ty t2 ++ tr)%list)
+      by (apply IHt2; [ exact Hclean | exact Hrest | rewrite length_app; lia ]).
+    assert (Hrbv : lex_aux (S (String.length (String (ch 93) (print_ty t2 ++ rest)))) (String (ch 93) (print_ty t2 ++ rest))
+                 = Some (TRB :: (gttokens_ty t2 ++ tr))%list)
+      by (apply lex_rbrack_app; [ exact Hv | cbn [String.length]; lia ]).
+    assert (Hk : lex_aux (S (String.length (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))
+               = Some (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr)))%list)
+      by (apply IHt1; [ reflexivity | exact Hrbv | rewrite length_app; cbn [String.length]; rewrite length_app; lia ]).
+    assert (Hlb : lex_aux (S (String.length (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))))) (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest)))
+                = Some (TLB :: (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr))))%list)
+      by (apply lex_lbrack_app; [ exact Hk | cbn [String.length]; rewrite length_app; cbn [String.length]; rewrite length_app; lia ]).
+    rewrite !str_app_assoc.
+    change ("map[" ++ (print_ty t1 ++ ("]" ++ (print_ty t2 ++ rest))))%string
+      with ((String (ch 109) "ap") ++ (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))))%string.
+    rewrite (lex_kw_app (ch 109) "ap" TMap (String (ch 91) (print_ty t1 ++ String (ch 93) (print_ty t2 ++ rest))) fuel
+               (TLB :: (gttokens_ty t1 ++ (TRB :: (gttokens_ty t2 ++ tr))))
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity) Hlb
+               ltac:(cbn [print_ty] in HF;
+                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
+                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
+                     cbn [String.length] in HF |- *; repeat rewrite length_app in HF; repeat rewrite length_app;
+                     cbn [String.length] in HF |- *; lia)).
+    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+  - (* GTNamed n: the nominal name (a go_ident) *)
+    cbn [print_ty gttokens_ty app].
+    match goal with |- _ = Some (TId ?i :: _) => apply (lex_gprint_id i) end;
+      [ exact Hclean | exact Hrest | cbn [print_ty tyname_to_ident mkIdent proj1_sig] in HF |- *; lia ].
+Qed.
+(** composed: the printed type lexes to its token list. *)
+Lemma lex_print_ty : forall t, lex (print_ty t) = Some (gttokens_ty t).
+Proof.
+  intro t. unfold lex.
+  pose proof (gttokens_ty_lex t "" (S (String.length (print_ty t))) nil eq_refl ltac:(reflexivity)
+                ltac:(cbn [String.length]; lia)) as H.
+  rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
+Qed.
+(** lex round-trip by example. *)
+Example lt_slice : lex (print_ty (GTSlice GTInt)) = Some (gttokens_ty (GTSlice GTInt)).  (* []int *)
+Proof. apply lex_print_ty. Qed.
+Example lt_chan : lex (print_ty (GTChan GTInt)) = Some (gttokens_ty (GTChan GTInt)).  (* chan int *)
+Proof. apply lex_print_ty. Qed.
+Example lt_map : lex (print_ty (GTMap GTInt (GTSlice GTString))) = Some (gttokens_ty (GTMap GTInt (GTSlice GTString))).  (* map[int][]string *)
+Proof. apply lex_print_ty. Qed.
+
+(** a type has at least as many tokens as nodes — so [3*length+_]-style fuel always covers [tsize]. *)
+Lemma tsize_le_len : forall t, tsize t <= List.length (gttokens_ty t).
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHt | u IHt | u IHt | t1 IHt1 t2 IHt2 | n ].
+  1-14: cbn; lia.
+  - cbn [tsize gttokens_ty List.length]; lia.
+  - cbn [tsize gttokens_ty List.length]; lia.
+  - cbn [tsize gttokens_ty List.length]; lia.
+  - cbn [tsize gttokens_ty List.length]. rewrite List.length_app. cbn [List.length]; lia.
+  - cbn; lia.
+Qed.
+(** ★THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t]. *)
+Theorem parse_gty_print_ty : forall t,
+  match lex (print_ty t) with Some toks => parse_gty (S (List.length toks)) toks | None => None end = Some (t, nil).
+Proof.
+  intro t. rewrite lex_print_ty.
+  rewrite <- (app_nil_r (gttokens_ty t)). apply parse_gty_roundtrip.
+  pose proof (tsize_le_len t). rewrite app_nil_r. lia.
+Qed.
+
 (** type round-trip by example: [parse_gty (gttokens_ty t) = Some (t, [])]. *)
 Example tyr_int   : parse_gty 4 (gttokens_ty GTInt) = Some (GTInt, nil). Proof. vm_compute; reflexivity. Qed.
 Example tyr_slice : parse_gty 4 (gttokens_ty (GTSlice GTInt)) = Some (GTSlice GTInt, nil).  (* []int *)
@@ -3581,6 +3739,9 @@ Print Assumptions Front.gtokens_parse.
 Print Assumptions Front.parse_print_roundtrip.
 Print Assumptions Front.gprint_inj.
 Print Assumptions Front.parse_gty_roundtrip.
+Print Assumptions Front.gttokens_ty_lex.
+Print Assumptions Front.lex_print_ty.
+Print Assumptions Front.parse_gty_print_ty.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
