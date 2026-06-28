@@ -225,8 +225,9 @@ Legacy:    plugin/go.ml lowering is trusted and transitional.
 New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architecture.
 Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
            EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
-Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms + EConv, and lift print
-           injectivity from single-statement to the whole program.
+Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment/var/if/for/
+           return/…) + the parked EConv.  (Whole-program emitter faithfulness, print_program_inj,
+           landed 34e4a6c.)
 ```
 
 ---
@@ -253,10 +254,11 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > commit 1, f7d9383); then `GoSafe.v` (`SupportedProgram`) + `GoEmit.v` (`EmittableProgram` + `emit_supported`,
 > no raw `emit : Program -> string`) landed with a `GoAst.Program` and the first proof-gated certified emission,
 > and `main.v` builds+emits a program through that blessed path (spine commit 2, 32af69f — Phases 2 AND 3).
-> **Phase 4 (grow the AST/printer) is now underway:** the first growth increment (f2b6003) added a `GoStmt` AST
-> + a real `func main` body — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`, with a
-> single-statement `print_stmt_inj`. Still ahead in Phase 4: more `GoStmt` forms, the parked `EConv`, and
-> lifting print-injectivity to the whole program. All golden byte-identical, zero axioms. The legacy
+> **Phase 4 (grow the AST/printer) is now underway:** (f2b6003) added a `GoStmt` AST + a real `func main` body
+> — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`; then (34e4a6c) proved the EMITTER
+> FAITHFUL — `print_program_inj`: distinct `GoAst.Program`s emit distinct Go source (via `no_nl_gprint` + a
+> newline delimiter-split, the float-hex `no_p`/`split_p` technique). Still ahead in Phase 4: more `GoStmt`
+> forms (assignment/var/if/for/return/…) and the parked `EConv`. All golden byte-identical, zero axioms. The legacy
 > `plugin/go.ml` still calls the extracted `Printer.gprint` flat (transitional). Every "Front" below names that
 > now-retired seed (the completed migration's source), NOT a current structure.
 
@@ -284,9 +286,10 @@ add "future foundation" unless it replaces or deletes something.**
 - **Phase 4 — Grow the AST and printer. ⏳ IN PROGRESS (f2b6003 = first increment).** Each supported form:
   represented in `GoAst`, printed in `GoPrint`, round-tripped / injectivity-proven, used by a small example.
   No raw constructors. No string-splitting in place of a lexer/parser. Landed: `GoStmt` + `GsExprStmt` (a real
-  `func main` body, `println(1)`) with single-statement `print_stmt_inj`. Next: more `GoStmt` forms; the parked
-  `EConv` / `ConvTy` conversion work re-lands HERE inside `GoAst`/`GoPrint`; lift print-injectivity from a
-  single statement to the whole program (needs a "`gprint` emits no newline" delimiter lemma).
+  `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program emitter faithfulness
+  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split). Next: more `GoStmt` forms
+  (assignment/var/if/for/return/…); the parked `EConv` / `ConvTy` conversion work re-lands HERE inside
+  `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/
