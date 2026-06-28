@@ -73,7 +73,7 @@ negtest:
 	@sh negtests/run.sh
 
 # Smart-constructor gate (review #4): ban the DIRECT proof-carrying Printer constructor [GTNamed]
-# (the only one left after the SRaw teardown) outside the smart-constructor block in plugin/go.ml —
+# (the only proof-erased constructor the extracted printer exposes) outside the smart-constructor block —
 # its erased Rocq proof makes a direct call a trust hole.  Pure static check (no build); runs here, in
 # the pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
 smart-ctor-gate:

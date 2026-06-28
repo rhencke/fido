@@ -12,7 +12,7 @@
     verified AGAINST THE Rocq PARSER in this file (a printer/parser round-trip + injectivity for THIS
     Rocq grammar), NOT against Go's own parser.  There is NO theorem yet that Go's compiler reads the
     emitted text as the same AST — that Go-subset RECOGNITION theorem (emitted grammar ⊆ Go grammar) is
-    the remaining gap (#10).  So [print_parse_expr] / [print_ty_inj] are ROCQ-GRAMMAR self-consistency
+    the remaining gap (#10).  So [parse_print_roundtrip] / [print_ty_inj] are ROCQ-GRAMMAR self-consistency
     results, and must not be read as "Go printer correctness."  (The plugin → emitted-bytes path also has
     a trusted [gofmt] post-step — see the Makefile — so even the byte-exact final text is not yet in-proof.)
 
@@ -1124,8 +1124,9 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
-(** ---- THE CLEAN AST ---- the Go expression grammar, fully structured.  No [SRaw], no [SAtom]/[GoAtom]
-    intermediate.  CORE (grows: ECall/ESel/EIndex/ESlice/EConv/EFuncLit).  Literals carry their value. *)
+(** ---- THE CLEAN AST ---- the Go expression grammar, fully structured: every node is a typed form, with
+    NO raw/opaque string constructor (by construction it cannot represent unstructured text).  CORE + the
+    five postfix forms (grows toward conversions / composite-literals / func-lits).  Literals carry their value. *)
 Inductive GExpr : Type :=
   | EId  : Ident -> GExpr
   | EInt : Z -> GExpr
@@ -1742,7 +1743,7 @@ Proof.
   rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
 Qed.
 
-(** Digit-shape facts for the integer leaf (re-proved; the originals died in the SRaw teardown). *)
+(** Digit-shape facts for the integer leaf (proved from scratch for Module Front). *)
 Lemma is_dec_char_dec_digit : forall n, (n < 10)%nat -> is_dec_char (dec_digit n) = true.
 Proof.
   intros n Hn. unfold dec_digit, is_dec_char.

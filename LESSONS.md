@@ -37,9 +37,10 @@ Narrowing an escape hatch is not deleting it. "Documented bounded hatch" is a eu
 round-trip proofs, and every feature built to narrow the hatch) came out as **pure removable
 overlay** — proven byte-identical. The plugin's original *trusted OCaml string printer* (`pp_expr`)
 had been doing the real work the whole time; the verified AST only intercepted binop-operand
-parenthesization. `goprint.v` went 7144 → 1527 lines, `printer.ml` 4053 → 1475, with the golden
-output **unchanged at every step**. The experiment added complexity and a false "verified" claim,
-and contributed zero verification value.
+parenthesization. The teardown cut `goprint.v` 7144 → 1527 lines and `printer.ml` 4053 → 1475 at that
+moment, with the golden output **unchanged at every step** (the from-scratch `Module Front` rebuild has
+since regrown `goprint.v` past 3.6k — those are the teardown-instant figures, not the current size).
+The experiment added complexity and a false "verified" claim, and contributed zero verification value.
 
 **The rule.**
 

@@ -106,12 +106,10 @@ Definition neg_op_demo : IO unit :=
   println [ any (i64_neg (5)%i64)                       (* -5 *)
           ; any (i64_neg (i64_sub (0)%i64 (7)%i64)) ].  (* -(0 - 7) = 7 *)
 
-(** [UNeg] AS A BINOP OPERAND (review #7) — a RUNTIME negation in operand position.  [i64_add] is a
-    [binop_of] op, so its operands go through [build_goexpr]; the operand [i64_neg a] — a runtime PARAMETER,
-    not a constant — now lowers to the VERIFIED [Printer.EUnary UNeg] node, printed PARENTHESISED [-(a)].
-    Previously this was a "-a" [SRaw] atom that [build_atom] REJECTS (its depth-0 '-' is a [has_d0_break]) —
-    the latent [build_atom] abort this closes.  A CONSTANT operand still takes the folding IIFE (see
-    [neg_op_demo]); only a RUNTIME operand (here the parameter [a]) is the bare prefix [-(a)]. *)
+(** A RUNTIME negation in binary-operator operand position.  [i64_add] is a [binop_of] op, so the plugin
+    prints it through [pp_prec]; the operand [i64_neg a] — a runtime PARAMETER, not a constant — prints as the
+    PARENTHESISED prefix [-(a)].  A CONSTANT operand instead takes the folding IIFE (see [neg_op_demo]); only
+    a runtime operand (here the parameter [a]) is the bare prefix [-(a)]. *)
 Definition uneg_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add (i64_neg a) b)            (* -(a) + b *)
           ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
@@ -344,16 +342,14 @@ Definition widen_param_demo : IO unit :=
   println [ any (widen_u8_to_i64 (u8_lit 200 eq_refl))     (* int64(uint8 200) = 200 *)
           ; any (widen_i8_to_i64 (i8_of_int (int_lit (-5) eq_refl)))  (* int64(int8 -5)   = -5  (sign kept) *)
           ; any (widen_u8_to_int (u8_lit 100 eq_refl)) ].  (* int(uint8 100)   = 100 *)
-(** ★review #9 (A3) — a type conversion used as a BINOP OPERAND: [y + int64(x)].  With [y] a runtime
-    [int64] PARAM the [i64_add] takes the plain [EBin] path (not the constant-IIFE force-wrapper), so its
-    operand [i64_of_u8 x] reaches [build_goexpr], which now CONSTRUCTS the verified [SApply (SIdent "int64")
-    [x]] node DIRECTLY (amendment 3: identifier-led conversions are application syntax) — before A3 this
-    round-tripped through [pp_expr → string → build_atom].  [x] is a real [uint8] PARAM, so [int64(x)] is a
-    genuine widening, not identity. *)
+(** A type conversion used as a BINOP OPERAND: [y + int64(x)].  With [y] a runtime [int64] PARAM the
+    [i64_add] takes the plain operator path (not the constant-IIFE force-wrapper), so its operand
+    [i64_of_u8 x] prints as the conversion [int64(x)] (identifier-led conversion = call syntax).  [x] is a
+    real [uint8] PARAM, so [int64(x)] is a genuine widening, not identity. *)
 Definition conv_in_binop (y : GoI64) (x : GoU8) : GoI64 := i64_add y (i64_of_u8 x).
 (** And the float64→float32 NARROWING as a comparison operand [a < float32(x)] — the sibling
-    [is_f64_to_f32_ref] arm, same direct [SApply (SIdent "float32") [x]] construction (runtime narrowing
-    cast; the constant case is a func-lit IIFE left to [pp_expr]).  [x] is a runtime [float64] PARAM. *)
+    [is_f64_to_f32_ref] arm, same [float32(x)] conversion (runtime narrowing cast; the constant case is a
+    func-lit IIFE).  [x] is a runtime [float64] PARAM. *)
 Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (f32_of_f64 x).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
@@ -1518,16 +1514,12 @@ Definition cond_op_demo : IO unit :=
   bind (or_cond (30)%i64 (4)%i64)  (fun _ =>   (* F || T → 1 *)
   not_cond (30)%i64)).                   (* !F      → 1 *)
 
-(** A unary [^] as a binary-operator OPERAND, rendered through the VERIFIED printer (review #6 #4/#6).
-    [i64_not x] (the full-width complement) sitting INSIDE [i64_and]/[i64_or] is emitted by
-    [build_goexpr] as the proven [Printer.EUnary UXor] node — NOT a raw "^x" [SRaw] atom.  ([raw_ok]
-    now REJECTS unary-led strings: a raw "^x" would re-parse as a unary expression, breaking
-    [print_parse_expr]'s round-trip — so the backend MUST build [EUnary] for it or fail loud.)
-    Precedence is the proven [print_expr]'s, so the operand needs no defensive parens: [^x & y], [^x | y]
-    (Go's unary [^] binds tighter than the binary [&]/[|]).  Operands are RUNTIME params (not literals),
-    so the op survives extraction instead of constant-folding.  (NB: Coq's stdlib [andb]/[orb]/[negb]
-    are NOT Fido builtins, so they extract as the helper functions [Andb]/[Orb]/[Negb] — the [!]/[&&]
-    lowering, and hence [EUnary UNot], fire only for a builtin bool op, none of which exists yet.) *)
+(** A unary [^] as a binary-operator OPERAND.  [i64_not x] (the full-width complement) sitting INSIDE
+    [i64_and]/[i64_or] prints as [^x] via the trusted [pp_prec]/[pp_expr]; Go's unary [^] binds tighter than
+    the binary [&]/[|], so the operand needs no defensive parens: [^x & y], [^x | y].  Operands are RUNTIME
+    params (not literals), so the op survives extraction instead of constant-folding.  (NB: Coq's stdlib
+    [andb]/[orb]/[negb] are NOT Fido builtins, so they extract as the helper functions [Andb]/[Orb]/[Negb] —
+    the [!]/[&&] lowering fires only for a builtin bool op, none of which exists yet.) *)
 Definition unop_in_binop_demo (x y : GoI64) : IO unit :=
   println [ any (i64_and (i64_not x) y)         (* ^x & y *)
           ; any (i64_or  (i64_not x) y) ].       (* ^x | y *)
@@ -3412,7 +3404,7 @@ Definition main_effect : IO unit :=
   control_flow_demo             >>'   (* prints: 5 true / 20 false / 1 *)
   bool_op_demo true false true  >>'   (* prints: false / true / true / true *)
   cond_op_demo                  >>'   (* prints: 1 / 1 / 1 *)
-  unop_in_binop_demo (0)%i64 (255)%i64 >>'  (* prints: 255 -1  ([^x & y], [^x | y] via verified EUnary UXor) *)
+  unop_in_binop_demo (0)%i64 (255)%i64 >>'  (* prints: 255 -1  (unary [^] as a binop operand: [^x & y], [^x | y]) *)
   inline_if_demo                >>'   (* prints: 1 / 0 / 1 *)
   lookup_demo                   >>'   (* prints: 700 true / false *)
   list_demo                     >>'   (* prints: 10 2 *)
@@ -3558,7 +3550,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
-  conv_operand_demo             >>'   (* prints: 205 / true (conversions int64(x), float32(x) as binop operands → verified SApply; review #9 A3) *)
+  conv_operand_demo             >>'   (* prints: 205 / true (conversions int64(x), float32(x) as binop operands) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)
