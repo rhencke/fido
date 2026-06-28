@@ -1498,6 +1498,50 @@ Proof.
     rewrite (IH _ _ _ E Hle'); exact H. }
 Qed.
 
+(** ---- M3b: the LEXER ROUND-TRIP groundwork ---- the seam predicate + the scanner-splitting lemmas.
+    [clean_start rest] = the next char cannot EXTEND an identifier/number token (it is not an id-char), so
+    a token ending just before [rest] is complete — exactly the boundary [gprint] emits between subtrees
+    (a space, a ')', or end-of-string).  This is the two-sided seam condition the round-trip needs. *)
+Definition clean_start (rest : string) : bool :=
+  match rest with EmptyString => true | String c _ => negb (is_idc c) end.
+
+Lemma is_dec_char_is_idc : forall c, is_dec_char c = true -> is_idc c = true.
+Proof.
+  intro c. unfold is_dec_char, is_idc. intro H. apply andb_prop in H.
+  destruct H as [H1 H2]. rewrite H1, H2. reflexivity.
+Qed.
+
+(** A clean-start string scans NO identifier / NO digit run — the scanners stop immediately. *)
+Lemma scan_id_clean : forall b, clean_start b = true -> scan_id b = (EmptyString, b).
+Proof.
+  intros [ | c b' ] H; [ reflexivity | ].
+  unfold clean_start in H. cbn [scan_id]. destruct (is_idc c); [ discriminate H | reflexivity ].
+Qed.
+
+Lemma scan_digits_clean : forall b, clean_start b = true -> scan_digits b = (EmptyString, b).
+Proof.
+  intros [ | c b' ] H; [ reflexivity | ].
+  unfold clean_start in H. cbn [scan_digits]. destruct (is_dec_char c) eqn:E; [ | reflexivity ].
+  apply is_dec_char_is_idc in E. rewrite E in H. discriminate H.
+Qed.
+
+(** [scan_id] / [scan_digits] split an all-id / all-decimal PREFIX off a clean-start REST exactly. *)
+Lemma scan_id_app : forall a b, all_idc a = true -> clean_start b = true -> scan_id (a ++ b) = (a, b).
+Proof.
+  induction a as [ | c a' IH ]; intros b Ha Hb.
+  - apply scan_id_clean; exact Hb.
+  - cbn [all_idc] in Ha. apply andb_prop in Ha. destruct Ha as [Hc Ha'].
+    cbn [String.append scan_id]. rewrite Hc. rewrite (IH b Ha' Hb). reflexivity.
+Qed.
+
+Lemma scan_digits_app : forall a b, all_dec a = true -> clean_start b = true -> scan_digits (a ++ b) = (a, b).
+Proof.
+  induction a as [ | c a' IH ]; intros b Ha Hb.
+  - apply scan_digits_clean; exact Hb.
+  - cbn [all_dec] in Ha. apply andb_prop in Ha. destruct Ha as [Hc Ha'].
+    cbn [String.append scan_digits]. rewrite Hc. rewrite (IH b Ha' Hb). reflexivity.
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
