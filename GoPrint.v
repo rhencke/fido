@@ -3385,6 +3385,216 @@ Definition print_program (p : Program) : string :=
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof. intros [e1] [e2] H. simpl in H. f_equal. exact (gprint_inj e1 e2 H). Qed.
 
+(** ============================================================================
+    PROGRAM-PRINTER FAITHFULNESS — [print_program] is INJECTIVE: distinct programs emit distinct Go source
+    (the program-level analogue of [gprint_inj]).  The crux: every expression the body prints is
+    NEWLINE-FREE ([no_nl_gprint]), so the body's '\n'-delimited statement lines (and the package name's
+    terminating '\n') are recoverable — the SAME delimiter-split technique [split_p] uses for the float-hex
+    'p'.  This is the emitter's correctness claim at the program level (still print-INJECTIVITY, NOT a full
+    parse round-trip — statement re-parsing has ASI/semicolon subtleties, deferred). *)
+Definition nlc : ascii := ascii_of_nat 10.
+Definition is_nl (c : ascii) : bool := Ascii.eqb c nlc.
+Fixpoint no_nl (s : string) : Prop :=
+  match s with EmptyString => True | String c s' => is_nl c = false /\ no_nl s' end.
+Ltac no_nl_lit := cbn [no_nl]; repeat split; (exact I || (vm_compute; reflexivity)).
+Lemma no_nl_app : forall a b, no_nl a -> no_nl b -> no_nl (a ++ b).
+Proof.
+  induction a as [ | c a IH ]; intros b Ha Hb; [ exact Hb | ].
+  cbn [no_nl append] in *. destruct Ha as [Hc Ha]. split; [ exact Hc | apply IH; assumption ].
+Qed.
+Lemma go_nl_app : forall r, (go_nl ++ r)%string = String nlc r.
+Proof. intro r. unfold go_nl, nlc. reflexivity. Qed.
+Lemma scons_app : forall c s t, (String c s ++ t)%string = String c (s ++ t).
+Proof. reflexivity. Qed.
+
+(** leaf printers are newline-free. *)
+Lemma is_nl_idc : forall c, is_idc c = true -> is_nl c = false.
+Proof. intros c H. unfold is_nl, nlc. apply Bool.not_true_iff_false. intro Hc.
+  apply Ascii.eqb_eq in Hc. subst c. vm_compute in H. discriminate H. Qed.
+Lemma no_nl_all_idc : forall s, all_idc s = true -> no_nl s.
+Proof.
+  induction s as [ | c s IH ]; intro H; [ exact I | ].
+  cbn [all_idc] in H. apply andb_prop in H. destruct H as [Hc Hs].
+  cbn [no_nl]. split; [ apply is_nl_idc; exact Hc | apply IH; exact Hs ].
+Qed.
+Lemma no_nl_ident : forall i : Ident, no_nl (proj1_sig i).
+Proof.
+  intros [s H]. simpl. unfold go_ident in H. destruct s as [ | c s' ]; [ discriminate H | ].
+  apply andb_prop in H. destruct H as [H _]. apply andb_prop in H. destruct H as [_ Hall].
+  apply no_nl_all_idc. exact Hall.
+Qed.
+Lemma no_nl_tyname : forall n : TyName, no_nl (proj1_sig n).
+Proof.
+  intros [s H]. simpl. unfold nominal_type_ident in H. apply andb_prop in H. destruct H as [Hgo _].
+  exact (no_nl_ident (exist _ s Hgo)).
+Qed.
+Lemma no_nl_print_ty : forall t, no_nl (print_ty t).
+Proof.
+  induction t; cbn [print_ty]; try no_nl_lit.
+  - apply no_nl_app; [ no_nl_lit | exact IHt ].
+  - apply no_nl_app; [ no_nl_lit | exact IHt ].
+  - apply no_nl_app; [ no_nl_lit | exact IHt ].
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact IHt1 | apply no_nl_app; [ no_nl_lit | exact IHt2 ] ] ].
+  - apply no_nl_tyname.
+Qed.
+Lemma is_nl_dec_digit : forall n, (n < 10)%nat -> is_nl (dec_digit n) = false.
+Proof.
+  intros n Hn. unfold is_nl, nlc, dec_digit. apply Bool.not_true_iff_false. intro H.
+  apply Ascii.eqb_eq in H. apply (f_equal nat_of_ascii) in H.
+  rewrite !Ascii.nat_ascii_embedding in H by lia. lia.
+Qed.
+Lemma no_nl_z_digits : forall fuel z acc, no_nl acc -> no_nl (z_digits fuel z acc).
+Proof.
+  induction fuel as [ | f IH ]; intros z acc Hacc; [ exact Hacc | ].
+  cbn [z_digits].
+  assert (Hk : (Z.to_nat (z mod 10) < 10)%nat)
+    by (pose proof (Z.mod_pos_bound z 10 ltac:(lia)) as Hb; lia).
+  destruct (Z.eqb (z / 10) 0).
+  - cbn [no_nl]. split; [ apply is_nl_dec_digit; exact Hk | exact Hacc ].
+  - apply IH. cbn [no_nl]. split; [ apply is_nl_dec_digit; exact Hk | exact Hacc ].
+Qed.
+Lemma no_nl_print_Z : forall z, no_nl (print_Z z).
+Proof.
+  intro z. unfold print_Z. destruct (z =? 0)%Z; [ no_nl_lit | ].
+  destruct (z <? 0)%Z.
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_z_digits; exact I ].
+  - apply no_nl_z_digits; exact I.
+Qed.
+Lemma no_nl_binop_text : forall o, no_nl (binop_text o).
+Proof. intro o; destruct o; no_nl_lit. Qed.
+Lemma no_nl_unop_text : forall o, no_nl (unop_text o).
+Proof. intro o; destruct o; no_nl_lit. Qed.
+
+(** the printer's expression output is newline-free, for ANY context ([ctx] only adds parens). *)
+Lemma no_nl_gparen : forall e0, no_nl (gprint 0 e0) -> no_nl (gparen e0).
+Proof.
+  intros e0 H. unfold gparen. destruct (op_needs_paren e0).
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact H | no_nl_lit ] ].
+  - exact H.
+Qed.
+Lemma gprint_EUn_pre : forall ctx o e0,
+  gprint ctx (EUn o e0) = (unop_text o ++ "(" ++ gprint 0 e0 ++ ")")%string.
+Proof. intros ctx o e0. destruct o; reflexivity. Qed.
+Lemma gprint_EBn_eq : forall ctx o l r,
+  gprint ctx (EBn o l r) =
+    (if Nat.ltb (binop_prec o) ctx
+     then ("(" ++ (gprint (binop_prec o) l ++ binop_text o ++ gprint (S (binop_prec o)) r) ++ ")")%string
+     else (gprint (binop_prec o) l ++ binop_text o ++ gprint (S (binop_prec o)) r))%string.
+Proof. reflexivity. Qed.
+Lemma no_nl_gprint_args_tl : forall args,
+  Forall (fun a => no_nl (gprint 0 a)) args -> no_nl (gprint_args_tl args).
+Proof.
+  induction args as [ | b m IH ]; intro HF; [ exact I | ]. cbn [gprint_args_tl].
+  apply no_nl_app; [ no_nl_lit
+    | apply no_nl_app; [ exact (Forall_inv HF) | apply IH; exact (Forall_inv_tail HF) ] ].
+Qed.
+Lemma no_nl_gprint_args : forall args,
+  Forall (fun a => no_nl (gprint 0 a)) args -> no_nl (gprint_args args).
+Proof.
+  intros [ | a r ] HF; [ exact I | ]. cbn [gprint_args].
+  apply no_nl_app; [ exact (Forall_inv HF) | apply no_nl_gprint_args_tl; exact (Forall_inv_tail HF) ].
+Qed.
+Lemma no_nl_gprint : forall e ctx, no_nl (gprint ctx e).
+Proof.
+  intro e.
+  induction e as [ i | z | o e0 IHe0 | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi
+                 | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T ]
+    using GExpr_ind'; intro ctx.
+  - cbn [gprint]. apply no_nl_ident.
+  - cbn [gprint]. apply no_nl_print_Z.
+  - rewrite gprint_EUn_pre.
+    apply no_nl_app; [ apply no_nl_unop_text
+      | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHe0 | no_nl_lit ] ] ].
+  - rewrite gprint_EBn_eq.
+    assert (Hin : no_nl (gprint (binop_prec o) l ++ binop_text o ++ gprint (S (binop_prec o)) r))
+      by (apply no_nl_app; [ apply IHl | apply no_nl_app; [ apply no_nl_binop_text | apply IHr ] ]).
+    destruct (Nat.ltb (binop_prec o) ctx);
+      [ apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact Hin | no_nl_lit ] ] | exact Hin ].
+  - rewrite gprint_ESel.
+    apply no_nl_app; [ apply no_nl_gparen; apply IHe0 | apply no_nl_app; [ no_nl_lit | apply no_nl_ident ] ].
+  - rewrite gprint_EIndex.
+    apply no_nl_app; [ apply no_nl_gparen; apply IHe0
+                     | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHi | no_nl_lit ] ] ].
+  - rewrite gprint_ESlice.
+    apply no_nl_app; [ apply no_nl_gparen; apply IHe0 | ].
+    apply no_nl_app; [ no_nl_lit
+      | apply no_nl_app; [ apply IHlo | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHhi | no_nl_lit ] ] ] ].
+  - rewrite gprint_ECall.
+    assert (Hargs0 : Forall (fun a => no_nl (gprint 0 a)) args)
+      by (eapply Forall_impl; [ | exact IHargs ]; intros a Ha; apply Ha).
+    apply no_nl_app; [ apply no_nl_gparen; apply IHe0
+      | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply no_nl_gprint_args; exact Hargs0 | no_nl_lit ] ] ].
+  - rewrite gprint_EAssert.
+    apply no_nl_app; [ apply no_nl_gparen; apply IHe0
+      | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply no_nl_print_ty | no_nl_lit ] ] ].
+Qed.
+Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
+Proof. intros [e]. simpl. apply no_nl_gprint. Qed.
+
+(** delimiter-split + append-cancel infrastructure (mirrors [split_p_app]). *)
+Lemma sapp_inv_head : forall p a b, (p ++ a)%string = (p ++ b)%string -> a = b.
+Proof.
+  induction p as [ | c p IH ]; intros a b H; cbn [append] in H; [ exact H | ].
+  injection H as H. exact (IH _ _ H).
+Qed.
+Lemma split_nl : forall a1 a2 t1 t2, no_nl a1 -> no_nl a2 ->
+  (a1 ++ String nlc t1)%string = (a2 ++ String nlc t2)%string -> a1 = a2 /\ t1 = t2.
+Proof.
+  induction a1 as [ | c1 a1 IH ]; intros a2 t1 t2 H1 H2 H.
+  - destruct a2 as [ | c2 a2 ]; cbn [append] in H.
+    + injection H as Ht. split; [ reflexivity | exact Ht ].
+    + injection H as Hc Ht. cbn [no_nl] in H2. destruct H2 as [Hc2 _].
+      exfalso. unfold is_nl in Hc2. rewrite <- Hc, Ascii.eqb_refl in Hc2. discriminate Hc2.
+  - destruct a2 as [ | c2 a2 ]; cbn [append] in H.
+    + injection H as Hc Ht. cbn [no_nl] in H1. destruct H1 as [Hc1 _].
+      exfalso. unfold is_nl in Hc1. rewrite Hc, Ascii.eqb_refl in Hc1. discriminate Hc1.
+    + injection H as Hc Ht. cbn [no_nl] in H1, H2. destruct H1 as [_ H1]. destruct H2 as [_ H2].
+      destruct (IH a2 t1 t2 H1 H2 Ht) as [Ha Ht']. subst. split; reflexivity.
+Qed.
+Lemma ident_eq : forall i j : Ident, proj1_sig i = proj1_sig j -> i = j.
+Proof.
+  intros [s p] [t q] H. simpl in H. subst t.
+  assert (E : p = q) by apply (UIP_dec Bool.bool_dec). rewrite E. reflexivity.
+Qed.
+
+(** statement-LIST injectivity: the body's tab-led, newline-terminated lines are recoverable as long as the
+    suffix [R] (here the closing brace) does not itself start with a tab. *)
+Definition tabc : ascii := ascii_of_nat 9.
+Definition is_tab (c : ascii) : bool := Ascii.eqb c tabc.
+Definition hd_not_tab (s : string) : Prop :=
+  match s with EmptyString => True | String c _ => is_tab c = false end.
+Lemma print_stmts_cons : forall s l,
+  print_stmts (s :: l) = String tabc (print_stmt s ++ String nlc (print_stmts l)).
+Proof. intros s l. cbn [print_stmts]. unfold go_tab, go_nl, tabc, nlc. reflexivity. Qed.
+Lemma print_stmts_inj_suffix : forall l1 l2 R1 R2,
+  hd_not_tab R1 -> hd_not_tab R2 ->
+  (print_stmts l1 ++ R1)%string = (print_stmts l2 ++ R2)%string -> l1 = l2 /\ R1 = R2.
+Proof.
+  induction l1 as [ | s1 l1 IH ]; intros l2 R1 R2 HR1 HR2 H.
+  - destruct l2 as [ | s2 l2 ].
+    + cbn [print_stmts append] in H. split; [ reflexivity | exact H ].
+    + change (print_stmts []) with ""%string in H. cbn [append] in H. rewrite print_stmts_cons in H.
+      exfalso. rewrite H in HR1. vm_compute in HR1. discriminate HR1.
+  - destruct l2 as [ | s2 l2 ].
+    + change (print_stmts []) with ""%string in H. cbn [append] in H. rewrite print_stmts_cons in H.
+      exfalso. rewrite <- H in HR2. vm_compute in HR2. discriminate HR2.
+    + rewrite !print_stmts_cons, !scons_app in H. injection H as H.
+      rewrite !sapp_assoc, !scons_app in H.
+      destruct (split_nl _ _ _ _ (no_nl_print_stmt s1) (no_nl_print_stmt s2) H) as [Hs Hbody].
+      apply print_stmt_inj in Hs.
+      destruct (IH l2 R1 R2 HR1 HR2 Hbody) as [Hl HR]. subst. split; reflexivity.
+Qed.
+Lemma print_program_inj : forall p1 p2, print_program p1 = print_program p2 -> p1 = p2.
+Proof.
+  intros [pk1 b1] [pk2 b2] H. unfold print_program in H. cbn [prog_pkg prog_body] in H.
+  apply (sapp_inv_head "package ") in H. rewrite !go_nl_app in H.
+  destruct (split_nl _ _ _ _ (no_nl_ident pk1) (no_nl_ident pk2) H) as [Hpk Hrest].
+  apply ident_eq in Hpk. injection Hrest as Hrest.
+  destruct (print_stmts_inj_suffix b1 b2 ("}" ++ go_nl) ("}" ++ go_nl)
+             ltac:(vm_compute; reflexivity) ltac:(vm_compute; reflexivity) Hrest) as [Hb _].
+  subst. reflexivity.
+Qed.
+
 (** GATE — GoAst.v + GoPrint.v are part of the trust base: the EXTRACTED printer is governed by these
     theorems, so they MUST be axiom-free.  The build (Dockerfile prover stage) compiles GoAst.v + GoPrint.v
     standalone (`rocq c -Q . Fido`) and FAILS
@@ -3406,6 +3616,7 @@ Print Assumptions parse_convty_roundtrip.
 Print Assumptions parse_conv_print.
 Print Assumptions parse_gty_print_ty.
 Print Assumptions print_stmt_inj.
+Print Assumptions print_program_inj.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
