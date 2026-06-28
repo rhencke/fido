@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify smart-ctor-gate
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify smart-ctor-gate
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -94,6 +94,18 @@ GOPRINT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q .
 	fi
 GOPRINT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml
 
+# Gate for the BLESSED-EMISSION spine: GoSafe + GoEmit are now ALSO part of the trust base (emit_supported is
+# the official gate; SupportedProgram is the certificate), so compile the WHOLE spine standalone and assert
+# ZERO axioms across all four.  Separate from GOPRINT_GATE (which the printer.ml extraction reuses and must
+# stay GoAst/GoPrint-only).  Compiles in dependency order; GoPrint re-emits printer.ml as a side effect (the
+# clean step removes it).
+GOEMIT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: GoAst/GoPrint/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
+	if grep -q '^Axioms:' /tmp/emit.log; then \
+	  echo "fido: SPINE AXIOM/ADMITTED — a GoAst/GoPrint/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
+	  cat /tmp/emit.log; exit 1; \
+	fi
+GOEMIT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml
+
 # Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from the GoAst/GoPrint spine.  A PROPER file
 # dependency: remade only when GoAst.v / GoPrint.v is newer.  The recipe runs the shared gate (compile +
 # zero-axiom) then moves the fresh extraction into place.  Commit plugin/printer.ml afterwards (a GENERATED
@@ -115,6 +127,13 @@ printer-verify:
 	    $(GOPRINT_CLEAN); exit 1; \
 	  fi; \
 	  $(GOPRINT_CLEAN); echo "fido: GoAst/GoPrint OK — zero axioms, plugin/printer.ml in sync ✓"
+
+# Read-only LOCAL mirror of the Docker prover-stage EMISSION-spine gate: compile GoAst/GoPrint/GoSafe/GoEmit
+# standalone and assert ZERO axioms across the whole blessed-emission trust base (printer + supportedness gate
+# + certified emitter).  Modifies nothing.
+emit-verify:
+	@set -e; $(GOEMIT_GATE); $(GOEMIT_CLEAN); \
+	  echo "fido: GoAst/GoPrint/GoSafe/GoEmit OK — zero axioms (blessed-emission trust base) ✓"
 
 # Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
 # ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can

@@ -3402,12 +3402,13 @@ Proof.
 Qed.
 
 (** ============================================================================
-    PROGRAM-PRINTER FAITHFULNESS — [print_program] is INJECTIVE: distinct programs emit distinct Go source
+    PROGRAM-PRINTER INJECTIVITY — [print_program] is INJECTIVE: distinct programs emit distinct Go source
     (the program-level analogue of [gprint_inj]).  The crux: every expression the body prints is
     NEWLINE-FREE ([no_nl_gprint]), so the body's '\n'-delimited statement lines (and the package name's
     terminating '\n') are recoverable — the SAME delimiter-split technique [split_p] uses for the float-hex
-    'p'.  This is the emitter's correctness claim at the program level (still print-INJECTIVITY, NOT a full
-    parse round-trip — statement re-parsing has ASI/semicolon subtleties, deferred). *)
+    'p'.  SCOPE (kept narrow on purpose): this is print INJECTIVITY only — NOT a parse round-trip and NOT a
+    proof that the emitted text is accepted by a Go grammar.  Statement re-parsing (ASI/semicolons) and Go
+    syntax acceptance are separate, deferred. *)
 Definition nlc : ascii := ascii_of_nat 10.
 Definition is_nl (c : ascii) : bool := Ascii.eqb c nlc.
 Fixpoint no_nl (s : string) : Prop :=

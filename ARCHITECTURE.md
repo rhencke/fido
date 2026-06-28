@@ -226,7 +226,7 @@ New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architectur
 Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
            EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
 Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment, var, control
-           flow) + the parked EConv.  (Emitter faithfulness print_program_inj landed 34e4a6c;
+           flow) + the parked EConv.  (Program-printer injectivity print_program_inj landed 34e4a6c;
            2nd statement form GsReturn landed 6e2ba11.)
 ```
 
@@ -255,15 +255,22 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > no raw `emit : Program -> string`) landed with a `GoAst.Program` and the first proof-gated certified emission,
 > and `main.v` builds+emits a program through that blessed path (spine commit 2, 32af69f — Phases 2 AND 3).
 > **Phase 4 (grow the AST/printer) is now underway:** (f2b6003) added a `GoStmt` AST + a real `func main` body
-> — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`; then (34e4a6c) proved the EMITTER
-> FAITHFUL — `print_program_inj`: distinct `GoAst.Program`s emit distinct Go source (via `no_nl_gprint` + a
-> newline delimiter-split, the float-hex `no_p`/`split_p` technique); then (6e2ba11) added the 2nd statement
+> — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`; then (34e4a6c) proved
+> `print_program_inj` — program-printer INJECTIVITY: distinct `GoAst.Program`s emit distinct Go source (via
+> `no_nl_gprint` + a newline delimiter-split, the float-hex `no_p`/`split_p` technique).  NB this is print
+> injectivity only, NOT a parse round-trip and NOT Go-syntax acceptance.  Then (6e2ba11) added the 2nd statement
 > form `GsReturn` (`print_stmt_inj` now multi-constructor, the `GsExprStmt`/`GsReturn` cross case closed by
 > `gprint_neq_return` — "return" lexes to the `TReturn` keyword token, which the expression parser rejects, so
-> `parse_str "return" = None`). Still ahead in Phase 4: more `GoStmt` forms (assignment, var,
-> control flow) and the parked `EConv`. All golden byte-identical, zero axioms. The legacy
-> `plugin/go.ml` still calls the extracted `Printer.gprint` flat (transitional). Every "Front" below names that
-> now-retired seed (the completed migration's source), NOT a current structure.
+> `parse_str "return" = None`). **Then a course correction (external review 2026-06-28): `SupportedProgram`
+> was too weak — it checked only the package name, so it certified INVALID Go like `func main(){ 1 }`.** Fixed:
+> `SupportedProgram` is now a DECIDABLE supported-subset gate (`supported_program` = `pkg=main` ∧
+> `forallb stmt_ok body`, where a bare expression statement must be a call) — a regression locks out the
+> bad program, and GoSafe/GoEmit joined the explicit zero-axiom gate (`make emit-verify`) + a
+> print_program-discipline tripwire. Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control
+> flow) and the parked `EConv`. **Still RED:** `GoEmit` is NOT the actual file-output path (the legacy
+> `plugin/go.ml` still produces `main.go` via the extracted `Printer.gprint`, flat/transitional); no GoSem
+> behavioral safety yet. All golden byte-identical, zero axioms. Every "Front" below names that now-retired
+> seed (the completed migration's source), NOT a current structure.
 
 Not a giant rewrite in one patch. Proceed in small, structural steps. Every patch should either: move a
 concept into the correct module, delete an old wrong path, make a bad path unreachable, create/strengthen
@@ -289,8 +296,9 @@ add "future foundation" unless it replaces or deletes something.**
 - **Phase 4 — Grow the AST and printer. ⏳ IN PROGRESS (f2b6003 = first increment).** Each supported form:
   represented in `GoAst`, printed in `GoPrint`, round-tripped / injectivity-proven, used by a small example.
   No raw constructors. No string-splitting in place of a lexer/parser. Landed: `GoStmt` + `GsExprStmt` (a real
-  `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program emitter faithfulness
-  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split); the 2nd statement form
+  `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program print INJECTIVITY
+  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split; injectivity only, not Go-syntax
+  acceptance); the 2nd statement form
   `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`). Next: more `GoStmt` forms
   (assignment, var, control flow); the parked `EConv` / `ConvTy` conversion work re-lands HERE inside
   `GoAst`/`GoPrint`.

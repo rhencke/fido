@@ -92,3 +92,24 @@ if [ -n "$deadrefs" ]; then
 fi
 
 echo "fido: dead-architecture / raw-syntax gate OK — no SRaw-era or forbidden raw-syntax references in active code ✓"
+
+# ---- BLESSED-EMISSION DISCIPLINE TRIPWIRE (external review 2026-06-28 P1): the raw program printer
+# [GoPrint.print_program] exists for proofs/tests, but the OFFICIAL emission path must go through the
+# certificate-gated [GoEmit.emit_supported] (later [emit_safe]).  Assert NO OTHER active source CALLS
+# print_program directly — scanning hand-written *.v (except GoPrint.v, which DEFINES it, and GoEmit.v, the
+# blessed caller) + plugin glue.  The regex matches an APPLICATION (print_program followed by a '(' or an
+# argument token), so the doc-comment ref `[print_program]` (bracketed, followed by ']') does NOT trip it.
+#   ⚠️ Like the gates above this is a NAME/discipline tripwire, not a type seal: print_program is PUBLIC in
+#   GoPrint.  The structural guarantee is that GoEmit exports no [emit : Program -> string] and the
+#   certificate is required by [mkEmittable]; this grep just catches an accidental direct-call bypass.
+ppcallers=$(grep -nE '\bprint_program\b[[:space:]]*[("a-zA-Z0-9_]' \
+  $(for f in *.v; do [ "$f" = GoPrint.v ] || [ "$f" = GoEmit.v ] || echo "$f"; done) \
+  plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
+if [ -n "$ppcallers" ]; then
+  echo "fido: EMISSION-DISCIPLINE GATE — a direct GoPrint.print_program CALL is in active code outside GoEmit.v:"
+  echo "$ppcallers"
+  echo "fido: emit ONLY through GoEmit.emit_supported (certificate-gated); print_program is for proofs/tests."
+  exit 1
+fi
+
+echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"

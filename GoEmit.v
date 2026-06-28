@@ -28,8 +28,9 @@ Definition emit_supported (p : EmittableProgram) : string := print_program (ep_p
     body is TWO real statements — [println(1)] (a Go builtin, so no import is needed: rule 5) then a bare
     [return] — built as structured [GExpr]/[GoStmt]s and printed by the machine-checked [gprint].  Emitted
     ONLY through the proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it,
-    [demo_emit_bytes] pins the exact emitted Go source.  (A non-main package would fail [SupportedProgram] —
-    [reflexivity] would not close — so it could not be certified or emitted.) *)
+    [demo_emit_bytes] pins the exact emitted Go source.  (A non-main package — OR a body outside the supported
+    statement subset, e.g. a bare-value statement — would make [SupportedProgram] FALSE, so [reflexivity]
+    would not close and it could not be certified or emitted.) *)
 Definition demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EInt 1]); GsReturn].
@@ -41,6 +42,13 @@ Example demo_emit_bytes :
   demo_emit = ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
                go_tab ++ "println(1)" ++ go_nl ++ go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
+
+(** REGRESSION (P0, external review 2026-06-28): the certificate is UNFORGEABLE for an unsupported program —
+    [mkEmittable] DEMANDS a [SupportedProgram] proof, and none exists for the bare-value body
+    [unsupported_value_stmt] (`func main(){ 1 }`), so [eq_refl] cannot inhabit [SupportedProgram _].  [Fail]
+    locks the type-level guarantee that [emit_supported] can never print that invalid Go. *)
+Fail Definition unsupported_value_cert : EmittableProgram :=
+  mkEmittable unsupported_value_stmt eq_refl.
 
 (** GATE — GoSafe/GoEmit are part of the trust base (the blessed path); keep them axiom-free. *)
 Print Assumptions emit_supported.
