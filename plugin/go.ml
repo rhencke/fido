@@ -1850,33 +1850,38 @@ let raw_term tab next =
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
-(* ---- Stage B (slice 1): the verified [Front] expression printer, wired LIVE for one expression class ----
-   [goexpr_bridge_binop] CONSTRUCTS a structured [Front.coq_GExpr] for a binary operator whose BOTH operands
-   are runtime locals ([MLrel]) — directly, never by parsing a string.  That class is then printed by the
-   extracted, machine-checked [Printer.Front.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string
-   concatenation; every other shape still falls back to [pp_prec] (Stage B is incremental, and [pp_prec] is
-   retired only once [Front] covers a shape).  Restricting to [MLrel]/[MLrel] is deliberate and load-bearing:
-   both operands are then runtime, so the typed-arith force-wrapper IIFE provably cannot fire here — so this
-   is EXACTLY the plain-binop case [pp_prec] prints, with NO duplication of the force-wrapper decision and no
-   nested-operand precedence reasoning ([Front] owns precedence via its own [binop_prec]). *)
+(* ---- Stage B: the verified [Front] expression printer, wired LIVE ----
+   [goexpr_bridge] CONSTRUCTS a structured [Front.coq_GExpr] directly (never by parsing a string) for the
+   migrated expression class — currently a binary-operator TREE whose leaves are all runtime locals
+   ([MLrel]) — which is then printed by the extracted, machine-checked [Printer.Front.gprint] (see [pp_prec])
+   instead of the trusted [pp_prec] string concatenation.  Any other shape (literal / atom / call operands,
+   func-lits, …) returns [None] and the whole expression falls back to [pp_prec] (Stage B is incremental;
+   [pp_prec] retires only once [Front] covers a shape).  At each binop node the bridge proceeds ONLY when
+   [pp_prec] would take its plain branch — i.e. the typed-arith force-wrapper IIFE does NOT fire:
+   [arith_force_go_type r = None] OR an operand is already runtime.  (A runtime-local leaf makes this hold;
+   the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false] and the IIFE would
+   otherwise fire.)  So the Front output stays byte-equal to [pp_prec] WITHOUT re-implementing the
+   force-wrapper rendering, and precedence/parens are [Front]'s — [binop_of] is the single operator
+   authority, so the bridge never maps the operator itself. *)
 let mlident_name = function
   | Dummy -> "_"
   | Id v  -> go_safe (Id.to_string v)
   | Tmp v -> go_safe (Id.to_string v)
 let rel_name env i =
   try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
-let goexpr_bridge_binop env r a b =
-  (* Bridge ONLY when [pp_prec] would take its plain-binop branch — i.e. the force-wrapper IIFE does not
-     fire: [arith_force_go_type r = None] OR an operand is already runtime.  (For a raw [MLrel] this is
-     trivially true; the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false]
-     and the IIFE would otherwise fire.)  This keeps the Front path byte-equal to [pp_prec] without
-     re-implementing the force-wrapper rendering.  The Front [binOp] [o] comes straight from [binop_of] —
-     the single operator authority — so the bridge no longer maps the operator itself. *)
-  match binop_of r, strip_magic a, strip_magic b with
-  | Some o, MLrel ia, MLrel ib
-    when arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b ->
-      (match mk_goexpr_id (rel_name env ia), mk_goexpr_id (rel_name env ib) with
-       | Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
+let rec goexpr_bridge env e =
+  match strip_magic e with
+  | MLrel i -> mk_goexpr_id (rel_name env i)
+  | MLapp (h, args) ->
+      let h2, all = collect_app h args in
+      let vis = List.filter (fun a -> not (is_erased a)) all in
+      (match h2, vis with
+       | MLglob r, [a; b]
+         when Option.has_some (binop_of r)
+           && (arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b) ->
+           (match binop_of r, goexpr_bridge env a, goexpr_bridge env b with
+            | Some o, Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
+            | _ -> None)
        | _ -> None)
   | _ -> None
 
@@ -2810,8 +2815,8 @@ and pp_prec state env ctx e =
                 str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
                 ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
             | _ ->
-                (match goexpr_bridge_binop env r a b with
-                 (* VERIFIED path: [a OP b] over two runtime locals -> structured [Front] node printed by
+                (match goexpr_bridge env e with
+                 (* VERIFIED path: a binop TREE over runtime locals -> structured [Front] node printed by
                     the machine-checked [Printer.Front.gprint] (precedence + parens are [Front]'s, not ours). *)
                  | Some ge -> str (coq_string_to_ocaml (Printer.Front.gprint (coq_nat_of_int ctx) ge))
                  (* TRUSTED fallback: every not-yet-migrated shape stays on [pp_prec] string concatenation. *)

@@ -123,6 +123,14 @@ Definition front_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add a b)          (* a + b  *)
           ; any (i64_mul a b) ].       (* a * b  *)
 
+(** ★Stage B (slice 2): a binop TREE over runtime locals — the verified [Front] printer now bridges nested
+    binops (not just one operator), so [a*b + c] and [(a+b)*c] are emitted by [Printer.Front.gprint] in full,
+    parentheses and all, with [pp_prec] no longer involved.  All leaves are [MLrel], so the force-wrapper
+    cannot fire; the bytes are unchanged, but the whole tree now comes from the verified node printer. *)
+Definition front_nested_demo (a b c : GoI64) : IO unit :=
+  println [ any (i64_add (i64_mul a b) c)          (* a*b + c   *)
+          ; any (i64_mul (i64_add a b) c) ].       (* (a+b) * c *)
+
 (** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
     two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
     [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
@@ -3366,6 +3374,7 @@ Definition main_effect : IO unit :=
   neg_op_demo                   >>'   (* prints: -5 7 (unary -x) *)
   uneg_binop_demo (5)%i64 (3)%i64 >>' (* prints: -2 -2 (-(a)+b, b+-(a) — UNeg as binop operand) *)
   front_binop_demo (5)%i64 (3)%i64 >>' (* prints: 8 15 (a+b, a*b — printed by the VERIFIED Front printer) *)
+  front_nested_demo (2)%i64 (3)%i64 (4)%i64 >>' (* prints: 10 20 (a*b+c, (a+b)*c — verified Front, nested) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)
