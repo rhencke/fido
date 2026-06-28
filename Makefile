@@ -72,10 +72,12 @@ negtest:
 	dune build
 	@sh negtests/run.sh
 
-# Smart-constructor gate (review #4): ban the DIRECT proof-carrying Printer constructor [GTNamed]
-# (the only proof-erased constructor the extracted printer exposes) outside the smart-constructor block —
-# its erased Rocq proof makes a direct call a trust hole.  Pure static check (no build); runs here, in
-# the pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
+# Smart-constructor + dead-architecture gate (reviews #4, #9, checklist): (1) ban the DIRECT proof-carrying
+# Printer constructors [GTNamed]/[Front.EId] outside the smart-constructor block (their erased Rocq proof
+# makes a direct call a trust hole); (2) RECURRENCE GUARD — fail if any torn-down SRaw-overlay name
+# (SRaw/raw_ok/build_atom/build_goexpr/Printer.print_expr/…) or stale "Front not wired" comment reappears in
+# active code (*.v + go.ml), so the cleanups can't silently regress.  Pure static check (no build); runs
+# here, in the pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
 

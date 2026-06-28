@@ -61,3 +61,21 @@ if [ -n "$offenders" ]; then
 fi
 
 echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.Front.EId outside the block ✓"
+
+# ---- RECURRENCE GATE (external review checklist #3): the torn-down SRaw verified-EXPRESSION-printer overlay
+# and its stale "Front not wired" wiring-status comments must never come BACK in ACTIVE code.  Three prior
+# review rounds kept catching these references resurfacing in comments after each cleanup; this fails the
+# build the moment one reappears, so the cleanups can't silently regress.  Historical mentions are allowed
+# ONLY in the docs (LESSONS.md / CLAUDE.md / PROGRESS.md) and the GENERATED plugin/printer.ml — both excluded
+# below.  Scope: the hand-written Coq sources (*.v) + plugin go.ml / .mlg glue. ----
+deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired' \
+  *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
+if [ -n "$deadrefs" ]; then
+  echo "fido: DEAD-ARCHITECTURE GATE — a deleted-overlay / stale-wiring reference reappeared in ACTIVE code:"
+  echo "$deadrefs"
+  echo "fido: these name the torn-down SRaw verified-expression printer (see LESSONS.md).  Active code must not"
+  echo "fido: resurrect them; historical mentions belong ONLY in docs (LESSONS.md / CLAUDE.md / PROGRESS.md)."
+  exit 1
+fi
+
+echo "fido: dead-architecture gate OK — no SRaw-era / stale-wiring references in active code ✓"
