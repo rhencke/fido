@@ -62,20 +62,24 @@ fi
 
 echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.Front.EId outside the block ✓"
 
-# ---- RECURRENCE GATE (external review checklist #3): the torn-down SRaw verified-EXPRESSION-printer overlay
-# and its stale "Front not wired" wiring-status comments must never come BACK in ACTIVE code.  Three prior
-# review rounds kept catching these references resurfacing in comments after each cleanup; this fails the
-# build the moment one reappears, so the cleanups can't silently regress.  Historical mentions are allowed
-# ONLY in the docs (LESSONS.md / CLAUDE.md / PROGRESS.md) and the GENERATED plugin/printer.ml — both excluded
-# below.  Scope: the hand-written Coq sources (*.v) + plugin go.ml / .mlg glue. ----
-deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired' \
+# ---- RECURRENCE / RAW-SYNTAX GATE (external review checklist #3 + ARCHITECTURE.md §8 Rule 1): two name sets
+# must never appear in ACTIVE code.  (1) The torn-down SRaw verified-EXPRESSION-printer overlay and its stale
+# "Front not wired" wiring-status comments (three review rounds kept catching these resurfacing).  (2) The
+# AST-first charter's forbidden raw-syntax constructors (RawExpr/RawStmt/RawDecl/RawType/OpaqueExpr/
+# TrustedExpr) — this is the LIVE enforcement ARCHITECTURE.md §10 (a) refers to; it guards GoAst against raw
+# syntax BEFORE GoAst is even written, so the spine work cannot introduce one.  Historical mentions are
+# allowed ONLY in the docs (LESSONS.md / CLAUDE.md / PROGRESS.md / ARCHITECTURE.md) and the GENERATED
+# plugin/printer.ml — all excluded by scope below.  Scope: hand-written Coq sources (*.v) + plugin go.ml /
+# .mlg glue.  (The "no raw emit" rule is enforced STRUCTURALLY by GoEmit's API — no exported
+# emit : Program -> string — NOT by a grep, since that text legitimately appears in explanatory comments.) ----
+deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
-  echo "fido: DEAD-ARCHITECTURE GATE — a deleted-overlay / stale-wiring reference reappeared in ACTIVE code:"
+  echo "fido: DEAD-ARCHITECTURE / RAW-SYNTAX GATE — a deleted-overlay or forbidden raw-syntax reference is in ACTIVE code:"
   echo "$deadrefs"
-  echo "fido: these name the torn-down SRaw verified-expression printer (see LESSONS.md).  Active code must not"
-  echo "fido: resurrect them; historical mentions belong ONLY in docs (LESSONS.md / CLAUDE.md / PROGRESS.md)."
+  echo "fido: these name the torn-down SRaw printer or a charter-forbidden raw-syntax constructor (LESSONS.md / ARCHITECTURE.md §8)."
+  echo "fido: active code must not resurrect/introduce them; historical mentions belong ONLY in docs."
   exit 1
 fi
 
-echo "fido: dead-architecture gate OK — no SRaw-era / stale-wiring references in active code ✓"
+echo "fido: dead-architecture / raw-syntax gate OK — no SRaw-era or forbidden raw-syntax references in active code ✓"

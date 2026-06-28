@@ -330,30 +330,38 @@ Codex/human review should reject patches that cannot answer these concretely.
 
 ## 10. Acceptance gates
 
+This is the TARGET gate set. Each line is tagged with what enforces it: **[live]** = enforced on every build
+TODAY; **[on-land]** = activates when its module lands (do not claim it before then); **[review]** =
+discipline enforced by human/Codex review, not a build step.
+
 ```text
-No project Axioms / Admitted / admit.
-Print Assumptions for all public printer / safety / emitter theorems.
-Generated printer/emitter artifacts in sync.
-No official emit from raw GoAst.Program (only via EmittableProgram / SafeProgram).
-No raw syntax constructors in GoAst.
-No legacy string-rescue path in the new emitter.
-The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
-Docs and NAMES do not claim more than the live path proves.
+[live]     No project Axioms / Admitted / admit.            (axiom-manifest gate + Print Assumptions)
+[live]     Generated printer artifact (plugin/printer.ml) in sync.   (make printer-verify + Docker stage)
+[live]     No raw-syntax constructor NAMES in source.        (plugin/smart-ctor-gate.sh — see (a) below)
+[on-land]  Print Assumptions for every public safety/emitter theorem (once GoSafe/GoEmit exist).
+[on-land]  Generated EMITTER artifact in sync (once GoEmit is extracted).
+[on-land]  No official emit from raw GoAst.Program — STRUCTURAL via GoEmit's API (once GoEmit lands).
+[on-land]  No legacy string-rescue path in the new emitter (once the emitter exists).
+[review]   The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
+[review]   Docs and NAMES do not claim more than the live path proves.
 ```
 
 Two kinds of grep, and they must NOT be conflated:
 
-**(a) Enforceable gates — must be EMPTY on source.** Scope to SOURCE (hand-written `.v` + plugin OCaml/glue),
-excluding docs and the generated `plugin/printer.ml` — the docs (`ARCHITECTURE.md`, `LESSONS.md`,
-`PROGRESS.md`, `CLAUDE.md`) name these patterns on purpose, so a tree-wide `grep -RInE … .` is SELF-FAILING
-and must not be used. The authoritative live gate is `plugin/smart-ctor-gate.sh`; these are its shape (both
-currently clean):
+**(a) Enforceable gate — raw-syntax constructor NAMES, ACTUALLY enforced today.** The forbidden raw-syntax
+ctor names (`SRaw`, `raw_ok`, `RawExpr`, `RawStmt`, `RawDecl`, `RawType`, `OpaqueExpr`, `TrustedExpr`, plus
+the SRaw-era `build_atom`/…) are grepped by `plugin/smart-ctor-gate.sh`'s dead-architecture / raw-syntax gate
+over the hand-written sources only (`*.v` + `plugin/go.ml` + the `.mlg` glue; the generated
+`plugin/printer.ml` and all docs are out of scope). That gate runs in the pre-commit hook AND non-bypassably
+in the Docker prover stage on every `make check`; it is clean today and FAILS the build if any name reappears.
+This is a real LIVE gate, not an aspiration. (Do NOT replace it with a tree-wide `grep -RInE … .` — that
+self-fails on the docs and `printer.ml`, which name these patterns on purpose.)
 
-```sh
-SRC=$(git ls-files '*.v' 'plugin/*.ml' 'plugin/*.mlg' | grep -v '^plugin/printer\.ml$')
-grep -nE 'SRaw|raw_ok|RawExpr|RawStmt|RawDecl|OpaqueExpr|TrustedExpr' $SRC   # raw-syntax ctors → must be empty
-grep -nE 'emit[ _].*GoAst\.Program' $SRC                                     # raw emit  → must be empty
-```
+The "no raw emit" rule (`emit : GoAst.Program -> string`) is enforced **STRUCTURALLY, not by grep**: when
+`GoEmit` lands it exports only certificate-requiring emitters (`emit_supported : EmittableProgram -> string`;
+later `emit_safe : SafeProgram -> string`) and never `emit : Program -> string`, so a raw emit is a *type
+error*, not a text match. A grep for it is deliberately NOT used — that text legitimately appears in honest
+comments naming the forbidden signature (it would self-fail, the §10 mistake this paragraph exists to avoid).
 
 **(b) Review HEURISTIC — NOT a pass/fail gate.** The "suspicious phrases" scan below is a prompt for human/
 Codex scrutiny per Rule 5, not an acceptance gate: honest documentation and comments legitimately use these
