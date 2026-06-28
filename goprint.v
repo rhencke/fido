@@ -1687,6 +1687,31 @@ Proof.
   rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
 Qed.
 
+(** LEAF (integer): lexing [gprint (EInt z) ++ rest = print_Z z ++ rest] yields [TInt z] then [rest].
+    Case on [print_Z]'s shape (0 / positive digits / '-'+digits) via the reflect views (which also reduce
+    the [if]s); recover [z] from the scanned run by [print_parse_Z]. *)
+Lemma lex_gprint_int : forall z rest fuel tr,
+  clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (String.length (print_Z z) + String.length rest) <= fuel ->
+  lex_aux fuel (print_Z z ++ rest) = Some (TInt z :: tr).
+Proof.
+  intros z rest fuel tr Hclean Hrest Hfuel.
+  replace (TInt z) with (TInt (parse_Z (print_Z z))) by (rewrite print_parse_Z; reflexivity).
+  unfold print_Z in *.
+  destruct (Z.eqb_spec z 0) as [Heq | Hne].
+  - apply lex_pos_dec; [ reflexivity | discriminate | exact Hclean | exact Hrest | exact Hfuel ].
+  - destruct (Z.ltb_spec z 0) as [Hlt | Hge].
+    + change (("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string)
+        with (String (ch 45) (z_digits (digit_fuel (- z)) (- z) "")) in *.
+      apply lex_neg_dec;
+        [ apply all_dec_z_digits; [ lia | reflexivity ]
+        | unfold digit_fuel; apply z_digits_S_ne | exact Hclean | exact Hrest | exact Hfuel ].
+    + apply lex_pos_dec;
+        [ apply all_dec_z_digits; [ lia | reflexivity ]
+        | unfold digit_fuel; apply z_digits_S_ne | exact Hclean | exact Hrest | exact Hfuel ].
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
