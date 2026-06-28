@@ -606,28 +606,6 @@ let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_i
    The [make smart-ctor-gate] target (run in the Docker prover stage AND pre-commit) BANS any direct use
    of the proof-carrying atom/type constructors ANYWHERE outside this block.  ([printer.ml] DEFINES them
    — a separate file — so it is naturally out of scope.) *)
-let mk_atom s =
-  (* the atom DISAMBIGUATION, mirroring the parser's [parse_primary]: a canonical string literal
-     ([strlit_ok]) -> [AStringLit]; ANY OTHER atom is routed through the VERIFIED [Printer.build_atom],
-     which disambiguates the SCANNED atom into [AScanned] of a structured [SAtom] (identifier -> [SIdent];
-     decimal -> [SIntLit]; a hex INT [0x…] -> [SHexLit] (review #9 A2, before [raw_ok]); a SELECTOR
-     [operand.field] -> nested [SSelector] (recursively); any other [raw_ok] string -> [SRaw] the
-     quarantined hatch).  Doing the construction INSIDE [build_atom] (which
-     lives in the generated [printer.ml]) keeps the proof-carrying [SAtom]/[GoAtom] constructors off the
-     hand-written path entirely — the smart-ctor gate need only police the lone [AStringLit] below.  A
-     malformed operand (no structured atom) returns [None] and ABORTS, so the executed path lands in
-     exactly the structured atom the round-trip covers. *)
-  let cs = coq_string_of_ocaml s in
-  (match Printer.strlit_ok cs with
-   (* [AStringLit] carries the SEMANTIC VALUE (review #7 item 4), not the printed lexeme [cs].  [cs] is a
-      canonical literal ([strlit_ok] = true), so [Printer.strlit_value] (the verified inverse of
-      [print_string_lit]) recovers the value, and [print_string_lit value = cs] byte-for-byte. *)
-   | Printer.True  -> Printer.EAtom (Printer.AStringLit (Printer.strlit_value cs))
-   | Printer.False ->
-     (match Printer.build_atom cs with
-      | Printer.Some e -> e
-      | Printer.None   -> unsupported (Printf.sprintf
-          "build_goexpr: a malformed operand (not a structured atom) would escape the verified expression round-trip: %s" s)))
 let mk_named_ty s =
   (* a nominal type name -> [GTNamed], re-checking [nominal_type_ident] (not a Go keyword / builtin
      type name — either would emit invalid Go and bypass the verified GTNamed invariant). *)
@@ -642,25 +620,11 @@ let mk_named_ty s =
    them, so it cannot mis-pair an operator with the wrong precedence (the redesign that killed the old
    caller-supplied [GEBin (nat) (string) …]).  [binop_of]'s opstrs are exactly these 19; an unknown one
    is a fail-loud bug, not silently mis-rendered. *)
-let binop_ctor (opstr : string) : Printer.binOp =
-  match opstr with
-  | " * "  -> Printer.BMul | " / "  -> Printer.BDiv | " % "  -> Printer.BRem
-  | " << " -> Printer.BShl | " >> " -> Printer.BShr | " & "  -> Printer.BAnd | " &^ " -> Printer.BAndNot
-  | " + "  -> Printer.BAdd | " - "  -> Printer.BSub | " | "  -> Printer.BOr  | " ^ "  -> Printer.BXor
-  | " == " -> Printer.BEq  | " != " -> Printer.BNe  | " < "  -> Printer.BLt  | " <= " -> Printer.BLe
-  | " > "  -> Printer.BGt  | " >= " -> Printer.BGe
-  | " && " -> Printer.BLAnd | " || " -> Printer.BLOr
-  | _ -> unsupported ("binop_ctor: operator string not in the verified BinOp set: " ^ opstr)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
 (* ★review #9 (A3): build the verified [SApply (SIdent tyname) [arg]] node for an identifier-led type
    conversion [tyname(arg)].  [mk_atom tyname] re-checks [tyname] is a valid identifier ([go_ident]) and
    yields [EAtom (AScanned (SIdent tyname))]; [Printer.build_apply] packs the (recursively-built) [arg] and
    re-checks [atomic_tree_b], so the result round-trips.  Fail-loud if it does not form an [SApply]. *)
-let build_type_conv tyname arg =
-  match Printer.build_apply (mk_atom tyname) (coq_list_of_ocaml [arg]) with
-  | Printer.Some ap -> ap
-  | Printer.None -> unsupported (Printf.sprintf
-      "build_goexpr: type conversion %s(…) did not form a verified SApply (non-atomic_tree argument)" tyname)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
    no leading/trailing separator and to stay well-bracketed): render each element [f x] to text (the
    plugin's expression docs are pure str/++/fnl — no soft breaks — so [string_of_ppcmds] round-trips
@@ -1204,15 +1168,6 @@ let fw_wrap signed width inner =
    masked op is a binop OPERAND the operand is now a proper [EBin] of ATOMIC leaves (hex masks / the
    structured inner) instead of a "("-led OPAQUE atom that escapes the round-trip ([atomic] would reject
    it).  Used by [build_goexpr]; the masks are atomic hex literals. *)
-let build_fw_masked signed width inner =
-  (* a hex mask (e.g. "0xff") is a non-identifier atom; [mk_atom] re-checks it ([raw_ok]) and lands
-     it in [ARaw] — the same smart constructor as every other atom, no direct raw construction. *)
-  let hexatom n = mk_atom (print_hex_int n) in
-  let masked = Printer.EBin (Printer.BAnd, inner, hexatom ((1 lsl width) - 1)) in
-  if not signed then masked
-  else
-    let sbit = hexatom (1 lsl (width - 1)) in
-    Printer.EBin (Printer.BSub, Printer.EBin (Printer.BXor, masked, sbit), sbit)
 
 let classify_float_op r =
   List.find_map
@@ -2519,8 +2474,7 @@ let rec pp_expr state env = function
           witness [eqb] is dropped (it discharged the side condition).  Rendered through the
           verified [Printer.print_expr] as an [EBin BEq] (== derives precedence 3 in Rocq). *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
-           str (coq_string_to_ocaml (Printer.print_expr (coq_nat_of_int 0)
-             (Printer.EBin (Printer.BEq, build_goexpr state env a, build_goexpr state env b))))
+           pp_prec state env 3 a ++ str " == " ++ pp_prec state env 4 b
        (* complex-number builtins → Go's predeclared [complex]/[real]/[imag] *)
        | MLglob r, [re; im] when is_go_complex_ref r ->
            str "complex(" ++ pp_expr state env re ++ str ", " ++ pp_expr state env im ++ str ")"
@@ -2833,86 +2787,6 @@ and pp_atom state env e =
    to a string via [Pp.string_of_ppcmds]; the plugin's expression docs are pure text
    (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
    binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
-and build_goexpr state env e =
-  (* FAIL-CLOSED (rule 2) + STRUCTURE: an [EAtom] carries a structured [GoAtom] whose validity is in the
-     type (making [print_parse_expr] UNCONDITIONAL).  Construction goes through the [mk_atom] smart
-     constructor — the SOLE site that re-establishes each constructor's exact erased invariant and picks
-     the right one (ident -> [AIdent], decimal -> [AIntLit], else [raw_ok] -> [ARaw], malformed -> ABORT). *)
-  let atom d = mk_atom (Pp.string_of_ppcmds d) in
-  match strip_magic e with
-  | MLapp (h, args) ->
-      let h2, all = collect_app h args in
-      let vis = List.filter (fun a -> not (is_erased a)) all in
-      (match h2, vis with
-       | MLglob r, [a; b] when Option.has_some (binop_of r) ->
-           let (_, opstr) = Option.get (binop_of r) in
-           (match arith_force_go_type r with
-            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
-                (* the typed-IIFE force-wrapper is a CALL — atomic, never parenthesised: an EAtom *)
-                atom (str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
-                      ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")")
-            | _ ->
-                (* derive the operator (and hence its precedence/text) in Rocq — no caller-supplied prec *)
-                Printer.EBin (binop_ctor opstr, build_goexpr state env a, build_goexpr state env b))
-       (* fixed-width MASK (uN/iN lit / of_int / of_i64): structure as an [EBin] mask tree (see
-          [build_fw_masked]) rather than [pp_expr]'s defensively-parenthesised string — so a masked op
-          used as a binop OPERAND is a proper tree of atomic leaves, not an opaque "("-led atom. *)
-       | MLglob r, [x] when fw_is r "lit" || fw_is r "of_int" || fw_is r "of_i64" ->
-           let (s, w, _) = Option.get (fixed_width_op r) in
-           build_fw_masked s w (build_goexpr state env x)
-       (* PREFIX-UNARY ops → the VERIFIED [Printer.EUnary] node (operand built recursively, so its
-          precedence-parenthesisation is decided by the proven [Printer.print_expr], not [pp_atom]'s
-          defensive "("-wrap).  These DELETE the old SRaw "!x"/"^x"/"*p"/"&x" atoms — now REJECTED by
-          [raw_ok]'s [unary_op_led] guard (a raw atom starting with !/^/*/& would re-parse as a unary
-          expression, breaking the round-trip), so [build_goexpr] MUST emit [EUnary] for them or fail
-          loud.  Every operand here is a runtime value / pointer / local var — never a space-bearing
-          struct literal — so [build_goexpr] yields a clean atomic/EBin tree.  ([gsptr_new]'s "&v" is
-          NOT wired: its [v] can be a struct literal (spaces → [raw_ok] reject), and it only ever
-          appears in value position, never as a binop operand, so it stays a raw [pp_expr] doc.) *)
-       | MLglob r, [b] when is_negb_ref r ->
-           Printer.EUnary (Printer.UNot, build_goexpr state env b)        (* !b *)
-       | MLglob r, [x] when (is_i64_op r "not" || is_u64_op r "not") && operand_is_runtime x ->
-           Printer.EUnary (Printer.UXor, build_goexpr state env x)        (* ^x (full-width complement) *)
-       | MLglob r, [rf] when is_ref_as_ptr_ref r
-                             && (match strip_magic rf with MLrel _ -> true | _ -> false) ->
-           Printer.EUnary (Printer.UAddr, build_goexpr state env rf)      (* &x (address of a local Ref) *)
-       | MLglob r, ([p] | [_; p]) when is_ptr_get_ref r ->
-           Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (pointer deref read) *)
-       | MLglob r, ([p] | [_; p]) when is_gsptr_deref_ref r ->
-           Printer.EUnary (Printer.UDeref, build_goexpr state env p)      (* *p (generic struct-ptr deref) *)
-       (* PREFIX NEGATION [UNeg] (review #7): float / float32 / complex / full-width int64 / uint64 unary
-          [-x] on a RUNTIME operand → the VERIFIED [Printer.EUnary UNeg] node, which prints PARENTHESISED
-          [-(x)] (a bare "-x" atom is [raw_ok]-rejected: its depth-0 '-' is a [has_d0_break]).  On a
-          NON-runtime (constant) operand this FALLS THROUGH to the typed-IIFE [atom] below — a constant
-          [-x] would be Go-folded ([-complex(0,0)] -> [+0], constants cannot denote [-0]), so the IIFE
-          forces a runtime negate (exactly the [pp_expr] arms / the [^x] complement above). *)
-       | MLglob r, [x] when (is_float_opp_ref r || is_f32_neg_ref r || is_complex_neg_ref r
-                             || is_i64_op r "neg" || is_u64_op r "neg") && operand_is_runtime x ->
-           Printer.EUnary (Printer.UNeg, build_goexpr state env x)
-       (* ★review #9 (A1): an APPLICATION [f(x)] is CONSTRUCTED as a verified [SApply] node DIRECTLY — no
-          [pp_expr → string → build_atom] rescue.  The callee and arg are built recursively (so they are
-          verified [GoExpr]s); [Printer.build_apply] packs them into [SApply] and re-checks [atomic_tree_b]
-          (guaranteeing the round-trip).  This RETIRES the call form from the string-fallback below. *)
-       | MLglob r, [f; x] when is_gofunc_call_ref r ->
-           let callee = build_goexpr state env f in
-           let arg = build_goexpr state env x in
-           (match Printer.build_apply callee (coq_list_of_ocaml [arg]) with
-            | Printer.Some ap -> ap
-            | Printer.None -> unsupported (Printf.sprintf
-                "build_goexpr: gofunc_call %s did not form a verified SApply (callee not a scanned atom, or non-atomic_tree)"
-                (Pp.string_of_ppcmds (pp_expr state env e))))
-       (* ★review #9 (A3): an IDENTIFIER-LED type conversion [T(x)] (int/int64/uint64/float64/float32 — the
-          arms mirrored from [pp_expr] at the [is_*_ref] recognizers) is CONSTRUCTED directly as a verified
-          [SApply (SIdent T) [x]] (amendment 3: identifier-led conversions ARE application syntax), RETIRING
-          the conversion form from the [atom (pp_expr e)] string-rescue below. *)
-       | MLglob r, [x] when Option.has_some (conv_type_name r) ->
-           build_type_conv (Option.get (conv_type_name r)) (build_goexpr state env x)
-       (* float64 → float32 narrowing: the RUNTIME case is the direct cast [float32(x)] (the non-runtime
-          constant case is an IIFE force-wrapper — a func-lit, left to the [pp_expr] fallback). *)
-       | MLglob r, [x] when is_f64_to_f32_ref r && operand_is_runtime x ->
-           build_type_conv "float32" (build_goexpr state env x)
-       | _ -> atom (pp_expr state env e))
-  | _ -> atom (pp_expr state env e)
 
 (* Print [e] as an operand inside a binary operator whose context requires precedence [>= ctx].
    The parenthesisation is the VERIFIED [Printer.print_expr] (proved to emit well-bracketed output):
@@ -2920,7 +2794,22 @@ and build_goexpr state env e =
    [p]/[p+1] (left-associativity) — [EAtom]s (atoms/calls) never wrap.  [build_goexpr] supplies the
    tree; the operator and its precedence are derived in Rocq, the raw OCaml parenthesise/concat is gone. *)
 and pp_prec state env ctx e =
-  str (coq_string_to_ocaml (Printer.print_expr (coq_nat_of_int ctx) (build_goexpr state env e)))
+  match strip_magic e with
+  | MLapp (h, args) ->
+      let h2, all = collect_app h args in
+      let vis = List.filter (fun a -> not (is_erased a)) all in
+      (match h2, vis with
+       | MLglob r, [a; b] when Option.has_some (binop_of r) ->
+           let (p, opstr) = Option.get (binop_of r) in
+           (match arith_force_go_type r with
+            | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
+                str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
+                ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
+            | _ ->
+                let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
+                if p < ctx then str "(" ++ inner ++ str ")" else inner)
+       | _ -> pp_expr state env e)
+  | _ -> pp_expr state env e
 
 (* An integer/float literal carries no Go type, so where the target type must be
    fixed (a value boxed into [any], a typed cell/accumulator, …) wrap a bare
