@@ -924,8 +924,46 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
-(** ---- THE CLEAN AST ---- the Go expression grammar, fully structured: every node is a typed form, with
-    NO raw/opaque string constructor (by construction it cannot represent unstructured text).  CORE + the
+(** ---- THE GRAMMAR (EBNF) ---- the exact language Module Front lexes, parses, and prints.  The AST below,
+    the printer [gprint], and the recursive-descent parser [parse] are three views of THIS one grammar, and
+    the round-trip theorem [parse_print_roundtrip] proves the printer and parser agree on it.  (Wirth-style:
+    state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
+    [[ x ]] = optional, ["lit"] = a terminal token, [->] names the AST node a production builds.
+
+      Expr     = Primary { InfixOp Primary } .   -- precedence climbing ([parse_climb k]): extend the left
+                                                    operand only with operators of precedence >= k, each right
+                                                    operand parsed at precedence+1 (so same level is LEFT-assoc,
+                                                    higher levels bind tighter)                       -> EBn
+      Primary  = Atom { Postfix } .              -- a base, then a left-to-right chain of postfix operators
+      Postfix  = "." ident                       -> ESel     selector
+               | "." "(" Type ")"                -> EAssert  type assertion  (2nd token "(" vs ident disambiguates)
+               | "[" Expr "]"                     -> EIndex   index
+               | "[" Expr ":" Expr "]"           -> ESlice   two-bound slice
+               | "(" [ Expr { "," Expr } ] ")" . -> ECall    call, variadic arg list
+      Atom     = ident                            -> EId
+               | int                              -> EInt
+               | "(" Expr ")"                     -- explicit grouping: re-parsed, NOT an AST node (gprint
+                                                     re-derives the parens from precedence)
+               | ( "!" | "^" | "*" | "&" ) Atom  -> EUn      prefix not / xor / deref / addr (bind to an Atom)
+               | "-" "(" Expr ")" .              -> EUn UNeg  parenthesised, so it never collides with a -literal
+      InfixOp  = "*" | "/" | "%" | "<<" | ">>" | "&" | "&^"   -- precedence 5
+               | "+" | "-" | "|" | "^"                        -- precedence 4
+               | "==" | "!=" | "<" | "<=" | ">" | ">="        -- precedence 3
+               | "&&"                                          -- precedence 2
+               | "||" .                                        -- precedence 1
+      Type     = "int" | "int64" | "bool" | "string" | "float64" | "float32"           -- primitive
+               | "uint" | "uint8" | "int8" | "uint16" | "int16" | "uint32" | "int32" | "uint64"
+               | "*" Type | "[]" Type | "chan" Type | "map" "[" Type "]" Type           -- composite
+               | ident .                          -> GTNamed  nominal type (the [GoTy] of M5)
+      ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- a [go_ident]
+      int      = [ "-" ] digit { digit } .       -- decimal; the lexer reads a leading "-"<digit> as one [TInt]
+
+    NOT yet in the grammar (the next growth steps, M7+): type-form conversions [ []T(x) / map[K]V(x) / chan T(x) ],
+    composite literals, and func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]]
+    -- byte-identical, and the call/conversion distinction needs a type environment the parser does not have. *)
+
+(** ---- THE CLEAN AST ---- the Go expression grammar above, fully structured: every node is a typed form,
+    with NO raw/opaque string constructor (by construction it cannot represent unstructured text).  CORE + the
     five postfix forms (grows toward conversions / composite-literals / func-lits).  Literals carry their value. *)
 Inductive GExpr : Type :=
   | EId  : Ident -> GExpr
