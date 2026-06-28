@@ -4,8 +4,8 @@
     syntax only — it may represent unsafe programs; safety lives in GoSafe, printing
     in GoPrint.  NO raw/opaque syntax strings (charter §8 Rule 1): every constructor
     takes validated/semantic payloads (validated [Ident]/[TyName], a [Z] literal),
-    never a raw expr/stmt/type string.  Moved here verbatim from the old goprint.v
-    [Module Front] seed (the printer/parser/round-trips live in GoPrint.v).
+    never a raw expr/stmt/type string.  Moved here verbatim from the pre-split printer seed; the
+    printer / lexer / parser / round-trip theorems live in GoPrint.v.
     ============================================================================ *)
 From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.

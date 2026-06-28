@@ -26,7 +26,7 @@ From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
 
-(* SYNTAX lives in GoAst.v; this file (the old Module Front, now flattened) is GoPrint: printers + lexer + parser + round-trips. *)
+(* SYNTAX lives in GoAst.v; this file (the old GoPrint, now flattened) is GoPrint: printers + lexer + parser + round-trips. *)
 From Fido Require Import GoAst.
 
 
@@ -609,9 +609,9 @@ Qed.
 
     [BinOp] is the operator enum; [binop_prec] / [binop_text] DERIVE its precedence and surface text from
     the constructor — the single source of truth, so no caller can mis-pair an operator with the wrong
-    precedence.  Consumed by [Module Front]'s [gprint] (the verified frontend below), which parenthesises a
+    precedence.  Consumed by [GoPrint]'s [gprint] (the verified frontend below), which parenthesises a
     sub-expression exactly when its [binop_prec] is looser than the context.  (The plugin's trusted OCaml
-    [pp_prec] renders the same binary-operator tree as strings; [Front] is being built to replace it.) *)
+    [pp_prec] renders the same binary-operator tree as strings; [GoPrint] is being built to replace it.) *)
 
 (** Operator precedence and surface text DERIVED from the constructor — the single source of truth. *)
 Definition binop_prec (o : BinOp) : nat :=
@@ -633,9 +633,9 @@ Definition binop_text (o : BinOp) : string :=
 
 (** UNARY operators: not / bitwise-complement / dereference / address-of / negate.  Single-char prefixes
     (Go: [!b] [^x] [*p] [&x] [-x]), binding TIGHTER than every binary operator.  ([+] unary is omitted — the
-    plugin never emits it.)  [unop_text] gives the surface text; consumed by [Module Front]'s [gprint].
+    plugin never emits it.)  [unop_text] gives the surface text; consumed by [GoPrint]'s [gprint].
     [UNeg] (unary [-]) prints PARENTHESISED — [-(x)] — because a bare [-x] would collide with the [-5]
-    negative literal, and [Front]'s parser dispatches the unambiguous two-char prefix [-(] to it (the other
+    negative literal, and [GoPrint]'s parser dispatches the unambiguous two-char prefix [-(] to it (the other
     four print bare). *)
 Definition unop_text (o : UnaryOp) : string :=
   match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" | UNeg => "-" end.
@@ -848,7 +848,7 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
-(** ---- THE GRAMMAR (EBNF) ---- the exact language Module Front lexes, parses, and prints.  The AST below,
+(** ---- THE GRAMMAR (EBNF) ---- the exact language GoPrint lexes, parses, and prints.  The AST below,
     the printer [gprint], and the recursive-descent parser [parse] are three views of THIS one grammar, and
     the round-trip theorem [parse_print_roundtrip] proves the printer and parser agree on it.  (Wirth-style:
     state the grammar, then make the code visibly implement it.)  Notation: [{ x }] = zero-or-more,
@@ -1441,7 +1441,7 @@ Proof.
   rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
 Qed.
 
-(** Digit-shape facts for the integer leaf (proved from scratch for Module Front). *)
+(** Digit-shape facts for the integer leaf (proved from scratch for GoPrint). *)
 Lemma is_dec_char_dec_digit : forall n, (n < 10)%nat -> is_dec_char (dec_digit n) = true.
 Proof.
   intros n Hn. unfold dec_digit, is_dec_char.
@@ -3350,7 +3350,7 @@ Proof. vm_compute; reflexivity. Qed.
     [*int64]/[[]int64], [map[int]int]/[map[int8]int], or two distinct named types ever conflated; a keyword-
     prefixed name [int8x] never confused with the keyword [int8]; a keyword [int] never a nominal name).  The
     old string-level prefix parser [parse_ty]/[parse_print_ty] is GONE — its only consumer was this corollary,
-    and [Front]'s token parser proves the same round-trip, so keeping both was a duplicate authority. *)
+    and [GoPrint]'s token parser proves the same round-trip, so keeping both was a duplicate authority. *)
 Theorem print_ty_inj : forall t1 t2, print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
   intros t1 t2 H.
@@ -3359,8 +3359,9 @@ Proof.
   rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
 Qed.
 
-(** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
-    they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
+(** GATE — GoAst.v + GoPrint.v are part of the trust base: the EXTRACTED printer is governed by these
+    theorems, so they MUST be axiom-free.  The build (Dockerfile prover stage) compiles GoAst.v + GoPrint.v
+    standalone (`rocq c -Q . Fido`) and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
     Keep this list in sync with the headline results below. *)
 Print Assumptions print_ty_inj.

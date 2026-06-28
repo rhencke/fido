@@ -571,7 +571,7 @@ let classify_go_type_tag r =
 
 (** Recursive tag → Go type string.  Handles composite tags (TChan, TSlice, TMap)
     by recursing into their argument tags. *)
-(* ── Bridge to the VERIFIED, Rocq-extracted printer (goprint.v → printer.ml, module [Printer]) ──
+(* ── Bridge to the VERIFIED, Rocq-extracted printer (GoAst.v + GoPrint.v → printer.ml, module [Printer]) ──
    The hand-written renderer below is being REPLACED, one fragment at a time, by [Printer.print_ty]
    (a Rocq function with [print_ty_inj] proved).  [coq_string_to_ocaml] crosses the Coq-string ↔
    OCaml-string boundary; [coq_goty_of_tag] builds the [Printer.goTy] for the fragment the verified
@@ -612,10 +612,10 @@ let mk_named_ty s =
    | Printer.True  -> Printer.GTNamed cs
    | Printer.False -> unsupported (Printf.sprintf
        "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
-(* [Front.EId] erases its [go_ident] proof to a bare string, exactly like [GTNamed].  [mk_goexpr_id]
+(* [EId] erases its [go_ident] proof to a bare string, exactly like [GTNamed].  [mk_goexpr_id]
    re-checks [go_ident] at the boundary and returns [None] when the name is not a valid Go identifier
    (the caller then falls back to the trusted printer) — so a forged [Printer.EId] can never enter
-   the verified [Front.gprint] path. *)
+   the verified [gprint] path. *)
 let mk_goexpr_id name =
   let cs = coq_string_of_ocaml name in
   (match Printer.go_ident cs with
@@ -1244,19 +1244,19 @@ let classify_sint63_op r =
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
     sint63_op_names
 
-(* The Go operator SURFACE and PRECEDENCE are owned by the VERIFIED [Module Front] definitions
-   ([binop_text] / [binop_prec], extracted to printer.ml).  go.ml only RECOGNISES which Front [binOp] a
-   builtin denotes ([binop_of] below + these two maps); surface and precedence are then DERIVED from Front
+(* The Go operator SURFACE and PRECEDENCE are owned by the VERIFIED [GoPrint] definitions
+   ([binop_text] / [binop_prec], extracted to printer.ml).  go.ml only RECOGNISES which GoPrint [binOp] a
+   builtin denotes ([binop_of] below + these two maps); surface and precedence are then DERIVED from GoPrint
    — one operator authority, no parallel precedence/surface tables (the old [go_infix]/[op_prec]/[float_prec]
    are gone). *)
 let go_binop_prec o = int_of_coq_nat (Printer.binop_prec o)
 let go_binop_text o = coq_string_to_ocaml (Printer.binop_text o)
-(* a classifier's [nat_op] -> its Front [binOp]. *)
+(* a classifier's [nat_op] -> its GoPrint [binOp]. *)
 let natop_binop = function
   | NatAdd -> Printer.BAdd | NatSub -> Printer.BSub | NatMul -> Printer.BMul
   | NatDiv -> Printer.BDiv | NatMod -> Printer.BRem
   | NatEqb -> Printer.BEq  | NatLtb -> Printer.BLt  | NatLeb -> Printer.BLe
-(* a Go operator SURFACE -> its Front [binOp]; total over the 19 surfaces [binop_of] yields, [None]
+(* a Go operator SURFACE -> its GoPrint [binOp]; total over the 19 surfaces [binop_of] yields, [None]
    otherwise so an unrecognised surface declines gracefully (it then prints via the non-binop path). *)
 let binop_ctor_of opstr =
   match String.trim opstr with
@@ -1279,7 +1279,7 @@ let is_andb_ref r = named "andb" r
 let is_orb_ref  r = named "orb"  r
 let is_negb_ref r = named "negb" r
 
-(* If [r] is a recognised inlined binary operator, the verified Front [binOp] it denotes (the SINGLE
+(* If [r] is a recognised inlined binary operator, the verified GoPrint [binOp] it denotes (the SINGLE
    operator authority — precedence and surface are derived from it via [go_binop_prec] / [go_binop_text]).
    Covers boolean / nat / int63 / signed-int63 / float arithmetic and comparison.  ([negb] is unary —
    handled separately in the expression printer.) *)
@@ -1850,18 +1850,18 @@ let raw_term tab next =
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
-(* ---- Stage B: the verified [Front] expression printer, wired LIVE ----
-   [goexpr_bridge] CONSTRUCTS a structured [Front.coq_GExpr] directly (never by parsing a string) for the
+(* ---- Stage B: the verified [GoPrint] expression printer, wired LIVE ----
+   [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — currently a binary-operator TREE whose leaves are all runtime locals
    ([MLrel]) — which is then printed by the extracted, machine-checked [Printer.gprint] (see [pp_prec])
    instead of the trusted [pp_prec] string concatenation.  Any other shape (literal / atom / call operands,
    func-lits, …) returns [None] and the whole expression falls back to [pp_prec] (Stage B is incremental;
-   [pp_prec] retires only once [Front] covers a shape).  At each binop node the bridge proceeds ONLY when
+   [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
    [pp_prec] would take its plain branch — i.e. the typed-arith force-wrapper IIFE does NOT fire:
    [arith_force_go_type r = None] OR an operand is already runtime.  (A runtime-local leaf makes this hold;
    the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false] and the IIFE would
-   otherwise fire.)  So the Front output stays byte-equal to [pp_prec] WITHOUT re-implementing the
-   force-wrapper rendering, and precedence/parens are [Front]'s — [binop_of] is the single operator
+   otherwise fire.)  So the GoPrint output stays byte-equal to [pp_prec] WITHOUT re-implementing the
+   force-wrapper rendering, and precedence/parens are [GoPrint]'s — [binop_of] is the single operator
    authority, so the bridge never maps the operator itself. *)
 let mlident_name = function
   | Dummy -> "_"
@@ -1877,13 +1877,13 @@ let rec goexpr_bridge env e =
       let vis = List.filter (fun a -> not (is_erased a)) all in
       (match h2, vis with
        (* a platform-int [GoInt] literal [int_lit z] prints BARE — [print_i64_dec = Printer.print_Z] — so
-          [Front.EInt (coq_z_of_int64 v)] is byte-identical by construction. *)
+          [EInt (coq_z_of_int64 v)] is byte-identical by construction. *)
        | MLglob r, [z] when is_int_lit r ->
            (match z_eval z with
             | Some v -> Some (Printer.EInt (coq_z_of_int64 v))
             | None   -> None)
        (* an [i64_lit] / [u64_lit] prints as the CONVERSION [int64(N)] / [uint64(N)].  In Go that is call
-          syntax over a type NAME, so it is exactly [Front.ECall (EId "int64") [EInt N]] (amendment 3:
+          syntax over a type NAME, so it is exactly [ECall (EId "int64") [EInt N]] (amendment 3:
           identifier-led conversions are application syntax — no special conversion node needed).  The [N] is
           [Printer.print_Z] of the same [Z] the plugin folds, so the bytes match by construction. *)
        | MLglob r, [z] when is_i64_lit r ->
@@ -2834,8 +2834,8 @@ and pp_prec state env ctx e =
                 ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
             | _ ->
                 (match goexpr_bridge env e with
-                 (* VERIFIED path: a binop TREE over runtime locals -> structured [Front] node printed by
-                    the machine-checked [Printer.gprint] (precedence + parens are [Front]'s, not ours). *)
+                 (* VERIFIED path: a binop TREE over runtime locals -> structured [GoPrint] node printed by
+                    the machine-checked [Printer.gprint] (precedence + parens are [GoPrint]'s, not ours). *)
                  | Some ge -> str (coq_string_to_ocaml (Printer.gprint (coq_nat_of_int ctx) ge))
                  (* TRUSTED fallback: every not-yet-migrated shape stays on [pp_prec] string concatenation. *)
                  | None ->
