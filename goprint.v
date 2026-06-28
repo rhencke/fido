@@ -1878,6 +1878,34 @@ Proof.
       [ exact Hclean | exact Hrest | cbn [print_ty tyname_to_ident mkIdent proj1_sig] in HF |- *; lia ].
 Qed.
 
+(** GENERIC "[(]operand[)]" lexer seam: for ANY operand [e0] (given its lex IH), the parenthesised wrap
+    [(gprint 0 e0)] lexes to [TLP … TRP].  Factored so [lex_gparen]'s two LOOSE cases ([EUn]/[EBn], the only
+    operands [op_needs_paren] wraps) share ONE proof instead of a copy-pasted block each. *)
+Lemma lex_paren_wrap : forall e0 X fuel tX,
+  (forall ctx rest fuel tr, clean_start rest = true ->
+     lex_aux (S (String.length rest)) rest = Some tr ->
+     S (String.length (gprint ctx e0) + String.length rest) <= fuel ->
+     lex_aux fuel (gprint ctx e0 ++ rest) = Some ((gtokens ctx e0 ++ tr)%list)) ->
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (String.length ("(" ++ gprint 0 e0 ++ ")") + String.length X) <= fuel ->
+  lex_aux fuel (("(" ++ gprint 0 e0 ++ ")") ++ X) = Some ((TLP :: (gtokens 0 e0 ++ TRP :: nil)) ++ tX)%list.
+Proof.
+  intros e0 X fuel tX IHe0 HX Hfuel.
+  assert (Hrp : lex_aux (S (String.length (String (ch 41) X))) (String (ch 41) X) = Some (TRP :: tX))
+    by (apply lex_rparen_app; [ exact HX | cbn [String.length]; lia ]).
+  assert (Hin : lex_aux (S (String.length (gprint 0 e0 ++ String (ch 41) X)))
+                        (gprint 0 e0 ++ String (ch 41) X)
+              = Some (gtokens 0 e0 ++ TRP :: tX)%list)
+    by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
+  rewrite !str_app_assoc.
+  change ("(" ++ (gprint 0 e0 ++ (")" ++ X)))%string
+    with (String (ch 40) (gprint 0 e0 ++ String (ch 41) X)).
+  rewrite (lex_lparen_app _ _ _ Hin)
+    by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
+        repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
+  cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+Qed.
+
 Lemma lex_gparen : forall e0 X fuel tX,
   (forall ctx rest fuel tr, clean_start rest = true ->
      lex_aux (S (String.length rest)) rest = Some tr ->
@@ -1889,34 +1917,10 @@ Lemma lex_gparen : forall e0 X fuel tX,
   lex_aux fuel (gparen e0 ++ X) = Some ((gtparen e0 ++ tX)%list).
 Proof.
   intros e0 X fuel tX IHe0 HXc HX Hfuel.
-  assert (Hrp : lex_aux (S (String.length (String (ch 41) X))) (String (ch 41) X) = Some (TRP :: tX))
-    by (apply lex_rparen_app; [ exact HX | cbn [String.length]; lia ]).
   destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT ]; cbn [gparen gtparen op_needs_paren] in Hfuel |- *.
   1,2,5,6,7,8,9: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
-  - (* EUn operand — parenthesised *)
-    assert (Hin : lex_aux (S (String.length (gprint 0 (EUn u0 eu) ++ String (ch 41) X)))
-                          (gprint 0 (EUn u0 eu) ++ String (ch 41) X)
-                = Some (gtokens 0 (EUn u0 eu) ++ TRP :: tX)%list)
-      by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
-    rewrite !str_app_assoc.
-    change ("(" ++ (gprint 0 (EUn u0 eu) ++ (")" ++ X)))%string
-      with (String (ch 40) (gprint 0 (EUn u0 eu) ++ String (ch 41) X)).
-    rewrite (lex_lparen_app _ _ _ Hin)
-      by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
-          repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
-    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
-  - (* EBn operand — parenthesised *)
-    assert (Hin : lex_aux (S (String.length (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)))
-                          (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)
-                = Some (gtokens 0 (EBn b0 lb rb) ++ TRP :: tX)%list)
-      by (apply IHe0; [ reflexivity | exact Hrp | rewrite length_app; lia ]).
-    rewrite !str_app_assoc.
-    change ("(" ++ (gprint 0 (EBn b0 lb rb) ++ (")" ++ X)))%string
-      with (String (ch 40) (gprint 0 (EBn b0 lb rb) ++ String (ch 41) X)).
-    rewrite (lex_lparen_app _ _ _ Hin)
-      by (cbn [String.length] in Hfuel |- *; repeat rewrite length_app in Hfuel;
-          repeat rewrite length_app; cbn [String.length] in Hfuel |- *; lia).
-    cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+  (* the two LOOSE operands [EUn]/[EBn] — both parenthesised, one shared seam *)
+  all: apply lex_paren_wrap; [ exact IHe0 | exact HX | exact Hfuel ].
 Qed.
 
 (** ---- THE LEXER ROUND-TRIP ---- [lex (gprint ctx e ++ rest) = gtokens ctx e ++ (lex rest)] for clean
@@ -2202,6 +2206,16 @@ Proof.
   rewrite esa_eq. reflexivity.
 Qed.
 
+(** the operand-wrap [gtparen] only ADDS tokens, so it never shrinks below the operand's node count —
+    factored out of the five identical postfix [assert]s below (one [unfold gtparen]/[destruct]/[lia] each). *)
+Lemma esize_le_gtparen : forall e0,
+  (forall ctx, esize e0 <= List.length (gtokens ctx e0)) ->
+  esize e0 <= List.length (gtparen e0).
+Proof.
+  intros e0 IH. unfold gtparen; destruct e0;
+    cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; pose proof (IH 0); lia.
+Qed.
+
 (** A printed expression is at least as many tokens as it has nodes — so [parse]'s [3*length+3] fuel
     always covers the [3*esize+2] budget. *)
 Lemma length_gtokens_ge_esize : forall e ctx, esize e <= List.length (gtokens ctx e).
@@ -2215,27 +2229,19 @@ Proof.
   - cbn [esize gtokens List.length]. pose proof (IHl (binop_prec o)); pose proof (IHr (S (binop_prec o))).
     destruct (Nat.ltb (binop_prec o) ctx); cbn [List.length]; rewrite !List.length_app; cbn [List.length]; lia.
   - (* ESel es fs *) rewrite gtokens_ESel, List.length_app. cbn [esize List.length].
-    assert (Hb : esize es <= List.length (gtparen es)).
-    { pose proof (IHs 0) as Hi. unfold gtparen; destruct es;
-        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    assert (Hb : esize es <= List.length (gtparen es)) by (apply esize_le_gtparen; exact IHs).
     lia.
   - (* EIndex eb ix *) rewrite gtokens_EIndex, List.length_app. cbn [esize List.length].
     rewrite List.length_app. cbn [List.length].
-    assert (Hb : esize eb <= List.length (gtparen eb)).
-    { pose proof (IHb 0) as Hi. unfold gtparen; destruct eb;
-        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    assert (Hb : esize eb <= List.length (gtparen eb)) by (apply esize_le_gtparen; exact IHb).
     pose proof (IHx 0) as Hx. lia.
   - (* ESlice esl slo shi *) rewrite gtokens_ESlice, List.length_app. cbn [esize List.length].
     rewrite List.length_app. cbn [List.length]. rewrite List.length_app. cbn [List.length].
-    assert (Hb : esize esl <= List.length (gtparen esl)).
-    { pose proof (IHsl 0) as Hi. unfold gtparen; destruct esl;
-        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    assert (Hb : esize esl <= List.length (gtparen esl)) by (apply esize_le_gtparen; exact IHsl).
     pose proof (IHlo 0) as Hlo'. pose proof (IHhi 0) as Hhi'. lia.
   - (* ECall ec ecargs *) rewrite esize_ECall, (gtokens_ECall ctx ec ecargs), List.length_app.
     cbn [List.length]. rewrite List.length_app. cbn [List.length].
-    assert (Hb : esize ec <= List.length (gtparen ec)).
-    { pose proof (IHec 0) as Hi. unfold gtparen; destruct ec;
-        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    assert (Hb : esize ec <= List.length (gtparen ec)) by (apply esize_le_gtparen; exact IHec).
     assert (Hat : forall l, List.Forall (fun a => forall ctx0, esize a <= List.length (gtokens ctx0 a)) l ->
                   esa l <= List.length (gtokens_args_tl l)).
     { induction l as [ | b m IHm ]; intro Hfa; [ cbn [esa gtokens_args_tl]; lia | ].
@@ -2248,9 +2254,7 @@ Proof.
     lia.
   - (* EAssert ea T *) rewrite gtokens_EAssert, List.length_app. cbn [esize List.length].
     rewrite List.length_app. cbn [List.length].
-    assert (Hb : esize ea <= List.length (gtparen ea)).
-    { pose proof (IHea 0) as Hi. unfold gtparen; destruct ea;
-        cbn [List.length op_needs_paren]; rewrite ?List.length_app; cbn [List.length]; lia. }
+    assert (Hb : esize ea <= List.length (gtparen ea)) by (apply esize_le_gtparen; exact IHea).
     pose proof (tsize_le_len T) as Ht. lia.
 Qed.
 
