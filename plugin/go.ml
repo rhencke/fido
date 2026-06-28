@@ -594,7 +594,6 @@ let coq_ascii_of_char c =
 let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
-let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
 (* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
    The SOLE sanctioned construction sites for the PROOF-CARRYING [Printer] atoms / types.  The
    extracted [SAtom] / [GoAtom] / [GoTy] constructors erase their Rocq validity proofs to bare strings,
