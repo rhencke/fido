@@ -1207,7 +1207,8 @@ Inductive Token : Type :=
   | TPlus | TMinus | TStar | TSlash | TPercent | TAmp | TPipe | TCaret | TBang
   | TShl | TShr | TAndNot | TEq | TNe | TLt | TLe | TGt | TGe | TLand | TLor
   | TLP | TRP | TLB | TRB | TLC | TRC | TComma | TColon | TDot
-  | TFunc | TReturn.
+  | TFunc | TReturn | TChan | TMap.   (* [chan]/[map] are Go RESERVED WORDS (not [go_ident]s), so they are
+                                          dedicated keyword tokens — needed for [chan T] / [map[K]V] types. *)
 
 (** scan a maximal run of decimal digits off the head. *)
 Fixpoint scan_digits (s : string) : string * string :=
@@ -3440,6 +3441,129 @@ Proof.
   unfold parse_str in R1, R2. rewrite He in R1. rewrite R1 in R2. injection R2 as Ht. exact Ht.
 Qed.
 
+(** ==================================================================================================
+    ---- M5: TOKEN-LEVEL TYPE LAYER ----  a Go type as a TOKEN list ([gttokens_ty], mirroring [print_ty]'s
+    surface) + a recursive-descent token parser ([parse_gty]) + the round-trip [parse_gty_roundtrip].  The
+    gateway for type-form conversions / composite literals / type assertions.  Scalars and the [chan]/[map]
+    heads lex as [TId] (the lexer keys only [func]/[return]); [*]→[TStar], [[]]→[TLB;TRB], map's brackets →
+    [TLB]/[TRB].  Self-contained: additive over [GoTy], no [GExpr] dependency.  [GoTy] has no list child, so
+    ordinary induction suffices and a SUM-based [tsize] fuel works (a map's two children parse at the same
+    fuel, sum >= max).  ================================================================================== *)
+Definition tyname_to_ident (n : TyName) : Ident :=
+  mkIdent (proj1_sig n) (proj1 (andb_prop _ _ (proj2_sig n))).
+Fixpoint gttokens_ty (t : GoTy) : list Token :=
+  match t with
+  | GTInt     => TId (mkIdent "int" eq_refl) :: nil
+  | GTInt64   => TId (mkIdent "int64" eq_refl) :: nil
+  | GTBool    => TId (mkIdent "bool" eq_refl) :: nil
+  | GTString  => TId (mkIdent "string" eq_refl) :: nil
+  | GTFloat64 => TId (mkIdent "float64" eq_refl) :: nil
+  | GTFloat32 => TId (mkIdent "float32" eq_refl) :: nil
+  | GTUint    => TId (mkIdent "uint" eq_refl) :: nil
+  | GTU8      => TId (mkIdent "uint8" eq_refl) :: nil
+  | GTI8      => TId (mkIdent "int8" eq_refl) :: nil
+  | GTU16     => TId (mkIdent "uint16" eq_refl) :: nil
+  | GTI16     => TId (mkIdent "int16" eq_refl) :: nil
+  | GTU32     => TId (mkIdent "uint32" eq_refl) :: nil
+  | GTI32     => TId (mkIdent "int32" eq_refl) :: nil
+  | GTU64     => TId (mkIdent "uint64" eq_refl) :: nil
+  | GTPtr u   => TStar :: gttokens_ty u
+  | GTSlice u => TLB :: TRB :: gttokens_ty u
+  | GTChan u  => TChan :: gttokens_ty u
+  | GTMap k v => TMap :: TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)
+  | GTNamed n => TId (tyname_to_ident n) :: nil
+  end.
+Fixpoint tsize (t : GoTy) : nat :=
+  match t with
+  | GTPtr u | GTSlice u | GTChan u => S (tsize u)
+  | GTMap k v => S (tsize k + tsize v)
+  | _ => 1
+  end.
+Fixpoint parse_gty (fuel : nat) (toks : list Token) : option (GoTy * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
+    | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
+    | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
+    | TMap :: TLB :: r0 =>
+        match parse_gty f r0 with
+        | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
+        | _ => None
+        end
+    | TId i :: rest =>
+        match classify (proj1_sig i) with
+        | Some t => Some (t, rest)
+        | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
+                  | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+                  | right _ => None
+                  end
+        end
+    | _ => None
+    end
+  end.
+Lemma parse_gty_S : forall f toks, parse_gty (S f) toks =
+  match toks with
+  | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
+  | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
+  | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
+  | TMap :: TLB :: r0 =>
+      match parse_gty f r0 with
+      | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
+      | _ => None
+      end
+  | TId i :: rest =>
+      match classify (proj1_sig i) with
+      | Some t => Some (t, rest)
+      | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
+                | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+                | right _ => None
+                end
+      end
+  | _ => None
+  end.
+Proof. reflexivity. Qed.
+
+(** THE TYPE-PARSER ROUND-TRIP: [parse_gty] inverts [gttokens_ty] (leaving any clean tail [rest]). *)
+Lemma parse_gty_roundtrip : forall t rest F, tsize t <= F -> parse_gty F (gttokens_ty t ++ rest)%list = Some (t, rest).
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IHt | u IHt | u IHt | t1 IHt1 t2 IHt2 | n ];
+    intros rest F HF; destruct F as [ | f ]; try (cbn [tsize] in HF; lia).
+  1-14: cbn [gttokens_ty app]; rewrite parse_gty_S; reflexivity.
+  - (* GTPtr u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
+  - (* GTSlice u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
+  - (* GTChan u *) cbn [gttokens_ty app]. rewrite parse_gty_S. rewrite (IHt rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
+  - (* GTMap k v *) cbn [gttokens_ty]. rewrite parse_gty_S. cbn [app]. rewrite <- app_assoc. cbn [app].
+    rewrite (IHt1 (TRB :: gttokens_ty t2 ++ rest)%list f ltac:(cbn [tsize] in HF; lia)).
+    rewrite (IHt2 rest f ltac:(cbn [tsize] in HF; lia)). reflexivity.
+  - (* GTNamed n *) cbn [gttokens_ty app]. rewrite parse_gty_S.
+    assert (Hkw : is_type_keyword (proj1_sig n) = false).
+    { pose proof (proj2_sig n) as Hn. unfold nominal_type_ident in Hn.
+      apply andb_prop in Hn. destruct Hn as [ _ Hnk ]. apply negb_true_iff in Hnk. exact Hnk. }
+    destruct (kw_false_classify _ Hkw) as [ Hcl _ ].
+    cbn [tyname_to_ident mkIdent proj1_sig]. rewrite Hcl.
+    destruct (bool_dec (nominal_type_ident (proj1_sig n)) true) as [ H | H ]; [ | exfalso; apply H; exact (proj2_sig n) ].
+    destruct n as [ s Hs ]. cbn [proj1_sig] in *.
+    assert (E : H = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+Qed.
+
+(** type round-trip by example: [parse_gty (gttokens_ty t) = Some (t, [])]. *)
+Example tyr_int   : parse_gty 4 (gttokens_ty GTInt) = Some (GTInt, nil). Proof. vm_compute; reflexivity. Qed.
+Example tyr_slice : parse_gty 4 (gttokens_ty (GTSlice GTInt)) = Some (GTSlice GTInt, nil).  (* []int *)
+Proof. vm_compute; reflexivity. Qed.
+Example tyr_ptr   : parse_gty 4 (gttokens_ty (GTPtr (GTNamed (mkTyName "Foo" eq_refl))))
+                  = Some (GTPtr (GTNamed (mkTyName "Foo" eq_refl)), nil).  (* *Foo *)
+Proof. vm_compute; reflexivity. Qed.
+Example tyr_chan  : parse_gty 4 (gttokens_ty (GTChan GTInt)) = Some (GTChan GTInt, nil).  (* chan int *)
+Proof. vm_compute; reflexivity. Qed.
+Example tyr_map   : parse_gty 6 (gttokens_ty (GTMap GTInt GTString)) = Some (GTMap GTInt GTString, nil).  (* map[int]string *)
+Proof. vm_compute; reflexivity. Qed.
+Example tyr_slice2 : parse_gty 6 (gttokens_ty (GTSlice (GTSlice GTInt64))) = Some (GTSlice (GTSlice GTInt64), nil).  (* [][]int64 *)
+Proof. vm_compute; reflexivity. Qed.
+Example tyr_mapslice : parse_gty 8 (gttokens_ty (GTMap GTString (GTSlice GTInt))) = Some (GTMap GTString (GTSlice GTInt), nil).  (* map[string][]int *)
+Proof. vm_compute; reflexivity. Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
@@ -3456,6 +3580,7 @@ Print Assumptions Front.gtokens_lex.
 Print Assumptions Front.gtokens_parse.
 Print Assumptions Front.parse_print_roundtrip.
 Print Assumptions Front.gprint_inj.
+Print Assumptions Front.parse_gty_roundtrip.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
