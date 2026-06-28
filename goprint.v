@@ -848,6 +848,10 @@ Fixpoint gttokens_ty (t : GoTy) : list Token :=
   | GTMap k v => TMap :: TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)
   | GTNamed n => TId (tyname_to_ident n) :: nil
   end.
+(* [_ => 1] is the deliberate UNIT size of every leaf type (the 13 primitives + [GTNamed], each one token).
+   Unlike a printer default this is FAIL-CLOSED: it feeds only the type-parser FUEL bound, so a future
+   COMPOSITE type that this undercounts makes its round-trip proof run out of fuel and FAIL TO COMPILE — loud,
+   never wrong output.  (The output side, [print_ty]/[gttokens_ty], is fully exhaustive.) *)
 Fixpoint tsize (t : GoTy) : nat :=
   match t with
   | GTPtr u | GTSlice u | GTChan u => S (tsize u)
@@ -1041,9 +1045,11 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   match e with
   | EId i  => proj1_sig i
   | EInt z => print_Z z
-  | EUn o e => match o with
+  | EUn o e => match o with    (* EXHAUSTIVE (no [_]): a new unary op must declare its printing here, not
+                                  silently inherit the parenthesised default — same fail-loud discipline as
+                                  [op_needs_paren] *)
                | UNeg => ("-(" ++ gprint 0 e ++ ")")%string
-               | _    => (unop_text o ++ "(" ++ gprint 0 e ++ ")")%string
+               | UNot | UXor | UDeref | UAddr => (unop_text o ++ "(" ++ gprint 0 e ++ ")")%string
                end
   | EBn o l r =>
       let p := binop_prec o in
@@ -1357,9 +1363,9 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   match e with
   | EId i  => TId i :: nil
   | EInt z => TInt z :: nil
-  | EUn o e => match o with
+  | EUn o e => match o with    (* EXHAUSTIVE (mirrors [gprint]'s EUn): a new unary op declares its tokens here *)
                | UNeg => TMinus :: TLP :: (gtokens 0 e ++ TRP :: nil)
-               | _    => prefix_token o :: TLP :: (gtokens 0 e ++ TRP :: nil)
+               | UNot | UXor | UDeref | UAddr => prefix_token o :: TLP :: (gtokens 0 e ++ TRP :: nil)
                end
   | EBn o l r =>
       let p := binop_prec o in
