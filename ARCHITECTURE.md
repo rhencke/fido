@@ -341,12 +341,17 @@ The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed 
 Docs and NAMES do not claim more than the live path proves.
 ```
 
-Suggested grep gates (not proofs, but they catch regressions):
+Suggested grep gates (not proofs, but they catch regressions). **Scope them to SOURCE and exclude docs +
+generated artifacts** — the docs (`ARCHITECTURE.md`, `LESSONS.md`, `PROGRESS.md`, `CLAUDE.md`) and the
+generated `plugin/printer.ml` legitimately *contain* these strings (this charter names the forbidden patterns
+on purpose), so a tree-wide `grep -RInE … .` is SELF-FAILING and must not be used. The authoritative,
+correctly-scoped live gate is `plugin/smart-ctor-gate.sh`; these are its illustrative shape:
 
 ```sh
-grep -RInE 'SRaw|raw_ok|RawExpr|RawStmt|RawDecl|OpaqueExpr|TrustedExpr' .
-grep -RInE 'emit[ _].*GoAst\.Program' .
-grep -RInE 'plugin never emits|known limitation|proof-only|future stage|trusted fallback' .
+SRC=$(git ls-files '*.v' 'plugin/*.ml' 'plugin/*.mlg' | grep -v '^plugin/printer\.ml$')
+grep -nE 'SRaw|raw_ok|RawExpr|RawStmt|RawDecl|OpaqueExpr|TrustedExpr' $SRC
+grep -nE 'emit[ _].*GoAst\.Program' $SRC
+grep -nE 'plugin never emits|known limitation|proof-only|future stage|trusted fallback' $SRC
 ```
 
 ---

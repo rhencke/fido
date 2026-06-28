@@ -49,6 +49,20 @@ incrementally; the long-term target is concurrent programs (session types, race 
 deadlock freedom grounded in happens-before, per go.dev/ref/mem). The full vision,
 status, and roadmap live in `PROGRESS.md`.
 
+## ★ Architecture direction — `ARCHITECTURE.md` GOVERNS (binding; read it)
+
+As of 2026-06-28 Fido is course-correcting to an **AST-first, proof-gated emission** architecture; the
+standing charter **`ARCHITECTURE.md`** is binding on every change and wins when in doubt. Spine: **`GoAst`**
+(structured Go syntax) → **`GoPrint`** (printing + parse round-trip — SYNTAX only) → **`GoSem`** (behavior;
+the ONE authoritative semantics — bridge `unified.v`/`concurrency.v`/`cmd.v` in, do NOT fork a second) →
+**`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed
+emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO official
+`emit : Program -> string`). The clean `Front` work + `ConvTy` groundwork are the SEED that MOVES into
+`GoAst`/`GoPrint` (rename, not a parallel copy); `plugin/go.ml` is trusted/transitional and is NOT grown;
+`relooper.v` is demoted. **Naming is a correctness claim** — never call a syntactic gate `SafeProgram`.
+Residual TCB (named, not implicit): Rocq kernel · the string→`.go` extraction step · the Go toolchain ·
+trusted foreign imports · the `GoSem`≈real-Go adequacy assumption (heir to gap #10).
+
 ## Rules that shape every change
 
 1. **Never edit `*.go`.** It is extracted from `*.v`. Change the `.v` / plugin and
@@ -175,6 +189,9 @@ Gotchas (don't relearn these the hard way):
 
 CLAUDE.md is deliberately short. Read these on demand:
 
+- **`ARCHITECTURE.md`** — ★ the standing, BINDING charter: the AST-first certified-emission direction
+  (`GoAst`/`GoPrint`/`GoSem`/`GoSafe`/`GoEmit`), the residual-TCB statement, and the per-patch rules. Read it
+  before any structural change; it governs.
 - **`PROGRESS.md`** — the full vision and principles, the incremental ladder (what
   is modelled, feature by feature), the correctness-debt tiers, known gaps, the
   wish list, and the concurrency research plan. The living status doc — **update
