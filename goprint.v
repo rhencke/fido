@@ -1775,6 +1775,104 @@ Proof. induction a as [ | c a' IH ]; intro b; [ reflexivity | cbn; rewrite IH; r
 Lemma clean_start_binop : forall o X, clean_start (binop_text o ++ X) = true.
 Proof. destruct o; reflexivity. Qed.
 
+Lemma str_app_assoc : forall a b c, ((a ++ b) ++ c = a ++ (b ++ c))%string.
+Proof. induction a as [ | x a' IH ]; intros b c; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
+
+Lemma str_app_nil_r : forall s, (s ++ "" = s)%string.
+Proof. induction s as [ | c s' IH ]; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
+
+(** ---- THE LEXER ROUND-TRIP ---- [lex (gprint ctx e ++ rest) = gtokens ctx e ++ (lex rest)] for clean
+    [rest] and enough fuel; by induction on [e].  Leaves via the leaf lemmas; [EUn]/[EBn] thread the seams
+    around the IHs, every boundary clean (a space / a ')' / [rest]).  String scope is open, so the token
+    appends are written [%list]. *)
+Lemma lex_gprint_app : forall e ctx rest fuel tr,
+  clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (String.length (gprint ctx e) + String.length rest) <= fuel ->
+  lex_aux fuel (gprint ctx e ++ rest) = Some ((gtokens ctx e ++ tr)%list).
+Proof.
+  induction e as [ i | z | o e IHe | o l IHl r IHr ]; intros ctx rest fuel tr Hclean Hrest Hfuel.
+  - cbn [gprint gtokens app] in *. apply lex_gprint_id; assumption.
+  - cbn [gprint gtokens app] in *. apply lex_gprint_int; assumption.
+  - (* EUn: body is [<op>( gprint 0 e )] (operand always parenthesised) *)
+    assert (Hbody : lex_aux (S (String.length (gprint 0 e ++ String (ch 41) rest)))
+                            (gprint 0 e ++ String (ch 41) rest)
+                  = Some ((gtokens 0 e ++ TRP :: tr)%list)).
+    { apply IHe; [ reflexivity
+                 | apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]
+                 | rewrite length_app; cbn [String.length]; lia ]. }
+    destruct o; cbn [gprint gtokens] in Hfuel |- *.
+    1-4: rewrite !str_app_assoc;
+         change (")" ++ rest)%string with (String (ch 41) rest);
+         change ("(" ++ (gprint 0 e ++ String (ch 41) rest))%string
+           with (String (ch 40) (gprint 0 e ++ String (ch 41) rest));
+         erewrite lex_unop_lp_app;
+           [ cbn [app]; rewrite <- app_assoc; reflexivity
+           | discriminate
+           | exact Hbody
+           | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+             cbn [String.length unop_text] in Hfuel |- *; lia ].
+    (* UNeg: body is [-( gprint 0 e )] *)
+    rewrite !str_app_assoc.
+    change (")" ++ rest)%string with (String (ch 41) rest).
+    change ("-(" ++ (gprint 0 e ++ String (ch 41) rest))%string
+      with (String (ch 45) (String (ch 40) (gprint 0 e ++ String (ch 41) rest))).
+    rewrite (lex_minuslp_app _ _ _ Hbody)
+      by (repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+          cbn [String.length] in Hfuel |- *; lia).
+    cbn [app]; rewrite <- app_assoc; reflexivity.
+  - (* EBn: inner = gprint p l ++ binop_text o ++ gprint (S p) r *)
+    cbn [gprint gtokens] in Hfuel |- *.
+    set (p := binop_prec o) in *.
+    assert (Hinner : forall X tX f, clean_start X = true ->
+              lex_aux (S (String.length X)) X = Some tX ->
+              S (String.length (gprint p l ++ binop_text o ++ gprint (S p) r) + String.length X) <= f ->
+              lex_aux f (gprint p l ++ binop_text o ++ gprint (S p) r ++ X)
+                = Some (((gtokens p l ++ op_token o :: gtokens (S p) r) ++ tX)%list)).
+    { intros X tX f HXc HX Hf.
+      assert (Hr : lex_aux (S (String.length (gprint (S p) r ++ X))) (gprint (S p) r ++ X)
+                 = Some ((gtokens (S p) r ++ tX)%list))
+        by (apply IHr; [ exact HXc | exact HX | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]).
+      assert (Hb : lex_aux (S (String.length (binop_text o ++ gprint (S p) r ++ X)))
+                           (binop_text o ++ gprint (S p) r ++ X)
+                 = Some ((op_token o :: (gtokens (S p) r ++ tX))%list))
+        by (apply lex_binop_app; [ exact Hr | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]).
+      rewrite <- app_assoc. cbn [app].
+      apply IHl; [ apply clean_start_binop | exact Hb | repeat rewrite length_app; repeat rewrite length_app in Hf; lia ]. }
+    destruct (Nat.ltb p ctx); cbn [gprint gtokens] in Hfuel |- *.
+    + (* wrapped: "(" ++ inner ++ ")" *)
+      assert (Hrp : lex_aux (S (String.length (String (ch 41) rest))) (String (ch 41) rest) = Some (TRP :: tr))
+        by (apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]).
+      assert (Hin : lex_aux (S (String.length (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)))
+                            (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)
+                  = Some (((gtokens p l ++ op_token o :: gtokens (S p) r) ++ TRP :: tr)%list))
+        by (apply Hinner; [ reflexivity | exact Hrp | repeat rewrite length_app; cbn [String.length]; lia ]).
+      rewrite !str_app_assoc.
+      change ("(" ++ (gprint p l ++ (binop_text o ++ (gprint (S p) r ++ (")" ++ rest)))))%string
+        with (String (ch 40) (gprint p l ++ binop_text o ++ gprint (S p) r ++ String (ch 41) rest)).
+      rewrite (lex_lparen_app _ _ _ Hin)
+        by (repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+            cbn [String.length] in Hfuel |- *; lia).
+      cbn [app]. rewrite <- !app_assoc. cbn [app]. reflexivity.
+    + (* unwrapped: inner *)
+      rewrite !str_app_assoc.
+      rewrite (Hinner rest tr fuel Hclean Hrest
+                ltac:(repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+                      cbn [String.length] in Hfuel |- *; lia)).
+      reflexivity.
+Qed.
+
+(** THE HEADLINE (lexer half): [lex (gprint ctx e) = Some (gtokens ctx e)] — the printed AST lexes to its
+    canonical token list, for EVERY expression. *)
+Theorem gtokens_lex : forall e ctx, lex (gprint ctx e) = Some (gtokens ctx e).
+Proof.
+  intros e ctx. unfold lex.
+  assert (Hb : S (String.length (gprint ctx e) + String.length "") <= S (String.length (gprint ctx e)))
+    by (cbn [String.length]; lia).
+  pose proof (lex_gprint_app e ctx "" (S (String.length (gprint ctx e))) nil eq_refl eq_refl Hb) as H.
+  rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
@@ -1787,6 +1885,7 @@ Print Assumptions esc_string_roundtrip.
 Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
+Print Assumptions Front.gtokens_lex.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
