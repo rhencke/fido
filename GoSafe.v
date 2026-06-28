@@ -12,14 +12,45 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** A [GExpr] that is legal as an EXPRESSION STATEMENT in Go.  Per the Go spec (ExpressionStmt) a bare
-    expression statement must be a FUNCTION CALL (or a receive op / certain builtins) — a plain value like
-    [1] or [a + b] is "evaluated but not used" and REJECTED by the Go compiler.  So [expr_stmt_ok] admits
-    ONLY a call for now (it WILL widen: receive, specific builtins).  This is the predicate that keeps
-    [SupportedProgram] honest — it never certifies an expression statement Go would reject. *)
+(** CALLABLE-SHAPED: the top constructor of a [GExpr] that COULD denote a function value — an identifier
+    (function name / func-typed var), a selector (method / pkg.F), an index (func-typed element), another
+    call (returns a func), or a type assertion (to a func type).  A literal, a unary/binary arithmetic
+    result, or a slice is STRUCTURALLY never a function, so calling it (e.g. [1(x)]) is invalid Go.  Used to
+    reject structurally-absurd calls (the callee head must be callable-shaped). *)
+Definition callable_shape (e : GExpr) : bool :=
+  match e with
+  | EId _ | ESel _ _ | EIndex _ _ | ECall _ _ | EAssert _ _ => true
+  | EInt _ | EUn _ _ | EBn _ _ _ | ESlice _ _ _ => false
+  end.
+
+(** STRUCTURAL well-formedness of an expression: every CALL has a callable-shaped callee, and every operand
+    is itself well-formed — so [1(x)], [(a+b)(x)], etc. are rejected.  This is STRUCTURAL only: it rules out
+    grammar/shape absurdities, it does NOT (and syntactically CANNOT) check SCOPE or TYPES — an undefined
+    identifier or a type mismatch is the GoSem/type layer's concern, not this gate's.  (The [ECall] arg list
+    uses an inline [fix] — [forallb expr_ok] is opaque to the guard checker, same as [gprint]'s arg list.) *)
+Fixpoint expr_ok (e : GExpr) : bool :=
+  match e with
+  | EId _ => true
+  | EInt _ => true
+  | EUn _ e0 => expr_ok e0
+  | EBn _ l r => expr_ok l && expr_ok r
+  | ESel e0 _ => expr_ok e0
+  | EIndex e0 i => expr_ok e0 && expr_ok i
+  | ESlice e0 lo hi => expr_ok e0 && expr_ok lo && expr_ok hi
+  | EAssert e0 _ => expr_ok e0
+  | ECall callee args =>
+      callable_shape callee && expr_ok callee &&
+      (fix all_ok (l : list GExpr) : bool :=
+         match l with nil => true | a :: r => expr_ok a && all_ok r end) args
+  end.
+
+(** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec (ExpressionStmt) a bare expression
+    statement must be a FUNCTION CALL (or a receive op / certain builtins) — a plain value like [1] or [a + b]
+    is "evaluated but not used" and REJECTED — AND the call must be structurally well-formed ([expr_ok], so
+    [1(x)] is rejected too).  Widens later (receive, specific builtins). *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
-  | ECall _ _ => true
+  | ECall _ _ => expr_ok e
   | _         => false
   end.
 
@@ -31,13 +62,15 @@ Definition stmt_ok (s : GoStmt) : bool :=
   | GsReturn     => true
   end.
 
-(** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` WHOSE BODY is
-    entirely in the printer/emitter's supported statement subset.  PURELY SYNTACTIC, but it now means what its
-    name says: a [SupportedProgram] is one the blessed emitter prints as VALID Go.  Crucially it does NOT
-    certify a bare-value statement like `func main(){ 1 }` (Go rejects "evaluated but not used"):
-    [supported_program] is [false] there, so NO certificate exists and [emit_supported] can never print it.
-    The package-name-only check was too weak (it certified invalid Go) — fixed.  This is SUPPORTEDNESS, not a
-    behavioral-safety claim — that is [BehaviorSafe] (below, once GoSem exists). *)
+(** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
+    entirely in the printer/emitter's STRUCTURALLY-supported statement subset (each statement is a [return] or
+    a structurally-well-formed call expression statement).  It rejects the structural absurdities Go's grammar/
+    statement rules forbid: a bare-value statement `func main(){ 1 }` ("evaluated but not used") and a call of a
+    non-callable `func main(){ 1() }` are both [false], so no certificate exists and [emit_supported] can never
+    print them.  SCOPE OF THE CLAIM (kept honest): this is STRUCTURAL/grammatical supportedness — it does NOT,
+    and syntactically cannot, check SCOPE (an undefined identifier) or TYPES (a mismatch); those are the
+    GoSem/type-checker layer ([BehaviorSafe], later).  So it is SUPPORTEDNESS, not "guaranteed-compiling" and
+    not behavioral safety.  (The package-name-ONLY check was too weak — it certified invalid Go — now fixed.) *)
 Definition supported_program (p : Program) : bool :=
   String.eqb (proj1_sig (prog_pkg p)) "main" && forallb stmt_ok (prog_body p).
 Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
@@ -54,6 +87,15 @@ Proof. reflexivity. Qed.
    [SupportedProgram unsupported_value_stmt] (= [false = true]).  (Note: [Fail Lemma … . Proof. … Qed.] would
    NOT work — [Fail] guards only the goal-opening vernac, which always succeeds.) *)
 Fail Example value_stmt_supported : SupportedProgram unsupported_value_stmt := eq_refl.
+
+(** REGRESSION (external review 2026-06-28, follow-up) — a CALL of a non-callable, `func main(){ 1() }`, is
+    call-SHAPED but structurally invalid Go; [expr_ok] rejects it (the callee [EInt 1] is not
+    [callable_shape]), so it is NOT supported and cannot be certified. *)
+Definition unsupported_call_value : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EInt 1) nil)].
+Example call_value_unsupported : supported_program unsupported_call_value = false.
+Proof. reflexivity. Qed.
+Fail Example call_value_supported : SupportedProgram unsupported_call_value := eq_refl.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
