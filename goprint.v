@@ -3615,4 +3615,4 @@ Print Assumptions Front.parse_gty_print_ty.
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex print_sep nominal_type_ident go_ident Front.gprint.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex print_sep nominal_type_ident go_ident binop_prec binop_text Front.gprint.

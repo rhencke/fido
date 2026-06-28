@@ -595,6 +595,7 @@ let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
+let rec int_of_coq_nat = function Printer.O -> 0 | Printer.S k -> 1 + int_of_coq_nat k
 (* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
    The SOLE sanctioned construction site for a PROOF-CARRYING [Printer] type.  The extracted [GoTy]
    constructor [GTNamed] erases its Rocq validity proof to a bare string, so a DIRECT [Printer.GTNamed s]
@@ -1243,24 +1244,31 @@ let classify_sint63_op r =
     (fun (name, op) -> if is_int63_op_ref r name then Some op else None)
     sint63_op_names
 
-let go_infix = function
-  | NatAdd -> " + " | NatSub -> " - " | NatMul -> " * "
-  | NatDiv -> " / " | NatMod -> " % "
-  | NatEqb -> " == " | NatLtb -> " < " | NatLeb -> " <= "
-
-(* Go binary-operator precedence (higher binds tighter).  Used by the expression
-   printer to parenthesise a sub-operand only when its operator binds looser than
-   the surrounding context requires (instead of the old conservative
-   "parenthesise every non-atom"). *)
-let op_prec = function
-  | NatMul | NatDiv | NatMod -> 5
-  | NatAdd | NatSub          -> 4
-  | NatEqb | NatLtb | NatLeb -> 3
-let float_prec s =
-  if String.equal s " * " || String.equal s " / " then 5
-  else if String.equal s " < " || String.equal s " <= " || String.equal s " == "
-  then 3        (* comparisons bind looser than + / -, like the integer ops *)
-  else 4
+(* The Go operator SURFACE and PRECEDENCE are owned by the VERIFIED [Module Front] definitions
+   ([binop_text] / [binop_prec], extracted to printer.ml).  go.ml only RECOGNISES which Front [binOp] a
+   builtin denotes ([binop_of] below + these two maps); surface and precedence are then DERIVED from Front
+   — one operator authority, no parallel precedence/surface tables (the old [go_infix]/[op_prec]/[float_prec]
+   are gone). *)
+let go_binop_prec o = int_of_coq_nat (Printer.binop_prec o)
+let go_binop_text o = coq_string_to_ocaml (Printer.binop_text o)
+(* a classifier's [nat_op] -> its Front [binOp]. *)
+let natop_binop = function
+  | NatAdd -> Printer.BAdd | NatSub -> Printer.BSub | NatMul -> Printer.BMul
+  | NatDiv -> Printer.BDiv | NatMod -> Printer.BRem
+  | NatEqb -> Printer.BEq  | NatLtb -> Printer.BLt  | NatLeb -> Printer.BLe
+(* a Go operator SURFACE -> its Front [binOp]; total over the 19 surfaces [binop_of] yields, [None]
+   otherwise so an unrecognised surface declines gracefully (it then prints via the non-binop path). *)
+let binop_ctor_of opstr =
+  match String.trim opstr with
+  | "*"  -> Some Printer.BMul    | "/"  -> Some Printer.BDiv | "%"  -> Some Printer.BRem
+  | "<<" -> Some Printer.BShl    | ">>" -> Some Printer.BShr | "&"  -> Some Printer.BAnd
+  | "&^" -> Some Printer.BAndNot
+  | "+"  -> Some Printer.BAdd    | "-"  -> Some Printer.BSub | "|"  -> Some Printer.BOr
+  | "^"  -> Some Printer.BXor
+  | "==" -> Some Printer.BEq     | "!=" -> Some Printer.BNe  | "<"  -> Some Printer.BLt
+  | "<=" -> Some Printer.BLe     | ">"  -> Some Printer.BGt  | ">=" -> Some Printer.BGe
+  | "&&" -> Some Printer.BLAnd   | "||" -> Some Printer.BLOr
+  | _ -> None
 
 (* Boolean operators.  Coq's [andb]/[orb] take two already-evaluated [bool]
    values; Go's [&&]/[||] short-circuit.  This is observationally identical here:
@@ -1271,129 +1279,130 @@ let is_andb_ref r = named "andb" r
 let is_orb_ref  r = named "orb"  r
 let is_negb_ref r = named "negb" r
 
-(* If [r] is a recognised inlined binary operator, its (precedence, Go operator
-   string); covers boolean / nat / int63 / signed-int63 / float arithmetic and
-   comparison.  ([negb] is unary — handled separately in the expression printer.) *)
+(* If [r] is a recognised inlined binary operator, the verified Front [binOp] it denotes (the SINGLE
+   operator authority — precedence and surface are derived from it via [go_binop_prec] / [go_binop_text]).
+   Covers boolean / nat / int63 / signed-int63 / float arithmetic and comparison.  ([negb] is unary —
+   handled separately in the expression printer.) *)
 let binop_of r =
-  if is_andb_ref r then Some (2, " && ")
-  else if is_orb_ref r then Some (1, " || ")
+  if is_andb_ref r then Some Printer.BLAnd
+  else if is_orb_ref r then Some Printer.BLOr
   (* string concatenation: Go [+], same precedence as numeric [+] (level 4) *)
-  else if is_str_concat_ref r then Some (4, " + ")
+  else if is_str_concat_ref r then Some Printer.BAdd
   (* string comparison: Go [==] / [<] (lexicographic), comparison precedence (level 3) *)
-  else if is_str_eqb_ref r then Some (3, " == ")
-  else if is_str_ltb_ref r then Some (3, " < ")
+  else if is_str_eqb_ref r then Some Printer.BEq
+  else if is_str_ltb_ref r then Some Printer.BLt
   (* array comparison: Go field-wise [==] (arrays are comparable, slices are not) *)
-  else if is_arr_eqb_ref r then Some (3, " == ")
+  else if is_arr_eqb_ref r then Some Printer.BEq
   (* direct >/>=/!= for string and float64 (recognized by name, gated on builtins.v) *)
-  else if named "str_gtb"  r then Some (3, " > ")
-  else if named "str_geb"  r then Some (3, " >= ")
-  else if named "str_neqb" r then Some (3, " != ")
-  else if named "f64_gtb"  r then Some (3, " > ")
-  else if named "f64_geb"  r then Some (3, " >= ")
-  else if named "f64_neqb" r then Some (3, " != ")
+  else if named "str_gtb"  r then Some Printer.BGt
+  else if named "str_geb"  r then Some Printer.BGe
+  else if named "str_neqb" r then Some Printer.BNe
+  else if named "f64_gtb"  r then Some Printer.BGt
+  else if named "f64_geb"  r then Some Printer.BGe
+  else if named "f64_neqb" r then Some Printer.BNe
   (* float32 comparison: same direct operators, on [float32] operands *)
-  else if named "f32_ltb"  r then Some (3, " < ")
-  else if named "f32_leb"  r then Some (3, " <= ")
-  else if named "f32_eqb"  r then Some (3, " == ")
-  else if named "f32_gtb"  r then Some (3, " > ")
-  else if named "f32_geb"  r then Some (3, " >= ")
-  else if named "f32_neqb" r then Some (3, " != ")
+  else if named "f32_ltb"  r then Some Printer.BLt
+  else if named "f32_leb"  r then Some Printer.BLe
+  else if named "f32_eqb"  r then Some Printer.BEq
+  else if named "f32_gtb"  r then Some Printer.BGt
+  else if named "f32_geb"  r then Some Printer.BGe
+  else if named "f32_neqb" r then Some Printer.BNe
   (* complex128 arithmetic: component-wise [+]/[-] → native Go operators (float +/-) *)
-  else if named "complex_add"  r then Some (4, " + ")
-  else if named "complex_sub"  r then Some (4, " - ")
-  else if named "complex_mul"  r then Some (5, " * ")
-  else if named "complex_div"  r then Some (5, " / ")
+  else if named "complex_add"  r then Some Printer.BAdd
+  else if named "complex_sub"  r then Some Printer.BSub
+  else if named "complex_mul"  r then Some Printer.BMul
+  else if named "complex_div"  r then Some Printer.BDiv
   (* complex128 comparison: component-wise [==]/[!=] → native Go operators *)
-  else if named "complex_eqb"  r then Some (3, " == ")
-  else if named "complex_neqb" r then Some (3, " != ")
+  else if named "complex_eqb"  r then Some Printer.BEq
+  else if named "complex_neqb" r then Some Printer.BNe
   (* full-width int64 (GoI64): a Go int64 wraps natively at 2^64, so arithmetic /
      bitwise / shift lower to BARE Go operators (no mask) and comparison is signed
      int64 </<=/==.  Go precedence: [* / % << >> & &^] = 5, [+ - | ^] = 4, cmp = 3.
      Go int64 [/] truncates toward zero and [>>] is arithmetic — matching [Z.quot]/
      [Z.shiftr] in the model. *)
-  else if is_i64_op r "add"    then Some (4, " + ")
-  else if is_i64_op r "sub"    then Some (4, " - ")
-  else if is_i64_op r "mul"    then Some (5, " * ")
+  else if is_i64_op r "add"    then Some Printer.BAdd
+  else if is_i64_op r "sub"    then Some Printer.BSub
+  else if is_i64_op r "mul"    then Some Printer.BMul
   (* overflow-safe forms: the no-overflow proof is erased, so [i64_add_nz a b] is the
      same bare Go op as [i64_add a b] (the proof showed it does not wrap). *)
-  else if is_i64_op r "add_nz" then Some (4, " + ")
-  else if is_i64_op r "sub_nz" then Some (4, " - ")
-  else if is_i64_op r "mul_nz" then Some (5, " * ")
-  else if is_i64_op r "div"    then Some (5, " / ")
-  else if is_i64_op r "mod"    then Some (5, " % ")
-  else if is_i64_op r "and"    then Some (5, " & ")
-  else if is_i64_op r "andnot" then Some (5, " &^ ")
-  else if is_i64_op r "shl"    then Some (5, " << ")
-  else if is_i64_op r "shr"    then Some (5, " >> ")
-  else if is_i64_op r "or"     then Some (4, " | ")
-  else if is_i64_op r "xor"    then Some (4, " ^ ")
-  else if is_i64_op r "ltb"    then Some (3, " < ")
-  else if is_i64_op r "leb"    then Some (3, " <= ")
-  else if is_i64_op r "eqb"    then Some (3, " == ")
-  else if is_i64_op r "gtb"    then Some (3, " > ")
-  else if is_i64_op r "geb"    then Some (3, " >= ")
-  else if is_i64_op r "neqb"   then Some (3, " != ")
+  else if is_i64_op r "add_nz" then Some Printer.BAdd
+  else if is_i64_op r "sub_nz" then Some Printer.BSub
+  else if is_i64_op r "mul_nz" then Some Printer.BMul
+  else if is_i64_op r "div"    then Some Printer.BDiv
+  else if is_i64_op r "mod"    then Some Printer.BRem
+  else if is_i64_op r "and"    then Some Printer.BAnd
+  else if is_i64_op r "andnot" then Some Printer.BAndNot
+  else if is_i64_op r "shl"    then Some Printer.BShl
+  else if is_i64_op r "shr"    then Some Printer.BShr
+  else if is_i64_op r "or"     then Some Printer.BOr
+  else if is_i64_op r "xor"    then Some Printer.BXor
+  else if is_i64_op r "ltb"    then Some Printer.BLt
+  else if is_i64_op r "leb"    then Some Printer.BLe
+  else if is_i64_op r "eqb"    then Some Printer.BEq
+  else if is_i64_op r "gtb"    then Some Printer.BGt
+  else if is_i64_op r "geb"    then Some Printer.BGe
+  else if is_i64_op r "neqb"   then Some Printer.BNe
   (* platform int (GoInt, review #6 #13): a Go int wraps natively (64-bit), so arithmetic /
      comparison lower to the same BARE Go operators as int64; division truncates toward zero. *)
-  else if is_int_op r "add"    then Some (4, " + ")
-  else if is_int_op r "sub"    then Some (4, " - ")
-  else if is_int_op r "mul"    then Some (5, " * ")
-  else if is_int_op r "div"    then Some (5, " / ")
-  else if is_int_op r "mod"    then Some (5, " % ")
-  else if is_int_op r "ltb"    then Some (3, " < ")
-  else if is_int_op r "leb"    then Some (3, " <= ")
-  else if is_int_op r "eqb"    then Some (3, " == ")
+  else if is_int_op r "add"    then Some Printer.BAdd
+  else if is_int_op r "sub"    then Some Printer.BSub
+  else if is_int_op r "mul"    then Some Printer.BMul
+  else if is_int_op r "div"    then Some Printer.BDiv
+  else if is_int_op r "mod"    then Some Printer.BRem
+  else if is_int_op r "ltb"    then Some Printer.BLt
+  else if is_int_op r "leb"    then Some Printer.BLe
+  else if is_int_op r "eqb"    then Some Printer.BEq
   (* full-width uint64 (GoU64): same bare Go operators as i64 — Go uint64 wraps
      unsigned-natively at 2^64, arithmetic / bitwise / shift lower identically.
      Comparison is unsigned uint64 </<=/==, which matches [Z.ltb]/[Z.leb] on the
      non-negative [u64raw] values.  Go uint64 [/] is truncating-non-negative,
      matching [Z.div] on non-negative operands. *)
-  else if is_u64_op r "add"    then Some (4, " + ")
-  else if is_u64_op r "sub"    then Some (4, " - ")
-  else if is_u64_op r "mul"    then Some (5, " * ")
-  else if is_u64_op r "div"    then Some (5, " / ")
-  else if is_u64_op r "mod"    then Some (5, " % ")
-  else if is_u64_op r "and"    then Some (5, " & ")
-  else if is_u64_op r "andnot" then Some (5, " &^ ")
-  else if is_u64_op r "shl"    then Some (5, " << ")
-  else if is_u64_op r "shr"    then Some (5, " >> ")
-  else if is_u64_op r "or"     then Some (4, " | ")
-  else if is_u64_op r "xor"    then Some (4, " ^ ")
-  else if is_u64_op r "ltb"    then Some (3, " < ")
-  else if is_u64_op r "leb"    then Some (3, " <= ")
-  else if is_u64_op r "eqb"    then Some (3, " == ")
-  else if is_u64_op r "gtb"    then Some (3, " > ")
-  else if is_u64_op r "geb"    then Some (3, " >= ")
-  else if is_u64_op r "neqb"   then Some (3, " != ")
+  else if is_u64_op r "add"    then Some Printer.BAdd
+  else if is_u64_op r "sub"    then Some Printer.BSub
+  else if is_u64_op r "mul"    then Some Printer.BMul
+  else if is_u64_op r "div"    then Some Printer.BDiv
+  else if is_u64_op r "mod"    then Some Printer.BRem
+  else if is_u64_op r "and"    then Some Printer.BAnd
+  else if is_u64_op r "andnot" then Some Printer.BAndNot
+  else if is_u64_op r "shl"    then Some Printer.BShl
+  else if is_u64_op r "shr"    then Some Printer.BShr
+  else if is_u64_op r "or"     then Some Printer.BOr
+  else if is_u64_op r "xor"    then Some Printer.BXor
+  else if is_u64_op r "ltb"    then Some Printer.BLt
+  else if is_u64_op r "leb"    then Some Printer.BLe
+  else if is_u64_op r "eqb"    then Some Printer.BEq
+  else if is_u64_op r "gtb"    then Some Printer.BGt
+  else if is_u64_op r "geb"    then Some Printer.BGe
+  else if is_u64_op r "neqb"   then Some Printer.BNe
   (* fixed-width uN/iN comparisons: values are in range, so Go's signed int64
      </<=/== agree with both unsigned and signed fixed-width comparison. *)
-  else if fw_is r "ltb" then Some (3, " < ")
-  else if fw_is r "leb" then Some (3, " <= ")
-  else if fw_is r "eqb" then Some (3, " == ")
-  else if fw_is r "gtb" then Some (3, " > ")
-  else if fw_is r "geb" then Some (3, " >= ")
-  else if fw_is r "neqb" then Some (3, " != ")
+  else if fw_is r "ltb" then Some Printer.BLt
+  else if fw_is r "leb" then Some Printer.BLe
+  else if fw_is r "eqb" then Some Printer.BEq
+  else if fw_is r "gtb" then Some Printer.BGt
+  else if fw_is r "geb" then Some Printer.BGe
+  else if fw_is r "neqb" then Some Printer.BNe
   (* fixed-width bitwise: no wrap needed (in-range / sign-extended results are
      already correct on int64).  Go precedence: [& &^] = 5, [| ^] = 4. *)
-  else if fw_is r "and"    then Some (5, " & ")
-  else if fw_is r "andnot" then Some (5, " &^ ")
-  else if fw_is r "or"     then Some (4, " | ")
-  else if fw_is r "xor"    then Some (4, " ^ ")
+  else if fw_is r "and"    then Some Printer.BAnd
+  else if fw_is r "andnot" then Some Printer.BAndNot
+  else if fw_is r "or"     then Some Printer.BOr
+  else if fw_is r "xor"    then Some Printer.BXor
   else
   match classify_nat_op r with
-  | Some op -> Some (op_prec op, go_infix op)
+  | Some op -> Some (natop_binop op)
   | None ->
   match classify_int63_op r with
-  | Some op -> Some (op_prec op, go_infix op)
+  | Some op -> Some (natop_binop op)
   | None ->
   match classify_sint63_op r with
-  | Some op -> Some (op_prec op, go_infix op)
+  | Some op -> Some (natop_binop op)
   | None ->
   match classify_float_op r with
-  | Some s -> Some (float_prec s, s)
+  | Some s -> binop_ctor_of s
   | None ->
   match classify_f32_op r with
-  | Some s -> Some (float_prec s, s)
+  | Some s -> binop_ctor_of s
   | None -> None
 
 (*s Type printer. *)
@@ -1856,29 +1865,18 @@ let mlident_name = function
   | Tmp v -> go_safe (Id.to_string v)
 let rel_name env i =
   try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
-(* the Go operator surface -> the [Front] [binOp] constructor; [Front] alone decides its precedence. *)
-let front_binop_of opstr =
-  match String.trim opstr with
-  | "*"  -> Some Printer.BMul    | "/"  -> Some Printer.BDiv | "%"  -> Some Printer.BRem
-  | "<<" -> Some Printer.BShl    | ">>" -> Some Printer.BShr | "&"  -> Some Printer.BAnd
-  | "&^" -> Some Printer.BAndNot
-  | "+"  -> Some Printer.BAdd    | "-"  -> Some Printer.BSub | "|"  -> Some Printer.BOr
-  | "^"  -> Some Printer.BXor
-  | "==" -> Some Printer.BEq     | "!=" -> Some Printer.BNe  | "<"  -> Some Printer.BLt
-  | "<=" -> Some Printer.BLe     | ">"  -> Some Printer.BGt  | ">=" -> Some Printer.BGe
-  | "&&" -> Some Printer.BLAnd   | "||" -> Some Printer.BLOr
-  | _ -> None
 let goexpr_bridge_binop env r a b =
   (* Bridge ONLY when [pp_prec] would take its plain-binop branch — i.e. the force-wrapper IIFE does not
      fire: [arith_force_go_type r = None] OR an operand is already runtime.  (For a raw [MLrel] this is
      trivially true; the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false]
      and the IIFE would otherwise fire.)  This keeps the Front path byte-equal to [pp_prec] without
-     re-implementing the force-wrapper rendering. *)
+     re-implementing the force-wrapper rendering.  The Front [binOp] [o] comes straight from [binop_of] —
+     the single operator authority — so the bridge no longer maps the operator itself. *)
   match binop_of r, strip_magic a, strip_magic b with
-  | Some (_, opstr), MLrel ia, MLrel ib
+  | Some o, MLrel ia, MLrel ib
     when arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b ->
-      (match front_binop_of opstr, mk_goexpr_id (rel_name env ia), mk_goexpr_id (rel_name env ib) with
-       | Some o, Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
+      (match mk_goexpr_id (rel_name env ia), mk_goexpr_id (rel_name env ib) with
+       | Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
        | _ -> None)
   | _ -> None
 
@@ -2805,7 +2803,8 @@ and pp_prec state env ctx e =
       let vis = List.filter (fun a -> not (is_erased a)) all in
       (match h2, vis with
        | MLglob r, [a; b] when Option.has_some (binop_of r) ->
-           let (p, opstr) = Option.get (binop_of r) in
+           let o = Option.get (binop_of r) in
+           let p = go_binop_prec o and opstr = go_binop_text o in
            (match arith_force_go_type r with
             | Some ty when not (operand_is_runtime a || operand_is_runtime b) ->
                 str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
