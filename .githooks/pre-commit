@@ -22,16 +22,16 @@ fi
 if git diff --cached --name-only | grep -qE '\.v$|^plugin/|\.go$'; then
   echo "fido: prover inputs (or a generated .go) staged — re-extracting and staging Go..."
   echo "fido: (.go is GENERATED from the .v; any hand-edit is reverted to prover output here)"
-  # plugin/printer.ml is ITSELF a generated artifact — extracted from goprint.v by a
+  # plugin/printer.ml is ITSELF a generated artifact — extracted from GoPrint.v by a
   # plugin-free `rocq c` step (it's the OCaml the plugin LINKS).  Treat it exactly like
-  # the *.go below: when goprint.v is staged, regenerate and stage it, so a goprint.v
-  # change can NEVER leave plugin/printer.ml stale — which the Docker drift gate inside
+  # the *.go below: when GoAst.v / GoPrint.v is staged, regenerate and stage it, so a
+  # spine change can NEVER leave plugin/printer.ml stale — which the Docker drift gate inside
   # `make extract` (below) would otherwise reject, forcing a manual `make printer` re-do.
-  # `make printer` also runs the zero-axiom gate, so a broken / axiom-bearing goprint.v
+  # `make printer` also runs the zero-axiom gate, so a broken / axiom-bearing GoAst/GoPrint
   # aborts the commit right here (like a failed extraction).  Needs host rocq, as the
   # sibling local printer targets (printer / printer-verify) already do.
-  if git diff --cached --name-only | grep -qE '(^|/)goprint\.v$'; then
-    echo "fido: goprint.v staged — regenerating plugin/printer.ml (make printer)..."
+  if git diff --cached --name-only | grep -qE '(^|/)(GoAst|GoPrint)\.v$'; then
+    echo "fido: GoAst.v/GoPrint.v staged — regenerating plugin/printer.ml (make printer)..."
     make printer
     git add -- plugin/printer.ml
   fi
@@ -71,7 +71,7 @@ fi
 #      Hypothesis / Variable (discharged at Section close — NOT global axioms), so those two
 #      constructs are not grepped there (Print Assumptions would catch a mis-discharged one).
 if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture)[[:space:]]|Admitted' \
-        builtins.v main.v concurrency.v relooper.v preamble.v cmd.v unified.v goprint.v 2>/dev/null \
+        builtins.v main.v concurrency.v relooper.v preamble.v cmd.v unified.v GoAst.v GoPrint.v 2>/dev/null \
    || grep -nE '^[[:space:]]*(Hypothesis|Variable)[[:space:]]' builtins.v main.v 2>/dev/null; then
   echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any theory file), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
