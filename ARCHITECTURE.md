@@ -348,20 +348,23 @@ discipline enforced by human/Codex review, not a build step.
 
 Two kinds of grep, and they must NOT be conflated:
 
-**(a) Enforceable gate — raw-syntax constructor NAMES, ACTUALLY enforced today.** The forbidden raw-syntax
+**(a) Name-regression TRIPWIRE — live, but NOT structural protection.** The enumerated forbidden raw-syntax
 ctor names (`SRaw`, `raw_ok`, `RawExpr`, `RawStmt`, `RawDecl`, `RawType`, `OpaqueExpr`, `TrustedExpr`, plus
-the SRaw-era `build_atom`/…) are grepped by `plugin/smart-ctor-gate.sh`'s dead-architecture / raw-syntax gate
-over the hand-written sources only (`*.v` + `plugin/go.ml` + the `.mlg` glue; the generated
-`plugin/printer.ml` and all docs are out of scope). That gate runs in the pre-commit hook AND non-bypassably
-in the Docker prover stage on every `make check`; it is clean today and FAILS the build if any name reappears.
-This is a real LIVE gate, not an aspiration. (Do NOT replace it with a tree-wide `grep -RInE … .` — that
-self-fails on the docs and `printer.ml`, which name these patterns on purpose.)
+the SRaw-era `build_atom`/…) are grepped by `plugin/smart-ctor-gate.sh` over the hand-written sources only
+(`*.v` + `plugin/go.ml` + the `.mlg` glue; the generated `plugin/printer.ml` and all docs are out of scope).
+It runs in the pre-commit hook AND non-bypassably in the Docker prover stage on every `make check`; it is
+clean today and FAILS the build if any of those NAMES reappears. (Do NOT replace it with a tree-wide
+`grep -RInE … .` — that self-fails on the docs and `printer.ml`, which name these patterns on purpose.)
+**This is a regression tripwire for KNOWN names, not a guarantee of no-raw-syntax** — a grep cannot stop a
+differently-named raw hatch (a new string-carrying `GExpr`/`Program` constructor under any other name).
 
-The "no raw emit" rule (`emit : GoAst.Program -> string`) is enforced **STRUCTURALLY, not by grep**: when
-`GoEmit` lands it exports only certificate-requiring emitters (`emit_supported : EmittableProgram -> string`;
-later `emit_safe : SafeProgram -> string`) and never `emit : Program -> string`, so a raw emit is a *type
-error*, not a text match. A grep for it is deliberately NOT used — that text legitimately appears in honest
-comments naming the forbidden signature (it would self-fail, the §10 mistake this paragraph exists to avoid).
+The actual STRUCTURAL guarantee against raw syntax is a property of the **AST definition itself**: `GoAst`'s
+constructors take only validated/semantic payloads (literal contents, validated identifiers) and never a raw
+expr/stmt/type/decl string — so raw syntax is *unrepresentable*, enforced by review of the `GoAst` inductive
+when it lands, not by this grep. Likewise the "no raw emit" rule (`emit : GoAst.Program -> string`) is
+structural — `GoEmit` exports only certificate-requiring emitters (`emit_supported : EmittableProgram ->
+string`; later `emit_safe`) and never `emit : Program -> string`, so a raw emit is a *type error*, not a text
+match (a grep for it is deliberately NOT used: that signature appears in honest comments and would self-fail).
 
 **(b) Review HEURISTIC — NOT a pass/fail gate.** The "suspicious phrases" scan below is a prompt for human/
 Codex scrutiny per Rule 5, not an acceptance gate: honest documentation and comments legitimately use these

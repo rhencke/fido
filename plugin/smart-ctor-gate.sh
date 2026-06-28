@@ -62,16 +62,22 @@ fi
 
 echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.Front.EId outside the block ✓"
 
-# ---- RECURRENCE / RAW-SYNTAX GATE (external review checklist #3 + ARCHITECTURE.md §8 Rule 1): two name sets
-# must never appear in ACTIVE code.  (1) The torn-down SRaw verified-EXPRESSION-printer overlay and its stale
-# "Front not wired" wiring-status comments (three review rounds kept catching these resurfacing).  (2) The
-# AST-first charter's forbidden raw-syntax constructors (RawExpr/RawStmt/RawDecl/RawType/OpaqueExpr/
-# TrustedExpr) — this is the LIVE enforcement ARCHITECTURE.md §10 (a) refers to; it guards GoAst against raw
-# syntax BEFORE GoAst is even written, so the spine work cannot introduce one.  Historical mentions are
-# allowed ONLY in the docs (LESSONS.md / CLAUDE.md / PROGRESS.md / ARCHITECTURE.md) and the GENERATED
-# plugin/printer.ml — all excluded by scope below.  Scope: hand-written Coq sources (*.v) + plugin go.ml /
-# .mlg glue.  (The "no raw emit" rule is enforced STRUCTURALLY by GoEmit's API — no exported
-# emit : Program -> string — NOT by a grep, since that text legitimately appears in explanatory comments.) ----
+# ---- RECURRENCE / RAW-SYNTAX TRIPWIRE (external review checklist #3 + ARCHITECTURE.md §8 Rule 1): two name
+# sets must never appear in ACTIVE code.  (1) The torn-down SRaw verified-EXPRESSION-printer overlay and its
+# stale "Front not wired" wiring-status comments (three review rounds kept catching these resurfacing).  (2)
+# The charter's ENUMERATED forbidden raw-syntax constructor names (RawExpr/RawStmt/RawDecl/RawType/OpaqueExpr/
+# TrustedExpr).
+#   ⚠️ This is a NAME-REGRESSION TRIPWIRE, NOT structural protection.  It only catches these SPECIFIC names
+#   reappearing; it does NOT — and a grep CANNOT — stop a differently-named raw-syntax hatch (e.g. a new
+#   string-carrying GExpr/Program constructor under any other name).  The real, STRUCTURAL guarantee is that
+#   the AST (GoAst, once written) admits NO raw Go-syntax text — its constructors take validated/semantic
+#   payloads only (literal contents, validated idents), never a raw expr/stmt/type/decl string — a property
+#   of the AST DEFINITION, enforced by review of that definition, not by this grep.  This tripwire is just the
+#   loud backstop against the KNOWN regressions (an SRaw revival, these enumerated names).
+# Historical mentions are allowed ONLY in the docs (LESSONS.md / CLAUDE.md / PROGRESS.md / ARCHITECTURE.md)
+# and the GENERATED plugin/printer.ml — all excluded by scope below.  Scope: hand-written Coq sources (*.v) +
+# plugin go.ml / .mlg glue.  (The "no raw emit" rule is likewise STRUCTURAL — GoEmit exports no
+# emit : Program -> string — NOT a grep, since that text legitimately appears in explanatory comments.) ----
 deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|NOT yet wired|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
