@@ -3418,6 +3418,68 @@ Proof. vm_compute; reflexivity. Qed.
 Example tyr_mapslice : parse_gty 8 (gttokens_ty (GTMap GTString (GTSlice GTInt))) = Some (GTMap GTString (GTSlice GTInt), nil).  (* map[string][]int *)
 Proof. vm_compute; reflexivity. Qed.
 
+(** ---- M7 GROUNDWORK: the CONVERSION type-form layer ----  A type-form conversion [convform(x)] (e.g.
+    [[]byte(s)], [chan int(c)], [map[string]int(m)]) needs a conversion target that is SYNTACTICALLY
+    unambiguous at expression-atom position — its printed form must NOT begin with an identifier, or [T(x)]
+    would be the call [ECall (EId T) [x]] instead.  [ConvTy] is exactly that subset of [GoTy]: the three
+    bracket/keyword-led composite heads ([ []T / chan T / map[K]V ]).  A dedicated 3-constructor inductive
+    (NOT a [{T | conv_ok T}] subset) makes the restriction STRUCTURAL — illegal states unrepresentable, ZERO
+    proof obligations — and [convty_ty] embeds it into [GoTy] so the M5 type printer/lexer/parser are reused
+    VERBATIM.  This is the M5-analog groundwork for the upcoming [EConv] expression form, exactly as
+    [parse_gty] preceded the [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
+    ambiguous with a deref and would need parentheses around the pointer type; primitives and named types are
+    identifier-led, so they ARE the call form [ECall (EId T) [x]] already.) *)
+Inductive ConvTy : Type :=
+  | CTSlice : GoTy -> ConvTy          (* []T     *)
+  | CTChan  : GoTy -> ConvTy          (* chan T  *)
+  | CTMap   : GoTy -> GoTy -> ConvTy. (* map[K]V *)
+Definition convty_ty (c : ConvTy) : GoTy :=
+  match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
+Definition conv_print  (c : ConvTy) : string     := print_ty (convty_ty c).
+Definition conv_tokens (c : ConvTy) : list Token := gttokens_ty (convty_ty c).
+Definition conv_size   (c : ConvTy) : nat        := tsize (convty_ty c).
+
+(** the printed conversion-type lexes to its token list (inherited from [lex_print_ty]). *)
+Lemma conv_print_lex : forall c, lex (conv_print c) = Some (conv_tokens c).
+Proof. intro c. apply lex_print_ty. Qed.
+
+(** [parse_convty] = [parse_gty] keeping ONLY the three conversion heads; anything else (a primitive, a
+    pointer, or a named type — all identifier/[*]-led, i.e. NOT a syntactic conversion form) is rejected. *)
+Definition parse_convty (fuel : nat) (toks : list Token) : option (ConvTy * list Token) :=
+  match parse_gty fuel toks with
+  | Some (GTSlice u, r) => Some (CTSlice u, r)
+  | Some (GTChan u, r)  => Some (CTChan u, r)
+  | Some (GTMap k v, r) => Some (CTMap k v, r)
+  | _ => None
+  end.
+
+(** round-trip: a conversion-type's tokens parse back to it (reusing [parse_gty_roundtrip]). *)
+Lemma parse_convty_roundtrip : forall c rest F,
+  conv_size c <= F -> parse_convty F (conv_tokens c ++ rest)%list = Some (c, rest).
+Proof.
+  intros c rest F HF. unfold parse_convty, conv_tokens, conv_size in *.
+  destruct c as [ u | u | k v ]; cbn [convty_ty] in HF |- *;
+    rewrite (parse_gty_roundtrip _ rest F HF); reflexivity.
+Qed.
+
+(** ★END-TO-END: the printed conversion-type lexes and parses back to itself. *)
+Theorem parse_conv_print : forall c,
+  match lex (conv_print c) with Some toks => parse_convty (S (List.length toks)) toks | None => None end = Some (c, nil).
+Proof.
+  intro c. rewrite conv_print_lex.
+  rewrite <- (app_nil_r (conv_tokens c)). apply parse_convty_roundtrip.
+  unfold conv_size, conv_tokens. pose proof (tsize_le_len (convty_ty c)). rewrite app_nil_r. lia.
+Qed.
+
+Example convr_slice : parse_convty 4 (conv_tokens (CTSlice GTU8)) = Some (CTSlice GTU8, nil).  (* []uint8(x) *)
+Proof. vm_compute; reflexivity. Qed.
+Example convr_chan  : parse_convty 4 (conv_tokens (CTChan GTInt)) = Some (CTChan GTInt, nil).  (* chan int(x) *)
+Proof. vm_compute; reflexivity. Qed.
+Example convr_map   : parse_convty 6 (conv_tokens (CTMap GTString GTInt)) = Some (CTMap GTString GTInt, nil).  (* map[string]int(x) *)
+Proof. vm_compute; reflexivity. Qed.
+Example convr_mapslice : parse_convty 8 (conv_tokens (CTMap GTString (GTSlice GTInt))) = Some (CTMap GTString (GTSlice GTInt), nil).
+Proof. vm_compute; reflexivity. Qed.
+
 End Front.
 
 (** FAITHFULNESS — the type printer is INJECTIVE, derived from the SINGLE (token-level) type round-trip
@@ -3450,6 +3512,8 @@ Print Assumptions Front.gprint_inj.
 Print Assumptions Front.parse_gty_roundtrip.
 Print Assumptions Front.gttokens_ty_lex.
 Print Assumptions Front.lex_print_ty.
+Print Assumptions Front.parse_convty_roundtrip.
+Print Assumptions Front.parse_conv_print.
 Print Assumptions Front.parse_gty_print_ty.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
