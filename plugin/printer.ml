@@ -1270,6 +1270,26 @@ let rec print_ty = function
         False)), EmptyString)) (print_ty v)))
 | GTNamed n0 -> n0
 
+(** val print_params : (ident, goTy) prod list -> string **)
+
+let rec print_params = function
+| Nil -> EmptyString
+| Cons (p, rest) ->
+  let Pair (x, t) = p in
+  (match rest with
+   | Nil ->
+     append x
+       (append (String ((Ascii (False, False, False, False, False, True,
+         False, False)), EmptyString)) (print_ty t))
+   | Cons (_, _) ->
+     append x
+       (append (String ((Ascii (False, False, False, False, False, True,
+         False, False)), EmptyString))
+         (append (print_ty t)
+           (append (String ((Ascii (False, False, True, True, False, True,
+             False, False)), (String ((Ascii (False, False, False, False,
+             False, True, False, False)), EmptyString)))) (print_params rest)))))
+
 (** val strip : string -> string -> string option **)
 
 let rec strip p s =
@@ -3487,6 +3507,7 @@ and goExpr =
 | EAtom of goAtom
 | EBin of binOp * goExpr * goExpr
 | EUnary of unaryOp * goExpr
+| EForceCall of (ident, goTy) prod list * goTy * goExpr * argList
 and argList =
 | ANil
 | ACons of goExpr * argList
@@ -3575,6 +3596,36 @@ and print_expr ctx = function
        (append (print_expr O e0) (String ((Ascii (True, False, False, True,
          False, True, False, False)), EmptyString)))
    | _ -> append (unop_text o) (print_expr (S (S (S (S (S (S O)))))) e0))
+| EForceCall (params, ret, body, args) ->
+  append (String ((Ascii (False, True, True, False, False, True, True,
+    False)), (String ((Ascii (True, False, True, False, True, True, True,
+    False)), (String ((Ascii (False, True, True, True, False, True, True,
+    False)), (String ((Ascii (True, True, False, False, False, True, True,
+    False)), (String ((Ascii (False, False, False, True, False, True, False,
+    False)), EmptyString))))))))))
+    (append (print_params params)
+      (append (String ((Ascii (True, False, False, True, False, True, False,
+        False)), (String ((Ascii (False, False, False, False, False, True,
+        False, False)), EmptyString))))
+        (append (print_ty ret)
+          (append (String ((Ascii (False, False, False, False, False, True,
+            False, False)), (String ((Ascii (True, True, False, True, True,
+            True, True, False)), (String ((Ascii (False, False, False, False,
+            False, True, False, False)), (String ((Ascii (False, True, False,
+            False, True, True, True, False)), (String ((Ascii (True, False,
+            True, False, False, True, True, False)), (String ((Ascii (False,
+            False, True, False, True, True, True, False)), (String ((Ascii
+            (True, False, True, False, True, True, True, False)), (String
+            ((Ascii (False, True, False, False, True, True, True, False)),
+            (String ((Ascii (False, True, True, True, False, True, True,
+            False)), (String ((Ascii (False, False, False, False, False,
+            True, False, False)), EmptyString))))))))))))))))))))
+            (append (print_expr O body)
+              (append (String ((Ascii (True, False, True, True, True, True,
+                True, False)), (String ((Ascii (False, False, False, True,
+                False, True, False, False)), EmptyString))))
+                (append (argl_str args) (String ((Ascii (True, False, False,
+                  True, False, True, False, False)), EmptyString)))))))))
 
 (** val atom_str : goAtom -> string **)
 
@@ -3912,6 +3963,7 @@ let rec atomic_tree_b = function
    | True -> atomic_tree_b r
    | False -> False)
 | EUnary (_, e0) -> atomic_tree_b e0
+| EForceCall (_, _, _, _) -> False
 
 (** val atomic_atom_b : goAtom -> bool **)
 

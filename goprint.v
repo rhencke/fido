@@ -123,6 +123,15 @@ Fixpoint print_ty (t : GoTy) : string :=
   | GTNamed n => proj1_sig n
   end.
 
+(** A func-lit parameter list [x T, y T] — each [name type] pair, ", "-separated.  (Defined here, before the
+    expression mutual block, so the [EForceCall] printer — the structured func-lit-call — can use it.) *)
+Fixpoint print_params (ps : list (Ident * GoTy)) : string :=
+  match ps with
+  | nil            => ""
+  | (x, t) :: nil  => proj1_sig x ++ " " ++ print_ty t
+  | (x, t) :: rest => proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params rest
+  end.
+
 (** FAITHFULNESS — the type printer is INJECTIVE and print-parse-INVERTIBLE over the WHOLE [GoTy], with NO
     side-condition: a nominal [GTNamed] carries an [Ident] (a name validated IN THE TYPE), so an invalid
     name is unrepresentable and the old [valid_ty] hypothesis disappears.  So the emitted type text never
@@ -2421,6 +2430,16 @@ with GoExpr : Type :=
   | EAtom  : GoAtom -> GoExpr
   | EBin   : BinOp -> GoExpr -> GoExpr -> GoExpr
   | EUnary : UnaryOp -> GoExpr -> GoExpr
+  | EForceCall : list (Ident * GoTy) -> GoTy -> GoExpr -> ArgList -> GoExpr
+                                          (* the typed-arith IIFE force-wrapper [func(params) ret { return body }(args)]
+                                             (review #9 Phase-B EFuncLit): a STRUCTURED func-lit-call — params/ret
+                                             are verified [Ident]/[GoTy], the single-return BODY and the call ARGS
+                                             are verified [GoExpr]/[ArgList].  Body = the return EXPRESSION directly
+                                             (every go.ml force-wrapper is single-return), so NO [GoStmt]/[GoFuncLit]
+                                             mutual-block merge.  NON-atomic (depth-0 spaces/braces) → parsed by the
+                                             func-lit's OWN grammar in [parse_primary] ("func"-led structural branch:
+                                             strip/[parse_params]/[parse_ty]/[parse_expr]/[parse_args]), NEVER the
+                                             atomic scan / [scan_func_base]/[scan_bal].  RETIRES the func-lit-call [SRaw]. *)
 with ArgList : Type :=
   | ANil  : ArgList
   | ACons : GoExpr -> ArgList -> ArgList.
@@ -2454,6 +2473,12 @@ with print_expr (ctx : nat) (e : GoExpr) : string :=
       | UNeg => ("-(" ++ print_expr 0 e ++ ")")%string
       | _ => (unop_text o ++ print_expr 6 e)%string
       end
+  | EForceCall params ret body args =>
+      (* [func(params) ret { return body }(args)] — the func-lit-call bytes (matches [print_funclit] of a
+         single-[SReturn] body, then the call "(args)").  The CLOSING brace is "}" not " }" (the slice-4
+         decision): gofmt re-adds the space so the committed .go is byte-identical to the golden " }". *)
+      ("func(" ++ print_params params ++ ") " ++ print_ty ret ++ " { return "
+        ++ print_expr 0 body ++ "}(" ++ argl_str args ++ ")")%string
   end
 with atom_str (a : GoAtom) : string :=
   match a with AScanned s => satom_str s | AStringLit v => print_string_lit v end
@@ -2716,6 +2741,7 @@ Fixpoint wf (e : GoExpr) : Prop :=
   | EBin _ l r => wf l /\ wf r
   | EUnary _ e => wf e
   | EAtom _ => True
+  | EForceCall _ _ _ _ => True
   end.
 
 (** The single ascii of "(" / ")" scans as depth +1 / -1, and the matching non-negativity facts. *)
@@ -3837,6 +3863,7 @@ Fixpoint esize (e : GoExpr) : nat :=
   | EAtom a => gsize a
   | EBin _ l r => S (esize l + esize r)
   | EUnary _ e => S (S (esize e))   (* +2: the unary op consumes a [parse_primary] step + leaves fuel budget *)
+  | EForceCall _ _ body args => S (S (esize body + argl_size args))   (* the structural func-lit-call parse recurses into body + args *)
   end
 with gsize (a : GoAtom) : nat :=
   match a with AScanned sa => asize sa | AStringLit _ => 1 end
@@ -3858,7 +3885,7 @@ Proof. destruct a; cbn [asize]; lia. Qed.
 Lemma gsize_pos : forall a, 1 <= gsize a.
 Proof. destruct a as [ sa | v ]; cbn [gsize]; [ apply asize_pos | lia ]. Qed.
 Lemma esize_pos : forall e, 1 <= esize e.
-Proof. destruct e as [ a | | ]; cbn [esize]; [ apply gsize_pos | lia | lia ]. Qed.
+Proof. destruct e as [ a | | | ]; cbn [esize]; [ apply gsize_pos | lia | lia | lia ]. Qed.
 
 (** [binop_text]/[unop_text] are BSTACK-NO-OPS inside brackets ([st <> nil]): only spaces + a single
     operator char, none of which is a bracket/quote, and the depth-0 seam check is OFF when [st <> nil]. *)
@@ -4041,6 +4068,82 @@ Proof.
   rewrite (bstack_ok_cons_nonnil_nq c s' st Hne Hq), Hbo, Hbc. reflexivity.
 Qed.
 
+(** close-bracket facts (used to pop the func-lit-call's own brackets in [print_ty_bstack] /
+    [print_params_bstack] / the [EForceCall] case of [print_bstack]). *)
+Lemma is_bopen_close_of : forall c, is_bopen (close_of c) = false.
+Proof. intro c. unfold close_of, is_bopen. destruct (Ascii.eqb c (ascii_of_nat 40)); destruct (Ascii.eqb c (ascii_of_nat 91)); reflexivity. Qed.
+Lemma is_bclose_close_of : forall c, is_bclose (close_of c) = true.
+Proof. intro c. unfold close_of, is_bclose. destruct (Ascii.eqb c (ascii_of_nat 40)); destruct (Ascii.eqb c (ascii_of_nat 91)); reflexivity. Qed.
+Lemma eqb_close_of_34 : forall c, Ascii.eqb (close_of c) (ch 34) = false.
+Proof. intro c. unfold close_of. destruct (Ascii.eqb c (ascii_of_nat 40)); destruct (Ascii.eqb c (ascii_of_nat 91)); reflexivity. Qed.
+(** Popping a matching close bracket [close_of c] off the stack it was pushed onto. *)
+Lemma bstack_pop : forall c st rest,
+  bstack_ok (cons (close_of c) st) (String (close_of c) rest)%string = bstack_ok st rest.
+Proof.
+  intros c st rest.
+  rewrite (bstack_ok_cons_nonnil_nq (close_of c) rest (cons (close_of c) st) ltac:(discriminate) (eqb_close_of_34 c)).
+  rewrite (is_bopen_close_of c), (is_bclose_close_of c).
+  cbn -[bstack_ok Ascii.eqb close_of]. rewrite Ascii.eqb_refl. reflexivity.
+Qed.
+(** Pushing an open bracket [c] onto a non-empty stack (the dual of [bstack_pop]). *)
+Lemma bstack_push : forall c st rest, st <> nil -> is_bopen c = true -> Ascii.eqb c (ch 34) = false ->
+  bstack_ok st (String c rest)%string = bstack_ok (cons (close_of c) st) rest.
+Proof. intros c st rest Hne Hbo Hq. rewrite (bstack_ok_cons_nonnil_nq c rest st Hne Hq), Hbo. reflexivity. Qed.
+
+(** [print_ty] is BSTACK-TRANSPARENT inside brackets ([st <> nil]): its own brackets ([[]T] / [map[K]V])
+    balance, and it has no depth-0 operator seams.  (Needed for the func-lit-call's return type.) *)
+Lemma print_ty_bstack : forall t st rest, st <> nil ->
+  bstack_ok st (print_ty t ++ rest)%string = bstack_ok st rest.
+Proof.
+  induction t as [ | | | | | | | | | | | | | | u IH | u IH | u IH | k IHk v IHv | n ];
+    intros st rest Hne; cbn [print_ty];
+    try (apply all_idc_neutral; [ reflexivity | exact Hne ]).
+  - (* GTPtr u: "*" ++ print_ty u *)
+    cbn [String.append]. rewrite (nonspecial_cons (ch 42) _ st Hne eq_refl eq_refl eq_refl). apply IH; exact Hne.
+  - (* GTSlice u: "[]" ++ print_ty u — '[' push, ']' pop, then the child *)
+    cbn [String.append]. rewrite (bstack_push (ch 91) st _ Hne eq_refl eq_refl).
+    change ("]"%char) with (close_of (ch 91)). rewrite (bstack_pop (ch 91) st (print_ty u ++ rest)). apply IH; exact Hne.
+  - (* GTChan u: "chan " ++ print_ty u *)
+    cbn [String.append].
+    rewrite (nonspecial_cons (ch 99) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 104) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 97) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 110) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl). apply IH; exact Hne.
+  - (* GTMap k v: "map[" ++ print_ty k ++ "]" ++ print_ty v *)
+    cbn [String.append].
+    rewrite (nonspecial_cons (ch 109) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 97) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 112) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (bstack_push (ch 91) st _ Hne eq_refl eq_refl). rewrite !sapp_assoc.
+    rewrite (IHk (cons (close_of (ch 91)) st) _ ltac:(discriminate)). cbn [String.append].
+    change ("]"%char) with (close_of (ch 91)). rewrite (bstack_pop (ch 91) st (print_ty v ++ rest)). apply IHv; exact Hne.
+  - (* GTNamed n: proj1_sig n is a nominal type ident ⇒ go_ident ⇒ all_idc *)
+    apply all_idc_neutral; [ | exact Hne ]. apply go_ident_all_idc.
+    pose proof (proj2_sig n) as Hn. unfold nominal_type_ident in Hn. apply andb_prop in Hn. exact (proj1 Hn).
+Qed.
+
+(** [print_params] is BSTACK-TRANSPARENT inside brackets ([st <> nil]): names are identifiers, types
+    transparent ([print_ty_bstack]), the ", " separators are non-bracket non-quote. *)
+Lemma print_params_bstack : forall ps st rest, st <> nil ->
+  bstack_ok st (print_params ps ++ rest)%string = bstack_ok st rest.
+Proof.
+  induction ps as [ | [x t] ps IH ]; intros st rest Hne.
+  - cbn [print_params String.append]. reflexivity.
+  - destruct ps as [ | [x2 t2] ps' ].
+    + cbn [print_params]. rewrite !sapp_assoc.
+      rewrite (all_idc_neutral (proj1_sig x) st _ (go_ident_all_idc _ (proj2_sig x)) Hne). cbn [String.append].
+      rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl). apply print_ty_bstack; exact Hne.
+    + change (print_params ((x, t) :: (x2, t2) :: ps'))
+        with (proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params ((x2, t2) :: ps'))%string.
+      rewrite !sapp_assoc.
+      rewrite (all_idc_neutral (proj1_sig x) st _ (go_ident_all_idc _ (proj2_sig x)) Hne). cbn [String.append].
+      rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl).
+      rewrite (print_ty_bstack t st _ Hne).
+      rewrite (nonspecial_cons (ch 44) _ st Hne eq_refl eq_refl eq_refl).
+      rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl). exact (IH st rest Hne).
+Qed.
+
 (** [print_expr]/[atom_str]/[satom_str] are BSTACK-TRANSPARENT inside brackets: processed from a NON-EMPTY
     stack they leave it unchanged (own brackets balance; quotes skip; depth-0 operator seams not checked
     when [st <> nil]).  STRUCTURAL mutual induction (subterms give the IH directly). *)
@@ -4079,6 +4182,35 @@ Proof.
     rewrite (bstack_ok_cons_nonnil_nq (ch 40) _ st Hne eq_refl).
     rewrite (IHe 0 (cons (close_of (ch 40)) st) _ ltac:(discriminate)).
     cbn [String.append]. reflexivity.
+  - (* EForceCall params ret body args — "func(" params ") " ret " { return " body "}(" args ")":
+       every bracket pair balances, the type/params/body/args are bstack-transparent. *)
+    intros params ret body IHbody args IHargs c st rest Hne.
+    cbn [print_expr]. rewrite !sapp_assoc. cbn [String.append].
+    change (")"%char) with (close_of (ch 40)). change ("}"%char) with (close_of (ch 123)).
+    rewrite (nonspecial_cons (ch 102) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 117) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 110) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 99) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (bstack_push (ch 40) st _ Hne eq_refl eq_refl).
+    rewrite (print_params_bstack params (cons (close_of (ch 40)) st) _ ltac:(discriminate)). cbn [String.append].
+    rewrite (bstack_pop (ch 40) st _).
+    rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (print_ty_bstack ret st _ Hne). cbn [String.append].
+    rewrite (nonspecial_cons (ch 32) _ st Hne eq_refl eq_refl eq_refl).
+    rewrite (bstack_push (ch 123) st _ Hne eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 32) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 114) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 101) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 116) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 117) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 114) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 110) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (nonspecial_cons (ch 32) _ (cons (close_of (ch 123)) st) ltac:(discriminate) eq_refl eq_refl eq_refl).
+    rewrite (IHbody 0 (cons (close_of (ch 123)) st) _ ltac:(discriminate)). cbn [String.append].
+    rewrite (bstack_pop (ch 123) st _).
+    rewrite (bstack_push (ch 40) st _ Hne eq_refl eq_refl).
+    rewrite (IHargs (cons (close_of (ch 40)) st) _ ltac:(discriminate)). cbn [String.append].
+    rewrite (bstack_pop (ch 40) st rest). reflexivity.
   - (* AScanned s *)
     intros s IHs st rest Hne. change (atom_str (AScanned s)) with (satom_str s). exact (IHs st rest Hne).
   - (* AStringLit v *)
@@ -4369,6 +4501,10 @@ Fixpoint atomic_tree (e : GoExpr) : Prop :=
   | EAtom a => atomic_atom a
   | EBin _ l r => atomic_tree l /\ atomic_tree r
   | EUnary _ e => atomic_tree e
+  | EForceCall _ _ _ _ => False   (* slice-1: a func-lit-call is NON-atomic (depth-0 spaces) — NOT scanned as
+                                     one atom; its round-trip is the STRUCTURAL parse_primary branch (slice-2),
+                                     so [atomic_tree] excludes it and [print_parse_expr] (over [atomic_tree])
+                                     skips it.  Slice-2 will widen this to [atomic_tree body /\ atomic_arglist args]. *)
   end
 with atomic_atom (a : GoAtom) : Prop :=
   match a with
@@ -4401,6 +4537,7 @@ Fixpoint atomic_tree_b (e : GoExpr) : bool :=
   | EAtom a => atomic_atom_b a
   | EBin _ l r => andb (atomic_tree_b l) (atomic_tree_b r)
   | EUnary _ e => atomic_tree_b e
+  | EForceCall _ _ _ _ => false   (* slice-1 mirror of [atomic_tree]: a func-lit-call is non-atomic *)
   end
 with atomic_atom_b (a : GoAtom) : bool :=
   match a with
@@ -4433,6 +4570,9 @@ Proof.
   - intros o l IHl r IHr. cbn [atomic_tree_b atomic_tree].
     rewrite Bool.andb_true_iff, IHl, IHr. reflexivity.
   - intros o e IHe. cbn [atomic_tree_b atomic_tree]. exact IHe.
+  - (* EForceCall — non-atomic: false <-> False *)
+    intros params ret body IHbody args IHargs. cbn [atomic_tree_b atomic_tree].
+    split; intro H; [ discriminate H | contradiction ].
   - intros sa IHsa. cbn [atomic_atom_b atomic_atom].
     rewrite !Bool.andb_true_iff, Bool.orb_true_iff, !Bool.negb_true_iff, IHsa. tauto.
   - intros v. cbn [atomic_atom_b atomic_atom]. split; [ reflexivity | reflexivity ].
@@ -4457,7 +4597,7 @@ Qed.
     rejects any atom failing it, so the premise is ENFORCED at the recovery boundary, not assumed of go.ml. *)
 (** [wf] is vacuous (the round-trip uses only [atomic_tree]); discharged trivially. *)
 Lemma wf_always : forall e, wf e.
-Proof. induction e as [ a | o l IHl r IHr | o e IHe ]; cbn; [ exact I | split; assumption | exact IHe ]. Qed.
+Proof. induction e as [ a | o l IHl r IHr | o e IHe | p r b IHb a IHa ]; cbn; [ exact I | split; assumption | exact IHe | exact I ]. Qed.
 (** A SCANNED atom's text is [atomic] (quote-aware) — the round-trip's only [EAtom] side-condition. *)
 Lemma atom_scanned_atomic : forall s, atom_scanned s = true -> atomic (atom_str s) = true.
 Proof. intros [ sa | v ] H; [ apply satom_atomic | discriminate H ]. Qed.
@@ -4585,6 +4725,7 @@ Fixpoint lspine (fl : nat) (e : GoExpr) : nat * GoExpr * list (BinOp * GoExpr) :
   match e with
   | EAtom s => (fl, EAtom s, [])
   | EUnary o e => (fl, EUnary o e, [])   (* a unary expr is a PRIMARY base — no binary left-spine *)
+  | EForceCall p r b a => (fl, EForceCall p r b a, [])   (* a func-lit-call is a PRIMARY base — no binary left-spine *)
   | EBin o l r =>
       if Nat.leb fl (binop_prec o)
       then let '(bfl, base, ps) := lspine (binop_prec o) l in (bfl, base, (ps ++ [(o, r)])%list)
@@ -4611,7 +4752,7 @@ Qed.
 Lemma lspine_print : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> print_expr fl e = (print_expr bfl base ++ print_pairs ps)%string.
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
@@ -4620,18 +4761,20 @@ Proof.
               print_pairs_app. cbn [print_pairs]. rewrite sapp_nil_r, !sapp_assoc. reflexivity.
     + inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
+  - cbn in H. inversion H; subst. cbn [print_pairs]. rewrite sapp_nil_r. reflexivity.
 Qed.
 
 Lemma lspine_fold : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> fold_pairs base ps = e.
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. clear H.
       rewrite fold_pairs_app. cbn [fold_pairs]. rewrite (IHl _ _ _ _ El). reflexivity.
     + inversion H; subst. reflexivity.
+  - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
 Qed.
 
@@ -4663,7 +4806,7 @@ Lemma lspine_spine_ok : forall e fl bfl base ps,
   (forall e', esize e' < esize e -> wf e' -> atomic_tree e' -> Pexpr e') ->
   wf e -> atomic_tree e -> lspine fl e = (bfl, base, ps) -> spine_ok fl ps.
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps Hsih Hwf Hat H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps Hsih Hwf Hat H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
     destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
@@ -4675,6 +4818,7 @@ Proof.
         intros e' He' We Ae. apply Hsih; [ cbn; lia | exact We | exact Ae ].
       * apply Hsih; [ cbn; lia | exact Hwr | exact Har ].
     + inversion H; subst. exact I.
+  - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
 Qed.
 
@@ -4694,13 +4838,14 @@ Qed.
 Lemma lspine_fuel3 : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (3 * esize e).
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. clear H. rewrite pairs_fuel_snoc.
       pose proof (IHl _ _ _ _ El) as IH. cbn [esize]. lia.
     + inversion H; subst. cbn [esize pairs_fuel]. lia.
+  - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
 Qed.
 
@@ -4709,9 +4854,9 @@ Qed.
 Lemma lspine_base : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> wf e -> atomic_tree e ->
   wf base /\ atomic_tree base /\
-  match base with EAtom _ => True | EUnary _ _ => True | EBin o' _ _ => binop_prec o' < bfl end.
+  match base with EAtom _ => True | EUnary _ _ => True | EForceCall _ _ _ _ => True | EBin o' _ _ => binop_prec o' < bfl end.
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H Hwf Hat.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps H Hwf Hat.
   - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
     split; [ exact Hwf | split; [ exact Hat | exact I ] ].
   - cbn in H. cbn [wf atomic_tree] in Hwf, Hat. destruct Hwf as [ Hwl Hwr ]. destruct Hat as [ Hal Har ].
@@ -4723,16 +4868,19 @@ Proof.
       apply Nat.leb_gt in Eleb. exact Eleb.
   - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
     split; [ exact Hwf | split; [ exact Hat | exact I ] ].
+  - cbn in H. inversion H; subst. cbn [wf atomic_tree] in *.
+    split; [ exact Hwf | split; [ exact Hat | exact I ] ].
 Qed.
 
 Lemma lspine_base_le : forall e fl bfl base ps, lspine fl e = (bfl, base, ps) -> esize base <= esize e.
 Proof.
-  induction e as [ s | o l IHl r IHr | o e0 IHe ]; intros fl bfl base ps H.
+  induction e as [ s | o l IHl r IHr | o e0 IHe | p r b IHb a IHa ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. destruct (Nat.leb fl (binop_prec o)) eqn:Eleb.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. pose proof (IHl _ _ _ _ El). cbn [esize]. lia.
     + inversion H; subst. cbn [esize]. lia.
+  - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
 Qed.
 
@@ -4947,7 +5095,7 @@ Qed.
 Lemma print_expr_first : forall e ctx,
   exists c r, print_expr ctx e = String c r /\ Ascii.eqb c (ch 41) = false.
 Proof.
-  induction e as [ a | o l IHl r IHr | op e IHe ]; intro ctx.
+  induction e as [ a | o l IHl r IHr | op e IHe | p r b IHb a IHa ]; intro ctx.
   - rewrite print_expr_atom. destruct a as [ sa | v ].
     + change (atom_str (AScanned sa)) with (satom_str sa).
       pose proof (satom_atomic sa) as Hat.
@@ -4967,6 +5115,8 @@ Proof.
       | rewrite (print_expr_unary UAddr e ctx ltac:(discriminate))
       | rewrite (print_expr_uneg e ctx) ];
       cbn [unop_text String.append]; eexists _, _; split; reflexivity.
+  - (* EForceCall — prints "func(..." (leading 'f', not ')') *)
+    cbn [print_expr String.append]; eexists _, _; split; reflexivity.
 Qed.
 (** A non-empty arg list is never ')'-led — it begins with its first argument's print ([print_expr_first]). *)
 Lemma argl_str_first : forall args, args <> ANil ->
@@ -5753,14 +5903,14 @@ Qed.
 Lemma parse_primary_base : forall n base bfl TAIL F, esize base <= n ->
   (forall e', esize e' < esize base -> wf e' -> atomic_tree e' -> Pexpr e') ->
   wf base -> atomic_tree base -> Pexpr base ->
-  match base with EAtom _ => True | EUnary _ _ => True | EBin o' _ _ => binop_prec o' < bfl end ->
+  match base with EAtom _ => True | EUnary _ _ => True | EForceCall _ _ _ _ => True | EBin o' _ _ => binop_prec o' < bfl end ->
   good_seam TAIL = true -> 3 * esize base + 3 < F ->
   parse_primary F (print_expr bfl base ++ TAIL)%string = Some (base, TAIL).
 Proof.
   induction n as [ | n IHn ]; intros base bfl TAIL F Hn Hsih Hwf Hat Hpr Hprim Hgs HF.
-  - destruct base as [ s | o' l' r' | op e ]; cbn [esize] in Hn;
-      [ pose proof (gsize_pos s); lia | lia | lia ].
-  - destruct base as [ s | o' l' r' | op e ].
+  - destruct base as [ s | o' l' r' | op e | p rt bd ag ]; cbn [esize] in Hn;
+      [ pose proof (gsize_pos s); lia | lia | lia | lia ].
+  - destruct base as [ s | o' l' r' | op e | p rt bd ag ].
     + cbn [print_expr]. destruct F as [ | f ]; [ cbn in HF; lia | ].
       destruct s as [ sc | rs ].
       * cbn [atomic_tree atomic_atom] in Hat. destruct Hat as [ Hatm [ Hdis Hasat ] ].
@@ -5796,7 +5946,7 @@ Proof.
                    ltac:(intros e' He' We Ae; apply Hsih; [ cbn [esize]; lia | exact We | exact Ae ])
                    Hwf Hat
                    ltac:(apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ])
-                   ltac:(destruct e as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                   ltac:(destruct e as [ ? | o'' ? ? | ? ? | ? ? ? ? ]; [ exact I | apply binop_prec_lt6 | exact I | exact I ])
                    Hgs
                    ltac:(cbn [esize] in HF; lia)).
         reflexivity. }
@@ -5812,6 +5962,8 @@ Proof.
       assert (HPe : Pexpr e) by (apply Hsih; [ cbn [esize]; lia | exact Hwf | exact Hat ]).
       rewrite (HPe 0 0 (")" ++ TAIL)%string f (Nat.le_0_l _) Htl0 ltac:(cbn [esize] in HF |- *; lia)).
       cbn [append]. reflexivity.
+    + (* EForceCall — non-atomic, atomic_tree is False (excluded from this atomic round-trip) *)
+      cbn [atomic_tree] in Hat. contradiction.
 Qed.
 
 (** THE UNIVERSAL ROUND-TRIP — by strong induction on tree size.  [Hunwr] proves the cases where [e]
@@ -5822,11 +5974,11 @@ Qed.
 Lemma print_parse_expr_n : forall n e, esize e <= n -> wf e -> atomic_tree e -> Pexpr e.
 Proof.
   induction n as [ | n IH ]; intros e Hsz Hwf Hat;
-    [ destruct e as [ s | | ]; cbn [esize] in Hsz; [ pose proof (gsize_pos s); lia | lia | lia ] | ].
+    [ destruct e as [ s | | | ]; cbn [esize] in Hsz; [ pose proof (gsize_pos s); lia | lia | lia | lia ] | ].
   assert (Hunwr : forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e < F ->
-            match e with EAtom _ => True | EUnary _ _ => True | EBin o _ _ => ctx <= binop_prec o end ->
+            match e with EAtom _ => True | EUnary _ _ => True | EForceCall _ _ _ _ => True | EBin o _ _ => ctx <= binop_prec o end ->
             parse_expr F k (print_expr ctx e ++ rest) = Some (e, rest)).
-  { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r | op e0 ].
+  { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ s | o l r | op e0 | p rt bd ag ].
     - (* EAtom s — split: a STRING LITERAL via [parse_primary_strlit], any other atom via [_scanned] *)
       cbn [print_expr].
       destruct F as [ | f0 ]; [ cbn [esize] in HF; lia | ].
@@ -5892,7 +6044,7 @@ Proof.
                      ltac:(intros e' He' We Ae; apply (IH e'); [ cbn [esize] in Hsz; lia | exact We | exact Ae ])
                      Hwf Hat
                      ltac:(apply (IH e0); [ cbn [esize] in Hsz; lia | exact Hwf | exact Hat ])
-                     ltac:(destruct e0 as [ ? | o'' ? ? | ? ? ]; [ exact I | apply binop_prec_lt6 | exact I ])
+                     ltac:(destruct e0 as [ ? | o'' ? ? | ? ? | ? ? ? ? ]; [ exact I | apply binop_prec_lt6 | exact I | exact I ])
                      Hgs ltac:(cbn [esize] in HF; lia)).
           reflexivity. }
         rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl. }
@@ -5911,9 +6063,10 @@ Proof.
         rewrite ((IH e0 ltac:(cbn [esize] in Hsz; lia) Hwf Hat) 0 0 (")" ++ rest)%string f2 (Nat.le_0_l _) Htl0
                    ltac:(cbn [esize] in HF |- *; lia)).
         cbn [append]. reflexivity. }
-      rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl. }
+      rewrite parse_expr_S, Hpp. apply tail_ok_climb_stop. exact Htl.
+    - (* EForceCall — non-atomic, atomic_tree is False *) cbn [atomic_tree] in Hat; contradiction. }
   unfold Pexpr. intros k ctx rest F Hk Htl HF.
-  destruct e as [ s | o l r | op e0 ].
+  destruct e as [ s | o l r | op e0 | p rt bd ag ].
   - apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
   - destruct (Nat.ltb (binop_prec o) ctx) eqn:Ewrap.
     + (* wrapped *)
@@ -5939,6 +6092,7 @@ Proof.
                    | apply Nat.ltb_ge in Ewrap; exact Ewrap ].
   - (* EUnary op e0 — never ctx-wrapped (a primary), so [Hunwr] applies directly. *)
     apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
+  - (* EForceCall — non-atomic, atomic_tree is False *) cbn [atomic_tree] in Hat; contradiction.
 Qed.
 
 (** The headline.  [wf e] holds for EVERY [e] by construction ([wf_always]: [EAtom] carries an [Atom] with
@@ -6001,6 +6155,10 @@ Proof.
            rewrite slen_app; cbn [unop_text String.length]; specialize (IHe 6); lia).
     (* UNeg prints "-(" ++ print 0 e ++ ")" — 3 chars over the operand, absorbed by the factor 2 *)
     rewrite print_expr_uneg, !slen_app. cbn [String.length]. specialize (IHe 0). lia.
+  - (* EForceCall params ret body args — the print is long ("func(...) ret { return <body>}(<args>)"),
+       so esize = body+args+2 sits well under 2*length+1. *)
+    intros params ret body IHbody args IHargs ctx. cbn [esize print_expr].
+    rewrite !slen_app. cbn [String.length]. specialize (IHbody 0). lia.
   - (* AScanned sa *) intros sa IHsa. cbn [gsize atom_str]. exact IHsa.
   - (* AStringLit v *) intros v. cbn [gsize atom_str]. lia.
   - (* SIdent i *) intros i. cbn [asize satom_str]. lia.
@@ -6081,7 +6239,7 @@ Definition build_apply (callee : GoExpr) (args : list GoExpr) : option GoExpr :=
   end.
 Lemma build_apply_atomic_tree : forall callee args e, build_apply callee args = Some e -> atomic_tree e.
 Proof.
-  intros callee args e H. unfold build_apply in H. destruct callee as [ [ sa | v ] | | ]; try discriminate H.
+  intros callee args e H. unfold build_apply in H. destruct callee as [ [ sa | v ] | | | ]; try discriminate H.
   destruct (atomic_tree_b (EAtom (AScanned (SApply sa (list_to_argl args))))) eqn:Eb; [ | discriminate H ].
   injection H as <-. apply (proj1 atomic_tree_b_refl). exact Eb.
 Qed.
@@ -6245,7 +6403,7 @@ Qed.
     [EBin]'s leading run is its left operand's (the operator text is space-led). *)
 Lemma print_expr_leading_not_return : forall e ctx, leading_ident (print_expr ctx e) <> "return"%string.
 Proof.
-  induction e as [ a | o l IHl r IHr | op e IHe ]; intro ctx.
+  induction e as [ a | o l IHl r IHr | op e IHe | p r b IHb a IHa ]; intro ctx.
   - rewrite print_expr_atom. destruct a as [ sa | v ].
     + change (atom_str (AScanned sa)) with (satom_str sa). apply satom_leading_not_return.
     + change (atom_str (AStringLit v)) with (print_string_lit v).
@@ -6268,6 +6426,9 @@ Proof.
       | rewrite (print_expr_unary UAddr e ctx ltac:(discriminate))
       | rewrite (print_expr_uneg e ctx) ];
       cbn [unop_text leading_ident]; discriminate.
+  - (* EForceCall — leading ident is "func", never "return" *)
+    assert (Hl : leading_ident (print_expr ctx (EForceCall p r b a)) = "func"%string) by reflexivity.
+    rewrite Hl. discriminate.
 Qed.
 
 (** [strip p s = Some r] means [s = p ++ r] (a literal prefix peeled off). *)
@@ -6314,14 +6475,6 @@ Fixpoint print_stmts (ss : list GoStmt) : string :=
   | nil       => ""
   | s :: nil  => print_stmt s
   | s :: rest => print_stmt s ++ "; " ++ print_stmts rest
-  end.
-
-(** A func-lit parameter list [x T, y T] — each [name type] pair, ", "-separated. *)
-Fixpoint print_params (ps : list (Ident * GoTy)) : string :=
-  match ps with
-  | nil            => ""
-  | (x, t) :: nil  => proj1_sig x ++ " " ++ print_ty t
-  | (x, t) :: rest => proj1_sig x ++ " " ++ print_ty t ++ ", " ++ print_params rest
   end.
 
 (** A FUNC-LITERAL: parameters, a (single) result type, a statement body.  This is the A4 force-wrapper's
