@@ -225,9 +225,9 @@ Legacy:    plugin/go.ml lowering is trusted and transitional.
 New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architecture.
 Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
            EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
-Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment/var/if/for/
-           return/…) + the parked EConv.  (Whole-program emitter faithfulness, print_program_inj,
-           landed 34e4a6c.)
+Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment, var, control
+           flow) + the parked EConv.  (Emitter faithfulness print_program_inj landed 34e4a6c;
+           2nd statement form GsReturn landed 6e2ba11.)
 ```
 
 ---
@@ -257,8 +257,10 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > **Phase 4 (grow the AST/printer) is now underway:** (f2b6003) added a `GoStmt` AST + a real `func main` body
 > — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`; then (34e4a6c) proved the EMITTER
 > FAITHFUL — `print_program_inj`: distinct `GoAst.Program`s emit distinct Go source (via `no_nl_gprint` + a
-> newline delimiter-split, the float-hex `no_p`/`split_p` technique). Still ahead in Phase 4: more `GoStmt`
-> forms (assignment/var/if/for/return/…) and the parked `EConv`. All golden byte-identical, zero axioms. The legacy
+> newline delimiter-split, the float-hex `no_p`/`split_p` technique); then (6e2ba11) added the 2nd statement
+> form `GsReturn` (`print_stmt_inj` now multi-constructor, the `GsExprStmt`/`GsReturn` cross case closed by
+> `gprint_neq_return` — "return" doesn't lex). Still ahead in Phase 4: more `GoStmt` forms (assignment, var,
+> control flow) and the parked `EConv`. All golden byte-identical, zero axioms. The legacy
 > `plugin/go.ml` still calls the extracted `Printer.gprint` flat (transitional). Every "Front" below names that
 > now-retired seed (the completed migration's source), NOT a current structure.
 
@@ -287,8 +289,9 @@ add "future foundation" unless it replaces or deletes something.**
   represented in `GoAst`, printed in `GoPrint`, round-tripped / injectivity-proven, used by a small example.
   No raw constructors. No string-splitting in place of a lexer/parser. Landed: `GoStmt` + `GsExprStmt` (a real
   `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program emitter faithfulness
-  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split). Next: more `GoStmt` forms
-  (assignment/var/if/for/return/…); the parked `EConv` / `ConvTy` conversion work re-lands HERE inside
+  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split); the 2nd statement form
+  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`). Next: more `GoStmt` forms
+  (assignment, var, control flow); the parked `EConv` / `ConvTy` conversion work re-lands HERE inside
   `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
