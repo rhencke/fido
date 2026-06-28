@@ -156,14 +156,15 @@ Inductive ConvTy : Type :=
 Definition convty_ty (c : ConvTy) : GoTy :=
   match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
 
-(** ---- GO STATEMENTS ---- the body of [func main].  PHASE-3 seed (ARCHITECTURE.md §11): one form, an
-    EXPRESSION STATEMENT [GsExprStmt e] (e.g. a function call [f(args)]) — it reuses the machine-checked
-    expression printer [gprint], so the certified emitter prints a REAL statement built from the verified AST,
-    not a hardcoded line.  Like [GExpr] this is SYNTAX only: it can represent a non-call expr statement
-    (illegal Go) — that is GoSafe's concern, not the AST's.  Grows (assignment / var / if / for / return / …)
-    form-by-form, each new constructor reusing the verified expression layer. *)
+(** ---- GO STATEMENTS ---- the body of [func main].  PHASE-4 (ARCHITECTURE.md §11), grown form-by-form, each
+    constructor reusing the verified expression layer: [GsExprStmt e] is an EXPRESSION STATEMENT (e.g. a call
+    [f(args)]) — it reuses the machine-checked printer [gprint]; [GsReturn] is a bare [return] (no value),
+    valid as the tail of a void func like [main].  Like [GExpr] this is SYNTAX only: it can represent a
+    non-call expr statement (illegal Go) — that is GoSafe's concern, not the AST's.  Grows (assignment / var /
+    if / for / …) further. *)
 Inductive GoStmt : Type :=
-  | GsExprStmt : GExpr -> GoStmt.  (* an expression used as a statement, e.g. a function call [f(a, b)] *)
+  | GsExprStmt : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
+  | GsReturn   : GoStmt.           (* a bare [return] (no value) — valid as the tail of a void func like main *)
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured

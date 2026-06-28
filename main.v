@@ -21,7 +21,8 @@ Import ListNotations.
 Definition spine_prog : GoAst.Program :=
   GoAst.mkProgram (GoAst.mkIdent "main"%string eq_refl)
                   [GoAst.GsExprStmt (GoAst.ECall (GoAst.EId (GoAst.mkIdent "println"%string eq_refl))
-                                                 [GoAst.EInt 1])].
+                                                 [GoAst.EInt 1]);
+                   GoAst.GsReturn].
 Lemma spine_supported : GoSafe.SupportedProgram spine_prog. Proof. reflexivity. Qed.
 Definition spine_cert : GoEmit.EmittableProgram := GoEmit.mkEmittable spine_prog spine_supported.
 Definition spine_emit : string := GoEmit.emit_supported spine_cert.

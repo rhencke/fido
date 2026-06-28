@@ -3368,7 +3368,7 @@ Qed.
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=
-  match s with GsExprStmt e => gprint 0 e end.
+  match s with GsExprStmt e => gprint 0 e | GsReturn => "return" end.
 Fixpoint print_stmts (ss : list GoStmt) : string :=
   match ss with
   | nil => ""
@@ -3378,12 +3378,27 @@ Definition print_program (p : Program) : string :=
   ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
 
+(** No [gprint] output is the bare keyword "return": it would have to lex+parse back to that expression
+    ([parse_print_roundtrip]), but "return" is a Go keyword and does NOT lex ([parse_str "return" = None]) —
+    so the round-trip would equate [None] with [Some _].  This is what keeps [GsReturn] disjoint from
+    [GsExprStmt] at the printer level (no ad-hoc "gprint contains no …" string surgery). *)
+Lemma gprint_neq_return : forall e, gprint 0 e <> "return"%string.
+Proof.
+  intros e H. pose proof (parse_print_roundtrip e) as R. rewrite H in R. vm_compute in R. discriminate R.
+Qed.
+
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  For the single expression-statement form it lifts directly from [gprint_inj].
-    (The list-level / whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is
-    proved just below as [print_program_inj].) *)
+    print to distinct text.  Expression statements lift from [gprint_inj]; the [GsExprStmt] vs [GsReturn]
+    cross case is closed by [gprint_neq_return].  (The list-level / whole-[print_program] lift — via a
+    "gprint emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
-Proof. intros [e1] [e2] H. simpl in H. f_equal. exact (gprint_inj e1 e2 H). Qed.
+Proof.
+  intros [e1| ] [e2| ] H; simpl in H.
+  - f_equal. exact (gprint_inj e1 e2 H).
+  - exfalso. exact (gprint_neq_return e1 H).
+  - exfalso. symmetry in H. exact (gprint_neq_return e2 H).
+  - reflexivity.
+Qed.
 
 (** ============================================================================
     PROGRAM-PRINTER FAITHFULNESS — [print_program] is INJECTIVE: distinct programs emit distinct Go source
@@ -3529,7 +3544,7 @@ Proof.
       | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply no_nl_print_ty | no_nl_lit ] ] ].
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
-Proof. intros [e]. simpl. apply no_nl_gprint. Qed.
+Proof. intros [e| ]; simpl; [ apply no_nl_gprint | no_nl_lit ]. Qed.
 
 (** delimiter-split + append-cancel infrastructure (mirrors [split_p_app]). *)
 Lemma sapp_inv_head : forall p a b, (p ++ a)%string = (p ++ b)%string -> a = b.
