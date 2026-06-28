@@ -3380,8 +3380,8 @@ Definition print_program (p : Program) : string :=
 
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
     print to distinct text.  For the single expression-statement form it lifts directly from [gprint_inj].
-    (List-level / whole-[print_program] injectivity needs a "gprint emits no newline" delimiter argument — it
-    is the next step, NOT claimed here.) *)
+    (The list-level / whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is
+    proved just below as [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof. intros [e1] [e2] H. simpl in H. f_equal. exact (gprint_inj e1 e2 H). Qed.
 
