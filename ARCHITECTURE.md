@@ -223,7 +223,8 @@ Honest current status:
 ```text
 Legacy:    plugin/go.ml lowering is trusted and transitional.
 New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architecture.
-Goal now:  make small programs constructible as GoAst and emittable only through EmittableProgram.
+Landed:    a tiny GoAst.Program IS constructible and emittable ONLY through EmittableProgram (commit 2).
+Goal now:  grow GoAst.Program (a GoStmt AST -> a real func main body) so emit prints non-trivial programs.
 ```
 
 ---
@@ -245,25 +246,27 @@ Do not spend time on relooper integration until the AST-first emission path exis
 
 ## 7. Immediate refactor direction
 
-> **STATUS (2026-06-28): Phases 0–1 are DONE.** The charter is committed; `goprint.v`/`Module Front` have
-> been SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer), golden byte-identical, zero axioms
-> (spine commit 1). The legacy `plugin/go.ml` still calls the extracted `Printer.gprint` flat. Every "Front"
-> below names that now-retired seed (the completed migration's source), NOT a current structure. **Phase 2
-> (GoSafe/GoEmit) is next.**
+> **STATUS (2026-06-28): Phases 0–2 are DONE.** The charter is committed; `goprint.v`/`Module Front` were
+> SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer) (spine commit 1, f7d9383); then `GoSafe.v`
+> (`SupportedProgram`) + `GoEmit.v` (`EmittableProgram` + `emit_supported`, no raw `emit : Program -> string`)
+> landed with a tiny `GoAst.Program` and the first proof-gated certified emission (spine commit 2, 32af69f).
+> All golden byte-identical, zero axioms. The legacy `plugin/go.ml` still calls the extracted `Printer.gprint`
+> flat (transitional). Every "Front" below names that now-retired seed (the completed migration's source), NOT
+> a current structure. **Phase 3 is next** — grow `GoAst.Program` (a `GoStmt` AST → a real `func main` body)
+> so the certified emitter prints non-trivial programs (and re-land the parked `EConv` in `GoAst`/`GoPrint`).
 
 Not a giant rewrite in one patch. Proceed in small, structural steps. Every patch should either: move a
 concept into the correct module, delete an old wrong path, make a bad path unreachable, create/strengthen
 the proof-gated emission boundary, or shrink trusted legacy code. **Do not add parallel universes. Do not
 add "future foundation" unless it replaces or deletes something.**
 
-- **Phase 0 — Freeze the direction.** Commit this charter. Add a short status ledger to `PROGRESS.md`
-  pointing here.
-- **Phase 1 — Extract `Front` into `GoAst`/`GoPrint`.** `Front` is a migration name. Move the syntax into
-  `GoAst.v`, the printer/parser/round-trip into `GoPrint.v`. Do not leave `Front` as a second expression
-  universe. First version need not cover all of Go — honest, structured, live enough for small examples.
-- **Phase 2 — Create `GoSafe.v` + `GoEmit.v` early**, before safety is ambitious. Even if
-  `SupportedProgram` initially means only "supported subset," create the gate now. The invariant that must
-  hold immediately: **the official emitter accepts only `EmittableProgram` (later `SafeProgram`).**
+- **Phase 0 — Freeze the direction. ✅ DONE (cf5fea2).** Charter committed; PROGRESS.md ledger points here.
+- **Phase 1 — Extract the `Front` seed into `GoAst`/`GoPrint`. ✅ DONE (commit 1, f7d9383).** The syntax
+  moved into `GoAst.v`, the printer/parser/round-trip into `GoPrint.v`; `Module Front` retired — no second
+  expression universe. (`Front` was the migration name for the pre-split seed.)
+- **Phase 2 — Create `GoSafe.v` + `GoEmit.v` early. ✅ DONE (commit 2, 32af69f).** `SupportedProgram` is the
+  Phase-1 syntactic gate; the invariant holds: **the official emitter accepts only `EmittableProgram` (later
+  `SafeProgram`)** — there is no raw `emit : Program -> string`.
 - **Phase 3 — `main.v` builds Go AST programs** and emits ONLY through the blessed path:
   ```coq
   Definition p_raw  : GoAst.Program := ...
