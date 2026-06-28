@@ -2,8 +2,8 @@
 # Smart-constructor gate (external review #4 directive; review #5 widened it to ALL plugin OCaml).
 #
 # The extracted [Printer] exposes proof-carrying constructors that erase their Rocq validity proof to a bare
-# string in OCaml: [GTNamed] (a type name, [nominal_type_ident s = true]) and [Front.EId] (an expression
-# identifier, [go_ident s = true]).  A DIRECT [Printer.GTNamed s] / [Printer.Front.EId s] would inject a name
+# string in OCaml: [GTNamed] (a type name, [nominal_type_ident s = true]) and [EId] (an expression
+# identifier, [go_ident s = true]).  A DIRECT [Printer.GTNamed s] / [Printer.EId s] would inject a name
 # the verified round-trips ([parse_print_ty] / [parse_print_roundtrip]) never proved valid — re-opening the
 # hand-written-printer trust hole through a side door.  (The old expression-printer constructors SIdent /
 # SIntLit / SRaw / SSelector / AScanned / AStringLit were DELETED with the SRaw overlay teardown — see
@@ -11,7 +11,7 @@
 #
 # The [mk_named_ty] / [mk_goexpr_id] smart constructors (the SMART-CONSTRUCTORS block of plugin/go.ml) are
 # the SOLE sanctioned construction sites: each re-checks its predicate and fail-louds / returns None
-# otherwise.  This gate asserts NOTHING ELSE constructs [GTNamed] or [Front.EId] directly — scanning EVERY
+# otherwise.  This gate asserts NOTHING ELSE constructs [GTNamed] or [EId] directly — scanning EVERY
 # hand-written plugin OCaml file (go.ml AND the .mlg vernac glue), not just go.ml, so a future helper file
 # cannot reopen the hole (review #5 item 4).  The GENERATED plugin/printer.ml DEFINES the constructors, so it
 # is the one file excluded.
@@ -50,17 +50,17 @@ offenders=$(awk '
   FNR==1 { s=0 }
   /SMART-CONSTRUCTORS-BEGIN/{s=1}
   /SMART-CONSTRUCTORS-END/{s=0; next}
-  !s && /Printer\.GTNamed|Printer\.Front\.EId/ {print FILENAME ":" FNR ": " $0}
+  !s && /Printer\.GTNamed|Printer\.EId/ {print FILENAME ":" FNR ": " $0}
 ' $files)
 
 if [ -n "$offenders" ]; then
-  echo "fido: SMART-CTOR GATE — direct proof-carrying Printer.GTNamed / Printer.Front.EId OUTSIDE the smart-constructor block:"
+  echo "fido: SMART-CTOR GATE — direct proof-carrying Printer.GTNamed / Printer.EId OUTSIDE the smart-constructor block:"
   echo "$offenders"
   echo "fido: construct via mk_named_ty / mk_goexpr_id (which re-check the erased nominal_type_ident / go_ident invariant), never the raw constructor."
   exit 1
 fi
 
-echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.Front.EId outside the block ✓"
+echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId outside the block ✓"
 
 # ---- RECURRENCE / RAW-SYNTAX TRIPWIRE (external review checklist #3 + ARCHITECTURE.md §8 Rule 1): two name
 # sets must never appear in ACTIVE code.  (1) The torn-down SRaw verified-EXPRESSION-printer overlay and its

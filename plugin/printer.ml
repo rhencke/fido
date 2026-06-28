@@ -1076,6 +1076,45 @@ type goTy =
 | GTMap of goTy * goTy
 | GTNamed of tyName
 
+type binOp =
+| BMul
+| BDiv
+| BRem
+| BShl
+| BShr
+| BAnd
+| BAndNot
+| BAdd
+| BSub
+| BOr
+| BXor
+| BEq
+| BNe
+| BLt
+| BLe
+| BGt
+| BGe
+| BLAnd
+| BLOr
+
+type unaryOp =
+| UNot
+| UXor
+| UDeref
+| UAddr
+| UNeg
+
+type gExpr =
+| EId of ident
+| EInt of z
+| EUn of unaryOp * gExpr
+| EBn of binOp * gExpr * gExpr
+| ESel of gExpr * ident
+| EIndex of gExpr * gExpr
+| ESlice of gExpr * gExpr * gExpr
+| ECall of gExpr * gExpr list
+| EAssert of gExpr * goTy
+
 (** val print_ty : goTy -> string **)
 
 let rec print_ty = function
@@ -1467,27 +1506,6 @@ let print_float_hex sign mant exp =
       (append (String ((Ascii (False, False, False, False, True, True, True,
         False)), EmptyString)) (print_Z exp)))
 
-type binOp =
-| BMul
-| BDiv
-| BRem
-| BShl
-| BShr
-| BAnd
-| BAndNot
-| BAdd
-| BSub
-| BOr
-| BXor
-| BEq
-| BNe
-| BLt
-| BLe
-| BGt
-| BGe
-| BLAnd
-| BLOr
-
 (** val binop_prec : binOp -> nat **)
 
 let binop_prec = function
@@ -1613,13 +1631,6 @@ let binop_text = function
     (String ((Ascii (False, False, False, False, False, True, False, False)),
     EmptyString)))))))
 
-type unaryOp =
-| UNot
-| UXor
-| UDeref
-| UAddr
-| UNeg
-
 (** val unop_text : unaryOp -> string **)
 
 let unop_text = function
@@ -1648,133 +1659,118 @@ let rec print_sep sep = function
    | Nil -> x
    | Cons (_, _) -> append x (append sep (print_sep sep xs')))
 
-module Front =
- struct
-  type coq_GExpr =
-  | EId of ident
-  | EInt of z
-  | EUn of unaryOp * coq_GExpr
-  | EBn of binOp * coq_GExpr * coq_GExpr
-  | ESel of coq_GExpr * ident
-  | EIndex of coq_GExpr * coq_GExpr
-  | ESlice of coq_GExpr * coq_GExpr * coq_GExpr
-  | ECall of coq_GExpr * coq_GExpr list
-  | EAssert of coq_GExpr * goTy
+(** val op_needs_paren : gExpr -> bool **)
 
-  (** val op_needs_paren : coq_GExpr -> bool **)
+let op_needs_paren = function
+| EUn (_, _) -> True
+| EBn (_, _, _) -> True
+| _ -> False
 
-  let op_needs_paren = function
-  | EUn (_, _) -> True
-  | EBn (_, _, _) -> True
-  | _ -> False
+(** val gprint : nat -> gExpr -> string **)
 
-  (** val gprint : nat -> coq_GExpr -> string **)
-
-  let rec gprint ctx = function
-  | EId i -> i
-  | EInt z0 -> print_Z z0
-  | EUn (o, e0) ->
-    (match o with
-     | UNeg ->
-       append (String ((Ascii (True, False, True, True, False, True, False,
-         False)), (String ((Ascii (False, False, False, True, False, True,
-         False, False)), EmptyString))))
+let rec gprint ctx = function
+| EId i -> i
+| EInt z0 -> print_Z z0
+| EUn (o, e0) ->
+  (match o with
+   | UNeg ->
+     append (String ((Ascii (True, False, True, True, False, True, False,
+       False)), (String ((Ascii (False, False, False, True, False, True,
+       False, False)), EmptyString))))
+       (append (gprint O e0) (String ((Ascii (True, False, False, True,
+         False, True, False, False)), EmptyString)))
+   | _ ->
+     append (unop_text o)
+       (append (String ((Ascii (False, False, False, True, False, True,
+         False, False)), EmptyString))
          (append (gprint O e0) (String ((Ascii (True, False, False, True,
-           False, True, False, False)), EmptyString)))
-     | _ ->
-       append (unop_text o)
-         (append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))))
-  | EBn (o, l, r) ->
-    let p = binop_prec o in
-    let inner = append (gprint p l) (append (binop_text o) (gprint (S p) r))
-    in
-    (match Nat.ltb p ctx with
+           False, True, False, False)), EmptyString)))))
+| EBn (o, l, r) ->
+  let p = binop_prec o in
+  let inner = append (gprint p l) (append (binop_text o) (gprint (S p) r)) in
+  (match Nat.ltb p ctx with
+   | True ->
+     append (String ((Ascii (False, False, False, True, False, True, False,
+       False)), EmptyString))
+       (append inner (String ((Ascii (True, False, False, True, False, True,
+         False, False)), EmptyString)))
+   | False -> inner)
+| ESel (e0, f) ->
+  append
+    (match op_needs_paren e0 with
      | True ->
        append (String ((Ascii (False, False, False, True, False, True, False,
          False)), EmptyString))
-         (append inner (String ((Ascii (True, False, False, True, False,
-           True, False, False)), EmptyString)))
-     | False -> inner)
-  | ESel (e0, f) ->
-    append
-      (match op_needs_paren e0 with
-       | True ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | False -> gprint O e0)
-      (append (String ((Ascii (False, True, True, True, False, True, False,
-        False)), EmptyString)) f)
-  | EIndex (e0, i) ->
-    append
-      (match op_needs_paren e0 with
-       | True ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | False -> gprint O e0)
-      (append (String ((Ascii (True, True, False, True, True, False, True,
-        False)), EmptyString))
-        (append (gprint O i) (String ((Ascii (True, False, True, True, True,
-          False, True, False)), EmptyString))))
-  | ESlice (e0, lo, hi) ->
-    append
-      (match op_needs_paren e0 with
-       | True ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | False -> gprint O e0)
-      (append (String ((Ascii (True, True, False, True, True, False, True,
-        False)), EmptyString))
-        (append (gprint O lo)
-          (append (String ((Ascii (False, True, False, True, True, True,
-            False, False)), EmptyString))
-            (append (gprint O hi) (String ((Ascii (True, False, True, True,
-              True, False, True, False)), EmptyString))))))
-  | ECall (e0, args) ->
-    append
-      (match op_needs_paren e0 with
-       | True ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | False -> gprint O e0)
-      (append (String ((Ascii (False, False, False, True, False, True, False,
-        False)), EmptyString))
-        (append
-          (match args with
-           | Nil -> EmptyString
-           | Cons (a, r) ->
-             append (gprint O a)
-               (let rec gat = function
-                | Nil -> EmptyString
-                | Cons (b, m') ->
-                  append (String ((Ascii (False, False, True, True, False,
-                    True, False, False)), EmptyString))
-                    (append (gprint O b) (gat m'))
-                in gat r))
-          (String ((Ascii (True, False, False, True, False, True, False,
-          False)), EmptyString))))
-  | EAssert (e0, t) ->
-    append
-      (match op_needs_paren e0 with
-       | True ->
-         append (String ((Ascii (False, False, False, True, False, True,
-           False, False)), EmptyString))
-           (append (gprint O e0) (String ((Ascii (True, False, False, True,
-             False, True, False, False)), EmptyString)))
-       | False -> gprint O e0)
-      (append (String ((Ascii (False, True, True, True, False, True, False,
-        False)), (String ((Ascii (False, False, False, True, False, True,
-        False, False)), EmptyString))))
-        (append (print_ty t) (String ((Ascii (True, False, False, True,
-          False, True, False, False)), EmptyString))))
- end
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
+    (append (String ((Ascii (False, True, True, True, False, True, False,
+      False)), EmptyString)) f)
+| EIndex (e0, i) ->
+  append
+    (match op_needs_paren e0 with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
+    (append (String ((Ascii (True, True, False, True, True, False, True,
+      False)), EmptyString))
+      (append (gprint O i) (String ((Ascii (True, False, True, True, True,
+        False, True, False)), EmptyString))))
+| ESlice (e0, lo, hi) ->
+  append
+    (match op_needs_paren e0 with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
+    (append (String ((Ascii (True, True, False, True, True, False, True,
+      False)), EmptyString))
+      (append (gprint O lo)
+        (append (String ((Ascii (False, True, False, True, True, True, False,
+          False)), EmptyString))
+          (append (gprint O hi) (String ((Ascii (True, False, True, True,
+            True, False, True, False)), EmptyString))))))
+| ECall (e0, args) ->
+  append
+    (match op_needs_paren e0 with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
+    (append (String ((Ascii (False, False, False, True, False, True, False,
+      False)), EmptyString))
+      (append
+        (match args with
+         | Nil -> EmptyString
+         | Cons (a, r) ->
+           append (gprint O a)
+             (let rec gat = function
+              | Nil -> EmptyString
+              | Cons (b, m') ->
+                append (String ((Ascii (False, False, True, True, False,
+                  True, False, False)), EmptyString))
+                  (append (gprint O b) (gat m'))
+              in gat r))
+        (String ((Ascii (True, False, False, True, False, True, False,
+        False)), EmptyString))))
+| EAssert (e0, t) ->
+  append
+    (match op_needs_paren e0 with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
+    (append (String ((Ascii (False, True, True, True, False, True, False,
+      False)), (String ((Ascii (False, False, False, True, False, True,
+      False, False)), EmptyString))))
+      (append (print_ty t) (String ((Ascii (True, False, False, True, False,
+        True, False, False)), EmptyString))))

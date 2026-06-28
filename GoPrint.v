@@ -26,78 +26,9 @@ From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
 
-(** ---- IDENTIFIER VALIDITY (for nominal [GTNamed] types) ---- a Go identifier is [_A-Za-z][_A-Za-z0-9]*.
-    These come BEFORE [GoTy] because [GTNamed] carries a VALIDATED identifier ([Ident], a [sig]): the
-    validity is part of the TYPE, so an invalid nominal name (a keyword, or non-identifier text) is
-    UNREPRESENTABLE — not merely excluded by a side-condition theorem.  The would-be cycle ([valid_ident]
-    must reject type keywords, but the keyword→[GoTy] map [classify] needs [GoTy]) is broken by factoring
-    out [is_type_keyword]: the keyword SET is just strings, independent of [GoTy]; [classify] (below
-    [GoTy]) reuses that set to assign each keyword its type. *)
-Definition is_idc (c : ascii) : bool :=
-  let n := nat_of_ascii c in
-  orb (orb (andb (Nat.leb 48 n) (Nat.leb n 57)) (andb (Nat.leb 65 n) (Nat.leb n 90)))
-      (orb (andb (Nat.leb 97 n) (Nat.leb n 122)) (Nat.eqb n 95)).
-Definition is_idstart (c : ascii) : bool :=
-  let n := nat_of_ascii c in
-  orb (orb (andb (Nat.leb 65 n) (Nat.leb n 90)) (andb (Nat.leb 97 n) (Nat.leb n 122))) (Nat.eqb n 95).
-Fixpoint all_idc (s : string) : bool :=
-  match s with EmptyString => true | String c s' => andb (is_idc c) (all_idc s') end.
-(** Two [GoTy]-independent STRING keyword sets (so they gate the identifier predicates ahead of [GoTy]):
-    [is_type_keyword] is the 14 builtin scalar type names + [chan]/[map] (used for parser invertibility);
-    [go_keyword] is Go's 25 RESERVED WORDS — so an identifier is never a keyword ([func]/[return]/[var]/
-    [type]/[struct]/[interface]/[select]/… are rejected, which the old [valid_ident] wrongly accepted). *)
-Definition is_type_keyword (s : string) : bool :=
-  existsb (String.eqb s)
-    ["int64"; "int32"; "int16"; "int8"; "int"; "uint64"; "uint32"; "uint16"; "uint8"; "uint";
-     "bool"; "string"; "float64"; "float32"; "chan"; "map"].
-Definition go_keyword (s : string) : bool :=
-  existsb (String.eqb s)
-    ["break"; "case"; "chan"; "const"; "continue"; "default"; "defer"; "else"; "fallthrough"; "for";
-     "func"; "go"; "goto"; "if"; "import"; "interface"; "map"; "package"; "range"; "return";
-     "select"; "struct"; "switch"; "type"; "var"].
-(** A Go IDENTIFIER (for an [AIdent] atom): non-empty, [_A-Za-z]-led, all identifier chars, and NOT a Go
-    keyword.  A builtin type name like [int]/[string] IS a valid identifier (predeclared, shadowable —
-    Go allows [var int = 5]), so [go_ident] ACCEPTS it; only [nominal_type_ident] rejects it. *)
-Definition go_ident (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c _  => andb (andb (is_idstart c) (all_idc s)) (negb (go_keyword s))
-  end.
-(** A NOMINAL TYPE NAME (for a [GTNamed] tag): a [go_ident] that is additionally not a builtin type name
-    (nor [chan]/[map] — those are keywords) — so it print-parses back as [GTNamed], never as a scalar /
-    chan / map.  This is the parser-INVERTIBILITY refinement; [nominal_type_ident s -> go_ident s]. *)
-Definition nominal_type_ident (s : string) : bool := andb (go_ident s) (negb (is_type_keyword s)).
-(** The two validity-carrying sig types (validity IN THE TYPE — invalid names unrepresentable; both
-    extract to a bare [string], the proof erased): [Ident] for expression identifiers ([AIdent]),
-    [TyName] for nominal type names ([GTNamed]). *)
-Definition Ident : Type := { s : string | go_ident s = true }.
-Definition mkIdent (s : string) (H : go_ident s = true) : Ident := exist _ s H.
-Definition TyName : Type := { s : string | nominal_type_ident s = true }.
-Definition mkTyName (s : string) (H : nominal_type_ident s = true) : TyName := exist _ s H.
+(* SYNTAX lives in GoAst.v; this file (the old Module Front, now flattened) is GoPrint: printers + lexer + parser + round-trips. *)
+From Fido Require Import GoAst.
 
-(** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
-    tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
-    is exactly the kind of bug the verified printer rules out (it caught one in the first integration). *)
-Inductive GoTy : Type :=
-  | GTInt     : GoTy
-  | GTInt64   : GoTy
-  | GTBool    : GoTy
-  | GTString  : GoTy
-  | GTFloat64 : GoTy
-  | GTFloat32 : GoTy
-  | GTUint    : GoTy
-  | GTU8      : GoTy
-  | GTI8      : GoTy
-  | GTU16     : GoTy
-  | GTI16     : GoTy
-  | GTU32     : GoTy
-  | GTI32     : GoTy
-  | GTU64     : GoTy
-  | GTPtr     : GoTy -> GoTy
-  | GTSlice   : GoTy -> GoTy
-  | GTChan    : GoTy -> GoTy
-  | GTMap     : GoTy -> GoTy -> GoTy
-  | GTNamed   : TyName -> GoTy.
 
 (** The pretty-printer: a Go type to its source text. *)
 Fixpoint print_ty (t : GoTy) : string :=
@@ -681,15 +612,6 @@ Qed.
     precedence.  Consumed by [Module Front]'s [gprint] (the verified frontend below), which parenthesises a
     sub-expression exactly when its [binop_prec] is looser than the context.  (The plugin's trusted OCaml
     [pp_prec] renders the same binary-operator tree as strings; [Front] is being built to replace it.) *)
-Inductive BinOp : Type :=
-  (* Go precedence 5: *  /  %  <<  >>  &  &^ *)
-  | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot
-  (* Go precedence 4: +  -  |  ^ *)
-  | BAdd | BSub | BOr | BXor
-  (* Go precedence 3: ==  !=  <  <=  >  >= *)
-  | BEq | BNe | BLt | BLe | BGt | BGe
-  (* Go precedence 2 / 1: &&  || *)
-  | BLAnd | BLOr.
 
 (** Operator precedence and surface text DERIVED from the constructor — the single source of truth. *)
 Definition binop_prec (o : BinOp) : nat :=
@@ -715,7 +637,6 @@ Definition binop_text (o : BinOp) : string :=
     [UNeg] (unary [-]) prints PARENTHESISED — [-(x)] — because a bare [-x] would collide with the [-5]
     negative literal, and [Front]'s parser dispatches the unambiguous two-char prefix [-(] to it (the other
     four print bare). *)
-Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr | UNeg.
 Definition unop_text (o : UnaryOp) : string :=
   match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" | UNeg => "-" end.
 Definition is_space (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 32).  (* ' ' *)
@@ -731,7 +652,6 @@ Fixpoint print_sep (sep : string) (xs : list string) : string :=
                  | _ :: _ => (x ++ sep ++ print_sep sep xs')%string
                  end
   end.
-Module Front.
 
 (** ---- TOKENS ---- the lexer's output alphabet.  Ambiguous operator chars ([* & ^ -]) are ONE token each;
     the PARSER decides prefix(unary)/infix(binary) by position (Wirth: the scanner classifies, the parser
@@ -966,56 +886,6 @@ Proof. vm_compute; reflexivity. Qed.
     composite literals, and func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]]
     -- byte-identical, and the call/conversion distinction needs a type environment the parser does not have. *)
 
-(** ---- THE CLEAN AST ---- the Go expression grammar above, fully structured: every node is a typed form,
-    with NO raw/opaque string constructor (by construction it cannot represent unstructured text).  CORE + the
-    five postfix forms (grows toward conversions / composite-literals / func-lits).  Literals carry their value. *)
-Inductive GExpr : Type :=
-  | EId  : Ident -> GExpr
-  | EInt : Z -> GExpr
-  | EUn  : UnaryOp -> GExpr -> GExpr
-  | EBn  : BinOp -> GExpr -> GExpr -> GExpr
-  | ESel : GExpr -> Ident -> GExpr    (* postfix selector [e.field] — binds tighter than every operator *)
-  | EIndex : GExpr -> GExpr -> GExpr  (* postfix index [e[i]] — also a tightest-binding postfix form *)
-  | ESlice : GExpr -> GExpr -> GExpr -> GExpr  (* postfix two-index slice [e[lo:hi]] (both bounds present) *)
-  | ECall : GExpr -> list GExpr -> GExpr  (* postfix call [e(a1, .., an)] — the arg list is a [list GExpr] *)
-  | EAssert : GExpr -> GoTy -> GExpr.  (* postfix type assertion [e.(T)] — the type child is a [GoTy] *)
-
-(** Custom induction principle: the auto-generated [GExpr_ind] gives NO hypothesis for the elements of the
-    [ECall] argument list (a nested [list GExpr]), so structural recursion into the args is impossible.  This
-    recursor adds [Forall P args] for the [ECall] case (built by an inner list recursion), and mirrors the
-    auto principle's binder order for the other seven constructors so existing [induction e as [...]] proofs
-    keep working verbatim under [using GExpr_ind']. *)
-Fixpoint GExpr_ind' (P : GExpr -> Prop)
-  (fid  : forall i, P (EId i))
-  (fint : forall z, P (EInt z))
-  (fun_ : forall o e0, P e0 -> P (EUn o e0))
-  (fbn  : forall o l, P l -> forall r, P r -> P (EBn o l r))
-  (fsel : forall e0, P e0 -> forall f, P (ESel e0 f))
-  (fidx : forall e0, P e0 -> forall i, P i -> P (EIndex e0 i))
-  (fslc : forall e0, P e0 -> forall lo, P lo -> forall hi, P hi -> P (ESlice e0 lo hi))
-  (fcall : forall e0, P e0 -> forall args, List.Forall P args -> P (ECall e0 args))
-  (fassert : forall e0, P e0 -> forall T, P (EAssert e0 T))
-  (e : GExpr) : P e :=
-  match e with
-  | EId i  => fid i
-  | EInt z => fint z
-  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert l)
-                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert r)
-  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) f
-  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert i)
-  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert lo)
-                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert hi)
-  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) args
-      ((fix args_ind (l : list GExpr) : List.Forall P l :=
-          match l with
-          | nil => List.Forall_nil P
-          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert a) (args_ind r)
-          end) args)
-  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) T
-  end.
 
 (** A bare prefix operator applied DIRECTLY to another would be a LEXICAL hazard: [&] then [&] prints "&&"
     which the lexer maximal-munches to [TLand], and [&] then [^] prints "&^" -> [TAndNot] — a token MERGE on
@@ -3429,12 +3299,6 @@ Proof. vm_compute; reflexivity. Qed.
     [parse_gty] preceded the [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
     ambiguous with a deref and would need parentheses around the pointer type; primitives and named types are
     identifier-led, so they ARE the call form [ECall (EId T) [x]] already.) *)
-Inductive ConvTy : Type :=
-  | CTSlice : GoTy -> ConvTy          (* []T     *)
-  | CTChan  : GoTy -> ConvTy          (* chan T  *)
-  | CTMap   : GoTy -> GoTy -> ConvTy. (* map[K]V *)
-Definition convty_ty (c : ConvTy) : GoTy :=
-  match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
 Definition conv_print  (c : ConvTy) : string     := print_ty (convty_ty c).
 Definition conv_tokens (c : ConvTy) : list Token := gttokens_ty (convty_ty c).
 Definition conv_size   (c : ConvTy) : nat        := tsize (convty_ty c).
@@ -3480,10 +3344,9 @@ Proof. vm_compute; reflexivity. Qed.
 Example convr_mapslice : parse_convty 8 (conv_tokens (CTMap GTString (GTSlice GTInt))) = Some (CTMap GTString (GTSlice GTInt), nil).
 Proof. vm_compute; reflexivity. Qed.
 
-End Front.
 
 (** FAITHFULNESS — the type printer is INJECTIVE, derived from the SINGLE (token-level) type round-trip
-    [Front.parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (no [int64]/[bool],
+    [parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (no [int64]/[bool],
     [*int64]/[[]int64], [map[int]int]/[map[int8]int], or two distinct named types ever conflated; a keyword-
     prefixed name [int8x] never confused with the keyword [int8]; a keyword [int] never a nominal name).  The
     old string-level prefix parser [parse_ty]/[parse_print_ty] is GONE — its only consumer was this corollary,
@@ -3491,8 +3354,8 @@ End Front.
 Theorem print_ty_inj : forall t1 t2, print_ty t1 = print_ty t2 -> t1 = t2.
 Proof.
   intros t1 t2 H.
-  pose proof (Front.parse_gty_print_ty t1) as Q1.
-  pose proof (Front.parse_gty_print_ty t2) as Q2.
+  pose proof (parse_gty_print_ty t1) as Q1.
+  pose proof (parse_gty_print_ty t2) as Q2.
   rewrite <- H in Q2. rewrite Q1 in Q2. congruence.
 Qed.
 
@@ -3505,19 +3368,19 @@ Print Assumptions esc_string_roundtrip.
 Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
-Print Assumptions Front.gtokens_lex.
-Print Assumptions Front.gtokens_parse.
-Print Assumptions Front.parse_print_roundtrip.
-Print Assumptions Front.gprint_inj.
-Print Assumptions Front.parse_gty_roundtrip.
-Print Assumptions Front.gttokens_ty_lex.
-Print Assumptions Front.lex_print_ty.
-Print Assumptions Front.parse_convty_roundtrip.
-Print Assumptions Front.parse_conv_print.
-Print Assumptions Front.parse_gty_print_ty.
+Print Assumptions gtokens_lex.
+Print Assumptions gtokens_parse.
+Print Assumptions parse_print_roundtrip.
+Print Assumptions gprint_inj.
+Print Assumptions parse_gty_roundtrip.
+Print Assumptions gttokens_ty_lex.
+Print Assumptions lex_print_ty.
+Print Assumptions parse_convty_roundtrip.
+Print Assumptions parse_conv_print.
+Print Assumptions parse_gty_print_ty.
 
 (** Extract the Rocq printers to the OCaml the plugin calls. *)
 Require Import Extraction.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex print_sep nominal_type_ident go_ident binop_prec binop_text Front.gprint.
+Extraction "printer.ml" print_ty print_Z print_string_lit print_hex print_float_hex print_sep nominal_type_ident go_ident binop_prec binop_text gprint.

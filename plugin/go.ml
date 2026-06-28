@@ -614,12 +614,12 @@ let mk_named_ty s =
        "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
 (* [Front.EId] erases its [go_ident] proof to a bare string, exactly like [GTNamed].  [mk_goexpr_id]
    re-checks [go_ident] at the boundary and returns [None] when the name is not a valid Go identifier
-   (the caller then falls back to the trusted printer) — so a forged [Printer.Front.EId] can never enter
+   (the caller then falls back to the trusted printer) — so a forged [Printer.EId] can never enter
    the verified [Front.gprint] path. *)
 let mk_goexpr_id name =
   let cs = coq_string_of_ocaml name in
   (match Printer.go_ident cs with
-   | Printer.True  -> Some (Printer.Front.EId cs)
+   | Printer.True  -> Some (Printer.EId cs)
    | Printer.False -> None)
 (* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
@@ -1853,7 +1853,7 @@ let raw_term tab next =
 (* ---- Stage B: the verified [Front] expression printer, wired LIVE ----
    [goexpr_bridge] CONSTRUCTS a structured [Front.coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — currently a binary-operator TREE whose leaves are all runtime locals
-   ([MLrel]) — which is then printed by the extracted, machine-checked [Printer.Front.gprint] (see [pp_prec])
+   ([MLrel]) — which is then printed by the extracted, machine-checked [Printer.gprint] (see [pp_prec])
    instead of the trusted [pp_prec] string concatenation.  Any other shape (literal / atom / call operands,
    func-lits, …) returns [None] and the whole expression falls back to [pp_prec] (Stage B is incremental;
    [pp_prec] retires only once [Front] covers a shape).  At each binop node the bridge proceeds ONLY when
@@ -1880,7 +1880,7 @@ let rec goexpr_bridge env e =
           [Front.EInt (coq_z_of_int64 v)] is byte-identical by construction. *)
        | MLglob r, [z] when is_int_lit r ->
            (match z_eval z with
-            | Some v -> Some (Printer.Front.EInt (coq_z_of_int64 v))
+            | Some v -> Some (Printer.EInt (coq_z_of_int64 v))
             | None   -> None)
        (* an [i64_lit] / [u64_lit] prints as the CONVERSION [int64(N)] / [uint64(N)].  In Go that is call
           syntax over a type NAME, so it is exactly [Front.ECall (EId "int64") [EInt N]] (amendment 3:
@@ -1888,17 +1888,17 @@ let rec goexpr_bridge env e =
           [Printer.print_Z] of the same [Z] the plugin folds, so the bytes match by construction. *)
        | MLglob r, [z] when is_i64_lit r ->
            (match z_eval z, mk_goexpr_id "int64" with
-            | Some v, Some f -> Some (Printer.Front.ECall (f, coq_list_of_ocaml [Printer.Front.EInt (coq_z_of_int64 v)]))
+            | Some v, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [Printer.EInt (coq_z_of_int64 v)]))
             | _ -> None)
        | MLglob r, [z] when is_u64_lit r ->
            (match zu_eval z, mk_goexpr_id "uint64" with
-            | Some v, Some f -> Some (Printer.Front.ECall (f, coq_list_of_ocaml [Printer.Front.EInt (coq_z_of_uint64 v)]))
+            | Some v, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [Printer.EInt (coq_z_of_uint64 v)]))
             | _ -> None)
        | MLglob r, [a; b]
          when Option.has_some (binop_of r)
            && (arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b) ->
            (match binop_of r, goexpr_bridge env a, goexpr_bridge env b with
-            | Some o, Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
+            | Some o, Some la, Some lb -> Some (Printer.EBn (o, la, lb))
             | _ -> None)
        | _ -> None)
   | _ -> None
@@ -2501,7 +2501,7 @@ let rec pp_expr state env = function
        | MLglob r, [_; _] when Option.has_some (binop_of r) ->
            (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
-              [MLrel OP MLrel] sub-case via the VERIFIED [Printer.Front.gprint] (Stage B slice 1) and every
+              [MLrel OP MLrel] sub-case via the VERIFIED [Printer.gprint] (Stage B slice 1) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
@@ -2818,7 +2818,7 @@ and pp_atom state env e =
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
    [pp_expr]).  Stage B slice 1: the [MLrel OP MLrel] sub-case is delegated to the VERIFIED
-   [Printer.Front.gprint] (see [goexpr_bridge_binop]); everything else is still this trusted printer. *)
+   [Printer.gprint] (see [goexpr_bridge_binop]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
   | MLapp (h, args) ->
@@ -2835,8 +2835,8 @@ and pp_prec state env ctx e =
             | _ ->
                 (match goexpr_bridge env e with
                  (* VERIFIED path: a binop TREE over runtime locals -> structured [Front] node printed by
-                    the machine-checked [Printer.Front.gprint] (precedence + parens are [Front]'s, not ours). *)
-                 | Some ge -> str (coq_string_to_ocaml (Printer.Front.gprint (coq_nat_of_int ctx) ge))
+                    the machine-checked [Printer.gprint] (precedence + parens are [Front]'s, not ours). *)
+                 | Some ge -> str (coq_string_to_ocaml (Printer.gprint (coq_nat_of_int ctx) ge))
                  (* TRUSTED fallback: every not-yet-migrated shape stays on [pp_prec] string concatenation. *)
                  | None ->
                      let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in

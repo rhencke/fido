@@ -97,17 +97,17 @@ COPY --chown=opam:opam negtests/ negtests/
 #      a pure static scan, run FIRST so a side-door construction fails fast.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
-    && (rocq c goprint.v > /tmp/goprint.log 2>&1 || (echo "fido: goprint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
+    && (rocq c -Q . Fido GoAst.v > /tmp/goprint.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/goprint.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
     && if grep -q '^Axioms:' /tmp/goprint.log; then \
-         echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a goprint.v theorem depends on an axiom (Print Assumptions):"; \
+         echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
          cat /tmp/goprint.log; exit 1; \
        fi \
     && if ! diff plugin/printer.ml printer.ml; then \
-         echo "fido: PRINTER DRIFT — committed plugin/printer.ml != goprint.v's extraction; run 'make printer' and commit it."; \
+         echo "fido: PRINTER DRIFT — committed plugin/printer.ml != GoPrint.v's extraction; run 'make printer' and commit it."; \
          exit 1; \
        fi \
     && cp printer.ml plugin/printer.ml \
-    && rm -f goprint.vo goprint.glob .goprint.aux printer.ml \
+    && rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml \
     && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \

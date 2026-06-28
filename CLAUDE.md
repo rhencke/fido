@@ -15,7 +15,8 @@ makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️
 a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
 and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom` verified-EXPRESSION-printer experiment was TORN DOWN (2026-06-28)** — it was a
 raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
-`goprint.v` was cut ~7100→~1500 lines to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
+`goprint.v` was cut ~7100→~1500 lines (and on 2026-06-28 SPLIT into `GoAst.v` syntax + `GoPrint.v` printer,
+retiring the `Module Front` name, per `ARCHITECTURE.md`; "Front"/"goprint.v" below = that now-split seed) to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
 `print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
 plus the from-scratch Wirth-style **`Module Front`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
 FULL core + every postfix form + the first TYPE-using form**: a `lex` + recursive-descent token `parse` + clean
