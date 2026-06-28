@@ -6801,6 +6801,112 @@ Example rt_funclit_binary :
     GTInt64 (SReturn (EBin BAdd (EA "x") (EA "y")) :: nil), ""%string).
 Proof. apply parse_print_funclit; [ cbn; lia | cbn; lia | repeat constructor | cbn; lia ]. Qed.
 
+(* ============================================================================================
+   TRADITIONAL FRONTEND (Niklaus Wirth-style): a maximal-munch LEXER [lex : string -> tokens], a
+   recursive-descent PARSER over the token stream, and a CLEAN AST — proven [parse (lex (print e)) = e].
+   No string-scanning in the parser, no raw/opaque escape, NO [SRaw].  Built in parallel; once complete it
+   REPLACES the [scan_atom]/[scan_base]/[raw_ok]/[bstack_ok] maze + the [SAtom]/[GoAtom] AST entirely.
+   ============================================================================================ *)
+Module Front.
+
+(** ---- TOKENS ---- the lexer's output alphabet.  Ambiguous operator chars ([* & ^ -]) are ONE token each;
+    the PARSER decides prefix(unary)/infix(binary) by position (Wirth: the scanner classifies, the parser
+    disambiguates).  Literals carry their SEMANTIC value ([Z]); identifiers carry a validated [Ident]. *)
+Inductive Token : Type :=
+  | TId  : Ident -> Token | TInt : Z -> Token
+  | TPlus | TMinus | TStar | TSlash | TPercent | TAmp | TPipe | TCaret | TBang
+  | TShl | TShr | TAndNot | TEq | TNe | TLt | TLe | TGt | TGe | TLand | TLor
+  | TLP | TRP | TLB | TRB | TLC | TRC | TComma | TColon | TDot
+  | TFunc | TReturn.
+
+(** scan a maximal run of decimal digits off the head. *)
+Fixpoint scan_digits (s : string) : string * string :=
+  match s with
+  | String c s' => if is_dec_char c then let (d, r) := scan_digits s' in (String c d, r) else (EmptyString, s)
+  | EmptyString => (EmptyString, EmptyString)
+  end.
+
+(** the operator / delimiter scanner: MAXIMAL-MUNCH the token at the head [String c s'], return (token, rest). *)
+Definition lex_op (c : ascii) (s' : string) : option (Token * string) :=
+  if Ascii.eqb c (ch 40) then Some (TLP, s') else if Ascii.eqb c (ch 41) then Some (TRP, s')
+  else if Ascii.eqb c (ch 91) then Some (TLB, s') else if Ascii.eqb c (ch 93) then Some (TRB, s')
+  else if Ascii.eqb c (ch 123) then Some (TLC, s') else if Ascii.eqb c (ch 125) then Some (TRC, s')
+  else if Ascii.eqb c (ch 44) then Some (TComma, s') else if Ascii.eqb c (ch 58) then Some (TColon, s')
+  else if Ascii.eqb c (ch 46) then Some (TDot, s')
+  else if Ascii.eqb c (ch 43) then Some (TPlus, s') else if Ascii.eqb c (ch 42) then Some (TStar, s')
+  else if Ascii.eqb c (ch 47) then Some (TSlash, s') else if Ascii.eqb c (ch 37) then Some (TPercent, s')
+  else if Ascii.eqb c (ch 94) then Some (TCaret, s') else if Ascii.eqb c (ch 45) then Some (TMinus, s')
+  else if Ascii.eqb c (ch 60) then
+    match s' with String d s'' => if Ascii.eqb d (ch 60) then Some (TShl, s'')
+                                  else if Ascii.eqb d (ch 61) then Some (TLe, s'') else Some (TLt, s')
+                | EmptyString => Some (TLt, s') end
+  else if Ascii.eqb c (ch 62) then
+    match s' with String d s'' => if Ascii.eqb d (ch 62) then Some (TShr, s'')
+                                  else if Ascii.eqb d (ch 61) then Some (TGe, s'') else Some (TGt, s')
+                | EmptyString => Some (TGt, s') end
+  else if Ascii.eqb c (ch 61) then
+    match s' with String d s'' => if Ascii.eqb d (ch 61) then Some (TEq, s'') else None | _ => None end
+  else if Ascii.eqb c (ch 33) then
+    match s' with String d s'' => if Ascii.eqb d (ch 61) then Some (TNe, s'') else Some (TBang, s')
+                | _ => Some (TBang, s') end
+  else if Ascii.eqb c (ch 38) then
+    match s' with String d s'' => if Ascii.eqb d (ch 38) then Some (TLand, s'')
+                                  else if Ascii.eqb d (ch 94) then Some (TAndNot, s'') else Some (TAmp, s')
+                | _ => Some (TAmp, s') end
+  else if Ascii.eqb c (ch 124) then
+    match s' with String d s'' => if Ascii.eqb d (ch 124) then Some (TLor, s'') else Some (TPipe, s')
+                | _ => Some (TPipe, s') end
+  else None.
+
+(** classify an identifier RUN: a keyword token ([func]/[return]) or a [go_ident]-validated [TId]. *)
+Definition lex_ident (tok : string) : option Token :=
+  if String.eqb tok "func" then Some TFunc
+  else if String.eqb tok "return" then Some TReturn
+  else match bool_dec (go_ident tok) true with left H => Some (TId (exist _ tok H)) | right _ => None end.
+
+(** THE LEXER.  Skip whitespace; an [is_idstart] head is an identifier/keyword; a digit (or [-]+digit, the
+    negative-literal form — binary [-] is always SPACED in the printer) is an integer; otherwise an
+    operator/delimiter.  Fuel = input length (each token consumes >= 1 char, so it terminates). *)
+Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match s with
+    | EmptyString => Some nil
+    | String c s' =>
+        if is_space c then lex_aux f s'
+        else if is_idstart c then
+          let (tok, rest) := scan_id s in
+          match lex_ident tok with
+          | Some t => match lex_aux f rest with Some l => Some (t :: l) | None => None end
+          | None => None end
+        else if is_dec_char c then
+          let (num, rest) := scan_digits s in
+          match lex_aux f rest with Some l => Some (TInt (parse_Z num) :: l) | None => None end
+        else if andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end) then
+          let (num, rest) := scan_digits s' in
+          match lex_aux f rest with Some l => Some (TInt (parse_Z (String c num)) :: l) | None => None end
+        else
+          match lex_op c s' with
+          | Some (t, rest) => match lex_aux f rest with Some l => Some (t :: l) | None => None end
+          | None => None end
+    end
+  end.
+Definition lex (s : string) : option (list Token) := lex_aux (S (String.length s)) s.
+
+Example lex_sum  : lex "a + b" = Some (TId (exist _ "a" eq_refl) :: TPlus :: TId (exist _ "b" eq_refl) :: nil).
+Proof. vm_compute; reflexivity. Qed.
+Example lex_call : lex "f(x, 42)"
+  = Some (TId (exist _ "f" eq_refl) :: TLP :: TId (exist _ "x" eq_refl) :: TComma :: TInt 42 :: TRP :: nil).
+Proof. vm_compute; reflexivity. Qed.
+Example lex_neg  : lex "-7" = Some (TInt (-7) :: nil). Proof. vm_compute; reflexivity. Qed.
+Example lex_ops  : lex "x << 2" = Some (TId (exist _ "x" eq_refl) :: TShl :: TInt 2 :: nil). Proof. vm_compute; reflexivity. Qed.
+Example lex_cmp  : lex "a <= b && c"
+  = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
+Proof. vm_compute; reflexivity. Qed.
+
+End Front.
+
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
     they MUST be axiom-free.  The build (Dockerfile prover stage) compiles goprint.v standalone and FAILS
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
