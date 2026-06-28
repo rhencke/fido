@@ -7005,6 +7005,51 @@ Proof. vm_compute; reflexivity. Qed.
 Example rt_neg  : parse_str (gprint 0 (EUn UNeg (EX "x"))) = Some (EUn UNeg (EX "x"), nil).  (* -(x) *)
 Proof. vm_compute; reflexivity. Qed.
 
+(** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
+    [gprint]'s structure exactly; [op_token]/[prefix_token] are the inverses of [infix_op]/[prefix_op].
+    This is the bridge for the general round-trip: [lex (gprint ctx e) = Some (gtokens ctx e)] (lexer side)
+    and [parse_expr F (gtokens ctx e ++ rest) = Some (e, rest)] (parser side), composed. *)
+Definition op_token (o : BinOp) : Token :=
+  match o with
+  | BAdd => TPlus | BSub => TMinus | BMul => TStar | BDiv => TSlash | BRem => TPercent
+  | BShl => TShl | BShr => TShr | BAnd => TAmp | BAndNot => TAndNot | BOr => TPipe | BXor => TCaret
+  | BEq => TEq | BNe => TNe | BLt => TLt | BLe => TLe | BGt => TGt | BGe => TGe
+  | BLAnd => TLand | BLOr => TLor
+  end.
+Definition prefix_token (o : UnaryOp) : Token :=
+  match o with UNot => TBang | UXor => TCaret | UDeref => TStar | UAddr => TAmp | UNeg => TMinus end.
+
+Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
+  match e with
+  | EId i  => TId i :: nil
+  | EInt z => TInt z :: nil
+  | EUn o e => match o with
+               | UNeg => TMinus :: TLP :: (gtokens 0 e ++ TRP :: nil)
+               | _    => prefix_token o :: gtokens 6 e
+               end
+  | EBn o l r =>
+      let p := binop_prec o in
+      let inner := (gtokens p l ++ op_token o :: gtokens (S p) r)%list in
+      if Nat.ltb p ctx then TLP :: (inner ++ TRP :: nil) else inner
+  end.
+
+(** [op_token]/[prefix_token] really invert the parser's token classifiers. *)
+Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
+Proof. destruct o; reflexivity. Qed.
+
+(** [gtokens] is the RIGHT spec: it is exactly what [lex (gprint ctx e)] yields (validated; the universal
+    lemma [lex (gprint ctx e) = Some (gtokens ctx e)] is the next step). *)
+Example gtok_add  : lex (gprint 0 (EBn BAdd (EX "a") (EX "b"))) = Some (gtokens 0 (EBn BAdd (EX "a") (EX "b"))).
+Proof. vm_compute; reflexivity. Qed.
+Example gtok_wrap : lex (gprint 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c")))
+                  = Some (gtokens 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c"))).
+Proof. vm_compute; reflexivity. Qed.
+Example gtok_un   : lex (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
+                  = Some (gtokens 0 (EUn UNot (EBn BEq (EX "a") (EX "b")))).
+Proof. vm_compute; reflexivity. Qed.
+Example gtok_neg  : lex (gprint 0 (EUn UNeg (EX "x"))) = Some (gtokens 0 (EUn UNeg (EX "x"))).
+Proof. vm_compute; reflexivity. Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
