@@ -595,13 +595,10 @@ let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
 (* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
-   The SOLE sanctioned construction sites for the PROOF-CARRYING [Printer] atoms / types.  The
-   extracted [SAtom] / [GoAtom] / [GoTy] constructors erase their Rocq validity proofs to bare strings,
-   so a DIRECT [Printer.SIdent s] / [Printer.SRaw s] / [Printer.SSelector ..] / [Printer.AStringLit s] /
-   [Printer.GTNamed s] would let invalid text bypass the very invariant [print_parse_expr] /
-   [parse_print_ty] rely on (review #4 directive: an erased proof MUST be re-checked at the boundary).
-   So the SCANNED atoms are built ONLY by the VERIFIED [Printer.build_atom] (it lives in [printer.ml]),
-   and the ONLY proof-carrying constructor used by hand here is [AStringLit] (re-checked by [strlit_ok]).
+   The SOLE sanctioned construction site for a PROOF-CARRYING [Printer] type.  The extracted [GoTy]
+   constructor [GTNamed] erases its Rocq validity proof to a bare string, so a DIRECT [Printer.GTNamed s]
+   would let an invalid type name bypass the [print_ty] / [parse_print_ty] invariant — an erased proof
+   MUST be re-checked at the boundary.  So [mk_named_ty] re-checks [nominal_type_ident] before building it.
    The [make smart-ctor-gate] target (run in the Docker prover stage AND pre-commit) BANS any direct use
    of the proof-carrying atom/type constructors ANYWHERE outside this block.  ([printer.ml] DEFINES them
    — a separate file — so it is naturally out of scope.) *)
@@ -614,16 +611,7 @@ let mk_named_ty s =
    | Printer.False -> unsupported (Printf.sprintf
        "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
 (* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
-(* Map a recognised operator string to its VERIFIED [Printer.binOp] constructor.  The precedence and
-   surface text are then DERIVED in Rocq ([binop_prec]/[binop_text]) — the plugin no longer supplies
-   them, so it cannot mis-pair an operator with the wrong precedence (the redesign that killed the old
-   caller-supplied [GEBin (nat) (string) …]).  [binop_of]'s opstrs are exactly these 19; an unknown one
-   is a fail-loud bug, not silently mis-rendered. *)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
-(* ★review #9 (A3): build the verified [SApply (SIdent tyname) [arg]] node for an identifier-led type
-   conversion [tyname(arg)].  [mk_atom tyname] re-checks [tyname] is a valid identifier ([go_ident]) and
-   yields [EAtom (AScanned (SIdent tyname))]; [Printer.build_apply] packs the (recursively-built) [arg] and
-   re-checks [atomic_tree_b], so the result round-trips.  Fail-loud if it does not form an [SApply]. *)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
    no leading/trailing separator and to stay well-bracketed): render each element [f x] to text (the
    plugin's expression docs are pure str/++/fnl — no soft breaks — so [string_of_ppcmds] round-trips
@@ -1017,23 +1005,6 @@ let is_i64_of_narrow_ref r =
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
 let is_int63_of_z_ref r = let n = global_basename r in n = "of_Z" || n = "of_pos" || n = "of_pos_rec"
 
-(* ★review #9 (A3): the IDENTIFIER-LED type conversions — [T(x)] where [T] is a scalar/builtin type name
-   (int/int64/uint64/float64/float32), which is LEXICALLY an identifier.  Per amendment 3 these are
-   application syntax (a verified [SApply (SIdent T) [x]] node), NOT a distinct [SConvert].  This maps each
-   conversion ref to its Go type name; [build_goexpr] uses it to CONSTRUCT the [SApply] directly instead of
-   the old [pp_expr → string → build_atom] rescue.  (The type-FORM-led conversions — [[]T(x)] / [*T(x)] /
-   [(func…)(x)] — are reserved for [SConvert]/[SParen], but they only ever appear in VALUE / CALL positions
-   handled by the unverified [pp_expr]; none reaches [build_goexpr] (a binop / equality operand), so no
-   [SConvert] node is needed yet.  The [pp_expr] arms keep their string emission for those positions.) *)
-let conv_type_name r =
-  if      is_int_of_fw r        then Some "int"
-  else if is_int_to_f64_ref r   then Some "float64"
-  else if is_int_to_f32_ref r   then Some "float32"
-  else if is_f64_to_i64_ref r   then Some "int64"
-  else if is_f64_to_u64_ref r   then Some "uint64"
-  else if is_i64_of_narrow_ref r then Some "int64"
-  else None
-
 (* Fixed-width unsigned integer ops (builtins.v).  Carrier is int64; each op
    masks back to the width, e.g. [u8_add a b] → [((a + b) & 0xff)], matching Go's
    uint8 wrap.  Comparisons go through [binop_of]; the masked arithmetic and the
@@ -1159,14 +1130,6 @@ let fw_wrap signed width inner =
   else
     let sbit = print_hex_int (1 lsl (width - 1)) in
     str "((" ++ masked ++ str (" ^ " ^ sbit ^ ") - " ^ sbit ^ ")")
-
-(* The verified-printer [GoExpr] TREE for [fw_wrap]'s width-[w] wrap of [inner] (a [GoExpr]): mask to [w]
-   bits ([inner & 0x..]); for a SIGNED width, sign-extend via [(masked ^ 2^(w-1)) - 2^(w-1)].  Same
-   SEMANTICS as [fw_wrap], but the parenthesisation is left to the VERIFIED [Printer.print_expr]: the
-   defensive outer parens [fw_wrap] hard-codes become precedence-correct ones, and — crucially — when a
-   masked op is a binop OPERAND the operand is now a proper [EBin] of ATOMIC leaves (hex masks / the
-   structured inner) instead of a "("-led OPAQUE atom that escapes the round-trip ([atomic] would reject
-   it).  Used by [build_goexpr]; the masks are atomic hex literals. *)
 
 let classify_float_op r =
   List.find_map

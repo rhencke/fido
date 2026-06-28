@@ -13,8 +13,14 @@ CPS class, the narrow-destination class across all 7 boundaries, raw-CFG entry/t
 identifier-collision detection at extraction, full-width-int constant forcing, platform-`uint` distinctness)
 makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️ But review #4's meta-lesson stands:
 a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
-and demoed" — the trusted/unverified status holds. The remaining work is the deep **verified-printer architecture**
-(a compiler-correctness theorem connecting source/MiniML semantics to emitted Go — gap #10), **stronger gates** (the
+and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom` verified-EXPRESSION-printer experiment was TORN DOWN (2026-06-28)** — it was a
+raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
+`goprint.v` was cut ~7100→~1500 lines to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
+`print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
+plus the in-progress Wirth-style **`Module Front`** (a from-scratch lexer/parser/AST being built to eventually
+replace the trusted OCaml `pp_expr`). Expressions are again printed by trusted OCaml strings (`pp_expr`) — the
+same trust status as before the experiment, minus the false "verified printer" claim. The remaining work is the
+source→Go **compiler-correctness theorem** (gap #10, now to be built on `Front`, NOT `SRaw`), **stronger gates** (the
 axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
 wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**
 (e.g. R3's untyped higher-order `func(x any) any` lambda — dead today since Fido HOFs are interface/method-dict-typed).
