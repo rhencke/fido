@@ -28,9 +28,12 @@ child round-tripped through the M5 token-level type layer (`gttokens_ty` / `pars
 itself zero-axiom). That machinery now makes the remaining forms tractable. Scope today = the binop/unary/atom
 CORE + selector/index/slice/call/type-assertion (self-consistency for the Rocq grammar, NOT Go's own
 parser); still being grown form-by-form (conversion/composite-literal/func-lit — the type layer is now in place)
-toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`) — NOT yet done. Until Stage B, expressions are
-still printed by trusted OCaml strings (`pp_expr`) — the same trust status as before the experiment, minus the
-false "verified printer" claim. The remaining work is the
+toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`). **Stage B slice 1 has LANDED:** `Front.gprint`
+is extracted and CALLED by the plugin for the first expression class — a binop over two runtime locals
+(`MLrel OP MLrel`), built directly as a `Front.GExpr` (go_ident-checked `mk_goexpr_id`, no string parsing) and
+printed by the machine-checked `Printer.Front.gprint`; liveness shown by a `+`→`BSub` perturbation flipping
+exactly those sites. But this is ONE narrow class — **every other expression shape is still printed by the
+trusted OCaml `pp_prec`/`pp_expr`**, so do NOT yet read this as "verified Go expressions." The remaining work is the
 source→Go **compiler-correctness theorem** (gap #10, now to be built on `Front`, NOT `SRaw`), **stronger gates** (the
 axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
 wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**

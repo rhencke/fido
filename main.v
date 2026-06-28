@@ -114,6 +114,15 @@ Definition uneg_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add (i64_neg a) b)            (* -(a) + b *)
           ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
 
+(** ★Stage B (slice 1): a binary operator over two RUNTIME LOCALS [a OP b] — the FIRST expression class
+    the plugin prints through the VERIFIED [Module Front] printer ([Printer.Front.gprint], machine-checked
+    by [parse_print_roundtrip] / [gprint_inj]) rather than the trusted OCaml [pp_prec].  Both operands are
+    [MLrel] params, so the typed-arith force-wrapper provably cannot fire and this is exactly the plain
+    binop case — the emitted bytes are unchanged, but they now come from the verified node printer. *)
+Definition front_binop_demo (a b : GoI64) : IO unit :=
+  println [ any (i64_add a b)          (* a + b  *)
+          ; any (i64_mul a b) ].       (* a * b  *)
+
 (** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
     two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
     [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
@@ -3356,6 +3365,7 @@ Definition main_effect : IO unit :=
   i64_abs_demo                  >>'   (* prints: 7 7 -9223372036854775808 *)
   neg_op_demo                   >>'   (* prints: -5 7 (unary -x) *)
   uneg_binop_demo (5)%i64 (3)%i64 >>' (* prints: -2 -2 (-(a)+b, b+-(a) — UNeg as binop operand) *)
+  front_binop_demo (5)%i64 (3)%i64 >>' (* prints: 8 15 (a+b, a*b — printed by the VERIFIED Front printer) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)

@@ -112,6 +112,10 @@ func Uneg_binop_demo(a int64, b int64) {
 	println(-a+b, b+-a)
 }
 
+func Front_binop_demo(a int64, b int64) {
+	println(a+b, a*b)
+}
+
 func Conv64_demo() {
 	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
@@ -2679,6 +2683,7 @@ func main() {
 	I64_abs_demo()
 	Neg_op_demo()
 	Uneg_binop_demo(5, 3)
+	Front_binop_demo(5, 3)
 	Conv64_demo()
 	Minmax64_demo()
 	Cmp_ops_demo()

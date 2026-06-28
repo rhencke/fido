@@ -1051,6 +1051,8 @@ let nominal_type_ident s =
   | True -> negb (is_type_keyword s)
   | False -> False
 
+type ident = string
+
 type tyName = string
 
 type goTy =
@@ -1465,6 +1467,178 @@ let print_float_hex sign mant exp =
       (append (String ((Ascii (False, False, False, False, True, True, True,
         False)), EmptyString)) (print_Z exp)))
 
+type binOp =
+| BMul
+| BDiv
+| BRem
+| BShl
+| BShr
+| BAnd
+| BAndNot
+| BAdd
+| BSub
+| BOr
+| BXor
+| BEq
+| BNe
+| BLt
+| BLe
+| BGt
+| BGe
+| BLAnd
+| BLOr
+
+(** val binop_prec : binOp -> nat **)
+
+let binop_prec = function
+| BAdd -> S (S (S (S O)))
+| BSub -> S (S (S (S O)))
+| BOr -> S (S (S (S O)))
+| BXor -> S (S (S (S O)))
+| BEq -> S (S (S O))
+| BNe -> S (S (S O))
+| BLt -> S (S (S O))
+| BLe -> S (S (S O))
+| BGt -> S (S (S O))
+| BGe -> S (S (S O))
+| BLAnd -> S (S O)
+| BLOr -> S O
+| _ -> S (S (S (S (S O))))
+
+(** val binop_text : binOp -> string **)
+
+let binop_text = function
+| BMul ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, False, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BDiv ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, True, True, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BRem ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BShl ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BShr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BAnd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BAndNot ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, False, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BAdd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, True, False, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BSub ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BOr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BXor ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, False, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BEq ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BNe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, False, False, False, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLt ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BLe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BGt ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))
+| BGe ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, True, True, True, False, False)),
+    (String ((Ascii (True, False, True, True, True, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLAnd ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, True, True, False, False, True, False, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+| BLOr ->
+  String ((Ascii (False, False, False, False, False, True, False, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, True, True, True, True, True, False)),
+    (String ((Ascii (False, False, False, False, False, True, False, False)),
+    EmptyString)))))))
+
+type unaryOp =
+| UNot
+| UXor
+| UDeref
+| UAddr
+| UNeg
+
+(** val unop_text : unaryOp -> string **)
+
+let unop_text = function
+| UNot ->
+  String ((Ascii (True, False, False, False, False, True, False, False)),
+    EmptyString)
+| UXor ->
+  String ((Ascii (False, True, True, True, True, False, True, False)),
+    EmptyString)
+| UDeref ->
+  String ((Ascii (False, True, False, True, False, True, False, False)),
+    EmptyString)
+| UAddr ->
+  String ((Ascii (False, True, True, False, False, True, False, False)),
+    EmptyString)
+| UNeg ->
+  String ((Ascii (True, False, True, True, False, True, False, False)),
+    EmptyString)
+
 (** val print_sep : string -> string list -> string **)
 
 let rec print_sep sep = function
@@ -1473,3 +1647,152 @@ let rec print_sep sep = function
   (match xs' with
    | Nil -> x
    | Cons (_, _) -> append x (append sep (print_sep sep xs')))
+
+module Front =
+ struct
+  type coq_GExpr =
+  | EId of ident
+  | EInt of z
+  | EUn of unaryOp * coq_GExpr
+  | EBn of binOp * coq_GExpr * coq_GExpr
+  | ESel of coq_GExpr * ident
+  | EIndex of coq_GExpr * coq_GExpr
+  | ESlice of coq_GExpr * coq_GExpr * coq_GExpr
+  | ECall of coq_GExpr * coq_GExpr list
+  | EAssert of coq_GExpr * goTy
+
+  (** val gprint : nat -> coq_GExpr -> string **)
+
+  let rec gprint ctx = function
+  | EId i -> i
+  | EInt z0 -> print_Z z0
+  | EUn (o, e0) ->
+    (match o with
+     | UNeg ->
+       append (String ((Ascii (True, False, True, True, False, True, False,
+         False)), (String ((Ascii (False, False, False, True, False, True,
+         False, False)), EmptyString))))
+         (append (gprint O e0) (String ((Ascii (True, False, False, True,
+           False, True, False, False)), EmptyString)))
+     | _ ->
+       append (unop_text o)
+         (append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))))
+  | EBn (o, l, r) ->
+    let p = binop_prec o in
+    let inner = append (gprint p l) (append (binop_text o) (gprint (S p) r))
+    in
+    (match Nat.ltb p ctx with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
+         (append inner (String ((Ascii (True, False, False, True, False,
+           True, False, False)), EmptyString)))
+     | False -> inner)
+  | ESel (e0, f) ->
+    append
+      (match e0 with
+       | EUn (_, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | EBn (_, _, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | _ -> gprint O e0)
+      (append (String ((Ascii (False, True, True, True, False, True, False,
+        False)), EmptyString)) f)
+  | EIndex (e0, i) ->
+    append
+      (match e0 with
+       | EUn (_, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | EBn (_, _, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | _ -> gprint O e0)
+      (append (String ((Ascii (True, True, False, True, True, False, True,
+        False)), EmptyString))
+        (append (gprint O i) (String ((Ascii (True, False, True, True, True,
+          False, True, False)), EmptyString))))
+  | ESlice (e0, lo, hi) ->
+    append
+      (match e0 with
+       | EUn (_, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | EBn (_, _, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | _ -> gprint O e0)
+      (append (String ((Ascii (True, True, False, True, True, False, True,
+        False)), EmptyString))
+        (append (gprint O lo)
+          (append (String ((Ascii (False, True, False, True, True, True,
+            False, False)), EmptyString))
+            (append (gprint O hi) (String ((Ascii (True, False, True, True,
+              True, False, True, False)), EmptyString))))))
+  | ECall (e0, args) ->
+    append
+      (match e0 with
+       | EUn (_, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | EBn (_, _, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | _ -> gprint O e0)
+      (append (String ((Ascii (False, False, False, True, False, True, False,
+        False)), EmptyString))
+        (append
+          (match args with
+           | Nil -> EmptyString
+           | Cons (a, r) ->
+             append (gprint O a)
+               (let rec gat = function
+                | Nil -> EmptyString
+                | Cons (b, m') ->
+                  append (String ((Ascii (False, False, True, True, False,
+                    True, False, False)), EmptyString))
+                    (append (gprint O b) (gat m'))
+                in gat r))
+          (String ((Ascii (True, False, False, True, False, True, False,
+          False)), EmptyString))))
+  | EAssert (e0, t) ->
+    append
+      (match e0 with
+       | EUn (_, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | EBn (_, _, _) ->
+         append (String ((Ascii (False, False, False, True, False, True,
+           False, False)), EmptyString))
+           (append (gprint O e0) (String ((Ascii (True, False, False, True,
+             False, True, False, False)), EmptyString)))
+       | _ -> gprint O e0)
+      (append (String ((Ascii (False, True, True, True, False, True, False,
+        False)), (String ((Ascii (False, False, False, True, False, True,
+        False, False)), EmptyString))))
+        (append (print_ty t) (String ((Ascii (True, False, False, True,
+          False, True, False, False)), EmptyString))))
+ end

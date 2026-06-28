@@ -594,6 +594,7 @@ let coq_ascii_of_char c =
 let coq_string_of_ocaml s =
   let r = ref Printer.EmptyString in
   for i = String.length s - 1 downto 0 do r := Printer.String (coq_ascii_of_char s.[i], !r) done; !r
+let rec coq_nat_of_int n = if n <= 0 then Printer.O else Printer.S (coq_nat_of_int (n - 1))
 (* ── SMART-CONSTRUCTORS-BEGIN ──────────────────────────────────────────────────────────────────
    The SOLE sanctioned construction site for a PROOF-CARRYING [Printer] type.  The extracted [GoTy]
    constructor [GTNamed] erases its Rocq validity proof to a bare string, so a DIRECT [Printer.GTNamed s]
@@ -610,6 +611,15 @@ let mk_named_ty s =
    | Printer.True  -> Printer.GTNamed cs
    | Printer.False -> unsupported (Printf.sprintf
        "coq_goty_of_tag: nominal type name %S is not a valid nominal-type identifier (a Go keyword or builtin type name) — would bypass the verified GTNamed invariant" s))
+(* [Front.EId] erases its [go_ident] proof to a bare string, exactly like [GTNamed].  [mk_goexpr_id]
+   re-checks [go_ident] at the boundary and returns [None] when the name is not a valid Go identifier
+   (the caller then falls back to the trusted printer) — so a forged [Printer.Front.EId] can never enter
+   the verified [Front.gprint] path. *)
+let mk_goexpr_id name =
+  let cs = coq_string_of_ocaml name in
+  (match Printer.go_ident cs with
+   | Printer.True  -> Some (Printer.Front.EId cs)
+   | Printer.False -> None)
 (* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
@@ -1831,6 +1841,47 @@ let raw_term tab next =
   | MLcons (_, c, []) when is_done_ctor c -> str tab ++ str "return" ++ fnl ()
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
+(* ---- Stage B (slice 1): the verified [Front] expression printer, wired LIVE for one expression class ----
+   [goexpr_bridge_binop] CONSTRUCTS a structured [Front.coq_GExpr] for a binary operator whose BOTH operands
+   are runtime locals ([MLrel]) — directly, never by parsing a string.  That class is then printed by the
+   extracted, machine-checked [Printer.Front.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string
+   concatenation; every other shape still falls back to [pp_prec] (Stage B is incremental, and [pp_prec] is
+   retired only once [Front] covers a shape).  Restricting to [MLrel]/[MLrel] is deliberate and load-bearing:
+   both operands are then runtime, so the typed-arith force-wrapper IIFE provably cannot fire here — so this
+   is EXACTLY the plain-binop case [pp_prec] prints, with NO duplication of the force-wrapper decision and no
+   nested-operand precedence reasoning ([Front] owns precedence via its own [binop_prec]). *)
+let mlident_name = function
+  | Dummy -> "_"
+  | Id v  -> go_safe (Id.to_string v)
+  | Tmp v -> go_safe (Id.to_string v)
+let rel_name env i =
+  try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
+(* the Go operator surface -> the [Front] [binOp] constructor; [Front] alone decides its precedence. *)
+let front_binop_of opstr =
+  match String.trim opstr with
+  | "*"  -> Some Printer.BMul    | "/"  -> Some Printer.BDiv | "%"  -> Some Printer.BRem
+  | "<<" -> Some Printer.BShl    | ">>" -> Some Printer.BShr | "&"  -> Some Printer.BAnd
+  | "&^" -> Some Printer.BAndNot
+  | "+"  -> Some Printer.BAdd    | "-"  -> Some Printer.BSub | "|"  -> Some Printer.BOr
+  | "^"  -> Some Printer.BXor
+  | "==" -> Some Printer.BEq     | "!=" -> Some Printer.BNe  | "<"  -> Some Printer.BLt
+  | "<=" -> Some Printer.BLe     | ">"  -> Some Printer.BGt  | ">=" -> Some Printer.BGe
+  | "&&" -> Some Printer.BLAnd   | "||" -> Some Printer.BLOr
+  | _ -> None
+let goexpr_bridge_binop env r a b =
+  (* Bridge ONLY when [pp_prec] would take its plain-binop branch — i.e. the force-wrapper IIFE does not
+     fire: [arith_force_go_type r = None] OR an operand is already runtime.  (For a raw [MLrel] this is
+     trivially true; the guard also covers a magic-wrapped [MLrel], where [operand_is_runtime] sees [false]
+     and the IIFE would otherwise fire.)  This keeps the Front path byte-equal to [pp_prec] without
+     re-implementing the force-wrapper rendering. *)
+  match binop_of r, strip_magic a, strip_magic b with
+  | Some (_, opstr), MLrel ia, MLrel ib
+    when arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b ->
+      (match front_binop_of opstr, mk_goexpr_id (rel_name env ia), mk_goexpr_id (rel_name env ib) with
+       | Some o, Some la, Some lb -> Some (Printer.Front.EBn (o, la, lb))
+       | _ -> None)
+  | _ -> None
+
 let rec pp_expr state env = function
   | MLrel i ->
       pp_rel env i
@@ -2760,8 +2811,14 @@ and pp_prec state env ctx e =
                 str (Printf.sprintf "func(x %s, y %s) %s { return x%sy }(" ty ty ty opstr)
                 ++ pp_expr state env a ++ str ", " ++ pp_expr state env b ++ str ")"
             | _ ->
-                let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
-                if p < ctx then str "(" ++ inner ++ str ")" else inner)
+                (match goexpr_bridge_binop env r a b with
+                 (* VERIFIED path: [a OP b] over two runtime locals -> structured [Front] node printed by
+                    the machine-checked [Printer.Front.gprint] (precedence + parens are [Front]'s, not ours). *)
+                 | Some ge -> str (coq_string_to_ocaml (Printer.Front.gprint (coq_nat_of_int ctx) ge))
+                 (* TRUSTED fallback: every not-yet-migrated shape stays on [pp_prec] string concatenation. *)
+                 | None ->
+                     let inner = pp_prec state env p a ++ str opstr ++ pp_prec state env (p + 1) b in
+                     if p < ctx then str "(" ++ inner ++ str ")" else inner))
        | _ -> pp_expr state env e)
   | _ -> pp_expr state env e
 
