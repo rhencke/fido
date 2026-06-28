@@ -723,14 +723,6 @@ Definition is_dec_char (c : ascii) : bool :=
   andb (Nat.leb 48 (nat_of_ascii c)) (Nat.leb (nat_of_ascii c) 57).
 Fixpoint all_dec (s : string) : bool :=
   match s with EmptyString => true | String c s' => andb (is_dec_char c) (all_dec s') end.
-Definition is_dec (s : string) : bool :=
-  match s with
-  | EmptyString => false
-  | String c rest =>
-      if Ascii.eqb c (ascii_of_nat 45)        (* leading '-' — the only non-digit a decimal literal admits *)
-      then match rest with EmptyString => false | String _ _ => all_dec rest end
-      else andb (is_dec_char c) (all_dec rest)
-  end.
 Fixpoint print_sep (sep : string) (xs : list string) : string :=
   match xs with
   | []        => ""
@@ -2814,10 +2806,6 @@ Proof.
     change (gtparen (EAssert e0 T)) with (gtokens 0 (EAssert e0 T)).
     rewrite gtokens_EAssert, IHe0, gtokens_pops_app. cbn [gtokens_pops]. rewrite <- !app_assoc. reflexivity.
 Qed.
-Lemma gtokens_ESel_gtparen : forall ctx e0 f, gtokens ctx (ESel e0 f) = gtparen (ESel e0 f).
-Proof. reflexivity. Qed.
-Lemma gtokens_EIndex_gtparen : forall ctx e0 i, gtokens ctx (EIndex e0 i) = gtparen (EIndex e0 i).
-Proof. reflexivity. Qed.
 
 (** [parse_args] consumes fuel MAX-wise (each arg parses at a fresh fuel, NOT a running sum), so the arg-list
     fuel is a [Nat.max] recurrence — this is what keeps it within the [3*esize] budget (a sum measure would
