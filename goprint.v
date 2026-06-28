@@ -1542,6 +1542,50 @@ Proof.
     cbn [String.append scan_digits]. rewrite Hc. rewrite (IH b Ha' Hb). reflexivity.
 Qed.
 
+(** An identifier-start char is never a space. *)
+Lemma is_idstart_not_space : forall c, is_idstart c = true -> is_space c = false.
+Proof.
+  intro c. unfold is_space. intro H.
+  destruct (Ascii.eqb c (ascii_of_nat 32)) eqn:E; [ | reflexivity ].
+  exfalso. apply Ascii.eqb_eq in E. subst c. vm_compute in H. discriminate H.
+Qed.
+
+(** [lex_ident] on a [go_ident] string yields exactly [TId] of that ident (the keyword guards do not fire
+    — a [go_ident] is never a keyword — and the [bool_dec] proof equals the carried one by UIP-on-bool). *)
+Lemma lex_ident_go : forall s (Hs : go_ident s = true), lex_ident s = Some (TId (exist _ s Hs)).
+Proof.
+  intros s Hs. unfold lex_ident.
+  destruct (String.eqb s "func") eqn:Ef.
+  { apply String.eqb_eq in Ef. subst s. vm_compute in Hs. discriminate Hs. }
+  destruct (String.eqb s "return") eqn:Er.
+  { apply String.eqb_eq in Er. subst s. vm_compute in Hs. discriminate Hs. }
+  destruct (bool_dec (go_ident s) true) as [H | H].
+  - assert (E : H = Hs) by apply (Eqdep_dec.UIP_dec bool_dec). rewrite E. reflexivity.
+  - exfalso. apply H. exact Hs.
+Qed.
+
+(** LEAF (identifier): lexing [gprint (EId i) ++ rest = proj1_sig i ++ rest] yields [TId i] then [rest]'s
+    tokens — given a clean seam and enough fuel.  ([gtokens (EId i) = [TId i]].) *)
+Lemma lex_gprint_id : forall (i : Ident) rest fuel tr,
+  clean_start rest = true ->
+  lex_aux (S (String.length rest)) rest = Some tr ->
+  S (String.length (proj1_sig i) + String.length rest) <= fuel ->
+  lex_aux fuel (proj1_sig i ++ rest) = Some (TId i :: tr).
+Proof.
+  intros [s Hs] rest fuel tr Hclean Hrest Hfuel. simpl proj1_sig in *.
+  destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
+  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
+  pose proof Hs as Hgo. unfold go_ident in Hgo. apply andb_prop in Hgo. destruct Hgo as [Hia _].
+  apply andb_prop in Hia. destruct Hia as [Hidstart Hallidc].
+  cbn [lex_aux String.append].
+  rewrite (is_idstart_not_space _ Hidstart), Hidstart.
+  replace (scan_id (String c0 (s0 ++ rest))) with (String c0 s0, rest)
+    by (symmetry; apply (scan_id_app (String c0 s0) rest Hallidc Hclean)).
+  rewrite (lex_ident_go (String c0 s0) Hs).
+  assert (Hle : S (String.length rest) <= f) by (cbn in Hfuel; lia).
+  rewrite (lex_aux_mono _ _ _ _ Hrest Hle). reflexivity.
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
