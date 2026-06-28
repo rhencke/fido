@@ -1288,6 +1288,85 @@ Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
   end.
 Definition lex (s : string) : option (list Token) := lex_aux (S (String.length s)) s.
 
+(** ---- M5 TYPE-PARSER DEFINITIONS (placed before the expression parser so [parse_postfix] can call
+    [parse_gty] for type assertions / conversions; the round-trip PROOFS are below, after the seams). ---- *)
+Definition tyname_to_ident (n : TyName) : Ident :=
+  mkIdent (proj1_sig n) (proj1 (andb_prop _ _ (proj2_sig n))).
+Fixpoint gttokens_ty (t : GoTy) : list Token :=
+  match t with
+  | GTInt     => TId (mkIdent "int" eq_refl) :: nil
+  | GTInt64   => TId (mkIdent "int64" eq_refl) :: nil
+  | GTBool    => TId (mkIdent "bool" eq_refl) :: nil
+  | GTString  => TId (mkIdent "string" eq_refl) :: nil
+  | GTFloat64 => TId (mkIdent "float64" eq_refl) :: nil
+  | GTFloat32 => TId (mkIdent "float32" eq_refl) :: nil
+  | GTUint    => TId (mkIdent "uint" eq_refl) :: nil
+  | GTU8      => TId (mkIdent "uint8" eq_refl) :: nil
+  | GTI8      => TId (mkIdent "int8" eq_refl) :: nil
+  | GTU16     => TId (mkIdent "uint16" eq_refl) :: nil
+  | GTI16     => TId (mkIdent "int16" eq_refl) :: nil
+  | GTU32     => TId (mkIdent "uint32" eq_refl) :: nil
+  | GTI32     => TId (mkIdent "int32" eq_refl) :: nil
+  | GTU64     => TId (mkIdent "uint64" eq_refl) :: nil
+  | GTPtr u   => TStar :: gttokens_ty u
+  | GTSlice u => TLB :: TRB :: gttokens_ty u
+  | GTChan u  => TChan :: gttokens_ty u
+  | GTMap k v => TMap :: TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)
+  | GTNamed n => TId (tyname_to_ident n) :: nil
+  end.
+Fixpoint tsize (t : GoTy) : nat :=
+  match t with
+  | GTPtr u | GTSlice u | GTChan u => S (tsize u)
+  | GTMap k v => S (tsize k + tsize v)
+  | _ => 1
+  end.
+Fixpoint parse_gty (fuel : nat) (toks : list Token) : option (GoTy * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
+    | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
+    | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
+    | TMap :: TLB :: r0 =>
+        match parse_gty f r0 with
+        | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
+        | _ => None
+        end
+    | TId i :: rest =>
+        match classify (proj1_sig i) with
+        | Some t => Some (t, rest)
+        | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
+                  | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+                  | right _ => None
+                  end
+        end
+    | _ => None
+    end
+  end.
+Lemma parse_gty_S : forall f toks, parse_gty (S f) toks =
+  match toks with
+  | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
+  | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
+  | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
+  | TMap :: TLB :: r0 =>
+      match parse_gty f r0 with
+      | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
+      | _ => None
+      end
+  | TId i :: rest =>
+      match classify (proj1_sig i) with
+      | Some t => Some (t, rest)
+      | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
+                | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
+                | right _ => None
+                end
+      end
+  | _ => None
+  end.
+Proof. reflexivity. Qed.
+
+
 Example lex_sum  : lex "a + b" = Some (TId (exist _ "a" eq_refl) :: TPlus :: TId (exist _ "b" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 Example lex_call : lex "f(x, 42)"
@@ -3491,81 +3570,6 @@ Qed.
     [TLB]/[TRB].  Self-contained: additive over [GoTy], no [GExpr] dependency.  [GoTy] has no list child, so
     ordinary induction suffices and a SUM-based [tsize] fuel works (a map's two children parse at the same
     fuel, sum >= max).  ================================================================================== *)
-Definition tyname_to_ident (n : TyName) : Ident :=
-  mkIdent (proj1_sig n) (proj1 (andb_prop _ _ (proj2_sig n))).
-Fixpoint gttokens_ty (t : GoTy) : list Token :=
-  match t with
-  | GTInt     => TId (mkIdent "int" eq_refl) :: nil
-  | GTInt64   => TId (mkIdent "int64" eq_refl) :: nil
-  | GTBool    => TId (mkIdent "bool" eq_refl) :: nil
-  | GTString  => TId (mkIdent "string" eq_refl) :: nil
-  | GTFloat64 => TId (mkIdent "float64" eq_refl) :: nil
-  | GTFloat32 => TId (mkIdent "float32" eq_refl) :: nil
-  | GTUint    => TId (mkIdent "uint" eq_refl) :: nil
-  | GTU8      => TId (mkIdent "uint8" eq_refl) :: nil
-  | GTI8      => TId (mkIdent "int8" eq_refl) :: nil
-  | GTU16     => TId (mkIdent "uint16" eq_refl) :: nil
-  | GTI16     => TId (mkIdent "int16" eq_refl) :: nil
-  | GTU32     => TId (mkIdent "uint32" eq_refl) :: nil
-  | GTI32     => TId (mkIdent "int32" eq_refl) :: nil
-  | GTU64     => TId (mkIdent "uint64" eq_refl) :: nil
-  | GTPtr u   => TStar :: gttokens_ty u
-  | GTSlice u => TLB :: TRB :: gttokens_ty u
-  | GTChan u  => TChan :: gttokens_ty u
-  | GTMap k v => TMap :: TLB :: (gttokens_ty k ++ TRB :: gttokens_ty v)
-  | GTNamed n => TId (tyname_to_ident n) :: nil
-  end.
-Fixpoint tsize (t : GoTy) : nat :=
-  match t with
-  | GTPtr u | GTSlice u | GTChan u => S (tsize u)
-  | GTMap k v => S (tsize k + tsize v)
-  | _ => 1
-  end.
-Fixpoint parse_gty (fuel : nat) (toks : list Token) : option (GoTy * list Token) :=
-  match fuel with
-  | O => None
-  | S f =>
-    match toks with
-    | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
-    | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
-    | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
-    | TMap :: TLB :: r0 =>
-        match parse_gty f r0 with
-        | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
-        | _ => None
-        end
-    | TId i :: rest =>
-        match classify (proj1_sig i) with
-        | Some t => Some (t, rest)
-        | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
-                  | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
-                  | right _ => None
-                  end
-        end
-    | _ => None
-    end
-  end.
-Lemma parse_gty_S : forall f toks, parse_gty (S f) toks =
-  match toks with
-  | TStar :: rest => match parse_gty f rest with Some (u, r) => Some (GTPtr u, r) | None => None end
-  | TLB :: TRB :: rest => match parse_gty f rest with Some (u, r) => Some (GTSlice u, r) | None => None end
-  | TChan :: rest => match parse_gty f rest with Some (u, r) => Some (GTChan u, r) | None => None end
-  | TMap :: TLB :: r0 =>
-      match parse_gty f r0 with
-      | Some (k, TRB :: r1) => match parse_gty f r1 with Some (v, r2) => Some (GTMap k v, r2) | None => None end
-      | _ => None
-      end
-  | TId i :: rest =>
-      match classify (proj1_sig i) with
-      | Some t => Some (t, rest)
-      | None => match bool_dec (nominal_type_ident (proj1_sig i)) true with
-                | left H => Some (GTNamed (mkTyName (proj1_sig i) H), rest)
-                | right _ => None
-                end
-      end
-  | _ => None
-  end.
-Proof. reflexivity. Qed.
 
 (** THE TYPE-PARSER ROUND-TRIP: [parse_gty] inverts [gttokens_ty] (leaving any clean tail [rest]). *)
 Lemma parse_gty_roundtrip : forall t rest F, tsize t <= F -> parse_gty F (gttokens_ty t ++ rest)%list = Some (t, rest).
