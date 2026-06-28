@@ -3378,10 +3378,11 @@ Definition print_program (p : Program) : string :=
   ("package " ++ proj1_sig (prog_pkg p) ++ go_nl ++ go_nl ++
    "func main() {" ++ go_nl ++ print_stmts (prog_body p) ++ "}" ++ go_nl)%string.
 
-(** No [gprint] output is the bare keyword "return": it would have to lex+parse back to that expression
-    ([parse_print_roundtrip]), but "return" is a Go keyword and does NOT lex ([parse_str "return" = None]) —
-    so the round-trip would equate [None] with [Some _].  This is what keeps [GsReturn] disjoint from
-    [GsExprStmt] at the printer level (no ad-hoc "gprint contains no …" string surgery). *)
+(** No [gprint] output is the bare keyword "return": it would have to parse back to that expression
+    ([parse_print_roundtrip]), but "return" LEXES to the [TReturn] keyword token, which is not a valid
+    expression, so the parser rejects it ([parse_str "return" = None]) — and the round-trip would then equate
+    [None] with [Some _].  This is what keeps [GsReturn] disjoint from [GsExprStmt] at the printer level (no
+    ad-hoc "gprint contains no …" string surgery). *)
 Lemma gprint_neq_return : forall e, gprint 0 e <> "return"%string.
 Proof.
   intros e H. pose proof (parse_print_roundtrip e) as R. rewrite H in R. vm_compute in R. discriminate R.

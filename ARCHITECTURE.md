@@ -259,7 +259,8 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > FAITHFUL — `print_program_inj`: distinct `GoAst.Program`s emit distinct Go source (via `no_nl_gprint` + a
 > newline delimiter-split, the float-hex `no_p`/`split_p` technique); then (6e2ba11) added the 2nd statement
 > form `GsReturn` (`print_stmt_inj` now multi-constructor, the `GsExprStmt`/`GsReturn` cross case closed by
-> `gprint_neq_return` — "return" doesn't lex). Still ahead in Phase 4: more `GoStmt` forms (assignment, var,
+> `gprint_neq_return` — "return" lexes to the `TReturn` keyword token, which the expression parser rejects, so
+> `parse_str "return" = None`). Still ahead in Phase 4: more `GoStmt` forms (assignment, var,
 > control flow) and the parked `EConv`. All golden byte-identical, zero axioms. The legacy
 > `plugin/go.ml` still calls the extracted `Printer.gprint` flat (transitional). Every "Front" below names that
 > now-retired seed (the completed migration's source), NOT a current structure.
