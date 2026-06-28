@@ -72,10 +72,10 @@ negtest:
 	dune build
 	@sh negtests/run.sh
 
-# Smart-constructor gate (review #4): ban DIRECT proof-carrying Printer constructors
-# (AIdent/AIntLit/ARaw/GTNamed) outside the smart-constructor block in plugin/go.ml — the erased
-# Rocq proofs make a direct call a trust hole.  Pure static check (no build); runs here, in the
-# pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
+# Smart-constructor gate (review #4): ban the DIRECT proof-carrying Printer constructor [GTNamed]
+# (the only one left after the SRaw teardown) outside the smart-constructor block in plugin/go.ml —
+# its erased Rocq proof makes a direct call a trust hole.  Pure static check (no build); runs here, in
+# the pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
 

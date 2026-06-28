@@ -2428,13 +2428,13 @@ let rec pp_expr state env = function
           parens only where genuinely needed. *)
        | MLglob r, [_; _] when Option.has_some (binop_of r) ->
            (* the whole binop tree — operator splice, operand parenthesisation, and the typed-IIFE
-              force-wrapper — is built by [build_goexpr] and rendered by the VERIFIED
-              [Printer.print_prec]; ctx 0 = no outer parens at the top level.  [build_goexpr]
-              re-collects [MLapp (head, all_args)] to the same head/operands. *)
+              force-wrapper — is printed by the trusted OCaml [pp_prec] (ctx 0 = no outer parens at
+              the top level), which re-collects [MLapp (head, all_args)] to the same head/operands.
+              The verified [Front] expression printer is NOT yet wired in here (Stage B, pending). *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
-          witness [eqb] is dropped (it discharged the side condition).  Rendered through the
-          verified [Printer.print_expr] as an [EBin BEq] (== derives precedence 3 in Rocq). *)
+          witness [eqb] is dropped (it discharged the side condition).  Printed directly by the
+          trusted [pp_prec] at precedence 3 / 4 (== is left-associative, precedence 3). *)
        | MLglob r, [_eqb; a; b] when is_struct_eqb_ref r ->
            pp_prec state env 3 a ++ str " == " ++ pp_prec state env 4 b
        (* complex-number builtins → Go's predeclared [complex]/[real]/[imag] *)
@@ -2741,20 +2741,12 @@ and pp_atom state env e =
   | _ ->
       str "(" ++ pp_expr state env e ++ str ")"
 
-(* Build the VERIFIED-printer [GoExpr] for [e]: a [GEBin] node for an inlined binary
-   operator (so the parenthesisation is decided by the proven [Printer.print_prec], not
-   here), and a [GERaw] atom — the already-rendered Go text — for everything else (atoms,
-   calls, the typed-IIFE force-wrapper: all bind tighter than any operator, so they never
-   need parens).  A non-binop operand's rendering goes through [pp_expr] and is flattened
-   to a string via [Pp.string_of_ppcmds]; the plugin's expression docs are pure text
-   (str/++), so this round-trips byte-for-byte.  [build_goexpr] mirrors the old [pp_prec]'s
-   binop detection EXACTLY — only the parenthesise/concatenate step moved into Rocq. *)
-
 (* Print [e] as an operand inside a binary operator whose context requires precedence [>= ctx].
-   The parenthesisation is the VERIFIED [Printer.print_expr] (proved to emit well-bracketed output):
-   an [EBin o] of precedence [binop_prec o] is wrapped exactly when that [< ctx], operands recurse at
-   [p]/[p+1] (left-associativity) — [EAtom]s (atoms/calls) never wrap.  [build_goexpr] supplies the
-   tree; the operator and its precedence are derived in Rocq, the raw OCaml parenthesise/concat is gone. *)
+   Trusted OCaml: an inlined binary operator of precedence [p = binop_prec] is wrapped exactly when
+   [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
+   the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
+   [pp_expr]).  NOTE: this is the trusted string printer — the verified [Front] expression printer
+   (goprint.v) proves an equivalent parenthesisation but is NOT yet wired in here (Stage B, pending). *)
 and pp_prec state env ctx e =
   match strip_magic e with
   | MLapp (h, args) ->

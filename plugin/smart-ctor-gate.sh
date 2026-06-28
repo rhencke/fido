@@ -1,30 +1,29 @@
 #!/bin/sh
 # Smart-constructor gate (external review #4 directive; review #5 widened it to ALL plugin OCaml).
 #
-# The proof-carrying Printer atom/type constructors — SIdent / SIntLit / SRaw / SSelector / AScanned /
-# AStringLit / GTNamed — erase their Rocq validity proofs to bare strings in the extracted OCaml.  So a
-# DIRECT call like `Printer.SRaw "a+b"` or `Printer.GTNamed "func"` would inject text the verified
-# round-trip (print_parse_expr) / type round-trip (parse_print_ty) never proved valid — re-opening
-# exactly the hand-written-printer trust hole, through a side door.  (The SCANNED atoms are built only by
-# the verified Printer.build_atom; mk_atom uses the lone proof-carrying AStringLit directly.)
+# The extracted [Printer] exposes exactly ONE proof-carrying constructor: [GTNamed], which erases its Rocq
+# validity proof ([nominal_type_ident s = true]) to a bare string in OCaml.  A DIRECT [Printer.GTNamed s]
+# would inject a type name the verified type round-trip ([parse_print_ty]) never proved valid — re-opening
+# the hand-written-printer trust hole through a side door.  (The old expression-printer constructors
+# SIdent / SIntLit / SRaw / SSelector / AScanned / AStringLit were DELETED with the SRaw overlay teardown —
+# see LESSONS.md; they no longer exist in printer.ml, so there is nothing left to guard there.)
 #
-# The mk_atom / mk_named_ty smart constructors (the SMART-CONSTRUCTORS block of plugin/go.ml) are the
-# SOLE sanctioned construction sites: each re-checks the EXACT predicate its sig demands and fail-louds
-# otherwise.  This gate asserts NOTHING ELSE constructs those directly — scanning EVERY hand-written
-# plugin OCaml file (go.ml AND the .mlg vernac glue), not just go.ml, so a future helper file cannot
-# reopen the hole (review #5 item 4).  The GENERATED plugin/printer.ml DEFINES the constructors, so it is
-# the one file excluded.
+# The [mk_named_ty] smart constructor (the SMART-CONSTRUCTORS block of plugin/go.ml) is the SOLE sanctioned
+# construction site: it re-checks [nominal_type_ident] and fail-louds otherwise.  This gate asserts NOTHING
+# ELSE constructs [GTNamed] directly — scanning EVERY hand-written plugin OCaml file (go.ml AND the .mlg
+# vernac glue), not just go.ml, so a future helper file cannot reopen the hole (review #5 item 4).  The
+# GENERATED plugin/printer.ml DEFINES the constructor, so it is the one file excluded.
 #
 # Run from the repo root: locally via `make smart-ctor-gate` and the pre-commit hook, and in the Docker
 # prover stage (so `make check` always enforces it).
 #
 # LIMITATION (review #6 item 3): this is a STATIC-DISCIPLINE GATE, not a type-level seal.  It is a grep over
-# the source, so it can be defeated by aliasing a constructor, a different module path, a generated helper
-# file, or by editing the gate itself.  The extracted `printer.ml` exposes the proof-erased constructors
-# (SIdent/SRaw/AStringLit/...) PUBLICLY.  The STRONGER architecture is a hand-written wrapper module
-# (`Printer_checked`) with ABSTRACT types + smart constructors, with plugin code importing only that — so
-# the raw constructors are simply unavailable.  Until then: do NOT describe this gate as "airtight" — it is
-# a practical discipline gate that catches the easy/accidental bypass, not a proof-level boundary.
+# the source, so it can be defeated by aliasing the constructor, a different module path, or by editing the
+# gate itself.  The extracted `printer.ml` exposes [GTNamed] PUBLICLY.  The STRONGER architecture is a
+# hand-written wrapper module (`Printer_checked`) with ABSTRACT types + smart constructors, with plugin code
+# importing only that — so the raw constructor is simply unavailable.  Until then: do NOT describe this gate
+# as "airtight" — it is a practical discipline gate that catches the easy/accidental bypass, not a proof
+# boundary.
 set -e
 
 # The smart-constructor block lives in go.ml; assert its markers are present (so the in-block uses are
@@ -49,14 +48,14 @@ offenders=$(awk '
   FNR==1 { s=0 }
   /SMART-CONSTRUCTORS-BEGIN/{s=1}
   /SMART-CONSTRUCTORS-END/{s=0; next}
-  !s && /Printer\.(SIdent|SIntLit|SRaw|SSelector|AScanned|AStringLit|GTNamed)/ {print FILENAME ":" FNR ": " $0}
+  !s && /Printer\.GTNamed/ {print FILENAME ":" FNR ": " $0}
 ' $files)
 
 if [ -n "$offenders" ]; then
-  echo "fido: SMART-CTOR GATE — direct proof-carrying Printer constructor OUTSIDE the smart-constructor block:"
+  echo "fido: SMART-CTOR GATE — direct proof-carrying Printer.GTNamed OUTSIDE the smart-constructor block:"
   echo "$offenders"
-  echo "fido: construct via mk_atom / mk_named_ty (which re-check the erased invariant), never the raw constructor."
+  echo "fido: construct via mk_named_ty (which re-checks the erased nominal_type_ident invariant), never the raw constructor."
   exit 1
 fi
 
-echo "fido: smart-ctor gate OK — no direct proof-carrying Printer constructor outside the block ✓"
+echo "fido: smart-ctor gate OK — no direct Printer.GTNamed outside the block ✓"
