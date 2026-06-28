@@ -2478,10 +2478,10 @@ let rec pp_expr state env = function
           (left) and one tighter (right, for left-associativity); [pp_prec] adds
           parens only where genuinely needed. *)
        | MLglob r, [_; _] when Option.has_some (binop_of r) ->
-           (* the whole binop tree — operator splice, operand parenthesisation, and the typed-IIFE
-              force-wrapper — is printed by the trusted OCaml [pp_prec] (ctx 0 = no outer parens at
-              the top level), which re-collects [MLapp (head, all_args)] to the same head/operands.
-              The verified [Front] expression printer is NOT yet wired in here (Stage B, pending). *)
+           (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
+              which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
+              [MLrel OP MLrel] sub-case via the VERIFIED [Printer.Front.gprint] (Stage B slice 1) and every
+              other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
           witness [eqb] is dropped (it discharged the side condition).  Printed directly by the
@@ -2796,8 +2796,8 @@ and pp_atom state env e =
    Trusted OCaml: an inlined binary operator of precedence [p = binop_prec] is wrapped exactly when
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
-   [pp_expr]).  NOTE: this is the trusted string printer — the verified [Front] expression printer
-   (goprint.v) proves an equivalent parenthesisation but is NOT yet wired in here (Stage B, pending). *)
+   [pp_expr]).  Stage B slice 1: the [MLrel OP MLrel] sub-case is delegated to the VERIFIED
+   [Printer.Front.gprint] (see [goexpr_bridge_binop]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
   | MLapp (h, args) ->
