@@ -1712,6 +1712,48 @@ Proof.
         | unfold digit_fuel; apply z_digits_S_ne | exact Hclean | exact Hrest | exact Hfuel ].
 Qed.
 
+(** BINOP SEAM: [binop_text o] is [" op "] (spaced both sides), so lexing [binop_text o ++ X] skips the
+    leading space, lexes the operator to [op_token o], skips the trailing space, and continues on [X] —
+    3 lexer steps, then [X].  The trailing space isolates [X] (no constraint on its head). *)
+Lemma lex_binop_app : forall o X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (String.length (binop_text o) + String.length X) <= fuel ->
+  lex_aux fuel (binop_text o ++ X) = Some (op_token o :: tX).
+Proof.
+  intros o X fuel tX HX Hfuel.
+  destruct o; cbn [binop_text] in Hfuel;
+    do 3 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]);
+    cbn;
+    rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia);
+    reflexivity.
+Qed.
+
+(** Single-char delimiter seams: '(' -> TLP, ')' -> TRP (one lexer step), and the [UNeg] prefix "-(" ->
+    TMinus, TLP (two steps — '-' followed by '(' is NOT a negative literal, so it lexes as TMinus). *)
+Lemma lex_lparen_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
+  lex_aux fuel (String (ch 40) X) = Some (TLP :: tX).
+Proof.
+  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
+  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
+Lemma lex_rparen_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX -> S (S (String.length X)) <= fuel ->
+  lex_aux fuel (String (ch 41) X) = Some (TRP :: tX).
+Proof.
+  intros X fuel tX HX Hfuel. destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ].
+  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
+Lemma lex_minuslp_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX -> S (S (S (String.length X))) <= fuel ->
+  lex_aux fuel (String (ch 45) (String (ch 40) X)) = Some (TMinus :: TLP :: tX).
+Proof.
+  intros X fuel tX HX Hfuel. do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]).
+  cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
 End Front.
 
 (** GATE — goprint.v is part of the trust base: the EXTRACTED printer is governed by these theorems, so
