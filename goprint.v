@@ -1020,14 +1020,20 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
     that cannot munch into the operator before it.  (UNeg self-parenthesises as [-(x)] for the same reason,
     plus to avoid colliding with the [-5] negative-literal lexing.) *)
 
-(** [op_needs_paren e0] — does a POSTFIX operand [e0] need parentheses?  TRUE exactly for the LOOSE nodes
-    ([EUn]/[EBn], which bind looser than a postfix operator); every atom and other postfix form prints bare.
-    This is the SINGLE source of truth for operand parenthesisation, used uniformly by
-    [gprint]/[gparen]/[gtokens]/[gtparen] — so the rule lives in ONE place, and a future postfix form is bare
-    BY DEFAULT (it lands in the [_] catch-all, never wrongly wrapped).  Defined before [gprint] (it only
-    inspects the head constructor, so it needs no recursion). *)
+(** [op_needs_paren e0] — does a POSTFIX operand [e0] need parentheses?  TRUE for the LOOSE nodes
+    ([EUn]/[EBn], which bind looser than a postfix operator); FALSE for every atom / postfix form (they bind
+    at least as tightly).  The SINGLE source of truth for operand parenthesisation, used uniformly by
+    [gprint]/[gparen]/[gtokens]/[gtparen].  EXHAUSTIVE on purpose — NO [_] catch-all: a default would silently
+    classify a future constructor, and the only UNSAFE direction is bare-by-default (a new LOOSE form printed
+    without parens = wrong precedence, exactly the "plausible-but-wrong" rule-2 forbids).  So every constructor
+    is listed; adding one makes this match non-exhaustive and FAILS THE BUILD until its precedence is declared
+    here — fail-loud at the definition, never a silent wrong default.  Inspects only the head constructor (no
+    recursion), so it is defined before [gprint]. *)
 Definition op_needs_paren (e0 : GExpr) : bool :=
-  match e0 with EUn _ _ | EBn _ _ _ => true | _ => false end.
+  match e0 with
+  | EUn _ _ | EBn _ _ _ => true
+  | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ => false
+  end.
 
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
     in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
