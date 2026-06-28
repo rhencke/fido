@@ -1134,16 +1134,11 @@ Qed.
     as [a+b*c], silently changing the program's meaning.  This is the hardest correctness property of the
     structural printer, so it is the right first target.
 
-    [GoExpr] models the binary-operator tree the plugin assembles.  CRUCIALLY the operator text and its
-    precedence are NOT supplied by the caller — they are DERIVED from a [BinOp] constructor, so a caller
-    cannot mis-state them.  (The old [GEBin (p:nat) (op:string) …] let a caller pass " * " at precedence 5
-    with a looser raw operand — e.g. [GEBin 5 " * " (GERaw "a + b") (GERaw "c")] — which printed
-    [a + b * c] for what should be [(a + b) * c]: the balance theorem held yet the parse was wrong.)
-    [EAtom s] is a pre-rendered ATOM — an operand that binds tightest (literal / variable / call / field /
-    index); [EBin o l r] is a LEFT-ASSOCIATIVE binary operator [o].  [print_expr ctx e] renders [e] where
-    the context demands precedence >= [ctx]: an [EBin] of precedence [binop_prec o] is parenthesized
-    exactly when that [< ctx]; operands recurse at [p] (left) and [S p] (right, one tighter — left
-    associativity), MIRRORING the plugin's [pp_prec] byte-for-byte. *)
+    [BinOp] is the operator enum; [binop_prec] / [binop_text] DERIVE its precedence and surface text from
+    the constructor — the single source of truth, so no caller can mis-pair an operator with the wrong
+    precedence.  Consumed by [Module Front]'s [gprint] (the verified frontend below), which parenthesises a
+    sub-expression exactly when its [binop_prec] is looser than the context.  (The plugin's trusted OCaml
+    [pp_prec] renders the same binary-operator tree as strings; [Front] is being built to replace it.) *)
 Inductive BinOp : Type :=
   (* Go precedence 5: *  /  %  <<  >>  &  &^ *)
   | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot
@@ -1172,16 +1167,12 @@ Definition binop_text (o : BinOp) : string :=
   | BLAnd => " && " | BLOr => " || "
   end.
 
-(** UNARY operators (review #6 — [EUnary], the prefix node that shrinks [SRaw]): negate / not / bitwise-
-    complement / dereference / address-of.  UNSPACED single-char prefixes (Go: [-x] [!b] [^x] [*p] [&x]),
-    binding TIGHTER than every binary operator.  ([+] unary is omitted — the plugin never emits it; channel
-    receive [<-] is a separate comma-ok form.)  [unop_char_of] gives the leading char the parser dispatches
-    on; a [-] FOLLOWED BY A DIGIT is a negative literal ([is_dec] -> [SIntLit]), NOT [UNeg]. *)
-(** [UNeg] (unary [-]) IS carried — but it prints AMBIGUOUSLY against a negative LITERAL: a bare [-x]
-    collides with [-5] ([SIntLit]).  So [UNeg] alone among the unary ops prints PARENTHESISED — [-(x)] —
-    and the parser dispatches the unambiguous two-char prefix [-(] to it (see [print_expr]/[parse_primary]).
-    The other four ([!]/[^]/[*]/[&]) are single-char-unambiguous and print bare ([unop_char_of] gives the
-    dispatch char; [-] is NOT a [unop_char] — it never single-char-dispatches, only via the [-(] prefix). *)
+(** UNARY operators: not / bitwise-complement / dereference / address-of / negate.  Single-char prefixes
+    (Go: [!b] [^x] [*p] [&x] [-x]), binding TIGHTER than every binary operator.  ([+] unary is omitted — the
+    plugin never emits it.)  [unop_text] gives the surface text; consumed by [Module Front]'s [gprint].
+    [UNeg] (unary [-]) prints PARENTHESISED — [-(x)] — because a bare [-x] would collide with the [-5]
+    negative literal, and [Front]'s parser dispatches the unambiguous two-char prefix [-(] to it (the other
+    four print bare). *)
 Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr | UNeg.
 Definition unop_text (o : UnaryOp) : string :=
   match o with UNot => "!" | UXor => "^" | UDeref => "*" | UAddr => "&" | UNeg => "-" end.
