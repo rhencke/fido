@@ -17,12 +17,16 @@ and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom`
 raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
 `goprint.v` was cut ~7100→~1500 lines to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
 `print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
-plus the from-scratch Wirth-style **`Module Front`**, whose **CORE round-trip is now PROVEN at ZERO AXIOMS**:
-a `lex` + recursive-descent token `parse` + clean `GExpr` AST (`EId`/`EInt`/`EUn`/`EBn`, NO raw constructor)
-with `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (M3b `gtokens_lex` ∘ M3c
-`gtokens_parse`) + `gprint_inj`. Scope today = the binop/unary/atom CORE (self-consistency for the Rocq
-grammar, NOT Go's own parser); it is being grown form-by-form (selector/index/slice/call/conversion/func-lit)
-toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`) — NOT yet done. Until Stage B, expressions are
+plus the from-scratch Wirth-style **`Module Front`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
+FULL core + every postfix form**: a `lex` + recursive-descent token `parse` + clean `GExpr` AST
+(`EId`/`EInt`/`EUn`/`EBn` + the four postfix forms `ESel` selector / `EIndex` index / `ESlice` two-bound slice
+/ `ECall` variadic call — NO raw constructor) with `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) =
+Some (e, [])` (M3b `gtokens_lex` ∘ M3c `gtokens_parse`) + `gprint_inj`, all at zero axioms. The variadic
+`ECall` needed a custom induction principle `GExpr_ind'` (the auto one gives no IH for its `list GExpr` child)
+and a MAX-based arg-list parse fuel; that machinery now makes the remaining forms tractable. Scope today =
+the binop/unary/atom CORE + selector/index/slice/call (self-consistency for the Rocq grammar, NOT Go's own
+parser); still being grown form-by-form (conversion/composite-literal/func-lit need a token-level type parser
+or statements) toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`) — NOT yet done. Until Stage B, expressions are
 still printed by trusted OCaml strings (`pp_expr`) — the same trust status as before the experiment, minus the
 false "verified printer" claim. The remaining work is the
 source→Go **compiler-correctness theorem** (gap #10, now to be built on `Front`, NOT `SRaw`), **stronger gates** (the
