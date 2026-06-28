@@ -87,9 +87,9 @@ COPY --chown=opam:opam negtests/ negtests/
 #      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
 #      the defect class the happy-path golden cannot see.  Now NON-bypassable (runs every build).
 #  (5) PRINTER GENERATION GATE: the plugin LINKS the committed plugin/printer.ml, but that file MUST be
-#      exactly goprint.v's extraction or the EXECUTED printer drifts from the PROVED one (the verified-
-#      printer guarantee is vacuous if they differ).  Regenerate it from goprint.v here, FAIL on drift,
-#      and assert goprint.v's `Print Assumptions` show no "Axioms:" (goprint.v is part of the trust gate,
+#      exactly GoPrint.v's extraction or the EXECUTED printer drifts from the PROVED one (the verified-
+#      printer guarantee is vacuous if they differ).  Regenerate it from GoPrint.v here, FAIL on drift,
+#      and assert GoPrint.v's `Print Assumptions` show no "Axioms:" (GoPrint.v is part of the trust gate,
 #      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
 #  (6) SMART-CTOR GATE (review #4): the proof-carrying Printer constructors (AIdent/AIntLit/ARaw/GTNamed)
 #      erase their Rocq proofs in OCaml, so a DIRECT call would bypass the verified invariant.  Assert
@@ -97,10 +97,10 @@ COPY --chown=opam:opam negtests/ negtests/
 #      a pure static scan, run FIRST so a side-door construction fails fast.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
-    && (rocq c -Q . Fido GoAst.v > /tmp/goprint.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/goprint.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/goprint.log; exit 1)) \
-    && if grep -q '^Axioms:' /tmp/goprint.log; then \
+    && (rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
+    && if grep -q '^Axioms:' /tmp/printer.log; then \
          echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
-         cat /tmp/goprint.log; exit 1; \
+         cat /tmp/printer.log; exit 1; \
        fi \
     && if ! diff plugin/printer.ml printer.ml; then \
          echo "fido: PRINTER DRIFT — committed plugin/printer.ml != GoPrint.v's extraction; run 'make printer' and commit it."; \

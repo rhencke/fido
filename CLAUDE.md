@@ -15,10 +15,11 @@ makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️
 a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
 and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom` verified-EXPRESSION-printer experiment was TORN DOWN (2026-06-28)** — it was a
 raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
-`goprint.v` was cut ~7100→~1500 lines (and on 2026-06-28 SPLIT into `GoAst.v` syntax + `GoPrint.v` printer,
-retiring the `Module Front` name, per `ARCHITECTURE.md`; "Front"/"goprint.v" below = that now-split seed) to hold ONLY the clean zero-axiom type/literal printers (`print_ty` /
+the verified-printer seed was cut ~7100→~1500 lines, then (2026-06-28) SPLIT into the AST-first spine
+(`ARCHITECTURE.md` §11): `GoAst.v` (the `GExpr`/`GoTy`/operator SYNTAX) + `GoPrint.v` (the printer / lexer /
+parser / round-trips, extracted to `plugin/printer.ml`).  `GoPrint` holds the clean zero-axiom type/literal printers (`print_ty` /
 `print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
-plus the from-scratch Wirth-style **`Module Front`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
+plus the from-scratch Wirth-style **`GoPrint`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
 FULL core + every postfix form + the first TYPE-using form**: a `lex` + recursive-descent token `parse` + clean
 `GExpr` AST (`EId`/`EInt`/`EUn`/`EBn` + the five postfix forms `ESel` selector / `EIndex` index / `ESlice`
 two-bound slice / `ECall` variadic call / `EAssert` type assertion `e.(T)` — NO raw constructor) with
@@ -29,13 +30,13 @@ child round-tripped through the M5 token-level type layer (`gttokens_ty` / `pars
 itself zero-axiom). That machinery now makes the remaining forms tractable. Scope today = the binop/unary/atom
 CORE + selector/index/slice/call/type-assertion (self-consistency for the Rocq grammar, NOT Go's own
 parser); still being grown form-by-form (conversion/composite-literal/func-lit — the type layer is now in place)
-toward **Stage B** (swap `go.ml` onto `Front`, retire `pp_expr`). **Stage B slice 1 has LANDED:** `Front.gprint`
+toward **Stage B** (swap `go.ml` onto `GoPrint`, retire `pp_expr`). **Stage B slice 1 has LANDED:** `gprint`
 is extracted and CALLED by the plugin for the first expression class — a binop over two runtime locals
-(`MLrel OP MLrel`), built directly as a `Front.GExpr` (go_ident-checked `mk_goexpr_id`, no string parsing) and
-printed by the machine-checked `Printer.Front.gprint`; liveness shown by a `+`→`BSub` perturbation flipping
+(`MLrel OP MLrel`), built directly as a `GExpr` (go_ident-checked `mk_goexpr_id`, no string parsing) and
+printed by the machine-checked `Printer.gprint`; liveness shown by a `+`→`BSub` perturbation flipping
 exactly those sites. But this is ONE narrow class — **every other expression shape is still printed by the
 trusted OCaml `pp_prec`/`pp_expr`**, so do NOT yet read this as "verified Go expressions." The remaining work is the
-source→Go **compiler-correctness theorem** (gap #10, now to be built on `Front`, NOT `SRaw`), **stronger gates** (the
+source→Go **compiler-correctness theorem** (gap #10, now to be built on `GoPrint`, NOT `SRaw`), **stronger gates** (the
 axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
 wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**
 (e.g. R3's untyped higher-order `func(x any) any` lambda — dead today since Fido HOFs are interface/method-dict-typed).
@@ -58,8 +59,8 @@ standing charter **`ARCHITECTURE.md`** is binding on every change and wins when 
 the ONE authoritative semantics — bridge `unified.v`/`concurrency.v`/`cmd.v` in, do NOT fork a second) →
 **`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed
 emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO official
-`emit : Program -> string`). The clean `Front` work + `ConvTy` groundwork are the SEED that MOVES into
-`GoAst`/`GoPrint` (rename, not a parallel copy); `plugin/go.ml` is trusted/transitional and is NOT grown;
+`emit : Program -> string`). The clean printer/parser work + `ConvTy` groundwork ARE now `GoAst` + `GoPrint`
+(the split landed in spine commit 1; do not reintroduce a parallel syntax universe); `plugin/go.ml` is trusted/transitional and is NOT grown;
 `relooper.v` is demoted. **Naming is a correctness claim** — never call a syntactic gate `SafeProgram`.
 Residual TCB (named, not implicit): Rocq kernel · the string→`.go` extraction step · the Go toolchain ·
 trusted foreign imports · the `GoSem`≈real-Go adequacy assumption (heir to gap #10).

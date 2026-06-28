@@ -245,6 +245,12 @@ Do not spend time on relooper integration until the AST-first emission path exis
 
 ## 7. Immediate refactor direction
 
+> **STATUS (2026-06-28): Phases 0–1 are DONE.** The charter is committed; `goprint.v`/`Module Front` have
+> been SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer), golden byte-identical, zero axioms
+> (spine commit 1). The legacy `plugin/go.ml` still calls the extracted `Printer.gprint` flat. Every "Front"
+> below names that now-retired seed (the completed migration's source), NOT a current structure. **Phase 2
+> (GoSafe/GoEmit) is next.**
+
 Not a giant rewrite in one patch. Proceed in small, structural steps. Every patch should either: move a
 concept into the correct module, delete an old wrong path, make a bad path unreachable, create/strengthen
 the proof-gated emission boundary, or shrink trusted legacy code. **Do not add parallel universes. Do not

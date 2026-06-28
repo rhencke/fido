@@ -73,10 +73,10 @@ negtest:
 	@sh negtests/run.sh
 
 # Smart-constructor + dead-architecture gate (reviews #4, #9, checklist): (1) ban the DIRECT proof-carrying
-# Printer constructors [GTNamed]/[Front.EId] outside the smart-constructor block (their erased Rocq proof
+# Printer constructors [GTNamed]/[EId] outside the smart-constructor block (their erased Rocq proof
 # makes a direct call a trust hole); (2) RECURRENCE GUARD — fail if any torn-down SRaw-overlay name
-# (SRaw/raw_ok/build_atom/build_goexpr/Printer.print_expr/…) or stale "Front not wired" comment reappears in
-# active code (*.v + go.ml), so the cleanups can't silently regress.  Pure static check (no build); runs
+# (SRaw/raw_ok/build_atom/build_goexpr/Printer.print_expr/…, plus the retired pre-split printer-file and
+# printer-module names) reappears in active code (*.v + go.ml), so cleanups can't silently regress.  Static; runs
 # here, in the pre-commit hook, and NON-bypassably in the Docker prover stage (so `make check` enforces it).
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
@@ -87,10 +87,10 @@ smart-ctor-gate:
 # main_effect).  GoPrint.v `From Fido Require Import GoAst`, so both compile under `-Q . Fido`.  On success it
 # leaves the freshly-extracted printer.ml + build artifacts in the CWD for the caller to use.  Recursively-
 # expanded (=) so each user inlines it into a SINGLE recipe line (one shell, `set -e` honoured).
-GOPRINT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/goprint.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/goprint.log 2>&1; } || { echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/goprint.log; exit 1; }; \
-	if grep -q '^Axioms:' /tmp/goprint.log; then \
+GOPRINT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1; } || { echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1; }; \
+	if grep -q '^Axioms:' /tmp/printer.log; then \
 	  echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
-	  cat /tmp/goprint.log; rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml; exit 1; \
+	  cat /tmp/printer.log; rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml; exit 1; \
 	fi
 GOPRINT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml
 
