@@ -18,8 +18,9 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > Residual TCB (named, not implicit):  Rocq kernel · the string→.go extraction step · the Go toolchain ·
 >           trusted foreign imports · the GoSem≈real-Go adequacy assumption (heir to gap #10).
 > ```
-> The clean `GoPrint` work (lexer/parser/`GExpr` AST/`gprint`/round-trip + the `ConvTy` groundwork) is the
-> SEED: it MOVES into `GoAst`/`GoPrint` (rename, not a parallel copy). Parked `EConv` re-lands there.
+> The clean printer/parser work (lexer/parser/`GExpr` AST/`gprint`/round-trip + the `ConvTy` groundwork) is
+> now SPLIT into `GoAst.v` (syntax) + `GoPrint.v` (printer) — spine commit 1 landed; do NOT reintroduce a
+> parallel syntax universe. Parked `EConv` re-lands in `GoAst`/`GoPrint`.
 
 **STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
 - **Go CONSTRUCT (MODEL) LAYER is complete** — every Go construct in the no-import scope is modelled in Rocq and extracted (via the trusted plugin), with NO remaining fail-closed construct gap. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.) This is the MODEL surface; it does not make the emitted Go verified — that is the printer/gap-#10 work below.
