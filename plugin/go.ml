@@ -1877,12 +1877,23 @@ let rec goexpr_bridge env e =
       let vis = List.filter (fun a -> not (is_erased a)) all in
       (match h2, vis with
        (* a platform-int [GoInt] literal [int_lit z] prints BARE — [print_i64_dec = Printer.print_Z] — so
-          [Front.EInt (coq_z_of_int64 v)] is byte-identical by construction.  (i64_lit / u64_lit wrap as
-          [int64(N)] / [uint64(N)] — a conversion Front cannot yet represent — so they decline here.) *)
+          [Front.EInt (coq_z_of_int64 v)] is byte-identical by construction. *)
        | MLglob r, [z] when is_int_lit r ->
            (match z_eval z with
             | Some v -> Some (Printer.Front.EInt (coq_z_of_int64 v))
             | None   -> None)
+       (* an [i64_lit] / [u64_lit] prints as the CONVERSION [int64(N)] / [uint64(N)].  In Go that is call
+          syntax over a type NAME, so it is exactly [Front.ECall (EId "int64") [EInt N]] (amendment 3:
+          identifier-led conversions are application syntax — no special conversion node needed).  The [N] is
+          [Printer.print_Z] of the same [Z] the plugin folds, so the bytes match by construction. *)
+       | MLglob r, [z] when is_i64_lit r ->
+           (match z_eval z, mk_goexpr_id "int64" with
+            | Some v, Some f -> Some (Printer.Front.ECall (f, coq_list_of_ocaml [Printer.Front.EInt (coq_z_of_int64 v)]))
+            | _ -> None)
+       | MLglob r, [z] when is_u64_lit r ->
+           (match zu_eval z, mk_goexpr_id "uint64" with
+            | Some v, Some f -> Some (Printer.Front.ECall (f, coq_list_of_ocaml [Printer.Front.EInt (coq_z_of_uint64 v)]))
+            | _ -> None)
        | MLglob r, [a; b]
          when Option.has_some (binop_of r)
            && (arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b) ->
