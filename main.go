@@ -120,6 +120,10 @@ func Front_nested_demo(a int64, b int64, c int64) {
 	println(a*b+c, (a+b)*c)
 }
 
+func Front_lit_demo(a int) {
+	println(a+5, a+5+a)
+}
+
 func Conv64_demo() {
 	println(U64_of_i64(-1), I64_of_u64(18446744073709551615), U64_of_i64(255))
 }
@@ -2689,6 +2693,7 @@ func main() {
 	Uneg_binop_demo(5, 3)
 	Front_binop_demo(5, 3)
 	Front_nested_demo(2, 3, 4)
+	Front_lit_demo(10)
 	Conv64_demo()
 	Minmax64_demo()
 	Cmp_ops_demo()

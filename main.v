@@ -131,6 +131,15 @@ Definition front_nested_demo (a b c : GoI64) : IO unit :=
   println [ any (i64_add (i64_mul a b) c)          (* a*b + c   *)
           ; any (i64_mul (i64_add a b) c) ].       (* (a+b) * c *)
 
+(** ★Stage B (slice 3): a platform-int ([GoInt]) LITERAL operand.  [int_lit] prints BARE (its renderer IS
+    [Printer.print_Z]), so the verified [Front] printer now bridges integer-literal leaves too — [a + 5] and
+    [a + 5 + a] are emitted in full by [Printer.Front.gprint] via [EBn]/[EId]/[EInt], byte-identical by
+    construction.  ([i64_lit]/[u64_lit] still wrap as [int64(N)]/[uint64(N)] — a conversion [Front] cannot
+    yet represent — so they remain on the trusted [pp_prec].) *)
+Definition front_lit_demo (a : GoInt) : IO unit :=
+  println [ any (int_add a (int_lit 5 eq_refl))                (* a + 5     *)
+          ; any (int_add (int_add a (int_lit 5 eq_refl)) a) ]. (* a + 5 + a *)
+
 (** Full-width int64 <-> uint64 CONVERSION (Go [uint64(x)] / [int64(x)]): a
     two's-complement REINTERPRET of the 64-bit pattern, EXACT (no rounding) --
     [-1 <-> 2^64-1], in-range values unchanged, round-trip = identity.  All
@@ -3375,6 +3384,7 @@ Definition main_effect : IO unit :=
   uneg_binop_demo (5)%i64 (3)%i64 >>' (* prints: -2 -2 (-(a)+b, b+-(a) — UNeg as binop operand) *)
   front_binop_demo (5)%i64 (3)%i64 >>' (* prints: 8 15 (a+b, a*b — printed by the VERIFIED Front printer) *)
   front_nested_demo (2)%i64 (3)%i64 (4)%i64 >>' (* prints: 10 20 (a*b+c, (a+b)*c — verified Front, nested) *)
+  front_lit_demo (int_lit 10 eq_refl) >>' (* prints: 15 25 (a+5, a+5+a — verified Front, int literal leaf) *)
   conv64_demo                   >>'   (* prints: 18446744073709551615 -1 255 *)
   minmax64_demo                 >>'   (* prints: -2 1 18446744073709551615 *)
   cmp_ops_demo                  >>'   (* prints: true true true true *)

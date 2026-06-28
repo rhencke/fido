@@ -1876,6 +1876,13 @@ let rec goexpr_bridge env e =
       let h2, all = collect_app h args in
       let vis = List.filter (fun a -> not (is_erased a)) all in
       (match h2, vis with
+       (* a platform-int [GoInt] literal [int_lit z] prints BARE — [print_i64_dec = Printer.print_Z] — so
+          [Front.EInt (coq_z_of_int64 v)] is byte-identical by construction.  (i64_lit / u64_lit wrap as
+          [int64(N)] / [uint64(N)] — a conversion Front cannot yet represent — so they decline here.) *)
+       | MLglob r, [z] when is_int_lit r ->
+           (match z_eval z with
+            | Some v -> Some (Printer.Front.EInt (coq_z_of_int64 v))
+            | None   -> None)
        | MLglob r, [a; b]
          when Option.has_some (binop_of r)
            && (arith_force_go_type r = None || operand_is_runtime a || operand_is_runtime b) ->
