@@ -121,6 +121,17 @@ Proof. reflexivity. Qed.
    NOT work — [Fail] guards only the goal-opening vernac, which always succeeds.) *)
 Fail Example value_stmt_supported : SupportedProgram unsupported_value_stmt := eq_refl.
 
+(** REGRESSION (gate coverage) — the PACKAGE-NAME half of [supported_program].  A non-`main` package, here
+    `package lib` with an otherwise-FINE body ([return]), is NOT supported: [GoEmit] emits `package main` /
+    `func main()` (no import block — rule 5), so a non-main package cannot be the emitted unit.  The body is
+    deliberately supported, ISOLATING the package-name check (the statement-body half is pinned by the
+    regressions above; this pins the conjunct they don't reach). *)
+Definition unsupported_nonmain_pkg : Program :=
+  mkProgram (mkIdent "lib" eq_refl) [GsReturn].
+Example nonmain_pkg_unsupported : supported_program unsupported_nonmain_pkg = false.
+Proof. reflexivity. Qed.
+Fail Example nonmain_pkg_supported : SupportedProgram unsupported_nonmain_pkg := eq_refl.
+
 (** REGRESSION (external review 2026-06-28, follow-up) — a CALL of a non-callable, `func main(){ 1() }`, is
     call-SHAPED but structurally invalid Go; [expr_stmt_ok] rejects it (the callee [EInt 1] is not an [EId]),
     so it is NOT supported and cannot be certified. *)
