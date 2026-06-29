@@ -96,20 +96,22 @@ Definition int_ty_range (t : GoTy) : option (Z * Z) :=
   end.
 Definition int_const_repr (z : Z) (t : GoTy) : bool :=
   match int_ty_range t with Some (lo, hi) => andb (Z.leb lo z) (Z.leb z hi) | None => false end.
-(** An int constant [z] is EXACTLY representable as a constant of float type [t] iff it lies within the float's
-    EXACT-INTEGER range — [|z| <= 2^53] for [float64], [|z| <= 2^24] for [float32] (the mantissa width).  BEYOND
-    it Go ROUNDS to nearest-even, so [z] is NO LONGER the true value and a later float->int range-check on [z]
-    would be UNSOUND (e.g. [float64(9223372036854775807)] rounds UP to 2^63, so [int64(float64(maxint64))]
-    overflows).  Outside the exact range we REJECT the const->float conversion (conservative — we do not model
-    the rounded value), which is what keeps the carried [z] an EXACT float-constant value. *)
-Definition float_exact_max (t : GoTy) : option Z :=
+(** A CONSERVATIVE SUFFICIENT test (NOT "iff exactly representable") that an int constant [z] is an EXACT
+    constant of float type [t]: is [z] in the CONTIGUOUS interval [[-2^53, 2^53]] for [float64] ([[-2^24, 2^24]]
+    for [float32]) where EVERY integer is exactly representable?  (There ARE exactly-representable integers
+    OUTSIDE this interval — e.g. [2^60] is an exact [float64] — but they are NON-contiguous; we conservatively
+    REJECT them rather than model IEEE round-to-even.)  This is what we need: inside the interval [z] is the TRUE
+    value, so a later float->int range-check on the carried [z] is sound; outside, Go ROUNDS to nearest-even
+    (e.g. [float64(9223372036854775807)] rounds UP to 2^63, so [int64(float64(maxint64))] overflows) and we
+    REJECT the const->float conversion rather than carry a rounded lie. *)
+Definition float_contig_exact_max (t : GoTy) : option Z :=
   match t with
   | GTFloat64 => Some 9007199254740992%Z    (* 2^53 *)
   | GTFloat32 => Some 16777216%Z            (* 2^24 *)
   | _ => None
   end.
-Definition int_repr_as_float (t : GoTy) (z : Z) : bool :=
-  match float_exact_max t with Some m => andb (Z.leb (Z.opp m) z) (Z.leb z m) | None => false end.
+Definition int_in_float_exact_interval (t : GoTy) (z : Z) : bool :=
+  match float_contig_exact_max t with Some m => andb (Z.leb (Z.opp m) z) (Z.leb z m) | None => false end.
 
 (** ---- numeric CATEGORY predicates ---- *)
 Definition is_int_cat   (c : PTy) : bool :=
@@ -192,7 +194,7 @@ Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
   | PtRunFloat t1, PtRunFloat t2 => if numty_eqb t1 t2 then Some (PtRunFloat t1) else None
   (* runtime float + untyped int const (repr-as-float): runtime float of that type *)
   | PtRunFloat t, PtIntConst z | PtIntConst z, PtRunFloat t =>
-      if int_repr_as_float t z then Some (PtRunFloat t) else None
+      if int_in_float_exact_interval t z then Some (PtRunFloat t) else None
   (* any FLOAT CONSTANT operand, or any other mix (bool/str/agg) -> REJECT *)
   | _, _ => None
   end.
@@ -288,7 +290,7 @@ Definition ord_comparable (cl cr : PTy) : bool :=
       CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
       T z], to a float type -> [PtFloatConst T z]).  This rejects [uint8(300)], [uint8(int(300))],
       [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because a [PtFloatConst]
-      is BUILT only when the source integer is within the float's EXACT-integer range ([int_repr_as_float] —
+      is BUILT only when the source integer is within the float's EXACT-integer range ([int_in_float_exact_interval] —
       [|z|<=2^53]/[2^24]; a larger constant is REJECTED at the const->float step, never carried as a rounded
       lie), so its carried [z] is the true value and the later int range-check is exact;
     - a NUMERIC target with a RUNTIME / deferred source ([PtRunInt]/[PtRunFloat]/[PtUnk]) yields a RUNTIME
@@ -308,7 +310,7 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
   | GTFloat64 | GTFloat32 =>
       match ca with
       | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const (EXACT only) *)
-          if int_repr_as_float t z then Some (PtFloatConst t z) else None
+          if int_in_float_exact_interval t z then Some (PtFloatConst t z) else None
       | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunFloat t)  (* RUNTIME source -> runtime float *)
       | _ => None
       end
@@ -333,7 +335,7 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtUnk => true
   | PtIntConst z =>
       if is_int_goty t then int_const_repr z t
-      else if is_float_goty t then int_repr_as_float t z
+      else if is_float_goty t then int_in_float_exact_interval t z
       else false
   | PtTIntConst t' _ | PtRunInt t' => if is_int_goty t then numty_eqb t' t else false
   | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
@@ -342,12 +344,25 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtAgg  => false
   end.
 
-(** The bitwise-complement VALUE of a typed integer constant [z] of type [t].  For an UNSIGNED type (range
-    [(0, hi)], where [hi = 2^w - 1]) the complement is [hi - z] (= flip all [w] bits); for a SIGNED type it is
-    [Z.lnot z = -z-1].  This keeps [^uint8(0) = 255] exact (a naive [Z.lnot] would give [-1], wrongly rejected
-    as out of [uint8] range), so constness is PRESERVED rather than conservatively dropped (anti-regression). *)
-Definition complement_in (t : GoTy) (z : Z) : Z :=
-  match int_ty_range t with Some (0, hi)%Z => Z.sub hi z | _ => Z.lnot z end.
+(** The bitwise-complement VALUE of a typed integer constant [z] of type [t] — [None] when it CANNOT be folded
+    SOUNDLY.  For a FIXED-WIDTH UNSIGNED type the complement is [(2^w - 1) - z] (= flip all [w] bits), exact
+    because [w] is fixed (so [^uint8(0) = 255], not the naive [Z.lnot 0 = -1]); for a SIGNED type it is
+    [Z.lnot z = -z-1], which is WIDTH-INDEPENDENT (so platform [int] is fine).  ★The platform UNSIGNED type
+    [GTUint] returns [None] — its complement [2^w - 1 - z] is PLATFORM-WIDTH-dependent (2^32-1 on a 32-bit
+    target, 2^64-1 on 64-bit), so there is NO single sound value to fold; sealing it HERE (not at the caller)
+    makes the unsound value structurally impossible to produce.  Deliberately does NOT consult [int_ty_range]
+    (whose [GTUint] entry is the conservative 32-bit range — correct for a TARGET repr-check, but the WRONG
+    width to fold a complement against). *)
+Definition complement_const (t : GoTy) (z : Z) : option Z :=
+  match t with
+  | GTU8  => Some (255 - z)%Z
+  | GTU16 => Some (65535 - z)%Z
+  | GTU32 => Some (4294967295 - z)%Z
+  | GTU64 => Some (18446744073709551615 - z)%Z
+  | GTI8 | GTI16 | GTI32 | GTInt | GTInt64 => Some (Z.lnot z)   (* signed: -z-1 is width-independent *)
+  | GTUint => None        (* platform unsigned: 2^w-1-z is platform-width-dependent — NO sound fold *)
+  | _ => None             (* non-integer type *)
+  end.
 
 (** [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed (rejected). *)
 Fixpoint ptype (e : GExpr) : option PTy :=
@@ -378,11 +393,11 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                     | PtUnk => Some PtUnk | _ => None end
           | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)
                     | PtIntConst z => Some (PtIntConst (Z.lnot z))
-                    | PtTIntConst GTUint _ => None             (* ^uint(z) = 2^w-1-z is PLATFORM-WIDTH-dependent -> REJECT
-                                                                 (folding it to one width is unsound: uint32(^uint(0))
-                                                                 is 2^32-1 on 32-bit Go but 2^64-1 on 64-bit) *)
-                    | PtTIntConst t z =>                       (* fixed-width / signed: EXACT ([^uint8(0)]=255, [^int(0)]=-1) *)
-                        let r := complement_in t z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                    | PtTIntConst t z =>                       (* [complement_const] seals platform-[uint] -> None internally *)
+                        match complement_const t z with
+                        | Some r => if int_const_repr r t then Some (PtTIntConst t r) else None
+                        | None => None
+                        end
                     | PtRunInt t => Some (PtRunInt t)
                     | PtUnk => Some PtUnk | _ => None end
           | UNot => match c with PtBool | PtUnk => Some PtBool | _ => None end
@@ -869,6 +884,17 @@ Example ok_uint8_of_float255_exact : SupportedProgram (pl_arg (gs_u8 (gs_f64 (EI
 Proof. reflexivity. Qed.
 Example ok_uint8_compl_uint8 :
   SupportedProgram (pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))).
+Proof. reflexivity. Qed.
+
+(** HELPER-LEVEL regression — the unsound platform-[uint] complement is sealed INSIDE [complement_const]
+    (returns [None]), so the fold cannot be produced regardless of caller; fixed-width unsigned ([uint8]) and
+    signed ([int]) still fold exactly.  (The old [complement_in : GoTy -> Z -> Z] always returned a value,
+    so [complement_in GTUint 0 = 4294967295] existed as an authority — this pins that it no longer can.) *)
+Example complement_const_uint_none : complement_const GTUint 0 = None.
+Proof. reflexivity. Qed.
+Example complement_const_u8_exact : complement_const GTU8 0 = Some 255%Z.
+Proof. reflexivity. Qed.
+Example complement_const_int_signed : complement_const GTInt 0 = Some (-1)%Z.
 Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
