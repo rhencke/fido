@@ -773,7 +773,6 @@ Definition gs_f64 (a : GExpr) : GExpr := ECall (EId (mkIdent "float64" eq_refl))
 Definition gs_i64 (a : GExpr) : GExpr := ECall (EId (mkIdent "int64" eq_refl)) [a].
 Definition gs_i32 (a : GExpr) : GExpr := ECall (EId (mkIdent "int32" eq_refl)) [a].
 Definition gs_str (a : GExpr) : GExpr := ECall (EId (mkIdent "string" eq_refl)) [a].
-Definition gs_x : GExpr := EId (mkIdent "x" eq_refl).
 
 (** FINDING 1 — numeric category split.  Float modulo / float shift+bitwise (a FLOAT operand is rejected for
     [%] / [<<] / [&]); constant overflow at a fixed-width conversion ([uint8(300)], [int8(128)]) and at a
