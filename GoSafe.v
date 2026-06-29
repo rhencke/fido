@@ -138,8 +138,8 @@ Definition int_in_float_exact_interval (t : GoTy) (z : Z) : bool :=
     ===== TYPE-CATEGORY (cont.): category predicates + binop / comparison / conversion combinators =====
     =================================================================================================== *)
 
-(** ---- numeric CATEGORY predicates ---- (no [PtUnk]: a free ident never reaches these — it is rejected at
-    [ptype]'s [EId] case, so an INTEGER op requires a concrete integer category, a BOOL op a concrete bool.) *)
+(** ---- numeric CATEGORY predicates ---- (a free identifier never reaches these — [ptype]'s [EId] case
+    rejects it, so an INTEGER op requires a concrete integer category and a BOOL op a concrete bool.) *)
 Definition is_int_cat   (c : PTy) : bool :=
   match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ => true | _ => false end.
 Definition is_float_cat (c : PTy) : bool :=
@@ -299,8 +299,8 @@ Definition ord_comparable (cl cr : PTy) : bool :=
     KEY constant-aware rule: in Go a conversion of a CONSTANT is itself a TYPED CONSTANT, so the constant rules
     apply TRANSITIVELY — constness must SURVIVE the conversion (the prior bug erased it: [PtIntConst z]->[PtInt
     t], so [1/int(0)], [uint8(int(300))], [uint8(float64(300))] sailed through).  So:
-    - [bool(a)] needs a bool/deferred source;
-    - [string(a)] a string/deferred (or a rune-representable int CONSTANT, untyped or typed — NOT an arbitrary
+    - [bool(a)] needs a bool source;
+    - [string(a)] a string source (or a rune-representable int CONSTANT, untyped or typed — NOT an arbitrary
       runtime int, conservative);
     - a NUMERIC target with a CONSTANT source ([PtIntConst]/[PtTIntConst]/[PtFloatConst]) yields a TYPED
       CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
@@ -565,10 +565,12 @@ Definition stmt_ok (s : GoStmt) : bool :=
     a structurally-well-formed call expression statement).  It rejects the structural absurdities Go's grammar/
     statement rules forbid: a bare-value statement `func main(){ 1 }` ("evaluated but not used") and a call of a
     non-callable `func main(){ 1() }` are both [false], so no certificate exists and [emit_supported] can never
-    print them.  SCOPE OF THE CLAIM (kept honest): this is STRUCTURAL/grammatical supportedness — it does NOT,
-    and syntactically cannot, check SCOPE (an undefined identifier) or TYPES (a mismatch); those are the
-    GoSem/type-checker layer ([BehaviorSafe], later).  So it is SUPPORTEDNESS, not "guaranteed-compiling" and
-    not behavioral safety.  (The package-name-ONLY check was too weak — it certified invalid Go — now fixed.) *)
+    print them.  SCOPE OF THE CLAIM (kept honest): this is CONSERVATIVE STRUCTURAL scope + type-category
+    supportedness — it REJECTS a free (undefined) identifier (the current Program has NO declarations, so a free
+    [x] could never compile) and a structurally-evident type/constant error, but it is NOT full Go type-checking
+    or behavioral safety (the [BehaviorSafe]/GoSem layer, later).  So it is SUPPORTEDNESS, not "guaranteed-
+    compiling" and not behavioral safety.  (The package-name-ONLY check was too weak — it certified invalid Go
+    — now fixed.) *)
 Definition supported_program (p : Program) : bool :=
   String.eqb (proj1_sig (prog_pkg p)) "main" && forallb stmt_ok (prog_body p).
 Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
@@ -638,8 +640,8 @@ Proof. reflexivity. Qed.
 
 (** TIGHTENING (external review 2026-06-29) — a conversion of a FREE identifier `func main(){ println(int(x)) }`
     is NOT supported: in the no-declaration model [x] is undefined, so [ptype (EId "x") = None], [int(x)] is
-    [None], and the whole program is rejected.  (Previously [x] deferred via [PtUnk] and this WAS accepted —
-    emitting Go that does not compile.) *)
+    [None], and the whole program is rejected.  (Before this free-identifier tightening such a program was
+    WRONGLY accepted — emitting Go that does not compile.) *)
 Definition unsupported_conv_freevar_arg : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
@@ -1077,7 +1079,7 @@ Proof. reflexivity. Qed.
     no variable bindings, so a FREE identifier is UNDEFINED and the emitted Go would not compile.  [ptype
     (EId i)] now returns a category ONLY for the predeclared value-ident [nil]; every other identifier is
     [None].  So each of these — a bare `_ = x`, a [len]/[cap] of a free ident, a [panic] of a free ident — is
-    NOT supported, where the old [PtUnk]-deferral WRONGLY certified them.  (The supported aggregate forms above
+    NOT supported, where the pre-tightening gate WRONGLY certified them.  (The supported aggregate forms above
     pin that [len]/[cap] themselves stay admitted — only the FREE OPERAND is the defect.)  All [false]; the
     forge-attempts lock them. *)
 Definition unsupported_free_blank : Program :=   (* `func main(){ _ = x }` — use of an undefined identifier *)

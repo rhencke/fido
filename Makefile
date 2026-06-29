@@ -143,8 +143,9 @@ emit-verify:
 # (4) assert the real Go toolchain ACCEPTS it — gofmt-clean AND `go build` (a real COMPILE) AND `go vet`.
 # That is the end-to-end check connecting the zero-axiom proven bytes to the Go compiler.  spine_demo.go is
 # GENERATED on demand (gitignored; bytes already pinned by demo_emit_bytes), so nothing can go stale.  Host
-# rocq + ocaml (like printer-verify); Docker go (like the golden gofmt step).  Standalone — NOT wired into
-# `make check` (the legacy plugin still produces main.go; this is the separate blessed-path demo).
+# rocq + ocaml (like printer-verify); Docker go (like the golden gofmt step).  WIRED INTO `make check` (it is a
+# dependency of `check` below), so the blessed-path demo runs in the normal verification loop.  (The legacy
+# plugin still separately produces main.go; this demo is the certificate-gated path.)
 EMITDEMO_CLEAN = rm -f emitdemo/emit_demo.vo emitdemo/emit_demo.glob emitdemo/.emit_demo.aux emitdemo/emit_demo.ml emitdemo/emit_demo.mli emitdemo/*.cmi emitdemo/*.cmo _emit_writer
 emit-demo:
 	@set -e; $(GOEMIT_GATE); \

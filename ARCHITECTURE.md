@@ -360,7 +360,7 @@ add "future foundation" unless it replaces or deletes something.**
   int const, value `z`) · `PtFloatConst t z` (typed float const; value the integer `z` it was built from, and
   only built when `z` is in the float's CONTIGUOUS exact interval — a conservative sufficient test — so it is
   never a rounded lie) · `PtRunInt t` /
-  `PtRunFloat t` (runtime, non-const) · `PtBool`/`PtStr`/`PtAgg`/`PtUnk`.  This closed the value-erasure bug: a
+  `PtRunFloat t` (runtime, non-const) · `PtBool`/`PtStr`/`PtAgg`/`PtNil` (the predeclared `nil`).  This closed the value-erasure bug: a
   numeric conversion of a CONSTANT stays a typed CONSTANT (Go's constant rules apply TRANSITIVELY), so
   `1/int(0)`, `1%int(0)`, `1<<int(-1)`, `uint8(int(300))`, `uint8(float64(300))` (all CLOSED compile errors) are
   REJECTED — where the prior `conv_to_scalar` erased the value (`PtIntConst z`→`PtInt t`) and let them through.
@@ -371,8 +371,10 @@ add "future foundation" unless it replaces or deletes something.**
   const-negative count; a bare UNTYPED const at a default-`int` boundary (`println`/`print` arg, `_ = <const>`)
   must fit conservative 32-bit int; mixed-width arithmetic is rejected; `==`/`!=` need COMPARABLE and
   `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected); `len`≠`cap` (`cap` of a string
-  rejected); a closed aggregate conversion is admitted only for a DEFERRED operand (`chan int([]int{1})`
-  rejected, `[]int(nil)` kept); only genuinely-unknown identifiers (`PtUnk`, treated as runtime) are deferred.
+  rejected); a closed aggregate conversion is admitted only for the predeclared `nil` operand (`PtNil`):
+  `[]int(nil)` / `chan int(nil)` kept, while a known-aggregate or free-identifier operand is REJECTED
+  (`chan int([]int{1})`, `[]int(x)`). FREE identifiers are REJECTED outright — the current Program has no
+  declarations, so a free `x` could never compile (`ptype (EId _) = None` for every ident but `nil`).
   A const→float conversion is admitted ONLY within the float's CONTIGUOUS exact interval (conservative
   sufficient test), so a float→int constant conversion on the carried value is exact (`uint8(float64(255))` is
   VALID Go and ACCEPTED; `int64(float64(maxint64))` REJECTED — the

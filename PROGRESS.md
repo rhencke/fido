@@ -812,8 +812,8 @@ separate tracks.
 ## AST-first spine — detailed status (relocated 2026-06-29)
 
 > Relocated from the TOP of this file on 2026-06-29 (the file now LEADS with the COMPASS above). This is
-> the long-form spine + project status, de-staled for the free-identifier tightening (the `PtUnk` deferral
-> was removed — a free identifier is now REJECTED, only `nil` is admitted inside a slice/chan conversion)
+> the long-form spine + project status, de-staled for the free-identifier tightening (the deferred-identifier
+> escape hatch was removed — a free identifier is now REJECTED, only `nil` is admitted inside a slice/chan conversion)
 > and the `classify` layering fix (it moved into GoAst).
 
 > ## ★ ARCHITECTURE DIRECTION (2026-06-28) — see `ARCHITECTURE.md` (the standing charter)
@@ -837,8 +837,8 @@ separate tracks.
 > parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
 > Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
 > `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip; a slice/chan conversion is `ptype`-admitted ONLY for a DEFERRED operand — `[]int(nil)` kept,
-> `chan int([]int{1})` rejected — and the map conversion is QUARANTINED); the slice + map composite
+> round-trip; a slice/chan conversion is `ptype`-admitted ONLY for the predeclared `nil` operand (`PtNil`) —
+> `[]int(nil)` kept, `chan int([]int{1})` and a free `[]int(x)` rejected — and the map conversion is QUARANTINED); the slice + map composite
 > literals `ESliceLit` (`[]T{e1,..,en}`) and `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) —
 > type-led primaries sharing the `[]T`/`map[K]V` lead with `EConv` (split by the next token `{` vs `(`), via
 > `parse_elems`/`parse_map_elems` mutual-block parsers and the full zero-axiom round-trip.  ⚠️ map literals AND
