@@ -9,7 +9,7 @@
     A raw printer (GoPrint.print_program) still exists for proofs/tests, but it is NOT this blessed emitter.
     ============================================================================ *)
 From Fido Require Import GoAst GoPrint GoSafe.
-From Stdlib Require Import String List ZArith Bool Eqdep_dec.  (* List/ListNotations: body list; ZArith: [EInt]'s Z; Bool/Eqdep_dec: UIP for emit_supported_inj *)
+From Stdlib Require Import String List ZArith.  (* List/ListNotations: body list; ZArith: [EInt]'s Z (Eqdep_dec/UIP no longer needed — emit_supported_program_inj is UIP-free) *)
 Import ListNotations.
 Open Scope string_scope.
 
@@ -70,21 +70,17 @@ Proof. vm_compute; reflexivity. Qed.
 Fail Definition unsupported_value_cert : EmittableProgram :=
   mkEmittable unsupported_value_stmt eq_refl.
 
-(** EMITTER FAITHFULNESS at the BLESSED boundary — [emit_supported] is INJECTIVE on certificates: two
-    [EmittableProgram]s that emit the SAME Go text ARE the same certificate.  This lifts [print_program_inj]
-    (raw-printer injectivity) through the certificate: equal output ⇒ equal [ep_program] (print_program_inj),
-    and then the two [ep_supported] proofs are equal by UIP (the supportedness predicate is a DECIDABLE bool
-    equality [supported_program p = true], so proof-irrelevant via [UIP_dec Bool.bool_dec]).  So the
-    faithfulness claim holds of the ACTUAL emitter, not just the raw printer.  (Still print-injectivity, NOT
-    Go-syntax acceptance — see [print_program_inj].) *)
-Lemma emit_supported_inj : forall c1 c2, emit_supported c1 = emit_supported c2 -> c1 = c2.
-Proof.
-  intros [p1 s1] [p2 s2] H. unfold emit_supported in H. cbn [ep_program] in H.
-  pose proof (print_program_inj _ _ H) as Hp. subst p2.
-  replace s2 with s1 by (apply (UIP_dec Bool.bool_dec)). reflexivity.
-Qed.
+(** EMITTER FAITHFULNESS at the BLESSED boundary — [emit_supported] is INJECTIVE on the PROGRAM: two
+    [EmittableProgram]s that emit the SAME Go text carry the SAME [ep_program].  This is just
+    [print_program_inj] (raw-printer injectivity) lifted through [ep_program] — equal output ⇒ equal program.
+    (We DO NOT lift it to whole-CERTIFICATE equality [c1 = c2]: that would need UIP on the [ep_supported]
+    proofs, and certificate-proof equality is not operationally meaningful — what matters is that the emitted
+    text pins the program.  Still print-injectivity, NOT Go-syntax acceptance — see [print_program_inj].) *)
+Lemma emit_supported_program_inj :
+  forall c1 c2, emit_supported c1 = emit_supported c2 -> ep_program c1 = ep_program c2.
+Proof. intros c1 c2 H. unfold emit_supported in H. exact (print_program_inj _ _ H). Qed.
 
 (** GATE — GoSafe/GoEmit are part of the trust base (the blessed path); keep them axiom-free. *)
 Print Assumptions emit_supported.
 Print Assumptions demo_emit_bytes.
-Print Assumptions emit_supported_inj.
+Print Assumptions emit_supported_program_inj.

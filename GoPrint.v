@@ -57,33 +57,18 @@ Fixpoint print_ty (t : GoTy) : string :=
 
 
 (** [scan_id] consumes the maximal run of identifier characters (so it stops at "]", a space, or
-    end-of-string — exactly the boundaries [print_ty] places after a type), and [classify] maps a complete
-    token to its scalar type (or [None] for a nominal name).  Token-FIRST parsing (scan the run, then
-    classify) gives maximal munch for free: "int8x" scans whole and classifies as nominal, never as
-    [int8] + "x".  ([is_idc]/[is_idstart]/[all_idc]/[is_type_keyword]/[valid_ident]/[Ident] are defined
-    above [GoTy], since [GTNamed] carries an [Ident].) *)
+    end-of-string — exactly the boundaries [print_ty] places after a type); [classify] (the keyword→[GoTy]
+    map, now in GoAst — the SYNTAX layer, so GoSafe reaches it WITHOUT depending on the printer) maps a
+    complete token to its scalar type (or [None] for a nominal name).  Token-FIRST parsing (scan the run,
+    then classify) gives maximal munch for free: "int8x" scans whole and classifies as nominal, never as
+    [int8] + "x".  ([is_idc]/[is_idstart]/[all_idc]/[is_type_keyword]/[valid_ident]/[Ident]/[classify] are
+    all defined in GoAst above/with [GoTy], since [GTNamed] carries an [Ident].) *)
 Fixpoint scan_id (s : string) : string * string :=
   match s with
   | EmptyString => (EmptyString, EmptyString)
   | String c s' => if is_idc c then let (tok, rest) := scan_id s' in (String c tok, rest)
                    else (EmptyString, s)
   end.
-Definition classify (s : string) : option GoTy :=
-       if String.eqb s "int64"   then Some GTInt64
-  else if String.eqb s "int32"   then Some GTI32
-  else if String.eqb s "int16"   then Some GTI16
-  else if String.eqb s "int8"    then Some GTI8
-  else if String.eqb s "int"     then Some GTInt
-  else if String.eqb s "uint64"  then Some GTU64
-  else if String.eqb s "uint32"  then Some GTU32
-  else if String.eqb s "uint16"  then Some GTU16
-  else if String.eqb s "uint8"   then Some GTU8
-  else if String.eqb s "uint"    then Some GTUint
-  else if String.eqb s "bool"    then Some GTBool
-  else if String.eqb s "string"  then Some GTString
-  else if String.eqb s "float64" then Some GTFloat64
-  else if String.eqb s "float32" then Some GTFloat32
-  else None.
 
 
 (** Append is associative on strings (used by a [gtokens_ty] length seam below). *)

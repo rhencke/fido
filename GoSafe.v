@@ -7,10 +7,17 @@
     emit_safe over a [SafeProgram] (= EmittableProgram + BehaviorSafe).  Until then GoEmit emits only the
     SUPPORTED subset via emit_supported, and must NOT be described as behaviorally safe.
     ============================================================================ *)
-From Fido Require Import GoAst GoPrint.   (* GoPrint for [classify] : the keyword -> GoTy map (scalar conversions) *)
+From Fido Require Import GoAst.   (* GoAst supplies the syntax AND [classify] (the keyword -> GoTy map for scalar
+                                     conversions).  DELIBERATELY NOT GoPrint — the SAFETY layer must NOT depend on
+                                     the printer (ARCHITECTURE.md §2: GoAst -> GoPrint and GoAst -> GoSafe are
+                                     SIBLINGS off GoAst, not a chain through the printer). *)
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
+
+(** ===================================================================================================
+    ===== TYPE-CATEGORY: ptype classifier (PTy + numeric/conversion combinators) =====
+    =================================================================================================== *)
 
 (** ---- A CONSTANT-AWARE STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
     The supportedness gate must NOT certify INVALID Go.  A purely shape-based [svalue] leaked TYPE side
@@ -31,8 +38,11 @@ Open Scope string_scope.
     constant ALSO carries its [GoTy] (so mixed-width arithmetic and out-of-range typed-constant results are
     rejected) and a RUNTIME numeric carries only its [GoTy] (no value constraint — runtime conversions
     truncate, runtime div-by-zero is a panic not a compile error).  Aggregates ([PtAgg]) are a valid value but
-    never numeric/printable.  ONLY a genuinely-unknown IDENTIFIER is DEFERRED ([PtUnk] — its type/scope is
-    GoSem's job; treated as NON-constant runtime).
+    never numeric/printable.  ★SCOPE: in the no-declaration Program model a FREE identifier is UNDEFINED, so it
+    is REJECTED ([ptype (EId _) = None] — its emitted Go would not compile); the ONLY admitted predeclared
+    value-identifier is [nil] ([PtNil]), and it is admitted ONLY as a slice/chan conversion operand
+    ([[]int(nil)] / [chan int(nil)]) — never as a bare value, an arithmetic/comparison operand, or a
+    [len]/[cap]/[print]/[println] argument.
     ★ANTI-REGRESSION INVARIANT — NO rule turns a constant category ([PtIntConst]/[PtTIntConst]/[PtFloatConst])
     into a runtime category ([PtRunInt]/[PtRunFloat]) while dropping the value: constantness is PRESERVED
     through every conversion/binop, or the form is REJECTED.  (Conversions of a runtime operand DO yield a
@@ -44,8 +54,10 @@ Open Scope string_scope.
     arithmetic, platform-[uint] complement, an untyped const whose default-[int] value overflows, a
     not-exactly-representable const->float), which is the correct posture — a smaller subset that is sound on
     the classes covered.  The covered closed-invalid classes are PINNED by the regressions below (each new
-    class Codex finds is added there).  The deferral of [PtUnk] is the only admission of an unproven form, and
-    it fires only where the operand is a genuinely-deferred identifier. *)
+    class Codex finds is added there).  Because a FREE identifier is now REJECTED (the no-declaration model has
+    no variable bindings, so a bare [x] is undefined and its Go would not compile), the gate admits NO unproven
+    free-identifier form: the sole predeclared value-ident, [nil] ([PtNil]), is admitted only inside a
+    slice/chan conversion. *)
 Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
@@ -55,7 +67,7 @@ Inductive PTy : Type :=
   | PtBool
   | PtStr
   | PtAgg    (* a slice/chan aggregate value: a valid VALUE, but never numeric / order-comparable / printable *)
-  | PtUnk.   (* an identifier — type DEFERRED (could be anything; scope/GoSem decides; treated as runtime/non-const) *)
+  | PtNil.   (* the predeclared value-identifier [nil] — admitted ONLY as a slice/chan conversion operand ([[]T(nil)]) *)
 
 (** ---- numeric-type predicates over [GoTy] (the scalar numeric constructors) ---- *)
 Definition is_int_goty (t : GoTy) : bool :=
@@ -76,6 +88,13 @@ Definition numty_eqb (a b : GoTy) : bool :=
   | GTFloat64, GTFloat64 | GTFloat32, GTFloat32 => true
   | _, _ => false
   end.
+
+(** ===================================================================================================
+    ===== CONST: representability / folding (the constant sub-layer ptype consults) =====
+    Pure value→type-range / exact-interval / complement-fold helpers — no [PTy], no scope.  (A few sibling
+    const helpers — [is_zero_const] / [is_neg_const] / [complement_const] — are kept inline beside the
+    combinators that consume them, below.)
+    =================================================================================================== *)
 
 (** ---- INTEGER-CONSTANT REPRESENTABILITY ---- the inclusive value range of each fixed-width integer type;
     the PLATFORM types [int]/[uint] use the CONSERVATIVE 32-bit range, so a certified constant is in range on
@@ -115,15 +134,18 @@ Definition float_contig_exact_max (t : GoTy) : option Z :=
 Definition int_in_float_exact_interval (t : GoTy) (z : Z) : bool :=
   match float_contig_exact_max t with Some m => andb (Z.leb (Z.opp m) z) (Z.leb z m) | None => false end.
 
-(** ---- numeric CATEGORY predicates ---- *)
+(** ===================================================================================================
+    ===== TYPE-CATEGORY (cont.): category predicates + binop / comparison / conversion combinators =====
+    =================================================================================================== *)
+
+(** ---- numeric CATEGORY predicates ---- (no [PtUnk]: a free ident never reaches these — it is rejected at
+    [ptype]'s [EId] case, so an INTEGER op requires a concrete integer category, a BOOL op a concrete bool.) *)
 Definition is_int_cat   (c : PTy) : bool :=
   match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ => true | _ => false end.
 Definition is_float_cat (c : PTy) : bool :=
   match c with PtFloatConst _ _ | PtRunFloat _ => true | _ => false end.
 Definition is_num_cat   (c : PTy) : bool := orb (is_int_cat c) (is_float_cat c).
-Definition is_int_or_unk  (c : PTy) : bool :=
-  match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ | PtUnk => true | _ => false end.
-Definition is_bool_or_unk (c : PTy) : bool := match c with PtBool | PtUnk => true | _ => false end.
+Definition is_bool_cat  (c : PTy) : bool := match c with PtBool => true | _ => false end.
 (** Extract the VALUE of an integer constant (untyped OR typed) — [None] for a non-int-const category.  The
     single authority for the const-zero / const-negative / shift-count / fold readers, so a TYPED int constant
     ([int(0)], [int(-1)]) is treated exactly like an untyped one (the constant rules apply transitively). *)
@@ -131,17 +153,14 @@ Definition int_const_val (c : PTy) : option Z :=
   match c with PtIntConst z | PtTIntConst _ z => Some z | _ => None end.
 
 (** NUMERIC COMPARABILITY — single authority for numeric-comparison ([==]/[!=]/[<]/…) operand checking: can
-    two numeric categories be compared?  [PtUnk] defers but ONLY against a numeric (so [x < true] is rejected:
-    [bool] is not numeric); two int constants always compare; an int const compares with a typed/runtime int
-    iff REPRESENTABLE in it (so [int8(1) == 300] is rejected); two typed/runtime ints compare iff SAME type
-    (so [int32 == int64] is rejected); float CONSTANTS carry their type so [float64(1)==float32(1)] is rejected
-    while [float64(1)==float64(x)] passes.  Conservatively, a CROSS int/float comparison ([int(1)==float64(1)],
-    even when one side is an untyped const) is REJECTED — sound, and not needed by any positive.  bool/str/agg
-    are handled by [eq_comparable]/[ord_comparable], not here. *)
+    two numeric categories be compared?  Two int constants always compare; an int const compares with a
+    typed/runtime int iff REPRESENTABLE in it (so [int8(1) == 300] is rejected); two typed/runtime ints compare
+    iff SAME type (so [int32 == int64] is rejected); float CONSTANTS carry their type so [float64(1)==float32(1)]
+    is rejected while [float64(1)==float64(x)] passes.  Conservatively, a CROSS int/float comparison
+    ([int(1)==float64(1)], even when one side is an untyped const) is REJECTED — sound, and not needed by any
+    positive.  bool/str/agg are handled by [eq_comparable]/[ord_comparable], not here. *)
 Definition num_comparable (cl cr : PTy) : bool :=
   match cl, cr with
-  | PtUnk, PtUnk => true
-  | PtUnk, c | c, PtUnk => is_num_cat c
   (* integer family *)
   | PtIntConst _, PtIntConst _ => true
   | PtIntConst z, PtTIntConst t _ | PtTIntConst t _, PtIntConst z => int_const_repr z t
@@ -168,13 +187,11 @@ Definition num_comparable (cl cr : PTy) : bool :=
     - runtime + runtime int -> same type;  runtime FLOAT + runtime float (or + untyped int const repr-as-float)
       -> runtime float of that type;  any FLOAT CONSTANT operand -> REJECT (conservative — we do not track
       fractional values, and no positive needs constant-float arithmetic);
-    - [PtUnk] defers (-> [PtUnk]) but ONLY against a numeric (so [x + true] is rejected).
-    Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_or_unk] FIRST, so no float reaches
+    - any non-numeric operand (bool/str/agg/nil) -> REJECT.
+    Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_cat] FIRST, so no float reaches
     those; [num_arith] still rejects float-const + the [/]-zero check is done by the caller. *)
 Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
   match cl, cr with
-  | PtUnk, PtUnk => Some PtUnk
-  | PtUnk, c | c, PtUnk => if is_num_cat c then Some PtUnk else None
   (* both UNTYPED int consts: arbitrary-precision fold *)
   | PtIntConst a, PtIntConst b => Some (PtIntConst (fold a b))
   (* untyped int const + typed int const: typed const, repr-check the FOLDED RESULT *)
@@ -215,7 +232,7 @@ Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z =
 
 (** THE NUMERIC BINOP TYPE-CHECKER — single authority for [* / % << >> & &^ + - | ^].  Enforces, structurally:
     - [%], [&], [|], [^], [&^] and the shifts require INTEGER operands (a FLOAT operand — const or runtime —
-      is rejected by the [is_int_or_unk] gate, closing [float64(1) % float64(2)] / [float64(1) << 2]);
+      is rejected by the [is_int_cat] gate, closing [float64(1) % float64(2)] / [float64(1) << 2]);
     - [/] and [%] reject a CONSTANT-ZERO divisor (incl. a TYPED const zero [int(0)] and one folded from a
       constant subexpression, [1/(int(1)-int(1))]);
     - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and let the count type be
@@ -231,16 +248,16 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   | BMul => num_arith Z.mul cl cr
   | BDiv => if is_zero_const cr then None else num_arith Z.quot cl cr
   | BRem =>
-      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
+      if andb (is_int_cat cl) (is_int_cat cr) then
         if is_zero_const cr then None else num_arith Z.rem cl cr
       else None
-  | BAnd    => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.land cl cr else None
-  | BOr     => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.lor  cl cr else None
-  | BXor    => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.lxor cl cr else None
-  | BAndNot => if andb (is_int_or_unk cl) (is_int_or_unk cr)
+  | BAnd    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.land cl cr else None
+  | BOr     => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lor  cl cr else None
+  | BXor    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lxor cl cr else None
+  | BAndNot => if andb (is_int_cat cl) (is_int_cat cr)
                then num_arith (fun a b => Z.land a (Z.lnot b)) cl cr else None
   | BShl | BShr =>
-      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
+      if andb (is_int_cat cl) (is_int_cat cr) then
         if is_neg_const cr then None
         else match cl with
              | PtIntConst a =>
@@ -254,7 +271,6 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
                  | None   => Some (PtRunInt t)                  (* int8(1) << x : runtime, keeps the type *)
                  end
              | PtRunInt t => Some (PtRunInt t)
-             | PtUnk => Some PtUnk
              | _ => None                                        (* floats already excluded by the gate *)
              end
       else None
@@ -262,22 +278,20 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   end.
 
 (** EQUALITY ([==]/[!=]) operand check: COMPARABLE + mutually compatible.  Comparable = numeric / string /
-    bool / deferred — NOT [PtAgg] (slice/map/func equality is rejected; a slice may only be compared with
-    nil, which appears as a deferred ident).  Numeric equality reuses [num_comparable] (so [int32 == int64]
-    is rejected). *)
+    bool — NOT [PtAgg] (slice/map/func equality is rejected) and NOT [PtNil] (a bare [nil == nil] is rejected;
+    a free ident, the only thing a slice could be compared against, is itself rejected at [ptype]).  Numeric
+    equality reuses [num_comparable] (so [int32 == int64] is rejected). *)
 Definition eq_comparable (cl cr : PTy) : bool :=
   match cl, cr with
-  | PtUnk, _ | _, PtUnk => true
   | PtBool, PtBool => true
   | PtStr, PtStr => true
   | _, _ => num_comparable cl cr
   end.
-(** ORDERING ([<]/[<=]/[>]/[>=]) operand check: ORDERED + mutually compatible.  Ordered = numeric / string /
-    deferred — NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg] (slice ordering rejected). *)
+(** ORDERING ([<]/[<=]/[>]/[>=]) operand check: ORDERED + mutually compatible.  Ordered = numeric / string —
+    NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg]/[PtNil] (slice / nil ordering rejected). *)
 Definition ord_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtStr, PtStr => true
-  | PtStr, PtUnk | PtUnk, PtStr => true
   | _, _ => num_comparable cl cr
   end.
 
@@ -296,16 +310,18 @@ Definition ord_comparable (cl cr : PTy) : bool :=
       ([int_in_float_exact_interval] — [|z|<=2^53]/[2^24], a CONSERVATIVE SUFFICIENT test; a constant outside it
       is REJECTED at the const->float step, never carried as a rounded lie), so its carried [z] is the true value
       and the later int range-check is exact;
-    - a NUMERIC target with a RUNTIME / deferred source ([PtRunInt]/[PtRunFloat]/[PtUnk]) yields a RUNTIME
-      value (runtime conversions truncate/round and are valid — NO representability constraint), so [int(x)],
-      [uint8(int(x))] stay admitted;
-    - bool/string/aggregate sources to a numeric target are rejected (so [int([]int{1})] / [int(true)] fail). *)
+    - a NUMERIC target with a RUNTIME source ([PtRunInt]/[PtRunFloat]) yields a RUNTIME value (runtime
+      conversions truncate/round and are valid — NO representability constraint), so [int64(len([]int{1}))],
+      [uint8(len([]int{1}))] (whose inner [len …] is a runtime int) stay admitted; (a runtime source can only
+      arise from [len]/[cap] of an aggregate now — a FREE ident like [x] is rejected upstream at [ptype]);
+    - bool/string/aggregate/nil sources to a numeric target are rejected (so [int([]int{1})] / [int(true)] /
+      [int(nil)] fail). *)
 Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
   match t with
-  | GTBool => match ca with PtBool | PtUnk => Some PtBool | _ => None end
+  | GTBool => match ca with PtBool => Some PtBool | _ => None end
   | GTString =>
       match ca with
-      | PtStr | PtUnk => Some PtStr
+      | PtStr => Some PtStr
       | PtIntConst z | PtTIntConst _ z =>
           if int_const_repr z GTI32 then Some PtStr else None   (* string(rune const) *)
       | _ => None
@@ -314,14 +330,14 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
       match ca with
       | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const (EXACT only) *)
           if int_in_float_exact_interval t z then Some (PtFloatConst t z) else None
-      | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunFloat t)  (* RUNTIME source -> runtime float *)
+      | PtRunInt _ | PtRunFloat _ => Some (PtRunFloat t)         (* RUNTIME source -> runtime float *)
       | _ => None
       end
   | GTInt | GTInt64 | GTUint | GTU8 | GTI8 | GTU16 | GTI16 | GTU32 | GTI32 | GTU64 =>
       match ca with
       | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed int const, repr-checked *)
           if int_const_repr z t then Some (PtTIntConst t z) else None
-      | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunInt t)    (* RUNTIME source -> runtime int *)
+      | PtRunInt _ | PtRunFloat _ => Some (PtRunInt t)           (* RUNTIME source -> runtime int *)
       | _ => None
       end
   | _ => None   (* [classify] yields only scalar keyword GoTys here; defensive *)
@@ -331,11 +347,10 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
     literal elements.  An UNTYPED int CONSTANT is assignable to any numeric type it is REPRESENTABLE in (so
     [[]uint8{300}] is rejected, [[]float64{1}] accepted); a TYPED constant or RUNTIME numeric only to its OWN
     type (so [[]int{int64(1)}] and [[]uint8{int(300)}] are rejected — a typed constant is NOT untyped, its type
-    must match exactly); bool/string to their type; a deferred ident to anything; an aggregate element is
-    conservatively rejected. *)
+    must match exactly); bool/string to their type; an aggregate or [nil] element is conservatively rejected
+    (no free ident reaches here — it is rejected at [ptype]). *)
 Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   match ce with
-  | PtUnk => true
   | PtIntConst z =>
       if is_int_goty t then int_const_repr z t
       else if is_float_goty t then int_in_float_exact_interval t z
@@ -344,7 +359,7 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
   | PtBool => match t with GTBool => true | _ => false end
   | PtStr  => match t with GTString => true | _ => false end
-  | PtAgg  => false
+  | PtAgg | PtNil => false
   end.
 
 (** The bitwise-complement VALUE of a typed integer constant [z] of type [t] — [None] when it CANNOT be folded
@@ -367,10 +382,24 @@ Definition complement_const (t : GoTy) (z : Z) : option Z :=
   | _ => None             (* non-integer type *)
   end.
 
-(** [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed (rejected). *)
+(** ===================================================================================================
+    ===== SCOPE: identifier admissibility (nil only; free idents rejected) =====
+    The scope rule is realized HERE in [ptype]'s [EId] case (and in [svalue]'s [PtNil] rejection below): the
+    no-declaration Program model has no variable bindings, so a FREE identifier is UNDEFINED and its emitted Go
+    would not compile.  [ptype (EId i)] therefore returns a category ONLY for the predeclared value-identifier
+    [nil] (-> [PtNil]); EVERY other identifier is REJECTED ([None]).  [PtNil] is admitted ONLY as a slice/chan
+    conversion operand (the [EConv] case) and nowhere else.
+    =================================================================================================== *)
+
+(** ★INVARIANT — [ptype] is NOT Go's typechecker; it is a CONSERVATIVE supported-subset classifier.  No new
+    rule may be added to it unless it (a) REJECTS a real CLOSED bad program currently accepted, or (b) ADMITS a
+    needed supported demo intentionally.  (This is the standing tightening discipline — grow the certificate's
+    HONESTY, not its surface area.)
+    [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed / out-of-scope
+    (rejected). *)
 Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
-  | EId _ => Some PtUnk
+  | EId i => if String.eqb (proj1_sig i) "nil" then Some PtNil else None   (* SCOPE: only the predeclared [nil]; every other ident is undefined -> rejected *)
   | EInt z => Some (PtIntConst z)
   | EStr _ => Some PtStr   (* a string literal is the printable SCALAR string category *)
   | EBn o l r =>
@@ -380,7 +409,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
           | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BAdd|BSub|BOr|BXor => num_binop o cl cr
           | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
           | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
-          | BLAnd|BLOr => if andb (is_bool_or_unk cl) (is_bool_or_unk cr) then Some PtBool else None
+          | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
           end
       | _, _ => None
       end
@@ -394,7 +423,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                         let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
                     | PtFloatConst t z => Some (PtFloatConst t (Z.opp z))
                     | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
-                    | PtUnk => Some PtUnk | _ => None end
+                    | _ => None end
           | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)
                     | PtIntConst z => Some (PtIntConst (Z.lnot z))
                     | PtTIntConst t z =>                       (* [complement_const] seals platform-[uint] -> None internally *)
@@ -403,8 +432,8 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                         | None => None
                         end
                     | PtRunInt t => Some (PtRunInt t)
-                    | PtUnk => Some PtUnk | _ => None end
-          | UNot => match c with PtBool | PtUnk => Some PtBool | _ => None end
+                    | _ => None end
+          | UNot => match c with PtBool => Some PtBool | _ => None end
           | UDeref | UAddr => None
           end
       | None => None
@@ -415,9 +444,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | None => None
       | Some ca =>
           if String.eqb fn "len"
-          then match ca with PtStr | PtAgg | PtUnk => Some (PtRunInt GTInt) | _ => None end (* len: string OR aggregate *)
+          then match ca with PtStr | PtAgg => Some (PtRunInt GTInt) | _ => None end (* len: string OR aggregate *)
           else if String.eqb fn "cap"
-          then match ca with PtAgg | PtUnk => Some (PtRunInt GTInt) | _ => None end          (* cap: aggregate ONLY (NOT string) *)
+          then match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end          (* cap: aggregate ONLY (NOT string) *)
           else match classify fn with
                | Some t => conv_to_scalar ca t                                              (* a scalar conversion T(a) *)
                | None => None                                                               (* unknown function: REJECT *)
@@ -428,9 +457,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       match c with
       | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) *)
       | CTSlice _ | CTChan _ =>
-          (* an aggregate conversion is admitted ONLY for a DEFERRED operand ([[]int(nil)]); a KNOWN
-             aggregate/scalar operand is REJECTED ([chan int([]int{1})], mismatched conversions) *)
-          match ptype e0 with Some PtUnk => Some PtAgg | _ => None end
+          (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]); a KNOWN
+             aggregate/scalar operand — or a free ident (now rejected upstream) — is REJECTED
+             ([chan int([]int{1})], mismatched conversions) *)
+          match ptype e0 with Some PtNil => Some PtAgg | _ => None end
       end
   | ESliceLit t es =>
       if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
@@ -439,24 +469,31 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
   end.
 
-(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category; only unknown
-    idents are deferred).  So a closed type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2]
-    / [int([]int{1})] / [map[..]..{..}]) but the numeric/structural ones too ([float64(1) % float64(2)],
-    [uint8(300)], [uint8(int(300))], [1/int(0)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))],
-    [chan int([]int{1})]) — while [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len]
-    of a string-or-aggregate, [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its
-    element type are admitted.  ★UNTYPED-CONSTANT DEFAULT-[int] BOUNDARY: where a bare UNTYPED int constant is
-    USED as a value (e.g. [_ = <untyped const>], or [panic(<untyped const>)] whose [interface{}] arg fixes the
-    default type), Go gives it the default type [int] — so the value must FIT in [int].  We require it fit the
-    CONSERVATIVE 32-bit range (sound on every Go target), so [_ = <a 40-bit const>] is REJECTED while [_ = 1]
-    is admitted.  (A TYPED constant [PtTIntConst] was already range-checked at its conversion.)
-    STRUCTURAL only: it cannot check SCOPE (an undefined ident) — that is GoSem. *)
+(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category).  So a closed
+    type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / [map[..]..{..}])
+    but the numeric/structural ones too ([float64(1) % float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)],
+    [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))], [chan int([]int{1})]) — AND, now, FREE
+    identifiers (a bare [x] is undefined in the no-declaration model — [ptype (EId _) = None]).  Accepted: [EInt],
+    well-typed binops/unops/conversions, [len] of a string-or-aggregate, [cap] of an aggregate, and a slice
+    literal whose elements are ASSIGNABLE to its element type.  ★[PtNil] (the predeclared [nil]) is NOT a value:
+    a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
+    inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]
+    BOUNDARY: where a bare UNTYPED int constant is USED as a value (e.g. [_ = <untyped const>], or
+    [panic(<untyped const>)] whose [interface{}] arg fixes the default type), Go gives it the default type [int]
+    — so the value must FIT in [int].  We require it fit the CONSERVATIVE 32-bit range (sound on every Go target),
+    so [_ = <a 40-bit const>] is REJECTED while [_ = 1] is admitted.  (A TYPED constant [PtTIntConst] was already
+    range-checked at its conversion.) *)
 Definition svalue (e : GExpr) : bool :=
   match ptype e with
   | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: bare untyped const must fit int *)
+  | Some PtNil => false   (* a bare [nil] value is "use of untyped nil" — invalid; [nil] is a value only inside a conversion *)
   | Some _ => true
   | None => false
   end.
+
+(** ===================================================================================================
+    ===== STRUCTURAL: statement-shape / supported-syntax (the [stmt_ok] / [supported_program] gate) =====
+    =================================================================================================== *)
 
 (** Is a builtin [f] valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only?  [println]/
     [print] are variadic in arg COUNT; [panic] takes exactly one.  This checks only name+arity — argument
@@ -479,11 +516,11 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
     [PtStr]).  This reuses the structural type-checker, so it INHERITS its rejection of closed type-errors —
     e.g. [len(1)] (an int is not len-able), [bool(1)], [1 && 2], [!1], [int([]int{1})], [float64(1) %
     float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)] — and of non-scalars ([PtAgg] slice/chan literals
-    and conversions) and of bare identifiers ([PtUnk], unknown type): emit those via [_ = <value>] instead.
-    ([println(int(x))] / [println(len(x))] stay admitted: a conversion / [len] result category is KNOWN even
-    when the operand is a deferred ident.)  ★The default-[int] boundary applies: a bare UNTYPED int constant
-    arg gets default type [int], so it must FIT in (conservative 32-bit) [int] — [println(1)] ✓,
-    [println(<huge>)] REJECT (a TYPED constant was already range-checked at its conversion). *)
+    and conversions), of [nil] ([PtNil]), and of FREE identifiers (a bare [x] is undefined -> [ptype] [None]):
+    emit a scalar value instead.  ([println(int64(3))] / [println(len([]int{1}))] stay admitted: a conversion of
+    a constant / a [len] of an aggregate has a KNOWN scalar category.)  ★The default-[int] boundary applies: a
+    bare UNTYPED int constant arg gets default type [int], so it must FIT in (conservative 32-bit) [int] —
+    [println(1)] ✓, [println(<huge>)] REJECT (a TYPED constant was already range-checked at its conversion). *)
 Definition printable_arg_ok (e : GExpr) : bool :=
   match ptype e with
   | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
@@ -499,8 +536,8 @@ Definition printable_arg_ok (e : GExpr) : bool :=
     ([stmt_call_ok]).  ARGUMENTS are checked PER BUILTIN: [print]/[println] admit only the guaranteed-printable
     SCALAR subset ([printable_arg_ok] — NOT arbitrary [svalue], so [println(<slice/map>)] / aggregate printing
     is excluded as implementation-defined); [panic] admits any [svalue] (it takes an [interface{}]).  So
-    [int(x)] / [Foo(x)] / [1()] / [len(x)] / [panic()] / [println([]int{1})] as statements are all rejected;
-    [println(int(x))] / [println(1 + 2)] / [panic(x)] are accepted. *)
+    [int64(3)] / [Foo(x)] / [1()] / [len([]int{1})] / [panic()] / [println([]int{1})] / [panic(x)] (free [x]) as
+    statements are all rejected; [println(int64(3))] / [println(1 + 2)] / [panic(1)] are accepted. *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
   | ECall (EId f) args =>
@@ -589,37 +626,61 @@ Example conversion_stmt_unsupported : supported_program unsupported_conversion_s
 Proof. reflexivity. Qed.
 Fail Example conversion_stmt_supported : SupportedProgram unsupported_conversion_stmt := eq_refl.
 
-(** POSITIVE — a conversion IS fine in VALUE position: `func main(){ println(int(x)) }` is supported (the
-    statement is a [println] call; its argument [int(x)] is a conversion, a valid [svalue]).  This pins the
-    value-vs-statement asymmetry the [int(x)]-statement regression above relies on. *)
+(** POSITIVE — a conversion IS fine in VALUE position: `func main(){ println(int64(3)) }` is supported (the
+    statement is a [println] call; its argument [int64(3)] is a conversion of a CONSTANT, a valid [svalue]).
+    This pins the value-vs-statement asymmetry the conversion-statement regression above relies on. *)
 Definition supported_conv_arg : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+                               [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
 Example conv_arg_supported : SupportedProgram supported_conv_arg.
 Proof. reflexivity. Qed.
 
-(** POSITIVE (Phase 4, [EConv]) — a slice/chan type-FORM conversion is a VALUE, used via [_ = ...]: `func
-    main(){ _ = []int(x) }` is supported ([[]int(x)] is an [EConv], a valid [svalue]).  As an AGGREGATE it is
-    NOT a [println] arg (that printing is implementation-defined — see [printable_arg_ok]): `func main(){
-    println([]int(x)) }` is rejected.  A bare [EConv] statement `func main(){ []int(x) }` is also rejected
-    ([expr_stmt_ok] admits only [ECall (EId _) _]). *)
+(** TIGHTENING (external review 2026-06-29) — a conversion of a FREE identifier `func main(){ println(int(x)) }`
+    is NOT supported: in the no-declaration model [x] is undefined, so [ptype (EId "x") = None], [int(x)] is
+    [None], and the whole program is rejected.  (Previously [x] deferred via [PtUnk] and this WAS accepted —
+    emitting Go that does not compile.) *)
+Definition unsupported_conv_freevar_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+Example conv_freevar_arg_unsupported : supported_program unsupported_conv_freevar_arg = false.
+Proof. reflexivity. Qed.
+Fail Example conv_freevar_arg_supported : SupportedProgram unsupported_conv_freevar_arg := eq_refl.
+
+(** POSITIVE (Phase 4, [EConv]) — a slice/chan type-FORM conversion of the predeclared [nil] is a VALUE, used
+    via [_ = ...]: `func main(){ _ = []int(nil) }` is supported ([[]int(nil)] is an [EConv] of [PtNil], a valid
+    [svalue] of category [PtAgg]).  [nil] is the ONLY admitted conversion operand: with a FREE ident the
+    conversion is REJECTED (`_ = []int(x)`, below).  As an AGGREGATE it is NOT a [println] arg (that printing is
+    implementation-defined — see [printable_arg_ok]): `func main(){ println([]int(nil)) }` is rejected.  A bare
+    [EConv] statement `func main(){ []int(nil) }` is also rejected ([expr_stmt_ok] admits only [ECall (EId _) _]). *)
 Definition supported_conv_composite_arg : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
+            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))].
 Example conv_composite_arg_supported : SupportedProgram supported_conv_composite_arg.
 Proof. reflexivity. Qed.
+(** TIGHTENING (external review 2026-06-29) — the SAME conversion of a FREE identifier `func main(){ _ = []int(x) }`
+    is NOT supported ([ptype (EId "x") = None], so [[]int(x)] is [None]); only [nil] is an admitted operand. *)
+Definition unsupported_conv_composite_freevar : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
+Example conv_composite_freevar_unsupported : supported_program unsupported_conv_composite_freevar = false.
+Proof. reflexivity. Qed.
+Fail Example conv_composite_freevar_supported : SupportedProgram unsupported_conv_composite_freevar := eq_refl.
+(** A bare [EConv] statement `func main(){ []int(nil) }` is rejected (not a call) even though the SAME value is
+    a valid blank-assign RHS above — isolating the value-vs-statement shape rule. *)
 Definition unsupported_conv_composite_stmt : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
+            [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))].
 Example conv_composite_stmt_unsupported : supported_program unsupported_conv_composite_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example conv_composite_stmt_supported : SupportedProgram unsupported_conv_composite_stmt := eq_refl.
-(** [println] of a slice/aggregate is NOT supported (implementation-defined printing). *)
+(** [println] of a slice/aggregate is NOT supported (implementation-defined printing) — pinned on the valid
+    [[]int(nil)] aggregate, so the ONLY reason for rejection is non-printability. *)
 Definition unsupported_println_aggregate : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl))])].
+                               [EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl))])].
 Example println_aggregate_unsupported : supported_program unsupported_println_aggregate = false.
 Proof. reflexivity. Qed.
 
@@ -765,13 +826,13 @@ Proof. reflexivity. Qed.
 Fail Example bad_bool_ord_forge :
   SupportedProgram (pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))) := eq_refl.
 
-(** FINDING 3 — [len]/[cap] separated.  [cap] of a STRING is rejected ([cap(string(65))], and the cleaner
-    [cap(string(x))] where [string(x)] is a genuine deferred-source string); [len] of a string stays OK. *)
+(** FINDING 3 — [len]/[cap] separated.  [cap] of a STRING is rejected (the rune-const [cap(string(65))] and the
+    string-literal [cap("hi")]); [len] of a string stays OK ([len("hi")]). *)
 Example bad_cap_string_lit : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str (EInt 65)])) = false.
 Proof. reflexivity. Qed.
-Example bad_cap_string : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str gs_x])) = false.
+Example bad_cap_string : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EStr "hi"])) = false.
 Proof. reflexivity. Qed.
-Example ok_len_string : SupportedProgram (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str gs_x])).
+Example ok_len_string : SupportedProgram (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"])).
 Proof. reflexivity. Qed.
 
 (** FINDING 4 — aggregate conversion soundness.  A slice->chan conversion of a KNOWN slice ([chan int([]int{1})])
@@ -865,7 +926,8 @@ Proof. reflexivity. Qed.
     [int64(float64(9223372036854775807))]: the float64 rounds maxint64 UP to 2^63, which overflows [int64]
     (likewise [int32(float32(maxint32))]).  (2) A typed FLOAT-constant ZERO
     [float64(0)] is a constant-zero divisor (Go rejects constant float division by zero), so [_ = x / float64(0)]
-    is REJECTED — not deferred through [PtUnk].  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
+    is REJECTED (the divisor is a constant-zero — and the free dividend [x] is itself rejected in the
+    no-declaration model).  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
     to one width is unsound: [uint32(^uint(0))] is in range on 32-bit Go but NOT 64-bit — the gate REJECTS
     platform-`uint` complement.  All [false].  PRESERVED positives: [uint8(float64(255))] (255 is EXACT and in
     range) and the FIXED-WIDTH [uint8(^uint8(0))] (= 255, width is fixed → exact). *)
@@ -978,25 +1040,27 @@ Proof. reflexivity. Qed.
 Fail Example blank_void_supported : SupportedProgram unsupported_blank_void := eq_refl.
 
 (** GROWTH (Phase 4, value-returning builtins [len]/[cap]) — the Go-spec value-vs-statement asymmetry.  A
-    value-returning builtin is fine in VALUE position: `func main(){ println(len(x)) }` is supported ([len(x)]
-    is an [svalue]); and `func main(){ _ = cap(x) }` likewise.  But it is FORBIDDEN in STATEMENT position
-    ("len … not permitted in statement context"): `func main(){ len(x) }` is NOT supported ([stmt_call_ok]
-    excludes [len]).  Arity is pinned: `func main(){ println(len(x, y)) }` is NOT supported (len takes one
-    arg, so the 2-arg form is not an [svalue]).  Pins all four. *)
+    value-returning builtin is fine in VALUE position: `func main(){ println(len([]int{1})) }` is supported
+    ([len([]int{1})] is an [svalue]); and `func main(){ _ = cap([]int{1}) }` likewise.  But it is FORBIDDEN in
+    STATEMENT position ("len … not permitted in statement context"): `func main(){ len([]int{1}) }` is NOT
+    supported ([stmt_call_ok] excludes [len]).  Arity is pinned: `func main(){ println(len([]int{1}, []int{1})) }`
+    is NOT supported (len takes one arg, so the 2-arg form is not an [svalue]).  Pins all four.  (The operand is
+    an aggregate, not a free ident, so each pin isolates its real reason — the free-ident [len(x)]/[cap(x)] are
+    rejected separately below.) *)
 Definition supported_len_value : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+                               [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])].
 Example len_value_supported : SupportedProgram supported_len_value.
 Proof. reflexivity. Qed.
 Definition supported_cap_blank : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [ESliceLit GTInt [EInt 1]])].
 Example cap_blank_supported : SupportedProgram supported_cap_blank.
 Proof. reflexivity. Qed.
 Definition unsupported_len_stmt : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+            [GsExprStmt (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])].
 Example len_stmt_unsupported : supported_program unsupported_len_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example len_stmt_supported : SupportedProgram unsupported_len_stmt := eq_refl.
@@ -1004,9 +1068,42 @@ Definition unsupported_len_arity : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
                                [ECall (EId (mkIdent "len" eq_refl))
-                                      [EId (mkIdent "x" eq_refl); EId (mkIdent "y" eq_refl)]])].
+                                      [ESliceLit GTInt [EInt 1]; ESliceLit GTInt [EInt 1]]])].
 Example len_arity_unsupported : supported_program unsupported_len_arity = false.
 Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    TIGHTENING (external review 2026-06-29) — FREE-IDENTIFIER REJECTION.  The no-declaration Program model has
+    no variable bindings, so a FREE identifier is UNDEFINED and the emitted Go would not compile.  [ptype
+    (EId i)] now returns a category ONLY for the predeclared value-ident [nil]; every other identifier is
+    [None].  So each of these — a bare `_ = x`, a [len]/[cap] of a free ident, a [panic] of a free ident — is
+    NOT supported, where the old [PtUnk]-deferral WRONGLY certified them.  (The supported aggregate forms above
+    pin that [len]/[cap] themselves stay admitted — only the FREE OPERAND is the defect.)  All [false]; the
+    forge-attempts lock them. *)
+Definition unsupported_free_blank : Program :=   (* `func main(){ _ = x }` — use of an undefined identifier *)
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EId (mkIdent "x" eq_refl))].
+Example free_blank_unsupported : supported_program unsupported_free_blank = false.
+Proof. reflexivity. Qed.
+Fail Example free_blank_supported : SupportedProgram unsupported_free_blank := eq_refl.
+Definition unsupported_free_len : Program :=   (* `func main(){ println(len(x)) }` *)
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+Example free_len_unsupported : supported_program unsupported_free_len = false.
+Proof. reflexivity. Qed.
+Fail Example free_len_supported : SupportedProgram unsupported_free_len := eq_refl.
+Definition unsupported_free_cap : Program :=   (* `func main(){ _ = cap(x) }` *)
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+Example free_cap_unsupported : supported_program unsupported_free_cap = false.
+Proof. reflexivity. Qed.
+Fail Example free_cap_supported : SupportedProgram unsupported_free_cap := eq_refl.
+Definition unsupported_free_panic : Program :=   (* `func main(){ panic(x) }` *)
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+Example free_panic_unsupported : supported_program unsupported_free_panic = false.
+Proof. reflexivity. Qed.
+Fail Example free_panic_supported : SupportedProgram unsupported_free_panic := eq_refl.
 
 (** GROWTH (Phase 4, [EStr]) — the string-literal expression joins the supported subset.  [ptype (EStr _) =
     Some PtStr] (the printable SCALAR string category), so a string literal is a valid [svalue] AND a valid
@@ -1039,6 +1136,10 @@ Fail Example bare_str_supported : SupportedProgram unsupported_bare_str := eq_re
 Example println_slicelit_still_unsupported :
   supported_program (pl_arg (ESliceLit GTInt [EInt 1])) = false.
 Proof. reflexivity. Qed.
+
+(** ===================================================================================================
+    ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
+    =================================================================================================== *)
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder

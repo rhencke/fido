@@ -177,7 +177,11 @@ run: build
 # against Go that does not reflect current *.v/plugin source would be a false
 # green.  [extract] re-runs the prover (Docker layers cached if unchanged), so
 # this always validates freshly-extracted Go (and fails loud if a proof broke).
-check: extract
+# ALSO DEPENDS ON [emit-demo] (external review 2026-06-29): the certified-emission
+# bridge is no longer optional — every `make check` now also asserts the zero-axiom
+# GoEmit.demo_emit BUILDS via the real Go toolchain, so the blessed path is exercised
+# on the normal verify step, not only on an ad-hoc target.
+check: extract emit-demo
 	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
 	if ! $(GOVET); then \
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \

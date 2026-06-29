@@ -2,76 +2,24 @@
 
 Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and architecture). This is the living reference — the full project vision and principles, the incremental ladder (what is modelled, feature by feature), the correctness-debt tiers, known gaps, the wish list, and the concurrency research plan. **Update the ladder here when a feature lands.** Not auto-loaded into context; read on demand.
 
-> ## ★ ARCHITECTURE DIRECTION (2026-06-28) — see `ARCHITECTURE.md` (the standing charter)
-> Fido is course-correcting to an **AST-first, proof-gated emission** spine. Read `ARCHITECTURE.md`; it
-> governs.
-> ```text
-> Target:   GoAst + GoPrint + GoSem + GoSafe + GoEmit.
-> Emission: ONLY via a certificate.  Phase-1 gate = EmittableProgram (Program + GoSafe.SupportedProgram,
->           a SYNTACTIC supported-subset check — NOT behavioral safety, named accordingly).  Later, once
->           GoSem is authoritative: SafeProgram (+ BehaviorSafe) and emit_safe.
-> Printer claim:  syntax correctness ONLY (does not imply safety).
-> Safety claim:   only for programs the certificate covers.
-> GoSem:    the ONE authoritative semantics — BRIDGE unified.v/concurrency.v/cmd.v in, do NOT fork a 2nd.
-> Legacy:   plugin/go.ml lowering stays trusted/transitional; it does NOT define the claim and is not grown.
-> Not the current center:  arbitrary Rocq→Go correctness, relooper integration, full Go parser, concurrency.
-> Residual TCB (named, not implicit):  Rocq kernel · the string→.go extraction step · the Go toolchain ·
->           trusted foreign imports · the GoSem≈real-Go adequacy assumption (heir to gap #10).
-> ```
-> The clean printer/parser work (lexer/parser/`GExpr` AST/`gprint`/round-trip + the `ConvTy` groundwork) is
-> now SPLIT into `GoAst.v` (syntax) + `GoPrint.v` (printer) — spine commit 1 landed; do NOT reintroduce a
-> parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
-> Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
-> `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip; a slice/chan conversion is `ptype`-admitted ONLY for a DEFERRED operand — `[]int(nil)` kept,
-> `chan int([]int{1})` rejected — and the map conversion is QUARANTINED); the slice + map composite
-> literals `ESliceLit` (`[]T{e1,..,en}`) and `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) —
-> type-led primaries sharing the `[]T`/`map[K]V` lead with `EConv` (split by the next token `{` vs `(`), via
-> `parse_elems`/`parse_map_elems` mutual-block parsers and the full zero-axiom round-trip.  ⚠️ map literals AND
-> map conversions are REPRESENTABLE + round-trip but QUARANTINED from `SupportedProgram` (`svalue (EMapLit _ _
-> _) = false`) — Go's comparable-key-type + assignability rules are not soundly structural, so the gate rejects
-> them until GoSem (slice literals/conversions stay supported via `_ = …`); also a `GoStmt` statement layer
-> with `print_stmt_inj` (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` /
-> `GsReturnVal` (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first
-> SUPPORTED non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate
-> (`stmt_call_ok` println/print/panic, with `print`/`println` args restricted to the guaranteed-printable
-> SCALAR subset `printable_arg_ok` — NOT arbitrary aggregates — and the value-returning builtins `len`/`cap`
-> admitted in value position, the Go-spec value-vs-statement distinction).  ★The gate's `ptype` TYPE-CATEGORY
-> checker is a CONSTANT-AWARE, MAXIMALLY-CONSERVATIVE BEST-EFFORT checker (Codex stop-review, 2026-06-29 #2/#3) —
-> NOT a proven-complete type checker (no `ptype`-vs-Go theorem; completeness is GoSem); the covered
-> closed-invalid classes are PINNED by regressions, each new class Codex finds added.  The refined `PTy` keeps
-> CONSTANTS (value+type) separate from RUNTIME values — `PtIntConst z` (untyped const) · `PtTIntConst t z` (typed
-> int const) · `PtFloatConst t z` (typed float const; value the integer it came from, built ONLY when in the
-> float's CONTIGUOUS exact interval — a conservative sufficient test — so never a rounded lie) ·
-> `PtRunInt t`/`PtRunFloat t` (runtime) ·
-> `PtBool`/`PtStr`/`PtAgg`/`PtUnk` — so CONSTANTNESS SURVIVES conversions/binops and Go's constant rules apply
-> TRANSITIVELY.  This rejects CLOSED-invalid Go that the old value-erasing conversion leaked: constant
-> div/mod/shift by zero/negative THROUGH a conversion (`1/int(0)`, `1<<int(-1)`), constant FLOAT division by zero
-> (`x/float64(0)`), out-of-range constant conversions hopping through int/float (`uint8(int(300))`,
-> `uint8(float64(300))`), float→int constant overflow from IEEE ROUNDING (`int64(float64(maxint64))`),
-> platform-`uint` complement (`uint32(^uint(0))`), typed-const arithmetic overflow (`int8(100)+int8(100)`), plus
-> the earlier classes — float `%`/shift/bitwise, constant overflow (`uint8(300)`, `[]uint8{300}`), mixed
-> fixed-width arithmetic (`int64(3)+int32(2)`), bool/slice comparison, `cap` of a string, invalid aggregate
-> conversions, and an untyped const overflowing its default-`int` boundary — deferring ONLY genuinely-unknown
-> identifiers (`PtUnk`, treated as runtime); a smaller, conservatively-sound supported subset.  And a certificate-gated
-> `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go toolchain BUILDS (`make emit-demo` —
-> exercising `EBn` / `EConv` / `ESliceLit` / `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment,
-> var, control flow) + struct/array composite literals; eventually `GoSem` (which unblocks supported map
-> literals). NB this spine is SEPARATE from the Stage-B plugin-integration ledger below;
-> `main.go` is still the legacy path.
+**COMPASS (2026-06-29).** One-screen status; the binding detail is in `ARCHITECTURE.md`, and the relocated
+long-form status is the "AST-first spine — detailed status" section lower in this file.
 
-**STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
-- **Go CONSTRUCT (MODEL) LAYER is complete** — every Go construct in the no-import scope is modelled in Rocq and extracted (via the trusted plugin), with NO remaining fail-closed construct gap. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.) This is the MODEL surface; it does not make the emitted Go verified — that is the printer/gap-#10 work below.
-- **BACKEND hardened + GATED** — the fail-closed sweep (4 external reviews' defect classes) is complete, and a gate trio now *enforces* it on every build: `go vet` + the axiom-manifest (trust base == `EXPECTED_ASSUMPTIONS.txt`) + the non-bypassable negtest harness (`negtests/`), plus the hook anti-tampering fix.
-- **CONCURRENCY theory complete** — the abstract dynamic-ownership invariant (`region_inv_f_race_free`, all three transfer mechanisms) + the full session safety/liveness theory, axiom-free + funext-free.
-- **PRINTER (status ledger).** The `SRaw` verified-expression-printer overlay was deleted (postmortem in `LESSONS.md`; do not revive it). Current state:
-  - **GREEN** — the Go **type/literal** printers (`print_ty`/`print_Z`/`print_string_lit`/`print_hex`/`print_float_hex`/`print_sep`) are EXTRACTED to `plugin/printer.ml` and USED by the plugin, each with a zero-axiom round-trip (`print_ty_inj`, `parse_print_ty`, `print_parse_Z`/`_hex`/`_float_hex`, `esc_string_roundtrip`). The from-scratch Wirth **`GoPrint`** (lexer + recursive-descent/precedence-climbing parser + clean `GExpr` AST, NO raw constructor) has a zero-axiom round-trip `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`) over the binop/unary/atom core + the five postfix forms (selector/index/slice/call/type-assertion) + the prefix type-form **conversion** `EConv` (`[]T(x)`/`chan T(x)`/`map[K]V(x)` — the first type-LED atom, via `parse_atom_conv`/`parse_primary_conv`) + the M5 token-level type layer. **★Stage B slice 1 (LIVE):** `gprint` is now EXTRACTED and CALLED by the plugin for the first expression class — a binary operator over two runtime locals (`MLrel OP MLrel`): `go.ml`'s `goexpr_bridge_binop` builds the `GExpr` directly (never by parsing a string) via the go_ident-checked `mk_goexpr_id` smart constructor, and prints it with the machine-checked `Printer.gprint`. Liveness is demonstrated (a `+`→`BSub` perturbation of the operator map flips exactly the `var OP var` sites in the emitted Go, at five real locations).
-  - **RED** — `GoPrint` prints only the `var OP var` binop class so far; **every other expression shape still uses the trusted OCaml `pp_prec`/`pp_expr`** (the bulk of expression printing). That `var OP var` slice is restricted so the typed-arith IIFE provably cannot fire, making the GoPrint output byte-identical to `pp_prec` (golden unchanged besides the new demo). `gofmt` remains a trusted post-processor (whitespace normaliser, outside the proof claim). No source→emitted-Go correctness theorem (gap #10). `lex` is a *printer-grammar* lexer (self-consistency `parse(gprint(ast))=ast`), NOT a general Go-subset lexer.
-  - **NEXT** — ✅ operator authority UNIFIED (`binop_of` returns the verified GoPrint `binOp`; surface+precedence from GoPrint). ✅ the live bridge is RECURSIVE over binop TREES of runtime locals (`a*b+c`, `(a+b)*c`), per-node force-safety guard. ✅ platform-int LITERAL operands bridged (`a + 5`): `int_lit` prints bare via `Printer.print_Z` = the plugin's `print_i64_dec`, so `EInt` matches by construction. ✅ `i64_lit`/`u64_lit` operands bridged as the CONVERSION `int64(N)`/`uint64(N)` — Go call syntax over a type name, so `ECall (EId "int64") [EInt N]` (amendment 3: identifier-led conversions ARE application syntax; NO special `EConv` node needed) — byte-identical by construction; liveness shown by an `int64`→`int64x` perturbation changing the output. REMAINING: unary (GoPrint's `EUn` parenthesises its operand, so it is NOT byte-equal to the plugin's idiomatic `^x` — needs an idiomatic-print mode or a blessed delta) / atoms / selectors / calls / type conversions (`[]T(x)` etc.). Each step: construct `GExpr` directly, never via string parsing; keep golden byte-identical (or bless an intended delta).
-- ⚠️ **Still NOT "formally verified Go."** The plugin stays trusted/unverified (gap #10 — no source→emitted-Go theorem; golden + negtests are the only end-to-end check). The proven safety reaches the modelled fragment, not arbitrary emitted Go.
-- **PRINCIPLED current restriction — ASCII-only identifiers** (review #4 item 5). `is_idstart`/`is_idc` (GoAst.v) accept only `[_A-Za-z][_A-Za-z0-9]*`; Go identifiers may be Unicode (any letter/digit per the spec's `unicode.IsLetter`/`IsDigit`). This is NOT a soundness hole — it only narrows the *representable* identifier set (an over-restriction: everything `go_ident` accepts IS a valid Go identifier) — it is a deliberate, bounded "Go-with-proofs" expressiveness gap, to be widened to full Unicode when warranted, NOT a permanent accidental limit.
-- **Clean tractable wins ON DECK (review 2026-06-28):** ✅ Stage B slice 1 DONE — the first `GoPrint` expression class (`MLrel OP MLrel`) is live in the plugin. ✅ operator authority UNIFIED — `binop_of` returns the verified GoPrint `binOp`; the hardcoded `go_infix`/`op_prec`/`float_prec` tables are deleted; surface+precedence come from GoPrint (golden byte-identical). ✅ duplicate type parsers COLLAPSED — the string-level `parse_ty`/`parse_print_ty` (and its `strip`/`ty_depth`/`rbound`/`scan_id_all` helpers) are deleted; `print_ty_inj` is re-proved from the SINGLE token-level round-trip `parse_gty_print_ty` (golden byte-identical, zero axioms). REMAINING: widen the live GoPrint bridge further (unary — blocked on GoPrint's `EUn` parenthesising its operand, needs an idiomatic-print mode; then atoms / selectors / calls); make `gofmt` check-only (blocked: the trusted `pp_expr` emits non-canonical whitespace, so the printer must emit gofmt-clean bytes first). These are real, bounded wins — not "frontier."
-- **Deeper frontier — foundational / gated / substrate-bound:** native `interface{}` keyword (idiomatic paradigm change; dict lowering already correct), defined-type map KEYS (heterogeneous-heap rework, niche), the full source→Go RECOGNITION / correctness theorem (gap #10 — to be built on `GoPrint`, NOT `SRaw`), the concurrency IO-LIFT (spawn fragment; `go_spawn` has no `run_io` law — user-gated option b), CI (gh token lacks Actions perms), and `int` bitwise/shifts (63-bit Rocq-`int` substrate limit) / assert-to-`any` (`GoTypeTag GoAny` universe-inconsistent) — both genuine `✗` that cannot be closed under the current substrate.
+```text
+GREEN: GoAst -> GoPrint -> GoSafe -> GoEmit spine compiles ZERO-AXIOM; the SRaw raw-string overlay is gone;
+       the GoPrint round-trip is proven over the core + every postfix form + EConv + composite literals, and
+       EStr round-trips exactly; GoEmit emits ONLY via a certificate (EmittableProgram = Program +
+       SupportedProgram; there is deliberately no raw emit : Program -> string); `make emit-demo` compiles ONE
+       certified output through the real Go toolchain (now a dependency of `make check`); SupportedProgram is
+       TIGHTENED to REJECT free / undefined identifiers (only the predeclared `nil`, and only inside a
+       slice/chan conversion, is admitted); `classify` now lives in GoAst, so GoSafe no longer imports the printer.
+RED:   the legacy TRUSTED plugin still emits main.go (GoPrint drives only the var-OP-var binop class so far);
+       there is no GoSem yet, so NO behavioral safety -- SupportedProgram is SYNTACTIC supportedness, NOT
+       BehaviorSafe; no source -> emitted-Go correctness theorem (gap #10); map literals / conversions stay QUARANTINED.
+NEXT:  build GoSem (the ONE authoritative semantics) toward BehaviorSafe / SafeProgram / emit_safe; in
+       parallel, widen the live GoPrint plugin bridge (unary / atoms / calls) and grow the GoStmt forms.
+```
+
 
 ## The goal
 
@@ -860,6 +808,85 @@ separate tracks.
    erased value).
    This is the gateway to typestate / "an FSM can't compile to a broken transition"
    and behavioral-satisfaction proofs.
+
+## AST-first spine — detailed status (relocated 2026-06-29)
+
+> Relocated from the TOP of this file on 2026-06-29 (the file now LEADS with the COMPASS above). This is
+> the long-form spine + project status, de-staled for the free-identifier tightening (the `PtUnk` deferral
+> was removed — a free identifier is now REJECTED, only `nil` is admitted inside a slice/chan conversion)
+> and the `classify` layering fix (it moved into GoAst).
+
+> ## ★ ARCHITECTURE DIRECTION (2026-06-28) — see `ARCHITECTURE.md` (the standing charter)
+> Fido is course-correcting to an **AST-first, proof-gated emission** spine. Read `ARCHITECTURE.md`; it
+> governs.
+> ```text
+> Target:   GoAst + GoPrint + GoSem + GoSafe + GoEmit.
+> Emission: ONLY via a certificate.  Phase-1 gate = EmittableProgram (Program + GoSafe.SupportedProgram,
+>           a SYNTACTIC supported-subset check — NOT behavioral safety, named accordingly).  Later, once
+>           GoSem is authoritative: SafeProgram (+ BehaviorSafe) and emit_safe.
+> Printer claim:  syntax correctness ONLY (does not imply safety).
+> Safety claim:   only for programs the certificate covers.
+> GoSem:    the ONE authoritative semantics — BRIDGE unified.v/concurrency.v/cmd.v in, do NOT fork a 2nd.
+> Legacy:   plugin/go.ml lowering stays trusted/transitional; it does NOT define the claim and is not grown.
+> Not the current center:  arbitrary Rocq→Go correctness, relooper integration, full Go parser, concurrency.
+> Residual TCB (named, not implicit):  Rocq kernel · the string→.go extraction step · the Go toolchain ·
+>           trusted foreign imports · the GoSem≈real-Go adequacy assumption (heir to gap #10).
+> ```
+> The clean printer/parser work (lexer/parser/`GExpr` AST/`gprint`/round-trip + the `ConvTy` groundwork) is
+> now SPLIT into `GoAst.v` (syntax) + `GoPrint.v` (printer) — spine commit 1 landed; do NOT reintroduce a
+> parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
+> Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
+> `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
+> round-trip; a slice/chan conversion is `ptype`-admitted ONLY for a DEFERRED operand — `[]int(nil)` kept,
+> `chan int([]int{1})` rejected — and the map conversion is QUARANTINED); the slice + map composite
+> literals `ESliceLit` (`[]T{e1,..,en}`) and `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) —
+> type-led primaries sharing the `[]T`/`map[K]V` lead with `EConv` (split by the next token `{` vs `(`), via
+> `parse_elems`/`parse_map_elems` mutual-block parsers and the full zero-axiom round-trip.  ⚠️ map literals AND
+> map conversions are REPRESENTABLE + round-trip but QUARANTINED from `SupportedProgram` (`svalue (EMapLit _ _
+> _) = false`) — Go's comparable-key-type + assignability rules are not soundly structural, so the gate rejects
+> them until GoSem (slice literals/conversions stay supported via `_ = …`); also a `GoStmt` statement layer
+> with `print_stmt_inj` (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` /
+> `GsReturnVal` (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first
+> SUPPORTED non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate
+> (`stmt_call_ok` println/print/panic, with `print`/`println` args restricted to the guaranteed-printable
+> SCALAR subset `printable_arg_ok` — NOT arbitrary aggregates — and the value-returning builtins `len`/`cap`
+> admitted in value position, the Go-spec value-vs-statement distinction).  ★The gate's `ptype` TYPE-CATEGORY
+> checker is a CONSTANT-AWARE, MAXIMALLY-CONSERVATIVE BEST-EFFORT checker (Codex stop-review, 2026-06-29 #2/#3) —
+> NOT a proven-complete type checker (no `ptype`-vs-Go theorem; completeness is GoSem); the covered
+> closed-invalid classes are PINNED by regressions, each new class Codex finds added.  The refined `PTy` keeps
+> CONSTANTS (value+type) separate from RUNTIME values — `PtIntConst z` (untyped const) · `PtTIntConst t z` (typed
+> int const) · `PtFloatConst t z` (typed float const; value the integer it came from, built ONLY when in the
+> float's CONTIGUOUS exact interval — a conservative sufficient test — so never a rounded lie) ·
+> `PtRunInt t`/`PtRunFloat t` (runtime) ·
+> `PtBool`/`PtStr`/`PtAgg`/`PtNil` — so CONSTANTNESS SURVIVES conversions/binops and Go's constant rules apply
+> TRANSITIVELY.  This rejects CLOSED-invalid Go that the old value-erasing conversion leaked: constant
+> div/mod/shift by zero/negative THROUGH a conversion (`1/int(0)`, `1<<int(-1)`), constant FLOAT division by zero
+> (`x/float64(0)`), out-of-range constant conversions hopping through int/float (`uint8(int(300))`,
+> `uint8(float64(300))`), float→int constant overflow from IEEE ROUNDING (`int64(float64(maxint64))`),
+> platform-`uint` complement (`uint32(^uint(0))`), typed-const arithmetic overflow (`int8(100)+int8(100)`), plus
+> the earlier classes — float `%`/shift/bitwise, constant overflow (`uint8(300)`, `[]uint8{300}`), mixed
+> fixed-width arithmetic (`int64(3)+int32(2)`), bool/slice comparison, `cap` of a string, invalid aggregate
+> conversions, and an untyped const overflowing its default-`int` boundary — and now REJECTING free/undefined
+> identifiers (the no-declaration model has no bindings; only the predeclared `nil` is admitted, via `PtNil`,
+> inside a slice/chan conversion); a smaller, conservatively-sound supported subset.  And a certificate-gated
+> `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go toolchain BUILDS (`make emit-demo` —
+> exercising `EBn` / `EConv` / `ESliceLit` / `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment,
+> var, control flow) + struct/array composite literals; eventually `GoSem` (which unblocks supported map
+> literals). NB this spine is SEPARATE from the Stage-B plugin-integration ledger below;
+> `main.go` is still the legacy path.
+
+**STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
+- **Go CONSTRUCT (MODEL) LAYER is complete** — every Go construct in the no-import scope is modelled in Rocq and extracted (via the trusted plugin), with NO remaining fail-closed construct gap. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.) This is the MODEL surface; it does not make the emitted Go verified — that is the printer/gap-#10 work below.
+- **BACKEND hardened + GATED** — the fail-closed sweep (4 external reviews' defect classes) is complete, and a gate trio now *enforces* it on every build: `go vet` + the axiom-manifest (trust base == `EXPECTED_ASSUMPTIONS.txt`) + the non-bypassable negtest harness (`negtests/`), plus the hook anti-tampering fix.
+- **CONCURRENCY theory complete** — the abstract dynamic-ownership invariant (`region_inv_f_race_free`, all three transfer mechanisms) + the full session safety/liveness theory, axiom-free + funext-free.
+- **PRINTER (status ledger).** The `SRaw` verified-expression-printer overlay was deleted (postmortem in `LESSONS.md`; do not revive it). Current state:
+  - **GREEN** — the Go **type/literal** printers (`print_ty`/`print_Z`/`print_string_lit`/`print_hex`/`print_float_hex`/`print_sep`) are EXTRACTED to `plugin/printer.ml` and USED by the plugin, each with a zero-axiom round-trip (`print_ty_inj`, `parse_print_ty`, `print_parse_Z`/`_hex`/`_float_hex`, `esc_string_roundtrip`). The from-scratch Wirth **`GoPrint`** (lexer + recursive-descent/precedence-climbing parser + clean `GExpr` AST, NO raw constructor) has a zero-axiom round-trip `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`) over the binop/unary/atom core + the five postfix forms (selector/index/slice/call/type-assertion) + the prefix type-form **conversion** `EConv` (`[]T(x)`/`chan T(x)`/`map[K]V(x)` — the first type-LED atom, via `parse_atom_conv`/`parse_primary_conv`) + the M5 token-level type layer. **★Stage B slice 1 (LIVE):** `gprint` is now EXTRACTED and CALLED by the plugin for the first expression class — a binary operator over two runtime locals (`MLrel OP MLrel`): `go.ml`'s `goexpr_bridge_binop` builds the `GExpr` directly (never by parsing a string) via the go_ident-checked `mk_goexpr_id` smart constructor, and prints it with the machine-checked `Printer.gprint`. Liveness is demonstrated (a `+`→`BSub` perturbation of the operator map flips exactly the `var OP var` sites in the emitted Go, at five real locations).
+  - **RED** — `GoPrint` prints only the `var OP var` binop class so far; **every other expression shape still uses the trusted OCaml `pp_prec`/`pp_expr`** (the bulk of expression printing). That `var OP var` slice is restricted so the typed-arith IIFE provably cannot fire, making the GoPrint output byte-identical to `pp_prec` (golden unchanged besides the new demo). `gofmt` remains a trusted post-processor (whitespace normaliser, outside the proof claim). No source→emitted-Go correctness theorem (gap #10). `lex` is a *printer-grammar* lexer (self-consistency `parse(gprint(ast))=ast`), NOT a general Go-subset lexer.
+  - **NEXT** — ✅ operator authority UNIFIED (`binop_of` returns the verified GoPrint `binOp`; surface+precedence from GoPrint). ✅ the live bridge is RECURSIVE over binop TREES of runtime locals (`a*b+c`, `(a+b)*c`), per-node force-safety guard. ✅ platform-int LITERAL operands bridged (`a + 5`): `int_lit` prints bare via `Printer.print_Z` = the plugin's `print_i64_dec`, so `EInt` matches by construction. ✅ `i64_lit`/`u64_lit` operands bridged as the CONVERSION `int64(N)`/`uint64(N)` — Go call syntax over a type name, so `ECall (EId "int64") [EInt N]` (amendment 3: identifier-led conversions ARE application syntax; NO special `EConv` node needed) — byte-identical by construction; liveness shown by an `int64`→`int64x` perturbation changing the output. REMAINING: unary (GoPrint's `EUn` parenthesises its operand, so it is NOT byte-equal to the plugin's idiomatic `^x` — needs an idiomatic-print mode or a blessed delta) / atoms / selectors / calls / type conversions (`[]T(x)` etc.). Each step: construct `GExpr` directly, never via string parsing; keep golden byte-identical (or bless an intended delta).
+- ⚠️ **Still NOT "formally verified Go."** The plugin stays trusted/unverified (gap #10 — no source→emitted-Go theorem; golden + negtests are the only end-to-end check). The proven safety reaches the modelled fragment, not arbitrary emitted Go.
+- **PRINCIPLED current restriction — ASCII-only identifiers** (review #4 item 5). `is_idstart`/`is_idc` (GoAst.v) accept only `[_A-Za-z][_A-Za-z0-9]*`; Go identifiers may be Unicode (any letter/digit per the spec's `unicode.IsLetter`/`IsDigit`). This is NOT a soundness hole — it only narrows the *representable* identifier set (an over-restriction: everything `go_ident` accepts IS a valid Go identifier) — it is a deliberate, bounded "Go-with-proofs" expressiveness gap, to be widened to full Unicode when warranted, NOT a permanent accidental limit.
+- **Clean tractable wins ON DECK (review 2026-06-28):** ✅ Stage B slice 1 DONE — the first `GoPrint` expression class (`MLrel OP MLrel`) is live in the plugin. ✅ operator authority UNIFIED — `binop_of` returns the verified GoPrint `binOp`; the hardcoded `go_infix`/`op_prec`/`float_prec` tables are deleted; surface+precedence come from GoPrint (golden byte-identical). ✅ duplicate type parsers COLLAPSED — the string-level `parse_ty`/`parse_print_ty` (and its `strip`/`ty_depth`/`rbound`/`scan_id_all` helpers) are deleted; `print_ty_inj` is re-proved from the SINGLE token-level round-trip `parse_gty_print_ty` (golden byte-identical, zero axioms). REMAINING: widen the live GoPrint bridge further (unary — blocked on GoPrint's `EUn` parenthesising its operand, needs an idiomatic-print mode; then atoms / selectors / calls); make `gofmt` check-only (blocked: the trusted `pp_expr` emits non-canonical whitespace, so the printer must emit gofmt-clean bytes first). These are real, bounded wins — not "frontier."
+- **Deeper frontier — foundational / gated / substrate-bound:** native `interface{}` keyword (idiomatic paradigm change; dict lowering already correct), defined-type map KEYS (heterogeneous-heap rework, niche), the full source→Go RECOGNITION / correctness theorem (gap #10 — to be built on `GoPrint`, NOT `SRaw`), the concurrency IO-LIFT (spawn fragment; `go_spawn` has no `run_io` law — user-gated option b), CI (gh token lacks Actions perms), and `int` bitwise/shifts (63-bit Rocq-`int` substrate limit) / assert-to-`any` (`GoTypeTag GoAny` universe-inconsistent) — both genuine `✗` that cannot be closed under the current substrate.
 
 ## Known gaps
 

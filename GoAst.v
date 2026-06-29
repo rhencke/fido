@@ -84,6 +84,30 @@ Inductive GoTy : Type :=
   | GTMap     : GoTy -> GoTy -> GoTy
   | GTNamed   : TyName -> GoTy.
 
+(** [classify] maps a builtin SCALAR type keyword to its [GoTy] (or [None] for a non-keyword / nominal name).
+    It lives HERE (in the SYNTAX layer, just below [GoTy]) — not in the printer — because it is a pure
+    keyword→[GoTy] map, independent of any printing/parsing: the SAFETY layer (GoSafe) consults it to type a
+    scalar conversion [T(a)], and the printer/parser (GoPrint) reuses it for token classification, so neither
+    layer should own it (and GoSafe must not depend on the printer to reach it).  It reuses the
+    [GoTy]-independent keyword SET ([is_type_keyword] above): if [s] is none of those keyword strings,
+    [classify s = None] (the bridge lemma [kw_false_classify] lives with the parser in GoPrint). *)
+Definition classify (s : string) : option GoTy :=
+       if String.eqb s "int64"   then Some GTInt64
+  else if String.eqb s "int32"   then Some GTI32
+  else if String.eqb s "int16"   then Some GTI16
+  else if String.eqb s "int8"    then Some GTI8
+  else if String.eqb s "int"     then Some GTInt
+  else if String.eqb s "uint64"  then Some GTU64
+  else if String.eqb s "uint32"  then Some GTU32
+  else if String.eqb s "uint16"  then Some GTU16
+  else if String.eqb s "uint8"   then Some GTU8
+  else if String.eqb s "uint"    then Some GTUint
+  else if String.eqb s "bool"    then Some GTBool
+  else if String.eqb s "string"  then Some GTString
+  else if String.eqb s "float64" then Some GTFloat64
+  else if String.eqb s "float32" then Some GTFloat32
+  else None.
+
 Inductive BinOp : Type :=
   (* Go precedence 5: *  /  %  <<  >>  &  &^ *)
   | BMul | BDiv | BRem | BShl | BShr | BAnd | BAndNot
