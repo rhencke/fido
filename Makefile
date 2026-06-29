@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate gosem-verify
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -134,6 +134,24 @@ printer-verify:
 emit-verify:
 	@set -e; $(GOEMIT_GATE); $(GOEMIT_CLEAN); \
 	  echo "fido: GoAst/GoPrint/GoSafe/GoEmit OK — zero axioms (blessed-emission trust base) ✓"
+
+# Local convenience gate for the FIRST behavioral-semantics slice (GoSem.v): force a fresh recompile of
+# GoSem.vo and assert its `Print Assumptions gosem_demo_output` shows ZERO axioms (no `^Axioms:` line —
+# zero-axiom prints "Closed under the global context").  Unlike printer-verify / emit-verify (which compile a
+# plugin-FREE Stdlib-only spine with bare `rocq c`), GoSem bridges builtins/cmd and so NEEDS the plugin loaded
+# — hence it goes through `dune build` (which builds the plugin + deps) rather than a standalone `rocq c`.
+# `--root .` pins the project root to the current dir (robust whether run from the canonical checkout or a
+# nested git worktree).  The CANONICAL, non-bypassable gate is still the Docker prover stage: `make check`
+# compiles GoSem (it is in the dune `(modules …)`) and the axiom-manifest gate FAILS the build on ANY axiom
+# GoSem's `Print Assumptions` would surface.  This target is the fast local mirror.
+gosem-verify:
+	@set -e; rm -f _build/default/GoSem.vo; \
+	  dune build --root . GoSem.vo > /tmp/gosem.log 2>&1 || { echo "fido: GoSem.v failed to compile:"; cat /tmp/gosem.log; exit 1; }; \
+	  if grep -q '^Axioms:' /tmp/gosem.log; then \
+	    echo "fido: GoSem AXIOM/ADMITTED — a GoSem theorem depends on an axiom (Print Assumptions):"; \
+	    cat /tmp/gosem.log; exit 1; \
+	  fi; \
+	  echo "fido: GoSem.v OK — compiles, zero axioms (first behavioral-semantics slice) ✓"
 
 # emit-demo: the certified emitter ACTUALLY produces a Go FILE that the Go COMPILER builds (review RED item —
 # "GoEmit is not yet the actual file-emission path").  Steps: (1) GOEMIT_GATE — compile GoAst/GoPrint/GoSafe/

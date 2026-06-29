@@ -108,6 +108,19 @@ is **one authoritative operational semantics** for safety claims — never two s
 drift (that is the duplicate-authority failure this charter forbids). Do not let the printer carry semantic
 obligations: the printer prints; semantics interprets.
 
+> **STATUS — first slice LANDED (`GoSem.v`).** A FIRST behavioral slice exists: it denotes the OUTPUT / panic
+> behavior of the SUPPORTED statement subset (`GsExprStmt` calls to `println`/`print`/`panic`, `GsReturn`,
+> discarding `GsBlankAssign`) by **bridging `cmd.v`** — a statement list maps to a `cmd.Cmd unit` whose meaning
+> is read through builtins' `run_io`/`w_output`; it introduces **NO new IO/output/outcome model** (no second
+> semantic universe). The deliverable is `gosem_demo_output`, a zero-axiom `vm_compute` proof that
+> `GoEmit.demo_prog` runs to a normal `ORet` emitting exactly its four `println` lines (int 1, int64 3, int 3,
+> string "hi"). HONEST SCOPE: this is NOT the full authoritative GoSem yet — `eval` const-folds only a small
+> core (int constants ±/×, the default-`int`/`int64` scalar conversions, string literals), there is NO
+> eval-vs-`ptype` soundness theorem, and `BehaviorSafe` is NOT built (the certificate stays `SupportedProgram`).
+> The denotation is partial (`option`-valued): an out-of-core form yields `None` ("outside this slice's scope")
+> rather than fabricating or dropping any event. `make gosem-verify` (local) + the Docker axiom-manifest gate
+> (canonical) keep it zero-axiom.
+
 ### `GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst`, and `GoSem` once it exists)
 
 Defines the predicates the emitter gates on.
