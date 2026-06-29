@@ -20,16 +20,20 @@ the verified-printer seed was cut ~7100→~1500 lines, then (2026-06-28) SPLIT i
 parser / round-trips, extracted to `plugin/printer.ml`).  `GoPrint` holds the clean zero-axiom type/literal printers (`print_ty` /
 `print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
 plus the from-scratch Wirth-style **`GoPrint`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
-FULL core + every postfix form + the first TYPE-using form**: a `lex` + recursive-descent token `parse` + clean
-`GExpr` AST (`EId`/`EInt`/`EUn`/`EBn` + the five postfix forms `ESel` selector / `EIndex` index / `ESlice`
-two-bound slice / `ECall` variadic call / `EAssert` type assertion `e.(T)` — NO raw constructor) with
+FULL core + every postfix form + BOTH TYPE-using forms (type-assertion AND type-form conversion)**: a `lex` +
+recursive-descent token `parse` + clean `GExpr` AST (`EId`/`EInt`/`EUn`/`EBn` + the five postfix forms `ESel`
+selector / `EIndex` index / `ESlice` two-bound slice / `ECall` variadic call / `EAssert` type assertion `e.(T)`,
+plus the prefix `EConv` type-form conversion `[]T(x)` / `chan T(x)` / `map[K]V(x)` — NO raw constructor) with
 `parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (M3b `gtokens_lex` ∘ M3c `gtokens_parse`)
 + `gprint_inj`, all at zero axioms. The variadic `ECall` needed a custom induction principle `GExpr_ind'` (the
-auto one gives no IH for its `list GExpr` child) and a MAX-based arg-list parse fuel; `EAssert` carries a `GoTy`
-child round-tripped through the M5 token-level type layer (`gttokens_ty` / `parse_gty` / `parse_gty_roundtrip`,
-itself zero-axiom). That machinery now makes the remaining forms tractable. Scope today = the binop/unary/atom
-CORE + selector/index/slice/call/type-assertion (self-consistency for the Rocq grammar, NOT Go's own
-parser); still being grown form-by-form (conversion/composite-literal/func-lit — the type layer is now in place)
+auto one gives no IH for its `list GExpr` child) and a MAX-based arg-list parse fuel; `EAssert` and `EConv` carry
+a `GoTy` child round-tripped through the M5 token-level type layer (`gttokens_ty` / `parse_gty` /
+`parse_gty_roundtrip`, itself zero-axiom). `EConv` is a PREFIX type-led primary (`parse_atom` dispatches on the
+unambiguous `[]`/`chan`/`map` lead, `op_needs_paren EConv = false` since a conversion is a Go PrimaryExpr) — it
+is the FIRST type-led atom, read via `parse_atom_conv`/`parse_primary_conv`. That machinery now makes the
+remaining forms tractable. Scope today = the binop/unary/atom CORE + selector/index/slice/call/type-assertion +
+type-form conversion (self-consistency for the Rocq grammar, NOT Go's own parser); still being grown
+form-by-form (composite-literal/func-lit — the type layer is now in place)
 toward **Stage B** (swap `go.ml` onto `GoPrint`, retire `pp_expr`). **Stage B slice 1 has LANDED:** `gprint`
 is extracted and CALLED by the plugin for the first expression class — a binop over two runtime locals
 (`MLrel OP MLrel`), built directly as a `GExpr` (go_ident-checked `mk_goexpr_id`, no string parsing) and

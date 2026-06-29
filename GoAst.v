@@ -96,9 +96,20 @@ Inductive BinOp : Type :=
 
 Inductive UnaryOp : Type := UNot | UXor | UDeref | UAddr | UNeg.
 
+(** ---- CONVERSION type-form ([ConvTy]) — the bracket/keyword-led GoTy subset usable as a type-form
+    conversion operand [T(x)] (printer/parser in GoPrint).  Excludes a pointer head [*T] ([*T(x)] is
+    ambiguous with the deref [*(T(x))]).  Defined BEFORE [GExpr] because the [EConv] node carries one. *)
+Inductive ConvTy : Type :=
+  | CTSlice : GoTy -> ConvTy          (* []T     *)
+  | CTChan  : GoTy -> ConvTy          (* chan T  *)
+  | CTMap   : GoTy -> GoTy -> ConvTy. (* map[K]V *)
+Definition convty_ty (c : ConvTy) : GoTy :=
+  match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
+
 (** ---- THE CLEAN AST ---- the Go expression grammar above, fully structured: every node is a typed form,
     with NO raw/opaque string constructor (by construction it cannot represent unstructured text).  CORE + the
-    five postfix forms (grows toward conversions / composite-literals / func-lits).  Literals carry their value. *)
+    five postfix forms + the type-form conversion [EConv] (grows toward composite-literals / func-lits).
+    Literals carry their value. *)
 Inductive GExpr : Type :=
   | EId  : Ident -> GExpr
   | EInt : Z -> GExpr
@@ -108,7 +119,8 @@ Inductive GExpr : Type :=
   | EIndex : GExpr -> GExpr -> GExpr  (* postfix index [e[i]] — also a tightest-binding postfix form *)
   | ESlice : GExpr -> GExpr -> GExpr -> GExpr  (* postfix two-index slice [e[lo:hi]] (both bounds present) *)
   | ECall : GExpr -> list GExpr -> GExpr  (* postfix call [e(a1, .., an)] — the arg list is a [list GExpr] *)
-  | EAssert : GExpr -> GoTy -> GExpr.  (* postfix type assertion [e.(T)] — the type child is a [GoTy] *)
+  | EAssert : GExpr -> GoTy -> GExpr   (* postfix type assertion [e.(T)] — the type child is a [GoTy] *)
+  | EConv : ConvTy -> GExpr -> GExpr.  (* type-form conversion [[]T(x)] / [chan T(x)] / [map[K]V(x)] — PREFIX *)
 
 (** Custom induction principle: the auto-generated [GExpr_ind] gives NO hypothesis for the elements of the
     [ECall] argument list (a nested [list GExpr]), so structural recursion into the args is impossible.  This
@@ -125,36 +137,29 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
   (fslc : forall e0, P e0 -> forall lo, P lo -> forall hi, P hi -> P (ESlice e0 lo hi))
   (fcall : forall e0, P e0 -> forall args, List.Forall P args -> P (ECall e0 args))
   (fassert : forall e0, P e0 -> forall T, P (EAssert e0 T))
+  (fconv : forall c e0, P e0 -> P (EConv c e0))
   (e : GExpr) : P e :=
   match e with
   | EId i  => fid i
   | EInt z => fint z
-  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert l)
-                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert r)
-  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) f
-  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert i)
-  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0)
-                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert lo)
-                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert hi)
-  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) args
+  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
+  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv l)
+                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv r)
+  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) f
+  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
+                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv i)
+  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
+                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv lo)
+                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv hi)
+  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) args
       ((fix args_ind (l : list GExpr) : List.Forall P l :=
           match l with
           | nil => List.Forall_nil P
-          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert a) (args_ind r)
+          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv a) (args_ind r)
           end) args)
-  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert e0) T
+  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) T
+  | EConv c e0 => fconv c e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
   end.
-
-(** ---- CONVERSION type-form ([ConvTy]) — the bracket/keyword-led GoTy subset used by a type-form
-    conversion (printer/parser in GoPrint).  A dedicated inductive (illegal states unrepresentable). *)
-Inductive ConvTy : Type :=
-  | CTSlice : GoTy -> ConvTy          (* []T     *)
-  | CTChan  : GoTy -> ConvTy          (* chan T  *)
-  | CTMap   : GoTy -> GoTy -> ConvTy. (* map[K]V *)
-Definition convty_ty (c : ConvTy) : GoTy :=
-  match c with CTSlice u => GTSlice u | CTChan u => GTChan u | CTMap k v => GTMap k v end.
 
 (** ---- GO STATEMENTS ---- the body of [func main].  PHASE-4 (ARCHITECTURE.md §11), grown form-by-form, each
     constructor reusing the verified expression layer: [GsExprStmt e] is an EXPRESSION STATEMENT (e.g. a call

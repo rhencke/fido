@@ -1104,6 +1104,18 @@ type unaryOp =
 | UAddr
 | UNeg
 
+type convTy =
+| CTSlice of goTy
+| CTChan of goTy
+| CTMap of goTy * goTy
+
+(** val convty_ty : convTy -> goTy **)
+
+let convty_ty = function
+| CTSlice u -> GTSlice u
+| CTChan u -> GTChan u
+| CTMap (k, v) -> GTMap (k, v)
+
 type gExpr =
 | EId of ident
 | EInt of z
@@ -1114,6 +1126,7 @@ type gExpr =
 | ESlice of gExpr * gExpr * gExpr
 | ECall of gExpr * gExpr list
 | EAssert of gExpr * goTy
+| EConv of convTy * gExpr
 
 (** val print_ty : goTy -> string **)
 
@@ -1773,4 +1786,10 @@ let rec gprint ctx = function
       False)), (String ((Ascii (False, False, False, True, False, True,
       False, False)), EmptyString))))
       (append (print_ty t) (String ((Ascii (True, False, False, True, False,
+        True, False, False)), EmptyString))))
+| EConv (c, e0) ->
+  append (print_ty (convty_ty c))
+    (append (String ((Ascii (False, False, False, True, False, True, False,
+      False)), EmptyString))
+      (append (gprint O e0) (String ((Ascii (True, False, False, True, False,
         True, False, False)), EmptyString))))

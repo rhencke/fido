@@ -226,8 +226,8 @@ New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architectur
 Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
            EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
 Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment, var, control
-           flow) + the parked EConv.  (Program-printer injectivity print_program_inj landed 34e4a6c;
-           2nd statement form GsReturn landed 6e2ba11.)
+           flow).  (Program-printer injectivity print_program_inj landed 34e4a6c; 2nd statement
+           form GsReturn landed 6e2ba11; the type-form conversion EConv landed this tick.)
 ```
 
 ---
@@ -266,8 +266,14 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > `SupportedProgram` is now a DECIDABLE supported-subset gate (`supported_program` = `pkg=main` ∧
 > `forallb stmt_ok body`, where a bare expression statement must be a call) — a regression locks out the
 > bad program, and GoSafe/GoEmit joined the explicit zero-axiom gate (`make emit-verify`) + a
-> print_program-discipline tripwire. Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control
-> flow) and the parked `EConv`. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
+> print_program-discipline tripwire. Then (this tick) the parked `EConv` LANDED — the type-form conversion
+> `[]T(x)` / `chan T(x)` / `map[K]V(x)`, the FIRST type-LED `GExpr` atom: a 10th `GExpr` constructor with a
+> zero-axiom `parse_print_roundtrip` (new `parse_atom_conv`/`parse_primary_conv`; `parse_atom` dispatches on
+> the unambiguous `[]`/`chan`/`map` lead via the M5 `parse_gty`, `op_needs_paren EConv = false` since a
+> conversion is a Go PrimaryExpr), and `GoSafe.svalue` admits it as value-producing (with a bare-`EConv`-as-
+> statement still rejected) — golden BYTE-IDENTICAL (EConv is not yet wired into the plugin's `main.go` path).
+> Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control flow) and composite-literal/func-lit
+> conversions. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
 > is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
 > COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
 > proven bytes to the compiler. **Still RED:** that is a
@@ -303,9 +309,10 @@ add "future foundation" unless it replaces or deletes something.**
   `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program print INJECTIVITY
   `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split; injectivity only, not Go-syntax
   acceptance); the 2nd statement form
-  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`). Next: more `GoStmt` forms
-  (assignment, var, control flow); the parked `EConv` / `ConvTy` conversion work re-lands HERE inside
-  `GoAst`/`GoPrint`.
+  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`); and the type-form
+  conversion `EConv` / `ConvTy` (this tick — `[]T(x)`/`chan T(x)`/`map[K]V(x)`, the first type-LED `GExpr`
+  atom, zero-axiom round-trip via `parse_atom_conv`, `svalue`-admitted). Next: more `GoStmt` forms
+  (assignment, var, control flow) and composite-literal/func-lit conversions, HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

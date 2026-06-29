@@ -14,16 +14,18 @@ Open Scope string_scope.
 
 (** STRUCTURALLY-supported VALUE expression — the CONSERVATIVE whitelist of [GExpr] forms each guaranteed to
     PRODUCE A VALUE with NO operand-shape hazard: identifiers, integer literals, arithmetic/logical binops,
-    the value-producing unary ops (!/^/-), and a builtin-type CONVERSION [T(a)].  The application case is
-    restricted to a conversion ([EId] whose name is a builtin type, applied to EXACTLY ONE arg) because a
-    conversion ALWAYS yields a value, whereas a general function CALL [f(args)] yields a value only if [f]
-    returns one — type-dependent and unknowable here, so a void call like [println(1)] (which returns
-    NOTHING) must NOT be admitted as a value (else [println(println(1))] — "used as value" — would slip
-    through), and conversion arity is pinned (a conversion takes exactly one arg, so [int(1,2)] is rejected).
-    The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion ([1.f] / [1[0]] /
-    [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is admitted.
-    STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier) or TYPES
-    (e.g. [!1], convertibility of [int(x)]) — those are the GoSem/type layer. *)
+    the value-producing unary ops (!/^/-), a builtin-type CONVERSION [T(a)], and a type-FORM conversion
+    [[]T(a)] / [chan T(a)] / [map[K]V(a)] ([EConv]).  The application case is restricted to a conversion
+    ([EId] whose name is a builtin type, applied to EXACTLY ONE arg) because a conversion ALWAYS yields a
+    value, whereas a general function CALL [f(args)] yields a value only if [f] returns one — type-dependent
+    and unknowable here, so a void call like [println(1)] (which returns NOTHING) must NOT be admitted as a
+    value (else [println(println(1))] — "used as value" — would slip through), and conversion arity is pinned
+    (a conversion takes exactly one arg, so [int(1,2)] is rejected).  [EConv] is a type-form conversion — it
+    carries its single operand structurally (no arity hazard) and ALWAYS yields a value, so it is admitted
+    (its operand checked).  The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion
+    ([1.f] / [1[0]] / [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is
+    admitted.  STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier)
+    or TYPES (e.g. [!1], convertibility of [int(x)]) — those are the GoSem/type layer. *)
 Fixpoint svalue (e : GExpr) : bool :=
   match e with
   | EId _ => true
@@ -35,6 +37,7 @@ Fixpoint svalue (e : GExpr) : bool :=
       | EId i, a :: nil => is_type_keyword (proj1_sig i) && svalue a   (* a builtin-type CONVERSION [T(a)] *)
       | _, _            => false
       end
+  | EConv _ e0 => svalue e0   (* a type-form CONVERSION [[]T(a)/chan T(a)/map[K]V(a)] — always yields a value *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
@@ -138,6 +141,24 @@ Definition supported_conv_arg : Program :=
                                [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
 Example conv_arg_supported : SupportedProgram supported_conv_arg.
 Proof. reflexivity. Qed.
+
+(** POSITIVE (Phase 4, [EConv]) — a type-FORM conversion is also fine in VALUE position: `func main(){
+    println([]int(x)) }` is supported (the statement is a [println] call; its argument [[]int(x)] is an
+    [EConv], a valid [svalue]).  A bare [EConv] statement `func main(){ []int(x) }` would still be rejected —
+    [expr_stmt_ok] admits only [ECall (EId _) _], not [EConv] — keeping the conversion-as-statement bar. *)
+Definition supported_conv_composite_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl))])].
+Example conv_composite_arg_supported : SupportedProgram supported_conv_composite_arg.
+Proof. reflexivity. Qed.
+(** And the bare composite-conversion STATEMENT `func main(){ []int(x) }` is NOT supported. *)
+Definition unsupported_conv_composite_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
+Example conv_composite_stmt_unsupported : supported_program unsupported_conv_composite_stmt = false.
+Proof. reflexivity. Qed.
+Fail Example conv_composite_stmt_supported : SupportedProgram unsupported_conv_composite_stmt := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
     println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:
