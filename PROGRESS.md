@@ -32,7 +32,8 @@ semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not built**; i
 behavioral-safety claim is active.
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`; GoPrint is wired live for only the
-var-OP-var binop class so far. `plugin/printer.ml` is the verified printer extracted from GoPrint.
+var-OP-var binop class so far. `plugin/printer.ml` is the machine-checked printer extracted from GoPrint
+(expression round-trip + program/statement print-injectivity proven; not a Go-parser-acceptance proof).
 
 ## GREEN (proved / working)
 
