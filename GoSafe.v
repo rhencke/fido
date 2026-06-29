@@ -148,6 +148,19 @@ Example void_call_arg_unsupported : supported_program unsupported_void_call_arg 
 Proof. reflexivity. Qed.
 Fail Example void_call_arg_supported : SupportedProgram unsupported_void_call_arg := eq_refl.
 
+(** REGRESSION (external review 2026-06-28, follow-up⁵) — CONVERSION ARITY: `func main(){ println(int(1, 2)) }`
+    is invalid Go ("too many arguments to conversion to int").  [svalue]'s conversion case matches EXACTLY one
+    arg ([a :: nil]), so the 2-arg [int(1, 2)] is NOT a valid value and the program is NOT supported.  Pins the
+    arity bound that distinguishes this from the supported 1-arg [println(int(x))] above (and likewise rejects
+    the 0-arg [int()]). *)
+Definition unsupported_conv_arity : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "int" eq_refl)) [EInt 1; EInt 2]])].
+Example conv_arity_unsupported : supported_program unsupported_conv_arity = false.
+Proof. reflexivity. Qed.
+Fail Example conv_arity_supported : SupportedProgram unsupported_conv_arity := eq_refl.
+
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
     [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the charter forbids
