@@ -126,10 +126,12 @@ Inductive GExpr : Type :=
   | EStr : string -> GExpr.  (* STRING literal ["..."] — a LEAF (like [EInt]); carries the UNESCAPED content, printed via the verified [print_string_lit] *)
 
 (** Custom induction principle: the auto-generated [GExpr_ind] gives NO hypothesis for the elements of the
-    [ECall] argument list (a nested [list GExpr]), so structural recursion into the args is impossible.  This
-    recursor adds [Forall P args] for the [ECall] case (built by an inner list recursion), and mirrors the
-    auto principle's binder order for the other seven constructors so existing [induction e as [...]] proofs
-    keep working verbatim under [using GExpr_ind']. *)
+    nested [list]-valued children ([ECall]'s arg list, [ESliceLit]'s elements, [EMapLit]'s key/value pairs),
+    so structural recursion into them is impossible.  This recursor adds a [Forall P]-style hypothesis for
+    each of those three list-bearing constructors (built by an inner list recursion), and mirrors the auto
+    principle's binder order for the other ten constructors ([EId]/[EInt]/[EUn]/[EBn]/[ESel]/[EIndex]/[ESlice]/
+    [EAssert]/[EConv]/[EStr]) so existing [induction e as [...]] proofs keep working verbatim under
+    [using GExpr_ind']. *)
 Fixpoint GExpr_ind' (P : GExpr -> Prop)
   (fid  : forall i, P (EId i))
   (fint : forall z, P (EInt z))

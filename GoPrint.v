@@ -155,7 +155,7 @@ Example print_Z_u63  : print_Z 9223372036854775808 = "9223372036854775808".  Pro
 (** ---- INTEGER FAITHFULNESS (round-trip) ---- a decimal PARSER recovers the [Z] from [print_Z]'s
     output, so the emitted integer literal denotes EXACTLY the source value over the whole modelled
     range (|z| < 10^64 — far beyond the int64/uint64 values [print_Z] is ever called with).  The
-    analog of [parse_print_ty] / [esc_string_roundtrip] for integer literals — the most-emitted leaf. *)
+    analog of [parse_print_ty] / [esc_string_roundtrip_opt] for integer literals — the most-emitted leaf. *)
 Definition dval (c : ascii) : Z := Z.of_nat (nat_of_ascii c - 48).
 Fixpoint parseZ_pos (acc : Z) (s : string) : Z :=
   match s with EmptyString => acc | String c s' => parseZ_pos (acc * 10 + dval c)%Z s' end.
@@ -285,10 +285,12 @@ Definition print_string_lit (s : string) : string :=
 Example psl_empty : print_string_lit "" = String (ch 34) (String (ch 34) ""). Proof. reflexivity. Qed.
 Example psl_fido  : print_string_lit "fido" = String (ch 34) ("fido" ++ String (ch 34) ""). Proof. reflexivity. Qed.
 
-(** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: a decoder [unescape]
-    recovers the exact original bytes from [esc_string], so [print_string_lit] denotes precisely its
-    argument — no byte dropped, merged, or corrupted by an escape.  This is the data-faithfulness
-    property for string literals (the analog of [parse_print_ty] for the type sub-language). *)
+(** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: a VALIDATING decoder
+    [unescape_opt] recovers the exact original bytes from [esc_string] (as [Some s]), so [print_string_lit]
+    denotes precisely its argument — no byte dropped, merged, or corrupted by an escape.  This is the
+    data-faithfulness property for string literals (the analog of [parse_print_ty] for the type sub-language).
+    [unescape_opt] is also FAIL-CLOSED: it returns [None] on any malformed escape, so the lexer rejects
+    ill-formed string syntax instead of normalizing it (see the [lex_bad_*] negative examples below). *)
 Lemma nat_of_ascii_lt_256 : forall c, nat_of_ascii c < 256.
 Proof. intro c. destruct c. repeat match goal with b : bool |- _ => destruct b end; cbn; lia. Qed.
 Lemma nat_of_ch : forall n, n < 256 -> nat_of_ascii (ch n) = n.
@@ -296,97 +298,143 @@ Proof. intros n H. unfold ch. apply Ascii.nat_ascii_embedding. exact H. Qed.
 Lemma ch_nat : forall c, ch (nat_of_ascii c) = c.
 Proof. intro c. unfold ch. apply Ascii.ascii_nat_embedding. Qed.
 
-(** Inverse of [hexdig] on a single hex nibble. *)
+(** Inverse of [hexdig] on a single hex nibble.  Decodes ALL three hex-digit spellings — [0-9] (48-57),
+    [A-F] (65-70), [a-f] (97-102) — so it is a faithful inverse for every byte [is_hex] accepts (Go allows
+    upper- or lower-case in a [\x] escape).  [hexdig] itself only ever EMITS the lower-case form, so the
+    [unhex_hexdig] round-trip exercises just the digit / lower-case branches. *)
 Definition unhex (c : ascii) : nat :=
-  let v := nat_of_ascii c in if Nat.leb v 57 then v - 48 else v - 87.
+  let v := nat_of_ascii c in
+  if Nat.leb v 57 then v - 48          (* '0'-'9' *)
+  else if Nat.leb v 70 then v - 55     (* 'A'-'F' *)
+  else v - 87.                         (* 'a'-'f' *)
 Lemma unhex_hexdig : forall k, k < 16 -> unhex (hexdig k) = k.
 Proof.
   intros k H. unfold unhex, hexdig. destruct (Nat.ltb k 10) eqn:E.
   - apply Nat.ltb_lt in E. rewrite Ascii.nat_ascii_embedding by lia.
     destruct (Nat.leb (48 + k) 57) eqn:E2; [ lia | apply Nat.leb_gt in E2; lia ].
   - apply Nat.ltb_ge in E. rewrite Ascii.nat_ascii_embedding by lia.
-    destruct (Nat.leb (87 + k) 57) eqn:E2; [ apply Nat.leb_le in E2; lia | lia ].
+    destruct (Nat.leb (87 + k) 57) eqn:E2; [ apply Nat.leb_le in E2; lia | ].
+    destruct (Nat.leb (87 + k) 70) eqn:E3; [ apply Nat.leb_le in E3; lia | lia ].
 Qed.
 
-(** The decoder: reverse [esc_byte].  A backslash (92) introduces an escape — the next byte selects
-    the special char or, for "x" (120), the two hex nibbles; any other byte is itself.  Structural on
-    sub-terms of [s] (so no fuel needed). *)
-Fixpoint unescape (s : string) : string :=
+(** A hex digit: [0-9] / [a-f] / [A-F].  Used by the VALIDATING decoder [unescape_opt] to REJECT a [\x]
+    escape whose two characters are not both hex (a non-hex [\x] is malformed Go and must fail to lex, not
+    decode to a wrong byte).  [unhex] above inverts every byte this accepts. *)
+Definition is_hex (c : ascii) : bool :=
+  let v := nat_of_ascii c in
+  orb (andb (Nat.leb 48 v) (Nat.leb v 57))            (* '0'-'9' *)
+      (orb (andb (Nat.leb 97 v) (Nat.leb v 102))      (* 'a'-'f' *)
+           (andb (Nat.leb 65 v) (Nat.leb v 70))).     (* 'A'-'F' *)
+Lemma is_hex_hexdig : forall k, k < 16 -> is_hex (hexdig k) = true.
+Proof.
+  intros k H. unfold is_hex, hexdig. destruct (Nat.ltb k 10) eqn:E.
+  - apply Nat.ltb_lt in E. rewrite Ascii.nat_ascii_embedding by lia.
+    apply Bool.orb_true_iff; left. apply Bool.andb_true_iff.
+    split; apply Nat.leb_le; lia.
+  - apply Nat.ltb_ge in E. rewrite Ascii.nat_ascii_embedding by lia.
+    apply Bool.orb_true_iff; right. apply Bool.orb_true_iff; left.
+    apply Bool.andb_true_iff. split; apply Nat.leb_le; lia.
+Qed.
+
+(** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Returns [option string] — [None] for any spelling
+    that [esc_byte] could never have produced, so the lexer (which threads this [option]) REJECTS malformed Go
+    string syntax at tokenization instead of normalizing it into a wrong value.  A backslash (92) introduces an
+    escape; it must be one of the accepted forms — the escaped dquote, the escaped backslash, [\n] [\t] [\r], or
+    [\xHH] (two hex digits) — else [None]: a TRUNCATED escape (a backslash at end of body), an UNKNOWN escape
+    (any other byte after a backslash), a [\x] with fewer than two following chars, or a [\x] whose two chars are
+    not both [is_hex] all give [None].  A non-escape
+    byte is itself UNLESS it is a raw newline (10), which Go forbids inside an interpreted literal (also [None]).
+    Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old total [unescape] is gone). *)
+Fixpoint unescape_opt (s : string) : option string :=
   match s with
-  | EmptyString => EmptyString
+  | EmptyString => Some EmptyString
   | String c1 rest =>
       if Nat.eqb (nat_of_ascii c1) 92 then
         match rest with
-        | EmptyString => EmptyString
+        | EmptyString => None                                  (* truncated: backslash at end of body *)
         | String c2 rest2 =>
             let d := nat_of_ascii c2 in
-            if Nat.eqb d 34 then String (ch 34) (unescape rest2)
-            else if Nat.eqb d 92 then String (ch 92) (unescape rest2)
-            else if Nat.eqb d 110 then String (ch 10) (unescape rest2)
-            else if Nat.eqb d 116 then String (ch 9) (unescape rest2)
-            else if Nat.eqb d 114 then String (ch 13) (unescape rest2)
+            if Nat.eqb d 34 then option_map (String (ch 34)) (unescape_opt rest2)
+            else if Nat.eqb d 92 then option_map (String (ch 92)) (unescape_opt rest2)
+            else if Nat.eqb d 110 then option_map (String (ch 10)) (unescape_opt rest2)
+            else if Nat.eqb d 116 then option_map (String (ch 9)) (unescape_opt rest2)
+            else if Nat.eqb d 114 then option_map (String (ch 13)) (unescape_opt rest2)
             else if Nat.eqb d 120 then
               match rest2 with
-              | String h1 (String h2 rest3) => String (ch (16 * unhex h1 + unhex h2)) (unescape rest3)
-              | _ => EmptyString
+              | String h1 (String h2 rest3) =>
+                  if andb (is_hex h1) (is_hex h2)
+                  then option_map (String (ch (16 * unhex h1 + unhex h2))) (unescape_opt rest3)
+                  else None                                    (* \x with a non-hex digit *)
+              | _ => None                                      (* truncated \x escape (< 2 chars) *)
               end
-            else EmptyString
+            else None                                          (* unknown escape *)
         end
-      else String c1 (unescape rest)
+      else if Nat.eqb (nat_of_ascii c1) 10 then None           (* raw newline forbidden in an interpreted literal *)
+      else option_map (String c1) (unescape_opt rest)
   end.
 
-(* Keep [ch]/[nat_of_ascii]/[unhex]/[hexdig] opaque so [cbn] reduces only the [Nat.eqb] dispatch and
-   the matches, leaving [ch <v>] / [nat_of_ascii (ch _)] / [unhex (hexdig _)] symbolic for the rewrites. *)
-Local Opaque ch nat_of_ascii unhex hexdig Nat.div Nat.modulo.
-Lemma unescape_esc_byte : forall c X, unescape (esc_byte (nat_of_ascii c) X) = String c (unescape X).
+(* Keep [ch]/[nat_of_ascii]/[unhex]/[hexdig]/[is_hex]/[option_map] opaque so [cbn] reduces only the [Nat.eqb]
+   dispatch and the matches, leaving [ch <v>] / [nat_of_ascii (ch _)] / [unhex (hexdig _)] / [is_hex (hexdig _)]
+   and the [option_map] wrappers symbolic for the rewrites. *)
+Local Opaque ch nat_of_ascii unhex hexdig is_hex option_map Nat.div Nat.modulo Nat.mul.
+Lemma unescape_opt_esc_byte : forall c X,
+  unescape_opt (esc_byte (nat_of_ascii c) X) = option_map (String c) (unescape_opt X).
 Proof.
   intros c X. assert (Hc : nat_of_ascii c < 256) by apply nat_of_ascii_lt_256.
   unfold esc_byte.
   destruct (Nat.eqb (nat_of_ascii c) 34) eqn:E34.
   { apply Nat.eqb_eq in E34.
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 34) by lia. cbn.
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 34) by lia. cbn.
     rewrite <- E34, ch_nat. reflexivity. }
   destruct (Nat.eqb (nat_of_ascii c) 92) eqn:E92.
   { apply Nat.eqb_eq in E92.
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn.
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn.
     rewrite <- E92, ch_nat. reflexivity. }
   destruct (Nat.eqb (nat_of_ascii c) 10) eqn:E10.
   { apply Nat.eqb_eq in E10.
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 110) by lia. cbn.
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 110) by lia. cbn.
     rewrite <- E10, ch_nat. reflexivity. }
   destruct (Nat.eqb (nat_of_ascii c) 9) eqn:E9.
   { apply Nat.eqb_eq in E9.
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 116) by lia. cbn.
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 116) by lia. cbn.
     rewrite <- E9, ch_nat. reflexivity. }
   destruct (Nat.eqb (nat_of_ascii c) 13) eqn:E13.
   { apply Nat.eqb_eq in E13.
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 114) by lia. cbn.
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 114) by lia. cbn.
     rewrite <- E13, ch_nat. reflexivity. }
   destruct (andb (Nat.leb 32 (nat_of_ascii c)) (Nat.ltb (nat_of_ascii c) 127)) eqn:Eprint.
-  { (* printable byte: emitted as-is, decoded as-is (not a backslash since c <> 92 by E92) *)
-    cbn [unescape]. rewrite (nat_of_ch (nat_of_ascii c)) by exact Hc.
-    rewrite E92. cbn. rewrite ch_nat. reflexivity. }
-  { (* hex escape: \xHL with H = b/16, L = b mod 16; 16*H + L = b *)
-    cbn [unescape]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 120) by lia. cbn. f_equal.
+  { (* printable byte: emitted as-is, decoded as-is (not a backslash by E92, not a newline by E10) *)
+    cbn [unescape_opt]. rewrite (nat_of_ch (nat_of_ascii c)) by exact Hc.
+    rewrite E92. cbn. rewrite E10. cbn. rewrite ch_nat. reflexivity. }
+  { (* hex escape: \xHL with H = b/16, L = b mod 16; both nibbles are [is_hex], and 16*H + L = b *)
+    cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 120) by lia. cbn.
+    rewrite (is_hex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
+    rewrite (is_hex_hexdig (Nat.modulo (nat_of_ascii c) 16)) by (apply Nat.mod_upper_bound; lia).
+    cbn [andb].
     rewrite (unhex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
     rewrite (unhex_hexdig (Nat.modulo (nat_of_ascii c) 16)) by (apply Nat.mod_upper_bound; lia).
-    transitivity (ch (nat_of_ascii c));
-      [ f_equal; pose proof (Nat.div_mod_eq (nat_of_ascii c) 16); lia | apply ch_nat ]. }
+    replace (16 * Nat.div (nat_of_ascii c) 16 + Nat.modulo (nat_of_ascii c) 16) with (nat_of_ascii c)
+      by (pose proof (Nat.div_mod_eq (nat_of_ascii c) 16); lia).
+    rewrite ch_nat. reflexivity. }
 Qed.
-Local Transparent ch nat_of_ascii unhex hexdig Nat.div Nat.modulo.
+Local Transparent ch nat_of_ascii unhex hexdig is_hex option_map Nat.div Nat.modulo Nat.mul.
 
-Theorem esc_string_roundtrip : forall s, unescape (esc_string s) = s.
+(** ★ THE STRING-LITERAL ROUND-TRIP — the (now VALIDATING) decoder recovers EXACTLY what [esc_string] emits, so
+    [print_string_lit] denotes precisely its argument and the lexer's [TStr] is faithful.  Crucially the option
+    decoder ACCEPTS every byte [esc_string] can produce (the proof of [unescape_opt_esc_byte] discharges the
+    [is_hex]/newline guards on those bytes), so adding the fail-closed rejection cost the round-trip nothing. *)
+Theorem esc_string_roundtrip_opt : forall s, unescape_opt (esc_string s) = Some s.
 Proof.
   induction s as [ | c rest IH ]; [ reflexivity | ].
-  cbn [esc_string]. rewrite unescape_esc_byte, IH. reflexivity.
+  cbn [esc_string]. rewrite unescape_opt_esc_byte, IH. reflexivity.
 Qed.
 
 (** ---- STRING-LITERAL LEXING ---- [scan_quote] locates the CLOSING dquote of a Go interpreted-string body,
     returning the (still-ESCAPED) body and the REST after the quote.  A backslash (92) escapes the NEXT byte
     (so an escaped dquote, backslash-then-34, is consumed, never mistaken for the terminator); a bare dquote
-    (34) closes; any other byte is body.  This only SPLITS at the terminator — DECODING reuses [unescape] (via
-    [esc_string_roundtrip]), so there is exactly ONE un-escaper (no second, possibly-divergent decoder).
-    Structural on [s] (each recursive call is on a sub-term), so no fuel is needed (like [unescape]). *)
+    (34) closes; any other byte is body.  This only SPLITS at the terminator — DECODING reuses [unescape_opt]
+    (via [esc_string_roundtrip_opt]), so there is exactly ONE un-escaper (no second, possibly-divergent decoder).
+    Structural on [s] (each recursive call is on a sub-term), so no fuel is needed (like [unescape_opt]). *)
 Fixpoint scan_quote (s : string) : option (string * string) :=
   match s with
   | EmptyString => None                                            (* unterminated literal *)
@@ -480,8 +528,8 @@ Proof.
 Qed.
 
 (** ★ THE STRING-BODY RECOVER LEMMA — [scan_quote] over [esc_string s] (the escaped body) and the closing
-    dquote splits EXACTLY back into [esc_string s] and the rest.  Composed with [esc_string_roundtrip]
-    ([unescape (esc_string s) = s]) this is what makes [lex (print_string_lit s)] recover [TStr s]. *)
+    dquote splits EXACTLY back into [esc_string s] and the rest.  Composed with [esc_string_roundtrip_opt]
+    ([unescape_opt (esc_string s) = Some s]) this is what makes [lex (print_string_lit s)] recover [TStr s]. *)
 Lemma scan_quote_esc_string : forall s rest,
   scan_quote (esc_string s ++ String (ch 34) rest) = Some (esc_string s, rest).
 Proof.
@@ -843,10 +891,15 @@ Fixpoint lex_aux (fuel : nat) (s : string) : option (list Token) :=
         else if andb (Ascii.eqb c (ch 45)) (match s' with String d _ => is_dec_char d | _ => false end) then
           let (num, rest) := scan_digits s' in
           match lex_aux f rest with Some l => Some (TInt (parse_Z (String c num)) :: l) | None => None end
-        else if Ascii.eqb c (ch 34) then   (* a Go interpreted STRING literal: scan to the closing dquote, [unescape] the body *)
+        else if Ascii.eqb c (ch 34) then   (* a Go interpreted STRING literal: scan to the closing dquote, then
+                                              VALIDATE+decode the body — a malformed escape ([unescape_opt = None])
+                                              FAILS the whole lex (fail-closed), never building a [TStr] *)
           match scan_quote s' with
           | Some (body, rest) =>
-              match lex_aux f rest with Some l => Some (TStr (unescape body) :: l) | None => None end
+              match unescape_opt body with
+              | Some sdec => match lex_aux f rest with Some l => Some (TStr sdec :: l) | None => None end
+              | None => None
+              end
           | None => None
           end
         else
@@ -963,6 +1016,29 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
+(** ---- STRING-LEXER FAIL-CLOSED REGRESSIONS ---- a MALFORMED interpreted-string literal must be REJECTED at
+    tokenization ([lex = None]), NOT lossily normalized into a [TStr] (the Codex review fail-open).  Inputs are
+    built byte-explicitly with [ch]: [ch 34] = the dquote, [ch 92] = the backslash, [ch 10] = newline.  Four
+    malformed spellings — an UNKNOWN escape, a NON-HEX hex escape, a TRUNCATED hex escape (one hex digit before
+    the close), and a RAW NEWLINE in the body — each make [lex] (hence [parse_str]) return [None]. *)
+Example lex_bad_escape : lex (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* "\q"  — 'q' = 113, not an accepted escape *)
+Example lex_bad_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                          (String (ch 90) (String (ch 90) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* "\xZZ" — 'Z' = 90 is not a hex digit *)
+Example lex_trunc_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                            (String (ch 49) (String (ch 34) ""))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* "\x1" — only one hex digit before the close *)
+Example lex_raw_newline : lex (String (ch 34) (String (ch 10) (String (ch 34) ""))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* a literal newline inside the quotes *)
+(* POSITIVE companion: a WELL-FORMED literal still tokenizes to its single [TStr] (the round-trip side; the
+   fully-general statement is [gtokens_lex] at [EStr], proved below for EVERY [s]). *)
+Example lex_str_pos : lex (print_string_lit "hi") = Some (TStr "hi" :: nil).
+Proof. vm_compute; reflexivity. Qed.
+Example lex_str_pos_esc : lex (print_string_lit (String (ch 34) (String (ch 92) (String (ch 10) "x"))))
+                        = Some (TStr (String (ch 34) (String (ch 92) (String (ch 10) "x"))) :: nil).
+Proof. vm_compute; reflexivity. Qed.
+
 (** ---- THE GRAMMAR (EBNF) ---- the exact language GoPrint lexes, parses, and prints.  The AST below,
     the printer [gprint], and the recursive-descent parser [parse] are three views of THIS one grammar, and
     the round-trip theorem [parse_print_roundtrip] proves the printer and parser agree on it.  (Wirth-style:
@@ -981,6 +1057,9 @@ Proof. vm_compute; reflexivity. Qed.
                | "(" [ Expr { "," Expr } ] ")" . -> ECall    call, variadic arg list
       Atom     = ident                            -> EId
                | int                              -> EInt
+               | string                           -> EStr     interpreted string literal: a dquote, a body of
+                                                              Escapes (below), a closing dquote; a MALFORMED escape
+                                                              FAILS to lex (fail-closed, [unescape_opt = None])
                | "(" Expr ")"                     -- explicit grouping: re-parsed, NOT an AST node (gprint
                                                      re-derives the parens from precedence)
                | ( "!" | "^" | "*" | "&" ) Atom  -> EUn      prefix not / xor / deref / addr (bind to an Atom)
@@ -994,6 +1073,10 @@ Proof. vm_compute; reflexivity. Qed.
       ConvType = "[]" Type | "chan" Type | "map" "[" Type "]" Type .   -- the [ConvTy] subset (the EConv operand type)
       Elems    = Expr { "," Expr } .             -- positional element list ([parse_elems])
       Pairs    = Expr ":" Expr { "," Expr ":" Expr } . -- keyed key:value list ([parse_map_elems])
+      strlit   = DQUOTE { Escape | rawbyte } DQUOTE .  -- interpreted literal; rawbyte = any byte EXCEPT a newline
+      Escape   = BACKSLASH ( DQUOTE | BACKSLASH | n | t | r | x hex hex ) .  -- the EXACT set [esc_string] emits and
+      hex      = digit | a..f | A..F .                 -- [unescape_opt] accepts; any OTHER BACKSLASH-form, or a raw
+                                                          newline byte, FAILS to lex (fail-closed)
       InfixOp  = "*" | "/" | "%" | "<<" | ">>" | "&" | "&^"   -- precedence 5
                | "+" | "-" | "|" | "^"                        -- precedence 4
                | "==" | "!=" | "<" | "<=" | ">" | ">="        -- precedence 3
@@ -1039,7 +1122,7 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   match e with
   | EId i  => proj1_sig i
   | EInt z => print_Z z
-  | EStr s => print_string_lit s   (* STRING literal: the verified escaping printer (its round-trip is [esc_string_roundtrip]) *)
+  | EStr s => print_string_lit s   (* STRING literal: the verified escaping printer (its round-trip is [esc_string_roundtrip_opt]) *)
   | EUn o e => match o with    (* EXHAUSTIVE (no [_]): a new unary op must declare its printing here, not
                                   silently inherit the parenthesised default — same fail-loud discipline as
                                   [op_needs_paren] *)
@@ -1390,7 +1473,7 @@ Notation EX a := (EId (exist (fun s : string => go_ident s = true) a eq_refl)) (
 Example rt_id   : parse_str (gprint 0 (EX "x")) = Some (EX "x", nil). Proof. vm_compute; reflexivity. Qed.
 Example rt_int  : parse_str (gprint 0 (EInt 42)) = Some (EInt 42, nil). Proof. vm_compute; reflexivity. Qed.
 (* string-literal round-trips ([EStr]): empty, a plain word, and one with escapes (dquote/backslash/newline/
-   tab) — the lexer's body scan + [unescape] recovers the EXACT bytes through the full print->lex->parse pipe. *)
+   tab) — the lexer's body scan + [unescape_opt] recovers the EXACT bytes through the full print->lex->parse pipe. *)
 Example rt_str0  : parse_str (gprint 0 (EStr "")) = Some (EStr "", nil). Proof. vm_compute; reflexivity. Qed.
 Example rt_str   : parse_str (gprint 0 (EStr "hi")) = Some (EStr "hi", nil). Proof. vm_compute; reflexivity. Qed.
 Example rt_str_esc : parse_str (gprint 0 (EStr ("a" ++ String (ch 34) (String (ch 92) (String (ch 10) (String (ch 9) "b"))))))
@@ -1398,6 +1481,10 @@ Example rt_str_esc : parse_str (gprint 0 (EStr ("a" ++ String (ch 34) (String (c
 Proof. vm_compute; reflexivity. Qed.
 Example rt_str_call : parse_str (gprint 0 (ECall (EX "println") (EStr "hi" :: nil)))
                     = Some (ECall (EX "println") (EStr "hi" :: nil), nil).  (* println("hi") *)
+Proof. vm_compute; reflexivity. Qed.
+(* parse_str inherits the fail-closed rejection (lex feeds parse): a malformed escape never reaches the
+   parser — [parse_str] returns [None] (cf. the [lex_bad_*] negative examples). *)
+Example parse_bad_escape : parse_str (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
 Proof. vm_compute; reflexivity. Qed.
 Example rt_add  : parse_str (gprint 0 (EBn BAdd (EX "a") (EX "b"))) = Some (EBn BAdd (EX "a") (EX "b"), nil).
 Proof. vm_compute; reflexivity. Qed.
@@ -1742,8 +1829,10 @@ Proof.
     destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
     rewrite (IH _ _ _ E Hle'); exact H. }
   destruct (Ascii.eqb c (ch 34)).
-  { (* string-literal branch: the body scan is fuel-independent, only the tail re-lex uses the IH *)
+  { (* string-literal branch: the body scan + the fail-closed [unescape_opt] are fuel-independent, only the
+       tail re-lex uses the IH (a malformed body gives [None] regardless of fuel) *)
     destruct (scan_quote s') as [[body rest] | ]; [ | exact H ].
+    destruct (unescape_opt body) as [sdec | ]; [ | exact H ].
     destruct (lex_aux f rest) as [l | ] eqn:E; [ | discriminate H ].
     rewrite (IH _ _ _ E Hle'); exact H. }
   { destruct (lex_op c s') as [[t rest] | ]; [ | exact H ].
@@ -2068,7 +2157,8 @@ Proof. induction s as [ | c s' IH ]; [ reflexivity | cbn; rewrite IH; reflexivit
 
 (** LEAF (string): lexing [gprint (EStr s) ++ rest = print_string_lit s ++ rest] yields [TStr s] then [rest].
     The opening dquote selects the string branch; [scan_quote_esc_string] recovers the escaped body + [rest];
-    [esc_string_roundtrip] decodes the body back to [s].  The closing dquote self-terminates, so [clean_start
+    [esc_string_roundtrip_opt] VALIDATES+decodes the body back to [Some s] (the escaped body is well-formed by
+    construction, so the option decoder never rejects it).  The closing dquote self-terminates, so [clean_start
     rest] is NOT needed (it is kept only for a signature uniform with the other leaf lemmas). *)
 Lemma lex_gprint_str : forall s rest fuel tr,
   clean_start rest = true ->
@@ -2089,7 +2179,7 @@ Proof.
   replace (Ascii.eqb (ch 34) (ch 45)) with false by reflexivity.
   replace (Ascii.eqb (ch 34) (ch 34)) with true by reflexivity.
   cbn [andb].
-  rewrite scan_quote_esc_string. cbv beta iota. rewrite esc_string_roundtrip.
+  rewrite scan_quote_esc_string. cbv beta iota. rewrite esc_string_roundtrip_opt. cbv beta iota.
   assert (Hp : 1 <= String.length (print_string_lit s))
     by (unfold print_string_lit; cbn [String.length]; lia).
   assert (Hle : S (String.length rest) <= f) by lia.
@@ -4935,7 +5025,7 @@ Qed.
     if any of these rests on an unproved assumption (a non-empty Axioms section in its Print Assumptions).
     Keep this list in sync with the headline results below. *)
 Print Assumptions print_ty_inj.
-Print Assumptions esc_string_roundtrip.
+Print Assumptions esc_string_roundtrip_opt.
 Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
