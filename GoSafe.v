@@ -12,12 +12,12 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** A function-NAME callee.  The ONLY call form in the supported subset (for now) is `f(args)` where [f] is an
-    identifier.  This is deliberately conservative: a literal / arithmetic / slice / concrete-type-assertion
-    callee is STRUCTURALLY never a function ([1(x)], [(a+b)(x)], [x.(int)(y)] are invalid Go), and the
-    structurally-AMBIGUOUS callees (selector [pkg.F], index [a[i]], nested call [f()()], named-type assertion
-    [x.(F)] which MIGHT be a func type) are simply DEFERRED — they re-enter, each with its own operand-shape
-    check, when added.  Admitting only [EId] makes the gate obviously sound now. *)
+(** VALUE-position applied head: a NAME [EId] — covering BOTH a function call [f(args)] AND a type CONVERSION
+    [T(args)] (both are syntactically `name(args)` and both produce a VALUE, so both are fine as a value /
+    argument, e.g. [println(int(x))]).  A literal / arithmetic / slice / assertion head is never applicable
+    ([1(x)], [(a+b)(x)], [x.(int)(y)] are invalid Go).  The other name-applied callees (selector [pkg.F],
+    index [a[i]], nested call [f()()]) are DEFERRED.  NB STATEMENT position is TIGHTER than value position —
+    a conversion is NOT a valid expression statement — see [stmt_call_builtin] / [expr_stmt_ok]. *)
 Definition scallee (e : GExpr) : bool := match e with EId _ => true | _ => false end.
 
 (** STRUCTURALLY-supported value expression — the CONSERVATIVE whitelist of [GExpr] forms with NO operand-
@@ -43,14 +43,28 @@ Fixpoint svalue (e : GExpr) : bool :=
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
-(** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec (ExpressionStmt) a bare expression
-    statement must be a FUNCTION CALL (a plain value like [1] or [a + b] is "evaluated but not used" and
-    REJECTED) — AND that call must be a structurally-supported value ([svalue], so [1()] / [x.(int)()] /
-    [f(1[0])] are rejected too).  Widens later (receive, specific builtins). *)
+(** Builtin functions whose CALL is valid as a standalone EXPRESSION STATEMENT (Go spec: ExpressionStmt — a
+    "function and method call ... can appear in statement context").  Restricted to [println] / [print]: both
+    are VARIADIC, accept args of ANY type, and return NOTHING — so [print(...)] / [println(...)] are valid
+    statements for ANY argument count and types, with NO arity or type hazard left unchecked.  Deliberately
+    EXACT for the current AST (no user funcs / imports yet, so these are the only hazard-free statement calls).
+    Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement), VALUE-returning
+    builtins ([len(x)]/… — "evaluated but not used"), and the ARITY-constrained void builtins ([panic]/[close]/
+    [delete] need exactly 1/1/2 args — deferred until the gate checks arity).  Widens with user funcs / a
+    symbol table. *)
+Definition stmt_call_builtin (s : string) : bool :=
+  existsb (String.eqb s) ["println"; "print"].
+
+(** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
+    CALL (a plain value [1] / [a + b] is "evaluated but not used"), AND — crucially — a genuine function call,
+    NOT a CONVERSION ([int(x)] is a conversion, also invalid as a statement).  Since no user functions exist
+    yet, the statement-valid callees are EXACTLY the whitelisted builtins ([stmt_call_builtin]); arguments may
+    be any structurally-supported value [svalue] (which DOES allow a conversion in value position, e.g.
+    [println(int(x))]).  So [int(x)] / [Foo(x)] / [1()] / [len(x)] as statements are all rejected. *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
-  | ECall _ _ => svalue e
-  | _         => false
+  | ECall (EId f) args => stmt_call_builtin (proj1_sig f) && forallb svalue args
+  | _                  => false
   end.
 
 (** A statement in the SUPPORTED subset: an expression statement must be [expr_stmt_ok]; a bare [return] is
@@ -105,6 +119,26 @@ Definition unsupported_assert_call : Program :=
 Example assert_call_unsupported : supported_program unsupported_assert_call = false.
 Proof. reflexivity. Qed.
 Fail Example assert_call_supported : SupportedProgram unsupported_assert_call := eq_refl.
+
+(** REGRESSION (external review 2026-06-28, follow-up³) — `func main(){ int(x) }` is identifier-call-SHAPED
+    but [int] is a TYPE, so [int(x)] is a CONVERSION, not a call, and a conversion is NOT a valid expression
+    statement ("evaluated but not used").  [int] is not in [stmt_call_builtin], so it is NOT supported. *)
+Definition unsupported_conversion_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+Example conversion_stmt_unsupported : supported_program unsupported_conversion_stmt = false.
+Proof. reflexivity. Qed.
+Fail Example conversion_stmt_supported : SupportedProgram unsupported_conversion_stmt := eq_refl.
+
+(** POSITIVE — a conversion IS fine in VALUE position: `func main(){ println(int(x)) }` is supported (the
+    statement is a [println] call; its argument [int(x)] is a conversion, a valid [svalue]).  This pins the
+    value-vs-statement asymmetry the [int(x)]-statement regression above relies on. *)
+Definition supported_conv_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+Example conv_arg_supported : SupportedProgram supported_conv_arg.
+Proof. reflexivity. Qed.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
