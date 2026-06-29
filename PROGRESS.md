@@ -8,12 +8,13 @@ file shows the **current** state only.
 
 Be **safer than Go's compiler can prove** — type, memory, and concurrency safety lifted to compile time —
 while still lowering into ordinary Go for the primitives we like (channels, goroutines, maps, slices). Go
-*contains* memory errors (nil deref / OOB trap into a panic; under a race it isn't memory-safe at all); Fido
-proves they cannot happen — nil deref, use-after-close, out-of-bounds, send-on-closed, failed assertion,
-data race, silent overflow — ruled out before any Go is emitted. Rocq supplies the guarantees; Go supplies
-the runtime. The long-term target is concurrent programs with session-typed protocol compliance, race
-freedom (ownership through channel ops), and deadlock freedom (liveness), grounded in the Go memory model's
-happens-before relation. Built incrementally.
+*contains* memory errors (nil deref / OOB trap into a panic; under a race it isn't memory-safe at all). The
+long-term GOAL is to PROVE these cannot happen — nil deref, use-after-close, out-of-bounds, send-on-closed,
+failed assertion, data race, silent overflow — before behaviorally safe Go is emitted, with Rocq supplying the
+compile-time guarantees and Go the runtime. ⚠️ TODAY the certified-emission spine proves only SUPPORTED
+SYNTACTIC emission; behavioral safety is NOT yet active. The long-term target is concurrent programs with
+session-typed protocol compliance, race freedom (ownership through channel ops), and deadlock freedom
+(liveness), grounded in the Go memory model's happens-before relation. Built incrementally.
 
 **Honest claim:** this is *verified model components with a TRUSTED extraction backend* — NOT "formally
 verified Go". Theorems are proved in Rocq; the `*.go` is extracted from `*.v` by the trusted plugin. No
@@ -57,9 +58,11 @@ live emission is not "verified Go."
   program and the real Go toolchain BUILDS it (gofmt-clean + go build + go vet); it is a dependency of
   `make check`.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
-  slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (the ONE
-  authoritative closed-world operational semantics `ustep` — race-freedom and liveness/deadlock proved on
-  it), `concurrency.v` (calculus-agnostic trace / happens-before / race / bounded-deadlock theory).
+  slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
+  proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
+  NOT the semantics of the certified-emission path; a future GoSem must bridge or retire it before behavioral
+  safety enters certified emission), `concurrency.v` (calculus-agnostic trace / happens-before / race /
+  bounded-deadlock theory).
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context";
   `EXPECTED_ASSUMPTIONS.txt` is empty and the build fails on any drift.
 - **Golden end-to-end**: `make check` extracts and diffs observable output against `expected_output.txt`.
