@@ -12,20 +12,31 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
+(** A no-import builtin that ALWAYS RETURNS A VALUE (so it is safe in VALUE position, like a conversion):
+    [len] / [cap] (they yield an [int] regardless — no void hazard).  ★Go-spec NOTE (Expression statements):
+    these are EXACTLY the builtins valid as a VALUE but FORBIDDEN in statement context ("The following built-in
+    functions are not permitted in statement context: append cap … len …"), so they are admitted by [svalue]
+    (value position) yet NOT by [stmt_call_ok] (statement position) — a faithful encoding of the spec's
+    value-vs-statement asymmetry.  (TYPE-checking that the argument is actually len-able is the GoSem/type
+    layer, exactly like a conversion's convertibility.) *)
+Definition is_value_builtin (f : string) : bool :=
+  String.eqb f "len" || String.eqb f "cap".
+
 (** STRUCTURALLY-supported VALUE expression — the CONSERVATIVE whitelist of [GExpr] forms each guaranteed to
     PRODUCE A VALUE with NO operand-shape hazard: identifiers, integer literals, arithmetic/logical binops,
-    the value-producing unary ops (!/^/-), a builtin-type CONVERSION [T(a)], and a type-FORM conversion
-    [[]T(a)] / [chan T(a)] / [map[K]V(a)] ([EConv]).  The application case is restricted to a conversion
-    ([EId] whose name is a builtin type, applied to EXACTLY ONE arg) because a conversion ALWAYS yields a
-    value, whereas a general function CALL [f(args)] yields a value only if [f] returns one — type-dependent
-    and unknowable here, so a void call like [println(1)] (which returns NOTHING) must NOT be admitted as a
-    value (else [println(println(1))] — "used as value" — would slip through), and conversion arity is pinned
-    (a conversion takes exactly one arg, so [int(1,2)] is rejected).  [EConv] is a type-form conversion — it
-    carries its single operand structurally (no arity hazard) and ALWAYS yields a value, so it is admitted
-    (its operand checked).  The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion
-    ([1.f] / [1[0]] / [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is
-    admitted.  STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier)
-    or TYPES (e.g. [!1], convertibility of [int(x)]) — those are the GoSem/type layer. *)
+    the value-producing unary ops (!/^/-), a builtin-type CONVERSION [T(a)], a type-FORM conversion
+    [[]T(a)] / [chan T(a)] / [map[K]V(a)] ([EConv]), and a value-returning BUILTIN call [len(a)] / [cap(a)].
+    The application case admits an [EId]-led one-arg call ONLY when the callee is a builtin TYPE (a conversion)
+    or a value-returning builtin ([is_value_builtin]) — both ALWAYS yield a value; a general function CALL
+    [f(args)] yields a value only if [f] returns one (type-dependent, unknowable here), so a void call like
+    [println(1)] (which returns NOTHING) must NOT be admitted as a value (else [println(println(1))] — "used as
+    value" — would slip through).  Arity is pinned to EXACTLY ONE arg (so [int(1,2)] / [len(x,y)] are rejected;
+    a conversion and [len]/[cap] each take one).  [EConv] is a type-form conversion — it carries its single
+    operand structurally (no arity hazard) and ALWAYS yields a value, so it is admitted (its operand checked).
+    The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion ([1.f] / [1[0]] /
+    [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is admitted.
+    STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier) or TYPES
+    (e.g. [!1], convertibility of [int(x)], len-ability of [len(x)]) — those are the GoSem/type layer. *)
 Fixpoint svalue (e : GExpr) : bool :=
   match e with
   | EId _ => true
@@ -34,7 +45,9 @@ Fixpoint svalue (e : GExpr) : bool :=
   | EUn o e0 => match o with UNot | UXor | UNeg => svalue e0 | UDeref | UAddr => false end
   | ECall callee args =>
       match callee, args with
-      | EId i, a :: nil => is_type_keyword (proj1_sig i) && svalue a   (* a builtin-type CONVERSION [T(a)] *)
+        (* a builtin-type CONVERSION [T(a)] OR a value-returning builtin [len(a)]/[cap(a)] — both 1-arg, both
+           guaranteed to yield a value *)
+      | EId i, a :: nil => (is_type_keyword (proj1_sig i) || is_value_builtin (proj1_sig i)) && svalue a
       | _, _            => false
       end
   | EConv _ e0 => svalue e0   (* a type-form CONVERSION [[]T(a)/chan T(a)/map[K]V(a)] — always yields a value *)
@@ -238,6 +251,37 @@ Definition unsupported_blank_void : Program :=
 Example blank_void_unsupported : supported_program unsupported_blank_void = false.
 Proof. reflexivity. Qed.
 Fail Example blank_void_supported : SupportedProgram unsupported_blank_void := eq_refl.
+
+(** GROWTH (Phase 4, value-returning builtins [len]/[cap]) — the Go-spec value-vs-statement asymmetry.  A
+    value-returning builtin is fine in VALUE position: `func main(){ println(len(x)) }` is supported ([len(x)]
+    is an [svalue]); and `func main(){ _ = cap(x) }` likewise.  But it is FORBIDDEN in STATEMENT position
+    ("len … not permitted in statement context"): `func main(){ len(x) }` is NOT supported ([stmt_call_ok]
+    excludes [len]).  Arity is pinned: `func main(){ println(len(x, y)) }` is NOT supported (len takes one
+    arg, so the 2-arg form is not an [svalue]).  Pins all four. *)
+Definition supported_len_value : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
+Example len_value_supported : SupportedProgram supported_len_value.
+Proof. reflexivity. Qed.
+Definition supported_cap_blank : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+Example cap_blank_supported : SupportedProgram supported_cap_blank.
+Proof. reflexivity. Qed.
+Definition unsupported_len_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)])].
+Example len_stmt_unsupported : supported_program unsupported_len_stmt = false.
+Proof. reflexivity. Qed.
+Fail Example len_stmt_supported : SupportedProgram unsupported_len_stmt := eq_refl.
+Definition unsupported_len_arity : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "len" eq_refl))
+                                      [EId (mkIdent "x" eq_refl); EId (mkIdent "y" eq_refl)]])].
+Example len_arity_unsupported : supported_program unsupported_len_arity = false.
+Proof. reflexivity. Qed.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
