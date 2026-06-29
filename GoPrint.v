@@ -1290,7 +1290,7 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
       ((if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0) ++ ".(" ++ print_ty T ++ ")")%string
   | EConv c e0 =>
       (* type-form conversion [T(x)]: the type renders as a prefix, the operand is ALWAYS parenthesised
-         (like the prefix unary ops) — so it never needs the [op_needs_paren] dance. *)
+         (like [UNeg], unconditionally) — so it never needs the [op_needs_paren] dance. *)
       (print_ty (convty_ty c) ++ "(" ++ gprint 0 e0 ++ ")")%string
   | ESliceLit t es =>
       (* slice composite literal [[]T{e1,..,en}]: a type-led PREFIX primary; the brace-delimited element list
@@ -2109,10 +2109,11 @@ Proof.
   rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
 Qed.
 
-(** BARE-UNOP SEAM (after the [gprint] change to always parenthesise a bare-unary operand): [unop_text o]
-    (o <> UNeg) is a single char ['!'/'^'/'*'/'&'] ALWAYS followed by '(' — a CONCRETE char that can never
+(** PARENTHESISED-UNOP SEAM (the [unop_paren o e = true] case — a non-leaf operand, or [UNeg]): [unop_text o]
+    (o <> UNeg) is a single char ['!'/'^'/'*'/'&'] followed by '(' — a CONCRETE char that can never
     maximal-munch into a 2-char operator — so it lexes to [prefix_token o] then TLP then [X].  No
-    first-char side condition is needed because the next char is fixed. *)
+    first-char side condition is needed because the next char is fixed.  (The minimal BARE case — a leaf
+    operand with NO parens — is [lex_unop_app] just below.) *)
 Lemma lex_unop_lp_app : forall o X fuel tX,
   o <> UNeg ->
   lex_aux (S (String.length X)) X = Some tX ->
@@ -3594,9 +3595,10 @@ Proof.
   - (* EStr sv *) cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
 Qed.
 
-(** [parse_primary] reads a unary node: each prints [op] then its PARENTHESISED operand (always wrapped,
-    so the seam is a single ['('] — no maximal-munch hazard).  The four bare ops dispatch on their token;
-    [UNeg] on the two-token [TMinus :: TLP] prefix.  Operand via [Pexpr] (the outer strong IH). *)
+(** [parse_primary] reads a unary node: each prints [op] then its operand, WRAPPED ([op(x)]) iff
+    [unop_paren o e] — a non-leaf operand or [UNeg] — else BARE (the minimal [^x] for a leaf atom).  The four
+    non-neg ops dispatch on their prefix token; [UNeg] on the two-token [TMinus :: TLP] prefix.  Operand via
+    [Pexpr] (the outer strong IH). *)
 (** a PRIMARY is its atom when the postfix loop consumes nothing (or folds a chain via [parse_postfix_pairs]). *)
 Lemma parse_primary_of_atom : forall f toks a r,
   parse_atom (S f) toks = Some (a, r) ->
