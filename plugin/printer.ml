@@ -1675,6 +1675,21 @@ let rec print_sep sep = function
    | Nil -> x
    | Cons (_, _) -> append x (append sep (print_sep sep xs')))
 
+(** val unop_needs_paren : gExpr -> bool **)
+
+let unop_needs_paren = function
+| EId _ -> False
+| EInt _ -> False
+| EStr _ -> False
+| _ -> True
+
+(** val unop_paren : unaryOp -> gExpr -> bool **)
+
+let unop_paren o e0 =
+  match o with
+  | UNeg -> True
+  | _ -> unop_needs_paren e0
+
 (** val op_needs_paren : gExpr -> bool **)
 
 let op_needs_paren = function
@@ -1688,19 +1703,14 @@ let rec gprint ctx = function
 | EId i -> i
 | EInt z0 -> print_Z z0
 | EUn (o, e0) ->
-  (match o with
-   | UNeg ->
-     append (String ((Ascii (True, False, True, True, False, True, False,
-       False)), (String ((Ascii (False, False, False, True, False, True,
-       False, False)), EmptyString))))
-       (append (gprint O e0) (String ((Ascii (True, False, False, True,
-         False, True, False, False)), EmptyString)))
-   | _ ->
-     append (unop_text o)
-       (append (String ((Ascii (False, False, False, True, False, True,
-         False, False)), EmptyString))
+  append (unop_text o)
+    (match unop_paren o e0 with
+     | True ->
+       append (String ((Ascii (False, False, False, True, False, True, False,
+         False)), EmptyString))
          (append (gprint O e0) (String ((Ascii (True, False, False, True,
-           False, True, False, False)), EmptyString)))))
+           False, True, False, False)), EmptyString)))
+     | False -> gprint O e0)
 | EBn (o, l, r) ->
   let p = binop_prec o in
   let inner = append (gprint p l) (append (binop_text o) (gprint (S p) r)) in

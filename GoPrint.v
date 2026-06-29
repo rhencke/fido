@@ -1198,10 +1198,42 @@ Proof. vm_compute; reflexivity. Qed.
 
 (** A bare prefix operator applied DIRECTLY to another would be a LEXICAL hazard: [&] then [&] prints "&&"
     which the lexer maximal-munches to [TLand], and [&] then [^] prints "&^" -> [TAndNot] — a token MERGE on
-    the LEFT of the seam (the seam is two-sided: a clean right-hand start does not suffice).  So [gprint]
-    PARENTHESISES every unary operand — [op(x)] — making the prefix always followed by a single-char ['(']
-    that cannot munch into the operator before it.  (UNeg self-parenthesises as [-(x)] for the same reason,
-    plus to avoid colliding with the [-5] negative-literal lexing.) *)
+    the LEFT of the seam (the seam is two-sided: a clean right-hand start does not suffice).  So a unary
+    operand that could re-lex or re-parse wrongly is PARENTHESISED — [op(x)] — making the prefix followed by a
+    single-char ['('] that cannot munch into the operator before it.  (UNeg ALWAYS self-parenthesises as
+    [-(x)] for the same reason, plus to avoid colliding with the [-5] negative-literal lexing.)
+
+    BUT a LEAF-atom operand ([EId]/[EInt]/[EStr]) prints BARE — the minimal canonical [^x] / [!b] / [*p] /
+    [&x] (matching gofmt), because (a) its first char is always an identifier-start / digit / a ['-'] / a
+    dquote, none of which can merge with a prefix into a 2-char token (so the lexer peels the prefix cleanly — see
+    [gprint_head_clean] / [lex_unop_app]); and (b) a leaf is fully consumed by [parse_atom], leaving nothing
+    for the outer postfix loop to mis-capture.  A POSTFIX operand ([ESel]/[EIndex]/[ESlice]/[ECall]/[EAssert])
+    must STILL be parenthesised: this grammar binds a prefix unary to an *Atom* (the "( ! | ^ | * | & ) Atom"
+    rule above), with the postfix chain folded OUTSIDE the unary — so a bare [^a.b] would re-parse as [(^a).b]
+    ([ESel (EUn UXor a) b]), NOT [EUn UXor (ESel a b)], breaking the round-trip.  Type-led atoms
+    ([EConv]/[ESliceLit]/[EMapLit]) are parenthesised too (sound to bare, but their parse cost exceeds the
+    leaf fuel budget — out of scope here).  So the BARE set is exactly the leaf atoms; everything else gets
+    parens. *)
+
+(** [unop_needs_paren e0] — does a PREFIX-UNARY operand [e0] need parentheses?  FALSE only for the three LEAF
+    atoms ([EId]/[EInt]/[EStr], printed BARE — the minimal [^x]); TRUE for every other form.  This is a
+    SEPARATE source of truth from [op_needs_paren] (the POSTFIX-operand rule): a postfix node ([ESel]/…) is a
+    bare-OK postfix operand but a paren-REQUIRED unary operand (the grammar binds unary to an Atom, so bare
+    [^a.b] re-associates — see the note above).  EXHAUSTIVE on purpose (no [_] catch-all): the only UNSAFE
+    direction is bare-by-default, so a new constructor makes this non-exhaustive and FAILS THE BUILD until its
+    unary-operand precedence is declared — fail-loud, never a silent wrong default.  Inspects only the head
+    constructor, so it is defined before [gprint]. *)
+Definition unop_needs_paren (e0 : GExpr) : bool :=
+  match e0 with
+  | EId _ | EInt _ | EStr _ => false
+  | EUn _ _ | EBn _ _ _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ | EConv _ _ | ESliceLit _ _ | EMapLit _ _ _ => true
+  end.
+
+(** [unop_paren o e0] — does the printed unary [EUn o e0] wrap its operand?  [UNeg] ALWAYS does ([-(x)], to
+    dodge the [-5] literal); the other four wrap iff [unop_needs_paren e0].  The SINGLE rule shared by
+    [gprint]/[gtokens]/[esize] for [EUn] (so they stay in lock-step — the round-trip relates them). *)
+Definition unop_paren (o : UnaryOp) (e0 : GExpr) : bool :=
+  match o with UNeg => true | _ => unop_needs_paren e0 end.
 
 (** [op_needs_paren e0] — does a POSTFIX operand [e0] need parentheses?  TRUE for the LOOSE nodes
     ([EUn]/[EBn], which bind looser than a postfix operator); FALSE for every atom / postfix form (they bind
@@ -1225,12 +1257,11 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   | EId i  => proj1_sig i
   | EInt z => print_Z z
   | EStr s => print_string_lit s   (* STRING literal: the verified escaping printer (its round-trip is [esc_string_roundtrip_opt]) *)
-  | EUn o e => match o with    (* EXHAUSTIVE (no [_]): a new unary op must declare its printing here, not
-                                  silently inherit the parenthesised default — same fail-loud discipline as
-                                  [op_needs_paren] *)
-               | UNeg => ("-(" ++ gprint 0 e ++ ")")%string
-               | UNot | UXor | UDeref | UAddr => (unop_text o ++ "(" ++ gprint 0 e ++ ")")%string
-               end
+  | EUn o e =>
+      (* [unop_text o] then the operand, wrapped iff [unop_paren o e] (UNeg always; the other four iff the
+         operand is NOT a leaf atom).  A leaf operand prints BARE — the minimal [^x]; everything else is
+         parenthesised (lexer-merge + parse-reassociation safe).  See [unop_needs_paren]/[unop_paren]. *)
+      (unop_text o ++ (if unop_paren o e then ("(" ++ gprint 0 e ++ ")")%string else gprint 0 e))%string
   | EBn o l r =>
       let p := binop_prec o in
       let inner := (gprint p l ++ binop_text o ++ gprint (S p) r)%string in
@@ -1306,6 +1337,11 @@ Definition gprint_pairs (kvs : list (GExpr * GExpr)) : string :=
     [gprint_ESel]/[gprint_EIndex] re-fold the inlined [gprint] cases onto it. *)
 Definition gparen (e0 : GExpr) : string :=
   if op_needs_paren e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0.
+(** [gprint]'s EUn case as a rewrite: [op] then the operand, wrapped iff [unop_paren o e0].  (Replaces the
+    old uniformly-parenthesised [gprint_EUn_pre]; the printer is now MINIMAL for leaf operands.) *)
+Lemma gprint_EUn : forall ctx o e0,
+  gprint ctx (EUn o e0) = (unop_text o ++ (if unop_paren o e0 then ("(" ++ gprint 0 e0 ++ ")")%string else gprint 0 e0))%string.
+Proof. reflexivity. Qed.
 Lemma gprint_ESel : forall ctx e0 f, gprint ctx (ESel e0 f) = (gparen e0 ++ "." ++ proj1_sig f)%string.
 Proof. reflexivity. Qed.
 Lemma gprint_EIndex : forall ctx e0 i, gprint ctx (EIndex e0 i) = (gparen e0 ++ "[" ++ gprint 0 i ++ "]")%string.
@@ -1611,10 +1647,10 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
   | EId i  => TId i :: nil
   | EInt z => TInt z :: nil
   | EStr s => TStr s :: nil   (* mirrors [gprint]'s EStr: a string literal lexes to its single [TStr] token *)
-  | EUn o e => match o with    (* EXHAUSTIVE (mirrors [gprint]'s EUn): a new unary op declares its tokens here *)
-               | UNeg => TMinus :: TLP :: (gtokens 0 e ++ TRP :: nil)
-               | UNot | UXor | UDeref | UAddr => prefix_token o :: TLP :: (gtokens 0 e ++ TRP :: nil)
-               end
+  | EUn o e =>    (* MIRRORS [gprint]'s EUn (lock-step): [prefix_token o] then the operand tokens, wrapped in
+                     [TLP … TRP] iff [unop_paren o e] (UNeg always; the four others iff the operand is not a
+                     leaf atom).  A leaf operand is BARE — just [prefix_token o :: gtokens 0 e]. *)
+      prefix_token o :: (if unop_paren o e then TLP :: (gtokens 0 e ++ TRP :: nil) else gtokens 0 e)
   | EBn o l r =>
       let p := binop_prec o in
       let inner := (gtokens p l ++ op_token o :: gtokens (S p) r)%list in
@@ -1670,6 +1706,17 @@ Definition gtokens_pairs (kvs : list (GExpr * GExpr)) : list Token :=
 (** token analog of [gparen] + the re-fold lemmas (mirror [gprint_ESel]/[gprint_EIndex]). *)
 Definition gtparen (e0 : GExpr) : list Token :=
   if op_needs_paren e0 then (TLP :: (gtokens 0 e0 ++ TRP :: nil))%list else gtokens 0 e0.
+(** [gtokens]'s EUn case as a rewrite (mirrors [gprint_EUn]): [prefix_token o] then the operand tokens,
+    wrapped in [TLP … TRP] iff [unop_paren o e0]. *)
+Lemma gtokens_EUn : forall ctx o e0,
+  gtokens ctx (EUn o e0) = (prefix_token o :: (if unop_paren o e0 then TLP :: (gtokens 0 e0 ++ TRP :: nil) else gtokens 0 e0))%list.
+Proof. reflexivity. Qed.
+Lemma gtokens_EUn_paren : forall ctx o e0, unop_paren o e0 = true ->
+  gtokens ctx (EUn o e0) = (prefix_token o :: TLP :: (gtokens 0 e0 ++ TRP :: nil))%list.
+Proof. intros ctx o e0 H. rewrite gtokens_EUn, H. reflexivity. Qed.
+Lemma gtokens_EUn_bare : forall ctx o e0, unop_paren o e0 = false ->
+  gtokens ctx (EUn o e0) = (prefix_token o :: gtokens 0 e0)%list.
+Proof. intros ctx o e0 H. rewrite gtokens_EUn, H. reflexivity. Qed.
 Lemma gtokens_ESel : forall ctx e0 f, gtokens ctx (ESel e0 f) = (gtparen e0 ++ TDot :: TId f :: nil)%list.
 Proof. reflexivity. Qed.
 Lemma gtokens_EIndex : forall ctx e0 i, gtokens ctx (EIndex e0 i) = (gtparen e0 ++ TLB :: (gtokens 0 i ++ TRB :: nil))%list.
@@ -2080,6 +2127,125 @@ Qed.
 Lemma length_app : forall a b, String.length (a ++ b) = String.length a + String.length b.
 Proof. induction a as [ | c a' IH ]; intro b; [ reflexivity | cbn; rewrite IH; reflexivity ]. Qed.
 
+(** ---- BARE-UNARY SEAM (the minimal [^x] / [!b] / [*p] / [&x] without the operand parens) ----
+    [unop_head_clean X] = TRUE iff [X]'s first byte is NOT one of ['&'(38) / '^'(94) / '='(61)] — the three
+    chars a prefix ['!'/'&'] could MAXIMAL-MUNCH with into a 2-char token ([!=]->TNe, [&&]->TLand,
+    [&^]->TAndNot).  ['*']/['^'] never munch (single-char tokens), so they impose no condition; the predicate
+    is the shared precondition of [lex_unop_app].  ([gprint_head_clean] discharges it for every BARE operand:
+    a leaf atom's first byte is an idstart / a digit / ['-'] / a dquote — never one of the three.) *)
+Definition unop_head_clean (X : string) : bool :=
+  match X with
+  | EmptyString => true
+  | String d _  => andb (negb (Ascii.eqb d (ch 38))) (andb (negb (Ascii.eqb d (ch 94))) (negb (Ascii.eqb d (ch 61))))
+  end.
+
+Lemma unop_head_clean_cons : forall d rest,
+  Ascii.eqb d (ch 38) = false -> Ascii.eqb d (ch 94) = false -> Ascii.eqb d (ch 61) = false ->
+  unop_head_clean (String d rest) = true.
+Proof. intros d rest H38 H94 H61. cbn [unop_head_clean]. rewrite H38, H94, H61. reflexivity. Qed.
+
+(** An idstart / dec-digit head is unop-clean (none of the three chars is an idstart or a digit). *)
+Lemma is_idstart_unop_clean : forall c rest, is_idstart c = true -> unop_head_clean (String c rest) = true.
+Proof.
+  intros c rest H. apply unop_head_clean_cons;
+    match goal with |- Ascii.eqb c (ch ?n) = false =>
+      destruct (Ascii.eqb c (ch n)) eqn:E; [ apply Ascii.eqb_eq in E; subst c; vm_compute in H; discriminate | reflexivity ] end.
+Qed.
+Lemma is_dec_char_unop_clean : forall c rest, is_dec_char c = true -> unop_head_clean (String c rest) = true.
+Proof.
+  intros c rest H. apply unop_head_clean_cons;
+    match goal with |- Ascii.eqb c (ch ?n) = false =>
+      destruct (Ascii.eqb c (ch n)) eqn:E; [ apply Ascii.eqb_eq in E; subst c; vm_compute in H; discriminate | reflexivity ] end.
+Qed.
+
+(** [print_Z z] is unop-clean: its head is ['0'] / a digit / a leading ['-'(45)] — all clean. *)
+Lemma unop_head_clean_print_Z : forall z rest, unop_head_clean (print_Z z ++ rest) = true.
+Proof.
+  intros z rest. unfold print_Z.
+  destruct (z =? 0)%Z; [ cbn [append]; apply is_dec_char_unop_clean; reflexivity | ].
+  destruct (z <? 0)%Z.
+  - cbn [append]. apply unop_head_clean_cons; reflexivity.
+  - destruct (z_digits_head (digit_fuel z) z "" ltac:(unfold digit_fuel; lia)) as [k [r [Hk Hr]]].
+    rewrite Hr. cbn [append]. apply is_dec_char_unop_clean. apply is_dec_char_dec_digit; exact Hk.
+Qed.
+
+(** ★ Every BARE unary operand ([unop_needs_paren e0 = false], i.e. a LEAF atom) prints with a unop-clean
+    head, so the bare prefix lexes cleanly (no left-munch).  Direct case analysis (no induction): a leaf is
+    [EId] (idstart head) / [EInt] ([print_Z] head) / [EStr] (dquote head). *)
+Lemma gprint_head_clean : forall e0, unop_needs_paren e0 = false ->
+  forall ctx rest, unop_head_clean (gprint ctx e0 ++ rest) = true.
+Proof.
+  intros e0 Hbare ctx rest. destruct e0; try discriminate Hbare.
+  - (* EId i *) cbn [gprint]. destruct i as [s Hs]. cbn [proj1_sig].
+    destruct s as [ | c0 s0 ]; [ vm_compute in Hs; discriminate Hs | ].
+    cbn [append]. apply is_idstart_unop_clean.
+    pose proof Hs as Hgo. unfold go_ident in Hgo. apply andb_prop in Hgo. destruct Hgo as [Hia _].
+    apply andb_prop in Hia. destruct Hia as [Hidstart _]. exact Hidstart.
+  - (* EInt z *) cbn [gprint]. apply unop_head_clean_print_Z.
+  - (* EStr s *) cbn [gprint]. unfold print_string_lit. cbn [append]. apply unop_head_clean_cons; reflexivity.
+Qed.
+
+(** One lexer step for an OPERATOR-led head: a char [c] that is not a space / idstart / digit / ['-'] / a
+    dquote dispatches to [lex_op c X]; given [lex_op c X = Some (t, rest)] the step emits [t] then continues
+    on [rest].  (Factors the [lex_aux (S f) (String c X)] unfold so [lex_unop_app] avoids fragile [cbn]s.) *)
+Lemma lex_aux_op_step : forall f c X t rest,
+  is_space c = false -> is_idstart c = false -> is_dec_char c = false ->
+  Ascii.eqb c (ch 45) = false -> Ascii.eqb c (ch 34) = false ->
+  lex_op c X = Some (t, rest) ->
+  lex_aux (S f) (String c X) = match lex_aux f rest with Some l => Some (t :: l) | None => None end.
+Proof.
+  intros f c X t rest Hsp Hid Hdc H45 H34 Hop.
+  cbn [lex_aux]. rewrite Hsp, Hid, Hdc, H45. cbn [andb]. rewrite H34, Hop. reflexivity.
+Qed.
+
+(** BARE-UNOP SEAM: [unop_text o] (o <> UNeg) is a single char ['!'/'^'/'*'/'&']; given a unop-clean [X]
+    (so a ['!']/['&'] cannot munch with [X]'s head), it lexes to [prefix_token o] then [X].  The mirror of
+    [lex_unop_lp_app] for the BARE operand (no intervening ['(']). *)
+Lemma lex_unop_app : forall o X fuel tX,
+  o <> UNeg ->
+  unop_head_clean X = true ->
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (S (String.length X)) <= fuel ->
+  lex_aux fuel (unop_text o ++ X) = Some (prefix_token o :: tX).
+Proof.
+  intros o X fuel tX HoNeg Hhd HX Hfuel.
+  destruct fuel as [ | f ]; [ cbn in Hfuel; lia | ].
+  assert (Hmono : lex_aux f X = Some tX) by (apply (lex_aux_mono _ _ _ _ HX); cbn in Hfuel; lia).
+  destruct o; try (exfalso; apply HoNeg; reflexivity); cbn [unop_text append prefix_token].
+  - (* UNot, '!' *)
+    assert (Hop : lex_op "!"%char X = Some (TBang, X)).
+    { destruct X as [ | d X' ]; [ reflexivity | ].
+      cbn [unop_head_clean] in Hhd. apply andb_prop in Hhd. destruct Hhd as [_ Hhd].
+      apply andb_prop in Hhd. destruct Hhd as [_ H61]. apply negb_true_iff in H61.
+      change (lex_op "!"%char (String d X'))
+        with (if Ascii.eqb d (ch 61) then Some (TNe, X') else Some (TBang, String d X')).
+      rewrite H61. reflexivity. }
+    rewrite (lex_aux_op_step f "!"%char X TBang X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+               ltac:(reflexivity) ltac:(reflexivity) Hop).
+    rewrite Hmono. reflexivity.
+  - (* UXor, '^' *)
+    rewrite (lex_aux_op_step f "^"%char X TCaret X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)).
+    rewrite Hmono. reflexivity.
+  - (* UDeref, '*' *)
+    rewrite (lex_aux_op_step f "*"%char X TStar X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+               ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)).
+    rewrite Hmono. reflexivity.
+  - (* UAddr, '&' *)
+    assert (Hop : lex_op "&"%char X = Some (TAmp, X)).
+    { destruct X as [ | d X' ]; [ reflexivity | ].
+      cbn [unop_head_clean] in Hhd. apply andb_prop in Hhd. destruct Hhd as [H38 Hhd].
+      apply andb_prop in Hhd. destruct Hhd as [H94 _].
+      apply negb_true_iff in H38. apply negb_true_iff in H94.
+      change (lex_op "&"%char (String d X'))
+        with (if Ascii.eqb d (ch 38) then Some (TLand, X')
+              else if Ascii.eqb d (ch 94) then Some (TAndNot, X') else Some (TAmp, String d X')).
+      rewrite H38, H94. reflexivity. }
+    rewrite (lex_aux_op_step f "&"%char X TAmp X ltac:(reflexivity) ltac:(reflexivity) ltac:(reflexivity)
+               ltac:(reflexivity) ltac:(reflexivity) Hop).
+    rewrite Hmono. reflexivity.
+Qed.
+
 (** Every [binop_text] starts with a space, so the seam after it is clean. *)
 Lemma clean_start_binop : forall o X, clean_start (binop_text o ++ X) = true.
 Proof. destruct o; reflexivity. Qed.
@@ -2357,28 +2523,43 @@ Proof.
     intros ctx rest fuel tr Hclean Hrest Hfuel.
   - cbn [gprint gtokens app] in *. apply lex_gprint_id; assumption.
   - cbn [gprint gtokens app] in *. apply lex_gprint_int; assumption.
-  - (* EUn: body is [<op>( gprint 0 e )] (operand always parenthesised) *)
+  - (* EUn: PAREN (UNeg / non-leaf operand) is [<op>( gprint 0 e )]; BARE (leaf operand) is [<op> gprint 0 e].
+       [Hbody] (the operand lexed with a trailing ')') serves both paren shapes; the bare shape uses [IHe]
+       directly + the unop-clean head ([gprint_head_clean]) + [lex_unop_app]. *)
+    rewrite gprint_EUn, gtokens_EUn.
     assert (Hbody : lex_aux (S (String.length (gprint 0 e ++ String (ch 41) rest)))
                             (gprint 0 e ++ String (ch 41) rest)
                   = Some ((gtokens 0 e ++ TRP :: tr)%list)).
     { apply IHe; [ reflexivity
                  | apply lex_rparen_app; [ exact Hrest | cbn [String.length]; lia ]
                  | rewrite length_app; cbn [String.length]; lia ]. }
-    destruct o; cbn [gprint gtokens] in Hfuel |- *.
-    1-4: rewrite !str_app_assoc;
-         change (")" ++ rest)%string with (String (ch 41) rest);
-         change ("(" ++ (gprint 0 e ++ String (ch 41) rest))%string
-           with (String (ch 40) (gprint 0 e ++ String (ch 41) rest));
-         erewrite lex_unop_lp_app;
-           [ cbn [app]; rewrite <- app_assoc; reflexivity
-           | discriminate
-           | exact Hbody
-           | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
-             cbn [String.length unop_text] in Hfuel |- *; lia ].
-    (* UNeg: body is [-( gprint 0 e )] *)
+    rewrite gprint_EUn in Hfuel.
+    destruct o; cbn [unop_paren] in Hfuel |- *.
+    (* UNot / UXor / UDeref / UAddr: wrapped iff [unop_needs_paren e] *)
+    1-4: destruct (unop_needs_paren e) eqn:Eb; cbv beta iota in Hfuel |- *;
+         [ (* paren *) rewrite !str_app_assoc;
+           change (")" ++ rest)%string with (String (ch 41) rest);
+           change ("(" ++ (gprint 0 e ++ String (ch 41) rest))%string
+             with (String (ch 40) (gprint 0 e ++ String (ch 41) rest));
+           erewrite lex_unop_lp_app;
+             [ cbn [app]; rewrite <- app_assoc; reflexivity
+             | discriminate
+             | exact Hbody
+             | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+               cbn [String.length unop_text] in Hfuel |- *; lia ]
+         | (* bare: e is a leaf, prints [<op> gprint 0 e] *)
+           rewrite str_app_assoc; cbn [app];
+           apply lex_unop_app;
+             [ discriminate
+             | apply (gprint_head_clean e Eb 0 rest)
+             | apply IHe; [ exact Hclean | exact Hrest | rewrite length_app; lia ]
+             | repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+               cbn [String.length unop_text] in Hfuel |- *; lia ] ].
+    (* UNeg: ALWAYS paren — body is [-( gprint 0 e )] *)
+    cbn [unop_text prefix_token] in Hfuel |- *.
     rewrite !str_app_assoc.
     change (")" ++ rest)%string with (String (ch 41) rest).
-    change ("-(" ++ (gprint 0 e ++ String (ch 41) rest))%string
+    change ("-" ++ ("(" ++ (gprint 0 e ++ String (ch 41) rest)))%string
       with (String (ch 45) (String (ch 40) (gprint 0 e ++ String (ch 41) rest))).
     rewrite (lex_minuslp_app _ _ _ Hbody)
       by (repeat rewrite length_app in Hfuel; repeat rewrite length_app;
@@ -2782,7 +2963,10 @@ Qed.
 Fixpoint esize (e : GExpr) : nat :=
   match e with
   | EId _ => 1 | EInt _ => 1 | EStr _ => 1
-  | EUn _ e => S (S (S (esize e)))   (* +3: 2 operand-paren tokens + 1 for the parse_primary postfix layer *)
+  | EUn o e => if unop_paren o e then S (S (S (esize e))) else S (esize e)
+      (* PAREN (UNeg / non-leaf operand): +3 — the [op] [(] [)] wrapper tokens.  BARE (leaf operand): +1 —
+         just the [op] prefix.  Keyed on [unop_paren o e] so [esize] tracks the ACTUAL token count of
+         [gtokens]'s two shapes ([length_gtokens_ge_esize] stays exact for both). *)
   | EBn _ l r => S (esize l + esize r)
   | ESel e _ => S (S (esize e))      (* +2: the TDot + field tokens *)
   | EIndex e i => S (S (esize e + esize i))   (* +2: the TLB + TRB brackets (around the index child) *)
@@ -2803,7 +2987,14 @@ Fixpoint esize (e : GExpr) : nat :=
          by the per-pair +1).  Pair sum + length; [esize_EMapLit] re-folds onto [mpa]. *)
   end.
 Lemma esize_pos : forall e, 1 <= esize e.
-Proof. intro e; destruct e; cbn [esize]; lia. Qed.
+Proof. intro e; destruct e; cbn [esize]; try lia; destruct (unop_paren _ _); lia. Qed.
+(** [esize] of a unary operand is strictly smaller than [esize] of the [EUn] node (both [if] branches add). *)
+Lemma esize_lt_unop : forall o e0, esize e0 < esize (EUn o e0).
+Proof. intros o e0. cbn [esize]; destruct (unop_paren o e0); lia. Qed.
+Lemma esize_EUn_paren : forall o e0, unop_paren o e0 = true -> esize (EUn o e0) = S (S (S (esize e0))).
+Proof. intros o e0 H. cbn [esize]. rewrite H. reflexivity. Qed.
+Lemma esize_EUn_bare : forall o e0, unop_paren o e0 = false -> esize (EUn o e0) = S (esize e0).
+Proof. intros o e0 H. cbn [esize]. rewrite H. reflexivity. Qed.
 (** standalone arg-size sum (mirrors the local [fix] in [esize]'s ECall case); [esize_ECall] re-folds. *)
 Fixpoint esa (l : list GExpr) : nat := match l with nil => 0 | a :: r => S (esize a + esa r) end.
 Lemma esa_eq : forall l,
@@ -2857,7 +3048,7 @@ Proof.
     using GExpr_ind'; intro ctx.
   - cbn; lia.
   - cbn; lia.
-  - cbn [esize gtokens List.length]. destruct o; cbn [List.length]; rewrite !List.length_app;
+  - cbn [esize gtokens]. destruct (unop_paren o e0) eqn:Ep; cbn [List.length]; rewrite ?List.length_app;
       pose proof (IH 0); cbn [List.length]; lia.
   - cbn [esize gtokens List.length]. pose proof (IHl (binop_prec o)); pose proof (IHr (S (binop_prec o))).
     destruct (Nat.ltb (binop_prec o) ctx); cbn [List.length]; rewrite !List.length_app; cbn [List.length]; lia.
@@ -3412,10 +3603,14 @@ Lemma parse_primary_of_atom : forall f toks a r,
   parse_primary (S (S f)) toks = Some (a, r).
 Proof. intros f toks a r H Hr. rewrite parse_primary_S, H. apply parse_postfix_stop; exact Hr. Qed.
 
-(** [parse_atom] reads a unary node: each prints [op] then its PARENTHESISED operand (always wrapped, so
-    the seam is a single ['('] — no maximal-munch hazard).  Operand via [Pexpr] (the outer strong IH). *)
+(** [parse_atom] reads a unary node.  PAREN shape ([op]([gprint e0]), for UNeg or a non-leaf operand): the
+    operand is parsed inside the parens via [Pexpr] (the strong IH), as before.  BARE shape ([op][gprint e0],
+    for a LEAF operand): [op] dispatches to [parse_atom] on the operand, which (being a leaf) is read by one
+    [parse_atom_S] step.  Fuel keyed on [esize (EUn o e0)] (the [if]-defined node size), so the budget
+    auto-scales between the two shapes; the [+2] slack lets [parse_primary_unary] supply it after its
+    [parse_primary_of_atom] step. *)
 Lemma parse_atom_unary : forall o e0 ctx TAIL F,
-  Pexpr e0 -> 3 * esize e0 + 5 < F ->
+  Pexpr e0 -> 3 * esize (EUn o e0) < F + 2 ->
   parse_atom F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
 Proof.
   intros o e0 ctx TAIL F HP HF. pose proof (esize_pos e0) as Hpos.
@@ -3423,24 +3618,34 @@ Proof.
             parse_atom (S G) (TLP :: (gtokens 0 e0 ++ TRP :: TAIL))%list = Some (e0, TAIL)).
   { intros G HG. rewrite parse_atom_S.
     rewrite (HP 0 0 (TRP :: TAIL) G (le_n 0) (conj eq_refl I) ltac:(lia)). reflexivity. }
-  destruct o; cbn [gtokens prefix_token]; cbn [app]; rewrite <- app_assoc; cbn [app].
-  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
-    destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
-    destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
-    destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
-    destruct f1 as [ | f2 ]; [ lia | ]. rewrite (Hpar f2 ltac:(lia)). reflexivity.
-  - destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
-    rewrite (HP 0 0 (TRP :: TAIL) f1 (le_n 0) (conj eq_refl I) ltac:(lia)). reflexivity.
+  destruct o.
+  (* UNot / UXor / UDeref / UAddr — wrapped iff [unop_needs_paren e0] *)
+  1-4: destruct (unop_needs_paren e0) eqn:Eb;
+       [ (* PAREN *) rewrite gtokens_EUn_paren by exact Eb;
+         rewrite esize_EUn_paren in HF by exact Eb;
+         cbn [prefix_token app]; rewrite <- app_assoc; cbn [app];
+         destruct F as [ | f1 ]; [ lia | ]; rewrite parse_atom_S;
+         destruct f1 as [ | f2 ]; [ lia | ]; rewrite (Hpar f2 ltac:(lia)); reflexivity
+       | (* BARE — [e0] is a leaf atom *) rewrite gtokens_EUn_bare by exact Eb;
+         rewrite esize_EUn_bare in HF by exact Eb;
+         destruct e0; try discriminate Eb;
+           (cbn [gtokens prefix_token app]; destruct F as [ | f1 ]; [ cbn [esize] in HF; lia | ];
+            rewrite parse_atom_S; destruct f1 as [ | f2 ]; [ cbn [esize] in HF; lia | ];
+            rewrite parse_atom_S; reflexivity) ].
+  (* UNeg — ALWAYS paren *)
+  rewrite gtokens_EUn_paren by reflexivity.
+  rewrite esize_EUn_paren in HF by reflexivity.
+  cbn [prefix_token app]; rewrite <- app_assoc; cbn [app].
+  destruct F as [ | f1 ]; [ lia | ]. rewrite parse_atom_S.
+  rewrite (HP 0 0 (TRP :: TAIL) f1 (le_n 0) (conj eq_refl I) ltac:(lia)). reflexivity.
 Qed.
 Lemma parse_primary_unary : forall o e0 ctx TAIL F,
   Pexpr e0 -> (match TAIL with nil => True | t :: _ => is_postfix_start t = false end) ->
-  3 * esize e0 + 6 < F ->
+  3 * esize (EUn o e0) < F + 1 ->
   parse_primary F (gtokens ctx (EUn o e0) ++ TAIL)%list = Some (EUn o e0, TAIL).
 Proof.
-  intros o e0 ctx TAIL F HP Hcl HF. destruct F as [ | F' ]; [ lia | ]. destruct F' as [ | f ]; [ lia | ].
+  intros o e0 ctx TAIL F HP Hcl HF. pose proof (esize_pos (EUn o e0)) as Hp.
+  destruct F as [ | F' ]; [ lia | ]. destruct F' as [ | f ]; [ lia | ].
   apply parse_primary_of_atom; [ apply parse_atom_unary; [ exact HP | lia ] | exact Hcl ].
 Qed.
 
@@ -3621,7 +3826,7 @@ Proof. induction ops as [ | op ops IH ]; intro T; [ cbn [pops_fuel app]; lia | d
 Lemma pspine_pops_fuel : forall e, pops_fuel (snd (pspine e)) <= 3 * esize e.
 Proof.
   induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs | sv ];
-    try (cbn; lia).
+    try (cbn [pspine snd pops_fuel]; match goal with |- _ <= 3 * esize ?e => pose proof (esize_pos e) end; lia).
   - cbn [pspine]. destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [snd esize] in *. rewrite pops_fuel_snoc_sel. lia.
   - cbn [pspine]. destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [snd esize] in *. rewrite pops_fuel_snoc_idx. lia.
   - cbn [pspine]. destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [snd esize] in *. rewrite pops_fuel_snoc_slice. lia.
@@ -4109,7 +4314,7 @@ Proof.
     [ | | | | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | | | | ].
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
-  - apply parse_atom_unary; [ apply Hsih; cbn [esize]; lia | cbn [esize] in HF; lia ].
+  - apply parse_atom_unary; [ apply Hsih; apply esize_lt_unop | lia ].
   - assert (Hw : Nat.ltb (binop_prec o') bfl = true) by (apply Nat.ltb_lt; exact Hprim).
     rewrite (gtokens_wrapped o' l' r' bfl Hw).
     destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
@@ -4247,11 +4452,12 @@ Proof.
         rewrite (parse_primary_of_atom g' (TInt z :: rest) (EInt z) rest
                    ltac:(rewrite parse_atom_S; reflexivity) (tail_ok_pclean _ _ Htl)).
         apply tail_ok_climb_stop; exact Htl.
-      - (* EUn *) destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
-        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
+      - (* EUn *) pose proof (esize_pos (EUn o e0)) as Hpe.
+        destruct F as [ | f ]; [ lia | ].
+        destruct f as [ | g ]; [ lia | ].
         rewrite parse_expr_S.
         rewrite (parse_primary_unary o e0 ctx rest (S g)
-                   ltac:(apply IH; cbn [esize] in Hsz; lia) (tail_ok_pclean _ _ Htl) ltac:(cbn [esize] in HF; lia)).
+                   ltac:(apply IH; pose proof (esize_lt_unop o e0); lia) (tail_ok_pclean _ _ Htl) ltac:(lia)).
         apply tail_ok_climb_stop; exact Htl.
       - (* EBn unwrapped: Hctx : ctx <= binop_prec o *)
         cbn [esize] in Hsz, HF.
@@ -4714,9 +4920,6 @@ Proof.
   - apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact H | no_nl_lit ] ].
   - exact H.
 Qed.
-Lemma gprint_EUn_pre : forall ctx o e0,
-  gprint ctx (EUn o e0) = (unop_text o ++ "(" ++ gprint 0 e0 ++ ")")%string.
-Proof. intros ctx o e0. destruct o; reflexivity. Qed.
 Lemma gprint_EBn_eq : forall ctx o l r,
   gprint ctx (EBn o l r) =
     (if Nat.ltb (binop_prec o) ctx
@@ -4811,9 +5014,9 @@ Proof.
     using GExpr_ind'; intro ctx.
   - cbn [gprint]. apply no_nl_ident.
   - cbn [gprint]. apply no_nl_print_Z.
-  - rewrite gprint_EUn_pre.
-    apply no_nl_app; [ apply no_nl_unop_text
-      | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHe0 | no_nl_lit ] ] ].
+  - rewrite gprint_EUn. apply no_nl_app; [ apply no_nl_unop_text | ].
+    destruct (unop_paren o e0);
+      [ apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHe0 | no_nl_lit ] ] | apply IHe0 ].
   - rewrite gprint_EBn_eq.
     assert (Hin : no_nl (gprint (binop_prec o) l ++ binop_text o ++ gprint (S (binop_prec o)) r))
       by (apply no_nl_app; [ apply IHl | apply no_nl_app; [ apply no_nl_binop_text | apply IHr ] ]).
