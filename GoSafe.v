@@ -12,24 +12,18 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** VALUE-position applied head: a NAME [EId] — covering BOTH a function call [f(args)] AND a type CONVERSION
-    [T(args)] (both are syntactically `name(args)` and both produce a VALUE, so both are fine as a value /
-    argument, e.g. [println(int(x))]).  A literal / arithmetic / slice / assertion head is never applicable
-    ([1(x)], [(a+b)(x)], [x.(int)(y)] are invalid Go).  The other name-applied callees (selector [pkg.F],
-    index [a[i]], nested call [f()()]) are DEFERRED.  NB STATEMENT position is TIGHTER than value position —
-    a conversion is NOT a valid expression statement — see [stmt_call_builtin] / [expr_stmt_ok]. *)
-Definition scallee (e : GExpr) : bool := match e with EId _ => true | _ => false end.
-
-(** STRUCTURALLY-supported value expression — the CONSERVATIVE whitelist of [GExpr] forms with NO operand-
-    SHAPE hazard: identifiers, integer literals, arithmetic/logical binops, the value-producing unary ops
-    (!/^/-), and calls of a function NAME with supported args.  The shape-CONSTRAINED forms are NOT in the
-    subset yet — postfix selector/index/slice/type-assertion (each needs its operand to be a struct /
-    indexable / sliceable / interface, so [1.f] / [1[0]] / [1[lo:hi]] / [1.(T)] are absurd) and the unary
-    deref/addr ([*1] / [&1] are absurd) — so the gate can never certify any of those structural absurdities.
-    They re-enter WITH their operand-shape checks when supported.  STRUCTURAL only: it does NOT (and
-    syntactically cannot) check SCOPE (an undefined identifier) or TYPES (e.g. [!1], a mismatch) — those are
-    the GoSem/type layer.  (The call arg list uses an inline [fix]; [forallb svalue] is guard-opaque, as in
-    [gprint]'s arg list.) *)
+(** STRUCTURALLY-supported VALUE expression — the CONSERVATIVE whitelist of [GExpr] forms each guaranteed to
+    PRODUCE A VALUE with NO operand-shape hazard: identifiers, integer literals, arithmetic/logical binops,
+    the value-producing unary ops (!/^/-), and a builtin-type CONVERSION [T(a)].  The application case is
+    restricted to a conversion ([EId] whose name is a builtin type, applied to EXACTLY ONE arg) because a
+    conversion ALWAYS yields a value, whereas a general function CALL [f(args)] yields a value only if [f]
+    returns one — type-dependent and unknowable here, so a void call like [println(1)] (which returns
+    NOTHING) must NOT be admitted as a value (else [println(println(1))] — "used as value" — would slip
+    through), and conversion arity is pinned (a conversion takes exactly one arg, so [int(1,2)] is rejected).
+    The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion ([1.f] / [1[0]] /
+    [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is admitted.
+    STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier) or TYPES
+    (e.g. [!1], convertibility of [int(x)]) — those are the GoSem/type layer. *)
 Fixpoint svalue (e : GExpr) : bool :=
   match e with
   | EId _ => true
@@ -37,9 +31,10 @@ Fixpoint svalue (e : GExpr) : bool :=
   | EBn _ l r => svalue l && svalue r
   | EUn o e0 => match o with UNot | UXor | UNeg => svalue e0 | UDeref | UAddr => false end
   | ECall callee args =>
-      scallee callee &&
-      (fix all_ok (l : list GExpr) : bool :=
-         match l with nil => true | a :: r => svalue a && all_ok r end) args
+      match callee, args with
+      | EId i, a :: nil => is_type_keyword (proj1_sig i) && svalue a   (* a builtin-type CONVERSION [T(a)] *)
+      | _, _            => false
+      end
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
@@ -102,8 +97,8 @@ Proof. reflexivity. Qed.
 Fail Example value_stmt_supported : SupportedProgram unsupported_value_stmt := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up) — a CALL of a non-callable, `func main(){ 1() }`, is
-    call-SHAPED but structurally invalid Go; [svalue] rejects it (the callee [EInt 1] is not [scallee]), so
-    it is NOT supported and cannot be certified. *)
+    call-SHAPED but structurally invalid Go; [expr_stmt_ok] rejects it (the callee [EInt 1] is not an [EId]),
+    so it is NOT supported and cannot be certified. *)
 Definition unsupported_call_value : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EInt 1) nil)].
 Example call_value_unsupported : supported_program unsupported_call_value = false.
@@ -111,8 +106,8 @@ Proof. reflexivity. Qed.
 Fail Example call_value_supported : SupportedProgram unsupported_call_value := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up²) — a call of a type assertion, `func main(){ x.(int)() }`,
-    is call-shaped but a type-assertion callee is not a function NAME, so [scallee] rejects it (the whole
-    assertion-callee class is deferred; a concrete [x.(int)] is anyway concretely non-callable). NOT supported. *)
+    is call-shaped but a type-assertion callee is not an [EId], so [expr_stmt_ok] rejects it (a concrete
+    [x.(int)] is anyway concretely non-callable). NOT supported. *)
 Definition unsupported_assert_call : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EAssert (EId (mkIdent "x" eq_refl)) GTInt) nil)].
@@ -139,6 +134,19 @@ Definition supported_conv_arg : Program :=
                                [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
 Example conv_arg_supported : SupportedProgram supported_conv_arg.
 Proof. reflexivity. Qed.
+
+(** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
+    println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:
+    "println(1) (no value) used as value").  [svalue] admits an application only as a CONVERSION ([EId] of a
+    builtin type, one arg) — [println] is not a type — so the inner [println(1)] is NOT a valid value and the
+    whole program is NOT supported.  (Pins that value position is conversion-only, not any call.) *)
+Definition unsupported_void_call_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "println" eq_refl)) [EInt 1]])].
+Example void_call_arg_unsupported : supported_program unsupported_void_call_arg = false.
+Proof. reflexivity. Qed.
+Fail Example void_call_arg_supported : SupportedProgram unsupported_void_call_arg := eq_refl.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
