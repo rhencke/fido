@@ -138,21 +138,33 @@ fi
 
 echo "fido: doc-exactness / deleted-helper gate OK — honest single-authority float wording, no stale helper names ✓"
 
-# ---- STRING-LITERAL EXACTNESS GATE (Codex stop-review 2026-06-29): [unescape_opt] now accepts EXACTLY the
-# printer image ([esc_string]'s byte set) — accepted == emitted — so the "exact" claim is TRUE.  Forbid in
-# ACTIVE code (a) the DELETED theorem name [unescape_esc_byte] (the live lemma is [unescape_opt_esc_byte];
-# the plain name is NOT a substring of the opt name, so this never matches the live one); and (b) the
-# false-exactness phrasings that described the OLD SUPERSET decoder — "could never have produced" (the old
-# fail-closed framing, which still admitted upper-case hex / raw control bytes) and "any byte except a newline"
-# (the old over-permissive rawbyte class).  Scope: GoPrint.v / GoAst.v / ARCHITECTURE.md / PROGRESS.md.
+# ---- STRING-LITERAL EXACTNESS GATE (Codex stop-review 2026-06-29): the decoder [unescape_opt] accepts EXACTLY
+# the printer image ([esc_string]'s byte set) — accepted == emitted.  The AUTHORITY for that claim is the LIVE
+# Rocq theorem
+#     unescape_opt_image : forall body s, unescape_opt body = Some s -> body = esc_string s
+# (every accepted body is the canonical [esc_string] escaping of its decode), proved zero-axiom and enforced by
+# the GoPrint Print-Assumptions gate — NOT by this shell grep.  This gate therefore does only two things: make
+# that proof UNDELETABLE-by-stealth, and ban stale OLD-decoder wording:
+#   (1) the THEOREM and its [Print Assumptions] must be PRESENT in GoPrint.v — deleting either silently drops the
+#       exactness guarantee, and a MISSING theorem cannot fail the zero-axiom gate, so it must fail loud HERE; and
+#   (2) forbid the DELETED lemma name [unescape_esc_byte] (the live lemma is [unescape_opt_esc_byte] — not a
+#       substring, so this never matches the live one) and the false-exactness phrasings that described the OLD
+#       SUPERSET decoder ("could never have produced" / "any byte except a newline").
+# The shell does NOT itself certify exactness — it DEFERS to [unescape_opt_image].  Scope: GoPrint.v / GoAst.v /
+# ARCHITECTURE.md / PROGRESS.md.
+if ! grep -q 'Theorem unescape_opt_image' GoPrint.v || ! grep -q 'Print Assumptions unescape_opt_image' GoPrint.v; then
+  echo "fido: STRING-EXACTNESS GATE — the exactness theorem unescape_opt_image (or its Print Assumptions) is MISSING from GoPrint.v."
+  echo "fido: accepted == emitted is PROVEN by unescape_opt_image; without it the decoder could silently re-admit a superset."
+  exit 1
+fi
 estr=$(grep -nE 'unescape_esc_byte|could never have produced|any byte [Ee][Xx][Cc][Ee][Pp][Tt] a newline' \
   GoPrint.v GoAst.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
 if [ -n "$estr" ]; then
   echo "fido: STRING-EXACTNESS GATE — a deleted theorem name or a false-exactness phrasing is in active code:"
   echo "$estr"
-  echo "fido: the live lemma is unescape_opt_esc_byte; unescape_opt accepts EXACTLY the printer image (no superset),"
-  echo "fido: so do not write 'could never have produced' / 'any byte except a newline' — state accepted == emitted."
+  echo "fido: exactness is PROVEN by unescape_opt_image (accepted == emitted); the live lemma is unescape_opt_esc_byte,"
+  echo "fido: so do not write 'could never have produced' / 'any byte except a newline' — defer to the theorem."
   exit 1
 fi
 
-echo "fido: string-exactness gate OK — no deleted theorem name or false-exactness phrasing in active code ✓"
+echo "fido: string-exactness gate OK — unescape_opt_image present (accepted == emitted, proven zero-axiom); no stale wording ✓"

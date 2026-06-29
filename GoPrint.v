@@ -333,18 +333,43 @@ Proof.
     apply Bool.andb_true_iff. split; apply Nat.leb_le; lia.
 Qed.
 
+(** The bytes whose CANONICAL [esc_byte] form is the [\xHH] hex fallback: NOT a named-escape byte
+    (34 dquote / 92 backslash / 10 nl / 9 tab / 13 cr) and NOT printable [32,126].  This is EXACTLY the set
+    [esc_byte]'s final branch covers (bytes [< 32] except 9/10/13, and [>= 127]); the [\x] arm of the decoder
+    [unescape_opt] requires it so a [\xHH] is accepted ONLY when [esc_byte] would actually have EMITTED that
+    [\xHH] — e.g. a hex escape of printable 'A' (65), or of the named dquote (34), is REJECTED, since [esc_string]
+    prints those raw / as a named escape, never as hex (the Codex 2026-06-29 superset fix). *)
+Definition hex_escaped_byte (b : nat) : bool :=
+  negb (orb (orb (Nat.eqb b 34) (orb (Nat.eqb b 92) (orb (Nat.eqb b 10) (orb (Nat.eqb b 9) (Nat.eqb b 13)))))
+            (andb (Nat.leb 32 b) (Nat.ltb b 127))).
+(** Introduction form, proved here (where [hex_escaped_byte] is still transparent) so the round-trip proof
+    [unescape_opt_esc_byte] can discharge the [\xHH]-fallback guard while keeping [hex_escaped_byte] OPAQUE for
+    [cbn] (it must stay folded across that proof). *)
+Lemma hex_escaped_byte_true_intro : forall b,
+  Nat.eqb b 34 = false -> Nat.eqb b 92 = false -> Nat.eqb b 10 = false ->
+  Nat.eqb b 9 = false -> Nat.eqb b 13 = false ->
+  andb (Nat.leb 32 b) (Nat.ltb b 127) = false ->
+  hex_escaped_byte b = true.
+Proof.
+  intros b H34 H92 H10 H9 H13 Hr. unfold hex_escaped_byte.
+  rewrite H34, H92, H10, H9, H13, Hr. reflexivity.
+Qed.
+
 (** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Returns [option string] and accepts EXACTLY the
-    PRINTER IMAGE — the byte set [esc_string] can emit — and nothing else (accepted == emitted); it is [None]
+    PRINTER IMAGE — the byte set [esc_string] can emit — and nothing else (accepted == emitted, now PROVEN by
+    [unescape_opt_image] below: every accepted [body] is the canonical [esc_string] of its decode); it is [None]
     on every other spelling, so the lexer (which threads this [option]) REJECTS non-printer-image string syntax
     at tokenization instead of normalizing it into a value.  The accepted alphabet is precisely: the five named
     escapes (the escaped dquote, the escaped backslash, [\n] [\t] [\r]), a [\xHH] escape whose two digits are
-    both [is_hex] (LOWER-CASE hex), and a RAW body byte in [32,126] minus the dquote (34) and the backslash (92).
+    both [is_hex] (LOWER-CASE hex) AND whose decoded byte [hex_escaped_byte]s (so [esc_byte] really takes its
+    hex fallback on it), and a RAW body byte in [32,126] minus the dquote (34) and the backslash (92).
     Everything else is [None]: a TRUNCATED escape (a backslash at end of body), an UNKNOWN escape (any other byte
     after a backslash), a [\x] with fewer than two following chars or whose two chars are not both [is_hex] (so an
-    UPPER-CASE [\xAF] is rejected — [esc_string] emits only lower-case), and a RAW byte outside [32,126] minus
-    {34,92} (a raw tab/CR/control/high byte/newline — each of which [esc_byte] would have ESCAPED, so a raw one is
-    not in the image).  Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old total
-    [unescape] is gone). *)
+    UPPER-CASE [\xAF] is rejected — [esc_string] emits only lower-case), a [\xHH] whose byte is a named-escape /
+    printable one (a hex escape of 'A' or of the dquote — NOT [esc_byte]'s image), and a RAW byte outside [32,126]
+    minus {34,92} (a raw tab/CR/control/high byte/newline — each of which [esc_byte] would have ESCAPED, so a raw
+    one is not in the image).  Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old
+    total [unescape] is gone). *)
 Fixpoint unescape_opt (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
@@ -362,9 +387,10 @@ Fixpoint unescape_opt (s : string) : option string :=
             else if Nat.eqb d 120 then
               match rest2 with
               | String h1 (String h2 rest3) =>
-                  if andb (is_hex h1) (is_hex h2)
+                  if andb (andb (is_hex h1) (is_hex h2))
+                          (hex_escaped_byte (16 * unhex h1 + unhex h2))
                   then option_map (String (ch (16 * unhex h1 + unhex h2))) (unescape_opt rest3)
-                  else None                                    (* \x with a non-hex digit *)
+                  else None                                    (* \x with a non-hex digit, or a byte esc_byte would NOT hex-escape *)
               | _ => None                                      (* truncated \x escape (< 2 chars) *)
               end
             else None                                          (* unknown escape *)
@@ -378,7 +404,7 @@ Fixpoint unescape_opt (s : string) : option string :=
 (* Keep [ch]/[nat_of_ascii]/[unhex]/[hexdig]/[is_hex]/[option_map] opaque so [cbn] reduces only the [Nat.eqb]
    dispatch and the matches, leaving [ch <v>] / [nat_of_ascii (ch _)] / [unhex (hexdig _)] / [is_hex (hexdig _)]
    and the [option_map] wrappers symbolic for the rewrites. *)
-Local Opaque ch nat_of_ascii unhex hexdig is_hex option_map Nat.div Nat.modulo Nat.mul.
+Local Opaque ch nat_of_ascii unhex hexdig is_hex hex_escaped_byte option_map Nat.div Nat.modulo Nat.mul.
 Lemma unescape_opt_esc_byte : forall c X,
   unescape_opt (esc_byte (nat_of_ascii c) X) = option_map (String c) (unescape_opt X).
 Proof.
@@ -408,18 +434,21 @@ Proof.
   { (* printable byte: emitted as-is, decoded as-is — not a backslash (E92), printable (Eprint), not a dquote (E34) *)
     cbn [unescape_opt]. rewrite (nat_of_ch (nat_of_ascii c)) by exact Hc.
     rewrite E92, Eprint, E34, ch_nat. cbn [andb negb]. reflexivity. }
-  { (* hex escape: \xHL with H = b/16, L = b mod 16; both nibbles are [is_hex], and 16*H + L = b *)
+  { (* hex escape: \xHL with H = b/16, L = b mod 16; both nibbles are [is_hex], 16*H + L = b, and
+       [hex_escaped_byte b = true] — b is neither a named-escape byte nor printable (from the false
+       hypotheses E34/E92/E10/E9/E13/Eprint above), so [esc_byte] really took its [\xHH] fallback. *)
+    assert (Hhe : hex_escaped_byte (nat_of_ascii c) = true)
+      by (apply hex_escaped_byte_true_intro; assumption).
     cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 120) by lia. cbn.
     rewrite (is_hex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
     rewrite (is_hex_hexdig (Nat.modulo (nat_of_ascii c) 16)) by (apply Nat.mod_upper_bound; lia).
-    cbn [andb].
     rewrite (unhex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
     rewrite (unhex_hexdig (Nat.modulo (nat_of_ascii c) 16)) by (apply Nat.mod_upper_bound; lia).
     replace (16 * Nat.div (nat_of_ascii c) 16 + Nat.modulo (nat_of_ascii c) 16) with (nat_of_ascii c)
       by (pose proof (Nat.div_mod_eq (nat_of_ascii c) 16); lia).
-    rewrite ch_nat. reflexivity. }
+    rewrite Hhe. cbn [andb]. rewrite ch_nat. reflexivity. }
 Qed.
-Local Transparent ch nat_of_ascii unhex hexdig is_hex option_map Nat.div Nat.modulo Nat.mul.
+Local Transparent ch nat_of_ascii unhex hexdig is_hex hex_escaped_byte option_map Nat.div Nat.modulo Nat.mul.
 
 (** ★ THE STRING-LITERAL ROUND-TRIP — the (now VALIDATING) decoder recovers EXACTLY what [esc_string] emits, so
     [print_string_lit] denotes precisely its argument and the lexer's [TStr] is faithful.  Crucially the option
@@ -430,6 +459,164 @@ Theorem esc_string_roundtrip_opt : forall s, unescape_opt (esc_string s) = Some 
 Proof.
   induction s as [ | c rest IH ]; [ reflexivity | ].
   cbn [esc_string]. rewrite unescape_opt_esc_byte, IH. reflexivity.
+Qed.
+
+(** ★ THE STRING-LITERAL REVERSE-IMAGE THEOREM (the EXACTNESS deliverable) — every body the decoder ACCEPTS is
+    EXACTLY the canonical [esc_string] escaping of its decode, so the accepted language is precisely the printer
+    IMAGE: accepted == emitted, PROVEN (not asserted).  With [esc_string_roundtrip_opt] (emitted ⊆ accepted)
+    this is a two-way exactness: [unescape_opt body = Some s  ↔  body = esc_string s].  It is the property that
+    kills the Codex 2026-06-29 superset hole — without the [hex_escaped_byte] guard a hex escape of a printable
+    or named byte (a hex 'A' decoding to the one-byte string A, which [esc_string] prints RAW) would be accepted
+    though never emitted.  Helper lemmas first, then the theorem by strong induction on the body length. *)
+Lemma option_map_Some_inv : forall (A B : Type) (f : A -> B) (x : option A) (y : B),
+  option_map f x = Some y -> exists z, x = Some z /\ y = f z.
+Proof.
+  intros A B f x y H. destruct x as [z|]; cbn in H.
+  - injection H as <-. exists z. split; reflexivity.
+  - discriminate H.
+Qed.
+
+Lemma unhex_lt_16 : forall c, is_hex c = true -> unhex c < 16.
+Proof.
+  intros c H. unfold is_hex in H. apply Bool.orb_true_iff in H. unfold unhex.
+  destruct H as [H|H]; apply Bool.andb_true_iff in H; destruct H as [Hl Hr];
+    apply Nat.leb_le in Hl, Hr.
+  - destruct (Nat.leb (nat_of_ascii c) 57) eqn:E; [ lia | apply Nat.leb_gt in E; lia ].
+  - destruct (Nat.leb (nat_of_ascii c) 57) eqn:E; [ apply Nat.leb_le in E; lia | lia ].
+Qed.
+
+(** The forward inverse of [hexdig] over the LOWER-CASE hex alphabet [is_hex] accepts (the reverse of
+    [unhex_hexdig]): an accepted [\xHH] re-emits its two digits unchanged. *)
+Lemma hexdig_unhex : forall c, is_hex c = true -> hexdig (unhex c) = c.
+Proof.
+  intros c H. unfold is_hex in H. apply Bool.orb_true_iff in H.
+  assert (Hinner : (if Nat.ltb (unhex c) 10 then 48 + unhex c else 87 + unhex c) = nat_of_ascii c).
+  { unfold unhex; cbv zeta.
+    destruct H as [H|H]; apply Bool.andb_true_iff in H; destruct H as [Hl Hr];
+      apply Nat.leb_le in Hl, Hr.
+    - destruct (Nat.leb (nat_of_ascii c) 57) eqn:E.
+      + destruct (Nat.ltb (nat_of_ascii c - 48) 10) eqn:E2; [ lia | apply Nat.ltb_ge in E2; lia ].
+      + apply Nat.leb_gt in E; lia.
+    - destruct (Nat.leb (nat_of_ascii c) 57) eqn:E.
+      + apply Nat.leb_le in E; lia.
+      + destruct (Nat.ltb (nat_of_ascii c - 87) 10) eqn:E2; [ apply Nat.ltb_lt in E2; lia | lia ]. }
+  unfold hexdig. rewrite Hinner. apply Ascii.ascii_nat_embedding.
+Qed.
+
+(** When [hex_escaped_byte b] holds, [esc_byte] takes its [\xHH] hex fallback (all five named-escape tests and
+    the printable test fail), so the byte's image is exactly the four-char hex escape. *)
+Lemma esc_byte_hex : forall b acc, hex_escaped_byte b = true ->
+  esc_byte b acc =
+    String (ch 92) (String (ch 120)
+      (String (hexdig (Nat.div b 16)) (String (hexdig (Nat.modulo b 16)) acc))).
+Proof.
+  intros b acc H. unfold hex_escaped_byte in H.
+  apply Bool.negb_true_iff in H. apply Bool.orb_false_iff in H. destruct H as [Ho Eand].
+  apply Bool.orb_false_iff in Ho. destruct Ho as [Q34 Ho].
+  apply Bool.orb_false_iff in Ho. destruct Ho as [Q92 Ho].
+  apply Bool.orb_false_iff in Ho. destruct Ho as [Q10 Ho].
+  apply Bool.orb_false_iff in Ho. destruct Ho as [Q9 Q13].
+  unfold esc_byte. rewrite Q34, Q92, Q10, Q9, Q13, Eand. reflexivity.
+Qed.
+
+Theorem unescape_opt_image : forall body s, unescape_opt body = Some s -> body = esc_string s.
+Proof.
+  (* strong induction on the body length, so the IH reaches [rest2] / [rest3] (the tail of a 2-/4-byte
+     escape), not just the immediate tail [rest]. *)
+  assert (HH : forall n body s, String.length body <= n -> unescape_opt body = Some s -> body = esc_string s).
+  { induction n as [ | n IH ]; intros body s Hlen H.
+    - destruct body as [ | c1 rest ].
+      + cbn [unescape_opt] in H. injection H as <-. reflexivity.
+      + cbn in Hlen. lia.
+    - destruct body as [ | c1 rest ].
+      + cbn [unescape_opt] in H. injection H as <-. reflexivity.
+      + cbn [unescape_opt] in H.
+        destruct (Nat.eqb (nat_of_ascii c1) 92) eqn:Eb; cbn [unescape_opt] in H.
+        * (* leading backslash: a named escape, a \xHH hex escape, or rejected *)
+          apply Nat.eqb_eq in Eb.
+          destruct rest as [ | c2 rest2 ]; cbn [unescape_opt] in H; [ discriminate H | ].
+          destruct (Nat.eqb (nat_of_ascii c2) 34) eqn:E34; cbn [unescape_opt] in H.
+          { apply Nat.eqb_eq in E34.
+            apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+            pose proof (IH rest2 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+            subst s; rewrite Himg.
+            cbn [esc_string]; rewrite (nat_of_ch 34) by lia.
+            unfold esc_byte; cbn [Nat.eqb].
+            rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E34. reflexivity. }
+          destruct (Nat.eqb (nat_of_ascii c2) 92) eqn:E92; cbn [unescape_opt] in H.
+          { apply Nat.eqb_eq in E92.
+            apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+            pose proof (IH rest2 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+            subst s; rewrite Himg.
+            cbn [esc_string]; rewrite (nat_of_ch 92) by lia.
+            unfold esc_byte; cbn [Nat.eqb].
+            rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E92. reflexivity. }
+          destruct (Nat.eqb (nat_of_ascii c2) 110) eqn:E110; cbn [unescape_opt] in H.
+          { apply Nat.eqb_eq in E110.
+            apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+            pose proof (IH rest2 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+            subst s; rewrite Himg.
+            cbn [esc_string]; rewrite (nat_of_ch 10) by lia.
+            unfold esc_byte; cbn [Nat.eqb].
+            rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E110. reflexivity. }
+          destruct (Nat.eqb (nat_of_ascii c2) 116) eqn:E116; cbn [unescape_opt] in H.
+          { apply Nat.eqb_eq in E116.
+            apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+            pose proof (IH rest2 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+            subst s; rewrite Himg.
+            cbn [esc_string]; rewrite (nat_of_ch 9) by lia.
+            unfold esc_byte; cbn [Nat.eqb].
+            rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E116. reflexivity. }
+          destruct (Nat.eqb (nat_of_ascii c2) 114) eqn:E114; cbn [unescape_opt] in H.
+          { apply Nat.eqb_eq in E114.
+            apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+            pose proof (IH rest2 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+            subst s; rewrite Himg.
+            cbn [esc_string]; rewrite (nat_of_ch 13) by lia.
+            unfold esc_byte; cbn [Nat.eqb].
+            rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E114. reflexivity. }
+          destruct (Nat.eqb (nat_of_ascii c2) 120) eqn:E120; cbn [unescape_opt] in H; [ | discriminate H ].
+          (* \xHH hex escape: both nibbles [is_hex] and the decoded byte [hex_escaped_byte]s *)
+          apply Nat.eqb_eq in E120.
+          destruct rest2 as [ | h1 [ | h2 rest3 ] ]; cbn [unescape_opt] in H; try discriminate H.
+          destruct (andb (andb (is_hex h1) (is_hex h2)) (hex_escaped_byte (16 * unhex h1 + unhex h2))) eqn:Eg;
+            cbn [unescape_opt] in H; [ | discriminate H ].
+          apply Bool.andb_true_iff in Eg; destruct Eg as [Ehh Ehe].
+          apply Bool.andb_true_iff in Ehh; destruct Ehh as [Eh1 Eh2].
+          apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+          pose proof (IH rest3 z ltac:(cbn in Hlen; lia) Hz) as Himg.
+          subst s; rewrite Himg.
+          assert (Hb1 : unhex h1 < 16) by (apply unhex_lt_16; exact Eh1).
+          assert (Hb2 : unhex h2 < 16) by (apply unhex_lt_16; exact Eh2).
+          assert (Hb : 16 * unhex h1 + unhex h2 < 256) by lia.
+          cbn [esc_string]. rewrite (nat_of_ch (16 * unhex h1 + unhex h2) Hb).
+          rewrite (esc_byte_hex (16 * unhex h1 + unhex h2) (esc_string z) Ehe).
+          assert (Hdiv : Nat.div (16 * unhex h1 + unhex h2) 16 = unhex h1).
+          { replace (16 * unhex h1 + unhex h2) with (unhex h1 * 16 + unhex h2) by lia.
+            rewrite Nat.div_add_l by lia. rewrite (Nat.div_small (unhex h2) 16 Hb2). lia. }
+          assert (Hmod : Nat.modulo (16 * unhex h1 + unhex h2) 16 = unhex h2).
+          { pose proof (Nat.div_mod_eq (16 * unhex h1 + unhex h2) 16) as Hdm.
+            rewrite Hdiv in Hdm. lia. }
+          rewrite Hdiv, Hmod, (hexdig_unhex h1 Eh1), (hexdig_unhex h2 Eh2).
+          rewrite <- (ch_nat c1), Eb. rewrite <- (ch_nat c2), E120. reflexivity.
+        * (* no leading backslash: a raw printable body byte, or rejected *)
+          destruct (andb (andb (Nat.leb 32 (nat_of_ascii c1)) (Nat.ltb (nat_of_ascii c1) 127))
+                         (negb (Nat.eqb (nat_of_ascii c1) 34))) eqn:Eraw;
+            cbn [unescape_opt] in H; [ | discriminate H ].
+          apply Bool.andb_true_iff in Eraw; destruct Eraw as [Erange Endq].
+          apply Bool.andb_true_iff in Erange; destruct Erange as [El Eh].
+          apply Nat.leb_le in El. apply Nat.ltb_lt in Eh. apply Bool.negb_true_iff in Endq.
+          apply option_map_Some_inv in H; destruct H as [z [Hz Hs]].
+          pose proof (IH rest z ltac:(cbn in Hlen; lia) Hz) as Himg.
+          subst s; rewrite Himg.
+          cbn [esc_string]. unfold esc_byte.
+          assert (Q9  : Nat.eqb (nat_of_ascii c1) 9  = false) by (apply Nat.eqb_neq; lia).
+          assert (Q10 : Nat.eqb (nat_of_ascii c1) 10 = false) by (apply Nat.eqb_neq; lia).
+          assert (Q13 : Nat.eqb (nat_of_ascii c1) 13 = false) by (apply Nat.eqb_neq; lia).
+          assert (Eprint : andb (Nat.leb 32 (nat_of_ascii c1)) (Nat.ltb (nat_of_ascii c1) 127) = true)
+            by (apply Bool.andb_true_iff; split; [ apply Nat.leb_le | apply Nat.ltb_lt ]; lia).
+          rewrite Endq, Eb, Q10, Q9, Q13, Eprint, (ch_nat c1). reflexivity. }
+  intros body s. apply (HH (String.length body) body s). lia.
 Qed.
 
 (** ---- STRING-LITERAL LEXING ---- [scan_quote] locates the CLOSING dquote of a Go interpreted-string body,
@@ -1040,6 +1227,28 @@ Example lex_upper_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
 Proof. vm_compute; reflexivity. Qed.                              (* upper-case hex escape; 65=A, 70=F — printer emits only lower-case *)
 Example lex_raw_tab : lex (String (ch 34) (String (ch 9) (String (ch 34) ""))) = None.
 Proof. vm_compute; reflexivity. Qed.                              (* a raw tab byte (9) in the body — the printer escapes it *)
+(* SUPERSET REGRESSIONS (Codex 2026-06-29): a SYNTACTICALLY-valid lower-case [\xHH] whose decoded byte is NOT
+   one [esc_byte] hex-escapes (it is printable, or a named-escape byte) is NOT in the printer image, so [lex]
+   must REJECT it — the old decoder lossily ACCEPTED these (a fail-OPEN superset).  Digits: '0'=48 '1'=49 '2'=50
+   '4'=52 '5'=53 '9'=57 'a'=97 'c'=99.  Each byte built explicitly with [ch] (no literal dquote/backslash). *)
+Example lex_hex_printable_A : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                                 (String (ch 52) (String (ch 49) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 41 = 65 = printable 'A' — printer emits it RAW *)
+Example lex_hex_printable_space : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                                     (String (ch 50) (String (ch 48) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 20 = 32 = printable space — printer emits it RAW *)
+Example lex_hex_dquote : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                            (String (ch 50) (String (ch 50) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 22 = 34 = the dquote — printer emits the NAMED escape *)
+Example lex_hex_backslash : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                               (String (ch 53) (String (ch 99) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 5c = 92 = the backslash — printer emits the NAMED escape *)
+Example lex_hex_tab : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                         (String (ch 48) (String (ch 57) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 09 = 9 = tab — printer emits the NAMED escape *)
+Example lex_hex_newline : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                             (String (ch 48) (String (ch 97) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* hex 0a = 10 = newline — printer emits the NAMED escape *)
 (* POSITIVE companion: a WELL-FORMED literal still tokenizes to its single [TStr] (the round-trip side; the
    fully-general statement is [gtokens_lex] at [EStr], proved below for EVERY [s]). *)
 Example lex_str_pos : lex (print_string_lit "hi") = Some (TStr "hi" :: nil).
@@ -5038,6 +5247,7 @@ Qed.
     Keep this list in sync with the headline results below. *)
 Print Assumptions print_ty_inj.
 Print Assumptions esc_string_roundtrip_opt.
+Print Assumptions unescape_opt_image.
 Print Assumptions print_parse_Z.
 Print Assumptions print_parse_hex.
 Print Assumptions print_parse_float_hex.
