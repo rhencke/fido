@@ -119,22 +119,23 @@ The correctness of an *emitted* program rests on, and only on:
    extraction — the mechanism that produces `printer.ml`; NOT `go.ml` lowering).
 3. The **Go compiler / runtime / toolchain**.
 4. **Trusted foreign Go imports** and monitored boundary assumptions.
-5. An **adequacy assumption connecting `GoSem` to actual Go behavior** ("real Go realizes `GoSem`") — the
-   heir to the old "gap #10," unfalsifiable inside Rocq, named in the honesty ledger, never assumed silently.
+5. **The trusted, unverified plugin `plugin/go.ml`** — TODAY's main output (`main.go`) is lowered by it, and
+   no theorem relates its output to the source term (**gap #10**). This is the current adequacy gap and is in
+   the TCB until the certified path subsumes it.
 
-Today the main output is still produced by the **trusted legacy plugin** `plugin/go.ml` (gap #10) — itself
-part of the TCB until the certified path subsumes it. `GoPrint` proves the bytes; items 3 and 5 are why this
-is "Go with proofs," not "Go without trust."
+`GoPrint` proves the bytes; items 3 and 5 are why this is "Go with proofs," not "Go without trust." FUTURE
+(not today's TCB): once emission goes through a GoSem-backed certificate, item 5's plugin is replaced by an
+**adequacy assumption connecting `GoSem` to actual Go behavior** ("real Go realizes `GoSem`") — gap #10's
+heir, unfalsifiable inside Rocq, to be named in the honesty ledger. GoSem does not exist yet, so that
+assumption is **not** part of the current trust base.
 
 ---
 
 ## 3. Why this course correction exists
 
 The previous architecture lowered arbitrary Rocq-ish code through a trusted OCaml plugin into Go text — fast
-demos, repeated trust-boundary problems. The `SRaw` raw-expression-string escape hatch is the cautionary
-tale: added "for convenience," it grew helpers/validators/scanner/parser/tests around it, looking ever more
-formal while preserving the wrong abstraction. See `LESSONS.md` for the postmortem. The rule that prevents
-recurrence:
+demos, repeated trust-boundary problems, and a raw-string escape hatch that grew an ecosystem around the
+wrong abstraction (see `LESSONS.md` for the postmortem). The rule that prevents recurrence:
 
 ```text
 If a construct is syntax, represent it structurally.
@@ -174,7 +175,7 @@ integration until the AST-first emission path is established.
 
 ```text
 Phase 0  Freeze the direction.                                                              DONE
-Phase 1  Extract the Front seed into GoAst/GoPrint (rename, not copy; no second universe).   DONE
+Phase 1  Extract the printer/parser seed into GoAst/GoPrint (rename, not copy; no 2nd universe). DONE
 Phase 2  Create GoSafe (SupportedProgram) + GoEmit (EmittableProgram; no raw emit).          DONE
 Phase 3  main.v builds GoAst.Program and emits ONLY through the certificate.                 DONE
 Phase 4  Grow the AST/printer form-by-form (each: represented, printed, round-tripped/       DONE (for now)
@@ -214,7 +215,7 @@ old-architecture-term greps, dead-helper counts. A patch that only adds scaffold
 
 **Rule 7 — Review archaeology belongs in `LESSONS.md`.** Active comments explain invariants, not the social
 history of a bug. Good: "Identifier-led `T(x)` is syntactic application; call-vs-conversion is semantic." Bad:
-"Review #9 amendment 3 forced this after SRaw...".
+naming a past review round / a deleted experiment as the reason a line exists.
 
 ---
 
@@ -257,9 +258,9 @@ definitions, not by grep.
 ## 10. What not to do
 
 Do not grow a second expression/semantic universe beside the spine. Do not wire the old plugin printer into
-`GoEmit`. Do not use the parser to rescue legacy old-printer strings. Do not revive `SRaw`. Do not make
-`SupportedProgram`/`BehaviorSafe` an axiom. Do not create a convenient unsafe `emit` and promise nobody will
-use it. Do not claim "safe Go" for any program that did not pass through the behavioral certificate.
+`GoEmit`. Do not use the parser to rescue legacy old-printer strings, or revive a raw-string hatch (Rule 1).
+Do not make `SupportedProgram`/`BehaviorSafe` an axiom. Do not create a convenient unsafe `emit` and promise
+nobody will use it. Do not claim "safe Go" for any program that did not pass through the behavioral certificate.
 
 ---
 

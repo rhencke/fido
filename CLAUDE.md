@@ -30,8 +30,10 @@ emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO
 `emit : Program -> string`). The clean printer/parser work + `ConvTy` groundwork ARE now `GoAst` + `GoPrint`
 (the split landed in spine commit 1; do not reintroduce a parallel syntax universe); `plugin/go.ml` is trusted/transitional and is NOT grown;
 `relooper.v` is demoted. **Naming is a correctness claim** — never call a syntactic gate `SafeProgram`.
-Residual TCB (named, not implicit): Rocq kernel · the string→`.go` extraction step · the Go toolchain ·
-trusted foreign imports · the `GoSem`≈real-Go adequacy assumption (heir to gap #10).
+Residual TCB TODAY (named, not implicit): Rocq kernel · the string→`.go` extraction step · the Go toolchain ·
+trusted foreign imports · **the trusted, unverified plugin `plugin/go.ml`** that lowers `main.go` (gap #10 —
+the current adequacy gap). FUTURE (NOT today's TCB, since GoSem does not exist): once emission goes through a
+GoSem-backed certificate, the plugin is replaced by a `GoSem`≈real-Go adequacy assumption (gap #10's heir).
 
 ## Rules that shape every change
 
@@ -43,10 +45,8 @@ trusted foreign imports · the `GoSem`≈real-Go adequacy assumption (heir to ga
    it can't lower correctly — the meta-invariant. The only acceptable deviations
    are principled and bounded (a deliberate safety guarantee) — and documented as such.
    ⚠️ **NEVER add a raw / opaque / string-rescue escape hatch to a structured AST**
-   (the `SRaw` mistake — five iterations of *narrowing* a raw-string hatch instead of
-   *deleting* it; the "verified printer" it lived in was just a trusted string printer
-   with a validator). Build structured-or-fail-loud; if a construct can't be represented
-   structurally yet, REJECT it mechanically, never preserve it as text. Read **`LESSONS.md`**.
+   (see the `LESSONS.md` postmortem). Build structured-or-fail-loud; if a construct
+   can't be represented structurally yet, REJECT it mechanically, never preserve it as text.
 3. **Zero axioms — the model's trust base is now EMPTY; preserve it.** The whole IO /
    heap / channel / session AND numeric (int/float) model is `Definition`s / `Record`s
    over concrete Rocq data (`Z` for integers, `SpecFloat.spec_float` for IEEE-754
