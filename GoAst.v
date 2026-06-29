@@ -170,9 +170,10 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
     is currently REJECTED by [stmt_ok] precisely because the only function we emit, [main], is void).  Grows
     (assignment / var / if / for / …) further. *)
 Inductive GoStmt : Type :=
-  | GsExprStmt  : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
-  | GsReturn    : GoStmt            (* a bare [return] (no value) — valid as the tail of a void func like main *)
-  | GsReturnVal : GExpr -> GoStmt.  (* a value return [return e] — valid only in a NON-void function (not main) *)
+  | GsExprStmt    : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
+  | GsReturn      : GoStmt            (* a bare [return] (no value) — valid as the tail of a void func like main *)
+  | GsReturnVal   : GExpr -> GoStmt   (* a value return [return e] — valid only in a NON-void function (not main) *)
+  | GsBlankAssign : GExpr -> GoStmt.  (* a blank assignment [_ = e] — discards a VALUE (valid anywhere [e] is a value) *)
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured

@@ -76,9 +76,10 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
     NON-void functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.) *)
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with
-  | GsExprStmt e  => expr_stmt_ok e
-  | GsReturn      => true
-  | GsReturnVal _ => false   (* value return is invalid in the void [main] — the only function emitted today *)
+  | GsExprStmt e    => expr_stmt_ok e
+  | GsReturn        => true
+  | GsReturnVal _   => false   (* value return is invalid in the void [main] — the only function emitted today *)
+  | GsBlankAssign e => svalue e  (* [_ = e] is valid iff [e] PRODUCES a value — so [_ = println(1)] (void) is rejected *)
   end.
 
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
@@ -221,6 +222,22 @@ Definition supported_bare_return : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsReturn].
 Example bare_return_supported : SupportedProgram supported_bare_return.
 Proof. reflexivity. Qed.
+
+(** GROWTH (Phase 4, [GsBlankAssign]) — the blank assignment `func main(){ _ = 1 }` is a valid statement
+    (discards the value [1]) and IS supported — the FIRST supported statement that is neither a call nor a
+    return.  Its operand must PRODUCE a value ([svalue]): `func main(){ _ = println(1) }` is invalid Go
+    ("println(1) (no value) used as value"), and [svalue (println 1) = false] (only a CONVERSION is a value
+    application), so it is NOT supported.  Pins both. *)
+Definition supported_blank_assign : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EInt 1)].
+Example blank_assign_supported : SupportedProgram supported_blank_assign.
+Proof. reflexivity. Qed.
+Definition unsupported_blank_void : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])].
+Example blank_void_unsupported : supported_program unsupported_blank_void = false.
+Proof. reflexivity. Qed.
+Fail Example blank_void_supported : SupportedProgram unsupported_blank_void := eq_refl.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder

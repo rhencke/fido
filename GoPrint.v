@@ -3536,9 +3536,10 @@ Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=
   match s with
-  | GsExprStmt e  => gprint 0 e
-  | GsReturn      => "return"
-  | GsReturnVal e => ("return " ++ gprint 0 e)%string
+  | GsExprStmt e    => gprint 0 e
+  | GsReturn        => "return"
+  | GsReturnVal e   => ("return " ++ gprint 0 e)%string
+  | GsBlankAssign e => ("_ = " ++ gprint 0 e)%string
   end.
 Fixpoint print_stmts (ss : list GoStmt) : string :=
   match ss with
@@ -3597,23 +3598,49 @@ Proof.
   rewrite parse_str_return_gprint in R. discriminate R.
 Qed.
 
+(** A printed [_ = e] (the [GsBlankAssign] text "_ = " ++ X) does NOT parse back: a LONE '=' fails to lex
+    ([lex_op] yields [None] unless the next char is '=', GoPrint.v:692), so [lex ("_ = " ++ X) = None] and
+    thus [parse_str ("_ = " ++ X) = None] outright (cleaner than the [TReturn] case, which lexes then the
+    PARSER rejects).  Hence no [gprint] output equals "_ = " ++ gprint 0 e — the [GsExprStmt] / [GsBlankAssign]
+    disjointness.  (The whole reject is decided by the fixed "_ = " prefix, so [vm_compute] closes it for any
+    tail [X].) *)
+Lemma parse_str_blank_None : forall X, parse_str ("_ = " ++ X)%string = None.
+Proof. intro X. vm_compute. reflexivity. Qed.
+Lemma gprint_neq_blank : forall e1 e2, gprint 0 e2 <> ("_ = " ++ gprint 0 e1)%string.
+Proof.
+  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
+  rewrite parse_str_blank_None in R. discriminate R.
+Qed.
+
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  Expression statements lift from [gprint_inj]; [GsExprStmt] vs [GsReturn] is
-    closed by [gprint_neq_return], and [GsExprStmt] vs [GsReturnVal] (and [GsReturnVal] vs each) by
-    [gprint_neq_return_val] / [sapp_inv_head].  (The list-level / whole-[print_program] lift — via a "gprint
-    emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
+    print to distinct text.  A 4-constructor (16-case) proof: expression statements lift from [gprint_inj];
+    the [GsExprStmt] cross cases close by [gprint_neq_return] / [gprint_neq_return_val] / [gprint_neq_blank];
+    the keyword/prefix-vs-keyword/prefix cases by string [discriminate] (distinct leading bytes) or
+    [sapp_inv_head] (a shared "return " / "_ = " prefix is injective).  (The list-level / whole-[print_program]
+    lift — via a "gprint emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof.
-  intros [e1| |r1] [e2| |r2] H; simpl in H.
+  intros [e1| |r1|b1] [e2| |r2|b2] H; simpl in H.
+  (* s1 = GsExprStmt e1 *)
   - f_equal. exact (gprint_inj e1 e2 H).
   - exfalso. exact (gprint_neq_return e1 H).
   - exfalso. exact (gprint_neq_return_val r2 e1 H).
+  - exfalso. exact (gprint_neq_blank b2 e1 H).
+  (* s1 = GsReturn *)
   - exfalso. symmetry in H. exact (gprint_neq_return e2 H).
   - reflexivity.
   - exfalso. cbn in H. discriminate H.
+  - exfalso. cbn in H. discriminate H.
+  (* s1 = GsReturnVal r1 *)
   - exfalso. symmetry in H. exact (gprint_neq_return_val r1 e2 H).
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "return ") in H. exact (gprint_inj r1 r2 H).
+  - exfalso. cbn in H. discriminate H.
+  (* s1 = GsBlankAssign b1 *)
+  - exfalso. symmetry in H. exact (gprint_neq_blank b1 e2 H).
+  - exfalso. symmetry in H. cbn in H. discriminate H.
+  - exfalso. symmetry in H. cbn in H. discriminate H.
+  - f_equal. apply (sapp_inv_head "_ = ") in H. exact (gprint_inj b1 b2 H).
 Qed.
 
 (** ============================================================================
@@ -3765,9 +3792,10 @@ Proof.
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
 Proof.
-  intros [e| |r]; cbn [print_stmt].
+  intros [e| |r|b]; cbn [print_stmt].
   - apply no_nl_gprint.
   - no_nl_lit.
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
 Qed.
 
