@@ -37,13 +37,15 @@ Open Scope string_scope.
     into a runtime category ([PtRunInt]/[PtRunFloat]) while dropping the value: constantness is PRESERVED
     through every conversion/binop, or the form is REJECTED.  (Conversions of a runtime operand DO yield a
     runtime category — but there was never a value to drop.)
-    ★INVARIANT — for a CLOSED expression (no [EId]), [ptype] never returns [Some _] for a form Go's type
-    checker rejects: it is MAXIMALLY CONSERVATIVE, rejecting much VALID Go too (any conversion of a KNOWN
-    aggregate, [string] of a typed int, const+typed when not representable, nested-aggregate elements,
-    float-CONSTANT arithmetic, an untyped const whose default-[int] value overflows), which is the correct
-    posture — a smaller SOUND supported subset.  The deferral of [PtUnk] is the ONLY admission of an unproven
-    form, and it fires only where the operand is an actual deferred identifier.  (A full typed/scoped check is
-    GoSem.) *)
+    ★POSTURE (NOT a proven completeness theorem — there is no [ptype]-vs-Go-typechecker proof; that is GoSem):
+    [ptype] is a MAXIMALLY-CONSERVATIVE BEST-EFFORT checker — it aims to reject EVERY closed form Go's type
+    checker rejects, and it deliberately rejects much VALID Go too (any conversion of a KNOWN aggregate,
+    [string] of a typed int, const+typed when not representable, nested-aggregate elements, float-CONSTANT
+    arithmetic, platform-[uint] complement, an untyped const whose default-[int] value overflows, a
+    not-exactly-representable const->float), which is the correct posture — a smaller subset that is sound on
+    the classes covered.  The covered closed-invalid classes are PINNED by the regressions below (each new
+    class Codex finds is added there).  The deferral of [PtUnk] is the only admission of an unproven form, and
+    it fires only where the operand is a genuinely-deferred identifier. *)
 Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
@@ -94,9 +96,20 @@ Definition int_ty_range (t : GoTy) : option (Z * Z) :=
   end.
 Definition int_const_repr (z : Z) (t : GoTy) : bool :=
   match int_ty_range t with Some (lo, hi) => andb (Z.leb lo z) (Z.leb z hi) | None => false end.
-(** an int constant is representable as a FLOAT (conservatively) iff it fits in int64 — far inside the finite
-    float64/float32 range, so the const->float conversion never overflows.  (Larger constants are rejected.) *)
-Definition int_repr_as_float (z : Z) : bool := int_const_repr z GTInt64.
+(** An int constant [z] is EXACTLY representable as a constant of float type [t] iff it lies within the float's
+    EXACT-INTEGER range — [|z| <= 2^53] for [float64], [|z| <= 2^24] for [float32] (the mantissa width).  BEYOND
+    it Go ROUNDS to nearest-even, so [z] is NO LONGER the true value and a later float->int range-check on [z]
+    would be UNSOUND (e.g. [float64(9223372036854775807)] rounds UP to 2^63, so [int64(float64(maxint64))]
+    overflows).  Outside the exact range we REJECT the const->float conversion (conservative — we do not model
+    the rounded value), which is what keeps the carried [z] an EXACT float-constant value. *)
+Definition float_exact_max (t : GoTy) : option Z :=
+  match t with
+  | GTFloat64 => Some 9007199254740992%Z    (* 2^53 *)
+  | GTFloat32 => Some 16777216%Z            (* 2^24 *)
+  | _ => None
+  end.
+Definition int_repr_as_float (t : GoTy) (z : Z) : bool :=
+  match float_exact_max t with Some m => andb (Z.leb (Z.opp m) z) (Z.leb z m) | None => false end.
 
 (** ---- numeric CATEGORY predicates ---- *)
 Definition is_int_cat   (c : PTy) : bool :=
@@ -179,16 +192,21 @@ Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
   | PtRunFloat t1, PtRunFloat t2 => if numty_eqb t1 t2 then Some (PtRunFloat t1) else None
   (* runtime float + untyped int const (repr-as-float): runtime float of that type *)
   | PtRunFloat t, PtIntConst z | PtIntConst z, PtRunFloat t =>
-      if int_repr_as_float z then Some (PtRunFloat t) else None
+      if int_repr_as_float t z then Some (PtRunFloat t) else None
   (* any FLOAT CONSTANT operand, or any other mix (bool/str/agg) -> REJECT *)
   | _, _ => None
   end.
 
-(** A divisor / shift-count that is a CONSTANT (untyped OR typed) ZERO / NEGATIVE — the constant rules apply
-    transitively, so [int(0)] (a typed const 0) and [int(-1)] (a typed const -1) count exactly like [0] / [-1].
-    A FLOAT const / runtime / deferred operand is NOT a constant zero here (runtime div-by-zero is a panic, not
-    a compile error — GoSem's concern; a float divisor zero is +Inf). *)
-Definition is_zero_const (c : PTy) : bool := match int_const_val c with Some z => Z.eqb z 0 | None => false end.
+(** A divisor that is a CONSTANT (untyped int, typed int, OR typed FLOAT) ZERO — the constant rules apply
+    transitively, so [int(0)] (a typed const 0) and [float64(0)] (a typed float const 0) BOTH count like [0]:
+    Go rejects constant division by zero for floats too ("division by zero").  A RUNTIME / deferred divisor is
+    NOT a constant zero (runtime div-by-zero is a panic, not a compile error — GoSem's concern).  [is_neg_const]
+    (shift counts) stays INT-only — shifts gate out floats before reaching it. *)
+Definition is_zero_const (c : PTy) : bool :=
+  match c with
+  | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z => Z.eqb z 0   (* incl. a typed FLOAT zero [float64(0)] *)
+  | _ => false
+  end.
 Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z => Z.ltb z 0 | None => false end.
 
 (** THE NUMERIC BINOP TYPE-CHECKER — single authority for [* / % << >> & &^ + - | ^].  Enforces, structurally:
@@ -269,9 +287,10 @@ Definition ord_comparable (cl cr : PTy) : bool :=
     - a NUMERIC target with a CONSTANT source ([PtIntConst]/[PtTIntConst]/[PtFloatConst]) yields a TYPED
       CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
       T z], to a float type -> [PtFloatConst T z]).  This rejects [uint8(300)], [uint8(int(300))],
-      [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because [PtFloatConst]
-      carries the exact INTEGER it was built from (we only ever build a float const from an int const), so the
-      range-check is exact;
+      [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because a [PtFloatConst]
+      is BUILT only when the source integer is within the float's EXACT-integer range ([int_repr_as_float] —
+      [|z|<=2^53]/[2^24]; a larger constant is REJECTED at the const->float step, never carried as a rounded
+      lie), so its carried [z] is the true value and the later int range-check is exact;
     - a NUMERIC target with a RUNTIME / deferred source ([PtRunInt]/[PtRunFloat]/[PtUnk]) yields a RUNTIME
       value (runtime conversions truncate/round and are valid — NO representability constraint), so [int(x)],
       [uint8(int(x))] stay admitted;
@@ -288,8 +307,8 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
       end
   | GTFloat64 | GTFloat32 =>
       match ca with
-      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const *)
-          if int_repr_as_float z then Some (PtFloatConst t z) else None
+      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const (EXACT only) *)
+          if int_repr_as_float t z then Some (PtFloatConst t z) else None
       | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunFloat t)  (* RUNTIME source -> runtime float *)
       | _ => None
       end
@@ -314,7 +333,7 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtUnk => true
   | PtIntConst z =>
       if is_int_goty t then int_const_repr z t
-      else if is_float_goty t then int_repr_as_float z
+      else if is_float_goty t then int_repr_as_float t z
       else false
   | PtTIntConst t' _ | PtRunInt t' => if is_int_goty t then numty_eqb t' t else false
   | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
@@ -359,7 +378,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                     | PtUnk => Some PtUnk | _ => None end
           | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)
                     | PtIntConst z => Some (PtIntConst (Z.lnot z))
-                    | PtTIntConst t z =>                       (* width/signedness-aware: ^uint8(0) = 255 *)
+                    | PtTIntConst GTUint _ => None             (* ^uint(z) = 2^w-1-z is PLATFORM-WIDTH-dependent -> REJECT
+                                                                 (folding it to one width is unsound: uint32(^uint(0))
+                                                                 is 2^32-1 on 32-bit Go but 2^64-1 on 64-bit) *)
+                    | PtTIntConst t z =>                       (* fixed-width / signed: EXACT ([^uint8(0)]=255, [^int(0)]=-1) *)
                         let r := complement_in t z in if int_const_repr r t then Some (PtTIntConst t r) else None
                     | PtRunInt t => Some (PtRunInt t)
                     | PtUnk => Some PtUnk | _ => None end
@@ -812,6 +834,41 @@ Proof. reflexivity. Qed.
 Example ok_int8_add_inrange : SupportedProgram (pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 20)))).
 Proof. reflexivity. Qed.
 Example ok_println_int_max : SupportedProgram (pl_arg (EInt 2147483647)).
+Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    REGRESSION — FLOAT-CONSTANT ROUNDING + PLATFORM-WIDTH COMPLEMENT (the constant rep must not LIE).
+    (1) A float CONSTANT [float64(n)] is only EXACT for [|n| <= 2^53] (float32: 2^24); beyond that Go ROUNDS
+    to nearest-even, so a carried integer [n] is no longer the true value.  [int64(float64(9223372036854775807))]
+    is INVALID Go — the float64 rounds UP to 2^63, which overflows [int64] — and likewise [int32(float32(maxint32))];
+    the gate now REJECTS the out-of-exact-range const->float conversion.  (2) A typed FLOAT-constant ZERO
+    [float64(0)] is a constant-zero divisor (Go rejects constant float division by zero), so [_ = x / float64(0)]
+    is REJECTED — not deferred through [PtUnk].  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
+    to one width is unsound: [uint32(^uint(0))] is in range on 32-bit Go but NOT 64-bit — the gate REJECTS
+    platform-`uint` complement.  All [false].  PRESERVED positives: [uint8(float64(255))] (255 is EXACT and in
+    range) and the FIXED-WIDTH [uint8(^uint8(0))] (= 255, width is fixed → exact). *)
+Example bad_i64_of_f64max :
+  supported_program (pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))) = false.
+Proof. reflexivity. Qed.
+Example bad_i32_of_f32max :
+  supported_program (pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))) = false.
+Proof. reflexivity. Qed.
+Example bad_div_float_zero :
+  supported_program (gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))) = false.
+Proof. reflexivity. Qed.
+Example bad_uint32_of_compl_uint :
+  supported_program (pl_arg (ECall (EId (mkIdent "uint32" eq_refl))
+                                   [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])) = false.
+Proof. reflexivity. Qed.
+Fail Example bad_i64_of_f64max_forge :
+  SupportedProgram (pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))) := eq_refl.
+Fail Example bad_uint32_of_compl_uint_forge :
+  SupportedProgram (pl_arg (ECall (EId (mkIdent "uint32" eq_refl))
+                                  [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])) := eq_refl.
+Example ok_uint8_of_float255_exact : SupportedProgram (pl_arg (gs_u8 (gs_f64 (EInt 255)))).
+Proof. reflexivity. Qed.
+Example ok_uint8_compl_uint8 :
+  SupportedProgram (pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))).
 Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
