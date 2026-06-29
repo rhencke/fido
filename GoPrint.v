@@ -298,14 +298,12 @@ Proof. intros n H. unfold ch. apply Ascii.nat_ascii_embedding. exact H. Qed.
 Lemma ch_nat : forall c, ch (nat_of_ascii c) = c.
 Proof. intro c. unfold ch. apply Ascii.ascii_nat_embedding. Qed.
 
-(** Inverse of [hexdig] on a single hex nibble.  Decodes ALL three hex-digit spellings — [0-9] (48-57),
-    [A-F] (65-70), [a-f] (97-102) — so it is a faithful inverse for every byte [is_hex] accepts (Go allows
-    upper- or lower-case in a [\x] escape).  [hexdig] itself only ever EMITS the lower-case form, so the
-    [unhex_hexdig] round-trip exercises just the digit / lower-case branches. *)
+(** Inverse of [hexdig] on a single hex nibble.  Decodes the LOWER-CASE spellings only — [0-9] (48-57) and
+    [a-f] (97-102) — exactly the bytes [is_hex] accepts; [hexdig] emits only this lower-case form (and
+    [esc_string] only emits via [hexdig]), so this is its faithful inverse over the printer image. *)
 Definition unhex (c : ascii) : nat :=
   let v := nat_of_ascii c in
   if Nat.leb v 57 then v - 48          (* '0'-'9' *)
-  else if Nat.leb v 70 then v - 55     (* 'A'-'F' *)
   else v - 87.                         (* 'a'-'f' *)
 Lemma unhex_hexdig : forall k, k < 16 -> unhex (hexdig k) = k.
 Proof.
@@ -313,18 +311,17 @@ Proof.
   - apply Nat.ltb_lt in E. rewrite Ascii.nat_ascii_embedding by lia.
     destruct (Nat.leb (48 + k) 57) eqn:E2; [ lia | apply Nat.leb_gt in E2; lia ].
   - apply Nat.ltb_ge in E. rewrite Ascii.nat_ascii_embedding by lia.
-    destruct (Nat.leb (87 + k) 57) eqn:E2; [ apply Nat.leb_le in E2; lia | ].
-    destruct (Nat.leb (87 + k) 70) eqn:E3; [ apply Nat.leb_le in E3; lia | lia ].
+    destruct (Nat.leb (87 + k) 57) eqn:E2; [ apply Nat.leb_le in E2; lia | lia ].
 Qed.
 
-(** A hex digit: [0-9] / [a-f] / [A-F].  Used by the VALIDATING decoder [unescape_opt] to REJECT a [\x]
-    escape whose two characters are not both hex (a non-hex [\x] is malformed Go and must fail to lex, not
-    decode to a wrong byte).  [unhex] above inverts every byte this accepts. *)
+(** A hex digit: [0-9] / [a-f] — LOWER-CASE only, since [esc_string] emits only lower-case [\x] escapes.
+    Used by the VALIDATING decoder [unescape_opt] to REJECT a [\x] escape whose two characters are not both
+    hex (a non-hex — or upper-case — [\x] is not part of the printer image and must fail to lex, not decode to
+    a byte the printer would never have emitted).  [unhex] above inverts every byte this accepts. *)
 Definition is_hex (c : ascii) : bool :=
   let v := nat_of_ascii c in
   orb (andb (Nat.leb 48 v) (Nat.leb v 57))            (* '0'-'9' *)
-      (orb (andb (Nat.leb 97 v) (Nat.leb v 102))      (* 'a'-'f' *)
-           (andb (Nat.leb 65 v) (Nat.leb v 70))).     (* 'A'-'F' *)
+      (andb (Nat.leb 97 v) (Nat.leb v 102)).          (* 'a'-'f' *)
 Lemma is_hex_hexdig : forall k, k < 16 -> is_hex (hexdig k) = true.
 Proof.
   intros k H. unfold is_hex, hexdig. destruct (Nat.ltb k 10) eqn:E.
@@ -332,19 +329,22 @@ Proof.
     apply Bool.orb_true_iff; left. apply Bool.andb_true_iff.
     split; apply Nat.leb_le; lia.
   - apply Nat.ltb_ge in E. rewrite Ascii.nat_ascii_embedding by lia.
-    apply Bool.orb_true_iff; right. apply Bool.orb_true_iff; left.
+    apply Bool.orb_true_iff; right.
     apply Bool.andb_true_iff. split; apply Nat.leb_le; lia.
 Qed.
 
-(** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Returns [option string] — [None] for any spelling
-    that [esc_byte] could never have produced, so the lexer (which threads this [option]) REJECTS malformed Go
-    string syntax at tokenization instead of normalizing it into a wrong value.  A backslash (92) introduces an
-    escape; it must be one of the accepted forms — the escaped dquote, the escaped backslash, [\n] [\t] [\r], or
-    [\xHH] (two hex digits) — else [None]: a TRUNCATED escape (a backslash at end of body), an UNKNOWN escape
-    (any other byte after a backslash), a [\x] with fewer than two following chars, or a [\x] whose two chars are
-    not both [is_hex] all give [None].  A non-escape
-    byte is itself UNLESS it is a raw newline (10), which Go forbids inside an interpreted literal (also [None]).
-    Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old total [unescape] is gone). *)
+(** The VALIDATING decoder: reverse [esc_byte], FAIL-CLOSED.  Returns [option string] and accepts EXACTLY the
+    PRINTER IMAGE — the byte set [esc_string] can emit — and nothing else (accepted == emitted); it is [None]
+    on every other spelling, so the lexer (which threads this [option]) REJECTS non-printer-image string syntax
+    at tokenization instead of normalizing it into a value.  The accepted alphabet is precisely: the five named
+    escapes (the escaped dquote, the escaped backslash, [\n] [\t] [\r]), a [\xHH] escape whose two digits are
+    both [is_hex] (LOWER-CASE hex), and a RAW body byte in [32,126] minus the dquote (34) and the backslash (92).
+    Everything else is [None]: a TRUNCATED escape (a backslash at end of body), an UNKNOWN escape (any other byte
+    after a backslash), a [\x] with fewer than two following chars or whose two chars are not both [is_hex] (so an
+    UPPER-CASE [\xAF] is rejected — [esc_string] emits only lower-case), and a RAW byte outside [32,126] minus
+    {34,92} (a raw tab/CR/control/high byte/newline — each of which [esc_byte] would have ESCAPED, so a raw one is
+    not in the image).  Structural on sub-terms of [s] (so no fuel needed); ONE decode authority (the old total
+    [unescape] is gone). *)
 Fixpoint unescape_opt (s : string) : option string :=
   match s with
   | EmptyString => Some EmptyString
@@ -369,8 +369,10 @@ Fixpoint unescape_opt (s : string) : option string :=
               end
             else None                                          (* unknown escape *)
         end
-      else if Nat.eqb (nat_of_ascii c1) 10 then None           (* raw newline forbidden in an interpreted literal *)
-      else option_map (String c1) (unescape_opt rest)
+      else if andb (andb (Nat.leb 32 (nat_of_ascii c1)) (Nat.ltb (nat_of_ascii c1) 127))
+                   (negb (Nat.eqb (nat_of_ascii c1) 34))
+           then option_map (String c1) (unescape_opt rest)      (* raw body byte: printable [32,126], not a dquote (backslash handled above) *)
+           else None                                            (* outside the printer image: tab/CR/control/high/newline/raw dquote *)
   end.
 
 (* Keep [ch]/[nat_of_ascii]/[unhex]/[hexdig]/[is_hex]/[option_map] opaque so [cbn] reduces only the [Nat.eqb]
@@ -403,9 +405,9 @@ Proof.
     cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 114) by lia. cbn.
     rewrite <- E13, ch_nat. reflexivity. }
   destruct (andb (Nat.leb 32 (nat_of_ascii c)) (Nat.ltb (nat_of_ascii c) 127)) eqn:Eprint.
-  { (* printable byte: emitted as-is, decoded as-is (not a backslash by E92, not a newline by E10) *)
+  { (* printable byte: emitted as-is, decoded as-is — not a backslash (E92), printable (Eprint), not a dquote (E34) *)
     cbn [unescape_opt]. rewrite (nat_of_ch (nat_of_ascii c)) by exact Hc.
-    rewrite E92. cbn. rewrite E10. cbn. rewrite ch_nat. reflexivity. }
+    rewrite E92, Eprint, E34, ch_nat. cbn [andb negb]. reflexivity. }
   { (* hex escape: \xHL with H = b/16, L = b mod 16; both nibbles are [is_hex], and 16*H + L = b *)
     cbn [unescape_opt]. rewrite (nat_of_ch 92) by lia. cbn. rewrite (nat_of_ch 120) by lia. cbn.
     rewrite (is_hex_hexdig (Nat.div (nat_of_ascii c) 16)) by (apply Nat.Div0.div_lt_upper_bound; lia).
@@ -422,7 +424,8 @@ Local Transparent ch nat_of_ascii unhex hexdig is_hex option_map Nat.div Nat.mod
 (** ★ THE STRING-LITERAL ROUND-TRIP — the (now VALIDATING) decoder recovers EXACTLY what [esc_string] emits, so
     [print_string_lit] denotes precisely its argument and the lexer's [TStr] is faithful.  Crucially the option
     decoder ACCEPTS every byte [esc_string] can produce (the proof of [unescape_opt_esc_byte] discharges the
-    [is_hex]/newline guards on those bytes), so adding the fail-closed rejection cost the round-trip nothing. *)
+    [is_hex]/printable-range guards on those bytes), so tightening the decoder to accept EXACTLY the printer image
+    (accepted == emitted) cost the round-trip nothing. *)
 Theorem esc_string_roundtrip_opt : forall s, unescape_opt (esc_string s) = Some s.
 Proof.
   induction s as [ | c rest IH ]; [ reflexivity | ].
@@ -493,7 +496,7 @@ Lemma scan_quote_bsl : forall c2 rest2,
 Proof. intros c2 rest2. cbn [scan_quote]. rewrite (nat_of_ch 92) by lia. reflexivity. Qed.
 
 (** [scan_quote] walks through ONE escaped byte exactly as it walks through its decoded source: it prepends
-    [esc_byte (nat_of_ascii c)] to whatever the rest yields.  (The per-byte analogue of [unescape_esc_byte].) *)
+    [esc_byte (nat_of_ascii c)] to whatever the rest yields.  (The per-byte analogue of [unescape_opt_esc_byte].) *)
 Lemma scan_quote_esc_byte : forall c X,
   scan_quote (esc_byte (nat_of_ascii c) X)
   = match scan_quote X with Some (body, r) => Some (esc_byte (nat_of_ascii c) body, r) | None => None end.
@@ -1016,11 +1019,12 @@ Example lex_cmp  : lex "a <= b && c"
   = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
 Proof. vm_compute; reflexivity. Qed.
 
-(** ---- STRING-LEXER FAIL-CLOSED REGRESSIONS ---- a MALFORMED interpreted-string literal must be REJECTED at
-    tokenization ([lex = None]), NOT lossily normalized into a [TStr] (the Codex review fail-open).  Inputs are
-    built byte-explicitly with [ch]: [ch 34] = the dquote, [ch 92] = the backslash, [ch 10] = newline.  Four
-    malformed spellings — an UNKNOWN escape, a NON-HEX hex escape, a TRUNCATED hex escape (one hex digit before
-    the close), and a RAW NEWLINE in the body — each make [lex] (hence [parse_str]) return [None]. *)
+(** ---- STRING-LEXER FAIL-CLOSED REGRESSIONS ---- a spelling NOT in the printer image (a malformed escape, or a
+    raw byte [esc_byte] would have escaped) must be REJECTED at tokenization ([lex = None]), NOT lossily normalized
+    into a [TStr] (the Codex review fail-open).  Inputs are built byte-explicitly with [ch]: [ch 34] = the dquote,
+    [ch 92] = the backslash, [ch 10] = newline, [ch 9] = tab.  Six rejected spellings — an UNKNOWN escape, a NON-HEX
+    hex escape, an UPPER-CASE hex escape (the printer emits only lower-case), a TRUNCATED hex escape (one hex digit
+    before the close), a RAW NEWLINE, and a RAW TAB in the body — each make [lex] (hence [parse_str]) return [None]. *)
 Example lex_bad_escape : lex (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
 Proof. vm_compute; reflexivity. Qed.                              (* "\q"  — 'q' = 113, not an accepted escape *)
 Example lex_bad_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
@@ -1031,6 +1035,11 @@ Example lex_trunc_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
 Proof. vm_compute; reflexivity. Qed.                              (* "\x1" — only one hex digit before the close *)
 Example lex_raw_newline : lex (String (ch 34) (String (ch 10) (String (ch 34) ""))) = None.
 Proof. vm_compute; reflexivity. Qed.                              (* a literal newline inside the quotes *)
+Example lex_upper_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
+                            (String (ch 65) (String (ch 70) (String (ch 34) "")))))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* upper-case hex escape; 65=A, 70=F — printer emits only lower-case *)
+Example lex_raw_tab : lex (String (ch 34) (String (ch 9) (String (ch 34) ""))) = None.
+Proof. vm_compute; reflexivity. Qed.                              (* a raw tab byte (9) in the body — the printer escapes it *)
 (* POSITIVE companion: a WELL-FORMED literal still tokenizes to its single [TStr] (the round-trip side; the
    fully-general statement is [gtokens_lex] at [EStr], proved below for EVERY [s]). *)
 Example lex_str_pos : lex (print_string_lit "hi") = Some (TStr "hi" :: nil).
@@ -1073,10 +1082,13 @@ Proof. vm_compute; reflexivity. Qed.
       ConvType = "[]" Type | "chan" Type | "map" "[" Type "]" Type .   -- the [ConvTy] subset (the EConv operand type)
       Elems    = Expr { "," Expr } .             -- positional element list ([parse_elems])
       Pairs    = Expr ":" Expr { "," Expr ":" Expr } . -- keyed key:value list ([parse_map_elems])
-      strlit   = DQUOTE { Escape | rawbyte } DQUOTE .  -- interpreted literal; rawbyte = any byte EXCEPT a newline
+      strlit   = DQUOTE { Escape | rawbyte } DQUOTE .  -- interpreted literal; rawbyte = printable ASCII 0x20..0x7E
+                                                          EXCLUDING the dquote (0x22) and the backslash (0x5C)
       Escape   = BACKSLASH ( DQUOTE | BACKSLASH | n | t | r | x hex hex ) .  -- the EXACT set [esc_string] emits and
-      hex      = digit | a..f | A..F .                 -- [unescape_opt] accepts; any OTHER BACKSLASH-form, or a raw
-                                                          newline byte, FAILS to lex (fail-closed)
+      hex      = digit | a..f .                         -- [unescape_opt] accepts (the lexer accepts EXACTLY the
+                                                           printer image); any OTHER BACKSLASH-form, an UPPER-CASE
+                                                           hex digit, or a raw byte outside that class FAILS to lex
+                                                           (fail-closed)
       InfixOp  = "*" | "/" | "%" | "<<" | ">>" | "&" | "&^"   -- precedence 5
                | "+" | "-" | "|" | "^"                        -- precedence 4
                | "==" | "!=" | "<" | "<=" | ">" | ">="        -- precedence 3

@@ -137,3 +137,22 @@ if [ -n "$stale" ]; then
 fi
 
 echo "fido: doc-exactness / deleted-helper gate OK — honest single-authority float wording, no stale helper names ✓"
+
+# ---- STRING-LITERAL EXACTNESS GATE (Codex stop-review 2026-06-29): [unescape_opt] now accepts EXACTLY the
+# printer image ([esc_string]'s byte set) — accepted == emitted — so the "exact" claim is TRUE.  Forbid in
+# ACTIVE code (a) the DELETED theorem name [unescape_esc_byte] (the live lemma is [unescape_opt_esc_byte];
+# the plain name is NOT a substring of the opt name, so this never matches the live one); and (b) the
+# false-exactness phrasings that described the OLD SUPERSET decoder — "could never have produced" (the old
+# fail-closed framing, which still admitted upper-case hex / raw control bytes) and "any byte except a newline"
+# (the old over-permissive rawbyte class).  Scope: GoPrint.v / GoAst.v / ARCHITECTURE.md / PROGRESS.md.
+estr=$(grep -nE 'unescape_esc_byte|could never have produced|any byte [Ee][Xx][Cc][Ee][Pp][Tt] a newline' \
+  GoPrint.v GoAst.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
+if [ -n "$estr" ]; then
+  echo "fido: STRING-EXACTNESS GATE — a deleted theorem name or a false-exactness phrasing is in active code:"
+  echo "$estr"
+  echo "fido: the live lemma is unescape_opt_esc_byte; unescape_opt accepts EXACTLY the printer image (no superset),"
+  echo "fido: so do not write 'could never have produced' / 'any byte except a newline' — state accepted == emitted."
+  exit 1
+fi
+
+echo "fido: string-exactness gate OK — no deleted theorem name or false-exactness phrasing in active code ✓"
