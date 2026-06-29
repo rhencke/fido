@@ -1852,10 +1852,12 @@ let raw_term tab next =
 
 (* ---- Stage B: the verified [GoPrint] expression printer, wired LIVE ----
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
-   migrated expression class — currently a binary-operator TREE whose leaves are all runtime locals
-   ([MLrel]) — which is then printed by the extracted, machine-checked [Printer.gprint] (see [pp_prec])
-   instead of the trusted [pp_prec] string concatenation.  Any other shape (literal / atom / call operands,
-   func-lits, …) returns [None] and the whole expression falls back to [pp_prec] (Stage B is incremental;
+   migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
+   platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), and the bare unary
+   complement [^x] of a runtime local ([EUn UXor]) — which is then printed by the extracted, machine-checked
+   [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
+   (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
+   to [pp_prec] (Stage B is incremental;
    [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
    [pp_prec] would take its plain branch — i.e. the typed-arith force-wrapper IIFE does NOT fire:
    [arith_force_go_type r = None] OR an operand is already runtime.  (A runtime-local leaf makes this hold;
@@ -1900,6 +1902,18 @@ let rec goexpr_bridge env e =
            (match binop_of r, goexpr_bridge env a, goexpr_bridge env b with
             | Some o, Some la, Some lb -> Some (Printer.EBn (o, la, lb))
             | _ -> None)
+       (* full-width unary complement [i64_not x] / [u64_not x] on a RUNTIME LOCAL -> the bare prefix [^x]
+          = [EUn UXor x].  ONLY the [operand_is_runtime x] case: a typed-CONSTANT operand renders via the
+          force-wrapper IIFE ([func(x int64) int64 { return ^x }(...)]) which this bridge does not reproduce,
+          so it stays on [pp_prec] — exactly the binop bridge's force-wrapper guard.  [gprint] prints a unary
+          over a LEAF atom BARE ([^x], since [GoPrint]'s [unop_needs_paren (EId _) = false]), byte-matching
+          [pp_atom].  (Go's unary [-] / [UNeg] is NOT bridged — [GoPrint] always parenthesises [UNeg] to avoid
+          a [-5] collision — and the masked fixed-width [fw_is r "not"] complement is a binop, not a prefix.) *)
+       | MLglob r, [x]
+         when (is_i64_op r "not" || is_u64_op r "not") && operand_is_runtime x ->
+           (match goexpr_bridge env x with
+            | Some lx -> Some (Printer.EUn (Printer.UXor, lx))
+            | None   -> None)
        | _ -> None)
   | _ -> None
 
