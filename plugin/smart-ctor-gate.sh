@@ -114,19 +114,25 @@ fi
 
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
 
-# ---- DOC-EXACTNESS / DELETED-HELPER GATE (external review 2026-06-29 #8): keep the float-constant predicate
+# ---- DOC-EXACTNESS / DELETED-HELPER GATE (external review 2026-06-29 #8/#9): keep the float-constant predicate
 # described with SINGLE-AUTHORITY honest wording.  [int_in_float_exact_interval] tests the CONTIGUOUS exact
 # interval ([|z|<=2^53]/[2^24]), a CONSERVATIVE SUFFICIENT test — NOT the full set of exactly-representable
-# integers.  Forbid the stale/overclaiming names and the false "exact-integer range" / "only EXACT for"
+# integers.  Forbid (a) the stale/overclaiming names and the false "exact-integer range" / "only EXACT for"
 # wording, plus archaeology of the renamed/deleted helpers ([int_repr_as_float], [float_exact_max],
-# [complement_in]) in ACTIVE files.  (Postmortems belong in LESSONS.md, which is not scanned.)
+# [complement_in]); and (b) the OVERCLAIM that crossing the interval CAUSES rounding — an outside-interval
+# integer MAY be exact OR rounded, so "outside/beyond the interval ... ROUNDS" / "interval Go ROUNDS" is FALSE
+# (the gate rejects outside-interval constants because it does not MODEL the sparse relation, not because they
+# all round).  ACTIVE files only (postmortems belong in LESSONS.md, which is not scanned).
 stale=$(grep -nE 'only EXACT for|EXACT-integer range|exact-integer range|int_repr_as_float|float_exact_max|complement_in' \
   GoSafe.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
+stale="$stale$(grep -niE '(outside|beyond)[^.]*\bROUNDS\b|interval[^.]*\bROUNDS\b' \
+  GoSafe.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)"
 if [ -n "$stale" ]; then
-  echo "fido: DOC-EXACTNESS GATE — stale float-predicate wording or deleted-helper archaeology in active files:"
+  echo "fido: DOC-EXACTNESS GATE — stale wording, deleted-helper archaeology, or a rounding OVERCLAIM in active files:"
   echo "$stale"
-  echo "fido: use 'contiguous exact interval' (conservative sufficient), and the live names"
-  echo "fido: (int_in_float_exact_interval / complement_const); move postmortems to LESSONS.md."
+  echo "fido: use 'contiguous exact interval' (conservative sufficient) + the live names"
+  echo "fido: (int_in_float_exact_interval / complement_const); an outside-interval int MAY be exact OR rounded —"
+  echo "fido: say the gate does not MODEL the sparse relation, not that crossing the interval ROUNDS; postmortems -> LESSONS.md."
   exit 1
 fi
 

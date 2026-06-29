@@ -99,11 +99,13 @@ Definition int_const_repr (z : Z) (t : GoTy) : bool :=
 (** A CONSERVATIVE SUFFICIENT test (NOT "iff exactly representable") that an int constant [z] is an EXACT
     constant of float type [t]: is [z] in the CONTIGUOUS interval [[-2^53, 2^53]] for [float64] ([[-2^24, 2^24]]
     for [float32]) where EVERY integer is exactly representable?  (There ARE exactly-representable integers
-    OUTSIDE this interval — e.g. [2^60] is an exact [float64] — but they are NON-contiguous; we conservatively
-    REJECT them rather than model IEEE round-to-even.)  This is what we need: inside the interval [z] is the TRUE
-    value, so a later float->int range-check on the carried [z] is sound; outside, Go ROUNDS to nearest-even
-    (e.g. [float64(9223372036854775807)] rounds UP to 2^63, so [int64(float64(maxint64))] overflows) and we
-    REJECT the const->float conversion rather than carry a rounded lie. *)
+    OUTSIDE this interval — e.g. [2^60] is an exact [float64] — but they are NON-contiguous: an outside-interval
+    integer MAY be exact OR rounded, and we do NOT model that sparse exactness/round-to-even relation.)  This is
+    what we need: INSIDE the interval [z] is guaranteed the TRUE value, so a later float->int range-check on the
+    carried [z] is sound.  OUTSIDE it we cannot guarantee [z] is the true value, so we conservatively REJECT the
+    const->float conversion (rather than risk carrying a rounded lie) — for ANY outside-interval constant,
+    whether or not it happens to be exact.  One such rejected case is a ROUNDED overflow,
+    [int64(float64(9223372036854775807))]: the float64 rounds maxint64 UP to 2^63, which overflows [int64]. *)
 Definition float_contig_exact_max (t : GoTy) : option Z :=
   match t with
   | GTFloat64 => Some 9007199254740992%Z    (* 2^53 *)
@@ -856,11 +858,11 @@ Proof. reflexivity. Qed.
     REGRESSION — FLOAT-CONSTANT ROUNDING + PLATFORM-WIDTH COMPLEMENT (the constant rep must not LIE).
     (1) A float CONSTANT [float64(n)] is tracked as exact ONLY within the CONTIGUOUS exact interval [|n| <= 2^53]
     (float32: 2^24) — a CONSERVATIVE SUFFICIENT test, NOT the full set of exactly-representable integers (e.g.
-    [2^60] is an exact [float64] but lies outside the interval and is conservatively rejected).  Outside the
-    interval Go ROUNDS to nearest-even, so a carried integer [n] would no longer be the true value:
-    [int64(float64(9223372036854775807))] is INVALID Go — the float64 rounds UP to 2^63, which overflows
-    [int64] — and likewise [int32(float32(maxint32))]; the gate REJECTS the out-of-interval const->float
-    conversion.  (2) A typed FLOAT-constant ZERO
+    [2^60] is an exact [float64] but lies outside the interval).  An OUTSIDE-interval integer MAY be exact OR
+    rounded; the gate does not model that sparse relation, so it conservatively REJECTS the const->float
+    conversion for ANY outside-interval constant.  One rejected case is a ROUNDED overflow,
+    [int64(float64(9223372036854775807))]: the float64 rounds maxint64 UP to 2^63, which overflows [int64]
+    (likewise [int32(float32(maxint32))]).  (2) A typed FLOAT-constant ZERO
     [float64(0)] is a constant-zero divisor (Go rejects constant float division by zero), so [_ = x / float64(0)]
     is REJECTED — not deferred through [PtUnk].  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
     to one width is unsound: [uint32(^uint(0))] is in range on 32-bit Go but NOT 64-bit — the gate REJECTS
