@@ -169,14 +169,13 @@ fi
 
 echo "fido: string-exactness gate OK — unescape_opt_image present (accepted == emitted, proven zero-axiom); no stale wording ✓"
 
-# ---- DEAD-MODEL / DEFERRED-IDENTIFIER GATE (external review 2026-06-29): the free-identifier "deferral"
-# escape hatch (the old [PtUnk] category) was REMOVED — a free identifier is now REJECTED ([ptype (EId _) =
-# None]); only the predeclared [nil] ([PtNil]) is admitted, and only as a slice/chan conversion operand.  The
-# old model must not survive as ACTIVE guidance (comments/docs teaching it can justify re-opening the hole).
-# Ban the dead-model NAMES in active Coq sources + the architecture/progress docs (historical mentions belong
-# in LESSONS.md, not scanned).  ([close]/[delete]'s "deferred to GoSem" is a DIFFERENT, legitimate note and is
-# NOT matched — this bans only the specific dead free-identifier-deferral terms.)
-deadmodel=$(grep -nE 'PtUnk|genuinely-unknown identifier|DEFERRED operand|bool/deferred|string/deferred' \
+# ---- DEAD-MODEL GATE: the removed free-identifier "deferral" model (the old [PtUnk] category) must not survive
+# as ACTIVE guidance — comments/docs teaching it (even as "removed" narrative) can justify re-opening the hole.
+# Live boundary: a free identifier is REJECTED; only the predeclared [nil] ([PtNil]) is admitted, as a slice/chan
+# conversion operand.  Banned in active Coq sources + ARCHITECTURE/PROGRESS (history belongs in LESSONS.md).
+# ([close]/[delete]'s "deferred to GoSem" note is NOT matched — these patterns target the identifier-deferral
+# model specifically.)
+deadmodel=$(grep -nE 'PtUnk|genuinely-unknown identifier|DEFERRED operand|bool/deferred|string/deferred|deferred[- ]identifier|identifier.*deferr|free[- ]identifier.*deferr' \
   GoSafe.v GoAst.v GoPrint.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
 if [ -n "$deadmodel" ]; then
   echo "fido: DEAD-MODEL GATE — the removed PtUnk / deferred-free-identifier model survives in active guidance:"

@@ -812,9 +812,9 @@ separate tracks.
 ## AST-first spine — detailed status (relocated 2026-06-29)
 
 > Relocated from the TOP of this file on 2026-06-29 (the file now LEADS with the COMPASS above). This is
-> the long-form spine + project status, de-staled for the free-identifier tightening (the deferred-identifier
-> escape hatch was removed — a free identifier is now REJECTED, only `nil` is admitted inside a slice/chan conversion)
-> and the `classify` layering fix (it moved into GoAst).
+> the long-form spine + project status, kept current to the live gate boundary: a free identifier is REJECTED
+> (the no-declaration Program has no variables), only the predeclared `nil` is admitted, as a slice/chan
+> conversion operand; and `classify` lives in GoAst (the layering fix).
 
 > ## ★ ARCHITECTURE DIRECTION (2026-06-28) — see `ARCHITECTURE.md` (the standing charter)
 > Fido is course-correcting to an **AST-first, proof-gated emission** spine. Read `ARCHITECTURE.md`; it
