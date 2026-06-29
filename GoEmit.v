@@ -25,18 +25,22 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body is three real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
-    then a bare [return] — all Go builtins / no import (rule 5), built as structured [GExpr]/[GoStmt]s and
-    printed by the machine-checked [gprint] (`make emit-demo` then confirms the Go compiler BUILDS it).  Emitted
-    ONLY through the proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it,
-    [demo_emit_bytes] pins the exact emitted Go source.  (A non-main package — OR a body outside the supported
-    statement subset, e.g. a bare-value statement — would make [SupportedProgram] FALSE, so [reflexivity]
+    body is four real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    [_ = []int(nil)] (a [GsBlankAssign] discarding a type-form [EConv] CONVERSION value), then a bare [return]
+    — all Go builtins / no import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the
+    machine-checked [gprint] (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the
+    landed [EConv] (type-form conversion `[]int(nil)`) and [GsBlankAssign] (`_ = e`) forms END-TO-END through
+    the BLESSED emitter to compilable Go — not just in isolated round-trip proofs.  Emitted ONLY through the
+    proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
+    pins the exact emitted Go source.  (A non-main package — OR a body outside the supported statement subset,
+    e.g. a bare-value statement, or `_ = <void call>` — would make [SupportedProgram] FALSE, so [reflexivity]
     would not close and it could not be certified or emitted.) *)
 Definition demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EInt 1]);
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
                                [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]]);
+             GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)));
              GsReturn].
 Lemma demo_supported : SupportedProgram demo_prog.
 Proof. reflexivity. Qed.
@@ -45,6 +49,7 @@ Definition demo_emit : string := emit_supported demo_cert.
 Example demo_emit_bytes :
   demo_emit = ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
                go_tab ++ "println(1)" ++ go_nl ++ go_tab ++ "println(int64(3))" ++ go_nl ++
+               go_tab ++ "_ = []int(nil)" ++ go_nl ++
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 

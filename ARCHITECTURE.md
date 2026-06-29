@@ -286,7 +286,9 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > composite-literal/func-lit conversions. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
 > is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
 > COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
-> proven bytes to the compiler. **Still RED:** that is a
+> proven bytes to the compiler.  The demo body now exercises the landed `EConv` + `GsBlankAssign` forms through
+> the blessed path (`_ = []int(nil)`), so those two are validated END-TO-END to compilable Go, not just in
+> isolated round-trip proofs. **Still RED:** that is a
 > SEPARATE demo; the repo's MAIN output `main.go` is STILL the legacy `plugin/go.ml` path (extracted
 > `Printer.gprint`, flat/transitional), NOT certificate-gated — so do not claim main.go is blessed; no GoSem
 > behavioral safety yet. All golden byte-identical, zero axioms. Every "Front" below names that now-retired
