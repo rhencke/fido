@@ -50,9 +50,19 @@ Fixpoint svalue (e : GExpr) : bool :=
       | EId i, a :: nil => (is_type_keyword (proj1_sig i) || is_value_builtin (proj1_sig i)) && svalue a
       | _, _            => false
       end
-  | EConv _ e0 => svalue e0   (* a type-form CONVERSION [[]T(a)/chan T(a)/map[K]V(a)] — always yields a value *)
+  | EConv c e0 => match c with CTMap _ _ => false | _ => svalue e0 end
+      (* [[]T(a)]/[chan T(a)] conversions yield a value (the type is always valid); a MAP conversion
+         [map[K]V(a)] is QUARANTINED — Go forbids a non-comparable key TYPE, and key-type comparability is
+         not soundly structural here (a [GTNamed] key's comparability needs its definition), so we REJECT it
+         (fail-loud) rather than admit a possibly-invalid map type *)
   | ESliceLit _ es => forallb svalue es  (* a slice composite literal [[]T{e1,..,en}] — a VALUE iff every element is one *)
-  | EMapLit _ _ kvs => forallb (fun p => svalue (fst p) && svalue (snd p)) kvs  (* a map composite literal [map[K]V{k1: v1,..}] — a VALUE iff every key AND value is one *)
+  | EMapLit _ _ _ => false
+      (* a map composite literal [map[K]V{..}] is QUARANTINED from the supported subset.  Go requires the KEY
+         TYPE be comparable (slice/map/func keys forbidden) AND each key/value be assignable to K/V; NEITHER
+         is soundly checkable structurally here (GTNamed key comparability + all assignability need TYPE
+         info), so admitting it would certify invalid Go (e.g. [map[[]int]int{..}]).  It stays REPRESENTABLE
+         and round-trips in GoPrint, but is NOT supported until GoSem can seal a comparable-key builder +
+         key/value assignability evidence — a clean AST/gate separation, NOT a deferred-to-later admission. *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
@@ -64,23 +74,53 @@ Fixpoint svalue (e : GExpr) : bool :=
     statement calls).  Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement) and
     VALUE-returning builtins ([len(x)]/… — "evaluated but not used").  ([close]/[delete] would add a
     CHANNEL/MAP arg-TYPE constraint beyond arity — deferred to the GoSem/type layer.)  Widens with user
-    funcs / a symbol table.  (Args' own validity is [svalue], checked separately in [expr_stmt_ok].) *)
+    funcs / a symbol table.  (Args' own validity is checked PER BUILTIN in [expr_stmt_ok]: [printable_arg_ok]
+    for [print]/[println], [svalue] for [panic].) *)
 Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
   if String.eqb f "println" then true                                  (* variadic, any args *)
   else if String.eqb f "print" then true                               (* variadic, any args *)
   else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1, any type *)
   else false.
 
+(** A SCALAR builtin type keyword (numeric / bool / string) — [is_type_keyword] MINUS [chan]/[map] (the two
+    aggregate/reference type keywords).  A conversion to such a type yields a scalar. *)
+Definition is_scalar_type_keyword (s : string) : bool :=
+  is_type_keyword s && negb (String.eqb s "chan") && negb (String.eqb s "map").
+
+(** A [print]/[println] argument GUARANTEED-printable by the Go spec.  ★Go-spec NOTE (Bootstrapping): [print]/
+    [println] are bootstrapping builtins whose implementations need NOT accept arbitrary argument types — only
+    BOOLEAN, NUMERIC, and STRING types are always supported.  So we admit only forms that PROVABLY produce a
+    scalar: integer literals, arithmetic/comparison/logical binops (over printable operands), the value-
+    producing unary ops, a SCALAR-type conversion [T(a)] ([is_scalar_type_keyword]), and the int-returning
+    builtins [len]/[cap].  AGGREGATES — slice/map literals ([ESliceLit]/[EMapLit]), slice/chan/map conversions
+    ([EConv]), and bare identifiers (unknown type) — are NOT admitted here (their printing is
+    implementation-defined): use them via [_ = <value>] (which admits any [svalue]) instead.  This keeps a
+    SUPPORTED program portable, not reliant on a particular compiler's aggregate-printing. *)
+Fixpoint printable_arg_ok (e : GExpr) : bool :=
+  match e with
+  | EInt _ => true
+  | EBn _ l r => printable_arg_ok l && printable_arg_ok r
+  | EUn o e0 => match o with UNot | UXor | UNeg => printable_arg_ok e0 | UDeref | UAddr => false end
+  | ECall (EId i) (a :: nil) =>
+      (is_scalar_type_keyword (proj1_sig i) || is_value_builtin (proj1_sig i)) && svalue a
+  | _ => false
+  end.
+
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
     CALL (a plain value [1] / [a + b] is "evaluated but not used"), AND — crucially — a genuine function call,
     NOT a CONVERSION ([int(x)] is a conversion, also invalid as a statement).  Since no user functions exist
     yet, the statement-valid callees are EXACTLY the whitelisted builtins at their correct arity
-    ([stmt_call_ok]); arguments may be any structurally-supported value [svalue] (which DOES allow a conversion
-    in value position, e.g. [println(int(x))]).  So [int(x)] / [Foo(x)] / [1()] / [len(x)] / [panic()] as
-    statements are all rejected. *)
+    ([stmt_call_ok]).  ARGUMENTS are checked PER BUILTIN: [print]/[println] admit only the guaranteed-printable
+    SCALAR subset ([printable_arg_ok] — NOT arbitrary [svalue], so [println(<slice/map>)] / aggregate printing
+    is excluded as implementation-defined); [panic] admits any [svalue] (it takes an [interface{}]).  So
+    [int(x)] / [Foo(x)] / [1()] / [len(x)] / [panic()] / [println([]int{1})] as statements are all rejected;
+    [println(int(x))] / [println(1 + 2)] / [panic(x)] are accepted. *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
-  | ECall (EId f) args => stmt_call_ok (proj1_sig f) args && forallb svalue args
+  | ECall (EId f) args =>
+      let fn := proj1_sig f in
+      stmt_call_ok fn args &&
+      (if String.eqb fn "panic" then forallb svalue args else forallb printable_arg_ok args)
   | _                  => false
   end.
 
@@ -173,61 +213,82 @@ Definition supported_conv_arg : Program :=
 Example conv_arg_supported : SupportedProgram supported_conv_arg.
 Proof. reflexivity. Qed.
 
-(** POSITIVE (Phase 4, [EConv]) — a type-FORM conversion is also fine in VALUE position: `func main(){
-    println([]int(x)) }` is supported (the statement is a [println] call; its argument [[]int(x)] is an
-    [EConv], a valid [svalue]).  A bare [EConv] statement `func main(){ []int(x) }` would still be rejected —
-    [expr_stmt_ok] admits only [ECall (EId _) _], not [EConv] — keeping the conversion-as-statement bar. *)
+(** POSITIVE (Phase 4, [EConv]) — a slice/chan type-FORM conversion is a VALUE, used via [_ = ...]: `func
+    main(){ _ = []int(x) }` is supported ([[]int(x)] is an [EConv], a valid [svalue]).  As an AGGREGATE it is
+    NOT a [println] arg (that printing is implementation-defined — see [printable_arg_ok]): `func main(){
+    println([]int(x)) }` is rejected.  A bare [EConv] statement `func main(){ []int(x) }` is also rejected
+    ([expr_stmt_ok] admits only [ECall (EId _) _]). *)
 Definition supported_conv_composite_arg : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl))])].
+            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
 Example conv_composite_arg_supported : SupportedProgram supported_conv_composite_arg.
 Proof. reflexivity. Qed.
-(** And the bare composite-conversion STATEMENT `func main(){ []int(x) }` is NOT supported. *)
 Definition unsupported_conv_composite_stmt : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
 Example conv_composite_stmt_unsupported : supported_program unsupported_conv_composite_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example conv_composite_stmt_supported : SupportedProgram unsupported_conv_composite_stmt := eq_refl.
-
-(** POSITIVE (Phase 4, [ESliceLit]) — a slice composite literal is fine in VALUE position: `func main(){
-    println([]int{1}) }` is supported (the statement is a [println] call; its argument [[]int{1}] is an
-    [ESliceLit] whose single element [1] is an [svalue]).  Like [EConv], a bare [ESliceLit] STATEMENT
-    `func main(){ []int{1} }` is rejected — [expr_stmt_ok] admits only [ECall (EId _) _], not [ESliceLit] —
-    so the literal-as-statement bar holds. *)
-Definition supported_slicelit_arg : Program :=
+(** [println] of a slice/aggregate is NOT supported (implementation-defined printing). *)
+Definition unsupported_println_aggregate : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ESliceLit GTInt [EInt 1]])].
+                               [EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl))])].
+Example println_aggregate_unsupported : supported_program unsupported_println_aggregate = false.
+Proof. reflexivity. Qed.
+
+(** POSITIVE (Phase 4, [ESliceLit]) — a slice composite literal is a VALUE, used via [_ = ...]: `func main(){
+    _ = []int{1} }` is supported ([[]int{1}]'s element [1] is an [svalue]).  A bare [ESliceLit] statement
+    `func main(){ []int{1} }` is rejected, and `func main(){ println([]int{1}) }` is rejected (a slice is not
+    [printable_arg_ok]). *)
+Definition supported_slicelit_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (ESliceLit GTInt [EInt 1])].
 Example slicelit_arg_supported : SupportedProgram supported_slicelit_arg.
 Proof. reflexivity. Qed.
-(** And the bare slice-literal STATEMENT `func main(){ []int{1} }` is NOT supported. *)
 Definition unsupported_slicelit_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ESliceLit GTInt [EInt 1])].
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ESliceLit GTInt [EInt 1])].
 Example slicelit_stmt_unsupported : supported_program unsupported_slicelit_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example slicelit_stmt_supported : SupportedProgram unsupported_slicelit_stmt := eq_refl.
-
-(** POSITIVE (Phase 4, [EMapLit]) — a map composite literal is fine in VALUE position: `func main(){
-    println(map[int]int{1: 2}) }` is supported (the statement is a [println] call; its argument
-    [map[int]int{1: 2}] is an [EMapLit] whose single pair's key [1] and value [2] are both [svalue]).  Like
-    [ESliceLit], a bare [EMapLit] STATEMENT `func main(){ map[int]int{1: 2} }` is rejected — [expr_stmt_ok]
-    admits only [ECall (EId _) _], not [EMapLit] — so the literal-as-statement bar holds. *)
-Definition supported_maplit_arg : Program :=
+Definition unsupported_println_slicelit : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])].
-Example maplit_arg_supported : SupportedProgram supported_maplit_arg.
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ESliceLit GTInt [EInt 1]])].
+Example println_slicelit_unsupported : supported_program unsupported_println_slicelit = false.
 Proof. reflexivity. Qed.
-(** And the bare map-literal STATEMENT `func main(){ map[int]int{1: 2} }` is NOT supported. *)
-Definition unsupported_maplit_stmt : Program :=
+
+(** QUARANTINE (Phase 4, [EMapLit] — external review 2026-06-29): a map composite literal is REPRESENTABLE and
+    round-trips in GoPrint, but is NOT in the supported subset ([svalue (EMapLit _ _ _) = false]) — Go requires
+    the key TYPE be COMPARABLE (slice/map/func keys forbidden) AND keys/values be assignable to K/V, NEITHER of
+    which is soundly structural here, so admitting it would certify invalid Go.  So NONE of these is supported:
+    a comparable-key `_ = map[int]int{1: 2}`, the NON-comparable-key `_ = map[[]int]int{[]int{1}: 2}` (invalid
+    Go), a map CONVERSION `_ = map[int]int(x)` (same key-type concern), the bare `map[int]int{1: 2}` statement,
+    and `println(map[int]int{1: 2})` (aggregate).  Re-admit once GoSem seals a comparable-key builder +
+    key/value assignability evidence — a clean AST/gate separation, NOT a deferred-to-later admission. *)
+Definition unsupported_maplit_blank : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
+Example maplit_blank_unsupported : supported_program unsupported_maplit_blank = false.
+Proof. reflexivity. Qed.
+Fail Example maplit_blank_supported : SupportedProgram unsupported_maplit_blank := eq_refl.
+Definition unsupported_maplit_noncomparable : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
+            [GsBlankAssign (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])].
+Example maplit_noncomparable_unsupported : supported_program unsupported_maplit_noncomparable = false.
+Proof. reflexivity. Qed.
+Definition unsupported_mapconv_blank : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))].
+Example mapconv_blank_unsupported : supported_program unsupported_mapconv_blank = false.
+Proof. reflexivity. Qed.
+Definition unsupported_maplit_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
 Example maplit_stmt_unsupported : supported_program unsupported_maplit_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example maplit_stmt_supported : SupportedProgram unsupported_maplit_stmt := eq_refl.
+Definition unsupported_println_maplit : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])].
+Example println_maplit_unsupported : supported_program unsupported_println_maplit = false.
+Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
     println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:

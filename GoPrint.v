@@ -869,7 +869,16 @@ Proof. vm_compute; reflexivity. Qed.
                | "(" Expr ")"                     -- explicit grouping: re-parsed, NOT an AST node (gprint
                                                      re-derives the parens from precedence)
                | ( "!" | "^" | "*" | "&" ) Atom  -> EUn      prefix not / xor / deref / addr (bind to an Atom)
-               | "-" "(" Expr ")" .              -> EUn UNeg  parenthesised, so it never collides with a -literal
+               | "-" "(" Expr ")"                -> EUn UNeg  parenthesised, so it never collides with a -literal
+               | ConvType "(" Expr ")"           -> EConv     type-form conversion (a "[]"/"chan"/"map" lead is
+                                                              unambiguously a TYPE at atom position)
+               | "[]" Type "{" [ Elems ] "}"     -> ESliceLit slice composite literal (shares the "[]"-lead with
+                                                              the []-conversion; split by next token "{" vs "(")
+               | "map" "[" Type "]" Type "{" [ Pairs ] "}" . -> EMapLit  map composite literal (shares the
+                                                              "map"-lead with the map-conversion; "{" vs "(")
+      ConvType = "[]" Type | "chan" Type | "map" "[" Type "]" Type .   -- the [ConvTy] subset (the EConv operand type)
+      Elems    = Expr { "," Expr } .             -- positional element list ([parse_elems])
+      Pairs    = Expr ":" Expr { "," Expr ":" Expr } . -- keyed key:value list ([parse_map_elems])
       InfixOp  = "*" | "/" | "%" | "<<" | ">>" | "&" | "&^"   -- precedence 5
                | "+" | "-" | "|" | "^"                        -- precedence 4
                | "==" | "!=" | "<" | "<=" | ">" | ">="        -- precedence 3
@@ -882,9 +891,9 @@ Proof. vm_compute; reflexivity. Qed.
       ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- a [go_ident]
       int      = [ "-" ] digit { digit } .       -- decimal; the lexer reads a leading "-"<digit> as one [TInt]
 
-    NOT yet in the grammar (the next growth steps, M7+): type-form conversions [ []T(x) / map[K]V(x) / chan T(x) ],
-    composite literals, and func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]]
-    -- byte-identical, and the call/conversion distinction needs a type environment the parser does not have. *)
+    NOT yet in the grammar (the next growth steps): STRUCT / ARRAY composite literals ([N]T{..} / T{..}) and
+    func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]] -- byte-identical, and
+    the call/conversion distinction needs a type environment the parser does not have. *)
 
 
 (** A bare prefix operator applied DIRECTLY to another would be a LEXICAL hazard: [&] then [&] prints "&&"

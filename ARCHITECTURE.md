@@ -291,7 +291,11 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > (Implemented by a background worktree subagent from a recorded plan, then independently re-verified on `main`:
 > golden BYTE-IDENTICAL, zero axioms, all gates green.)  Then the MAP composite literal `EMapLit`
 > (`map[K]V{k1: v1,..}`, 18e8564 — KEYED key:value pairs, also via a background subagent + independent
-> re-verify) completed the composite-literal family.  Still ahead in Phase 4: more `GoStmt` forms (assignment,
+> re-verify) added map literals (slice + map composite literals landed; struct/array remain).  ⚠️ NOTE: map
+> literals are REPRESENTABLE + round-trip but QUARANTINED from `SupportedProgram` (`svalue (EMapLit _ _ _) =
+> false`) — Go's comparable-key-type + assignability rules are not soundly structural, so the gate rejects them
+> (and map conversions) until GoSem; `print`/`println` were also tightened to a guaranteed-printable SCALAR
+> arg subset (`printable_arg_ok`), aggregates go via `_ = …` (external review 2026-06-29).  Still ahead in Phase 4: more `GoStmt` forms (assignment,
 > var, control flow) and struct/array composite literals + func-lit conversions.
 > **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
 > is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
@@ -342,9 +346,13 @@ add "future foundation" unless it replaces or deletes something.**
   `EConv`, with a `parse_elems` mutual-block parser and the full zero-axiom round-trip, `svalue`-admitted as
   `forallb svalue es`); and the map composite literal `EMapLit` (`map[K]V{k1: v1,..}`, 18e8564 — KEYED
   key:value pairs via `parse_map_elems` + a pair-`Forall` `GExpr_ind'`, sharing the `map[K]V` lead with
-  `EConv`'s map conversion (split by next token `{` vs `(`), `svalue = forallb (k&&v)`). The composite-literal
-  family ([]T + map[K]V) is now complete. Next: more `GoStmt` forms (assignment, var, control flow) and
-  struct/array composite literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
+  `EConv`'s map conversion (split by next token `{` vs `(`)).  Slice + map literals landed; struct/array
+  literals remain.  ⚠️ map literals (and map conversions) are QUARANTINED from `SupportedProgram`
+  (`svalue (EMapLit _ _ _) = false`) — comparable-key-type + assignability are not soundly structural, so the
+  gate rejects them until GoSem (slice literals/conversions stay supported via `_ = …`); and `print`/`println`
+  admit only a guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not arbitrary `svalue` aggregates
+  (external review 2026-06-29).  Next: more `GoStmt` forms (assignment, var, control flow) and struct/array
+  composite literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

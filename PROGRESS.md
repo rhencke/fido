@@ -23,18 +23,23 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
 > Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
 > `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip + `svalue`-admitted); the slice + map composite literals `ESliceLit` (`[]T{e1,..,en}`) and
-> `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) — type-led primaries sharing the `[]T`/`map[K]V`
-> lead with `EConv` (split by the next token `{` vs `(`), via `parse_elems`/`parse_map_elems` mutual-block
-> parsers and the full round-trip, `svalue`-admitted; a `GoStmt` statement layer with `print_stmt_inj`
-> (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` / `GsReturnVal`
-> (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first SUPPORTED
-> non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate (`stmt_call_ok`
-> println/print/panic + `svalue`, now also the value-returning builtins `len`/`cap` in value position — the
-> Go-spec value-vs-statement distinction); and a certificate-gated `GoEmit.demo_emit` whose exact bytes are
-> pinned and whose output the Go toolchain BUILDS (`make emit-demo` — exercising `EBn` / `EConv` /
-> `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment, var, control flow) + map/struct composite
-> literals; eventually `GoSem`. NB this spine is SEPARATE from the Stage-B plugin-integration ledger below;
+> round-trip + `svalue`-admitted for slice/chan, map conversion QUARANTINED); the slice + map composite
+> literals `ESliceLit` (`[]T{e1,..,en}`) and `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) —
+> type-led primaries sharing the `[]T`/`map[K]V` lead with `EConv` (split by the next token `{` vs `(`), via
+> `parse_elems`/`parse_map_elems` mutual-block parsers and the full zero-axiom round-trip.  ⚠️ map literals AND
+> map conversions are REPRESENTABLE + round-trip but QUARANTINED from `SupportedProgram` (`svalue (EMapLit _ _
+> _) = false`) — Go's comparable-key-type + assignability rules are not soundly structural, so the gate rejects
+> them until GoSem (slice literals/conversions stay supported via `_ = …`); also a `GoStmt` statement layer
+> with `print_stmt_inj` (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` /
+> `GsReturnVal` (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first
+> SUPPORTED non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate
+> (`stmt_call_ok` println/print/panic, with `print`/`println` args restricted to the guaranteed-printable
+> SCALAR subset `printable_arg_ok` — NOT arbitrary aggregates — and the value-returning builtins `len`/`cap`
+> admitted in value position, the Go-spec value-vs-statement distinction); and a certificate-gated
+> `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go toolchain BUILDS (`make emit-demo` —
+> exercising `EBn` / `EConv` / `ESliceLit` / `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment,
+> var, control flow) + struct/array composite literals; eventually `GoSem` (which unblocks supported map
+> literals). NB this spine is SEPARATE from the Stage-B plugin-integration ledger below;
 > `main.go` is still the legacy path.
 
 **STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
