@@ -4,13 +4,12 @@
     A LOWER shared module (imports ONLY GoAst): it owns [ptype] (the structural, constant-aware
     TYPE-CATEGORY assignment [GExpr -> option PTy]), its numeric/conversion combinators, and the
     value-position validity wrapper [svalue].  It was FACTORED OUT of GoSafe (Codex stop-review,
-    2026-06-29) so BOTH layers consult ONE authority:
+    2026-06-29) into this LOWER module so the supportedness gate has ONE type authority:
       • GoSafe (ABOVE) reuses it for [SupportedProgram] — a free identifier / a closed type-error is
-        rejected because [ptype] rejects it;
-      • GoSem (the behavioral semantics, also above GoTypes but BELOW GoSafe) reuses [svalue] as the
-        SOLE gate for a blank-assign [_ = e] — so a [_ = e] denotes as a silent normal continue IFF [e]
-        is a valid value by the SAME type-category authority GoSafe uses, ending the previous
-        duplicate-authority problem (a type-blind GoSem predicate that denoted closed-invalid Go).
+        rejected because [ptype] rejects it.
+      • A future GoSem (the planned behavioral semantics, also above GoTypes) should reuse [svalue]
+        (e.g. as the value-position gate for a blank-assign [_ = e]) rather than fork its own type-blind
+        predicate — keeping ONE type authority across the layers.
     The definitions below are MOVED VERBATIM from GoSafe — same bodies, byte-for-byte behavior — only
     relocated, so every GoSafe regression is preserved.  GoTypes has NO theorems (only [Definition]s /
     one [Inductive]), so it introduces NO axioms; the pre-commit all-[.v] axiom scan covers it.

@@ -3,9 +3,10 @@
     [SupportedProgram] is a PHASE-1 SYNTACTIC gate — a supported-subset check — NOT behavioral safety, and it
     is NAMED so deliberately (naming is a correctness claim: never call a syntactic gate "Safe").  The
     semantic [BehaviorSafe] (no nil-deref / OOB / send-on-closed / illegal-close / data-race / …, defined over
-    GoSem) lands once GoSem is the ONE authoritative semantics — at which point the blessed path becomes
-    emit_safe over a [SafeProgram] (= EmittableProgram + BehaviorSafe).  Until then GoEmit emits only the
-    SUPPORTED subset via emit_supported, and must NOT be described as behaviorally safe.
+    GoSem) lands once GoSem is BUILT (it does not exist yet — the authoritative operational semantics today is
+    [unified.v]; GoSem will bridge it) — at which point the blessed path becomes emit_safe over a [SafeProgram]
+    (= EmittableProgram + BehaviorSafe).  Until then GoEmit emits only the SUPPORTED subset via emit_supported,
+    and must NOT be described as behaviorally safe.
     ============================================================================ *)
 From Fido Require Import GoAst.   (* GoAst supplies the syntax AND [classify] (the keyword -> GoTy map for scalar
                                      conversions).  DELIBERATELY NOT GoPrint — the SAFETY layer must NOT depend on

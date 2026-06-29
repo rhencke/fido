@@ -5,7 +5,8 @@
     `emit : Program -> string` — a RAW program cannot reach the blessed path (charter §8 Rule 3), so the
     certificate is never decorative.
     PHASE-1: this certifies SUPPORTEDNESS (syntactic), NOT behavioral safety.  The behavioral path
-    ([SafeProgram] = EmittableProgram + GoSafe.BehaviorSafe, [emit_safe]) lands once GoSem is authoritative.
+    ([SafeProgram] = EmittableProgram + GoSafe.BehaviorSafe, [emit_safe]) lands once GoSem is BUILT (it does
+    not exist yet; the authoritative operational semantics today is unified.v, which GoSem will bridge).
     A raw printer (GoPrint.print_program) still exists for proofs/tests, but it is NOT this blessed emitter.
     ============================================================================ *)
 From Fido Require Import GoAst GoPrint GoSafe.

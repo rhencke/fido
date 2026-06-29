@@ -23,7 +23,8 @@ status, and roadmap live in `PROGRESS.md`.
 As of 2026-06-28 Fido is course-correcting to an **AST-first, proof-gated emission** architecture; the
 standing charter **`ARCHITECTURE.md`** is binding on every change and wins when in doubt. Spine: **`GoAst`**
 (structured Go syntax) → **`GoPrint`** (printing + parse round-trip — SYNTAX only) → **`GoSem`** (behavior;
-the ONE authoritative semantics — bridge `unified.v`/`concurrency.v`/`cmd.v` in, do NOT fork a second) →
+PLANNED, NOT built — when built it must bridge the existing authoritative semantics `unified.v`/
+`concurrency.v`/`cmd.v`, not fork a second) →
 **`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed
 emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO official
 `emit : Program -> string`). The clean printer/parser work + `ConvTy` groundwork ARE now `GoAst` + `GoPrint`

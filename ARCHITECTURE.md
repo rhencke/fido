@@ -8,7 +8,7 @@ supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of 
 ```text
 GoAst    says what Go-shaped syntax can be written.
 GoPrint  proves the AST prints (and parses back) correctly — SYNTAX ONLY.
-GoSem    says what the AST means (the ONE authoritative semantics) — PLANNED, not built.
+GoSem    says what the AST means — PLANNED, not built; will bridge the authoritative semantics (unified.v).
 GoSafe   says which programs are supported now, and — later — which are behaviorally safe.
 GoEmit   is the ONLY blessed emission path; it requires the appropriate certificate.
 ```
@@ -65,11 +65,13 @@ theorems (`parse_str (gprint 0 e) = Some (e,[])`, `print_program_inj`, …). Pur
 claims belong here. The parser used by printer proofs is a real lexer + recursive-descent/precedence parser,
 not a maze of string splits.
 
-**`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem is the one authoritative behavioral
-semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). It must
-**bridge the existing proven semantics** — `unified.v` (the authoritative `ustep`, race-freedom + liveness),
-`concurrency.v` (trace / happens-before / race / bounded-deadlock theory), `cmd.v` (effect evaluator) —
-never a second semantic universe that can drift. No behavioral-safety claim is active until it exists.
+**`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem will be the AST's behavioral
+semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). The
+authoritative operational semantics TODAY is `unified.v` (the proven `ustep`, race-freedom + liveness);
+GoSem does **not** exist and holds no authority yet. When built it must **bridge the existing proven
+semantics** — `unified.v`, `concurrency.v` (trace / happens-before / race / bounded-deadlock theory), and
+`cmd.v` (effect evaluator) — so there stays ONE authority, never a second semantic universe that can drift.
+No behavioral-safety claim is active until GoSem exists.
 
 **`GoTypes.v` — shared constant-aware type-category checker (imports ONLY `GoAst`).** The bottom of the
 type-category layer: `ptype : GExpr -> option PTy` (the structural, constant-aware category assignment —
@@ -98,7 +100,7 @@ Safety must become the **ticket required by the emitter**, not a theorem sitting
 ```coq
 Record EmittableProgram := { ep_program : GoAst.Program; ep_supported : GoSafe.SupportedProgram ep_program }.
 Definition emit_supported (p : EmittableProgram) : string := GoPrint.print_program p.(ep_program).
-(* Later, once GoSem is authoritative and BehaviorSafe is real: a SafeProgram = EmittableProgram +
+(* Later, once GoSem is built and BehaviorSafe is real: a SafeProgram = EmittableProgram +
    BehaviorSafe, emitted by emit_safe. *)
 ```
 
