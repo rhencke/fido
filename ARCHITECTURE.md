@@ -119,12 +119,19 @@ obligations: the printer prints; semantics interprets.
 > it is itself UN-denotable (pinned by `gosem_return_discards_undenotable_suffix` and `gosem_panic_short_circuits`,
 > e.g. `{ return; println(len(s)) }` runs to a normal `ORet` with EMPTY output though `len` is outside `eval`);
 > an unsupported statement BEFORE a terminal still rejects (`gosem_unsupported_before_terminal_rejects`). `_ = e`
-> is admitted **only for a structurally effect-free, non-panicking RHS** (`rhs_effect_free`, a CONSERVATIVE
-> structural check: literals, the unconditionally-total arithmetic/comparison binops and unary `-`/`^`/`!`,
-> scalar conversions and slice/map composite literals over such operands, and a slice/chan/map type-form
-> conversion of the predeclared `nil` — but NOT a bare identifier incl. `nil`, NOT shifts `<<`/`>>`, NOT
-> `BDiv`/`BRem`, index/slice/deref/assert, or any non-conversion call that could output/panic), so its silent
-> value can be faithfully discarded; an out-of-subset RHS is `None`, never silently erased. **Layering:** core
+> is admitted **only for a CONSERVATIVE structurally-evident-VALID, effect-free, non-panicking RHS**
+> (`rhs_effect_free`). Because GoSem sits BELOW GoSafe and has **no type/category evidence**, it is
+> conservative on VALIDITY too, not just effects: it admits literals, the unconditionally-total
+> arithmetic/comparison binops and unary `-`/`^`/`!`, a scalar conversion `t(a)` over such operands, a
+> **slice composite literal whose elements are all NON-AGGREGATE effect-free scalars**, and a slice/chan
+> type-form conversion of the predeclared `nil` **only** (`[]T(nil)`/`chan T(nil)`). It REJECTS a bare
+> identifier incl. `nil`, shifts `<<`/`>>`, `BDiv`/`BRem`, index/slice/deref/assert, any non-conversion call
+> that could output/panic, **every map literal and map conversion** (no comparable-key/assignability
+> evidence), **every NON-nil conversion** (an aggregate-to-aggregate conversion like `[]int([]string{})` is
+> not structurally evident-valid), and a slice literal with a **nested-aggregate element** — full
+> type-validity (element-assignability, comparable map keys) is `GoSafe.ptype`'s, not yet bridged into
+> GoSem. So an admitted RHS's silent value can be faithfully discarded; an out-of-subset RHS is `None`,
+> never silently erased. **Layering:** core
 > `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
 > (`cmd`/`builtins`) — NOT `GoPrint`/`GoSafe`/`GoEmit`; the demo deliverable lives in the DOWNSTREAM
 > `GoSemDemo.v`. That deliverable, `gosem_demo_output`, is a zero-axiom `vm_compute` proof that

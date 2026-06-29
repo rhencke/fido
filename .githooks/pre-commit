@@ -63,17 +63,34 @@ fi
 # Anti-axiom gate.  The headline guarantee is ZERO Fido axioms (definitively checked by
 # `Print Assumptions`; this grep is the cheap commit-time backstop — review #3 R10 widened it
 # from builtins.v/main.v to ALL theory files):
-#  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY theory file — including the
-#      proof-only theories (concurrency.v / relooper.v): an Admitted is an INCOMPLETE proof and an
-#      Axiom/Parameter is a global assumption, neither of which the 0-axiom claim allows ANYWHERE.
+#  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY tracked .v — the proof-only
+#      theories (concurrency.v / relooper.v), the spine (GoAst/GoPrint/GoSem/...), the emit demo
+#      (emitdemo/emit_demo.v) AND the fail-closed fixtures (negtests/*.v): an Admitted is an INCOMPLETE
+#      proof and an Axiom/Parameter is a global assumption, neither of which the 0-axiom claim allows
+#      ANYWHERE.  The scan set is DERIVED from `git ls-files '*.v'` (NOT a hand-maintained list), so any
+#      new tracked .v is auto-included and omission drift is impossible — a hard-coded list had silently
+#      skipped emitdemo/emit_demo.v and negtests/*.v.  (negtests/*.v are NEGATIVE fixtures that ABORT
+#      extraction — ordinary programs hitting fail-closed sites, so they legitimately contain no
+#      Axiom/Admitted; if a tracked .v needs a banned word only in PROSE, keep that prose clear of the
+#      bare word — the "Admitted in a comment" gotcha — rather than narrowing this scan.)
 #  (b) A top-level Hypothesis / Variable is forbidden only in the EXTRACTED trust base (builtins.v /
 #      main.v, which use NO Sections).  The proof-only theories legitimately use SECTION-local
 #      Hypothesis / Variable (discharged at Section close — NOT global axioms), so those two
 #      constructs are not grepped there (Print Assumptions would catch a mis-discharged one).
+scanned_v=$(git ls-files '*.v')
+# SELF-CHECK INVARIANT: the set about to be scanned MUST equal the full tracked-.v set (re-derived
+# independently here).  Since `scanned_v` IS `git ls-files '*.v'` this holds by construction today; the
+# check exists so a FUTURE edit that re-hard-codes a narrower list into `scanned_v` trips here and FAILS
+# the commit — a skipped tracked theory/fixture can never pass silently again.
+if [ "$(printf '%s\n' $scanned_v | LC_ALL=C sort)" != "$(git ls-files '*.v' | LC_ALL=C sort)" ]; then
+  echo "fido: ERROR — anti-axiom scan set != git ls-files '*.v'; a tracked theory/fixture would be skipped."
+  echo "fido: the scan list must be DERIVED from 'git ls-files' so no .v is ever omitted."
+  exit 1
+fi
 if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture)[[:space:]]|Admitted' \
-        builtins.v main.v concurrency.v relooper.v preamble.v cmd.v unified.v GoAst.v GoPrint.v GoSafe.v GoEmit.v GoSem.v GoSemDemo.v 2>/dev/null \
+        $scanned_v 2>/dev/null \
    || grep -nE '^[[:space:]]*(Hypothesis|Variable)[[:space:]]' builtins.v main.v 2>/dev/null; then
-  echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any theory file), or a top-level"
+  echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any tracked .v), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
   echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."
   exit 1

@@ -227,3 +227,29 @@ if [ -n "$gosem_offenders" ]; then
 fi
 
 echo "fido: gosem-layering gate OK — core GoSem.v imports no upper emission layer (GoPrint/GoSafe/GoEmit) ✓"
+
+# ---- GOSEM BLANK-RHS VALIDITY GATE (Codex stop-review 2026-06-29): [GoSem.rhs_effect_free] is the SOLE gate
+# for [GsBlankAssign e], and GoSem sits BELOW GoSafe with NO type/category evidence — so it must NOT denote
+# CLOSED-but-INVALID Go (an aggregate-to-aggregate conversion, a map literal/conversion) as a silent normal
+# blank assign.  This tripwire asserts the conservative structural guards are PRESENT and the OLD leaky
+# admissions are ABSENT (it is a discipline grep over GoSem.v, not a proof — the proof is the in-file
+# [gosem_rejects_invalid_slice_conv] / [gosem_rejects_map_literal] regressions; this catches a silent revert):
+#   (1) the slice/chan conversion arm admits ONLY a [nil] operand — the [CTSlice/CTChan _, EId i] nil guard;
+#   (2) the map-literal arm is an UNCONDITIONAL [false] (no comparable-key evidence in GoSem); and
+#   (3) the OLD broad fall-through `|| rhs_effect_free <op>` (which admitted ANY effect-free EConv operand,
+#       leaking invalid aggregate conversions) is GONE.
+if ! grep -qE 'EMapLit _ _ _[[:space:]]*=>[[:space:]]*false' GoSem.v; then
+  echo "fido: GOSEM BLANK-RHS GATE — GoSem.rhs_effect_free must REJECT every map literal ([EMapLit _ _ _ => false]); that unconditional-false arm is missing."
+  exit 1
+fi
+if ! grep -qE 'CTSlice _, *EId i' GoSem.v || ! grep -qE 'CTChan _, *EId i' GoSem.v; then
+  echo "fido: GOSEM BLANK-RHS GATE — the EConv arm must admit ONLY a nil slice/chan conversion (the [CTSlice/CTChan _, EId i] nil guard); it is missing."
+  exit 1
+fi
+if grep -qE '\|\|[[:space:]]*rhs_effect_free' GoSem.v; then
+  echo "fido: GOSEM BLANK-RHS GATE — a broad '|| rhs_effect_free ...' fall-through is back in GoSem.rhs_effect_free;"
+  echo "fido: a non-nil / aggregate EConv operand would leak in as a silent VALID blank assign.  Admit conversions only for nil."
+  exit 1
+fi
+
+echo "fido: gosem blank-RHS validity gate OK — conversions admit only nil, map literals rejected, no broad effect-free fall-through ✓"

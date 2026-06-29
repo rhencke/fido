@@ -58,17 +58,22 @@
     statements continue — and an [SDUnsupported] statement yields [None], so an unsupported
     statement BEFORE a terminal still rejects ([gosem_unsupported_before_terminal_rejects]).
 
-    DESIGN — [_ = e] is restricted to a STRUCTURALLY effect-free RHS.  Go EVALUATES the RHS
-    of [_ = e]; the discard does NOT erase the expression unseen.  This slice does not (yet)
-    give a full evaluate-with-effects semantics, so it ADMITS [_ = e] ONLY when [e] passes the
-    CONSERVATIVE structural predicate [rhs_effect_free] — expression forms that produce NO
-    observable output and CANNOT panic — and otherwise REJECTS it ([None] = out of this slice).
-    For an admitted RHS the value is silent and non-panicking BY STRUCTURE, so discarding it and
-    continuing is faithful.  This is explicitly a CONSERVATIVE STRUCTURAL effect-free check, NOT
-    a full eval-with-panic semantics: it intentionally rejects a bare identifier (incl. [nil]),
-    a SHIFT ([BShl]/[BShr], which can panic on a negative / oversized count), [BDiv]/[BRem]
-    (a zero divisor panics), index/slice/deref/assert, and any non-conversion call — none of
-    which is unconditionally silent+total, all OUT of scope, never silently erased.
+    DESIGN — [_ = e] is restricted to a CONSERVATIVE structurally-evident-VALID + effect-free RHS.
+    Go EVALUATES the RHS of [_ = e]; the discard does NOT erase the expression unseen.  This slice
+    does not (yet) give a full evaluate-with-effects semantics, so it ADMITS [_ = e] ONLY when [e]
+    passes [rhs_effect_free] — a CONSERVATIVE structural predicate for forms that are evident-VALID Go
+    WITHOUT type-checking AND produce NO observable output AND CANNOT panic — and otherwise REJECTS it
+    ([None] = out of this slice).  Because GoSem sits BELOW GoSafe and has NO type/category evidence, it
+    must be conservative on VALIDITY too, not just effects: an aggregate conversion is admitted ONLY for
+    the predeclared [nil] ([[]T(nil)] / [chan T(nil)]), while map literals, map conversions, every
+    NON-nil conversion, and a slice literal with a nested-aggregate element are REJECTED (full
+    type-validity — element-assignability, comparable map keys — is GoSafe.ptype's, NOT yet available
+    in GoSem).  For an admitted RHS the value is valid + silent + non-panicking BY STRUCTURE, so
+    discarding it and continuing is faithful.  This is explicitly a CONSERVATIVE STRUCTURAL check, NOT a
+    full eval-with-panic/type semantics: it intentionally rejects a bare identifier (incl. [nil]), a
+    SHIFT ([BShl]/[BShr], which can panic on a negative / oversized count), [BDiv]/[BRem] (a zero divisor
+    panics), index/slice/deref/assert, and any non-conversion call — none of which is unconditionally
+    valid+silent+total, all OUT of scope, never silently erased.
     ============================================================================ *)
 From Fido Require Import builtins cmd GoAst.
 From Stdlib Require Import String List Bool ZArith.
@@ -129,27 +134,33 @@ Fixpoint eval_args (es : list GExpr) : option (list GoAny) :=
       end
   end.
 
-(** ---- [rhs_effect_free e] : GoSem's STRUCTURAL effect-free + total predicate ----  the
-    CONSERVATIVE behavioral check the [_ = e] discard relies on: [true] ONLY for expression
-    forms that produce NO observable output AND CANNOT panic (no partial op), so the value is
-    silent + non-panicking BY STRUCTURE and discarding it is faithful.  It is NOT a typing
-    duplicate of GoSafe and NOT a soundness/completeness theorem against Go — it is a
-    behavioral, conservative over-approximation of effect-free-and-non-panicking.  It
-    INTENTIONALLY rejects bare nil, shifts, division, index/deref/assert, and arbitrary calls.
+(** ---- [rhs_effect_free e] : GoSem's CONSERVATIVE structurally-evident-VALID + effect-free + total
+    predicate ----  the check the [_ = e] discard relies on: [true] ONLY for expression forms that are
+    (a) structurally EVIDENT-VALID Go WITHOUT type-checking, (b) produce NO observable output, and
+    (c) CANNOT panic (no partial op) — so the value is valid + silent + non-panicking BY STRUCTURE and
+    discarding it is faithful.  GoSem sits BELOW GoSafe and has NO type/category evidence, so it must be
+    CONSERVATIVE: it admits only forms whose VALIDITY is structurally evident; full type/category validity
+    (element-assignability, comparable map keys, convertibility) is GoSafe.ptype's, NOT yet bridged into
+    GoSem.  It is NOT a typing duplicate of GoSafe and NOT a soundness/completeness theorem against Go.
     ADMITS:  [EInt] / [EStr] literals; the unconditionally total+silent arithmetic binops
       ([BAdd]/[BSub]/[BMul]/[BAnd]/[BOr]/[BXor]/[BAndNot]) and the comparisons
       ([BEq]/[BNe]/[BLt]/[BLe]/[BGt]/[BGe]) over effect-free operands; the unary
       [UNeg]/[UXor]/[UNot] over an effect-free operand; a SCALAR conversion
       [t(a)] = [ECall (EId t) [a]] with [t] a scalar type keyword ([classify t <> None]) and
-      [a] effect-free (a numeric/bool/string conversion cannot panic); a slice/chan/map
-      type-form conversion [EConv] over the predeclared [nil] operand OR an effect-free operand;
-      and [ESliceLit]/[EMapLit] whose children are ALL effect-free.
+      [a] effect-free (a numeric/bool/string conversion cannot panic); a slice/chan type-form
+      conversion of the predeclared [nil] operand ONLY — [[]T(nil)] / [chan T(nil)] ([nil] converts to
+      any slice/chan); and a slice composite literal [ESliceLit] ALL of whose elements are NON-AGGREGATE
+      effect-free scalars.
     REJECTS ([false]): a BARE identifier, INCLUDING [nil] ([_ = nil] is invalid Go — use of
       untyped nil); the SHIFTS [BShl]/[BShr] (a negative / oversized count panics, and the shift
       is not unconditionally total); [BDiv]/[BRem] (a zero divisor PANICS); [BLAnd]/[BLOr] (out
       of this set — conservative); [UDeref]/[UAddr]; [EIndex]/[ESlice]/[ESel]/[EAssert] (index /
-      slice / deref / assert can PANIC); and ANY non-conversion call ([println]/[print]/[panic]/
-      [len]/[cap]/user func — [classify] of its name is [None]), since a call may OUTPUT/PANIC. *)
+      slice / deref / assert can PANIC); ANY non-conversion call ([println]/[print]/[panic]/
+      [len]/[cap]/user func — [classify] of its name is [None]), since a call may OUTPUT/PANIC;
+      EVERY [EConv] that is not a [nil] slice/chan conversion — a NON-nil operand (an aggregate-to-
+      aggregate conversion like [[]int([]string{})] is NOT structurally evident-valid) AND ALL [map]
+      conversions; ALL map literals [EMapLit] (no comparable-key/assignability evidence in GoSem); and
+      a slice literal with a NESTED-AGGREGATE element ([ESliceLit]/[EMapLit]/[EConv] inside [{...}]). *)
 Fixpoint rhs_effect_free (e : GExpr) : bool :=
   match e with
   | EInt _  => true
@@ -172,18 +183,33 @@ Fixpoint rhs_effect_free (e : GExpr) : bool :=
          single-arg call ([println]/[print]/[panic]/[len]/[cap]/user func) may output/panic *)
       match classify (proj1_sig f) with Some _ => rhs_effect_free a | None => false end
   | ECall _ _ => false                          (* multi-arg / non-identifier callee: a call may output/panic *)
-  | EConv _ e0 =>
-      (* slice/chan/map conversion: admit the predeclared nil operand, or an effect-free operand *)
-      (match e0 with EId i => String.eqb (proj1_sig i) "nil" | _ => false end) || rhs_effect_free e0
+  | EConv c e0 =>
+      (* slice/chan/map type-form conversion.  Admit ONLY a VALID nil conversion — [[]T(nil)] /
+         [chan T(nil)] (nil converts to any slice/chan).  REJECT every other conversion: a NON-nil
+         operand (an aggregate-to-aggregate conversion like [[]int([]string{})] / [chan int([]int{1})]
+         is NOT structurally valid without type-checking), and ALL map conversions (no comparable-key
+         evidence here).  Full type-validity is GoSafe.ptype's, not yet bridged into GoSem. *)
+      match c, e0 with
+      | CTSlice _, EId i => String.eqb (proj1_sig i) "nil"
+      | CTChan _,  EId i => String.eqb (proj1_sig i) "nil"
+      | _, _ => false
+      end
   | ESliceLit _ es =>
-      (fix all_ef (l : list GExpr) : bool :=
-         match l with nil => true | x :: r => rhs_effect_free x && all_ef r end) es
-  | EMapLit _ _ kvs =>
-      (fix all_ef_kv (l : list (GExpr * GExpr)) : bool :=
+      (* slice composite literal: admit ONLY when EVERY element is a NON-AGGREGATE effect-free scalar
+         (literal / arithmetic / comparison / scalar conversion / unary).  A nested-aggregate element
+         ([ESliceLit] / [EMapLit] / [EConv]) is REJECTED — GoSem cannot type-check element-assignability
+         without ptype, so this is a CONSERVATIVE structural restriction (full element-type validity is
+         GoSafe.ptype's, deferred, not yet bridged into GoSem). *)
+      (fix all_scalar (l : list GExpr) : bool :=
          match l with
          | nil => true
-         | p :: r => rhs_effect_free (fst p) && rhs_effect_free (snd p) && all_ef_kv r
-         end) kvs
+         | x :: r =>
+             match x with
+             | ESliceLit _ _ | EMapLit _ _ _ | EConv _ _ => false
+             | _ => rhs_effect_free x
+             end && all_scalar r
+         end) es
+  | EMapLit _ _ _ => false  (* map literal quarantined: no comparable-key / assignability evidence in GoSem *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false   (* selector/index/slice/assert can panic *)
   end.
 
@@ -324,6 +350,43 @@ Example demo_blank_rhs_effect_free :
   /\ rhs_effect_free (ESliceLit GTInt [EInt 1]) = true.
 Proof. split; vm_compute; reflexivity. Qed.
 
+(** ---- REGRESSION (FIX 1): an INVALID slice conversion RHS is REJECTED ----  [_ = []int([]string{})]
+    is CLOSED-but-INVALID Go (a [[]string] is not convertible to [[]int]).  GoSem sits below GoSafe and
+    has no convertibility evidence, so a slice/chan conversion is admitted ONLY for the predeclared [nil]
+    operand; a NON-nil operand (here a [[]string{}] aggregate) is REJECTED — [rhs_effect_free] is [false]
+    and [gosem_run] is [None].  GoSem must NOT denote this as a silent normal blank assign. *)
+Theorem gosem_rejects_invalid_slice_conv :
+  gosem_run [GsBlankAssign (EConv (CTSlice GTInt) (ESliceLit GTString []))] = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 1): a chan conversion of a NON-nil operand is REJECTED ----  [_ = chan int([]int{1})]
+    is invalid (a slice is not convertible to a channel).  Again only [chan T(nil)] is admitted, so the
+    [[]int{1}] operand makes [rhs_effect_free] [false] and [gosem_run] [None]. *)
+Theorem gosem_rejects_chan_conv_of_slice :
+  gosem_run [GsBlankAssign (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))] = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 1): a map composite literal RHS is REJECTED ----  GoSafe QUARANTINES map literals
+    (comparable-key + value-assignability are not structurally evident), and GoSem has even less evidence,
+    so [rhs_effect_free (EMapLit ..) = false] unconditionally.  Witness: a NON-comparable-key map literal
+    [map[[]int]int{[]int{1}: 2}] (a slice key type is not comparable) — [gosem_run] is [None], never a
+    silent normal blank assign. *)
+Theorem gosem_rejects_map_literal :
+  gosem_run [GsBlankAssign (EMapLit (GTSlice GTInt) GTInt
+                                    [(ESliceLit GTInt [EInt 1], EInt 2)])] = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 1): the demo's two blank-assign RHSs are still ADMITTED end-to-end ----  the
+    nil slice conversion [_ = []int(nil)] and the all-scalar slice literal [_ = []int{1}] each classify
+    [SDSeq (fun k => k)] (silent discard), so a body [{ _ = e; return }] runs to a NORMAL [ORet tt] with
+    the unchanged initial world.  This locks that the FIX-1 tightening did NOT regress the demo. *)
+Theorem gosem_admits_demo_blank_rhs :
+  gosem_run [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl))); GsReturn]
+    = Some (ORet tt w_init)
+  /\ gosem_run [GsBlankAssign (ESliceLit GTInt [EInt 1]); GsReturn]
+    = Some (ORet tt w_init).
+Proof. split; vm_compute; reflexivity. Qed.
+
 (** GATE — GoSem is a (proof-only) behavioral slice; keep it axiom-free.  These [Print
     Assumptions] surface the trust base of the deliverables in the build log; the Docker
     prover-stage axiom-manifest gate (and [make gosem-verify]) FAIL the build on ANY axiom,
@@ -335,3 +398,7 @@ Print Assumptions gosem_return_discards_undenotable_suffix.
 Print Assumptions gosem_panic_short_circuits.
 Print Assumptions gosem_unsupported_before_terminal_rejects.
 Print Assumptions demo_blank_rhs_effect_free.
+Print Assumptions gosem_rejects_invalid_slice_conv.
+Print Assumptions gosem_rejects_chan_conv_of_slice.
+Print Assumptions gosem_rejects_map_literal.
+Print Assumptions gosem_admits_demo_blank_rhs.
