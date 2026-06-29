@@ -282,8 +282,16 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > so `GoSafe.stmt_ok (GsBlankAssign e) = svalue e` (a positive demo `_ = 1`, and `_ = println(1)` REJECTED as
 > a void value).  Its `print_stmt_inj` cross case vs `GsExprStmt` is closed by `gprint_neq_blank` — a LONE `=`
 > fails to lex (`lex_op` yields `None` unless followed by `=`), so `parse_str ("_ = " ++ X) = None` outright
-> (`vm_compute`).  Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control flow) and
-> composite-literal/func-lit conversions. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
+> (`vm_compute`).  Then (this tick) the slice composite literal `[]T{e1,..,en}` (`ESliceLit : GoTy -> list
+> GExpr`) LANDED — a PREFIX type-led primary sharing the `[]T` lead with `EConv` (disambiguated by the next
+> token: `{`→`ESliceLit` vs `(`→`EConv`), with a new `parse_elems`/`parse_elems_tl` mutual-block parser
+> (verbatim `parse_args` with `TRP`→`TRC`) and the full zero-axiom round-trip cascade re-proved (`gtokens_lex`/
+> `gtokens_parse`/`parse_print_roundtrip`/`gprint_inj` now cover it); `GoSafe.svalue (ESliceLit _ es) =
+> forallb svalue es` (+ regressions: `println([]int{1})` supported, a bare `[]int{1}` statement rejected).
+> (Implemented by a background worktree subagent from a recorded plan, then independently re-verified on `main`:
+> golden BYTE-IDENTICAL, zero axioms, all gates green.)  Still ahead in Phase 4: more `GoStmt` forms
+> (assignment, var, control flow) and map/struct composite literals + func-lit conversions.
+> **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
 > is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
 > COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
 > proven bytes to the compiler.  The demo body now exercises the landed `EConv` + `GsBlankAssign` forms through
@@ -326,9 +334,12 @@ add "future foundation" unless it replaces or deletes something.**
   atom, zero-axiom round-trip via `parse_atom_conv`, `svalue`-admitted); the 3rd statement form
   `GsReturnVal` (`return e`, 9dad6b0 — `print_stmt_inj` cross case via `gprint_neq_return_val` over the new
   `lex_return_app` keyword seam, GoSafe `stmt_ok`-REJECTED as invalid in void `main`); and the 4th statement
-  form `GsBlankAssign` (`_ = e`, this tick — the FIRST SUPPORTED non-call/non-return statement,
-  `stmt_ok = svalue e`; cross case via `gprint_neq_blank`, a lone `=` failing to lex). Next: more `GoStmt`
-  forms (assignment, var, control flow) and composite-literal/func-lit conversions, HERE inside `GoAst`/`GoPrint`.
+  form `GsBlankAssign` (`_ = e` — the FIRST SUPPORTED non-call/non-return statement,
+  `stmt_ok = svalue e`; cross case via `gprint_neq_blank`, a lone `=` failing to lex); and the slice
+  composite literal `ESliceLit` (`[]T{e1,..,en}`, fb8c488 — a type-led primary sharing the `[]T` lead with
+  `EConv`, with a `parse_elems` mutual-block parser and the full zero-axiom round-trip, `svalue`-admitted as
+  `forallb svalue es`). Next: more `GoStmt` forms (assignment, var, control flow) and map/struct composite
+  literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

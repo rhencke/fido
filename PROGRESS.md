@@ -23,15 +23,18 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
 > Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
 > `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip + `svalue`-admitted); a `GoStmt` statement layer with `print_stmt_inj` (program-printer
-> injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` / `GsReturnVal` (`return e`, gate-REJECTED
-> as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first SUPPORTED non-call/non-return statement);
-> a decidable `GoSafe.SupportedProgram` supported-subset gate (`stmt_call_ok` println/print/panic + `svalue`,
-> now also the value-returning builtins `len`/`cap` in value position — the Go-spec value-vs-statement
-> distinction); and a certificate-gated `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go
-> toolchain BUILDS (`make emit-demo` — exercising `EBn` / `EConv` / `GsBlankAssign` end-to-end). NEXT: slice
-> composite literals `[]T{…}` (`ESliceLit`, plan recorded), then more `GoStmt` forms; eventually `GoSem`. NB
-> this spine is SEPARATE from the Stage-B plugin-integration ledger below; `main.go` is still the legacy path.
+> round-trip + `svalue`-admitted); the slice composite literal `ESliceLit` (`[]T{e1,..,en}` — a type-led
+> primary sharing the `[]T` lead with `EConv`, with a `parse_elems` mutual-block parser and the full
+> round-trip, `svalue (ESliceLit _ es) = forallb svalue es`); a `GoStmt` statement layer with `print_stmt_inj`
+> (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` / `GsReturnVal`
+> (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first SUPPORTED
+> non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate (`stmt_call_ok`
+> println/print/panic + `svalue`, now also the value-returning builtins `len`/`cap` in value position — the
+> Go-spec value-vs-statement distinction); and a certificate-gated `GoEmit.demo_emit` whose exact bytes are
+> pinned and whose output the Go toolchain BUILDS (`make emit-demo` — exercising `EBn` / `EConv` /
+> `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment, var, control flow) + map/struct composite
+> literals; eventually `GoSem`. NB this spine is SEPARATE from the Stage-B plugin-integration ledger below;
+> `main.go` is still the legacy path.
 
 **STATUS — the MODELLING scope is comprehensively complete; the active front is the PRINTER / TCB-shrink (gap #10), which is still RED — see the PRINTER ledger below.** What "complete" does and does not mean: every construct is *modelled in Rocq and lowered by the TRUSTED OCaml plugin* — it is NOT "verified Go", because the plugin (and the live expression printer) remain trusted.
 - **Go CONSTRUCT (MODEL) LAYER is complete** — every Go construct in the no-import scope is modelled in Rocq and extracted (via the trusted plugin), with NO remaining fail-closed construct gap. (Interfaces are method-dictionary records: behaviourally correct dispatch, just not the native `interface{}` *keyword* — an idiomatic-output difference, not a correctness gap.) This is the MODEL surface; it does not make the emitted Go verified — that is the printer/gap-#10 work below.
