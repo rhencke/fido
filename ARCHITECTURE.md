@@ -1,22 +1,14 @@
 # Fido AST-First Certified Emission Charter
 
-This is the standing architectural charter for Fido — binding on Claude Code, Codex review, and human
-review. It supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of gravity.
-
-Fido is **not** being refactored from a finished, stable system. It is being course-corrected from a
-fast-moving prototype that proved several ideas promising but also exposed a dangerous pattern: plausible
-local fixes preserve the wrong abstraction and then grow an ecosystem around it (the `SRaw` episode, §4).
-
-The new direction is explicit:
+Standing architectural charter for Fido — binding on Claude Code, Codex review, and human review. It
+supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of gravity.
 
 > **Fido moves toward an AST-first, proof-gated Go emission architecture.**
-
-The long-term shape:
 
 ```text
 GoAst    says what Go-shaped syntax can be written.
 GoPrint  proves the AST prints (and parses back) correctly — SYNTAX ONLY.
-GoSem    says what the AST means (the ONE authoritative semantics).
+GoSem    says what the AST means (the ONE authoritative semantics) — PLANNED, not built.
 GoSafe   says which programs are supported now, and — later — which are behaviorally safe.
 GoEmit   is the ONLY blessed emission path; it requires the appropriate certificate.
 ```
@@ -30,28 +22,25 @@ Early on the certificate is "supported subset" (syntactic). It becomes "behavior
 GoSem-backed theorems exist — and the NAME of the certificate must never claim more than is proved.
 ```
 
-This is a course correction, not a victory lap. Treat all existing code as provisional until it fits this
-architecture. Optimize for **architectural truth over preserving old momentum.**
+Treat all existing code as provisional until it fits this architecture. Optimize for **architectural truth
+over preserving old momentum.**
 
 ---
 
 ## 1. Non-negotiable project standard
 
-Primary goal: **merciless correctness.** Supported constructs must be exact with respect to the intended
-Rocq-Go semantics. Unsupported constructs must be mechanically rejected or clearly outside the core. No
-documentation may weaken a correctness claim.
+Primary goal: **merciless correctness.** Supported constructs must be exact w.r.t. the intended Rocq-Go
+semantics. Unsupported constructs must be mechanically rejected or clearly outside the core. No documentation
+may weaken a correctness claim.
 
-Secondary goal: **simplify, generalize, remove dead weight** — but subordinate to correctness. Do not
-simplify by weakening the model, collapsing semantically different cases, deleting necessary checks, or
-hiding trusted behavior. Good simplification makes invariants structural, removes duplicate authorities,
-deletes obsolete scaffolding, and makes bad states unrepresentable or un-emittable. Bad simplification
-proves less or models less while pretending the claim stayed the same.
+Secondary goal: **simplify, generalize, remove dead weight** — subordinate to correctness. Good
+simplification makes invariants structural, removes duplicate authorities, deletes obsolete scaffolding, and
+makes bad states unrepresentable or un-emittable. Bad simplification proves less or models less while
+pretending the claim stayed the same.
 
 ---
 
 ## 2. The architectural spine
-
-Layer separation — memorize the boundaries:
 
 ```text
 GoAst   says what can be written.
@@ -61,576 +50,218 @@ GoSafe  defines supportedness now, behavioral safety later.
 GoEmit  is the only blessed emission path and requires the appropriate certificate.
 
 Printer proofs are SYNTAX proofs. They do NOT imply race freedom, memory safety, termination, session
-correctness, or GoSem correctness.
-Safety proofs are BEHAVIORAL proofs. They do NOT imply printer correctness.
-Emission COMPOSES the two.
+correctness, or GoSem correctness. Safety proofs are BEHAVIORAL. Emission COMPOSES the two.
 ```
 
-### `GoAst.v` — structured Go syntax
-
-Identifiers, literals, types, expressions, lvalues, statements, blocks, declarations, functions,
-packages/programs. `GoAst` may represent unsafe programs — the AST is syntax, not a safety proof — but it
-must **not** contain raw syntax strings for Go structure.
-
+**`GoAst.v` — structured Go syntax.** Identifiers, literals, types, expressions, statements, programs.
+`GoAst` may represent unsafe programs, but it must **not** contain raw syntax strings for Go structure.
 Allowed: semantic string *contents* for string literals (printed through an escaping printer); validated
-identifiers; structured/validated import paths; validated comment payloads.
+identifiers. Forbidden: raw expression/statement/type/declaration strings; "opaque Go syntax" / "trusted
+raw" constructors; any constructor that smuggles source text to avoid modeling syntax. If a construct is
+supported it gets a constructor; otherwise it is unrepresentable or rejected by the builder.
 
-Forbidden: raw expression/statement/type/declaration strings; "opaque Go syntax" constructors; "trusted
-raw" constructors; any constructor that smuggles source text to avoid modeling syntax.
+**`GoPrint.v` — printing + syntax round-trip (imports `GoAst`).** Owns printing and the syntax round-trip
+theorems (`parse_str (gprint 0 e) = Some (e,[])`, `print_program_inj`, …). Purely syntactic — no safety
+claims belong here. The parser used by printer proofs is a real lexer + recursive-descent/precedence parser,
+not a maze of string splits.
 
-If a construct is supported, it gets a constructor. If it is not supported, it is unrepresentable in the
-supported path or rejected by the builder.
+**`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem is the one authoritative behavioral
+semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). It must
+**bridge the existing proven semantics** — `unified.v` (the authoritative `ustep`, race-freedom + liveness),
+`concurrency.v` (trace / happens-before / race / bounded-deadlock theory), `cmd.v` (effect evaluator) —
+never a second semantic universe that can drift. No behavioral-safety claim is active until it exists.
 
-### `GoPrint.v` — printing + syntax round-trip (imports `GoAst`)
+**`GoTypes.v` — shared constant-aware type-category checker (imports ONLY `GoAst`).** The bottom of the
+type-category layer: `ptype : GExpr -> option PTy` (the structural, constant-aware category assignment —
+splitting int/float, constant/runtime, carrying constant values so overflow / div-or-shift-by-zero are
+decided from the folded value) and its numeric/conversion combinators, plus the value-position wrapper
+`svalue`. Factored out of `GoSafe` so the layers above it consult ONE authority (GoSafe for
+`SupportedProgram`; GoSem, when built, for blank-assign RHS validity). No theorems — adds no axioms.
+**`ptype` is a CONSERVATIVE supported-subset classifier, NOT Go's typechecker.** No new rule may be added
+unless it (a) rejects a real CLOSED bad program currently accepted, or (b) admits a needed supported demo.
 
-Owns printing and the syntax round-trip theorems. The printer's job is **purely syntactic**; it does not
-care whether a program is race-free, deadlock-free, session-safe, or memory-safe.
-
-Good printer theorems: `parse_expr (print_expr e) = Some e`, `parse_program (print_program p) = Some p`, or
-a staged `GoSubsetAccepts (print_program p)`. Bad printer "theorems": `print_program p is safe` /
-`is race-free` — those belong in `GoSem` / `GoSafe`, not here.
-
-The parser used by printer proofs is a real lexer/parser: `text -> tokens -> recursive descent / precedence
-parser -> AST`. A parser is not a maze of string splits. Niklaus Wirth should look at this subsystem and
-nod.
-
-### `GoSem.v` — semantics (imports `GoAst`)
-
-Operational/denotational semantics for the supported AST subset: happens-before, blocking, panics, output,
-defer, allocation, maps, slices, channels, goroutines, select.
-
-**`GoSem` is the MIGRATION / BRIDGE point for existing semantic work — NOT a greenfield duplicate.** Fido
-already has substantial proven semantics: `unified.v` (the authoritative closed-world `ustep` operational
-semantics carrying every effect, with race-freedom and liveness/deadlock proved), `concurrency.v` (the
-calculus-agnostic trace / happens-before / race theory and the bounded deadlock theory), and `cmd.v` (the
-effect evaluator). These must be **moved into or bridged to `GoSem`**, or explicitly retired. The end state
-is **one authoritative operational semantics** for safety claims — never two semantic universes that can
-drift (that is the duplicate-authority failure this charter forbids). Do not let the printer carry semantic
-obligations: the printer prints; semantics interprets.
-
-> **STATUS — first slice LANDED (`GoSem.v`).** A FIRST behavioral slice exists: it denotes the OUTPUT / panic
-> behavior of the SUPPORTED statement subset (`GsExprStmt` calls to `println`/`print`/`panic`, a TERMINATING
-> `GsReturn`, and a `GsBlankAssign` whose RHS is in a STRUCTURALLY effect-free subset) by **bridging `cmd.v`** —
-> a statement list maps to a `cmd.Cmd unit` whose meaning is read through builtins' `run_io`/`w_output`; it
-> introduces **NO new IO/output/outcome model** (no second semantic universe). A TERMINAL statement
-> (`return`/`panic`) **short-circuits UNCONDITIONALLY**: `classify_stmt` tags each statement
-> `SDTerminal`/`SDSeq`/`SDUnsupported`, and `denote_body` folds left-to-right returning an `SDTerminal`'s `Cmd`
-> immediately — WITHOUT forcing the denotation of the suffix — so a `return`/`panic` discards the rest even when
-> it is itself UN-denotable (pinned by `gosem_return_discards_undenotable_suffix` and `gosem_panic_short_circuits`,
-> e.g. `{ return; println(len(s)) }` runs to a normal `ORet` with EMPTY output though `len` is outside `eval`);
-> an unsupported statement BEFORE a terminal still rejects (`gosem_unsupported_before_terminal_rejects`). `_ = e`
-> is admitted **iff `e` is a valid VALUE by the SHARED `GoTypes.svalue`** (= `ptype`-valid, with `nil` and the
-> default-`int`-overflow boundary rejected) — the **EXACT same type-category authority** GoSafe's `stmt_ok` uses
-> for a blank-assign RHS. `ptype`/`svalue` were **factored out of GoSafe into a LOWER shared module
-> `GoTypes`** (imports only `GoAst`) precisely so BOTH layers decide blank-assign validity by ONE authority —
-> ending the earlier duplicate-authority problem where a GoSem-local, **type-blind** structural predicate
-> (`rhs_effect_free`, now DELETED) denoted CLOSED-INVALID Go (`_ = bool(1)`, `_ = []uint8{300}`, `_ = int("hi")`,
-> `_ = !1`, `_ = (1==1) < (2==2)`) as a silent normal return. Those are now all `None` (pinned by
-> `gosem_rejects_bool_conv`/`_u8_slicelit_overflow`/`_int_of_string`/`_not_of_int`/`_bool_ordering`), as are a
-> bare identifier incl. `nil` (`gosem_rejects_bare_nil` — `ptype` gives `PtNil`, which `svalue` rejects, so the
-> gate is `svalue`, **not** a bare `ptype e <> None`), an illegal/negative-count shift, `BDiv`/`BRem` by a
-> const zero, index/slice/deref/assert, every map literal and map conversion, every NON-nil aggregate
-> conversion (`[]int([]string{})`), and a slice literal with a bad/nested-aggregate element — because `ptype`
-> rejects each. WHY a `svalue`-admitted RHS is faithfully discarded SILENTLY: in the no-declaration model a free
-> identifier is `ptype`-rejected, so every admitted RHS is CLOSED, and `ptype`'s constant analysis already
-> rejects the only closed forms that could panic (const-zero divisor, negative/oversized const shift) plus every
-> partial op — so the value is valid + silent + TOTAL by structure. An out-of-subset RHS is `None`, never
-> silently erased. **Layering:** core
-> `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
-> (`cmd`/`builtins`) — NOT `GoPrint`/`GoSafe`/`GoEmit`; the demo deliverable lives in the DOWNSTREAM
-> `GoSemDemo.v`. That deliverable, `gosem_demo_output`, is a zero-axiom `vm_compute` proof that
-> `GoEmit.demo_prog` runs to a normal `ORet` emitting exactly its four `println` lines (int 1, int64 3, int 3,
-> string "hi"), its two blank-assigns and trailing `return` adding nothing. HONEST SCOPE: this is NOT the full
-> authoritative GoSem yet — `eval` const-folds only a small core (int constants ±/×, the default-`int`/`int64`
-> scalar conversions, string literals), there is NO eval-vs-`ptype` soundness theorem, the blank-assign gate
-> `GoTypes.svalue` is a CONSERVATIVE supported-subset judgment (not a full eval-with-panic semantics), and `BehaviorSafe` is NOT built
-> (the certificate stays `SupportedProgram`). The denotation is partial (`option`-valued): an out-of-scope
-> form yields `None` ("outside this slice's scope") rather than fabricating or dropping any event. `make
-> gosem-verify` (local, covering both `GoSem.v` and `GoSemDemo.v`) + the Docker axiom-manifest gate (canonical)
-> keep it zero-axiom.
-
-### `GoTypes.v` — the SHARED constant-aware type-category checker (imports ONLY `GoAst`)
-
-The bottom of the type-category layer. It owns **`ptype : GExpr -> option PTy`** (the structural,
-constant-aware TYPE-CATEGORY assignment — splitting int/float, CONSTANT/runtime, carrying constant VALUES so
-overflow / div-or-shift-by-zero are decided from the folded value) and its numeric/conversion combinators, plus
-the value-position wrapper **`svalue`** (`ptype`-valid, with `nil` and the default-`int`-overflow boundary
-rejected). It was **factored out of `GoSafe`** (Codex stop-review, 2026-06-29) so the layers ABOVE it consult ONE
-authority: `GoSafe` reuses `ptype`/`svalue` for `SupportedProgram`, and `GoSem` reuses `svalue` as the SOLE gate
-for a blank-assign `_ = e` — so GoSem's blank-RHS validity is the SAME type authority as GoSafe's, not a second
-(type-blind) predicate. `GoTypes` has no theorems (only `Definition`s / one `Inductive`), so it adds no axioms.
-
-### `GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst` + `GoTypes`)
-
-Defines the predicates the emitter gates on. The type-category machinery it builds on (`ptype`/`svalue` and all
-their numeric/conversion helpers) lives in the lower shared `GoTypes`; `GoSafe` adds the statement-shape /
-supported-syntax layer (`stmt_ok`, `supported_program`, `SupportedProgram`) on top.
-
-**Phase 1 is SYNTACTIC supportedness, and must be NAMED as such** — a syntactic/well-formed/supported-subset
-check is *not* behavioral safety, and calling it `SafeProgram` would repeat the exact overclaim this
-refactor exists to kill (see Rule 5). Use:
+**`GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst` + `GoTypes`).** Adds the
+statement-shape / supported-syntax layer (`stmt_ok`, `supported_program`, `SupportedProgram`) on top of
+`GoTypes`. **Phase 1 is SYNTACTIC supportedness and must be NAMED as such** — calling it `SafeProgram` would
+repeat the exact overclaim this refactor kills (Rule 5).
 
 ```text
-SupportedProgram   -- syntactic: in the supported subset, no unmodeled constructs, no raw escape hatches.
+SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
+BehaviorSafe      -- semantic (reserved for when GoSem-backed theorems exist): no nil deref / OOB /
+                     send-on-closed / illegal close / data race; happens-before consistency; session safety.
 ```
 
-Reserve the behavioral names for when `GoSem`-backed theorems actually exist:
+Safety must become the **ticket required by the emitter**, not a theorem sitting near an AST.
 
-```text
-BehaviorSafe       -- semantic: no nil deref / OOB / send-on-closed / illegal close / data race;
-                      happens-before consistency; session/protocol safety; ownership discipline;
-                      termination/deadlock-freedom for selected fragments.
-```
-
-Safety is not a theorem merely sitting near an AST. It must become the **ticket required by the emitter.**
-
-### `GoEmit.v` — the only blessed emission path (imports `GoAst`, `GoPrint`, `GoSafe`)
+**`GoEmit.v` — the only blessed emission path (imports `GoAst`, `GoPrint`, `GoSafe`).**
 
 ```coq
-Record EmittableProgram := {
-  ep_program  : GoAst.Program;
-  ep_supported : GoSafe.SupportedProgram ep_program;
-}.
-Definition emit_supported (p : EmittableProgram) : string :=
-  GoPrint.print_program p.(ep_program).
-
-(* Later, once GoSem is authoritative and BehaviorSafe is real: *)
-Record SafeProgram := {
-  sp_emittable : EmittableProgram;
-  sp_safe      : GoSafe.BehaviorSafe sp_emittable.(ep_program);
-}.
-Definition emit_safe (p : SafeProgram) : string :=
-  GoPrint.print_program p.(sp_emittable).(ep_program).
+Record EmittableProgram := { ep_program : GoAst.Program; ep_supported : GoSafe.SupportedProgram ep_program }.
+Definition emit_supported (p : EmittableProgram) : string := GoPrint.print_program p.(ep_program).
+(* Later, once GoSem is authoritative and BehaviorSafe is real: a SafeProgram = EmittableProgram +
+   BehaviorSafe, emitted by emit_safe. *)
 ```
 
-`emit_supported` is acceptable as a **printer / supported-subset milestone**, but it must NOT be described
-as behaviorally safe. The long-term blessed safety path is `emit_safe`.
-
-Do **not** export an official `emit : GoAst.Program -> string` — that makes the certificate decorative. If
-raw printing is needed for tests, name it like a loaded gun (`unsafe_print_program_for_tests`); it must not
-be the extraction path and must not back any demo claiming Fido safety.
+`emit_supported` is a printer/supported-subset milestone — NOT behaviorally safe. Do **not** export an
+official `emit : GoAst.Program -> string`; that makes the certificate decorative. Raw printing for tests must
+be named like a loaded gun, must not be the extraction path, and must not back any safety claim.
 
 ---
 
 ## 2a. Residual trust base (state it; never leave it implicit)
 
-After this refactor the correctness of an *emitted* program rests on, and only on:
+The correctness of an *emitted* program rests on, and only on:
 
-1. **The Rocq kernel** and the trusted Rocq stdlib lemmas the proofs use.
-2. **The extraction / file-emission step** that turns the final `string` into a `.go` file on disk (plain
-   OCaml string extraction — the same mechanism that already produces `printer.ml`; NOT `go.ml` lowering).
-3. **The Go compiler / runtime / toolchain** that compiles and runs the emitted source.
-4. **Trusted foreign Go imports** and any monitored boundary assumptions about external code.
-5. **An adequacy assumption/theorem connecting `GoSem` to actual Go behavior** for the supported subset —
-   i.e. "real Go realizes `GoSem`." This is unfalsifiable inside Rocq today and is the heir to the old
-   "gap #10." It must be named in the honesty ledger, never assumed silently.
+1. The **Rocq kernel** and the trusted stdlib lemmas the proofs use.
+2. The **extraction / file-emission step** turning the final `string` into a `.go` file (plain OCaml string
+   extraction — the mechanism that produces `printer.ml`; NOT `go.ml` lowering).
+3. The **Go compiler / runtime / toolchain**.
+4. **Trusted foreign Go imports** and monitored boundary assumptions.
+5. An **adequacy assumption connecting `GoSem` to actual Go behavior** ("real Go realizes `GoSem`") — the
+   heir to the old "gap #10," unfalsifiable inside Rocq, named in the honesty ledger, never assumed silently.
 
-`GoPrint` proves the bytes; items 3 and 5 are why this is "Go with proofs," not "Go without trust."
-
----
-
-## 3. The core slogan
-
-```text
-GoAst says what can be written.
-GoPrint says it prints correctly (syntax).
-GoSem says what it means.
-GoSafe says what is supported now / safe later.
-GoEmit refuses everything without the certificate.
-```
+Today the main output is still produced by the **trusted legacy plugin** `plugin/go.ml` (gap #10) — itself
+part of the TCB until the certified path subsumes it. `GoPrint` proves the bytes; items 3 and 5 are why this
+is "Go with proofs," not "Go without trust."
 
 ---
 
-## 4. Why this course correction exists
+## 3. Why this course correction exists
 
-The previous architecture lowered arbitrary Rocq-ish code through a trusted OCaml plugin into Go text. Fast
-demos, repeated trust-boundary problems. The `SRaw` episode is the cautionary tale: a raw expression-string
-escape hatch added "for convenience" grew helpers, validators, scanner predicates, parser fragments, tests,
-comments, and proof scaffolding around it — looking ever more formal while preserving the wrong abstraction.
-
-The rule that prevents the recurrence:
+The previous architecture lowered arbitrary Rocq-ish code through a trusted OCaml plugin into Go text — fast
+demos, repeated trust-boundary problems. The `SRaw` raw-expression-string escape hatch is the cautionary
+tale: added "for convenience," it grew helpers/validators/scanner/parser/tests around it, looking ever more
+formal while preserving the wrong abstraction. See `LESSONS.md` for the postmortem. The rule that prevents
+recurrence:
 
 ```text
 If a construct is syntax, represent it structurally.
-If it cannot be represented structurally yet, reject it.
-Do not rescue old source strings.
+If it cannot be represented structurally yet, reject it. Do not rescue old source strings.
 ```
 
 ---
 
-## 5. Legacy status and transition discipline
+## 4. Legacy status and transition discipline
 
-The existing plugin/lowering path (`plugin/go.ml`) is **trusted legacy scaffolding.** It may remain only to
-keep demos building while the AST-first path matures. It **may not define the correctness claim.**
+`plugin/go.ml` is **trusted legacy scaffolding.** It may remain only to keep demos building while the
+AST-first path matures; it **may not define the correctness claim.**
 
-Transition discipline (the transition is itself a parallel-universe hazard — handle it deliberately):
-
-- `Front` **moves** into `GoAst`/`GoPrint` (rename, not copy). There must NOT be two expression universes
-  (`Front` beside `GoAst`) that can drift. Do not keep growing `Front`.
 - New architectural work must **reduce** reliance on Legacy, not improve it. A patch that makes `go.ml`'s
   lowering nicer is moving the wrong direction.
 - The old path builds demos; the new path defines the claim. Old path gets deleted as the new path subsumes
-  it — not maintained in parallel indefinitely.
+  it — never maintained in parallel indefinitely.
+- No parallel universes: do not grow a second expression/semantic universe beside the spine.
 
-Honest current status:
+Honest current status: the spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) compiles zero-axiom and
+`main.v` builds a `GoAst.Program` with a real `func main` body emitted ONLY through `EmittableProgram`; but
+the repo's main `main.go` is STILL the legacy plugin path (GoPrint drives only the var-OP-var binop class
+live), and there is no GoSem, so no behavioral safety. Detailed feature state lives in `PROGRESS.md`.
+
+---
+
+## 5. Relooper — demoted
+
+`relooper.v` is proven and should not be deleted casually, but it is **not** part of the first
+AST-certified-emission path (direct `GoAst` construction → `GoPrint` → `GoEmit`, not CFG recovery). It is an
+optional future lowering component (a higher-level CFG language → GoAst). Do not spend time on relooper
+integration until the AST-first emission path is established.
+
+---
+
+## 6. Phases
 
 ```text
-Legacy:    plugin/go.ml lowering is trusted and transitional.
-New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architecture.
-Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
-           EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
-Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment, var, control
-           flow).  (Program-printer injectivity print_program_inj 34e4a6c; statement forms GsReturn
-           6e2ba11, GsReturnVal 9dad6b0, GsBlankAssign this tick; type-form conversion EConv 0b0758b.)
+Phase 0  Freeze the direction.                                                              DONE
+Phase 1  Extract the Front seed into GoAst/GoPrint (rename, not copy; no second universe).   DONE
+Phase 2  Create GoSafe (SupportedProgram) + GoEmit (EmittableProgram; no raw emit).          DONE
+Phase 3  main.v builds GoAst.Program and emits ONLY through the certificate.                 DONE
+Phase 4  Grow the AST/printer form-by-form (each: represented, printed, round-tripped/       DONE (for now)
+         injective, gate-honest). GoStmt forms + EConv + slice/map literals + EStr landed.   — frozen; tighten not grow
+Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no second universe),  NEXT
+         widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
 ```
 
----
-
-## 6. Relooper status — demoted
-
-`relooper.v` is promising and its proven work should not be deleted casually, but it is **not** part of the
-first AST-certified-emission path. The initial path is **direct `GoAst` construction -> `GoPrint` ->
-`GoEmit`**, not CFG recovery.
-
-```text
-relooper.v = optional FUTURE lowering component (a higher-level CFG language -> GoAst).
-  not required for GoAst / GoPrint / GoSafe / GoEmit / the first certified emitter.
-```
-
-Do not spend time on relooper integration until the AST-first emission path exists.
+Proceed in small structural steps. Every patch should either move a concept into the correct module, delete
+an old wrong path, make a bad path unreachable, strengthen the proof-gated emission boundary, or shrink
+trusted legacy code. **Do not add parallel universes. Do not add "future foundation" unless it replaces or
+deletes something.**
 
 ---
 
-## 7. Immediate refactor direction
-
-> **STATUS (2026-06-28): Phases 0–3 are DONE; Phase 4 is in progress.** The charter is committed;
-> `goprint.v`/`Module Front` were SPLIT and RETIRED into `GoAst.v` (syntax) + `GoPrint.v` (printer) (spine
-> commit 1, f7d9383); then `GoSafe.v` (`SupportedProgram`) + `GoEmit.v` (`EmittableProgram` + `emit_supported`,
-> no raw `emit : Program -> string`) landed with a `GoAst.Program` and the first proof-gated certified emission,
-> and `main.v` builds+emits a program through that blessed path (spine commit 2, 32af69f — Phases 2 AND 3).
-> **Phase 4 (grow the AST/printer) is now underway:** (f2b6003) added a `GoStmt` AST + a real `func main` body
-> — `GsExprStmt`/`println(1)`, printed via the machine-checked `gprint`; then (34e4a6c) proved
-> `print_program_inj` — program-printer INJECTIVITY: distinct `GoAst.Program`s emit distinct Go source (via
-> `no_nl_gprint` + a newline delimiter-split, the float-hex `no_p`/`split_p` technique).  NB this is print
-> injectivity only, NOT a parse round-trip and NOT Go-syntax acceptance.  Then (6e2ba11) added the 2nd statement
-> form `GsReturn` (`print_stmt_inj` now multi-constructor, the `GsExprStmt`/`GsReturn` cross case closed by
-> `gprint_neq_return` — "return" lexes to the `TReturn` keyword token, which the expression parser rejects, so
-> `parse_str "return" = None`). **Then a course correction (external review 2026-06-28): `SupportedProgram`
-> was too weak — it checked only the package name, so it certified INVALID Go like `func main(){ 1 }`.** Fixed:
-> `SupportedProgram` is now a DECIDABLE supported-subset gate (`supported_program` = `pkg=main` ∧
-> `forallb stmt_ok body`, where a bare expression statement must be a call) — a regression locks out the
-> bad program, and GoSafe/GoEmit joined the explicit zero-axiom gate (`make emit-verify`) + a
-> print_program-discipline tripwire. Then (this tick) the parked `EConv` LANDED — the type-form conversion
-> `[]T(x)` / `chan T(x)` / `map[K]V(x)`, the FIRST type-LED `GExpr` atom: a 10th `GExpr` constructor with a
-> zero-axiom `parse_print_roundtrip` (new `parse_atom_conv`/`parse_primary_conv`; `parse_atom` dispatches on
-> the unambiguous `[]`/`chan`/`map` lead via the M5 `parse_gty`, `op_needs_paren EConv = false` since a
-> conversion is a Go PrimaryExpr), and `GoSafe.svalue` admits it as value-producing (with a bare-`EConv`-as-
-> statement still rejected) — golden BYTE-IDENTICAL (EConv is not yet wired into the plugin's `main.go` path).
-> Then (this tick) the 3rd statement form `GsReturnVal` (`return e`) LANDED — its `print_stmt_inj` cross case
-> vs `GsExprStmt` is closed by `gprint_neq_return_val` (a `return e` LEXES to a leading `TReturn` via the new
-> `lex_return_app` seam lemma over `gtokens_lex`, which the expression parser rejects → `parse_str = None`),
-> and `GoSafe.stmt_ok` REJECTS it (a value return is invalid in the only function we emit, the void `main`,
-> with a regression) — a clean demonstration of the AST/gate separation (the AST represents `return e`, the
-> gate refuses it).  Then (this tick) the 4th statement form `GsBlankAssign` (`_ = e`) — the FIRST SUPPORTED
-> statement that is neither a call nor a return: `_ = e` discards a value (valid anywhere `e` produces one),
-> so `GoSafe.stmt_ok (GsBlankAssign e) = svalue e` (a positive demo `_ = 1`, and `_ = println(1)` REJECTED as
-> a void value).  Its `print_stmt_inj` cross case vs `GsExprStmt` is closed by `gprint_neq_blank` — a LONE `=`
-> fails to lex (`lex_op` yields `None` unless followed by `=`), so `parse_str ("_ = " ++ X) = None` outright
-> (`vm_compute`).  Then (this tick) the slice composite literal `[]T{e1,..,en}` (`ESliceLit : GoTy -> list
-> GExpr`) LANDED — a PREFIX type-led primary sharing the `[]T` lead with `EConv` (disambiguated by the next
-> token: `{`→`ESliceLit` vs `(`→`EConv`), with a new `parse_elems`/`parse_elems_tl` mutual-block parser
-> (verbatim `parse_args` with `TRP`→`TRC`) and the full zero-axiom round-trip cascade re-proved (`gtokens_lex`/
-> `gtokens_parse`/`parse_print_roundtrip`/`gprint_inj` now cover it); `GoSafe.ptype` admits `[]T{e1,..,en}`
-> as `PtAgg` iff every element is `assignable_to_ty` the element type `T` (NOT merely `svalue` — so the
-> constant-overflow `[]uint8{300}` and the typed-mismatch `[]int{int64(1)}` are REJECTED) (+ regressions:
-> `_ = []int{1}` supported, a bare `[]int{1}` statement rejected, `println([]int{1})` rejected — a slice is
-> not a printable scalar).
-> (Implemented by a background worktree subagent from a recorded plan, then independently re-verified on `main`:
-> golden BYTE-IDENTICAL, zero axioms, all gates green.)  Then the MAP composite literal `EMapLit`
-> (`map[K]V{k1: v1,..}`, 18e8564 — KEYED key:value pairs, also via a background subagent + independent
-> re-verify) added map literals (slice + map composite literals landed; struct/array remain).  ⚠️ NOTE: map
-> literals are REPRESENTABLE + round-trip but QUARANTINED from `SupportedProgram` (`svalue (EMapLit _ _ _) =
-> false`) — Go's comparable-key-type + assignability rules are not soundly structural, so the gate rejects them
-> (and map conversions) until GoSem; `print`/`println` were also tightened to a guaranteed-printable SCALAR
-> arg subset (`printable_arg_ok`), aggregates go via `_ = …` (external review 2026-06-29).  Still ahead in Phase 4: more `GoStmt` forms (assignment,
-> var, control flow) and struct/array composite literals + func-lit conversions.
-> **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
-> is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
-> COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
-> proven bytes to the compiler.  The demo body now exercises the landed `EConv` + `GsBlankAssign` forms through
-> the blessed path (`_ = []int(nil)`), so those two are validated END-TO-END to compilable Go, not just in
-> isolated round-trip proofs. **Still RED:** that is a
-> SEPARATE demo; the repo's MAIN output `main.go` is STILL the legacy `plugin/go.ml` path (extracted
-> `Printer.gprint`, flat/transitional), NOT certificate-gated — so do not claim main.go is blessed; no GoSem
-> behavioral safety yet. All golden byte-identical, zero axioms. Every "Front" below names that now-retired
-> seed (the completed migration's source), NOT a current structure.
-
-Not a giant rewrite in one patch. Proceed in small, structural steps. Every patch should either: move a
-concept into the correct module, delete an old wrong path, make a bad path unreachable, create/strengthen
-the proof-gated emission boundary, or shrink trusted legacy code. **Do not add parallel universes. Do not
-add "future foundation" unless it replaces or deletes something.**
-
-- **Phase 0 — Freeze the direction. ✅ DONE (cf5fea2).** Charter committed; PROGRESS.md ledger points here.
-- **Phase 1 — Extract the `Front` seed into `GoAst`/`GoPrint`. ✅ DONE (commit 1, f7d9383).** The syntax
-  moved into `GoAst.v`, the printer/parser/round-trip into `GoPrint.v`; `Module Front` retired — no second
-  expression universe. (`Front` was the migration name for the pre-split seed.)
-- **Phase 2 — Create `GoSafe.v` + `GoEmit.v` early. ✅ DONE (commit 2, 32af69f).** `SupportedProgram` is the
-  Phase-1 syntactic gate; the invariant holds: **the official emitter accepts only `EmittableProgram` (later
-  `SafeProgram`)** — there is no raw `emit : Program -> string`.
-- **Phase 3 — `main.v` builds Go AST programs. ✅ DONE (commit 2, 32af69f).** `spine_prog`/`spine_cert`/
-  `spine_emit` in `main.v` build a `GoAst.Program` and emit it ONLY through the blessed path:
-  ```coq
-  Definition p_raw  : GoAst.Program := ...
-  Lemma p_supported : GoSafe.SupportedProgram p_raw. Proof. ... Qed.
-  Definition p_em   : GoEmit.EmittableProgram := {| ep_program := p_raw; ep_supported := p_supported |}.
-  Definition p_out  := GoEmit.emit_supported p_em.
-  ```
-  Unsupported ASTs can exist; they just cannot be emitted through `GoEmit`.
-- **Phase 4 — Grow the AST and printer. ⏳ IN PROGRESS (f2b6003 = first increment).** Each supported form:
-  represented in `GoAst`, printed in `GoPrint`, round-tripped / injectivity-proven, used by a small example.
-  No raw constructors. No string-splitting in place of a lexer/parser. Landed: `GoStmt` + `GsExprStmt` (a real
-  `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program print INJECTIVITY
-  `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split; injectivity only, not Go-syntax
-  acceptance); the 2nd statement form
-  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`); the type-form
-  conversion `EConv` / `ConvTy` (0b0758b — `[]T(x)`/`chan T(x)`/`map[K]V(x)`, the first type-LED `GExpr`
-  atom, zero-axiom round-trip via `parse_atom_conv`, `svalue`-admitted); the 3rd statement form
-  `GsReturnVal` (`return e`, 9dad6b0 — `print_stmt_inj` cross case via `gprint_neq_return_val` over the new
-  `lex_return_app` keyword seam, GoSafe `stmt_ok`-REJECTED as invalid in void `main`); and the 4th statement
-  form `GsBlankAssign` (`_ = e` — the FIRST SUPPORTED non-call/non-return statement,
-  `stmt_ok = svalue e`; cross case via `gprint_neq_blank`, a lone `=` failing to lex); and the slice
-  composite literal `ESliceLit` (`[]T{e1,..,en}`, fb8c488 — a type-led primary sharing the `[]T` lead with
-  `EConv`, with a `parse_elems` mutual-block parser and the full zero-axiom round-trip; `ptype`-admitted iff
-  every element is `assignable_to_ty` the element type); and the map composite literal `EMapLit`
-  (`map[K]V{k1: v1,..}`, 18e8564 — KEYED key:value pairs via `parse_map_elems` + a pair-`Forall` `GExpr_ind'`,
-  sharing the `map[K]V` lead with `EConv`'s map conversion (split by next token `{` vs `(`)).  Slice + map
-  literals landed; struct/array literals remain.  ⚠️ map literals (and map conversions) are QUARANTINED from
-  `SupportedProgram` (`ptype (EMapLit _ _ _) = None`) — comparable-key-type + assignability are not soundly
-  structural, so the gate rejects them until GoSem.  ★The `GoSafe.ptype` TYPE-CATEGORY checker is a
-  CONSTANT-AWARE, MAXIMALLY-CONSERVATIVE BEST-EFFORT checker (NOT a proven-complete type checker — there is no
-  `ptype`-vs-Go theorem; completeness is GoSem's job).  It aims to reject every CLOSED form Go rejects, with the
-  covered classes PINNED by regressions (each class Codex finds is added).  The refined `PTy` keeps CONSTANTS
-  and their VALUE+TYPE separate from RUNTIME values — `PtIntConst z` (untyped const) · `PtTIntConst t z` (TYPED
-  int const, value `z`) · `PtFloatConst t z` (typed float const; value the integer `z` it was built from, and
-  only built when `z` is in the float's CONTIGUOUS exact interval — a conservative sufficient test — so it is
-  never a rounded lie) · `PtRunInt t` /
-  `PtRunFloat t` (runtime, non-const) · `PtBool`/`PtStr`/`PtAgg`/`PtNil` (the predeclared `nil`).  This closed the value-erasure bug: a
-  numeric conversion of a CONSTANT stays a typed CONSTANT (Go's constant rules apply TRANSITIVELY), so
-  `1/int(0)`, `1%int(0)`, `1<<int(-1)`, `uint8(int(300))`, `uint8(float64(300))` (all CLOSED compile errors) are
-  REJECTED — where the prior `conv_to_scalar` erased the value (`PtIntConst z`→`PtInt t`) and let them through.
-  The enforced obligations: `%`/shift/bitwise reject FLOAT operands; fixed-width conversions/slice-elements AND
-  folded constant arithmetic CHECK representability (`uint8(300)`, `[]uint8{300}`, `int8(100)+int8(100)`, the
-  typed-mismatch `[]int{int64(1)}` rejected); `/`,`%` reject a const-zero divisor — int OR typed-float
-  (`x/float64(0)`) — incl. one FOLDED from typed-const subexprs (`1/(int(1)-int(1))`); shifts reject a
-  const-negative count; a bare UNTYPED const at a default-`int` boundary (`println`/`print` arg, `_ = <const>`)
-  must fit conservative 32-bit int; mixed-width arithmetic is rejected; `==`/`!=` need COMPARABLE and
-  `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected); `len`≠`cap` (`cap` of a string
-  rejected); a closed aggregate conversion is admitted only for the predeclared `nil` operand (`PtNil`):
-  `[]int(nil)` / `chan int(nil)` kept, while a known-aggregate or free-identifier operand is REJECTED
-  (`chan int([]int{1})`, `[]int(x)`). FREE identifiers are REJECTED outright — the current Program has no
-  declarations, so a free `x` could never compile (`ptype (EId _) = None` for every ident but `nil`).
-  A const→float conversion is admitted ONLY within the float's CONTIGUOUS exact interval (conservative
-  sufficient test), so a float→int constant conversion on the carried value is exact (`uint8(float64(255))` is
-  VALID Go and ACCEPTED; `int64(float64(maxint64))` REJECTED — the
-  float64 rounds up and overflows); float-CONSTANT arithmetic and platform-`uint` complement (`uint32(^uint(0))`,
-  a platform-width-dependent value) are conservatively REJECTED.  `print`/`println` admit only the
-  guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not arbitrary `svalue` aggregates.  Next: more
-  `GoStmt` forms (assignment, var, control flow) and struct/array composite literals + func-lit conversions,
-  HERE inside `GoAst`/`GoPrint`.
-- **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
-  Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
-  splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/
-  deadlock-freedom for selected fragments. Each widening adds a certified example and never weakens the gate.
-
----
-
-## 8. Rules for Claude Code
+## 7. Rules for Claude Code
 
 **Rule 1 — No raw syntax in core AST.** Forbidden in core modules: `RawExpr`, `RawStmt`, `RawDecl`,
 `RawType`, `OpaqueExpr`, `TrustedExpr`, `SRaw`, `raw_ok`, raw source strings. Semantic strings are okay only
-when the printer escapes them (e.g. string-literal contents).
+when the printer escapes them (string-literal contents).
 
 **Rule 2 — No string-rescue path.** Forbidden: `old printer -> string -> validator/parser -> new printer`.
-The generator builds AST directly. The lexer/parser exists for proof and testing, never to rescue old
-string output.
+The generator builds AST directly; the lexer/parser exists for proof and testing, never to rescue old output.
 
 **Rule 3 — No official raw emitter.** Forbidden on the blessed path: `emit : GoAst.Program -> string`. The
 official emitter requires `EmittableProgram` (later `SafeProgram`).
 
-**Rule 4 — No decorative safety/support proofs.** This is insufficient:
-```coq
-Definition p : GoAst.Program := ...   Lemma p_ok : SupportedProgram p.   Definition out := GoPrint.print_program p.
-```
-The emitted output must go through the certificate: `Definition em := {| ep_program := p; ep_supported := p_ok |}.
-Definition out := GoEmit.emit_supported em.`
+**Rule 4 — No decorative safety/support proofs.** The emitted output must go THROUGH the certificate
+(`GoEmit.emit_supported {| ep_program := p; ep_supported := p_ok |}`), not `print_program p` beside a lemma.
 
 **Rule 5 — No documentation as correctness.** Docs may *describe* a limitation; they may not make it
-acceptable in the core. Suspicious phrases: "known limitation", "plugin never emits this", "trusted
-fallback", "future stage", "fail-loud", "documented shortcut", "proof-only", "no theorem depends on this".
-If a bad case exists, make it impossible, reject it, or move it outside the core. **Naming is a correctness
-claim too:** do not name a syntactic gate `SafeProgram`.
+acceptable in the core. If a bad case exists, make it impossible, reject it, or move it outside the core.
+**Naming is a correctness claim:** do not name a syntactic gate `SafeProgram`.
 
-**Rule 6 — Deletion is progress.** Every structural patch should preferably delete something. Report `wc -l`
-of affected files, greps for old-architecture terms, fallback counts, dead-helper counts. A patch that only
-adds scaffolding is suspect.
+**Rule 6 — Deletion is progress.** Every structural patch should preferably delete something; report `wc -l`,
+old-architecture-term greps, dead-helper counts. A patch that only adds scaffolding is suspect.
 
 **Rule 7 — Review archaeology belongs in `LESSONS.md`.** Active comments explain invariants, not the social
-history of a bug. Good: "Identifier-led `T(x)` is syntactic application; call-vs-conversion is semantic."
-Bad: "Review #9 amendment 3 forced this after SRaw...".
+history of a bug. Good: "Identifier-led `T(x)` is syntactic application; call-vs-conversion is semantic." Bad:
+"Review #9 amendment 3 forced this after SRaw...".
 
 ---
 
-## 9. Review checklist for every patch
+## 8. Review checklist for every patch
 
 1. Which module did this move toward the target architecture?
-2. What old path became unreachable?
-3. What code was deleted?
-4. Did this create a new parallel syntax/semantic universe?
-5. Does any theorem prove something not used by the live path?
-6. Does any official emitter bypass the certificate (`EmittableProgram`/`SafeProgram`)?
-7. Did docs (or names) overclaim?
-8. Did the patch reduce trusted code, preserve it, or increase it?
-9. What exact grep/build gate prevents regression?
-
-Codex/human review should reject patches that cannot answer these concretely.
+2. What old path became unreachable / what code was deleted?
+3. Did this create a new parallel syntax/semantic universe?
+4. Does any theorem prove something not used by the live path?
+5. Does any official emitter bypass the certificate (`EmittableProgram`/`SafeProgram`)?
+6. Did docs (or names) overclaim?
+7. Did the patch reduce trusted code, preserve it, or increase it? What grep/build gate prevents regression?
 
 ---
 
-## 10. Acceptance gates
+## 9. Acceptance gates
 
-This is the TARGET gate set. Each line is tagged with what enforces it: **[live]** = enforced on every build
-TODAY; **[on-land]** = activates when its module lands (do not claim it before then); **[review]** =
-discipline enforced by human/Codex review, not a build step.
+**[live]** = enforced every build; **[on-land]** = activates when its module lands; **[review]** = human/Codex
+discipline.
 
 ```text
-[live]     No project Axioms / Admitted / admit.            (axiom-manifest gate + Print Assumptions)
-[live]     Generated printer artifact (plugin/printer.ml) in sync.   (make printer-verify + Docker stage)
-[live]     No raw-syntax constructor NAMES in source.        (plugin/smart-ctor-gate.sh — see (a) below)
-[on-land]  Print Assumptions for every public safety/emitter theorem (once GoSafe/GoEmit exist).
-[on-land]  Generated EMITTER artifact in sync (once GoEmit is extracted).
-[on-land]  No official emit from raw GoAst.Program — STRUCTURAL via GoEmit's API (once GoEmit lands).
-[on-land]  No legacy string-rescue path in the new emitter (once the emitter exists).
+[live]     No project Axioms / Admitted / admit.                 (axiom-manifest gate + Print Assumptions)
+[live]     Generated printer artifact (plugin/printer.ml) in sync. (make printer-verify + Docker stage)
+[live]     No raw-syntax constructor NAMES in source.             (plugin/smart-ctor-gate.sh)
+[live]     Official emit only via GoEmit's certificate API; no direct print_program call outside GoEmit.
+[on-land]  Print Assumptions for every public safety theorem (once BehaviorSafe exists).
 [review]   The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
 [review]   Docs and NAMES do not claim more than the live path proves.
 ```
 
-Two kinds of grep, and they must NOT be conflated:
-
-**(a) Name-regression TRIPWIRE — live, but NOT structural protection.** The enumerated forbidden raw-syntax
-ctor names (`SRaw`, `raw_ok`, `RawExpr`, `RawStmt`, `RawDecl`, `RawType`, `OpaqueExpr`, `TrustedExpr`, plus
-the SRaw-era `build_atom`/…) are grepped by `plugin/smart-ctor-gate.sh` over the hand-written sources only
-(`*.v` + `plugin/go.ml` + the `.mlg` glue; the generated `plugin/printer.ml` and all docs are out of scope).
-It runs in the pre-commit hook AND non-bypassably in the Docker prover stage on every `make check`; it is
-clean today and FAILS the build if any of those NAMES reappears. (Do NOT replace it with a tree-wide
-`grep -RInE … .` — that self-fails on the docs and `printer.ml`, which name these patterns on purpose.)
-**This is a regression tripwire for KNOWN names, not a guarantee of no-raw-syntax** — a grep cannot stop a
-differently-named raw hatch (a new string-carrying `GExpr`/`Program` constructor under any other name).
-
-The actual STRUCTURAL guarantee against raw syntax is a property of the **AST definition itself**: `GoAst`'s
-constructors take only validated/semantic payloads (literal contents, validated identifiers) and never a raw
-expr/stmt/type/decl string — so raw syntax is *unrepresentable*, enforced by review of the `GoAst` inductive
-when it lands, not by this grep. Likewise the "no raw emit" rule (`emit : GoAst.Program -> string`) is
-structural — `GoEmit` exports only certificate-requiring emitters (`emit_supported : EmittableProgram ->
-string`; later `emit_safe`) and never `emit : Program -> string`, so a raw emit is a *type error*, not a text
-match (a grep for it is deliberately NOT used: that signature appears in honest comments and would self-fail).
-
-**(b) Review HEURISTIC — NOT a pass/fail gate.** The "suspicious phrases" scan below is a prompt for human/
-Codex scrutiny per Rule 5, not an acceptance gate: honest documentation and comments legitimately use these
-words (e.g. `proof-only` correctly describes `concurrency.v`/`relooper.v`; honest TCB notes say `trusted
-fallback`/`known limitation`). It matches dozens of legitimate source lines today and is EXPECTED to be
-non-empty. Treat each hit as "read this and check it is not an overclaim," never as "fail the build."
-
-```sh
-# review aid only — non-empty is normal; judge each hit, do not gate on it
-grep -nE 'plugin never emits|known limitation|proof-only|future stage|trusted fallback' $SRC
-```
+The smart-ctor gate is a **name-regression tripwire over hand-written sources** (`*.v` + `plugin/go.ml` + the
+`.mlg` glue; the generated `printer.ml` and docs are out of scope) — it catches KNOWN forbidden names, NOT a
+differently-named raw hatch. The actual STRUCTURAL guarantees are properties of the definitions: `GoAst`'s
+constructors take only validated/semantic payloads (raw syntax unrepresentable), and `GoEmit` exports only
+certificate-requiring emitters (a raw emit is a type error, not a text match) — enforced by review of those
+definitions, not by grep.
 
 ---
 
-## 11. The first concrete task after committing this charter
+## 10. What not to do
 
-Do not start with concurrency, the relooper, or full safety. Start by creating the module spine.
-
-Minimum first structural commit: `GoAst.v`, `GoPrint.v`, `GoSafe.v`, `GoEmit.v`. **Move/rename** the current
-clean `Front` expression AST + printer/parser/round-trip into `GoAst`/`GoPrint` (do not copy into a second
-universe). Define a tiny `GoAst.Program`; a deliberately tiny `GoSafe.SupportedProgram`; the
-`EmittableProgram` record; `GoEmit.emit_supported : EmittableProgram -> string`. Add one tiny emittable
-example in `main.v` that emits ONLY through `GoEmit`. Do not add new grammar features yet. Do not revive raw
-syntax, string splitting, or old `Front` growth.
-
-Skeleton (module signatures; bodies grow from the moved `Front` work):
-
-```coq
-Module GoAst.
-  (* Broad structured Go syntax. Can represent unsafe programs. *)
-  Parameter Program : Type.   (* replaced by the real inductive, seeded from Front *)
-End GoAst.
-
-Module GoPrint.
-  Parameter print_program : GoAst.Program -> string.
-  (* Printer/parser theorems live here. Syntax only. No safety claims. *)
-End GoPrint.
-
-Module GoSafe.
-  (* Phase 1: syntactic / support gate, NOT behavioral safety. *)
-  Parameter SupportedProgram : GoAst.Program -> Prop.
-  (* Later, once GoSem is authoritative: *)
-  Parameter BehaviorSafe : GoAst.Program -> Prop.
-End GoSafe.
-
-Module GoEmit.
-  Record EmittableProgram := {
-    ep_program   : GoAst.Program;
-    ep_supported : GoSafe.SupportedProgram ep_program;
-  }.
-  Definition emit_supported (p : EmittableProgram) : string :=
-    GoPrint.print_program p.(ep_program).
-
-  Record SafeProgram := {
-    sp_emittable : EmittableProgram;
-    sp_safe      : GoSafe.BehaviorSafe sp_emittable.(ep_program);
-  }.
-  Definition emit_safe (p : SafeProgram) : string :=
-    GoPrint.print_program p.(sp_emittable).(ep_program).
-End GoEmit.
-```
-
-(`Parameter` here is illustration of the SHAPE only; the real modules contain concrete `Definition`s /
-`Inductive`s — the zero-axiom rule forbids leaving `Parameter`/`Axiom` in the trust base.)
+Do not grow a second expression/semantic universe beside the spine. Do not wire the old plugin printer into
+`GoEmit`. Do not use the parser to rescue legacy old-printer strings. Do not revive `SRaw`. Do not make
+`SupportedProgram`/`BehaviorSafe` an axiom. Do not create a convenient unsafe `emit` and promise nobody will
+use it. Do not claim "safe Go" for any program that did not pass through the behavioral certificate.
 
 ---
 
-## 12. What not to do next
-
-Do not keep building `Front` beside `GoAst`. Do not wire the old plugin printer into `GoEmit`. Do not use
-the parser to parse legacy old-printer strings. Do not revive `SRaw`. Do not make `SupportedProgram`/
-`BehaviorSafe` an axiom. Do not create a convenient unsafe `emit` and promise nobody will use it. Do not
-spend time on relooper integration until the AST-first emission path exists. Do not claim "safe Go" for any
-program that did not pass through the (behavioral) certificate.
-
----
-
-## 13. Long-term vision
-
-`main.v` defines arbitrary Go programs as structured ASTs — including unsafe ones — but only programs that
-satisfy Fido's safety predicate can be emitted through the official path:
-
-```text
-raw AST expressiveness  +  proof-gated extraction  +  verified syntax printing.
-```
-
-The final system makes the distinction impossible to miss:
-
-```text
-GoPrint.print_program : raw syntax printer, internal / for proofs.
-GoEmit.emit_safe      : official safe emission, requires the behavioral certificate.
-```
-
-If a user wants the guarantee, they use `GoEmit.emit_safe`.
-
----
-
-## 14. Standing bottom line
+## Standing bottom line
 
 Do not verify around a bad abstraction. Do not document — or *name* — a shortcut into respectability. Do not
 let a proof sit beside the path; put it on the path. Build the AST honestly. Print it boringly. Certify it

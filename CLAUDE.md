@@ -1,50 +1,13 @@
 # Fido
 
 **Verified model components with a TRUSTED extraction backend** (the honest claim — *not* yet "formally
-verified Go"). Theorems are proved in Rocq (Coq); the `*.go` is a **proof artifact extracted from `*.v`** by
-the plugin — never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**:
-no theorem relates the emitted Go to the source term, so the golden tests are the only end-to-end check. FOUR
-external reviews (2026-06-21 model-layer; 2026-06-22 backend; 2026-06-22 review #3; 2026-06-23 review #4) found
-the backend **failing OPEN** at a series of sites — emitting plausible-but-wrong Go (`nil`/`any`/block-zero/
-`return`, a dropped branch, a dropped `recv`/comma-ok CPS continuation, an uncast narrow boundary, a
-non-injective identifier) where rule 2 demands a fail-loud `unsupported`. **Every enumerated fail-OPEN site has
-since been CLOSED** — the fail-closed sweep (incl. R1 `emit_block` block-body, R2 `recv_ok` + the whole comma-ok
-CPS class, the narrow-destination class across all 7 boundaries, raw-CFG entry/terminator validation,
-identifier-collision detection at extraction, full-width-int constant forcing, platform-`uint` distinctness)
-makes the backend fail LOUD instead, and `go vet` now gates `make check`. ⚠️ But review #4's meta-lesson stands:
-a golden-on-one-happy-path can't see an *un-demoed* defect CLASS, so "all sites closed" means "all sites we found
-and demoed" — the trusted/unverified status holds. ⚠️ The **`SRaw`/`SAtom` verified-EXPRESSION-printer experiment was TORN DOWN (2026-06-28)** — it was a
-raw-string-rescue masquerading as verification (five iterations of *narrowing* `SRaw` never *deleted* it), so
-the verified-printer seed was cut ~7100→~1500 lines, then (2026-06-28) SPLIT into the AST-first spine
-(`ARCHITECTURE.md` §11): `GoAst.v` (the `GExpr`/`GoTy`/operator SYNTAX) + `GoPrint.v` (the printer / lexer /
-parser / round-trips, extracted to `plugin/printer.ml`).  `GoPrint` holds the clean zero-axiom type/literal printers (`print_ty` /
-`print_Z` / `print_string_lit` / `print_hex` / `print_float_hex` / `print_sep`, each with a real round-trip)
-plus the from-scratch Wirth-style **`GoPrint`**, whose **round-trip is now PROVEN at ZERO AXIOMS over the
-FULL core + every postfix form + BOTH TYPE-using forms (type-assertion AND type-form conversion)**: a `lex` +
-recursive-descent token `parse` + clean `GExpr` AST (`EId`/`EInt`/`EUn`/`EBn` + the five postfix forms `ESel`
-selector / `EIndex` index / `ESlice` two-bound slice / `ECall` variadic call / `EAssert` type assertion `e.(T)`,
-plus the prefix `EConv` type-form conversion `[]T(x)` / `chan T(x)` / `map[K]V(x)` — NO raw constructor) with
-`parse_print_roundtrip : ∀ e, parse_str (gprint 0 e) = Some (e, [])` (M3b `gtokens_lex` ∘ M3c `gtokens_parse`)
-+ `gprint_inj`, all at zero axioms. The variadic `ECall` needed a custom induction principle `GExpr_ind'` (the
-auto one gives no IH for its `list GExpr` child) and a MAX-based arg-list parse fuel; `EAssert` and `EConv` carry
-a `GoTy` child round-tripped through the M5 token-level type layer (`gttokens_ty` / `parse_gty` /
-`parse_gty_roundtrip`, itself zero-axiom). `EConv` is a PREFIX type-led primary (`parse_atom` dispatches on the
-unambiguous `[]`/`chan`/`map` lead, `op_needs_paren EConv = false` since a conversion is a Go PrimaryExpr) — it
-is the FIRST type-led atom, read via `parse_atom_conv`/`parse_primary_conv`. That machinery now makes the
-remaining forms tractable. Scope today = the binop/unary/atom CORE + selector/index/slice/call/type-assertion +
-type-form conversion (self-consistency for the Rocq grammar, NOT Go's own parser); still being grown
-form-by-form (composite-literal/func-lit — the type layer is now in place)
-toward **Stage B** (swap `go.ml` onto `GoPrint`, retire `pp_expr`). **Stage B slice 1 has LANDED:** `gprint`
-is extracted and CALLED by the plugin for the first expression class — a binop over two runtime locals
-(`MLrel OP MLrel`), built directly as a `GExpr` (go_ident-checked `mk_goexpr_id`, no string parsing) and
-printed by the machine-checked `Printer.gprint`; liveness shown by a `+`→`BSub` perturbation flipping
-exactly those sites. But this is ONE narrow class — **every other expression shape is still printed by the
-trusted OCaml `pp_prec`/`pp_expr`**, so do NOT yet read this as "verified Go expressions." The remaining work is the
-source→Go **compiler-correctness theorem** (gap #10, now to be built on `GoPrint`, NOT `SRaw`), **stronger gates** (the
-axiom-manifest gate now asserts `main_effect`'s trust base == `EXPECTED_ASSUMPTIONS.txt` at build time; still
-wanted — a permanent negative-fixture harness and CI), and a few **latent typed-lowering residuals**
-(e.g. R3's untyped higher-order `func(x any) any` lambda — dead today since Fido HOFs are interface/method-dict-typed).
-Until gap #10 closes, do not headline this as "formally verified Go" — see PROGRESS.md "RELEASE REVIEW #3 / #4".
+verified Go"). Theorems are proved in Rocq (Coq); the `*.go` is a **proof artifact extracted from `*.v`** —
+never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**: no theorem
+relates the emitted Go to the source term (gap #10), so the golden tests are the only end-to-end check. The
+AST-first spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap — a clean
+zero-axiom verified printer with a proven round-trip, gated certified emission — but it drives only one
+expression class in the live plugin so far, and there is no behavioral-safety layer yet. Until gap #10 closes
+and `GoSem`-backed safety exists, do not headline this as "formally verified Go." Current state: `PROGRESS.md`.
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
 safety properties Go's compiler can't prove — no nil deref, use-after-close,
@@ -196,12 +159,10 @@ Gotchas (don't relearn these the hard way):
 CLAUDE.md is deliberately short. Read these on demand:
 
 - **`ARCHITECTURE.md`** — ★ the standing, BINDING charter: the AST-first certified-emission direction
-  (`GoAst`/`GoPrint`/`GoSem`/`GoSafe`/`GoEmit`), the residual-TCB statement, and the per-patch rules. Read it
-  before any structural change; it governs.
-- **`PROGRESS.md`** — the full vision and principles, the incremental ladder (what
-  is modelled, feature by feature), the correctness-debt tiers, known gaps, the
-  wish list, and the concurrency research plan. The living status doc — **update
-  the ladder there when a feature lands.**
+  (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`, with `GoSem` planned), the residual-TCB statement, and the
+  per-patch rules. Read it before any structural change; it governs.
+- **`PROGRESS.md`** — the short live status ledger: current architecture, GREEN / RED / NEXT, the known
+  trust base, and the current gates. **Update it when a feature lands or a claim changes.**
 - **`SPEC_CONFORMANCE.md`** — the Go-spec conformance ledger (per spec section: the
   rule cited, our behaviour, ✓ conforms / ⚠ bounded deviation / ✗ fails loud, and
   the machine-checked witness). A primitive is "done" only when its section is

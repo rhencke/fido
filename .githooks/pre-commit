@@ -64,7 +64,7 @@ fi
 # `Print Assumptions`; this grep is the cheap commit-time backstop — review #3 R10 widened it
 # from builtins.v/main.v to ALL theory files):
 #  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY tracked .v — the proof-only
-#      theories (concurrency.v / relooper.v), the spine (GoAst/GoPrint/GoSem/...), the emit demo
+#      theories (concurrency.v / relooper.v), the spine (GoAst/GoPrint/GoTypes/GoSafe/GoEmit), the emit demo
 #      (emitdemo/emit_demo.v) AND the fail-closed fixtures (negtests/*.v): an Admitted is an INCOMPLETE
 #      proof and an Axiom/Parameter is a global assumption, neither of which the 0-axiom claim allows
 #      ANYWHERE.  The scan set is DERIVED from `git ls-files '*.v'` (NOT a hand-maintained list), so any
