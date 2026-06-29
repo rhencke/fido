@@ -23,7 +23,8 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
 > Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
 > `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip + `svalue`-admitted for slice/chan, map conversion QUARANTINED); the slice + map composite
+> round-trip; a slice/chan conversion is `ptype`-admitted ONLY for a DEFERRED operand — `[]int(nil)` kept,
+> `chan int([]int{1})` rejected — and the map conversion is QUARANTINED); the slice + map composite
 > literals `ESliceLit` (`[]T{e1,..,en}`) and `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) —
 > type-led primaries sharing the `[]T`/`map[K]V` lead with `EConv` (split by the next token `{` vs `(`), via
 > `parse_elems`/`parse_map_elems` mutual-block parsers and the full zero-axiom round-trip.  ⚠️ map literals AND
@@ -35,7 +36,13 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > SUPPORTED non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate
 > (`stmt_call_ok` println/print/panic, with `print`/`println` args restricted to the guaranteed-printable
 > SCALAR subset `printable_arg_ok` — NOT arbitrary aggregates — and the value-returning builtins `len`/`cap`
-> admitted in value position, the Go-spec value-vs-statement distinction); and a certificate-gated
+> admitted in value position, the Go-spec value-vs-statement distinction).  ★The gate's `ptype` TYPE-CATEGORY
+> checker is now numerically/structurally SOUND (Codex stop-review, 2026-06-29): a refined `PTy` (untyped-int
+> CONSTANT carrying its `Z` value · typed `PtInt t`/`PtFloat t` carrying the `GoTy` · `PtBool`/`PtStr`/`PtAgg`/
+> `PtUnk`) rejects CLOSED-invalid Go that the old fat `PtNum` leaked — float `%`/shift/bitwise, constant
+> overflow (`uint8(300)`, `[]uint8{300}`), mixed fixed-width arithmetic (`int64(3)+int32(2)`), bool/slice
+> comparison, `cap` of a string, invalid aggregate conversions — deferring ONLY genuinely-unknown identifiers
+> (`PtUnk`); a smaller-but-SOUND supported subset.  And a certificate-gated
 > `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go toolchain BUILDS (`make emit-demo` —
 > exercising `EBn` / `EConv` / `ESliceLit` / `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment,
 > var, control flow) + struct/array composite literals; eventually `GoSem` (which unblocks supported map

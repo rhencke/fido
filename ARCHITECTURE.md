@@ -286,8 +286,11 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > GExpr`) LANDED — a PREFIX type-led primary sharing the `[]T` lead with `EConv` (disambiguated by the next
 > token: `{`→`ESliceLit` vs `(`→`EConv`), with a new `parse_elems`/`parse_elems_tl` mutual-block parser
 > (verbatim `parse_args` with `TRP`→`TRC`) and the full zero-axiom round-trip cascade re-proved (`gtokens_lex`/
-> `gtokens_parse`/`parse_print_roundtrip`/`gprint_inj` now cover it); `GoSafe.svalue (ESliceLit _ es) =
-> forallb svalue es` (+ regressions: `println([]int{1})` supported, a bare `[]int{1}` statement rejected).
+> `gtokens_parse`/`parse_print_roundtrip`/`gprint_inj` now cover it); `GoSafe.ptype` admits `[]T{e1,..,en}`
+> as `PtAgg` iff every element is `assignable_to_ty` the element type `T` (NOT merely `svalue` — so the
+> constant-overflow `[]uint8{300}` and the typed-mismatch `[]int{int64(1)}` are REJECTED) (+ regressions:
+> `_ = []int{1}` supported, a bare `[]int{1}` statement rejected, `println([]int{1})` rejected — a slice is
+> not a printable scalar).
 > (Implemented by a background worktree subagent from a recorded plan, then independently re-verified on `main`:
 > golden BYTE-IDENTICAL, zero axioms, all gates green.)  Then the MAP composite literal `EMapLit`
 > (`map[K]V{k1: v1,..}`, 18e8564 — KEYED key:value pairs, also via a background subagent + independent
@@ -343,16 +346,23 @@ add "future foundation" unless it replaces or deletes something.**
   form `GsBlankAssign` (`_ = e` — the FIRST SUPPORTED non-call/non-return statement,
   `stmt_ok = svalue e`; cross case via `gprint_neq_blank`, a lone `=` failing to lex); and the slice
   composite literal `ESliceLit` (`[]T{e1,..,en}`, fb8c488 — a type-led primary sharing the `[]T` lead with
-  `EConv`, with a `parse_elems` mutual-block parser and the full zero-axiom round-trip, `svalue`-admitted as
-  `forallb svalue es`); and the map composite literal `EMapLit` (`map[K]V{k1: v1,..}`, 18e8564 — KEYED
-  key:value pairs via `parse_map_elems` + a pair-`Forall` `GExpr_ind'`, sharing the `map[K]V` lead with
-  `EConv`'s map conversion (split by next token `{` vs `(`)).  Slice + map literals landed; struct/array
-  literals remain.  ⚠️ map literals (and map conversions) are QUARANTINED from `SupportedProgram`
-  (`svalue (EMapLit _ _ _) = false`) — comparable-key-type + assignability are not soundly structural, so the
-  gate rejects them until GoSem (slice literals/conversions stay supported via `_ = …`); and `print`/`println`
-  admit only a guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not arbitrary `svalue` aggregates
-  (external review 2026-06-29).  Next: more `GoStmt` forms (assignment, var, control flow) and struct/array
-  composite literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
+  `EConv`, with a `parse_elems` mutual-block parser and the full zero-axiom round-trip; `ptype`-admitted iff
+  every element is `assignable_to_ty` the element type); and the map composite literal `EMapLit`
+  (`map[K]V{k1: v1,..}`, 18e8564 — KEYED key:value pairs via `parse_map_elems` + a pair-`Forall` `GExpr_ind'`,
+  sharing the `map[K]V` lead with `EConv`'s map conversion (split by next token `{` vs `(`)).  Slice + map
+  literals landed; struct/array literals remain.  ⚠️ map literals (and map conversions) are QUARANTINED from
+  `SupportedProgram` (`ptype (EMapLit _ _ _) = None`) — comparable-key-type + assignability are not soundly
+  structural, so the gate rejects them until GoSem.  ★The `GoSafe.ptype` TYPE-CATEGORY checker (Codex
+  stop-review, 2026-06-29) is now numerically/structurally SOUND: a refined `PTy` (untyped-int-CONSTANT with
+  its `Z` value · typed `PtInt t` / `PtFloat t` carrying the `GoTy` · `PtBool`/`PtStr`/`PtAgg`/`PtUnk`) makes
+  every obligation structural — `%`/shift/bitwise reject FLOAT operands, fixed-width conversions/slice-elements
+  CHECK constant representability (`uint8(300)`, `[]uint8{300}` rejected), mixed-width arithmetic is rejected,
+  `==`/`!=` need COMPARABLE and `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected),
+  `len`≠`cap` (`cap` of a string rejected), and a closed aggregate conversion is admitted only for a DEFERRED
+  operand (`chan int([]int{1})` rejected, `[]int(nil)` kept); only genuinely-unknown identifiers (`PtUnk`) are
+  deferred.  `print`/`println` admit only the guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not
+  arbitrary `svalue` aggregates (external review 2026-06-29).  Next: more `GoStmt` forms (assignment, var,
+  control flow) and struct/array composite literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

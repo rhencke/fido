@@ -7,74 +7,288 @@
     emit_safe over a [SafeProgram] (= EmittableProgram + BehaviorSafe).  Until then GoEmit emits only the
     SUPPORTED subset via emit_supported, and must NOT be described as behaviorally safe.
     ============================================================================ *)
-From Fido Require Import GoAst.
+From Fido Require Import GoAst GoPrint.   (* GoPrint for [classify] : the keyword -> GoTy map (scalar conversions) *)
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
 (** ---- A STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
     The supportedness gate must NOT certify INVALID Go.  A purely shape-based [svalue] leaked TYPE side
-    conditions — it admitted CLOSED type-errors like [len(1)] / [bool(1)] / [1 && 2] / [!1] / [int([]int{1})].
-    [ptype] assigns each expression a coarse TYPE CATEGORY, or REJECTS it ([None]) as structurally ill-typed,
-    so those closed errors are rejected STRUCTURALLY while only genuinely-unknown identifiers are DEFERRED
-    ([PtUnk]).  It is conservative — it tracks only categories (not the exact numeric type) and admits any
-    deferred operand — so it rejects some valid Go too, but NEVER admits an expression Go's type checker would
-    reject from the structure alone.  (This is the type-checking the gate had been deferring; a full
+    conditions; an under-refined [ptype] (a single fat [PtNum] / a single comparison rule / a shared
+    [len]=[cap] rule / a shape-only aggregate conversion) STILL leaked numeric and structural side conditions:
+    float modulo / float shift ([float64(1) % float64(2)], [float64(1) << 2]), constant overflow
+    ([uint8(300)], [[]uint8{300}]), mixed fixed-width arithmetic ([int64(3) + int32(2)]), bool ordering
+    ([(1==1) < (2==2)]), slice equality/ordering, [cap] of a string ([cap(string(x))]), and invalid aggregate
+    conversions ([chan int([]int{1})]) all sailed through.  [ptype] now assigns each expression a REFINED
+    structural TYPE CATEGORY, or REJECTS it ([None]) as structurally ill-typed.  The refinement is exactly
+    enough to make every obligation STRUCTURAL: integers are split from floats; an UNTYPED INTEGER CONSTANT
+    carries its VALUE (a [Z]) so representability/overflow and division/shift-by-zero are decided from the
+    value (constant subexpressions are FOLDED, so [1 / (1 - 1)] is caught); a TYPED numeric carries its [GoTy]
+    so mixed-width arithmetic is rejected; aggregates ([PtAgg]) are a valid value but never numeric/printable.
+    ONLY a genuinely-unknown IDENTIFIER is DEFERRED ([PtUnk] — its type/scope is GoSem's job).
+    ★INVARIANT — for a CLOSED expression (no [EId]), [ptype] never returns [Some _] for a form Go's type
+    checker rejects: it is MAXIMALLY CONSERVATIVE, rejecting much VALID Go too (any conversion of a KNOWN
+    aggregate, [string] of a typed int, const+typed when not representable, nested-aggregate elements), which
+    is the correct posture — a smaller SOUND supported subset.  The deferral of [PtUnk] is the ONLY admission
+    of an unproven form, and it fires only where the operand is an actual deferred identifier.  (A full
     typed/scoped check is GoSem.) *)
 Inductive PTy : Type :=
-  | PtNum    (* a numeric value (int, uint, float, ...) — WHICH numeric is not tracked; see the arith rule *)
+  | PtIntConst (z : Z)   (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
+  | PtInt   (t : GoTy)   (* a TYPED integer value (t a fixed/platform integer GoTy) — runtime, not a foldable const *)
+  | PtFloat (t : GoTy)   (* a TYPED float value (t = GTFloat64 / GTFloat32) *)
   | PtBool
   | PtStr
-  | PtAgg    (* a non-scalar aggregate/reference value (slice/chan/ptr): a valid VALUE, not printable, not arith *)
+  | PtAgg    (* a slice/chan aggregate value: a valid VALUE, but never numeric / order-comparable / printable *)
   | PtUnk.   (* an identifier — type DEFERRED (could be anything; scope/GoSem decides) *)
 
-Definition is_value_builtin (f : string) : bool := String.eqb f "len" || String.eqb f "cap".
-(** category of a declared [GoTy] (for conversions / slice element types) *)
-Definition goty_cat (t : GoTy) : PTy :=
+(** ---- numeric-type predicates over [GoTy] (the scalar numeric constructors) ---- *)
+Definition is_int_goty (t : GoTy) : bool :=
   match t with
-  | GTBool => PtBool | GTString => PtStr
-  | GTPtr _ | GTSlice _ | GTChan _ | GTMap _ _ => PtAgg
-  | GTNamed _ => PtUnk
-  | _ => PtNum   (* GTInt / GTInt64 / GTUint / GTU8.. / GTI8.. / GTFloat* — the numeric scalars *)
+  | GTInt | GTInt64 | GTUint | GTU8 | GTI8 | GTU16 | GTI16 | GTU32 | GTI32 | GTU64 => true
+  | _ => false
   end.
-(** category a SCALAR conversion [T(_)] produces (by the type-keyword name; chan/map are keywords, never
-    [go_ident] callees, so only scalar keywords occur as an [EId] conversion callee). *)
-Definition type_keyword_cat (s : string) : PTy :=
-  if String.eqb s "bool" then PtBool else if String.eqb s "string" then PtStr else PtNum.
-Definition num_or_unk (c : PTy) : bool := match c with PtNum | PtUnk => true | _ => false end.
-Definition bool_or_unk (c : PTy) : bool := match c with PtBool | PtUnk => true | _ => false end.
-(** is category [ce] assignable to a target/element category [tc]?  same category, or either side deferred. *)
-Definition cat_assignable (ce tc : PTy) : bool :=
-  match ce, tc with
-  | PtUnk, _ | _, PtUnk => true
-  | PtNum, PtNum | PtBool, PtBool | PtStr, PtStr | PtAgg, PtAgg => true
+Definition is_float_goty (t : GoTy) : bool :=
+  match t with GTFloat64 | GTFloat32 => true | _ => false end.
+(** Decidable equality on the numeric SCALAR [GoTy]s (all [PtInt]/[PtFloat] ever carry).  Total: any pair of
+    DIFFERENT (or non-numeric) constructors is [false].  Used to forbid mixed-width arithmetic/assignment. *)
+Definition numty_eqb (a b : GoTy) : bool :=
+  match a, b with
+  | GTInt, GTInt | GTInt64, GTInt64 | GTUint, GTUint
+  | GTU8, GTU8 | GTI8, GTI8 | GTU16, GTU16 | GTI16, GTI16
+  | GTU32, GTU32 | GTI32, GTI32 | GTU64, GTU64
+  | GTFloat64, GTFloat64 | GTFloat32, GTFloat32 => true
   | _, _ => false
   end.
 
+(** ---- INTEGER-CONSTANT REPRESENTABILITY ---- the inclusive value range of each fixed-width integer type;
+    the PLATFORM types [int]/[uint] use the CONSERVATIVE 32-bit range, so a certified constant is in range on
+    EVERY Go target (a 64-bit-only constant is rejected — sound on all platforms). *)
+Definition int_ty_range (t : GoTy) : option (Z * Z) :=
+  match t with
+  | GTU8    => Some (0, 255)%Z
+  | GTI8    => Some (-128, 127)%Z
+  | GTU16   => Some (0, 65535)%Z
+  | GTI16   => Some (-32768, 32767)%Z
+  | GTU32   => Some (0, 4294967295)%Z
+  | GTI32   => Some (-2147483648, 2147483647)%Z
+  | GTU64   => Some (0, 18446744073709551615)%Z
+  | GTInt64 => Some (-9223372036854775808, 9223372036854775807)%Z
+  | GTInt   => Some (-2147483648, 2147483647)%Z     (* platform int: conservative 32-bit *)
+  | GTUint  => Some (0, 4294967295)%Z               (* platform uint: conservative 32-bit *)
+  | _ => None
+  end.
+Definition int_const_repr (z : Z) (t : GoTy) : bool :=
+  match int_ty_range t with Some (lo, hi) => andb (Z.leb lo z) (Z.leb z hi) | None => false end.
+(** an int constant is representable as a FLOAT (conservatively) iff it fits in int64 — far inside the finite
+    float64/float32 range, so the const->float conversion never overflows.  (Larger constants are rejected.) *)
+Definition int_repr_as_float (z : Z) : bool := int_const_repr z GTInt64.
+
+(** ---- numeric CATEGORY predicates ---- *)
+Definition is_int_cat   (c : PTy) : bool := match c with PtIntConst _ | PtInt _ => true | _ => false end.
+Definition is_float_cat (c : PTy) : bool := match c with PtFloat _ => true | _ => false end.
+Definition is_num_cat   (c : PTy) : bool := orb (is_int_cat c) (is_float_cat c).
+Definition is_int_or_unk  (c : PTy) : bool := match c with PtIntConst _ | PtInt _ | PtUnk => true | _ => false end.
+Definition is_bool_or_unk (c : PTy) : bool := match c with PtBool | PtUnk => true | _ => false end.
+
+(** NUMERIC COMPATIBILITY — single authority for arithmetic + numeric-comparison operand checking: can two
+    numeric categories combine?  [PtUnk] defers but ONLY against a numeric (so [x + true] is rejected: [bool]
+    is not numeric); two untyped consts always combine; a const combines with a typed numeric iff
+    REPRESENTABLE in it (so [int8(1) + 300] is rejected); two typed numerics combine iff SAME type (so
+    [int64(3) + int32(2)] and [float64 + float32] are rejected).  bool/str/agg pairs never combine here. *)
+Definition num_compatible (cl cr : PTy) : bool :=
+  match cl, cr with
+  | PtUnk, PtUnk => true
+  | PtUnk, c | c, PtUnk => is_num_cat c
+  | PtIntConst _, PtIntConst _ => true
+  | PtIntConst z, PtInt t | PtInt t, PtIntConst z => int_const_repr z t
+  | PtIntConst z, PtFloat _ | PtFloat _, PtIntConst z => int_repr_as_float z
+  | PtInt t1, PtInt t2 => numty_eqb t1 t2
+  | PtFloat t1, PtFloat t2 => numty_eqb t1 t2
+  | _, _ => false
+  end.
+
+(** RESULT CATEGORY of a numeric binop for COMPATIBLE operands that are NOT both untyped constants (the
+    both-const case folds a VALUE, handled per-op in [num_binop]).  A typed operand fixes the result type;
+    const+typed yields the typed type; unk+const stays deferred. *)
+Definition combine_typed (cl cr : PTy) : option PTy :=
+  match cl, cr with
+  | PtUnk, PtUnk => Some PtUnk
+  | PtUnk, PtInt t | PtInt t, PtUnk => Some (PtInt t)
+  | PtUnk, PtFloat t | PtFloat t, PtUnk => Some (PtFloat t)
+  | PtUnk, PtIntConst _ | PtIntConst _, PtUnk => Some PtUnk
+  | PtInt t, _ | _, PtInt t => Some (PtInt t)
+  | PtFloat t, _ | _, PtFloat t => Some (PtFloat t)
+  | _, _ => None
+  end.
+
+(** THE NUMERIC BINOP TYPE-CHECKER — single authority for [* / % << >> & &^ + - | ^].  Enforces, structurally:
+    - [%], [&], [|], [^], [&^] and the shifts require INTEGER operands (a FLOAT operand is rejected — closing
+      [float64(1) % float64(2)] / [float64(1) << 2]);
+    - [/] and [%] reject a CONSTANT-ZERO divisor (incl. one folded from a constant subexpression, [1/(1-1)]);
+    - the shifts reject a NEGATIVE constant shift count and let the operand types differ (the count type is
+      independent), the result taking the LEFT type;
+    - all other forms demand [num_compatible] and combine via [combine_typed]; two untyped constants FOLD to a
+      new untyped constant (so downstream representability sees the real value). *)
+Definition is_zero_const (c : PTy) : bool := match c with PtIntConst z => Z.eqb z 0 | _ => false end.
+Definition is_neg_const  (c : PTy) : bool := match c with PtIntConst z => Z.ltb z 0 | _ => false end.
+Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
+  match o with
+  | BAdd | BSub | BMul =>
+      if num_compatible cl cr then
+        match cl, cr with
+        | PtIntConst a, PtIntConst b =>
+            Some (PtIntConst (match o with BAdd => Z.add a b | BSub => Z.sub a b | _ => Z.mul a b end))
+        | _, _ => combine_typed cl cr
+        end
+      else None
+  | BDiv =>
+      if is_zero_const cr then None
+      else if num_compatible cl cr then
+        match cl, cr with
+        | PtIntConst a, PtIntConst b => Some (PtIntConst (Z.quot a b))
+        | _, _ => combine_typed cl cr
+        end
+      else None
+  | BRem =>
+      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
+        if is_zero_const cr then None
+        else if num_compatible cl cr then
+          match cl, cr with
+          | PtIntConst a, PtIntConst b => Some (PtIntConst (Z.rem a b))
+          | _, _ => combine_typed cl cr
+          end
+        else None
+      else None
+  | BAnd | BOr | BXor | BAndNot =>
+      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
+        if num_compatible cl cr then
+          match cl, cr with
+          | PtIntConst a, PtIntConst b =>
+              Some (PtIntConst (match o with
+                                | BAnd => Z.land a b | BOr => Z.lor a b
+                                | BXor => Z.lxor a b | _ => Z.land a (Z.lnot b) end))
+          | _, _ => combine_typed cl cr
+          end
+        else None
+      else None
+  | BShl | BShr =>
+      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
+        if is_neg_const cr then None
+        else match cl, cr with
+             | PtIntConst a, PtIntConst b =>
+                 Some (PtIntConst (match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end))
+             | _, _ => match cl with
+                       | PtInt t => Some (PtInt t)
+                       | PtIntConst _ => Some (PtInt GTInt)   (* 1 << x : the untyped 1 defaults to int *)
+                       | PtUnk => Some PtUnk
+                       | _ => None
+                       end
+             end
+      else None
+  | _ => None    (* the comparison / logical binops are not numeric — handled in [ptype] *)
+  end.
+
+(** EQUALITY ([==]/[!=]) operand check: COMPARABLE + mutually compatible.  Comparable = numeric / string /
+    bool / deferred — NOT [PtAgg] (slice/map/func equality is rejected; a slice may only be compared with
+    nil, which appears as a deferred ident).  Numeric equality reuses [num_compatible] (so [int32 == int64]
+    is rejected). *)
+Definition eq_comparable (cl cr : PTy) : bool :=
+  match cl, cr with
+  | PtUnk, _ | _, PtUnk => true
+  | PtBool, PtBool => true
+  | PtStr, PtStr => true
+  | _, _ => num_compatible cl cr
+  end.
+(** ORDERING ([<]/[<=]/[>]/[>=]) operand check: ORDERED + mutually compatible.  Ordered = numeric / string /
+    deferred — NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg] (slice ordering rejected). *)
+Definition ord_comparable (cl cr : PTy) : bool :=
+  match cl, cr with
+  | PtStr, PtStr => true
+  | PtStr, PtUnk | PtUnk, PtStr => true
+  | PtUnk, PtUnk => true
+  | _, _ => num_compatible cl cr
+  end.
+
+(** SCALAR CONVERSION [T(a)] type-checker, for a scalar type keyword [T] (its [GoTy] via [classify]).  Each
+    target enforces its own rule: [bool(a)] needs a bool/deferred source; [string(a)] a string/deferred (or a
+    rune-representable int CONSTANT — NOT an arbitrary int, conservative); a numeric target admits a
+    numeric/deferred source (a runtime numeric converts freely), but an int CONSTANT must be REPRESENTABLE in
+    the target (so [uint8(300)] is rejected).  bool/string/aggregate sources to a numeric target are rejected
+    (so [int([]int{1})] / [int(true)] fail). *)
+Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
+  match t with
+  | GTBool => match ca with PtBool | PtUnk => Some PtBool | _ => None end
+  | GTString =>
+      match ca with
+      | PtStr | PtUnk => Some PtStr
+      | PtIntConst z => if int_const_repr z GTI32 then Some PtStr else None   (* string(rune const) *)
+      | _ => None
+      end
+  | GTFloat64 | GTFloat32 =>
+      match ca with
+      | PtIntConst z => if int_repr_as_float z then Some (PtFloat t) else None
+      | PtInt _ | PtFloat _ | PtUnk => Some (PtFloat t)
+      | _ => None
+      end
+  | GTInt | GTInt64 | GTUint | GTU8 | GTI8 | GTU16 | GTI16 | GTU32 | GTI32 | GTU64 =>
+      match ca with
+      | PtIntConst z => if int_const_repr z t then Some (PtInt t) else None
+      | PtInt _ | PtFloat _ | PtUnk => Some (PtInt t)
+      | _ => None
+      end
+  | _ => None   (* [classify] yields only scalar keyword GoTys here; defensive *)
+  end.
+
+(** ASSIGNABILITY of a value CATEGORY to a declared element/target [GoTy] — single authority for composite
+    literal elements.  An untyped int CONSTANT is assignable to any numeric type it is REPRESENTABLE in (so
+    [[]uint8{300}] is rejected, [[]float64{1}] accepted); a TYPED numeric only to its OWN type (so
+    [[]int{int64(1)}] is rejected); bool/string to their type; a deferred ident to anything; an aggregate
+    element is conservatively rejected. *)
+Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
+  match ce with
+  | PtUnk => true
+  | PtIntConst z =>
+      if is_int_goty t then int_const_repr z t
+      else if is_float_goty t then int_repr_as_float z
+      else false
+  | PtInt t' => if is_int_goty t then numty_eqb t' t else false
+  | PtFloat t' => if is_float_goty t then numty_eqb t' t else false
+  | PtBool => match t with GTBool => true | _ => false end
+  | PtStr  => match t with GTString => true | _ => false end
+  | PtAgg  => false
+  end.
+
+(** [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed (rejected). *)
 Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
   | EId _ => Some PtUnk
-  | EInt _ => Some PtNum
+  | EInt z => Some (PtIntConst z)
   | EBn o l r =>
       match ptype l, ptype r with
       | Some cl, Some cr =>
           match o with
-          | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BAdd|BSub|BOr|BXor =>
-              if num_or_unk cl && num_or_unk cr then Some PtNum else None     (* int arith: numeric×numeric *)
-          | BEq|BNe|BLt|BLe|BGt|BGe =>
-              if cat_assignable cl cr || cat_assignable cr cl then Some PtBool else None  (* compatible cmp *)
-          | BLAnd|BLOr =>
-              if bool_or_unk cl && bool_or_unk cr then Some PtBool else None   (* &&/||: bool×bool *)
+          | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BAdd|BSub|BOr|BXor => num_binop o cl cr
+          | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
+          | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
+          | BLAnd|BLOr => if andb (is_bool_or_unk cl) (is_bool_or_unk cr) then Some PtBool else None
           end
       | _, _ => None
       end
   | EUn o e0 =>
       match ptype e0 with
-      | Some c => match o with
-                  | UXor | UNeg => if num_or_unk c then Some PtNum else None
-                  | UNot => if bool_or_unk c then Some PtBool else None
-                  | UDeref | UAddr => None
-                  end
+      | Some c =>
+          match o with
+          | UNeg => match c with                              (* unary minus: int or float *)
+                    | PtIntConst z => Some (PtIntConst (Z.opp z))
+                    | PtInt t => Some (PtInt t) | PtFloat t => Some (PtFloat t)
+                    | PtUnk => Some PtUnk | _ => None end
+          | UXor => match c with                              (* bitwise complement: INTEGER only (no float) *)
+                    | PtIntConst z => Some (PtIntConst (Z.lnot z))
+                    | PtInt t => Some (PtInt t)
+                    | PtUnk => Some PtUnk | _ => None end
+          | UNot => match c with PtBool | PtUnk => Some PtBool | _ => None end
+          | UDeref | UAddr => None
+          end
       | None => None
       end
   | ECall (EId i) (a :: nil) =>
@@ -82,33 +296,37 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       match ptype a with
       | None => None
       | Some ca =>
-          if is_value_builtin fn
-          then match ca with PtAgg | PtStr | PtUnk => Some PtNum | _ => None end   (* len/cap: operand must be len-able *)
-          else if is_type_keyword fn
-          then match type_keyword_cat fn with                                       (* a scalar conversion T(a) *)
-               | PtBool => match ca with PtBool | PtUnk => Some PtBool | _ => None end
-               | PtStr  => match ca with PtNum | PtStr | PtUnk => Some PtStr | _ => None end  (* string(rune)/string(str) *)
-               | _      => if num_or_unk ca then Some PtNum else None               (* numeric conv from numeric/unk *)
+          if String.eqb fn "len"
+          then match ca with PtStr | PtAgg | PtUnk => Some (PtInt GTInt) | _ => None end   (* len: string OR aggregate *)
+          else if String.eqb fn "cap"
+          then match ca with PtAgg | PtUnk => Some (PtInt GTInt) | _ => None end            (* cap: aggregate ONLY (NOT string) *)
+          else match classify fn with
+               | Some t => conv_to_scalar ca t                                              (* a scalar conversion T(a) *)
+               | None => None                                                               (* unknown function: REJECT *)
                end
-          else None   (* an unknown function — its result type is unknown, REJECT *)
       end
   | ECall _ _ => None
   | EConv c e0 =>
       match c with
-      | CTMap _ _ => None     (* a MAP conversion is QUARANTINED (key-type comparability not soundly structural) *)
-      | CTSlice _ | CTChan _ => match ptype e0 with Some PtUnk | Some PtAgg => Some PtAgg | _ => None end
+      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) *)
+      | CTSlice _ | CTChan _ =>
+          (* an aggregate conversion is admitted ONLY for a DEFERRED operand ([[]int(nil)]); a KNOWN
+             aggregate/scalar operand is REJECTED ([chan int([]int{1})], mismatched conversions) *)
+          match ptype e0 with Some PtUnk => Some PtAgg | _ => None end
       end
   | ESliceLit t es =>
-      if forallb (fun el => match ptype el with Some ce => cat_assignable ce (goty_cat t) | None => false end) es
+      if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
-  | EMapLit _ _ _ => None     (* a MAP literal is QUARANTINED (comparable-key TYPE + key/value assignability not structural) *)
+  | EMapLit _ _ _ => None                 (* a MAP literal is QUARANTINED (comparable-key TYPE + assignability not structural) *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
   end.
 
-(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by category; only unknown idents
-    are deferred).  So a closed type-error ([len(1)] / [1 && 2] / [int([]int{1})] / [map[..]..{..}]) is
-    REJECTED, while [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len]/[cap] of an
-    aggregate-or-unknown, and a slice literal whose elements are assignable to its element type are admitted.
+(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category; only unknown
+    idents are deferred).  So a closed type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2]
+    / [int([]int{1})] / [map[..]..{..}]) but the numeric/structural ones too ([float64(1) % float64(2)],
+    [uint8(300)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))], [chan int([]int{1})]) — while
+    [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len] of a string-or-aggregate,
+    [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its element type are admitted.
     STRUCTURAL only: it cannot check SCOPE (an undefined ident) — that is GoSem. *)
 Definition svalue (e : GExpr) : bool := match ptype e with Some _ => true | None => false end.
 
@@ -126,19 +344,20 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
   else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1 *)
   else false.
 
-(** A SCALAR builtin type keyword (numeric / bool / string) — [is_type_keyword] MINUS [chan]/[map] (the two
-    aggregate/reference type keywords).  A conversion to such a type yields a scalar. *)
 (** A [print]/[println] argument GUARANTEED-printable by the Go spec.  ★Go-spec NOTE (Bootstrapping): [print]/
     [println] are bootstrapping builtins whose implementations need NOT accept arbitrary argument types — only
     BOOLEAN, NUMERIC, and STRING are always supported.  So a printable arg is one [ptype] gives a SCALAR
-    category ([PtNum]/[PtBool]/[PtStr]).  This reuses the structural type-checker, so it INHERITS its rejection
-    of closed type-errors — e.g. [len(1)] ([PtNum] operand → not len-able → rejected), [bool(1)], [1 && 2],
-    [!1], [int([]int{1})] — and of non-scalars ([PtAgg] slice/chan literals and conversions) and of bare
-    identifiers ([PtUnk], unknown type): emit those via [_ = <value>] instead.  ([println(int(x))] /
-    [println(len(x))] stay admitted: a conversion / [len] result category is KNOWN even when the operand is a
-    deferred ident.) *)
+    category (a numeric — [PtIntConst]/[PtInt]/[PtFloat] — or [PtBool]/[PtStr]).  This reuses the structural
+    type-checker, so it INHERITS its rejection of closed type-errors — e.g. [len(1)] (an int is not len-able),
+    [bool(1)], [1 && 2], [!1], [int([]int{1})], [float64(1) % float64(2)], [uint8(300)] — and of non-scalars
+    ([PtAgg] slice/chan literals and conversions) and of bare identifiers ([PtUnk], unknown type): emit those
+    via [_ = <value>] instead.  ([println(int(x))] / [println(len(x))] stay admitted: a conversion / [len]
+    result category is KNOWN even when the operand is a deferred ident.) *)
 Definition printable_arg_ok (e : GExpr) : bool :=
-  match ptype e with Some PtNum | Some PtBool | Some PtStr => true | _ => false end.
+  match ptype e with
+  | Some (PtIntConst _) | Some (PtInt _) | Some (PtFloat _) | Some PtBool | Some PtStr => true
+  | _ => false
+  end.
 
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
     CALL (a plain value [1] / [a + b] is "evaluated but not used"), AND — crucially — a genuine function call,
@@ -345,6 +564,104 @@ Example bad_println_not1 :
 Proof. reflexivity. Qed.
 Example bad_println_int_slice :
   supported_program (pl_arg (ECall (EId (mkIdent "int" eq_refl)) [ESliceLit GTInt [EInt 1]])) = false.
+Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    REGRESSIONS (Codex stop-review, 2026-06-29) — the REFINED [ptype] rejects CLOSED-invalid Go a fat
+    [PtNum] / single-comparison / shared-len-cap / shape-only-aggregate-conv gate used to certify.  Each is a
+    closed program Go's type checker rejects, so the gate must too ([supported_program = false]).
+    ============================================================================================ *)
+Definition gs_blank (a : GExpr) : Program :=   (* `func main(){ _ = <a> }` — value position via a blank assign *)
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign a].
+Definition gs_f64 (a : GExpr) : GExpr := ECall (EId (mkIdent "float64" eq_refl)) [a].
+Definition gs_i64 (a : GExpr) : GExpr := ECall (EId (mkIdent "int64" eq_refl)) [a].
+Definition gs_i32 (a : GExpr) : GExpr := ECall (EId (mkIdent "int32" eq_refl)) [a].
+Definition gs_str (a : GExpr) : GExpr := ECall (EId (mkIdent "string" eq_refl)) [a].
+Definition gs_x : GExpr := EId (mkIdent "x" eq_refl).
+
+(** FINDING 1 — numeric category split.  Float modulo / float shift+bitwise (a FLOAT operand is rejected for
+    [%] / [<<] / [&]); constant overflow at a fixed-width conversion ([uint8(300)], [int8(128)]) and at a
+    slice-literal element ([[]uint8{300}]); mixed fixed-width arithmetic ([int64(3) + int32(2)]). *)
+Example bad_float_mod : supported_program (pl_arg (EBn BRem (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))) = false.
+Proof. reflexivity. Qed.
+Example bad_float_shl : supported_program (pl_arg (EBn BShl (gs_f64 (EInt 1)) (EInt 2))) = false.
+Proof. reflexivity. Qed.
+Example bad_float_and : supported_program (pl_arg (EBn BAnd (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))) = false.
+Proof. reflexivity. Qed.
+Example bad_float_compl : supported_program (pl_arg (EUn UXor (gs_f64 (EInt 1)))) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_overflow : supported_program (pl_arg (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 300])) = false.
+Proof. reflexivity. Qed.
+Example bad_int8_overflow : supported_program (pl_arg (ECall (EId (mkIdent "int8" eq_refl)) [EInt 128])) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_slicelit : supported_program (gs_blank (ESliceLit GTU8 [EInt 300])) = false.
+Proof. reflexivity. Qed.
+Example bad_mixed_width : supported_program (pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i32 (EInt 2)))) = false.
+Proof. reflexivity. Qed.
+Example bad_int_slicelit_typed : supported_program (gs_blank (ESliceLit GTInt [gs_i64 (EInt 1)])) = false.
+Proof. reflexivity. Qed.
+Fail Example bad_uint8_overflow_forge : SupportedProgram (pl_arg (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 300])) := eq_refl.
+
+(** FINDING 1 (adversarial) — CONSTANT division / modulo / shift by ZERO is a compile error in Go, INCLUDING
+    a zero FOLDED from a constant subexpression ([1 / (1 - 1)]).  [ptype] folds constants, so it catches all.
+    A NEGATIVE constant shift count is rejected even with a deferred left operand. *)
+Example bad_div_zero : supported_program (pl_arg (EBn BDiv (EInt 1) (EInt 0))) = false.
+Proof. reflexivity. Qed.
+Example bad_div_zero_folded : supported_program (pl_arg (EBn BDiv (EInt 1) (EBn BSub (EInt 1) (EInt 1)))) = false.
+Proof. reflexivity. Qed.
+Example bad_mod_zero : supported_program (pl_arg (EBn BRem (EInt 1) (EInt 0))) = false.
+Proof. reflexivity. Qed.
+Example bad_neg_shift : supported_program (pl_arg (EBn BShl gs_x (EInt (-1)))) = false.
+Proof. reflexivity. Qed.
+
+(** FINDING 2 — comparison split by operator.  Equality needs COMPARABLE operands (slice equality rejected;
+    cross-kind [1 == (2==2)] rejected); ordering needs ORDERED operands (bool ordering [(1==1) < (2==2)] and
+    slice ordering rejected). *)
+Example bad_slice_eq :
+  supported_program (pl_arg (EBn BEq (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))) = false.
+Proof. reflexivity. Qed.
+Example bad_slice_ord :
+  supported_program (pl_arg (EBn BLt (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))) = false.
+Proof. reflexivity. Qed.
+Example bad_bool_ord :
+  supported_program (pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))) = false.
+Proof. reflexivity. Qed.
+Example bad_eq_crosskind :
+  supported_program (pl_arg (EBn BEq (EInt 1) (EBn BEq (EInt 2) (EInt 2)))) = false.
+Proof. reflexivity. Qed.
+Fail Example bad_bool_ord_forge :
+  SupportedProgram (pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))) := eq_refl.
+
+(** FINDING 3 — [len]/[cap] separated.  [cap] of a STRING is rejected ([cap(string(65))], and the cleaner
+    [cap(string(x))] where [string(x)] is a genuine deferred-source string); [len] of a string stays OK. *)
+Example bad_cap_string_lit : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str (EInt 65)])) = false.
+Proof. reflexivity. Qed.
+Example bad_cap_string : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str gs_x])) = false.
+Proof. reflexivity. Qed.
+Example ok_len_string : SupportedProgram (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str gs_x])).
+Proof. reflexivity. Qed.
+
+(** FINDING 4 — aggregate conversion soundness.  A slice->chan conversion of a KNOWN slice ([chan int([]int{1})])
+    and a mismatched slice conversion of a KNOWN slice ([[]int([]string{})]) are rejected; only a DEFERRED
+    operand ([[]int(nil)]) is admitted (pinned below by [conv_composite_arg_supported]). *)
+Example bad_chan_of_slice : supported_program (gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))) = false.
+Proof. reflexivity. Qed.
+Example bad_slice_conv_mismatch : supported_program (gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))) = false.
+Proof. reflexivity. Qed.
+Fail Example bad_chan_of_slice_forge : SupportedProgram (gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))) := eq_refl.
+
+(** POSITIVES — the refined gate still admits the well-typed forms (a smaller-but-SOUND subset, not empty):
+    in-range conversions, FOLDED constant arithmetic/shift, an untyped const into a float element, same-width
+    typed arithmetic. *)
+Example ok_int8_inrange : SupportedProgram (pl_arg (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127])).
+Proof. reflexivity. Qed.
+Example ok_const_mod : SupportedProgram (pl_arg (EBn BRem (EInt 5) (EInt 2))).
+Proof. reflexivity. Qed.
+Example ok_const_shift : SupportedProgram (pl_arg (EBn BShl (EInt 1) (EInt 4))).
+Proof. reflexivity. Qed.
+Example ok_float_slicelit : SupportedProgram (gs_blank (ESliceLit GTFloat64 [EInt 1])).
+Proof. reflexivity. Qed.
+Example ok_same_width_add : SupportedProgram (pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i64 (EInt 2)))).
 Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
