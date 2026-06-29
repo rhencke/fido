@@ -7,9 +7,10 @@
     by the proofs), and the round-trip + injectivity THEOREMS.  [Extraction "printer.ml"] emits the OCaml
     the plugin calls, so the plugin runs the SAME printer Rocq reasons about.
 
-    LIVE WIRING: the extracted [gprint] is called by the plugin for ONE expression class today (a
-    var-OP-var binop); every other expression shape is still printed by the trusted OCaml [pp_expr] in
-    [plugin/go.ml].  So this file does NOT make the live Go "verified."
+    LIVE WIRING: the extracted [gprint] is called by the plugin for a SMALL expression class today (a binop
+    tree over runtime locals, int/int64/uint64 literals, and the bare unary complement [^x]); every other
+    expression shape is still printed by the trusted OCaml [pp_expr] in [plugin/go.ml].  So this file does NOT
+    make the live Go "verified."
 
     WHAT IS PROVEN: EXPRESSIONS have a full printer/parser round-trip ([parse_print_roundtrip]) plus
     injectivity ([gprint_inj]); the TYPE sub-language likewise ([print_ty_inj], [parse_gty_roundtrip]).

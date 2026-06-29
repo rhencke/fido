@@ -2515,7 +2515,8 @@ let rec pp_expr state env = function
        | MLglob r, [_; _] when Option.has_some (binop_of r) ->
            (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
-              [MLrel OP MLrel] sub-case via the VERIFIED [Printer.gprint] (Stage B slice 1) and every
+              gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
+              the bare unary complement [^x]) via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
@@ -2831,8 +2832,9 @@ and pp_atom state env e =
    Trusted OCaml: an inlined binary operator of precedence [p = binop_prec] is wrapped exactly when
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
-   [pp_expr]).  Stage B slice 1: the [MLrel OP MLrel] sub-case is delegated to the VERIFIED
-   [Printer.gprint] (see [goexpr_bridge_binop]); everything else is still this trusted printer. *)
+   [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
+   int·int64·uint64 literals / the bare unary complement [^x]) is delegated to the VERIFIED
+   [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
   | MLapp (h, args) ->

@@ -33,8 +33,9 @@ proof-only semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not
 yet and no behavioral-safety claim is active.
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
-(machine-checked from GoPrint) is wired into that live path for only ONE expression class (a var-OP-var
-binop); every other shape is printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
+(machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree
+over runtime locals, int/int64/uint64 literals, and the bare unary complement `^x`; every other shape is
+printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
 serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
 cover the trusted MiniML→`GExpr` CONSTRUCTION that feeds it, and are not a Go-parser-acceptance proof; so the
 live emission is not "verified Go."
@@ -75,7 +76,8 @@ live emission is not "verified Go."
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
   emitted Go to the source term. The golden tests are the only end-to-end check.
 - **Main output is the legacy path.** `main.go` is produced by the trusted plugin, not the certificate-gated
-  emitter (`emit-demo` is a separate certified demo). GoPrint drives only the var-OP-var binop class live.
+  emitter (`emit-demo` is a separate certified demo). GoPrint drives only a small binop-tree class live
+  (locals / int·int64·uint64 literals / unary complement `^x`); everything else is trusted `pp_expr`.
 - **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
   assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.
 - Latent typed-lowering residuals (e.g. an untyped higher-order `func(x any) any` lambda) remain dead today
