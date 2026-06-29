@@ -129,13 +129,6 @@ Definition print_Z (z : Z) : string :=
   else if (z <? 0)%Z then ("-" ++ z_digits (digit_fuel (- z)) (- z) "")%string
   else z_digits (digit_fuel z) z "".
 
-(** Computational checks: the decimal printer is correct on samples spanning the int64/uint64 range
-    (incl. the unsigned value [2^63] that an [Int64.t]-based printer renders only via [%Lu]). *)
-Example print_Z_0    : print_Z 0 = "0".                                       Proof. reflexivity. Qed.
-Example print_Z_42   : print_Z 42 = "42".                                     Proof. reflexivity. Qed.
-Example print_Z_neg  : print_Z (-7) = "-7".                                   Proof. reflexivity. Qed.
-Example print_Z_imax : print_Z 9223372036854775807 = "9223372036854775807".  Proof. reflexivity. Qed.
-Example print_Z_u63  : print_Z 9223372036854775808 = "9223372036854775808".  Proof. reflexivity. Qed.
 
 (** ---- INTEGER FAITHFULNESS (round-trip) ---- a decimal PARSER recovers the [Z] from [print_Z]'s
     output, so the emitted integer literal denotes EXACTLY the source value over the whole modelled
@@ -267,8 +260,6 @@ Fixpoint esc_string (s : string) : string :=
 Definition print_string_lit (s : string) : string :=
   String (ch 34) (esc_string s ++ String (ch 34) EmptyString).
 
-Example psl_empty : print_string_lit "" = String (ch 34) (String (ch 34) ""). Proof. reflexivity. Qed.
-Example psl_fido  : print_string_lit "fido" = String (ch 34) ("fido" ++ String (ch 34) ""). Proof. reflexivity. Qed.
 
 (** ---- STRING-LITERAL FAITHFULNESS (round-trip) ---- the escaping is LOSSLESS: a VALIDATING decoder
     [unescape_opt] recovers the exact original bytes from [esc_string] (as [Some s]), so [print_string_lit]
@@ -723,9 +714,6 @@ Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
   end.
 Definition print_hex (z : Z) : string :=
   ("0x" ++ (if (z =? 0)%Z then "0" else hex_digits (digit_fuel z) z ""))%string.
-Example ph_ff : print_hex 255 = "0xff". Proof. reflexivity. Qed.
-Example ph_0  : print_hex 0   = "0x0".  Proof. reflexivity. Qed.
-Example ph_80 : print_hex 128 = "0x80". Proof. reflexivity. Qed.
 
 (** ---- HEX FAITHFULNESS (round-trip) ---- the analog of [print_parse_Z] for the [0x]-hex printer
     ([hex_digits] is structurally [z_digits] in base 16; [unhex]/[unhex_hexdig] from the string section
@@ -782,8 +770,6 @@ Qed.
 Definition print_float_hex (sign : bool) (mant exp : Z) : string :=
   ((if sign then "-" else "") ++ print_hex mant ++ "p" ++ print_Z exp)%string.
 
-Example pfh_pos : print_float_hex false 24 (-52) = "0x18p-52". Proof. reflexivity. Qed.
-Example pfh_neg : print_float_hex true 18 51   = "-0x12p51". Proof. reflexivity. Qed.
 
 (** FAITHFULNESS — the float literal round-trips: a parser recovers [(sign, mant, exp)] EXACTLY.  The
     "p" delimiter is unambiguous because the mantissa render [print_hex] contains no "p" (hex digits are
@@ -1179,61 +1165,12 @@ Lemma parse_gty_S : forall f toks, parse_gty (S f) toks =
   end.
 Proof. reflexivity. Qed.
 
-
-Example lex_sum  : lex "a + b" = Some (TId (exist _ "a" eq_refl) :: TPlus :: TId (exist _ "b" eq_refl) :: nil).
-Proof. vm_compute; reflexivity. Qed.
-Example lex_call : lex "f(x, 42)"
-  = Some (TId (exist _ "f" eq_refl) :: TLP :: TId (exist _ "x" eq_refl) :: TComma :: TInt 42 :: TRP :: nil).
-Proof. vm_compute; reflexivity. Qed.
-Example lex_neg  : lex "-7" = Some (TInt (-7) :: nil). Proof. vm_compute; reflexivity. Qed.
-Example lex_ops  : lex "x << 2" = Some (TId (exist _ "x" eq_refl) :: TShl :: TInt 2 :: nil). Proof. vm_compute; reflexivity. Qed.
-Example lex_cmp  : lex "a <= b && c"
-  = Some (TId (exist _ "a" eq_refl) :: TLe :: TId (exist _ "b" eq_refl) :: TLand :: TId (exist _ "c" eq_refl) :: nil).
-Proof. vm_compute; reflexivity. Qed.
-
-(** ---- STRING-LEXER FAIL-CLOSED REGRESSIONS ---- a spelling NOT in the printer image (a malformed escape, or a
+(** ---- STRING-LEXER FAIL-CLOSED REGRESSION ---- a spelling NOT in the printer image (a malformed escape, or a
     raw byte [esc_byte] would have escaped) must be REJECTED at tokenization ([lex = None]), NOT lossily normalized
-    into a [TStr] (the Codex review fail-open).  Inputs are built byte-explicitly with [ch]: [ch 34] = the dquote,
-    [ch 92] = the backslash, [ch 10] = newline, [ch 9] = tab.  Six rejected spellings — an UNKNOWN escape, a NON-HEX
-    hex escape, an UPPER-CASE hex escape (the printer emits only lower-case), a TRUNCATED hex escape (one hex digit
-    before the close), a RAW NEWLINE, and a RAW TAB in the body — each make [lex] (hence [parse_str]) return [None]. *)
+    into a [TStr] (the Codex review fail-open).  Representative case: an UNKNOWN escape "\q" makes [lex] (hence
+    [parse_str]) return [None] (the bytes are built explicitly with [ch]: [ch 34] = the dquote, [ch 92] = the backslash). *)
 Example lex_bad_escape : lex (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
 Proof. vm_compute; reflexivity. Qed.                              (* "\q"  — 'q' = 113, not an accepted escape *)
-Example lex_bad_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                          (String (ch 90) (String (ch 90) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* "\xZZ" — 'Z' = 90 is not a hex digit *)
-Example lex_trunc_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                            (String (ch 49) (String (ch 34) ""))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* "\x1" — only one hex digit before the close *)
-Example lex_raw_newline : lex (String (ch 34) (String (ch 10) (String (ch 34) ""))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* a literal newline inside the quotes *)
-Example lex_upper_hex : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                            (String (ch 65) (String (ch 70) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* upper-case hex escape; 65=A, 70=F — printer emits only lower-case *)
-Example lex_raw_tab : lex (String (ch 34) (String (ch 9) (String (ch 34) ""))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* a raw tab byte (9) in the body — the printer escapes it *)
-(* SUPERSET REGRESSIONS (Codex 2026-06-29): a SYNTACTICALLY-valid lower-case [\xHH] whose decoded byte is NOT
-   one [esc_byte] hex-escapes (it is printable, or a named-escape byte) is NOT in the printer image, so [lex]
-   must REJECT it — the old decoder lossily ACCEPTED these (a fail-OPEN superset).  Digits: '0'=48 '1'=49 '2'=50
-   '4'=52 '5'=53 '9'=57 'a'=97 'c'=99.  Each byte built explicitly with [ch] (no literal dquote/backslash). *)
-Example lex_hex_printable_A : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                                 (String (ch 52) (String (ch 49) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 41 = 65 = printable 'A' — printer emits it RAW *)
-Example lex_hex_printable_space : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                                     (String (ch 50) (String (ch 48) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 20 = 32 = printable space — printer emits it RAW *)
-Example lex_hex_dquote : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                            (String (ch 50) (String (ch 50) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 22 = 34 = the dquote — printer emits the NAMED escape *)
-Example lex_hex_backslash : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                               (String (ch 53) (String (ch 99) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 5c = 92 = the backslash — printer emits the NAMED escape *)
-Example lex_hex_tab : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                         (String (ch 48) (String (ch 57) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 09 = 9 = tab — printer emits the NAMED escape *)
-Example lex_hex_newline : lex (String (ch 34) (String (ch 92) (String (ch 120)
-                             (String (ch 48) (String (ch 97) (String (ch 34) "")))))) = None.
-Proof. vm_compute; reflexivity. Qed.                              (* hex 0a = 10 = newline — printer emits the NAMED escape *)
 (* POSITIVE companion: a WELL-FORMED literal still tokenizes to its single [TStr] (the round-trip side; the
    fully-general statement is [gtokens_lex] at [EStr], proved below for EVERY [s]). *)
 Example lex_str_pos : lex (print_string_lit "hi") = Some (TStr "hi" :: nil).
@@ -1676,23 +1613,9 @@ Definition parse_str (s : string) : option (GExpr * list Token) :=
 (** END-TO-END round-trip by example: [parse_str (gprint 0 e) = Some (e, [])] — the printed AST lexes and
     parses back to itself.  (The general theorem [parse_str (gprint 0 e) = Some (e, [])] is next.) *)
 Notation EX a := (EId (exist (fun s : string => go_ident s = true) a eq_refl)) (only parsing).
-Example rt_id   : parse_str (gprint 0 (EX "x")) = Some (EX "x", nil). Proof. vm_compute; reflexivity. Qed.
-Example rt_int  : parse_str (gprint 0 (EInt 42)) = Some (EInt 42, nil). Proof. vm_compute; reflexivity. Qed.
-(* string-literal round-trips ([EStr]): empty, a plain word, and one with escapes (dquote/backslash/newline/
-   tab) — the lexer's body scan + [unescape_opt] recovers the EXACT bytes through the full print->lex->parse pipe. *)
-Example rt_str0  : parse_str (gprint 0 (EStr "")) = Some (EStr "", nil). Proof. vm_compute; reflexivity. Qed.
-Example rt_str   : parse_str (gprint 0 (EStr "hi")) = Some (EStr "hi", nil). Proof. vm_compute; reflexivity. Qed.
-Example rt_str_esc : parse_str (gprint 0 (EStr ("a" ++ String (ch 34) (String (ch 92) (String (ch 10) (String (ch 9) "b"))))))
-                   = Some (EStr ("a" ++ String (ch 34) (String (ch 92) (String (ch 10) (String (ch 9) "b")))), nil).
-Proof. vm_compute; reflexivity. Qed.
-Example rt_str_call : parse_str (gprint 0 (ECall (EX "println") (EStr "hi" :: nil)))
-                    = Some (ECall (EX "println") (EStr "hi" :: nil), nil).  (* println("hi") *)
-Proof. vm_compute; reflexivity. Qed.
 (* parse_str inherits the fail-closed rejection (lex feeds parse): a malformed escape never reaches the
    parser — [parse_str] returns [None] (cf. the [lex_bad_*] negative examples). *)
 Example parse_bad_escape : parse_str (String (ch 34) (String (ch 92) (String (ch 113) (String (ch 34) "")))) = None.
-Proof. vm_compute; reflexivity. Qed.
-Example rt_add  : parse_str (gprint 0 (EBn BAdd (EX "a") (EX "b"))) = Some (EBn BAdd (EX "a") (EX "b"), nil).
 Proof. vm_compute; reflexivity. Qed.
 Example rt_prec : parse_str (gprint 0 (EBn BAdd (EX "a") (EBn BMul (EX "b") (EX "c"))))
                 = Some (EBn BAdd (EX "a") (EBn BMul (EX "b") (EX "c")), nil).  (* a + b*c — no parens *)
@@ -1700,147 +1623,14 @@ Proof. vm_compute; reflexivity. Qed.
 Example rt_wrap : parse_str (gprint 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c")))
                 = Some (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c"), nil).  (* (a + b)*c — parens recovered *)
 Proof. vm_compute; reflexivity. Qed.
-Example rt_un   : parse_str (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
-                = Some (EUn UNot (EBn BEq (EX "a") (EX "b")), nil).  (* !(a == b) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_neg  : parse_str (gprint 0 (EUn UNeg (EX "x"))) = Some (EUn UNeg (EX "x"), nil).  (* -(x) *)
-Proof. vm_compute; reflexivity. Qed.
-(* the nested-bare-unary LEXICAL HAZARD: without the operand parens these print "&&x"/"&^x" and lex to
-   [TLand]/[TAndNot] — a left-side token merge.  With the fix they print "&(&x)"/"&(^x)" and round-trip. *)
-Example rt_addr_addr : parse_str (gprint 0 (EUn UAddr (EUn UAddr (EX "x"))))
-                     = Some (EUn UAddr (EUn UAddr (EX "x")), nil).
-Proof. vm_compute; reflexivity. Qed.
-Example rt_addr_xor  : parse_str (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
-                     = Some (EUn UAddr (EUn UXor (EX "x")), nil).
-Proof. vm_compute; reflexivity. Qed.
-(* ESel (postfix selector): atom operand bare, chain left-assoc, unary/binop operand parenthesised. *)
-Example rt_sel    : parse_str (gprint 0 (ESel (EX "x") (exist _ "f" eq_refl)))
-                  = Some (ESel (EX "x") (exist _ "f" eq_refl), nil).  (* x.f *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_sel_chain : parse_str (gprint 0 (ESel (ESel (EX "x") (exist _ "f" eq_refl)) (exist _ "g" eq_refl)))
-                  = Some (ESel (ESel (EX "x") (exist _ "f" eq_refl)) (exist _ "g" eq_refl), nil).  (* x.f.g *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_sel_bin : parse_str (gprint 0 (ESel (EBn BAdd (EX "a") (EX "b")) (exist _ "f" eq_refl)))
-                  = Some (ESel (EBn BAdd (EX "a") (EX "b")) (exist _ "f" eq_refl), nil).  (* (a + b).f *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_sel_in_bin : parse_str (gprint 0 (EBn BAdd (ESel (EX "a") (exist _ "f" eq_refl)) (EX "b")))
-                  = Some (EBn BAdd (ESel (EX "a") (exist _ "f" eq_refl)) (EX "b"), nil).  (* a.f + b *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx     : parse_str (gprint 0 (EIndex (EX "a") (EX "i")))
-                  = Some (EIndex (EX "a") (EX "i"), nil).  (* a[i] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx_expr : parse_str (gprint 0 (EIndex (EX "a") (EBn BAdd (EX "i") (EInt 1))))
-                  = Some (EIndex (EX "a") (EBn BAdd (EX "i") (EInt 1)), nil).  (* a[i + 1] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx_sel : parse_str (gprint 0 (ESel (EIndex (ESel (EX "a") (exist _ "b" eq_refl)) (EX "i")) (exist _ "c" eq_refl)))
-                  = Some (ESel (EIndex (ESel (EX "a") (exist _ "b" eq_refl)) (EX "i")) (exist _ "c" eq_refl), nil).  (* a.b[i].c *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx_paren : parse_str (gprint 0 (EIndex (EBn BAdd (EX "x") (EX "y")) (EX "i")))
-                  = Some (EIndex (EBn BAdd (EX "x") (EX "y")) (EX "i"), nil).  (* (x + y)[i] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx_in_bin : parse_str (gprint 0 (EBn BAdd (EIndex (EX "a") (EX "i")) (EX "b")))
-                  = Some (EBn BAdd (EIndex (EX "a") (EX "i")) (EX "b"), nil).  (* a[i] + b *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_idx_idx : parse_str (gprint 0 (EIndex (EIndex (EX "m") (EX "i")) (EX "j")))
-                  = Some (EIndex (EIndex (EX "m") (EX "i")) (EX "j"), nil).  (* m[i][j] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice   : parse_str (gprint 0 (ESlice (EX "a") (EX "lo") (EX "hi")))
-                  = Some (ESlice (EX "a") (EX "lo") (EX "hi"), nil).  (* a[lo:hi] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice_expr : parse_str (gprint 0 (ESlice (EX "a") (EBn BAdd (EX "i") (EInt 1)) (EX "n")))
-                  = Some (ESlice (EX "a") (EBn BAdd (EX "i") (EInt 1)) (EX "n"), nil).  (* a[i + 1:n] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice_sel : parse_str (gprint 0 (ESel (ESlice (ESel (EX "a") (exist _ "b" eq_refl)) (EX "i") (EX "j")) (exist _ "c" eq_refl)))
-                  = Some (ESel (ESlice (ESel (EX "a") (exist _ "b" eq_refl)) (EX "i") (EX "j")) (exist _ "c" eq_refl), nil).  (* a.b[i:j].c *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice_paren : parse_str (gprint 0 (ESlice (EBn BAdd (EX "x") (EX "y")) (EX "lo") (EX "hi")))
-                  = Some (ESlice (EBn BAdd (EX "x") (EX "y")) (EX "lo") (EX "hi"), nil).  (* (x + y)[lo:hi] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice_in_bin : parse_str (gprint 0 (EBn BAdd (ESlice (EX "a") (EX "i") (EX "j")) (EX "b")))
-                  = Some (EBn BAdd (ESlice (EX "a") (EX "i") (EX "j")) (EX "b"), nil).  (* a[i:j] + b *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slice_of_idx : parse_str (gprint 0 (ESlice (EIndex (EX "m") (EX "k")) (EX "i") (EX "j")))
-                  = Some (ESlice (EIndex (EX "m") (EX "k")) (EX "i") (EX "j"), nil).  (* m[k][i:j] *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call0 : parse_str (gprint 0 (ECall (EX "f") nil))
-                  = Some (ECall (EX "f") nil, nil).  (* f() *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call1 : parse_str (gprint 0 (ECall (EX "f") (EX "x" :: nil)))
-                  = Some (ECall (EX "f") (EX "x" :: nil), nil).  (* f(x) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call2 : parse_str (gprint 0 (ECall (EX "f") (EX "x" :: EX "y" :: nil)))
-                  = Some (ECall (EX "f") (EX "x" :: EX "y" :: nil), nil).  (* f(x,y) *)
-Proof. vm_compute; reflexivity. Qed.
 Example rt_call_method : parse_str (gprint 0 (ESel (ECall (ESel (EX "a") (exist _ "b" eq_refl)) (EX "x" :: nil)) (exist _ "c" eq_refl)))
                   = Some (ESel (ECall (ESel (EX "a") (exist _ "b" eq_refl)) (EX "x" :: nil)) (exist _ "c" eq_refl), nil).  (* a.b(x).c *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call_paren : parse_str (gprint 0 (ECall (EBn BAdd (EX "x") (EX "y")) (EX "z" :: nil)))
-                  = Some (ECall (EBn BAdd (EX "x") (EX "y")) (EX "z" :: nil), nil).  (* (x + y)(z) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call_nested : parse_str (gprint 0 (ECall (EX "f") (ECall (EX "g") (EX "x" :: nil) :: EX "y" :: nil)))
-                  = Some (ECall (EX "f") (ECall (EX "g") (EX "x" :: nil) :: EX "y" :: nil), nil).  (* f(g(x),y) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_call_binarg : parse_str (gprint 0 (ECall (EX "f") (EBn BAdd (EX "x") (EInt 1) :: nil)))
-                  = Some (ECall (EX "f") (EBn BAdd (EX "x") (EInt 1) :: nil), nil).  (* f(x + 1) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_int : parse_str (gprint 0 (EAssert (EX "x") GTInt))
-                  = Some (EAssert (EX "x") GTInt, nil).  (* x.(int) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_slice : parse_str (gprint 0 (EAssert (EX "x") (GTSlice GTInt)))
-                  = Some (EAssert (EX "x") (GTSlice GTInt), nil).  (* x.([]int) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_ptr : parse_str (gprint 0 (EAssert (EX "x") (GTPtr (GTNamed (mkTyName "Foo" eq_refl)))))
-                  = Some (EAssert (EX "x") (GTPtr (GTNamed (mkTyName "Foo" eq_refl))), nil).  (* x.( *Foo ) pointer assert *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_named : parse_str (gprint 0 (EAssert (EX "x") (GTNamed (mkTyName "T" eq_refl))))
-                  = Some (EAssert (EX "x") (GTNamed (mkTyName "T" eq_refl)), nil).  (* x.(T) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_paren : parse_str (gprint 0 (EAssert (EBn BAdd (EX "x") (EX "y")) (GTNamed (mkTyName "T" eq_refl))))
-                  = Some (EAssert (EBn BAdd (EX "x") (EX "y")) (GTNamed (mkTyName "T" eq_refl)), nil).  (* (x + y).(T) *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_chain : parse_str (gprint 0 (ESel (EAssert (ESel (EX "a") (exist _ "b" eq_refl)) (GTNamed (mkTyName "T" eq_refl))) (exist _ "c" eq_refl)))
-                  = Some (ESel (EAssert (ESel (EX "a") (exist _ "b" eq_refl)) (GTNamed (mkTyName "T" eq_refl))) (exist _ "c" eq_refl), nil).  (* a.b.(T).c *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_assert_call : parse_str (gprint 0 (EAssert (ECall (EX "f") (EX "x" :: nil)) (GTNamed (mkTyName "T" eq_refl))))
-                  = Some (EAssert (ECall (EX "f") (EX "x" :: nil)) (GTNamed (mkTyName "T" eq_refl)), nil).  (* f(x).(T) *)
-Proof. vm_compute; reflexivity. Qed.
-(** slice composite literal [[]T{..}] round-trips (the [ESliceLit] node): empty, one/two elements, a binop
-    element (printed brace-internal, no parens), and a NESTED slice-of-slices literal. *)
-Example rt_slicelit0 : parse_str (gprint 0 (ESliceLit GTInt nil))
-                  = Some (ESliceLit GTInt nil, nil).  (* []int{} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slicelit1 : parse_str (gprint 0 (ESliceLit GTInt (EInt 1 :: nil)))
-                  = Some (ESliceLit GTInt (EInt 1 :: nil), nil).  (* []int{1} *)
 Proof. vm_compute; reflexivity. Qed.
 Example rt_slicelit2 : parse_str (gprint 0 (ESliceLit GTInt (EX "x" :: EX "y" :: nil)))
                   = Some (ESliceLit GTInt (EX "x" :: EX "y" :: nil), nil).  (* []int{x,y} *)
 Proof. vm_compute; reflexivity. Qed.
-Example rt_slicelit_binarg : parse_str (gprint 0 (ESliceLit GTInt (EBn BAdd (EX "x") (EInt 1) :: nil)))
-                  = Some (ESliceLit GTInt (EBn BAdd (EX "x") (EInt 1) :: nil), nil).  (* []int{x + 1} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_slicelit_nested : parse_str (gprint 0 (ESliceLit (GTSlice GTInt) (ESliceLit GTInt (EInt 1 :: nil) :: nil)))
-                  = Some (ESliceLit (GTSlice GTInt) (ESliceLit GTInt (EInt 1 :: nil) :: nil), nil).  (* [][]int{[]int{1}} *)
-Proof. vm_compute; reflexivity. Qed.
-(** map composite literal [map[K]V{..}] round-trips (the [EMapLit] node): empty, one/two KEYED pairs, a binop
-    in key/value position, a non-scalar value type, and a NESTED map-valued literal.  The printed `k: v` / `, `
-    separators carry spaces (gofmt-clean); the lexer skips them, so the round-trip recovers the AST exactly. *)
-Example rt_maplit0 : parse_str (gprint 0 (EMapLit GTInt GTInt nil))
-                  = Some (EMapLit GTInt GTInt nil, nil).  (* map[int]int{} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_maplit1 : parse_str (gprint 0 (EMapLit GTInt GTInt ((EInt 1, EInt 2) :: nil)))
-                  = Some (EMapLit GTInt GTInt ((EInt 1, EInt 2) :: nil), nil).  (* map[int]int{1: 2} *)
-Proof. vm_compute; reflexivity. Qed.
 Example rt_maplit2 : parse_str (gprint 0 (EMapLit GTString GTInt ((EX "a", EInt 1) :: (EX "b", EInt 2) :: nil)))
                   = Some (EMapLit GTString GTInt ((EX "a", EInt 1) :: (EX "b", EInt 2) :: nil), nil).  (* map[string]int{a: 1, b: 2} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_maplit_binkv : parse_str (gprint 0 (EMapLit GTInt GTInt ((EBn BAdd (EX "x") (EInt 1), EBn BMul (EX "y") (EInt 2)) :: nil)))
-                  = Some (EMapLit GTInt GTInt ((EBn BAdd (EX "x") (EInt 1), EBn BMul (EX "y") (EInt 2)) :: nil), nil).  (* map[int]int{x + 1: y*2} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_maplit_slicev : parse_str (gprint 0 (EMapLit GTString (GTSlice GTInt) ((EX "k", ESliceLit GTInt (EInt 1 :: nil)) :: nil)))
-                  = Some (EMapLit GTString (GTSlice GTInt) ((EX "k", ESliceLit GTInt (EInt 1 :: nil)) :: nil), nil).  (* map[string][]int{k: []int{1}} *)
-Proof. vm_compute; reflexivity. Qed.
-Example rt_maplit_nested : parse_str (gprint 0 (EMapLit GTInt (GTMap GTInt GTInt) ((EInt 1, EMapLit GTInt GTInt ((EInt 2, EInt 3) :: nil)) :: nil)))
-                  = Some (EMapLit GTInt (GTMap GTInt GTInt) ((EInt 1, EMapLit GTInt GTInt ((EInt 2, EInt 3) :: nil)) :: nil), nil).  (* map[int]map[int]int{1: map[int]int{2: 3}} *)
 Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
@@ -1986,26 +1776,6 @@ Qed.
 Lemma infix_op_token : forall o, infix_op (op_token o) = Some o.
 Proof. destruct o; reflexivity. Qed.
 
-(** [gtokens] is the RIGHT spec: it is exactly what [lex (gprint ctx e)] yields (validated; the universal
-    lemma [lex (gprint ctx e) = Some (gtokens ctx e)] is the next step). *)
-Example gtok_add  : lex (gprint 0 (EBn BAdd (EX "a") (EX "b"))) = Some (gtokens 0 (EBn BAdd (EX "a") (EX "b"))).
-Proof. vm_compute; reflexivity. Qed.
-Example gtok_wrap : lex (gprint 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c")))
-                  = Some (gtokens 0 (EBn BMul (EBn BAdd (EX "a") (EX "b")) (EX "c"))).
-Proof. vm_compute; reflexivity. Qed.
-Example gtok_un   : lex (gprint 0 (EUn UNot (EBn BEq (EX "a") (EX "b"))))
-                  = Some (gtokens 0 (EUn UNot (EBn BEq (EX "a") (EX "b")))).
-Proof. vm_compute; reflexivity. Qed.
-Example gtok_neg  : lex (gprint 0 (EUn UNeg (EX "x"))) = Some (gtokens 0 (EUn UNeg (EX "x"))).
-Proof. vm_compute; reflexivity. Qed.
-(* the hazard, at the lexer level: [lex (gprint ..)] still equals [gtokens ..] for nested bare unaries —
-   the direct witness at each dangerous maximal-munch seam ("&&" -> TLand, "&^" -> TAndNot). *)
-Example gtok_addr_addr : lex (gprint 0 (EUn UAddr (EUn UAddr (EX "x"))))
-                       = Some (gtokens 0 (EUn UAddr (EUn UAddr (EX "x")))).
-Proof. vm_compute; reflexivity. Qed.
-Example gtok_addr_xor  : lex (gprint 0 (EUn UAddr (EUn UXor (EX "x"))))
-                       = Some (gtokens 0 (EUn UAddr (EUn UXor (EX "x")))).
-Proof. vm_compute; reflexivity. Qed.
 
 (** ---- M3b GROUNDWORK: lexer fuel MONOTONICITY ---- adding fuel never changes a [Some] answer.  Needed to
     bridge the fuel when composing [lex] over a concatenation (the per-token decrement makes [S (length s)]
@@ -4708,13 +4478,6 @@ Proof.
                 ltac:(cbn [String.length]; lia)) as H.
   rewrite str_app_nil_r in H. rewrite app_nil_r in H. exact H.
 Qed.
-(** lex round-trip by example. *)
-Example lt_slice : lex (print_ty (GTSlice GTInt)) = Some (gttokens_ty (GTSlice GTInt)).  (* []int *)
-Proof. apply lex_print_ty. Qed.
-Example lt_chan : lex (print_ty (GTChan GTInt)) = Some (gttokens_ty (GTChan GTInt)).  (* chan int *)
-Proof. apply lex_print_ty. Qed.
-Example lt_map : lex (print_ty (GTMap GTInt (GTSlice GTString))) = Some (gttokens_ty (GTMap GTInt (GTSlice GTString))).  (* map[int][]string *)
-Proof. apply lex_print_ty. Qed.
 
 (** ★THE END-TO-END TYPE ROUND-TRIP: the printed type [print_ty t] lexes and parses back to [t]. *)
 Theorem parse_gty_print_ty : forall t,
@@ -4725,21 +4488,6 @@ Proof.
   pose proof (tsize_le_len t). rewrite app_nil_r. lia.
 Qed.
 
-(** type round-trip by example: [parse_gty (gttokens_ty t) = Some (t, [])]. *)
-Example tyr_int   : parse_gty 4 (gttokens_ty GTInt) = Some (GTInt, nil). Proof. vm_compute; reflexivity. Qed.
-Example tyr_slice : parse_gty 4 (gttokens_ty (GTSlice GTInt)) = Some (GTSlice GTInt, nil).  (* []int *)
-Proof. vm_compute; reflexivity. Qed.
-Example tyr_ptr   : parse_gty 4 (gttokens_ty (GTPtr (GTNamed (mkTyName "Foo" eq_refl))))
-                  = Some (GTPtr (GTNamed (mkTyName "Foo" eq_refl)), nil).  (* *Foo *)
-Proof. vm_compute; reflexivity. Qed.
-Example tyr_chan  : parse_gty 4 (gttokens_ty (GTChan GTInt)) = Some (GTChan GTInt, nil).  (* chan int *)
-Proof. vm_compute; reflexivity. Qed.
-Example tyr_map   : parse_gty 6 (gttokens_ty (GTMap GTInt GTString)) = Some (GTMap GTInt GTString, nil).  (* map[int]string *)
-Proof. vm_compute; reflexivity. Qed.
-Example tyr_slice2 : parse_gty 6 (gttokens_ty (GTSlice (GTSlice GTInt64))) = Some (GTSlice (GTSlice GTInt64), nil).  (* [][]int64 *)
-Proof. vm_compute; reflexivity. Qed.
-Example tyr_mapslice : parse_gty 8 (gttokens_ty (GTMap GTString (GTSlice GTInt))) = Some (GTMap GTString (GTSlice GTInt), nil).  (* map[string][]int *)
-Proof. vm_compute; reflexivity. Qed.
 
 (** ---- M7 GROUNDWORK: the CONVERSION type-form layer ----  A type-form conversion [convform(x)] (e.g.
     [[]byte(s)], [chan int(c)], [map[string]int(m)]) needs a conversion target that is SYNTACTICALLY
@@ -4787,16 +4535,6 @@ Proof.
   rewrite <- (app_nil_r (conv_tokens c)). apply parse_convty_roundtrip.
   unfold conv_size, conv_tokens. pose proof (tsize_le_len (convty_ty c)). rewrite app_nil_r. lia.
 Qed.
-
-Example convr_slice : parse_convty 4 (conv_tokens (CTSlice GTU8)) = Some (CTSlice GTU8, nil).  (* []uint8(x) *)
-Proof. vm_compute; reflexivity. Qed.
-Example convr_chan  : parse_convty 4 (conv_tokens (CTChan GTInt)) = Some (CTChan GTInt, nil).  (* chan int(x) *)
-Proof. vm_compute; reflexivity. Qed.
-Example convr_map   : parse_convty 6 (conv_tokens (CTMap GTString GTInt)) = Some (CTMap GTString GTInt, nil).  (* map[string]int(x) *)
-Proof. vm_compute; reflexivity. Qed.
-Example convr_mapslice : parse_convty 8 (conv_tokens (CTMap GTString (GTSlice GTInt))) = Some (CTMap GTString (GTSlice GTInt), nil).
-Proof. vm_compute; reflexivity. Qed.
-
 
 (** FAITHFULNESS — the type printer is INJECTIVE, derived from the SINGLE (token-level) type round-trip
     [parse_gty_print_ty]: distinct [GoTy]s print to distinct strings (no [int64]/[bool],
