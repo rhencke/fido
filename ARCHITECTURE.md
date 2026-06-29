@@ -164,8 +164,12 @@ AST-first path matures; it **may not define the correctness claim.**
 
 Honest current status: the spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) compiles zero-axiom and
 `main.v` builds a `GoAst.Program` with a real `func main` body emitted ONLY through `EmittableProgram`; but
-the repo's main `main.go` is STILL the legacy plugin path (GoPrint drives only the var-OP-var binop class
-live), and there is no GoSem, so no behavioral safety. Detailed feature state lives in `PROGRESS.md`.
+the repo's main `main.go` is STILL the legacy plugin path. The extracted printer `printer.ml` is wired into
+that live path for only ONE expression class (a var-OP-var binop) — every other shape is printed by the
+trusted OCaml `pp_expr`. And even for that one class the printer proofs cover only AST→string serialization
+(`gprint`'s round-trip / injectivity): they do NOT cover the trusted MiniML→`GExpr` CONSTRUCTION in `go.ml`
+that builds the AST, so the live emission is not "verified Go." There is no GoSem, so no behavioral safety.
+Detailed feature state lives in `PROGRESS.md`.
 
 ---
 

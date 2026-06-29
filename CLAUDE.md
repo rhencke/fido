@@ -7,8 +7,10 @@ relates the emitted Go to the source term (gap #10), so the golden tests are the
 AST-first spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap — a clean
 zero-axiom printer with a proven EXPRESSION round-trip (programs/statements: print-injectivity only — no
 parser yet), self-consistent with its own Rocq grammar (NOT a Go-parser-acceptance proof), and gated
-certified emission — but it drives only one expression class in the live plugin so far, and there is no
-behavioral-safety layer yet. Until gap #10 closes
+certified emission. ⚠️ But the extracted printer is wired into the LIVE plugin for only one expression class
+(a var-OP-var binop) — everything else is trusted OCaml `pp_expr` — and even there the proofs cover only
+AST→string serialization, NOT the trusted MiniML→AST construction that builds it; so the live `main.go` is
+NOT verified Go. There is no behavioral-safety layer yet. Until gap #10 closes
 and `GoSem`-backed safety exists, do not headline this as "formally verified Go." Current state: `PROGRESS.md`.
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with

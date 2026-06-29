@@ -31,9 +31,12 @@ GoSafe consults. **GoSem** — the AST's behavioral semantics, which will BRIDGE
 semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not built**; it holds no authority yet and no
 behavioral-safety claim is active.
 
-The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`; GoPrint is wired live for only the
-var-OP-var binop class so far. `plugin/printer.ml` is the machine-checked printer extracted from GoPrint
-(expression round-trip + program/statement print-injectivity proven; not a Go-parser-acceptance proof).
+The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
+(machine-checked from GoPrint) is wired into that live path for only ONE expression class (a var-OP-var
+binop); every other shape is printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
+serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
+cover the trusted MiniML→`GExpr` CONSTRUCTION that feeds it, and are not a Go-parser-acceptance proof; so the
+live emission is not "verified Go."
 
 ## GREEN (proved / working)
 
