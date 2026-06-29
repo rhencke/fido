@@ -38,17 +38,15 @@ Fixpoint svalue (e : GExpr) : bool :=
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
-(** Builtin functions whose CALL is valid as a standalone EXPRESSION STATEMENT (Go spec: ExpressionStmt — a
-    "function and method call ... can appear in statement context").  Restricted to [println] / [print]: both
-    are VARIADIC, accept args of ANY type, and return NOTHING — so [print(...)] / [println(...)] are valid
-    statements for ANY argument count and types, with NO arity or type hazard left unchecked.  Deliberately
-    EXACT for the current AST (no user funcs / imports yet, so these are the only hazard-free statement calls).
-    Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement) and VALUE-returning
-    builtins ([len(x)]/… — "evaluated but not used").  Each builtin re-enters WITH its ARITY (so an arity
-    violation is rejected): [println]/[print] are VARIADIC (any arg count), [panic] takes EXACTLY ONE arg of
-    ANY type (so [panic(x)] is valid for any value, but [panic()] / [panic(1,2)] are not).  ([close]/[delete]
-    add a CHANNEL/MAP arg-TYPE constraint beyond arity — deferred to the GoSem/type layer.)  Widens with user
-    funcs / a symbol table. *)
+(** Is a builtin CALL [f(args)] valid as a standalone EXPRESSION STATEMENT (Go spec: ExpressionStmt — a
+    "function and method call ... can appear in statement context")?  Checks the builtin AND its ARITY, so an
+    arity violation is rejected: [println]/[print] are VARIADIC (any arg count, any types, return nothing —
+    NO hazard); [panic] takes EXACTLY ONE arg of ANY type ([panic(x)] valid, [panic()] / [panic(1,2)] not).
+    Deliberately EXACT for the current AST (no user funcs / imports yet, so these are the only hazard-free
+    statement calls).  Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement) and
+    VALUE-returning builtins ([len(x)]/… — "evaluated but not used").  ([close]/[delete] would add a
+    CHANNEL/MAP arg-TYPE constraint beyond arity — deferred to the GoSem/type layer.)  Widens with user
+    funcs / a symbol table.  (Args' own validity is [svalue], checked separately in [expr_stmt_ok].) *)
 Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
   if String.eqb f "println" then true                                  (* variadic, any args *)
   else if String.eqb f "print" then true                               (* variadic, any args *)
@@ -123,7 +121,7 @@ Fail Example assert_call_supported : SupportedProgram unsupported_assert_call :=
 
 (** REGRESSION (external review 2026-06-28, follow-up³) — `func main(){ int(x) }` is identifier-call-SHAPED
     but [int] is a TYPE, so [int(x)] is a CONVERSION, not a call, and a conversion is NOT a valid expression
-    statement ("evaluated but not used").  [int] is not in [stmt_call_builtin], so it is NOT supported. *)
+    statement ("evaluated but not used").  [int] is not accepted by [stmt_call_ok], so it is NOT supported. *)
 Definition unsupported_conversion_stmt : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)])].
