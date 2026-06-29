@@ -800,14 +800,15 @@ Fail Example bad_uint8_overflow_forge : SupportedProgram (pl_arg (ECall (EId (mk
 
 (** FINDING 1 (adversarial) — CONSTANT division / modulo / shift by ZERO is a compile error in Go, INCLUDING
     a zero FOLDED from a constant subexpression ([1 / (1 - 1)]).  [ptype] folds constants, so it catches all.
-    A NEGATIVE constant shift count is rejected even with a deferred left operand. *)
+    A NEGATIVE constant shift count is rejected (shown over a VALID constant left operand, so the rejection is
+    attributable to the count, not the operand). *)
 Example bad_div_zero : supported_program (pl_arg (EBn BDiv (EInt 1) (EInt 0))) = false.
 Proof. reflexivity. Qed.
 Example bad_div_zero_folded : supported_program (pl_arg (EBn BDiv (EInt 1) (EBn BSub (EInt 1) (EInt 1)))) = false.
 Proof. reflexivity. Qed.
 Example bad_mod_zero : supported_program (pl_arg (EBn BRem (EInt 1) (EInt 0))) = false.
 Proof. reflexivity. Qed.
-Example bad_neg_shift : supported_program (pl_arg (EBn BShl gs_x (EInt (-1)))) = false.
+Example bad_neg_shift : supported_program (pl_arg (EBn BShl (EInt 1) (EInt (-1)))) = false.
 Proof. reflexivity. Qed.
 
 (** FINDING 2 — comparison split by operator.  Equality needs COMPARABLE operands (slice equality rejected;

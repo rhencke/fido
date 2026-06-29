@@ -169,22 +169,27 @@ fi
 
 echo "fido: string-exactness gate OK — unescape_opt_image present (accepted == emitted, proven zero-axiom); no stale wording ✓"
 
-# ---- IDENTIFIER-BOUNDARY GUARD: the LIVE boundary is — a free identifier is REJECTED (the no-declaration
-# Program has no variables); only the predeclared [nil] ([PtNil]) is admitted, as a slice/chan conversion
-# operand.  The patterns below are a DENYLIST of stale spellings that must not appear in active Coq sources or
-# ARCHITECTURE/PROGRESS (any history belongs in LESSONS.md); they are machine data, not a description of any
-# design.  Each scanned file is WHITESPACE-NORMALIZED first ([tr] newlines/tabs -> spaces, then squeeze), so a
-# multiword spelling split across LINES (e.g. "DEFERRED\noperand") is caught, and matched CASE-INSENSITIVELY
-# ([grep -i]) so capitalization is not a bypass.  The multiword patterns require ADJACENT tokens
-# ([[:space:]]+ = one or more spaces/newlines), NOT loose proximity, so [close]/[delete]'s "deferred to GoSem"
-# note (no adjacent "identifier"/"operand") is not matched.  Reports the FILE (line numbers are lost to
-# normalization — grep the phrase within it).
-ibpat='PtUnk|genuinely-unknown[[:space:]]+identifier|deferred[[:space:]]+operand|bool/deferred|string/deferred|deferred[-[:space:]]+identifier|identifier[-[:space:]]+deferr|free[-[:space:]]+identifier[-[:space:]]+deferr'
+# ---- IDENTIFIER-BOUNDARY GUARD.  LIVE boundary: a free identifier is REJECTED; only the predeclared [nil]
+# ([PtNil]) is admitted, as a slice/chan conversion operand.  [ibpat] is denylist DATA (machine tokens, not a
+# description of any design) for stale spellings banned from active Coq sources + ARCHITECTURE/PROGRESS (history
+# -> LESSONS.md).  Each file is WHITESPACE-NORMALIZED ([tr] newlines/tabs -> spaces, squeeze) before a
+# CASE-INSENSITIVE match, so a split/wrapped/capitalized spelling cannot bypass it; the "deferred"/"identifier"
+# proximity patterns use [^.]{1,40} (same-sentence window) so [close]/[delete]'s "deferred to GoSem." note is
+# NOT matched.  [ib_scan] = normalize stdin then grep; reused by the self-test and the file loop.
+ibpat='PtUnk|genuinely-unknown[^.]{1,40}identifier|bool/deferred|string/deferred|deferred[^.]{1,40}operand|deferred[^.]{1,40}identifier|identifier[^.]{1,40}deferr'
+ib_scan() { tr '\n\t' '  ' | tr -s ' ' | grep -qiE "$ibpat"; }
+# self-test (fixtures live HERE, not in scanned files): MUST catch each bad spelling (incl. cross-line and
+# "deferred left operand"), MUST NOT catch the legitimate close/delete note or the live-boundary sentence.
+for bad in 'deferred operand' 'DEFERRED
+operand' 'deferred left operand' 'identifier is deferred' 'PtUnk'; do
+  printf '%s' "$bad" | ib_scan || { echo "fido: IDENTIFIER-BOUNDARY GUARD self-test BUG — failed to catch [$bad]"; exit 1; }
+done
+for ok in 'close/delete add a constraint - deferred to GoSem. an operand here' 'a free identifier is REJECTED; only nil is admitted'; do
+  if printf '%s' "$ok" | ib_scan; then echo "fido: IDENTIFIER-BOUNDARY GUARD self-test BUG — wrongly caught [$ok]"; exit 1; fi
+done
 stale_ident=""
 for f in GoSafe.v GoAst.v GoPrint.v ARCHITECTURE.md PROGRESS.md; do
-  if tr '\n\t' '  ' < "$f" | tr -s ' ' | grep -qiE "$ibpat"; then
-    stale_ident="$stale_ident $f"
-  fi
+  if ib_scan < "$f"; then stale_ident="$stale_ident $f"; fi
 done
 if [ -n "$stale_ident" ]; then
   echo "fido: IDENTIFIER-BOUNDARY GUARD — a banned stale spelling (whitespace/case/newline-normalized) is in active guidance in:$stale_ident"
@@ -192,4 +197,4 @@ if [ -n "$stale_ident" ]; then
   exit 1
 fi
 
-echo "fido: identifier-boundary guard OK — active guidance free of the banned stale spellings (newline/case-normalized) ✓"
+echo "fido: identifier-boundary guard OK — self-test passed; active guidance free of the banned stale spellings ✓"
