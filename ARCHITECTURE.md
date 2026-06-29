@@ -112,14 +112,20 @@ obligations: the printer prints; semantics interprets.
 > behavior of the SUPPORTED statement subset (`GsExprStmt` calls to `println`/`print`/`panic`, a TERMINATING
 > `GsReturn`, and a `GsBlankAssign` whose RHS is in a STRUCTURALLY effect-free subset) by **bridging `cmd.v`** —
 > a statement list maps to a `cmd.Cmd unit` whose meaning is read through builtins' `run_io`/`w_output`; it
-> introduces **NO new IO/output/outcome model** (no second semantic universe). `return` **TERMINATES** (it
-> short-circuits the right-fold, so statements after it do not run — pinned by `gosem_return_short_circuits`,
-> a body `{ return; println(1) }` runs to a normal `ORet` with EMPTY output); and `_ = e` is admitted **only
-> for a structurally effect-free / total RHS** (`rhs_effect_free`: literals, the predeclared `nil`, the
-> non-partial arithmetic/comparison binops and unary `-`/`^`/`!`, scalar/slice/chan/map conversions and
-> composite literals over such operands — NOT `BDiv`/`BRem`, index/slice/deref/assert, or any call that could
-> output/panic), so its silent value can be faithfully discarded; an out-of-subset RHS is `None`, never
-> silently erased. **Layering:** core `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
+> introduces **NO new IO/output/outcome model** (no second semantic universe). A TERMINAL statement
+> (`return`/`panic`) **short-circuits UNCONDITIONALLY**: `classify_stmt` tags each statement
+> `SDTerminal`/`SDSeq`/`SDUnsupported`, and `denote_body` folds left-to-right returning an `SDTerminal`'s `Cmd`
+> immediately — WITHOUT forcing the denotation of the suffix — so a `return`/`panic` discards the rest even when
+> it is itself UN-denotable (pinned by `gosem_return_discards_undenotable_suffix` and `gosem_panic_short_circuits`,
+> e.g. `{ return; println(len(s)) }` runs to a normal `ORet` with EMPTY output though `len` is outside `eval`);
+> an unsupported statement BEFORE a terminal still rejects (`gosem_unsupported_before_terminal_rejects`). `_ = e`
+> is admitted **only for a structurally effect-free, non-panicking RHS** (`rhs_effect_free`, a CONSERVATIVE
+> structural check: literals, the unconditionally-total arithmetic/comparison binops and unary `-`/`^`/`!`,
+> scalar conversions and slice/map composite literals over such operands, and a slice/chan/map type-form
+> conversion of the predeclared `nil` — but NOT a bare identifier incl. `nil`, NOT shifts `<<`/`>>`, NOT
+> `BDiv`/`BRem`, index/slice/deref/assert, or any non-conversion call that could output/panic), so its silent
+> value can be faithfully discarded; an out-of-subset RHS is `None`, never silently erased. **Layering:** core
+> `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
 > (`cmd`/`builtins`) — NOT `GoPrint`/`GoSafe`/`GoEmit`; the demo deliverable lives in the DOWNSTREAM
 > `GoSemDemo.v`. That deliverable, `gosem_demo_output`, is a zero-axiom `vm_compute` proof that
 > `GoEmit.demo_prog` runs to a normal `ORet` emitting exactly its four `println` lines (int 1, int64 3, int 3,

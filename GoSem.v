@@ -39,30 +39,36 @@
     So do NOT call this "the semantics" or imply completeness.  It is one small, faithful,
     zero-axiom behavioral slice that BRIDGES cmd.v.
 
-    DESIGN — partiality (the None handling).  [denote_stmt]/[denote_body] are PARTIAL
-    ([option]-valued): a statement whose argument is outside [eval]'s core yields [None],
-    propagated to [None] for the whole body, surfaced as [gosem_run = None] = "this
-    program is outside the current denotational scope".  This is the honest choice: it
-    NEVER fabricates output, NEVER drops an output/panic event, and NEVER invents a Go
-    panic for an un-modelled form.
+    DESIGN — partiality (the None handling).  [classify_stmt]/[denote_body] are PARTIAL
+    ([option]-valued): a statement whose argument is outside [eval]'s core, or whose shape is
+    outside this subset, classifies as [SDUnsupported], yielding [None] for the whole body,
+    surfaced as [gosem_run = None] = out of the current denotational scope.  This is the honest
+    choice: it NEVER fabricates output, NEVER drops an output/panic event, and NEVER invents a
+    Go panic for an un-modelled form.
 
-    DESIGN — [return] TERMINATES (it does NOT fall through).  Go's [return] STOPS the
-    function: statements AFTER it do not run.  Because [denote_body] is a RIGHT-fold
-    ([denote_stmt s (denote_body rest)]), [denote_stmt GsReturn] IGNORES its continuation
-    and yields [CRet tt] — which DISCARDS [rest], short-circuiting exactly as Go does (so
-    e.g. `func main(){ return; println(1) }`, a supported body, runs to a NORMAL outcome
-    with NO output — pinned by [gosem_return_short_circuits]).
+    DESIGN — TERMINAL statements ([return]/[panic]) short-circuit UNCONDITIONALLY.  Go's
+    [return] STOPS the function and a [panic] aborts it: statements AFTER either do not run.
+    [classify_stmt] tags each statement [SDTerminal]/[SDSeq]/[SDUnsupported], and [denote_body]
+    folds LEFT-to-right: on an [SDTerminal] (a bare [return], or a [panic(a)]) it returns that
+    [Cmd] IMMEDIATELY, WITHOUT forcing [denote_body rest] — so the suffix is discarded
+    UNCONDITIONALLY, even when [rest] is itself un-denotable (e.g. [return; println(len(s))],
+    where [len] is outside [eval]: the body still runs to a NORMAL outcome, the [len] suffix
+    never consulted — pinned by [gosem_return_discards_undenotable_suffix]).  An [SDSeq]
+    statement (an output, or an admitted blank-assign) DOES force [rest] — sequential
+    statements continue — and an [SDUnsupported] statement yields [None], so an unsupported
+    statement BEFORE a terminal still rejects ([gosem_unsupported_before_terminal_rejects]).
 
     DESIGN — [_ = e] is restricted to a STRUCTURALLY effect-free RHS.  Go EVALUATES the RHS
     of [_ = e]; the discard does NOT erase the expression unseen.  This slice does not (yet)
-    give a full evaluate-with-effects semantics, so it ADMITS [_ = e] ONLY when [e] is in a
-    STRUCTURALLY effect-free, total subset ([rhs_effect_free]) — expression forms that can
-    produce NO observable output and CANNOT panic — and otherwise REJECTS it ([None] = out of
-    this slice).  For an admitted RHS the value is total + silent BY STRUCTURE, so discarding
-    it and continuing as [k] is faithful.  This is explicitly a STRUCTURAL effect-free
-    RESTRICTION, NOT a full eval-with-panic semantics: a panicking/effectful RHS (a call to
-    [println]/[print]/[panic] or any other function, [BDiv]/[BRem] with a zero divisor, or an
-    [EIndex]/[ESlice]/[ESel]/[EAssert] that can panic) is OUT of scope, never silently erased.
+    give a full evaluate-with-effects semantics, so it ADMITS [_ = e] ONLY when [e] passes the
+    CONSERVATIVE structural predicate [rhs_effect_free] — expression forms that produce NO
+    observable output and CANNOT panic — and otherwise REJECTS it ([None] = out of this slice).
+    For an admitted RHS the value is silent and non-panicking BY STRUCTURE, so discarding it and
+    continuing is faithful.  This is explicitly a CONSERVATIVE STRUCTURAL effect-free check, NOT
+    a full eval-with-panic semantics: it intentionally rejects a bare identifier (incl. [nil]),
+    a SHIFT ([BShl]/[BShr], which can panic on a negative / oversized count), [BDiv]/[BRem]
+    (a zero divisor panics), index/slice/deref/assert, and any non-conversion call — none of
+    which is unconditionally silent+total, all OUT of scope, never silently erased.
     ============================================================================ *)
 From Fido Require Import builtins cmd GoAst.
 From Stdlib Require Import String List Bool ZArith.
@@ -123,32 +129,32 @@ Fixpoint eval_args (es : list GExpr) : option (list GoAny) :=
       end
   end.
 
-(** ---- [rhs_effect_free e] : is [e] in the STRUCTURALLY effect-free / total RHS subset
-    admitted as a [_ = e] discard? ----  This is a CONSERVATIVE structural predicate: it
-    is [true] ONLY for expression forms that can produce NO observable output and CANNOT
-    panic — i.e. total, silent values whose evaluation is invisible, so discarding the
-    value and continuing is faithful.  It is NOT a soundness/completeness theorem against
-    Go (no such proof here); it is the explicit STRUCTURAL restriction the [GsBlankAssign]
-    denotation relies on (see the header DESIGN note).
-    ADMITS:  [EInt] / [EStr] literals; the predeclared [nil] ([EId "nil"]); the NON-PARTIAL
-      arithmetic/comparison binops ([BAdd]/[BSub]/[BMul]/[BAnd]/[BOr]/[BXor]/[BAndNot]/
-      [BShl]/[BShr]/[BEq]/[BNe]/[BLt]/[BLe]/[BGt]/[BGe]) over effect-free operands; the
-      unary [UNeg]/[UXor]/[UNot] over an effect-free operand; a SCALAR conversion
-      [t(a)] = [ECall (EId t) [a]] with [t] a scalar type keyword ([classify t <> None])
-      and [a] effect-free (a numeric/bool/string conversion cannot panic); a slice/chan/map
-      type-form conversion [EConv] over an effect-free operand; and [ESliceLit]/[EMapLit]
-      whose children are ALL effect-free.
-    REJECTS ([false]): [BDiv]/[BRem] (a zero divisor PANICS); [BLAnd]/[BLOr] (out of this
-      tiny set — conservative, not needed); [UDeref]/[UAddr]; [EIndex]/[ESlice]/[ESel]/
-      [EAssert] (index / slice / deref / assert can PANIC); a free identifier other than
-      [nil]; and ANY non-conversion call — [ECall (EId "println"|"print"|"panic") …] OR any
-      other function call ([classify] of its name is [None]) — since a call may OUTPUT or
-      PANIC. *)
+(** ---- [rhs_effect_free e] : GoSem's STRUCTURAL effect-free + total predicate ----  the
+    CONSERVATIVE behavioral check the [_ = e] discard relies on: [true] ONLY for expression
+    forms that produce NO observable output AND CANNOT panic (no partial op), so the value is
+    silent + non-panicking BY STRUCTURE and discarding it is faithful.  It is NOT a typing
+    duplicate of GoSafe and NOT a soundness/completeness theorem against Go — it is a
+    behavioral, conservative over-approximation of effect-free-and-non-panicking.  It
+    INTENTIONALLY rejects bare nil, shifts, division, index/deref/assert, and arbitrary calls.
+    ADMITS:  [EInt] / [EStr] literals; the unconditionally total+silent arithmetic binops
+      ([BAdd]/[BSub]/[BMul]/[BAnd]/[BOr]/[BXor]/[BAndNot]) and the comparisons
+      ([BEq]/[BNe]/[BLt]/[BLe]/[BGt]/[BGe]) over effect-free operands; the unary
+      [UNeg]/[UXor]/[UNot] over an effect-free operand; a SCALAR conversion
+      [t(a)] = [ECall (EId t) [a]] with [t] a scalar type keyword ([classify t <> None]) and
+      [a] effect-free (a numeric/bool/string conversion cannot panic); a slice/chan/map
+      type-form conversion [EConv] over the predeclared [nil] operand OR an effect-free operand;
+      and [ESliceLit]/[EMapLit] whose children are ALL effect-free.
+    REJECTS ([false]): a BARE identifier, INCLUDING [nil] ([_ = nil] is invalid Go — use of
+      untyped nil); the SHIFTS [BShl]/[BShr] (a negative / oversized count panics, and the shift
+      is not unconditionally total); [BDiv]/[BRem] (a zero divisor PANICS); [BLAnd]/[BLOr] (out
+      of this set — conservative); [UDeref]/[UAddr]; [EIndex]/[ESlice]/[ESel]/[EAssert] (index /
+      slice / deref / assert can PANIC); and ANY non-conversion call ([println]/[print]/[panic]/
+      [len]/[cap]/user func — [classify] of its name is [None]), since a call may OUTPUT/PANIC. *)
 Fixpoint rhs_effect_free (e : GExpr) : bool :=
   match e with
   | EInt _  => true
   | EStr _  => true
-  | EId i   => String.eqb (proj1_sig i) "nil"   (* only the predeclared [nil]; every other ident is out of scope *)
+  | EId _   => false                            (* NEVER a bare identifier (incl. nil): [_ = nil] is invalid Go *)
   | EUn o e0 =>
       match o with
       | UNeg | UXor | UNot => rhs_effect_free e0
@@ -156,16 +162,19 @@ Fixpoint rhs_effect_free (e : GExpr) : bool :=
       end
   | EBn o l r =>
       match o with
-      | BAdd | BSub | BMul | BAnd | BOr | BXor | BAndNot | BShl | BShr
+      | BAdd | BSub | BMul | BAnd | BOr | BXor | BAndNot
       | BEq | BNe | BLt | BLe | BGt | BGe => rhs_effect_free l && rhs_effect_free r
-      | BDiv | BRem | BLAnd | BLOr        => false   (* div/rem can panic on a zero divisor; &&/|| out of this set *)
+      | BShl | BShr | BDiv | BRem | BLAnd | BLOr => false
+          (* shift can panic on a neg/oversized count; div/rem on a zero divisor; &&/|| out of this set *)
       end
   | ECall (EId f) (a :: nil) =>
       (* a SCALAR conversion [t(a)] (cannot panic) is effect-free iff its operand is; any other
          single-arg call ([println]/[print]/[panic]/[len]/[cap]/user func) may output/panic *)
       match classify (proj1_sig f) with Some _ => rhs_effect_free a | None => false end
   | ECall _ _ => false                          (* multi-arg / non-identifier callee: a call may output/panic *)
-  | EConv _ e0 => rhs_effect_free e0            (* slice/chan/map conversion: total + silent over an effect-free operand *)
+  | EConv _ e0 =>
+      (* slice/chan/map conversion: admit the predeclared nil operand, or an effect-free operand *)
+      (match e0 with EId i => String.eqb (proj1_sig i) "nil" | _ => false end) || rhs_effect_free e0
   | ESliceLit _ es =>
       (fix all_ef (l : list GExpr) : bool :=
          match l with nil => true | x :: r => rhs_effect_free x && all_ef r end) es
@@ -178,44 +187,60 @@ Fixpoint rhs_effect_free (e : GExpr) : bool :=
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false   (* selector/index/slice/assert can panic *)
   end.
 
-(** ---- [denote_stmt s k] : denote one supported statement, given continuation [k] ----
-    [println(args)] -> [COut true (eval args) k]; [print(args)] -> [COut false … k];
-    [panic(a)] -> [CPan (eval a)] (DROPS [k] — a panic short-circuits, as Go); a bare
-    [GsReturn] -> [CRet tt], IGNORING [k] (Go's [return] TERMINATES — see the header DESIGN
-    note: in the right-fold this discards the later statements [rest]); [GsBlankAssign e] ->
-    [k] WHEN [e] is [rhs_effect_free] (its total/silent value is discarded, no event), else
-    [None] (an effectful/partial RHS is out of this slice — NEVER silently erased).  PARTIAL:
-    [None] if a denoted argument is outside [eval]'s core, or for any statement shape outside
-    this subset ([GsReturnVal], a non-call / non-whitelisted expression statement). *)
-Definition denote_stmt (s : GoStmt) (k : Cmd unit) : option (Cmd unit) :=
+(** ---- [StmtDen] : the 3-way statement classification (the FIX-2 spine) ----  every supported
+    statement is one of: [SDTerminal c] — a TERMINATING statement ([return] / [panic]), whose
+    meaning is the [Cmd] [c] and whose SUFFIX is discarded UNCONDITIONALLY (it does NOT depend
+    on [rest]); [SDSeq f] — a SEQUENTIAL statement (an output, or an admitted blank-assign),
+    a continuation TRANSFORMER applied to the denotation of [rest] (so [rest] still runs); or
+    [SDUnsupported] — outside this slice, forcing [None].  This separation is what lets a
+    terminal short-circuit even an un-denotable suffix (see [denote_body]). *)
+Inductive StmtDen : Type :=
+  | SDTerminal    : Cmd unit -> StmtDen
+  | SDSeq         : (Cmd unit -> Cmd unit) -> StmtDen
+  | SDUnsupported : StmtDen.
+
+(** ---- [classify_stmt s] : classify ONE supported statement ----  [println(args)] /
+    [print(args)] -> [SDSeq (COut true|false xs)] when every arg evaluates (else
+    [SDUnsupported]); [panic(a)] -> [SDTerminal (CPan v)] when [a] evaluates (panic TERMINATES);
+    a bare [GsReturn] -> [SDTerminal (CRet tt)] (return TERMINATES); [GsBlankAssign e] ->
+    [SDSeq (fun k => k)] when [e] is [rhs_effect_free] (its silent value is discarded, no event),
+    else [SDUnsupported]; every other shape ([GsReturnVal], a non-call / non-whitelisted
+    expression statement) -> [SDUnsupported].  Note this NEVER consults [rest] — terminality is
+    intrinsic to the statement, so [denote_body] can short-circuit without denoting the suffix. *)
+Definition classify_stmt (s : GoStmt) : StmtDen :=
   match s with
   | GsExprStmt (ECall (EId f) args) =>
       let fn := proj1_sig f in
-      if String.eqb fn "println" then option_map (fun xs => COut true xs k) (eval_args args)
-      else if String.eqb fn "print" then option_map (fun xs => COut false xs k) (eval_args args)
+      if String.eqb fn "println" then
+        match eval_args args with Some xs => SDSeq (COut true xs) | None => SDUnsupported end
+      else if String.eqb fn "print" then
+        match eval_args args with Some xs => SDSeq (COut false xs) | None => SDUnsupported end
       else if String.eqb fn "panic" then
         match args with
-        | a :: nil => option_map (@CPan unit) (eval a)   (* panic ignores [k]: it short-circuits *)
-        | _ => None
+        | a :: nil => match eval a with Some v => SDTerminal (CPan v) | None => SDUnsupported end
+        | _ => SDUnsupported
         end
-      else None
-  | GsExprStmt _    => None
-  | GsReturn        => Some (CRet tt)   (* [return] TERMINATES: ignore [k]; in the right-fold this drops [rest] *)
-  | GsReturnVal _   => None
-  | GsBlankAssign e => if rhs_effect_free e then Some k else None   (* discard a total/silent value; reject an effectful RHS *)
+      else SDUnsupported
+  | GsExprStmt _    => SDUnsupported
+  | GsReturn        => SDTerminal (CRet tt)   (* [return] TERMINATES — its [Cmd] does not depend on [rest] *)
+  | GsReturnVal _   => SDUnsupported
+  | GsBlankAssign e => if rhs_effect_free e then SDSeq (fun k => k) else SDUnsupported
   end.
 
-(** ---- [denote_body b] : a supported statement list -> a [cmd.Cmd unit] ----
-    right-fold with base [CRet tt] (normal termination); PARTIAL ([None] if any statement
-    is out of scope).  Because it folds RIGHT, [denote_stmt GsReturn] returning [CRet tt]
-    (ignoring its continuation) discards everything after the [return] — the short-circuit. *)
+(** ---- [denote_body b] : a supported statement list -> a [cmd.Cmd unit] ----  a LEFT-to-right
+    fold via [classify_stmt]: an [SDTerminal c] returns [Some c] IMMEDIATELY — WITHOUT forcing
+    [denote_body rest] — so a [return]/[panic] discards the suffix UNCONDITIONALLY (even an
+    un-denotable one); an [SDSeq f] still forces [rest] ([Some (f k)] when [rest] denotes, else
+    [None]); an [SDUnsupported] is [None] (so an unsupported statement BEFORE a terminal still
+    rejects).  Base [CRet tt] (normal termination). *)
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
   match b with
   | nil => Some (CRet tt)
   | s :: rest =>
-      match denote_body rest with
-      | Some k => denote_stmt s k
-      | None   => None
+      match classify_stmt s with
+      | SDTerminal c  => Some c
+      | SDSeq f       => match denote_body rest with Some k => Some (f k) | None => None end
+      | SDUnsupported => None
       end
   end.
 
@@ -228,23 +253,72 @@ Definition gosem_run (b : list GoStmt) : option (Outcome unit) :=
   | None   => None
   end.
 
-(** ---- REGRESSION: [return] SHORT-CIRCUITS (FIX, Codex stop-review 2026-06-29) ----
+(** ---- REGRESSION: [return] SHORT-CIRCUITS over a DENOTABLE suffix ----
     A body `{ return; println(1) }` runs to a NORMAL outcome ([ORet tt]) with the
     UNCHANGED initial world — i.e. EMPTY [w_output] ([w_output w_init = []]): the
     [println(1)] AFTER the [return] does NOT run.  Were [return] to fall through (the bug),
     the [println] would execute and the world would be [w_log true [...] w_init <> w_init],
-    so this [reflexivity] would not close.  This pins the terminating semantics of FIX 1. *)
+    so this [reflexivity] would not close.  (The stronger [gosem_return_discards_undenotable_suffix]
+    below shows the suffix is discarded even when it is itself UN-denotable.) *)
 Theorem gosem_return_short_circuits :
   gosem_run [GsReturn;
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])]
     = Some (ORet tt w_init).
 Proof. vm_compute. reflexivity. Qed.
 
+(** ---- REGRESSION (FIX 1): a BARE identifier RHS is REJECTED ----  [_ = nil] is invalid Go
+    (use of untyped nil); [rhs_effect_free (EId _) = false], so the blank-assign is out of
+    scope and [gosem_run] is [None].  (nil is admitted ONLY as a conversion operand — see the
+    demo's [[]int(nil)] in [demo_blank_rhs_effect_free].) *)
+Theorem gosem_rejects_bare_nil :
+  gosem_run [GsBlankAssign (EId (mkIdent "nil" eq_refl))] = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 1): a SHIFT RHS is REJECTED ----  a shift can panic on a negative /
+    oversized count (and [1 << -1] is a compile error), so it is NOT unconditionally total;
+    [rhs_effect_free (EBn BShl ..) = false] and [gosem_run] is [None]. *)
+Theorem gosem_rejects_shift :
+  gosem_run [GsBlankAssign (EBn BShl (EInt 1) (EInt (-1)))] = None.
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 2): [return] DISCARDS an UN-denotable suffix ----  classified
+    [SDTerminal], [denote_body] returns [CRet tt] IMMEDIATELY, WITHOUT forcing [denote_body
+    rest] — so a suffix outside [eval]'s core (here [println(len([]int{1}))], with [len]
+    outside [eval]) does NOT block the program: it runs to a NORMAL [ORet tt] with EMPTY output.
+    Under the OLD right-fold this body was wrongly [None] (the unreachable [rest] failed to
+    denote, dragging the whole body to [None]). *)
+Theorem gosem_return_discards_undenotable_suffix :
+  gosem_run [GsReturn;
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "len" eq_refl))
+                                      [ESliceLit GTInt [EInt 1]]])]
+    = Some (ORet tt w_init).
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 2): [panic] short-circuits and STAYS a panic ----  classified
+    [SDTerminal (CPan ..)], so the un-denotable [println(len(..))] suffix is discarded and the
+    outcome is the panic [OPanic <int 1>], NOT [None]. *)
+Theorem gosem_panic_short_circuits :
+  gosem_run [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "len" eq_refl))
+                                      [ESliceLit GTInt [EInt 1]]])]
+    = Some (OPanic (anyt TInt64 (intwrap 1)) w_init).
+Proof. vm_compute. reflexivity. Qed.
+
+(** ---- REGRESSION (FIX 2): an UNSUPPORTED statement BEFORE a terminal still REJECTS ----  the
+    head is classified FIRST; [GsReturnVal] is [SDUnsupported] -> [None] for the whole body, even
+    though a [GsReturn] follows.  Classification is per-statement and order-respecting: a
+    terminal does NOT retroactively rescue an unsupported predecessor. *)
+Theorem gosem_unsupported_before_terminal_rejects :
+  gosem_run [GsReturnVal (EInt 1); GsReturn] = None.
+Proof. vm_compute. reflexivity. Qed.
+
 (** ---- REGRESSION: the demo's blank-assign RHSs are [rhs_effect_free] ----
     [GoEmit.demo_prog]'s two [_ = e] statements ([_ = []int(nil)], [_ = []int{1}]) have
-    EFFECT-FREE RHSs, so [denote_stmt (GsBlankAssign _)] admits them ([Some k], discarding
-    the value).  (Reconstructed here so the property is locked in the core file, with NO
-    dependency on the upper emission layers; the end-to-end demo output is in GoSemDemo.v.) *)
+    EFFECT-FREE RHSs, so [classify_stmt (GsBlankAssign _) = SDSeq (fun k => k)] admits them,
+    discarding the value.  (Reconstructed here so the property is locked in the core file, with
+    NO dependency on the upper emission layers; the end-to-end demo output is in GoSemDemo.v.) *)
 Example demo_blank_rhs_effect_free :
   rhs_effect_free (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl))) = true
   /\ rhs_effect_free (ESliceLit GTInt [EInt 1]) = true.
@@ -255,4 +329,9 @@ Proof. split; vm_compute; reflexivity. Qed.
     prover-stage axiom-manifest gate (and [make gosem-verify]) FAIL the build on ANY axiom,
     so "Closed under the global context" here is enforced, not decorative. *)
 Print Assumptions gosem_return_short_circuits.
+Print Assumptions gosem_rejects_bare_nil.
+Print Assumptions gosem_rejects_shift.
+Print Assumptions gosem_return_discards_undenotable_suffix.
+Print Assumptions gosem_panic_short_circuits.
+Print Assumptions gosem_unsupported_before_terminal_rejects.
 Print Assumptions demo_blank_rhs_effect_free.
