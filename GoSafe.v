@@ -103,569 +103,180 @@ Definition supported_program (p : Program) : bool :=
   String.eqb (proj1_sig (prog_pkg p)) "main" && forallb stmt_ok (prog_body p).
 Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
 
-(** REGRESSION (P0, external review 2026-06-28) — a bare-value expression statement `func main(){ 1 }` is NOT
-    supported, so no certificate exists for it and the blessed emitter can NEVER print this invalid Go.  The
-    [Example] pins [supported_program = false]; the [Fail] locks the gate: if a future change re-weakened
-    [SupportedProgram], this [reflexivity] would START to succeed and the build would break right here. *)
-Definition unsupported_value_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EInt 1)].
-Example value_stmt_unsupported : supported_program unsupported_value_stmt = false.
-Proof. reflexivity. Qed.
-(* [Fail Example … := eq_refl] is a SINGLE vernac that must fail to typecheck: [eq_refl] cannot inhabit
-   [SupportedProgram unsupported_value_stmt] (= [false = true]).  (Note: [Fail Lemma … . Proof. … Qed.] would
-   NOT work — [Fail] guards only the goal-opening vernac, which always succeeds.) *)
-Fail Example value_stmt_supported : SupportedProgram unsupported_value_stmt := eq_refl.
-
-(** REGRESSION (gate coverage) — the PACKAGE-NAME half of [supported_program].  A non-`main` package, here
-    `package lib` with an otherwise-FINE body ([return]), is NOT supported: [GoEmit] emits `package main` /
-    `func main()` (no import block — rule 5), so a non-main package cannot be the emitted unit.  The body is
-    deliberately supported, ISOLATING the package-name check (the statement-body half is pinned by the
-    regressions above; this pins the conjunct they don't reach). *)
-Definition unsupported_nonmain_pkg : Program :=
-  mkProgram (mkIdent "lib" eq_refl) [GsReturn].
-Example nonmain_pkg_unsupported : supported_program unsupported_nonmain_pkg = false.
-Proof. reflexivity. Qed.
-Fail Example nonmain_pkg_supported : SupportedProgram unsupported_nonmain_pkg := eq_refl.
-
-(** REGRESSION (external review 2026-06-28, follow-up) — a CALL of a non-callable, `func main(){ 1() }`, is
-    call-SHAPED but structurally invalid Go; [expr_stmt_ok] rejects it (the callee [EInt 1] is not an [EId]),
-    so it is NOT supported and cannot be certified. *)
-Definition unsupported_call_value : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EInt 1) nil)].
-Example call_value_unsupported : supported_program unsupported_call_value = false.
-Proof. reflexivity. Qed.
-Fail Example call_value_supported : SupportedProgram unsupported_call_value := eq_refl.
-
-(** REGRESSION (external review 2026-06-28, follow-up²) — a call of a type assertion, `func main(){ x.(int)() }`,
-    is call-shaped but a type-assertion callee is not an [EId], so [expr_stmt_ok] rejects it (a concrete
-    [x.(int)] is anyway concretely non-callable). NOT supported. *)
-Definition unsupported_assert_call : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EAssert (EId (mkIdent "x" eq_refl)) GTInt) nil)].
-Example assert_call_unsupported : supported_program unsupported_assert_call = false.
-Proof. reflexivity. Qed.
-Fail Example assert_call_supported : SupportedProgram unsupported_assert_call := eq_refl.
-
-(** REGRESSION (external review 2026-06-28, follow-up³) — `func main(){ int(x) }` is identifier-call-SHAPED
-    but [int] is a TYPE, so [int(x)] is a CONVERSION, not a call, and a conversion is NOT a valid expression
-    statement ("evaluated but not used").  [int] is not accepted by [stmt_call_ok], so it is NOT supported. *)
-Definition unsupported_conversion_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)])].
-Example conversion_stmt_unsupported : supported_program unsupported_conversion_stmt = false.
-Proof. reflexivity. Qed.
-Fail Example conversion_stmt_supported : SupportedProgram unsupported_conversion_stmt := eq_refl.
-
-(** POSITIVE — a conversion IS fine in VALUE position: `func main(){ println(int64(3)) }` is supported (the
-    statement is a [println] call; its argument [int64(3)] is a conversion of a CONSTANT, a valid [svalue]).
-    This pins the value-vs-statement asymmetry the conversion-statement regression above relies on. *)
-Definition supported_conv_arg : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
-Example conv_arg_supported : SupportedProgram supported_conv_arg.
-Proof. reflexivity. Qed.
-
-(** TIGHTENING (external review 2026-06-29) — a conversion of a FREE identifier `func main(){ println(int(x)) }`
-    is NOT supported: in the no-declaration model [x] is undefined, so [ptype (EId "x") = None], [int(x)] is
-    [None], and the whole program is rejected.  (Before this free-identifier tightening such a program was
-    WRONGLY accepted — emitting Go that does not compile.) *)
-Definition unsupported_conv_freevar_arg : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
-Example conv_freevar_arg_unsupported : supported_program unsupported_conv_freevar_arg = false.
-Proof. reflexivity. Qed.
-Fail Example conv_freevar_arg_supported : SupportedProgram unsupported_conv_freevar_arg := eq_refl.
-
-(** POSITIVE (Phase 4, [EConv]) — a slice/chan type-FORM conversion of the predeclared [nil] is a VALUE, used
-    via [_ = ...]: `func main(){ _ = []int(nil) }` is supported ([[]int(nil)] is an [EConv] of [PtNil], a valid
-    [svalue] of category [PtAgg]).  [nil] is the ONLY admitted conversion operand: with a FREE ident the
-    conversion is REJECTED (`_ = []int(x)`, below).  As an AGGREGATE it is NOT a [println] arg (that printing is
-    implementation-defined — see [printable_arg_ok]): `func main(){ println([]int(nil)) }` is rejected.  A bare
-    [EConv] statement `func main(){ []int(nil) }` is also rejected ([expr_stmt_ok] admits only [ECall (EId _) _]). *)
-Definition supported_conv_composite_arg : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))].
-Example conv_composite_arg_supported : SupportedProgram supported_conv_composite_arg.
-Proof. reflexivity. Qed.
-(** TIGHTENING (external review 2026-06-29) — the SAME conversion of a FREE identifier `func main(){ _ = []int(x) }`
-    is NOT supported ([ptype (EId "x") = None], so [[]int(x)] is [None]); only [nil] is an admitted operand. *)
-Definition unsupported_conv_composite_freevar : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))].
-Example conv_composite_freevar_unsupported : supported_program unsupported_conv_composite_freevar = false.
-Proof. reflexivity. Qed.
-Fail Example conv_composite_freevar_supported : SupportedProgram unsupported_conv_composite_freevar := eq_refl.
-(** A bare [EConv] statement `func main(){ []int(nil) }` is rejected (not a call) even though the SAME value is
-    a valid blank-assign RHS above — isolating the value-vs-statement shape rule. *)
-Definition unsupported_conv_composite_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))].
-Example conv_composite_stmt_unsupported : supported_program unsupported_conv_composite_stmt = false.
-Proof. reflexivity. Qed.
-Fail Example conv_composite_stmt_supported : SupportedProgram unsupported_conv_composite_stmt := eq_refl.
-(** [println] of a slice/aggregate is NOT supported (implementation-defined printing) — pinned on the valid
-    [[]int(nil)] aggregate, so the ONLY reason for rejection is non-printability. *)
-Definition unsupported_println_aggregate : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl))])].
-Example println_aggregate_unsupported : supported_program unsupported_println_aggregate = false.
-Proof. reflexivity. Qed.
-
-(** POSITIVE (Phase 4, [ESliceLit]) — a slice composite literal is a VALUE, used via [_ = ...]: `func main(){
-    _ = []int{1} }` is supported ([[]int{1}]'s element [1] is an [svalue]).  A bare [ESliceLit] statement
-    `func main(){ []int{1} }` is rejected, and `func main(){ println([]int{1}) }` is rejected (a slice is not
-    [printable_arg_ok]). *)
-Definition supported_slicelit_arg : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (ESliceLit GTInt [EInt 1])].
-Example slicelit_arg_supported : SupportedProgram supported_slicelit_arg.
-Proof. reflexivity. Qed.
-Definition unsupported_slicelit_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ESliceLit GTInt [EInt 1])].
-Example slicelit_stmt_unsupported : supported_program unsupported_slicelit_stmt = false.
-Proof. reflexivity. Qed.
-Fail Example slicelit_stmt_supported : SupportedProgram unsupported_slicelit_stmt := eq_refl.
-Definition unsupported_println_slicelit : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ESliceLit GTInt [EInt 1]])].
-Example println_slicelit_unsupported : supported_program unsupported_println_slicelit = false.
-Proof. reflexivity. Qed.
-
-(** QUARANTINE ([EMapLit]): a map composite literal is REPRESENTABLE and round-trips in GoPrint, but is NOT in
-    the supported subset ([svalue (EMapLit _ _ _) = false]) — Go requires the key TYPE be COMPARABLE
-    (slice/map/func keys forbidden) AND keys/values be assignable to K/V, NEITHER of which is soundly structural
-    here, so admitting it would certify invalid Go.  So NONE of these is supported:
-    a comparable-key `_ = map[int]int{1: 2}`, the NON-comparable-key `_ = map[[]int]int{[]int{1}: 2}` (invalid
-    Go), a map CONVERSION `_ = map[int]int(x)` (same key-type concern), the bare `map[int]int{1: 2}` statement,
-    and `println(map[int]int{1: 2})` (aggregate).  Re-admit once GoSem seals a comparable-key builder +
-    key/value assignability evidence — a clean AST/gate separation, NOT a deferred-to-later admission. *)
-Definition unsupported_maplit_blank : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
-Example maplit_blank_unsupported : supported_program unsupported_maplit_blank = false.
-Proof. reflexivity. Qed.
-Fail Example maplit_blank_supported : SupportedProgram unsupported_maplit_blank := eq_refl.
-Definition unsupported_maplit_noncomparable : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])].
-Example maplit_noncomparable_unsupported : supported_program unsupported_maplit_noncomparable = false.
-Proof. reflexivity. Qed.
-Definition unsupported_mapconv_blank : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))].
-Example mapconv_blank_unsupported : supported_program unsupported_mapconv_blank = false.
-Proof. reflexivity. Qed.
-Definition unsupported_maplit_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
-Example maplit_stmt_unsupported : supported_program unsupported_maplit_stmt = false.
-Proof. reflexivity. Qed.
-Fail Example maplit_stmt_supported : SupportedProgram unsupported_maplit_stmt := eq_refl.
-Definition unsupported_println_maplit : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])].
-Example println_maplit_unsupported : supported_program unsupported_println_maplit = false.
-Proof. reflexivity. Qed.
-
-(** REGRESSION — the [ptype] type-checker rejects CLOSED type-errors that a shape-only [printable_arg_ok] used
-    to leak.  Each of these is a closed program Go rejects on the structure, so the gate must too — all
-    [supported_program = false]: [println(len(1))] (an int is not len-able), [println(bool(1))] (int is not
-    convertible to bool), [println(1 && 2)] (`&&` needs bool operands), [println(!1)] (`!` needs a bool), and
-    [println(int([]int{1}))] (a slice is not convertible to int). *)
-Definition pl_arg (a : GExpr) : Program :=   (* `func main(){ println(<a>) }` *)
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [a])].
-Example bad_println_len1 :
-  supported_program (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EInt 1])) = false.
-Proof. reflexivity. Qed.
-Example bad_println_bool1 :
-  supported_program (pl_arg (ECall (EId (mkIdent "bool" eq_refl)) [EInt 1])) = false.
-Proof. reflexivity. Qed.
-Example bad_println_land :
-  supported_program (pl_arg (EBn BLAnd (EInt 1) (EInt 2))) = false.
-Proof. reflexivity. Qed.
-Example bad_println_not1 :
-  supported_program (pl_arg (EUn UNot (EInt 1))) = false.
-Proof. reflexivity. Qed.
-Example bad_println_int_slice :
-  supported_program (pl_arg (ECall (EId (mkIdent "int" eq_refl)) [ESliceLit GTInt [EInt 1]])) = false.
-Proof. reflexivity. Qed.
-
 (** ============================================================================================
-    REGRESSIONS (Codex stop-review, 2026-06-29) — the REFINED [ptype] rejects CLOSED-invalid Go a fat
-    [PtNum] / single-comparison / shared-len-cap / shape-only-aggregate-conv gate used to certify.  Each is a
-    closed program Go's type checker rejects, so the gate must too ([supported_program = false]).
+    REGRESSIONS — grouped boolean fixtures.  INVARIANT: [ptype]/[svalue] is a CONSERVATIVE supported-subset
+    CLASSIFIER, not Go's typechecker; add NO new rule unless it rejects a real accepted-bad program or admits a
+    needed demo.  Coverage is pinned by [forallb] over two lists — [bad_programs] (each [supported_program] is
+    [false]) and [good_programs] (each [true]) — plus a small set of [Fail … := eq_refl] forge-attempts proving
+    the CERTIFICATE itself cannot be inhabited for a rejected program.  The helpers below build the fixtures.
     ============================================================================================ *)
-Definition gs_blank (a : GExpr) : Program :=   (* `func main(){ _ = <a> }` — value position via a blank assign *)
+
+(** Program / expression builders shared by the lists (KEEP — they make the fixtures readable).  [pl_arg a] is
+    `func main(){ println(<a>) }` (a value in a print arg); [gs_blank a] is `func main(){ _ = <a> }` (a value
+    via a blank assign); the [gs_*] wrap a scalar conversion. *)
+Definition pl_arg (a : GExpr) : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [a])].
+Definition gs_blank (a : GExpr) : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsBlankAssign a].
 Definition gs_f64 (a : GExpr) : GExpr := ECall (EId (mkIdent "float64" eq_refl)) [a].
 Definition gs_i64 (a : GExpr) : GExpr := ECall (EId (mkIdent "int64" eq_refl)) [a].
 Definition gs_i32 (a : GExpr) : GExpr := ECall (EId (mkIdent "int32" eq_refl)) [a].
 Definition gs_str (a : GExpr) : GExpr := ECall (EId (mkIdent "string" eq_refl)) [a].
-
-(** FINDING 1 — numeric category split.  Float modulo / float shift+bitwise (a FLOAT operand is rejected for
-    [%] / [<<] / [&]); constant overflow at a fixed-width conversion ([uint8(300)], [int8(128)]) and at a
-    slice-literal element ([[]uint8{300}]); mixed fixed-width arithmetic ([int64(3) + int32(2)]). *)
-Example bad_float_mod : supported_program (pl_arg (EBn BRem (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))) = false.
-Proof. reflexivity. Qed.
-Example bad_float_shl : supported_program (pl_arg (EBn BShl (gs_f64 (EInt 1)) (EInt 2))) = false.
-Proof. reflexivity. Qed.
-Example bad_float_and : supported_program (pl_arg (EBn BAnd (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))) = false.
-Proof. reflexivity. Qed.
-Example bad_float_compl : supported_program (pl_arg (EUn UXor (gs_f64 (EInt 1)))) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_overflow : supported_program (pl_arg (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 300])) = false.
-Proof. reflexivity. Qed.
-Example bad_int8_overflow : supported_program (pl_arg (ECall (EId (mkIdent "int8" eq_refl)) [EInt 128])) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_slicelit : supported_program (gs_blank (ESliceLit GTU8 [EInt 300])) = false.
-Proof. reflexivity. Qed.
-Example bad_mixed_width : supported_program (pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i32 (EInt 2)))) = false.
-Proof. reflexivity. Qed.
-Example bad_int_slicelit_typed : supported_program (gs_blank (ESliceLit GTInt [gs_i64 (EInt 1)])) = false.
-Proof. reflexivity. Qed.
-Fail Example bad_uint8_overflow_forge : SupportedProgram (pl_arg (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 300])) := eq_refl.
-
-(** FINDING 1 (adversarial) — CONSTANT division / modulo / shift by ZERO is a compile error in Go, INCLUDING
-    a zero FOLDED from a constant subexpression ([1 / (1 - 1)]).  [ptype] folds constants, so it catches all.
-    A NEGATIVE constant shift count is rejected (shown over a VALID constant left operand, so the rejection is
-    attributable to the count, not the operand). *)
-Example bad_div_zero : supported_program (pl_arg (EBn BDiv (EInt 1) (EInt 0))) = false.
-Proof. reflexivity. Qed.
-Example bad_div_zero_folded : supported_program (pl_arg (EBn BDiv (EInt 1) (EBn BSub (EInt 1) (EInt 1)))) = false.
-Proof. reflexivity. Qed.
-Example bad_mod_zero : supported_program (pl_arg (EBn BRem (EInt 1) (EInt 0))) = false.
-Proof. reflexivity. Qed.
-Example bad_neg_shift : supported_program (pl_arg (EBn BShl (EInt 1) (EInt (-1)))) = false.
-Proof. reflexivity. Qed.
-
-(** FINDING 2 — comparison split by operator.  Equality needs COMPARABLE operands (slice equality rejected;
-    cross-kind [1 == (2==2)] rejected); ordering needs ORDERED operands (bool ordering [(1==1) < (2==2)] and
-    slice ordering rejected). *)
-Example bad_slice_eq :
-  supported_program (pl_arg (EBn BEq (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))) = false.
-Proof. reflexivity. Qed.
-Example bad_slice_ord :
-  supported_program (pl_arg (EBn BLt (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))) = false.
-Proof. reflexivity. Qed.
-Example bad_bool_ord :
-  supported_program (pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))) = false.
-Proof. reflexivity. Qed.
-Example bad_eq_crosskind :
-  supported_program (pl_arg (EBn BEq (EInt 1) (EBn BEq (EInt 2) (EInt 2)))) = false.
-Proof. reflexivity. Qed.
-Fail Example bad_bool_ord_forge :
-  SupportedProgram (pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))) := eq_refl.
-
-(** FINDING 3 — [len]/[cap] separated.  [cap] of a STRING is rejected (the rune-const [cap(string(65))] and the
-    string-literal [cap("hi")]); [len] of a string stays OK ([len("hi")]). *)
-Example bad_cap_string_lit : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str (EInt 65)])) = false.
-Proof. reflexivity. Qed.
-Example bad_cap_string : supported_program (gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EStr "hi"])) = false.
-Proof. reflexivity. Qed.
-Example ok_len_string : SupportedProgram (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"])).
-Proof. reflexivity. Qed.
-
-(** FINDING 4 — aggregate conversion soundness.  A slice->chan conversion of a KNOWN slice ([chan int([]int{1})])
-    and a mismatched slice conversion of a KNOWN slice ([[]int([]string{})]) are rejected; only the predeclared
-    [nil] operand ([[]int(nil)]) is admitted (pinned below by [conv_composite_arg_supported]). *)
-Example bad_chan_of_slice : supported_program (gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))) = false.
-Proof. reflexivity. Qed.
-Example bad_slice_conv_mismatch : supported_program (gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))) = false.
-Proof. reflexivity. Qed.
-Fail Example bad_chan_of_slice_forge : SupportedProgram (gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))) := eq_refl.
-
-(** POSITIVES — the refined gate still admits the well-typed forms (a smaller-but-SOUND subset, not empty):
-    in-range conversions, FOLDED constant arithmetic/shift, an untyped const into a float element, same-width
-    typed arithmetic. *)
-Example ok_int8_inrange : SupportedProgram (pl_arg (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127])).
-Proof. reflexivity. Qed.
-Example ok_const_mod : SupportedProgram (pl_arg (EBn BRem (EInt 5) (EInt 2))).
-Proof. reflexivity. Qed.
-Example ok_const_shift : SupportedProgram (pl_arg (EBn BShl (EInt 1) (EInt 4))).
-Proof. reflexivity. Qed.
-Example ok_float_slicelit : SupportedProgram (gs_blank (ESliceLit GTFloat64 [EInt 1])).
-Proof. reflexivity. Qed.
-Example ok_same_width_add : SupportedProgram (pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i64 (EInt 2)))).
-Proof. reflexivity. Qed.
-
-(** ============================================================================================
-    REGRESSIONS (Codex stop-review, 2026-06-29 #2) — CONSTANTNESS now SURVIVES conversions/binops, so the
-    TRANSITIVE constant rules (a conversion of a constant is itself a typed CONSTANT) are enforced.  The prior
-    [conv_to_scalar] ERASED the value ([PtIntConst z] -> [PtInt t]), so these CLOSED compile errors sailed
-    through.  Each is a closed program Go's type checker rejects ([supported_program = false]).
-    ============================================================================================ *)
 Definition gs_int (a : GExpr) : GExpr := ECall (EId (mkIdent "int" eq_refl)) [a].
 Definition gs_u8  (a : GExpr) : GExpr := ECall (EId (mkIdent "uint8" eq_refl)) [a].
 Definition gs_i8  (a : GExpr) : GExpr := ECall (EId (mkIdent "int8" eq_refl)) [a].
 
-(** THE 5 NAMED — a typed-constant divisor zero ([int(0)]), modulo zero, a typed-constant negative shift count
-    ([int(-1)]), and an out-of-range CONSTANT conversion that hops through int / float ([uint8(int(300))],
-    [uint8(float64(300))]).  All [false]; two locked by a [Fail … := eq_refl] forge-attempt. *)
-Example bad_div_int0   : supported_program (pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))) = false.
-Proof. reflexivity. Qed.
-Example bad_mod_int0   : supported_program (pl_arg (EBn BRem (EInt 1) (gs_int (EInt 0)))) = false.
-Proof. reflexivity. Qed.
-Example bad_shl_intneg : supported_program (pl_arg (EBn BShl (EInt 1) (gs_int (EInt (-1))))) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_of_int300 : supported_program (pl_arg (gs_u8 (gs_int (EInt 300)))) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_of_float300 : supported_program (pl_arg (gs_u8 (gs_f64 (EInt 300)))) = false.
-Proof. reflexivity. Qed.
-Fail Example bad_div_int0_forge : SupportedProgram (pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))) := eq_refl.
-Fail Example bad_uint8_of_int300_forge : SupportedProgram (pl_arg (gs_u8 (gs_int (EInt 300)))) := eq_refl.
+(** The bare-value statement `func main(){ 1 }` — NAMED because GoEmit's certificate-forge test references it
+    ([Fail Definition … := mkEmittable unsupported_value_stmt eq_refl], proving no [EmittableProgram] exists
+    for an unsupported program).  It is also the first [bad_programs] / [forge_value_stmt] fixture below. *)
+Definition unsupported_value_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EInt 1)].
 
-(** ADVERSARIAL transitivity / overflow / boundary — a typed-constant ARITHMETIC RESULT that overflows its
-    type ([int8(100)+int8(100)] = 200), a DOUBLE conversion ([uint8(int(int(300)))]), a constant zero divisor
-    FOLDED from typed-const subexpressions ([1/(int(1)-int(1))]), an UNTYPED constant whose default-[int] value
-    OVERFLOWS the 32-bit boundary ([println(<2^40>)]), and a typed-constant slice element of the WRONG type /
-    out of range ([[]uint8{int(300)}]).  All [false]. *)
-Example bad_int8_add_overflow : supported_program (pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 100)))) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_of_int_int300 : supported_program (pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))) = false.
-Proof. reflexivity. Qed.
-Example bad_div_folded_typed_zero :
-  supported_program (pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))) = false.
-Proof. reflexivity. Qed.
-Example bad_println_default_int_overflow :
-  supported_program (pl_arg (EInt 1099511627776)) = false.   (* 2^40, does not fit 32-bit int *)
-Proof. reflexivity. Qed.
-Example bad_blank_default_int_overflow :
-  supported_program (gs_blank (EInt 1099511627776)) = false.
-Proof. reflexivity. Qed.
-Example bad_uint8_slicelit_typed : supported_program (gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])) = false.
-Proof. reflexivity. Qed.
+(** REJECTED — every entry is invalid Go the gate must refuse ([supported_program = false]): statement-shape
+    errors (bare value / call-of-non-callable / assertion- or conversion- or aggregate-as-statement / value
+    return in void [main] / [len] in statement context / [panic] arity), value-position errors (void call,
+    conversion arity), the [ptype] CLOSED type-errors ([len]/[bool]/[&&]/[!]/int-of-slice; the FINDING 1-4
+    numeric category / overflow / zero-divisor / shift / comparison / [cap]-of-string / aggregate-conversion
+    cases; the transitive typed-constant rules; float-rounding + platform-[uint] complement), the [EMapLit]
+    quarantine (comparable-key not soundly structural), and FREE-identifier use (no declarations in the model). *)
+Definition bad_programs : list Program :=
+  [ (* statement shape *)
+    unsupported_value_stmt                                               (* bare value statement *)
+  ; mkProgram (mkIdent "lib" eq_refl) [GsReturn]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EInt 1) nil)]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EAssert (EId (mkIdent "x" eq_refl)) GTInt) nil)]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "int" eq_refl)) [EId (mkIdent "x" eq_refl)])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ESliceLit GTInt [EInt 1])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EMapLit GTInt GTInt [(EInt 1, EInt 2)])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) nil)]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1; EInt 2])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")]
+  ; mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)]
+    (* value position / arg errors *)
+  ; pl_arg (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])            (* void call used as value *)
+  ; pl_arg (ECall (EId (mkIdent "int" eq_refl)) [EInt 1; EInt 2])        (* conversion arity *)
+  ; pl_arg (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))         (* println of an aggregate *)
+  ; pl_arg (ESliceLit GTInt [EInt 1])                                    (* println of a slice literal *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]; ESliceLit GTInt [EInt 1]])  (* len arity *)
+  ; gs_blank (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])          (* _ = void call *)
+    (* ptype closed type-errors *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EInt 1])
+  ; pl_arg (ECall (EId (mkIdent "bool" eq_refl)) [EInt 1])
+  ; pl_arg (EBn BLAnd (EInt 1) (EInt 2))
+  ; pl_arg (EUn UNot (EInt 1))
+  ; pl_arg (gs_int (ESliceLit GTInt [EInt 1]))
+    (* FINDING 1 — numeric category / overflow / zero-divisor / shift *)
+  ; pl_arg (EBn BRem (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))
+  ; pl_arg (EBn BShl (gs_f64 (EInt 1)) (EInt 2))
+  ; pl_arg (EBn BAnd (gs_f64 (EInt 1)) (gs_f64 (EInt 2)))
+  ; pl_arg (EUn UXor (gs_f64 (EInt 1)))
+  ; pl_arg (gs_u8 (EInt 300))
+  ; pl_arg (gs_i8 (EInt 128))
+  ; gs_blank (ESliceLit GTU8 [EInt 300])
+  ; pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i32 (EInt 2)))
+  ; gs_blank (ESliceLit GTInt [gs_i64 (EInt 1)])
+  ; pl_arg (EBn BDiv (EInt 1) (EInt 0))
+  ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (EInt 1) (EInt 1)))
+  ; pl_arg (EBn BRem (EInt 1) (EInt 0))
+  ; pl_arg (EBn BShl (EInt 1) (EInt (-1)))
+    (* FINDING 2 — comparison split (== needs comparable, < needs ordered) *)
+  ; pl_arg (EBn BEq (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))
+  ; pl_arg (EBn BLt (ESliceLit GTInt [EInt 1]) (ESliceLit GTInt [EInt 1]))
+  ; pl_arg (EBn BLt (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)))
+  ; pl_arg (EBn BEq (EInt 1) (EBn BEq (EInt 2) (EInt 2)))
+    (* FINDING 3 — cap of a string *)
+  ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [gs_str (EInt 65)])
+  ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EStr "hi"])
+    (* FINDING 4 — aggregate conversion soundness *)
+  ; gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))
+  ; gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))
+    (* transitive typed-constant rules (constantness survives conversions/binops) *)
+  ; pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))
+  ; pl_arg (EBn BRem (EInt 1) (gs_int (EInt 0)))
+  ; pl_arg (EBn BShl (EInt 1) (gs_int (EInt (-1))))
+  ; pl_arg (gs_u8 (gs_int (EInt 300)))
+  ; pl_arg (gs_u8 (gs_f64 (EInt 300)))
+  ; pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 100)))
+  ; pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))
+  ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))
+  ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
+  ; gs_blank (EInt 1099511627776)
+  ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
+    (* float-constant rounding + platform-uint complement (the rep must not lie) *)
+  ; pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))                  (* int64(float64(maxint64)) rounds up *)
+  ; pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))
+  ; gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))     (* x / float64(0) — const-zero divisor *)
+  ; pl_arg (ECall (EId (mkIdent "uint32" eq_refl)) [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])
+    (* EMapLit quarantine — comparable-key/assignability not soundly structural *)
+  ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2)])
+  ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])
+  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))
+  ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])
+    (* free-identifier use — undefined in the no-declaration model *)
+  ; gs_blank (EId (mkIdent "x" eq_refl))
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)])
+  ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EId (mkIdent "x" eq_refl)])
+  ; gs_blank (EConv (CTSlice GTInt) (EId (mkIdent "x" eq_refl)))
+  ; pl_arg (gs_int (EId (mkIdent "x" eq_refl)))
+  ].
+Example bad_programs_rejected :
+  forallb (fun p => negb (supported_program p)) bad_programs = true.
+Proof. vm_compute. reflexivity. Qed.
 
-(** POSITIVES — the constant-aware gate still admits the SOUND forms, and tracks float→int constant conversions
-    EXACTLY: an in-range constant hopping through float is ACCEPTED ([uint8(float64(255))] — value 255 is in
-    [uint8] range, so this is VALID Go and we certify it), folded typed-const arithmetic in range
-    ([int8(100)+int8(20)] = 120), and a value at the 32-bit default-[int] boundary ([println(2147483647)]). *)
-Example ok_uint8_of_float255 : SupportedProgram (pl_arg (gs_u8 (gs_f64 (EInt 255)))).
-Proof. reflexivity. Qed.
-Example ok_int8_add_inrange : SupportedProgram (pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 20)))).
-Proof. reflexivity. Qed.
-Example ok_println_int_max : SupportedProgram (pl_arg (EInt 2147483647)).
-Proof. reflexivity. Qed.
+(** ACCEPTED — the smaller-but-SOUND subset the gate still admits ([supported_program = true]): a conversion of
+    a constant in value position, value-position aggregates / [len] / [cap], in-range / folded constants and
+    same-width typed arithmetic, [panic]/bare-return/blank-assign/string literals, and the EXACT float→int
+    constant tracking ([uint8(float64(255))] is in range) + fixed-width complement. *)
+Definition good_programs : list Program :=
+  [ pl_arg (gs_i64 (EInt 3))                                             (* println(int64(3)) *)
+  ; gs_blank (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))       (* _ = []int(nil) *)
+  ; gs_blank (ESliceLit GTInt [EInt 1])                                  (* _ = []int{1} *)
+  ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1])]
+  ; mkProgram (mkIdent "main" eq_refl) [GsReturn]
+  ; gs_blank (EInt 1)                                                    (* _ = 1 *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])
+  ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [ESliceLit GTInt [EInt 1]])
+  ; pl_arg (EStr "hi")                                                   (* println("hi") *)
+  ; gs_blank (EStr "x")                                                  (* _ = "x" *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"])             (* len of a string is OK *)
+  ; pl_arg (gs_i8 (EInt 127))                                            (* int8(127) in range *)
+  ; pl_arg (EBn BRem (EInt 5) (EInt 2))
+  ; pl_arg (EBn BShl (EInt 1) (EInt 4))
+  ; gs_blank (ESliceLit GTFloat64 [EInt 1])                             (* untyped const into a float element *)
+  ; pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i64 (EInt 2)))               (* same-width add *)
+  ; pl_arg (gs_u8 (gs_f64 (EInt 255)))                                  (* uint8(float64(255)) — exact, in range *)
+  ; pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 20)))              (* folded typed-const, in range *)
+  ; pl_arg (EInt 2147483647)                                            (* 32-bit default-int boundary *)
+  ; pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))  (* uint8(^uint8(0)) fixed width *)
+  ].
+Example good_programs_supported : forallb supported_program good_programs = true.
+Proof. vm_compute. reflexivity. Qed.
 
-(** ============================================================================================
-    REGRESSION — FLOAT-CONSTANT ROUNDING + PLATFORM-WIDTH COMPLEMENT (the constant rep must not LIE).
-    (1) A float CONSTANT [float64(n)] is tracked as exact ONLY within the CONTIGUOUS exact interval [|n| <= 2^53]
-    (float32: 2^24) — a CONSERVATIVE SUFFICIENT test, NOT the full set of exactly-representable integers (e.g.
-    [2^60] is an exact [float64] but lies outside the interval).  An OUTSIDE-interval integer MAY be exact OR
-    rounded; the gate does not model that sparse relation, so it conservatively REJECTS the const->float
-    conversion for ANY outside-interval constant.  One rejected case is a ROUNDED overflow,
-    [int64(float64(9223372036854775807))]: the float64 rounds maxint64 UP to 2^63, which overflows [int64]
-    (likewise [int32(float32(maxint32))]).  (2) A typed FLOAT-constant ZERO
-    [float64(0)] is a constant-zero divisor (Go rejects constant float division by zero), so [_ = x / float64(0)]
-    is REJECTED (the divisor is a constant-zero — and the free dividend [x] is itself rejected in the
-    no-declaration model).  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
-    to one width is unsound: [uint32(^uint(0))] is in range on 32-bit Go but NOT 64-bit — the gate REJECTS
-    platform-`uint` complement.  All [false].  PRESERVED positives: [uint8(float64(255))] (255 is EXACT and in
-    range) and the FIXED-WIDTH [uint8(^uint8(0))] (= 255, width is fixed → exact). *)
-Example bad_i64_of_f64max :
-  supported_program (pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))) = false.
-Proof. reflexivity. Qed.
-Example bad_i32_of_f32max :
-  supported_program (pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))) = false.
-Proof. reflexivity. Qed.
-Example bad_div_float_zero :
-  supported_program (gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))) = false.
-Proof. reflexivity. Qed.
-Example bad_uint32_of_compl_uint :
-  supported_program (pl_arg (ECall (EId (mkIdent "uint32" eq_refl))
-                                   [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])) = false.
-Proof. reflexivity. Qed.
-Fail Example bad_i64_of_f64max_forge :
-  SupportedProgram (pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))) := eq_refl.
-Fail Example bad_uint32_of_compl_uint_forge :
-  SupportedProgram (pl_arg (ECall (EId (mkIdent "uint32" eq_refl))
-                                  [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])) := eq_refl.
-Example ok_uint8_of_float255_exact : SupportedProgram (pl_arg (gs_u8 (gs_f64 (EInt 255)))).
-Proof. reflexivity. Qed.
-Example ok_uint8_compl_uint8 :
-  SupportedProgram (pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))).
-Proof. reflexivity. Qed.
+(** EXPRESSION-LEVEL direct pins — predicates not surfaced through the program lists: the [EStr] literal is a
+    printable scalar / value, and the unsound platform-[uint] complement is sealed INSIDE [complement_const]
+    (returns [None]) while fixed-width unsigned ([uint8]) / signed ([int]) still fold exactly. *)
+Example str_printable : printable_arg_ok (EStr "hi") = true.  Proof. reflexivity. Qed.
+Example str_svalue    : svalue (EStr "x") = true.            Proof. reflexivity. Qed.
+Example complement_const_uint_none  : complement_const GTUint 0 = None.        Proof. reflexivity. Qed.
+Example complement_const_u8_exact   : complement_const GTU8 0 = Some 255%Z.    Proof. reflexivity. Qed.
+Example complement_const_int_signed : complement_const GTInt 0 = Some (-1)%Z.  Proof. reflexivity. Qed.
 
-(** HELPER-LEVEL regression — the unsound platform-[uint] complement is sealed INSIDE [complement_const]
-    (returns [None]), so it cannot be produced regardless of caller; fixed-width unsigned ([uint8]) and signed
-    ([int]) still fold exactly. *)
-Example complement_const_uint_none : complement_const GTUint 0 = None.
-Proof. reflexivity. Qed.
-Example complement_const_u8_exact : complement_const GTU8 0 = Some 255%Z.
-Proof. reflexivity. Qed.
-Example complement_const_int_signed : complement_const GTInt 0 = Some (-1)%Z.
-Proof. reflexivity. Qed.
-
-(** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
-    println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:
-    "println(1) (no value) used as value").  [svalue] admits an application only as a CONVERSION ([EId] of a
-    builtin type, one arg) — [println] is not a type — so the inner [println(1)] is NOT a valid value and the
-    whole program is NOT supported.  (Pins that value position is conversion-only, not any call.) *)
-Definition unsupported_void_call_arg : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "println" eq_refl)) [EInt 1]])].
-Example void_call_arg_unsupported : supported_program unsupported_void_call_arg = false.
-Proof. reflexivity. Qed.
-Fail Example void_call_arg_supported : SupportedProgram unsupported_void_call_arg := eq_refl.
-
-(** REGRESSION (external review 2026-06-28, follow-up⁵) — CONVERSION ARITY: `func main(){ println(int(1, 2)) }`
-    is invalid Go ("too many arguments to conversion to int").  [svalue]'s conversion case matches EXACTLY one
-    arg ([a :: nil]), so the 2-arg [int(1, 2)] is NOT a valid value and the program is NOT supported.  Pins the
-    arity bound that distinguishes this from the supported 1-arg [println(int(x))] above (and likewise rejects
-    the 0-arg [int()]). *)
-Definition unsupported_conv_arity : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int" eq_refl)) [EInt 1; EInt 2]])].
-Example conv_arity_unsupported : supported_program unsupported_conv_arity = false.
-Proof. reflexivity. Qed.
-Fail Example conv_arity_supported : SupportedProgram unsupported_conv_arity := eq_refl.
-
-(** GROWTH (Phase 4) — [panic] joins the supported statement builtins.  [panic] takes EXACTLY ONE arg of ANY
-    type, so `func main(){ panic(1) }` is a valid statement and IS supported; the arity violations [panic()]
-    and [panic(1, 2)] are NOT (this is how a new builtin re-enters: with its arity checked).  Pins all three. *)
-Definition supported_panic : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1])].
-Example panic_supported : SupportedProgram supported_panic.
-Proof. reflexivity. Qed.
-Definition unsupported_panic_nullary : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) nil)].
-Example panic_nullary_unsupported : supported_program unsupported_panic_nullary = false.
-Proof. reflexivity. Qed.
-Fail Example panic_nullary_supported : SupportedProgram unsupported_panic_nullary := eq_refl.
-Definition unsupported_panic_binary : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1; EInt 2])].
-Example panic_binary_unsupported : supported_program unsupported_panic_binary = false.
-Proof. reflexivity. Qed.
-
-(** REGRESSION (Phase 4, [GsReturnVal]) — a VALUE return in the void [main], `func main(){ return 1 }`, is
-    invalid Go ("too many return values"), so [stmt_ok] rejects [GsReturnVal] and the program is NOT supported
-    (whereas the bare `func main(){ return }` IS — pinned by [supported_bare_return]).  This demonstrates the
-    AST/gate separation: the AST CAN represent `return e`, the printer round-trips it, but the supportedness
-    gate refuses it because the only function emitted is void.  Becomes supported once non-void functions land. *)
-Definition unsupported_return_value : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)].
-Example return_value_unsupported : supported_program unsupported_return_value = false.
-Proof. reflexivity. Qed.
-Fail Example return_value_supported : SupportedProgram unsupported_return_value := eq_refl.
-Definition supported_bare_return : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsReturn].
-Example bare_return_supported : SupportedProgram supported_bare_return.
-Proof. reflexivity. Qed.
-
-(** GROWTH (Phase 4, [GsBlankAssign]) — the blank assignment `func main(){ _ = 1 }` is a valid statement
-    (discards the value [1]) and IS supported — the FIRST supported statement that is neither a call nor a
-    return.  Its operand must PRODUCE a value ([svalue]): `func main(){ _ = println(1) }` is invalid Go
-    ("println(1) (no value) used as value"), and [svalue (println 1) = false] (only a CONVERSION is a value
-    application), so it is NOT supported.  Pins both. *)
-Definition supported_blank_assign : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EInt 1)].
-Example blank_assign_supported : SupportedProgram supported_blank_assign.
-Proof. reflexivity. Qed.
-Definition unsupported_blank_void : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])].
-Example blank_void_unsupported : supported_program unsupported_blank_void = false.
-Proof. reflexivity. Qed.
-Fail Example blank_void_supported : SupportedProgram unsupported_blank_void := eq_refl.
-
-(** GROWTH (Phase 4, value-returning builtins [len]/[cap]) — the Go-spec value-vs-statement asymmetry.  A
-    value-returning builtin is fine in VALUE position: `func main(){ println(len([]int{1})) }` is supported
-    ([len([]int{1})] is an [svalue]); and `func main(){ _ = cap([]int{1}) }` likewise.  But it is FORBIDDEN in
-    STATEMENT position ("len … not permitted in statement context"): `func main(){ len([]int{1}) }` is NOT
-    supported ([stmt_call_ok] excludes [len]).  Arity is pinned: `func main(){ println(len([]int{1}, []int{1})) }`
-    is NOT supported (len takes one arg, so the 2-arg form is not an [svalue]).  Pins all four.  (The operand is
-    an aggregate, not a free ident, so each pin isolates its real reason — the free-ident [len(x)]/[cap(x)] are
-    rejected separately below.) *)
-Definition supported_len_value : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])].
-Example len_value_supported : SupportedProgram supported_len_value.
-Proof. reflexivity. Qed.
-Definition supported_cap_blank : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [ESliceLit GTInt [EInt 1]])].
-Example cap_blank_supported : SupportedProgram supported_cap_blank.
-Proof. reflexivity. Qed.
-Definition unsupported_len_stmt : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])].
-Example len_stmt_unsupported : supported_program unsupported_len_stmt = false.
-Proof. reflexivity. Qed.
-Fail Example len_stmt_supported : SupportedProgram unsupported_len_stmt := eq_refl.
-Definition unsupported_len_arity : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "len" eq_refl))
-                                      [ESliceLit GTInt [EInt 1]; ESliceLit GTInt [EInt 1]]])].
-Example len_arity_unsupported : supported_program unsupported_len_arity = false.
-Proof. reflexivity. Qed.
-
-(** ============================================================================================
-    TIGHTENING (external review 2026-06-29) — FREE-IDENTIFIER REJECTION.  The no-declaration Program model has
-    no variable bindings, so a FREE identifier is UNDEFINED and the emitted Go would not compile.  [ptype
-    (EId i)] now returns a category ONLY for the predeclared value-ident [nil]; every other identifier is
-    [None].  So each of these — a bare `_ = x`, a [len]/[cap] of a free ident, a [panic] of a free ident — is
-    NOT supported, where the pre-tightening gate WRONGLY certified them.  (The supported aggregate forms above
-    pin that [len]/[cap] themselves stay admitted — only the FREE OPERAND is the defect.)  All [false]; the
-    forge-attempts lock them. *)
-Definition unsupported_free_blank : Program :=   (* `func main(){ _ = x }` — use of an undefined identifier *)
-  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EId (mkIdent "x" eq_refl))].
-Example free_blank_unsupported : supported_program unsupported_free_blank = false.
-Proof. reflexivity. Qed.
-Fail Example free_blank_supported : SupportedProgram unsupported_free_blank := eq_refl.
-Definition unsupported_free_len : Program :=   (* `func main(){ println(len(x)) }` *)
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)]])].
-Example free_len_unsupported : supported_program unsupported_free_len = false.
-Proof. reflexivity. Qed.
-Fail Example free_len_supported : SupportedProgram unsupported_free_len := eq_refl.
-Definition unsupported_free_cap : Program :=   (* `func main(){ _ = cap(x) }` *)
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (ECall (EId (mkIdent "cap" eq_refl)) [EId (mkIdent "x" eq_refl)])].
-Example free_cap_unsupported : supported_program unsupported_free_cap = false.
-Proof. reflexivity. Qed.
-Fail Example free_cap_supported : SupportedProgram unsupported_free_cap := eq_refl.
-Definition unsupported_free_panic : Program :=   (* `func main(){ panic(x) }` *)
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])].
-Example free_panic_unsupported : supported_program unsupported_free_panic = false.
-Proof. reflexivity. Qed.
-Fail Example free_panic_supported : SupportedProgram unsupported_free_panic := eq_refl.
-
-(** GROWTH (Phase 4, [EStr]) — the string-literal expression joins the supported subset.  [ptype (EStr _) =
-    Some PtStr] (the printable SCALAR string category), so a string literal is a valid [svalue] AND a valid
-    [printable_arg_ok] argument: `func main(){ println("hi") }` IS supported (the FIRST [println] of a literal
-    payload — strings previously existed only as a TYPE and as conversions), and `func main(){ _ = "x" }` IS
-    supported (a string is a value).  A BARE string statement `func main(){ "x" }` is NOT supported
-    ([expr_stmt_ok] admits only a call [ECall (EId _) _], and a string literal is not call-shaped), pinning
-    the value-vs-statement asymmetry.  An empty string and one needing escapes round-trip too (GoPrint). *)
-Definition supported_println_str : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"])].
-Example println_str_supported : SupportedProgram supported_println_str.
-Proof. reflexivity. Qed.
-Definition supported_blank_str : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EStr "x")].
-Example blank_str_supported : SupportedProgram supported_blank_str.
-Proof. reflexivity. Qed.
-(** the printable / value classification of a string literal, pinned directly. *)
-Example str_printable : printable_arg_ok (EStr "hi") = true.
-Proof. reflexivity. Qed.
-Example str_svalue : svalue (EStr "x") = true.
-Proof. reflexivity. Qed.
-(** a BARE string-literal expression statement is NOT a call, so NOT supported. *)
-Definition unsupported_bare_str : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")].
-Example bare_str_unsupported : supported_program unsupported_bare_str = false.
-Proof. reflexivity. Qed.
-Fail Example bare_str_supported : SupportedProgram unsupported_bare_str := eq_refl.
-(** ANTI-REGRESSION — a non-printable AGGREGATE arg to [println] is STILL rejected ([[]int{1}] is not a
-    printable scalar), confirming the [EStr] addition did not loosen [printable_arg_ok] for non-scalars. *)
-Example println_slicelit_still_unsupported :
-  supported_program (pl_arg (ESliceLit GTInt [EInt 1])) = false.
-Proof. reflexivity. Qed.
+(** FORGE-RESISTANCE — [eq_refl] cannot inhabit [SupportedProgram <bad>] (= [false = true]); a representative
+    sample (bare value statement · non-main package · free identifier · constant overflow) locks that NO
+    certificate exists for a rejected program.  (The boolean lists above pin every rejection; these prove the
+    certificate is unforgeable.  Note: [Fail Lemma … . Proof. … Qed.] would NOT work — [Fail] guards only the
+    goal-opening vernac, which always succeeds; the [:= eq_refl] term form is what must fail to typecheck.) *)
+Fail Example forge_value_stmt :
+  SupportedProgram unsupported_value_stmt := eq_refl.
+Fail Example forge_nonmain_pkg :
+  SupportedProgram (mkProgram (mkIdent "lib" eq_refl) [GsReturn]) := eq_refl.
+Fail Example forge_free_blank :
+  SupportedProgram (gs_blank (EId (mkIdent "x" eq_refl))) := eq_refl.
+Fail Example forge_uint8_overflow :
+  SupportedProgram (pl_arg (gs_u8 (EInt 300))) := eq_refl.
 
 (** ===================================================================================================
     ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
@@ -680,4 +291,4 @@ Proof. reflexivity. Qed.
 (** GATE — GoSafe is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
     the GoAst/GoPrint printer gate). *)
 Print Assumptions SupportedProgram.
-Print Assumptions value_stmt_unsupported.
+Print Assumptions bad_programs_rejected.
