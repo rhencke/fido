@@ -200,12 +200,14 @@ fi
 echo "fido: identifier-boundary guard OK — self-test passed; active guidance free of the banned stale spellings ✓"
 
 # ---- GOSEM-LAYERING GATE (Codex stop-review 2026-06-29): core GoSem.v sits BELOW GoSafe/GoEmit in the spine
-# (GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit), so it must import ONLY GoAst + the semantic substrate it
-# bridges (cmd/builtins) — NEVER the UPPER emission layers (GoPrint/GoSafe/GoEmit), which would invert the
-# dependency.  (The behavioral theorem over GoEmit.demo_prog lives DOWNSTREAM in GoSemDemo.v instead.)  The
-# pattern matches an actual `Require` VERNAC line — anchored to line start, with an optional `From <lib>` prefix
-# — so a prose mention of the spine (e.g. "GoAst -> GoPrint -> ... -> GoEmit") or of GoSemDemo in a COMMENT does
-# NOT trip it (no `Require` keyword on those lines).  Self-tested below before scanning GoSem.v.
+# (GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit), so it must import ONLY GoAst + the SHARED type-category
+# module GoTypes (which is BELOW GoSem — it imports only GoAst) + the semantic substrate it bridges
+# (cmd/builtins) — NEVER the UPPER emission layers (GoPrint/GoSafe/GoEmit), which would invert the dependency.
+# (GoTypes is explicitly PERMITTED: it is the lower module GoSafe and GoSem both reuse for [ptype]/[svalue], so
+# it does NOT appear in the banned set below.  The behavioral theorem over GoEmit.demo_prog lives DOWNSTREAM in
+# GoSemDemo.v instead.)  The pattern matches an actual `Require` VERNAC line — anchored to line start, with an
+# optional `From <lib>` prefix — so a prose mention of the spine (e.g. "GoAst -> GoPrint -> ... -> GoEmit") or of
+# GoSemDemo in a COMMENT does NOT trip it (no `Require` keyword on those lines).  Self-tested below before scanning GoSem.v.
 #   ⚠️ Like the gates above this is a discipline tripwire over the source, not a type-level seal; it catches the
 #   accidental/obvious re-import, not an aliased side-door.
 gosem_layer_pat='^[[:space:]]*(From[[:space:]]+[A-Za-z_.]+[[:space:]]+)?Require[[:space:]].*\b(GoPrint|GoSafe|GoEmit)\b'
@@ -215,7 +217,7 @@ gosem_scan() { grep -qE "$gosem_layer_pat"; }
 for bad in 'From Fido Require Import builtins cmd GoAst GoPrint.' 'Require Import GoEmit.' 'From Fido Require Import GoSafe.'; do
   printf '%s\n' "$bad" | gosem_scan || { echo "fido: GOSEM-LAYERING GATE self-test BUG — failed to catch [$bad]"; exit 1; }
 done
-for ok in 'From Fido Require Import builtins cmd GoAst.' '    spine GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit (charter).' '(* the theorem over GoEmit.demo_prog lives in GoSemDemo.v *)'; do
+for ok in 'From Fido Require Import builtins cmd GoAst GoTypes.' '    spine GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit (charter).' '(* the theorem over GoEmit.demo_prog lives in GoSemDemo.v *)'; do
   if printf '%s\n' "$ok" | gosem_scan; then echo "fido: GOSEM-LAYERING GATE self-test BUG — wrongly caught [$ok]"; exit 1; fi
 done
 gosem_offenders=$(grep -nE "$gosem_layer_pat" GoSem.v 2>/dev/null || true)
@@ -228,28 +230,10 @@ fi
 
 echo "fido: gosem-layering gate OK — core GoSem.v imports no upper emission layer (GoPrint/GoSafe/GoEmit) ✓"
 
-# ---- GOSEM BLANK-RHS VALIDITY GATE (Codex stop-review 2026-06-29): [GoSem.rhs_effect_free] is the SOLE gate
-# for [GsBlankAssign e], and GoSem sits BELOW GoSafe with NO type/category evidence — so it must NOT denote
-# CLOSED-but-INVALID Go (an aggregate-to-aggregate conversion, a map literal/conversion) as a silent normal
-# blank assign.  This tripwire asserts the conservative structural guards are PRESENT and the OLD leaky
-# admissions are ABSENT (it is a discipline grep over GoSem.v, not a proof — the proof is the in-file
-# [gosem_rejects_invalid_slice_conv] / [gosem_rejects_map_literal] regressions; this catches a silent revert):
-#   (1) the slice/chan conversion arm admits ONLY a [nil] operand — the [CTSlice/CTChan _, EId i] nil guard;
-#   (2) the map-literal arm is an UNCONDITIONAL [false] (no comparable-key evidence in GoSem); and
-#   (3) the OLD broad fall-through `|| rhs_effect_free <op>` (which admitted ANY effect-free EConv operand,
-#       leaking invalid aggregate conversions) is GONE.
-if ! grep -qE 'EMapLit _ _ _[[:space:]]*=>[[:space:]]*false' GoSem.v; then
-  echo "fido: GOSEM BLANK-RHS GATE — GoSem.rhs_effect_free must REJECT every map literal ([EMapLit _ _ _ => false]); that unconditional-false arm is missing."
-  exit 1
-fi
-if ! grep -qE 'CTSlice _, *EId i' GoSem.v || ! grep -qE 'CTChan _, *EId i' GoSem.v; then
-  echo "fido: GOSEM BLANK-RHS GATE — the EConv arm must admit ONLY a nil slice/chan conversion (the [CTSlice/CTChan _, EId i] nil guard); it is missing."
-  exit 1
-fi
-if grep -qE '\|\|[[:space:]]*rhs_effect_free' GoSem.v; then
-  echo "fido: GOSEM BLANK-RHS GATE — a broad '|| rhs_effect_free ...' fall-through is back in GoSem.rhs_effect_free;"
-  echo "fido: a non-nil / aggregate EConv operand would leak in as a silent VALID blank assign.  Admit conversions only for nil."
-  exit 1
-fi
-
-echo "fido: gosem blank-RHS validity gate OK — conversions admit only nil, map literals rejected, no broad effect-free fall-through ✓"
+# ---- (REMOVED) GOSEM BLANK-RHS VALIDITY GATE.  The old GoSem-local [rhs_effect_free] predicate it policed was
+# DELETED (Codex stop-review 2026-06-29): GoSem's blank-assign [_ = e] is now gated by the SHARED
+# [GoTypes.svalue] (= [ptype]-valid) — the SAME value-position authority GoSafe uses — so there is no second
+# GoSem predicate to keep honest.  The validity guarantees are now PROVEN in-file by the GoSem regressions
+# ([gosem_rejects_invalid_slice_conv] / [gosem_rejects_chan_conv_of_slice] / [gosem_rejects_map_literal] plus
+# the type-blindness set [gosem_rejects_bool_conv] / [..._u8_slicelit_overflow] / [..._int_of_string] /
+# [..._not_of_int] / [..._bool_ordering]), and by GoSafe's own [ptype] regressions — a real proof, not a grep.

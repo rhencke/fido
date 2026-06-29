@@ -20,8 +20,8 @@ Open Scope string_scope.
       [println(int64(3))]   -> the int64  value 3   (Go prints "3")
       [println(1 + 2)]      -> the int    value 3   (Go prints "3")
       [println("hi")]       -> the string value "hi" (Go prints "hi")
-    The two [GsBlankAssign]s ([_ = []int(nil)], [_ = []int{1}]) emit NOTHING — their RHS is
-    [GoSem.rhs_effect_free], so the value is discarded silently — and the trailing bare
+    The two [GsBlankAssign]s ([_ = []int(nil)], [_ = []int{1}]) emit NOTHING — their RHS is a valid VALUE by
+    the shared [GoTypes.svalue] ([ptype]-valid), so the value is discarded silently — and the trailing bare
     [return] terminates normally (it does NOT fall through to add output).  This is the
     genuinely-correct Go behaviour of [demo_prog].
 

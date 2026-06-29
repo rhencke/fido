@@ -119,35 +119,52 @@ obligations: the printer prints; semantics interprets.
 > it is itself UN-denotable (pinned by `gosem_return_discards_undenotable_suffix` and `gosem_panic_short_circuits`,
 > e.g. `{ return; println(len(s)) }` runs to a normal `ORet` with EMPTY output though `len` is outside `eval`);
 > an unsupported statement BEFORE a terminal still rejects (`gosem_unsupported_before_terminal_rejects`). `_ = e`
-> is admitted **only for a CONSERVATIVE structurally-evident-VALID, effect-free, non-panicking RHS**
-> (`rhs_effect_free`). Because GoSem sits BELOW GoSafe and has **no type/category evidence**, it is
-> conservative on VALIDITY too, not just effects: it admits literals, the unconditionally-total
-> arithmetic/comparison binops and unary `-`/`^`/`!`, a scalar conversion `t(a)` over such operands, a
-> **slice composite literal whose elements are all NON-AGGREGATE effect-free scalars**, and a slice/chan
-> type-form conversion of the predeclared `nil` **only** (`[]T(nil)`/`chan T(nil)`). It REJECTS a bare
-> identifier incl. `nil`, shifts `<<`/`>>`, `BDiv`/`BRem`, index/slice/deref/assert, any non-conversion call
-> that could output/panic, **every map literal and map conversion** (no comparable-key/assignability
-> evidence), **every NON-nil conversion** (an aggregate-to-aggregate conversion like `[]int([]string{})` is
-> not structurally evident-valid), and a slice literal with a **nested-aggregate element** — full
-> type-validity (element-assignability, comparable map keys) is `GoSafe.ptype`'s, not yet bridged into
-> GoSem. So an admitted RHS's silent value can be faithfully discarded; an out-of-subset RHS is `None`,
-> never silently erased. **Layering:** core
+> is admitted **iff `e` is a valid VALUE by the SHARED `GoTypes.svalue`** (= `ptype`-valid, with `nil` and the
+> default-`int`-overflow boundary rejected) — the **EXACT same type-category authority** GoSafe's `stmt_ok` uses
+> for a blank-assign RHS. `ptype`/`svalue` were **factored out of GoSafe into a LOWER shared module
+> `GoTypes`** (imports only `GoAst`) precisely so BOTH layers decide blank-assign validity by ONE authority —
+> ending the earlier duplicate-authority problem where a GoSem-local, **type-blind** structural predicate
+> (`rhs_effect_free`, now DELETED) denoted CLOSED-INVALID Go (`_ = bool(1)`, `_ = []uint8{300}`, `_ = int("hi")`,
+> `_ = !1`, `_ = (1==1) < (2==2)`) as a silent normal return. Those are now all `None` (pinned by
+> `gosem_rejects_bool_conv`/`_u8_slicelit_overflow`/`_int_of_string`/`_not_of_int`/`_bool_ordering`), as are a
+> bare identifier incl. `nil` (`gosem_rejects_bare_nil` — `ptype` gives `PtNil`, which `svalue` rejects, so the
+> gate is `svalue`, **not** a bare `ptype e <> None`), an illegal/negative-count shift, `BDiv`/`BRem` by a
+> const zero, index/slice/deref/assert, every map literal and map conversion, every NON-nil aggregate
+> conversion (`[]int([]string{})`), and a slice literal with a bad/nested-aggregate element — because `ptype`
+> rejects each. WHY a `svalue`-admitted RHS is faithfully discarded SILENTLY: in the no-declaration model a free
+> identifier is `ptype`-rejected, so every admitted RHS is CLOSED, and `ptype`'s constant analysis already
+> rejects the only closed forms that could panic (const-zero divisor, negative/oversized const shift) plus every
+> partial op — so the value is valid + silent + TOTAL by structure. An out-of-subset RHS is `None`, never
+> silently erased. **Layering:** core
 > `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
 > (`cmd`/`builtins`) — NOT `GoPrint`/`GoSafe`/`GoEmit`; the demo deliverable lives in the DOWNSTREAM
 > `GoSemDemo.v`. That deliverable, `gosem_demo_output`, is a zero-axiom `vm_compute` proof that
 > `GoEmit.demo_prog` runs to a normal `ORet` emitting exactly its four `println` lines (int 1, int64 3, int 3,
 > string "hi"), its two blank-assigns and trailing `return` adding nothing. HONEST SCOPE: this is NOT the full
 > authoritative GoSem yet — `eval` const-folds only a small core (int constants ±/×, the default-`int`/`int64`
-> scalar conversions, string literals), there is NO eval-vs-`ptype` soundness theorem, `rhs_effect_free` is a
-> STRUCTURAL effect-free RESTRICTION (not a full eval-with-panic semantics), and `BehaviorSafe` is NOT built
+> scalar conversions, string literals), there is NO eval-vs-`ptype` soundness theorem, the blank-assign gate
+> `GoTypes.svalue` is a CONSERVATIVE supported-subset judgment (not a full eval-with-panic semantics), and `BehaviorSafe` is NOT built
 > (the certificate stays `SupportedProgram`). The denotation is partial (`option`-valued): an out-of-scope
 > form yields `None` ("outside this slice's scope") rather than fabricating or dropping any event. `make
 > gosem-verify` (local, covering both `GoSem.v` and `GoSemDemo.v`) + the Docker axiom-manifest gate (canonical)
 > keep it zero-axiom.
 
-### `GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst`, and `GoSem` once it exists)
+### `GoTypes.v` — the SHARED constant-aware type-category checker (imports ONLY `GoAst`)
 
-Defines the predicates the emitter gates on.
+The bottom of the type-category layer. It owns **`ptype : GExpr -> option PTy`** (the structural,
+constant-aware TYPE-CATEGORY assignment — splitting int/float, CONSTANT/runtime, carrying constant VALUES so
+overflow / div-or-shift-by-zero are decided from the folded value) and its numeric/conversion combinators, plus
+the value-position wrapper **`svalue`** (`ptype`-valid, with `nil` and the default-`int`-overflow boundary
+rejected). It was **factored out of `GoSafe`** (Codex stop-review, 2026-06-29) so the layers ABOVE it consult ONE
+authority: `GoSafe` reuses `ptype`/`svalue` for `SupportedProgram`, and `GoSem` reuses `svalue` as the SOLE gate
+for a blank-assign `_ = e` — so GoSem's blank-RHS validity is the SAME type authority as GoSafe's, not a second
+(type-blind) predicate. `GoTypes` has no theorems (only `Definition`s / one `Inductive`), so it adds no axioms.
+
+### `GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst` + `GoTypes`)
+
+Defines the predicates the emitter gates on. The type-category machinery it builds on (`ptype`/`svalue` and all
+their numeric/conversion helpers) lives in the lower shared `GoTypes`; `GoSafe` adds the statement-shape /
+supported-syntax layer (`stmt_ok`, `supported_program`, `SupportedProgram`) on top.
 
 **Phase 1 is SYNTACTIC supportedness, and must be NAMED as such** — a syntactic/well-formed/supported-subset
 check is *not* behavioral safety, and calling it `SafeProgram` would repeat the exact overclaim this

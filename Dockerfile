@@ -109,12 +109,12 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
          exit 1; \
        fi \
     && cp printer.ml plugin/printer.ml \
-    && (rocq c -Q . Fido GoSafe.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1 || (echo "fido: GoSafe.v/GoEmit.v failed to compile:"; cat /tmp/emit.log; exit 1)) \
+    && (rocq c -Q . Fido GoTypes.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1 || (echo "fido: GoTypes.v/GoSafe.v/GoEmit.v failed to compile:"; cat /tmp/emit.log; exit 1)) \
     && if grep -q '^Axioms:' /tmp/emit.log; then \
-         echo "fido: BLESSED-EMISSION AXIOM/ADMITTED — a GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
+         echo "fido: BLESSED-EMISSION AXIOM/ADMITTED — a GoTypes/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
          cat /tmp/emit.log; exit 1; \
        fi \
-    && rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
+    && rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml \
     && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \

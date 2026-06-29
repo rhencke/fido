@@ -94,17 +94,18 @@ GOPRINT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q .
 	fi
 GOPRINT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux printer.ml
 
-# Gate for the BLESSED-EMISSION spine: GoSafe + GoEmit are now ALSO part of the trust base (emit_supported is
-# the official gate; SupportedProgram is the certificate), so compile the WHOLE spine standalone and assert
-# ZERO axioms across all four.  Separate from GOPRINT_GATE (which the printer.ml extraction reuses and must
-# stay GoAst/GoPrint-only).  Compiles in dependency order; GoPrint re-emits printer.ml as a side effect (the
-# clean step removes it).
-GOEMIT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: GoAst/GoPrint/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
+# Gate for the BLESSED-EMISSION spine: GoTypes + GoSafe + GoEmit are now ALSO part of the trust base
+# (emit_supported is the official gate; SupportedProgram is the certificate, and GoSafe consults the shared
+# GoTypes.ptype/svalue), so compile the WHOLE spine standalone and assert ZERO axioms across all of GoAst /
+# GoPrint / GoTypes / GoSafe / GoEmit.  Separate from GOPRINT_GATE (which the printer.ml extraction reuses and
+# must stay GoAst/GoPrint-only).  Compiles in dependency order (GoTypes after GoAst, before GoSafe); GoPrint
+# re-emits printer.ml as a side effect (the clean step removes it).
+GOEMIT_GATE = { rocq c -Q . Fido GoAst.v > /tmp/emit.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoTypes.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoSafe.v >> /tmp/emit.log 2>&1 && rocq c -Q . Fido GoEmit.v >> /tmp/emit.log 2>&1; } || { echo "fido: GoAst/GoPrint/GoTypes/GoSafe/GoEmit failed to compile:"; cat /tmp/emit.log; exit 1; }; \
 	if grep -q '^Axioms:' /tmp/emit.log; then \
-	  echo "fido: SPINE AXIOM/ADMITTED — a GoAst/GoPrint/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
+	  echo "fido: SPINE AXIOM/ADMITTED — a GoAst/GoPrint/GoTypes/GoSafe/GoEmit theorem depends on an axiom (Print Assumptions):"; \
 	  cat /tmp/emit.log; exit 1; \
 	fi
-GOEMIT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml
+GOEMIT_CLEAN = rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoTypes.vo GoTypes.glob .GoTypes.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml
 
 # Regenerate the VERIFIED printer's OCaml (plugin/printer.ml) from the GoAst/GoPrint spine.  A PROPER file
 # dependency: remade only when GoAst.v / GoPrint.v is newer.  The recipe runs the shared gate (compile +
@@ -136,7 +137,7 @@ emit-verify:
 	  echo "fido: GoAst/GoPrint/GoSafe/GoEmit OK — zero axioms (blessed-emission trust base) ✓"
 
 # Local convenience gate for the FIRST behavioral-semantics slice: force a fresh recompile of GoSem.vo (the
-# core semantics — [gosem_return_short_circuits] + [demo_blank_rhs_effect_free]) AND GoSemDemo.vo (the
+# core semantics — [gosem_return_short_circuits] + [demo_blank_svalue]) AND GoSemDemo.vo (the
 # downstream demo deliverable — [gosem_demo_output] over [GoEmit.demo_prog]) and assert their `Print
 # Assumptions` show ZERO axioms (no `^Axioms:` line — zero-axiom prints "Closed under the global context").
 # Both files are covered (GoSemDemo lives BELOW GoSem+GoEmit so core GoSem need not import the emission
