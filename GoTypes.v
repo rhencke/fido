@@ -50,15 +50,15 @@ Open Scope string_scope.
     into a runtime category ([PtRunInt]/[PtRunFloat]) while dropping the value: constantness is PRESERVED
     through every conversion/binop, or the form is REJECTED.  (Conversions of a runtime operand DO yield a
     runtime category — but there was never a value to drop.)
-    ★POSTURE (NOT a proven completeness theorem — there is no [ptype]-vs-Go-typechecker proof; that is GoSem):
-    [ptype] is a MAXIMALLY-CONSERVATIVE BEST-EFFORT checker — it aims to reject EVERY closed form Go's type
-    checker rejects, and it deliberately rejects much VALID Go too (any conversion of a KNOWN aggregate,
-    [string] of a typed int, const+typed when not representable, nested-aggregate elements, float-CONSTANT
-    arithmetic, platform-[uint] complement, an untyped const whose default-[int] value overflows, a
-    not-exactly-representable const->float), which is the correct posture — a smaller subset that is sound on
-    the classes covered.  The covered closed-invalid classes are PINNED by the regressions below.  Because a
-    FREE identifier is REJECTED (the no-declaration model has no variable bindings, so a bare [x] is undefined
-    and its Go would not compile), the gate admits NO unproven
+    ★POSTURE — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's typechecker; it is NOT proven
+    complete or sound (there is no [ptype]-vs-Go-typechecker theorem — that is GoSem's job), and makes NO claim
+    to reject every invalid form.  It admits a SUBSET and REJECTS anything it cannot classify as clearly
+    supported, so it over-rejects much VALID Go too (any conversion of a KNOWN aggregate, [string] of a typed
+    int, const+typed when not representable, nested-aggregate elements, float-CONSTANT arithmetic,
+    platform-[uint] complement, an untyped const whose default-[int] value overflows, a not-exactly-
+    representable const->float).  The closed-invalid CLASSES it is known to reject are PINNED by the
+    regressions below (each added when found).  Because a FREE identifier is REJECTED (the no-declaration model
+    has no variable bindings, so a bare [x] is undefined and its Go would not compile), the gate admits NO
     free-identifier form: the sole predeclared value-ident, [nil] ([PtNil]), is admitted only inside a
     slice/chan conversion. *)
 Inductive PTy : Type :=
