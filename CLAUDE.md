@@ -28,8 +28,8 @@ As of 2026-06-28 Fido is course-correcting to an **AST-first, proof-gated emissi
 standing charter **`ARCHITECTURE.md`** is binding on every change and wins when in doubt. Spine: **`GoAst`**
 (structured Go syntax) → **`GoPrint`** (printing + expression parse round-trip / program print-injectivity —
 SYNTAX only) → **`GoSem`** (behavior;
-PLANNED, NOT built — when built it must bridge the existing authoritative semantics `unified.v`/
-`concurrency.v`/`cmd.v`, not fork a second) →
+PLANNED, NOT built — when built it must bridge the existing proof-only semantics `unified.v`/
+`concurrency.v`/`cmd.v` (or retire them), not fork a second) →
 **`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed
 emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO official
 `emit : Program -> string`). The clean printer/parser work + `ConvTy` groundwork ARE now `GoAst` + `GoPrint`
@@ -117,16 +117,15 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `rstep`/`rstepC` concurrency calculi, ownership/race-freedom, the bounded deadlock
   theory. The trace/hb/race theory is calculus-AGNOSTIC — which is what lets
   `unified.v` reuse it.
-- `unified.v` — proof-only: the ONE authoritative closed-world operational semantics
-  (the 2026-06-24 review's decisive ask). A single command language `UCmd` carrying
-  ALL admitted effects (goroutines/channels/heap/panic/defer/output), one config
-  `UConfig`, one step relation `ustep` — with the faithful defer+panic interaction
-  (a panicking goroutine still runs its remaining defers). Race-freedom
-  (`uprivate_disc_reachable_race_free`) and liveness/deadlock (`uready_can_step` /
-  `ustuck_blocked`) are PROVED on it, reusing concurrency.v's trace theory. It is
-  the authoritative semantics, carrying every effect together; the shallow `IO`/`World`,
-  the `cmd.v` effect evaluator, and `rstep` remain as earlier, NARROWER fragments.
-  (Full `rstep`→`ustep` embedding + sessions on `ustep`: in progress.)
+- `unified.v` — proof-only (emits no Go): an EXISTING closed-world operational semantics
+  that unifies the admitted effects into one calculus — a single command language `UCmd`
+  carrying ALL effects (goroutines/channels/heap/panic/defer/output), one config `UConfig`,
+  one step relation `ustep` (faithful defer+panic: a panicking goroutine still runs its
+  remaining defers). Race-freedom (`uprivate_disc_reachable_race_free`) and liveness/deadlock
+  (`uready_can_step` / `ustuck_blocked`) are PROVED on it, reusing concurrency.v's trace theory.
+  ⚠️ It is NOT the semantics of the certified-emission path — a future GoSem must bridge or
+  retire it before behavioral safety enters certified emission. The shallow `IO`/`World`, the
+  `cmd.v` effect evaluator, and `rstep` are earlier, NARROWER fragments.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.

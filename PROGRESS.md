@@ -28,9 +28,9 @@ print-injectivity; SYNTAX only) →
 **GoSafe** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later, over GoSem) → **GoEmit** (the only
 blessed emit; requires a certificate — `EmittableProgram` now; no raw `emit : Program -> string`).
 `GoTypes` is the shared lower module (`ptype`/`svalue`, conservative supported-subset classifier) that
-GoSafe consults. **GoSem** — the AST's behavioral semantics, which will BRIDGE the existing authoritative
-semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not built**; it holds no authority yet and no
-behavioral-safety claim is active.
+GoSafe consults. **GoSem** — the AST's behavioral semantics, which will BRIDGE (or retire) the existing
+proof-only semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not built**; it holds no authority
+yet and no behavioral-safety claim is active.
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
 (machine-checked from GoPrint) is wired into that live path for only ONE expression class (a var-OP-var
@@ -83,8 +83,8 @@ live emission is not "verified Go."
 
 ## NEXT
 
-Build **GoSem** — the AST's behavioral semantics — by BRIDGING the existing authoritative `cmd`/`unified`/
-`concurrency` models (no second semantics universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram
+Build **GoSem** — the AST's behavioral semantics — by BRIDGING (or retiring) the existing proof-only
+`cmd`/`unified`/`concurrency` models (no second semantics universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram
 + BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel, widen the live
 GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
 

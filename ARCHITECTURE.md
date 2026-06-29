@@ -8,7 +8,7 @@ supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of 
 ```text
 GoAst    says what Go-shaped syntax can be written.
 GoPrint  proves printing is faithful (expressions round-trip; programs/statements print injectively) — SYNTAX ONLY.
-GoSem    says what the AST means — PLANNED, not built; will bridge the authoritative semantics (unified.v).
+GoSem    says what the AST means — PLANNED, not built; will bridge the proof-only semantics (unified.v).
 GoSafe   says which programs are supported now, and — later — which are behaviorally safe.
 GoEmit   is the ONLY blessed emission path; it requires the appropriate certificate.
 ```
@@ -73,12 +73,13 @@ theorems, at TWO distinct strengths — do not conflate them:
 Purely syntactic — no safety claims belong here.
 
 **`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem will be the AST's behavioral
-semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). The
-authoritative operational semantics TODAY is `unified.v` (the proven `ustep`, race-freedom + liveness);
-GoSem does **not** exist and holds no authority yet. When built it must **bridge the existing proven
-semantics** — `unified.v`, `concurrency.v` (trace / happens-before / race / bounded-deadlock theory), and
-`cmd.v` (effect evaluator) — so there stays ONE authority, never a second semantic universe that can drift.
-No behavioral-safety claim is active until GoSem exists.
+semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). It does
+**not** exist yet and holds no authority. `unified.v` is an EXISTING proof-only operational semantics (the
+proven `ustep`, race-freedom + liveness) — **not** the certified-emission path's semantics. When GoSem is
+built it must **bridge or retire the existing proof-only semantics** — `unified.v`, `concurrency.v` (trace /
+happens-before / race / bounded-deadlock theory), and `cmd.v` (effect evaluator) — so there is ONE
+behavioral authority for the certified path, never a second semantic universe that can drift. No
+behavioral-safety claim is active until GoSem exists.
 
 **`GoTypes.v` — shared constant-aware type-category checker (imports ONLY `GoAst`).** The bottom of the
 type-category layer: `ptype : GExpr -> option PTy` (the structural, constant-aware category assignment —
