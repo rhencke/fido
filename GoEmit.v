@@ -25,12 +25,13 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body is six real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    body is seven real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
+    [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [_ = []int(nil)] (a [GsBlankAssign] discarding a type-form [EConv] CONVERSION value), [_ = []int{1}] (a
     slice composite literal [ESliceLit]), then a bare [return] — all Go builtins / no import (rule 5), built as
     structured [GExpr]/[GoStmt]s and printed by the machine-checked [gprint] (`make emit-demo` then confirms
-    the Go compiler BUILDS it).  This exercises the landed [EBn], [EConv] (`[]int(nil)`), [ESliceLit]
+    the Go compiler BUILDS it).  This exercises the landed [EBn], [EStr] (`"hi"`), [EConv] (`[]int(nil)`), [ESliceLit]
     (`[]int{1}`) and [GsBlankAssign] (`_ = e`) forms END-TO-END through the BLESSED emitter to compilable Go —
     not just in isolated round-trip proofs.  Emitted ONLY through the
     proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
@@ -44,6 +45,7 @@ Definition demo_prog : Program :=
                                [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]]);
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
                                [EBn BAdd (EInt 1) (EInt 2)]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]);
              GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)));
              GsBlankAssign (ESliceLit GTInt [EInt 1]);
              GsReturn].
@@ -55,6 +57,7 @@ Example demo_emit_bytes :
   demo_emit = ("package main" ++ go_nl ++ go_nl ++ "func main() {" ++ go_nl ++
                go_tab ++ "println(1)" ++ go_nl ++ go_tab ++ "println(int64(3))" ++ go_nl ++
                go_tab ++ "println(1 + 2)" ++ go_nl ++
+               go_tab ++ "println(""hi"")" ++ go_nl ++
                go_tab ++ "_ = []int(nil)" ++ go_nl ++
                go_tab ++ "_ = []int{1}" ++ go_nl ++
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.

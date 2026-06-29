@@ -372,6 +372,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
   | EId _ => Some PtUnk
   | EInt z => Some (PtIntConst z)
+  | EStr _ => Some PtStr   (* a string literal is the printable SCALAR string category *)
   | EBn o l r =>
       match ptype l, ptype r with
       | Some cl, Some cr =>
@@ -1005,6 +1006,38 @@ Definition unsupported_len_arity : Program :=
                                [ECall (EId (mkIdent "len" eq_refl))
                                       [EId (mkIdent "x" eq_refl); EId (mkIdent "y" eq_refl)]])].
 Example len_arity_unsupported : supported_program unsupported_len_arity = false.
+Proof. reflexivity. Qed.
+
+(** GROWTH (Phase 4, [EStr]) — the string-literal expression joins the supported subset.  [ptype (EStr _) =
+    Some PtStr] (the printable SCALAR string category), so a string literal is a valid [svalue] AND a valid
+    [printable_arg_ok] argument: `func main(){ println("hi") }` IS supported (the FIRST [println] of a literal
+    payload — strings previously existed only as a TYPE and as conversions), and `func main(){ _ = "x" }` IS
+    supported (a string is a value).  A BARE string statement `func main(){ "x" }` is NOT supported
+    ([expr_stmt_ok] admits only a call [ECall (EId _) _], and a string literal is not call-shaped), pinning
+    the value-vs-statement asymmetry.  An empty string and one needing escapes round-trip too (GoPrint). *)
+Definition supported_println_str : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"])].
+Example println_str_supported : SupportedProgram supported_println_str.
+Proof. reflexivity. Qed.
+Definition supported_blank_str : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign (EStr "x")].
+Example blank_str_supported : SupportedProgram supported_blank_str.
+Proof. reflexivity. Qed.
+(** the printable / value classification of a string literal, pinned directly. *)
+Example str_printable : printable_arg_ok (EStr "hi") = true.
+Proof. reflexivity. Qed.
+Example str_svalue : svalue (EStr "x") = true.
+Proof. reflexivity. Qed.
+(** a BARE string-literal expression statement is NOT a call, so NOT supported. *)
+Definition unsupported_bare_str : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")].
+Example bare_str_unsupported : supported_program unsupported_bare_str = false.
+Proof. reflexivity. Qed.
+Fail Example bare_str_supported : SupportedProgram unsupported_bare_str := eq_refl.
+(** ANTI-REGRESSION — a non-printable AGGREGATE arg to [println] is STILL rejected ([[]int{1}] is not a
+    printable scalar), confirming the [EStr] addition did not loosen [printable_arg_ok] for non-scalars. *)
+Example println_slicelit_still_unsupported :
+  supported_program (pl_arg (ESliceLit GTInt [EInt 1])) = false.
 Proof. reflexivity. Qed.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual

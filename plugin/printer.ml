@@ -1129,6 +1129,7 @@ type gExpr =
 | EConv of convTy * gExpr
 | ESliceLit of goTy * gExpr list
 | EMapLit of goTy * goTy * (gExpr, gExpr) prod list
+| EStr of string
 
 (** val print_ty : goTy -> string **)
 
@@ -1846,3 +1847,4 @@ let rec gprint ctx = function
                   in gpp r))))
         (String ((Ascii (True, False, True, True, True, True, True, False)),
         EmptyString))))
+| EStr s -> print_string_lit s
