@@ -5,8 +5,10 @@ verified Go"). Theorems are proved in Rocq (Coq); the `*.go` is a **proof artifa
 never hand-written, never edited. ⚠️ The plugin (`plugin/go.ml`) is **trusted and unverified**: no theorem
 relates the emitted Go to the source term (gap #10), so the golden tests are the only end-to-end check. The
 AST-first spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap — a clean
-zero-axiom verified printer with a proven round-trip, gated certified emission — but it drives only one
-expression class in the live plugin so far, and there is no behavioral-safety layer yet. Until gap #10 closes
+zero-axiom printer with a proven EXPRESSION round-trip (programs/statements: print-injectivity only — no
+parser yet), self-consistent with its own Rocq grammar (NOT a Go-parser-acceptance proof), and gated
+certified emission — but it drives only one expression class in the live plugin so far, and there is no
+behavioral-safety layer yet. Until gap #10 closes
 and `GoSem`-backed safety exists, do not headline this as "formally verified Go." Current state: `PROGRESS.md`.
 
 **Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
@@ -22,7 +24,8 @@ status, and roadmap live in `PROGRESS.md`.
 
 As of 2026-06-28 Fido is course-correcting to an **AST-first, proof-gated emission** architecture; the
 standing charter **`ARCHITECTURE.md`** is binding on every change and wins when in doubt. Spine: **`GoAst`**
-(structured Go syntax) → **`GoPrint`** (printing + parse round-trip — SYNTAX only) → **`GoSem`** (behavior;
+(structured Go syntax) → **`GoPrint`** (printing + expression parse round-trip / program print-injectivity —
+SYNTAX only) → **`GoSem`** (behavior;
 PLANNED, NOT built — when built it must bridge the existing authoritative semantics `unified.v`/
 `concurrency.v`/`cmd.v`, not fork a second) →
 **`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed

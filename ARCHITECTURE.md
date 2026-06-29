@@ -7,7 +7,7 @@ supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of 
 
 ```text
 GoAst    says what Go-shaped syntax can be written.
-GoPrint  proves the AST prints (and parses back) correctly — SYNTAX ONLY.
+GoPrint  proves printing is faithful (expressions round-trip; programs/statements print injectively) — SYNTAX ONLY.
 GoSem    says what the AST means — PLANNED, not built; will bridge the authoritative semantics (unified.v).
 GoSafe   says which programs are supported now, and — later — which are behaviorally safe.
 GoEmit   is the ONLY blessed emission path; it requires the appropriate certificate.
@@ -44,7 +44,7 @@ pretending the claim stayed the same.
 
 ```text
 GoAst   says what can be written.
-GoPrint proves syntax printing/parsing correctness ONLY.
+GoPrint proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
 GoSem   defines behavior.
 GoSafe  defines supportedness now, behavioral safety later.
 GoEmit  is the only blessed emission path and requires the appropriate certificate.
@@ -60,10 +60,17 @@ identifiers. Forbidden: raw expression/statement/type/declaration strings; "opaq
 raw" constructors; any constructor that smuggles source text to avoid modeling syntax. If a construct is
 supported it gets a constructor; otherwise it is unrepresentable or rejected by the builder.
 
-**`GoPrint.v` — printing + syntax round-trip (imports `GoAst`).** Owns printing and the syntax round-trip
-theorems (`parse_str (gprint 0 e) = Some (e,[])`, `print_program_inj`, …). Purely syntactic — no safety
-claims belong here. The parser used by printer proofs is a real lexer + recursive-descent/precedence parser,
-not a maze of string splits.
+**`GoPrint.v` — printing + syntax faithfulness (imports `GoAst`).** Owns printing and its faithfulness
+theorems, at TWO distinct strengths — do not conflate them:
+- **Expressions: a full parse round-trip** `parse_str (gprint 0 e) = Some (e, [])` (+ `gprint_inj`), over a
+  real lexer + recursive-descent/precedence parser. This is self-consistency of the **Rocq grammar** — it
+  proves the printer and this parser invert each other, NOT that Go's own compiler accepts the output.
+- **Programs / statements: print-INJECTIVITY only** (`print_program_inj`, `print_stmt_inj`) — distinct ASTs
+  print to distinct text. There is NO program/statement parser and NO parse round-trip at that level yet
+  (statement re-parse has ASI/semicolon subtleties; deferred). Injectivity is weaker than a round-trip and
+  is NOT Go-syntax acceptance.
+
+Purely syntactic — no safety claims belong here.
 
 **`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem will be the AST's behavioral
 semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). The

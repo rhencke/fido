@@ -22,7 +22,8 @@ do not headline it as "formally verified Go".
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
-Spine: **GoAst** (structured Go syntax) → **GoPrint** (printing + parse round-trip; SYNTAX only) →
+Spine: **GoAst** (structured Go syntax) → **GoPrint** (printing + expression parse round-trip / program
+print-injectivity; SYNTAX only) →
 **GoSafe** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later, over GoSem) → **GoEmit** (the only
 blessed emit; requires a certificate — `EmittableProgram` now; no raw `emit : Program -> string`).
 `GoTypes` is the shared lower module (`ptype`/`svalue`, conservative supported-subset classifier) that
