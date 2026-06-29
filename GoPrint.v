@@ -906,7 +906,7 @@ Proof. vm_compute; reflexivity. Qed.
 Definition op_needs_paren (e0 : GExpr) : bool :=
   match e0 with
   | EUn _ _ | EBn _ _ _ => true
-  | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ | EConv _ _ | ESliceLit _ _ => false
+  | EId _ | EInt _ | ESel _ _ | EIndex _ _ | ESlice _ _ _ | ECall _ _ | EAssert _ _ | EConv _ _ | ESliceLit _ _ | EMapLit _ _ _ => false
   end.
 
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
@@ -961,6 +961,19 @@ Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
                        match m with nil => "" | b :: m' => ("," ++ gprint 0 b ++ gat m')%string end) r)%string
         end)
        ++ "}")%string
+  | EMapLit kt vt kvs =>
+      (* map composite literal [map[K]V{k1: v1, .., kn: vn}]: a type-led PREFIX primary; the type prefix is
+         [print_ty (GTMap kt vt)], then a brace-delimited list of KEYED elements [key: value], pairs joined by
+         ", " — both separators carry a SPACE so the output is gofmt-clean (the lexer skips the spaces, so the
+         token list has none).  [gprint_EMapLit] re-folds the local [fix] onto the standalone [gprint_pairs]. *)
+      (print_ty (GTMap kt vt) ++ "{" ++
+       (match kvs with
+        | nil => ""
+        | p :: r => let (k, v) := p in
+            (gprint 0 k ++ ": " ++ gprint 0 v ++ (fix gpp (m : list (GExpr * GExpr)) : string :=
+               match m with nil => "" | q :: m' => let (k', v') := q in (", " ++ gprint 0 k' ++ ": " ++ gprint 0 v' ++ gpp m')%string end) r)%string
+        end)
+       ++ "}")%string
   end.
 
 (** the comma-joined argument list: head then a comma-prefixed tail (no trailing comma — gofmt-clean).
@@ -969,6 +982,14 @@ Fixpoint gprint_args_tl (args : list GExpr) : string :=
   match args with nil => "" | b :: m => ("," ++ gprint 0 b ++ gprint_args_tl m)%string end.
 Definition gprint_args (args : list GExpr) : string :=
   match args with nil => "" | a :: r => (gprint 0 a ++ gprint_args_tl r)%string end.
+
+(** the KEYED, ", "-joined pair list of a map composite literal: head pair [k: v] then a ", "-prefixed tail
+    (no trailing comma — gofmt-clean).  Standalone (mirrors the local [fix] in [gprint]'s EMapLit case);
+    [gprint_EMapLit] re-folds onto it. *)
+Fixpoint gprint_pairs_tl (kvs : list (GExpr * GExpr)) : string :=
+  match kvs with nil => "" | p :: m => let (k, v) := p in (", " ++ gprint 0 k ++ ": " ++ gprint 0 v ++ gprint_pairs_tl m)%string end.
+Definition gprint_pairs (kvs : list (GExpr * GExpr)) : string :=
+  match kvs with nil => "" | p :: r => let (k, v) := p in (gprint 0 k ++ ": " ++ gprint 0 v ++ gprint_pairs_tl r)%string end.
 
 (** [gparen] = a postfix operand's printing rule (bare for an atom/postfix, parenthesised for a unary/
     binary node), factored out so proofs can [destruct e0] over it WITHOUT [cbn] over-reducing [gprint 0 e0];
@@ -1020,6 +1041,27 @@ Proof.
                           match m with nil => "" | b :: m' => ("," ++ gprint 0 b ++ gat m')%string end) r)%string
            end) ++ "}")%string.
   destruct es as [ | a r ]; [ reflexivity | rewrite gat_eq; reflexivity ].
+Qed.
+(** the local [fix] in [gprint]'s EMapLit case computes exactly the standalone [gprint_pairs_tl]. *)
+Lemma gpp_eq : forall m,
+  (fix gpp (m0 : list (GExpr * GExpr)) : string :=
+     match m0 with nil => "" | q :: m' => let (k', v') := q in (", " ++ gprint 0 k' ++ ": " ++ gprint 0 v' ++ gpp m')%string end) m = gprint_pairs_tl m.
+Proof. induction m as [ | [k v] m IH ]; [ reflexivity | cbn [gprint_pairs_tl]; rewrite <- IH; reflexivity ]. Qed.
+(** the local [fix] in [gprint]'s EMapLit case computes exactly the standalone [gprint_pairs]; [gprint_EMapLit]
+    re-folds the brace-delimited KEYED pair list onto it (the type prefix is [print_ty (GTMap kt vt)]). *)
+Lemma gprint_EMapLit : forall ctx kt vt kvs,
+  gprint ctx (EMapLit kt vt kvs) = (print_ty (GTMap kt vt) ++ "{" ++ gprint_pairs kvs ++ "}")%string.
+Proof.
+  intros ctx kt vt kvs. unfold gprint_pairs.
+  change (gprint ctx (EMapLit kt vt kvs))
+    with (print_ty (GTMap kt vt) ++ "{" ++
+          (match kvs with
+           | nil => ""
+           | p :: r => let (k, v) := p in
+               (gprint 0 k ++ ": " ++ gprint 0 v ++ (fix gpp (m : list (GExpr * GExpr)) : string :=
+                  match m with nil => "" | q :: m' => let (k', v') := q in (", " ++ gprint 0 k' ++ ": " ++ gprint 0 v' ++ gpp m')%string end) r)%string
+           end) ++ "}")%string.
+  destruct kvs as [ | [k v] r ]; [ reflexivity | rewrite gpp_eq; reflexivity ].
 Qed.
 
 (** ---- THE PARSER ---- recursive descent + precedence climbing over the TOKEN stream.  The ambiguous
@@ -1075,6 +1117,10 @@ with parse_atom (fuel : nat) (toks : list Token) : option (GExpr * list Token) :
     | TMap :: _ =>
         match parse_gty f toks with
         | Some (GTMap k v, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTMap k v) e, r2) | _ => None end
+        (* map composite literal [map[K]V{k1: v1,..,kn: vn}] — same [map[K]V] lead as the conversion,
+           disambiguated by the NEXT token: '{' (TLC) -> [EMapLit], '(' (TLP) -> [EConv].  KEYED elements
+           via [parse_map_elems]. *)
+        | Some (GTMap k v, TLC :: r1) => match parse_map_elems f r1 with Some (kvs, r2) => Some (EMapLit k v kvs, r2) | None => None end
         | _ => None end
     | TId i :: rest  => Some (EId i, rest)
     | TInt z :: rest => Some (EInt z, rest)
@@ -1150,6 +1196,43 @@ with parse_elems_tl (fuel : nat) (toks : list Token) : option (list GExpr * list
                      | Some (a, r0) => match parse_elems_tl f r0 with Some (es, r1) => Some (a :: es, r1) | None => None end
                      | None => None
                      end
+    | _ => None
+    end
+  end
+(** a brace-delimited KEYED ELEMENT list ([k1: v1, .., kn: vn}]) up to and including the closing '}' — like
+    [parse_elems] but each element is a KEY expr, a [TColon], then a VALUE expr (the map literal's [key: value]).
+    The colon separates the two children; comma separates pairs; [TRC] closes. *)
+with parse_map_elems (fuel : nat) (toks : list Token) : option (list (GExpr * GExpr) * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TRC :: r => Some (nil, r)
+    | _ => match parse_expr f 0 toks with
+           | Some (k, TColon :: r0) =>
+               match parse_expr f 0 r0 with
+               | Some (v, r1) => match parse_map_elems_tl f r1 with Some (kvs, r2) => Some ((k, v) :: kvs, r2) | None => None end
+               | None => None
+               end
+           | _ => None
+           end
+    end
+  end
+with parse_map_elems_tl (fuel : nat) (toks : list Token) : option (list (GExpr * GExpr) * list Token) :=
+  match fuel with
+  | O => None
+  | S f =>
+    match toks with
+    | TRC :: r => Some (nil, r)
+    | TComma :: r =>
+        match parse_expr f 0 r with
+        | Some (k, TColon :: r0) =>
+            match parse_expr f 0 r0 with
+            | Some (v, r1) => match parse_map_elems_tl f r1 with Some (kvs, r2) => Some ((k, v) :: kvs, r2) | None => None end
+            | None => None
+            end
+        | _ => None
+        end
     | _ => None
     end
   end
@@ -1309,6 +1392,27 @@ Proof. vm_compute; reflexivity. Qed.
 Example rt_slicelit_nested : parse_str (gprint 0 (ESliceLit (GTSlice GTInt) (ESliceLit GTInt (EInt 1 :: nil) :: nil)))
                   = Some (ESliceLit (GTSlice GTInt) (ESliceLit GTInt (EInt 1 :: nil) :: nil), nil).  (* [][]int{[]int{1}} *)
 Proof. vm_compute; reflexivity. Qed.
+(** map composite literal [map[K]V{..}] round-trips (the [EMapLit] node): empty, one/two KEYED pairs, a binop
+    in key/value position, a non-scalar value type, and a NESTED map-valued literal.  The printed `k: v` / `, `
+    separators carry spaces (gofmt-clean); the lexer skips them, so the round-trip recovers the AST exactly. *)
+Example rt_maplit0 : parse_str (gprint 0 (EMapLit GTInt GTInt nil))
+                  = Some (EMapLit GTInt GTInt nil, nil).  (* map[int]int{} *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_maplit1 : parse_str (gprint 0 (EMapLit GTInt GTInt ((EInt 1, EInt 2) :: nil)))
+                  = Some (EMapLit GTInt GTInt ((EInt 1, EInt 2) :: nil), nil).  (* map[int]int{1: 2} *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_maplit2 : parse_str (gprint 0 (EMapLit GTString GTInt ((EX "a", EInt 1) :: (EX "b", EInt 2) :: nil)))
+                  = Some (EMapLit GTString GTInt ((EX "a", EInt 1) :: (EX "b", EInt 2) :: nil), nil).  (* map[string]int{a: 1, b: 2} *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_maplit_binkv : parse_str (gprint 0 (EMapLit GTInt GTInt ((EBn BAdd (EX "x") (EInt 1), EBn BMul (EX "y") (EInt 2)) :: nil)))
+                  = Some (EMapLit GTInt GTInt ((EBn BAdd (EX "x") (EInt 1), EBn BMul (EX "y") (EInt 2)) :: nil), nil).  (* map[int]int{x + 1: y*2} *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_maplit_slicev : parse_str (gprint 0 (EMapLit GTString (GTSlice GTInt) ((EX "k", ESliceLit GTInt (EInt 1 :: nil)) :: nil)))
+                  = Some (EMapLit GTString (GTSlice GTInt) ((EX "k", ESliceLit GTInt (EInt 1 :: nil)) :: nil), nil).  (* map[string][]int{k: []int{1}} *)
+Proof. vm_compute; reflexivity. Qed.
+Example rt_maplit_nested : parse_str (gprint 0 (EMapLit GTInt (GTMap GTInt GTInt) ((EInt 1, EMapLit GTInt GTInt ((EInt 2, EInt 3) :: nil)) :: nil)))
+                  = Some (EMapLit GTInt (GTMap GTInt GTInt) ((EInt 1, EMapLit GTInt GTInt ((EInt 2, EInt 3) :: nil)) :: nil), nil).  (* map[int]map[int]int{1: map[int]int{2: 3}} *)
+Proof. vm_compute; reflexivity. Qed.
 
 (** ---- THE CANONICAL TOKEN LIST ---- [gtokens ctx e] is the token list [gprint ctx e] lexes to.  Mirrors
     [gprint]'s structure exactly; [op_token]/[prefix_token] are the inverses of [infix_op]/[prefix_op].
@@ -1362,12 +1466,27 @@ Fixpoint gtokens (ctx : nat) (e : GExpr) : list Token :=
                          | a :: r => (gtokens 0 a ++ (fix gtt (m : list GExpr) : list Token :=
                                         match m with nil => nil | b :: m' => (TComma :: (gtokens 0 b ++ gtt m'))%list end) r)%list
                          end) ++ TRC :: nil)))%list
+  | EMapLit kt vt kvs =>
+      (* mirrors [gprint]'s EMapLit: the [map[K]V] type tokens ([gttokens_ty (GTMap kt vt)]), then '{' the KEYED
+         pair list '}'.  The lexer skips the printed spaces, so the tokens carry NO space — each pair is
+         [gtokens 0 k ++ TColon :: gtokens 0 v], comma-joined; [gtokens_EMapLit] re-folds onto [gtokens_pairs]. *)
+      (gttokens_ty (GTMap kt vt) ++ TLC :: ((match kvs with
+                         | nil => nil
+                         | p :: r => let (k, v) := p in (gtokens 0 k ++ TColon :: (gtokens 0 v ++ (fix gtp (m : list (GExpr * GExpr)) : list Token :=
+                                        match m with nil => nil | q :: m' => let (k', v') := q in (TComma :: (gtokens 0 k' ++ TColon :: (gtokens 0 v' ++ gtp m')))%list end) r))%list
+                         end) ++ TRC :: nil))%list
   end.
 (** standalone arg-token list (mirrors the local [fix] in [gtokens]'s ECall case); [gtokens_ECall] bridges. *)
 Fixpoint gtokens_args_tl (args : list GExpr) : list Token :=
   match args with nil => nil | b :: m => (TComma :: (gtokens 0 b ++ gtokens_args_tl m))%list end.
 Definition gtokens_args (args : list GExpr) : list Token :=
   match args with nil => nil | a :: r => (gtokens 0 a ++ gtokens_args_tl r)%list end.
+(** standalone KEYED pair-token list (mirrors the local [fix] in [gtokens]'s EMapLit case): per pair
+    [gtokens 0 k ++ TColon :: gtokens 0 v], comma-joined; [gtokens_EMapLit] bridges. *)
+Fixpoint gtokens_pairs_tl (kvs : list (GExpr * GExpr)) : list Token :=
+  match kvs with nil => nil | p :: m => let (k, v) := p in (TComma :: (gtokens 0 k ++ TColon :: (gtokens 0 v ++ gtokens_pairs_tl m)))%list end.
+Definition gtokens_pairs (kvs : list (GExpr * GExpr)) : list Token :=
+  match kvs with nil => nil | p :: r => let (k, v) := p in (gtokens 0 k ++ TColon :: (gtokens 0 v ++ gtokens_pairs_tl r))%list end.
 
 (** token analog of [gparen] + the re-fold lemmas (mirror [gprint_ESel]/[gprint_EIndex]). *)
 Definition gtparen (e0 : GExpr) : list Token :=
@@ -1414,6 +1533,23 @@ Proof.
                                         match m with nil => nil | b :: m' => (TComma :: (gtokens 0 b ++ gtt m'))%list end) r)%list
                          end) ++ TRC :: nil)))%list.
   destruct es as [ | a r ]; [ reflexivity | rewrite gtt_eq; reflexivity ].
+Qed.
+(** the local [fix] in [gtokens]'s EMapLit case computes exactly the standalone [gtokens_pairs_tl]/[gtokens_pairs]. *)
+Lemma gtp_eq : forall m,
+  (fix gtp (m0 : list (GExpr * GExpr)) : list Token :=
+     match m0 with nil => nil | q :: m' => let (k', v') := q in (TComma :: (gtokens 0 k' ++ TColon :: (gtokens 0 v' ++ gtp m')))%list end) m = gtokens_pairs_tl m.
+Proof. induction m as [ | [k v] m IH ]; [ reflexivity | cbn [gtokens_pairs_tl]; rewrite <- IH; reflexivity ]. Qed.
+Lemma gtokens_EMapLit : forall ctx kt vt kvs,
+  gtokens ctx (EMapLit kt vt kvs) = (gttokens_ty (GTMap kt vt) ++ TLC :: (gtokens_pairs kvs ++ TRC :: nil))%list.
+Proof.
+  intros ctx kt vt kvs. unfold gtokens_pairs.
+  change (gtokens ctx (EMapLit kt vt kvs))
+    with (gttokens_ty (GTMap kt vt) ++ TLC :: ((match kvs with
+                         | nil => nil
+                         | p :: r => let (k, v) := p in (gtokens 0 k ++ TColon :: (gtokens 0 v ++ (fix gtp (m : list (GExpr * GExpr)) : list Token :=
+                                        match m with nil => nil | q :: m' => let (k', v') := q in (TComma :: (gtokens 0 k' ++ TColon :: (gtokens 0 v' ++ gtp m')))%list end) r))%list
+                         end) ++ TRC :: nil))%list.
+  destruct kvs as [ | [k v] r ]; [ reflexivity | rewrite gtp_eq; reflexivity ].
 Qed.
 
 (** [op_token]/[prefix_token] really invert the parser's token classifiers. *)
@@ -2003,8 +2139,8 @@ Lemma lex_gparen : forall e0 X fuel tX,
   lex_aux fuel (gparen e0 ++ X) = Some ((gtparen e0 ++ tX)%list).
 Proof.
   intros e0 X fuel tX IHe0 HXc HX Hfuel.
-  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT | ecc ece | eslt esles ]; cbn [gparen gtparen op_needs_paren] in Hfuel |- *.
-  1,2,5,6,7,8,9,10,11: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
+  destruct e0 as [ i0 | z0 | u0 eu | b0 lb rb | es fs | ei ii | esl elo ehi | ecf ecargs | eaf eaT | ecc ece | eslt esles | ekt evt ekvs ]; cbn [gparen gtparen op_needs_paren] in Hfuel |- *.
+  1,2,5,6,7,8,9,10,11,12: apply IHe0; [ exact HXc | exact HX | exact Hfuel ].
   (* the two LOOSE operands [EUn]/[EBn] — both parenthesised, one shared seam *)
   all: apply lex_paren_wrap; [ exact IHe0 | exact HX | exact Hfuel ].
 Qed.
@@ -2019,7 +2155,7 @@ Lemma lex_gprint_app : forall e ctx rest fuel tr,
   S (String.length (gprint ctx e) + String.length rest) <= fuel ->
   lex_aux fuel (gprint ctx e ++ rest) = Some ((gtokens ctx e ++ tr)%list).
 Proof.
-  induction e as [ i | z | o e IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | c0 ec0 IHec0 | slt sles IHsles ]
+  induction e as [ i | z | o e IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | c0 ec0 IHec0 | slt sles IHsles | mkt mvt mkvs IHmkvs ]
     using GExpr_ind';
     intros ctx rest fuel tr Hclean Hrest Hfuel.
   - cbn [gprint gtokens app] in *. apply lex_gprint_id; assumption.
@@ -2324,6 +2460,103 @@ Proof.
                      repeat rewrite length_app in Hfuel; repeat rewrite length_app;
                      cbn [String.length] in Hfuel |- *; lia)).
     cbn [gttokens_ty app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
+  - (* EMapLit mkt mvt mkvs: print_ty(GTMap mkt mvt) ++ "{" ++ gprint_pairs mkvs ++ "}" — the type prefix is
+       [print_ty (GTMap mkt mvt)] (handled by [gttokens_ty_lex]), then '{' the KEYED pair-list '}'.  Each pair
+       is [k: v] with SPACE seams ([lex_colon_app]+[lex_space_app]) and ", " between pairs ([lex_comma_app]+
+       [lex_space_app]); the lexer SKIPS the printed spaces so the token list carries none. *)
+    rewrite gprint_EMapLit, gtokens_EMapLit.
+    assert (Htl : forall l Y tY F,
+              List.Forall (fun p => (forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
+                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
+                  S (String.length (gprint ctx0 (fst p)) + String.length rest0) <= fuel0 ->
+                  lex_aux fuel0 (gprint ctx0 (fst p) ++ rest0) = Some (gtokens ctx0 (fst p) ++ tr0)%list)
+                /\ (forall ctx0 rest0 fuel0 tr0, clean_start rest0 = true ->
+                  lex_aux (S (String.length rest0)) rest0 = Some tr0 ->
+                  S (String.length (gprint ctx0 (snd p)) + String.length rest0) <= fuel0 ->
+                  lex_aux fuel0 (gprint ctx0 (snd p) ++ rest0) = Some (gtokens ctx0 (snd p) ++ tr0)%list)) l ->
+              clean_start Y = true -> lex_aux (S (String.length Y)) Y = Some tY ->
+              S (String.length (gprint_pairs_tl l) + String.length Y) <= F ->
+              lex_aux F (gprint_pairs_tl l ++ Y) = Some (gtokens_pairs_tl l ++ tY)%list).
+    { induction l as [ | [k v] m IHm ]; intros Y tY F Hfa HYc HY HF.
+      - cbn [gprint_pairs_tl gtokens_pairs_tl Datatypes.app] in *. apply (lex_aux_mono _ _ _ _ HY).
+        cbn [gprint_pairs_tl String.length] in HF. lia.
+      - cbn [gprint_pairs_tl gtokens_pairs_tl].
+        destruct (List.Forall_inv Hfa) as [ Hlexk Hlexv ]. cbn [fst snd] in Hlexk, Hlexv.
+        assert (Hcs : clean_start (gprint_pairs_tl m ++ Y) = true)
+          by (destruct m as [ | [k' v'] m' ]; [ cbn [gprint_pairs_tl Datatypes.app]; exact HYc | reflexivity ]).
+        assert (Hm : lex_aux (S (String.length (gprint_pairs_tl m ++ Y))) (gprint_pairs_tl m ++ Y)
+                   = Some (gtokens_pairs_tl m ++ tY)%list)
+          by (apply IHm; [ exact (List.Forall_inv_tail Hfa) | exact HYc | exact HY | rewrite length_app; lia ]).
+        assert (Hv : lex_aux (S (String.length (gprint 0 v ++ gprint_pairs_tl m ++ Y))) (gprint 0 v ++ gprint_pairs_tl m ++ Y)
+                   = Some (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))%list)
+          by (apply Hlexv; [ exact Hcs | exact Hm | rewrite !length_app; lia ]).
+        assert (Hspv : lex_aux (S (String.length (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))
+                     = Some (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))%list)
+          by (apply lex_space_app; [ exact Hv | cbn [String.length]; lia ]).
+        assert (Hcolon : lex_aux (S (String.length (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))) (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
+                       = Some (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY)))%list)
+          by (apply lex_colon_app; [ exact Hspv | cbn [String.length]; lia ]).
+        assert (Hk : lex_aux (S (String.length (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))))
+                             (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y)))
+                   = Some (gtokens 0 k ++ (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))))%list)
+          by (apply Hlexk; [ reflexivity | exact Hcolon | rewrite !length_app; cbn [String.length]; lia ]).
+        assert (Hspk : lex_aux (S (String.length (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))))
+                               (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))
+                     = Some (gtokens 0 k ++ (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl m ++ tY))))%list)
+          by (apply lex_space_app; [ exact Hk | cbn [String.length]; lia ]).
+        rewrite !str_app_assoc.
+        change (", " ++ (gprint 0 k ++ (": " ++ (gprint 0 v ++ (gprint_pairs_tl m ++ Y)))))%string
+          with (String (ch 44) (String (ch 32) (gprint 0 k ++ String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl m ++ Y))))).
+        rewrite (lex_comma_app _ _ _ Hspk)
+          by (cbn [gprint_pairs_tl] in HF; cbn [String.length] in HF |- *;
+              repeat rewrite length_app in HF; repeat rewrite length_app;
+              cbn [String.length] in HF |- *;
+              repeat rewrite length_app in HF; repeat rewrite length_app; lia).
+        cbn [app]; rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; reflexivity. }
+    assert (Hrc : lex_aux (S (String.length (String (ch 125) rest))) (String (ch 125) rest) = Some (TRC :: tr))
+      by (apply lex_rbrace_app; [ exact Hrest | cbn [String.length]; lia ]).
+    assert (Hpairs : lex_aux (S (String.length (gprint_pairs mkvs ++ String (ch 125) rest)))
+                            (gprint_pairs mkvs ++ String (ch 125) rest)
+                  = Some (gtokens_pairs mkvs ++ TRC :: tr)%list).
+    { destruct mkvs as [ | [k v] r ].
+      - cbn [gprint_pairs gtokens_pairs String.append Datatypes.app]. exact Hrc.
+      - cbn [gprint_pairs gtokens_pairs].
+        destruct (List.Forall_inv IHmkvs) as [ Hlexk Hlexv ]. cbn [fst snd] in Hlexk, Hlexv.
+        assert (Hcs : clean_start (gprint_pairs_tl r ++ String (ch 125) rest) = true)
+          by (destruct r as [ | [k' v'] r' ]; [ cbn [gprint_pairs_tl Datatypes.app]; reflexivity | reflexivity ]).
+        assert (Htlr : lex_aux (S (String.length (gprint_pairs_tl r ++ String (ch 125) rest)))
+                               (gprint_pairs_tl r ++ String (ch 125) rest)
+                     = Some (gtokens_pairs_tl r ++ TRC :: tr)%list)
+          by (apply (Htl r (String (ch 125) rest) (TRC :: tr));
+              [ exact (List.Forall_inv_tail IHmkvs) | reflexivity | exact Hrc
+              | rewrite length_app; cbn [String.length]; lia ]).
+        assert (Hv : lex_aux (S (String.length (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)
+                   = Some (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr))%list)
+          by (apply Hlexv; [ exact Hcs | exact Htlr | rewrite !length_app; cbn [String.length]; lia ]).
+        assert (Hspv : lex_aux (S (String.length (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)))) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))
+                     = Some (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr))%list)
+          by (apply lex_space_app; [ exact Hv | cbn [String.length]; lia ]).
+        assert (Hcolon : lex_aux (S (String.length (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))))) (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest)))
+                       = Some (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: tr)))%list)
+          by (apply lex_colon_app; [ exact Hspv | cbn [String.length]; lia ]).
+        rewrite !str_app_assoc.
+        change (": " ++ (gprint 0 v ++ (gprint_pairs_tl r ++ String (ch 125) rest)))%string
+          with (String (ch 58) (String (ch 32) (gprint 0 v ++ gprint_pairs_tl r ++ String (ch 125) rest))).
+        rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc.
+        apply Hlexk; [ reflexivity | exact Hcolon | rewrite !length_app; cbn [String.length]; lia ]. }
+    assert (Hlc : lex_aux (S (String.length (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))))
+                          (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))
+                = Some (TLC :: (gtokens_pairs mkvs ++ TRC :: tr))%list)
+      by (apply lex_lbrace_app; [ exact Hpairs | cbn [String.length]; lia ]).
+    rewrite !str_app_assoc.
+    change (print_ty (GTMap mkt mvt) ++ ("{" ++ (gprint_pairs mkvs ++ ("}" ++ rest))))%string
+      with (print_ty (GTMap mkt mvt) ++ String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest))%string.
+    rewrite (gttokens_ty_lex (GTMap mkt mvt) (String (ch 123) (gprint_pairs mkvs ++ String (ch 125) rest)) fuel
+               (TLC :: (gtokens_pairs mkvs ++ TRC :: tr)) ltac:(reflexivity) Hlc
+               ltac:(rewrite gprint_EMapLit in Hfuel; cbn [String.length] in Hfuel |- *;
+                     repeat rewrite length_app in Hfuel; repeat rewrite length_app;
+                     cbn [String.length] in Hfuel |- *; lia)).
+    rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc; cbn [app]; reflexivity.
 Qed.
 
 (** THE HEADLINE (lexer half): [lex (gprint ctx e) = Some (gtokens ctx e)] — the printed AST lexes to its
@@ -2365,6 +2598,10 @@ Fixpoint esize (e : GExpr) : nat :=
                                          match l with nil => 0 | a :: r => S (esize a + esa r) end) es))
       (* +2: the '['']' bracket pair before the type ([{]/[}] covered by the per-element +1, as ECall's commas).
          Element sum + length mirrors ECall's args; [esize_ESliceLit] re-folds onto [esa]. *)
+  | EMapLit kt vt kvs => S (S (tsize kt + tsize vt + (fix mpa (l : list (GExpr * GExpr)) : nat :=
+                                                        match l with nil => 0 | (k, v) :: r => S (esize k + esize v + mpa r) end) kvs))
+      (* +2: the map[K]V prefix's two bracket/keyword tokens beyond [tsize kt + tsize vt] ([{]/[}]/colons covered
+         by the per-pair +1).  Pair sum + length; [esize_EMapLit] re-folds onto [mpa]. *)
   end.
 Lemma esize_pos : forall e, 1 <= esize e.
 Proof. intro e; destruct e; cbn [esize]; lia. Qed.
@@ -2389,6 +2626,19 @@ Proof.
                              match l0 with nil => 0 | a :: r => S (esize a + esa0 r) end) es))).
   rewrite esa_eq. reflexivity.
 Qed.
+(** standalone pair-size sum (mirrors the local [fix] in [esize]'s EMapLit case); [esize_EMapLit] re-folds. *)
+Fixpoint mpa (l : list (GExpr * GExpr)) : nat := match l with nil => 0 | (k, v) :: r => S (esize k + esize v + mpa r) end.
+Lemma mpa_eq : forall l,
+  (fix mpa0 (l0 : list (GExpr * GExpr)) : nat := match l0 with nil => 0 | (k, v) :: r => S (esize k + esize v + mpa0 r) end) l = mpa l.
+Proof. induction l as [ | [k v] r IH ]; [ reflexivity | cbn [mpa]; rewrite <- IH; reflexivity ]. Qed.
+Lemma esize_EMapLit : forall kt vt kvs, esize (EMapLit kt vt kvs) = S (S (tsize kt + tsize vt + mpa kvs)).
+Proof.
+  intros kt vt kvs.
+  change (esize (EMapLit kt vt kvs))
+    with (S (S (tsize kt + tsize vt + (fix mpa0 (l0 : list (GExpr * GExpr)) : nat :=
+                                         match l0 with nil => 0 | (k, v) :: r => S (esize k + esize v + mpa0 r) end) kvs))).
+  rewrite mpa_eq. reflexivity.
+Qed.
 
 (** the operand-wrap [gtparen] only ADDS tokens, so it never shrinks below the operand's node count —
     factored out of the five identical postfix [assert]s below (one [unfold gtparen]/[destruct]/[lia] each). *)
@@ -2404,7 +2654,7 @@ Qed.
     always covers the [3*esize+2] budget. *)
 Lemma length_gtokens_ge_esize : forall e ctx, esize e <= List.length (gtokens ctx e).
 Proof.
-  induction e as [ i | z | o e0 IH | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs IHargs | ea IHea T | cv ecv IHcv | slt sles IHsles ]
+  induction e as [ i | z | o e0 IH | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs IHargs | ea IHea T | cv ecv IHcv | slt sles IHsles | mkt mvt mkvs IHmkvs ]
     using GExpr_ind'; intro ctx.
   - cbn; lia.
   - cbn; lia.
@@ -2457,6 +2707,23 @@ Proof.
       cbn [esa gtokens_args]. rewrite List.length_app.
       pose proof (List.Forall_inv IHsles 0) as Hbb. pose proof (Hat r (List.Forall_inv_tail IHsles)) as Hmm. lia. }
     lia.
+  - (* EMapLit mkt mvt mkvs — the map[K]V prefix via [tsize_le_len]; the KEYED pair list bounded like ECall's args *)
+    rewrite esize_EMapLit, (gtokens_EMapLit ctx mkt mvt mkvs).
+    rewrite List.length_app. cbn [List.length]. rewrite List.length_app. cbn [List.length].
+    pose proof (tsize_le_len (GTMap mkt mvt)) as Ht. cbn [tsize] in Ht.
+    assert (Hmt : forall l, List.Forall (fun p => (forall ctx0, esize (fst p) <= List.length (gtokens ctx0 (fst p)))
+                                               /\ (forall ctx0, esize (snd p) <= List.length (gtokens ctx0 (snd p)))) l ->
+                  mpa l <= List.length (gtokens_pairs_tl l)).
+    { induction l as [ | [k v] m IHm ]; intro Hfa; [ cbn [mpa gtokens_pairs_tl]; lia | ].
+      cbn [mpa gtokens_pairs_tl List.length]. rewrite !List.length_app. cbn [List.length]. rewrite !List.length_app.
+      destruct (List.Forall_inv Hfa) as [ Hbk Hbv ]. cbn [fst snd] in Hbk, Hbv.
+      pose proof (Hbk 0). pose proof (Hbv 0). pose proof (IHm (List.Forall_inv_tail Hfa)) as Hmm. lia. }
+    assert (Hme : mpa mkvs <= List.length (gtokens_pairs mkvs) + 1).
+    { destruct mkvs as [ | [k v] r ]; [ cbn [mpa gtokens_pairs]; lia | ].
+      cbn [mpa gtokens_pairs]. rewrite !List.length_app. cbn [List.length]. rewrite !List.length_app.
+      destruct (List.Forall_inv IHmkvs) as [ Hbk Hbv ]. cbn [fst snd] in Hbk, Hbv.
+      pose proof (Hbk 0). pose proof (Hbv 0). pose proof (Hmt r (List.Forall_inv_tail IHmkvs)) as Hmm. lia. }
+    lia.
 Qed.
 
 (** [tail_ok k rest] — a tail at which [parse_climb k] STOPS: empty, led by a NON-infix token, or led by
@@ -2508,6 +2775,7 @@ Lemma parse_atom_S : forall f toks, parse_atom (S f) toks =
   | TMap :: _ =>
       match parse_gty f toks with
       | Some (GTMap k v, TLP :: r1) => match parse_expr f 0 r1 with Some (e, TRP :: r2) => Some (EConv (CTMap k v) e, r2) | _ => None end
+      | Some (GTMap k v, TLC :: r1) => match parse_map_elems f r1 with Some (kvs, r2) => Some (EMapLit k v kvs, r2) | None => None end
       | _ => None end
   | TId i :: rest  => Some (EId i, rest)
   | TInt z :: rest => Some (EInt z, rest)
@@ -2600,6 +2868,46 @@ Lemma parse_elems_cons : forall F toks, starts_TRC toks = false ->
     | None => None
     end.
 Proof. intros F toks H. rewrite parse_elems_S. destruct toks as [ | t r ]; [ reflexivity | destruct t; try reflexivity; discriminate H ]. Qed.
+(** [parse_map_elems] / [parse_map_elems_tl] fuel-unfold + cons lemmas — like the [parse_elems] ones, but each
+    element parses a KEY, expects [TColon], then a VALUE. *)
+Lemma parse_map_elems_S : forall f toks, parse_map_elems (S f) toks =
+  match toks with
+  | TRC :: r => Some (nil, r)
+  | _ => match parse_expr f 0 toks with
+         | Some (k, TColon :: r0) =>
+             match parse_expr f 0 r0 with
+             | Some (v, r1) => match parse_map_elems_tl f r1 with Some (kvs, r2) => Some ((k, v) :: kvs, r2) | None => None end
+             | None => None
+             end
+         | _ => None
+         end
+  end.
+Proof. reflexivity. Qed.
+Lemma parse_map_elems_tl_S : forall f toks, parse_map_elems_tl (S f) toks =
+  match toks with
+  | TRC :: r => Some (nil, r)
+  | TComma :: r =>
+      match parse_expr f 0 r with
+      | Some (k, TColon :: r0) =>
+          match parse_expr f 0 r0 with
+          | Some (v, r1) => match parse_map_elems_tl f r1 with Some (kvs, r2) => Some ((k, v) :: kvs, r2) | None => None end
+          | None => None
+          end
+      | _ => None
+      end
+  | _ => None
+  end.
+Proof. reflexivity. Qed.
+Lemma parse_map_elems_cons : forall F toks, starts_TRC toks = false ->
+  parse_map_elems (S F) toks = match parse_expr F 0 toks with
+    | Some (k, TColon :: r0) =>
+        match parse_expr F 0 r0 with
+        | Some (v, r1) => match parse_map_elems_tl F r1 with Some (kvs, r2) => Some ((k, v) :: kvs, r2) | None => None end
+        | None => None
+        end
+    | _ => None
+    end.
+Proof. intros F toks H. rewrite parse_map_elems_S. destruct toks as [ | t r ]; [ reflexivity | destruct t; try reflexivity; discriminate H ]. Qed.
 
 (** [parse_climb] stops cleanly at a [tail_ok] tail, returning the accumulated left operand untouched. *)
 Lemma tail_ok_climb_stop : forall k rest F l, tail_ok k rest -> parse_climb (S F) k l rest = Some (l, rest).
@@ -2714,6 +3022,7 @@ Fixpoint lspine (fl : nat) (e : GExpr) : nat * GExpr * list (BinOp * GExpr) :=
   | EAssert e0 T => (fl, EAssert e0 T, nil)   (* a type assertion is also a PRIMARY base *)
   | EConv c e0 => (fl, EConv c e0, nil)   (* a type-form conversion is also a PRIMARY base *)
   | ESliceLit t es => (fl, ESliceLit t es, nil)   (* a slice composite literal is also a PRIMARY base *)
+  | EMapLit kt vt kvs => (fl, EMapLit kt vt kvs, nil)   (* a map composite literal is also a PRIMARY base *)
   | EBn o l r =>
       if Nat.leb fl (binop_prec o)
       then let '(bfl, base, ps) := lspine (binop_prec o) l in (bfl, base, (ps ++ (o, r) :: nil)%list)
@@ -2723,7 +3032,7 @@ Fixpoint lspine (fl : nat) (e : GExpr) : nat * GExpr * list (BinOp * GExpr) :=
 Lemma lspine_print : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> gtokens fl e = (gtokens bfl base ++ gtok_pairs ps)%list.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
@@ -2740,12 +3049,13 @@ Proof.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
   - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
+  - cbn in H. inversion H; subst. cbn [gtok_pairs]. rewrite app_nil_r. reflexivity.
 Qed.
 
 Lemma lspine_fold : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> fold_pairs base ps = e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
@@ -2754,6 +3064,7 @@ Proof.
       inversion H; subst. clear H.
       rewrite fold_pairs_app. cbn [fold_pairs]. rewrite (IHl _ _ _ _ El). reflexivity.
     + inversion H; subst. reflexivity.
+  - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
   - cbn in H. inversion H; subst. reflexivity.
@@ -2788,7 +3099,7 @@ Lemma lspine_spine_ok : forall e fl bfl base ps,
   (forall e', esize e' < esize e -> Pexpr e') ->
   lspine fl e = (bfl, base, ps) -> spine_ok fl ps.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps Hsih H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps Hsih H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
@@ -2808,6 +3119,7 @@ Proof.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
+  - cbn in H. inversion H; subst. exact I.
 Qed.
 
 (** The base is a PRIMARY: a literal/unary leaf, or an [EBn] wrapped because [bfl] exceeds its operator
@@ -2816,7 +3128,7 @@ Lemma lspine_base : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) ->
   match base with EBn o' _ _ => binop_prec o' < bfl | _ => True end.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
@@ -2831,11 +3143,12 @@ Proof.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
   - cbn in H. inversion H; subst. exact I.
+  - cbn in H. inversion H; subst. exact I.
 Qed.
 
 Lemma lspine_base_le : forall e fl bfl base ps, lspine fl e = (bfl, base, ps) -> esize base <= esize e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
@@ -2843,6 +3156,7 @@ Proof.
     + destruct (lspine (binop_prec o) l) as [ [ bfl0 base0 ] ps0 ] eqn:El.
       inversion H; subst. pose proof (IHl _ _ _ _ El). cbn [esize]. lia.
     + inversion H; subst. cbn [esize]. lia.
+  - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
   - cbn in H. inversion H; subst. cbn [esize]. lia.
@@ -2861,7 +3175,7 @@ Qed.
 Lemma lspine_fuel3 : forall e fl bfl base ps,
   lspine fl e = (bfl, base, ps) -> 3 * esize base + pairs_fuel ps = S (S (3 * esize e)).
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles ]; intros fl bfl base ps H.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | es IHs fs | eb IHb ix IHx | esl IHsl slo IHlo shi IHhi | ec IHec ecargs | ea IHea T | ecv ece IHec | eslt esles | ekt evt ekvs ]; intros fl bfl base ps H.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
@@ -2870,6 +3184,7 @@ Proof.
       inversion H; subst. clear H. rewrite pairs_fuel_snoc.
       pose proof (IHl _ _ _ _ El) as IH. cbn [esize]. lia.
     + inversion H; subst. cbn [esize pairs_fuel]. lia.
+  - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
   - cbn in H. inversion H; subst. cbn [esize pairs_fuel]. lia.
@@ -2980,19 +3295,19 @@ Qed.
 
 Lemma pspine_fold : forall e, fold_pops (fst (pspine e)) (snd (pspine e)) = e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; cbn [pspine]; try reflexivity;
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; cbn [pspine]; try reflexivity;
     destruct (pspine e0) as [ b ops ] eqn:Ep; cbn [fst snd] in *;
     rewrite fold_pops_app; cbn [fold_pops]; rewrite IHe0; reflexivity.
 Qed.
 Lemma pspine_base_kind : forall e,
   match fst (pspine e) with ESel _ _ => False | EIndex _ _ => False | ESlice _ _ _ => False | ECall _ _ => False | EAssert _ _ => False | _ => True end.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; cbn [pspine]; try exact I;
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; cbn [pspine]; try exact I;
     destruct (pspine e0) as [ b ops ] eqn:Ep; cbn [fst] in *; exact IHe0.
 Qed.
 Lemma pspine_esize : forall e, esize (fst (pspine e)) <= esize e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ];
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ];
     try (cbn; lia);
     cbn [pspine]; destruct (pspine e0) as [ b ops ] eqn:Ep; cbn [fst esize] in *; lia.
 Qed.
@@ -3026,7 +3341,7 @@ Qed.
 (** the chain's tokens = [gtparen] of the innermost base ++ the op tokens (holds for ALL e). *)
 Lemma gtparen_pspine : forall e, gtparen e = (gtparen (fst (pspine e)) ++ gtokens_pops (snd (pspine e)))%list.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; cbn [pspine];
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; cbn [pspine];
     try (cbn [fst snd gtokens_pops]; rewrite app_nil_r; reflexivity).
   - destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [fst snd] in *.
     change (gtparen (ESel e0 f)) with (gtparen e0 ++ TDot :: TId f :: nil)%list.
@@ -3057,6 +3372,19 @@ Proof.
   cbn [af esa]. pose proof (Nat.le_max_l (3 * esize a + 4) (af r)).
   pose proof (Nat.le_max_r (3 * esize a + 4) (af r)). lia.
 Qed.
+(** [parse_map_elems] consumes fuel MAX-wise too: each pair parses its KEY and VALUE at a fresh fuel, so the
+    pair-list fuel is the [Nat.max] over BOTH children of each pair (and the tail).  [mf_le] bounds it by
+    [3*mpa + 2], staying within the [3*esize] budget. *)
+Fixpoint mf (kvs : list (GExpr * GExpr)) : nat :=
+  match kvs with nil => 1 | (k, v) :: r => S (Nat.max (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r))) end.
+Lemma mf_le : forall kvs, mf kvs <= 3 * mpa kvs + 2.
+Proof.
+  induction kvs as [ | [k v] r IH ]; [ cbn [mf mpa]; lia | ].
+  cbn [mf mpa]. pose proof (Nat.le_max_l (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r))).
+  pose proof (Nat.le_max_r (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r))).
+  pose proof (Nat.le_max_l (3 * esize v + 4) (mf r)).
+  pose proof (Nat.le_max_r (3 * esize v + 4) (mf r)). lia.
+Qed.
 
 (** the [parse_postfix] fuel an op run needs: 1 per selector, [3*esize i + 3] per index child, two such for a
     slice's two bounds, [af args] for a call's argument list. *)
@@ -3084,7 +3412,7 @@ Lemma pops_fuel_snoc_assert : forall ops T, pops_fuel (ops ++ PAssert T :: nil)%
 Proof. induction ops as [ | op ops IH ]; intro T; [ cbn [pops_fuel app]; lia | destruct op; cbn [pops_fuel app]; rewrite IH; lia ]. Qed.
 Lemma pspine_pops_fuel : forall e, pops_fuel (snd (pspine e)) <= 3 * esize e.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ];
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ];
     try (cbn; lia).
   - cbn [pspine]. destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [snd esize] in *. rewrite pops_fuel_snoc_sel. lia.
   - cbn [pspine]. destruct (pspine e0) as [ b ops ] eqn:Ep. cbn [snd esize] in *. rewrite pops_fuel_snoc_idx. lia.
@@ -3105,7 +3433,7 @@ Lemma pspine_snd_assert : forall e0 T, snd (pspine (EAssert e0 T)) = (snd (pspin
 Proof. intros e0 T. cbn [pspine]. destruct (pspine e0). reflexivity. Qed.
 Lemma pspine_pidx_esize : forall e i, List.In (PIdx i) (snd (pspine e)) -> esize i < esize e.
 Proof.
-  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; intros i Hin;
+  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; intros i Hin;
     try (cbn in Hin; contradiction).
   - rewrite pspine_snd_sel in Hin. cbn [esize].
     apply List.in_app_or in Hin. destruct Hin as [ Hin | Hin ].
@@ -3131,7 +3459,7 @@ Qed.
 Lemma pspine_pslice_esize : forall e lo hi,
   List.In (PSlice lo hi) (snd (pspine e)) -> esize lo < esize e /\ esize hi < esize e.
 Proof.
-  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; intros lo hi Hin;
+  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; intros lo hi Hin;
     try (cbn in Hin; contradiction).
   - rewrite pspine_snd_sel in Hin. cbn [esize].
     apply List.in_app_or in Hin. destruct Hin as [ Hin | Hin ].
@@ -3160,11 +3488,17 @@ Proof.
   induction l as [ | b r IH ]; intros a Hin; [ contradiction | ].
   destruct Hin as [ -> | Hin ]; cbn [esa]; [ lia | pose proof (IH a Hin); lia ].
 Qed.
+(** each pair of a map literal's element list is strictly smaller (both key and value) than the list's [mpa] sum. *)
+Lemma mpa_in : forall l p, List.In p l -> esize (fst p) + esize (snd p) < mpa l.
+Proof.
+  induction l as [ | [k v] r IH ]; intros p Hin; [ contradiction | ].
+  cbn [mpa]. destruct Hin as [ <- | Hin ]; [ cbn [fst snd]; lia | pose proof (IH p Hin); lia ].
+Qed.
 (** the arguments of a [PCall] in the spine are all strictly smaller than the chain (for their [Pexpr]). *)
 Lemma pspine_pcall_esize : forall e args,
   List.In (PCall args) (snd (pspine e)) -> List.Forall (fun a => esize a < esize e) args.
 Proof.
-  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; intros args Hin;
+  induction e as [ i0 | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; intros args Hin;
     try (cbn in Hin; contradiction).
   - rewrite pspine_snd_sel in Hin. apply List.in_app_or in Hin. destruct Hin as [ Hin | Hin ].
     + eapply List.Forall_impl; [ | exact (IHe0 args Hin) ]. intros a Ha. cbn [esize] in Ha |- *; lia.
@@ -3187,7 +3521,7 @@ Qed.
 (** [gtokens]'s first token is never [TRP] (it is a closer) — so an arg stream is [TRP]-led iff empty. *)
 Lemma gtokens_hd_TRP_false : forall e ctx Z, starts_TRP (gtokens ctx e ++ Z)%list = false.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; intros ctx Z.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; intros ctx Z.
   - reflexivity.
   - reflexivity.
   - cbn [gtokens]. destruct o; reflexivity.
@@ -3199,12 +3533,13 @@ Proof.
   - rewrite gtokens_EAssert, <- app_assoc. unfold gtparen; destruct e0; (apply IHe0 || reflexivity).
   - rewrite gtokens_EConv, <- app_assoc. destruct c0 as [ u | u | k v ]; reflexivity.
   - rewrite gtokens_ESliceLit. reflexivity.
+  - rewrite gtokens_EMapLit. cbn [gttokens_ty app]. reflexivity.
 Qed.
 (** the [TRC] analogue — [gtokens] never starts with the composite-literal closer either (used by
     [parse_elems_roundtrip], exactly as [gtokens_hd_TRP_false] serves [parse_args_roundtrip]). *)
 Lemma gtokens_hd_TRC_false : forall e ctx Z, starts_TRC (gtokens ctx e ++ Z)%list = false.
 Proof.
-  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles ]; intros ctx Z.
+  induction e as [ i | z | o e0 IHe | o l IHl r IHr | e0 IHe0 f | e0 IHe0 ix IHx | e0 IHe0 slo IHlo shi IHhi | e0 IHe0 ecargs | e0 IHe0 T | c0 ece0 IHc0 | eslt esles | ekt evt ekvs ]; intros ctx Z.
   - reflexivity.
   - reflexivity.
   - cbn [gtokens]. destruct o; reflexivity.
@@ -3216,6 +3551,7 @@ Proof.
   - rewrite gtokens_EAssert, <- app_assoc. unfold gtparen; destruct e0; (apply IHe0 || reflexivity).
   - rewrite gtokens_EConv, <- app_assoc. destruct c0 as [ u | u | k v ]; reflexivity.
   - rewrite gtokens_ESliceLit. reflexivity.
+  - rewrite gtokens_EMapLit. cbn [gttokens_ty app]. reflexivity.
 Qed.
 
 (** the argument list parses back: [parse_args]/[parse_args_tl] invert [gtokens_args]/[gtokens_args_tl] up to
@@ -3294,6 +3630,62 @@ Proof.
     cbv beta iota.
     rewrite (parse_elems_tl_roundtrip r rest F' (List.Forall_inv_tail Hfa)
                ltac:(cbn [af] in HF; pose proof (Nat.le_max_r (3 * esize a + 4) (af r)); lia)).
+    reflexivity.
+Qed.
+(** the KEYED pair list parses back: [parse_map_elems]/[parse_map_elems_tl] invert [gtokens_pairs]/[gtokens_pairs_tl]
+    up to and including the '}'.  Each pair's KEY parses (stopping at the [TColon]) then its VALUE (stopping at the
+    pair separator / closer), both via their [Pexpr] (from the [Forall]); the MAX-based [mf] fuel covers both. *)
+Lemma parse_map_elems_tl_roundtrip : forall kvs rest F,
+  List.Forall (fun p => Pexpr (fst p) /\ Pexpr (snd p)) kvs -> mf kvs <= F ->
+  parse_map_elems_tl F (gtokens_pairs_tl kvs ++ TRC :: rest)%list = Some (kvs, rest).
+Proof.
+  induction kvs as [ | [k v] r IH ]; intros rest F Hfa HF.
+  - cbn [gtokens_pairs_tl app]. destruct F as [ | F' ]; [ cbn [mf] in HF; lia | ]. rewrite parse_map_elems_tl_S. reflexivity.
+  - destruct F as [ | F' ]; [ cbn [mf] in HF; lia | ].
+    destruct (List.Forall_inv Hfa) as [ Hpk Hpv ]. cbn [fst snd] in Hpk, Hpv.
+    cbn [gtokens_pairs_tl app parse_map_elems_tl].
+    rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc.
+    assert (Htlk : tail_ok 0 (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: rest)))%list)
+      by (cbn [tail_ok is_postfix_start infix_op]; split; (reflexivity || exact I)).
+    rewrite (Hpk 0 0 (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: rest)))%list F' (le_n 0) Htlk
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_l (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r))); lia)).
+    cbv beta iota.
+    assert (Htlv : tail_ok 0 (gtokens_pairs_tl r ++ TRC :: rest)%list)
+      by (destruct r as [ | [k' v'] r' ]; cbn [gtokens_pairs_tl Datatypes.app tail_ok is_postfix_start infix_op]; split; (reflexivity || exact I)).
+    rewrite (Hpv 0 0 (gtokens_pairs_tl r ++ TRC :: rest)%list F' (le_n 0) Htlv
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_r (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r)));
+                     pose proof (Nat.le_max_l (3 * esize v + 4) (mf r)); lia)).
+    cbv beta iota.
+    rewrite (IH rest F' (List.Forall_inv_tail Hfa)
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_r (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r)));
+                     pose proof (Nat.le_max_r (3 * esize v + 4) (mf r)); lia)).
+    reflexivity.
+Qed.
+Lemma parse_map_elems_roundtrip : forall kvs rest F,
+  List.Forall (fun p => Pexpr (fst p) /\ Pexpr (snd p)) kvs -> mf kvs <= F ->
+  parse_map_elems F (gtokens_pairs kvs ++ TRC :: rest)%list = Some (kvs, rest).
+Proof.
+  intros kvs rest F Hfa HF. destruct kvs as [ | [k v] r ].
+  - cbn [gtokens_pairs app]. destruct F as [ | F' ]; [ cbn [mf] in HF; lia | ]. rewrite parse_map_elems_S. reflexivity.
+  - destruct F as [ | F' ]; [ cbn [mf] in HF; lia | ].
+    destruct (List.Forall_inv Hfa) as [ Hpk Hpv ]. cbn [fst snd] in Hpk, Hpv.
+    cbn [gtokens_pairs]. rewrite <- !app_assoc; cbn [app]; rewrite <- !app_assoc.
+    rewrite (parse_map_elems_cons F' (gtokens 0 k ++ TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: rest)))%list
+               ltac:(apply gtokens_hd_TRC_false)).
+    assert (Htlk : tail_ok 0 (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: rest)))%list)
+      by (cbn [tail_ok is_postfix_start infix_op]; split; (reflexivity || exact I)).
+    rewrite (Hpk 0 0 (TColon :: (gtokens 0 v ++ (gtokens_pairs_tl r ++ TRC :: rest)))%list F' (le_n 0) Htlk
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_l (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r))); lia)).
+    cbv beta iota.
+    assert (Htlv : tail_ok 0 (gtokens_pairs_tl r ++ TRC :: rest)%list)
+      by (destruct r as [ | [k' v'] r' ]; cbn [gtokens_pairs_tl Datatypes.app tail_ok is_postfix_start infix_op]; split; (reflexivity || exact I)).
+    rewrite (Hpv 0 0 (gtokens_pairs_tl r ++ TRC :: rest)%list F' (le_n 0) Htlv
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_r (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r)));
+                     pose proof (Nat.le_max_l (3 * esize v + 4) (mf r)); lia)).
+    cbv beta iota.
+    rewrite (parse_map_elems_tl_roundtrip r rest F' (List.Forall_inv_tail Hfa)
+               ltac:(cbn [mf] in HF; pose proof (Nat.le_max_r (3 * esize k + 4) (Nat.max (3 * esize v + 4) (mf r)));
+                     pose proof (Nat.le_max_r (3 * esize v + 4) (mf r)); lia)).
     reflexivity.
 Qed.
 
@@ -3436,6 +3828,27 @@ Proof.
   reflexivity.
 Qed.
 
+(** [parse_atom] reads a map composite literal [EMapLit kt vt kvs] ([map[K]V{k1: v1,..,kn: vn}]).  At ATOM
+    position the [map[K]V] lead is a type ([parse_gty] consumes [GTMap kt vt]); the NEXT token '{' (TLC) — vs the
+    conversion's '(' (TLP) — selects the literal, then [parse_map_elems] consumes the brace-delimited KEYED pair
+    list ([parse_map_elems_roundtrip]).  Each key/value round-trips via its [Pexpr].  Type-led analogue of
+    [parse_atom_slicelit]; [op_needs_paren (EMapLit …) = false]. *)
+Lemma parse_atom_maplit : forall kt vt kvs ctx TAIL F,
+  List.Forall (fun p => Pexpr (fst p) /\ Pexpr (snd p)) kvs -> tsize kt + tsize vt + 3 * mpa kvs + 4 < F ->
+  parse_atom F (gtokens ctx (EMapLit kt vt kvs) ++ TAIL)%list = Some (EMapLit kt vt kvs, TAIL).
+Proof.
+  intros kt vt kvs ctx TAIL F Hfa HF. rewrite gtokens_EMapLit.
+  destruct F as [ | f ]; [ lia | ].
+  (* normalise the [++ TAIL] into the type's clean tail, keeping [gttokens_ty (GTMap kt vt)] folded as the head *)
+  rewrite <- ?app_assoc; cbn [app]; rewrite <- ?app_assoc; cbn [app].
+  pose proof (parse_gty_roundtrip (GTMap kt vt) (TLC :: (gtokens_pairs kvs ++ TRC :: TAIL)) f
+                ltac:(cbn [tsize]; lia)) as Hg.
+  rewrite parse_atom_S. cbn [gttokens_ty app] in Hg |- *.
+  rewrite Hg. cbv beta iota.
+  rewrite (parse_map_elems_roundtrip kvs TAIL f Hfa ltac:(pose proof (mf_le kvs); lia)).
+  reflexivity.
+Qed.
+
 (** [parse_atom] reads a [gparen]-printed operand (a non-postfix base: literal/unary/paren-binop/conversion). *)
 Lemma parse_atom_gparen : forall b TAIL F,
   match b with ESel _ _ => False | EIndex _ _ => False | ESlice _ _ _ => False | ECall _ _ => False | EAssert _ _ => False | _ => True end ->
@@ -3444,8 +3857,8 @@ Lemma parse_atom_gparen : forall b TAIL F,
   parse_atom F (gtparen b ++ TAIL)%list = Some (b, TAIL).
 Proof.
   intros b TAIL F Hkind Hsih HP HF.
-  destruct b as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles ];
-    [ | | | | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | | ].
+  destruct b as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles | ekt evt ekvs ];
+    [ | | | | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | exfalso; exact Hkind | | | ].
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtparen gtokens app]. rewrite parse_atom_S. reflexivity.
   - cbn [gtparen op_needs_paren]. destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
@@ -3462,6 +3875,12 @@ Proof.
     apply parse_atom_slicelit;
       [ apply List.Forall_forall; intros a Ha; apply Hsih; rewrite esize_ESliceLit; pose proof (esa_in esles a Ha); lia
       | rewrite esize_ESliceLit in HF; lia ].
+  - (* EMapLit ekt evt ekvs — [op_needs_paren = false]; read via [parse_atom_maplit], pairs' [Pexpr] from the size-IH *)
+    cbn [gtparen op_needs_paren].
+    apply parse_atom_maplit;
+      [ apply List.Forall_forall; intros p Hp; split;
+          (apply Hsih; rewrite esize_EMapLit; pose proof (mpa_in ekvs p Hp); lia)
+      | rewrite esize_EMapLit in HF; lia ].
 Qed.
 
 (** [parse_atom] reads a standalone (non-selector) base [gtokens bfl base] — literal/unary direct, a
@@ -3474,8 +3893,8 @@ Lemma parse_atom_base : forall base bfl TAIL F,
   parse_atom F (gtokens bfl base ++ TAIL)%list = Some (base, TAIL).
 Proof.
   intros base bfl TAIL F Hsih HPbase Hprim HF.
-  destruct base as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles ];
-    [ | | | | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | | ].
+  destruct base as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles | ekt evt ekvs ];
+    [ | | | | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | exfalso; exact Hprim | | | ].
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
   - destruct F as [ | f ]; [ cbn [esize] in HF; lia | ]. cbn [gtokens app]. rewrite parse_atom_S. reflexivity.
   - apply parse_atom_unary; [ apply Hsih; cbn [esize]; lia | cbn [esize] in HF; lia ].
@@ -3492,6 +3911,11 @@ Proof.
     apply parse_atom_slicelit;
       [ apply List.Forall_forall; intros a Ha; apply Hsih; rewrite esize_ESliceLit; pose proof (esa_in esles a Ha); lia
       | rewrite esize_ESliceLit in HF; lia ].
+  - (* EMapLit ekt evt ekvs — read via [parse_atom_maplit]; pairs' [Pexpr] from the size-IH *)
+    apply parse_atom_maplit;
+      [ apply List.Forall_forall; intros p Hp; split;
+          (apply Hsih; rewrite esize_EMapLit; pose proof (mpa_in ekvs p Hp); lia)
+      | rewrite esize_EMapLit in HF; lia ].
 Qed.
 
 (** a [GExpr] that is a postfix CHAIN (selector/index top) — the forms [parse_primary] decodes via the spine. *)
@@ -3548,10 +3972,10 @@ Lemma parse_primary_base : forall base bfl TAIL F,
   parse_primary F (gtokens bfl base ++ TAIL)%list = Some (base, TAIL).
 Proof.
   intros base bfl TAIL F Hsih HPbase Hprim Hcl HF.
-  destruct base as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles ].
+  destruct base as [ i | z | o e0 | o' l' r' | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles | ekt evt ekvs ].
   (* ESel / EIndex / ESlice / ECall / EAssert chain — via the postfix spine ([parse_primary_chain]) *)
   5-9: apply parse_primary_chain; [ exact I | exact Hsih | exact Hcl | lia ].
-  (* EId / EInt / EUn / EBn / EConv / ESliceLit — a non-chain base via [parse_atom_base] then an empty postfix loop *)
+  (* EId / EInt / EUn / EBn / EConv / ESliceLit / EMapLit — a non-chain base via [parse_atom_base] then an empty postfix loop *)
   all: destruct F as [ | F' ]; [ cbn [esize] in HF; lia | ]; destruct F' as [ | f ]; [ cbn [esize] in HF; lia | ];
        apply parse_primary_of_atom; [ apply parse_atom_base; [ exact Hsih | exact HPbase | exact Hprim | cbn [esize] in HF |- *; lia ] | exact Hcl ].
 Qed.
@@ -3574,6 +3998,16 @@ Proof.
   intros t es ctx TAIL F Hfa Hcl HF. destruct F as [ | F' ]; [ lia | ]. destruct F' as [ | f ]; [ lia | ].
   apply parse_primary_of_atom; [ apply parse_atom_slicelit; [ exact Hfa | lia ] | exact Hcl ].
 Qed.
+(** [parse_primary] reads a map composite literal [EMapLit kt vt kvs] (analogue of [parse_primary_slicelit]). *)
+Lemma parse_primary_maplit : forall kt vt kvs ctx TAIL F,
+  List.Forall (fun p => Pexpr (fst p) /\ Pexpr (snd p)) kvs ->
+  (match TAIL with nil => True | t0 :: _ => is_postfix_start t0 = false end) ->
+  tsize kt + tsize vt + 3 * mpa kvs + 5 < F ->
+  parse_primary F (gtokens ctx (EMapLit kt vt kvs) ++ TAIL)%list = Some (EMapLit kt vt kvs, TAIL).
+Proof.
+  intros kt vt kvs ctx TAIL F Hfa Hcl HF. destruct F as [ | F' ]; [ lia | ]. destruct F' as [ | f ]; [ lia | ].
+  apply parse_primary_of_atom; [ apply parse_atom_maplit; [ exact Hfa | lia ] | exact Hcl ].
+Qed.
 
 (** ---- THE EXPRESSION ROUND-TRIP ---- every [e] satisfies [Pexpr] (strong induction on [esize]).  An
     UNWRAPPED [e] (at a context [<=] its top precedence) parses via the left-spine decomposition
@@ -3586,7 +4020,7 @@ Proof.
   - assert (Hunwr : forall k ctx rest F, k <= ctx -> tail_ok k rest -> 3 * esize e < F ->
               match e with EBn o _ _ => ctx <= binop_prec o | ESel _ _ => False | EIndex _ _ => False | ESlice _ _ _ => False | ECall _ _ => False | EAssert _ _ => False | _ => True end ->
               parse_expr F k (gtokens ctx e ++ rest)%list = Some (e, rest)).
-    { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ i | z | o e0 | o l r | es fs | es ix | es slo shi | es eargs | es eaT | ec0 ece0 | slt sles ].
+    { intros k ctx rest F Hk Htl HF Hctx. destruct e as [ i | z | o e0 | o l r | es fs | es ix | es slo shi | es eargs | es eaT | ec0 ece0 | slt sles | mkt mvt mkvs ].
       - (* EId *) destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
         destruct f as [ | g ]; [ cbn [esize] in HF; lia | ]. destruct g as [ | g' ]; [ cbn [esize] in HF; lia | ].
         cbn [gtokens app]. rewrite parse_expr_S.
@@ -3653,9 +4087,19 @@ Proof.
                    ltac:(apply List.Forall_forall; intros a Ha; apply IH; rewrite esize_ESliceLit in Hsz; pose proof (esa_in sles a Ha); lia)
                    (tail_ok_pclean _ _ Htl)
                    ltac:(rewrite esize_ESliceLit in HF; lia)).
+        apply tail_ok_climb_stop; exact Htl.
+      - (* EMapLit mkt mvt mkvs — a primary (never wrapped); read via [parse_primary_maplit] *)
+        destruct F as [ | f ]; [ cbn [esize] in HF; lia | ].
+        destruct f as [ | g ]; [ cbn [esize] in HF; lia | ].
+        rewrite parse_expr_S.
+        rewrite (parse_primary_maplit mkt mvt mkvs ctx rest (S g)
+                   ltac:(apply List.Forall_forall; intros p Hp; split;
+                           (apply IH; rewrite esize_EMapLit in Hsz; pose proof (mpa_in mkvs p Hp); lia))
+                   (tail_ok_pclean _ _ Htl)
+                   ltac:(rewrite esize_EMapLit in HF; lia)).
         apply tail_ok_climb_stop; exact Htl. }
     unfold Pexpr. intros k ctx rest F Hk Htl HF.
-    destruct e as [ i | z | o e0 | o l r | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles ].
+    destruct e as [ i | z | o e0 | o l r | es fs | es ix | es slo shi | es eargs | es eaT | ecc ece | eslt esles | ekt evt ekvs ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
     + apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
@@ -3721,6 +4165,8 @@ Proof.
     + (* EConv ecc ece — a primary (never wrapped); the unwrapped path ([op_needs_paren = false]) *)
       apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
     + (* ESliceLit eslt esles — a primary (never wrapped); the unwrapped path ([op_needs_paren = false]) *)
+      apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
+    + (* EMapLit ekt evt ekvs — a primary (never wrapped); the unwrapped path ([op_needs_paren = false]) *)
       apply Hunwr; [ exact Hk | exact Htl | cbn [esize] in HF |- *; lia | exact I ].
 Qed.
 
@@ -4099,11 +4545,26 @@ Proof.
   intros [ | a r ] HF; [ exact I | ]. cbn [gprint_args].
   apply no_nl_app; [ exact (Forall_inv HF) | apply no_nl_gprint_args_tl; exact (Forall_inv_tail HF) ].
 Qed.
+Lemma no_nl_gprint_pairs_tl : forall kvs,
+  Forall (fun p => no_nl (gprint 0 (fst p)) /\ no_nl (gprint 0 (snd p))) kvs -> no_nl (gprint_pairs_tl kvs).
+Proof.
+  induction kvs as [ | [k v] m IH ]; intro HF; [ exact I | ]. cbn [gprint_pairs_tl].
+  destruct (Forall_inv HF) as [ Hk Hv ]. cbn [fst snd] in Hk, Hv.
+  apply no_nl_app; [ no_nl_lit
+    | apply no_nl_app; [ exact Hk | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact Hv | apply IH; exact (Forall_inv_tail HF) ] ] ] ].
+Qed.
+Lemma no_nl_gprint_pairs : forall kvs,
+  Forall (fun p => no_nl (gprint 0 (fst p)) /\ no_nl (gprint 0 (snd p))) kvs -> no_nl (gprint_pairs kvs).
+Proof.
+  intros [ | [k v] r ] HF; [ exact I | ]. cbn [gprint_pairs].
+  destruct (Forall_inv HF) as [ Hk Hv ]. cbn [fst snd] in Hk, Hv.
+  apply no_nl_app; [ exact Hk | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ exact Hv | apply no_nl_gprint_pairs_tl; exact (Forall_inv_tail HF) ] ] ].
+Qed.
 Lemma no_nl_gprint : forall e ctx, no_nl (gprint ctx e).
 Proof.
   intro e.
   induction e as [ i | z | o e0 IHe0 | o l IHl r IHr | e0 IHe0 f | e0 IHe0 i IHi
-                 | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | ec0 ece0 IHec0 | slt sles IHsles ]
+                 | e0 IHe0 lo IHlo hi IHhi | e0 IHe0 args IHargs | e0 IHe0 T | ec0 ece0 IHec0 | slt sles IHsles | mkt mvt mkvs IHmkvs ]
     using GExpr_ind'; intro ctx.
   - cbn [gprint]. apply no_nl_ident.
   - cbn [gprint]. apply no_nl_print_Z.
@@ -4141,6 +4602,11 @@ Proof.
     apply no_nl_app; [ no_nl_lit
       | apply no_nl_app; [ apply no_nl_print_ty
         | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply no_nl_gprint_args; exact Hes0 | no_nl_lit ] ] ] ].
+  - rewrite gprint_EMapLit.
+    assert (Hkvs0 : Forall (fun p => no_nl (gprint 0 (fst p)) /\ no_nl (gprint 0 (snd p))) mkvs)
+      by (eapply Forall_impl; [ | exact IHmkvs ]; intros p Hp; destruct Hp as [ Hp1 Hp2 ]; split; [ apply Hp1 | apply Hp2 ]).
+    apply no_nl_app; [ apply no_nl_print_ty
+      | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply no_nl_gprint_pairs; exact Hkvs0 | no_nl_lit ] ] ].
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
 Proof.

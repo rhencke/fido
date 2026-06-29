@@ -52,6 +52,7 @@ Fixpoint svalue (e : GExpr) : bool :=
       end
   | EConv _ e0 => svalue e0   (* a type-form CONVERSION [[]T(a)/chan T(a)/map[K]V(a)] — always yields a value *)
   | ESliceLit _ es => forallb svalue es  (* a slice composite literal [[]T{e1,..,en}] — a VALUE iff every element is one *)
+  | EMapLit _ _ kvs => forallb (fun p => svalue (fst p) && svalue (snd p)) kvs  (* a map composite literal [map[K]V{k1: v1,..}] — a VALUE iff every key AND value is one *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
@@ -208,6 +209,25 @@ Definition unsupported_slicelit_stmt : Program :=
 Example slicelit_stmt_unsupported : supported_program unsupported_slicelit_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example slicelit_stmt_supported : SupportedProgram unsupported_slicelit_stmt := eq_refl.
+
+(** POSITIVE (Phase 4, [EMapLit]) — a map composite literal is fine in VALUE position: `func main(){
+    println(map[int]int{1: 2}) }` is supported (the statement is a [println] call; its argument
+    [map[int]int{1: 2}] is an [EMapLit] whose single pair's key [1] and value [2] are both [svalue]).  Like
+    [ESliceLit], a bare [EMapLit] STATEMENT `func main(){ map[int]int{1: 2} }` is rejected — [expr_stmt_ok]
+    admits only [ECall (EId _) _], not [EMapLit] — so the literal-as-statement bar holds. *)
+Definition supported_maplit_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])].
+Example maplit_arg_supported : SupportedProgram supported_maplit_arg.
+Proof. reflexivity. Qed.
+(** And the bare map-literal STATEMENT `func main(){ map[int]int{1: 2} }` is NOT supported. *)
+Definition unsupported_maplit_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (EMapLit GTInt GTInt [(EInt 1, EInt 2)])].
+Example maplit_stmt_unsupported : supported_program unsupported_maplit_stmt = false.
+Proof. reflexivity. Qed.
+Fail Example maplit_stmt_supported : SupportedProgram unsupported_maplit_stmt := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
     println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:

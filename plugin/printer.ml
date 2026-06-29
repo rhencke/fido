@@ -1128,6 +1128,7 @@ type gExpr =
 | EAssert of gExpr * goTy
 | EConv of convTy * gExpr
 | ESliceLit of goTy * gExpr list
+| EMapLit of goTy * goTy * (gExpr, gExpr) prod list
 
 (** val print_ty : goTy -> string **)
 
@@ -1815,3 +1816,33 @@ let rec gprint ctx = function
                 in gat r))
           (String ((Ascii (True, False, True, True, True, True, True,
           False)), EmptyString)))))
+| EMapLit (kt, vt, kvs) ->
+  append (print_ty (GTMap (kt, vt)))
+    (append (String ((Ascii (True, True, False, True, True, True, True,
+      False)), EmptyString))
+      (append
+        (match kvs with
+         | Nil -> EmptyString
+         | Cons (p, r) ->
+           let Pair (k, v) = p in
+           append (gprint O k)
+             (append (String ((Ascii (False, True, False, True, True, True,
+               False, False)), (String ((Ascii (False, False, False, False,
+               False, True, False, False)), EmptyString))))
+               (append (gprint O v)
+                 (let rec gpp = function
+                  | Nil -> EmptyString
+                  | Cons (q, m') ->
+                    let Pair (k', v') = q in
+                    append (String ((Ascii (False, False, True, True, False,
+                      True, False, False)), (String ((Ascii (False, False,
+                      False, False, False, True, False, False)),
+                      EmptyString))))
+                      (append (gprint O k')
+                        (append (String ((Ascii (False, True, False, True,
+                          True, True, False, False)), (String ((Ascii (False,
+                          False, False, False, False, True, False, False)),
+                          EmptyString)))) (append (gprint O v') (gpp m'))))
+                  in gpp r))))
+        (String ((Ascii (True, False, True, True, True, True, True, False)),
+        EmptyString))))
