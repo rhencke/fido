@@ -131,37 +131,30 @@ Definition uneg_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add (i64_neg a) b)            (* -(a) + b *)
           ; any (i64_add b (i64_neg a)) ].         (* b + -(a) *)
 
-(** ★Stage B (slice 1): a binary operator over two RUNTIME LOCALS [a OP b] — the FIRST expression class
-    the plugin prints through the VERIFIED [GoPrint] printer ([Printer.gprint], machine-checked
-    by [parse_print_roundtrip] / [gprint_inj]) rather than the trusted OCaml [pp_prec].  Both operands are
-    [MLrel] params, so the typed-arith force-wrapper provably cannot fire and this is exactly the plain
-    binop case — the emitted bytes are unchanged, but they now come from the verified node printer. *)
+(** A binary operator over two RUNTIME LOCALS [a OP b], printed through the VERIFIED [GoPrint] printer
+    ([Printer.gprint], machine-checked by [parse_print_roundtrip] / [gprint_inj]) rather than the trusted
+    OCaml [pp_prec].  Both operands are [MLrel], so the typed-arith force-wrapper cannot fire — the bytes are
+    byte-identical to [pp_prec] but come from the verified node printer (go.ml [goexpr_bridge]). *)
 Definition front_binop_demo (a b : GoI64) : IO unit :=
   println [ any (i64_add a b)          (* a + b  *)
           ; any (i64_mul a b) ].       (* a * b  *)
 
-(** ★Stage B (slice 2): a binop TREE over runtime locals — the verified [GoPrint] printer now bridges nested
-    binops (not just one operator), so [a*b + c] and [(a+b)*c] are emitted by [Printer.gprint] in full,
-    parentheses and all, with [pp_prec] no longer involved.  All leaves are [MLrel], so the force-wrapper
-    cannot fire; the bytes are unchanged, but the whole tree now comes from the verified node printer. *)
+(** A binop TREE over runtime locals ([a*b + c], [(a+b)*c]) — [Printer.gprint] bridges nested binops in full
+    (parentheses and all), not just one operator.  All leaves are [MLrel]; byte-identical to [pp_prec]. *)
 Definition front_nested_demo (a b c : GoI64) : IO unit :=
   println [ any (i64_add (i64_mul a b) c)          (* a*b + c   *)
           ; any (i64_mul (i64_add a b) c) ].       (* (a+b) * c *)
 
-(** ★Stage B (slice 3): a platform-int ([GoInt]) LITERAL operand.  [int_lit] prints BARE (its renderer IS
-    [Printer.print_Z]), so the verified [GoPrint] printer now bridges integer-literal leaves too — [a + 5] and
-    [a + 5 + a] are emitted in full by [Printer.gprint] via [EBn]/[EId]/[EInt], byte-identical by
-    construction.  ([i64_lit]/[u64_lit] still wrap as [int64(N)]/[uint64(N)] — a conversion [GoPrint] cannot
-    yet represent — so they remain on the trusted [pp_prec].) *)
+(** A platform-int ([GoInt]) LITERAL operand: [int_lit] prints BARE (its renderer IS [Printer.print_Z]), so
+    [Printer.gprint] bridges integer-literal leaves via [EBn]/[EId]/[EInt] — [a + 5], [a + 5 + a]
+    byte-identical by construction. *)
 Definition front_lit_demo (a : GoInt) : IO unit :=
   println [ any (int_add a (int_lit 5 eq_refl))                (* a + 5     *)
           ; any (int_add (int_add a (int_lit 5 eq_refl)) a) ]. (* a + 5 + a *)
 
-(** ★Stage B (slice 4): an [i64] literal operand prints as the CONVERSION [int64(N)] — which is Go call
-    syntax over a type name, so the verified [GoPrint] printer emits it as [ECall (EId "int64") [EInt N]]
-    (amendment 3: identifier-led conversions ARE application syntax — GoPrint needs NO special conversion
-    node).  So [a + int64(5)] / [a * int64(3)] are now printed entirely by [Printer.gprint], with the
-    [int64(...)] wrapper and the literal both byte-identical to the plugin by construction. *)
+(** An [i64] literal operand prints as the CONVERSION [int64(N)] — Go call syntax over a type name, so
+    [Printer.gprint] emits it as [ECall (EId "int64") [EInt N]] (identifier-led conversions ARE application
+    syntax — no special node).  [a + int64(5)] / [a * int64(3)] printed entirely by gprint, byte-identical. *)
 Definition front_conv_demo (a : GoI64) : IO unit :=
   println [ any (i64_add a (5)%i64)          (* a + int64(5) *)
           ; any (i64_mul a (3)%i64) ].       (* a * int64(3) *)
@@ -1572,6 +1565,10 @@ Definition cond_op_demo : IO unit :=
     params (not literals), so the op survives extraction instead of constant-folding.  (NB: Coq's stdlib
     [andb]/[orb]/[negb] are NOT Fido builtins, so they extract as the helper functions [Andb]/[Orb]/[Negb] —
     the [!]/[&&] lowering fires only for a builtin bool op, none of which exists yet.) *)
+(** The bare unary complement [^x] of a runtime local as a binop operand ([^x & y], [^x | y]):
+    [Printer.gprint] bridges [EUn UXor] (printed MINIMALLY — [^x], not [^(x)] — since [GoPrint]'s
+    [unop_needs_paren (EId _) = false]).  Byte-identical to [pp_prec]; only the bare-prefix runtime case is
+    bridged (a typed-constant [^] keeps its force-wrapper IIFE on [pp_prec]). *)
 Definition unop_in_binop_demo (x y : GoI64) : IO unit :=
   println [ any (i64_and (i64_not x) y)         (* ^x & y *)
           ; any (i64_or  (i64_not x) y) ].       (* ^x | y *)
