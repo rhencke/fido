@@ -70,11 +70,15 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
   end.
 
 (** A statement in the SUPPORTED subset: an expression statement must be [expr_stmt_ok]; a bare [return] is
-    always fine (a valid tail of a void func like [main]). *)
+    always fine (a valid tail of a void func like [main]); a VALUE return [return e] ([GsReturnVal]) is
+    REJECTED — the only function we emit is [main], which is VOID, so `return <value>` is invalid Go ("too
+    many return values").  (It becomes supported, conditional on the enclosing function's result type, once
+    NON-void functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.) *)
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with
-  | GsExprStmt e => expr_stmt_ok e
-  | GsReturn     => true
+  | GsExprStmt e  => expr_stmt_ok e
+  | GsReturn      => true
+  | GsReturnVal _ => false   (* value return is invalid in the void [main] — the only function emitted today *)
   end.
 
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
@@ -201,6 +205,21 @@ Fail Example panic_nullary_supported : SupportedProgram unsupported_panic_nullar
 Definition unsupported_panic_binary : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1; EInt 2])].
 Example panic_binary_unsupported : supported_program unsupported_panic_binary = false.
+Proof. reflexivity. Qed.
+
+(** REGRESSION (Phase 4, [GsReturnVal]) — a VALUE return in the void [main], `func main(){ return 1 }`, is
+    invalid Go ("too many return values"), so [stmt_ok] rejects [GsReturnVal] and the program is NOT supported
+    (whereas the bare `func main(){ return }` IS — pinned by [supported_bare_return]).  This demonstrates the
+    AST/gate separation: the AST CAN represent `return e`, the printer round-trips it, but the supportedness
+    gate refuses it because the only function emitted is void.  Becomes supported once non-void functions land. *)
+Definition unsupported_return_value : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)].
+Example return_value_unsupported : supported_program unsupported_return_value = false.
+Proof. reflexivity. Qed.
+Fail Example return_value_supported : SupportedProgram unsupported_return_value := eq_refl.
+Definition supported_bare_return : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsReturn].
+Example bare_return_supported : SupportedProgram supported_bare_return.
 Proof. reflexivity. Qed.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual

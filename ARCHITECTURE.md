@@ -226,8 +226,8 @@ New path:  GoAst + GoPrint + GoSem + GoSafe + GoEmit is the intended architectur
 Landed:    main.v builds a GoAst.Program with a REAL func main body and emits it ONLY through
            EmittableProgram (commit 2 = empty main; f2b6003 = a GoStmt body, println(1)).
 Goal now:  Phase 4 — keep growing the AST/printer: more GoStmt forms (assignment, var, control
-           flow).  (Program-printer injectivity print_program_inj landed 34e4a6c; 2nd statement
-           form GsReturn landed 6e2ba11; the type-form conversion EConv landed this tick.)
+           flow).  (Program-printer injectivity print_program_inj landed 34e4a6c; statement forms
+           GsReturn 6e2ba11, GsReturnVal this tick; the type-form conversion EConv 0b0758b.)
 ```
 
 ---
@@ -272,8 +272,13 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > the unambiguous `[]`/`chan`/`map` lead via the M5 `parse_gty`, `op_needs_paren EConv = false` since a
 > conversion is a Go PrimaryExpr), and `GoSafe.svalue` admits it as value-producing (with a bare-`EConv`-as-
 > statement still rejected) — golden BYTE-IDENTICAL (EConv is not yet wired into the plugin's `main.go` path).
-> Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control flow) and composite-literal/func-lit
-> conversions. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
+> Then (this tick) the 3rd statement form `GsReturnVal` (`return e`) LANDED — its `print_stmt_inj` cross case
+> vs `GsExprStmt` is closed by `gprint_neq_return_val` (a `return e` LEXES to a leading `TReturn` via the new
+> `lex_return_app` seam lemma over `gtokens_lex`, which the expression parser rejects → `parse_str = None`),
+> and `GoSafe.stmt_ok` REJECTS it (a value return is invalid in the only function we emit, the void `main`,
+> with a regression) — a clean demonstration of the AST/gate separation (the AST represents `return e`, the
+> gate refuses it).  Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control flow) and
+> composite-literal/func-lit conversions. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
 > is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
 > COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
 > proven bytes to the compiler. **Still RED:** that is a
@@ -309,10 +314,12 @@ add "future foundation" unless it replaces or deletes something.**
   `func main` body, `println(1)`) with `print_stmt_inj` (f2b6003); whole-program print INJECTIVITY
   `print_program_inj` (34e4a6c — `no_nl_gprint` + a newline delimiter-split; injectivity only, not Go-syntax
   acceptance); the 2nd statement form
-  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`); and the type-form
-  conversion `EConv` / `ConvTy` (this tick — `[]T(x)`/`chan T(x)`/`map[K]V(x)`, the first type-LED `GExpr`
-  atom, zero-axiom round-trip via `parse_atom_conv`, `svalue`-admitted). Next: more `GoStmt` forms
-  (assignment, var, control flow) and composite-literal/func-lit conversions, HERE inside `GoAst`/`GoPrint`.
+  `GsReturn` (6e2ba11 — `print_stmt_inj` multi-constructor via `gprint_neq_return`); the type-form
+  conversion `EConv` / `ConvTy` (0b0758b — `[]T(x)`/`chan T(x)`/`map[K]V(x)`, the first type-LED `GExpr`
+  atom, zero-axiom round-trip via `parse_atom_conv`, `svalue`-admitted); and the 3rd statement form
+  `GsReturnVal` (`return e`, this tick — `print_stmt_inj` cross case via `gprint_neq_return_val` over the new
+  `lex_return_app` keyword seam, GoSafe `stmt_ok`-REJECTED as invalid in void `main`). Next: more `GoStmt`
+  forms (assignment, var, control flow) and composite-literal/func-lit conversions, HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

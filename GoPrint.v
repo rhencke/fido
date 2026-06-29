@@ -1637,6 +1637,32 @@ Proof.
   cbn. rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
 Qed.
 
+(** KEYWORD SEAM: the printed prefix "return " lexes to the reserved [TReturn] token (scan_id reads the
+    maximal idc run "return", [lex_ident] classifies it as the keyword, then the trailing space is skipped) —
+    so the rest [X] lexes unchanged after it.  This is the [GsReturnVal] analogue of [lex_binop_app]; it is
+    what makes a [return e] statement DISJOINT from any expression statement at the lexer level (the leading
+    [TReturn] is rejected by the expression parser). *)
+Lemma lex_return_app : forall X fuel tX,
+  lex_aux (S (String.length X)) X = Some tX ->
+  S (String.length ("return " ++ X)) <= fuel ->
+  lex_aux fuel ("return " ++ X)%string = Some (TReturn :: tX).
+Proof.
+  intros X fuel tX HX Hfuel.
+  assert (Hr : is_idstart "r"%char = true) by (vm_compute; reflexivity).
+  assert (Hsp : is_space " "%char = true) by (vm_compute; reflexivity).
+  do 2 (destruct fuel as [ | fuel ]; [ cbn in Hfuel; lia | ]).
+  (* keep "return" and the trailing space as appends so [scan_id_app] applies (don't fully unfold append) *)
+  change ("return " ++ X)%string with (String "r"%char ("eturn" ++ String " "%char X))%string.
+  cbn [lex_aux].
+  rewrite (is_idstart_not_space _ Hr), Hr.
+  replace (scan_id (String "r"%char ("eturn" ++ String " "%char X)))
+     with ("return"%string, String " "%char X)
+     by (symmetry; apply (scan_id_app "return"%string (String " "%char X) eq_refl eq_refl)).
+  cbn [lex_aux lex_ident String.eqb Ascii.eqb].
+  rewrite Hsp.
+  rewrite (lex_aux_mono _ _ _ _ HX) by (cbn in Hfuel; lia). reflexivity.
+Qed.
+
 (** BARE-UNOP SEAM (after the [gprint] change to always parenthesise a bare-unary operand): [unop_text o]
     (o <> UNeg) is a single char ['!'/'^'/'*'/'&'] ALWAYS followed by '(' — a CONCRETE char that can never
     maximal-munch into a 2-char operator — so it lexes to [prefix_token o] then TLP then [X].  No
@@ -3509,7 +3535,11 @@ Qed.
 Definition go_nl : string := String (Ascii.ascii_of_nat 10) EmptyString.
 Definition go_tab : string := String (Ascii.ascii_of_nat 9) EmptyString.
 Definition print_stmt (s : GoStmt) : string :=
-  match s with GsExprStmt e => gprint 0 e | GsReturn => "return" end.
+  match s with
+  | GsExprStmt e  => gprint 0 e
+  | GsReturn      => "return"
+  | GsReturnVal e => ("return " ++ gprint 0 e)%string
+  end.
 Fixpoint print_stmts (ss : list GoStmt) : string :=
   match ss with
   | nil => ""
@@ -3529,17 +3559,61 @@ Proof.
   intros e H. pose proof (parse_print_roundtrip e) as R. rewrite H in R. vm_compute in R. discriminate R.
 Qed.
 
+(** append-cancel: a common prefix is injective (used by [print_stmt_inj] and [print_program_inj]). *)
+Lemma sapp_inv_head : forall p a b, (p ++ a)%string = (p ++ b)%string -> a = b.
+Proof.
+  induction p as [ | c p IH ]; intros a b H; cbn [append] in H; [ exact H | ].
+  injection H as H. exact (IH _ _ H).
+Qed.
+
+(** The expression parser REJECTS a leading [TReturn] (the reserved keyword token is not a valid atom), so
+    [parse] of any [TReturn]-led list is [None].  (Fuel [3*len+4 >= 3] suffices to reach the [parse_atom]
+    rejection.) *)
+Lemma parse_expr_TReturn_None : forall f rest, parse_expr (S (S (S f))) 0 (TReturn :: rest) = None.
+Proof. intros f rest. rewrite parse_expr_S, parse_primary_S, parse_atom_S. reflexivity. Qed.
+Lemma parse_TReturn_None : forall rest, parse (TReturn :: rest) = None.
+Proof.
+  intros rest. unfold parse.
+  assert (Hf : 3 * List.length (TReturn :: rest) + 4 = S (S (S (3 * List.length rest + 4))))
+    by (cbn [List.length]; lia).
+  rewrite Hf. apply parse_expr_TReturn_None.
+Qed.
+
+(** A printed [return e] (the [GsReturnVal] text "return " ++ gprint 0 e) does NOT parse back: it LEXES to a
+    leading [TReturn] ([lex_return_app] over [gtokens_lex]), which [parse] rejects.  So no [gprint] output can
+    equal "return " ++ gprint 0 e (it would make the round-trip [Some] equal this [None]) — the [GsExprStmt] /
+    [GsReturnVal] disjointness, the [GsReturnVal] analogue of [gprint_neq_return]. *)
+Lemma parse_str_return_gprint : forall e, parse_str ("return " ++ gprint 0 e)%string = None.
+Proof.
+  intro e. unfold parse_str, lex.
+  pose proof (gtokens_lex e 0) as HL. unfold lex in HL.
+  rewrite (lex_return_app (gprint 0 e) (S (String.length ("return " ++ gprint 0 e)%string))
+             (gtokens 0 e) HL ltac:(lia)).
+  apply parse_TReturn_None.
+Qed.
+Lemma gprint_neq_return_val : forall e1 e2, gprint 0 e2 <> ("return " ++ gprint 0 e1)%string.
+Proof.
+  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
+  rewrite parse_str_return_gprint in R. discriminate R.
+Qed.
+
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  Expression statements lift from [gprint_inj]; the [GsExprStmt] vs [GsReturn]
-    cross case is closed by [gprint_neq_return].  (The list-level / whole-[print_program] lift — via a
-    "gprint emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
+    print to distinct text.  Expression statements lift from [gprint_inj]; [GsExprStmt] vs [GsReturn] is
+    closed by [gprint_neq_return], and [GsExprStmt] vs [GsReturnVal] (and [GsReturnVal] vs each) by
+    [gprint_neq_return_val] / [sapp_inv_head].  (The list-level / whole-[print_program] lift — via a "gprint
+    emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof.
-  intros [e1| ] [e2| ] H; simpl in H.
+  intros [e1| |r1] [e2| |r2] H; simpl in H.
   - f_equal. exact (gprint_inj e1 e2 H).
   - exfalso. exact (gprint_neq_return e1 H).
+  - exfalso. exact (gprint_neq_return_val r2 e1 H).
   - exfalso. symmetry in H. exact (gprint_neq_return e2 H).
   - reflexivity.
+  - exfalso. cbn in H. discriminate H.
+  - exfalso. symmetry in H. exact (gprint_neq_return_val r1 e2 H).
+  - exfalso. symmetry in H. cbn in H. discriminate H.
+  - f_equal. apply (sapp_inv_head "return ") in H. exact (gprint_inj r1 r2 H).
 Qed.
 
 (** ============================================================================
@@ -3690,14 +3764,15 @@ Proof.
       | apply no_nl_app; [ no_nl_lit | apply no_nl_app; [ apply IHec0 | no_nl_lit ] ] ].
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
-Proof. intros [e| ]; simpl; [ apply no_nl_gprint | no_nl_lit ]. Qed.
-
-(** delimiter-split + append-cancel infrastructure (mirrors [split_p_app]). *)
-Lemma sapp_inv_head : forall p a b, (p ++ a)%string = (p ++ b)%string -> a = b.
 Proof.
-  induction p as [ | c p IH ]; intros a b H; cbn [append] in H; [ exact H | ].
-  injection H as H. exact (IH _ _ H).
+  intros [e| |r]; cbn [print_stmt].
+  - apply no_nl_gprint.
+  - no_nl_lit.
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
 Qed.
+
+(** delimiter-split + append-cancel infrastructure (mirrors [split_p_app]).  [sapp_inv_head] is hoisted
+    earlier (it is also used by [print_stmt_inj]). *)
 Lemma split_nl : forall a1 a2 t1 t2, no_nl a1 -> no_nl a2 ->
   (a1 ++ String nlc t1)%string = (a2 ++ String nlc t2)%string -> a1 = a2 /\ t1 = t2.
 Proof.

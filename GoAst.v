@@ -164,12 +164,15 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
 (** ---- GO STATEMENTS ---- the body of [func main].  PHASE-4 (ARCHITECTURE.md §11), grown form-by-form, each
     constructor reusing the verified expression layer: [GsExprStmt e] is an EXPRESSION STATEMENT (e.g. a call
     [f(args)]) — it reuses the machine-checked printer [gprint]; [GsReturn] is a bare [return] (no value),
-    valid as the tail of a void func like [main].  Like [GExpr] this is SYNTAX only: it can represent a
-    non-call expr statement (illegal Go) — that is GoSafe's concern, not the AST's.  Grows (assignment / var /
-    if / for / …) further. *)
+    valid as the tail of a void func like [main]; [GsReturnVal e] is a value return [return e] (printed
+    `return <e>`).  Like [GExpr] this is SYNTAX only: it can represent a non-call expr statement, OR a value
+    return in a VOID function (both illegal Go) — that is GoSafe's concern, not the AST's (and [GsReturnVal]
+    is currently REJECTED by [stmt_ok] precisely because the only function we emit, [main], is void).  Grows
+    (assignment / var / if / for / …) further. *)
 Inductive GoStmt : Type :=
-  | GsExprStmt : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
-  | GsReturn   : GoStmt.           (* a bare [return] (no value) — valid as the tail of a void func like main *)
+  | GsExprStmt  : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
+  | GsReturn    : GoStmt            (* a bare [return] (no value) — valid as the tail of a void func like main *)
+  | GsReturnVal : GExpr -> GoStmt.  (* a value return [return e] — valid only in a NON-void function (not main) *)
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured
