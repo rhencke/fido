@@ -113,3 +113,21 @@ if [ -n "$ppcallers" ]; then
 fi
 
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
+
+# ---- DOC-EXACTNESS / DELETED-HELPER GATE (external review 2026-06-29 #8): keep the float-constant predicate
+# described with SINGLE-AUTHORITY honest wording.  [int_in_float_exact_interval] tests the CONTIGUOUS exact
+# interval ([|z|<=2^53]/[2^24]), a CONSERVATIVE SUFFICIENT test — NOT the full set of exactly-representable
+# integers.  Forbid the stale/overclaiming names and the false "exact-integer range" / "only EXACT for"
+# wording, plus archaeology of the renamed/deleted helpers ([int_repr_as_float], [float_exact_max],
+# [complement_in]) in ACTIVE files.  (Postmortems belong in LESSONS.md, which is not scanned.)
+stale=$(grep -nE 'only EXACT for|EXACT-integer range|exact-integer range|int_repr_as_float|float_exact_max|complement_in' \
+  GoSafe.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
+if [ -n "$stale" ]; then
+  echo "fido: DOC-EXACTNESS GATE — stale float-predicate wording or deleted-helper archaeology in active files:"
+  echo "$stale"
+  echo "fido: use 'contiguous exact interval' (conservative sufficient), and the live names"
+  echo "fido: (int_in_float_exact_interval / complement_const); move postmortems to LESSONS.md."
+  exit 1
+fi
+
+echo "fido: doc-exactness / deleted-helper gate OK — honest single-authority float wording, no stale helper names ✓"

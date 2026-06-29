@@ -358,7 +358,8 @@ add "future foundation" unless it replaces or deletes something.**
   covered classes PINNED by regressions (each class Codex finds is added).  The refined `PTy` keeps CONSTANTS
   and their VALUE+TYPE separate from RUNTIME values — `PtIntConst z` (untyped const) · `PtTIntConst t z` (TYPED
   int const, value `z`) · `PtFloatConst t z` (typed float const; value the integer `z` it was built from, and
-  only built when `z` is in the float's EXACT-integer range so it is never a rounded lie) · `PtRunInt t` /
+  only built when `z` is in the float's CONTIGUOUS exact interval — a conservative sufficient test — so it is
+  never a rounded lie) · `PtRunInt t` /
   `PtRunFloat t` (runtime, non-const) · `PtBool`/`PtStr`/`PtAgg`/`PtUnk`.  This closed the value-erasure bug: a
   numeric conversion of a CONSTANT stays a typed CONSTANT (Go's constant rules apply TRANSITIVELY), so
   `1/int(0)`, `1%int(0)`, `1<<int(-1)`, `uint8(int(300))`, `uint8(float64(300))` (all CLOSED compile errors) are
@@ -372,8 +373,9 @@ add "future foundation" unless it replaces or deletes something.**
   `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected); `len`≠`cap` (`cap` of a string
   rejected); a closed aggregate conversion is admitted only for a DEFERRED operand (`chan int([]int{1})`
   rejected, `[]int(nil)` kept); only genuinely-unknown identifiers (`PtUnk`, treated as runtime) are deferred.
-  A const→float conversion is admitted ONLY within the float's exact-integer range, so a float→int constant
-  conversion is exact (`uint8(float64(255))` is VALID Go and ACCEPTED; `int64(float64(maxint64))` REJECTED — the
+  A const→float conversion is admitted ONLY within the float's CONTIGUOUS exact interval (conservative
+  sufficient test), so a float→int constant conversion on the carried value is exact (`uint8(float64(255))` is
+  VALID Go and ACCEPTED; `int64(float64(maxint64))` REJECTED — the
   float64 rounds up and overflows); float-CONSTANT arithmetic and platform-`uint` complement (`uint32(^uint(0))`,
   a platform-width-dependent value) are conservatively REJECTED.  `print`/`println` admit only the
   guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not arbitrary `svalue` aggregates.  Next: more

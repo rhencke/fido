@@ -42,7 +42,8 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > closed-invalid classes are PINNED by regressions, each new class Codex finds added.  The refined `PTy` keeps
 > CONSTANTS (value+type) separate from RUNTIME values — `PtIntConst z` (untyped const) · `PtTIntConst t z` (typed
 > int const) · `PtFloatConst t z` (typed float const; value the integer it came from, built ONLY when in the
-> float's exact-integer range so never a rounded lie) · `PtRunInt t`/`PtRunFloat t` (runtime) ·
+> float's CONTIGUOUS exact interval — a conservative sufficient test — so never a rounded lie) ·
+> `PtRunInt t`/`PtRunFloat t` (runtime) ·
 > `PtBool`/`PtStr`/`PtAgg`/`PtUnk` — so CONSTANTNESS SURVIVES conversions/binops and Go's constant rules apply
 > TRANSITIVELY.  This rejects CLOSED-invalid Go that the old value-erasing conversion leaked: constant
 > div/mod/shift by zero/negative THROUGH a conversion (`1/int(0)`, `1<<int(-1)`), constant FLOAT division by zero

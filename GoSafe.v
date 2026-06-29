@@ -290,9 +290,10 @@ Definition ord_comparable (cl cr : PTy) : bool :=
       CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
       T z], to a float type -> [PtFloatConst T z]).  This rejects [uint8(300)], [uint8(int(300))],
       [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because a [PtFloatConst]
-      is BUILT only when the source integer is within the float's EXACT-integer range ([int_in_float_exact_interval] —
-      [|z|<=2^53]/[2^24]; a larger constant is REJECTED at the const->float step, never carried as a rounded
-      lie), so its carried [z] is the true value and the later int range-check is exact;
+      is BUILT only when the source integer is within the float's CONTIGUOUS exact interval
+      ([int_in_float_exact_interval] — [|z|<=2^53]/[2^24], a CONSERVATIVE SUFFICIENT test; a constant outside it
+      is REJECTED at the const->float step, never carried as a rounded lie), so its carried [z] is the true value
+      and the later int range-check is exact;
     - a NUMERIC target with a RUNTIME / deferred source ([PtRunInt]/[PtRunFloat]/[PtUnk]) yields a RUNTIME
       value (runtime conversions truncate/round and are valid — NO representability constraint), so [int(x)],
       [uint8(int(x))] stay admitted;
@@ -853,10 +854,13 @@ Proof. reflexivity. Qed.
 
 (** ============================================================================================
     REGRESSION — FLOAT-CONSTANT ROUNDING + PLATFORM-WIDTH COMPLEMENT (the constant rep must not LIE).
-    (1) A float CONSTANT [float64(n)] is only EXACT for [|n| <= 2^53] (float32: 2^24); beyond that Go ROUNDS
-    to nearest-even, so a carried integer [n] is no longer the true value.  [int64(float64(9223372036854775807))]
-    is INVALID Go — the float64 rounds UP to 2^63, which overflows [int64] — and likewise [int32(float32(maxint32))];
-    the gate now REJECTS the out-of-exact-range const->float conversion.  (2) A typed FLOAT-constant ZERO
+    (1) A float CONSTANT [float64(n)] is tracked as exact ONLY within the CONTIGUOUS exact interval [|n| <= 2^53]
+    (float32: 2^24) — a CONSERVATIVE SUFFICIENT test, NOT the full set of exactly-representable integers (e.g.
+    [2^60] is an exact [float64] but lies outside the interval and is conservatively rejected).  Outside the
+    interval Go ROUNDS to nearest-even, so a carried integer [n] would no longer be the true value:
+    [int64(float64(9223372036854775807))] is INVALID Go — the float64 rounds UP to 2^63, which overflows
+    [int64] — and likewise [int32(float32(maxint32))]; the gate REJECTS the out-of-interval const->float
+    conversion.  (2) A typed FLOAT-constant ZERO
     [float64(0)] is a constant-zero divisor (Go rejects constant float division by zero), so [_ = x / float64(0)]
     is REJECTED — not deferred through [PtUnk].  (3) [^uint(0)] = 2^w-1 is PLATFORM-WIDTH-dependent, so folding it
     to one width is unsound: [uint32(^uint(0))] is in range on 32-bit Go but NOT 64-bit — the gate REJECTS
@@ -887,9 +891,8 @@ Example ok_uint8_compl_uint8 :
 Proof. reflexivity. Qed.
 
 (** HELPER-LEVEL regression — the unsound platform-[uint] complement is sealed INSIDE [complement_const]
-    (returns [None]), so the fold cannot be produced regardless of caller; fixed-width unsigned ([uint8]) and
-    signed ([int]) still fold exactly.  (The old [complement_in : GoTy -> Z -> Z] always returned a value,
-    so [complement_in GTUint 0 = 4294967295] existed as an authority — this pins that it no longer can.) *)
+    (returns [None]), so it cannot be produced regardless of caller; fixed-width unsigned ([uint8]) and signed
+    ([int]) still fold exactly. *)
 Example complement_const_uint_none : complement_const GTUint 0 = None.
 Proof. reflexivity. Qed.
 Example complement_const_u8_exact : complement_const GTU8 0 = Some 255%Z.
