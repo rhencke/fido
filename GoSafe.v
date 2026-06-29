@@ -51,6 +51,7 @@ Fixpoint svalue (e : GExpr) : bool :=
       | _, _            => false
       end
   | EConv _ e0 => svalue e0   (* a type-form CONVERSION [[]T(a)/chan T(a)/map[K]V(a)] — always yields a value *)
+  | ESliceLit _ es => forallb svalue es  (* a slice composite literal [[]T{e1,..,en}] — a VALUE iff every element is one *)
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
   end.
 
@@ -188,6 +189,25 @@ Definition unsupported_conv_composite_stmt : Program :=
 Example conv_composite_stmt_unsupported : supported_program unsupported_conv_composite_stmt = false.
 Proof. reflexivity. Qed.
 Fail Example conv_composite_stmt_supported : SupportedProgram unsupported_conv_composite_stmt := eq_refl.
+
+(** POSITIVE (Phase 4, [ESliceLit]) — a slice composite literal is fine in VALUE position: `func main(){
+    println([]int{1}) }` is supported (the statement is a [println] call; its argument [[]int{1}] is an
+    [ESliceLit] whose single element [1] is an [svalue]).  Like [EConv], a bare [ESliceLit] STATEMENT
+    `func main(){ []int{1} }` is rejected — [expr_stmt_ok] admits only [ECall (EId _) _], not [ESliceLit] —
+    so the literal-as-statement bar holds. *)
+Definition supported_slicelit_arg : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ESliceLit GTInt [EInt 1]])].
+Example slicelit_arg_supported : SupportedProgram supported_slicelit_arg.
+Proof. reflexivity. Qed.
+(** And the bare slice-literal STATEMENT `func main(){ []int{1} }` is NOT supported. *)
+Definition unsupported_slicelit_stmt : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ESliceLit GTInt [EInt 1])].
+Example slicelit_stmt_unsupported : supported_program unsupported_slicelit_stmt = false.
+Proof. reflexivity. Qed.
+Fail Example slicelit_stmt_supported : SupportedProgram unsupported_slicelit_stmt := eq_refl.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
     println(println(1)) }`, is invalid Go (the inner [println] returns NOTHING, so it cannot be an argument:

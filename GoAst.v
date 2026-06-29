@@ -120,7 +120,8 @@ Inductive GExpr : Type :=
   | ESlice : GExpr -> GExpr -> GExpr -> GExpr  (* postfix two-index slice [e[lo:hi]] (both bounds present) *)
   | ECall : GExpr -> list GExpr -> GExpr  (* postfix call [e(a1, .., an)] — the arg list is a [list GExpr] *)
   | EAssert : GExpr -> GoTy -> GExpr   (* postfix type assertion [e.(T)] — the type child is a [GoTy] *)
-  | EConv : ConvTy -> GExpr -> GExpr.  (* type-form conversion [[]T(x)] / [chan T(x)] / [map[K]V(x)] — PREFIX *)
+  | EConv : ConvTy -> GExpr -> GExpr   (* type-form conversion [[]T(x)] / [chan T(x)] / [map[K]V(x)] — PREFIX *)
+  | ESliceLit : GoTy -> list GExpr -> GExpr.  (* slice composite literal [[]T{e1, .., en}] — PREFIX type-led atom; element type + elements *)
 
 (** Custom induction principle: the auto-generated [GExpr_ind] gives NO hypothesis for the elements of the
     [ECall] argument list (a nested [list GExpr]), so structural recursion into the args is impossible.  This
@@ -138,27 +139,34 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
   (fcall : forall e0, P e0 -> forall args, List.Forall P args -> P (ECall e0 args))
   (fassert : forall e0, P e0 -> forall T, P (EAssert e0 T))
   (fconv : forall c e0, P e0 -> P (EConv c e0))
+  (fslicelit : forall t es, List.Forall P es -> P (ESliceLit t es))
   (e : GExpr) : P e :=
   match e with
   | EId i  => fid i
   | EInt z => fint z
-  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
-  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv l)
-                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv r)
-  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) f
-  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
-                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv i)
-  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
-                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv lo)
-                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv hi)
-  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) args
+  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0)
+  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit l)
+                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit r)
+  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0) f
+  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0)
+                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit i)
+  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0)
+                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit lo)
+                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit hi)
+  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0) args
       ((fix args_ind (l : list GExpr) : List.Forall P l :=
           match l with
           | nil => List.Forall_nil P
-          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv a) (args_ind r)
+          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit a) (args_ind r)
           end) args)
-  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0) T
-  | EConv c e0 => fconv c e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv e0)
+  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0) T
+  | EConv c e0 => fconv c e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit e0)
+  | ESliceLit t es => fslicelit t es
+      ((fix elems_ind (l : list GExpr) : List.Forall P l :=
+          match l with
+          | nil => List.Forall_nil P
+          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit a) (elems_ind r)
+          end) es)
   end.
 
 (** ---- GO STATEMENTS ---- the body of [func main].  PHASE-4 (ARCHITECTURE.md §11), grown form-by-form, each

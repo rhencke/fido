@@ -1127,6 +1127,7 @@ type gExpr =
 | ECall of gExpr * gExpr list
 | EAssert of gExpr * goTy
 | EConv of convTy * gExpr
+| ESliceLit of goTy * gExpr list
 
 (** val print_ty : goTy -> string **)
 
@@ -1793,3 +1794,24 @@ let rec gprint ctx = function
       False)), EmptyString))
       (append (gprint O e0) (String ((Ascii (True, False, False, True, False,
         True, False, False)), EmptyString))))
+| ESliceLit (t, es) ->
+  append (String ((Ascii (True, True, False, True, True, False, True,
+    False)), (String ((Ascii (True, False, True, True, True, False, True,
+    False)), EmptyString))))
+    (append (print_ty t)
+      (append (String ((Ascii (True, True, False, True, True, True, True,
+        False)), EmptyString))
+        (append
+          (match es with
+           | Nil -> EmptyString
+           | Cons (a, r) ->
+             append (gprint O a)
+               (let rec gat = function
+                | Nil -> EmptyString
+                | Cons (b, m') ->
+                  append (String ((Ascii (False, False, True, True, False,
+                    True, False, False)), EmptyString))
+                    (append (gprint O b) (gat m'))
+                in gat r))
+          (String ((Ascii (True, False, True, True, True, True, True,
+          False)), EmptyString)))))
