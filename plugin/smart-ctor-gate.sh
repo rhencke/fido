@@ -173,15 +173,23 @@ echo "fido: string-exactness gate OK — unescape_opt_image present (accepted ==
 # Program has no variables); only the predeclared [nil] ([PtNil]) is admitted, as a slice/chan conversion
 # operand.  The patterns below are a DENYLIST of stale spellings that must not appear in active Coq sources or
 # ARCHITECTURE/PROGRESS (any history belongs in LESSONS.md); they are machine data, not a description of any
-# design.  Matched CASE-INSENSITIVELY ([grep -ni]) so a capitalized variant is not a bypass.  ([close]/[delete]'s
-# "deferred to GoSem" note has no "identifier" token and is not matched.)
-stale_ident=$(grep -niE 'PtUnk|genuinely-unknown identifier|DEFERRED operand|bool/deferred|string/deferred|deferred[- ]identifier|identifier.*deferr|free[- ]identifier.*deferr' \
-  GoSafe.v GoAst.v GoPrint.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
+# design.  Each scanned file is WHITESPACE-NORMALIZED first ([tr] newlines/tabs -> spaces, then squeeze), so a
+# multiword spelling split across LINES (e.g. "DEFERRED\noperand") is caught, and matched CASE-INSENSITIVELY
+# ([grep -i]) so capitalization is not a bypass.  The multiword patterns require ADJACENT tokens
+# ([[:space:]]+ = one or more spaces/newlines), NOT loose proximity, so [close]/[delete]'s "deferred to GoSem"
+# note (no adjacent "identifier"/"operand") is not matched.  Reports the FILE (line numbers are lost to
+# normalization — grep the phrase within it).
+ibpat='PtUnk|genuinely-unknown[[:space:]]+identifier|deferred[[:space:]]+operand|bool/deferred|string/deferred|deferred[-[:space:]]+identifier|identifier[-[:space:]]+deferr|free[-[:space:]]+identifier[-[:space:]]+deferr'
+stale_ident=""
+for f in GoSafe.v GoAst.v GoPrint.v ARCHITECTURE.md PROGRESS.md; do
+  if tr '\n\t' '  ' < "$f" | tr -s ' ' | grep -qiE "$ibpat"; then
+    stale_ident="$stale_ident $f"
+  fi
+done
 if [ -n "$stale_ident" ]; then
-  echo "fido: IDENTIFIER-BOUNDARY GUARD — a banned stale spelling is in active guidance:"
-  echo "$stale_ident"
+  echo "fido: IDENTIFIER-BOUNDARY GUARD — a banned stale spelling (whitespace/case/newline-normalized) is in active guidance in:$stale_ident"
   echo "fido: state ONLY the live boundary (a free identifier is REJECTED; only [nil] is admitted, in a slice/chan conversion); history -> LESSONS.md."
   exit 1
 fi
 
-echo "fido: identifier-boundary guard OK — active guidance free of the banned stale spellings ✓"
+echo "fido: identifier-boundary guard OK — active guidance free of the banned stale spellings (newline/case-normalized) ✓"

@@ -838,8 +838,8 @@ Example ok_len_string : SupportedProgram (pl_arg (ECall (EId (mkIdent "len" eq_r
 Proof. reflexivity. Qed.
 
 (** FINDING 4 — aggregate conversion soundness.  A slice->chan conversion of a KNOWN slice ([chan int([]int{1})])
-    and a mismatched slice conversion of a KNOWN slice ([[]int([]string{})]) are rejected; only a DEFERRED
-    operand ([[]int(nil)]) is admitted (pinned below by [conv_composite_arg_supported]). *)
+    and a mismatched slice conversion of a KNOWN slice ([[]int([]string{})]) are rejected; only the predeclared
+    [nil] operand ([[]int(nil)]) is admitted (pinned below by [conv_composite_arg_supported]). *)
 Example bad_chan_of_slice : supported_program (gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))) = false.
 Proof. reflexivity. Qed.
 Example bad_slice_conv_mismatch : supported_program (gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))) = false.
