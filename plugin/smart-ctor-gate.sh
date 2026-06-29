@@ -198,3 +198,32 @@ if [ -n "$stale_ident" ]; then
 fi
 
 echo "fido: identifier-boundary guard OK — self-test passed; active guidance free of the banned stale spellings ✓"
+
+# ---- GOSEM-LAYERING GATE (Codex stop-review 2026-06-29): core GoSem.v sits BELOW GoSafe/GoEmit in the spine
+# (GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit), so it must import ONLY GoAst + the semantic substrate it
+# bridges (cmd/builtins) — NEVER the UPPER emission layers (GoPrint/GoSafe/GoEmit), which would invert the
+# dependency.  (The behavioral theorem over GoEmit.demo_prog lives DOWNSTREAM in GoSemDemo.v instead.)  The
+# pattern matches an actual `Require` VERNAC line — anchored to line start, with an optional `From <lib>` prefix
+# — so a prose mention of the spine (e.g. "GoAst -> GoPrint -> ... -> GoEmit") or of GoSemDemo in a COMMENT does
+# NOT trip it (no `Require` keyword on those lines).  Self-tested below before scanning GoSem.v.
+#   ⚠️ Like the gates above this is a discipline tripwire over the source, not a type-level seal; it catches the
+#   accidental/obvious re-import, not an aliased side-door.
+gosem_layer_pat='^[[:space:]]*(From[[:space:]]+[A-Za-z_.]+[[:space:]]+)?Require[[:space:]].*\b(GoPrint|GoSafe|GoEmit)\b'
+gosem_scan() { grep -qE "$gosem_layer_pat"; }
+# self-test (fixtures live HERE, not in scanned files): MUST catch a bad upper-layer import (incl. a bare
+# `Require Import` with no `From`); MUST NOT catch a clean import or a prose/comment spine mention.
+for bad in 'From Fido Require Import builtins cmd GoAst GoPrint.' 'Require Import GoEmit.' 'From Fido Require Import GoSafe.'; do
+  printf '%s\n' "$bad" | gosem_scan || { echo "fido: GOSEM-LAYERING GATE self-test BUG — failed to catch [$bad]"; exit 1; }
+done
+for ok in 'From Fido Require Import builtins cmd GoAst.' '    spine GoAst -> GoPrint -> GoSem -> GoSafe -> GoEmit (charter).' '(* the theorem over GoEmit.demo_prog lives in GoSemDemo.v *)'; do
+  if printf '%s\n' "$ok" | gosem_scan; then echo "fido: GOSEM-LAYERING GATE self-test BUG — wrongly caught [$ok]"; exit 1; fi
+done
+gosem_offenders=$(grep -nE "$gosem_layer_pat" GoSem.v 2>/dev/null || true)
+if [ -n "$gosem_offenders" ]; then
+  echo "fido: GOSEM-LAYERING GATE — core GoSem.v Requires an UPPER emission layer (GoPrint/GoSafe/GoEmit), inverting the spine:"
+  echo "$gosem_offenders"
+  echo "fido: core GoSem must import only GoAst + the semantic substrate (cmd/builtins); the demo over GoEmit.demo_prog belongs in GoSemDemo.v."
+  exit 1
+fi
+
+echo "fido: gosem-layering gate OK — core GoSem.v imports no upper emission layer (GoPrint/GoSafe/GoEmit) ✓"

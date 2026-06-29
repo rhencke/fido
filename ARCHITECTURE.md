@@ -109,17 +109,28 @@ drift (that is the duplicate-authority failure this charter forbids). Do not let
 obligations: the printer prints; semantics interprets.
 
 > **STATUS — first slice LANDED (`GoSem.v`).** A FIRST behavioral slice exists: it denotes the OUTPUT / panic
-> behavior of the SUPPORTED statement subset (`GsExprStmt` calls to `println`/`print`/`panic`, `GsReturn`,
-> discarding `GsBlankAssign`) by **bridging `cmd.v`** — a statement list maps to a `cmd.Cmd unit` whose meaning
-> is read through builtins' `run_io`/`w_output`; it introduces **NO new IO/output/outcome model** (no second
-> semantic universe). The deliverable is `gosem_demo_output`, a zero-axiom `vm_compute` proof that
+> behavior of the SUPPORTED statement subset (`GsExprStmt` calls to `println`/`print`/`panic`, a TERMINATING
+> `GsReturn`, and a `GsBlankAssign` whose RHS is in a STRUCTURALLY effect-free subset) by **bridging `cmd.v`** —
+> a statement list maps to a `cmd.Cmd unit` whose meaning is read through builtins' `run_io`/`w_output`; it
+> introduces **NO new IO/output/outcome model** (no second semantic universe). `return` **TERMINATES** (it
+> short-circuits the right-fold, so statements after it do not run — pinned by `gosem_return_short_circuits`,
+> a body `{ return; println(1) }` runs to a normal `ORet` with EMPTY output); and `_ = e` is admitted **only
+> for a structurally effect-free / total RHS** (`rhs_effect_free`: literals, the predeclared `nil`, the
+> non-partial arithmetic/comparison binops and unary `-`/`^`/`!`, scalar/slice/chan/map conversions and
+> composite literals over such operands — NOT `BDiv`/`BRem`, index/slice/deref/assert, or any call that could
+> output/panic), so its silent value can be faithfully discarded; an out-of-subset RHS is `None`, never
+> silently erased. **Layering:** core `GoSem.v` imports ONLY `GoAst` + the semantic substrate it bridges
+> (`cmd`/`builtins`) — NOT `GoPrint`/`GoSafe`/`GoEmit`; the demo deliverable lives in the DOWNSTREAM
+> `GoSemDemo.v`. That deliverable, `gosem_demo_output`, is a zero-axiom `vm_compute` proof that
 > `GoEmit.demo_prog` runs to a normal `ORet` emitting exactly its four `println` lines (int 1, int64 3, int 3,
-> string "hi"). HONEST SCOPE: this is NOT the full authoritative GoSem yet — `eval` const-folds only a small
-> core (int constants ±/×, the default-`int`/`int64` scalar conversions, string literals), there is NO
-> eval-vs-`ptype` soundness theorem, and `BehaviorSafe` is NOT built (the certificate stays `SupportedProgram`).
-> The denotation is partial (`option`-valued): an out-of-core form yields `None` ("outside this slice's scope")
-> rather than fabricating or dropping any event. `make gosem-verify` (local) + the Docker axiom-manifest gate
-> (canonical) keep it zero-axiom.
+> string "hi"), its two blank-assigns and trailing `return` adding nothing. HONEST SCOPE: this is NOT the full
+> authoritative GoSem yet — `eval` const-folds only a small core (int constants ±/×, the default-`int`/`int64`
+> scalar conversions, string literals), there is NO eval-vs-`ptype` soundness theorem, `rhs_effect_free` is a
+> STRUCTURAL effect-free RESTRICTION (not a full eval-with-panic semantics), and `BehaviorSafe` is NOT built
+> (the certificate stays `SupportedProgram`). The denotation is partial (`option`-valued): an out-of-scope
+> form yields `None` ("outside this slice's scope") rather than fabricating or dropping any event. `make
+> gosem-verify` (local, covering both `GoSem.v` and `GoSemDemo.v`) + the Docker axiom-manifest gate (canonical)
+> keep it zero-axiom.
 
 ### `GoSafe.v` — supportedness now, behavioral safety later (imports `GoAst`, and `GoSem` once it exists)
 
