@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify smart-ctor-gate
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -134,6 +134,27 @@ printer-verify:
 emit-verify:
 	@set -e; $(GOEMIT_GATE); $(GOEMIT_CLEAN); \
 	  echo "fido: GoAst/GoPrint/GoSafe/GoEmit OK — zero axioms (blessed-emission trust base) ✓"
+
+# emit-demo: the certified emitter ACTUALLY produces a Go FILE, validated by the Go TOOLCHAIN (review RED
+# item — "GoEmit is not yet the actual file-emission path").  Extracts GoEmit.demo_emit (the certificate-
+# gated text whose exact bytes are machine-checked by GoEmit.demo_emit_bytes) to OCaml (native string) via
+# emitdemo/emit_demo.v, writes emitdemo/spine_demo.go with emitdemo/write_emit.ml, then asserts the real Go
+# toolchain ACCEPTS it (gofmt-clean + go vet) — the end-to-end check connecting the proven bytes to the Go
+# compiler.  spine_demo.go is GENERATED on demand (gitignored; its bytes are already pinned by
+# demo_emit_bytes), so nothing can go stale.  Host rocq + ocaml (like printer-verify); Docker go (like the
+# golden gofmt step).  Standalone — NOT wired into `make check` (the legacy plugin still produces main.go;
+# this is the separate blessed-path demo).
+emit-demo:
+	@set -e; \
+	  for m in GoAst GoPrint GoSafe GoEmit; do rocq c -Q . Fido $$m.v > /dev/null 2>&1; done; \
+	  rocq c -Q . Fido emitdemo/emit_demo.v > /dev/null 2>&1; \
+	  ocamlfind ocamlc -I emitdemo emitdemo/emit_demo.mli emitdemo/emit_demo.ml emitdemo/write_emit.ml -o _emit_writer > /dev/null; \
+	  ./_emit_writer; \
+	  docker run --rm -v "$$(pwd)":/w -w /w golang:1.23-alpine \
+	    sh -c 'test -z "$$(gofmt -l emitdemo/spine_demo.go)" && go vet emitdemo/spine_demo.go' \
+	    || { echo "fido: emit-demo — Go toolchain REJECTED the certified output (gofmt/vet)"; exit 1; }; \
+	  echo "fido: emit-demo OK — GoEmit.demo_emit -> emitdemo/spine_demo.go, Go toolchain accepts it (gofmt-clean + go vet) ✓"; \
+	  rm -f GoAst.vo GoAst.glob .GoAst.aux GoPrint.vo GoPrint.glob .GoPrint.aux GoSafe.vo GoSafe.glob .GoSafe.aux GoEmit.vo GoEmit.glob .GoEmit.aux printer.ml emitdemo/emit_demo.vo emitdemo/emit_demo.glob emitdemo/.emit_demo.aux emitdemo/emit_demo.ml emitdemo/emit_demo.mli emitdemo/*.cmi emitdemo/*.cmo _emit_writer
 
 # Run the freshly-extracted program (Dockerised; the env may lack a host Go).  DEPENDS
 # ON [extract] exactly like [check]/[golden], so an ad-hoc "what does it print?" run can

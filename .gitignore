@@ -16,6 +16,18 @@ vendor/
 /printer.ml
 /printer.mli
 
+# `make emit-demo` intermediates: emitdemo/emit_demo.{ml,mli} are extracted from emitdemo/emit_demo.v; the
+# OCaml build files + writer executable are transient.  The COMMITTED emit-demo files are
+# emitdemo/emit_demo.v, emitdemo/write_emit.ml, and the certificate-gated output emitdemo/spine_demo.go.
+/emitdemo/emit_demo.ml
+/emitdemo/emit_demo.mli
+/emitdemo/*.cmi
+/emitdemo/*.cmo
+/_emit_writer
+# spine_demo.go is GENERATED on demand by `make emit-demo` (its exact bytes are already pinned + gate-checked
+# by GoEmit.demo_emit_bytes); not committed, so it can never go stale unnoticed.
+/emitdemo/spine_demo.go
+
 # Rocq build artifacts — .v and .go sources are checked in, these are not
 *.glob
 *.vo
