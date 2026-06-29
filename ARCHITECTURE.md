@@ -267,9 +267,10 @@ Do not spend time on relooper integration until the AST-first emission path exis
 > `forallb stmt_ok body`, where a bare expression statement must be a call) — a regression locks out the
 > bad program, and GoSafe/GoEmit joined the explicit zero-axiom gate (`make emit-verify`) + a
 > print_program-discipline tripwire. Still ahead in Phase 4: more `GoStmt` forms (assignment, var, control
-> flow) and the parked `EConv`. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` extracts
-> `GoEmit.demo_emit` and writes a real `emitdemo/spine_demo.go` that the Go toolchain ACCEPTS (gofmt-clean +
-> `go vet`) — the end-to-end check connecting the proven bytes to the compiler. **Still RED:** that is a
+> flow) and the parked `EConv`. **Blessed-path file emission DEMONSTRATED:** `make emit-demo` asserts the spine
+> is ZERO-axiom (GOEMIT_GATE), extracts `GoEmit.demo_emit`, writes a real `emitdemo/spine_demo.go`, and the Go
+> COMPILER builds it (gofmt-clean + `go build` + `go vet`) — the end-to-end check connecting the zero-axiom
+> proven bytes to the compiler. **Still RED:** that is a
 > SEPARATE demo; the repo's MAIN output `main.go` is STILL the legacy `plugin/go.ml` path (extracted
 > `Printer.gprint`, flat/transitional), NOT certificate-gated — so do not claim main.go is blessed; no GoSem
 > behavioral safety yet. All golden byte-identical, zero axioms. Every "Front" below names that now-retired
