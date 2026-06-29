@@ -56,8 +56,8 @@ Open Scope string_scope.
     supported, so it over-rejects much VALID Go too (any conversion of a KNOWN aggregate, [string] of a typed
     int, const+typed when not representable, nested-aggregate elements, float-CONSTANT arithmetic,
     platform-[uint] complement, an untyped const whose default-[int] value overflows, a not-exactly-
-    representable const->float).  The closed-invalid CLASSES it is known to reject are PINNED by the
-    regressions below (each added when found).  Because a FREE identifier is REJECTED (the no-declaration model
+    representable const->float).  The closed-invalid CLASSES it is known to reject are PINNED by GoSafe's
+    regressions (each added when found).  Because a FREE identifier is REJECTED (the no-declaration model
     has no variable bindings, so a bare [x] is undefined and its Go would not compile), the gate admits NO
     free-identifier form: the sole predeclared value-ident, [nil] ([PtNil]), is admitted only inside a
     slice/chan conversion. *)
