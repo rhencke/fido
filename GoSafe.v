@@ -12,99 +12,133 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** A no-import builtin that ALWAYS RETURNS A VALUE (so it is safe in VALUE position, like a conversion):
-    [len] / [cap] (they yield an [int] regardless — no void hazard).  ★Go-spec NOTE (Expression statements):
-    these are EXACTLY the builtins valid as a VALUE but FORBIDDEN in statement context ("The following built-in
-    functions are not permitted in statement context: append cap … len …"), so they are admitted by [svalue]
-    (value position) yet NOT by [stmt_call_ok] (statement position) — a faithful encoding of the spec's
-    value-vs-statement asymmetry.  (TYPE-checking that the argument is actually len-able is the GoSem/type
-    layer, exactly like a conversion's convertibility.) *)
-Definition is_value_builtin (f : string) : bool :=
-  String.eqb f "len" || String.eqb f "cap".
+(** ---- A STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
+    The supportedness gate must NOT certify INVALID Go.  A purely shape-based [svalue] leaked TYPE side
+    conditions — it admitted CLOSED type-errors like [len(1)] / [bool(1)] / [1 && 2] / [!1] / [int([]int{1})].
+    [ptype] assigns each expression a coarse TYPE CATEGORY, or REJECTS it ([None]) as structurally ill-typed,
+    so those closed errors are rejected STRUCTURALLY while only genuinely-unknown identifiers are DEFERRED
+    ([PtUnk]).  It is conservative — it tracks only categories (not the exact numeric type) and admits any
+    deferred operand — so it rejects some valid Go too, but NEVER admits an expression Go's type checker would
+    reject from the structure alone.  (This is the type-checking the gate had been deferring; a full
+    typed/scoped check is GoSem.) *)
+Inductive PTy : Type :=
+  | PtNum    (* a numeric value (int, uint, float, ...) — WHICH numeric is not tracked; see the arith rule *)
+  | PtBool
+  | PtStr
+  | PtAgg    (* a non-scalar aggregate/reference value (slice/chan/ptr): a valid VALUE, not printable, not arith *)
+  | PtUnk.   (* an identifier — type DEFERRED (could be anything; scope/GoSem decides) *)
 
-(** STRUCTURALLY-supported VALUE expression — the CONSERVATIVE whitelist of [GExpr] forms each guaranteed to
-    PRODUCE A VALUE with NO operand-shape hazard: identifiers, integer literals, arithmetic/logical binops,
-    the value-producing unary ops (!/^/-), a builtin-type CONVERSION [T(a)], a type-FORM conversion
-    [[]T(a)] / [chan T(a)] / [map[K]V(a)] ([EConv]), and a value-returning BUILTIN call [len(a)] / [cap(a)].
-    The application case admits an [EId]-led one-arg call ONLY when the callee is a builtin TYPE (a conversion)
-    or a value-returning builtin ([is_value_builtin]) — both ALWAYS yield a value; a general function CALL
-    [f(args)] yields a value only if [f] returns one (type-dependent, unknowable here), so a void call like
-    [println(1)] (which returns NOTHING) must NOT be admitted as a value (else [println(println(1))] — "used as
-    value" — would slip through).  Arity is pinned to EXACTLY ONE arg (so [int(1,2)] / [len(x,y)] are rejected;
-    a conversion and [len]/[cap] each take one).  [EConv] is a type-form conversion — it carries its single
-    operand structurally (no arity hazard) and ALWAYS yields a value, so it is admitted (its operand checked).
-    The shape-CONSTRAINED forms stay out — postfix selector/index/slice/type-assertion ([1.f] / [1[0]] /
-    [1[lo:hi]] / [1.(T)]) and unary deref/addr ([*1] / [&1]) — so no structural absurdity is admitted.
-    STRUCTURAL only: it does NOT (and syntactically cannot) check SCOPE (an undefined identifier) or TYPES
-    (e.g. [!1], convertibility of [int(x)], len-ability of [len(x)]) — those are the GoSem/type layer. *)
-Fixpoint svalue (e : GExpr) : bool :=
-  match e with
-  | EId _ => true
-  | EInt _ => true
-  | EBn _ l r => svalue l && svalue r
-  | EUn o e0 => match o with UNot | UXor | UNeg => svalue e0 | UDeref | UAddr => false end
-  | ECall callee args =>
-      match callee, args with
-        (* a builtin-type CONVERSION [T(a)] OR a value-returning builtin [len(a)]/[cap(a)] — both 1-arg, both
-           guaranteed to yield a value *)
-      | EId i, a :: nil => (is_type_keyword (proj1_sig i) || is_value_builtin (proj1_sig i)) && svalue a
-      | _, _            => false
-      end
-  | EConv c e0 => match c with CTMap _ _ => false | _ => svalue e0 end
-      (* [[]T(a)]/[chan T(a)] conversions yield a value (the type is always valid); a MAP conversion
-         [map[K]V(a)] is QUARANTINED — Go forbids a non-comparable key TYPE, and key-type comparability is
-         not soundly structural here (a [GTNamed] key's comparability needs its definition), so we REJECT it
-         (fail-loud) rather than admit a possibly-invalid map type *)
-  | ESliceLit _ es => forallb svalue es  (* a slice composite literal [[]T{e1,..,en}] — a VALUE iff every element is one *)
-  | EMapLit _ _ _ => false
-      (* a map composite literal [map[K]V{..}] is QUARANTINED from the supported subset.  Go requires the KEY
-         TYPE be comparable (slice/map/func keys forbidden) AND each key/value be assignable to K/V; NEITHER
-         is soundly checkable structurally here (GTNamed key comparability + all assignability need TYPE
-         info), so admitting it would certify invalid Go (e.g. [map[[]int]int{..}]).  It stays REPRESENTABLE
-         and round-trips in GoPrint, but is NOT supported until GoSem can seal a comparable-key builder +
-         key/value assignability evidence — a clean AST/gate separation, NOT a deferred-to-later admission. *)
-  | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => false
+Definition is_value_builtin (f : string) : bool := String.eqb f "len" || String.eqb f "cap".
+(** category of a declared [GoTy] (for conversions / slice element types) *)
+Definition goty_cat (t : GoTy) : PTy :=
+  match t with
+  | GTBool => PtBool | GTString => PtStr
+  | GTPtr _ | GTSlice _ | GTChan _ | GTMap _ _ => PtAgg
+  | GTNamed _ => PtUnk
+  | _ => PtNum   (* GTInt / GTInt64 / GTUint / GTU8.. / GTI8.. / GTFloat* — the numeric scalars *)
+  end.
+(** category a SCALAR conversion [T(_)] produces (by the type-keyword name; chan/map are keywords, never
+    [go_ident] callees, so only scalar keywords occur as an [EId] conversion callee). *)
+Definition type_keyword_cat (s : string) : PTy :=
+  if String.eqb s "bool" then PtBool else if String.eqb s "string" then PtStr else PtNum.
+Definition num_or_unk (c : PTy) : bool := match c with PtNum | PtUnk => true | _ => false end.
+Definition bool_or_unk (c : PTy) : bool := match c with PtBool | PtUnk => true | _ => false end.
+(** is category [ce] assignable to a target/element category [tc]?  same category, or either side deferred. *)
+Definition cat_assignable (ce tc : PTy) : bool :=
+  match ce, tc with
+  | PtUnk, _ | _, PtUnk => true
+  | PtNum, PtNum | PtBool, PtBool | PtStr, PtStr | PtAgg, PtAgg => true
+  | _, _ => false
   end.
 
-(** Is a builtin CALL [f(args)] valid as a standalone EXPRESSION STATEMENT (Go spec: ExpressionStmt — a
-    "function and method call ... can appear in statement context")?  Checks the builtin AND its ARITY, so an
-    arity violation is rejected: [println]/[print] are VARIADIC (any arg count, any types, return nothing —
-    NO hazard); [panic] takes EXACTLY ONE arg of ANY type ([panic(x)] valid, [panic()] / [panic(1,2)] not).
-    Deliberately EXACT for the current AST (no user funcs / imports yet, so these are the only hazard-free
-    statement calls).  Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement) and
-    VALUE-returning builtins ([len(x)]/… — "evaluated but not used").  ([close]/[delete] would add a
-    CHANNEL/MAP arg-TYPE constraint beyond arity — deferred to the GoSem/type layer.)  Widens with user
-    funcs / a symbol table.  (Args' own validity is checked PER BUILTIN in [expr_stmt_ok]: [printable_arg_ok]
-    for [print]/[println], [svalue] for [panic].) *)
+Fixpoint ptype (e : GExpr) : option PTy :=
+  match e with
+  | EId _ => Some PtUnk
+  | EInt _ => Some PtNum
+  | EBn o l r =>
+      match ptype l, ptype r with
+      | Some cl, Some cr =>
+          match o with
+          | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BAdd|BSub|BOr|BXor =>
+              if num_or_unk cl && num_or_unk cr then Some PtNum else None     (* int arith: numeric×numeric *)
+          | BEq|BNe|BLt|BLe|BGt|BGe =>
+              if cat_assignable cl cr || cat_assignable cr cl then Some PtBool else None  (* compatible cmp *)
+          | BLAnd|BLOr =>
+              if bool_or_unk cl && bool_or_unk cr then Some PtBool else None   (* &&/||: bool×bool *)
+          end
+      | _, _ => None
+      end
+  | EUn o e0 =>
+      match ptype e0 with
+      | Some c => match o with
+                  | UXor | UNeg => if num_or_unk c then Some PtNum else None
+                  | UNot => if bool_or_unk c then Some PtBool else None
+                  | UDeref | UAddr => None
+                  end
+      | None => None
+      end
+  | ECall (EId i) (a :: nil) =>
+      let fn := proj1_sig i in
+      match ptype a with
+      | None => None
+      | Some ca =>
+          if is_value_builtin fn
+          then match ca with PtAgg | PtStr | PtUnk => Some PtNum | _ => None end   (* len/cap: operand must be len-able *)
+          else if is_type_keyword fn
+          then match type_keyword_cat fn with                                       (* a scalar conversion T(a) *)
+               | PtBool => match ca with PtBool | PtUnk => Some PtBool | _ => None end
+               | PtStr  => match ca with PtNum | PtStr | PtUnk => Some PtStr | _ => None end  (* string(rune)/string(str) *)
+               | _      => if num_or_unk ca then Some PtNum else None               (* numeric conv from numeric/unk *)
+               end
+          else None   (* an unknown function — its result type is unknown, REJECT *)
+      end
+  | ECall _ _ => None
+  | EConv c e0 =>
+      match c with
+      | CTMap _ _ => None     (* a MAP conversion is QUARANTINED (key-type comparability not soundly structural) *)
+      | CTSlice _ | CTChan _ => match ptype e0 with Some PtUnk | Some PtAgg => Some PtAgg | _ => None end
+      end
+  | ESliceLit t es =>
+      if forallb (fun el => match ptype el with Some ce => cat_assignable ce (goty_cat t) | None => false end) es
+      then Some PtAgg else None
+  | EMapLit _ _ _ => None     (* a MAP literal is QUARANTINED (comparable-key TYPE + key/value assignability not structural) *)
+  | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
+  end.
+
+(** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by category; only unknown idents
+    are deferred).  So a closed type-error ([len(1)] / [1 && 2] / [int([]int{1})] / [map[..]..{..}]) is
+    REJECTED, while [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len]/[cap] of an
+    aggregate-or-unknown, and a slice literal whose elements are assignable to its element type are admitted.
+    STRUCTURAL only: it cannot check SCOPE (an undefined ident) — that is GoSem. *)
+Definition svalue (e : GExpr) : bool := match ptype e with Some _ => true | None => false end.
+
+(** Is a builtin [f] valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only?  [println]/
+    [print] are variadic in arg COUNT; [panic] takes exactly one.  This checks only name+arity — argument
+    TYPES are checked SEPARATELY and per-builtin in [expr_stmt_ok] ([printable_arg_ok] for [print]/[println]
+    — NOT "any type": only the guaranteed-printable SCALAR subset — and [svalue] for [panic], which takes an
+    [interface{}]).  Deliberately EXACT for the current AST (no user funcs / imports yet).  Excluded on
+    purpose: CONVERSIONS ([int(x)] is not a call) and VALUE-returning builtins ([len(x)]/… — "evaluated but
+    not used" as a statement).  ([close]/[delete] add a channel/map arg-type constraint — deferred to GoSem.)
+    Widens with user funcs / a symbol table. *)
 Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
-  if String.eqb f "println" then true                                  (* variadic, any args *)
-  else if String.eqb f "print" then true                               (* variadic, any args *)
-  else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1, any type *)
+  if String.eqb f "println" then true                                  (* variadic in arg COUNT *)
+  else if String.eqb f "print" then true                               (* variadic in arg COUNT *)
+  else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1 *)
   else false.
 
 (** A SCALAR builtin type keyword (numeric / bool / string) — [is_type_keyword] MINUS [chan]/[map] (the two
     aggregate/reference type keywords).  A conversion to such a type yields a scalar. *)
-Definition is_scalar_type_keyword (s : string) : bool :=
-  is_type_keyword s && negb (String.eqb s "chan") && negb (String.eqb s "map").
-
 (** A [print]/[println] argument GUARANTEED-printable by the Go spec.  ★Go-spec NOTE (Bootstrapping): [print]/
     [println] are bootstrapping builtins whose implementations need NOT accept arbitrary argument types — only
-    BOOLEAN, NUMERIC, and STRING types are always supported.  So we admit only forms that PROVABLY produce a
-    scalar: integer literals, arithmetic/comparison/logical binops (over printable operands), the value-
-    producing unary ops, a SCALAR-type conversion [T(a)] ([is_scalar_type_keyword]), and the int-returning
-    builtins [len]/[cap].  AGGREGATES — slice/map literals ([ESliceLit]/[EMapLit]), slice/chan/map conversions
-    ([EConv]), and bare identifiers (unknown type) — are NOT admitted here (their printing is
-    implementation-defined): use them via [_ = <value>] (which admits any [svalue]) instead.  This keeps a
-    SUPPORTED program portable, not reliant on a particular compiler's aggregate-printing. *)
-Fixpoint printable_arg_ok (e : GExpr) : bool :=
-  match e with
-  | EInt _ => true
-  | EBn _ l r => printable_arg_ok l && printable_arg_ok r
-  | EUn o e0 => match o with UNot | UXor | UNeg => printable_arg_ok e0 | UDeref | UAddr => false end
-  | ECall (EId i) (a :: nil) =>
-      (is_scalar_type_keyword (proj1_sig i) || is_value_builtin (proj1_sig i)) && svalue a
-  | _ => false
-  end.
+    BOOLEAN, NUMERIC, and STRING are always supported.  So a printable arg is one [ptype] gives a SCALAR
+    category ([PtNum]/[PtBool]/[PtStr]).  This reuses the structural type-checker, so it INHERITS its rejection
+    of closed type-errors — e.g. [len(1)] ([PtNum] operand → not len-able → rejected), [bool(1)], [1 && 2],
+    [!1], [int([]int{1})] — and of non-scalars ([PtAgg] slice/chan literals and conversions) and of bare
+    identifiers ([PtUnk], unknown type): emit those via [_ = <value>] instead.  ([println(int(x))] /
+    [println(len(x))] stay admitted: a conversion / [len] result category is KNOWN even when the operand is a
+    deferred ident.) *)
+Definition printable_arg_ok (e : GExpr) : bool :=
+  match ptype e with Some PtNum | Some PtBool | Some PtStr => true | _ => false end.
 
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
     CALL (a plain value [1] / [a + b] is "evaluated but not used"), AND — crucially — a genuine function call,
@@ -256,10 +290,10 @@ Definition unsupported_println_slicelit : Program :=
 Example println_slicelit_unsupported : supported_program unsupported_println_slicelit = false.
 Proof. reflexivity. Qed.
 
-(** QUARANTINE (Phase 4, [EMapLit] — external review 2026-06-29): a map composite literal is REPRESENTABLE and
-    round-trips in GoPrint, but is NOT in the supported subset ([svalue (EMapLit _ _ _) = false]) — Go requires
-    the key TYPE be COMPARABLE (slice/map/func keys forbidden) AND keys/values be assignable to K/V, NEITHER of
-    which is soundly structural here, so admitting it would certify invalid Go.  So NONE of these is supported:
+(** QUARANTINE ([EMapLit]): a map composite literal is REPRESENTABLE and round-trips in GoPrint, but is NOT in
+    the supported subset ([svalue (EMapLit _ _ _) = false]) — Go requires the key TYPE be COMPARABLE
+    (slice/map/func keys forbidden) AND keys/values be assignable to K/V, NEITHER of which is soundly structural
+    here, so admitting it would certify invalid Go.  So NONE of these is supported:
     a comparable-key `_ = map[int]int{1: 2}`, the NON-comparable-key `_ = map[[]int]int{[]int{1}: 2}` (invalid
     Go), a map CONVERSION `_ = map[int]int(x)` (same key-type concern), the bare `map[int]int{1: 2}` statement,
     and `println(map[int]int{1: 2})` (aggregate).  Re-admit once GoSem seals a comparable-key builder +
@@ -288,6 +322,29 @@ Definition unsupported_println_maplit : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])].
 Example println_maplit_unsupported : supported_program unsupported_println_maplit = false.
+Proof. reflexivity. Qed.
+
+(** REGRESSION — the [ptype] type-checker rejects CLOSED type-errors that a shape-only [printable_arg_ok] used
+    to leak.  Each of these is a closed program Go rejects on the structure, so the gate must too — all
+    [supported_program = false]: [println(len(1))] (an int is not len-able), [println(bool(1))] (int is not
+    convertible to bool), [println(1 && 2)] (`&&` needs bool operands), [println(!1)] (`!` needs a bool), and
+    [println(int([]int{1}))] (a slice is not convertible to int). *)
+Definition pl_arg (a : GExpr) : Program :=   (* `func main(){ println(<a>) }` *)
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [a])].
+Example bad_println_len1 :
+  supported_program (pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EInt 1])) = false.
+Proof. reflexivity. Qed.
+Example bad_println_bool1 :
+  supported_program (pl_arg (ECall (EId (mkIdent "bool" eq_refl)) [EInt 1])) = false.
+Proof. reflexivity. Qed.
+Example bad_println_land :
+  supported_program (pl_arg (EBn BLAnd (EInt 1) (EInt 2))) = false.
+Proof. reflexivity. Qed.
+Example bad_println_not1 :
+  supported_program (pl_arg (EUn UNot (EInt 1))) = false.
+Proof. reflexivity. Qed.
+Example bad_println_int_slice :
+  supported_program (pl_arg (ECall (EId (mkIdent "int" eq_refl)) [ESliceLit GTInt [EInt 1]])) = false.
 Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){
