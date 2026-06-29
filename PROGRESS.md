@@ -23,9 +23,10 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > parallel syntax universe. The full spine `GoAst`→`GoPrint`→`GoSafe`→`GoEmit` is live (Phases 0–3 done,
 > Phase 4 = grow the AST/printer, underway). LANDED so far (each zero-axiom, golden byte-identical, in the
 > `make emit-verify` gate): the type-form conversion `EConv` / `ConvTy` (`[]T(x)`/`chan T(x)`/`map[K]V(x)`,
-> round-trip + `svalue`-admitted); the slice composite literal `ESliceLit` (`[]T{e1,..,en}` — a type-led
-> primary sharing the `[]T` lead with `EConv`, with a `parse_elems` mutual-block parser and the full
-> round-trip, `svalue (ESliceLit _ es) = forallb svalue es`); a `GoStmt` statement layer with `print_stmt_inj`
+> round-trip + `svalue`-admitted); the slice + map composite literals `ESliceLit` (`[]T{e1,..,en}`) and
+> `EMapLit` (`map[K]V{k1: v1,..}`, keyed key:value pairs) — type-led primaries sharing the `[]T`/`map[K]V`
+> lead with `EConv` (split by the next token `{` vs `(`), via `parse_elems`/`parse_map_elems` mutual-block
+> parsers and the full round-trip, `svalue`-admitted; a `GoStmt` statement layer with `print_stmt_inj`
 > (program-printer injectivity `print_program_inj`) covering `GsExprStmt` / `GsReturn` / `GsReturnVal`
 > (`return e`, gate-REJECTED as invalid in the void `main`) / `GsBlankAssign` (`_ = e`, the first SUPPORTED
 > non-call/non-return statement); a decidable `GoSafe.SupportedProgram` supported-subset gate (`stmt_call_ok`
