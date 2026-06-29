@@ -352,17 +352,28 @@ add "future foundation" unless it replaces or deletes something.**
   sharing the `map[K]V` lead with `EConv`'s map conversion (split by next token `{` vs `(`)).  Slice + map
   literals landed; struct/array literals remain.  ⚠️ map literals (and map conversions) are QUARANTINED from
   `SupportedProgram` (`ptype (EMapLit _ _ _) = None`) — comparable-key-type + assignability are not soundly
-  structural, so the gate rejects them until GoSem.  ★The `GoSafe.ptype` TYPE-CATEGORY checker (Codex
-  stop-review, 2026-06-29) is now numerically/structurally SOUND: a refined `PTy` (untyped-int-CONSTANT with
-  its `Z` value · typed `PtInt t` / `PtFloat t` carrying the `GoTy` · `PtBool`/`PtStr`/`PtAgg`/`PtUnk`) makes
-  every obligation structural — `%`/shift/bitwise reject FLOAT operands, fixed-width conversions/slice-elements
-  CHECK constant representability (`uint8(300)`, `[]uint8{300}` rejected), mixed-width arithmetic is rejected,
-  `==`/`!=` need COMPARABLE and `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected),
-  `len`≠`cap` (`cap` of a string rejected), and a closed aggregate conversion is admitted only for a DEFERRED
-  operand (`chan int([]int{1})` rejected, `[]int(nil)` kept); only genuinely-unknown identifiers (`PtUnk`) are
-  deferred.  `print`/`println` admit only the guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not
-  arbitrary `svalue` aggregates (external review 2026-06-29).  Next: more `GoStmt` forms (assignment, var,
-  control flow) and struct/array composite literals + func-lit conversions, HERE inside `GoAst`/`GoPrint`.
+  structural, so the gate rejects them until GoSem.  ★The `GoSafe.ptype` TYPE-CATEGORY checker is now
+  numerically/structurally SOUND **and CONSTANT-AWARE** (Codex stop-review, 2026-06-29 #2): the refined `PTy`
+  now keeps CONSTANTS and their VALUE+TYPE separate from RUNTIME values — `PtIntConst z` (untyped const) ·
+  `PtTIntConst t z` (TYPED int const, value `z`) · `PtFloatConst t z` (typed float const, value the integer
+  `z` it was built from) · `PtRunInt t` / `PtRunFloat t` (runtime, non-const) · `PtBool`/`PtStr`/`PtAgg`/
+  `PtUnk`.  This closes the value-erasure bug: a numeric conversion of a CONSTANT now stays a typed CONSTANT
+  (Go's constant rules apply TRANSITIVELY), so `1/int(0)`, `1%int(0)`, `1<<int(-1)`, `uint8(int(300))`,
+  `uint8(float64(300))` (all CLOSED compile errors) are REJECTED — where the prior `conv_to_scalar` erased the
+  value (`PtIntConst z`→`PtInt t`) and let them through.  Every obligation is structural: `%`/shift/bitwise
+  reject FLOAT operands; fixed-width conversions/slice-elements AND folded constant arithmetic CHECK
+  representability (`uint8(300)`, `[]uint8{300}`, `int8(100)+int8(100)`, the typed-mismatch `[]int{int64(1)}`
+  rejected); `/`,`%` reject a const-zero divisor (incl. one FOLDED from typed-const subexprs, `1/(int(1)-int(1))`);
+  shifts reject a const-negative count; a bare UNTYPED const at a default-`int` boundary (`println`/`print` arg,
+  `_ = <const>`) must fit conservative 32-bit int; mixed-width arithmetic is rejected; `==`/`!=` need COMPARABLE
+  and `<`/`<=`/`>`/`>=` need ORDERED operands (bool/slice comparison rejected); `len`≠`cap` (`cap` of a string
+  rejected); a closed aggregate conversion is admitted only for a DEFERRED operand (`chan int([]int{1})`
+  rejected, `[]int(nil)` kept); only genuinely-unknown identifiers (`PtUnk`, treated as runtime) are deferred.
+  Float→int constant conversions are tracked EXACTLY (`uint8(float64(255))` is VALID Go and ACCEPTED), while
+  float-CONSTANT arithmetic is conservatively REJECTED (no positive needs it).  `print`/`println` admit only the
+  guaranteed-printable SCALAR arg subset (`printable_arg_ok`), not arbitrary `svalue` aggregates.  Next: more
+  `GoStmt` forms (assignment, var, control flow) and struct/array composite literals + func-lit conversions,
+  HERE inside `GoAst`/`GoPrint`.
 - **Phase 5 — Grow safety via `GoSem`.** Bridge the existing `unified.v`/`concurrency.v`/`cmd.v` theory in.
   Widen: sequential support → mutable locals → heap/slices/maps → ownership → goroutines with resource
   splitting → channels with capacity/close-state → happens-before & race freedom → sessions → termination/

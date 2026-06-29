@@ -12,34 +12,48 @@ From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
 
-(** ---- A STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
+(** ---- A CONSTANT-AWARE STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
     The supportedness gate must NOT certify INVALID Go.  A purely shape-based [svalue] leaked TYPE side
     conditions; an under-refined [ptype] (a single fat [PtNum] / a single comparison rule / a shared
     [len]=[cap] rule / a shape-only aggregate conversion) STILL leaked numeric and structural side conditions:
     float modulo / float shift ([float64(1) % float64(2)], [float64(1) << 2]), constant overflow
     ([uint8(300)], [[]uint8{300}]), mixed fixed-width arithmetic ([int64(3) + int32(2)]), bool ordering
     ([(1==1) < (2==2)]), slice equality/ordering, [cap] of a string ([cap(string(x))]), and invalid aggregate
-    conversions ([chan int([]int{1})]) all sailed through.  [ptype] now assigns each expression a REFINED
-    structural TYPE CATEGORY, or REJECTS it ([None]) as structurally ill-typed.  The refinement is exactly
-    enough to make every obligation STRUCTURAL: integers are split from floats; an UNTYPED INTEGER CONSTANT
-    carries its VALUE (a [Z]) so representability/overflow and division/shift-by-zero are decided from the
-    value (constant subexpressions are FOLDED, so [1 / (1 - 1)] is caught); a TYPED numeric carries its [GoTy]
-    so mixed-width arithmetic is rejected; aggregates ([PtAgg]) are a valid value but never numeric/printable.
-    ONLY a genuinely-unknown IDENTIFIER is DEFERRED ([PtUnk] — its type/scope is GoSem's job).
+    conversions ([chan int([]int{1})]) all sailed through.  A LATER gap (Codex stop-review): a numeric
+    CONVERSION ERASED the constant's value ([conv_to_scalar] mapped [PtIntConst z] -> [PtInt t]), so a typed
+    constant lost its constness — and Go's constant rules apply TRANSITIVELY through conversions (a conversion
+    of a constant is itself a typed CONSTANT), so [1 / int(0)], [1 << int(-1)], [uint8(int(300))],
+    [uint8(float64(300))] (all CLOSED compile errors) sailed through.
+    [ptype] now assigns each expression a REFINED, CONSTANT-AWARE TYPE CATEGORY, or REJECTS it ([None]) as
+    structurally ill-typed.  CONSTANTNESS SURVIVES conversions and constant binops: integers are split from
+    floats and CONSTANTS from RUNTIME values; a constant carries its VALUE (a [Z]) — so representability/
+    overflow and division/shift-by-zero are decided from the folded value at EVERY level — while a typed
+    constant ALSO carries its [GoTy] (so mixed-width arithmetic and out-of-range typed-constant results are
+    rejected) and a RUNTIME numeric carries only its [GoTy] (no value constraint — runtime conversions
+    truncate, runtime div-by-zero is a panic not a compile error).  Aggregates ([PtAgg]) are a valid value but
+    never numeric/printable.  ONLY a genuinely-unknown IDENTIFIER is DEFERRED ([PtUnk] — its type/scope is
+    GoSem's job; treated as NON-constant runtime).
+    ★ANTI-REGRESSION INVARIANT — NO rule turns a constant category ([PtIntConst]/[PtTIntConst]/[PtFloatConst])
+    into a runtime category ([PtRunInt]/[PtRunFloat]) while dropping the value: constantness is PRESERVED
+    through every conversion/binop, or the form is REJECTED.  (Conversions of a runtime operand DO yield a
+    runtime category — but there was never a value to drop.)
     ★INVARIANT — for a CLOSED expression (no [EId]), [ptype] never returns [Some _] for a form Go's type
     checker rejects: it is MAXIMALLY CONSERVATIVE, rejecting much VALID Go too (any conversion of a KNOWN
-    aggregate, [string] of a typed int, const+typed when not representable, nested-aggregate elements), which
-    is the correct posture — a smaller SOUND supported subset.  The deferral of [PtUnk] is the ONLY admission
-    of an unproven form, and it fires only where the operand is an actual deferred identifier.  (A full
-    typed/scoped check is GoSem.) *)
+    aggregate, [string] of a typed int, const+typed when not representable, nested-aggregate elements,
+    float-CONSTANT arithmetic, an untyped const whose default-[int] value overflows), which is the correct
+    posture — a smaller SOUND supported subset.  The deferral of [PtUnk] is the ONLY admission of an unproven
+    form, and it fires only where the operand is an actual deferred identifier.  (A full typed/scoped check is
+    GoSem.) *)
 Inductive PTy : Type :=
-  | PtIntConst (z : Z)   (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
-  | PtInt   (t : GoTy)   (* a TYPED integer value (t a fixed/platform integer GoTy) — runtime, not a foldable const *)
-  | PtFloat (t : GoTy)   (* a TYPED float value (t = GTFloat64 / GTFloat32) *)
+  | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
+  | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
+  | PtFloatConst (t : GoTy) (z : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), value the INTEGER [z] it came from *)
+  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len(x)]) *)
+  | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
   | PtStr
   | PtAgg    (* a slice/chan aggregate value: a valid VALUE, but never numeric / order-comparable / printable *)
-  | PtUnk.   (* an identifier — type DEFERRED (could be anything; scope/GoSem decides) *)
+  | PtUnk.   (* an identifier — type DEFERRED (could be anything; scope/GoSem decides; treated as runtime/non-const) *)
 
 (** ---- numeric-type predicates over [GoTy] (the scalar numeric constructors) ---- *)
 Definition is_int_goty (t : GoTy) : bool :=
@@ -49,8 +63,9 @@ Definition is_int_goty (t : GoTy) : bool :=
   end.
 Definition is_float_goty (t : GoTy) : bool :=
   match t with GTFloat64 | GTFloat32 => true | _ => false end.
-(** Decidable equality on the numeric SCALAR [GoTy]s (all [PtInt]/[PtFloat] ever carry).  Total: any pair of
-    DIFFERENT (or non-numeric) constructors is [false].  Used to forbid mixed-width arithmetic/assignment. *)
+(** Decidable equality on the numeric SCALAR [GoTy]s (the [t] every typed-numeric category — [PtTIntConst] /
+    [PtFloatConst] / [PtRunInt] / [PtRunFloat] — carries).  Total: any pair of DIFFERENT (or non-numeric)
+    constructors is [false].  Used to forbid mixed-width arithmetic/comparison/assignment. *)
 Definition numty_eqb (a b : GoTy) : bool :=
   match a, b with
   | GTInt, GTInt | GTInt64, GTInt64 | GTUint, GTUint
@@ -84,105 +99,141 @@ Definition int_const_repr (z : Z) (t : GoTy) : bool :=
 Definition int_repr_as_float (z : Z) : bool := int_const_repr z GTInt64.
 
 (** ---- numeric CATEGORY predicates ---- *)
-Definition is_int_cat   (c : PTy) : bool := match c with PtIntConst _ | PtInt _ => true | _ => false end.
-Definition is_float_cat (c : PTy) : bool := match c with PtFloat _ => true | _ => false end.
+Definition is_int_cat   (c : PTy) : bool :=
+  match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ => true | _ => false end.
+Definition is_float_cat (c : PTy) : bool :=
+  match c with PtFloatConst _ _ | PtRunFloat _ => true | _ => false end.
 Definition is_num_cat   (c : PTy) : bool := orb (is_int_cat c) (is_float_cat c).
-Definition is_int_or_unk  (c : PTy) : bool := match c with PtIntConst _ | PtInt _ | PtUnk => true | _ => false end.
+Definition is_int_or_unk  (c : PTy) : bool :=
+  match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ | PtUnk => true | _ => false end.
 Definition is_bool_or_unk (c : PTy) : bool := match c with PtBool | PtUnk => true | _ => false end.
+(** Extract the VALUE of an integer constant (untyped OR typed) — [None] for a non-int-const category.  The
+    single authority for the const-zero / const-negative / shift-count / fold readers, so a TYPED int constant
+    ([int(0)], [int(-1)]) is treated exactly like an untyped one (the constant rules apply transitively). *)
+Definition int_const_val (c : PTy) : option Z :=
+  match c with PtIntConst z | PtTIntConst _ z => Some z | _ => None end.
 
-(** NUMERIC COMPATIBILITY — single authority for arithmetic + numeric-comparison operand checking: can two
-    numeric categories combine?  [PtUnk] defers but ONLY against a numeric (so [x + true] is rejected: [bool]
-    is not numeric); two untyped consts always combine; a const combines with a typed numeric iff
-    REPRESENTABLE in it (so [int8(1) + 300] is rejected); two typed numerics combine iff SAME type (so
-    [int64(3) + int32(2)] and [float64 + float32] are rejected).  bool/str/agg pairs never combine here. *)
-Definition num_compatible (cl cr : PTy) : bool :=
+(** NUMERIC COMPARABILITY — single authority for numeric-comparison ([==]/[!=]/[<]/…) operand checking: can
+    two numeric categories be compared?  [PtUnk] defers but ONLY against a numeric (so [x < true] is rejected:
+    [bool] is not numeric); two int constants always compare; an int const compares with a typed/runtime int
+    iff REPRESENTABLE in it (so [int8(1) == 300] is rejected); two typed/runtime ints compare iff SAME type
+    (so [int32 == int64] is rejected); float CONSTANTS carry their type so [float64(1)==float32(1)] is rejected
+    while [float64(1)==float64(x)] passes.  Conservatively, a CROSS int/float comparison ([int(1)==float64(1)],
+    even when one side is an untyped const) is REJECTED — sound, and not needed by any positive.  bool/str/agg
+    are handled by [eq_comparable]/[ord_comparable], not here. *)
+Definition num_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtUnk, PtUnk => true
   | PtUnk, c | c, PtUnk => is_num_cat c
+  (* integer family *)
   | PtIntConst _, PtIntConst _ => true
-  | PtIntConst z, PtInt t | PtInt t, PtIntConst z => int_const_repr z t
-  | PtIntConst z, PtFloat _ | PtFloat _, PtIntConst z => int_repr_as_float z
-  | PtInt t1, PtInt t2 => numty_eqb t1 t2
-  | PtFloat t1, PtFloat t2 => numty_eqb t1 t2
+  | PtIntConst z, PtTIntConst t _ | PtTIntConst t _, PtIntConst z => int_const_repr z t
+  | PtIntConst z, PtRunInt t | PtRunInt t, PtIntConst z => int_const_repr z t
+  | PtTIntConst t1 _, PtTIntConst t2 _ => numty_eqb t1 t2
+  | PtTIntConst t1 _, PtRunInt t2 | PtRunInt t2, PtTIntConst t1 _ => numty_eqb t1 t2
+  | PtRunInt t1, PtRunInt t2 => numty_eqb t1 t2
+  (* float family (float constants carry their type) *)
+  | PtFloatConst t1 _, PtFloatConst t2 _ => numty_eqb t1 t2
+  | PtFloatConst t1 _, PtRunFloat t2 | PtRunFloat t2, PtFloatConst t1 _ => numty_eqb t1 t2
+  | PtRunFloat t1, PtRunFloat t2 => numty_eqb t1 t2
   | _, _ => false
   end.
 
-(** RESULT CATEGORY of a numeric binop for COMPATIBLE operands that are NOT both untyped constants (the
-    both-const case folds a VALUE, handled per-op in [num_binop]).  A typed operand fixes the result type;
-    const+typed yields the typed type; unk+const stays deferred. *)
-Definition combine_typed (cl cr : PTy) : option PTy :=
+(** ARITHMETIC COMBINATION — single authority for the value-following binops [+ - * / % & | ^ &^] (the SHIFTS
+    are separate: their count is independent).  [fold] computes the VALUE for the constant*constant cases; the
+    result CATEGORY preserves constness:
+    - both UNTYPED int consts -> a new UNTYPED int const (ARBITRARY PRECISION — no overflow until used);
+    - untyped const + TYPED int const -> a TYPED const, with the FOLDED RESULT representability-checked in the
+      type (so [int8(100)+int8(100)] = 200 -> REJECT) — and likewise typed+typed of the SAME type (DIFFERENT
+      types REJECT: mixed width [int64(3)+int32(2)]);
+    - a const combined with a RUNTIME int -> a runtime int of that type (the const must be REPRESENTABLE in /
+      of the SAME type as the runtime), value no longer tracked (there is a runtime operand, so no fold);
+    - runtime + runtime int -> same type;  runtime FLOAT + runtime float (or + untyped int const repr-as-float)
+      -> runtime float of that type;  any FLOAT CONSTANT operand -> REJECT (conservative — we do not track
+      fractional values, and no positive needs constant-float arithmetic);
+    - [PtUnk] defers (-> [PtUnk]) but ONLY against a numeric (so [x + true] is rejected).
+    Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_or_unk] FIRST, so no float reaches
+    those; [num_arith] still rejects float-const + the [/]-zero check is done by the caller. *)
+Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
   match cl, cr with
   | PtUnk, PtUnk => Some PtUnk
-  | PtUnk, PtInt t | PtInt t, PtUnk => Some (PtInt t)
-  | PtUnk, PtFloat t | PtFloat t, PtUnk => Some (PtFloat t)
-  | PtUnk, PtIntConst _ | PtIntConst _, PtUnk => Some PtUnk
-  | PtInt t, _ | _, PtInt t => Some (PtInt t)
-  | PtFloat t, _ | _, PtFloat t => Some (PtFloat t)
+  | PtUnk, c | c, PtUnk => if is_num_cat c then Some PtUnk else None
+  (* both UNTYPED int consts: arbitrary-precision fold *)
+  | PtIntConst a, PtIntConst b => Some (PtIntConst (fold a b))
+  (* untyped int const + typed int const: typed const, repr-check the FOLDED RESULT *)
+  | PtIntConst a, PtTIntConst t b | PtTIntConst t b, PtIntConst a =>
+      let r := fold a b in if int_const_repr r t then Some (PtTIntConst t r) else None
+  (* typed int const + typed int const: SAME type, repr-check the result; DIFFERENT type -> reject *)
+  | PtTIntConst t1 a, PtTIntConst t2 b =>
+      if numty_eqb t1 t2 then let r := fold a b in if int_const_repr r t1 then Some (PtTIntConst t1 r) else None
+      else None
+  (* untyped int const + runtime int: const must be REPRESENTABLE in the runtime's type -> runtime int *)
+  | PtIntConst a, PtRunInt t | PtRunInt t, PtIntConst a =>
+      if int_const_repr a t then Some (PtRunInt t) else None
+  (* typed int const + runtime int: SAME type -> runtime int *)
+  | PtTIntConst t1 _, PtRunInt t2 | PtRunInt t2, PtTIntConst t1 _ =>
+      if numty_eqb t1 t2 then Some (PtRunInt t2) else None
+  (* runtime int + runtime int: SAME type *)
+  | PtRunInt t1, PtRunInt t2 => if numty_eqb t1 t2 then Some (PtRunInt t1) else None
+  (* runtime float + runtime float: SAME type *)
+  | PtRunFloat t1, PtRunFloat t2 => if numty_eqb t1 t2 then Some (PtRunFloat t1) else None
+  (* runtime float + untyped int const (repr-as-float): runtime float of that type *)
+  | PtRunFloat t, PtIntConst z | PtIntConst z, PtRunFloat t =>
+      if int_repr_as_float z then Some (PtRunFloat t) else None
+  (* any FLOAT CONSTANT operand, or any other mix (bool/str/agg) -> REJECT *)
   | _, _ => None
   end.
 
+(** A divisor / shift-count that is a CONSTANT (untyped OR typed) ZERO / NEGATIVE — the constant rules apply
+    transitively, so [int(0)] (a typed const 0) and [int(-1)] (a typed const -1) count exactly like [0] / [-1].
+    A FLOAT const / runtime / deferred operand is NOT a constant zero here (runtime div-by-zero is a panic, not
+    a compile error — GoSem's concern; a float divisor zero is +Inf). *)
+Definition is_zero_const (c : PTy) : bool := match int_const_val c with Some z => Z.eqb z 0 | None => false end.
+Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z => Z.ltb z 0 | None => false end.
+
 (** THE NUMERIC BINOP TYPE-CHECKER — single authority for [* / % << >> & &^ + - | ^].  Enforces, structurally:
-    - [%], [&], [|], [^], [&^] and the shifts require INTEGER operands (a FLOAT operand is rejected — closing
-      [float64(1) % float64(2)] / [float64(1) << 2]);
-    - [/] and [%] reject a CONSTANT-ZERO divisor (incl. one folded from a constant subexpression, [1/(1-1)]);
-    - the shifts reject a NEGATIVE constant shift count and let the operand types differ (the count type is
-      independent), the result taking the LEFT type;
-    - all other forms demand [num_compatible] and combine via [combine_typed]; two untyped constants FOLD to a
-      new untyped constant (so downstream representability sees the real value). *)
-Definition is_zero_const (c : PTy) : bool := match c with PtIntConst z => Z.eqb z 0 | _ => false end.
-Definition is_neg_const  (c : PTy) : bool := match c with PtIntConst z => Z.ltb z 0 | _ => false end.
+    - [%], [&], [|], [^], [&^] and the shifts require INTEGER operands (a FLOAT operand — const or runtime —
+      is rejected by the [is_int_or_unk] gate, closing [float64(1) % float64(2)] / [float64(1) << 2]);
+    - [/] and [%] reject a CONSTANT-ZERO divisor (incl. a TYPED const zero [int(0)] and one folded from a
+      constant subexpression, [1/(int(1)-int(1))]);
+    - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and let the count type be
+      independent of the left type; the result takes the LEFT operand's type AND constness (a typed-const left
+      shifted by a const count FOLDS, with the result repr-checked in the type);
+    - all other forms combine via [num_arith], which folds constants (preserving constness) and repr-checks
+      typed-constant results so [int8(100)+int8(100)] is rejected. *)
+Definition shfold (o : BinOp) (a b : Z) : Z := match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end.
 Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   match o with
-  | BAdd | BSub | BMul =>
-      if num_compatible cl cr then
-        match cl, cr with
-        | PtIntConst a, PtIntConst b =>
-            Some (PtIntConst (match o with BAdd => Z.add a b | BSub => Z.sub a b | _ => Z.mul a b end))
-        | _, _ => combine_typed cl cr
-        end
-      else None
-  | BDiv =>
-      if is_zero_const cr then None
-      else if num_compatible cl cr then
-        match cl, cr with
-        | PtIntConst a, PtIntConst b => Some (PtIntConst (Z.quot a b))
-        | _, _ => combine_typed cl cr
-        end
-      else None
+  | BAdd => num_arith Z.add cl cr
+  | BSub => num_arith Z.sub cl cr
+  | BMul => num_arith Z.mul cl cr
+  | BDiv => if is_zero_const cr then None else num_arith Z.quot cl cr
   | BRem =>
       if andb (is_int_or_unk cl) (is_int_or_unk cr) then
-        if is_zero_const cr then None
-        else if num_compatible cl cr then
-          match cl, cr with
-          | PtIntConst a, PtIntConst b => Some (PtIntConst (Z.rem a b))
-          | _, _ => combine_typed cl cr
-          end
-        else None
+        if is_zero_const cr then None else num_arith Z.rem cl cr
       else None
-  | BAnd | BOr | BXor | BAndNot =>
-      if andb (is_int_or_unk cl) (is_int_or_unk cr) then
-        if num_compatible cl cr then
-          match cl, cr with
-          | PtIntConst a, PtIntConst b =>
-              Some (PtIntConst (match o with
-                                | BAnd => Z.land a b | BOr => Z.lor a b
-                                | BXor => Z.lxor a b | _ => Z.land a (Z.lnot b) end))
-          | _, _ => combine_typed cl cr
-          end
-        else None
-      else None
+  | BAnd    => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.land cl cr else None
+  | BOr     => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.lor  cl cr else None
+  | BXor    => if andb (is_int_or_unk cl) (is_int_or_unk cr) then num_arith Z.lxor cl cr else None
+  | BAndNot => if andb (is_int_or_unk cl) (is_int_or_unk cr)
+               then num_arith (fun a b => Z.land a (Z.lnot b)) cl cr else None
   | BShl | BShr =>
       if andb (is_int_or_unk cl) (is_int_or_unk cr) then
         if is_neg_const cr then None
-        else match cl, cr with
-             | PtIntConst a, PtIntConst b =>
-                 Some (PtIntConst (match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end))
-             | _, _ => match cl with
-                       | PtInt t => Some (PtInt t)
-                       | PtIntConst _ => Some (PtInt GTInt)   (* 1 << x : the untyped 1 defaults to int *)
-                       | PtUnk => Some PtUnk
-                       | _ => None
-                       end
+        else match cl with
+             | PtIntConst a =>
+                 match int_const_val cr with
+                 | Some b => Some (PtIntConst (shfold o a b))   (* both const -> untyped const fold *)
+                 | None   => Some (PtRunInt GTInt)              (* 1 << x : the untyped 1 defaults to int *)
+                 end
+             | PtTIntConst t a =>
+                 match int_const_val cr with
+                 | Some b => let r := shfold o a b in if int_const_repr r t then Some (PtTIntConst t r) else None
+                 | None   => Some (PtRunInt t)                  (* int8(1) << x : runtime, keeps the type *)
+                 end
+             | PtRunInt t => Some (PtRunInt t)
+             | PtUnk => Some PtUnk
+             | _ => None                                        (* floats already excluded by the gate *)
              end
       else None
   | _ => None    (* the comparison / logical binops are not numeric — handled in [ptype] *)
@@ -190,14 +241,14 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
 
 (** EQUALITY ([==]/[!=]) operand check: COMPARABLE + mutually compatible.  Comparable = numeric / string /
     bool / deferred — NOT [PtAgg] (slice/map/func equality is rejected; a slice may only be compared with
-    nil, which appears as a deferred ident).  Numeric equality reuses [num_compatible] (so [int32 == int64]
+    nil, which appears as a deferred ident).  Numeric equality reuses [num_comparable] (so [int32 == int64]
     is rejected). *)
 Definition eq_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtUnk, _ | _, PtUnk => true
   | PtBool, PtBool => true
   | PtStr, PtStr => true
-  | _, _ => num_compatible cl cr
+  | _, _ => num_comparable cl cr
   end.
 (** ORDERING ([<]/[<=]/[>]/[>=]) operand check: ORDERED + mutually compatible.  Ordered = numeric / string /
     deferred — NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg] (slice ordering rejected). *)
@@ -205,45 +256,59 @@ Definition ord_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtStr, PtStr => true
   | PtStr, PtUnk | PtUnk, PtStr => true
-  | PtUnk, PtUnk => true
-  | _, _ => num_compatible cl cr
+  | _, _ => num_comparable cl cr
   end.
 
-(** SCALAR CONVERSION [T(a)] type-checker, for a scalar type keyword [T] (its [GoTy] via [classify]).  Each
-    target enforces its own rule: [bool(a)] needs a bool/deferred source; [string(a)] a string/deferred (or a
-    rune-representable int CONSTANT — NOT an arbitrary int, conservative); a numeric target admits a
-    numeric/deferred source (a runtime numeric converts freely), but an int CONSTANT must be REPRESENTABLE in
-    the target (so [uint8(300)] is rejected).  bool/string/aggregate sources to a numeric target are rejected
-    (so [int([]int{1})] / [int(true)] fail). *)
+(** SCALAR CONVERSION [T(a)] type-checker, for a scalar type keyword [T] (its [GoTy] via [classify]).  ★The
+    KEY constant-aware rule: in Go a conversion of a CONSTANT is itself a TYPED CONSTANT, so the constant rules
+    apply TRANSITIVELY — constness must SURVIVE the conversion (the prior bug erased it: [PtIntConst z]->[PtInt
+    t], so [1/int(0)], [uint8(int(300))], [uint8(float64(300))] sailed through).  So:
+    - [bool(a)] needs a bool/deferred source;
+    - [string(a)] a string/deferred (or a rune-representable int CONSTANT, untyped or typed — NOT an arbitrary
+      runtime int, conservative);
+    - a NUMERIC target with a CONSTANT source ([PtIntConst]/[PtTIntConst]/[PtFloatConst]) yields a TYPED
+      CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
+      T z], to a float type -> [PtFloatConst T z]).  This rejects [uint8(300)], [uint8(int(300))],
+      [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because [PtFloatConst]
+      carries the exact INTEGER it was built from (we only ever build a float const from an int const), so the
+      range-check is exact;
+    - a NUMERIC target with a RUNTIME / deferred source ([PtRunInt]/[PtRunFloat]/[PtUnk]) yields a RUNTIME
+      value (runtime conversions truncate/round and are valid — NO representability constraint), so [int(x)],
+      [uint8(int(x))] stay admitted;
+    - bool/string/aggregate sources to a numeric target are rejected (so [int([]int{1})] / [int(true)] fail). *)
 Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
   match t with
   | GTBool => match ca with PtBool | PtUnk => Some PtBool | _ => None end
   | GTString =>
       match ca with
       | PtStr | PtUnk => Some PtStr
-      | PtIntConst z => if int_const_repr z GTI32 then Some PtStr else None   (* string(rune const) *)
+      | PtIntConst z | PtTIntConst _ z =>
+          if int_const_repr z GTI32 then Some PtStr else None   (* string(rune const) *)
       | _ => None
       end
   | GTFloat64 | GTFloat32 =>
       match ca with
-      | PtIntConst z => if int_repr_as_float z then Some (PtFloat t) else None
-      | PtInt _ | PtFloat _ | PtUnk => Some (PtFloat t)
+      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const *)
+          if int_repr_as_float z then Some (PtFloatConst t z) else None
+      | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunFloat t)  (* RUNTIME source -> runtime float *)
       | _ => None
       end
   | GTInt | GTInt64 | GTUint | GTU8 | GTI8 | GTU16 | GTI16 | GTU32 | GTI32 | GTU64 =>
       match ca with
-      | PtIntConst z => if int_const_repr z t then Some (PtInt t) else None
-      | PtInt _ | PtFloat _ | PtUnk => Some (PtInt t)
+      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed int const, repr-checked *)
+          if int_const_repr z t then Some (PtTIntConst t z) else None
+      | PtRunInt _ | PtRunFloat _ | PtUnk => Some (PtRunInt t)    (* RUNTIME source -> runtime int *)
       | _ => None
       end
   | _ => None   (* [classify] yields only scalar keyword GoTys here; defensive *)
   end.
 
 (** ASSIGNABILITY of a value CATEGORY to a declared element/target [GoTy] — single authority for composite
-    literal elements.  An untyped int CONSTANT is assignable to any numeric type it is REPRESENTABLE in (so
-    [[]uint8{300}] is rejected, [[]float64{1}] accepted); a TYPED numeric only to its OWN type (so
-    [[]int{int64(1)}] is rejected); bool/string to their type; a deferred ident to anything; an aggregate
-    element is conservatively rejected. *)
+    literal elements.  An UNTYPED int CONSTANT is assignable to any numeric type it is REPRESENTABLE in (so
+    [[]uint8{300}] is rejected, [[]float64{1}] accepted); a TYPED constant or RUNTIME numeric only to its OWN
+    type (so [[]int{int64(1)}] and [[]uint8{int(300)}] are rejected — a typed constant is NOT untyped, its type
+    must match exactly); bool/string to their type; a deferred ident to anything; an aggregate element is
+    conservatively rejected. *)
 Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   match ce with
   | PtUnk => true
@@ -251,12 +316,19 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
       if is_int_goty t then int_const_repr z t
       else if is_float_goty t then int_repr_as_float z
       else false
-  | PtInt t' => if is_int_goty t then numty_eqb t' t else false
-  | PtFloat t' => if is_float_goty t then numty_eqb t' t else false
+  | PtTIntConst t' _ | PtRunInt t' => if is_int_goty t then numty_eqb t' t else false
+  | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
   | PtBool => match t with GTBool => true | _ => false end
   | PtStr  => match t with GTString => true | _ => false end
   | PtAgg  => false
   end.
+
+(** The bitwise-complement VALUE of a typed integer constant [z] of type [t].  For an UNSIGNED type (range
+    [(0, hi)], where [hi = 2^w - 1]) the complement is [hi - z] (= flip all [w] bits); for a SIGNED type it is
+    [Z.lnot z = -z-1].  This keeps [^uint8(0) = 255] exact (a naive [Z.lnot] would give [-1], wrongly rejected
+    as out of [uint8] range), so constness is PRESERVED rather than conservatively dropped (anti-regression). *)
+Definition complement_in (t : GoTy) (z : Z) : Z :=
+  match int_ty_range t with Some (0, hi)%Z => Z.sub hi z | _ => Z.lnot z end.
 
 (** [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed (rejected). *)
 Fixpoint ptype (e : GExpr) : option PTy :=
@@ -278,13 +350,18 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       match ptype e0 with
       | Some c =>
           match o with
-          | UNeg => match c with                              (* unary minus: int or float *)
+          | UNeg => match c with                              (* unary minus: int or float; const FOLDS (constness kept) *)
                     | PtIntConst z => Some (PtIntConst (Z.opp z))
-                    | PtInt t => Some (PtInt t) | PtFloat t => Some (PtFloat t)
+                    | PtTIntConst t z =>                       (* -int8(-128) = 128 -> overflow -> reject *)
+                        let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                    | PtFloatConst t z => Some (PtFloatConst t (Z.opp z))
+                    | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
                     | PtUnk => Some PtUnk | _ => None end
-          | UXor => match c with                              (* bitwise complement: INTEGER only (no float) *)
+          | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)
                     | PtIntConst z => Some (PtIntConst (Z.lnot z))
-                    | PtInt t => Some (PtInt t)
+                    | PtTIntConst t z =>                       (* width/signedness-aware: ^uint8(0) = 255 *)
+                        let r := complement_in t z in if int_const_repr r t then Some (PtTIntConst t r) else None
+                    | PtRunInt t => Some (PtRunInt t)
                     | PtUnk => Some PtUnk | _ => None end
           | UNot => match c with PtBool | PtUnk => Some PtBool | _ => None end
           | UDeref | UAddr => None
@@ -297,9 +374,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | None => None
       | Some ca =>
           if String.eqb fn "len"
-          then match ca with PtStr | PtAgg | PtUnk => Some (PtInt GTInt) | _ => None end   (* len: string OR aggregate *)
+          then match ca with PtStr | PtAgg | PtUnk => Some (PtRunInt GTInt) | _ => None end (* len: string OR aggregate *)
           else if String.eqb fn "cap"
-          then match ca with PtAgg | PtUnk => Some (PtInt GTInt) | _ => None end            (* cap: aggregate ONLY (NOT string) *)
+          then match ca with PtAgg | PtUnk => Some (PtRunInt GTInt) | _ => None end          (* cap: aggregate ONLY (NOT string) *)
           else match classify fn with
                | Some t => conv_to_scalar ca t                                              (* a scalar conversion T(a) *)
                | None => None                                                               (* unknown function: REJECT *)
@@ -324,11 +401,21 @@ Fixpoint ptype (e : GExpr) : option PTy :=
 (** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category; only unknown
     idents are deferred).  So a closed type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2]
     / [int([]int{1})] / [map[..]..{..}]) but the numeric/structural ones too ([float64(1) % float64(2)],
-    [uint8(300)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))], [chan int([]int{1})]) — while
-    [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len] of a string-or-aggregate,
-    [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its element type are admitted.
+    [uint8(300)], [uint8(int(300))], [1/int(0)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))],
+    [chan int([]int{1})]) — while [EInt], an ident (scope deferred), well-typed binops/unops/conversions, [len]
+    of a string-or-aggregate, [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its
+    element type are admitted.  ★UNTYPED-CONSTANT DEFAULT-[int] BOUNDARY: where a bare UNTYPED int constant is
+    USED as a value (e.g. [_ = <untyped const>], or [panic(<untyped const>)] whose [interface{}] arg fixes the
+    default type), Go gives it the default type [int] — so the value must FIT in [int].  We require it fit the
+    CONSERVATIVE 32-bit range (sound on every Go target), so [_ = <a 40-bit const>] is REJECTED while [_ = 1]
+    is admitted.  (A TYPED constant [PtTIntConst] was already range-checked at its conversion.)
     STRUCTURAL only: it cannot check SCOPE (an undefined ident) — that is GoSem. *)
-Definition svalue (e : GExpr) : bool := match ptype e with Some _ => true | None => false end.
+Definition svalue (e : GExpr) : bool :=
+  match ptype e with
+  | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: bare untyped const must fit int *)
+  | Some _ => true
+  | None => false
+  end.
 
 (** Is a builtin [f] valid as a standalone EXPRESSION-STATEMENT call, by NAME and ARITY only?  [println]/
     [print] are variadic in arg COUNT; [panic] takes exactly one.  This checks only name+arity — argument
@@ -347,15 +434,20 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
 (** A [print]/[println] argument GUARANTEED-printable by the Go spec.  ★Go-spec NOTE (Bootstrapping): [print]/
     [println] are bootstrapping builtins whose implementations need NOT accept arbitrary argument types — only
     BOOLEAN, NUMERIC, and STRING are always supported.  So a printable arg is one [ptype] gives a SCALAR
-    category (a numeric — [PtIntConst]/[PtInt]/[PtFloat] — or [PtBool]/[PtStr]).  This reuses the structural
-    type-checker, so it INHERITS its rejection of closed type-errors — e.g. [len(1)] (an int is not len-able),
-    [bool(1)], [1 && 2], [!1], [int([]int{1})], [float64(1) % float64(2)], [uint8(300)] — and of non-scalars
-    ([PtAgg] slice/chan literals and conversions) and of bare identifiers ([PtUnk], unknown type): emit those
-    via [_ = <value>] instead.  ([println(int(x))] / [println(len(x))] stay admitted: a conversion / [len]
-    result category is KNOWN even when the operand is a deferred ident.) *)
+    category (a numeric — [PtIntConst]/[PtTIntConst]/[PtFloatConst]/[PtRunInt]/[PtRunFloat] — or [PtBool]/
+    [PtStr]).  This reuses the structural type-checker, so it INHERITS its rejection of closed type-errors —
+    e.g. [len(1)] (an int is not len-able), [bool(1)], [1 && 2], [!1], [int([]int{1})], [float64(1) %
+    float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)] — and of non-scalars ([PtAgg] slice/chan literals
+    and conversions) and of bare identifiers ([PtUnk], unknown type): emit those via [_ = <value>] instead.
+    ([println(int(x))] / [println(len(x))] stay admitted: a conversion / [len] result category is KNOWN even
+    when the operand is a deferred ident.)  ★The default-[int] boundary applies: a bare UNTYPED int constant
+    arg gets default type [int], so it must FIT in (conservative 32-bit) [int] — [println(1)] ✓,
+    [println(<huge>)] REJECT (a TYPED constant was already range-checked at its conversion). *)
 Definition printable_arg_ok (e : GExpr) : bool :=
   match ptype e with
-  | Some (PtIntConst _) | Some (PtInt _) | Some (PtFloat _) | Some PtBool | Some PtStr => true
+  | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
+  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _)
+  | Some (PtRunInt _) | Some (PtRunFloat _) | Some PtBool | Some PtStr => true
   | _ => false
   end.
 
@@ -662,6 +754,64 @@ Proof. reflexivity. Qed.
 Example ok_float_slicelit : SupportedProgram (gs_blank (ESliceLit GTFloat64 [EInt 1])).
 Proof. reflexivity. Qed.
 Example ok_same_width_add : SupportedProgram (pl_arg (EBn BAdd (gs_i64 (EInt 3)) (gs_i64 (EInt 2)))).
+Proof. reflexivity. Qed.
+
+(** ============================================================================================
+    REGRESSIONS (Codex stop-review, 2026-06-29 #2) — CONSTANTNESS now SURVIVES conversions/binops, so the
+    TRANSITIVE constant rules (a conversion of a constant is itself a typed CONSTANT) are enforced.  The prior
+    [conv_to_scalar] ERASED the value ([PtIntConst z] -> [PtInt t]), so these CLOSED compile errors sailed
+    through.  Each is a closed program Go's type checker rejects ([supported_program = false]).
+    ============================================================================================ *)
+Definition gs_int (a : GExpr) : GExpr := ECall (EId (mkIdent "int" eq_refl)) [a].
+Definition gs_u8  (a : GExpr) : GExpr := ECall (EId (mkIdent "uint8" eq_refl)) [a].
+Definition gs_i8  (a : GExpr) : GExpr := ECall (EId (mkIdent "int8" eq_refl)) [a].
+
+(** THE 5 NAMED — a typed-constant divisor zero ([int(0)]), modulo zero, a typed-constant negative shift count
+    ([int(-1)]), and an out-of-range CONSTANT conversion that hops through int / float ([uint8(int(300))],
+    [uint8(float64(300))]).  All [false]; two locked by a [Fail … := eq_refl] forge-attempt. *)
+Example bad_div_int0   : supported_program (pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))) = false.
+Proof. reflexivity. Qed.
+Example bad_mod_int0   : supported_program (pl_arg (EBn BRem (EInt 1) (gs_int (EInt 0)))) = false.
+Proof. reflexivity. Qed.
+Example bad_shl_intneg : supported_program (pl_arg (EBn BShl (EInt 1) (gs_int (EInt (-1))))) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_of_int300 : supported_program (pl_arg (gs_u8 (gs_int (EInt 300)))) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_of_float300 : supported_program (pl_arg (gs_u8 (gs_f64 (EInt 300)))) = false.
+Proof. reflexivity. Qed.
+Fail Example bad_div_int0_forge : SupportedProgram (pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))) := eq_refl.
+Fail Example bad_uint8_of_int300_forge : SupportedProgram (pl_arg (gs_u8 (gs_int (EInt 300)))) := eq_refl.
+
+(** ADVERSARIAL transitivity / overflow / boundary — a typed-constant ARITHMETIC RESULT that overflows its
+    type ([int8(100)+int8(100)] = 200), a DOUBLE conversion ([uint8(int(int(300)))]), a constant zero divisor
+    FOLDED from typed-const subexpressions ([1/(int(1)-int(1))]), an UNTYPED constant whose default-[int] value
+    OVERFLOWS the 32-bit boundary ([println(<2^40>)]), and a typed-constant slice element of the WRONG type /
+    out of range ([[]uint8{int(300)}]).  All [false]. *)
+Example bad_int8_add_overflow : supported_program (pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 100)))) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_of_int_int300 : supported_program (pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))) = false.
+Proof. reflexivity. Qed.
+Example bad_div_folded_typed_zero :
+  supported_program (pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))) = false.
+Proof. reflexivity. Qed.
+Example bad_println_default_int_overflow :
+  supported_program (pl_arg (EInt 1099511627776)) = false.   (* 2^40, does not fit 32-bit int *)
+Proof. reflexivity. Qed.
+Example bad_blank_default_int_overflow :
+  supported_program (gs_blank (EInt 1099511627776)) = false.
+Proof. reflexivity. Qed.
+Example bad_uint8_slicelit_typed : supported_program (gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])) = false.
+Proof. reflexivity. Qed.
+
+(** POSITIVES — the constant-aware gate still admits the SOUND forms, and tracks float→int constant conversions
+    EXACTLY: an in-range constant hopping through float is ACCEPTED ([uint8(float64(255))] — value 255 is in
+    [uint8] range, so this is VALID Go and we certify it), folded typed-const arithmetic in range
+    ([int8(100)+int8(20)] = 120), and a value at the 32-bit default-[int] boundary ([println(2147483647)]). *)
+Example ok_uint8_of_float255 : SupportedProgram (pl_arg (gs_u8 (gs_f64 (EInt 255)))).
+Proof. reflexivity. Qed.
+Example ok_int8_add_inrange : SupportedProgram (pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 20)))).
+Proof. reflexivity. Qed.
+Example ok_println_int_max : SupportedProgram (pl_arg (EInt 2147483647)).
 Proof. reflexivity. Qed.
 
 (** REGRESSION (external review 2026-06-28, follow-up⁴) — a VOID call used as a VALUE, `func main(){

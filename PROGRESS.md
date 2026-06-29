@@ -37,12 +37,18 @@ Detailed companion to `CLAUDE.md` (which is kept short: the rules, commands, and
 > (`stmt_call_ok` println/print/panic, with `print`/`println` args restricted to the guaranteed-printable
 > SCALAR subset `printable_arg_ok` — NOT arbitrary aggregates — and the value-returning builtins `len`/`cap`
 > admitted in value position, the Go-spec value-vs-statement distinction).  ★The gate's `ptype` TYPE-CATEGORY
-> checker is now numerically/structurally SOUND (Codex stop-review, 2026-06-29): a refined `PTy` (untyped-int
-> CONSTANT carrying its `Z` value · typed `PtInt t`/`PtFloat t` carrying the `GoTy` · `PtBool`/`PtStr`/`PtAgg`/
-> `PtUnk`) rejects CLOSED-invalid Go that the old fat `PtNum` leaked — float `%`/shift/bitwise, constant
-> overflow (`uint8(300)`, `[]uint8{300}`), mixed fixed-width arithmetic (`int64(3)+int32(2)`), bool/slice
-> comparison, `cap` of a string, invalid aggregate conversions — deferring ONLY genuinely-unknown identifiers
-> (`PtUnk`); a smaller-but-SOUND supported subset.  And a certificate-gated
+> checker is now numerically/structurally SOUND **and CONSTANT-AWARE** (Codex stop-review, 2026-06-29 #2): the
+> refined `PTy` keeps CONSTANTS (value+type) separate from RUNTIME values — `PtIntConst z` (untyped const) ·
+> `PtTIntConst t z` (typed int const) · `PtFloatConst t z` (typed float const, value the integer it came from) ·
+> `PtRunInt t`/`PtRunFloat t` (runtime) · `PtBool`/`PtStr`/`PtAgg`/`PtUnk` — so CONSTANTNESS SURVIVES
+> conversions/binops and Go's constant rules apply TRANSITIVELY.  This rejects CLOSED-invalid Go that the old
+> value-erasing conversion leaked: constant div/mod/shift by zero/negative THROUGH a conversion (`1/int(0)`,
+> `1<<int(-1)`), out-of-range constant conversions hopping through int/float (`uint8(int(300))`,
+> `uint8(float64(300))`), typed-const arithmetic overflow (`int8(100)+int8(100)`), plus the earlier classes —
+> float `%`/shift/bitwise, constant overflow (`uint8(300)`, `[]uint8{300}`), mixed fixed-width arithmetic
+> (`int64(3)+int32(2)`), bool/slice comparison, `cap` of a string, invalid aggregate conversions, and an
+> untyped const overflowing its default-`int` boundary — deferring ONLY genuinely-unknown identifiers (`PtUnk`,
+> treated as runtime); a smaller-but-SOUND supported subset.  And a certificate-gated
 > `GoEmit.demo_emit` whose exact bytes are pinned and whose output the Go toolchain BUILDS (`make emit-demo` —
 > exercising `EBn` / `EConv` / `ESliceLit` / `GsBlankAssign` end-to-end). NEXT: more `GoStmt` forms (assignment,
 > var, control flow) + struct/array composite literals; eventually `GoSem` (which unblocks supported map
