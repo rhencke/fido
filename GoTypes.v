@@ -3,8 +3,8 @@
 
     A LOWER shared module (imports ONLY GoAst): it owns [ptype] (the structural, constant-aware
     TYPE-CATEGORY assignment [GExpr -> option PTy]), its numeric/conversion combinators, and the
-    value-position validity wrapper [svalue].  It was FACTORED OUT of GoSafe (Codex stop-review,
-    2026-06-29) into this LOWER module so the supportedness gate has ONE type authority:
+    value-position validity wrapper [svalue].  It is a LOWER module (below GoSafe) so the supportedness gate
+    has ONE type authority:
       • GoSafe (ABOVE) reuses it for [SupportedProgram] — a free identifier / a closed type-error is
         rejected because [ptype] rejects it.
       • A future GoSem (the planned behavioral semantics, also above GoTypes) should reuse [svalue]
@@ -26,18 +26,15 @@ Open Scope string_scope.
     =================================================================================================== *)
 
 (** ---- A CONSTANT-AWARE STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
-    The supportedness gate must NOT certify INVALID Go.  A purely shape-based [svalue] leaked TYPE side
-    conditions; an under-refined [ptype] (a single fat [PtNum] / a single comparison rule / a shared
-    [len]=[cap] rule / a shape-only aggregate conversion) STILL leaked numeric and structural side conditions:
-    float modulo / float shift ([float64(1) % float64(2)], [float64(1) << 2]), constant overflow
-    ([uint8(300)], [[]uint8{300}]), mixed fixed-width arithmetic ([int64(3) + int32(2)]), bool ordering
-    ([(1==1) < (2==2)]), slice equality/ordering, [cap] of a string ([cap(string(x))]), and invalid aggregate
-    conversions ([chan int([]int{1})]) all sailed through.  A LATER gap (Codex stop-review): a numeric
-    CONVERSION ERASED the constant's value ([conv_to_scalar] mapped [PtIntConst z] -> [PtInt t]), so a typed
-    constant lost its constness — and Go's constant rules apply TRANSITIVELY through conversions (a conversion
-    of a constant is itself a typed CONSTANT), so [1 / int(0)], [1 << int(-1)], [uint8(int(300))],
-    [uint8(float64(300))] (all CLOSED compile errors) sailed through.
-    [ptype] now assigns each expression a REFINED, CONSTANT-AWARE TYPE CATEGORY, or REJECTS it ([None]) as
+    The supportedness gate must NOT certify INVALID Go, so [ptype] is constant-aware, not shape-only: it
+    REJECTS closed type / numeric / structural errors — float modulo or shift ([float64(1) % float64(2)],
+    [float64(1) << 2]), constant overflow ([uint8(300)], [[]uint8{300}]), mixed fixed-width arithmetic
+    ([int64(3) + int32(2)]), bool ordering ([(1==1) < (2==2)]), slice equality/ordering, [cap] of a string
+    ([cap(string(x))]), invalid aggregate conversions ([chan int([]int{1})]), and — because Go's constant
+    rules apply TRANSITIVELY through a conversion (a conversion of a constant is itself a typed CONSTANT) —
+    const div / shift-by-zero and overflow that survive a conversion ([1 / int(0)], [1 << int(-1)],
+    [uint8(int(300))], [uint8(float64(300))]).
+    [ptype] assigns each expression a REFINED, CONSTANT-AWARE TYPE CATEGORY, or REJECTS it ([None]) as
     structurally ill-typed.  CONSTANTNESS SURVIVES conversions and constant binops: integers are split from
     floats and CONSTANTS from RUNTIME values; a constant carries its VALUE (a [Z]) — so representability/
     overflow and division/shift-by-zero are decided from the folded value at EVERY level — while a typed
@@ -59,9 +56,9 @@ Open Scope string_scope.
     [string] of a typed int, const+typed when not representable, nested-aggregate elements, float-CONSTANT
     arithmetic, platform-[uint] complement, an untyped const whose default-[int] value overflows, a
     not-exactly-representable const->float), which is the correct posture — a smaller subset that is sound on
-    the classes covered.  The covered closed-invalid classes are PINNED by the regressions below (each new
-    class Codex finds is added there).  Because a FREE identifier is now REJECTED (the no-declaration model has
-    no variable bindings, so a bare [x] is undefined and its Go would not compile), the gate admits NO unproven
+    the classes covered.  The covered closed-invalid classes are PINNED by the regressions below.  Because a
+    FREE identifier is REJECTED (the no-declaration model has no variable bindings, so a bare [x] is undefined
+    and its Go would not compile), the gate admits NO unproven
     free-identifier form: the sole predeclared value-ident, [nil] ([PtNil]), is admitted only inside a
     slice/chan conversion. *)
 Inductive PTy : Type :=
@@ -303,8 +300,8 @@ Definition ord_comparable (cl cr : PTy) : bool :=
 
 (** SCALAR CONVERSION [T(a)] type-checker, for a scalar type keyword [T] (its [GoTy] via [classify]).  ★The
     KEY constant-aware rule: in Go a conversion of a CONSTANT is itself a TYPED CONSTANT, so the constant rules
-    apply TRANSITIVELY — constness must SURVIVE the conversion (the prior bug erased it: [PtIntConst z]->[PtInt
-    t], so [1/int(0)], [uint8(int(300))], [uint8(float64(300))] sailed through).  So:
+    apply TRANSITIVELY — constness must SURVIVE the conversion (so [1/int(0)], [uint8(int(300))],
+    [uint8(float64(300))] are REJECTED, not silently dropped to a runtime category).  So:
     - [bool(a)] needs a bool source;
     - [string(a)] a string source (or a rune-representable int CONSTANT, untyped or typed — NOT an arbitrary
       runtime int, conservative);

@@ -95,8 +95,7 @@ COPY --chown=opam:opam negtests/ negtests/
 #      an expression identifier) erase their Rocq validity proof to a bare string in OCaml, so a DIRECT call
 #      would bypass the verified invariant.  Assert plugin/go.ml constructs them ONLY via the re-checking smart
 #      constructors (mk_named_ty / mk_goexpr_id) — a pure static scan, run FIRST so a side-door construction
-#      fails fast.  (The old SRaw-era constructors AIdent/AIntLit/ARaw were deleted in the teardown — see
-#      smart-ctor-gate.sh / LESSONS.md.)
+#      fails fast.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && (rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
