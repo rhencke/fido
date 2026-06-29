@@ -43,22 +43,28 @@ Fixpoint svalue (e : GExpr) : bool :=
     are VARIADIC, accept args of ANY type, and return NOTHING — so [print(...)] / [println(...)] are valid
     statements for ANY argument count and types, with NO arity or type hazard left unchecked.  Deliberately
     EXACT for the current AST (no user funcs / imports yet, so these are the only hazard-free statement calls).
-    Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement), VALUE-returning
-    builtins ([len(x)]/… — "evaluated but not used"), and the ARITY-constrained void builtins ([panic]/[close]/
-    [delete] need exactly 1/1/2 args — deferred until the gate checks arity).  Widens with user funcs / a
-    symbol table. *)
-Definition stmt_call_builtin (s : string) : bool :=
-  existsb (String.eqb s) ["println"; "print"].
+    Excluded on purpose: CONVERSIONS ([int(x)] is not a call — invalid as a statement) and VALUE-returning
+    builtins ([len(x)]/… — "evaluated but not used").  Each builtin re-enters WITH its ARITY (so an arity
+    violation is rejected): [println]/[print] are VARIADIC (any arg count), [panic] takes EXACTLY ONE arg of
+    ANY type (so [panic(x)] is valid for any value, but [panic()] / [panic(1,2)] are not).  ([close]/[delete]
+    add a CHANNEL/MAP arg-TYPE constraint beyond arity — deferred to the GoSem/type layer.)  Widens with user
+    funcs / a symbol table. *)
+Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
+  if String.eqb f "println" then true                                  (* variadic, any args *)
+  else if String.eqb f "print" then true                               (* variadic, any args *)
+  else if String.eqb f "panic" then (match args with _ :: nil => true | _ => false end)  (* exactly 1, any type *)
+  else false.
 
 (** A [GExpr] legal as an EXPRESSION STATEMENT in Go.  Per the Go spec a bare expression statement must be a
     CALL (a plain value [1] / [a + b] is "evaluated but not used"), AND — crucially — a genuine function call,
     NOT a CONVERSION ([int(x)] is a conversion, also invalid as a statement).  Since no user functions exist
-    yet, the statement-valid callees are EXACTLY the whitelisted builtins ([stmt_call_builtin]); arguments may
-    be any structurally-supported value [svalue] (which DOES allow a conversion in value position, e.g.
-    [println(int(x))]).  So [int(x)] / [Foo(x)] / [1()] / [len(x)] as statements are all rejected. *)
+    yet, the statement-valid callees are EXACTLY the whitelisted builtins at their correct arity
+    ([stmt_call_ok]); arguments may be any structurally-supported value [svalue] (which DOES allow a conversion
+    in value position, e.g. [println(int(x))]).  So [int(x)] / [Foo(x)] / [1()] / [len(x)] / [panic()] as
+    statements are all rejected. *)
 Definition expr_stmt_ok (e : GExpr) : bool :=
   match e with
-  | ECall (EId f) args => stmt_call_builtin (proj1_sig f) && forallb svalue args
+  | ECall (EId f) args => stmt_call_ok (proj1_sig f) args && forallb svalue args
   | _                  => false
   end.
 
@@ -160,6 +166,23 @@ Definition unsupported_conv_arity : Program :=
 Example conv_arity_unsupported : supported_program unsupported_conv_arity = false.
 Proof. reflexivity. Qed.
 Fail Example conv_arity_supported : SupportedProgram unsupported_conv_arity := eq_refl.
+
+(** GROWTH (Phase 4) — [panic] joins the supported statement builtins.  [panic] takes EXACTLY ONE arg of ANY
+    type, so `func main(){ panic(1) }` is a valid statement and IS supported; the arity violations [panic()]
+    and [panic(1, 2)] are NOT (this is how a new builtin re-enters: with its arity checked).  Pins all three. *)
+Definition supported_panic : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1])].
+Example panic_supported : SupportedProgram supported_panic.
+Proof. reflexivity. Qed.
+Definition unsupported_panic_nullary : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) nil)].
+Example panic_nullary_unsupported : supported_program unsupported_panic_nullary = false.
+Proof. reflexivity. Qed.
+Fail Example panic_nullary_supported : SupportedProgram unsupported_panic_nullary := eq_refl.
+Definition unsupported_panic_binary : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EInt 1; EInt 2])].
+Example panic_binary_unsupported : supported_program unsupported_panic_binary = false.
+Proof. reflexivity. Qed.
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined, because there is no authoritative GoSem to define it against — and a placeholder
