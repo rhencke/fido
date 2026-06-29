@@ -1,32 +1,32 @@
 (** ============================================================================
-    THE VERIFIED PRINTER — slice 1 (the gap #10 / review #12 path).
+    GoPrint — the Go PRINTER, LEXER/PARSER, and round-trip / injectivity proofs.
 
-    The trusted/unverified part of Fido is the hand-written OCaml in [plugin/go.ml]: no theorem relates
-    the Go string it emits to the source term.  The agreed fix (no more raw OCaml): the PRINTER moves
-    INTO Rocq — a Go AST + a pretty-printer defined here as Rocq functions — is EXTRACTED to OCaml (so
-    the plugin runs the SAME function Rocq reasons about, not a hand-written re-implementation), and
-    CORRECTNESS theorems are layered atop it.  This file is the foundation; later slices grow the AST to
-    cover the emitted fragment, rewire [go.ml] to call the extracted printer, and delete the raw OCaml.
+    [GoAst] owns the SYNTAX ([GExpr]/[GoTy]/operators).  This file owns everything that turns that syntax
+    into text and reasons about it: the printers ([print_ty], the literal printers, [gprint] for
+    expressions, [print_stmt]/[print_program]), a [lex] + recursive-descent/precedence [parse] (used ONLY
+    by the proofs), and the round-trip + injectivity THEOREMS.  [Extraction "printer.ml"] emits the OCaml
+    the plugin calls, so the plugin runs the SAME printer Rocq reasons about.
 
-    ⚠️ HONEST SCOPE OF "VERIFIED" (review #7 item 3) — "verified printer" here means: the printer is
-    verified AGAINST THE Rocq PARSER in this file (a printer/parser round-trip + injectivity for THIS
-    Rocq grammar), NOT against Go's own parser.  There is NO theorem yet that Go's compiler reads the
-    emitted text as the same AST — that Go-subset RECOGNITION theorem (emitted grammar ⊆ Go grammar) is
-    the remaining gap (#10).  So [parse_print_roundtrip] / [print_ty_inj] are ROCQ-GRAMMAR self-consistency
-    results, and must not be read as "Go printer correctness."  (The plugin → emitted-bytes path also has
-    a trusted [gofmt] post-step — see the Makefile — so even the byte-exact final text is not yet in-proof.)
+    LIVE WIRING: the extracted [gprint] is called by the plugin for ONE expression class today (a
+    var-OP-var binop); every other expression shape is still printed by the trusted OCaml [pp_expr] in
+    [plugin/go.ml].  So this file does NOT make the live Go "verified."
 
-    Slice 1: the Go TYPE sub-language.  [print_ty] renders a [GoTy] to Go source; [print_ty_inj] proves
-    it is INJECTIVE over ALL of [GoTy] unconditionally (nominal names carry a validated [Ident], so an
-    invalid name is unrepresentable) — distinct Go types render to distinct strings, so the printer can
-    NEVER conflate two types (the property every [v.(T)] cast / tag rendering depends on).
-    [Extraction "printer.ml"] emits the OCaml the plugin will call. *)
+    WHAT IS PROVEN: EXPRESSIONS have a full printer/parser round-trip ([parse_print_roundtrip]) plus
+    injectivity ([gprint_inj]); the TYPE sub-language likewise ([print_ty_inj], [parse_gty_roundtrip]).
+    Statements and whole programs currently have print-INJECTIVITY only ([print_stmt_inj] /
+    [print_program_inj]) — there is no statement PARSER yet, so no statement round-trip.
+
+    ⚠️ HONEST SCOPE — these are ROCQ-GRAMMAR self-consistency results: the printer is verified AGAINST THE
+    PARSER in THIS file, NOT against Go's own parser.  There is NO theorem that Go's compiler reads the
+    emitted text as the same AST (that Go-subset RECOGNITION theorem — emitted grammar ⊆ Go grammar — is
+    gap #10), and the plugin → emitted-bytes path also has a trusted [gofmt] post-step (see the Makefile).
+    This file proves NO behavioral safety. *)
 
 From Stdlib Require Import String List Ascii ZArith Lia Bool Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
 
-(* SYNTAX lives in GoAst.v; this file (the old GoPrint, now flattened) is GoPrint: printers + lexer + parser + round-trips. *)
+(* SYNTAX lives in GoAst.v; this file is the printers + lexer + parser + round-trips. *)
 From Fido Require Import GoAst.
 
 
@@ -764,16 +764,15 @@ Proof.
 Qed.
 
 (** ---- FLOAT-HEX LITERAL ---- the IEEE [spec_float] finite value ±m·2^e emits as Go's hex float
-    [±0x<m>p<e>].  Slice 15 verified the mantissa/exponent PIECES (print_hex / print_Z); this moves the
-    ASSEMBLY into Rocq too (the last leaf whose glue was raw OCaml [^]).  [sign] = sign, [mant] =
-    mantissa (rendered hex), [exp] = exponent (signed decimal). *)
+    [±0x<m>p<e>], assembling the verified mantissa/exponent printers ([print_hex] / [print_Z]).
+    [sign] = sign, [mant] = mantissa (rendered hex), [exp] = exponent (signed decimal). *)
 Definition print_float_hex (sign : bool) (mant exp : Z) : string :=
   ((if sign then "-" else "") ++ print_hex mant ++ "p" ++ print_Z exp)%string.
 
 
 (** FAITHFULNESS — the float literal round-trips: a parser recovers [(sign, mant, exp)] EXACTLY.  The
     "p" delimiter is unambiguous because the mantissa render [print_hex] contains no "p" (hex digits are
-    0-9a-f); [split_p] cuts there, then [parse_hex] / [parse_Z] recover the parts (slices 20/21). *)
+    0-9a-f); [split_p] cuts there, then [parse_hex] / [parse_Z] recover the parts. *)
 Definition is_p (c : ascii) : bool := Ascii.eqb c (ascii_of_nat 112).  (* 'p' = 112 *)
 Fixpoint no_p (s : string) : Prop :=
   match s with EmptyString => True | String c s' => is_p c = false /\ no_p s' end.
@@ -880,56 +879,16 @@ Proof.
 Qed.
 Local Transparent print_hex print_Z parse_hex parse_Z.
 
-(** ---- PROOFS ATOP THE PRINTERS ---- WELL-FORMEDNESS: every printer yields a NON-EMPTY string, so no
-    emitted token is ever blank (which would be malformed Go).  [print_ty] UNCONDITIONALLY now (a nominal
-    name is a validated [Ident], hence non-empty), and the literal printers too.  (Injectivity AND the
-    print-parse round-trip are likewise unconditional — [print_ty_inj] / [parse_print_ty].) *)
-Lemma print_ty_nonempty : forall t, print_ty t <> ""%string.
-Proof.
-  induction t as [ | | | | | | | | | | | | | | | | | | i ]; cbn [print_ty];
-    try (intro Hc; discriminate Hc).
-  (* GTNamed i : the [Ident] proof forces the name non-empty *)
-  destruct i as [ s Hs ]. cbn [proj1_sig].
-  destruct s as [ | c n' ]; [ cbn in Hs; discriminate Hs | intro Hc; discriminate Hc ].
-Qed.
-Lemma print_string_lit_nonempty : forall s, print_string_lit s <> ""%string.
-Proof. intros s Hc. unfold print_string_lit in Hc. discriminate Hc. Qed.
-Lemma print_hex_nonempty : forall z, print_hex z <> ""%string.
-Proof. intros z Hc. unfold print_hex in Hc. discriminate Hc. Qed.
-
-(** [z_digits] with a non-empty accumulator stays non-empty; hence [print_Z] is never blank. *)
-Lemma z_digits_acc_nonempty : forall fuel z c rest, z_digits fuel z (String c rest) <> ""%string.
-Proof.
-  induction fuel as [ | f IH ]; intros z c rest; cbn [z_digits]; [ discriminate | ].
-  destruct (z / 10 =? 0)%Z; [ discriminate | apply IH ].
-Qed.
-(* one unfold step, with the fuel kept ABSTRACT (so cbn does not expand all 64 nested levels) *)
-Lemma z_digits_first_nonempty : forall f z, z_digits (S f) z ""%string <> ""%string.
-Proof.
-  intros f z. cbn [z_digits].
-  destruct (z / 10 =? 0)%Z; [ discriminate | apply z_digits_acc_nonempty ].
-Qed.
-Lemma print_Z_nonempty : forall z, print_Z z <> ""%string.
-Proof.
-  intro z. unfold print_Z.
-  destruct (z =? 0)%Z. { discriminate. }
-  destruct (z <? 0)%Z.
-  - intro Hc. discriminate Hc.            (* "-" ++ … reduces (whnf) to String "-" … *)
-  - apply z_digits_first_nonempty.        (* z_digits 64 z "" = z_digits (S 63) z "" *)
-Qed.
-
 (** ============================================================================
-    ---- EXPRESSIONS: OPERATOR PRECEDENCE ---- the first STRUCTURAL (recursive) piece of the printer to
-    move into Rocq.  [go.ml]'s [pp_prec] renders a binary-operator tree, inserting parentheses ONLY
-    where an operand's operator binds LOOSER than its context — get this wrong and [(a+b)*c] misprints
-    as [a+b*c], silently changing the program's meaning.  This is the hardest correctness property of the
-    structural printer, so it is the right first target.
+    ---- EXPRESSIONS: OPERATOR PRECEDENCE ---- the structural (recursive) printer renders a
+    binary-operator tree, inserting parentheses ONLY where an operand's operator binds LOOSER than its
+    context — get this wrong and [(a+b)*c] misprints as [a+b*c], silently changing the program's meaning.
+    This is the hardest correctness property of the structural printer.
 
     [BinOp] is the operator enum; [binop_prec] / [binop_text] DERIVE its precedence and surface text from
     the constructor — the single source of truth, so no caller can mis-pair an operator with the wrong
-    precedence.  Consumed by [GoPrint]'s [gprint] (the verified frontend below), which parenthesises a
-    sub-expression exactly when its [binop_prec] is looser than the context.  (The plugin's trusted OCaml
-    [pp_prec] renders the same binary-operator tree as strings; [GoPrint] is being built to replace it.) *)
+    precedence.  Consumed by [gprint] below, which parenthesises a sub-expression exactly when its
+    [binop_prec] is looser than the context. *)
 
 (** Operator precedence and surface text DERIVED from the constructor — the single source of truth. *)
 Definition binop_prec (o : BinOp) : nat :=
@@ -1260,7 +1219,7 @@ Definition op_needs_paren (e0 : GExpr) : bool :=
   end.
 
 (** ---- THE PRINTER ---- precedence-correct (reuses [binop_prec]/[binop_text]/[unop_text]); a binop wraps
-    in parens exactly when its precedence [< ctx].  Mirrors the legacy [print_expr] over the clean AST. *)
+    in parens exactly when its precedence [< ctx]. *)
 Fixpoint gprint (ctx : nat) (e : GExpr) {struct e} : string :=
   match e with
   | EId i  => proj1_sig i
@@ -2968,8 +2927,8 @@ Proof.
 Qed.
 
 (** [tail_ok k rest] — a tail at which [parse_climb k] STOPS: empty, led by a NON-infix token, or led by
-    an infix operator binding LOOSER than [k] (precedence [< k]).  (The token analog of the old string
-    [tail_ok]; discrete tokens make it a one-line match — no [good_seam] char analysis.) *)
+    an infix operator binding LOOSER than [k] (precedence [< k]).  Discrete tokens make it a one-line
+    match. *)
 (** a postfix starter — the [parse_postfix] loop consumes a [TDot]-led [.field]; a clean tail must not. *)
 Definition is_postfix_start (t : Token) : bool := match t with TDot => true | TLB => true | TLP => true | _ => false end.
 
