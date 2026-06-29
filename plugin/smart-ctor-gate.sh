@@ -169,20 +169,19 @@ fi
 
 echo "fido: string-exactness gate OK — unescape_opt_image present (accepted == emitted, proven zero-axiom); no stale wording ✓"
 
-# ---- DEAD-MODEL GATE: the removed free-identifier "deferral" model (the old [PtUnk] category) must not survive
-# as ACTIVE guidance — comments/docs teaching it (even as "removed" narrative) can justify re-opening the hole.
-# Live boundary: a free identifier is REJECTED; only the predeclared [nil] ([PtNil]) is admitted, as a slice/chan
-# conversion operand.  Banned in active Coq sources + ARCHITECTURE/PROGRESS (history belongs in LESSONS.md).
-# ([close]/[delete]'s "deferred to GoSem" note is NOT matched — these patterns target the identifier-deferral
-# model specifically.)
-deadmodel=$(grep -nE 'PtUnk|genuinely-unknown identifier|DEFERRED operand|bool/deferred|string/deferred|deferred[- ]identifier|identifier.*deferr|free[- ]identifier.*deferr' \
+# ---- IDENTIFIER-BOUNDARY GUARD: the LIVE boundary is — a free identifier is REJECTED (the no-declaration
+# Program has no variables); only the predeclared [nil] ([PtNil]) is admitted, as a slice/chan conversion
+# operand.  The patterns below are a DENYLIST of stale spellings that must not appear in active Coq sources or
+# ARCHITECTURE/PROGRESS (any history belongs in LESSONS.md); they are machine data, not a description of any
+# design.  Matched CASE-INSENSITIVELY ([grep -ni]) so a capitalized variant is not a bypass.  ([close]/[delete]'s
+# "deferred to GoSem" note has no "identifier" token and is not matched.)
+stale_ident=$(grep -niE 'PtUnk|genuinely-unknown identifier|DEFERRED operand|bool/deferred|string/deferred|deferred[- ]identifier|identifier.*deferr|free[- ]identifier.*deferr' \
   GoSafe.v GoAst.v GoPrint.v ARCHITECTURE.md PROGRESS.md 2>/dev/null || true)
-if [ -n "$deadmodel" ]; then
-  echo "fido: DEAD-MODEL GATE — the removed PtUnk / deferred-free-identifier model survives in active guidance:"
-  echo "$deadmodel"
-  echo "fido: a free identifier is REJECTED (no declarations exist); only [nil] (PtNil) is admitted, in a slice/chan conversion."
-  echo "fido: rewrite the comment/doc to the live boundary; historical mentions belong in LESSONS.md."
+if [ -n "$stale_ident" ]; then
+  echo "fido: IDENTIFIER-BOUNDARY GUARD — a banned stale spelling is in active guidance:"
+  echo "$stale_ident"
+  echo "fido: state ONLY the live boundary (a free identifier is REJECTED; only [nil] is admitted, in a slice/chan conversion); history -> LESSONS.md."
   exit 1
 fi
 
-echo "fido: dead-model gate OK — no PtUnk / deferred-free-identifier wording in active code ✓"
+echo "fido: identifier-boundary guard OK — active guidance free of the banned stale spellings ✓"
