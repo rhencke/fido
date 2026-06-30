@@ -22,10 +22,11 @@
     INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
     failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC comparisons
-    ([1==1], [3<5]) combined by [==]/[!=]/[&&]/[||]/[!]) supplies the printed/panicked values; STRING comparisons
-    and bool CONVERSIONS [bool(x)] (both [ptype]-supported but not folded yet), bools with a runtime operand,
-    non-literal strings, [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the
-    next sub-slices and [eval] to [None] there.
+    ([1==1], [3<5]) or STRING-LITERAL comparisons (equality via [String.eqb], ordering via [str_ltb]) combined by
+    [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked values; a
+    comparison with a NON-literal string operand, bools with a runtime operand, non-literal strings, [GTUint],
+    fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to
+    [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -37,7 +38,7 @@
     defined GoSem behavior", the foundation for [BehaviorSafe] -> [SafeProgram] -> [emit_safe].  No axioms.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
-From Stdlib Require Import String List Bool ZArith.
+From Stdlib Require Import String Ascii List Bool ZArith.
 Import ListNotations.
 
 (** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED
@@ -102,6 +103,37 @@ Definition const_z (e : GExpr) : option Z :=
   | _ => None
   end.
 
+(** The constant VALUE of a string operand: ONLY a string LITERAL [EStr s] (whose bytes are known); a
+    non-literal string (e.g. [string(65)]) carries no recoverable value -> [None] (honestly absent). *)
+Definition const_str (e : GExpr) : option string :=
+  match e with EStr s => Some s | _ => None end.
+
+(** Go strings compare LEXICALLY BYTE-WISE (Go spec, "Comparison operators").  [str_ltb s t] = is [s] strictly
+    less than [t]? — the empty string precedes any non-empty one, and at the first differing byte the smaller
+    UNSIGNED byte value ([nat_of_ascii] in [0..255]) wins.  This is the SOLE authority for string ordering
+    (the model layer does not model it); equality stays the model's [String.eqb] (= Go byte-equality). *)
+Fixpoint str_ltb (s t : string) : bool :=
+  match s, t with
+  | EmptyString,  EmptyString  => false
+  | EmptyString,  String _ _   => true
+  | String _ _,   EmptyString  => false
+  | String a s',  String b t'  =>
+      if Ascii.eqb a b then str_ltb s' t' else Nat.ltb (nat_of_ascii a) (nat_of_ascii b)
+  end.
+
+(** The 6 COMPARISON ops on STRING constants — equality via the model's [String.eqb], ordering via [str_ltb]
+    ([>]/[>=] swap operands; [<=]/[>=] add the equal case).  Non-comparison ops -> [None]. *)
+Definition str_cmp_op (op : BinOp) : option (string -> string -> bool) :=
+  match op with
+  | BEq => Some String.eqb
+  | BNe => Some (fun s t => negb (String.eqb s t))
+  | BLt => Some str_ltb
+  | BLe => Some (fun s t => orb (str_ltb s t) (String.eqb s t))
+  | BGt => Some (fun s t => str_ltb t s)
+  | BGe => Some (fun s t => orb (str_ltb t s) (String.eqb s t))
+  | _   => None
+  end.
+
 (** Fold a CONSTANT bool expression to its [bool], or [None] if any leaf is runtime / not yet modelled.  GoSem
     is the home for bool VALUE because [ptype] keeps [PtBool] a value-less category (comparison/logical results
     are SEMANTICS, not classification).
@@ -109,12 +141,14 @@ Definition const_z (e : GExpr) : option Z :=
     can NEVER assign a value to an expression [ptype] rejects — a direct call on a ptype-rejected (e.g.
     mixed-width [int64(1)==int32(1)]) comparison returns [None], NOT a value.  The precondition is thus
     ENFORCED here, not assumed of the caller (so [const_z]'s type-erasure can never fold an ill-typed compare).
-    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) and recurses STRUCTURALLY (terminates)
-    over the bool forms:
-      - a COMPARISON: NUMERIC (any of the 6 ops, via [cmp_op] over [const_z]) OR [==]/[!=] of two bool sub-bools;
-      - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!].
-    NOT folded (-> [None], honestly absent): a STRING comparison ([PtStr] carries no value) and a bool CONVERSION
-    [bool(x)] — both supported by [ptype] but not modelled here yet — and any RUNTIME-operand leaf. *)
+    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) / string literals ([const_str]) and
+    recurses STRUCTURALLY (terminates) over the bool forms:
+      - a COMPARISON: NUMERIC (the 6 ops via [cmp_op]/[const_z]), STRING-LITERAL (the 6 ops via
+        [str_cmp_op]/[const_str]), or [==]/[!=] of two bool sub-bools;
+      - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!];
+      - the identity bool CONVERSION [bool(x)] (Go allows it only for an already-bool [x]) -> the value of [x].
+    NOT folded (-> [None], honestly absent): a comparison whose string operand is NON-literal ([string(65)],
+    no recoverable value) and any RUNTIME-operand leaf. *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
   match ptype e with
   | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
@@ -126,12 +160,18 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
           match cmp_op op, const_z a, const_z b with
           | Some cmp, Some x, Some y => Some (cmp x y)                      (* numeric comparison *)
           | _, _, _ =>
-              match op, eval_bool a, eval_bool b with                      (* else [==]/[!=] of two bool sub-bools *)
-              | BEq, Some x, Some y => Some (Bool.eqb x y)
-              | BNe, Some x, Some y => Some (negb (Bool.eqb x y))
-              | _, _, _ => None
+              match str_cmp_op op, const_str a, const_str b with
+              | Some scmp, Some s, Some t => Some (scmp s t)               (* string-LITERAL comparison *)
+              | _, _, _ =>
+                  match op, eval_bool a, eval_bool b with                 (* else [==]/[!=] of two bool sub-bools *)
+                  | BEq, Some x, Some y => Some (Bool.eqb x y)
+                  | BNe, Some x, Some y => Some (negb (Bool.eqb x y))
+                  | _, _, _ => None
+                  end
               end
           end
+      | ECall (EId f) (a :: nil) =>                                        (* identity bool CONVERSION [bool(x)] *)
+          if String.eqb (proj1_sig f) "bool" then eval_bool a else None
       | _ => None
       end
   | _ => None
@@ -148,11 +188,12 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     [int64(3)] EXCLUDING [GTUint], ARITHMETIC [1+2], complement [^x]), and a TYPED FLOAT constant of an exact
     integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
     a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
-    GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC comparisons
-    ([1==1], [3<5]) combined by [==]/[!=]/[&&]/[||]/[!], reusing the operands' [ptype] values via [const_z].
-    ABSENT (-> [None], the next sub-slices): a STRING comparison and a bool CONVERSION [bool(x)] (both
-    [ptype]-supported but not folded yet), a bool with a RUNTIME operand, non-literal strings, [GTUint], and all
-    RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
+    GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
+    STRING-LITERAL comparisons combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion,
+    reusing the operands' [ptype] values via [const_z] / [const_str].  ABSENT (-> [None], the next sub-slices):
+    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, non-literal strings, [GTUint],
+    and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never
+    wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
@@ -397,12 +438,12 @@ Example gosem_float_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> a SUBFRAGMENT of constant bools): [eval_value] folds — via [eval_bool] — a bool built
-    from NUMERIC comparisons (the 6 ops) combined by [==]/[!=]/[&&]/[||]/[!] (nested).  Pinned across the
-    operators (incl. a false case, exact-float operands, a bool-equality of two numeric compares, and a NESTED
-    `!((1==1) && (2==3))`); END-TO-END `println(3 < 5)` runs to [w_log true [true]].  ABSENT (-> [None], pinned
-    below): any bool with a RUNTIME operand ([len(..)==0], even under [&&]), a STRING comparison, and a bool
-    CONVERSION [bool(x)] — the last two are [ptype]-SUPPORTED but not folded here yet. *)
+(** GROWTH (slice 1 -> constant bools): [eval_value] folds — via [eval_bool] — a bool built from NUMERIC
+    comparisons (the 6 ops) combined by [==]/[!=]/[&&]/[||]/[!] (nested).  Pinned across the operators (incl. a
+    false case, exact-float operands, a bool-equality of two numeric compares, and a NESTED `!((1==1) && (2==3))`);
+    END-TO-END `println(3 < 5)` runs to [w_log true [true]].  (String-literal comparisons and the identity
+    [bool(x)] conversion are folded too — see the next block.)  ABSENT (-> [None], pinned below): any bool with
+    a RUNTIME operand ([len(..)==0], even under [&&]). *)
 Example eval_bool_eq     : eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_bool_lt     : eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true).
@@ -441,17 +482,33 @@ Example mixed_width_ptype_none     : ptype mixed_width_cmp = None.      Proof. r
 Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. reflexivity. Qed.
 Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
 
-(** ABSENT REGRESSION (Codex 2026-06-30): two SUPPORTED bool shapes [eval_bool] does NOT model yet are honestly
-    [None] (not folded wrong) — pinning the EXACT covered boundary.  A STRING comparison ([PtStr] carries no
-    value) and a bool CONVERSION [bool(x)] are both [ptype = Some PtBool] (so supported / printable), yet
-    [eval_value] leaves them un-denoted. *)
-Example eval_str_cmp_supported  : ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool.
+(** GROWTH (slice 1 -> STRING comparisons + identity bool CONVERSION): [eval_value] now folds a comparison of
+    two string LITERALS — equality via the model's [String.eqb], ordering via [str_ltb] (Go byte-wise
+    lexicographic) — and the identity [bool(x)] conversion.  Pinned across [==]/[!=]/[<]/[<=]/[>], a false case,
+    the prefix case ["a" < "ab"], and [bool(1==1)].  STILL ABSENT: a comparison whose string operand is
+    NON-literal ([string(65)] carries no recoverable value). *)
+Example eval_str_cmp_supported : ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool.
 Proof. reflexivity. Qed.
-Example eval_str_cmp_absent     : eval_value (EBn BEq (EStr "a") (EStr "a")) = None.
-Proof. reflexivity. Qed.
+Example eval_str_eq     : eval_value (EBn BEq (EStr "a") (EStr "a")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_ne     : eval_value (EBn BNe (EStr "a") (EStr "b")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_lt     : eval_value (EBn BLt (EStr "a") (EStr "b")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_lt_f   : eval_value (EBn BLt (EStr "b") (EStr "a")) = Some (anyt TBool false).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_le_eq  : eval_value (EBn BLe (EStr "a") (EStr "a")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_gt     : eval_value (EBn BGt (EStr "b") (EStr "a")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_prefix : eval_value (EBn BLt (EStr "a") (EStr "ab")) = Some (anyt TBool true).   (* "" < "b" tail: shorter prefix is less *)
+Proof. vm_compute. reflexivity. Qed.
 Example eval_bool_conv_supported : ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
 Proof. reflexivity. Qed.
-Example eval_bool_conv_absent    : eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = None.
+Example eval_bool_conv : eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_nonlit_absent :   (* a NON-literal string operand ([string(65)]) has no recoverable value -> absent *)
+  eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")) = None.
 Proof. reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
