@@ -106,24 +106,29 @@ done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
 
 # 5. MODEL-AUTHORITY SINGLE-SOURCE.  The Go string-order primitives ([str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/
-# [str_geb]) are DEFINED once, in builtins.v (the model layer), recognized + lowered by the plugin; a higher
-# layer (GoSem / GoSafe / …) must DELEGATE to them, never fork a second implementation (the GoSem [str_ltb]
-# duplication, Codex 2026-06-30).  Flag a (Local/Global) Definition/Fixpoint/CoFixpoint of one in ANY active .v
-# EXCEPT builtins.v — a CALL is fine, only a re-DEFINITION forks the authority.  [model_authority_scan ROOT]
-# RECURSIVELY scans the .v under ROOT (pruning [_build]/generated output, excluding [builtins.v]), so it covers
-# root + [emitdemo/] + [negtests/] wherever the gate runs (the pre-commit hook + `make check` run it over the
-# FULL tree; the Docker prover stage over its copied subset).
+# [str_geb]) are DEFINED once, in the ROOT builtins.v (the model layer), recognized + lowered by the plugin; a
+# higher layer (GoSem / GoSafe / …) must DELEGATE to them, never fork a second implementation (the GoSem
+# [str_ltb] duplication, Codex 2026-06-30).  Flag a re-DEFINITION of one in ANY active .v EXCEPT the root
+# builtins.v — a CALL is fine, only a re-DEFINITION forks the authority.  [model_authority_scan ROOT] RECURSIVELY
+# scans the .v under ROOT (pruning [_build], excluding ONLY [ROOT/builtins.v] — a subdir [emitdemo/builtins.v]
+# is NOT exempt), matching the declaration command with an OPTIONAL leading Rocq attribute block ([#[local]] /
+# [#[global]]) and/or the [Local]/[Global] keyword — the real Rocq syntaxes for the same fork.
 model_authority_scan() {
   # shellcheck disable=SC2046
-  grep -nE '^[[:space:]]*(Local[[:space:]]+|Global[[:space:]]+)?(Definition|Fixpoint|CoFixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
-    $(find "$1" -name _build -prune -o -name '*.v' ! -name builtins.v -print 2>/dev/null) 2>/dev/null || true
+  grep -nE '^[[:space:]]*(#\[[^]]*\][[:space:]]*)?(Local[[:space:]]+|Global[[:space:]]+)?(Definition|Fixpoint|CoFixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
+    $(find "$1" -name _build -prune -o -name '*.v' ! -path "$1/builtins.v" -print 2>/dev/null) 2>/dev/null || true
 }
-# self-test: a NESTED, [Local]-qualified fork must be caught (and the real-tree scan must be clean below).
+# self-test: every real Rocq fork syntax — nested, and via the [Local] keyword AND the [#[local]]/[#[global]]
+# attribute forms — must be caught (and the real-tree scan must be clean below).
 ma_t=$(mktemp -d); mkdir -p "$ma_t/sub/deep"
-printf '%s\n' 'Local Fixpoint str_ltb (a b : string) : bool := false.' > "$ma_t/sub/deep/forge.v"
-if [ -z "$(model_authority_scan "$ma_t")" ]; then
-  echo "fido: MODEL-AUTHORITY self-test broke — a nested [Local Fixpoint str_ltb] was NOT caught"; rm -rf "$ma_t"; exit 1
-fi
+printf '%s\n' 'Local Fixpoint str_ltb (a b : string) : bool := false.'   > "$ma_t/sub/deep/forge_kw.v"
+printf '%s\n' '#[local] Definition str_ltb (a b : string) : bool := false.' > "$ma_t/sub/forge_attr1.v"
+printf '%s\n' '#[global] Fixpoint str_gtb (a b : string) : bool := false.'   > "$ma_t/forge_attr2.v"
+for forge in forge_kw forge_attr1 forge_attr2; do
+  if ! printf '%s' "$(model_authority_scan "$ma_t")" | grep -q "$forge"; then
+    echo "fido: MODEL-AUTHORITY self-test broke — fork form $forge.v was NOT caught"; rm -rf "$ma_t"; exit 1
+  fi
+done
 rm -rf "$ma_t"
 dupstr=$(model_authority_scan .)
 if [ -n "$dupstr" ]; then

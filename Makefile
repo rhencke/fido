@@ -140,8 +140,8 @@ run: build
 
 # Golden-file regression check: extract, run, diff vs expected_output.txt (cheap end-to-end check that a
 # Rocq/plugin change altered no observable behaviour). DEPENDS ON [smart-ctor-gate] (run LOCALLY over the FULL
-# .v tree — incl. emitdemo/ + negtests/, which the Docker prover stage's copy set omits), [extract] (never
-# stale Go), and [emit-demo] (the certified-emission path is exercised on every verify). go vet gates it.
+# .v tree — incl. emitdemo/, which the Docker prover stage's copy set omits; negtests/ IS copied to Docker),
+# [extract] (never stale Go), and [emit-demo] (the certified-emission path is exercised on every verify). go vet gates it.
 check: smart-ctor-gate extract emit-demo
 	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
 	if ! $(GOVET); then \
