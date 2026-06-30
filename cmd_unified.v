@@ -58,6 +58,20 @@ Local Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
   | CPan v      => Some v
   | CDfr _ c'   => cmd_panic c'
   end.
+(** The deferred actions [go] accumulates from [c] — in [go]'s order (innermost-deferred = LIFO HEAD = runs
+    first), exactly the order [ustep_defer] builds the [uc_defers] stack.  [no_defer c] iff this is [[]]. *)
+Local Fixpoint cmd_defers (c : Cmd unit) : list (Cmd unit) :=
+  match c with
+  | CRet _      => []
+  | COut _ _ c' => cmd_defers c'
+  | CPan _      => []
+  | CDfr d c'   => cmd_defers c' ++ (d :: nil)
+  end.
+Local Lemma cmd_defers_no_defer : forall c, no_defer c = true -> cmd_defers c = [].
+Proof.
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hnd; cbn in *;
+    [ reflexivity | exact (IH Hnd) | reflexivity | discriminate Hnd ].
+Qed.
 
 Local Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
 Proof. reflexivity. Qed.
@@ -79,38 +93,69 @@ Proof.
   - cbn [no_defer] in Hnd. discriminate Hnd.
 Qed.
 
-(** the unified-side run: the [usteps] run of [cmd_to_ucmd c] from any config, stated via the projections. *)
-Local Lemma cmd_to_ucmd_runs : forall c,
-  no_defer c = true ->
-  forall (ucap : nat -> option nat) p b h lv tr o df pa,
-    lv 0 = true -> p 0 = cmd_to_ucmd c -> df 0 = [] -> pa 0 = None ->
-    exists (p' : nat -> UCmd) (lv' : nat -> bool) (pa' : nat -> option GoAny),
-      usteps ucap (mkUCfg p b h lv tr o df pa)
-                  (mkUCfg p' b h lv' tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df pa')
-      /\ lv' 0 = false
-      /\ pa' 0 = cmd_panic c.
+(** Phase A of the defer bridge (general — NO [no_defer]): [ustep] runs [cmd_to_ucmd c]'s BODY to its outcome,
+    accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
+    [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
+    is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is the (future) Phase B.  This
+    is the [ustep] analogue of cmd.v's [go].  [cmd_to_ucmd_runs] below specialises it to the [no_defer] fragment
+    (then a single [ret_done]/[pan_done] finishes goroutine 0). *)
+Local Lemma cmd_to_ucmd_body_runs : forall c ucap p b h lv tr o df pa,
+  lv 0 = true -> p 0 = cmd_to_ucmd c ->
+  exists (p' : nat -> UCmd) (df' : nat -> list UCmd),
+    usteps ucap (mkUCfg p b h lv tr o df pa)
+                (mkUCfg p' b h lv tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa)
+    /\ p' 0 = (match cmd_panic c with None => URet | Some v => UPan v end)
+    /\ df' 0 = map cmd_to_ucmd (cmd_defers c) ++ df 0.
 Proof.
   intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect';
-    intros Hnd ucap p b h lv tr o df pa Hlv Hp Hdf Hpa.
-  - cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
-    exists p, (upd lv 0 false), pa. rewrite app_nil_r. split; [ | split ].
-    + eapply usteps_step; [ eapply ustep_ret_done; [exact Hlv | exact Hp | exact Hdf] | apply usteps_refl ].
-    + apply upd_same.
-    + exact Hpa.
-  - cbn [cmd_to_ucmd cmd_out_events cmd_panic no_defer] in *.
-    destruct (IH Hnd ucap (upd p 0 (cmd_to_ucmd c')) b h lv tr (o ++ [(0, (bo, xs))]) df pa
-                  Hlv (upd_same _ _ _) Hdf Hpa) as [p' [lv' [pa' [Hus [Hdone Hpan]]]]].
-    exists p', lv', pa'. split; [ | split; [exact Hdone | exact Hpan] ].
+    intros ucap p b h lv tr o df pa Hlv Hp.
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic cmd_defers] in *.
+    exists p, df. rewrite app_nil_r. split; [ apply usteps_refl | split; [ exact Hp | reflexivity ] ].
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic cmd_defers] in *.
+    destruct (IH ucap (upd p 0 (cmd_to_ucmd c')) b h lv tr (o ++ [(0, (bo, xs))]) df pa
+                  Hlv (upd_same _ _ _)) as [p' [df' [Hus [Hprog Hdf]]]].
+    exists p', df'. split; [ | split; [ exact Hprog | exact Hdf ] ].
     replace (o ++ map (fun e => (0, e)) ((bo, xs) :: cmd_out_events c'))
        with ((o ++ [(0, (bo, xs))]) ++ map (fun e => (0, e)) (cmd_out_events c'))
       by (cbn [map]; rewrite <- app_assoc; reflexivity).
     eapply usteps_step; [ eapply ustep_out; [exact Hlv | exact Hp] | exact Hus ].
-  - cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
-    exists p, (upd lv 0 false), (upd pa 0 (Some v)). rewrite app_nil_r. split; [ | split ].
-    + eapply usteps_step; [ eapply ustep_pan_done; [exact Hlv | exact Hp | exact Hdf] | apply usteps_refl ].
-    + apply upd_same.
-    + apply upd_same.
-  - cbn [no_defer] in Hnd. discriminate Hnd.
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic cmd_defers] in *.
+    exists p, df. rewrite app_nil_r. split; [ apply usteps_refl | split; [ exact Hp | reflexivity ] ].
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic cmd_defers] in *.
+    destruct (IHc' ucap (upd p 0 (cmd_to_ucmd c')) b h lv tr o (upd df 0 (cmd_to_ucmd d :: df 0)) pa
+                  Hlv (upd_same _ _ _)) as [p' [df' [Hus [Hprog Hdf]]]].
+    exists p', df'. split; [ | split; [ exact Hprog | ] ].
+    + eapply usteps_step; [ eapply ustep_defer; [exact Hlv | exact Hp] | exact Hus ].
+    + rewrite Hdf, upd_same, map_app. cbn [map]. rewrite <- app_assoc. reflexivity.
+Qed.
+
+(** the unified-side run on the [no_defer] fragment — now a SPECIALISATION of [cmd_to_ucmd_body_runs]: the body
+    leaves [df' 0 = []] (since [cmd_defers c = []] when [no_defer]), so a single [ret_done] / [pan_done] finishes
+    goroutine 0.  [df'] is now an EXISTENTIAL threaded from the body run (the projections [uc_live]/[uc_out]/
+    [uc_panic] never read it). *)
+Local Lemma cmd_to_ucmd_runs : forall c,
+  no_defer c = true ->
+  forall (ucap : nat -> option nat) p b h lv tr o df pa,
+    lv 0 = true -> p 0 = cmd_to_ucmd c -> df 0 = [] -> pa 0 = None ->
+    exists (p' : nat -> UCmd) (lv' : nat -> bool) (pa' : nat -> option GoAny) (df' : nat -> list UCmd),
+      usteps ucap (mkUCfg p b h lv tr o df pa)
+                  (mkUCfg p' b h lv' tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa')
+      /\ lv' 0 = false
+      /\ pa' 0 = cmd_panic c.
+Proof.
+  intros c Hnd ucap p b h lv tr o df pa Hlv Hp Hdf Hpa.
+  destruct (cmd_to_ucmd_body_runs c ucap p b h lv tr o df pa Hlv Hp) as [p' [df' [Hus [Hprog Hdf']]]].
+  assert (Hdf0 : df' 0 = []).
+  { rewrite Hdf', (cmd_defers_no_defer c Hnd); simpl; exact Hdf. }
+  destruct (cmd_panic c) as [g | ]; cbn in Hprog.
+  - exists p', (upd lv 0 false), (upd pa 0 (Some g)), df'.
+    split; [ | split; [ apply upd_same | apply upd_same ] ].
+    eapply usteps_trans; [ exact Hus | ].
+    eapply usteps_step; [ eapply ustep_pan_done; [ exact Hlv | exact Hprog | exact Hdf0 ] | apply usteps_refl ].
+  - exists p', (upd lv 0 false), pa, df'.
+    split; [ | split; [ apply upd_same | exact Hpa ] ].
+    eapply usteps_trans; [ exact Hus | ].
+    eapply usteps_step; [ eapply ustep_ret_done; [ exact Hlv | exact Hprog | exact Hdf0 ] | apply usteps_refl ].
 Qed.
 
 Local Lemma map_snd_pair0 : forall (l : list (bool * list GoAny)), map snd (map (fun e => (0, e)) l) = l.
@@ -133,10 +178,10 @@ Proof.
   destruct (cmd_to_ucmd_runs c Hnd ucap
               (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
-              eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [Hus [Hdone Hpan]]]]].
+              eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [df' [Hus [Hdone Hpan]]]]]].
   destruct (run_cmd_seals_events c w Hnd) as [w' [Hrun Hout]].
   exists (mkUCfg p' (fun _ => nil) (fun _ => 0) lv' nil
-                 (nil ++ map (fun e => (0, e)) (cmd_out_events c)) (fun _ => nil) pa'),
+                 (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa'),
          (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end).
   unfold ustart.
   split; [exact Hus | ]. split; [exact Hrun | ]. split; [exact Hdone | ]. split.
