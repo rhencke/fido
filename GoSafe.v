@@ -15,8 +15,9 @@ From Fido Require Import GoAst.   (* GoAst supplies the syntax AND [classify] (t
                                      SIBLINGS off GoAst, not a chain through the printer). *)
 From Fido Require Import GoTypes. (* the SHARED constant-aware type-category checker — [ptype] / [svalue] +
                                      all numeric/conversion helpers — factored into the LOWER module GoTypes
-                                     (imports only GoAst) so GoSem consults the SAME authority (single source
-                                     of truth, no duplicate predicate).  GoSafe reuses [ptype]/[svalue] below. *)
+                                     (imports only GoAst) so GoSafe — and a future GoSem, when built — consult
+                                     the SAME authority (single source of truth, no duplicate predicate).
+                                     GoSafe reuses [ptype]/[svalue] below. *)
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
