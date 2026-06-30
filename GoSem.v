@@ -351,14 +351,14 @@ Proof.
 Qed.
 
 (** ---- COMPLETENESS FRAGMENT — the [supported ⟹ denotes] direction for the println-of-evaluable-args class.
-    A println ARG denotes iff it EVALUATES and is PRINTABLE: [denotable_arg].  GENERALIZES the old
-    string-literal-only result — a `main` body of N [println(args)] (every arg [denotable_arg]) + [return]
-    ALWAYS denotes for ANY [eval_value]-folded args (string / integer / float / bool constants), not just
-    strings (the [gosem_strlit_*] demos cover strings; [println_main_denotes_mixed] covers a mixed
-    string+int-const program).  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the
-    converse OUTRIGHT on that fragment.  [denotable_supported] pins
-    denotable ⊆ supported; the inclusion is STRICT (a runtime blank-assign is supported but not denotable) —
-    the gap being the not-yet-evaluable forms the eval roadmap closes. *)
+    A println ARG denotes iff it EVALUATES and is PRINTABLE: [denotable_arg].  A `main` body of N [println(args)]
+    (every arg [denotable_arg]) + [return] ALWAYS denotes for the args [eval_value] folds: string LITERALS plus
+    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (a non-literal string like
+    `"a"+"b"` is supported but eval-partial, so NOT [denotable_arg]; pinned by [denotable_arg_nonliteral_string]).
+    ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
+    program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
+    that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
+    blank-assign is supported but not denotable) — the gap being the not-yet-evaluable forms the roadmap closes. *)
 Definition denotable_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -367,6 +367,13 @@ Proof. intros e H Hn. unfold denotable_arg in H. rewrite Hn in H. discriminate. 
 
 Lemma denotable_arg_printable : forall e, denotable_arg e = true -> printable_arg_ok e = true.
 Proof. intros e H. unfold denotable_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
+
+(** BOUNDARY PIN (keeps the converse claim EXACT — string LITERALS, not "any string constant"): a SUPPORTED
+    non-literal string [`"a" + "b"`] (in GoSafe's supported set) is NOT [denotable_arg] — [eval_value] folds
+    only string LITERALS, not concatenations.  Until string-constant VALUES are tracked through [PTy] /
+    [eval_value], such supported-but-eval-partial strings stay OUTSIDE the denoted fragment. *)
+Example denotable_arg_nonliteral_string : denotable_arg (EBn BAdd (EStr "a") (EStr "b")) = false.
+Proof. vm_compute. reflexivity. Qed.
 
 Lemma eval_args_denotable : forall args, forallb denotable_arg args = true -> eval_args args <> None.
 Proof.
@@ -456,8 +463,8 @@ Proof. apply println_main_denotes. reflexivity. Qed.
     modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
     [denote_program_runs] proves the DENOTATION->EXECUTION link: [denote_program p = Some c -> run_cmd 1 c w <>
     None] — a DENOTED program ([Cmd]) RUNS to an [Outcome].  (It assumes the program DENOTES; it does NOT prove
-    supported ⟹ denotes — that converse is partial, see [denote_program_dec] / the strlit fragment.  Composed
-    with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
+    supported ⟹ denotes in GENERAL — that converse is partial, see [denote_program_dec] / [println_main_denotes].
+    Composed with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
     what it denotes.  ([no_defer] — the straight-line predicate this rests on — now lives in cmd.v, shared with
     the cmd_unified.v bridge.) *)
 Lemma cbind_no_defer : forall (c : Cmd unit) (k : unit -> Cmd unit),

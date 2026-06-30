@@ -79,9 +79,9 @@ live emission is not "verified Go."
   toward an eventual `supported ⟺ denotes` (NOT proved in general; `eval` is partial). `denotable_supported`:
   denotable ⊆ supported (STRICT). The COMPLETENESS converse holds OUTRIGHT on the println-of-evaluable-args
   fragment — `println_main_denotes`/`println_main_runs`: an UNBOUNDED class (N `println(args)` + `return`, each
-  arg `denotable_arg` = evaluates+printable, i.e. any string/int/float/bool constant) ALWAYS denotes AND runs.
-  `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality; concrete run-witnesses are
-  in the trust surface). Zero axioms.
+  arg `denotable_arg` = evaluates+printable: string LITERALS + eval-folded integer/exact-float/bool constants,
+  NOT supported-but-eval-partial forms like `"a"+"b"`) ALWAYS denotes AND runs.
+  `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality). Zero axioms.
   ★ Certified public surface = `gosem_trust_surface` (the bundled tuple, gated by `Print Assumptions`); a GoSem
   theorem not in it is compiled but NOT advertised zero-axiom. ⚠ denotation⊆gate, NOT `BehaviorSafe`. Next:
   runtime/`len`/`int(x)` + fractional-float `eval` (extends the converse's reach), then `BehaviorSafe`.
