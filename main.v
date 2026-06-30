@@ -1559,16 +1559,15 @@ Definition cond_op_demo : IO unit :=
   bind (or_cond (30)%i64 (4)%i64)  (fun _ =>   (* F || T → 1 *)
   not_cond (30)%i64)).                   (* !F      → 1 *)
 
-(** A unary [^] as a binary-operator OPERAND.  [i64_not x] (the full-width complement) sitting INSIDE
-    [i64_and]/[i64_or] prints as [^x] via the trusted [pp_prec]/[pp_expr]; Go's unary [^] binds tighter than
-    the binary [&]/[|], so the operand needs no defensive parens: [^x & y], [^x | y].  Operands are RUNTIME
-    params (not literals), so the op survives extraction instead of constant-folding.  (NB: Coq's stdlib
-    [andb]/[orb]/[negb] are NOT Fido builtins, so they extract as the helper functions [Andb]/[Orb]/[Negb] —
-    the [!]/[&&] lowering fires only for a builtin bool op, none of which exists yet.) *)
-(** The bare unary complement [^x] of a runtime local as a binop operand ([^x & y], [^x | y]):
-    [Printer.gprint] bridges [EUn UXor] (printed MINIMALLY — [^x], not [^(x)] — since [GoPrint]'s
-    [unop_needs_paren (EId _) = false]).  Byte-identical to [pp_prec]; only the bare-prefix runtime case is
-    bridged (a typed-constant [^] keeps its force-wrapper IIFE on [pp_prec]). *)
+(** A unary [^] as a binary-operator OPERAND: [i64_not x] (the full-width int64 complement) inside
+    [i64_and]/[i64_or] — [^x & y], [^x | y].  Operands are RUNTIME params (not literals), so the op survives
+    extraction instead of constant-folding, and [Printer.gprint] BRIDGES it: the whole binop tree, including
+    the [^x] leaf, is emitted by the VERIFIED printer ([EBn] / [EUn UXor]), byte-identical to the trusted
+    [pp_prec].  [^x] prints MINIMALLY ([^x], not [^(x)] — [GoPrint]'s [unop_needs_paren (EId _) = false]); Go's
+    unary [^] binds tighter than [&]/[|], so the operand needs no defensive parens.  ONLY the bare-prefix
+    runtime-local case is bridged — a typed-CONSTANT [^] keeps its force-wrapper IIFE on the trusted [pp_prec].
+    (NB: Coq's stdlib [andb]/[orb]/[negb] are NOT Fido builtins, so they extract as the helper functions
+    [Andb]/[Orb]/[Negb] — the [!]/[&&] lowering fires only for a builtin bool op, none of which exists yet.) *)
 Definition unop_in_binop_demo (x y : GoI64) : IO unit :=
   println [ any (i64_and (i64_not x) y)         (* ^x & y *)
           ; any (i64_or  (i64_not x) y) ].       (* ^x | y *)
