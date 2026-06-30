@@ -85,8 +85,11 @@ live emission is not "verified Go."
   the CONVERSE-direction companion: denotability is DECIDABLE, characterized structurally by `denotable_program`
   (`denote_program p <> None ↔ denotable_program p = true`) — the scaffold toward the eventual `supported ⟺ denotes`
   (as `eval_value` grows toward total, `denotable_*` converges to `supported_*`; NOT that result yet — `eval` is
-  partial). The demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through
-  `run_cmd` to the exact `w_log` World. Zero axioms.
+  partial). `denotable_supported` pins denotable ⊆ supported (STRICT today — the runtime blank-assign is supported
+  but not denotable), and a concrete fragment denotes OUTRIGHT: `eval_args_strlit` (eval total on string-literal
+  arg lists) ⟹ `denote_println_strlit` (a `println` of string literals always denotes). The demo RUNS
+  `println("hi")` / `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through `run_cmd` to the exact
+  `w_log` World. Zero axioms.
   ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. A comparison with a NON-literal
   string operand / runtime (a `len(..)`/`int(x)` operand) / fractional-float / non-literal-string / `GTUint`
   `eval` + the completeness converse are the next slices.

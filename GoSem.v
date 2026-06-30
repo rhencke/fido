@@ -350,6 +350,60 @@ Proof.
   - split; intro H; [congruence | discriminate].
 Qed.
 
+(** ---- A CONCRETE COMPLETENESS FRAGMENT: eval is TOTAL on STRING-LITERAL arg lists, so a [println] of string
+    literals ALWAYS denotes — an OUTRIGHT [supported ⟹ denotes] witness (no eval-partiality gap on this form).
+    And [denotable_supported] pins denotable ⊆ supported (via [denote_program_dec] + [gosem_sound]); the inclusion
+    is STRICT today — the runtime blank-assign is supported but NOT denotable — the gap being exactly the
+    not-yet-evaluable programs that the eval-growth roadmap closes. *)
+Definition is_strlit (e : GExpr) : bool := match e with EStr _ => true | _ => false end.
+
+Lemma eval_strlit : forall s, eval_value (EStr s) = Some (anyt TString s).
+Proof. reflexivity. Qed.
+
+Lemma is_strlit_eval : forall e, is_strlit e = true -> eval_value e <> None.
+Proof. intros e H. destruct e; discriminate. Qed.
+
+Lemma is_strlit_printable : forall e, is_strlit e = true -> printable_arg_ok e = true.
+Proof. intros e H. destruct e; try discriminate. reflexivity. Qed.
+
+Lemma eval_args_strlit : forall args, forallb is_strlit args = true -> eval_args args <> None.
+Proof.
+  induction args as [|a rest IH]; simpl; intro H; [discriminate|].
+  apply andb_true_iff in H as [Ha Hrest]. specialize (IH Hrest).
+  pose proof (is_strlit_eval a Ha) as Hva.
+  destruct (eval_value a); [|exfalso; apply Hva; reflexivity].
+  destruct (eval_args rest); [discriminate | exfalso; apply IH; reflexivity].
+Qed.
+
+Lemma forallb_strlit_printable : forall args, forallb is_strlit args = true -> forallb printable_arg_ok args = true.
+Proof.
+  induction args as [|a rest IH]; simpl; intro H.
+  - reflexivity.
+  - apply andb_true_iff in H as [Ha Hrest]. rewrite (is_strlit_printable a Ha), (IH Hrest). reflexivity.
+Qed.
+
+Lemma denote_println_strlit : forall f args,
+  proj1_sig f = "println"%string -> forallb is_strlit args = true ->
+  denote_stmt (GsExprStmt (ECall (EId f) args)) <> None.
+Proof.
+  intros f args Hf Hargs. cbn [denote_stmt].
+  assert (Hok : expr_stmt_ok (ECall (EId f) args) = true).
+  { cbn [expr_stmt_ok stmt_call_ok]. rewrite Hf. cbn. rewrite (forallb_strlit_printable args Hargs). reflexivity. }
+  rewrite Hok. rewrite Hf. cbn.
+  destruct (eval_args args) eqn:Ea; [discriminate | exfalso; exact (eval_args_strlit args Hargs Ea)].
+Qed.
+
+Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
+Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
+
+(** Grounding: a multi-statement string-literal `func main(){ println("a"); println("b"); return }` is denotable
+    (its converse holds outright). *)
+Definition gosem_strlit_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
+Example gosem_strlit_denotable : denotable_program gosem_strlit_prog = true.   Proof. reflexivity. Qed.
+
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
