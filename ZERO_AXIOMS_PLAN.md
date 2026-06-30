@@ -10,12 +10,16 @@ the closed world.
 = 0, with the honest holdouts (below) either modeled or reclassified as an explicit
 external boundary, and `make check` (golden) **unchanged at every step**.
 
-**DONE (2026-06-16). ZERO axioms — 108 → 0.** `grep -cE "^Axiom |^Parameter " *.v` = 0
-across every theory; no `Admitted`.  `Print Assumptions` on the headline results
-(`type_assert_ok`, `chan_buf_send`, `map_sel_upd_same`, `ref_sel_upd_same`) reports a
+**DONE (2026-06-16). ZERO axioms — 108 → 0.** `Print Assumptions` on the headline results
+(`type_assert_ok`, `chan_buf_send`, `map_sel_upd_same`, `ref_sel_upd_same`) reported a
 trust base of ONLY the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat`
-primitives (+ `Uint63` `eqb_refl`) and stdlib `functional_extensionality`.  Golden
-byte-identical at every step; Docker `make check` green.
+primitives (+ `Uint63` `eqb_refl`) and stdlib `functional_extensionality`; `grep -cE
+"^Axiom |^Parameter " *.v` = 0, no `Admitted`.  Golden byte-identical at every step; Docker
+`make check` green.  (SINCE eliminated entirely: the PrimInt63/PrimFloat substrate is gone
+— integers `Z`, locations `nat`, floats `spec_float` — and the effect algebra is funext-free,
+so `EXPECTED_ASSUMPTIONS.txt` is now EMPTY and the Docker axiom-manifest gate over `Print
+Assumptions` is the authority; the source grep is only a coarse commit-time tripwire that
+legal declaration forms bypass.)
 
 ### The final 3 (`type_assert`) — how the universe wall was crossed
 

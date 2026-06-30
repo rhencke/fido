@@ -103,8 +103,10 @@ live emission is not "verified Go."
   NOT the semantics of the certified-emission path; GoSem (slice 1 bridges `cmd.v`) must still bridge or retire
   it before behavioral safety enters certified emission), `concurrency.v` (calculus-agnostic trace / happens-before / race /
   bounded-deadlock theory).
-- **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context";
-  `EXPECTED_ASSUMPTIONS.txt` is empty and the build fails on any drift.
+- **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context". The
+  manifest gate also covers GoSem's `gosem_trust_surface` (the bundled certified GoSem results — Rocq's own
+  assumption output over their whole cone, not a source-text scan); `EXPECTED_ASSUMPTIONS.txt` is empty and the
+  build fails on any drift in either cone.
 - **Golden end-to-end**: `make check` extracts and diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)

@@ -6,12 +6,16 @@ section at a time.  Our Rocq is meant to follow this order too, so each spec
 section maps to a region of the model.  Each entry: the spec rule (the SOURCE of
 our behavior, cited), our model, status, and the machine-checked witness.
 
-**The entire model is AXIOM-FREE.**  `grep -cE '^Axiom |^Parameter ' *.v` = 0
-across `builtins.v`/`main.v`/`concurrency.v`/`preamble.v`; no `Admitted`.  So every
+**The entire model is AXIOM-FREE.**  The authority is Rocq's own `Print Assumptions`,
+gated non-bypassably in the Docker prover stage (the axiom-manifest gate diffs every
+module's `Axioms:` report against the EMPTY `EXPECTED_ASSUMPTIONS.txt`); a source grep
+`grep -cE '^Axiom |^Parameter ' *.v` = 0 is only a coarse commit-time tripwire (legal
+declaration forms — `Local`/`Polymorphic Axiom`, attribute stacks — bypass it).  So every
 ✓ below rests on a `Definition`/`Theorem` over a CONCRETE model (the `World` is a
-concrete record of typed heaps), and `Print Assumptions` of any result reports only
-the named external boundaries — Coq's kernel `PrimInt63`/`PrimFloat` primitives (the
-108→0 axiom elimination).  The IO monad/effect ALGEBRA (the monad laws, and every
+concrete record of typed heaps), and `Print Assumptions` of any result reports *Closed
+under the global context* — the trust base is EMPTY (the old `PrimInt63`/`PrimFloat`
+kernel substrate was eliminated: integers `Z`, locations `nat`, floats `spec_float`).
+The IO monad/effect ALGEBRA (the monad laws, and every
 read-after-write / commutation lemma) is now **funext-free**: stated over OBSERVATIONAL
 equality `io_eq m m' := forall w, run_io m w = run_io m' w` and proved pointwise (review
 #6 P2 #20) — `Print Assumptions bind_assoc` reports no `functional_extensionality`.  The
@@ -1093,11 +1097,12 @@ the `run_io` `World`, using the two channel-SEPARATION (frame) LAWS
 (`chan_buf_send_frame`/`chan_buf_recv_frame` — now THEOREMS, derived from
 `chan_read_write_frame` over the concrete per-channel heap; once axioms, eliminated in the
 108→0 work); `reachable_refines_and_safe` bundles this with the proven race-freedom on the
-same execution.  Trust base verified by `Print Assumptions`: the whole model is now
-AXIOM-FREE (`grep -cE '^Axiom |^Parameter ' *.v` = 0), so `Print Assumptions` of these
-keystone results = *Closed under the global context* modulo Coq's kernel primitives
-(`PrimInt63`/`PrimFloat`) and stdlib `functional_extensionality`; `Hret`/`chenv_inj` are
-discharged hypotheses.
+same execution.  Trust base verified by `Print Assumptions` (the authority — gated by the
+Docker axiom-manifest gate; the `grep -cE '^Axiom |^Parameter ' *.v` = 0 is only a coarse
+tripwire): the whole model is now AXIOM-FREE, so `Print Assumptions` of these keystone
+results = *Closed under the global context* — the trust base is EMPTY (`PrimInt63`/`PrimFloat`
+eliminated and the effect algebra made funext-free via observational equality); `Hret`/`chenv_inj`
+are discharged hypotheses.
 **Deadlock — characterized + freedom for a real class (axiom-free).**  The operational
 semantics represents deadlock (`rblock_stuck`) and now CHARACTERIZES it (`rstuck_blocked`:
 a stuck config has someone unfinished yet every live goroutine is finished or blocked on

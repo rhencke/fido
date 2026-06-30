@@ -779,28 +779,21 @@ Example denotable_demo          : denotable_program gosem_demo_prog = true.     
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
 
-(** AXIOM-FREEDOM GATE (Rocq's OWN assumption output is the authority — NOT a source-text scan).  Each
-    [Print Assumptions] below RUNS when `dune build` compiles this file; its output lands in the build log, and
-    the Docker prover stage's manifest gate captures EVERY module's [Axioms:] report and FAILS on any (the
-    manifest is empty — rule 3).  Because Rocq reports an assumption for an axiom introduced by ANY form
-    (Axiom / Local Axiom / Polymorphic Axiom / attribute-qualified / imported / transitive), this gate is immune
-    to the declaration-syntax that a grep over GoSem.v would miss (the str_ltb / [Local Axiom] trap);
-    plugin/axiom-authority-selftest.sh PINS that completeness.  This is the certified zero-axiom SURFACE — the
-    results listed here.  (Coverage caveat, stated honestly: the manifest gate sees only [Print Assumptions]'d
-    theorems and only axioms they USE.  A declared-but-unused axiom, or an unlisted theorem, is additionally
-    guarded by the pre-commit source-scan tripwire + the fact that every dependency [cmd]/[builtins]/[GoAst]/
-    [GoTypes]/[GoSafe] is gated axiom-free — so no GoSem theorem can depend on an axiom either way.) *)
-Print Assumptions gosem_sound.
-Print Assumptions denote_program_dec.
-Print Assumptions denote_program_runs.
-Print Assumptions strlit_main_runs.
-Print Assumptions gosem_demo_runs.
-Print Assumptions gosem_return_stops_no_output.
-Print Assumptions gosem_panic_demo_runs.
-Print Assumptions gosem_conv_demo_runs.
-Print Assumptions gosem_float_demo_runs.
-Print Assumptions gosem_bool_demo_runs.
-Print Assumptions gosem_strlit_runs.
+(** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results this project certifies zero-axiom.
+    Bundling their proof terms into ONE constant makes a SINGLE [Print Assumptions] report the UNION of their
+    ENTIRE transitive cones — every lemma and constant they use, not just the top statements.  This runs when
+    `dune build` compiles GoSem.v; the Docker prover stage's manifest gate captures the [Axioms:] report and
+    FAILS on any (rule 3 — the manifest is empty).  Because Rocq tracks assumptions through the whole cone and
+    reports an axiom in ANY declaration form (plain / Local / Global / Polymorphic / Monomorphic / attribute-
+    qualified / imported / transitive), this is a COMPLETE, mechanically-gated seal *for exactly this surface* —
+    NOT a module-wide claim.  A GoSem theorem that is NOT bundled here is, by definition, outside the certified
+    surface (it is not claimed zero-axiom); to certify one, ADD it to the tuple.  plugin/axiom-authority-
+    selftest.sh pins that the manifest mechanism catches an axiom in every such declaration form. *)
+Definition gosem_trust_surface :=
+  (gosem_sound, denote_program_dec, denote_program_runs, strlit_main_runs,
+   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
+   gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs).
+Print Assumptions gosem_trust_surface.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
     branches is, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.str_*].  Because the names are

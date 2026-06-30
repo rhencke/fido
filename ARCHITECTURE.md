@@ -270,7 +270,7 @@ naming a past review round / a deleted experiment as the reason a line exists.
 discipline.
 
 ```text
-[live]     No project Axioms / Admitted / admit.                 (axiom-manifest gate + Print Assumptions)
+[live]     No axioms in any gated cone (main_effect + gosem_trust_surface). (axiom-manifest gate over Print Assumptions; pre-commit declaration tripwire)
 [live]     Generated printer artifact (plugin/printer.ml) in sync. (make printer-verify + Docker stage)
 [live]     No raw-syntax constructor NAMES in source.             (plugin/smart-ctor-gate.sh)
 [live]     Official emit only via GoEmit's certificate API; no direct print_program call outside GoEmit.

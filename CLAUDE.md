@@ -133,14 +133,16 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
-- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set `Print
-  Assumptions main_effect` may depend on. As of 445aca3 this file is **EMPTY** — the
-  model is axiom-free ("Closed under the global context"); the old PrimInt63/PrimFloat
-  substrate is gone (integers `Z`, locations `nat`, floats `spec_float`). The
-  Dockerfile's prover stage diffs the live `Print Assumptions` against it and FAILS
-  the build on any drift (ANY axiom now reappearing is a regression). If a change
-  *intentionally* alters the trust base, regenerate it (C-locale sort, from a fresh local build):
-  `rm -f _build/default/main.vo && dune build 2>&1 | awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
+- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set the gated `Print
+  Assumptions` cones may depend on — `main_effect` (the extracted model) AND GoSem's
+  `gosem_trust_surface` (the bundled certified GoSem results). As of 445aca3 this file is
+  **EMPTY** — the model is axiom-free ("Closed under the global context"); the old
+  PrimInt63/PrimFloat substrate is gone (integers `Z`, locations `nat`, floats `spec_float`).
+  The Dockerfile's prover stage extracts EVERY module's `Axioms:` report (via the shared
+  `plugin/manifest-axioms.sh`) and diffs it against this file, FAILING the build on any drift
+  (ANY axiom now reappearing is a regression). If a change *intentionally* alters the trust
+  base, regenerate it (C-locale sort, from a fresh local build):
+  `rm -f _build/default/main.vo _build/default/GoSem.vo && dune build 2>&1 | sh plugin/manifest-axioms.sh | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
 - `negtests/` — the fail-closed regression harness (`make negtest`, review #4 R10). Each
   `negtests/*.v` is a program that hits a fail-CLOSED backend site; its first line declares
   `(* EXPECT: <substring> *)`, the `unsupported` message extraction MUST abort with. `run.sh`
