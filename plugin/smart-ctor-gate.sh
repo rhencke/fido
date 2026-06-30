@@ -24,6 +24,22 @@ for f in plugin/*.ml plugin/*.mlg; do
   files="$files $f"
 done
 
+# The ACTIVE-PROSE source set — the SINGLE authority over "files whose comments/prose are a live spec of the
+# supported subset" (so a stale claim in ANY of them is a regression).  Every prose gate below (conversion-
+# coverage / stale-count / bridged-vs-unbridged / PtAgg-vs-PtMap) scans THIS set, so their scopes cannot drift
+# apart by hand.  INCLUDES: all tracked .v (root + the emitdemo/ and negtests/ fixtures), the hand-written
+# plugin glue (go.ml + the .mlg), and the active docs.  EXCLUDES (by construction): the GENERATED
+# plugin/printer.ml, THIS gate script (its self-test fixtures hold the literal stale phrases on purpose), and
+# archaeology / design-history docs (LESSONS.md, *_PLAN.md) where historical wording is allowed.  Missing files
+# (e.g. docs not COPYed into the Docker prover stage) are skipped by each scanner's own existence/`2>/dev/null`
+# handling, so the set is a superset that degrades gracefully where a file is absent.
+# `ls … || true`: under `set -e`, [ls] returns non-zero when an operand is absent (e.g. the docs / emitdemo
+# are not COPYed into the Docker prover stage) — [ls] still prints the PRESENT files to stdout, and the absent
+# operands are simply not listed, so the set degrades to whatever is actually here; `|| true` keeps that
+# graceful skip from aborting the gate.
+prose_files=$(ls *.v emitdemo/*.v negtests/*.v plugin/go.ml plugin/g_go_extraction.mlg \
+  CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md 2>/dev/null || true)
+
 # 1. SMART-CTOR BAN.  The smart-constructor block (markers in go.ml) is the only sanctioned site; assert the
 # markers are present, then flag any Printer.GTNamed / Printer.EId use OUTSIDE that block in any plugin file.
 if ! grep -q 'SMART-CONSTRUCTORS-BEGIN' plugin/go.ml || ! grep -q 'SMART-CONSTRUCTORS-END' plugin/go.ml; then
@@ -129,7 +145,7 @@ if [ "$pl" != "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 " ] \
   echo "fido: CONVERSION-COVERAGE GATE self-test FAILED — per-line[$pl] (want 1..16, incl. 10-12 NOT-identity + 13-16 mixed-case); wrapped[$wr] (want the 2 split phrases); mixedcase[$mc]."; exit 1
 fi
 covbad=""
-for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md; do
+for f in $prose_files; do
   [ -f "$f" ] || continue
   h=$(cov_scan "$f"); [ -n "$h" ] && covbad="$covbad
 $h"
@@ -160,7 +176,7 @@ rm -f "$sc_tmp"
 if [ "$sc_hit" -ne 4 ] || [ "$sc_leak" -ne 0 ]; then
   echo "fido: STALE-COUNT GATE self-test broke (want 4 stale catches incl. UPPERCASE/numeric, 0 leak; got hit=$sc_hit leak=$sc_leak)"; exit 1
 fi
-scbad=$(sc_scan $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md)
+scbad=$(sc_scan $prose_files)
 if [ -n "$scbad" ]; then
   echo "fido: STALE-COUNT GATE — bridge-coverage prose states a numeric conversion count (drifts) or the old '205 / true' demo output:"
   echo "$scbad"
@@ -218,7 +234,7 @@ fi
 if [ -n "$(grep -n 'ub_re' plugin/smart-ctor-gate.sh | grep -vE "ub_re=|ub_hits\(\)|UBINV")" ]; then  # UBINV
   echo "fido: BRIDGED-VS-UNBRIDGED GATE — the UB matcher regex is referenced outside ub_hits (a re-inlined duplicate matcher); route all matching through ub_hits."; exit 1  # UBINV
 fi
-for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md; do
+for f in $prose_files; do
   [ -f "$f" ] || continue
   for m in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
     h=$(ub_hits "$m" "$(cat "$f" 2>/dev/null)")
@@ -231,7 +247,8 @@ for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md
 done
 echo "fido: bridged-vs-unbridged gate OK — no bridged cov_preds recognizer is called unbridged ✓"
 
-# 7. PtAgg-vs-PtMap BOUNDARY honesty (Codex 2026-06-30) — a grep TRIPWIRE.  After [EMapLit] gained its own
+# 7. PtAgg-vs-PtMap BOUNDARY honesty (Codex 2026-06-30; scope sealed to the shared $prose_files set) — a grep
+# TRIPWIRE over the SAME active-prose set as the other prose gates.  After [EMapLit] gained its own
 # [PtMap] category (a map is a value, [len]-able but NOT [cap]-able — DISTINCT from the [len]+[cap]-able
 # slice/chan [PtAgg]), active prose must not conflate the two with the exact stale phrasings this split killed:
 # "[cap] of an aggregate" (unqualified — wrongly implies [cap] works on a map; the live [cap] arm is [PtAgg]
@@ -251,7 +268,7 @@ rm -f "$pm_tmp"
 if [ "$pm_hit" -ne 3 ] || [ "$pm_leak" -ne 0 ]; then
   echo "fido: PTAGG-PTMAP GATE self-test broke (want 3 stale catches, 0 leak; got hit=$pm_hit leak=$pm_leak)"; exit 1
 fi
-pmbad=$(pm_scan $(ls *.v 2>/dev/null) CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md)
+pmbad=$(pm_scan $prose_files)
 if [ -n "$pmbad" ]; then
   echo "fido: PTAGG-PTMAP GATE — active prose conflates the [len]+[cap]-able slice/chan [PtAgg] with the [len]-only map [PtMap]:"
   echo "$pmbad"
