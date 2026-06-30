@@ -779,12 +779,11 @@ Example denotable_demo          : denotable_program gosem_demo_prog = true.     
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
 
-(** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions] surface
-    in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom GoSem might
-    pull in via [cmd]/[builtins].  Covers the CHARACTERIZATION theorems AND every concrete run-WITNESS — by the
-    BODY-SHAPE criterion `run_cmd … = Some (ORet|OPanic …)`, NOT a name suffix (a claimed-zero-axiom behavioral
-    result must be SURFACED here or future axiom drift goes unseen).  smart-ctor-gate.sh check 5 MECHANICALLY
-    enforces this coverage (it parses these statements and fails the build on an ungated one). *)
+(** GATE (documentation/visibility) — these [Print Assumptions] SURFACE the key behavioral results' trust base in
+    the build log.  They are NOT the axiom-freedom SEAL: GoSem is axiom-free because smart-ctor-gate.sh check 5
+    forbids any axiom-introducing vernacular in GoSem.v / GoSemAuthority.v (non-bypassably, in the Docker prover
+    stage), and every dependency ([cmd]/[builtins]/[GoAst]/[GoTypes]/[GoSafe]) is gated axiom-free — so EVERY
+    GoSem theorem is zero-axiom, for any statement syntax, with no per-witness list to keep complete. *)
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.

@@ -11,9 +11,10 @@
 # Extraction failure (e.g. a broken proof) aborts the commit.
 set -e
 
-# Smart-constructor gate (review #4): when the plugin is staged, assert plugin/go.ml constructs the
-# proof-carrying Printer atoms/types ONLY via the re-checking smart constructors (a direct AIdent/
-# AIntLit/ARaw/GTNamed would bypass the erased Rocq invariant).  Cheap static scan; the Docker prover
+# Code-discipline gate (smart-ctor-gate.sh — 5 checks: smart-ctor ban / dead-name / emission-discipline /
+# bridge-recognizer / GoSem axiom-freedom seal): e.g. assert plugin/go.ml constructs the proof-carrying
+# Printer atoms/types ONLY via the re-checking smart constructors (a direct GTNamed/EId would bypass the
+# erased Rocq invariant), and GoSem.v introduces no axiom.  Cheap static scan; the Docker prover
 # stage runs it non-bypassably too, this is the fast local backstop.
 if git diff --cached --name-only | grep -qE '^plugin/'; then
   sh plugin/smart-ctor-gate.sh

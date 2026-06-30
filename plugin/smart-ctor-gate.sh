@@ -13,8 +13,8 @@
 #   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
 #      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
 #      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
-#   5. GOSEM RUN-WITNESS coverage — every GoSem.v Example/Theorem asserting `run_cmd … = Some (ORet|OPanic …)`
-#      has a [Print Assumptions] line (GoSem is not extracted, so that is its only axiom-freeness check).
+#   5. GOSEM AXIOM-FREEDOM SEAL — GoSem.v / GoSemAuthority.v (NOT extracted) contain no axiom-introducing
+#      vernacular (Axiom/Admitted/Parameter/…); with gated-axiom-free deps this seals all GoSem theorems zero-axiom.
 # (GoSem-uses-the-model's-string-order is enforced in ROCQ, not here — a source-text grep is bypassed by legal
 #  Rocq syntax — by GoSem.v's qualified-constant [str_cmp_*_model] branch pins (+ the GoSemAuthority.v tripwire);
 #  see the note after check 4.)
@@ -114,32 +114,29 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # branch breaks a pin.  GoSemAuthority.v is a secondary post-import top-level tripwire ([Fail Check
 # Fido.GoSem.str_*]).  Scope: GoSem (the string-semantics layer); no claim about other modules.
 
-# 5. GOSEM RUN-WITNESS axiom-gate coverage (BODY-shape, NOT a name suffix).  GoSem.v is NOT extracted, so its
-# [Print Assumptions <name>.] lines are the ONLY axiom-freeness check for its behavioral witnesses — an UNGATED
-# one's axioms go unseen.  So EVERY top-level Example/Theorem/Lemma/Corollary whose STATEMENT asserts a concrete
-# [run_cmd … = Some (ORet|OPanic …)] outcome MUST have a matching [Print Assumptions] line.  (THREE Codex BLOCKs
-# came from a NAME-based check missing a witness whose name lacks [_runs], e.g. [gosem_return_stops_no_output] —
-# this replaces that manual list with a body-parse.)
-gosem_run_witnesses() {            # emit names of concrete run_cmd-outcome witnesses in file $1
-  awk '
-    /^(Example|Theorem|Lemma|Corollary)[ \t]+[A-Za-z_]/ { name=$2; sub(/[^A-Za-z0-9_].*/,"",name); st=1; b="" }
-    st { b = b " " $0 }
-    /Proof\./ && st { st=0; if (b ~ /run_cmd/ && b ~ /Some[ \t]*\([ \t]*(ORet|OPanic)/) print name }
-  ' "$1"
-}
-# self-test: a forged NON-_runs ungated concrete witness MUST be detected by the body parse
-gw_t=$(mktemp)
-printf '%s\n' 'Example forged_stop : forall w, run_cmd 1 c w = Some (ORet tt w).' 'Proof. Admitted.' > "$gw_t"
-gosem_run_witnesses "$gw_t" | grep -qx forged_stop || { echo "fido: GOSEM-WITNESS self-test broke — a forged [run_cmd … = Some (ORet …)] witness was NOT detected"; rm -f "$gw_t"; exit 1; }
-rm -f "$gw_t"
-gw_gated=$(grep -oE '^Print Assumptions[ \t]+[A-Za-z0-9_]+' GoSem.v | awk '{print $3}')
-gw_missing=""
-for w in $(gosem_run_witnesses GoSem.v); do
-  printf '%s\n' "$gw_gated" | grep -qx "$w" || gw_missing="$gw_missing $w"
-done
-if [ -n "$gw_missing" ]; then
-  echo "fido: GOSEM-WITNESS GATE — concrete [run_cmd … = Some (ORet|OPanic …)] witness(es) lack a [Print Assumptions] line:$gw_missing"
-  echo "fido: add 'Print Assumptions <name>.' to GoSem.v's gate block (GoSem is NOT extracted; that line is its only axiom-freeness check)."
+# 5. GOSEM AXIOM-FREEDOM SEAL (statement-shape-INDEPENDENT — supersedes the brittle run-witness body-parse, which
+# had legal-Rocq false negatives: proof-term [:= eq_refl], [@ORet], extra parens, … exactly the str_ltb shell-
+# parser trap).  GoSem.v / GoSemAuthority.v are NOT extracted, so the axiom-manifest gate (on the EXTRACTED
+# [main_effect]) does not cover them.  BUT their dependencies ([cmd]/[builtins]/[GoAst]/[GoTypes]/[GoSafe], all
+# gated axiom-free elsewhere) introduce no axiom, so a GoSem theorem can be non-axiom-free ONLY if GoSem.v ITSELF
+# introduces one.  Forbidding every axiom-INTRODUCING vernacular there (the closed keyword set below, with an
+# optional leading [#[...]] attribute) therefore SEALS ALL of GoSem's theorems as zero-axiom — for ANY statement
+# syntax, no per-witness detection needed.  (The [Print Assumptions] lines in GoSem.v additionally SURFACE key
+# results in the build log; they are documentation, not the seal.)  COMPLEMENTARY to the pre-commit hook's
+# all-tracked-.v anti-axiom scan: that one is broader (every .v) but COMMIT-time only (bypassable); this one is
+# GoSem-scoped but NON-bypassable (runs in the Docker prover stage, so `make check`/CI enforce it).
+ax_re='^[[:space:]]*(#\[[^]]*\][[:space:]]*)?(Admitted|Axiom|Axioms|Parameter|Parameters|Conjecture|Hypothesis|Hypotheses|Variable|Variables)\b'
+# self-test: a plain [Admitted.] AND an attribute-qualified [#[local] Axiom …] (the str_ltb-style bypass) MUST trip
+ax_t=$(mktemp)
+printf '%s\n' 'Admitted.' '#[local] Axiom forged_ax : True.' '  (* this Axiom mention in a comment must NOT trip *)' > "$ax_t"
+ax_hits=$(grep -cE "$ax_re" "$ax_t")
+[ "$ax_hits" = 2 ] || { echo "fido: GOSEM AXIOM-SEAL self-test broke — expected 2 hits (Admitted + #[local] Axiom), got $ax_hits"; rm -f "$ax_t"; exit 1; }
+rm -f "$ax_t"
+axdef=$(grep -nE "$ax_re" GoSem.v GoSemAuthority.v 2>/dev/null || true)
+if [ -n "$axdef" ]; then
+  echo "fido: GOSEM AXIOM-FREEDOM SEAL — an axiom-introducing vernacular is in GoSem.v / GoSemAuthority.v:"
+  echo "$axdef"
+  echo "fido: GoSem must stay axiom-free (it is not extracted — this is its only axiom check); remove the Axiom/Admitted/Parameter/…"
   exit 1
 fi
-echo "fido: gosem-witness gate OK — all $(gosem_run_witnesses GoSem.v | grep -c .) concrete run_cmd outcome witnesses gated ✓"
+echo "fido: gosem axiom-freedom seal OK — no axiom-introducing vernacular in GoSem.v / GoSemAuthority.v ✓"

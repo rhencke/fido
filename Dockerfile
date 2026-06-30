@@ -91,11 +91,11 @@ COPY --chown=opam:opam negtests/ negtests/
 #      printer guarantee is vacuous if they differ).  Regenerate it from GoPrint.v here, FAIL on drift,
 #      and assert GoPrint.v's `Print Assumptions` show no "Axioms:" (GoPrint.v is part of the trust gate,
 #      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
-#  (6) SMART-CTOR GATE (review #4): the live proof-carrying Printer constructors (GTNamed — a type name; EId —
-#      an expression identifier) erase their Rocq validity proof to a bare string in OCaml, so a DIRECT call
-#      would bypass the verified invariant.  Assert plugin/go.ml constructs them ONLY via the re-checking smart
-#      constructors (mk_named_ty / mk_goexpr_id) — a pure static scan, run FIRST so a side-door construction
-#      fails fast.
+#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — 5 checks): smart-ctor ban (the live proof-carrying Printer
+#      constructors GTNamed/EId erase their Rocq validity proof to a bare OCaml string, so a DIRECT call would
+#      bypass the verified invariant — assert plugin/go.ml builds them ONLY via the re-checking mk_named_ty /
+#      mk_goexpr_id), dead-name recurrence, emission discipline, bridge-recognizer scoping, and the GoSem
+#      axiom-freedom seal — a pure static scan, run FIRST so a side-door construction fails fast.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && (rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
