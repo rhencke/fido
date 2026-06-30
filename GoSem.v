@@ -19,14 +19,15 @@
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
     [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
-    INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
+    INTEGER constant (literals, CONVERSIONS [int64(3)] / in-range [uint(3)], ARITHMETIC [1+2], complement [^x]
+    — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
     failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
     STRING-LITERAL comparisons (string compares DELEGATED to the model's [str_*] family — no local GoSem order)
     combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked
     values; a comparison with a NON-literal string operand, bools with a runtime operand, non-literal strings,
-    [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to
-    [None] there.
+    an out-of-conservative-range or COMPLEMENTED [uint], fractional/runtime floats, and RUNTIME values
+    ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -46,7 +47,19 @@ Import ListNotations.
     yields [None] HERE, not a silently [*wrap]-mangled value — exactness does NOT rely on a caller having gated
     (rule 4: evidence at the builder).  When in range the [*wrap] constructor is IDENTITY, so it builds EXACTLY
     the model's value (e.g. [int64(3)] -> [anyt TI64 (i64wrap 3)] = [MkI64 3], what the model's [println]
-    carries).  [GTUint] stays [None] (no proof-free [GoUint] wrap yet); floats go through [box_float] below. *)
+    carries).  [GTUint] is boxed via [mk_uint] below (the model's proof-carrying [uint_lit]); floats go through
+    [box_float] below. *)
+
+(** Box a [GTUint] (Go platform [uint]) CONSTANT [z].  The model's [GoUint] carries an [in_u64] PROOF, so
+    [mk_uint] discharges it self-soundly via a dependent match on [in_u64 z] — NOT caller-gated ([None] if
+    [z] ∉ [[0,2^64)]).  [box_int]'s [int_const_repr] guard already restricts [z] to [GTUint]'s conservative
+    [[0,2^32-1]] ⊂ [[0,2^64)], where [uint_lit z] is the model's EXACT uint value [z] (the [GoU64] shape). *)
+Definition mk_uint (z : Z) : option GoAny :=
+  (match in_u64 z as b return (in_u64 z = b -> option GoAny) with
+   | true  => fun pf => Some (anyt TUint (uint_lit z pf))
+   | false => fun _  => None
+   end) eq_refl.
+
 Definition box_int (t : GoTy) (z : Z) : option GoAny :=
   if int_const_repr z t then
     match t with
@@ -59,7 +72,8 @@ Definition box_int (t : GoTy) (z : Z) : option GoAny :=
     | GTU32   => Some (anyt TU32  (u32wrap z))
     | GTI32   => Some (anyt TI32  (i32wrap z))
     | GTU64   => Some (anyt TU64  (u64wrap z))
-    | _       => None   (* [GTUint] (no proof-free wrap), non-integer [t] — next sub-slice *)
+    | GTUint  => mk_uint z   (* Go platform [uint] -> [GoUint], via the model's proof-carrying [uint_lit] *)
+    | _       => None        (* non-integer [t] *)
     end
   else None.
 
@@ -176,15 +190,16 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
     string LITERAL ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer
     constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
-    [int64(3)] EXCLUDING [GTUint], ARITHMETIC [1+2], complement [^x]), and a TYPED FLOAT constant of an exact
+    [int64(3)] / in-range [uint(3)] (boxed by [mk_uint]), ARITHMETIC [1+2], complement [^x] — complement still
+    EXCLUDING [GTUint]), and a TYPED FLOAT constant of an exact
     integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
     a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
     GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
     STRING-LITERAL comparisons combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion,
     reusing the operands' [ptype] values via [const_z] / [const_str].  ABSENT (-> [None], the next sub-slices):
-    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, non-literal strings, [GTUint],
-    and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never
-    wrong. *)
+    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, non-literal strings, an
+    out-of-conservative-range or COMPLEMENTED [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]:
+    [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
@@ -771,15 +786,18 @@ Example gosem_bool_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** NEGATIVE (Codex 2026-06-30): the eval growth must FAIL CLOSED at the BOUNDARY, never carry a *wrap-mangled
-    out-of-range value, and must NOT silently widen to [GTUint].  Pinned directly at [box_int] and end-to-end
-    through [eval_value]: an out-of-range fixed-width value, an untyped const past the default-[int] range, and a
-    [uint] conversion all evaluate to [None]. *)
+(** BOUNDARY (Codex 2026-06-30, extended for [GTUint]): the eval growth FAILS CLOSED — it never carries a
+    [*wrap]-mangled out-of-range value.  Pinned directly at [box_int] and end-to-end through [eval_value]: an
+    out-of-range fixed-width value, an untyped const past the default-[int] range, and an OUT-OF-conservative-range
+    [uint] conversion all evaluate to [None]; an IN-range [uint] conversion boxes its EXACT value ([eval_uint_present]
+    below), since [mk_uint] discharges the model's [in_u64] proof rather than [*wrap]-mangling. *)
 Example box_int_oob_none    : box_int GTU8 300 = None.   (* 300 ∉ [0,255]: rejected at the builder, not [u8wrap]-mangled to 44 *)
 Proof. reflexivity. Qed.
 Example eval_default_oob_none : eval_value (EInt 2147483648) = None.   (* 2^31 ∉ GTInt's conservative 32-bit range *)
 Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_absent    : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = None.   (* [GTUint] intentionally absent (no proof-free [GoUint] box) *)
+Example eval_uint_present   : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = Some (anyt TUint (uint_lit 3 eq_refl)).   (* [GTUint] now boxed via [mk_uint] — the model's EXACT uint value 3 *)
+Proof. vm_compute. reflexivity. Qed.
+Example eval_uint_oob_none  : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]) = None.   (* 2^32 ∉ GTUint's CONSERVATIVE 32-bit range — still FAILS CLOSED *)
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])

@@ -80,7 +80,8 @@ program into `cmd.v`'s already-proven command tree (reusing `cbind`/`denote`/`ru
 with REAL observable effects — `println`/`print` -> `COut` (faithful: the same `w_log` the model's
 `println`/`print` produce), `panic` -> `CPan` — over `eval_value` (slice 1: string literals plus
 gated/default-in-range untyped integer constants and supported typed integer constants — literals, conversions
-`int64(3)`, arithmetic `1+2`, complement `^x` — EXCLUDING `GTUint`, plus exact-integer-valued float constants
+`int64(3)` / in-range `uint(3)` (boxed by `mk_uint` via the model's `in_u64`-proof-carrying `uint_lit`),
+arithmetic `1+2`, complement `^x` — complement still EXCLUDING `GTUint` (platform-width), plus exact-integer-valued float constants
 `float64(3)`/`-float32(5)` boxed to the canonical binary64/binary32 value, plus a constant bool built from
 NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`, `"a"<"b"` — string order DELEGATED to the model's `str_ltb`)
 combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity `bool(x)` conversion (comparability validated by `ptype`,
@@ -89,7 +90,7 @@ boundary on an out-of-range/out-of-interval value); and `gosem_sound` proves the
 (`denote_program p <> None -> SupportedProgram p`: no meaning given to invalid Go, because the effect arm
 consults `expr_stmt_ok`). NOT done: `eval_value` for a comparison with a NON-literal string operand / runtime
 values (a bool/numeric with a `len(..)`/`int(x)`
-operand) / fractional floats / non-literal strings / `GTUint`, the COMPLETENESS converse
+operand) / fractional floats / non-literal strings / out-of-conservative-range or complemented `uint`, the COMPLETENESS converse
 (supported ⇒ denotes), and ANY behavioral-safety
 claim — slice 1 is denotation⊆gate, NOT `BehaviorSafe`. `unified.v` is an EXISTING
 proof-only operational semantics (the proven `ustep`, race-freedom + liveness) — **not** the certified path's;

@@ -74,7 +74,7 @@ live emission is not "verified Go."
 - **GoSem slice 1 (Phase 5)** — `denote_program : Program -> option (Cmd unit)` BRIDGES the AST into `cmd.v`'s
   proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe) with REAL effects: `println`/`print`
   → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals +
-  supported integer/exact-float/bool CONSTANTS; fails CLOSED elsewhere — `GTUint`/runtime/fractional. The EXACT
+  supported integer/exact-float/bool CONSTANTS incl. in-range `uint`; fails CLOSED elsewhere — runtime/fractional/out-of-range. The EXACT
   coverage + the absent list live in `GoSem.v`'s `eval_value` (mirrored in ARCHITECTURE.md's GoSem section);
   not re-spelled in this ledger). `gosem_sound`: denotation ⊆ `SupportedProgram`.
   `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`); `eval` is
@@ -130,7 +130,7 @@ live emission is not "verified Go."
 ## NEXT
 
 Forward steps (this lists only what's NEXT; GREEN above is what's done):
-- GROW `eval_value` (runtime `len`/`int(x)` incl. a non-literal-string comparison; fractional floats; `GTUint`)
+- GROW `eval_value` (runtime `len`/`int(x)` incl. a non-literal-string comparison; fractional floats)
   — each WIDENS the completeness converse (`println_main_denotes`) toward a GENERAL `supported ⟺ denotes`.
 - Extend the cmd↔unified BRIDGE beyond the defer-free fragment: DEFER (`run_defers` ↔ `UDfr` LIFO), then
   channel/heap/spawn — so a denoted program runs under `ustep` for the full fragment.
