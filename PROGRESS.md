@@ -81,7 +81,7 @@ live emission is not "verified Go."
 - **Main output is the legacy path.** `main.go` is produced by the trusted plugin, not the certificate-gated
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only a small binop-tree class live
   (locals / int·int64·uint64 literals / `^x` complement / narrow→int64 `is_i64_of_narrow_ref` /
-  float64→float32 `is_f64_to_f32_ref`-runtime); everything else is trusted `pp_expr`.
+  float64→float32 `is_f64_to_f32_ref`+`operand_is_runtime`); everything else is trusted `pp_expr`.
 - **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
   assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.
 - Latent typed-lowering residuals (e.g. an untyped higher-order `func(x any) any` lambda) remain dead today

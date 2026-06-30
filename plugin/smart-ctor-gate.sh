@@ -78,19 +78,28 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 #       erasure [MkU8]/[u8raw]→identity is a DIFFERENT legitimate claim — no widen/lowering word — and is spared.)
 #   (b) VAGUE BRIDGE COVERAGE — the verified-printer bridge covers EXACTLY [is_i64_of_narrow_ref] and
 #       [is_f64_to_f32_ref]+[operand_is_runtime], NOT the surface bytes (other producers emit the same
-#       [int64(x)]/[float32(x)] unbridged).  Coverage docs must name the predicates, not "runtime scalar conversions".
+#       [int64(x)]/[float32(x)] unbridged).  Coverage docs must name the predicates, not "runtime scalar
+#       conversions", and must SPELL OUT [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand
+#       that drops the guard (the non-runtime case stays on the trusted force-wrapper, NOT the verified printer).
 # Patterns below are DENYLIST DATA, not a description of any design.  Whitespace/newline-normalized + case-
 # insensitive (a stale claim can wrap a line or change case); "not identity" is filtered so the corrected wording passes.
 # The verb (widen/lower) must sit DIRECTLY on "identity" via is/=/->/→/to — an anchored assertion, NOT a loose
 # window (which false-matched "Lowering correctness (each variable's identity preserved)" — a DIFFERENT claim).
-cov_pat='(widen|lower)(s|ing)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions'
-cov_scan() { tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -ioE "$cov_pat" | grep -ivE 'not[ -]?identity' || true; }
-# self-test (this script is not self-scanned): 6 bad phrases caught; "not identity", wrapper-erasure
-# ([MkU8]/[u8raw]→identity), and variable-identity ("Lowering correctness (...variable's identity") all spared.
-st='widen is identity. lowering is identity. lowers to identity. emitted as identity. a no-op cast. runtime scalar conversions. a real cast, NOT identity. [MkU8]/[u8raw] -> identity. Lowering correctness (each variable identity preserved).'
+cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
+# Report line-numbered single-line hits (operational, like the gates above); if none, fall back to a
+# newline-normalized whole-file scan that still catches a phrase split across lines (recurrence-gate lesson).
+cov_scan() {
+  ln=$(grep -niE "$cov_pat" "$1" 2>/dev/null | grep -ivE 'not[ -]?identity' || true)
+  [ -n "$ln" ] && { printf '%s\n' "$ln"; return; }
+  tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -ioE "$cov_pat" | grep -ivE 'not[ -]?identity' | sed 's/^/[cross-line] /' || true
+}
+# self-test (this script is not self-scanned): 9 bad phrases caught; spared: "not identity", wrapper-erasure
+# ([MkU8]/[u8raw]→identity), variable-identity ("Lowering correctness (...variable's identity"), and the
+# spelled-out exact coverage form ([is_f64_to_f32_ref] + [operand_is_runtime] — NOT the `-runtime` shorthand).
+st='widen is identity. lowering is identity. lowers to identity. lowered to identity. widened to identity. emitted as identity. a no-op cast. runtime scalar conversions. is_f64_to_f32_ref-runtime. a real cast, NOT identity. [MkU8]/[u8raw] -> identity. Lowering correctness (each variable identity preserved). is_f64_to_f32_ref + operand_is_runtime.'
 stbad=$(printf '%s' "$st" | grep -ioE "$cov_pat" | grep -ivE 'not[ -]?identity' || true)
-if [ "$(printf '%s\n' "$stbad" | grep -c .)" -ne 6 ] || printf '%s' "$stbad" | grep -qiE 'MkU8|not identity|variable'; then
-  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED (want 5 catches, none being a spared case) — gate logic broke."; exit 1
+if [ "$(printf '%s\n' "$stbad" | grep -c .)" -ne 9 ] || printf '%s' "$stbad" | grep -qiE 'MkU8|not identity|variable|operand_is_runtime'; then
+  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED (want 9 catches, none being a spared case) — gate logic broke."; exit 1
 fi
 covbad=""
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md; do
@@ -102,7 +111,8 @@ if [ -n "$covbad" ]; then
   echo "fido: CONVERSION-COVERAGE GATE — stale identity-lowering claim or vague bridge-coverage phrase in active prose:"
   echo "$covbad"
   echo "fido: a narrow→wide conversion EMITS a real cast (NOT identity, review #4 P1 #4); name the bridge predicates"
-  echo "fido: ([is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime]), not the surface [int64(x)]/[float32(x)] bytes."
+  echo "fido: ([is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime], guard SPELLED OUT — no -runtime shorthand),"
+  echo "fido: not the surface [int64(x)]/[float32(x)] bytes."
   exit 1
 fi
 echo "fido: conversion-coverage gate OK — no stale identity-lowering / vague bridge-coverage prose ✓"
