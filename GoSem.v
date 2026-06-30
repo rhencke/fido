@@ -786,7 +786,8 @@ Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = f
     surface (it is not claimed zero-axiom); to certify one, ADD it to the tuple.  plugin/axiom-authority-
     selftest.sh pins that the manifest mechanism catches an axiom in every such declaration form. *)
 Definition gosem_trust_surface :=
-  (gosem_sound, denote_program_dec, denote_program_runs, strlit_main_runs,
+  (gosem_sound, denote_program_dec, denotable_supported, strlit_main_denotes,
+   denote_program_runs, strlit_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs).
 Print Assumptions gosem_trust_surface.

@@ -71,32 +71,19 @@ live emission is not "verified Go."
   program and the real Go toolchain BUILDS it (gofmt-clean + go build + go vet); it is a dependency of
   `make check`.
 - **GoSem slice 1 (Phase 5)** — `denote_program : Program -> option (Cmd unit)` BRIDGES the AST into `cmd.v`'s
-  proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe), with REAL observable effects:
-  `println`/`print` → `COut` (faithful — the same `w_log` the model's `println`/`print` produce), `panic` →
-  `CPan`, over `eval_value` (slice 1: string literals plus gated/default-in-range untyped integer constants and
-  supported typed integer constants — literals, conversions `int64(3)`, arithmetic `1+2`, complement `^x`,
-  EXCLUDING `GTUint` — and exact-integer-valued float constants `float64(3)`/`-float32(5)` (canonical
-  binary64/binary32), all boxed via the model's value ctors, failing closed at the boundary on an out-of-range/
-  out-of-interval value; plus a constant bool built from NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`,
-  `"a"<"b"` — string order DELEGATED to the model's `str_ltb`) combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity
-  `bool(x)` conversion — comparability validated by `ptype`, value computed in GoSem by the self-sealed
-  `eval_bool`; string order DELEGATED to the model's qualified `Fido.builtins.str_*`, pinned per branch). `gosem_sound`
-  proves denotation ⊆ `SupportedProgram` (the effect arm consults `expr_stmt_ok`), and `denote_program_dec` proves
-  the CONVERSE-direction companion: denotability is DECIDABLE, characterized structurally by `denotable_program`
-  (`denote_program p <> None ↔ denotable_program p = true`) — the scaffold toward the eventual `supported ⟺ denotes`
-  (as `eval_value` grows toward total, `denotable_*` converges to `supported_*`; NOT that result yet — `eval` is
-  partial). `denotable_supported` pins denotable ⊆ supported (STRICT today — the runtime blank-assign is supported
-  but not denotable), and a concrete fragment denotes OUTRIGHT: `eval_args_strlit` (eval total on string-literal
-  arg lists) ⟹ `denote_println_strlit` (a `println` of string literals denotes) ⟹ `strlit_main_denotes` (an
-  UNBOUNDED program class — N `println(string-literals)` + `return` — always denotes). `denote_program_runs`
-  proves EXECUTABLE TOTALITY: `denote_program p = Some c -> run_cmd 1 c w <> None` — a DENOTED program runs to an
-  Outcome, never stuck (slice-1 commands have no `CDfr`, so `no_defer` holds and `go` accumulates no defers). It
-  assumes the program DENOTES — NOT that supported ⟹ denotes (that converse is partial); composed with
-  `denote_program_dec`, a denotable program denotes-and-runs. The demo RUNS `println("hi")` / `println(int64(3))`
-  / `println(float64(3))` / `println(3 < 5)` through `run_cmd` to the exact `w_log` World. Zero axioms.
-  ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. A comparison with a NON-literal
-  string operand / runtime (a `len(..)`/`int(x)` operand) / fractional-float / non-literal-string / `GTUint`
-  `eval` + the completeness converse are the next slices.
+  proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe) with REAL effects: `println`/`print`
+  → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals;
+  supported integer constants — literals/conversions/arith/`^x`, EXCLUDING `GTUint`; exact-integer float consts;
+  constant bools via numeric/string-literal comparisons + `&&`/`||`/`!`/`bool(x)`, string order DELEGATED to the
+  model's qualified `str_*`), failing CLOSED outside that slice. `gosem_sound`: denotation ⊆ `SupportedProgram`.
+  `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`) — scaffold
+  toward an eventual `supported ⟺ denotes` (NOT proved; `eval` is partial). `denotable_supported`: denotable ⊆
+  supported (STRICT). A concrete UNBOUNDED class denotes OUTRIGHT (`strlit_main_denotes`: N `println(str-lits)` +
+  `return`). `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality; assumes it denotes,
+  NOT supported ⟹ denotes). Demos RUN `println("hi"/int64(3)/float64(3)/3<5)` through `run_cmd`. Zero axioms.
+  ★ Certified public surface = `gosem_trust_surface` (the bundled tuple, gated by `Print Assumptions`); a GoSem
+  theorem not in it is compiled but NOT advertised zero-axiom. ⚠ denotation⊆gate, NOT `BehaviorSafe`. Next:
+  runtime/`len`/`int(x)` + fractional-float `eval`, the completeness converse, then `BehaviorSafe`.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
