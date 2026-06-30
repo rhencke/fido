@@ -13,7 +13,9 @@
       - [print(args)]   -> [COut false [eval args]]   (faithful: model [print   xs = w_log false xs])
       - [panic(a)]      -> [CPan (eval a)]
       - [return]        -> STOPS the body ([denote_body]: the rest's commands are DROPPED, so a non-tail
-                           `return; println("bad")` faithfully produces NO output)
+                           `return; println("bad")` faithfully produces NO output).  The unreachable rest need
+                           only be SUPPORTED ([forallb stmt_ok]), NOT denotable — a return never depends on a
+                           successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [e] is a scalar LITERAL ([eval_value e <> None] — no effect /
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
     [eval_value] (slice 1: string / int / hex LITERALS, boxed via the model's [anyt]/[intwrap]) supplies the
@@ -99,16 +101,24 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
   match b with
   | [] => Some (CRet tt)
   | s :: rest =>
-      match denote_stmt s, denote_body rest with
-      | Some c, Some k =>
+      match denote_stmt s with
+      | None => None
+      | Some c =>
           match s with
-          | GsReturn => Some c   (* [return] STOPS the function: keep [c] (= [CRet tt]) and DROP the rest's
-                                    command [k] — but [rest] STILL had to denote ([Some k] required above), so
-                                    [denote_body] ⊆ the gate stays a clean [forallb stmt_ok] and a NON-tail
-                                    return is faithful (`return; println("bad")` produces NO output). *)
-          | _ => Some (cbind c (fun _ => k))
+          | GsReturn =>
+              (* [return] STOPS the function: the command is [c] (= [CRet tt]), with the REST DROPPED.  The
+                 rest is UNREACHABLE, so its DENOTABILITY is irrelevant — we require only that it be SUPPORTED
+                 ([forallb stmt_ok rest], the gate), NOT that it denote.  This keeps [denote_body] ⊆ the gate
+                 (for [gosem_sound]) while NOT making a [return] depend on a successor slice 1 cannot yet
+                 evaluate: `return; println(int64(3))` (supported, not-yet-denotable) faithfully denotes to a
+                 no-output [CRet]. *)
+              if forallb stmt_ok rest then Some c else None
+          | _ =>
+              match denote_body rest with
+              | Some k => Some (cbind c (fun _ => k))
+              | None => None
+              end
           end
-      | _, _ => None
       end
   end.
 
@@ -134,13 +144,15 @@ Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b =
 Proof.
   induction b as [|s rest IH]; simpl; intro H.
   - reflexivity.
-  - destruct (denote_stmt s) eqn:Es; [|congruence].
-    destruct (denote_body rest) eqn:Er; [|congruence].
-    (* the inner [match s with GsReturn => Some c | _ => Some (cbind ..)] is [Some] either way, so [denote_body]
-       requires BOTH [denote_stmt s] and [denote_body rest] to denote — the uniform soundness fold. *)
+  - destruct (denote_stmt s) eqn:Es; [|congruence].   (* denote_stmt s = None => denote_body = None *)
     apply andb_true_intro; split.
-    + apply denote_stmt_sound. congruence.
-    + apply IH. congruence.
+    + apply denote_stmt_sound. congruence.             (* stmt_ok s, uniform via [Es] *)
+    + destruct s; simpl in H.                          (* the tail: GsReturn uses the gate, others use [denote_body rest] *)
+      * (* GsExprStmt *) destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
+      * (* GsReturn — required [forallb stmt_ok rest] directly, NOT [denote_body rest] *)
+        destruct (forallb stmt_ok rest) eqn:Ef; [reflexivity | congruence].
+      * (* GsReturnVal — [denote_stmt = None] contradicts [Es] *) discriminate Es.
+      * (* GsBlankAssign *) destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
 Qed.
 
 Theorem gosem_sound : forall p, denote_program p <> None -> supported_program p = true.
@@ -183,6 +195,24 @@ Example gosem_return_stops_no_output : forall w,
   | Some c => run_cmd 5 c w
   | None => None
   end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** REGRESSION (P0, Codex 2026-06-30, 2nd pass): a [return] must NOT depend on its UNREACHABLE successors
+    DENOTING — only on them being SUPPORTED.  `func main(){ return; println(int64(3)) }` is supported, and its
+    successor [println(int64(3))] is NOT yet denotable by slice 1 (no [eval_value] for conversions), yet the
+    program faithfully denotes to a no-output [CRet] (the [println] never runs).  Pins that the [GsReturn] arm
+    gates on [forallb stmt_ok rest], not on [denote_body rest]. *)
+Definition gosem_return_undenotable_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsReturn; GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                                         [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
+Example gosem_return_undenotable_supported : supported_program gosem_return_undenotable_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_return_undenotable_no_output : forall w,
+  match denote_program gosem_return_undenotable_prog with
+  | Some c => run_cmd 5 c w
+  | None => None
+  end = Some (ORet tt w).   (* denotes (NOT [None]) to a no-output [CRet], despite the un-denotable successor *)
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REGRESSION (P0, Codex 2026-06-30): a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})`
