@@ -172,11 +172,31 @@ echo "fido: stale-count gate OK — no numeric conversion-count / old demo-outpu
 # cov_preds) MUST be from_builtins-scoped.  A basename-only [List.mem (global_basename r) …] match is a
 # SHADOWING FORGE HOLE — a user/global with the same basename (e.g. a hand-written [int_of_u8] in main.v)
 # would be lowered to the cast instead of its real semantics (go.ml's own trust-boundary rule, ~line 197).
-recog_scoped() { sed -n "/^let $1[ =]/,/^let [a-z]/p" "$2" 2>/dev/null | grep -q 'from_builtins'; }
+# recog_scoped: TRUE iff predicate $1's OWN definition body in file $2 applies the from_builtins guard.
+# awk extracts ONLY that def — from its `let` line up to (EXCLUDING) the next top-level `let` OR `(*` comment,
+# so it can NOT read a from_builtins guard out of a neighbouring def; inline comments are stripped so a
+# `(* … from_builtins r … *)` mention does not satisfy it; the grep requires the GUARD SHAPE `from_builtins r`.
+recog_scoped() {
+  awk -v p="$1" '
+    $0 ~ ("^let " p "([ =]|$)")           { inb=1; print; next }
+    inb && (/^let [A-Za-z_]/ || /^\(\*/)  { exit }
+    inb                                    { print }
+  ' "$2" 2>/dev/null | sed -E 's/\(\*[^*]*\*\)//g' | grep -qE 'from_builtins[[:space:]]+r'
+}
 rg_tmp=$(mktemp)
-printf '%s\n' 'let is_scoped_x r = from_builtins r && foo' 'let nxt a = 1' 'let is_unscoped_y r =' '  List.mem (global_basename r) ["z"]' 'let aft b = 2' > "$rg_tmp"
-if ! recog_scoped is_scoped_x "$rg_tmp" || recog_scoped is_unscoped_y "$rg_tmp"; then
-  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (a from_builtins def must pass, a List.mem-only def must fail)"; rm -f "$rg_tmp"; exit 1
+cat > "$rg_tmp" <<'RGEOF'
+let is_scoped_a r = from_builtins r && foo
+let mid x = 1
+let is_unscoped_b r =
+  List.mem (global_basename r) ["z"]
+let is_scoped_next r = from_builtins r && bar
+let is_unscoped_c r = (* mentions from_builtins r only in a comment *) List.mem (global_basename r) ["w"]
+let tail y = 2
+RGEOF
+# scoped_a PASSES; unscoped_b (immediately followed by a scoped def — the false-negative Codex found) FAILS;
+# unscoped_c (from_builtins only inside a comment) FAILS.
+if ! recog_scoped is_scoped_a "$rg_tmp" || recog_scoped is_unscoped_b "$rg_tmp" || recog_scoped is_unscoped_c "$rg_tmp"; then
+  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (scoped must pass; unscoped-then-scoped + comment-only-from_builtins must fail)"; rm -f "$rg_tmp"; exit 1
 fi
 rm -f "$rg_tmp"
 for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
