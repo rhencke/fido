@@ -125,12 +125,15 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     [GoSemUnified.denote_program_run_agrees] (the [unified.v] [ustep] run AGREES with the deterministic
     [run_cmd]): a syntactically panic-free supported program, once denoted, runs under [ustep] — the calculus
     [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO panic
-    ([uc_panic 0 = None]), its output equal to the safe run's.  So the seed safety PROPERTY is not merely
-    denotational; it holds where the concurrency theory lives.  (Still a PROPERTY, NOT an emission gate.) *)
+    ([uc_panic 0 = None]), its output equal to the safe run's.  cmd.v's [run_cmd] STAYS the authority: the
+    conclusion CARRIES [run_cmd 1 c w = Some (ORet tt w')] and ties [uc_out] to that [w'] (not a free observer).
+    So the seed safety PROPERTY is not merely denotational; it holds where the concurrency theory lives.  (Still
+    a PROPERTY, NOT an emission gate.) *)
 Theorem panic_free_runs_ret_ustep : forall p c ucap w,
   denote_program p = Some c -> panic_free (prog_body p) = true ->
   exists (uc : UConfig) (w' : World),
-    usteps ucap (ustart (cmd_to_ucmd c)) uc
+    run_cmd 1 c w = Some (ORet tt w')                       (* cmd.v's AUTHORITATIVE safe run — grounds [w'] *)
+    /\ usteps ucap (ustart (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
@@ -139,7 +142,7 @@ Proof.
   destruct (panic_free_runs_ret p c w Hden Hpf) as [w' Hrun].
   destruct (denote_program_run_agrees p c ucap w Hden) as [uc [oc [Hus [Hrun' [Hlive [Hout Hpan]]]]]].
   assert (Hoc : oc = ORet tt w') by congruence. subst oc.
-  exists uc, w'. split; [ exact Hus | split; [ exact Hlive | split ] ].
+  exists uc, w'. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.
 Qed.

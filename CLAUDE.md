@@ -14,9 +14,10 @@ re-enumerated here). And even there the split is narrow: the TRUSTED plugin CONS
 AST) and only the VERIFIED `gprint` PRINTS it — the construction is NOT verified (the proofs cover AST→string
 serialization only, NOT the MiniML→AST construction that feeds it). Everything else is trusted OCaml `pp_expr`,
 likewise unverified in its construction; so the live `main.go` is NOT verified Go. There is no behavioral-safety
-EMISSION GATE yet — only one proof-only property (`GoSemSafe.panic_free_runs_ret`: panic-freedom ⟹ no runtime
-panic, for denoted slice-1 programs), which does NOT gate emission. Until gap #10 closes and a `GoSem`-backed
-safety GATE exists, do not headline this as "formally verified
+EMISSION GATE yet — only proof-only properties (`GoSemSafe.panic_free_runs_ret`: panic-freedom ⟹ no runtime
+panic, for denoted slice-1 programs; and `panic_free_runs_ret_ustep`: that same guarantee lifted to the
+operational `ustep` semantics via the cmd↔unified bridge), which do NOT gate emission. Until gap #10 closes and
+a `GoSem`-backed safety GATE exists, do not headline this as "formally verified
 Go." Current state: `PROGRESS.md`.
 
 **Goal — a long-term TARGET, NOT today's state:** faithfully model *all* of Go in Rocq and lower it to
@@ -138,9 +139,11 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `GoSemUnified.denote_program_run_agrees` (program-level, `no_defer` discharged): a DENOTED program
   (`denote_program p = Some c`) runs under `ustep` AND its conclusion AGREES with cmd.v's authoritative
   `run_cmd 1 c w` on output + panic. Defer + channel/heap/spawn are later slices. Zero axioms.
-- `GoSemSafe.v` — proof-only (emits no Go): the FIRST behavioral-safety PROPERTY (the seed of `BehaviorSafe`,
+- `GoSemSafe.v` — proof-only (emits no Go): the FIRST behavioral-safety PROPERTIES (the seed of `BehaviorSafe`,
   NOT the gate). `panic_free_runs_ret`: a syntactically panic-free supported program that denotes runs to an
-  `ORet` — provably never panics (`panic` is the slice-1 fragment's only unsafe behavior). Zero axioms.
+  `ORet` — provably never panics (`panic` is the slice-1 fragment's only unsafe behavior); and
+  `panic_free_runs_ret_ustep` lifts that to the OPERATIONAL `ustep` semantics (via the cmd↔unified bridge +
+  `run_cmd` determinism — `run_cmd` stays the authority), so it holds where race-freedom/liveness live. Zero axioms.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
