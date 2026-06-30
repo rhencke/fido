@@ -1898,9 +1898,11 @@ let mlident_name = function
 let rel_name env i =
   try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
 (* The inline identifier-led CONVERSIONS [conv(x)] the bridge handles UNCONDITIONALLY: (recognizer, Go type
-   name).  Each is value-preserving / a plain cast in EVERY position and is rendered inline by [pp_expr] with
-   NO force-wrapper, so it needs no runtime guard — only that the operand bridges.  (The float64->float32
-   narrowing [is_f64_to_f32_ref] is NOT here: it carries an [operand_is_runtime] guard, handled by its own arm.) *)
+   name).  Each is rendered inline by [pp_expr] with NO force-wrapper, so it needs no runtime guard — its
+   operand is a TYPED value (never an untyped constant that could overflow at compile time), regardless of
+   whether the conversion WIDENS (value-preserving), TRUNCATES (float->int), or ROUNDS (int->float32, or a
+   large int->float64); only that the operand bridges is required.  (The float64->float32 narrowing
+   [is_f64_to_f32_ref] is NOT here: it carries an [operand_is_runtime] guard, handled by its own arm.) *)
 let inline_conv_table = [
   (is_i64_of_narrow_ref, "int64");    (* narrow -> int64 widening (value-preserving, no Go-constant overflow) *)
   (is_f64_to_i64_ref,    "int64");    (* float64 -> int64 truncation-toward-zero (typed-float operand) *)
@@ -1956,9 +1958,10 @@ let rec goexpr_bridge env e =
           [ECall (EId "<ty>") [bridge x]] (amendment 3 — same shape as the [i64_lit]/[u64_lit] arms, only the
           single operand is a bridged SUB-EXPRESSION, not a folded literal).  [pp_expr] renders each as
           [<ty>(<pp_expr x>)] and the operand bridges through the SAME [goexpr_bridge] recursion, so
-          [gprint x] = [pp_expr x] (bridge invariant) and the bytes match.  All are value-preserving / plain
-          casts rendered UNCONDITIONALLY by [pp_expr] (no force-wrapper), hence no runtime guard — only that the
-          operand bridges. *)
+          [gprint x] = [pp_expr x] (bridge invariant) and the bytes match.  All are rendered UNCONDITIONALLY by
+          [pp_expr] (no force-wrapper) — their operand is a TYPED value (not an untyped constant), so none risks
+          a Go-constant overflow and none needs a runtime guard, whether the conversion widens / truncates /
+          rounds (see [inline_conv_table]'s per-entry notes); only that the operand bridges is required. *)
        | MLglob r, [x] when List.exists (fun (p, _) -> p r) inline_conv_table ->
            (match goexpr_bridge env x, mk_goexpr_id (snd (List.find (fun (p, _) -> p r) inline_conv_table)) with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
