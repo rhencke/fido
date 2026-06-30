@@ -716,10 +716,12 @@ Qed.
 (** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex.  [print_hex] is ALREADY LIVE in the plugin (it
     replaced go.ml's raw hex [Printf]): go.ml's [print_hex_int] renders the fixed-width bit-mask / sign-bit
     CONSTANTS ([0xff]/[0x80]/… in [fw_wrap]) and [Printer.print_float_hex] uses it for the [spec_float]
-    hex-literal mantissa — these are the many [0x…] bytes in the golden [main.go].  What THIS section ADDS
-    (new this session, NOT yet plugin-constructed) is the structured [EHex] GExpr LEAF: today the mask is a
-    raw [print_hex] SUBSTRING spliced into a TRUSTED go.ml-assembled [(x & 0xff)]; building that whole
-    expression as [EBn BAnd x (EHex …)] printed by the verified [gprint] is the not-yet-wired step. *)
+    hex-literal mantissa — these are the many [0x…] bytes in the golden [main.go].  What THIS section ADDS, now
+    LIVE, is the structured [EHex] GExpr LEAF: the unsigned fixed-width ARITHMETIC bridge ([goexpr_bridge], via
+    the [mk_goexpr_hex] smart constructor) builds [EBn (BAnd, EBn (op, int(a), int(b)), EHex MASK)], so the WHOLE
+    masked [(int(a) op int(b)) & 0xMASK] (not just the mask digits) is emitted by the verified [gprint] when a
+    [uN] op is a bridging-binop operand.  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)],
+    the SIGNED arithmetic, shifts, div/mod, and standalone fw ops. *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
   match fuel with
   | O   => acc
