@@ -81,31 +81,36 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 #       [int64(x)]/[float32(x)] unbridged).  Coverage docs must name the predicates, not "runtime scalar
 #       conversions", and must SPELL OUT [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand
 #       that drops the guard (the non-runtime case stays on the trusted force-wrapper, NOT the verified printer).
-# Patterns below are DENYLIST DATA, not a description of any design.  Whitespace/newline-normalized + case-
-# insensitive (a stale claim can wrap a line or change case); "not identity" is filtered so the corrected wording passes.
-# The verb (widen/lower) must sit DIRECTLY on "identity" via is/=/->/→/to — an anchored assertion, NOT a loose
-# window (which false-matched "Lowering correctness (each variable's identity preserved)" — a DIFFERENT claim).
+# Patterns are DENYLIST DATA, not a description of any design.  Case-insensitive; the verb (widen/lower) sits
+# DIRECTLY on "identity" via is/=/->/→/to — an ANCHORED assertion, NOT a loose window (which false-matched
+# "Lowering correctness (each variable's identity preserved)").  Two facts make the scan sound: the anchored
+# patterns cannot match a NEGATED form ("widen is NOT identity" breaks the verb→identity adjacency), AND
+# matching is SPAN-based (grep -oE) — so a "NOT identity" elsewhere on a line can NEVER immunize an unrelated
+# forbidden phrase, and the legitimate "real cast, NOT identity" simply never matches.  Per-line (these phrases
+# are single-line); there is NO whole-line "not identity" filter — that filter, dropping whole lines, was the bug.
 cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
-# Report line-numbered single-line hits (operational, like the gates above); if none, fall back to a
-# newline-normalized whole-file scan that still catches a phrase split across lines (recurrence-gate lesson).
-cov_scan() {
-  ln=$(grep -niE "$cov_pat" "$1" 2>/dev/null | grep -ivE 'not[ -]?identity' || true)
-  [ -n "$ln" ] && { printf '%s\n' "$ln"; return; }
-  tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -ioE "$cov_pat" | grep -ivE 'not[ -]?identity' | sed 's/^/[cross-line] /' || true
-}
-# self-test (this script is not self-scanned): 9 bad phrases caught; spared: "not identity", wrapper-erasure
-# ([MkU8]/[u8raw]→identity), variable-identity ("Lowering correctness (...variable's identity"), and the
-# spelled-out exact coverage form ([is_f64_to_f32_ref] + [operand_is_runtime] — NOT the `-runtime` shorthand).
-st='widen is identity. lowering is identity. lowers to identity. lowered to identity. widened to identity. emitted as identity. a no-op cast. runtime scalar conversions. is_f64_to_f32_ref-runtime. a real cast, NOT identity. [MkU8]/[u8raw] -> identity. Lowering correctness (each variable identity preserved). is_f64_to_f32_ref + operand_is_runtime.'
-stbad=$(printf '%s' "$st" | grep -ioE "$cov_pat" | grep -ivE 'not[ -]?identity' || true)
-if [ "$(printf '%s\n' "$stbad" | grep -c .)" -ne 9 ] || printf '%s' "$stbad" | grep -qiE 'MkU8|not identity|variable|operand_is_runtime'; then
-  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED (want 9 catches, none being a spared case) — gate logic broke."; exit 1
+cov_match() { grep -noE "$cov_pat" "$1" 2>/dev/null || true; }   # line:span — the testable matching core
+cov_scan()  { cov_match "$1" | sed "s|^|$1:|"; }                 # file:line:span — every hit located
+# self-test exercises the LIVE cov_scan on a fixture (this script is not self-scanned): 12 forbidden lines —
+# incl. THREE with "NOT identity" on the SAME line (the regressed case) — must all match; four legitimate lines
+# (a negated claim + two wrapper/variable erasures + the spelled-out [operand_is_runtime] form) must NOT.
+st_tmp=$(mktemp)
+printf '%s\n' \
+  'widen is identity' 'lowering is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' \
+  'emitted as identity' 'a no-op cast' 'runtime scalar conversions' 'is_f64_to_f32_ref-runtime' \
+  'runtime scalar conversions; NOT identity' 'lowered to identity; NOT identity' 'is_f64_to_f32_ref-runtime; NOT identity' \
+  'a real cast, NOT identity' '[MkU8]/[u8raw] -> identity' 'Lowering correctness (each variable identity preserved)' \
+  'is_f64_to_f32_ref + operand_is_runtime' > "$st_tmp"
+st_hit=$(cov_scan "$st_tmp" | cut -d: -f2 | sort -un | tr '\n' ' ')
+rm -f "$st_tmp"
+if [ "$st_hit" != "1 2 3 4 5 6 7 8 9 10 11 12 " ]; then
+  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED — matched lines [$st_hit]; want exactly 1..12 (incl. same-line NOT-identity), none of the spared 13-16."; exit 1
 fi
 covbad=""
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md; do
   [ -f "$f" ] || continue
   h=$(cov_scan "$f"); [ -n "$h" ] && covbad="$covbad
-  $f: $h"
+$h"
 done
 if [ -n "$covbad" ]; then
   echo "fido: CONVERSION-COVERAGE GATE — stale identity-lowering claim or vague bridge-coverage phrase in active prose:"
