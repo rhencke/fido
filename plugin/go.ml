@@ -1869,8 +1869,8 @@ let raw_term tab next =
    narrow->int widening ([is_int_of_fw], [int(x)]), numeric->float64 ([is_num_to_f64_ref] over
    int/int64/float32/uint64, [float64(x)]), and int/int64/uint64->float32 ([is_int_to_f32_ref], [float32(x)]);
    NOT every producer of those surface bytes (e.g. the masked fixed-width casts [uint8(x)], whose [(x & 0xff)]
-   EXPRESSION is trusted-[pp_prec]-assembled around a mask constant that is ITSELF the verified [print_hex_int] →
-   [Printer.print_hex]) which stay on [pp_prec] —
+   wrapper is assembled by trusted [fw_wrap] [str]/[++] concatenation — only its mask constant is ITSELF the
+   verified [print_hex_int] → [Printer.print_hex]) which stay on [pp_prec] —
    which is then printed by the extracted, machine-checked
    [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
