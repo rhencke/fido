@@ -709,8 +709,11 @@ Proof.
   - cbn [esc_string]. rewrite esc_byte_app, scan_quote_esc_byte, IH. reflexivity.
 Qed.
 
-(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex (replacing go.ml's [Printf.sprintf "0x%x"] for
-    fixed-width bit masks / sign bits). *)
+(** ---- HEX LITERALS ---- [0x]-prefixed lowercase hex: the verified renderer for the [EHex] leaf.  The
+    INTENDED future consumer is the fixed-width bit-mask / sign-bit lowering TODAY done by trusted go.ml
+    ([Printf.sprintf "0x%x"]) — that lowering is NOT yet bridged onto this (the masks still render via the
+    trusted [pp_expr]), and no plugin path constructs [EHex] yet, so this renderer is not LIVE (unlike
+    [print_Z], whose [EInt] the bridge already builds). *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
   match fuel with
   | O   => acc
@@ -722,8 +725,8 @@ Definition print_hex (z : Z) : string :=
 
 (** ---- HEX FAITHFULNESS (round-trip) ---- the analog of [print_parse_Z] for the [0x]-hex printer
     ([hex_digits] is structurally [z_digits] in base 16; [unhex]/[unhex_hexdig] from the string section
-    already invert [hexdig]).  [print_hex] is only ever called on NON-NEGATIVE values (bit masks), so the
-    statement is for [0 <= z < 16^64] — again far beyond any fixed-width mask. *)
+    already invert [hexdig]).  [print_hex] round-trips only for NON-NEGATIVE [z] (the [EHex]/[HexZ] domain), so
+    the statement is for [0 <= z < 16^64] — far beyond any fixed-width mask (the motivating, not-yet-wired use). *)
 Fixpoint parseHex_pos (acc : Z) (s : string) : Z :=
   match s with EmptyString => acc | String c s' => parseHex_pos (acc * 16 + Z.of_nat (unhex c))%Z s' end.
 Definition parse_hex (s : string) : Z :=
