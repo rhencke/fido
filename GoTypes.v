@@ -363,6 +363,16 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtAgg | PtNil => false
   end.
 
+(** Pairwise DISTINCTNESS of a list of integer-constant key VALUES.  A map composite literal with DUPLICATE
+    CONSTANT keys ([map[int]int{1:2, 1:3}]) is a COMPILE error in Go — Go folds constant keys and forbids
+    repeats (https://go.dev/ref/spec#Composite_literals) — so [ptype]'s [EMapLit] arm rejects it.  [true] iff
+    every element is unique. *)
+Fixpoint nodup_z (l : list Z) : bool :=
+  match l with
+  | nil => true
+  | x :: r => andb (negb (existsb (Z.eqb x) r)) (nodup_z r)
+  end.
+
 (** The bitwise-complement VALUE of a typed integer constant [z] of type [t] — [None] when it CANNOT be folded
     SOUNDLY.  For a FIXED-WIDTH UNSIGNED type the complement is [(2^w - 1) - z] (= flip all [w] bits), exact
     because [w] is fixed (so [^uint8(0) = 255], not the naive [Z.lnot 0 = -1]); for a SIGNED type it is
@@ -474,19 +484,50 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   | ESliceLit t es =>
       if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
-  | EMapLit _ _ _ => None                 (* a MAP literal is QUARANTINED (comparable-key TYPE + assignability not structural) *)
+  | EMapLit kt vt kvs =>
+      (* a MAP literal [map[K]V{k1:v1, ..}]: SOUNDLY supported when the key type is an INTEGER scalar, every
+         KEY is an integer CONSTANT assignable to [kt], every VALUE is assignable to [vt], and the constant keys
+         are PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
+         what makes distinctness decidable here — their VALUE is carried ([int_const_val]); a non-integer
+         comparable key (string/bool) or a runtime/non-constant key is conservatively REJECTED (fail-loud), its
+         value not foldable in [PTy].  This LIFTS the old blanket quarantine to a structural check; the GoSafe
+         companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability) and [map[int]int{1:2,1:3}]
+         (distinctness) lock it. *)
+      if andb (andb (is_int_goty kt)
+                    (forallb (fun kv => match kv with
+                                        | (k, v) =>
+                                            match ptype k, ptype v with
+                                            | Some ck, Some cv =>
+                                                match int_const_val ck with
+                                                | Some _ => andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                                | None => false
+                                                end
+                                            | _, _ => false
+                                            end
+                                        end) kvs))
+              (nodup_z (flat_map (fun kv => match kv with
+                                            | (k, _) =>
+                                                match ptype k with
+                                                | Some ck => match int_const_val ck with Some z => z :: nil | None => nil end
+                                                | None => nil
+                                                end
+                                            end) kvs))
+      then Some PtAgg else None
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
   end.
 
 (** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category).  So a closed
-    type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / [map[..]..{..}])
-    but the numeric/structural ones too ([float64(1) % float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)],
-    [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))], [chan int([]int{1})]) — AND, now, FREE
-    identifiers (a bare [x] is undefined in the no-declaration model — [ptype (EId _) = None]).  Accepted: [EInt],
-    well-typed binops/unops/conversions, [len] of a string LITERAL (folds to the constant byte count) or of an
-    aggregate (a runtime int), [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its
-    element type.  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const byte-length
-    is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
+    type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / a map literal
+    with a non-comparable key [map[[]int]int{..}], a non-representable element [map[int]uint8{1:300}], or
+    duplicate constant keys [map[int]int{1:2,1:3}]) but the numeric/structural ones too ([float64(1) % float64(2)],
+    [uint8(300)], [uint8(int(300))], [1/int(0)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))],
+    [chan int([]int{1})]) — AND, now, FREE identifiers (a bare [x] is undefined in the no-declaration model —
+    [ptype (EId _) = None]).  Accepted: [EInt], well-typed binops/unops/conversions, [len] of a string LITERAL
+    (folds to the constant byte count) or of an aggregate (a runtime int), [cap] of an aggregate, a slice literal
+    whose elements are ASSIGNABLE to its element type, and an INTEGER-key map LITERAL whose constant keys are
+    assignable to the key type, DISTINCT, and values assignable to the value type (the [map[K]V(x)] CONVERSION
+    stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
+    byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
     inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]
     BOUNDARY: where a bare UNTYPED int constant is USED as a value (e.g. [_ = <untyped const>], or

@@ -62,7 +62,9 @@ live emission is not "verified Go."
   bare-value statements, non-callable calls, value-returns from void `main`, free/undefined identifiers
   (only the predeclared `nil`, only inside a slice/chan conversion), and closed type-errors (`GoTypes.ptype`
   is a conservative constant-aware category checker). `classify` lives in GoAst, so GoSafe does not import
-  the printer.
+  the printer. Composite literals admitted structurally: slice literals (elements assignable to the element
+  type) and integer-key MAP literals (`map[K]V{..}` — comparable integer key, constant keys distinct +
+  assignable to `K`, values assignable to `V`; Go's duplicate-constant-key error is enforced via `nodup_z`).
 - **GoEmit** emits ONLY via a certificate (`EmittableProgram = Program + SupportedProgram`;
   `emit_supported = print_program`; `emit_supported_program_inj`). `make emit-demo` extracts one certified
   program and the real Go toolchain BUILDS it (gofmt-clean + go build + go vet); it is a dependency of
@@ -91,8 +93,10 @@ live emission is not "verified Go."
   `is_f64_to_i64_ref`/`is_f64_to_u64_ref` / narrow→int `is_int_of_fw` / numeric→float64 `is_num_to_f64_ref` /
   int→float32 `is_int_to_f32_ref` / fixed-width arithmetic `(u|i)N_add`/`sub`/`mul` as a bridging-binop operand
   (unsigned masked / signed sign-extended, via the verified `EHex`)); everything else is trusted `pp_expr`.
-- **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
-  assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.
+- **Map CONVERSIONS (`map[K]V(x)`) are QUARANTINED** from `SupportedProgram` (key-type comparability not
+  soundly structural for a conversion); re-admit when GoSem/types seal a comparable-key builder. (Map
+  LITERALS graduated — see GREEN: an integer-key `map[K]V{..}` with distinct, representable constant keys/values
+  is now structurally supported.)
 - Latent typed-lowering residuals (e.g. an untyped higher-order `func(x any) any` lambda) remain dead today
   but unproven.
 

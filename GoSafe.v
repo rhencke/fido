@@ -224,17 +224,19 @@ Definition bad_programs : list Program :=
   ; pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))
   ; gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))     (* x / float64(0) — const-zero divisor *)
   ; pl_arg (ECall (EId (mkIdent "uint32" eq_refl)) [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])
-    (* INVALID [EMapLit]/[CTMap] instances rejected by the blanket quarantine (the quarantine's VALID witness
-       `_ = map[int]int{1:2}` lives in [valid_unsupported_programs]): a slice KEY (not comparable); a VALUE and a
-       KEY not representable in the [uint8] element type (the const 300); a map as a [println] arg (println takes
-       no map); and a map conversion of a free ident.  The two representability cases LOCK the valid witness'
-       admission boundary — a future map checker enforcing key-comparability but SKIPPING key/value assignability
-       would wrongly admit these and FLIP [bad_programs_rejected] *)
-  ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])
+    (* INVALID [EMapLit]/[CTMap] instances — now rejected by the STRUCTURAL [EMapLit] check (was a blanket
+       quarantine; the supported witness `_ = map[int]int{1:2}` GRADUATED to [good_programs]).  Each LOCKS the
+       supported map literal's boundary — a checker that skipped one of comparability / representability /
+       distinctness would wrongly admit it and FLIP [bad_programs_rejected]: a non-comparable slice KEY (caught
+       by the integer-key restriction); a non-representable VALUE then KEY (300 in [uint8] — caught by
+       [assignable_to_ty]); DUPLICATE constant keys (caught by [nodup_z] — Go forbids them); a map as a [println]
+       arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
+  ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])  (* map[[]int]int{..}: slice key not comparable *)
   ; gs_blank (EMapLit GTInt GTU8 [(EInt 1, EInt 300)])                    (* map[int]uint8{1:300}: value 300 overflows uint8 *)
   ; gs_blank (EMapLit GTU8 GTInt [(EInt 300, EInt 1)])                    (* map[uint8]int{300:1}: key 300 overflows uint8 *)
-  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))
-  ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])
+  ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 1, EInt 3)])   (* map[int]int{1:2, 1:3}: DUPLICATE constant key 1 — a Go compile error *)
+  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): map CONVERSION still quarantined (+ free ident) *)
+  ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
   ; gs_blank (EId (mkIdent "x" eq_refl))
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EId (mkIdent "x" eq_refl)])
@@ -251,18 +253,18 @@ Proof. vm_compute. reflexivity. Qed.
     so the gate refuses it rather than risk a plausible-but-wrong emission (rule 2 — fail loud, never
     plausible-but-wrong).  This is BOUNDED, principled INCOMPLETENESS, not a soundness obligation.  ⚠ Admitting
     a member is legitimate growth ONLY via an EXACT, soundly-STRUCTURAL rule that STILL rejects its INVALID
-    companion in [bad_programs] — NEVER a sloppy widening: fold [len] of a string CONST to its exact byte length
-    (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
-    runtime-int shortcut would reopen those), or check a [map] literal's key-comparability AND key/value
-    assignability (which keeps `map[int]uint8{1:300}` / `map[uint8]int{300:1}` rejected).  Only then does the
-    member move to [good_programs] while its companion STAYS in [bad_programs].  The two contracts must not be
-    confused — a [bad_programs] regression means an UNSOUND emission reopened; admitting one of THESE (with its
-    companion preserved) is the subset legitimately GROWING.  Current members: [len] of a non-literal string
-    CONST (byte length not folded), and a [map] literal (the [EMapLit] quarantine). *)
+    companion in [bad_programs] — NEVER a sloppy widening.  ★WORKED EXAMPLE (done): the map literal
+    `map[int]int{1:2}` GRADUATED from here to [good_programs] once [ptype] gained a structural
+    integer-key/representability/distinctness check — and its companions `map[int]uint8{1:300}` /
+    `map[uint8]int{300:1}` / `map[int]int{1:2,1:3}` STAYED in [bad_programs], exactly as this contract demands.
+    The remaining member's path: fold [len] of a string CONST to its exact byte length (which keeps
+    `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt] runtime-int shortcut
+    would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
+    emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
+    Current members: [len] of a non-literal string CONST (byte length not folded). *)
 Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
-  ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                     (* _ = map[int]int{1:2}: VALID Go; rejected by the blanket [EMapLit] quarantine (key comparability/assignability not yet soundly structural) — the quarantine's valid witness *)
   ].
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
@@ -283,8 +285,10 @@ Proof. reflexivity. Qed.
 
 (** ACCEPTED — the smaller-but-SOUND subset the gate still admits ([supported_program = true]): a conversion of
     a constant in value position, value-position aggregates / [len] / [cap], in-range / folded constants and
-    same-width typed arithmetic, [panic]/bare-return/blank-assign/string literals, and the EXACT float→int
-    constant tracking ([uint8(float64(255))] is in range) + fixed-width complement. *)
+    same-width typed arithmetic, [panic]/bare-return/blank-assign/string literals, the EXACT float→int
+    constant tracking ([uint8(float64(255))] is in range) + fixed-width complement, and an INTEGER-key map
+    LITERAL whose constant keys are distinct, assignable to the key type, with values assignable to the value
+    type ([map[int]int{1:2}]). *)
 Definition good_programs : list Program :=
   [ pl_arg (gs_i64 (EInt 3))                                             (* println(int64(3)) *)
   ; gs_blank (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))       (* _ = []int(nil) *)
@@ -307,6 +311,10 @@ Definition good_programs : list Program :=
   ; pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 20)))              (* folded typed-const, in range *)
   ; pl_arg (EInt 2147483647)                                            (* 32-bit default-int boundary *)
   ; pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))  (* uint8(^uint8(0)) fixed width *)
+  ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                   (* _ = map[int]int{1: 2} — integer-key map literal, const key distinct + assignable *)
+  ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 2, EInt 3)]) (* multi-element map, DISTINCT constant keys *)
+  ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (key/value types unconstrained beyond int key) *)
+  ; gs_blank (EMapLit GTU8 GTU8 [(EInt 1, EInt 2)])                     (* map[uint8]uint8{1: 2} — typed key/value, consts in range *)
   ].
 Example good_programs_supported : forallb supported_program good_programs = true.
 Proof. vm_compute. reflexivity. Qed.

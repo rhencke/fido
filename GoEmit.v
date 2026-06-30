@@ -27,18 +27,20 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body is eleven real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    body is twelve real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
     [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),
     [println(^5)] (a prefix-unary complement [EUn UXor], exercising [unop_text]/[unop_paren] through the path),
     [println(len("hi"))] / [println(cap([]int{1}))] (the [len]/[cap] builtins — the supported non-conversion
     [ECall] paths), [_ = []int(nil)] (a [GsBlankAssign] discarding a type-form [EConv] CONVERSION value),
-    [_ = []int{1}] (a slice composite literal [ESliceLit]), then a bare [return] — all Go builtins / no import
-    (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the machine-checked [gprint] (`make emit-demo`
-    then confirms the Go compiler BUILDS it).  This exercises the landed [EBn], [EStr] (`"hi"`), [EHex] (`0xff`),
-    [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`), [ESliceLit] (`[]int{1}`) and [GsBlankAssign]
-    (`_ = e`) forms END-TO-END through the BLESSED emitter to compilable Go —
+    [_ = []int{1}] (a slice composite literal [ESliceLit]), [_ = map[int]int{1: 2}] (an integer-key map
+    composite literal [EMapLit] — the newly-un-quarantined form), then a bare [return] — all Go builtins / no
+    import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the machine-checked [gprint]
+    (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the landed [EBn], [EStr] (`"hi"`),
+    [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`), [ESliceLit] (`[]int{1}`),
+    [EMapLit] (`map[int]int{1: 2}`) and [GsBlankAssign] (`_ = e`) forms END-TO-END through the BLESSED emitter to
+    compilable Go —
     not just in isolated round-trip proofs.  Emitted ONLY through the
     proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
     pins the exact emitted Go source.  (A non-main package — OR a body outside the supported statement subset,
@@ -60,6 +62,7 @@ Definition demo_prog : Program :=
                                [ECall (EId (mkIdent "cap" eq_refl)) [ESliceLit GTInt [EInt 1]]]);
              GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)));
              GsBlankAssign (ESliceLit GTInt [EInt 1]);
+             GsBlankAssign (EMapLit GTInt GTInt [(EInt 1, EInt 2)]);
              GsReturn].
 Lemma demo_supported : SupportedProgram demo_prog.
 Proof. reflexivity. Qed.
@@ -76,6 +79,7 @@ Example demo_emit_bytes :
                go_tab ++ "println(cap([]int{1}))" ++ go_nl ++
                go_tab ++ "_ = []int(nil)" ++ go_nl ++
                go_tab ++ "_ = []int{1}" ++ go_nl ++
+               go_tab ++ "_ = map[int]int{1: 2}" ++ go_nl ++
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 
