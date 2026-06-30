@@ -59,7 +59,8 @@ Local Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
   | CDfr _ c'   => cmd_panic c'
   end.
 (** The deferred actions [go] accumulates from [c] — in [go]'s order (innermost-deferred = LIFO HEAD = runs
-    first), exactly the order [ustep_defer] builds the [uc_defers] stack.  [no_defer c] iff this is [[]]. *)
+    first), exactly the order [ustep_defer] builds the [uc_defers] stack.  [no_defer c] iff this is [[]].  This
+    is NOT a second authority: [go_chars] below proves it EQUALS [snd (go c w)] (cmd.v's own accumulation). *)
 Local Fixpoint cmd_defers (c : Cmd unit) : list (Cmd unit) :=
   match c with
   | CRet _      => []
@@ -76,29 +77,46 @@ Qed.
 Local Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
 Proof. reflexivity. Qed.
 
-(** SEAL: on the defer-free fragment the projections ARE cmd.v's own [run_cmd]/[w_output]/[Outcome] (so the
-    public theorem's [run_cmd] conclusion is grounded, not measured against a free observer). *)
+(** GROUNDING in cmd.v's authoritative [go]: the three projections ARE [go]'s own components — for ANY [c]
+    (defers included), [go c w] returns exactly [(<outcome from cmd_panic c>, cmd_defers c)] with the body's
+    world advanced by [cmd_out_events c].  So [cmd_panic]/[cmd_out_events]/[cmd_defers] are not a parallel
+    authority that could drift from [go]; they are derived NAMES for [go]'s behaviour.  [run_cmd_seals_events]
+    (the no_defer seal) and Phase A ([cmd_to_ucmd_body_runs]) build on this. *)
+Local Lemma go_chars : forall c w, exists w',
+  go c w = ((match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end), cmd_defers c)
+  /\ w_output w' = w_output w ++ cmd_out_events c.
+Proof.
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros w.
+  - destruct a. exists w. cbn [go cmd_panic cmd_defers cmd_out_events]. rewrite app_nil_r. split; reflexivity.
+  - cbn [go cmd_panic cmd_defers cmd_out_events].
+    destruct (IH (w_log bo xs w)) as [w' [Hgo Hout]]. exists w'. rewrite Hgo. split;
+      [ reflexivity | rewrite Hout, w_output_w_log, <- app_assoc; reflexivity ].
+  - exists w. cbn [go cmd_panic cmd_defers cmd_out_events]. rewrite app_nil_r. split; reflexivity.
+  - cbn [go cmd_panic cmd_defers cmd_out_events].
+    destruct (IHc' w) as [w' [Hgo Hout]]. exists w'. rewrite Hgo. cbn. split; [ reflexivity | exact Hout ].
+Qed.
+
+(** SEAL: on the defer-free fragment the projections ARE cmd.v's own [run_cmd]/[w_output]/[Outcome] — derived
+    from [go_chars] ([run_cmd 1 c w] = [go]'s body outcome, since [no_defer ⇒ cmd_defers c = []] so [run_defers]
+    runs nothing).  The public theorem's [run_cmd] conclusion is thus grounded, not a free observer. *)
 Local Lemma run_cmd_seals_events : forall c w,
   no_defer c = true ->
   exists w',
     run_cmd 1 c w = Some (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end)
     /\ w_output w' = w_output w ++ cmd_out_events c.
 Proof.
-  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros w Hnd.
-  - destruct a. cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
-  - cbn [cmd_panic cmd_out_events no_defer] in *.
-    destruct (IH (w_log bo xs w) Hnd) as [w' [Hrun Hout]].
-    exists w'. split; [exact Hrun | rewrite Hout, w_output_w_log, <- app_assoc; reflexivity ].
-  - cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
-  - cbn [no_defer] in Hnd. discriminate Hnd.
+  intros c w Hnd. destruct (go_chars c w) as [w' [Hgo Hout]]. exists w'. split; [ | exact Hout ].
+  unfold run_cmd. rewrite Hgo, (cmd_defers_no_defer c Hnd). destruct (cmd_panic c); reflexivity.
 Qed.
 
 (** Phase A of the defer bridge (general — NO [no_defer]): [ustep] runs [cmd_to_ucmd c]'s BODY to its outcome,
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
     is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is the (future) Phase B.  This
-    is the [ustep] analogue of cmd.v's [go].  [cmd_to_ucmd_runs] below specialises it to the [no_defer] fragment
-    (then a single [ret_done]/[pan_done] finishes goroutine 0). *)
+    is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
+    [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
+    list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
+    specialises it to the [no_defer] fragment (then a single [ret_done]/[pan_done] finishes goroutine 0). *)
 Local Lemma cmd_to_ucmd_body_runs : forall c ucap p b h lv tr o df pa,
   lv 0 = true -> p 0 = cmd_to_ucmd c ->
   exists (p' : nat -> UCmd) (df' : nat -> list UCmd),
