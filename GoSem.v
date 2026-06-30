@@ -520,6 +520,28 @@ Proof.
   exact (denote_body_no_defer (prog_body p) c H).
 Qed.
 
+(** Capstone: the unbounded string-literal fragment not only DENOTES but RUNS to an Outcome — composing
+    [strlit_main_denotes] (it denotes) with [denote_program_runs] (a denotation runs). *)
+Theorem strlit_main_runs : forall arglists w,
+  forallb (forallb is_strlit) arglists = true ->
+  match denote_program (mkProgram (mkIdent "main" eq_refl) (strlit_main_body arglists)) with
+  | Some c => run_cmd 1 c w <> None
+  | None => False
+  end.
+Proof.
+  intros arglists w H.
+  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) (strlit_main_body arglists))) as [c|] eqn:Hd.
+  - exact (denote_program_runs _ c w Hd).
+  - exact (strlit_main_denotes arglists H Hd).
+Qed.
+
+(** Concrete observable output: `func main(){ println("a"); println("b"); return }` RUNS, logging "a" THEN "b"
+    (the world's output trace is [w_log] of "b" over [w_log] of "a" over the start world). *)
+Example gosem_strlit_runs : forall w,
+  match denote_program gosem_strlit_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt (w_log true (anyt TString "b" :: nil) (w_log true (anyt TString "a" :: nil) w))).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
@@ -763,6 +785,7 @@ Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = f
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.
+Print Assumptions strlit_main_runs.
 Print Assumptions gosem_demo_runs.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
