@@ -1,21 +1,16 @@
 (** ============================================================================
-    GoSemAuthority.v — POST-IMPORT model-authority SEAL for GoSem.
+    GoSemAuthority.v — a POST-IMPORT, TOP-LEVEL dead-name tripwire for GoSem.
 
-    Compiled AFTER [Fido.GoSem] (a real dune module, in the build's [(modules …)] list), so it sees the module's
-    FINAL contents — unlike a SAME-FILE [Fail Check], which only sees declarations BEFORE its own line and is
-    therefore APPEND-bypassable (a later [Definition]/[Let] slips past it; Codex 2026-06-30).
+    The AUTHORITY guarantee for the LIVE string-comparison path is NOT here — it is the [str_cmp_*_model]
+    reflexivity pins in GoSem.v, which prove each [str_cmp_op] branch IS the fully qualified model constant
+    [Fido.builtins.str_*] (shadow-immune; a fork that reroutes a branch breaks a pin).
 
-    Invariant (SCOPED, honest): GoSem's string comparisons DELEGATE to the MODEL's Go string order
-    ([builtins.v]'s [str_eqb] / [str_neqb] / [str_ltb] / [str_gtb] / [str_geb]); GoSem must define NONE of its
-    own [str_*] order primitive.  Each [Fail Check] below FAILS THE BUILD iff [Fido.GoSem] exports that name —
-    robust against ANY Rocq definition syntax ([Definition]/[Fixpoint]/[Program …]/[Let]/[Local]/[#[global]]/
-    multiline attributes), because it consults Rocq's name resolution on the COMPILED module, not source text.
-    A bare [str_ltb] inside GoSem keeps resolving to the imported MODEL constant; only a GoSem-OWN binding makes
-    [Check Fido.GoSem.str_ltb] succeed, which trips the [Fail].
-
-    SCOPE: this seals GoSem — the layer that computes string comparisons, and where the duplication occurred.
-    It makes NO claim about other modules (they do not compute Go string comparisons).  The live delegation is
-    additionally pinned in GoSem.v by [str_cmp_op]-branch reflexivity examples ([str_cmp_*_model]).
+    This module is only a SECONDARY tripwire: compiled AFTER [Fido.GoSem] (a real dune module), it [Fail Check]s
+    that GoSem exports no TOP-LEVEL [str_*] of its own, FAILING THE BUILD on a direct top-level fork.  Being
+    post-import it sees GoSem's FINAL contents (an append-after-the-check cannot slip past, unlike a same-file
+    [Fail Check]).  LIMITS (honest): it only catches a TOP-LEVEL [Fido.GoSem.str_*] — a nested-module/[Import]
+    shadow does NOT export that name, so this tripwire would miss it; that case is what the qualified-constant
+    branch pins in GoSem.v rule out instead.  No claim about other modules.
     ============================================================================ *)
 From Fido Require GoSem.
 

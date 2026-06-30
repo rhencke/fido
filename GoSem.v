@@ -108,18 +108,20 @@ Definition const_z (e : GExpr) : option Z :=
 Definition const_str (e : GExpr) : option string :=
   match e with EStr s => Some s | _ => None end.
 
-(** The 6 COMPARISON ops on STRING constants — DELEGATED to the MODEL's string order ([builtins.v]: [str_eqb] /
-    [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise unsigned Go order, plugin-lowered to the native
-    Go operators).  GoSem does NOT fork a second string order; [<=] is DERIVED from the model's [>=] ([s <= t]
-    iff [t >= s]).  Non-comparison ops -> [None]. *)
+(** The 6 COMPARISON ops on STRING constants — DELEGATED to the MODEL's string order, named by their FULLY
+    QUALIFIED paths ([Fido.builtins.str_eqb] / [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise
+    unsigned Go order, plugin-lowered to the native Go operators).  The qualified names make the live path
+    SHADOW-IMMUNE: a local/nested [str_ltb] in GoSem cannot reroute it (the [str_cmp_*_model] pins below prove
+    each branch IS the qualified model constant).  GoSem forks NO string order; [<=] is DERIVED from the model's
+    [>=] ([s <= t] iff [t >= s]).  Non-comparison ops -> [None]. *)
 Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
   match op with
-  | BEq => Some str_eqb
-  | BNe => Some str_neqb
-  | BLt => Some str_ltb
-  | BLe => Some (fun s t => str_geb t s)   (* [s <= t]  iff  [t >= s] — derived from the model order, not re-implemented *)
-  | BGt => Some str_gtb
-  | BGe => Some str_geb
+  | BEq => Some Fido.builtins.str_eqb
+  | BNe => Some Fido.builtins.str_neqb
+  | BLt => Some Fido.builtins.str_ltb
+  | BLe => Some (fun s t => Fido.builtins.str_geb t s)   (* [s <= t]  iff  [t >= s] — derived from the model order, not re-implemented *)
+  | BGt => Some Fido.builtins.str_gtb
+  | BGe => Some Fido.builtins.str_geb
   | _   => None
   end.
 
@@ -538,13 +540,16 @@ Proof. vm_compute. reflexivity. Qed.
 Print Assumptions gosem_sound.
 Print Assumptions gosem_demo_runs.
 
-(** ---- DELEGATION PINS: [str_cmp_op]'s branches ARE the MODEL's string-order constants (reflexivity), so the
-    live comparison path is definitionally the model's, not a local copy.  ([<=] is [str_geb] with operands
-    swapped — covered by the [str_geb] pin.)  The complementary guarantee that GoSem defines NO [str_*] of its
-    own — which makes the bare names above necessarily the imported MODEL constants — is the POST-IMPORT seal
-    GoSemAuthority.v (a same-file [Fail Check] would be append-bypassable; that module sees the COMPILED GoSem). *)
-Example str_cmp_eq_model : str_cmp_op BEq = Some str_eqb.   Proof. reflexivity. Qed.
-Example str_cmp_ne_model : str_cmp_op BNe = Some str_neqb.  Proof. reflexivity. Qed.
-Example str_cmp_lt_model : str_cmp_op BLt = Some str_ltb.   Proof. reflexivity. Qed.
-Example str_cmp_gt_model : str_cmp_op BGt = Some str_gtb.   Proof. reflexivity. Qed.
-Example str_cmp_ge_model : str_cmp_op BGe = Some str_geb.   Proof. reflexivity. Qed.
+(** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
+    branches is, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.str_*].  Because the names are
+    qualified, these proofs are SHADOW-IMMUNE — a local/nested [str_ltb] in GoSem cannot reroute the live path
+    without breaking a pin (the pin's RHS is the model constant, not a re-resolvable bare name), and rerouting a
+    branch to a fork makes its pin FAIL the build.  ([<=] is the model's [str_geb] with operands swapped — pinned
+    in its own right.)  GoSemAuthority.v is a secondary top-level tripwire ([Fail Check Fido.GoSem.str_*]); these
+    pins are what mechanically tie the executed semantics to the model order. *)
+Example str_cmp_eq_model : str_cmp_op BEq = Some Fido.builtins.str_eqb.                     Proof. reflexivity. Qed.
+Example str_cmp_ne_model : str_cmp_op BNe = Some Fido.builtins.str_neqb.                    Proof. reflexivity. Qed.
+Example str_cmp_lt_model : str_cmp_op BLt = Some Fido.builtins.str_ltb.                     Proof. reflexivity. Qed.
+Example str_cmp_le_model : str_cmp_op BLe = Some (fun s t => Fido.builtins.str_geb t s).    Proof. reflexivity. Qed.
+Example str_cmp_gt_model : str_cmp_op BGt = Some Fido.builtins.str_gtb.                     Proof. reflexivity. Qed.
+Example str_cmp_ge_model : str_cmp_op BGe = Some Fido.builtins.str_geb.                     Proof. reflexivity. Qed.

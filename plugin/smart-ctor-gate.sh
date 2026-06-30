@@ -13,9 +13,9 @@
 #   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
 #      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
 #      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
-# (GoSem-delegates-string-order to the model is enforced in ROCQ, not here — a source-text grep is bypassed by
-#  legal Rocq syntax — by the post-import seal module GoSemAuthority.v (`Fail Check Fido.GoSem.str_*`); see the
-#  note after check 4.)
+# (GoSem-uses-the-model's-string-order is enforced in ROCQ, not here — a source-text grep is bypassed by legal
+#  Rocq syntax — by GoSem.v's qualified-constant [str_cmp_*_model] branch pins (+ the GoSemAuthority.v tripwire);
+#  see the note after check 4.)
 #
 # This gate polices CODE discipline only.  Documentation / prose honesty (bridge-coverage wording, the
 # construction-vs-printing distinction) is the job of REVIEW, not this gate.  The human-facing bridge-coverage
@@ -106,9 +106,8 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
 
-# NOTE: "GoSem delegates Go string order to the model, never forking a second [str_*]" is NOT a shell check —
-# a source-text grep is bypassed by legal Rocq definition syntax (multiline / multiple [#[...]] attributes,
-# [Program Definition], [Let], …).  It is enforced in ROCQ, robustly: the post-import seal module
-# GoSemAuthority.v runs `Fail Check Fido.GoSem.str_*` over the COMPILED [Fido.GoSem] (name resolution; any
-# GoSem-OWN binding fails the build), and GoSem.v pins [str_cmp_op]'s branches to the model constants by
-# reflexivity.  Scope: this enforces the GoSem (string-semantics) layer; it makes no claim about other modules.
+# NOTE: "GoSem's string comparison uses the model's string order" is enforced in ROCQ, not by a shell grep
+# (which legal Rocq syntax bypasses): GoSem.v pins each [str_cmp_op] branch to the FULLY QUALIFIED model
+# constant [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model]) — shadow-immune, so a fork that reroutes a
+# branch breaks a pin.  GoSemAuthority.v is a secondary post-import top-level tripwire ([Fail Check
+# Fido.GoSem.str_*]).  Scope: GoSem (the string-semantics layer); no claim about other modules.
