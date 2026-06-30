@@ -233,8 +233,12 @@ func Conv_int_to_f64_in_cmp(a float64, i int) bool {
 	return a > float64(i)
 }
 
+func Conv_int_to_f32_in_cmp(a float32, i int) bool {
+	return a > float32(i)
+}
+
 func Conv_operand_demo() {
-	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51), Conv_f64_to_i64_in_binop(10, 0x1d99999999999ap-51), Conv_f64_to_u64_in_binop(20, 0x17333333333333p-51), Conv_int_widen_in_binop(10, uint8((200&0xff))), Conv_int_to_f64_in_cmp(0x14000000000000p-50, 3))
+	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51), Conv_f64_to_i64_in_binop(10, 0x1d99999999999ap-51), Conv_f64_to_u64_in_binop(20, 0x17333333333333p-51), Conv_int_widen_in_binop(10, uint8((200&0xff))), Conv_int_to_f64_in_cmp(0x14000000000000p-50, 3), Conv_int_to_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-51), 1))
 }
 
 func I64_to_narrow_demo() {
