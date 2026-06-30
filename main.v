@@ -390,11 +390,15 @@ Definition widen_param_demo : IO unit :=
 (** A type conversion used as a BINOP OPERAND: [y + int64(x)].  With [y] a runtime [int64] PARAM the
     [i64_add] takes the plain operator path (not the constant-IIFE force-wrapper), so its operand
     [i64_of_u8 x] prints as the conversion [int64(x)] (identifier-led conversion = call syntax).  [x] is a
-    real [uint8] PARAM, so [int64(x)] is a genuine widening, not identity. *)
+    real [uint8] PARAM, so [int64(x)] is a genuine widening, not identity.  [Printer.gprint] now BRIDGES
+    this: the whole binop, including [int64(x)] as an [ECall (EId "int64") [x]], is emitted by the VERIFIED
+    printer, byte-identical to the trusted [pp_prec] (go.ml [goexpr_bridge]). *)
 Definition conv_in_binop (y : GoI64) (x : GoU8) : GoI64 := i64_add y (i64_of_u8 x).
 (** And the float64→float32 NARROWING as a comparison operand [a < float32(x)] — the sibling
     [is_f64_to_f32_ref] arm, same [float32(x)] conversion (runtime narrowing cast; the constant case is a
-    func-lit IIFE).  [x] is a runtime [float64] PARAM. *)
+    func-lit IIFE).  [x] is a runtime [float64] PARAM, so [goexpr_bridge] builds [ECall (EId "float32") [x]]
+    (the [operand_is_runtime] inline case — the force-wrapper IIFE branch is NOT bridged); [gprint] emits it
+    byte-identically to [pp_prec]. *)
 Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (f32_of_f64 x).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
