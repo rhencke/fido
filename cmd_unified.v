@@ -150,6 +150,56 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
+(** ---- DEFER bridge — first CONCRETE slice (the general [no_defer]-free theorem is future work) ----
+    [cmd_to_ucmd_run_agrees] is restricted to [no_defer c].  These two EXAMPLES show the SAME agreement shape
+    holds for CONCRETE DEFERRED programs, exercising the very [ustep] defer machinery a general theorem must
+    drive: [ustep_defer] (push the LIFO stack), [ustep_ret_defer] / [ustep_pan_defer] (pop + run a deferred
+    action at return / mid-panic), [ustep_ret_done] / [ustep_pan_done].  They are CONCRETE WITNESSES, NOT a
+    general defer theorem — each pins that the [CDfr -> UDfr] translation RUNS correctly under [ustep] and AGREES
+    with cmd.v's authoritative [run_cmd] (same shape as the public theorem) for that program.  Demo 1: a deferred
+    [println(a)] before a plain return RUNS at return (output [a], no panic).  Demo 2: the SAME defer before a
+    [panic v] STILL runs (output [a]) while the panic propagates ([uc_panic 0 = Some v]) — the review-P0 "remaining
+    defers run during unwinding" discipline, faithful across the bridge. *)
+Example bridge_defer_return_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
+  exists uc oc,
+    usteps ucap (ustart (cmd_to_ucmd (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)))) uc
+    /\ run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)) w = Some oc
+    /\ uc_live uc 0 = false
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ uc_panic uc 0 = ocpanic oc.
+Proof.
+  intros a ucap w. eexists. exists (ORet tt (w_log true (a :: nil) w)).
+  split.
+  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_done   with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    apply usteps_refl. }
+  split. { vm_compute. reflexivity. }
+  split. { reflexivity. }
+  split. { cbn. reflexivity. } { reflexivity. }
+Qed.
+
+Example bridge_defer_panic_agrees : forall (a : GoAny) (v : GoAny) (ucap : nat -> option nat) w,
+  exists uc oc,
+    usteps ucap (ustart (cmd_to_ucmd (CDfr (COut true (a :: nil) (CRet tt)) (CPan v)))) uc
+    /\ run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CPan v)) w = Some oc
+    /\ uc_live uc 0 = false
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ uc_panic uc 0 = ocpanic oc.
+Proof.
+  intros a v ucap w. eexists. exists (OPanic v (w_log true (a :: nil) w)).
+  split.
+  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_pan_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_done   with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    apply usteps_refl. }
+  split. { vm_compute. reflexivity. }
+  split. { reflexivity. }
+  split. { cbn. reflexivity. } { reflexivity. }
+Qed.
+
 (** Public assumption surface for this module — the manifest gate captures this ONE [Print Assumptions]:
     the [run_cmd]-grounded bridge.  The projection plumbing is Local and deliberately NOT printed/gated. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
