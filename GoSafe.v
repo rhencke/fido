@@ -205,7 +205,7 @@ Definition bad_programs : list Program :=
   ; pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))
   ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))
   ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"]) (EInt 200)))  (* int8(len("hi")+200): [len] of a string CONST folds to 2, 2+200=202 overflows int8 -> REJECTED.  Locks the len-string-constant soundness fix (a runtime-int model would WRONGLY admit this) *)
-  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* len(string(65)): a NON-LITERAL string const ([PtStr] but not [EStr]) — its byte length is not folded here, so REJECTED (fail-loud).  Locks the len fix's non-literal-PtStr fallback (the old PtRunInt model wrongly admitted it) *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* len(string(65)): a NON-LITERAL string const ([PtStr] but not [EStr]) — its byte length is not folded here, so REJECTED (fail-loud).  That the rejection is the non-literal-PtStr len fallback (not an unsupported arg) is pinned just below ([string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected]) *)
   ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
   ; gs_blank (EInt 1099511627776)
   ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
@@ -229,6 +229,19 @@ Definition bad_programs : list Program :=
 Example bad_programs_rejected :
   forallb (fun p => negb (supported_program p)) bad_programs = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(** The [len(string(65))] entry above rejects via the NON-LITERAL-[PtStr] [len] fallback SPECIFICALLY, not via
+    an unsupported argument — pinned by the pair below: [string(65)] IS a SUPPORTED [PtStr] (a rune-const
+    conversion), yet [len] of it is [None].  Since the arg type-checks ([Some PtStr]), the [len] [None] can only
+    be the [_, _ => None] fallback ([PtStr] is neither [EStr] nor [PtAgg]).  This is what makes the
+    [bad_programs] entry a genuine lock on that fallback (a regression that restored [PtStr -> PtRunInt] would
+    flip [len_of_nonliteral_PtStr_rejected] to [Some _]). *)
+Example string_rune_const_is_supported_PtStr :
+  ptype (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some PtStr.
+Proof. reflexivity. Qed.
+Example len_of_nonliteral_PtStr_rejected :
+  ptype (ECall (EId (mkIdent "len" eq_refl)) [ECall (EId (mkIdent "string" eq_refl)) [EInt 65]]) = None.
+Proof. reflexivity. Qed.
 
 (** ACCEPTED — the smaller-but-SOUND subset the gate still admits ([supported_program = true]): a conversion of
     a constant in value position, value-position aggregates / [len] / [cap], in-range / folded constants and
