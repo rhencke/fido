@@ -72,18 +72,19 @@ live emission is not "verified Go."
   `make check`.
 - **GoSem slice 1 (Phase 5)** — `denote_program : Program -> option (Cmd unit)` BRIDGES the AST into `cmd.v`'s
   proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe) with REAL effects: `println`/`print`
-  → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals;
-  supported integer constants — literals/conversions/arith/`^x`, EXCLUDING `GTUint`; exact-integer float consts;
-  constant bools via numeric/string-literal comparisons + `&&`/`||`/`!`/`bool(x)`, string order DELEGATED to the
-  model's qualified `str_*`), failing CLOSED outside that slice. `gosem_sound`: denotation ⊆ `SupportedProgram`.
+  → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals +
+  supported integer/exact-float/bool CONSTANTS, the full list in NEXT; fails CLOSED elsewhere — `GTUint`/runtime/
+  fractional). `gosem_sound`: denotation ⊆ `SupportedProgram`.
   `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`) — scaffold
-  toward an eventual `supported ⟺ denotes` (NOT proved; `eval` is partial). `denotable_supported`: denotable ⊆
-  supported (STRICT). A concrete UNBOUNDED class denotes OUTRIGHT (`strlit_main_denotes`: N `println(str-lits)` +
-  `return`). `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality; assumes it denotes,
-  NOT supported ⟹ denotes). Demos RUN `println("hi"/int64(3)/float64(3)/3<5)` through `run_cmd`. Zero axioms.
+  toward an eventual `supported ⟺ denotes` (NOT proved in general; `eval` is partial). `denotable_supported`:
+  denotable ⊆ supported (STRICT). The COMPLETENESS converse holds OUTRIGHT on the println-of-evaluable-args
+  fragment — `println_main_denotes`/`println_main_runs`: an UNBOUNDED class (N `println(args)` + `return`, each
+  arg `denotable_arg` = evaluates+printable, i.e. any string/int/float/bool constant) ALWAYS denotes AND runs.
+  `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality; concrete run-witnesses are
+  in the trust surface). Zero axioms.
   ★ Certified public surface = `gosem_trust_surface` (the bundled tuple, gated by `Print Assumptions`); a GoSem
   theorem not in it is compiled but NOT advertised zero-axiom. ⚠ denotation⊆gate, NOT `BehaviorSafe`. Next:
-  runtime/`len`/`int(x)` + fractional-float `eval`, the completeness converse, then `BehaviorSafe`.
+  runtime/`len`/`int(x)` + fractional-float `eval` (extends the converse's reach), then `BehaviorSafe`.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
@@ -91,11 +92,10 @@ live emission is not "verified Go."
   race / bounded-deadlock theory).
 - **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` totally
   translates cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment, `COut`'s println flag
-  PRESERVED (`UOut`/`uc_out` carry the bool, matching `w_output`). PUBLIC results `cmd_to_ucmd_run_agrees`
-  (cmd-level) and `denote_program_run_agrees` (program-level): a DENOTED program (`denote_program p = Some c`,
-  `no_defer` discharged) runs under `ustep` to completion AND its conclusion AGREES with cmd.v's authoritative
-  `run_cmd 1 c w` — the unified output events EQUAL `run_cmd`'s appended `w_output` and `uc_panic 0` EQUALS the
-  Outcome's panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
+  PRESERVED (`UOut`/`uc_out` carry the bool). PUBLIC `cmd_to_ucmd_run_agrees` / `denote_program_run_agrees`: a
+  DENOTED program (`no_defer` discharged) runs under `ustep` to completion AND AGREES with cmd.v's authoritative
+  `run_cmd 1 c w` — unified output events EQUAL `run_cmd`'s appended `w_output`, `uc_panic 0` EQUALS the Outcome
+  panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
   ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the
   manifest gate, the printer gate, and the emit gate (see **Current gates** for the exact split) each assert
@@ -131,8 +131,9 @@ GROW **GoSem** — slice 1 landed (the `cmd.v` bridge `denote_program` + real pr
 denotation + `gosem_sound`: denotation⊆`SupportedProgram`, faithful to the model; `eval_value` now folds string
 literals + integer constants/conversions/arithmetic + exact-integer-valued float constants + constant bools
 (numeric/string-literal comparisons, `&&`/`||`/`!`, `bool(x)`)). Continue: `eval_value` for runtime values
-(`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats; the COMPLETENESS converse
-(supported ⇒ denotes). BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
+(`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats — each WIDENS the completeness
+converse (`println_main_denotes`, OUTRIGHT on evaluable-printable args) toward a GENERAL `supported ⟺ denotes`.
+BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
 (`cmd_unified.v` + `GoSemUnified.v`: `denote_program_run_agrees` already runs DENOTED programs under `ustep`
 agreeing with `run_cmd`, for the defer-free fragment); next bridge slices are DEFER (cmd.v `run_defers` ↔ unified
 `UDfr` LIFO) and the channel/heap/spawn effects, then LIFT SUPPORTED programs once the completeness converse +
