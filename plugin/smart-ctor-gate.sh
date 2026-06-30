@@ -98,9 +98,12 @@ cov_scan() {                                                                    
   comm -23 "$cf" "$cl" | sed "s|^|$1: [wrapped] |"                                               # only newline-wrapped spans
   rm -f "$cl" "$cf"
 }
-# self-test exercises the LIVE cov_scan (this script is not self-scanned).  Fixture: single-line bans (incl. three
-# with "NOT identity" on the SAME line), MIXED-CASE bans (would vanish if -i were dropped), a phrase split across
-# two lines (the wrapped path), and four legitimate lines that must NOT match.
+# self-test exercises the LIVE cov_scan on a fixture (this script is not self-scanned) with an EXACT,
+# LOCATION-based oracle — NOT broad substring greps (those passed even if the same-line "NOT identity" rows
+# were dropped, because the bare phrase recurs on other lines).  Fixture: 1-9 single-line bans; 10-12 the same
+# SPANS with "NOT identity" appended (the immunity-regression rows — must still hit BY LINE); 13-16 MIXED-CASE
+# bans (vanish if -i is dropped); 17-18 + 19-20 one phrase each split across two lines (the wrapped path);
+# 21-24 legitimate lines that must NOT match anywhere.
 st_tmp=$(mktemp)
 printf '%s\n' \
   'widen is identity' 'lowering is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' \
@@ -110,16 +113,17 @@ printf '%s\n' \
   'lowering is' 'identity' 'runtime scalar' 'conversions' \
   'a real cast, NOT identity' '[MkU8]/[u8raw] -> identity' 'Lowering correctness (each variable identity preserved)' \
   'is_f64_to_f32_ref + operand_is_runtime' > "$st_tmp"
-out=$(cov_scan "$st_tmp"); rm -f "$st_tmp"; stf=""
-for need in 'widen is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' 'emitted as identity' \
-            'no-op cast' 'runtime scalar conversions' 'is_f64_to_f32_ref-runtime'; do
-  printf '%s' "$out" | grep -qiF "$need" || stf="$stf miss[$need]"; done
-for need in 'Lowering is identity' 'Runtime scalar conversions' 'No-op cast' 'Is_f64_to_f32_ref-Runtime'; do   # case-INsensitivity
-  printf '%s' "$out" | grep -qF "$need" || stf="$stf nocase[$need]"; done
-printf '%s' "$out" | grep -qi 'wrapped' || stf="$stf no-wrapped-path"                                          # cross-line
-for bad in 'operand_is_runtime' 'real cast' 'variable identity' 'u8raw'; do                                     # spared
-  printf '%s' "$out" | grep -qiF "$bad" && stf="$stf falsecatch[$bad]"; done
-if [ -n "$stf" ]; then echo "fido: CONVERSION-COVERAGE GATE self-test FAILED —$stf"; exit 1; fi
+out=$(cov_scan "$st_tmp"); rm -f "$st_tmp"
+# per-line hits must be EXACTLY lines 1..16: includes 10-12 (drop a "NOT identity" row ⇒ FAIL) and 13-16
+# (drop -i ⇒ FAIL); 17-24 must yield NO single-line hit.  wrapped spans must be EXACTLY the two split phrases
+# (broken wrapped path, or a spared line leaking a wrapped span ⇒ FAIL).
+pl=$(printf '%s\n' "$out" | grep -oE ':[0-9]+:' | tr -d ':' | sort -un | tr '\n' ' ')
+wr=$(printf '%s\n' "$out" | sed -n 's/.*\[wrapped\] //p' | sort | tr '\n' '|')
+mc=$(printf '%s\n' "$out" | grep -cF 'Runtime scalar conversions' || true)   # verbatim mixed-case span ⇒ -i is live
+if [ "$pl" != "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 " ] \
+   || [ "$wr" != "lowering is identity|runtime scalar conversions|" ] || [ "$mc" -lt 1 ]; then
+  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED — per-line[$pl] (want 1..16, incl. 10-12 NOT-identity + 13-16 mixed-case); wrapped[$wr] (want the 2 split phrases); mixedcase[$mc]."; exit 1
+fi
 covbad=""
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md; do
   [ -f "$f" ] || continue
