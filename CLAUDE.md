@@ -39,8 +39,9 @@ emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO
 `relooper.v` is demoted. **Naming is a correctness claim** — never call a syntactic gate `SafeProgram`.
 Residual TCB TODAY (named, not implicit): Rocq kernel · the string→`.go` extraction step · the Go toolchain ·
 trusted foreign imports · **the trusted, unverified plugin `plugin/go.ml`** that lowers `main.go` (gap #10 —
-the current adequacy gap). FUTURE (NOT today's TCB, since GoSem does not exist): once emission goes through a
-GoSem-backed certificate, the plugin is replaced by a `GoSem`≈real-Go adequacy assumption (gap #10's heir).
+the current adequacy gap). FUTURE (NOT today's TCB, since no GoSem-BACKED EMISSION exists yet — GoSem slice 1
+denotes programs but does not gate emission): once emission goes through a GoSem-backed certificate, the plugin
+is replaced by a `GoSem`≈real-Go adequacy assumption (gap #10's heir).
 
 ## Rules that shape every change
 
@@ -125,8 +126,8 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   one step relation `ustep` (faithful defer+panic: a panicking goroutine still runs its
   remaining defers). Race-freedom (`uprivate_disc_reachable_race_free`) and liveness/deadlock
   (`uready_can_step` / `ustuck_blocked`) are PROVED on it, reusing concurrency.v's trace theory.
-  ⚠️ It is NOT the semantics of the certified-emission path — a future GoSem must bridge or
-  retire it before behavioral safety enters certified emission. The shallow `IO`/`World`, the
+  ⚠️ It is NOT the semantics of the certified-emission path — GoSem (slice 1 bridges `cmd.v`) must still
+  bridge or retire it before behavioral safety enters certified emission. The shallow `IO`/`World`, the
   `cmd.v` effect evaluator, and `rstep` are earlier, NARROWER fragments.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
@@ -166,7 +167,7 @@ Gotchas (don't relearn these the hard way):
 CLAUDE.md is deliberately short. Read these on demand:
 
 - **`ARCHITECTURE.md`** — ★ the standing, BINDING charter: the AST-first certified-emission direction
-  (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`, with `GoSem` planned), the residual-TCB statement, and the
+  (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`, with `GoSem` slice-1 landed), the residual-TCB statement, and the
   per-patch rules. Read it before any structural change; it governs.
 - **`PROGRESS.md`** — the short live status ledger: current architecture, GREEN / RED / NEXT, the known
   trust base, and the current gates. **Update it when a feature lands or a claim changes.**

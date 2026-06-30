@@ -3,9 +3,10 @@
     [SupportedProgram] is a PHASE-1 SYNTACTIC gate — a supported-subset check — NOT behavioral safety, and it
     is NAMED so deliberately (naming is a correctness claim: never call a syntactic gate "Safe").  The
     semantic [BehaviorSafe] (no nil-deref / OOB / send-on-closed / illegal-close / data-race / …, defined over
-    GoSem) lands once GoSem is BUILT (it does not exist yet — [unified.v] is an existing PROOF-ONLY operational
-    semantics, NOT the certified path's, which GoSem must bridge or retire) — at which point the blessed path
-    becomes emit_safe over a [SafeProgram]
+    GoSem) lands once GoSem is COMPLETE — GoSem SLICE 1 (the [cmd.v] bridge [denote_program] + [gosem_sound]:
+    denotation ⊆ SupportedProgram) now EXISTS, but does not yet denote enough behavior to define BehaviorSafe
+    against; [unified.v] is an existing PROOF-ONLY operational semantics, NOT the certified path's, which GoSem
+    must still bridge or retire) — at which point the blessed path becomes emit_safe over a [SafeProgram]
     (= EmittableProgram + BehaviorSafe).  Until then GoEmit emits only the SUPPORTED subset via emit_supported,
     and must NOT be described as behaviorally safe.
     ============================================================================ *)
@@ -15,9 +16,9 @@ From Fido Require Import GoAst.   (* GoAst supplies the syntax AND [classify] (t
                                      SIBLINGS off GoAst, not a chain through the printer). *)
 From Fido Require Import GoTypes. (* the SHARED constant-aware type-category checker — [ptype] / [svalue] +
                                      all numeric/conversion helpers — factored into the LOWER module GoTypes
-                                     (imports only GoAst) so GoSafe — and a future GoSem, when built — consult
-                                     the SAME authority (single source of truth, no duplicate predicate).
-                                     GoSafe reuses [ptype]/[svalue] below. *)
+                                     (imports only GoAst) so GoSafe AND GoSem (slice 1 consults [svalue] /
+                                     [expr_stmt_ok] via importing GoSafe) consult the SAME authority (single
+                                     source of truth, no duplicate predicate).  GoSafe reuses [ptype]/[svalue]. *)
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 Open Scope string_scope.
@@ -356,7 +357,7 @@ Fail Example forge_uint8_overflow :
     =================================================================================================== *)
 
 (** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
-    shape; NOT yet defined, because GoSem does not exist to define it against — and a placeholder
+    shape; NOT yet defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a placeholder
     [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the charter forbids
     (§8 Rule 4).  When GoSem lands: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its
     GoSem denotation>], and GoEmit gains [SafeProgram]/[emit_safe]. *)

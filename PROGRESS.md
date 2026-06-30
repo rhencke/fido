@@ -28,9 +28,10 @@ print-injectivity; SYNTAX only) →
 **GoSafe** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later, over GoSem) → **GoEmit** (the only
 blessed emit; requires a certificate — `EmittableProgram` now; no raw `emit : Program -> string`).
 `GoTypes` is the shared lower module (`ptype`/`svalue`, conservative supported-subset classifier) that
-GoSafe consults. **GoSem** — the AST's behavioral semantics, which will BRIDGE (or retire) the existing
-proof-only semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **planned, not built**; it holds no authority
-yet and no behavioral-safety claim is active.
+GoSafe consults. **GoSem** — the AST's behavioral semantics, which BRIDGES (or retires) the existing
+proof-only semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **slice-1 landed** (the `cmd.v` bridge +
+real println/print/panic effect denotation + `gosem_sound`: denotation⊆`SupportedProgram`); it holds NO
+behavioral-safety authority yet (slice 1 is denotation⊆gate, NOT `BehaviorSafe`).
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
 (machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree
@@ -69,11 +70,19 @@ live emission is not "verified Go."
   `emit_supported = print_program`; `emit_supported_program_inj`). `make emit-demo` extracts one certified
   program and the real Go toolchain BUILDS it (gofmt-clean + go build + go vet); it is a dependency of
   `make check`.
+- **GoSem slice 1 (Phase 5)** — `denote_program : Program -> option (Cmd unit)` BRIDGES the AST into `cmd.v`'s
+  proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe), with REAL observable effects:
+  `println`/`print` → `COut` (faithful — the same `w_log` the model's `println`/`print` produce), `panic` →
+  `CPan`, over `eval_value` (slice 1: string/int/hex LITERALS boxed via the model's `anyt`/`intwrap`).
+  `gosem_sound` proves denotation ⊆ `SupportedProgram` (the effect arm consults `expr_stmt_ok`), and the demo
+  RUNS a `println("hi")` program through `run_cmd` to the exact `w_log true ["hi"]` World. Zero axioms.
+  ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. Non-literal `eval` + the
+  completeness converse are the next slices.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
-  NOT the semantics of the certified-emission path; a future GoSem must bridge or retire it before behavioral
-  safety enters certified emission), `concurrency.v` (calculus-agnostic trace / happens-before / race /
+  NOT the semantics of the certified-emission path; GoSem (slice 1 bridges `cmd.v`) must still bridge or retire
+  it before behavioral safety enters certified emission), `concurrency.v` (calculus-agnostic trace / happens-before / race /
   bounded-deadlock theory).
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context";
   `EXPECTED_ASSUMPTIONS.txt` is empty and the build fails on any drift.
@@ -81,9 +90,11 @@ live emission is not "verified Go."
 
 ## RED (not done — do not overclaim)
 
-- **No GoSem / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC
-  supportedness), NOT `BehaviorSafe`. The safety properties in the goal are modelled in the proof-only
-  theories but are not yet a gate on emitted programs.
+- **GoSem is slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC
+  supportedness), NOT `BehaviorSafe`. GoSem's slice 1 (see GREEN) denotes a SUBSET of the supported programs
+  and only proves denotation⊆gate — it is NOT yet a behavioral semantics of effects beyond literals, there is
+  NO `BehaviorSafe`, and no GoSem-backed gate on emission. The safety properties in the goal are modelled in
+  the proof-only theories but are not yet a gate on emitted programs.
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
   emitted Go to the source term. The golden tests are the only end-to-end check.
 - **Main output is the legacy path.** `main.go` is produced by the trusted plugin, not the certificate-gated
@@ -99,15 +110,17 @@ live emission is not "verified Go."
 
 ## NEXT
 
-Build **GoSem** — the AST's behavioral semantics — by BRIDGING (or retiring) the existing proof-only
-`cmd`/`unified`/`concurrency` models (no second semantics universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram
-+ BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel, widen the live
+GROW **GoSem** — slice 1 landed (the `cmd.v` bridge `denote_program` + real println/print/panic effect
+denotation + `gosem_sound`: denotation⊆`SupportedProgram`, faithful to the model). Continue: `eval_value` for
+non-literals (conversions/arithmetic/`len`), the COMPLETENESS converse (supported ⇒ denotes), BRIDGE/retire
+`unified.v`/`concurrency.v` (no second universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram +
+BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel, widen the live
 GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
 
 ## Known trust base (TCB)
 
 Rocq kernel · the string→`.go` extraction step · the Go toolchain · trusted foreign imports · the whole
-trusted plugin `plugin/go.ml` (gap #10) · and (once GoSem exists) the `GoSem`≈real-Go adequacy assumption,
+trusted plugin `plugin/go.ml` (gap #10) · and (once GoSem BACKS EMISSION) the `GoSem`≈real-Go adequacy assumption,
 heir to gap #10. The MODEL's logical trust base is empty (zero axioms); the extraction plugin is the
 separate, still-trusted TCB.
 

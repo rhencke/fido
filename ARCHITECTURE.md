@@ -8,7 +8,7 @@ supersedes the ad-hoc "lower arbitrary Rocq through a trusted plugin" center of 
 ```text
 GoAst    says what Go-shaped syntax can be written.
 GoPrint  proves printing is faithful (expressions round-trip; programs/statements print injectively) — SYNTAX ONLY.
-GoSem    says what the AST means — PLANNED, not built; will bridge the proof-only semantics (unified.v).
+GoSem    says what the AST means — SLICE 1 landed (cmd.v bridge + println/print/panic effect denotation + denotation⊆gate soundness); completeness + behavioral safety NOT built.
 GoSafe   says which programs are supported now, and — later — which are behaviorally safe.
 GoEmit   is the ONLY blessed emission path; it requires the appropriate certificate.
 ```
@@ -45,7 +45,7 @@ pretending the claim stayed the same.
 ```text
 GoAst   says what can be written.
 GoPrint proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
-GoSem   will define behavior — PLANNED, NOT built (no current authority).
+GoSem   defines behavior — SLICE 1 (cmd.v bridge + effect denotation + denotation⊆gate soundness); NOT complete, no BehaviorSafe yet.
 GoSafe  defines supportedness now, behavioral safety later.
 GoEmit  is the only blessed emission path and requires the appropriate certificate.
 
@@ -72,21 +72,27 @@ theorems, at TWO distinct strengths — do not conflate them:
 
 Purely syntactic — no safety claims belong here.
 
-**`GoSem.v` — semantics (imports `GoAst`) — PLANNED, NOT BUILT.** GoSem will be the AST's behavioral
-semantics for the supported subset (happens-before, blocking, panics, output, defer, channels, …). It does
-**not** exist yet and holds no authority. `unified.v` is an EXISTING proof-only operational semantics (the
-proven `ustep`, race-freedom + liveness) — **not** the certified-emission path's semantics. When GoSem is
-built it must **bridge or retire the existing proof-only semantics** — `unified.v`, `concurrency.v` (trace /
-happens-before / race / bounded-deadlock theory), and `cmd.v` (effect evaluator) — so there is ONE
-behavioral authority for the certified path, never a second semantic universe that can drift. No
-behavioral-safety claim is active until GoSem exists.
+**`GoSem.v` — semantics (imports `GoAst`/`GoTypes`/`GoSafe`/`cmd`/`preamble`) — SLICE 1 LANDED, growing.**
+GoSem will be the AST's behavioral semantics for the supported subset (happens-before, blocking, panics,
+output, defer, channels, …). TODAY it is SLICE 1: `denote_program : Program -> option (Cmd unit)` BRIDGES a
+program into `cmd.v`'s already-proven command tree (reusing `cbind`/`denote`/`run_cmd`, NOT a second universe),
+with REAL observable effects — `println`/`print` -> `COut` (faithful: the same `w_log` the model's
+`println`/`print` produce), `panic` -> `CPan` — over `eval_value` (slice 1: string/int/hex LITERALS, boxed via
+the model's `anyt`/`intwrap`); and `gosem_sound` proves the gate connection (`denote_program p <> None ->
+SupportedProgram p`: no meaning given to invalid Go, because the effect arm consults `expr_stmt_ok`). NOT done:
+`eval_value` for non-literals (conversions/arithmetic), the COMPLETENESS converse (supported ⇒ denotes), and
+ANY behavioral-safety claim — slice 1 is denotation⊆gate, NOT `BehaviorSafe`. `unified.v` is an EXISTING
+proof-only operational semantics (the proven `ustep`, race-freedom + liveness) — **not** the certified path's;
+as GoSem grows it must **bridge or retire** `unified.v`, `concurrency.v` (trace / happens-before / race /
+bounded-deadlock theory) — slice 1 already bridges `cmd.v` — so there is ONE behavioral authority, never a
+second universe that can drift.
 
 **`GoTypes.v` — shared constant-aware type-category checker (imports ONLY `GoAst`).** The bottom of the
 type-category layer: `ptype : GExpr -> option PTy` (the structural, constant-aware category assignment —
 splitting int/float, constant/runtime, carrying constant values so overflow / div-or-shift-by-zero are
 decided from the folded value) and its numeric/conversion combinators, plus the value-position wrapper
 `svalue`. Factored out of `GoSafe` so the layers above it consult ONE authority (GoSafe for
-`SupportedProgram`; GoSem, when built, for blank-assign RHS validity). No theorems — adds no axioms.
+`SupportedProgram`; GoSem's slice 1 consults `svalue`/`expr_stmt_ok` for its denotation). No theorems — adds no axioms.
 **`ptype` is a CONSERVATIVE supported-subset classifier, NOT Go's typechecker.** No new rule may be added
 unless it (a) rejects a real CLOSED bad program currently accepted, or (b) admits a needed supported demo.
 
@@ -108,8 +114,8 @@ Safety must become the **ticket required by the emitter**, not a theorem sitting
 ```coq
 Record EmittableProgram := { ep_program : GoAst.Program; ep_supported : GoSafe.SupportedProgram ep_program }.
 Definition emit_supported (p : EmittableProgram) : string := GoPrint.print_program p.(ep_program).
-(* Later, once GoSem is built and BehaviorSafe is real: a SafeProgram = EmittableProgram +
-   BehaviorSafe, emitted by emit_safe. *)
+(* Later, once GoSem is COMPLETE (slice 1 denotes only a subset) and BehaviorSafe is real:
+   a SafeProgram = EmittableProgram + BehaviorSafe, emitted by emit_safe. *)
 ```
 
 `emit_supported` is a printer/supported-subset milestone — NOT behaviorally safe. Do **not** export an
@@ -134,8 +140,8 @@ The correctness of an *emitted* program rests on, and only on:
 `GoPrint` proves the bytes; items 3 and 5 are why this is "Go with proofs," not "Go without trust." FUTURE
 (not today's TCB): once emission goes through a GoSem-backed certificate, item 5's plugin is replaced by an
 **adequacy assumption connecting `GoSem` to actual Go behavior** ("real Go realizes `GoSem`") — gap #10's
-heir, unfalsifiable inside Rocq, to be named in the honesty ledger. GoSem does not exist yet, so that
-assumption is **not** part of the current trust base.
+heir, unfalsifiable inside Rocq, to be named in the honesty ledger. No GoSem-BACKED EMISSION exists yet (GoSem
+slice 1 denotes programs but does not gate emission), so that assumption is **not** part of the current trust base.
 
 ---
 
@@ -172,7 +178,8 @@ list is single-sourced in `PROGRESS.md`, not re-enumerated here); every other sh
 OCaml `pp_expr`. And even for that class
 the printer proofs cover only AST→string serialization
 (`gprint`'s round-trip / injectivity): they do NOT cover the trusted MiniML→`GExpr` CONSTRUCTION in `go.ml`
-that builds the AST, so the live emission is not "verified Go." There is no GoSem, so no behavioral safety.
+that builds the AST, so the live emission is not "verified Go." GoSem is a slice-1 bridge (effect denotation +
+denotation⊆gate soundness), NOT behavioral safety — so there is still no behavioral safety.
 Detailed feature state lives in `PROGRESS.md`.
 
 ---
@@ -195,8 +202,10 @@ Phase 2  Create GoSafe (SupportedProgram) + GoEmit (EmittableProgram; no raw emi
 Phase 3  main.v builds GoAst.Program and emits ONLY through the certificate.                 DONE
 Phase 4  Grow the AST/printer form-by-form (each: represented, printed, round-tripped/       DONE (for now)
          injective, gate-honest). GoStmt forms + EConv + slice/map literals + EStr landed.   — frozen; tighten not grow
-Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no second universe),  NEXT
+Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no second universe),  IN PROGRESS
          widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
+         ↳ SLICE 1 landed: denote_program -> cmd.v Cmd with real println/print/panic effects + gosem_sound
+           (denotation⊆gate), faithful to the model; NEXT = eval non-literals, completeness, then BehaviorSafe.
 ```
 
 Proceed in small structural steps. Every patch should either move a concept into the correct module, delete
