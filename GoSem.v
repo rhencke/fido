@@ -21,11 +21,11 @@
     [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
-    failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC comparisons
-    ([1==1], [3<5]) or STRING-LITERAL comparisons (equality via [String.eqb], ordering via [str_ltb]) combined by
-    [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked values; a
-    comparison with a NON-literal string operand, bools with a runtime operand, non-literal strings, [GTUint],
-    fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to
+    failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
+    STRING-LITERAL comparisons (string compares DELEGATED to the model's [str_*] family — no local GoSem order)
+    combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked
+    values; a comparison with a NON-literal string operand, bools with a runtime operand, non-literal strings,
+    [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to
     [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression

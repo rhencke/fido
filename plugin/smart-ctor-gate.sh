@@ -108,10 +108,24 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # 5. MODEL-AUTHORITY SINGLE-SOURCE.  The Go string-order primitives ([str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/
 # [str_geb]) are DEFINED once, in builtins.v (the model layer), recognized + lowered by the plugin; a higher
 # layer (GoSem / GoSafe / …) must DELEGATE to them, never fork a second implementation (the GoSem [str_ltb]
-# duplication, Codex 2026-06-30).  Flag any Definition/Fixpoint of one in a .v file OTHER than builtins.v
-# (a CALL is fine — only a re-DEFINITION forks the authority).
-dupstr=$(grep -nE '^[[:space:]]*(Definition|Fixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
-  $(for f in *.v; do [ "$f" = builtins.v ] || echo "$f"; done) 2>/dev/null || true)
+# duplication, Codex 2026-06-30).  Flag a (Local/Global) Definition/Fixpoint/CoFixpoint of one in ANY active .v
+# EXCEPT builtins.v — a CALL is fine, only a re-DEFINITION forks the authority.  [model_authority_scan ROOT]
+# RECURSIVELY scans the .v under ROOT (pruning [_build]/generated output, excluding [builtins.v]), so it covers
+# root + [emitdemo/] + [negtests/] wherever the gate runs (the pre-commit hook + `make check` run it over the
+# FULL tree; the Docker prover stage over its copied subset).
+model_authority_scan() {
+  # shellcheck disable=SC2046
+  grep -nE '^[[:space:]]*(Local[[:space:]]+|Global[[:space:]]+)?(Definition|Fixpoint|CoFixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
+    $(find "$1" -name _build -prune -o -name '*.v' ! -name builtins.v -print 2>/dev/null) 2>/dev/null || true
+}
+# self-test: a NESTED, [Local]-qualified fork must be caught (and the real-tree scan must be clean below).
+ma_t=$(mktemp -d); mkdir -p "$ma_t/sub/deep"
+printf '%s\n' 'Local Fixpoint str_ltb (a b : string) : bool := false.' > "$ma_t/sub/deep/forge.v"
+if [ -z "$(model_authority_scan "$ma_t")" ]; then
+  echo "fido: MODEL-AUTHORITY self-test broke — a nested [Local Fixpoint str_ltb] was NOT caught"; rm -rf "$ma_t"; exit 1
+fi
+rm -rf "$ma_t"
+dupstr=$(model_authority_scan .)
 if [ -n "$dupstr" ]; then
   echo "fido: MODEL-AUTHORITY GATE — a Go string-order primitive is RE-DEFINED outside builtins.v:"
   echo "$dupstr"
