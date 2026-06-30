@@ -345,11 +345,13 @@ Qed.
     the defer [d] NON-PANICKING ([cmd_panic d = None]), runs the body THEN the single deferred [d]: the outcome
     is the BODY's ([cmd_panic c']) and the world is advanced by the body's output THEN [d]'s.  Derived purely
     from [go_chars] (applied to [CDfr d c'] and to [d]) + the one-element [run_defers] reduction — so it stays
-    grounded in cmd.v's authoritative [run_cmd]. *)
+    grounded in cmd.v's authoritative [run_cmd].  Fuel [2] is the MINIMAL principled count (one [run_defers]
+    step to run [d], one for its empty tail), paralleling [run_cmd 1] for the zero-defer public theorem — NOT
+    the arbitrary [5] the concrete demos carry. *)
 Local Lemma run_cmd_one_np_defer : forall d c' w,
   no_defer d = true -> no_defer c' = true -> cmd_panic d = None ->
   exists w'',
-    run_cmd 5 (CDfr d c') w
+    run_cmd 2 (CDfr d c') w
       = Some (match cmd_panic c' with None => ORet tt w'' | Some v => OPanic v w'' end)
     /\ w_output w'' = w_output w ++ cmd_out_events c' ++ cmd_out_events d.
 Proof.
@@ -374,11 +376,11 @@ Qed.
     returned, [ustep_pan_defer] if it panicked — absorbing the body's panic into [pa]) + Phase A on [d] +
     [ustep_ret_done]; [run_cmd] grounded by [run_cmd_one_np_defer].  Defers that THEMSELVES panic / multiple
     defers / nesting are later Phase-B slices. *)
-Local Theorem bridge_one_np_defer_agrees : forall d c' ucap w,
+Theorem bridge_one_np_defer_agrees : forall d c' ucap w,
   no_defer d = true -> no_defer c' = true -> cmd_panic d = None ->
   exists (uc : UConfig) (oc : Outcome unit),
     usteps ucap (ustart (cmd_to_ucmd (CDfr d c'))) uc
-    /\ run_cmd 5 (CDfr d c') w = Some oc
+    /\ run_cmd 2 (CDfr d c') w = Some oc
     /\ uc_live uc 0 = false
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
     /\ uc_panic uc 0 = ocpanic oc.
@@ -432,6 +434,9 @@ Proof.
       * cbn [uc_panic]. reflexivity.
 Qed.
 
-(** Public assumption surface for this module — the manifest gate captures this ONE [Print Assumptions]:
-    the [run_cmd]-grounded bridge.  The projection plumbing is Local and deliberately NOT printed/gated. *)
+(** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
+    no_defer [run_cmd]-grounded bridge AND its first defer-bearing generalisation.  The projection plumbing
+    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[go_chars]/[run_cmd_one_np_defer]/Phase A) is Local and covered
+    TRANSITIVELY through these two cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
+Print Assumptions bridge_one_np_defer_agrees.
