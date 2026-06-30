@@ -408,7 +408,11 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       match ptype l, ptype r with
       | Some cl, Some cr =>
           match o with
-          | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BAdd|BSub|BOr|BXor => num_binop o cl cr
+          | BAdd => match cl, cr with
+                    | PtStr, PtStr => Some PtStr   (* string CONCATENATION ["a" + "b"] — a string (valid Go); the result is a [PtStr] (no const value tracked, so [len] of it stays rejected, like any non-literal string) *)
+                    | _, _ => num_binop o cl cr    (* numeric add — and a MIXED string/number is REJECTED ([num_binop] gives [None] on a non-numeric operand) *)
+                    end
+          | BMul|BDiv|BRem|BShl|BShr|BAnd|BAndNot|BSub|BOr|BXor => num_binop o cl cr
           | BEq|BNe => if eq_comparable cl cr then Some PtBool else None
           | BLt|BLe|BGt|BGe => if ord_comparable cl cr then Some PtBool else None
           | BLAnd|BLOr => if andb (is_bool_cat cl) (is_bool_cat cr) then Some PtBool else None
