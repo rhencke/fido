@@ -1897,6 +1897,18 @@ let mlident_name = function
   | Tmp v -> go_safe (Id.to_string v)
 let rel_name env i =
   try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
+(* The inline identifier-led CONVERSIONS [conv(x)] the bridge handles UNCONDITIONALLY: (recognizer, Go type
+   name).  Each is value-preserving / a plain cast in EVERY position and is rendered inline by [pp_expr] with
+   NO force-wrapper, so it needs no runtime guard — only that the operand bridges.  (The float64->float32
+   narrowing [is_f64_to_f32_ref] is NOT here: it carries an [operand_is_runtime] guard, handled by its own arm.) *)
+let inline_conv_table = [
+  (is_i64_of_narrow_ref, "int64");    (* narrow -> int64 widening (value-preserving, no Go-constant overflow) *)
+  (is_f64_to_i64_ref,    "int64");    (* float64 -> int64 truncation-toward-zero (typed-float operand) *)
+  (is_f64_to_u64_ref,    "uint64");   (* float64 -> uint64 truncation-toward-zero *)
+  (is_int_of_fw,         "int");      (* narrow -> platform-int widening (value-preserving) *)
+  (is_num_to_f64_ref,    "float64");  (* int/int64/float32/uint64 -> float64 *)
+  (is_int_to_f32_ref,    "float32");  (* int/int64/uint64 -> float32 direct cast (rounds once) *)
+]
 let rec goexpr_bridge env e =
   match strip_magic e with
   | MLrel i -> mk_goexpr_id (rel_name env i)
@@ -1940,54 +1952,22 @@ let rec goexpr_bridge env e =
            (match goexpr_bridge env x with
             | Some lx -> Some (Printer.EUn (Printer.UXor, lx))
             | None   -> None)
-       (* runtime widening cast [i64_of_u8 x]…[i64_of_i32 x] -> [int64(x)], and the float64->float32
-          narrowing [f32_of_f64 x] -> [float32(x)].  BOTH are identifier-led conversions, hence application
-          syntax [ECall (EId "int64"/"float32") [x]] (amendment 3 — same shape as the [i64_lit]/[u64_lit] arms,
-          only the single operand is a bridged SUB-EXPRESSION, not a folded literal).  [pp_expr] renders each
-          as [<conv>(<pp_expr x>)]; the operand bridges through the SAME [goexpr_bridge] recursion the binop
-          arm uses, so [gprint x] = [pp_expr x] by the bridge invariant and the bytes match.  The [float32]
-          arm carries [operand_is_runtime x] EXACTLY as [pp_expr] (go.ml [is_f64_to_f32_ref] arm) does: a
-          non-runtime operand -- an [f32_lit] or a constant -- renders via the [func(x float64) float32 { return
-          float32(x) }(...)] force-wrapper IIFE this bridge does not reproduce, so it declines (None) and stays
-          on [pp_prec].  [int64(x)] is value-preserving in EVERY position (no Go-constant overflow), so it needs
-          no runtime guard. *)
-       | MLglob r, [x] when is_i64_of_narrow_ref r ->
-           (match goexpr_bridge env x, mk_goexpr_id "int64" with
+       (* the inline identifier-led CONVERSIONS in [inline_conv_table] -> application syntax
+          [ECall (EId "<ty>") [bridge x]] (amendment 3 — same shape as the [i64_lit]/[u64_lit] arms, only the
+          single operand is a bridged SUB-EXPRESSION, not a folded literal).  [pp_expr] renders each as
+          [<ty>(<pp_expr x>)] and the operand bridges through the SAME [goexpr_bridge] recursion, so
+          [gprint x] = [pp_expr x] (bridge invariant) and the bytes match.  All are value-preserving / plain
+          casts rendered UNCONDITIONALLY by [pp_expr] (no force-wrapper), hence no runtime guard — only that the
+          operand bridges. *)
+       | MLglob r, [x] when List.exists (fun (p, _) -> p r) inline_conv_table ->
+           (match goexpr_bridge env x, mk_goexpr_id (snd (List.find (fun (p, _) -> p r) inline_conv_table)) with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
+       (* float64 -> float32 NARROWING [f32_of_f64 x] -> [float32(x)] — like the inline casts but GUARDED by
+          [operand_is_runtime x] EXACTLY as [pp_expr]'s [is_f64_to_f32_ref] arm: a non-runtime operand (an
+          [f32_lit] or a constant) renders via the [func(x float64) float32 { return float32(x) }(...)]
+          force-wrapper IIFE this bridge does not reproduce, so it declines (None) and stays on [pp_prec]. *)
        | MLglob r, [x] when is_f64_to_f32_ref r && operand_is_runtime x ->
-           (match goexpr_bridge env x, mk_goexpr_id "float32" with
-            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
-            | _ -> None)
-       (* float64 -> int64 / uint64 TRUNCATION-toward-zero [i64_of_f64 f] -> [int64(f)] / [u64_of_f64 f] ->
-          [uint64(f)] (go.ml [is_f64_to_i64_ref] / [is_f64_to_u64_ref] arms).  Same identifier-led-conversion
-          [ECall] shape; [pp_expr] renders both inline UNCONDITIONALLY (no force-wrapper — the operand is a
-          typed float64, never an untyped constant), so like [int64(x)] widening they need no runtime guard,
-          only that the operand bridges. *)
-       | MLglob r, [x] when is_f64_to_i64_ref r ->
-           (match goexpr_bridge env x, mk_goexpr_id "int64" with
-            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
-            | _ -> None)
-       | MLglob r, [x] when is_f64_to_u64_ref r ->
-           (match goexpr_bridge env x, mk_goexpr_id "uint64" with
-            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
-            | _ -> None)
-       (* narrow -> platform-[int] widening [int_of_u8 x]…[int_of_i32 x] -> [int(x)] (go.ml [is_int_of_fw] arm),
-          and int/int64/float32/uint64 -> float64 [f64_of_int x] etc. -> [float64(x)] (go.ml [is_num_to_f64_ref]
-          arm).  Both render inline UNCONDITIONALLY (the [int] widen is value-preserving; [float64(x)] is a
-          conversion, not forced arithmetic), so like the other inline casts they need no runtime guard, only
-          that the operand bridges. *)
-       | MLglob r, [x] when is_int_of_fw r ->
-           (match goexpr_bridge env x, mk_goexpr_id "int" with
-            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
-            | _ -> None)
-       | MLglob r, [x] when is_num_to_f64_ref r ->
-           (match goexpr_bridge env x, mk_goexpr_id "float64" with
-            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
-            | _ -> None)
-       (* int/int64/uint64 -> float32 DIRECT cast [f32_of_int x] etc. -> [float32(x)] (go.ml [is_int_to_f32_ref]
-          arm; rounds the integer once, inline unconditionally — no runtime guard, like the other inline casts). *)
-       | MLglob r, [x] when is_int_to_f32_ref r ->
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
