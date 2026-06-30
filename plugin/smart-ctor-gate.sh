@@ -78,10 +78,11 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 #       erasure [MkU8]/[u8raw]→identity is a DIFFERENT legitimate claim — no widen/lowering word — and is spared.)
 #   (b) VAGUE BRIDGE COVERAGE — the verified-printer bridge covers a FIXED set of source predicates (the live
 #       list is the single-sourced $cov_preds below, echoed by the diagnostic so it cannot drift), NOT the
-#       surface bytes (other producers — e.g. int->float32 [is_int_to_f32_ref] — emit the same
-#       [int64(x)]/[float32(x)] unbridged).  Coverage docs must NAME the predicates (no numeric COUNT — counts
-#       drift, see the stale-count guard), not "runtime scalar conversions", and must SPELL OUT
-#       [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand that drops the guard.
+#       surface bytes (other producers — e.g. the masked fixed-width casts [uint8(x)] (rendered [(x & 0xff)]) —
+#       emit similar bytes but stay unbridged).  Coverage docs must NAME the predicates (no numeric COUNT —
+#       counts drift, see the stale-count guard), not "runtime scalar conversions", must SPELL OUT
+#       [operand_is_runtime] (never an `is_f64_to_f32_ref-runtime` shorthand), and must never call a BRIDGED
+#       cov_preds recognizer the "unbridged" example (the bridged-vs-unbridged guard below enforces that).
 # Forbidden CONVERSION-COVERAGE prose (stale identity-lowering + vague bridge-coverage).  Patterns are DENYLIST
 # DATA.  Matching is SPAN-based and case-INsensitive (grep -oiE): each forbidden phrase matches as its OWN span,
 # so an unrelated "NOT identity" elsewhere on the line can NEVER immunize it (the old whole-line "not identity"
@@ -191,3 +192,29 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
   recog_routed "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — $pred should be 'let $pred = named_in [\"lit\"; …]', routing its basename match through the from_builtins-scoped [named_in] rather than a raw [global_basename]."; exit 1; }
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
+
+# 6. BRIDGED-VS-UNBRIDGED honesty — a grep TRIPWIRE: every cov_preds recognizer is now BRIDGED, so no active
+# coverage prose may name one as the "unbridged"/"stays on pp_expr|prec" example (the drift Codex caught after
+# is_int_to_f32_ref was bridged — its old "stays on pp_expr" example became a self-contradiction).  Flags a
+# bridged recognizer within a short window of such a phrase; the legit "unbridged example" must be a genuinely
+# unbridged producer (e.g. the masked fixed-width casts uint8(x)), never a cov_preds member.
+ub_re='unbridged|stays? on pp_(expr|prec)|not bridged'
+ub_near() { printf '%s' "$2" | grep -qE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)"; }
+# self-test: a recognizer right next to "unbridged" is caught; the same name far from the unbridged-example
+# clause (across "; NOT every producer … uint8(x) stays on pp_expr") is spared.
+if ! ub_near is_zz "int->float32 is_zz emits the same float32(x) unbridged" \
+   || ub_near is_zz "is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on pp_expr"; then
+  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke"; exit 1
+fi
+for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md; do
+  [ -f "$f" ] || continue
+  ubflat=$(tr '\n\t' '  ' < "$f" 2>/dev/null | tr -s ' ')
+  for m in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
+    if ub_near "$m" "$ubflat"; then
+      echo "fido: BRIDGED-VS-UNBRIDGED GATE — $f names the BRIDGED cov_preds recognizer $m as 'unbridged'/'stays on pp_expr|prec'; a bridged predicate cannot be the unbridged example (use a genuinely unbridged producer, e.g. the masked fixed-width casts uint8(x)):"
+      printf '%s' "$ubflat" | grep -oE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"
+      exit 1
+    fi
+  done
+done
+echo "fido: bridged-vs-unbridged gate OK — no bridged cov_preds recognizer is called unbridged ✓"
