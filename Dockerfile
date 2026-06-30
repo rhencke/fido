@@ -78,9 +78,9 @@ COPY --chown=opam:opam negtests/ negtests/
 #  (3) AXIOM-MANIFEST GATE (review #4 R10): the MANIFEST flow of the trust-boundary ledger (the full split
 #      is single-sourced in PROGRESS.md "Current gates"; the spine GoAst..GoEmit is gated by the separate
 #      printer/emit greps in steps (5)+below).  `dune build` runs the manifest surfaces' `Print Assumptions`
-#      — `main_effect`, GoSem.v's `gosem_trust_surface`, the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-#      `denote_program_run_agrees`), and `panic_free_runs_ret`; each bundling constant's report is the UNION of
-#      its whole transitive cone — into the build log.  Capture each `Axioms:` report (plugin/manifest-axioms.sh
+#      (the surfaces are enumerated ONLY in PROGRESS.md "Current gates" — not duplicated here; each bundling
+#      constant's report is the UNION of its whole transitive cone) into the build log.  Capture each `Axioms:`
+#      report (plugin/manifest-axioms.sh
 #      — the SAME extractor the self-test uses — no longer stops at `Extracted to`, so a surface that prints
 #      after extraction is still caught) and assert the union EXACTLY equals the committed
 #      EXPECTED_ASSUMPTIONS.txt (currently EMPTY — rule 3, zero axioms).  A NEW axiom in a manifest cone — a
