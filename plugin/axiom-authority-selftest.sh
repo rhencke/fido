@@ -58,6 +58,12 @@ printf 'Axiom hidden_ax : False.\nLemma uses_it : False. Proof. exact hidden_ax.
 mirror=$(compile s.v); fresh
 [ "$(printf '%s' "$mirror" | extract)" = hidden_ax ] || { echo "fido: AXIOM-AUTHORITY — surface-mirror: an axiom in a bundled tuple's cone was NOT reported (the gosem_trust_surface gate would miss it)"; echo "$mirror"; exit 1; }
 
+# APOSTROPHE NAME: primed identifiers (e.g. Cmd_rect') are valid Rocq; the extractor must report the FULL name,
+# `forged'` not `forged` — an enumerated identifier char class silently dropped these.
+printf "Axiom forged' : False.\nTheorem ap_thm : False. Proof. exact forged'. Qed.\nPrint Assumptions ap_thm.\n" > "$work/s.v"
+ap=$(compile s.v); fresh
+[ "$(printf '%s' "$ap" | extract)" = "forged'" ] || { echo "fido: AXIOM-AUTHORITY — the extractor missed/mangled an apostrophe axiom name (expected forged')"; echo "$ap"; exit 1; }
+
 # POSITIVE CONTROL: an axiom-free theorem must surface NOTHING (so "no axioms" is a real signal, not vacuous).
 printf 'Theorem t : True. Proof. exact I. Qed.\nPrint Assumptions t.\n' > "$work/s.v"
 ctl=$(compile s.v); fresh
