@@ -293,15 +293,18 @@ let is_f32_cmp_ref    r = List.mem (global_basename r)
                             ["f32_ltb"; "f32_leb"; "f32_eqb"; "f32_gtb"; "f32_geb"; "f32_neqb"]
 
 (* [int_of_u8] / [int_of_i8] / [int_of_u16] / [int_of_i16] — WIDEN a fixed-width
-   value to [int].  Lowers to identity: the fixed-width carrier is already int64
-   and holds the exact value (sign-/zero-extended), so the conversion is a no-op
-   at runtime.  ([FW_of_int] NARROWS — handled via [fixed_width_op]'s "of_int".) *)
+   value to [int].  The MODEL value is preserved (the int64 carrier already holds the
+   sign-/zero-extended value), but the EMITTED Go is a real cast [int(x)], NOT identity:
+   a narrow Go param [x uint8] is a real [uint8], so a bare [x] at an [int] destination
+   is invalid Go (review #4 P1 #4) — see the [is_int_of_fw] emission arm.
+   ([FW_of_int] NARROWS — handled via [fixed_width_op]'s "of_int".) *)
 let is_int_of_fw r =
   List.mem (global_basename r)
     ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"; "int_of_u32"; "int_of_i32"]
 
-(* Full-width int64 <-> uint64 conversions.  Unlike the narrow widths (which erase
-   to int64, so a widen is identity), [GoU64] lowers to a real Go [uint64], so the
+(* Full-width int64 <-> uint64 conversions.  Unlike the narrow widths (whose value is
+   already int64-carried and which widen via an INLINE cast [int(x)]/[int64(x)], not
+   identity), [GoU64] lowers to a real Go [uint64], so the
    reinterpret is an actual Go type conversion [uint64(x)] / [int64(x)].  Emitted as
    a small NAMED function [func U64_of_i64(a int64) uint64 { return uint64(a) }] (see
    [pp_function]), NOT inlined at call sites — so the conversion always applies to the
@@ -1854,8 +1857,10 @@ let raw_term tab next =
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
    platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), the bare unary
-   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and the runtime scalar conversions
-   [int64(x)] (narrow-width widening) / [float32(x)] (float64 narrowing) as application-syntax [ECall]s —
+   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and EXACTLY two runtime conversions as
+   application-syntax [ECall]s — narrow->int64 widening ([is_i64_of_narrow_ref], [int64(x)]) and
+   float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]); NOT the other
+   producers of the same [int64(x)]/[float32(x)] surface bytes ([i64_of_f64], [f32_of_int], …) which stay on [pp_prec] —
    which is then printed by the extracted, machine-checked
    [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
@@ -2545,7 +2550,8 @@ let rec pp_expr state env = function
            (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
               gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
-              the bare int64/uint64 complement [^x] / the runtime scalar conversions [int64(x)]·[float32(x)])
+              the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] / float64→float32
+              [is_f64_to_f32_ref]-under-[operand_is_runtime])
               via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
@@ -2863,8 +2869,8 @@ and pp_atom state env e =
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
    [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
-   int·int64·uint64 literals / the bare int64/uint64 complement [^x] / the runtime scalar conversions
-   [int64(x)]·[float32(x)]) is delegated to the VERIFIED
+   int·int64·uint64 literals / the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] /
+   float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime]) is delegated to the VERIFIED
    [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
@@ -4646,7 +4652,7 @@ let is_inlined_ref r =
   is_str_len_ref r || is_str_concat_ref r || is_str_at_ok_ref r ||
   is_str_slice_ref r || ref_has_suffix r ".String.substring" ||  (* s[a:b]: recognized → slice expr; body + substring suppressed *)
   is_str_eqb_ref r || is_str_ltb_ref r || is_str_cmp_ref r || is_f64_cmp_ref r || is_f32_cmp_ref r ||
-  is_int_of_fw r ||  (* widening conversions — emitted as identity at call sites *)
+  is_int_of_fw r ||  (* widening conversions — call sites recognized and emitted as a real [int(x)] cast; body suppressed *)
   is_for_each_ref r || is_slice_fold_ref r || is_run_blocks_ref r ||
   is_ref_type r || is_ref_new_ref r || is_ref_get_ref r || is_ref_set_ref r ||
   is_ptr_type r || is_ptr_new_ref r || is_go_new_ref r || is_ptr_get_ref r || is_ptr_set_ref r ||
@@ -4680,7 +4686,7 @@ let is_inlined_ref r =
   is_f64_to_i64_ref r || String.equal (global_basename r) "f64_trunc_Z" ||  (* float64→int64 cast → int64(x); the Prim2SF-match body (f64_trunc_Z) suppressed *)
   is_f64_to_u64_ref r ||  (* float64→uint64 cast → uint64(x); shares the suppressed f64_trunc_Z body *)
   is_cw_eqb_ref r || is_comparable_witness_inst r || String.equal (global_basename r) "MkComparableW" ||  (* comparable-constraint witness machinery: cw_eqb→==, instances dropped as args *)
-  is_i64_of_narrow_ref r ||  (* narrow→int64 widening → identity; the to_Z-match body suppressed *)
+  is_i64_of_narrow_ref r ||  (* narrow→int64 widening — call sites cast to [int64(x)] (NOT identity); the to_Z-match body suppressed *)
   is_f64_to_f32_ref r ||  (* float64→float32 narrowing ([f32_of_f64]/[f32_lit]) → float32(x); SpecFloat round body suppressed *)
   is_int_to_f32_ref r ||  (* DIRECT int→float32 → float32(x); binary_normalize body suppressed *)
   is_f32_round r ||  (* [f32_round] (binary32 rounding helper): proof-only — only inside by-name-lowered ops *)

@@ -651,7 +651,8 @@ Coq's `andb` IS that definition — `spec_andb`/`spec_orb`/`spec_negb` by
 Spec: "When converting between integer types, ... it is then truncated to fit in
 the result type's size."
 **Integer conversions among `{int, uint8, int8, uint16, int16, uint32, int32}` — ✓.**  Routed
-through the `int` carrier: `int_of_FW` WIDENS (value preserved; lowers to identity)
+through the `int` carrier: `int_of_FW` WIDENS (value preserved in the model; EMITTED as a real
+cast `int(x)`, NOT identity — a narrow Go value at an `int` boundary needs it, review #4 P1 #4)
 and `FW_of_int` NARROWS (truncate — `land` for `uintN`, mask+sign-extend for `intN`
 — exactly Go's `uint8(x)`/`int8(x)`, no representability proof since a conversion
 truncates rather than rejects).  Cross-width by composition (`uint8(int16val)` =
@@ -665,8 +666,9 @@ Machine-checked (`spec_u8_of_int_trunc`…`spec_i16_of_u8_cross`): `uint8(1000)=
 `uint64(x)`/`int64(x)`: a two's-complement REINTERPRET of the 64-bit pattern, EXACT (no
 rounding).  The Z carrier re-normalises mod 2⁶⁴ (`MkU64 (wrapU64 (i64raw a))` /
 `MkI64 (wrap64 (u64raw a))`), faithful by `wrap64_wrapU64` (the int64 and uint64
-normalisers agree mod 2⁶⁴ — axiom-free).  Distinct from the narrow widths (which erase
-to int64, so widen = identity) because `GoU64` lowers to a real Go `uint64`.  Emitted as
+normalisers agree mod 2⁶⁴ — axiom-free).  Distinct from the narrow widths (whose value is
+int64-carried and which widen via an INLINE cast `int64(x)`/`int(x)`, not identity) because
+`GoU64` lowers to a real Go `uint64`.  Emitted as
 a small NAMED function `func U64_of_i64(a int64) uint64 { return uint64(a) }` so the cast
 applies to the parameter VARIABLE — Go rejects `uint64(-1)` on an untyped CONSTANT but
 accepts it on an int64-typed value.  Machine-checked `conv_u64_of_neg1` (`-1 → 2⁶⁴-1`),

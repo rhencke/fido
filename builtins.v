@@ -1359,8 +1359,9 @@ Fail Definition u8_shl_neg : GoU8 := u8_shl (u8_lit 1 eq_refl) (MkGoInt (-1)%Z (
     Every conversion routes through the [int] carrier, which already holds each
     fixed-width value's exact mathematical value (sign-extended for [intN],
     zero-extended for [uintN]):
-    - [int_of_FW] WIDENS to [int] — value preserved (every [uintN]/[intN] fits in
-      [int]); lowers to identity (the carrier is already int64).
+    - [int_of_FW] WIDENS to [int] — value preserved in the model (every [uintN]/[intN]
+      fits in [int]), but EMITTED as a real cast [int(x)], NOT identity (a narrow Go value
+      at an [int] boundary needs it, review #4 P1 #4).
     - [FW_of_int] NARROWS [int] to the width — TRUNCATE ([land] to [uintN], or
       mask+sign-extend [norm] to [intN]) — exactly Go's [uint8(x)]/[int8(x)].  No
       representability proof (unlike [*_lit]): a conversion truncates, it does not
@@ -1389,9 +1390,10 @@ Fail Definition u8_of_i16_direct (y : GoI16) : GoU8 := u8_of_int y.
     range and lands unchanged in [GoI64].  Distinct from the narrow [int_of_FW]
     (which targets the index-[int]); these target the value-[int64].
     MODELED + machine-checked (witnesses in main.v).  The body is now a PURE [Z] re-wrap
-    ([i64wrap] of the narrow's [Z] reading — no int63 detour; review #6 #13→zero-axioms), and
-    the lowering is identity: the narrow already erases to a Go [int64] holding exactly this
-    value, so [int64(x)] is a no-op cast. *)
+    ([i64wrap] of the narrow's [Z] reading — no int63 detour; review #6 #13→zero-axioms): the
+    MODEL value is preserved (the narrow's [Z] lands unchanged in [GoI64]), but the EMITTED Go is
+    a real widening cast [int64(x)], NOT identity — a narrow Go value at an int64 boundary needs the
+    cast (review #4 P1 #4). *)
 Definition i64_of_u8  (a : GoU8)  : GoI64 := i64wrap (u8raw  a).
 Definition i64_of_i8  (a : GoI8)  : GoI64 := i64wrap (i8raw  a).
 Definition i64_of_u16 (a : GoU16) : GoI64 := i64wrap (u16raw a).
@@ -3846,7 +3848,7 @@ Definition slice_of_list {A} (_ : GoTypeTag A) (xs : list A) : GoSlice A := xs.
     plain [[]T] — the plugin renders it [...T], not [[]T]; no [Comparable] is needed for a
     variadic param so the phantom-breaks-equality issue that ruled this out for [GoI64] does
     not apply here).  [vararg xs] marks a call argument for spreading ([xs...]); inside [f],
-    [va_slice] recovers the slice (it is the param itself, so it lowers to identity). *)
+    [va_slice] recovers the slice (it IS the param itself — the projection is erased, no Go emitted). *)
 Record Variadic (T : Type) := MkVariadic { va_slice : GoSlice T ; va_ph : bool }.
 Arguments MkVariadic {T} _ _.
 Arguments va_slice {T} _.  Arguments va_ph {T} _.

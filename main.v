@@ -368,9 +368,10 @@ Proof. vm_compute. reflexivity. Qed.
 Definition f32_combine (a b c : GoFloat32) : GoFloat32 := f32_mul (f32_add a b) c.
 Definition f32_demo : IO unit :=
   println [ any (f32_combine (f32_lit 1.5) (f32_lit 2.25) (f32_lit 2)) ].   (* (1.5+2.25)*2 = 7.5 *)
-(** narrow → int64 WIDENING LOWERED: [i64_of_u8]…[i64_of_i32] → IDENTITY (the narrow already
-    erases to a Go int64 holding the value; the widen is value-preserving).  The faithful
-    [to_Z]-crossing body is suppressed; the op is recognised as identity. *)
+(** narrow → int64 WIDENING: [i64_of_u8]…[i64_of_i32] preserve the VALUE (the narrow's [Z]
+    lands unchanged in the int64 carrier), but the EMITTED Go is a real widening cast [int64(x)],
+    NOT identity (see the param case below + the [is_i64_of_narrow_ref] emission arm).  The faithful
+    [to_Z]-crossing body is suppressed; the op is recognised at call sites and cast. *)
 Definition i64_of_narrow_demo : IO unit :=
   println [ any (i64_of_u8  (u8_lit 200 eq_refl))         (* 200 *)
           ; any (i64_of_i8  (i8_of_int (int_lit (-5) eq_refl)))      (* -5  (signed widen keeps sign) *)
@@ -605,7 +606,7 @@ Definition vlet (x z : GoI64) : GoI64 := i64_add (let y := i64_add x x in i64_ad
 Example vlet_val : i64raw (vlet (5)%i64 (1)%i64) = 21%Z.   Proof. vm_compute. reflexivity. Qed.
 Definition vlet_demo : IO unit := println [ any (vlet (5)%i64 (1)%i64) ].   (* (5+5)+(5+5) + 1 = 21 *)
 (** narrow ↔ uint64 — CLOSED via the int64 HUB, no new ops.  Every integer conversion factors
-    through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (widen is identity, then the
+    through [GoI64]: narrow→uint64 is [u64_of_i64 ∘ i64_of_narrow] (the widen emits [int64(x)], then the
     [uint64(x)] reinterpret); uint64→narrow is [<narrow>_of_i64 ∘ i64_of_u64] ([int64(x)]
     reinterpret, then mask/sign-extend).  Each leg already lowers, and the NAMED hub functions
     [U64_of_i64]/[I64_of_u64] apply the cast to a VARIABLE — so even the signed corners a bare

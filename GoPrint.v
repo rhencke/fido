@@ -8,8 +8,10 @@
     the plugin calls, so the plugin runs the SAME printer Rocq reasons about.
 
     LIVE WIRING: the extracted [gprint] is called by the plugin for a SMALL expression class today (a binop
-    tree over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement [^x], and the runtime
-    scalar conversions [int64(x)]/[float32(x)]); every other
+    tree over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement [^x], and exactly two
+    runtime conversions — narrow->int64 widening [is_i64_of_narrow_ref] and float64->float32 narrowing
+    [is_f64_to_f32_ref]+[operand_is_runtime], NOT the other producers of the same [int64(x)]/[float32(x)]
+    bytes); every other
     expression shape is still printed by the trusted OCaml [pp_expr] in [plugin/go.ml].  So this file does NOT
     make the live Go "verified."
 
