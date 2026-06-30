@@ -18,11 +18,12 @@
                            denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to an INTEGER CONSTANT —
-    literals, integer CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint] — boxed via
-    the model's value ctors, failing closed on an out-of-range value) supplies the printed/panicked values;
-    FLOAT consts, bools, non-literal strings, [GTUint], and RUNTIME values ([len(..)]/[int(x)]…) are the next
-    sub-slices and [eval] to [None] there.
+    [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
+    INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
+    or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
+    failing closed on an out-of-range/out-of-interval value) supplies the printed/panicked values; bools,
+    non-literal strings, [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the
+    next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -42,7 +43,7 @@ Import ListNotations.
     yields [None] HERE, not a silently [*wrap]-mangled value — exactness does NOT rely on a caller having gated
     (rule 4: evidence at the builder).  When in range the [*wrap] constructor is IDENTITY, so it builds EXACTLY
     the model's value (e.g. [int64(3)] -> [anyt TI64 (i64wrap 3)] = [MkI64 3], what the model's [println]
-    carries).  [GTUint] stays [None] (no proof-free [GoUint] wrap yet); floats are the next sub-slice. *)
+    carries).  [GTUint] stays [None] (no proof-free [GoUint] wrap yet); floats go through [box_float] below. *)
 Definition box_int (t : GoTy) (z : Z) : option GoAny :=
   if int_const_repr z t then
     match t with
@@ -59,23 +60,42 @@ Definition box_int (t : GoTy) (z : Z) : option GoAny :=
     end
   else None.
 
+(** Box a float-CONSTANT VALUE — an integer [z] that an EXACT float of type [t] ([GTFloat64]/[GTFloat32]) came
+    from — as the MODEL's runtime [GoAny], or [None].  FAILS CLOSED at the boundary with the SAME guard [ptype]
+    used to FORM [PtFloatConst] ([int_in_float_exact_interval]: is [z] in the CONTIGUOUS exactly-representable
+    interval [[-2^53,2^53]] / [[-2^24,2^24]]?), so an out-of-interval [z] yields [None] HERE — no rounded-lie
+    value.  In range the boxed value is the UNIQUE canonical binary64/binary32 form of [z] ([renorm 53 1024] /
+    [f32_lit] over the model's [sf_of_Z]), EXACTLY the float the model carries (inside the interval EVERY
+    integer is exact, so there is no rounding).  Float CONSTANT arithmetic / fractional literals never reach
+    here — [PtFloatConst] carries an integer [z], and [ptype] does not fold them (over-rejected). *)
+Definition box_float (t : GoTy) (z : Z) : option GoAny :=
+  if int_in_float_exact_interval t z then
+    match t with
+    | GTFloat64 => Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z z)))   (* canonical binary64 of [z] *)
+    | GTFloat32 => Some (anyt TFloat32 (f32_lit (sf_of_Z z)))           (* [f32_lit] rounds-in to canonical binary32 (exact here) *)
+    | _         => None
+    end
+  else None.
+
 (** Evaluate a value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's bridged subset.
-    FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds an integer constant to
-    its VALUE and TYPE ([PtIntConst z] = untyped, taking default [int]; [PtTIntConst t z] = a typed const, e.g.
-    a conversion [int64(3)] or typed-const arithmetic), and [box_int] attaches the model value, FAILING CLOSED
-    on an out-of-range [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a string LITERAL
-    ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer constant whose
-    default-[int] value is in range, and a supported TYPED integer constant — i.e. integer literals,
-    CONVERSIONS [int64(3)] (EXCLUDING [GTUint], no [GoUint] box yet), ARITHMETIC [1+2], complement [^x] — with
-    NO second folding logic.  ABSENT (-> [None], the next sub-slices): float constants, bools, non-literal
-    strings, [GTUint], and all RUNTIME values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly
-    absent, never wrong. *)
+    FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds a numeric constant to
+    its VALUE and TYPE ([PtIntConst z] = untyped int, taking default [int]; [PtTIntConst t z] = a typed int
+    const, e.g. a conversion [int64(3)] or typed-const arithmetic; [PtFloatConst t z] = a typed float const that
+    came from the EXACT integer [z]), and [box_int] / [box_float] attach the model value, FAILING CLOSED on an
+    out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
+    string LITERAL ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer
+    constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
+    [int64(3)] EXCLUDING [GTUint], ARITHMETIC [1+2], complement [^x]), and a TYPED FLOAT constant of an exact
+    integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  ABSENT (-> [None], the next
+    sub-slices): bools, non-literal strings, [GTUint], and all RUNTIME values ([PtRunInt]/[PtRunFloat]:
+    [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
-  | Some (PtIntConst z)    => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
-  | Some (PtTIntConst t z) => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-  | Some PtStr             => match e with EStr s => Some (anyt TString s) | _ => None end     (* a string LITERAL ([PtStr] carries no value) *)
-  | _                      => None
+  | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
+  | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
+  | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
+  | Some PtStr              => match e with EStr s => Some (anyt TString s) | _ => None end     (* a string LITERAL ([PtStr] carries no value) *)
+  | _                       => None
   end.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -289,6 +309,29 @@ Proof. reflexivity. Qed.
 Example gosem_conv_demo_runs : forall w,
   match denote_program gosem_conv_demo_prog with Some c => run_cmd 5 c w | None => None end
   = Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w)).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** GROWTH (slice 1 -> exact-integer-valued FLOAT constants): [eval_value] now denotes a [PtFloatConst] too,
+    boxing it as the model's UNIQUE canonical binary64/binary32 value (faithful — inside the contiguous-exact
+    interval every integer is exact).  Pinned for [float64]/[float32]; the boundary fails closed; and
+    END-TO-END `println(float64(3))` runs to [w_log true [GoFloat64 3.0]] (the canonical binary64 of 3). *)
+Example eval_float64_conv : eval_value (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3])
+                          = Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3))).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_float32_conv : eval_value (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5])
+                          = Some (anyt TFloat32 (f32_lit (sf_of_Z 5))).
+Proof. vm_compute. reflexivity. Qed.
+Example box_float_oob_none : box_float GTFloat64 9007199254740993 = None.   (* 2^53+1 ∉ [-2^53,2^53] (NOT exactly representable): rejected at the builder *)
+Proof. reflexivity. Qed.
+Definition gosem_float_demo_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]]); GsReturn].
+Example gosem_float_demo_supported : supported_program gosem_float_demo_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_float_demo_runs : forall w,
+  match denote_program gosem_float_demo_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** NEGATIVE (Codex 2026-06-30): the eval growth must FAIL CLOSED at the BOUNDARY, never carry a *wrap-mangled
