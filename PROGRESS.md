@@ -90,20 +90,17 @@ live emission is not "verified Go."
   NOT the semantics of the certified-emission path), `concurrency.v` (calculus-agnostic trace / happens-before /
   race / bounded-deadlock theory).
 - **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` totally
-  translates cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment — `COut`'s println flag
-  PRESERVED (`unified.v`'s `UOut`/`uc_out` now carry the bool, matching the model's `w_output`, so print≠println
-  is not collapsed). `cmd_to_ucmd_runs` proves EXACT OUTPUT EVENTS + EXACT PANIC + RUN-TO-DONE for the DEFER-FREE
-  fragment (`cmd.no_defer`, which GoSem slice 1 denotes): running `cmd_to_ucmd c` `usteps` to completion
-  (`uc_live 0 := false`), emitting EXACTLY `c`'s output events (flag+payload) into `uc_out`, ending
-  `uc_panic 0 = cmd_panic c`. `GoSemUnified.denote_program_usteps` COMPOSES it with GoSem: a DENOTED program
-  (`denote_program p = Some c`) runs under `ustep` (`no_defer` discharged via `denote_body_no_defer`) — GoSem's
-  denotation now runs on the SAME `ustep` race-freedom/liveness are proved on. Zero axioms. ⚠ Defer
-  (`run_defers` ↔ `UDfr` LIFO) + channel/heap/spawn are NOT yet bridged — later slices.
-- **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context". The
-  manifest gate covers EVERY module-level `Print Assumptions` in the build log (currently `main_effect`,
-  `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_runs` / `run_cmd_seals_events` /
-  `denote_program_usteps` — Rocq's own assumption output over each whole cone, not a source scan);
-  `EXPECTED_ASSUMPTIONS.txt` is empty and the build fails on any drift in any of them.
+  translates cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment, `COut`'s println flag
+  PRESERVED (`UOut`/`uc_out` carry the bool, matching `w_output`). PUBLIC result `denote_program_run_agrees`: a
+  DENOTED program (`denote_program p = Some c`, `no_defer` discharged) runs under `ustep` to completion AND AGREES
+  with cmd.v's authoritative `run_cmd 1 c w` — unified output events = `run_cmd`'s appended `w_output`, `uc_panic 0`
+  = the Outcome's panic (grounded via the seal `run_cmd_seals_events`: the internal `cmd_out_events`/`cmd_panic`
+  ARE `run_cmd`/`w_output`, not a 2nd observer). So GoSem's denotation runs on the SAME `ustep`
+  race-freedom/liveness hold on. Zero axioms. ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
+- **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the
+  manifest gate, the printer gate, and the emit gate (see **Current gates** for the exact split) each assert
+  their surfaces zero-axiom via Rocq's own assumption output, `EXPECTED_ASSUMPTIONS.txt` is empty, and the
+  build fails on any drift.
 - **Golden end-to-end**: `make check` extracts and diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
@@ -136,8 +133,8 @@ literals + integer constants/conversions/arithmetic + exact-integer-valued float
 (numeric/string-literal comparisons, `&&`/`||`/`!`, `bool(x)`)). Continue: `eval_value` for runtime values
 (`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats; the COMPLETENESS converse
 (supported ⇒ denotes). BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
-(`cmd_unified.v` + `GoSemUnified.v`: exact output/panic for the defer-free fragment, `denote_program_usteps`
-already composes DENOTED programs under `ustep`); next bridge slices are DEFER (cmd.v `run_defers` ↔ unified
+(`cmd_unified.v` + `GoSemUnified.v`: `denote_program_run_agrees` already runs DENOTED programs under `ustep`
+agreeing with `run_cmd`, for the defer-free fragment); next bridge slices are DEFER (cmd.v `run_defers` ↔ unified
 `UDfr` LIFO) and the channel/heap/spawn effects, then LIFT SUPPORTED programs once the completeness converse +
 remaining effects land. Then `BehaviorSafe` → `SafeProgram`
 (= EmittableProgram + BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel,
@@ -152,14 +149,17 @@ separate, still-trusted TCB.
 
 ## Current gates
 
-- `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the axiom-manifest
-  gate (`Print Assumptions` vs empty `EXPECTED_ASSUMPTIONS.txt` — now captures EVERY module's `Axioms:` report,
-  so it also gates GoSem's trusted-theorem surface zero-axiom via Rocq's own output), the axiom-authority
-  self-test (pins that gate catches every axiom declaration form), the fail-closed `negtests/` harness, the
-  smart-ctor / dead-name / emission-discipline / bridge-recognizer gate, `emit-demo` (certified bytes go-build),
-  gofmt, and `go vet`.
-- `make emit-verify` — local: spine compiles zero-axiom (GoAst/GoPrint/GoTypes/GoSafe/GoEmit).
-- `make printer-verify` — local: GoPrint zero-axiom + `plugin/printer.ml` in sync.
+Zero-axiom is gated by `Print Assumptions` in THREE flows (trust-boundary ledger — single-sourced here):
+**manifest** (`manifest-axioms.sh` diffs the `dune build` log's `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`)
+covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_runs` / `run_cmd_seals_events` /
+`denote_program_run_agrees`); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
+grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not a gated public surface.
+
+- `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
+  flows above, the axiom-authority self-test, the fail-closed `negtests/` harness, the smart-ctor / dead-name /
+  emission-discipline / bridge-recognizer gate, `emit-demo` (certified bytes go-build), gofmt, and `go vet`.
+- `make emit-verify` / `make printer-verify` — local mirrors of the emit / printer gates (spine zero-axiom +
+  `plugin/printer.ml` in sync).
 - `make negtest` — local: each `negtests/*.v` ABORTS extraction at a fail-closed backend site.
-- Pre-commit hook (`make install-hooks`): re-extracts + auto-stages Go, and an anti-axiom scan over every
-  tracked `.v`.
+- Pre-commit hook (`make install-hooks`): re-extracts + auto-stages Go, and an anti-axiom DECLARATION scan over
+  every tracked `.v`.

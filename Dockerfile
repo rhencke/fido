@@ -75,18 +75,19 @@ COPY --chown=opam:opam negtests/ negtests/
 #      regenerated.  So force every current driver's .vo out, making it recompile and
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
-#  (3) AXIOM-MANIFEST GATE (review #4 R10): `dune build` runs EVERY module's `Print Assumptions` —
-#      `main_effect`, GoSem.v's `gosem_trust_surface`, and the bridge surfaces (`cmd_to_ucmd_runs` /
-#      `run_cmd_seals_events` / `denote_program_usteps`); each bundling constant's report is the UNION
-#      of its whole transitive cone — emitting their trust bases into the build log.  Capture EVERY
-#      module's `Axioms:` report (the extractor, plugin/manifest-axioms.sh — the SAME one the self-test
-#      uses — no longer stops at `Extracted to`, so a surface that prints after extraction is still
-#      caught) and assert the union EXACTLY equals the committed EXPECTED_ASSUMPTIONS.txt (currently
-#      EMPTY — rule 3, zero axioms).  A NEW axiom in ANY gated cone — a stray `Require` pulling in
-#      funext/Classical, a `Local Axiom`/`Polymorphic Axiom`/`Admitted` a source regex would miss, a
-#      transitive one — FAILS the build here.  Being Rocq's OWN assumption output over each whole cone,
-#      this is the complete AUTHORITY for every printed surface (NOT a module-wide claim — a theorem
-#      outside its module's surface tuple is not certified); the pre-commit source scan is only a coarse
+#  (3) AXIOM-MANIFEST GATE (review #4 R10): the MANIFEST flow of the trust-boundary ledger (the full split
+#      is single-sourced in PROGRESS.md "Current gates"; the spine GoAst..GoEmit is gated by the separate
+#      printer/emit greps in steps (5)+below).  `dune build` runs the manifest surfaces' `Print Assumptions`
+#      — `main_effect`, GoSem.v's `gosem_trust_surface`, and the bridge surfaces (`cmd_to_ucmd_runs` /
+#      `run_cmd_seals_events` / `denote_program_run_agrees`); each bundling constant's report is the UNION of
+#      its whole transitive cone — into the build log.  Capture each `Axioms:` report (plugin/manifest-axioms.sh
+#      — the SAME extractor the self-test uses — no longer stops at `Extracted to`, so a surface that prints
+#      after extraction is still caught) and assert the union EXACTLY equals the committed
+#      EXPECTED_ASSUMPTIONS.txt (currently EMPTY — rule 3, zero axioms).  A NEW axiom in a manifest cone — a
+#      stray `Require` pulling in funext/Classical, a `Local Axiom`/`Polymorphic Axiom`/`Admitted` a source
+#      regex would miss, a transitive one — FAILS the build here.  Being Rocq's OWN assumption output over
+#      each whole cone, this is the complete AUTHORITY for these printed surfaces (NOT a module-wide claim —
+#      a theorem outside its module's surface tuple is not certified); the pre-commit source scan is only a coarse
 #      declaration tripwire.  Step (0) below self-tests that this authority catches every tabled form.
 #  (4) NEGTEST HARNESS (review #4 R10): `negtests/run.sh` compiles each negative fixture and
 #      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
@@ -106,8 +107,8 @@ COPY --chown=opam:opam negtests/ negtests/
 #      `Print Assumptions` output, parsed by the shared plugin/manifest-axioms.sh — catches an axiom introduced
 #      by every declaration form in its TABLE (plain/Local/Global/Polymorphic/Monomorphic Axiom, Parameter,
 #      plurals, Conjecture, attribute stacks) and that the kernel rejects the rest (Private Axiom, top-level
-#      Context); plus a tuple surface-mirror of GoSem's gosem_trust_surface.  This is what makes the GoSem axiom
-#      gate a real seal rather than a bypassable regex; it compiles tiny snippets, so it runs in the prover stage.
+#      Context); plus a tuple surface-mirror of GoSem's gosem_trust_surface.  This is what makes the manifest
+#      axiom gate a real seal rather than a bypassable regex; it compiles tiny snippets, so it runs in the prover stage.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
     && sh plugin/axiom-authority-selftest.sh \

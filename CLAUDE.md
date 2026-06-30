@@ -132,17 +132,17 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `cmd.v` effect evaluator, and `rstep` are earlier, NARROWER fragments.
 - `cmd_unified.v` / `GoSemUnified.v` — proof-only (emits no Go): the FIRST slice of that bridge. `cmd_to_ucmd`
   totally translates `cmd.v`'s command tree into `unified.v`'s output/panic/return/defer fragment (println flag
-  PRESERVED into `UOut`/`uc_out`); `cmd_to_ucmd_runs` proves EXACT output events + EXACT panic + run-to-done for
-  the DEFER-FREE fragment; `GoSemUnified.denote_program_usteps` COMPOSES it with GoSem (`denote_program p = Some c`
-  ⟹ runs under `ustep`, `no_defer` discharged via `denote_body_no_defer`). Defer + channel/heap/spawn are later
+  PRESERVED into `UOut`/`uc_out`). The PUBLIC result `GoSemUnified.denote_program_run_agrees`: a DENOTED program
+  (`denote_program p = Some c`, `no_defer` discharged) runs under `ustep` AND agrees with cmd.v's authoritative
+  `run_cmd 1 c w` on output + panic (grounded via the seal `run_cmd_seals_events`). Defer + channel/heap/spawn are later
   slices. Zero axioms.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
-- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set that EVERY module-level
-  `Print Assumptions` in the build log may depend on (currently `main_effect`, GoSem's `gosem_trust_surface`,
-  and the bridge surfaces `cmd_to_ucmd_runs` / `run_cmd_seals_events` / `denote_program_usteps` — NOT a fixed
-  list; the gate reads them all). As of 445aca3 this file is
+- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set the MANIFEST-gate surfaces
+  (`main_effect`, GoSem's `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_runs` /
+  `run_cmd_seals_events` / `denote_program_run_agrees`) may depend on. (The spine GoAst..GoEmit is gated
+  zero-axiom by the separate standalone printer/emit gates — see PROGRESS.md "Current gates".) As of 445aca3 this file is
   **EMPTY** — the model is axiom-free ("Closed under the global context"); the old
   PrimInt63/PrimFloat substrate is gone (integers `Z`, locations `nat`, floats `spec_float`).
   The Dockerfile's prover stage extracts EVERY module's `Axioms:` report (via the shared

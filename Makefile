@@ -65,7 +65,7 @@ negtest:
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
 
-# Axiom-authority self-test: pin that the GoSem axiom gate of record — Rocq's own `Print Assumptions`,
+# Axiom-authority self-test: pin that the manifest axiom gate of record — Rocq's own `Print Assumptions`,
 # captured by the Docker manifest gate — catches an axiom in EVERY declaration form (Local/Global/Polymorphic
 # Axiom, attributes, …) or that the kernel rejects it. Needs host rocq (compiles tiny snippets). Runs
 # non-bypassably in the Docker prover stage; this is the local mirror.

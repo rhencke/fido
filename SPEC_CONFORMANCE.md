@@ -7,8 +7,8 @@ section maps to a region of the model.  Each entry: the spec rule (the SOURCE of
 our behavior, cited), our model, status, and the machine-checked witness.
 
 **The entire model is AXIOM-FREE.**  The authority is Rocq's own `Print Assumptions`,
-gated non-bypassably in the Docker prover stage (the axiom-manifest gate diffs every
-module's `Axioms:` report against the EMPTY `EXPECTED_ASSUMPTIONS.txt`); a source grep
+gated non-bypassably in the Docker prover stage (the manifest / printer / emit flows —
+see PROGRESS.md "Current gates" — assert their surfaces' `Axioms:` reports empty); a source grep
 `grep -cE '^Axiom |^Parameter ' *.v` = 0 is only a coarse commit-time tripwire (legal
 declaration forms — `Local`/`Polymorphic Axiom`, attribute stacks — bypass it).  So every
 ✓ below rests on a `Definition`/`Theorem` over a CONCRETE model (the `World` is a
