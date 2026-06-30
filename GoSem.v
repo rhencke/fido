@@ -799,6 +799,14 @@ Example eval_uint_present   : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [
 Proof. vm_compute. reflexivity. Qed.
 Example eval_uint_oob_none  : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]) = None.   (* 2^32 ∉ GTUint's CONSERVATIVE 32-bit range — still FAILS CLOSED *)
 Proof. vm_compute. reflexivity. Qed.
+(* The [mk_uint] boxing makes [ptype]'s uint overflow/underflow rejection LOAD-BEARING for faithful-or-absent:
+   Go REJECTS [uint(3)-uint(5)] ("constant overflows uint"), so [ptype] must decline it (it does -> [None]),
+   and [eval_value] must NOT box a wrapped value.  A VALID uint ARITHMETIC const, by contrast, boxes its exact
+   value — proving [GTUint] now participates in arithmetic, not just literal conversions. *)
+Example eval_uint_underflow_none : eval_value (EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5])) = None.
+Proof. vm_compute. reflexivity. Qed.
+Example eval_uint_add_faithful   : eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl)).
+Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
     agrees with whether the program denotes — TRUE for the denoting demos (`println("hi")`, the `return`-stops
