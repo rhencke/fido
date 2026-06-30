@@ -6,13 +6,13 @@ file shows the **current** state only.
 
 ## The goal
 
-Be **safer than Go's compiler can prove** — type, memory, and concurrency safety lifted to compile time —
-while still lowering into ordinary Go for the primitives we like (channels, goroutines, maps, slices). Go
-*contains* memory errors (nil deref / OOB trap into a panic; under a race it isn't memory-safe at all). The
-long-term GOAL is to PROVE these cannot happen — nil deref, use-after-close, out-of-bounds, send-on-closed,
-failed assertion, data race, silent overflow — before behaviorally safe Go is emitted, with Rocq supplying the
-compile-time guarantees and Go the runtime. ⚠️ TODAY the certified-emission spine proves only SUPPORTED
-SYNTACTIC emission; behavioral safety is NOT yet active. The long-term target is concurrent programs with
+The long-term aim is to be **safer than Go's compiler can prove** — lifting type, memory, and concurrency
+safety to compile time — while still lowering into ordinary Go for the primitives we like (channels,
+goroutines, maps, slices). Go *contains* memory errors (nil deref / OOB trap into a panic; under a race it
+isn't memory-safe at all). The behavioral-safety TARGET is to PROVE these cannot happen — nil deref,
+use-after-close, out-of-bounds, send-on-closed, failed assertion, data race, silent overflow — before
+behaviorally safe Go is emitted, with Rocq supplying the compile-time guarantees and Go the runtime. ⚠️ TODAY
+the certified-emission spine proves SUPPORTED SYNTACTIC emission ONLY; behavioral safety is NOT active yet. The long-term target is concurrent programs with
 session-typed protocol compliance, race freedom (ownership through channel ops), and deadlock freedom
 (liveness), grounded in the Go memory model's happens-before relation. Built incrementally.
 
