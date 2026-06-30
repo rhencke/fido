@@ -230,3 +230,32 @@ for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md
   done
 done
 echo "fido: bridged-vs-unbridged gate OK — no bridged cov_preds recognizer is called unbridged ✓"
+
+# 7. PtAgg-vs-PtMap BOUNDARY honesty (Codex 2026-06-30) — a grep TRIPWIRE.  After [EMapLit] gained its own
+# [PtMap] category (a map is a value, [len]-able but NOT [cap]-able — DISTINCT from the [len]+[cap]-able
+# slice/chan [PtAgg]), active prose must not conflate the two with the exact stale phrasings this split killed:
+# "[cap] of an aggregate" (unqualified — wrongly implies [cap] works on a map; the live [cap] arm is [PtAgg]
+# ONLY) or "neither [EStr] nor [PtAgg]" (the live [len] arm now accepts [PtAgg]|[PtMap]).  The correct wording
+# names the slice/chan-vs-map split (e.g. "[cap] of a slice/chan aggregate ([PtAgg])"); "[cap] of a map"
+# (describing the REJECTED case) is fine — only the unqualified "of an aggregate" is banned.
+pm_pat='\[?cap\]?[[:space:]]+of[[:space:]]+an[[:space:]]+aggregate|neither[[:space:]]+\[EStr\][[:space:]]+nor[[:space:]]+\[PtAgg\]'
+pm_scan() { grep -rniE "$pm_pat" "$@" 2>/dev/null || true; }
+# self-test exercises the LIVE pm_scan: both stale forms caught; the correct "slice/chan aggregate" / "of a map"
+# / "nor an aggregate ([PtAgg]/[PtMap])" wordings spared.
+pm_tmp=$(mktemp)
+printf '%s\n' 'cap of an aggregate' '[cap] of an aggregate' 'neither [EStr] nor [PtAgg]' \
+  '[cap] of a slice/chan aggregate' 'Go forbids [cap] of a map' 'nor an aggregate ([PtAgg]/[PtMap])' > "$pm_tmp"
+pm_hit=$(pm_scan "$pm_tmp" | grep -c . || true)
+pm_leak=$(pm_scan "$pm_tmp" | grep -ciE 'slice/chan|of a map|PtMap' || true)
+rm -f "$pm_tmp"
+if [ "$pm_hit" -ne 3 ] || [ "$pm_leak" -ne 0 ]; then
+  echo "fido: PTAGG-PTMAP GATE self-test broke (want 3 stale catches, 0 leak; got hit=$pm_hit leak=$pm_leak)"; exit 1
+fi
+pmbad=$(pm_scan $(ls *.v 2>/dev/null) CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md)
+if [ -n "$pmbad" ]; then
+  echo "fido: PTAGG-PTMAP GATE — active prose conflates the [len]+[cap]-able slice/chan [PtAgg] with the [len]-only map [PtMap]:"
+  echo "$pmbad"
+  echo "fido: a map is [len]-able but NOT [cap]-able; name the split (e.g. '[cap] of a slice/chan aggregate ([PtAgg])')."
+  exit 1
+fi
+echo "fido: PtAgg-vs-PtMap boundary gate OK — no cap-of-any-aggregate / stale len-fallback prose ✓"

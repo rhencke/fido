@@ -317,7 +317,8 @@ Definition ord_comparable (cl cr : PTy) : bool :=
     - a NUMERIC target with a RUNTIME source ([PtRunInt]/[PtRunFloat]) yields a RUNTIME value (runtime
       conversions truncate/round and are valid — NO representability constraint), so [int64(len([]int{1}))],
       [uint8(len([]int{1}))] (whose inner [len …] is a runtime int) stay admitted; (a runtime source can only
-      arise from [len]/[cap] of an aggregate now — a FREE ident like [x] is rejected upstream at [ptype]);
+      arise from [len] of a slice/chan/map aggregate ([PtAgg]/[PtMap]) or [cap] of a slice/chan aggregate
+      ([PtAgg] only) now — a FREE ident like [x] is rejected upstream at [ptype]);
     - bool/string/aggregate/nil sources to a numeric target are rejected (so [int([]int{1})] / [int(true)] /
       [int(nil)] fail). *)
 Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
@@ -351,8 +352,8 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
     literal elements.  An UNTYPED int CONSTANT is assignable to any numeric type it is REPRESENTABLE in (so
     [[]uint8{300}] is rejected, [[]float64{1}] accepted); a TYPED constant or RUNTIME numeric only to its OWN
     type (so [[]int{int64(1)}] and [[]uint8{int(300)}] are rejected — a typed constant is NOT untyped, its type
-    must match exactly); bool/string to their type; an aggregate or [nil] element is conservatively rejected
-    (no free ident reaches here — it is rejected at [ptype]). *)
+    must match exactly); bool/string to their type; an aggregate ([PtAgg] slice/chan or [PtMap] map) or [nil]
+    element is conservatively rejected (no free ident reaches here — it is rejected at [ptype]). *)
 Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   match ce with
   | PtIntConst z =>
@@ -526,10 +527,11 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     [uint8(300)], [uint8(int(300))], [1/int(0)], [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))],
     [chan int([]int{1})]) — AND, now, FREE identifiers (a bare [x] is undefined in the no-declaration model —
     [ptype (EId _) = None]).  Accepted: [EInt], well-typed binops/unops/conversions, [len] of a string LITERAL
-    (folds to the constant byte count) or of an aggregate (a runtime int), [cap] of an aggregate, a slice literal
+    (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
+    [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
     whose elements are ASSIGNABLE to its element type, and an INTEGER-key map LITERAL whose constant keys are
-    assignable to the key type, DISTINCT, and values assignable to the value type (the [map[K]V(x)] CONVERSION
-    stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
+    assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
+    [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
     inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]

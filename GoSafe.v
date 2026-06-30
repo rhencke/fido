@@ -45,8 +45,9 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
     category (a numeric — [PtIntConst]/[PtTIntConst]/[PtFloatConst]/[PtRunInt]/[PtRunFloat] — or [PtBool]/
     [PtStr]).  This reuses the structural type-checker, so it INHERITS its rejection of closed type-errors —
     e.g. [len(1)] (an int is not len-able), [bool(1)], [1 && 2], [!1], [int([]int{1})], [float64(1) %
-    float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)] — and of non-scalars ([PtAgg] slice/chan literals
-    and conversions), of [nil] ([PtNil]), and of FREE identifiers (a bare [x] is undefined -> [ptype] [None]):
+    float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)] — and of EVERY non-scalar category ([PtAgg]
+    slice/chan literals and conversions AND [PtMap] map literals — both rejected by this scalar-only whitelist),
+    of [nil] ([PtNil]), and of FREE identifiers (a bare [x] is undefined -> [ptype] [None]):
     emit a scalar value instead.  ([println(int64(3))] / [println(len([]int{1}))] stay admitted: a conversion of
     a constant / a [len] of an aggregate has a KNOWN scalar category.)  ★The default-[int] boundary applies: a
     bare UNTYPED int constant arg gets default type [int], so it must FIT in (conservative 32-bit) [int] —
@@ -144,8 +145,9 @@ Definition unsupported_value_stmt : Program :=
     cases; the transitive typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
     companions that LOCK the [valid_unsupported_programs] [len] witnesses' soundness boundary; float-rounding +
     platform-[uint] complement), the INVALID [EMapLit]/[CTMap] instances (slice key / key-or-value not
-    representable in the element type / map as a [println] arg / free-ident map conversion — the representability
-    pair LOCKS the valid map witness' boundary), and FREE-identifier use (no declarations in the model).  ⚠ This
+    representable in the element type / DUPLICATE constant keys / [cap] of a map / map as a [println] arg /
+    free-ident map conversion — these LOCK the now-supported map literal's boundary), and FREE-identifier use
+    (no declarations in the model).  ⚠ This
     list is the SOUNDNESS obligation — invalid Go that MUST be refused — NOT the incompleteness ledger.  A
     program Go's typechecker ACCEPTS but [ptype] still rejects (a bounded, fail-loud conservatism) belongs in
     [valid_unsupported_programs] below, NEVER here. *)
@@ -275,9 +277,10 @@ Proof. vm_compute. reflexivity. Qed.
 (** The [len(string(65))] entry above ([valid_unsupported_programs]) rejects via the NON-LITERAL-[PtStr] [len]
     fallback SPECIFICALLY, not via an unsupported argument — pinned by the pair below: [string(65)] IS a
     SUPPORTED [PtStr] (a rune-const conversion), yet [len] of it is [None].  Since the arg type-checks
-    ([Some PtStr]), the [len] [None] can only be the [_, _ => None] fallback ([PtStr] is neither [EStr] nor
-    [PtAgg]).  This is what makes the [valid_unsupported_programs] entry a genuine lock on that fallback (a
-    regression that restored [PtStr -> PtRunInt] would flip [len_of_nonliteral_PtStr_rejected] to [Some _]). *)
+    ([Some PtStr]), the [len] [None] can only be the [_, _ => None] fallback — [PtStr] is neither a string
+    LITERAL ([EStr], which folds) nor an aggregate ([PtAgg]/[PtMap], the other [len]-accepted cases).  This is
+    what makes the [valid_unsupported_programs] entry a genuine lock on that fallback (a regression that restored
+    [PtStr -> PtRunInt] would flip [len_of_nonliteral_PtStr_rejected] to [Some _]). *)
 Example string_rune_const_is_supported_PtStr :
   ptype (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some PtStr.
 Proof. reflexivity. Qed.
@@ -286,10 +289,12 @@ Example len_of_nonliteral_PtStr_rejected :
 Proof. reflexivity. Qed.
 
 (** ACCEPTED — the smaller-but-SOUND subset the gate still admits ([supported_program = true]): a conversion of
-    a constant in value position, value-position aggregates / [len] / [cap], in-range / folded constants and
-    same-width typed arithmetic, [panic]/bare-return/blank-assign/string literals, the EXACT float→int
-    constant tracking ([uint8(float64(255))] is in range) + fixed-width complement, and an INTEGER-key map
-    LITERAL whose constant keys are distinct, assignable to the key type, with values assignable to the value
+    a constant in value position, value-position aggregates (slice/chan [PtAgg] AND map [PtMap], all valid
+    values) with [len] on ANY of them but [cap] on slice/chan [PtAgg] ONLY (a map is len-able, not cap-able),
+    in-range / folded constants and same-width typed arithmetic, [panic]/bare-return/blank-assign/string
+    literals, the EXACT float→int constant tracking ([uint8(float64(255))] is in range) + fixed-width complement,
+    and an INTEGER-key map LITERAL whose constant keys are distinct, assignable to the key type, with values
+    assignable to the value
     type ([map[int]int{1:2}]). *)
 Definition good_programs : list Program :=
   [ pl_arg (gs_i64 (EInt 3))                                             (* println(int64(3)) *)
