@@ -63,7 +63,7 @@ Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
   | PtFloatConst (t : GoTy) (z : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), value the INTEGER [z] it came from *)
-  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len(x)]) *)
+  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING CONSTANT folds to [PtIntConst], NOT this) *)
   | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
   | PtStr
@@ -446,7 +446,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | None => None
       | Some ca =>
           if String.eqb fn "len"
-          then match ca with PtStr | PtAgg => Some (PtRunInt GTInt) | _ => None end (* len: string OR aggregate *)
+          then match a, ca with
+               | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING CONSTANT is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS) *)
+               | _, PtAgg => Some (PtRunInt GTInt)                             (* [len] of a slice/aggregate: a runtime int (slices/maps are not constants) *)
+               | _, _ => None end                                             (* a non-literal string ([string(x)]…): cannot soundly fold its length here — reject (fail-loud) *)
           else if String.eqb fn "cap"
           then match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end          (* cap: aggregate ONLY (NOT string) *)
           else match classify fn with

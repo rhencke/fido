@@ -204,6 +204,7 @@ Definition bad_programs : list Program :=
   ; pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 100)))
   ; pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))
   ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))
+  ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"]) (EInt 200)))  (* int8(len("hi")+200): [len] of a string CONST folds to 2, 2+200=202 overflows int8 -> REJECTED.  Locks the len-string-constant soundness fix (a runtime-int model would WRONGLY admit this) *)
   ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
   ; gs_blank (EInt 1099511627776)
   ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
