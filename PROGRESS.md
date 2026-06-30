@@ -91,12 +91,12 @@ live emission is not "verified Go."
   race / bounded-deadlock theory).
 - **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` totally
   translates cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment, `COut`'s println flag
-  PRESERVED (`UOut`/`uc_out` carry the bool, matching `w_output`). PUBLIC result `denote_program_run_agrees`: a
-  DENOTED program (`denote_program p = Some c`, `no_defer` discharged) runs under `ustep` to completion AND AGREES
-  with cmd.v's authoritative `run_cmd 1 c w` — unified output events = `run_cmd`'s appended `w_output`, `uc_panic 0`
-  = the Outcome's panic (grounded via the seal `run_cmd_seals_events`: the internal `cmd_out_events`/`cmd_panic`
-  ARE `run_cmd`/`w_output`, not a 2nd observer). So GoSem's denotation runs on the SAME `ustep`
-  race-freedom/liveness hold on. Zero axioms. ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
+  PRESERVED (`UOut`/`uc_out` carry the bool, matching `w_output`). PUBLIC results `cmd_to_ucmd_run_agrees`
+  (cmd-level) and `denote_program_run_agrees` (program-level): a DENOTED program (`denote_program p = Some c`,
+  `no_defer` discharged) runs under `ustep` to completion AND its conclusion AGREES with cmd.v's authoritative
+  `run_cmd 1 c w` — the unified output events EQUAL `run_cmd`'s appended `w_output` and `uc_panic 0` EQUALS the
+  Outcome's panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
+  ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the
   manifest gate, the printer gate, and the emit gate (see **Current gates** for the exact split) each assert
   their surfaces zero-axiom via Rocq's own assumption output, `EXPECTED_ASSUMPTIONS.txt` is empty, and the

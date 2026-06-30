@@ -132,10 +132,10 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `cmd.v` effect evaluator, and `rstep` are earlier, NARROWER fragments.
 - `cmd_unified.v` / `GoSemUnified.v` — proof-only (emits no Go): the FIRST slice of that bridge. `cmd_to_ucmd`
   totally translates `cmd.v`'s command tree into `unified.v`'s output/panic/return/defer fragment (println flag
-  PRESERVED into `UOut`/`uc_out`). The PUBLIC result `GoSemUnified.denote_program_run_agrees`: a DENOTED program
-  (`denote_program p = Some c`, `no_defer` discharged) runs under `ustep` AND agrees with cmd.v's authoritative
-  `run_cmd 1 c w` on output + panic (grounded via the seal `run_cmd_seals_events`). Defer + channel/heap/spawn are later
-  slices. Zero axioms.
+  PRESERVED into `UOut`/`uc_out`). The PUBLIC results `cmd_to_ucmd_run_agrees` (cmd-level) and
+  `GoSemUnified.denote_program_run_agrees` (program-level, `no_defer` discharged): a DENOTED program
+  (`denote_program p = Some c`) runs under `ustep` AND its conclusion AGREES with cmd.v's authoritative
+  `run_cmd 1 c w` on output + panic. Defer + channel/heap/spawn are later slices. Zero axioms.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
