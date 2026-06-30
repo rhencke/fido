@@ -102,15 +102,16 @@ live emission is not "verified Go."
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
   NOT the semantics of the certified-emission path), `concurrency.v` (calculus-agnostic trace / happens-before /
   race / bounded-deadlock theory).
-- **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` (proof-only): `cmd_to_ucmd : Cmd unit -> UCmd` is the
-  TOTAL structural translation of cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment
-  (`CRet→URet`, `COut→UOut`, `CPan→UPan`, `CDfr→UDfr`). `cmd_to_ucmd_runs` proves OUTPUT PRESERVATION +
-  RUN-TO-DONE for the DEFER-FREE fragment (`cmd.no_defer`, which GoSem slice 1 denotes): a goroutine running
-  `cmd_to_ucmd c` `usteps` to completion (`uc_live 0 := false`) emitting EXACTLY `c`'s output payloads, in
-  order, into `uc_out`. So GoSem's `cmd.v` denotation now connects, for that fragment, to the SAME `ustep` on
-  which race-freedom/liveness are proved — the charter's "bridge, not a 2nd universe", first slice. Zero axioms.
-  ⚠ Defer (cmd.v `run_defers` ↔ unified `UDfr`/`ustep_ret_defer` LIFO) and the channel/heap/spawn effects are
-  NOT yet bridged — later slices.
+- **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` totally
+  translates cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment — `COut`'s println flag
+  PRESERVED (`unified.v`'s `UOut`/`uc_out` now carry the bool, matching the model's `w_output`, so print≠println
+  is not collapsed). `cmd_to_ucmd_runs` proves EXACT OUTPUT EVENTS + EXACT PANIC + RUN-TO-DONE for the DEFER-FREE
+  fragment (`cmd.no_defer`, which GoSem slice 1 denotes): running `cmd_to_ucmd c` `usteps` to completion
+  (`uc_live 0 := false`), emitting EXACTLY `c`'s output events (flag+payload) into `uc_out`, ending
+  `uc_panic 0 = cmd_panic c`. `GoSemUnified.denote_program_usteps` COMPOSES it with GoSem: a DENOTED program
+  (`denote_program p = Some c`) runs under `ustep` (`no_defer` discharged via `denote_body_no_defer`) — GoSem's
+  denotation now runs on the SAME `ustep` race-freedom/liveness are proved on. Zero axioms. ⚠ Defer
+  (`run_defers` ↔ `UDfr` LIFO) + channel/heap/spawn are NOT yet bridged — later slices.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context". The
   manifest gate also covers GoSem's `gosem_trust_surface` (the bundled certified GoSem results — Rocq's own
   assumption output over their whole cone, not a source-text scan); `EXPECTED_ASSUMPTIONS.txt` is empty and the

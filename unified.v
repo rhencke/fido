@@ -38,7 +38,7 @@ Import ListNotations.
     carries the rich [GoAny] payload since output is observed, not raced.) *)
 Inductive UCmd : Type :=
   | URet   : UCmd                                  (* return / done *)
-  | UOut   : list GoAny -> UCmd -> UCmd            (* print xs; then k     — OUTPUT *)
+  | UOut   : bool -> list GoAny -> UCmd -> UCmd    (* print[ln] xs; then k — OUTPUT (bool = println: trailing newline, exactly the model's [w_output] flag) *)
   | UPan   : GoAny -> UCmd                          (* panic v              — PANIC (no continuation) *)
   | UDfr   : UCmd -> UCmd -> UCmd                   (* defer d; then k      — DEFER *)
   | USend  : nat -> nat -> UCmd -> UCmd            (* ch <- v; then k *)
@@ -56,7 +56,7 @@ Record UConfig := mkUCfg {
   uc_heap   : nat -> nat ;                (* location -> value *)
   uc_live   : nat -> bool ;               (* which goroutines exist *)
   uc_trace  : Trace ;                     (* memory/sync events — the race-freedom substrate *)
-  uc_out    : list (nat * list GoAny) ;   (* OUTPUT log: (goroutine, printed values), in order *)
+  uc_out    : list (nat * (bool * list GoAny)) ;   (* OUTPUT log: (goroutine, (println?, printed values)), in order *)
   uc_defers : nat -> list UCmd ;          (* per-goroutine DEFER stack (head = most-recent = runs first) *)
   uc_panic  : nat -> option GoAny         (* per-goroutine PANIC status (Some v = panicking with v) *)
 }.
@@ -112,10 +112,10 @@ Inductive ustep : UConfig -> UConfig -> Prop :=
                     (tr ++ [mkEv tid (KSpawn cid); mkEv cid (KStart (length tr))]) o
                     (upd df cid nil) (upd pa cid None))   (* a fresh goroutine has no defers, no panic *)
   (* ---- OUTPUT: append to the log, no memory event ---- *)
-  | ustep_out : forall p b h lv tr o df pa tid xs k,
-      lv tid = true -> p tid = UOut xs k ->
+  | ustep_out : forall p b h lv tr o df pa tid pr xs k,
+      lv tid = true -> p tid = UOut pr xs k ->
       ustep (mkUCfg p b h lv tr o df pa)
-            (mkUCfg (upd p tid k) b h lv tr (o ++ [(tid, xs)]) df pa)
+            (mkUCfg (upd p tid k) b h lv tr (o ++ [(tid, (pr, xs))]) df pa)
   (* ---- DEFER: register d on the goroutine's LIFO stack (front = runs first) ---- *)
   | ustep_defer : forall p b h lv tr o df pa tid d k,
       lv tid = true -> p tid = UDfr d k ->
@@ -181,12 +181,12 @@ Qed.
 
 (** ---- SANITY: the new effects are operational and faithful ---- *)
 
-(** OUTPUT is recorded (no longer erased — the old [run_io] no-op the review flagged): printing [xs]
-    appends [(tid, xs)] to the log. *)
-Lemma ustep_out_records : forall p b h lv tr o df pa tid xs k,
-  lv tid = true -> p tid = UOut xs k ->
+(** OUTPUT is recorded (no longer erased — the old [run_io] no-op the review flagged): printing [xs] with
+    println-flag [pr] appends [(tid, (pr, xs))] to the log (the print/println distinction is preserved). *)
+Lemma ustep_out_records : forall p b h lv tr o df pa tid pr xs k,
+  lv tid = true -> p tid = UOut pr xs k ->
   ustep (mkUCfg p b h lv tr o df pa)
-        (mkUCfg (upd p tid k) b h lv tr (o ++ [(tid, xs)]) df pa).
+        (mkUCfg (upd p tid k) b h lv tr (o ++ [(tid, (pr, xs))]) df pa).
 Proof. intros. apply ustep_out; assumption. Qed.
 
 (** DEFER + PANIC, operational and faithful: a panicking goroutine with a pending defer does NOT skip
@@ -221,7 +221,7 @@ Proof. reflexivity. Qed.
    children only.  Vacuously [UOnlyAcc] for ANY owner. *)
 Inductive UMemFree : UCmd -> Prop :=
   | UMF_ret   : UMemFree URet
-  | UMF_out   : forall xs k, UMemFree k -> UMemFree (UOut xs k)
+  | UMF_out   : forall pr xs k, UMemFree k -> UMemFree (UOut pr xs k)
   | UMF_pan   : forall v, UMemFree (UPan v)
   | UMF_dfr   : forall d k, UMemFree d -> UMemFree k -> UMemFree (UDfr d k)
   | UMF_send  : forall c v k, UMemFree k -> UMemFree (USend c v k)
@@ -235,7 +235,7 @@ Inductive UMemFree : UCmd -> Prop :=
    is to a location satisfying [P]; spawned children are [UMemFree]. *)
 Inductive UOnlyAcc (P : nat -> Prop) : UCmd -> Prop :=
   | UOA_ret   : UOnlyAcc P URet
-  | UOA_out   : forall xs k, UOnlyAcc P k -> UOnlyAcc P (UOut xs k)
+  | UOA_out   : forall pr xs k, UOnlyAcc P k -> UOnlyAcc P (UOut pr xs k)
   | UOA_pan   : forall v, UOnlyAcc P (UPan v)
   | UOA_dfr   : forall d k, UOnlyAcc P d -> UOnlyAcc P k -> UOnlyAcc P (UDfr d k)
   | UOA_send  : forall c v k, UOnlyAcc P k -> UOnlyAcc P (USend c v k)
@@ -250,7 +250,7 @@ Inductive UOnlyAcc (P : nat -> Prop) : UCmd -> Prop :=
 Lemma umemfree_onlyacc : forall c, UMemFree c -> forall P, UOnlyAcc P c.
 Proof.
   intros c H. induction H as
-    [ | xs k Hk IHk | v | d k Hd IHd Hk2 IHk2 | c0 v0 k Hk IHk | c0 f Hf IHf
+    [ | pr xs k Hk IHk | v | d k Hd IHd Hk2 IHk2 | c0 v0 k Hk IHk | c0 f Hf IHf
     | child k Hc IHc Hk2 IHk2 | c0 k Hk IHk | cases Hcs IHcs ]; intros P.
   - apply UOA_ret.
   - apply UOA_out; apply IHk.
@@ -263,8 +263,8 @@ Proof.
   - apply UOA_select; intros c1 f1 Hin v; exact (IHcs c1 f1 Hin v P).
 Qed.
 
-Lemma uoa_out_inv   : forall P xs k, UOnlyAcc P (UOut xs k) -> UOnlyAcc P k.
-Proof. intros P xs k H; inversion H; subst; assumption. Qed.
+Lemma uoa_out_inv   : forall P pr xs k, UOnlyAcc P (UOut pr xs k) -> UOnlyAcc P k.
+Proof. intros P pr xs k H; inversion H; subst; assumption. Qed.
 Lemma uoa_dfr_inv   : forall P d k, UOnlyAcc P (UDfr d k) -> UOnlyAcc P d /\ UOnlyAcc P k.
 Proof. intros P d k H; inversion H; subst; split; assumption. Qed.
 Lemma uoa_send_inv  : forall P c v k, UOnlyAcc P (USend c v k) -> UOnlyAcc P k.
@@ -366,7 +366,7 @@ Proof.
     | p b h lv tr o df pa tid c f v s brest Hlv Hp Hbc
     | p b h lv tr o df pa tid c k Hlv Hp Hcl
     | p b h lv tr o df pa tid child k cid Hlv Hp Hcid
-    | p b h lv tr o df pa tid xs k Hlv Hp
+    | p b h lv tr o df pa tid pr xs k Hlv Hp
     | p b h lv tr o df pa tid d k Hlv Hp
     | p b h lv tr o df pa tid d ds Hlv Hp Hdfeq
     | p b h lv tr o df pa tid Hlv Hp Hdfeq
@@ -652,18 +652,18 @@ Lemma unified_panic_runs_defer : forall (xv pv : GoAny),
   exists cfg',
     usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UPan pv else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
-                   nil (fun t => if Nat.eqb t 0 then UOut (xv :: nil) URet :: nil else nil)
+                   nil (fun t => if Nat.eqb t 0 then UOut true (xv :: nil) URet :: nil else nil)
                    (fun _ => None))
            cfg'
-    /\ uc_out cfg' = (0, xv :: nil) :: nil      (* the deferred print HAPPENED *)
+    /\ uc_out cfg' = (0, (true, xv :: nil)) :: nil   (* the deferred print HAPPENED (println) *)
     /\ uc_live cfg' 0 = false                   (* the goroutine died *)
     /\ uc_panic cfg' 0 = Some pv.               (* ...with the panic recorded *)
 Proof.
   intros xv pv. eexists. split.
   - eapply usteps_step.
-    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 pv (UOut (xv :: nil) URet) nil); reflexivity. }
+    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 pv (UOut true (xv :: nil) URet) nil); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (xv :: nil) URet); reflexivity. }
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 true (xv :: nil) URet); reflexivity. }
     eapply usteps_step.
     { apply (ustep_ret_done _ _ _ _ _ _ _ _ 0); reflexivity. }
     apply usteps_refl.
@@ -714,17 +714,17 @@ Qed.
     (the shallow [run_io] made differently-printing programs provably equal; [ustep]'s [uc_out] does not). *)
 Lemma unified_output_ordered : forall (x y : GoAny),
   exists cfg',
-    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UOut (x :: nil) (UOut (y :: nil) URet) else URet)
+    usteps (fun _ => None) (mkUCfg (fun t => if Nat.eqb t 0 then UOut true (x :: nil) (UOut true (y :: nil) URet) else URet)
                    (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
                    nil (fun _ => nil) (fun _ => None))
            cfg'
-    /\ uc_out cfg' = (0, x :: nil) :: (0, y :: nil) :: nil.
+    /\ uc_out cfg' = (0, (true, x :: nil)) :: (0, (true, y :: nil)) :: nil.
 Proof.
   intros x y. eexists. split.
   - eapply usteps_step.
-    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (x :: nil) (UOut (y :: nil) URet)); reflexivity. }
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 true (x :: nil) (UOut true (y :: nil) URet)); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (y :: nil) URet); reflexivity. }
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 true (y :: nil) URet); reflexivity. }
     apply usteps_refl.
   - cbn. reflexivity.
 Qed.
@@ -742,32 +742,32 @@ Lemma unified_all_effects : forall (msg boom : GoAny),
     usteps (fun _ => None) (mkUCfg
               (fun t => if Nat.eqb t 0
                         then UWrite 0 9 (USend 0 5 (URecv 0 (fun _ =>
-                               UDfr (UOut (msg :: nil) URet) (UPan boom))))
+                               UDfr (UOut true (msg :: nil) URet) (UPan boom))))
                         else URet)
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
               nil (fun _ => nil) (fun _ => None))
            cfg'
     /\ uc_heap cfg' 0 = 9               (* the heap write landed *)
-    /\ uc_out cfg' = (0, msg :: nil) :: nil   (* the deferred print happened, despite the panic *)
+    /\ uc_out cfg' = (0, (true, msg :: nil)) :: nil   (* the deferred print happened, despite the panic *)
     /\ uc_panic cfg' 0 = Some boom      (* the panic was recorded *)
     /\ uc_live cfg' 0 = false.          (* the goroutine died *)
 Proof.
   intros msg boom. eexists. split.
   - eapply usteps_step.
     { apply (ustep_write _ _ _ _ _ _ _ _ 0 0 9
-               (USend 0 5 (URecv 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom))))); reflexivity. }
+               (USend 0 5 (URecv 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))))); reflexivity. }
     eapply usteps_step.
     { apply (ustep_send _ _ _ _ _ _ _ _ 0 0 5
-               (URecv 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom)))); reflexivity. }
+               (URecv 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom)))); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_recv _ _ _ _ _ _ _ _ 0 0 (fun _ => UDfr (UOut (msg :: nil) URet) (UPan boom))
+    { apply (ustep_recv _ _ _ _ _ _ _ _ 0 0 (fun _ => UDfr (UOut true (msg :: nil) URet) (UPan boom))
                5 1 nil); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_defer _ _ _ _ _ _ _ _ 0 (UOut (msg :: nil) URet) (UPan boom)); reflexivity. }
+    { apply (ustep_defer _ _ _ _ _ _ _ _ 0 (UOut true (msg :: nil) URet) (UPan boom)); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 boom (UOut (msg :: nil) URet) nil); reflexivity. }
+    { apply (ustep_pan_defer _ _ _ _ _ _ _ _ 0 boom (UOut true (msg :: nil) URet) nil); reflexivity. }
     eapply usteps_step.
-    { apply (ustep_out _ _ _ _ _ _ _ _ 0 (msg :: nil) URet); reflexivity. }
+    { apply (ustep_out _ _ _ _ _ _ _ _ 0 true (msg :: nil) URet); reflexivity. }
     eapply usteps_step.
     { apply (ustep_ret_done _ _ _ _ _ _ _ _ 0); reflexivity. }
     apply usteps_refl.
@@ -783,7 +783,7 @@ Qed.
 Lemma ustep_out_grows : forall {ucap} cfg cfg', ustep ucap cfg cfg' -> exists s, uc_out cfg' = uc_out cfg ++ s.
 Proof.
   intros ucap cfg cfg' H. destruct H; cbn [uc_out];
-    first [ exists (@nil (nat * list GoAny)); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
+    first [ exists (@nil (nat * (bool * list GoAny))); rewrite app_nil_r; reflexivity | eexists; reflexivity ].
 Qed.
 
 Lemma ustep_trace_grows : forall {ucap} cfg cfg', ustep ucap cfg cfg' -> exists s, uc_trace cfg' = uc_trace cfg ++ s.
@@ -1061,7 +1061,7 @@ Fixpoint proto_ucmd (cs cr val : nat) (p : Proto) : UCmd :=
 Theorem proto_ucmd_realizes :
   forall (p : Proto) (cs cr val tid pos : nat) (prg : nat -> UCmd)
          (b : nat -> list (nat * nat)) (h : nat -> nat) (lv : nat -> bool)
-         (tr : Trace) (o : list (nat * list GoAny)) (df : nat -> list UCmd)
+         (tr : Trace) (o : list (nat * (bool * list GoAny))) (df : nat -> list UCmd)
          (pa : nat -> option GoAny) (ecl : Ev),
     cs <> cr ->
     lv tid = true ->
@@ -1131,7 +1131,7 @@ Corollary psess_realized_operationally :
   forall (i : Proto) (A : Type) (s : PSess i PEnd A) (steps : list StepKind)
          (cs cr val tid pos : nat) (prg : nat -> UCmd)
          (b : nat -> list (nat * nat)) (h : nat -> nat) (lv : nat -> bool)
-         (tr : Trace) (o : list (nat * list GoAny)) (df : nat -> list UCmd)
+         (tr : Trace) (o : list (nat * (bool * list GoAny))) (df : nat -> list UCmd)
          (pa : nat -> option GoAny) (ecl : Ev),
     PEmits s steps ->
     cs <> cr -> lv tid = true -> b cr = [] -> closedb tr cs = false ->
