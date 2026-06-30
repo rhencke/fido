@@ -162,8 +162,8 @@ Inductive GExpr : Type :=
     nested [list]-valued children ([ECall]'s arg list, [ESliceLit]'s elements, [EMapLit]'s key/value pairs),
     so structural recursion into them is impossible.  This recursor adds a [Forall P]-style hypothesis for
     each of those three list-bearing constructors (built by an inner list recursion), and mirrors the auto
-    principle's binder order for the other ten constructors ([EId]/[EInt]/[EUn]/[EBn]/[ESel]/[EIndex]/[ESlice]/
-    [EAssert]/[EConv]/[EStr]) so existing [induction e as [...]] proofs keep working verbatim under
+    principle's binder order for the other eleven constructors ([EId]/[EInt]/[EUn]/[EBn]/[ESel]/[EIndex]/[ESlice]/
+    [EAssert]/[EConv]/[EStr]/[EHex]) so existing [induction e as [...]] proofs keep working verbatim under
     [using GExpr_ind']. *)
 Fixpoint GExpr_ind' (P : GExpr -> Prop)
   (fid  : forall i, P (EId i))

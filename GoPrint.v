@@ -1190,6 +1190,9 @@ Proof. vm_compute; reflexivity. Qed.
                | "(" [ Expr { "," Expr } ] ")" . -> ECall    call, variadic arg list
       Atom     = ident                            -> EId
                | int                              -> EInt
+               | hexlit                           -> EHex     hex integer literal [0x...] (lowercase 0-9a-f);
+                                                              NON-NEGATIVE (a [HexZ]); disjoint from [int] by the
+                                                              "0x" lead, which decimal [int] never produces
                | string                           -> EStr     interpreted string literal: a dquote, a body of
                                                               Escapes (below), a closing dquote; a MALFORMED escape
                                                               FAILS to lex (fail-closed, [unescape_opt = None])
@@ -1224,6 +1227,8 @@ Proof. vm_compute; reflexivity. Qed.
                | ident .                          -> GTNamed  nominal type (the [GoTy] of M5)
       ident    = idstart { idstart | digit } ,  idstart = "_" | "A".."Z" | "a".."z" .   -- a [go_ident]
       int      = [ "-" ] digit { digit } .       -- decimal; the lexer reads a leading "-"<digit> as one [TInt]
+      hexlit   = "0" "x" hex { hex } .           -- lowercase hex int literal (>= 0); [hex] = digit | a..f (as in
+                                                    Escape); the lexer's [0x] branch scans it to one [THex]
 
     NOT yet in the grammar (the next growth steps): STRUCT / ARRAY composite literals ([N]T{..} / T{..}) and
     func-literals.  A NAMED conversion [T(x)] is currently the call [ECall (EId T) [x]] -- byte-identical, and
@@ -1237,9 +1242,9 @@ Proof. vm_compute; reflexivity. Qed.
     single-char ['('] that cannot munch into the operator before it.  (UNeg ALWAYS self-parenthesises as
     [-(x)] for the same reason, plus to avoid colliding with the [-5] negative-literal lexing.)
 
-    BUT a LEAF-atom operand ([EId]/[EInt]/[EStr]) prints BARE — the minimal canonical [^x] / [!b] / [*p] /
-    [&x] (matching gofmt), because (a) its first char is always an identifier-start / digit / a ['-'] / a
-    dquote, none of which can merge with a prefix into a 2-char token (so the lexer peels the prefix cleanly — see
+    BUT a LEAF-atom operand ([EId]/[EInt]/[EStr]/[EHex]) prints BARE — the minimal canonical [^x] / [!b] / [*p] /
+    [&x] (matching gofmt), because (a) its first char is always an identifier-start / digit (incl. the [0] of a
+    [0x]-hex) / a ['-'] / a dquote, none of which can merge with a prefix into a 2-char token (so the lexer peels the prefix cleanly — see
     [gprint_head_clean] / [lex_unop_app]); and (b) a leaf is fully consumed by [parse_atom], leaving nothing
     for the outer postfix loop to mis-capture.  A POSTFIX operand ([ESel]/[EIndex]/[ESlice]/[ECall]/[EAssert])
     must STILL be parenthesised: this grammar binds a prefix unary to an *Atom* (the "( ! | ^ | * | & ) Atom"
@@ -1249,8 +1254,8 @@ Proof. vm_compute; reflexivity. Qed.
     leaf fuel budget — out of scope here).  So the BARE set is exactly the leaf atoms; everything else gets
     parens. *)
 
-(** [unop_needs_paren e0] — does a PREFIX-UNARY operand [e0] need parentheses?  FALSE only for the three LEAF
-    atoms ([EId]/[EInt]/[EStr], printed BARE — the minimal [^x]); TRUE for every other form.  This is a
+(** [unop_needs_paren e0] — does a PREFIX-UNARY operand [e0] need parentheses?  FALSE only for the four LEAF
+    atoms ([EId]/[EInt]/[EStr]/[EHex], printed BARE — the minimal [^x]); TRUE for every other form.  This is a
     SEPARATE source of truth from [op_needs_paren] (the POSTFIX-operand rule): a postfix node ([ESel]/…) is a
     bare-OK postfix operand but a paren-REQUIRED unary operand (the grammar binds unary to an Atom, so bare
     [^a.b] re-associates — see the note above).  EXHAUSTIVE on purpose (no [_] catch-all): the only UNSAFE
@@ -2353,7 +2358,7 @@ Qed.
 
 (** ★ Every BARE unary operand ([unop_needs_paren e0 = false], i.e. a LEAF atom) prints with a unop-clean
     head, so the bare prefix lexes cleanly (no left-munch).  Direct case analysis (no induction): a leaf is
-    [EId] (idstart head) / [EInt] ([print_Z] head) / [EStr] (dquote head). *)
+    [EId] (idstart head) / [EInt] ([print_Z] head) / [EStr] (dquote head) / [EHex] ([print_hex] head, a [0]). *)
 Lemma gprint_head_clean : forall e0, unop_needs_paren e0 = false ->
   forall ctx rest, unop_head_clean (gprint ctx e0 ++ rest) = true.
 Proof.
