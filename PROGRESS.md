@@ -37,9 +37,9 @@ The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extrac
 over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, and the runtime
 conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float32 narrowing
 `is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
-`is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, and int→float64
-`is_int_to_f64_ref` (NOT every producer of those surface bytes — e.g. int→float32
-`is_int_to_f32_ref` stays on `pp_expr`); every other shape is
+`is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, and numeric→float64
+`is_num_to_f64_ref` over int/int64/float32/uint64 (NOT every producer of those surface bytes — e.g.
+int/int64/uint64→float32 `is_int_to_f32_ref` stays on `pp_expr`); every other shape is
 printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
 serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
 cover the trusted MiniML→`GExpr` CONSTRUCTION that feeds it, and are not a Go-parser-acceptance proof; so the
@@ -84,7 +84,7 @@ live emission is not "verified Go."
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only a small binop-tree class live
   (locals / int·int64·uint64 literals / `^x` complement / narrow→int64 `is_i64_of_narrow_ref` /
   float64→float32 `is_f64_to_f32_ref`+`operand_is_runtime` / float64→int64·uint64 truncation
-  `is_f64_to_i64_ref`/`is_f64_to_u64_ref` / narrow→int `is_int_of_fw` / int→float64 `is_int_to_f64_ref`);
+  `is_f64_to_i64_ref`/`is_f64_to_u64_ref` / narrow→int `is_int_of_fw` / numeric→float64 `is_num_to_f64_ref`);
   everything else is trusted `pp_expr`.
 - **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
   assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.

@@ -91,7 +91,7 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 # lines is still caught (reported file: [wrapped] match).
 cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
 # Single source of truth for the bridged-predicate boundary, reused by the diagnostic so the gate cannot drift.
-cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_int_to_f64_ref]'
+cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref]'
 cov_line() { grep -noiE "$cov_pat" "$1" 2>/dev/null || true; }                                  # line:span (per line)
 cov_flat() { tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -oiE "$cov_pat" || true; }    # spans incl. wrapped
 cov_scan() {                                                                                    # the live scanner
@@ -167,3 +167,19 @@ if [ -n "$scbad" ]; then
   exit 1
 fi
 echo "fido: stale-count gate OK — no numeric conversion-count / old demo-output prose ✓"
+
+# 5. BRIDGE-RECOGNIZER scoping: every conversion recognizer the verified-printer bridge uses (named in
+# cov_preds) MUST be from_builtins-scoped.  A basename-only [List.mem (global_basename r) …] match is a
+# SHADOWING FORGE HOLE — a user/global with the same basename (e.g. a hand-written [int_of_u8] in main.v)
+# would be lowered to the cast instead of its real semantics (go.ml's own trust-boundary rule, ~line 197).
+recog_scoped() { sed -n "/^let $1[ =]/,/^let [a-z]/p" "$2" 2>/dev/null | grep -q 'from_builtins'; }
+rg_tmp=$(mktemp)
+printf '%s\n' 'let is_scoped_x r = from_builtins r && foo' 'let nxt a = 1' 'let is_unscoped_y r =' '  List.mem (global_basename r) ["z"]' 'let aft b = 2' > "$rg_tmp"
+if ! recog_scoped is_scoped_x "$rg_tmp" || recog_scoped is_unscoped_y "$rg_tmp"; then
+  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (a from_builtins def must pass, a List.mem-only def must fail)"; rm -f "$rg_tmp"; exit 1
+fi
+rm -f "$rg_tmp"
+for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
+  recog_scoped "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — $pred (a goexpr_bridge recognizer in cov_preds) is NOT from_builtins-scoped — basename-only matching is a shadowing forge hole; add 'from_builtins r &&' to its definition in plugin/go.ml."; exit 1; }
+done
+echo "fido: bridge-recognizer gate OK — every cov_preds recognizer is from_builtins-scoped ✓"

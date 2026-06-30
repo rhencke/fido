@@ -407,10 +407,11 @@ Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (
     unconditionally — no force-wrapper, hence no runtime guard); [gprint] emits it byte-identically to [pp_prec]. *)
 Definition conv_f64_to_i64_in_binop (y : GoI64) (f : GoFloat64) : GoI64 := i64_add y (i64_of_f64 f).
 Definition conv_f64_to_u64_in_binop (y : GoU64) (f : GoFloat64) : GoU64 := u64_add y (u64_of_f64 f).
-(** And the narrow->platform-[int] widening [y + int(x)] ([is_int_of_fw], like [int64(x)] but to [int]) and the
-    int->float64 conversion [a > float64(i)] ([is_int_to_f64_ref]).  [x]/[i] are runtime PARAMs, so
-    [goexpr_bridge] builds [ECall (EId "int"/"float64") [..]] (both rendered inline unconditionally, no runtime
-    guard); [gprint] emits them byte-identically to [pp_prec]. *)
+(** And the narrow->platform-[int] widening [y + int(x)] ([is_int_of_fw], like [int64(x)] but to [int]) and a
+    numeric->float64 conversion [a > float64(i)] (the [is_num_to_f64_ref] arm, domain int/int64/float32/uint64;
+    this demo exercises the int source [f64_of_int]).  [x]/[i] are runtime PARAMs, so [goexpr_bridge] builds
+    [ECall (EId "int"/"float64") [..]] (both rendered inline unconditionally, no runtime guard); [gprint] emits
+    them byte-identically to [pp_prec]. *)
 Definition conv_int_widen_in_binop (y : GoInt) (x : GoU8) : GoInt := int_add y (int_of_u8 x).
 Definition conv_int_to_f64_in_cmp (a : GoFloat64) (i : GoInt) : bool := f64_gtb a (f64_of_int i).
 Definition conv_operand_demo : IO unit :=
