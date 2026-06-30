@@ -7,21 +7,15 @@ relates the emitted Go to the source term (gap #10), so the golden tests are the
 AST-first spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap — a clean
 zero-axiom printer with a proven EXPRESSION round-trip (programs/statements: print-injectivity only — no
 parser yet), self-consistent with its own Rocq grammar (NOT a Go-parser-acceptance proof), and gated
-certified emission. ⚠️ But the extracted printer is wired into the LIVE plugin for only a small expression
-class (a binop tree over locals, int/int64/uint64 literals, int64/uint64 complement `^x`, and the runtime conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float32 narrowing
-`is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
-`is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, numeric→float64
-`is_num_to_f64_ref` (over int/int64/float32/uint64), and int/int64/uint64→float32 `is_int_to_f32_ref` — and the
-fixed-width ARITHMETIC `(u|i)N_add`/`sub`/`mul` (unsigned: the masked `(int(a) op int(b)) & 0xMASK`; signed:
-that masked form additionally SIGN-EXTENDED `… ^ 0xSBIT - 0xSBIT`; masks/sign-bits = the verified `EHex` leaf)
-when a bridging-binop operand; NOT every producer of those surface bytes — e.g. the fixed-width CONVERSIONS
-`uint8(x)`, fw shifts/div/mod, and standalone fw ops stay on `pp_expr` (their mask constant is the verified
-`print_hex`, but the surrounding expression is trusted-assembled by `fw_wrap`))
-— everything else is
-trusted OCaml `pp_expr` — and even there the proofs cover only
-AST→string serialization, NOT the trusted MiniML→AST construction that builds it; so the live `main.go` is
-NOT verified Go. There is no behavioral-safety layer yet. Until gap #10 closes
-and `GoSem`-backed safety exists, do not headline this as "formally verified Go." Current state: `PROGRESS.md`.
+certified emission. ⚠️ But the extracted printer is wired into the LIVE plugin for only a SMALL expression
+class (a binop tree over runtime locals + integer literals + a fixed set of runtime numeric conversions and
+fixed-width arithmetic as bridging-binop operands — the exact list is single-sourced in `PROGRESS.md`, not
+re-enumerated here). And even there the split is narrow: the TRUSTED plugin CONSTRUCTS the `GExpr` (chooses the
+AST) and only the VERIFIED `gprint` PRINTS it — the construction is NOT verified (the proofs cover AST→string
+serialization only, NOT the MiniML→AST construction that feeds it). Everything else is trusted OCaml `pp_expr`,
+likewise unverified in its construction; so the live `main.go` is NOT verified Go. There is no behavioral-safety
+layer yet. Until gap #10 closes and `GoSem`-backed safety exists, do not headline this as "formally verified
+Go." Current state: `PROGRESS.md`.
 
 **Goal — a long-term TARGET, NOT today's state:** faithfully model *all* of Go in Rocq and lower it to
 ordinary Go, with the safety properties Go's compiler can't prove — no nil deref, use-after-close,

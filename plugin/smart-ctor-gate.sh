@@ -1,18 +1,24 @@
 #!/bin/sh
-# Smart-constructor / dead-name / emission-discipline gate for the hand-written plugin OCaml.
+# Smart-constructor / dead-name / emission-discipline / bridge-recognizer gate for the hand-written plugin OCaml.
 #
-# Three boring, structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
-# accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact
-# that the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
-#   1. SMART-CTOR BAN  — the extracted [Printer] exposes proof-carrying constructors ([GTNamed], [EId], [EHex])
-#      that erase their Rocq validity proof to a bare string / Z.  Only the smart constructors [mk_named_ty] /
-#      [mk_goexpr_id] / [mk_goexpr_hex] (which re-check [nominal_type_ident] / [go_ident] / [hexz_ok]) may build
-#      them; nothing else may use the raw [Printer.GTNamed] / [Printer.EId] / [Printer.EHex].
-#   2. DEAD-NAME RECURRENCE — the torn-down SRaw expression-printer overlay and the charter-forbidden
-#      raw-syntax constructor names must never reappear in ACTIVE code (history is allowed in docs only — see
-#      LESSONS.md for the SRaw postmortem).
-#   3. EMISSION DISCIPLINE — the raw [GoPrint.print_program] is for proofs/tests; the official path is the
-#      certificate-gated [GoEmit.emit_supported], so nothing else may CALL print_program directly.
+# FOUR boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
+# accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact that
+# the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
+#   1. SMART-CTOR BAN  — only the smart constructors [mk_named_ty]/[mk_goexpr_id]/[mk_goexpr_hex] (which re-check
+#      [nominal_type_ident]/[go_ident]/[hexz_ok]) may build the proof-ERASING [Printer.GTNamed]/[EId]/[EHex].
+#   2. DEAD-NAME RECURRENCE — the torn-down SRaw overlay + forbidden raw-syntax constructor names must not
+#      reappear in ACTIVE code (history is allowed in docs — see LESSONS.md for the SRaw postmortem).
+#   3. EMISSION DISCIPLINE — the raw [GoPrint.print_program] is for proofs/tests; emit ONLY through the
+#      certificate-gated [GoEmit.emit_supported].
+#   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds],
+#      the single machine-readable list below) is a scoped `let is_X = named_in [...]`, with the [from_builtins]
+#      guard living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
+#
+# This gate polices CODE discipline only.  Documentation/prose honesty (bridge-coverage wording, the
+# construction-vs-printing distinction) is the job of REVIEW, kept correct by NOT duplicating the bridge-coverage
+# list — it lives once (PROGRESS.md's live-bridge paragraph + the [cov_preds] list below).  Four per-incident
+# regex "prose lint" sections that had accreted here were deleted (boss review 2026-06-30: a structural gate is
+# not the place for a bespoke prose linter — reduce the duplicated prose instead).
 #
 # Run from the repo root (make smart-ctor-gate, the pre-commit hook, and the Docker prover stage).
 set -e
@@ -23,22 +29,6 @@ for f in plugin/*.ml plugin/*.mlg; do
   [ "$f" = plugin/printer.ml ] && continue
   files="$files $f"
 done
-
-# The ACTIVE-PROSE source set — the SINGLE authority over "files whose comments/prose are a live spec of the
-# supported subset" (so a stale claim in ANY of them is a regression).  Every prose gate below (conversion-
-# coverage / stale-count / bridged-vs-unbridged / PtAgg-vs-PtMap) scans THIS set, so their scopes cannot drift
-# apart by hand.  INCLUDES: all tracked .v (root + the emitdemo/ and negtests/ fixtures), the hand-written
-# plugin glue (go.ml + the .mlg), and the active docs.  EXCLUDES (by construction): the GENERATED
-# plugin/printer.ml, THIS gate script (its self-test fixtures hold the literal stale phrases on purpose), and
-# archaeology / design-history docs (LESSONS.md, *_PLAN.md) where historical wording is allowed.  Missing files
-# (e.g. docs not COPYed into the Docker prover stage) are skipped by each scanner's own existence/`2>/dev/null`
-# handling, so the set is a superset that degrades gracefully where a file is absent.
-# `ls … || true`: under `set -e`, [ls] returns non-zero when an operand is absent (e.g. the docs / emitdemo
-# are not COPYed into the Docker prover stage) — [ls] still prints the PRESENT files to stdout, and the absent
-# operands are simply not listed, so the set degrades to whatever is actually here; `|| true` keeps that
-# graceful skip from aborting the gate.
-prose_files=$(ls *.v emitdemo/*.v negtests/*.v plugin/go.ml plugin/g_go_extraction.mlg \
-  CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md 2>/dev/null || true)
 
 # 1. SMART-CTOR BAN.  The smart-constructor block (markers in go.ml) is the only sanctioned site; assert the
 # markers are present, then flag any Printer.GTNamed / Printer.EId use OUTSIDE that block in any plugin file.
@@ -87,113 +77,17 @@ if [ -n "$ppcallers" ]; then
 fi
 echo "fido: emission-discipline gate OK — no direct print_program call outside GoEmit.v / GoPrint.v ✓"
 
-# 4. CONVERSION-COVERAGE HONESTY (Codex 2026-06-30).  Two regression bans tied to the Stage-B bridge:
-#   (a) IDENTITY-CONFLATION — a narrow→wide integer conversion ([i64_of_narrow]/[int_of_FW]) EMITS a real Go
-#       cast [int(x)]/[int64(x)], NOT identity (a bare [x] at the narrow→wide boundary is invalid Go, review
-#       #4 P1 #4).  Active prose must never call that lowering "identity" / a "no-op cast".  (The record-wrapper
-#       erasure [MkU8]/[u8raw]→identity is a DIFFERENT legitimate claim — no widen/lowering word — and is spared.)
-#   (b) VAGUE BRIDGE COVERAGE — the verified-printer bridge covers a FIXED set of source predicates (the live
-#       list is the single-sourced $cov_preds below, echoed by the diagnostic so it cannot drift), NOT the
-#       surface bytes (other producers — e.g. the masked fixed-width casts [uint8(x)] (rendered [(x & 0xff)]) —
-#       emit similar bytes but stay unbridged).  Coverage docs must NAME the predicates (no numeric COUNT —
-#       counts drift, see the stale-count guard), not "runtime scalar conversions", must SPELL OUT
-#       [operand_is_runtime] (never an `is_f64_to_f32_ref-runtime` shorthand), and must never call a BRIDGED
-#       cov_preds recognizer the "unbridged" example (the bridged-vs-unbridged guard below enforces that).
-# Forbidden CONVERSION-COVERAGE prose (stale identity-lowering + vague bridge-coverage).  Patterns are DENYLIST
-# DATA.  Matching is SPAN-based and case-INsensitive (grep -oiE): each forbidden phrase matches as its OWN span,
-# so an unrelated "NOT identity" elsewhere on the line can NEVER immunize it (the old whole-line "not identity"
-# filter, which dropped the whole line, was the bug — deleted, no replacement: the anchored verb→identity
-# patterns can't match a negated form, so "a real cast, NOT identity" simply never matches).  cov_scan reports
-# single-line hits as file:line:match, PLUS a whitespace/newline-normalized pass so a phrase WRAPPED across
-# lines is still caught (reported file: [wrapped] match).
-cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
-# Single source of truth for the bridged-predicate boundary, reused by the diagnostic so the gate cannot drift.
-cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
-cov_line() { grep -noiE "$cov_pat" "$1" 2>/dev/null || true; }                                  # line:span (per line)
-cov_flat() { tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -oiE "$cov_pat" || true; }    # spans incl. wrapped
-cov_scan() {                                                                                    # the live scanner
-  cov_line "$1" | sed "s|^|$1:|"                                                                 # file:line:match
-  cl=$(mktemp); cf=$(mktemp)
-  cov_line "$1" | sed 's/^[0-9][0-9]*://' | sort > "$cl"; cov_flat "$1" | sort > "$cf"
-  comm -23 "$cf" "$cl" | sed "s|^|$1: [wrapped] |"                                               # only newline-wrapped spans
-  rm -f "$cl" "$cf"
-}
-# self-test exercises the LIVE cov_scan on a fixture (this script is not self-scanned) with an EXACT,
-# LOCATION-based oracle — NOT broad substring greps (those passed even if the same-line "NOT identity" rows
-# were dropped, because the bare phrase recurs on other lines).  Fixture: 1-9 single-line bans; 10-12 the same
-# SPANS with "NOT identity" appended (the immunity-regression rows — must still hit BY LINE); 13-16 MIXED-CASE
-# bans (vanish if -i is dropped); 17-18 + 19-20 one phrase each split across two lines (the wrapped path);
-# 21-24 legitimate lines that must NOT match anywhere.
-st_tmp=$(mktemp)
-printf '%s\n' \
-  'widen is identity' 'lowering is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' \
-  'emitted as identity' 'a no-op cast' 'runtime scalar conversions' 'is_f64_to_f32_ref-runtime' \
-  'runtime scalar conversions; NOT identity' 'lowered to identity; NOT identity' 'is_f64_to_f32_ref-runtime; NOT identity' \
-  'Lowering is identity' 'Runtime scalar conversions' 'No-op cast' 'Is_f64_to_f32_ref-Runtime' \
-  'lowering is' 'identity' 'runtime scalar' 'conversions' \
-  'a real cast, NOT identity' '[MkU8]/[u8raw] -> identity' 'Lowering correctness (each variable identity preserved)' \
-  'is_f64_to_f32_ref + operand_is_runtime' > "$st_tmp"
-out=$(cov_scan "$st_tmp"); rm -f "$st_tmp"
-# per-line hits must be EXACTLY lines 1..16: includes 10-12 (drop a "NOT identity" row ⇒ FAIL) and 13-16
-# (drop -i ⇒ FAIL); 17-24 must yield NO single-line hit.  wrapped spans must be EXACTLY the two split phrases
-# (broken wrapped path, or a spared line leaking a wrapped span ⇒ FAIL).
-pl=$(printf '%s\n' "$out" | grep -oE ':[0-9]+:' | tr -d ':' | sort -un | tr '\n' ' ')
-wr=$(printf '%s\n' "$out" | sed -n 's/.*\[wrapped\] //p' | sort | tr '\n' '|')
-mc=$(printf '%s\n' "$out" | grep -cF 'Runtime scalar conversions' || true)   # verbatim mixed-case span ⇒ -i is live
-if [ "$pl" != "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 " ] \
-   || [ "$wr" != "lowering is identity|runtime scalar conversions|" ] || [ "$mc" -lt 1 ]; then
-  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED — per-line[$pl] (want 1..16, incl. 10-12 NOT-identity + 13-16 mixed-case); wrapped[$wr] (want the 2 split phrases); mixedcase[$mc]."; exit 1
-fi
-covbad=""
-for f in $prose_files; do
-  [ -f "$f" ] || continue
-  h=$(cov_scan "$f"); [ -n "$h" ] && covbad="$covbad
-$h"
-done
-if [ -n "$covbad" ]; then
-  echo "fido: CONVERSION-COVERAGE GATE — stale identity-lowering claim or vague bridge-coverage phrase in active prose:"
-  echo "$covbad"
-  echo "fido: a narrow→wide conversion EMITS a real cast (NOT identity, review #4 P1 #4); name the bridge predicates"
-  echo "fido: ($cov_preds, guard SPELLED OUT — no -runtime shorthand), not the surface int64(x)/float32(x)/uint64(x) bytes."
-  exit 1
-fi
-echo "fido: conversion-coverage gate OK — no stale identity-lowering / vague bridge-coverage prose ✓"
-
-# STALE-COUNT guard: bridge-coverage prose must NOT state a numeric COUNT of conversions (it drifts every time
-# one is added — name the predicates instead), nor preserve the old conv_operand_demo two-output line "205 / true".
-# sc_scan is the ONE scanner (single set of flags — case-INsensitive, so UPPERCASE "FOUR runtime conversions"
-# can't slip past); the self-test and the active-file scan both call it, so they cannot diverge.  Scanned in
-# active docs + sources (NOT this script — the self-test fixture holds the literal stale phrases).
-sc_pat='(exactly[[:space:]]+)?(one|two|three|four|five|six|seven|eight|nine|ten|[0-9]+)[[:space:]]+runtime[[:space:]]+conversion|205[[:space:]]*/[[:space:]]*true'
-sc_scan() { grep -rniE "$sc_pat" "$@" 2>/dev/null || true; }
-# self-test exercises the LIVE sc_scan: all four stale forms (incl. UPPERCASE + numeric) must be caught, and
-# "the runtime conversions" must be spared.
-sc_tmp=$(mktemp)
-printf '%s\n' 'four runtime conversions' 'FOUR runtime conversions' '4 runtime conversions' '205 / true' 'the runtime conversions' > "$sc_tmp"
-sc_hit=$(sc_scan "$sc_tmp" | grep -c . || true)
-sc_leak=$(sc_scan "$sc_tmp" | grep -ic 'the runtime conversions' || true)
-rm -f "$sc_tmp"
-if [ "$sc_hit" -ne 4 ] || [ "$sc_leak" -ne 0 ]; then
-  echo "fido: STALE-COUNT GATE self-test broke (want 4 stale catches incl. UPPERCASE/numeric, 0 leak; got hit=$sc_hit leak=$sc_leak)"; exit 1
-fi
-scbad=$(sc_scan $prose_files)
-if [ -n "$scbad" ]; then
-  echo "fido: STALE-COUNT GATE — bridge-coverage prose states a numeric conversion count (drifts) or the old '205 / true' demo output:"
-  echo "$scbad"
-  echo "fido: name the bridge predicates instead of a count, and state the LIVE demo output."
-  exit 1
-fi
-echo "fido: stale-count gate OK — no numeric conversion-count / old demo-output prose ✓"
-
-# 5. BRIDGE-RECOGNIZER scoping — a grep TRIPWIRE (like checks 1-3: it catches the accidental/obvious regression,
-# NOT an adversarial OCaml shadow/alias).  Every conversion recognizer the bridge routes through (cov_preds) is
-# written as the scoped alias `let is_X = named_in […]`, with the [from_builtins] guard living ONCE in
+# 4. BRIDGE-RECOGNIZER scoping — a grep TRIPWIRE (like checks 1-3: it catches the accidental/obvious regression,
+# NOT an adversarial OCaml shadow/alias).  Every conversion recognizer the live printer bridge routes through is
+# written as the scoped alias `let is_X = named_in [...]`, with the [from_builtins] guard living ONCE in
 # [named_in].  This flags the COMMON accidental break the original is_int_of_fw P0 actually was: a recognizer
 # doing a RAW [global_basename] match (which would lower a same-named user global to an intrinsic), or
-# [named_in] losing [from_builtins].  It is NOT a seal — a deliberate shadow/alias inside the plugin is out of
-# scope, exactly as the header says for every check here: the recognizers are inside the TRUSTED, unverified
-# plugin (gap #10), and that disclosure — not this tripwire — is their guarantee.  A sound check would need to
-# parse OCaml (compiler-libs); that is disproportionate machinery for a tripwire over already-trusted code.
+# [named_in] losing [from_builtins].  Not a seal — a deliberate shadow inside the TRUSTED plugin (gap #10) is out
+# of scope; a sound check would need to parse OCaml (compiler-libs), disproportionate for already-trusted code.
+#
+# [cov_preds] — the SINGLE machine-readable source of truth for which conversion recognizers are bridged (the
+# prose description of the live bridge lives once, in PROGRESS.md; do not re-enumerate it elsewhere).
+cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
 recog_def()    { awk -v p="$1" '$0 ~ ("^let " p "([ =:(]|$)"){f=1;print;next} f&&(/^let [A-Za-z_]/||/^\(\*/){exit} f{print}' "$2" 2>/dev/null; }
 recog_routed() { b=$(recog_def "$1" "$2"); printf '%s' "$b" | grep -q 'named_in' && ! printf '%s' "$b" | grep -q 'global_basename'; }
 st_t=$(mktemp)
@@ -208,71 +102,3 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
   recog_routed "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — $pred should be 'let $pred = named_in [\"lit\"; …]', routing its basename match through the from_builtins-scoped [named_in] rather than a raw [global_basename]."; exit 1; }
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
-
-# 6. BRIDGED-VS-UNBRIDGED honesty — a grep TRIPWIRE: every cov_preds recognizer is now BRIDGED, so no active
-# coverage prose may name one as the "unbridged"/"stays on pp_expr|prec" example (the drift Codex caught after
-# is_int_to_f32_ref was bridged — its old "stays on pp_expr" example became a self-contradiction).  Flags a
-# bridged recognizer within a short window of such a phrase; the legit "unbridged example" must be a genuinely
-# unbridged producer (e.g. the masked fixed-width casts uint8(x)), never a cov_preds member.
-ub_re='unbridged|stays? on pp_(expr|prec)|not bridged'
-# ONE matcher used by the self-test, the live blocking scan, AND the diagnostic — no duplicate regex world.
-# ub_norm strips Coq/markdown code delimiters ([], `) so `[pp_expr]`/`\`pp_expr\``/`[pp_prec]` read as bare
-# pp_expr/pp_prec; ub_hits returns the matched "member-near-unbridged" spans (empty = clean), case-INsensitive.
-ub_norm() { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' ' | tr -d '[]`'; }
-ub_hits() { printf '%s' "$(ub_norm "$2")" | grep -oiE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)" || true; }
-# self-test exercises the LIVE ub_hits: marked ([pp_prec], `pp_expr`), mixed-case (UNBRIDGED, Stays On), and bare
-# forms next to a member yield hits; the same name FAR from the unbridged clause ("; NOT every producer …
-# uint8(x) stays on [pp_expr]") yields none.
-if [ -z "$(ub_hits is_zz 'int->float32 is_zz stays on [pp_prec]')" ] \
-   || [ -z "$(ub_hits is_zz 'is_zz Stays On `pp_expr`')" ] \
-   || [ -z "$(ub_hits is_zz 'is_zz emits the same float32(x) UNBRIDGED')" ] \
-   || [ -n "$(ub_hits is_zz 'is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on [pp_expr]')" ]; then
-  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke (marked/mixed-case unbridged-near-member must hit; far-from-clause must not)"; exit 1
-fi
-# invariant (lines tagged UBINV are this check): the matcher regex $ub_re must live in exactly one place
-# (ub_hits) — any other reference is a re-inlined duplicate matcher, the drift this guard exists to stop.
-if [ -n "$(grep -n 'ub_re' plugin/smart-ctor-gate.sh | grep -vE "ub_re=|ub_hits\(\)|UBINV")" ]; then  # UBINV
-  echo "fido: BRIDGED-VS-UNBRIDGED GATE — the UB matcher regex is referenced outside ub_hits (a re-inlined duplicate matcher); route all matching through ub_hits."; exit 1  # UBINV
-fi
-for f in $prose_files; do
-  [ -f "$f" ] || continue
-  for m in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-    h=$(ub_hits "$m" "$(cat "$f" 2>/dev/null)")
-    if [ -n "$h" ]; then
-      echo "fido: BRIDGED-VS-UNBRIDGED GATE — $f names the BRIDGED cov_preds recognizer $m as 'unbridged'/'stays on pp_expr|prec'; a bridged predicate cannot be the unbridged example (use a genuinely unbridged producer, e.g. the masked fixed-width casts uint8(x)):"
-      printf '%s\n' "$h"
-      exit 1
-    fi
-  done
-done
-echo "fido: bridged-vs-unbridged gate OK — no bridged cov_preds recognizer is called unbridged ✓"
-
-# 7. PtAgg-vs-PtMap BOUNDARY honesty (Codex 2026-06-30; scope sealed to the shared $prose_files set) — a grep
-# TRIPWIRE over the SAME active-prose set as the other prose gates.  After [EMapLit] gained its own
-# [PtMap] category (a map is a value, [len]-able but NOT [cap]-able — DISTINCT from the [len]+[cap]-able
-# slice/chan [PtAgg]), active prose must not conflate the two with the exact stale phrasings this split killed:
-# "[cap] of an aggregate" (unqualified — wrongly implies [cap] works on a map; the live [cap] arm is [PtAgg]
-# ONLY) or "neither [EStr] nor [PtAgg]" (the live [len] arm now accepts [PtAgg]|[PtMap]).  The correct wording
-# names the slice/chan-vs-map split (e.g. "[cap] of a slice/chan aggregate ([PtAgg])"); "[cap] of a map"
-# (describing the REJECTED case) is fine — only the unqualified "of an aggregate" is banned.
-pm_pat='\[?cap\]?[[:space:]]+of[[:space:]]+an[[:space:]]+aggregate|neither[[:space:]]+\[EStr\][[:space:]]+nor[[:space:]]+\[PtAgg\]'
-pm_scan() { grep -rniE "$pm_pat" "$@" 2>/dev/null || true; }
-# self-test exercises the LIVE pm_scan: both stale forms caught; the correct "slice/chan aggregate" / "of a map"
-# / "nor an aggregate ([PtAgg]/[PtMap])" wordings spared.
-pm_tmp=$(mktemp)
-printf '%s\n' 'cap of an aggregate' '[cap] of an aggregate' 'neither [EStr] nor [PtAgg]' \
-  '[cap] of a slice/chan aggregate' 'Go forbids [cap] of a map' 'nor an aggregate ([PtAgg]/[PtMap])' > "$pm_tmp"
-pm_hit=$(pm_scan "$pm_tmp" | grep -c . || true)
-pm_leak=$(pm_scan "$pm_tmp" | grep -ciE 'slice/chan|of a map|PtMap' || true)
-rm -f "$pm_tmp"
-if [ "$pm_hit" -ne 3 ] || [ "$pm_leak" -ne 0 ]; then
-  echo "fido: PTAGG-PTMAP GATE self-test broke (want 3 stale catches, 0 leak; got hit=$pm_hit leak=$pm_leak)"; exit 1
-fi
-pmbad=$(pm_scan $prose_files)
-if [ -n "$pmbad" ]; then
-  echo "fido: PTAGG-PTMAP GATE — active prose conflates the [len]+[cap]-able slice/chan [PtAgg] with the [len]-only map [PtMap]:"
-  echo "$pmbad"
-  echo "fido: a map is [len]-able but NOT [cap]-able; name the split (e.g. '[cap] of a slice/chan aggregate ([PtAgg])')."
-  exit 1
-fi
-echo "fido: PtAgg-vs-PtMap boundary gate OK — no cap-of-any-aggregate / stale len-fallback prose ✓"
