@@ -418,6 +418,14 @@ Definition conv_int_to_f64_in_cmp (a : GoFloat64) (i : GoInt) : bool := f64_gtb 
     exercises the int source [f32_of_int]) — the last inline scalar conversion, completing that class.
     [goexpr_bridge] builds [ECall (EId "float32") [i]] (inline, no runtime guard); byte-identical to [pp_prec]. *)
 Definition conv_int_to_f32_in_cmp (a : GoFloat32) (i : GoInt) : bool := f32_gtb a (f32_of_int i).
+(** ★ And a fixed-width UNSIGNED ARITHMETIC op as a (widened) binop operand: [y + int64(u8_add a b)], where
+    [u8_add a b] lowers to the masked [(int(a) + int(b)) & 0xff].  This is the FIRST time the VERIFIED
+    [Printer.gprint] emits a fixed-width MASK: [goexpr_bridge] recurses into the [u8_add] operand and builds
+    [EBn (BAnd, EBn (BAdd, int(a), int(b)), EHex 0xff)] — the mask is the verified [EHex] leaf (its first LIVE
+    consumer).  [gprint] re-derives the parens by precedence, so the redundant OUTER pair the trusted [fw_wrap]
+    always adds is DROPPED — a cleaner-but-equivalent golden delta (NOT byte-identical; blessed, [go vet] clean).
+    UNSIGNED only; the signed widths (sign-extended) stay on [pp_expr]'s [fw_wrap]. *)
+Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64_of_u8 (u8_add a b)).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
           ; any (conv_f32_in_cmp (f32_lit 1) (3.5)%go64)           (* 1.0 < float32(3.5) = true *)
@@ -425,7 +433,8 @@ Definition conv_operand_demo : IO unit :=
           ; any (conv_f64_to_u64_in_binop (20)%u64 (2.9)%go64)     (* 20 + uint64(2.9) = 22 *)
           ; any (conv_int_widen_in_binop (int_lit 10 eq_refl) (u8_lit 200 eq_refl)) (* 10 + int(uint8 200) = 210 *)
           ; any (conv_int_to_f64_in_cmp (5)%go64 (int_lit 3 eq_refl))              (* 5.0 > float64(3) = true *)
-          ; any (conv_int_to_f32_in_cmp (f32_lit 2) (int_lit 1 eq_refl)) ].        (* 2.0 > float32(1) = true *)
+          ; any (conv_int_to_f32_in_cmp (f32_lit 2) (int_lit 1 eq_refl))           (* 2.0 > float32(1) = true *)
+          ; any (fw_u8_add_in_binop (5)%i64 (u8_lit 200 eq_refl) (u8_lit 100 eq_refl)) ]. (* 5 + int64((200+100)&0xff) = 5 + 44 = 49 *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
     since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful

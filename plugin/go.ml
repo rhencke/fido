@@ -1864,10 +1864,13 @@ let raw_term tab next =
    float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]), and
    float64->int64/uint64 truncation ([is_f64_to_i64_ref] [int64(f)] / [is_f64_to_u64_ref] [uint64(f)]),
    narrow->int widening ([is_int_of_fw], [int(x)]), numeric->float64 ([is_num_to_f64_ref] over
-   int/int64/float32/uint64, [float64(x)]), and int/int64/uint64->float32 ([is_int_to_f32_ref], [float32(x)]);
-   NOT every producer of those surface bytes (e.g. the masked fixed-width casts [uint8(x)], whose [(x & 0xff)]
-   wrapper is assembled by trusted [fw_wrap] [str]/[++] concatenation — only its mask constant is ITSELF the
-   verified [print_hex_int] → [Printer.print_hex]) which stay on [pp_prec] —
+   int/int64/float32/uint64, [float64(x)]), and int/int64/uint64->float32 ([is_int_to_f32_ref], [float32(x)]),
+   AND the unsigned fixed-width ARITHMETIC [uN_add]/[sub]/[mul] (the masked [(int(a) op int(b)) & 0xMASK], its
+   mask the verified [EHex] leaf) when reached as a bridging-binop operand;
+   NOT every producer of those surface bytes (e.g. the fixed-width CONVERSIONS [uint8(x)], the SIGNED fw
+   arithmetic, fw shifts/div/mod, and STANDALONE fw ops, whose [(x & 0xff)] wrapper is assembled by trusted
+   [fw_wrap] [str]/[++] concatenation — only the mask constant is ITSELF the verified [print_hex_int] →
+   [Printer.print_hex]) which stay on [pp_prec] —
    which is then printed by the extracted, machine-checked
    [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
@@ -1978,6 +1981,31 @@ let rec goexpr_bridge env e =
        | MLglob r, [x] when is_int_to_f32_ref r ->
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
+            | _ -> None)
+       (* fixed-width UNSIGNED arithmetic [uN_add a b] / [uN_sub] / [uN_mul] -> the masked
+          [(int(a) OP int(b)) & 0xMASK].  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int]
+          carrier first — a narrow-typed operand would overflow the mask), but builds it as the VERIFIED
+          [EBn (BAnd, EBn (OP, int(a), int(b)), EHex MASK)] so [gprint] re-derives the parens by precedence (the
+          redundant OUTER pair [fw_wrap] always adds is dropped; the inner [(… OP …)] pair is kept — a cleaner-
+          but-equivalent golden delta).  UNSIGNED only ([not s]): the SIGNED width additionally sign-extends
+          ([((m ^ sbit) - sbit)]) and stays on [fw_wrap].  Reached ONLY via [goexpr_bridge] RECURSION (a [uN] op
+          as a sub-operand of a bridging parent, e.g. [int64(u8_add a b)] inside a full-width binop) — a
+          standalone [uN] op still goes through [pp_expr]'s fw arm.  This is [EHex]'s first LIVE consumer.
+          ([w] is capped at 32 by [parse_fixed_width], so the [w>=63] mul guard never fires but mirrors the
+          trusted arm; [EHex]'s [HexZ] non-negativity proof is erased by extraction, so the mask is a bare [Z].) *)
+       | MLglob r, [a; b]
+         when (fw_is r "add" || fw_is r "sub" || fw_is r "mul")
+           && (match fixed_width_op r with
+               | Some (s, w, op) -> (not s) && not (String.equal op "mul" && w >= 63)
+               | None -> false) ->
+           (match goexpr_bridge env a, goexpr_bridge env b, mk_goexpr_id "int", fixed_width_op r with
+            | Some la, Some lb, Some fint, Some (_, w, op) ->
+                let bop = (match op with "add" -> Printer.BAdd | "sub" -> Printer.BSub | _ -> Printer.BMul) in
+                let mask = (1 lsl w) - 1 in
+                let wint l = Printer.ECall (fint, coq_list_of_ocaml [l]) in
+                Some (Printer.EBn (Printer.BAnd,
+                                   Printer.EBn (bop, wint la, wint lb),
+                                   Printer.EHex (coq_z_of_int64 (Int64.of_int mask))))
             | _ -> None)
        | _ -> None)
   | _ -> None
