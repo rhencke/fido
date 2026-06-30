@@ -199,20 +199,26 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # bridged recognizer within a short window of such a phrase; the legit "unbridged example" must be a genuinely
 # unbridged producer (e.g. the masked fixed-width casts uint8(x)), never a cov_preds member.
 ub_re='unbridged|stays? on pp_(expr|prec)|not bridged'
-ub_near() { printf '%s' "$2" | grep -qE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)"; }
-# self-test: a recognizer right next to "unbridged" is caught; the same name far from the unbridged-example
-# clause (across "; NOT every producer … uint8(x) stays on pp_expr") is spared.
-if ! ub_near is_zz "int->float32 is_zz emits the same float32(x) unbridged" \
-   || ub_near is_zz "is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on pp_expr"; then
-  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke"; exit 1
+# ub_norm: ONE matcher for both the live scan and the self-test — strips Coq/markdown code delimiters ([], `)
+# so `[pp_expr]` / `\`pp_expr\`` / `[pp_prec]` read as bare pp_expr/pp_prec, and matches case-INsensitively.
+ub_norm()  { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' ' | tr -d '[]`'; }
+ub_near()  { printf '%s' "$(ub_norm "$2")" | grep -qiE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)"; }
+# self-test: marked ([pp_prec], `pp_expr`), mixed-case (UNBRIDGED, Stays On), and bare forms next to a member
+# are caught; the same name FAR from the unbridged clause ("; NOT every producer … uint8(x) stays on [pp_expr]")
+# is spared.
+if ! ub_near is_zz 'int->float32 is_zz stays on [pp_prec]' \
+   || ! ub_near is_zz 'is_zz Stays On `pp_expr`' \
+   || ! ub_near is_zz 'is_zz emits the same float32(x) UNBRIDGED' \
+   || ub_near is_zz 'is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on [pp_expr]'; then
+  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke (marked/mixed-case unbridged-near-member must be caught; far-from-clause must be spared)"; exit 1
 fi
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md; do
   [ -f "$f" ] || continue
-  ubflat=$(tr '\n\t' '  ' < "$f" 2>/dev/null | tr -s ' ')
+  ubflat=$(ub_norm "$(cat "$f" 2>/dev/null)")
   for m in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-    if ub_near "$m" "$ubflat"; then
+    if printf '%s' "$ubflat" | grep -qiE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"; then
       echo "fido: BRIDGED-VS-UNBRIDGED GATE — $f names the BRIDGED cov_preds recognizer $m as 'unbridged'/'stays on pp_expr|prec'; a bridged predicate cannot be the unbridged example (use a genuinely unbridged producer, e.g. the masked fixed-width casts uint8(x)):"
-      printf '%s' "$ubflat" | grep -oE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"
+      printf '%s' "$ubflat" | grep -oiE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"
       exit 1
     fi
   done
