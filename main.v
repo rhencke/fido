@@ -407,11 +407,19 @@ Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (
     unconditionally — no force-wrapper, hence no runtime guard); [gprint] emits it byte-identically to [pp_prec]. *)
 Definition conv_f64_to_i64_in_binop (y : GoI64) (f : GoFloat64) : GoI64 := i64_add y (i64_of_f64 f).
 Definition conv_f64_to_u64_in_binop (y : GoU64) (f : GoFloat64) : GoU64 := u64_add y (u64_of_f64 f).
+(** And the narrow->platform-[int] widening [y + int(x)] ([is_int_of_fw], like [int64(x)] but to [int]) and the
+    int->float64 conversion [a > float64(i)] ([is_int_to_f64_ref]).  [x]/[i] are runtime PARAMs, so
+    [goexpr_bridge] builds [ECall (EId "int"/"float64") [..]] (both rendered inline unconditionally, no runtime
+    guard); [gprint] emits them byte-identically to [pp_prec]. *)
+Definition conv_int_widen_in_binop (y : GoInt) (x : GoU8) : GoInt := int_add y (int_of_u8 x).
+Definition conv_int_to_f64_in_cmp (a : GoFloat64) (i : GoInt) : bool := f64_gtb a (f64_of_int i).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
           ; any (conv_f32_in_cmp (f32_lit 1) (3.5)%go64)           (* 1.0 < float32(3.5) = true *)
           ; any (conv_f64_to_i64_in_binop (10)%i64 (3.7)%go64)     (* 10 + int64(3.7) = 13 *)
-          ; any (conv_f64_to_u64_in_binop (20)%u64 (2.9)%go64) ].  (* 20 + uint64(2.9) = 22 *)
+          ; any (conv_f64_to_u64_in_binop (20)%u64 (2.9)%go64)     (* 20 + uint64(2.9) = 22 *)
+          ; any (conv_int_widen_in_binop (int_lit 10 eq_refl) (u8_lit 200 eq_refl)) (* 10 + int(uint8 200) = 210 *)
+          ; any (conv_int_to_f64_in_cmp (5)%go64 (int_lit 3 eq_refl)) ].           (* 5.0 > float64(3) = true *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
     since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful
@@ -3615,7 +3623,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
-  conv_operand_demo             >>'   (* prints: 205 true 13 22 (conversions int64(x)/float32(x)/int64(f)/uint64(f) as binop operands) *)
+  conv_operand_demo             >>'   (* prints: 205 true 13 22 210 true (conversions int64(x)/float32(x)/int64(f)/uint64(f)/int(x)/float64(i) as binop operands) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)

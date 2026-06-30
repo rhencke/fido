@@ -36,8 +36,9 @@ The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extrac
 (machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree
 over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, and the runtime
 conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float32 narrowing
-`is_f64_to_f32_ref`+`operand_is_runtime`, and float64→int64/uint64 truncation
-`is_f64_to_i64_ref`/`is_f64_to_u64_ref` (NOT every producer of those surface bytes — e.g. int→float32
+`is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
+`is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, and int→float64
+`is_int_to_f64_ref` (NOT every producer of those surface bytes — e.g. int→float32
 `is_int_to_f32_ref` stays on `pp_expr`); every other shape is
 printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
 serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
@@ -83,7 +84,8 @@ live emission is not "verified Go."
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only a small binop-tree class live
   (locals / int·int64·uint64 literals / `^x` complement / narrow→int64 `is_i64_of_narrow_ref` /
   float64→float32 `is_f64_to_f32_ref`+`operand_is_runtime` / float64→int64·uint64 truncation
-  `is_f64_to_i64_ref`/`is_f64_to_u64_ref`); everything else is trusted `pp_expr`.
+  `is_f64_to_i64_ref`/`is_f64_to_u64_ref` / narrow→int `is_int_of_fw` / int→float64 `is_int_to_f64_ref`);
+  everything else is trusted `pp_expr`.
 - **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
   assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.
 - Latent typed-lowering residuals (e.g. an untyped higher-order `func(x any) any` lambda) remain dead today
