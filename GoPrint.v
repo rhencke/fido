@@ -12,11 +12,11 @@
     [is_f64_to_f32_ref]+[operand_is_runtime], float64->int64/uint64 truncation
     [is_f64_to_i64_ref]/[is_f64_to_u64_ref], narrow->int widening [is_int_of_fw], numeric->float64
     [is_num_to_f64_ref] (over int/int64/float32/uint64), and int/int64/uint64->float32 [is_int_to_f32_ref] -- and
-    the unsigned fixed-width ARITHMETIC [uN_add]/[sub]/[mul] (the masked [(int(a) op int(b)) & 0xMASK], mask =
-    the verified [EHex] leaf) when a bridging-binop operand; NOT every producer of those surface bytes -- e.g.
-    the fixed-width CONVERSIONS [uint8(x)], SIGNED fw arithmetic, fw shifts/div/mod, and standalone fw ops stay
-    on [pp_expr] (their mask constant is the verified [print_hex], but the surrounding expr is trusted-assembled
-    by [fw_wrap])); every other
+    the fixed-width ARITHMETIC [(u|i)N_add]/[sub]/[mul] (unsigned: the masked [(int(a) op int(b)) & 0xMASK];
+    signed: additionally SIGN-EXTENDED; masks/sign-bits = the verified [EHex] leaf) when a bridging-binop
+    operand; NOT every producer of those surface bytes -- e.g. the fixed-width CONVERSIONS [uint8(x)], fw
+    shifts/div/mod, and standalone fw ops stay on [pp_expr] (their mask constant is the verified [print_hex],
+    but the surrounding expr is trusted-assembled by [fw_wrap])); every other
     expression shape is still printed by the trusted OCaml [pp_expr] in [plugin/go.ml].  So this file does NOT
     make the live Go "verified."
 
@@ -717,11 +717,12 @@ Qed.
     replaced go.ml's raw hex [Printf]): go.ml's [print_hex_int] renders the fixed-width bit-mask / sign-bit
     CONSTANTS ([0xff]/[0x80]/… in [fw_wrap]) and [Printer.print_float_hex] uses it for the [spec_float]
     hex-literal mantissa — these are the many [0x…] bytes in the golden [main.go].  What THIS section ADDS, now
-    LIVE, is the structured [EHex] GExpr LEAF: the unsigned fixed-width ARITHMETIC bridge ([goexpr_bridge], via
-    the [mk_goexpr_hex] smart constructor) builds [EBn (BAnd, EBn (op, int(a), int(b)), EHex MASK)], so the WHOLE
-    masked [(int(a) op int(b)) & 0xMASK] (not just the mask digits) is emitted by the verified [gprint] when a
-    [uN] op is a bridging-binop operand.  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)],
-    the SIGNED arithmetic, shifts, div/mod, and standalone fw ops. *)
+    LIVE, is the structured [EHex] GExpr LEAF: the fixed-width ARITHMETIC bridge ([goexpr_bridge], via the
+    [mk_goexpr_hex] smart constructor) builds [EBn (BAnd, EBn (op, int(a), int(b)), EHex MASK)] (unsigned) or its
+    SIGN-EXTENSION [EBn (BSub, EBn (BXor, masked, EHex SBIT), EHex SBIT)] (signed), so the WHOLE masked /
+    sign-extended expr (not just the mask digits) is emitted by the verified [gprint] when a [(u|i)N] op is a
+    bridging-binop operand.  STILL on the trusted [fw_wrap]: the fixed-width CONVERSIONS [uint8(x)], shifts,
+    div/mod, and standalone fw ops. *)
 Fixpoint hex_digits (fuel : nat) (z : Z) (acc : string) : string :=
   match fuel with
   | O   => acc

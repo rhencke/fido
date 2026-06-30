@@ -39,11 +39,11 @@ conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float3
 `is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
 `is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, numeric→float64
 `is_num_to_f64_ref` over int/int64/float32/uint64, and int/int64/uint64→float32 `is_int_to_f32_ref` — and the
-unsigned fixed-width ARITHMETIC `uN_add`/`sub`/`mul` (the masked `(int(a) op int(b)) & 0xMASK`, mask = the
-verified `EHex` leaf) when a bridging-binop operand (NOT every producer of those surface bytes — e.g. the
-fixed-width CONVERSIONS `uint8(x)`, SIGNED fw arithmetic, fw shifts/div/mod, and standalone fw ops stay on
-`pp_expr`: their mask constant is the verified `print_hex`, but the surrounding expression is trusted-assembled
-by `fw_wrap`); every other shape is
+fixed-width ARITHMETIC `(u|i)N_add`/`sub`/`mul` (unsigned: the masked `(int(a) op int(b)) & 0xMASK`; signed:
+that masked form additionally SIGN-EXTENDED; masks/sign-bits = the verified `EHex` leaf) when a bridging-binop
+operand (NOT every producer of those surface bytes — e.g. the fixed-width CONVERSIONS `uint8(x)`, fw
+shifts/div/mod, and standalone fw ops stay on `pp_expr`: their mask constant is the verified `print_hex`, but
+the surrounding expression is trusted-assembled by `fw_wrap`); every other shape is
 printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
 serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
 cover the trusted MiniML→`GExpr` CONSTRUCTION that feeds it, and are not a Go-parser-acceptance proof; so the
@@ -89,8 +89,8 @@ live emission is not "verified Go."
   (locals / int·int64·uint64 literals / `^x` complement / narrow→int64 `is_i64_of_narrow_ref` /
   float64→float32 `is_f64_to_f32_ref`+`operand_is_runtime` / float64→int64·uint64 truncation
   `is_f64_to_i64_ref`/`is_f64_to_u64_ref` / narrow→int `is_int_of_fw` / numeric→float64 `is_num_to_f64_ref` /
-  int→float32 `is_int_to_f32_ref` / unsigned fixed-width arithmetic `uN_add`/`sub`/`mul` as a bridging-binop
-  operand, masked via the verified `EHex`); everything else is trusted `pp_expr`.
+  int→float32 `is_int_to_f32_ref` / fixed-width arithmetic `(u|i)N_add`/`sub`/`mul` as a bridging-binop operand
+  (unsigned masked / signed sign-extended, via the verified `EHex`)); everything else is trusted `pp_expr`.
 - **Map literals / map conversions are QUARANTINED** from `SupportedProgram` (key-type comparability +
   assignability are not soundly structural without types); re-admit when GoSem seals a comparable-key builder.
 - Latent typed-lowering residuals (e.g. an untyped higher-order `func(x any) any` lambda) remain dead today

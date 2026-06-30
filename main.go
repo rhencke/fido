@@ -241,8 +241,12 @@ func Fw_u8_add_in_binop(y int64, a uint8, b uint8) int64 {
 	return y + int64((int(a)+int(b))&0xff)
 }
 
+func Fw_i8_add_in_binop(y int64, a int8, b int8) int64 {
+	return y + int64((int(a)+int(b))&0xff^0x80-0x80)
+}
+
 func Conv_operand_demo() {
-	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51), Conv_f64_to_i64_in_binop(10, 0x1d99999999999ap-51), Conv_f64_to_u64_in_binop(20, 0x17333333333333p-51), Conv_int_widen_in_binop(10, uint8((200&0xff))), Conv_int_to_f64_in_cmp(0x14000000000000p-50, 3), Conv_int_to_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-51), 1), Fw_u8_add_in_binop(5, uint8((200&0xff)), uint8((100&0xff))))
+	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51), Conv_f64_to_i64_in_binop(10, 0x1d99999999999ap-51), Conv_f64_to_u64_in_binop(20, 0x17333333333333p-51), Conv_int_widen_in_binop(10, uint8((200&0xff))), Conv_int_to_f64_in_cmp(0x14000000000000p-50, 3), Conv_int_to_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-51), 1), Fw_u8_add_in_binop(5, uint8((200&0xff)), uint8((100&0xff))), Fw_i8_add_in_binop(10, int8((((100&0xff)^0x80)-0x80)), int8((((100&0xff)^0x80)-0x80))))
 }
 
 func I64_to_narrow_demo() {

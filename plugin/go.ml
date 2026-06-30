@@ -1873,10 +1873,11 @@ let raw_term tab next =
    float64->int64/uint64 truncation ([is_f64_to_i64_ref] [int64(f)] / [is_f64_to_u64_ref] [uint64(f)]),
    narrow->int widening ([is_int_of_fw], [int(x)]), numeric->float64 ([is_num_to_f64_ref] over
    int/int64/float32/uint64, [float64(x)]), and int/int64/uint64->float32 ([is_int_to_f32_ref], [float32(x)]),
-   AND the unsigned fixed-width ARITHMETIC [uN_add]/[sub]/[mul] (the masked [(int(a) op int(b)) & 0xMASK], its
-   mask the verified [EHex] leaf) when reached as a bridging-binop operand;
-   NOT every producer of those surface bytes (e.g. the fixed-width CONVERSIONS [uint8(x)], the SIGNED fw
-   arithmetic, fw shifts/div/mod, and STANDALONE fw ops, whose [(x & 0xff)] wrapper is assembled by trusted
+   AND the fixed-width ARITHMETIC [(u|i)N_add]/[sub]/[mul] (unsigned: the masked [(int(a) op int(b)) & 0xMASK];
+   signed: additionally SIGN-EXTENDED [(… ^ 0xSBIT) - 0xSBIT]; masks/sign-bits the verified [EHex] leaf) when
+   reached as a bridging-binop operand;
+   NOT every producer of those surface bytes (e.g. the fixed-width CONVERSIONS [uint8(x)], fw shifts/div/mod,
+   and STANDALONE fw ops, whose [(x & 0xff)] wrapper is assembled by trusted
    [fw_wrap] [str]/[++] concatenation — only the mask constant is ITSELF the verified [print_hex_int] →
    [Printer.print_hex]) which stay on [pp_prec] —
    which is then printed by the extracted, machine-checked
@@ -1990,30 +1991,37 @@ let rec goexpr_bridge env e =
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
-       (* fixed-width UNSIGNED arithmetic [uN_add a b] / [uN_sub] / [uN_mul] -> the masked
-          [(int(a) OP int(b)) & 0xMASK].  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int]
-          carrier first — a narrow-typed operand would overflow the mask), but builds it as the VERIFIED
-          [EBn (BAnd, EBn (OP, int(a), int(b)), EHex MASK)] so [gprint] re-derives the parens by precedence (the
-          redundant OUTER pair [fw_wrap] always adds is dropped; the inner [(… OP …)] pair is kept — a cleaner-
-          but-equivalent golden delta).  UNSIGNED only ([not s]): the SIGNED width additionally sign-extends
-          ([((m ^ sbit) - sbit)]) and stays on [fw_wrap].  Reached ONLY via [goexpr_bridge] RECURSION (a [uN] op
-          as a sub-operand of a bridging parent, e.g. [int64(u8_add a b)] inside a full-width binop) — a
-          standalone [uN] op still goes through [pp_expr]'s fw arm.  This is [EHex]'s first LIVE consumer.
-          ([w] is capped at 32 by [parse_fixed_width], so the [w>=63] mul guard never fires but mirrors the
-          trusted arm; [EHex]'s [HexZ] non-negativity proof is erased by extraction, so the mask is a bare [Z].) *)
+       (* fixed-width arithmetic [(u|i)N_add a b] / [sub] / [mul] -> the masked (unsigned) or masked+sign-
+          extended (signed) form.  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int] carrier
+          first — a narrow-typed operand would overflow the mask), but built as the VERIFIED [EBn] tree so
+          [gprint] re-derives the parens by precedence (dropping the redundant pairs [fw_wrap] always adds — a
+          cleaner-but-equivalent golden delta):
+            UNSIGNED [uN]: [EBn (BAnd, EBn (OP, int(a), int(b)), EHex MASK)]              (mask to w bits)
+            SIGNED   [iN]: [EBn (BSub, EBn (BXor, <masked>, EHex SBIT), EHex SBIT)]       (sign-extend [<masked>])
+          Both [EHex] constants ([MASK]=[(1 lsl w)-1], [SBIT]=[1 lsl (w-1)]) are built via the [mk_goexpr_hex]
+          smart ctor (non-negative, proof re-checked).  Reached ONLY via [goexpr_bridge] RECURSION (a [(u|i)N] op
+          as a sub-operand of a bridging parent, e.g. [int64(i8_add a b)] inside a full-width binop) — a
+          standalone op still goes through [pp_expr]'s fw arm.  This is [EHex]'s first LIVE consumer ([w] is
+          capped at 32 by [parse_fixed_width], so the [w>=63] mul guard never fires but mirrors the trusted arm). *)
        | MLglob r, [a; b]
          when (fw_is r "add" || fw_is r "sub" || fw_is r "mul")
            && (match fixed_width_op r with
-               | Some (s, w, op) -> (not s) && not (String.equal op "mul" && w >= 63)
+               | Some (_, w, op) -> not (String.equal op "mul" && w >= 63)
                | None -> false) ->
            (match goexpr_bridge env a, goexpr_bridge env b, mk_goexpr_id "int", fixed_width_op r with
-            | Some la, Some lb, Some fint, Some (_, w, op) ->
+            | Some la, Some lb, Some fint, Some (s, w, op) ->
                 let bop = (match op with "add" -> Printer.BAdd | "sub" -> Printer.BSub | _ -> Printer.BMul) in
                 let mask = (1 lsl w) - 1 in
                 let wint l = Printer.ECall (fint, coq_list_of_ocaml [l]) in
                 (match mk_goexpr_hex (coq_z_of_int64 (Int64.of_int mask)) with
-                 | Some hmask -> Some (Printer.EBn (Printer.BAnd, Printer.EBn (bop, wint la, wint lb), hmask))
-                 | None -> None)
+                 | None -> None
+                 | Some hmask ->
+                     let masked = Printer.EBn (Printer.BAnd, Printer.EBn (bop, wint la, wint lb), hmask) in
+                     if not s then Some masked
+                     else
+                       (match mk_goexpr_hex (coq_z_of_int64 (Int64.of_int (1 lsl (w - 1)))) with
+                        | Some hsbit -> Some (Printer.EBn (Printer.BSub, Printer.EBn (Printer.BXor, masked, hsbit), hsbit))
+                        | None -> None))
             | _ -> None)
        | _ -> None)
   | _ -> None
@@ -2634,7 +2642,8 @@ let rec pp_expr state env = function
               the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] / float64→float32
               [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
               [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
-              / unsigned fixed-width arithmetic [uN_add]/[sub]/[mul] as a bridging-binop operand (masked via [EHex]))
+              / fixed-width arithmetic [(u|i)N_add]/[sub]/[mul] as a bridging-binop operand (unsigned masked /
+              signed sign-extended, via [EHex]))
               via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
@@ -2955,7 +2964,7 @@ and pp_atom state env e =
    int·int64·uint64 literals / the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] /
    float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
    [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
-   / unsigned fixed-width arithmetic [uN_add]/[sub]/[mul] as a bridging-binop operand (masked via [EHex])) is delegated to the VERIFIED
+   / fixed-width arithmetic [(u|i)N_add]/[sub]/[mul] as a bridging-binop operand (unsigned masked / signed sign-extended, via [EHex])) is delegated to the VERIFIED
    [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with

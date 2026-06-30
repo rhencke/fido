@@ -171,11 +171,11 @@ int64/uint64 complement `^x`, and the runtime conversions — narrow→int64 wid
 `is_i64_of_narrow_ref`, float64→float32 narrowing `is_f64_to_f32_ref`+`operand_is_runtime`,
 float64→int64/uint64 truncation `is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`,
 numeric→float64 `is_num_to_f64_ref` (over int/int64/float32/uint64), and int/int64/uint64→float32
-`is_int_to_f32_ref` — and the unsigned fixed-width ARITHMETIC `uN_add`/`sub`/`mul` (the masked
-`(int(a) op int(b)) & 0xMASK`, mask = the verified `EHex` leaf) when a bridging-binop operand; NOT every
-producer of those surface bytes — e.g. the fixed-width CONVERSIONS `uint8(x)`, SIGNED fw arithmetic, fw
-shifts/div/mod, and standalone fw ops stay on `pp_expr` (their mask constant is the verified `print_hex`, but
-the surrounding expression is trusted-assembled by `fw_wrap`)) — every other shape
+`is_int_to_f32_ref` — and the fixed-width ARITHMETIC `(u|i)N_add`/`sub`/`mul` (unsigned: the masked
+`(int(a) op int(b)) & 0xMASK`; signed: additionally SIGN-EXTENDED; masks/sign-bits = the verified `EHex` leaf)
+when a bridging-binop operand; NOT every producer of those surface bytes — e.g. the fixed-width CONVERSIONS
+`uint8(x)`, fw shifts/div/mod, and standalone fw ops stay on `pp_expr` (their mask constant is the verified
+`print_hex`, but the surrounding expression is trusted-assembled by `fw_wrap`)) — every other shape
 is printed by the trusted OCaml `pp_expr`. And even for that class
 the printer proofs cover only AST→string serialization
 (`gprint`'s round-trip / injectivity): they do NOT cover the trusted MiniML→`GExpr` CONSTRUCTION in `go.ml`
