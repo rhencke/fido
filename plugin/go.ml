@@ -216,9 +216,9 @@ let named n r = String.equal (global_basename r) n && from_builtins r
 
 (* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
    [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
-   as [named_in […]] so the [from_builtins] guard is STRUCTURAL: a raw [List.mem (global_basename r) …] without
-   [from_builtins] is a shadowing forge hole (a user global with the same basename would be lowered to the
-   intrinsic).  smart-ctor-gate.sh check #5 enforces that those recognizers carry no raw [global_basename]. *)
+   as exactly [let is_X = named_in […]] so the [from_builtins] guard lives here, once.  smart-ctor-gate.sh
+   check #5 accepts only that exact alias grammar (and pins this helper's body), so a hand-rolled recognizer
+   that could match a non-builtin — the shadowing forge hole — fails the gate. *)
 let named_in ns r = from_builtins r && List.mem (global_basename r) ns
 
 let ref_has_suffix r suffix =

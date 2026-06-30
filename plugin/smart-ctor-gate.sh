@@ -168,14 +168,12 @@ if [ -n "$scbad" ]; then
 fi
 echo "fido: stale-count gate OK — no numeric conversion-count / old demo-output prose ✓"
 
-# 5. BRIDGE-RECOGNIZER scoping (STRUCTURAL): every conversion recognizer the verified-printer bridge uses
-# (named in cov_preds) MUST route its basename match through the from_builtins-scoped [named_in] helper and
-# carry NO raw [global_basename] of its own.  A raw [List.mem (global_basename r) …] / [String.equal
-# (global_basename r) …] WITHOUT from_builtins is a SHADOWING FORGE HOLE (a user global with the same basename
-# would be lowered to the intrinsic; go.ml trust-boundary rule, ~line 197).  We do NOT text-grep for
-# "from_builtins" — that can't prove the guard DOMINATES (negation, ||, dead [ignore], a comment all fool it).
-# Instead we lock the STRUCTURE: [named_in] is the single scoped basename matcher, and a recognizer that
-# delegates to it while never naming [global_basename] itself is scoped by construction.
+# 5. BRIDGE-RECOGNIZER scoping (EXACT-SHAPE grammar).  Every conversion recognizer the verified-printer bridge
+# uses (named in cov_preds) MUST be EXACTLY the scoped alias `let <pred> = named_in ["lit"; …]`, and [named_in]
+# MUST be EXACTLY `from_builtins r && List.mem (global_basename r) ns`.  Only that grammar is accepted — the gate
+# does NOT interpret an arbitrary body (a substring test is forgeable: `not (named_in …)`, `named_in … || true`,
+# `ignore (named_in …); true`, a comment all pass a substring check).  Pinning the alias/helper grammar makes a
+# forged or weakened recognizer fail the gate; the from_builtins guard lives once, in the named_in helper.
 recog_body() {  # the def of $1 in $2: its `let` line up to (EXCLUDING) the next top-level `let`/`(*`
   awk -v p="$1" '
     $0 ~ ("^let " p "([ =]|$)")           { inb=1; print; next }
@@ -183,30 +181,32 @@ recog_body() {  # the def of $1 in $2: its `let` line up to (EXCLUDING) the next
     inb                                    { print }
   ' "$2" 2>/dev/null
 }
-scoped_ok() { b=$(recog_body "$1" "$2"); printf '%s' "$b" | grep -q 'named_in' && ! printf '%s' "$b" | grep -q 'global_basename'; }
+recog_norm()   { recog_body "$1" "$2" | tr '\n\t' '  ' | tr -s ' '; }       # def → one whitespace-squeezed line
+recog_alias()  { printf '%s' "$(recog_norm "$1" "$2")" | grep -qE "^let $1 = named_in \[\"[A-Za-z0-9_]+\"(; \"[A-Za-z0-9_]+\")*\] *\$"; }
+helper_exact() { printf '%s' "$(recog_norm named_in "$1")" | grep -qE '^let named_in ns r = from_builtins r && List\.mem \(global_basename r\) ns *$'; }
 rg_tmp=$(mktemp)
 cat > "$rg_tmp" <<'RGEOF'
 let is_good = named_in ["a"; "b"]
 let mid x = 1
-let is_raw r = from_builtins r && List.mem (global_basename r) ["z"]
-let is_neg r = not (from_builtins r) && List.mem (global_basename r) ["z"]
-let is_or r = List.mem (global_basename r) ["z"] || from_builtins r
-let is_dead r = ignore (from_builtins r); List.mem (global_basename r) ["z"]
-let is_cmt r = (* from_builtins r dominates *) List.mem (global_basename r) ["z"]
-let is_fakedelegate r = ignore (named_in []); List.mem (global_basename r) ["z"]
-let is_next r = from_builtins r && foo
+let is_inv r = not (named_in ["a"] r)
+let is_or r = named_in ["a"] r || true
+let is_dead r = ignore (named_in ["a"] r); true
+let is_cmt r = (* named_in ["a"] *) true
+let is_raw r = from_builtins r && List.mem (global_basename r) ["a"]
+let is_trail = named_in ["a"] || foo
+let named_in ns r = from_builtins r && List.mem (global_basename r) ns
 let tail y = 2
 RGEOF
-# the named_in delegation PASSES; every forge shape Codex probed (raw / negated / OR-tautology / dead-ignore /
-# comment-only / fake-delegation-plus-raw) FAILS — each retains a raw [global_basename] or does not delegate.
-if ! scoped_ok is_good "$rg_tmp" \
-   || scoped_ok is_raw "$rg_tmp" || scoped_ok is_neg "$rg_tmp" || scoped_ok is_or "$rg_tmp" \
-   || scoped_ok is_dead "$rg_tmp" || scoped_ok is_cmt "$rg_tmp" || scoped_ok is_fakedelegate "$rg_tmp"; then
-  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (a named_in delegation must pass; every raw/negated/OR/dead/comment/fake-delegate global_basename shape must fail)"; rm -f "$rg_tmp"; exit 1
+# ONLY is_good is the exact alias and only the shown named_in is the exact helper; not/or/dead/comment/raw/
+# trailing-junk all FAIL because the anchored grammar rejects anything but `let X = named_in [string lits]`.
+if ! recog_alias is_good "$rg_tmp" || ! helper_exact "$rg_tmp" \
+   || recog_alias is_inv "$rg_tmp"  || recog_alias is_or "$rg_tmp"   || recog_alias is_dead "$rg_tmp" \
+   || recog_alias is_cmt "$rg_tmp"  || recog_alias is_raw "$rg_tmp"  || recog_alias is_trail "$rg_tmp"; then
+  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (only the exact named_in alias + exact named_in helper may pass)"; rm -f "$rg_tmp"; exit 1
 fi
 rm -f "$rg_tmp"
-recog_body named_in plugin/go.ml | grep -q 'from_builtins' || { echo "fido: BRIDGE-RECOGNIZER GATE — the [named_in] helper lost its from_builtins guard"; exit 1; }
+helper_exact plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — [named_in] is not EXACTLY 'from_builtins r && List.mem (global_basename r) ns'; its scoping guard must not weaken."; exit 1; }
 for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-  scoped_ok "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — $pred (a goexpr_bridge recognizer in cov_preds) is NOT structurally builtin-scoped: it must be defined as [named_in […]] and contain NO raw [global_basename] match (shadowing forge hole)."; exit 1; }
+  recog_alias "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — $pred (a goexpr_bridge recognizer in cov_preds) is not EXACTLY 'let $pred = named_in [\"lit\"; …]'; only that scoped-alias shape is accepted (a hand-rolled body is a forge surface)."; exit 1; }
 done
-echo "fido: bridge-recognizer gate OK — every cov_preds recognizer routes through the from_builtins-scoped named_in ✓"
+echo "fido: bridge-recognizer gate OK — every cov_preds recognizer is the exact named_in alias; named_in is the exact scoped helper ✓"
