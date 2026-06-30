@@ -18,10 +18,11 @@
                            denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string literal, plus any printable [ptype] folds to an INTEGER CONSTANT — literals,
-    integer CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x] — boxed via the model's value ctors)
-    supplies the printed/panicked values; FLOAT consts, bools, and RUNTIME values ([len(..)]/[int(x)]…) are the
-    next sub-slices and [eval] to [None] there.
+    [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to an INTEGER CONSTANT —
+    literals, integer CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint] — boxed via
+    the model's value ctors, failing closed on an out-of-range value) supplies the printed/panicked values;
+    FLOAT consts, bools, non-literal strings, [GTUint], and RUNTIME values ([len(..)]/[int(x)]…) are the next
+    sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -36,39 +37,42 @@ From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-e
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 
-(** Box a typed-integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny].  [z] is the FOLDED
-    value [ptype] carries ([PtTIntConst t z]); the gate guarantees it is REPRESENTABLE in [t], so the [*wrap]
-    constructors (which range-wrap [z] but are IDENTITY in range) build EXACTLY the model's value — e.g.
-    [int64(3)] -> [anyt TI64 (i64wrap 3)] = [MkI64 3], the very value the model's [println] would carry.
-    [GTUint] (no proof-free wrap) and the float types are the next sub-slice. *)
+(** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED
+    at the BOUNDARY: it first checks [int_const_repr z t] (is [z] representable in [t]?), so an out-of-range [z]
+    yields [None] HERE, not a silently [*wrap]-mangled value — exactness does NOT rely on a caller having gated
+    (rule 4: evidence at the builder).  When in range the [*wrap] constructor is IDENTITY, so it builds EXACTLY
+    the model's value (e.g. [int64(3)] -> [anyt TI64 (i64wrap 3)] = [MkI64 3], what the model's [println]
+    carries).  [GTUint] stays [None] (no proof-free [GoUint] wrap yet); floats are the next sub-slice. *)
 Definition box_int (t : GoTy) (z : Z) : option GoAny :=
-  match t with
-  | GTInt   => Some (anyt TInt64 (intwrap z))   (* Go [int]  -> [GoInt] *)
-  | GTInt64 => Some (anyt TI64  (i64wrap z))     (* Go [int64]-> [GoI64] (Z-carried) *)
-  | GTU8    => Some (anyt TU8   (u8wrap  z))
-  | GTI8    => Some (anyt TI8   (i8wrap  z))
-  | GTU16   => Some (anyt TU16  (u16wrap z))
-  | GTI16   => Some (anyt TI16  (i16wrap z))
-  | GTU32   => Some (anyt TU32  (u32wrap z))
-  | GTI32   => Some (anyt TI32  (i32wrap z))
-  | GTU64   => Some (anyt TU64  (u64wrap z))
-  | _       => None   (* [GTUint] (no proof-free wrap), floats, non-numeric — next sub-slice *)
-  end.
+  if int_const_repr z t then
+    match t with
+    | GTInt   => Some (anyt TInt64 (intwrap z))   (* Go [int]  -> [GoInt] *)
+    | GTInt64 => Some (anyt TI64  (i64wrap z))     (* Go [int64]-> [GoI64] (Z-carried) *)
+    | GTU8    => Some (anyt TU8   (u8wrap  z))
+    | GTI8    => Some (anyt TI8   (i8wrap  z))
+    | GTU16   => Some (anyt TU16  (u16wrap z))
+    | GTI16   => Some (anyt TI16  (i16wrap z))
+    | GTU32   => Some (anyt TU32  (u32wrap z))
+    | GTI32   => Some (anyt TI32  (i32wrap z))
+    | GTU64   => Some (anyt TU64  (u64wrap z))
+    | _       => None   (* [GTUint] (no proof-free wrap), non-integer [t] — next sub-slice *)
+    end
+  else None.
 
 (** Evaluate a value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's bridged subset.
     FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds an integer constant to
-    its VALUE and TYPE ([PtIntConst z] = untyped, default [int]; [PtTIntConst t z] = a typed const, e.g. a
-    conversion [int64(3)] or typed-const arithmetic), and [box_int]/the default-[int] box just attach the model
-    value.  So this covers integer LITERALS, integer CONVERSIONS, integer ARITHMETIC and the complement [^x] —
-    every printable [ptype] folds to an integer constant — with NO second folding logic.  A string LITERAL is
-    [anyt TString s] (matched syntactically because [PtStr] carries no value).  Float constants, bools (from
-    comparisons), [PtRunInt]/[PtRunFloat] RUNTIME values ([len(..)], [int(x)]…), aggregates -> [None] (the next
-    sub-slices) — honestly ABSENT, never wrong.
-    ⚠ It is sound ONLY when the caller has GATED [e] (range-checked it supported) — [denote_stmt] always does
-    (via [expr_stmt_ok] / [svalue]); a [Some] then means a panic-free, in-range value safe to denote. *)
+    its VALUE and TYPE ([PtIntConst z] = untyped, taking default [int]; [PtTIntConst t z] = a typed const, e.g.
+    a conversion [int64(3)] or typed-const arithmetic), and [box_int] attaches the model value, FAILING CLOSED
+    on an out-of-range [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a string LITERAL
+    ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer constant whose
+    default-[int] value is in range, and a supported TYPED integer constant — i.e. integer literals,
+    CONVERSIONS [int64(3)] (EXCLUDING [GTUint], no [GoUint] box yet), ARITHMETIC [1+2], complement [^x] — with
+    NO second folding logic.  ABSENT (-> [None], the next sub-slices): float constants, bools, non-literal
+    strings, [GTUint], and all RUNTIME values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly
+    absent, never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
-  | Some (PtIntConst z)    => Some (anyt TInt64 (intwrap z))                                  (* untyped const -> default [int] *)
+  | Some (PtIntConst z)    => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z) => box_int t z                                                     (* typed int const (conversion / typed arith) *)
   | Some PtStr             => match e with EStr s => Some (anyt TString s) | _ => None end     (* a string LITERAL ([PtStr] carries no value) *)
   | _                      => None
@@ -217,40 +221,38 @@ Example gosem_return_stops_no_output : forall w,
   end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION (P0, Codex 2026-06-30, 2nd pass): a [return] must NOT depend on its UNREACHABLE successors
-    DENOTING — only on them being SUPPORTED.  `func main(){ return; println(int64(3)) }` is supported, and its
-    successor [println(int64(3))] is NOT yet denotable by slice 1 (no [eval_value] for conversions), yet the
-    program faithfully denotes to a no-output [CRet] (the [println] never runs).  Pins that the [GsReturn] arm
-    gates on [forallb stmt_ok rest], not on [denote_body rest]. *)
+(** REGRESSION (P0, Codex 2026-06-30, 2nd/3rd pass): a TERMINATOR ([return]/[panic]) must NOT depend on its
+    UNREACHABLE successors DENOTING — only on them being SUPPORTED.  Witness: a SUPPORTED-but-UNDENOTABLE
+    statement [println(len([]int{1}))] — [len] of a slice is a runtime [PtRunInt] (printable, so [stmt_ok] =
+    true), but slice-1 [eval_value] does not model a runtime value, so [denote_stmt = None].  Pinned DIRECTLY
+    (this stays undenotable as the integer-CONSTANT eval grows — it is runtime, not a constant): *)
+Definition undenotable_succ : GoStmt :=
+  GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                    [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]).
+Example undenotable_succ_supported   : stmt_ok undenotable_succ = true.    Proof. reflexivity. Qed.
+Example undenotable_succ_undenotable : denote_stmt undenotable_succ = None. Proof. reflexivity. Qed.
+
+(** `func main(){ return; <undenotable_succ> }` denotes (NOT [None]) to a no-output [CRet] — the [GsReturn] arm
+    gates on [forallb stmt_ok rest], NOT [denote_body rest]. *)
 Definition gosem_return_undenotable_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsReturn; GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                                         [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
+  mkProgram (mkIdent "main" eq_refl) [GsReturn; undenotable_succ].
 Example gosem_return_undenotable_supported : supported_program gosem_return_undenotable_prog = true.
 Proof. reflexivity. Qed.
 Example gosem_return_undenotable_no_output : forall w,
-  match denote_program gosem_return_undenotable_prog with
-  | Some c => run_cmd 5 c w
-  | None => None
-  end = Some (ORet tt w).   (* denotes (NOT [None]) to a no-output [CRet], despite the un-denotable successor *)
+  match denote_program gosem_return_undenotable_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION (P0, Codex 2026-06-30, 3rd pass): like [return], a denoted [panic] TERMINATES — its successors
-    are UNREACHABLE, so their denotability is irrelevant ([denote_stmt]'s flag marks BOTH as terminating).
-    `func main(){ panic("x"); println(int64(3)) }` denotes (NOT [None]) to a [CPan] despite the un-denotable
-    successor; [run_cmd] PANICS with [anyt TString "x"] and NO output. *)
+(** Likewise a denoted [panic] TERMINATES: `func main(){ panic("x"); <undenotable_succ> }` denotes (NOT [None])
+    to a [CPan] despite the undenotable successor; [run_cmd] PANICS with [anyt TString "x"] and NO output. *)
 Definition gosem_panic_terminates_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]);
-             GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
+            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]); undenotable_succ].
 Example gosem_panic_terminates_supported : supported_program gosem_panic_terminates_prog = true.
 Proof. reflexivity. Qed.
 Example gosem_panic_terminates_runs : forall w,
-  match denote_program gosem_panic_terminates_prog with
-  | Some c => run_cmd 5 c w
-  | None => None
-  end = Some (OPanic (anyt TString "x") w).
+  match denote_program gosem_panic_terminates_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (OPanic (anyt TString "x") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REGRESSION (P0, Codex 2026-06-30): a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})`
@@ -288,6 +290,17 @@ Example gosem_conv_demo_runs : forall w,
   match denote_program gosem_conv_demo_prog with Some c => run_cmd 5 c w | None => None end
   = Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** NEGATIVE (Codex 2026-06-30): the eval growth must FAIL CLOSED at the BOUNDARY, never carry a *wrap-mangled
+    out-of-range value, and must NOT silently widen to [GTUint].  Pinned directly at [box_int] and end-to-end
+    through [eval_value]: an out-of-range fixed-width value, an untyped const past the default-[int] range, and a
+    [uint] conversion all evaluate to [None]. *)
+Example box_int_oob_none    : box_int GTU8 300 = None.   (* 300 ∉ [0,255]: rejected at the builder, not [u8wrap]-mangled to 44 *)
+Proof. reflexivity. Qed.
+Example eval_default_oob_none : eval_value (EInt 2147483648) = None.   (* 2^31 ∉ GTInt's conservative 32-bit range *)
+Proof. vm_compute. reflexivity. Qed.
+Example eval_uint_absent    : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = None.   (* [GTUint] intentionally absent (no proof-free [GoUint] box) *)
+Proof. vm_compute. reflexivity. Qed.
 
 (** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions]
     surface in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom
