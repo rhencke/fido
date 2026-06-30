@@ -1857,7 +1857,7 @@ let raw_term tab next =
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
    platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), the bare unary
-   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and FOUR runtime conversions as
+   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and the runtime conversions as
    application-syntax [ECall]s — narrow->int64 widening ([is_i64_of_narrow_ref], [int64(x)]),
    float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]), and
    float64->int64/uint64 truncation ([is_f64_to_i64_ref] [int64(f)] / [is_f64_to_u64_ref] [uint64(f)]); NOT

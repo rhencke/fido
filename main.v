@@ -3615,7 +3615,7 @@ Definition main_effect : IO unit :=
   f32_demo                      >>'   (* prints: 7.5 (native float32 arithmetic) *)
   i64_of_narrow_demo            >>'   (* prints: 200 -5 60000 (narrow→int64 widening) *)
   widen_param_demo              >>'   (* prints: 200 -5 100 (narrow PARAM widen: int64(uint8)/int64(int8)/int(uint8) — review #4 P1 #4) *)
-  conv_operand_demo             >>'   (* prints: 205 / true (conversions int64(x), float32(x) as binop operands) *)
+  conv_operand_demo             >>'   (* prints: 205 true 13 22 (conversions int64(x)/float32(x)/int64(f)/uint64(f) as binop operands) *)
   i64_to_narrow_demo            >>'   (* prints: 52 -56 4464 705032704 (int64→narrow truncation) *)
   narrow_let_assert_demo        >>'   (* prints: 200 true (let-bound GoU8 boxes+asserts as uint8) *)
   type_identity_lock_demo       >>'   (* prints: true false true false true false false (uint8≠int64, GoI64=int64≠Go-int, R10 differential) *)

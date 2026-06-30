@@ -34,7 +34,7 @@ yet and no behavioral-safety claim is active.
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
 (machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree
-over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, and four runtime
+over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, and the runtime
 conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float32 narrowing
 `is_f64_to_f32_ref`+`operand_is_runtime`, and float64→int64/uint64 truncation
 `is_f64_to_i64_ref`/`is_f64_to_u64_ref` (NOT every producer of those surface bytes — e.g. int→float32

@@ -76,11 +76,12 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 #       cast [int(x)]/[int64(x)], NOT identity (a bare [x] at the narrow→wide boundary is invalid Go, review
 #       #4 P1 #4).  Active prose must never call that lowering "identity" / a "no-op cast".  (The record-wrapper
 #       erasure [MkU8]/[u8raw]→identity is a DIFFERENT legitimate claim — no widen/lowering word — and is spared.)
-#   (b) VAGUE BRIDGE COVERAGE — the verified-printer bridge covers EXACTLY [is_i64_of_narrow_ref] and
-#       [is_f64_to_f32_ref]+[operand_is_runtime], NOT the surface bytes (other producers emit the same
-#       [int64(x)]/[float32(x)] unbridged).  Coverage docs must name the predicates, not "runtime scalar
-#       conversions", and must SPELL OUT [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand
-#       that drops the guard (the non-runtime case stays on the trusted force-wrapper, NOT the verified printer).
+#   (b) VAGUE BRIDGE COVERAGE — the verified-printer bridge covers a FIXED set of source predicates (the live
+#       list is the single-sourced $cov_preds below, echoed by the diagnostic so it cannot drift), NOT the
+#       surface bytes (other producers — e.g. int->float32 [is_int_to_f32_ref] — emit the same
+#       [int64(x)]/[float32(x)] unbridged).  Coverage docs must NAME the predicates (no numeric COUNT — counts
+#       drift, see the stale-count guard), not "runtime scalar conversions", and must SPELL OUT
+#       [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand that drops the guard.
 # Forbidden CONVERSION-COVERAGE prose (stale identity-lowering + vague bridge-coverage).  Patterns are DENYLIST
 # DATA.  Matching is SPAN-based and case-INsensitive (grep -oiE): each forbidden phrase matches as its OWN span,
 # so an unrelated "NOT identity" elsewhere on the line can NEVER immunize it (the old whole-line "not identity"
@@ -89,6 +90,8 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 # single-line hits as file:line:match, PLUS a whitespace/newline-normalized pass so a phrase WRAPPED across
 # lines is still caught (reported file: [wrapped] match).
 cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
+# Single source of truth for the bridged-predicate boundary, reused by the diagnostic so the gate cannot drift.
+cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref]'
 cov_line() { grep -noiE "$cov_pat" "$1" 2>/dev/null || true; }                                  # line:span (per line)
 cov_flat() { tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -oiE "$cov_pat" || true; }    # spans incl. wrapped
 cov_scan() {                                                                                    # the live scanner
@@ -134,8 +137,22 @@ if [ -n "$covbad" ]; then
   echo "fido: CONVERSION-COVERAGE GATE — stale identity-lowering claim or vague bridge-coverage phrase in active prose:"
   echo "$covbad"
   echo "fido: a narrow→wide conversion EMITS a real cast (NOT identity, review #4 P1 #4); name the bridge predicates"
-  echo "fido: ([is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime], guard SPELLED OUT — no -runtime shorthand),"
-  echo "fido: not the surface [int64(x)]/[float32(x)] bytes."
+  echo "fido: ($cov_preds, guard SPELLED OUT — no -runtime shorthand), not the surface int64(x)/float32(x)/uint64(x) bytes."
   exit 1
 fi
 echo "fido: conversion-coverage gate OK — no stale identity-lowering / vague bridge-coverage prose ✓"
+
+# STALE-COUNT guard: bridge-coverage prose must NOT state a numeric COUNT of conversions (it drifts every time
+# one is added — name the predicates instead), nor preserve the old conv_operand_demo two-output line "205 / true".
+# Scanned in active docs + sources (NOT this script — the self-test fixture below holds the literal stale phrases).
+sc_pat='(exactly[[:space:]]+)?(one|two|three|four|five|six|seven|eight|nine|ten|[0-9]+)[[:space:]]+runtime[[:space:]]+conversion|205[[:space:]]*/[[:space:]]*true'
+sc_self=$(printf 'four runtime conversions\n205 / true\nthe runtime conversions\n' | grep -inE "$sc_pat" | grep -c . || true)
+[ "$sc_self" -eq 2 ] || { echo "fido: STALE-COUNT GATE self-test broke (want 2 catches, got $sc_self)"; exit 1; }
+scbad=$(grep -rnE "$sc_pat" $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md 2>/dev/null || true)
+if [ -n "$scbad" ]; then
+  echo "fido: STALE-COUNT GATE — bridge-coverage prose states a numeric conversion count (drifts) or the old '205 / true' demo output:"
+  echo "$scbad"
+  echo "fido: name the bridge predicates instead of a count, and state the LIVE demo output."
+  exit 1
+fi
+echo "fido: stale-count gate OK — no numeric conversion-count / old demo-output prose ✓"
