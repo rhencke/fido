@@ -80,8 +80,12 @@ live emission is not "verified Go."
   out-of-interval value; plus a constant bool built from NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`,
   `"a"<"b"` — string order DELEGATED to the model's `str_ltb`) combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity
   `bool(x)` conversion — comparability validated by `ptype`, value computed in GoSem by the self-sealed
-  `eval_bool`). `gosem_sound` proves denotation ⊆ `SupportedProgram` (the effect arm consults `expr_stmt_ok`),
-  and the demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through
+  `eval_bool`; string order DELEGATED to the model's qualified `Fido.builtins.str_*`, pinned per branch). `gosem_sound`
+  proves denotation ⊆ `SupportedProgram` (the effect arm consults `expr_stmt_ok`), and `denote_program_dec` proves
+  the CONVERSE-direction companion: denotability is DECIDABLE, characterized structurally by `denotable_program`
+  (`denote_program p <> None ↔ denotable_program p = true`) — the scaffold toward the eventual `supported ⟺ denotes`
+  (as `eval_value` grows toward total, `denotable_*` converges to `supported_*`; NOT that result yet — `eval` is
+  partial). The demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through
   `run_cmd` to the exact `w_log` World. Zero axioms.
   ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. A comparison with a NON-literal
   string operand / runtime (a `len(..)`/`int(x)` operand) / fractional-float / non-literal-string / `GTUint`

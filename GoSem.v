@@ -304,6 +304,52 @@ Proof.
   - congruence.
 Qed.
 
+(** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (the converse-direction companion of
+    [gosem_sound] / [denote_body_sound]).  [denotable_body] is a pure [bool] decision procedure mirroring
+    [denote_body]'s discipline: a body denotes iff its head statement denotes ([denote_stmt s <> None]) AND —
+    at a TERMINATOR — the unreachable rest is merely SUPPORTED ([forallb stmt_ok rest]), else the rest is
+    itself denotable.  [denote_body_dec] proves the two AGREE: denotability decomposes statement-by-statement,
+    with NO body-level failure mode of its own beyond [denote_stmt]'s.  This is the SCAFFOLD toward the eventual
+    "supported ⟺ denotes": as [eval_value] grows toward total on the supported value forms, [denotable_*]
+    converges to [supported_*]; TODAY it pins the EXACT denotable fragment as a decidable predicate.  (It is a
+    CHARACTERIZATION/decidability result, NOT yet [supported_program ⟹ denotes] — [eval_value] is partial.) *)
+Fixpoint denotable_body (b : list GoStmt) : bool :=
+  match b with
+  | [] => true
+  | s :: rest =>
+      match denote_stmt s with
+      | None            => false
+      | Some (_, true)  => forallb stmt_ok rest      (* terminator: the UNREACHABLE rest need only be SUPPORTED *)
+      | Some (_, false) => denotable_body rest        (* continuer: the rest must itself be DENOTABLE *)
+      end
+  end.
+
+Theorem denote_body_dec : forall b, denote_body b <> None <-> denotable_body b = true.
+Proof.
+  induction b as [|s rest IH]; simpl.
+  - split; intro H; congruence.                                       (* [] : Some (CRet tt) <> None and true = true *)
+  - destruct (denote_stmt s) as [[c term]|] eqn:Es.
+    + destruct term.
+      * destruct (forallb stmt_ok rest); split; intro H; congruence.   (* terminator: gates rest on supportedness *)
+      * destruct (denote_body rest) eqn:Er; split; intro H.            (* continuer: gates rest on denotability (IH + Er) *)
+        -- apply (proj1 IH); congruence.
+        -- congruence.
+        -- congruence.
+        -- apply (proj2 IH) in H; congruence.
+    + split; intro H; congruence.                                     (* denote_stmt s = None => both reject *)
+Qed.
+
+Definition denotable_program (p : Program) : bool :=
+  String.eqb (proj1_sig (prog_pkg p)) "main" && denotable_body (prog_body p).
+
+Theorem denote_program_dec : forall p, denote_program p <> None <-> denotable_program p = true.
+Proof.
+  intro p. unfold denote_program, denotable_program.
+  destruct (String.eqb (proj1_sig (prog_pkg p)) "main"); simpl.
+  - apply denote_body_dec.
+  - split; intro H; [congruence | discriminate].
+Qed.
+
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
@@ -534,10 +580,18 @@ Proof. vm_compute. reflexivity. Qed.
 Example eval_uint_absent    : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = None.   (* [GTUint] intentionally absent (no proof-free [GoUint] box) *)
 Proof. vm_compute. reflexivity. Qed.
 
+(** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
+    agrees with whether the program denotes — TRUE for the denoting demos (`println("hi")`, the `return`-stops
+    program), FALSE for the supported-but-undenoted runtime blank-assign `_ = 1/len([]int{})`. *)
+Example denotable_demo          : denotable_program gosem_demo_prog = true.            Proof. reflexivity. Qed.
+Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
+Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
+
 (** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions]
     surface in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom
     GoSem might pull in via [cmd]/[builtins]. *)
 Print Assumptions gosem_sound.
+Print Assumptions denote_program_dec.
 Print Assumptions gosem_demo_runs.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
