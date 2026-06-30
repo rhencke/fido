@@ -7,18 +7,17 @@
 #   1. SMART-CTOR BAN  — only the smart constructors [mk_named_ty]/[mk_goexpr_id]/[mk_goexpr_hex] (which re-check
 #      [nominal_type_ident]/[go_ident]/[hexz_ok]) may build the proof-ERASING [Printer.GTNamed]/[EId]/[EHex].
 #   2. DEAD-NAME RECURRENCE — the torn-down SRaw overlay + forbidden raw-syntax constructor names must not
-#      reappear in ACTIVE code (history is allowed in docs — see LESSONS.md for the SRaw postmortem).
+#      reappear in ACTIVE code (historical mentions allowed only in explicit archaeology docs — LESSONS.md — not active specs).
 #   3. EMISSION DISCIPLINE — the raw [GoPrint.print_program] is for proofs/tests; emit ONLY through the
 #      certificate-gated [GoEmit.emit_supported].
-#   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds],
-#      the single machine-readable list below) is a scoped `let is_X = named_in [...]`, with the [from_builtins]
-#      guard living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
+#   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
+#      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
+#      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
 #
-# This gate polices CODE discipline only.  Documentation/prose honesty (bridge-coverage wording, the
-# construction-vs-printing distinction) is the job of REVIEW, kept correct by NOT duplicating the bridge-coverage
-# list — it lives once (PROGRESS.md's live-bridge paragraph + the [cov_preds] list below).  Four per-incident
-# regex "prose lint" sections that had accreted here were deleted (boss review 2026-06-30: a structural gate is
-# not the place for a bespoke prose linter — reduce the duplicated prose instead).
+# This gate polices CODE discipline only.  Documentation / prose honesty (bridge-coverage wording, the
+# construction-vs-printing distinction) is the job of REVIEW, not this gate.  The human-facing bridge-coverage
+# list lives in ONE place — PROGRESS.md's live-bridge paragraph; [cov_preds] below is NOT a second copy of it,
+# only the bare recognizer-NAME set the bridge-recognizer check needs (gate data, not prose).
 #
 # Run from the repo root (make smart-ctor-gate, the pre-commit hook, and the Docker prover stage).
 set -e
@@ -52,7 +51,8 @@ echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId / Pri
 
 # 2. DEAD-NAME RECURRENCE.  The SRaw-overlay names + the charter-forbidden raw-syntax constructor names +
 # the retired structure names (goprint file, Front module) must not appear in active code.  Scope:
-# hand-written Coq sources + plugin glue (docs/printer.ml excluded — historical mentions allowed there).
+# hand-written Coq sources + plugin glue (the generated printer.ml + explicit archaeology docs like LESSONS.md
+# are out of scope — a historical mention there is allowed; an active spec is not).
 deadrefs=$(grep -nE 'SRaw|raw_ok|build_atom|build_apply|build_goexpr|GERaw|GEBin|\bEAtom\b|Printer\.print_expr|Printer\.print_prec|RawExpr|RawStmt|RawDecl|RawType|OpaqueExpr|TrustedExpr|goprint|\bFront\b' \
   *.v plugin/go.ml plugin/g_go_extraction.mlg 2>/dev/null || true)
 if [ -n "$deadrefs" ]; then
@@ -85,8 +85,8 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 # [named_in] losing [from_builtins].  Not a seal — a deliberate shadow inside the TRUSTED plugin (gap #10) is out
 # of scope; a sound check would need to parse OCaml (compiler-libs), disproportionate for already-trusted code.
 #
-# [cov_preds] — the SINGLE machine-readable source of truth for which conversion recognizers are bridged (the
-# prose description of the live bridge lives once, in PROGRESS.md; do not re-enumerate it elsewhere).
+# [cov_preds] — GATE DATA, not prose: the bare recognizer-NAME set this check iterates (each must be a scoped
+# `let is_X = named_in [...]`).  The human-facing description of the live bridge lives once, in PROGRESS.md.
 cov_preds='[is_i64_of_narrow_ref] / [is_f64_to_f32_ref]+[operand_is_runtime] / [is_f64_to_i64_ref] / [is_f64_to_u64_ref] / [is_int_of_fw] / [is_num_to_f64_ref] / [is_int_to_f32_ref]'
 recog_def()    { awk -v p="$1" '$0 ~ ("^let " p "([ =:(]|$)"){f=1;print;next} f&&(/^let [A-Za-z_]/||/^\(\*/){exit} f{print}' "$2" 2>/dev/null; }
 recog_routed() { b=$(recog_def "$1" "$2"); printf '%s' "$b" | grep -q 'named_in' && ! printf '%s' "$b" | grep -q 'global_basename'; }

@@ -1864,24 +1864,19 @@ let raw_term tab next =
   | _ -> unsupported "a run_blocks block terminator that is neither Jump nor Done — an unrecognized Next value would silently become `return`, truncating the block's control flow"
 
 (* ---- Stage B: the verified [GoPrint] expression printer, wired LIVE ----
-   [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
-   migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
-   platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), the bare unary
-   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and the runtime conversions as
-   application-syntax [ECall]s — narrow->int64 widening ([is_i64_of_narrow_ref], [int64(x)]),
-   float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]), and
-   float64->int64/uint64 truncation ([is_f64_to_i64_ref] [int64(f)] / [is_f64_to_u64_ref] [uint64(f)]),
-   narrow->int widening ([is_int_of_fw], [int(x)]), numeric->float64 ([is_num_to_f64_ref] over
-   int/int64/float32/uint64, [float64(x)]), and int/int64/uint64->float32 ([is_int_to_f32_ref], [float32(x)]),
-   AND the fixed-width ARITHMETIC [(u|i)N_add]/[sub]/[mul] (unsigned: the masked [(int(a) op int(b)) & 0xMASK];
-   signed: additionally SIGN-EXTENDED [(… ^ 0xSBIT) - 0xSBIT]; masks/sign-bits the verified [EHex] leaf) when
-   reached as a bridging-binop operand;
-   NOT every producer of those surface bytes (e.g. the fixed-width CONVERSIONS [uint8(x)], fw shifts/div/mod,
-   and STANDALONE fw ops, whose [(x & 0xff)] wrapper is assembled by trusted
-   [fw_wrap] [str]/[++] concatenation — only the mask constant is ITSELF the verified [print_hex_int] →
-   [Printer.print_hex]) which stay on [pp_prec] —
-   which is then printed by the extracted, machine-checked
-   [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
+   [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the migrated
+   expression class — a binary-operator TREE over runtime-local ([MLrel] -> [EId]) and integer-literal leaves,
+   the bare int64/uint64 complement [^x] ([EUn UXor]), the runtime numeric CONVERSIONS (the [inline_conv_table]
+   arms below + the [operand_is_runtime]-guarded [is_f64_to_f32_ref] arm), and the fixed-width ARITHMETIC
+   [(u|i)N_add]/[sub]/[mul] (masked; signed additionally sign-extended; the mask/sign-bit a verified [EHex]
+   leaf) — each as a bridging-binop operand.  EACH bridged case is documented at its own arm below; the
+   human-facing summary of the live bridge lives ONCE in PROGRESS.md (do not re-enumerate it here).
+   It is NOT every producer of those surface bytes — the fixed-width CONVERSIONS [uint8(x)], fw shifts/div/mod,
+   and standalone fw ops stay on [pp_prec] (their [(x & 0xff)] wrapper is trusted-assembled by [fw_wrap]; only
+   the mask constant is itself the verified [print_hex]).
+   The constructed [coq_GExpr] is then printed by the extracted, machine-checked [Printer.gprint] instead of
+   the trusted [pp_prec] string concatenation — the CONSTRUCTION (choice of AST) is TRUSTED; only the PRINTING
+   is verified.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
    to [pp_prec] (Stage B is incremental;
    [pp_prec] retires only once [GoPrint] covers a shape).  At each binop node the bridge proceeds ONLY when
@@ -2622,14 +2617,9 @@ let rec pp_expr state env = function
        | MLglob r, [_; _] when Option.has_some (binop_of r) ->
            (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
-              gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
-              the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] / float64→float32
-              [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
-              [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
-              / fixed-width arithmetic [(u|i)N_add]/[sub]/[mul] as a bridging-binop operand (unsigned masked /
-              signed sign-extended, via [EHex]))
-              via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
-              other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
+              gprint-representable sub-class (the live bridge — see [goexpr_bridge]) via the VERIFIED
+              [Printer.gprint], and every other shape — operand parenthesisation, the typed-IIFE force-wrapper
+              — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
           witness [eqb] is dropped (it discharged the side condition).  Printed directly by the
@@ -2944,12 +2934,8 @@ and pp_atom state env e =
    Trusted OCaml: an inlined binary operator of precedence [p = binop_prec] is wrapped exactly when
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
-   [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
-   int·int64·uint64 literals / the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] /
-   float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
-   [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
-   / fixed-width arithmetic [(u|i)N_add]/[sub]/[mul] as a bridging-binop operand (unsigned masked / signed sign-extended, via [EHex])) is delegated to the VERIFIED
-   [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
+   [pp_expr]).  Stage B: the gprint-representable sub-class (the live bridge — see [goexpr_bridge]) is delegated
+   to the VERIFIED [Printer.gprint]; everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
   | MLapp (h, args) ->

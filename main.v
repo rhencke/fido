@@ -430,9 +430,9 @@ Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64
     [EBn (BSub, EBn (BXor, <masked>, EHex 0x80), EHex 0x80)] (TWO verified [EHex] sign-bit constants via
     [mk_goexpr_hex]); [gprint] re-derives ALL the parens by precedence (Go's `&`>`^`, and `^`/`-` same-prec
     left-assoc), so the trusted [fw_wrap]'s defensive pairs are dropped — a blessed golden delta. The trusted
-    bridge CONSTRUCTS this tree; the verified [gprint] only PRINTS it — that the change is parens-ONLY (the
-    int8-wrap runtime value unaffected) is confirmed by the GOLDEN test (go build + output diff, [go vet] clean),
-    NOT a value-equivalence theorem. *)
+    bridge CONSTRUCTS this tree; the verified [gprint] only PRINTS it.  The generated delta FOR THIS FIXTURE was
+    REVIEWED as parens-only and this demo's runtime output is unchanged (go build + output diff, [go vet] clean)
+    — NOT a theorem that the transform is parens-only / value-preserving for the construct class. *)
 Definition fw_i8_add_in_binop (y : GoI64) (a b : GoI8) : GoI64 := i64_add y (i64_of_i8 (i8_add a b)).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
