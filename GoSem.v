@@ -788,6 +788,7 @@ Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.
 Print Assumptions strlit_main_runs.
 Print Assumptions gosem_demo_runs.
+Print Assumptions gosem_return_stops_no_output.
 Print Assumptions gosem_panic_demo_runs.
 Print Assumptions gosem_conv_demo_runs.
 Print Assumptions gosem_float_demo_runs.
