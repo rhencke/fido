@@ -657,9 +657,6 @@ let coq_z_of_uint64 v =           (* unsigned interpretation of the bit pattern 
 let print_i64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_int64 v))
 let print_u64_dec v = coq_string_to_ocaml (Printer.print_Z (coq_z_of_uint64 v))
 let print_hex_int n = coq_string_to_ocaml (Printer.print_hex (coq_z_of_int64 (Int64.of_int n)))
-(* Unsigned hex of a 64-bit pattern (matches OCaml's [%Lx]); used for the spec_float
-   mantissa, a positive < 2^53.  Verified renderer (Printer.print_hex over Z). *)
-let print_hex_i64 v = coq_string_to_ocaml (Printer.print_hex (coq_z_of_uint64 v))
 let rec coq_goty_of_tag = function
   | MLcons (_, r, []) ->
       (match global_basename r with
