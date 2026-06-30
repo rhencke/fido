@@ -77,11 +77,13 @@ live emission is not "verified Go."
   supported typed integer constants — literals, conversions `int64(3)`, arithmetic `1+2`, complement `^x`,
   EXCLUDING `GTUint` — and exact-integer-valued float constants `float64(3)`/`-float32(5)` (canonical
   binary64/binary32), all boxed via the model's value ctors, failing closed at the boundary on an out-of-range/
-  out-of-interval value). `gosem_sound` proves denotation ⊆ `SupportedProgram` (the effect arm consults
-  `expr_stmt_ok`), and the demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` through
-  `run_cmd` to the exact `w_log` World. Zero axioms.
-  ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. Runtime/bool/fractional-float/
-  non-literal-string/`GTUint` `eval` + the completeness converse are the next slices.
+  out-of-interval value; plus a CONSTANT comparison of two such numerics (`1==1`, `3<5`) folded to a `bool` —
+  comparability validated by `ptype`, value computed in GoSem). `gosem_sound` proves denotation ⊆
+  `SupportedProgram` (the effect arm consults `expr_stmt_ok`), and the demo RUNS `println("hi")` /
+  `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through `run_cmd` to the exact `w_log` World.
+  Zero axioms.
+  ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. Runtime/logical-bool/fractional-
+  float/non-literal-string/`GTUint` `eval` + the completeness converse are the next slices.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
@@ -97,8 +99,9 @@ live emission is not "verified Go."
 - **GoSem is slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC
   supportedness), NOT `BehaviorSafe`. GoSem's slice 1 (see GREEN) denotes a SUBSET of the supported programs
   and only proves denotation⊆gate — `eval_value` reaches only string literals + integer constants (excluding
-  `GTUint`) + exact-integer-valued float constants, NOT runtime/bool/fractional-float values; there is NO
-  `BehaviorSafe`, and no GoSem-backed gate on emission. The safety properties in the goal are modelled in
+  `GTUint`) + exact-integer-valued float constants + constant numeric comparisons, NOT runtime/logical-bool/
+  fractional-float values; there is NO `BehaviorSafe`, and no GoSem-backed gate on emission. The safety
+  properties in the goal are modelled in
   the proof-only theories but are not yet a gate on emitted programs.
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
   emitted Go to the source term. The golden tests are the only end-to-end check.
@@ -117,8 +120,9 @@ live emission is not "verified Go."
 
 GROW **GoSem** — slice 1 landed (the `cmd.v` bridge `denote_program` + real println/print/panic effect
 denotation + `gosem_sound`: denotation⊆`SupportedProgram`, faithful to the model; `eval_value` now folds string
-literals + integer constants/conversions/arithmetic + exact-integer-valued float constants). Continue:
-`eval_value` for bools, runtime values (`len`/`int(x)`), and fractional floats; the COMPLETENESS converse
+literals + integer constants/conversions/arithmetic + exact-integer-valued float constants + constant numeric
+comparisons). Continue: `eval_value` for logical bools (`&&`/`||`/`!`), runtime values (`len`/`int(x)`), and
+fractional floats; the COMPLETENESS converse
 (supported ⇒ denotes), BRIDGE/retire
 `unified.v`/`concurrency.v` (no second universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram +
 BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel, widen the live

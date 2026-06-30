@@ -21,9 +21,10 @@
     [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
-    failing closed on an out-of-range/out-of-interval value) supplies the printed/panicked values; bools,
-    non-literal strings, [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the
-    next sub-slices and [eval] to [None] there.
+    failing closed on an out-of-range/out-of-interval value; plus a CONSTANT comparison of two such numerics
+    ([1==1], [3<5]) folded to a [bool]) supplies the printed/panicked values; the logical [&&]/[||]/[!] bool
+    forms, comparisons with a runtime operand, non-literal strings, [GTUint], fractional/runtime floats, and
+    RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -77,6 +78,29 @@ Definition box_float (t : GoTy) (z : Z) : option GoAny :=
     end
   else None.
 
+(** The COMPARISON [BinOp]s fold a constant integer pair to a [bool] ([>]/[>=] reuse [<]/[<=] with swapped
+    operands).  Arithmetic / [BLAnd] / [BLOr] are NOT comparisons -> [None] (so a constant bool from [&&]/[||]
+    is the next sub-slice, honestly absent). *)
+Definition cmp_op (op : BinOp) : option (Z -> Z -> bool) :=
+  match op with
+  | BEq => Some Z.eqb
+  | BNe => Some (fun x y => negb (Z.eqb x y))
+  | BLt => Some Z.ltb
+  | BLe => Some Z.leb
+  | BGt => Some (fun x y => Z.ltb y x)
+  | BGe => Some (fun x y => Z.leb y x)
+  | _   => None
+  end.
+
+(** The constant VALUE of a numeric operand (an integer constant, or an exact-integer FLOAT constant — both
+    carry the true value as [Z], so [Z]-comparison IS the Go comparison), via [ptype]; [None] for a RUNTIME or
+    non-numeric operand (so a comparison with a [len(..)] operand is honestly absent, not folded wrong). *)
+Definition const_z (e : GExpr) : option Z :=
+  match ptype e with
+  | Some (PtIntConst z) | Some (PtTIntConst _ z) | Some (PtFloatConst _ z) => Some z
+  | _ => None
+  end.
+
 (** Evaluate a value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's bridged subset.
     FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds a numeric constant to
     its VALUE and TYPE ([PtIntConst z] = untyped int, taking default [int]; [PtTIntConst t z] = a typed int
@@ -86,15 +110,28 @@ Definition box_float (t : GoTy) (z : Z) : option GoAny :=
     string LITERAL ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer
     constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
     [int64(3)] EXCLUDING [GTUint], ARITHMETIC [1+2], complement [^x]), and a TYPED FLOAT constant of an exact
-    integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  ABSENT (-> [None], the next
-    sub-slices): bools, non-literal strings, [GTUint], and all RUNTIME values ([PtRunInt]/[PtRunFloat]:
-    [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
+    integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
+    a pure CATEGORY (no value — comparison VALUES are SEMANTICS, GoSem's job, not the classifier's), so GoSem
+    folds a CONSTANT comparison HERE — a [<]/[<=]/[==]/… of two numeric constants ([1==1], [3<5]) whose
+    comparability [ptype] already validated (it returned [PtBool]) — reusing the operands' [ptype] values via
+    [const_z] (single authority for VALUES).  ABSENT (-> [None], the next sub-slices): a comparison with a
+    RUNTIME operand, the logical [&&]/[||] / [!] bool forms, non-literal strings, [GTUint], and all RUNTIME
+    numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
   | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
   | Some PtStr              => match e with EStr s => Some (anyt TString s) | _ => None end     (* a string LITERAL ([PtStr] carries no value) *)
+  | Some PtBool             =>                                                                  (* a CONSTANT comparison of two numeric constants -> [bool] *)
+      match e with
+      | EBn op a b =>
+          match cmp_op op, const_z a, const_z b with
+          | Some cmp, Some x, Some y => Some (anyt TBool (cmp x y))
+          | _, _, _ => None   (* logical &&/||, or a runtime/non-numeric operand: next sub-slice *)
+          end
+      | _ => None             (* [!e], a bool conversion, etc.: next sub-slice *)
+      end
   | _                       => None
   end.
 
@@ -332,6 +369,36 @@ Proof. reflexivity. Qed.
 Example gosem_float_demo_runs : forall w,
   match denote_program gosem_float_demo_prog with Some c => run_cmd 5 c w | None => None end
   = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** GROWTH (slice 1 -> CONSTANT bool comparisons): [eval_value] now folds a [==]/[<]/… of two numeric constants
+    to a [bool] (the comparability already validated by [ptype]; the VALUE computed from the operands' [ptype]
+    constants).  Pinned true/false, int and exact-float operands; END-TO-END `println(3 < 5)` runs to
+    [w_log true [true]].  ABSENT (-> [None]): a comparison with a RUNTIME operand, and the logical [&&]/[||]. *)
+Example eval_bool_eq    : eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_bool_lt    : eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_bool_false : eval_value (EBn BEq (EInt 1) (EInt 2)) = Some (anyt TBool false).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_bool_float : eval_value (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])
+                                              (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))
+                        = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_bool_runtime_absent :   (* a comparison with a RUNTIME [len(..)] operand: honestly absent, not folded wrong *)
+  eval_value (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) = None.
+Proof. reflexivity. Qed.
+Example eval_bool_logical_absent :   (* [&&] is not a comparison: the logical bool forms are the next sub-slice *)
+  eval_value (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = None.
+Proof. reflexivity. Qed.
+Definition gosem_bool_demo_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EBn BLt (EInt 3) (EInt 5)]); GsReturn].
+Example gosem_bool_demo_supported : supported_program gosem_bool_demo_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_bool_demo_runs : forall w,
+  match denote_program gosem_bool_demo_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** NEGATIVE (Codex 2026-06-30): the eval growth must FAIL CLOSED at the BOUNDARY, never carry a *wrap-mangled
