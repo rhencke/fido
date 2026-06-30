@@ -21,10 +21,11 @@
     [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)], ARITHMETIC [1+2], complement [^x], EXCLUDING [GTUint])
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
-    failing closed on an out-of-range/out-of-interval value; plus a CONSTANT bool — a comparison of two such
-    numerics ([1==1], [3<5]), [==]/[!=] of two bool constants, and the logical [&&]/[||]/[!] connectives) supplies
-    the printed/panicked values; bools with a runtime operand, non-literal strings, [GTUint], fractional/runtime
-    floats, and RUNTIME values ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
+    failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC comparisons
+    ([1==1], [3<5]) combined by [==]/[!=]/[&&]/[||]/[!]) supplies the printed/panicked values; STRING comparisons
+    and bool CONVERSIONS [bool(x)] (both [ptype]-supported but not folded yet), bools with a runtime operand,
+    non-literal strings, [GTUint], fractional/runtime floats, and RUNTIME values ([len(..)]/[int(x)]…) are the
+    next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
     its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
     examples below pin the [return]-stops and runtime-blank-un-denoted cases).
@@ -103,25 +104,35 @@ Definition const_z (e : GExpr) : option Z :=
 
 (** Fold a CONSTANT bool expression to its [bool], or [None] if any leaf is runtime / not yet modelled.  GoSem
     is the home for bool VALUE because [ptype] keeps [PtBool] a value-less category (comparison/logical results
-    are SEMANTICS, not classification); this reuses [ptype]'s numeric operand values ([const_z]) and recurses
-    STRUCTURALLY (so it terminates) over the bool connectives [ptype] already validated as [PtBool]:
-      - a COMPARISON: numeric (any of the 6 ops, via [cmp_op] over [const_z]) OR [==]/[!=] of two bool constants;
+    are SEMANTICS, not classification).
+    ★SELF-SEALED: every entry (top AND each recursive call) first demands [ptype e = Some PtBool], so [eval_bool]
+    can NEVER assign a value to an expression [ptype] rejects — a direct call on a ptype-rejected (e.g.
+    mixed-width [int64(1)==int32(1)]) comparison returns [None], NOT a value.  The precondition is thus
+    ENFORCED here, not assumed of the caller (so [const_z]'s type-erasure can never fold an ill-typed compare).
+    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) and recurses STRUCTURALLY (terminates)
+    over the bool forms:
+      - a COMPARISON: NUMERIC (any of the 6 ops, via [cmp_op] over [const_z]) OR [==]/[!=] of two bool sub-bools;
       - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!].
-    A RUNTIME or not-yet-modelled leaf makes the whole fold [None] (honestly absent, never folded wrong). *)
+    NOT folded (-> [None], honestly absent): a STRING comparison ([PtStr] carries no value) and a bool CONVERSION
+    [bool(x)] — both supported by [ptype] but not modelled here yet — and any RUNTIME-operand leaf. *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
-  match e with
-  | EUn UNot a    => match eval_bool a with Some x => Some (negb x) | None => None end
-  | EBn BLAnd a b => match eval_bool a, eval_bool b with Some x, Some y => Some (andb x y) | _, _ => None end
-  | EBn BLOr  a b => match eval_bool a, eval_bool b with Some x, Some y => Some (orb  x y) | _, _ => None end
-  | EBn op a b =>
-      match cmp_op op, const_z a, const_z b with
-      | Some cmp, Some x, Some y => Some (cmp x y)                          (* numeric comparison *)
-      | _, _, _ =>
-          match op, eval_bool a, eval_bool b with                          (* else [==]/[!=] of two bool constants *)
-          | BEq, Some x, Some y => Some (Bool.eqb x y)
-          | BNe, Some x, Some y => Some (negb (Bool.eqb x y))
-          | _, _, _ => None
+  match ptype e with
+  | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
+      match e with
+      | EUn UNot a    => match eval_bool a with Some x => Some (negb x) | None => None end
+      | EBn BLAnd a b => match eval_bool a, eval_bool b with Some x, Some y => Some (andb x y) | _, _ => None end
+      | EBn BLOr  a b => match eval_bool a, eval_bool b with Some x, Some y => Some (orb  x y) | _, _ => None end
+      | EBn op a b =>
+          match cmp_op op, const_z a, const_z b with
+          | Some cmp, Some x, Some y => Some (cmp x y)                      (* numeric comparison *)
+          | _, _, _ =>
+              match op, eval_bool a, eval_bool b with                      (* else [==]/[!=] of two bool sub-bools *)
+              | BEq, Some x, Some y => Some (Bool.eqb x y)
+              | BNe, Some x, Some y => Some (negb (Bool.eqb x y))
+              | _, _, _ => None
+              end
           end
+      | _ => None
       end
   | _ => None
   end.
@@ -137,11 +148,11 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     [int64(3)] EXCLUDING [GTUint], ARITHMETIC [1+2], complement [^x]), and a TYPED FLOAT constant of an exact
     integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
     a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
-    GoSem folds a CONSTANT bool HERE via [eval_bool] — a comparison of two numeric constants ([1==1], [3<5]),
-    [==]/[!=] of two bool constants, and the logical [&&]/[||]/[!] connectives — all over forms [ptype] already
-    validated as [PtBool], reusing the operands' [ptype] values via [const_z] (single authority for VALUES).
-    ABSENT (-> [None], the next sub-slices): a bool with a RUNTIME operand, non-literal strings, [GTUint], and
-    all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
+    GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC comparisons
+    ([1==1], [3<5]) combined by [==]/[!=]/[&&]/[||]/[!], reusing the operands' [ptype] values via [const_z].
+    ABSENT (-> [None], the next sub-slices): a STRING comparison and a bool CONVERSION [bool(x)] (both
+    [ptype]-supported but not folded yet), a bool with a RUNTIME operand, non-literal strings, [GTUint], and all
+    RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
@@ -388,11 +399,12 @@ Example gosem_float_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> CONSTANT bools): [eval_value] folds a constant bool to its value via [eval_bool] — a
-    numeric comparison, [==]/[!=] of two bool constants, and the logical [&&]/[||]/[!] connectives (nested) — all
-    over forms [ptype] validated as [PtBool].  Pinned across the operators (incl. a false case, exact-float
-    operands, a bool-equality, and a NESTED `!((1==1) && (2==3))`); END-TO-END `println(3 < 5)` runs to
-    [w_log true [true]].  ABSENT (-> [None]): any bool with a RUNTIME operand ([len(..)==0], even under [&&]). *)
+(** GROWTH (slice 1 -> a SUBFRAGMENT of constant bools): [eval_value] folds — via [eval_bool] — a bool built
+    from NUMERIC comparisons (the 6 ops) combined by [==]/[!=]/[&&]/[||]/[!] (nested).  Pinned across the
+    operators (incl. a false case, exact-float operands, a bool-equality of two numeric compares, and a NESTED
+    `!((1==1) && (2==3))`); END-TO-END `println(3 < 5)` runs to [w_log true [true]].  ABSENT (-> [None], pinned
+    below): any bool with a RUNTIME operand ([len(..)==0], even under [&&]), a STRING comparison, and a bool
+    CONVERSION [bool(x)] — the last two are [ptype]-SUPPORTED but not folded here yet. *)
 Example eval_bool_eq     : eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_bool_lt     : eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true).
@@ -419,6 +431,29 @@ Proof. reflexivity. Qed.
 Example eval_bool_logic_runtime_absent :   (* a RUNTIME operand even UNDER [&&] makes the whole fold absent (not folded wrong) *)
   eval_value (EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0))
                         (EBn BEq (EInt 2) (EInt 2))) = None.
+Proof. reflexivity. Qed.
+
+(** SEAL REGRESSION (Codex 2026-06-30): [eval_bool] FAILS CLOSED on a [ptype]-rejected comparison — it does NOT
+    rely on a caller having gated.  A mixed-WIDTH typed comparison [int64(1) == int32(1)] is ILL-TYPED (Go
+    forbids comparing distinct int types), so [ptype = None]; a DIRECT [eval_bool] call AND [eval_value] both
+    return [None], never a fabricated [true] from [const_z]'s type-erased values. *)
+Definition mixed_width_cmp : GExpr :=
+  EBn BEq (ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "int32" eq_refl)) [EInt 1]).
+Example mixed_width_ptype_none     : ptype mixed_width_cmp = None.      Proof. reflexivity. Qed.
+Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. reflexivity. Qed.
+Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
+
+(** ABSENT REGRESSION (Codex 2026-06-30): two SUPPORTED bool shapes [eval_bool] does NOT model yet are honestly
+    [None] (not folded wrong) — pinning the EXACT covered boundary.  A STRING comparison ([PtStr] carries no
+    value) and a bool CONVERSION [bool(x)] are both [ptype = Some PtBool] (so supported / printable), yet
+    [eval_value] leaves them un-denoted. *)
+Example eval_str_cmp_supported  : ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool.
+Proof. reflexivity. Qed.
+Example eval_str_cmp_absent     : eval_value (EBn BEq (EStr "a") (EStr "a")) = None.
+Proof. reflexivity. Qed.
+Example eval_bool_conv_supported : ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
+Proof. reflexivity. Qed.
+Example eval_bool_conv_absent    : eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = None.
 Proof. reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)

@@ -80,12 +80,13 @@ with REAL observable effects — `println`/`print` -> `COut` (faithful: the same
 `println`/`print` produce), `panic` -> `CPan` — over `eval_value` (slice 1: string literals plus
 gated/default-in-range untyped integer constants and supported typed integer constants — literals, conversions
 `int64(3)`, arithmetic `1+2`, complement `^x` — EXCLUDING `GTUint`, plus exact-integer-valued float constants
-`float64(3)`/`-float32(5)` boxed to the canonical binary64/binary32 value, plus a CONSTANT bool — a comparison
-of two such numerics (`1==1`, `3<5`), `==`/`!=` of two bool constants, and the logical `&&`/`||`/`!` connectives
-(comparability validated by `ptype`, value computed in GoSem), all via the model's value ctors, failing closed
-at the boundary on an out-of-range/out-of-interval value); and `gosem_sound` proves the gate connection
+`float64(3)`/`-float32(5)` boxed to the canonical binary64/binary32 value, plus a constant bool built from
+NUMERIC comparisons (`1==1`, `3<5`) combined by `==`/`!=`/`&&`/`||`/`!` (comparability validated by `ptype`,
+value computed in GoSem by the self-sealed `eval_bool`), all via the model's value ctors, failing closed at the
+boundary on an out-of-range/out-of-interval value); and `gosem_sound` proves the gate connection
 (`denote_program p <> None -> SupportedProgram p`: no meaning given to invalid Go, because the effect arm
-consults `expr_stmt_ok`). NOT done: `eval_value` for runtime values (a bool/numeric with a `len(..)`/`int(x)`
+consults `expr_stmt_ok`). NOT done: `eval_value` for string comparisons / bool conversions (`ptype`-supported
+but unfolded) / runtime values (a bool/numeric with a `len(..)`/`int(x)`
 operand) / fractional floats / non-literal strings / `GTUint`, the COMPLETENESS converse
 (supported ⇒ denotes), and ANY behavioral-safety
 claim — slice 1 is denotation⊆gate, NOT `BehaviorSafe`. `unified.v` is an EXISTING
