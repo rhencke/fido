@@ -115,8 +115,8 @@ repeat the exact overclaim this refactor kills (Rule 5).
 
 ```text
 SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
-BehaviorSafe      -- semantic GATE (reserved; not yet defined — a first proof-only property
-                     `panic_free_runs_ret` exists but is NOT this gate): no nil deref / OOB /
+BehaviorSafe      -- semantic GATE (reserved; not yet defined — first proof-only properties
+                     `panic_free_runs_ret`(+`_ustep`) exist but are NOT this gate): no nil deref / OOB /
                      send-on-closed / illegal close / data race; happens-before consistency; session safety.
 ```
 

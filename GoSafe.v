@@ -359,8 +359,9 @@ Fail Example forge_uint8_overflow :
 (** Reserved for GoSem COMPLETION: the behavioral-safety GATE over the AST's denotation.  The GATE is NOT yet
     defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a
     placeholder [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the
-    charter forbids (§8 Rule 4).  (A FIRST proof-only PROPERTY does exist — [GoSemSafe.panic_free_runs_ret],
-    panic-freedom ⟹ no runtime panic — but it is NOT this gate and does NOT gate emission.)  When GoSem is
+    charter forbids (§8 Rule 4).  (FIRST proof-only PROPERTIES do exist — [GoSemSafe.panic_free_runs_ret],
+    panic-freedom ⟹ no runtime panic, and its operational lift [panic_free_runs_ret_ustep] — but they are NOT
+    this gate and do NOT gate emission.)  When GoSem is
     complete enough: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its GoSem denotation>],
     and GoEmit gains [SafeProgram]/[emit_safe]. *)
 

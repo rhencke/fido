@@ -1,15 +1,18 @@
-(** GoSemSafe.v — the FIRST behavioral-safety property over GoSem's denotation (proof-only, no Go).
+(** GoSemSafe.v — the FIRST behavioral-safety properties over GoSem's denotation (proof-only, no Go).
 
     ⚠ This is NOT the [BehaviorSafe] gate, and it does NOT yet gate emission.  The charter's behavioral-safety
     TARGET (no nil-deref / OOB / send-on-closed / data race / …) concerns Go constructs the slice-1 fragment does
     NOT denote (no pointers / slices / channels reach [denote_program] yet).  In THAT fragment the ONLY unsafe
     runtime behavior is an explicit [panic], so the fragment-appropriate first "safe by construction" theorem is:
     a SYNTACTICALLY panic-free supported program provably NEVER panics at runtime ([run_cmd] yields [ORet], never
-    [OPanic]).  It is the SEED of [BehaviorSafe] — the exact shape (a syntactic property ⟹ a runtime-safety
-    guarantee) the eventual gate will have — kept in its own module so GoSem.v does not grow.
+    [OPanic]) — [panic_free_runs_ret].  A SECOND property, [panic_free_runs_ret_ustep], LIFTS that guarantee to
+    the operational [ustep] semantics via the cmd↔unified bridge (it holds where [unified.v]'s race-freedom /
+    liveness live; [run_cmd] stays the authority).  Both are the SEED of [BehaviorSafe] — the exact shape (a
+    syntactic property ⟹ a runtime-safety guarantee) the eventual gate will have — kept in their own module so
+    GoSem.v does not grow.
 
-    Naming discipline (rule: a name is a correctness claim): this is [panic_free_runs_ret], a SPECIFIC property,
-    NOT [BehaviorSafe] / [SafeProgram]. *)
+    Naming discipline (rule: a name is a correctness claim): these are [panic_free_runs_ret] (+ its operational
+    lift [panic_free_runs_ret_ustep]), SPECIFIC properties, NOT [BehaviorSafe] / [SafeProgram]. *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified.
 From Stdlib Require Import String List Bool.
