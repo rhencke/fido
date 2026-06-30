@@ -423,7 +423,9 @@ Definition conv_int_to_f32_in_cmp (a : GoFloat32) (i : GoInt) : bool := f32_gtb 
     [Printer.gprint] emits a fixed-width MASK: [goexpr_bridge] recurses into the [u8_add] operand and builds
     [EBn (BAnd, EBn (BAdd, int(a), int(b)), EHex 0xff)] — the mask is the verified [EHex] leaf (its first LIVE
     consumer).  [gprint] re-derives the parens by precedence, so the redundant OUTER pair the trusted [fw_wrap]
-    always adds is DROPPED — a cleaner-but-equivalent golden delta (NOT byte-identical; blessed, [go vet] clean). *)
+    always adds is DROPPED — a blessed golden delta (NOT byte-identical).  The change FOR THIS FIXTURE was
+    REVIEWED as parens-only with unchanged runtime output ([go vet] clean) — NOT a theorem of class-wide
+    parens-only / value-preserving equivalence. *)
 Definition fw_u8_add_in_binop (y : GoI64) (a b : GoU8) : GoI64 := i64_add y (i64_of_u8 (u8_add a b)).
 (** ★ And the SIGNED fixed-width arithmetic [y + int64(i8_add a b)], where [i8_add a b] lowers to the masked +
     SIGN-EXTENDED [((int(a) + int(b)) & 0xff ^ 0x80) - 0x80].  [goexpr_bridge] builds it as

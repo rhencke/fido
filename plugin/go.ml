@@ -1974,7 +1974,7 @@ let rec goexpr_bridge env e =
           extended (signed) form.  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int] carrier
           first — a narrow-typed operand would overflow the mask), but built as the VERIFIED [EBn] tree so
           [gprint] re-derives the parens by precedence (dropping the redundant pairs [fw_wrap] always adds — a
-          cleaner-but-equivalent golden delta):
+          golden delta REVIEWED parens-only on the demo fixtures, NOT a class-wide equivalence theorem):
             UNSIGNED [uN]: [EBn (BAnd, EBn (OP, int(a), int(b)), EHex MASK)]              (mask to w bits)
             SIGNED   [iN]: [EBn (BSub, EBn (BXor, <masked>, EHex SBIT), EHex SBIT)]       (sign-extend [<masked>])
           Both [EHex] constants ([MASK]=[(1 lsl w)-1], [SBIT]=[1 lsl (w-1)]) are built via the [mk_goexpr_hex]
