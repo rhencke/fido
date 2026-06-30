@@ -538,16 +538,13 @@ Proof. vm_compute. reflexivity. Qed.
 Print Assumptions gosem_sound.
 Print Assumptions gosem_demo_runs.
 
-(** ---- SINGLE-AUTHORITY SEAL (robust, syntax-immune).  GoSem DELEGATES Go string order to the MODEL
-    ([builtins.v]'s [str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/[str_geb]) and must NEVER fork a second copy (the
-    str_ltb-duplication BLOCK, Codex 2026-06-30).  These [Fail Check]s FAIL THE BUILD the moment GoSem DEFINES
-    its own [str_*]: they consult Rocq's OWN name resolution, so — unlike a source-text grep — they catch ANY
-    definitional syntax ([Definition]/[Fixpoint]/[Program …]/[Let]/[Local]/[#[global]]/multiline attributes/…).
-    A bare [str_ltb] in GoSem keeps resolving to the imported MODEL constant; only a GoSem-OWN binding makes
-    [Check Fido.GoSem.str_ltb] succeed, which trips the [Fail].  (This REPLACES the brittle smart-ctor-gate
-    string-grep, which legal Rocq forms bypassed.) *)
-Fail Check Fido.GoSem.str_eqb.
-Fail Check Fido.GoSem.str_neqb.
-Fail Check Fido.GoSem.str_ltb.
-Fail Check Fido.GoSem.str_gtb.
-Fail Check Fido.GoSem.str_geb.
+(** ---- DELEGATION PINS: [str_cmp_op]'s branches ARE the MODEL's string-order constants (reflexivity), so the
+    live comparison path is definitionally the model's, not a local copy.  ([<=] is [str_geb] with operands
+    swapped — covered by the [str_geb] pin.)  The complementary guarantee that GoSem defines NO [str_*] of its
+    own — which makes the bare names above necessarily the imported MODEL constants — is the POST-IMPORT seal
+    GoSemAuthority.v (a same-file [Fail Check] would be append-bypassable; that module sees the COMPILED GoSem). *)
+Example str_cmp_eq_model : str_cmp_op BEq = Some str_eqb.   Proof. reflexivity. Qed.
+Example str_cmp_ne_model : str_cmp_op BNe = Some str_neqb.  Proof. reflexivity. Qed.
+Example str_cmp_lt_model : str_cmp_op BLt = Some str_ltb.   Proof. reflexivity. Qed.
+Example str_cmp_gt_model : str_cmp_op BGt = Some str_gtb.   Proof. reflexivity. Qed.
+Example str_cmp_ge_model : str_cmp_op BGe = Some str_geb.   Proof. reflexivity. Qed.
