@@ -17,14 +17,12 @@ AST→string serialization, NOT the trusted MiniML→AST construction that build
 NOT verified Go. There is no behavioral-safety layer yet. Until gap #10 closes
 and `GoSem`-backed safety exists, do not headline this as "formally verified Go." Current state: `PROGRESS.md`.
 
-**Goal:** model *all* of Go faithfully in Rocq and lower it to ordinary Go, with
-safety properties Go's compiler can't prove — no nil deref, use-after-close,
-out-of-bounds, send-on-closed, failed assertion, data race, or silent overflow —
-ruled out at compile time before any Go is emitted. Rocq supplies the guarantees;
-Go supplies the runtime and primitives (channels, goroutines, maps, slices). Built
-incrementally; the long-term target is concurrent programs (session types, race /
-deadlock freedom grounded in happens-before, per go.dev/ref/mem). The full vision,
-status, and roadmap live in `PROGRESS.md`.
+**Goal — a long-term TARGET, NOT today's state:** faithfully model *all* of Go in Rocq and lower it to
+ordinary Go, with the safety properties Go's compiler can't prove — no nil deref, use-after-close,
+out-of-bounds, send-on-closed, failed assertion, data race, silent overflow — as the **behavioral-safety
+target**, to be ruled out at compile time before behaviorally safe Go is emitted, *once `GoSem`/`BehaviorSafe`
+exist*. ⚠️ TODAY the certified-emission spine gates SUPPORTED SYNTACTIC emission ONLY (`SupportedProgram`);
+there is NO behavioral-safety gate yet. `PROGRESS.md` is the authority for goal, current status, and roadmap.
 
 ## ★ Architecture direction — `ARCHITECTURE.md` GOVERNS (binding; read it)
 
