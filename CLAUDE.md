@@ -136,12 +136,15 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   `GoSemUnified.denote_program_run_agrees` (program-level, `no_defer` discharged): a DENOTED program
   (`denote_program p = Some c`) runs under `ustep` AND its conclusion AGREES with cmd.v's authoritative
   `run_cmd 1 c w` on output + panic. Defer + channel/heap/spawn are later slices. Zero axioms.
+- `GoSemSafe.v` — proof-only (emits no Go): the FIRST behavioral-safety PROPERTY (the seed of `BehaviorSafe`,
+  NOT the gate). `panic_free_runs_ret`: a syntactically panic-free supported program that denotes runs to an
+  `ORet` — provably never panics (`panic` is the slice-1 fragment's only unsafe behavior). Zero axioms.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
 - `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set the MANIFEST-gate surfaces
-  (`main_effect`, GoSem's `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_run_agrees` /
-  `denote_program_run_agrees`) may depend on. (The spine GoAst..GoEmit is gated
+  (`main_effect`, GoSem's `gosem_trust_surface`, the bridge surfaces `cmd_to_ucmd_run_agrees` /
+  `denote_program_run_agrees`, and `panic_free_runs_ret`) may depend on. (The spine GoAst..GoEmit is gated
   zero-axiom by the separate standalone printer/emit gates — see PROGRESS.md "Current gates".) As of 445aca3 this file is
   **EMPTY** — the model is axiom-free ("Closed under the global context"); the old
   PrimInt63/PrimFloat substrate is gone (integers `Z`, locations `nat`, floats `spec_float`).

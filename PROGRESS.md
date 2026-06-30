@@ -75,16 +75,14 @@ live emission is not "verified Go."
   → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals +
   supported integer/exact-float/bool CONSTANTS, the full list in NEXT; fails CLOSED elsewhere — `GTUint`/runtime/
   fractional). `gosem_sound`: denotation ⊆ `SupportedProgram`.
-  `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`) — scaffold
-  toward an eventual `supported ⟺ denotes` (NOT proved in general; `eval` is partial). `denotable_supported`:
-  denotable ⊆ supported (STRICT). The COMPLETENESS converse holds OUTRIGHT on the println-of-evaluable-args
-  fragment — `println_main_denotes`/`println_main_runs`: an UNBOUNDED class (N `println(args)` + `return`, each
-  arg `denotable_arg` = evaluates+printable: string LITERALS + eval-folded integer/exact-float/bool constants,
-  NOT supported-but-eval-partial forms like `"a"+"b"`) ALWAYS denotes AND runs.
-  `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality). Zero axioms.
-  ★ Certified public surface = `gosem_trust_surface` (the bundled tuple, gated by `Print Assumptions`); a GoSem
-  theorem not in it is compiled but NOT advertised zero-axiom. ⚠ denotation⊆gate, NOT `BehaviorSafe`. Next:
-  runtime/`len`/`int(x)` + fractional-float `eval` (extends the converse's reach), then `BehaviorSafe`.
+  `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`); `eval` is
+  partial, so `supported ⟺ denotes` is NOT general. `denotable_supported`: denotable ⊆ supported (STRICT). The
+  COMPLETENESS converse holds OUTRIGHT on the println-of-evaluable-args class — `println_main_denotes`/`_runs`:
+  an UNBOUNDED class (N `println(args)`+`return`, each arg `denotable_arg` = evaluates+printable: string LITERALS
+  + eval-folded integer/exact-float/bool constants, NOT eval-partial forms like `"a"+"b"`) ALWAYS denotes AND
+  runs. `denote_program_runs`: a DENOTED program runs to an Outcome (executable totality). Zero axioms.
+  Certified public surface = `gosem_trust_surface` (see **Current gates**). ⚠ denotation⊆gate, NOT `BehaviorSafe`.
+  Next: runtime/`len`/`int(x)` + fractional-float `eval` (extends the converse's reach), then `BehaviorSafe`.
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
@@ -97,6 +95,10 @@ live emission is not "verified Go."
   `run_cmd 1 c w` — unified output events EQUAL `run_cmd`'s appended `w_output`, `uc_panic 0` EQUALS the Outcome
   panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
   ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
+- **First behavioral-safety PROPERTY** — `GoSemSafe.v` (proof-only): `panic_free_runs_ret` — a syntactically
+  panic-free supported program that DENOTES runs to `ORet`, provably NEVER panicking (`panic` is the fragment's
+  ONLY unsafe behavior — no pointers/slices/channels denoted). SEED of `BehaviorSafe` (syntactic property ⟹
+  runtime safety); ⚠ NOT the gate, not a gate on emission. Zero axioms.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the
   manifest gate, the printer gate, and the emit gate (see **Current gates** for the exact split) each assert
   their surfaces zero-axiom via Rocq's own assumption output, `EXPECTED_ASSUMPTIONS.txt` is empty, and the
@@ -110,8 +112,9 @@ live emission is not "verified Go."
   and only proves denotation⊆gate — `eval_value` reaches only string literals + integer constants (excluding
   `GTUint`) + exact-integer-valued float constants + constant bools (numeric/string-literal comparisons,
   `&&`/`||`/`!`, `bool(x)`), NOT a non-literal-string comparison / runtime (`len(..)`/`int(x)`) / fractional-float
-  values; there is NO `BehaviorSafe`, and no GoSem-backed gate on emission. The safety properties in the goal are modelled in
-  the proof-only theories but are not yet a gate on emitted programs.
+  values; there is NO `BehaviorSafe` GATE and no GoSem-backed gate on emission (a first behavioral PROPERTY —
+  `panic_free_runs_ret`, see GREEN — is proved, but it is NOT a gate). The safety properties in the goal are
+  modelled in the proof-only theories but are not yet a gate on emitted programs.
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
   emitted Go to the source term. The golden tests are the only end-to-end check.
 - **Main output is the legacy path.** `main.go` is produced by the trusted plugin, not the certificate-gated
@@ -153,7 +156,7 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (trust-boundary ledger — single-sourced here):
 **manifest** (`manifest-axioms.sh` diffs the `dune build` log's `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`)
 covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`denote_program_run_agrees`); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
+`denote_program_run_agrees`) / `panic_free_runs_ret`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
 grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not a gated public surface.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
