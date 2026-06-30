@@ -6,9 +6,11 @@
     semantics, NOT fork a second universe.  The structural fact that makes the bridge concrete: [cmd.v]'s
     four constructors are EXACTLY [unified.v]'s output / panic / return / defer fragment —
         CRet -> URet,  COut b xs -> UOut b xs,  CPan v -> UPan v,  CDfr d -> UDfr d.
-    So [cmd_to_ucmd] is a TOTAL translation of the whole command language into a subset of [UCmd].  The
+    So [cmd_to_ucmd] is a TOTAL translation of cmd.v's [Cmd unit] command tree into a subset of [UCmd].  The
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] now carry it, exactly the
     model's [w_output : list (bool * list GoAny)]) — the bridge is EXACT on observable output, not payload-only.
+    The [cmd_out_events]/[cmd_panic] projections the exactness is stated against are NOT a second observation
+    authority: [run_cmd_seals_events] proves they ARE cmd.v's own [run_cmd]/[w_output] on the defer-free fragment.
 
     This first slice proves EXACT OUTPUT + EXACT PANIC + RUN-TO-DONE for the DEFER-FREE fragment ([no_defer],
     from cmd.v) — precisely the fragment GoSem slice 1 denotes: a single goroutine running [cmd_to_ucmd c]
@@ -51,6 +53,36 @@ Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
   | CPan v      => Some v
   | CDfr _ c'   => cmd_panic c'
   end.
+
+(** SEAL — these projections are NOT a second observation authority: on the defer-free fragment they are
+    PROVABLY cmd.v's own [run_cmd]/[w_output]/[Outcome].  Running [c] yields an Outcome whose World's output
+    is exactly [w_output w ++ cmd_out_events c] and whose panic status is exactly [cmd_panic c].  (On [CDfr]
+    they intentionally diverge from [run_cmd] — which runs defers — but [no_defer] forbids that input, so the
+    seal is total over the fragment the bridge claims.) *)
+Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
+Proof. reflexivity. Qed.
+
+Lemma run_cmd_seals_events : forall c w,
+  no_defer c = true ->
+  exists w',
+    run_cmd 1 c w = Some (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end)
+    /\ w_output w' = w_output w ++ cmd_out_events c.
+Proof.
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros w Hnd.
+  - (* CRet a : run_cmd 1 (CRet tt) w = Some (ORet tt w), no output *)
+    destruct a. cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r.
+    split; reflexivity.
+  - (* COut bo xs c' : run_cmd 1 (COut..) w = run_cmd 1 c' (w_log bo xs w) (go reduces), then IH *)
+    cbn [cmd_panic cmd_out_events no_defer] in *.
+    destruct (IH (w_log bo xs w) Hnd) as [w' [Hrun Hout]].
+    exists w'. split.
+    + exact Hrun.
+    + rewrite Hout, w_output_w_log, <- app_assoc. reflexivity.
+  - (* CPan v : run_cmd 1 (CPan v) w = Some (OPanic v w), no output *)
+    cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
+  - (* CDfr : excluded by no_defer *)
+    cbn [no_defer] in Hnd. discriminate Hnd.
+Qed.
 
 (** EXACT OUTPUT + EXACT PANIC + RUN-TO-DONE.  From any config whose goroutine 0 runs [cmd_to_ucmd c]
     (defer-free, empty defer stack, no active panic), [ustep] advances goroutine 0 to completion
@@ -125,5 +157,7 @@ Proof.
   exists p', lv', pa'. split; [exact Hus | split; [exact Hdone | exact Hpan] ].
 Qed.
 
-(** Trust surface for this module (axiom-manifest gate captures its [Print Assumptions]). *)
+(** Public assumption surface for this module — the manifest gate captures these [Print Assumptions]:
+    the unified-side bridge AND the cmd.v-side seal that grounds its exactness in [run_cmd]/[w_output]. *)
 Print Assumptions cmd_to_ucmd_runs.
+Print Assumptions run_cmd_seals_events.

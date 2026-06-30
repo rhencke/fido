@@ -75,18 +75,18 @@ COPY --chown=opam:opam negtests/ negtests/
 #      regenerated.  So force every current driver's .vo out, making it recompile and
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
-#  (3) AXIOM-MANIFEST GATE (review #4 R10): `dune build` runs every module's `Print Assumptions` —
-#      `main_effect` AND GoSem.v's `gosem_trust_surface` (one constant bundling the certified public
-#      results, so its `Print Assumptions` reports the UNION of their whole transitive cones) —
-#      emitting their trust bases into the build log.  Capture EVERY module's `Axioms:` report (the
-#      extractor, plugin/manifest-axioms.sh — the SAME one the self-test uses — no longer stops at
-#      `Extracted to`, so a GoSem axiom that prints after extraction is still caught) and assert the
-#      union EXACTLY equals the committed EXPECTED_ASSUMPTIONS.txt (currently EMPTY — rule 3, zero
-#      axioms).  A NEW axiom in any gated cone — a stray `Require` pulling in funext/Classical, a
-#      `Local Axiom`/`Polymorphic Axiom`/`Admitted` in GoSem a source regex would miss, a transitive
-#      one — FAILS the build here.  Being Rocq's OWN assumption output over the whole cone, this is the
-#      complete AUTHORITY for the gosem_trust_surface seal (NOT a module-wide claim — a GoSem theorem
-#      outside the surface tuple is not certified); the pre-commit source scan is only a coarse
+#  (3) AXIOM-MANIFEST GATE (review #4 R10): `dune build` runs EVERY module's `Print Assumptions` —
+#      `main_effect`, GoSem.v's `gosem_trust_surface`, and the bridge surfaces (`cmd_to_ucmd_runs` /
+#      `run_cmd_seals_events` / `denote_program_usteps`); each bundling constant's report is the UNION
+#      of its whole transitive cone — emitting their trust bases into the build log.  Capture EVERY
+#      module's `Axioms:` report (the extractor, plugin/manifest-axioms.sh — the SAME one the self-test
+#      uses — no longer stops at `Extracted to`, so a surface that prints after extraction is still
+#      caught) and assert the union EXACTLY equals the committed EXPECTED_ASSUMPTIONS.txt (currently
+#      EMPTY — rule 3, zero axioms).  A NEW axiom in ANY gated cone — a stray `Require` pulling in
+#      funext/Classical, a `Local Axiom`/`Polymorphic Axiom`/`Admitted` a source regex would miss, a
+#      transitive one — FAILS the build here.  Being Rocq's OWN assumption output over each whole cone,
+#      this is the complete AUTHORITY for every printed surface (NOT a module-wide claim — a theorem
+#      outside its module's surface tuple is not certified); the pre-commit source scan is only a coarse
 #      declaration tripwire.  Step (0) below self-tests that this authority catches every tabled form.
 #  (4) NEGTEST HARNESS (review #4 R10): `negtests/run.sh` compiles each negative fixture and
 #      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
@@ -132,7 +132,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
     && sh plugin/manifest-axioms.sh < /tmp/build.log | LC_ALL=C sort -u > /tmp/got_axioms.txt \
     && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
-         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a gated cone's trust base changed (main_effect and/or gosem_trust_surface)."; \
+         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a module-level Print Assumptions cone's trust base changed (main_effect / gosem_trust_surface / a bridge surface / …)."; \
          echo "fido: a NEW axiom reaching any gated theorem is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
          exit 1; \
        fi \

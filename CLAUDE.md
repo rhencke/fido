@@ -139,9 +139,10 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
-- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set the gated `Print
-  Assumptions` cones may depend on — `main_effect` (the extracted model) AND GoSem's
-  `gosem_trust_surface` (the bundled certified GoSem results). As of 445aca3 this file is
+- `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set that EVERY module-level
+  `Print Assumptions` in the build log may depend on (currently `main_effect`, GoSem's `gosem_trust_surface`,
+  and the bridge surfaces `cmd_to_ucmd_runs` / `run_cmd_seals_events` / `denote_program_usteps` — NOT a fixed
+  list; the gate reads them all). As of 445aca3 this file is
   **EMPTY** — the model is axiom-free ("Closed under the global context"); the old
   PrimInt63/PrimFloat substrate is gone (integers `Z`, locations `nat`, floats `spec_float`).
   The Dockerfile's prover stage extracts EVERY module's `Axioms:` report (via the shared

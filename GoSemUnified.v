@@ -7,7 +7,7 @@
     Certified public surface of THIS module = [denote_program_usteps] (its [Print Assumptions] below is captured
     by the axiom-manifest gate). *)
 
-From Fido Require Import preamble concurrency cmd unified GoAst GoTypes GoSafe GoSem cmd_unified.
+From Fido Require Import preamble cmd unified GoAst GoSem cmd_unified.
 From Stdlib Require Import List String.
 Import ListNotations.
 

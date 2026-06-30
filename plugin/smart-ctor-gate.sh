@@ -119,6 +119,6 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # Fido.GoSem.str_*]).  Scope: GoSem (the string-semantics layer); no claim about other modules.
 #
 # GoSem axiom-freedom is likewise gated in ROCQ, not here (see the header): the Docker manifest gate captures
-# GoSem.v's [Print Assumptions] output and plugin/axiom-authority-selftest.sh pins its completeness.  A
-# source-text axiom-vernacular grep was tried here and DELETED — legal declaration forms ([Local Axiom],
-# [Polymorphic Axiom], attribute stacks) bypass any such regex (the str_ltb trap).
+# EVERY module's [Print Assumptions] (gosem_trust_surface, the bridge surfaces, …) + axiom-authority-selftest.sh
+# pins completeness.  A source-text axiom-vernacular grep was tried here and DELETED — legal forms ([Local
+# Axiom], [Polymorphic Axiom], attribute stacks) bypass any such regex (the str_ltb trap).

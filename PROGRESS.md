@@ -100,9 +100,10 @@ live emission is not "verified Go."
   denotation now runs on the SAME `ustep` race-freedom/liveness are proved on. Zero axioms. ⚠ Defer
   (`run_defers` ↔ `UDfr` LIFO) + channel/heap/spawn are NOT yet bridged — later slices.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context". The
-  manifest gate also covers GoSem's `gosem_trust_surface` (the bundled certified GoSem results — Rocq's own
-  assumption output over their whole cone, not a source-text scan); `EXPECTED_ASSUMPTIONS.txt` is empty and the
-  build fails on any drift in either cone.
+  manifest gate covers EVERY module-level `Print Assumptions` in the build log (currently `main_effect`,
+  `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_runs` / `run_cmd_seals_events` /
+  `denote_program_usteps` — Rocq's own assumption output over each whole cone, not a source scan);
+  `EXPECTED_ASSUMPTIONS.txt` is empty and the build fails on any drift in any of them.
 - **Golden end-to-end**: `make check` extracts and diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
@@ -135,9 +136,10 @@ literals + integer constants/conversions/arithmetic + exact-integer-valued float
 (numeric/string-literal comparisons, `&&`/`||`/`!`, `bool(x)`)). Continue: `eval_value` for runtime values
 (`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats; the COMPLETENESS converse
 (supported ⇒ denotes). BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
-(`cmd_unified.v`: output-preservation for the defer-free fragment); next bridge slices are DEFER (cmd.v
-`run_defers` ↔ unified `UDfr` LIFO) and the channel/heap/spawn effects, then compose with GoSem's
-`denote_program` so a supported program's denotation runs under `ustep`. Then `BehaviorSafe` → `SafeProgram`
+(`cmd_unified.v` + `GoSemUnified.v`: exact output/panic for the defer-free fragment, `denote_program_usteps`
+already composes DENOTED programs under `ustep`); next bridge slices are DEFER (cmd.v `run_defers` ↔ unified
+`UDfr` LIFO) and the channel/heap/spawn effects, then LIFT SUPPORTED programs once the completeness converse +
+remaining effects land. Then `BehaviorSafe` → `SafeProgram`
 (= EmittableProgram + BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel,
 widen the live GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
 
