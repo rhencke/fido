@@ -382,15 +382,25 @@ Proof.
   - apply andb_true_iff in H as [Ha Hrest]. rewrite (is_strlit_printable a Ha), (IH Hrest). reflexivity.
 Qed.
 
+Lemma expr_stmt_ok_println_strlit : forall f args,
+  proj1_sig f = "println"%string -> forallb is_strlit args = true ->
+  expr_stmt_ok (ECall (EId f) args) = true.
+Proof.
+  intros f args Hf Hargs. cbn [expr_stmt_ok stmt_call_ok]. rewrite Hf. cbn.
+  rewrite (forallb_strlit_printable args Hargs). reflexivity.
+Qed.
+
+(** A [println] of string literals denotes — and as a CONTINUER ([Some (_, false)]): the exact shape
+    [denotable_body] consumes when it is followed by more statements. *)
 Lemma denote_println_strlit : forall f args,
   proj1_sig f = "println"%string -> forallb is_strlit args = true ->
-  denote_stmt (GsExprStmt (ECall (EId f) args)) <> None.
+  exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
 Proof.
   intros f args Hf Hargs. cbn [denote_stmt].
-  assert (Hok : expr_stmt_ok (ECall (EId f) args) = true).
-  { cbn [expr_stmt_ok stmt_call_ok]. rewrite Hf. cbn. rewrite (forallb_strlit_printable args Hargs). reflexivity. }
-  rewrite Hok. rewrite Hf. cbn.
-  destruct (eval_args args) eqn:Ea; [discriminate | exfalso; exact (eval_args_strlit args Hargs Ea)].
+  rewrite (expr_stmt_ok_println_strlit f args Hf Hargs). rewrite Hf. cbn.
+  destruct (eval_args args) as [vs|] eqn:Ea.
+  - exists (COut true vs (CRet tt)). reflexivity.
+  - exfalso. exact (eval_args_strlit args Hargs Ea).
 Qed.
 
 Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
@@ -403,6 +413,36 @@ Definition gosem_strlit_prog : Program :=
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
 Example gosem_strlit_denotable : denotable_program gosem_strlit_prog = true.   Proof. reflexivity. Qed.
+
+(** BODY-LEVEL generalization: a `main` body of N [println(string-literals)] statements followed by [return]
+    ALWAYS denotes — the string-literal fragment as an UNBOUNDED program class (any length / any string-literal
+    args), a real [supported ⟹ denotes] result.  Built by induction over the [println] arg-lists (no [GExpr]
+    destructuring): each [println] is a denoting CONTINUER ([denote_println_strlit]) and the trailing [return]
+    terminates a (vacuously supported) empty rest. *)
+Fixpoint strlit_main_body (arglists : list (list GExpr)) : list GoStmt :=
+  match arglists with
+  | [] => [GsReturn]
+  | args :: rest => GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) args) :: strlit_main_body rest
+  end.
+
+Lemma strlit_main_denotable : forall arglists,
+  forallb (forallb is_strlit) arglists = true -> denotable_body (strlit_main_body arglists) = true.
+Proof.
+  induction arglists as [|args rest IH]; intro H.
+  - reflexivity.
+  - cbn in H. apply andb_true_iff in H as [Hargs Hrest]. cbn [strlit_main_body].
+    destruct (denote_println_strlit (mkIdent "println" eq_refl) args eq_refl Hargs) as [c Hc].
+    cbn [denotable_body]. rewrite Hc. exact (IH Hrest).
+Qed.
+
+(** ...and hence such a program DENOTES (via [denote_program_dec]). *)
+Theorem strlit_main_denotes : forall arglists,
+  forallb (forallb is_strlit) arglists = true ->
+  denote_program (mkProgram (mkIdent "main" eq_refl) (strlit_main_body arglists)) <> None.
+Proof.
+  intros arglists H. apply (proj2 (denote_program_dec _)).
+  cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (strlit_main_denotable arglists H).
+Qed.
 
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
