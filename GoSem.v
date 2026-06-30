@@ -781,8 +781,10 @@ Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = f
 
 (** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions] surface
     in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom GoSem might
-    pull in via [cmd]/[builtins].  Covers the CHARACTERIZATION theorems AND every concrete run-WITNESS ([*_runs]):
-    a claimed-zero-axiom behavioral result must be SURFACED here, or future axiom drift on it goes unseen. *)
+    pull in via [cmd]/[builtins].  Covers the CHARACTERIZATION theorems AND every concrete run-WITNESS — by the
+    BODY-SHAPE criterion `run_cmd … = Some (ORet|OPanic …)`, NOT a name suffix (a claimed-zero-axiom behavioral
+    result must be SURFACED here or future axiom drift goes unseen).  smart-ctor-gate.sh check 5 MECHANICALLY
+    enforces this coverage (it parses these statements and fails the build on an ungated one). *)
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.
