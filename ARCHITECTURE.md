@@ -45,7 +45,7 @@ pretending the claim stayed the same.
 ```text
 GoAst   says what can be written.
 GoPrint proves printing faithfulness ONLY (expression round-trip + program/statement print-injectivity).
-GoSem   defines behavior.
+GoSem   will define behavior — PLANNED, NOT built (no current authority).
 GoSafe  defines supportedness now, behavioral safety later.
 GoEmit  is the only blessed emission path and requires the appropriate certificate.
 
