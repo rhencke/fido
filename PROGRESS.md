@@ -74,8 +74,9 @@ live emission is not "verified Go."
 - **GoSem slice 1 (Phase 5)** — `denote_program : Program -> option (Cmd unit)` BRIDGES the AST into `cmd.v`'s
   proven command tree (reuses `cbind`/`denote`/`run_cmd`, no second universe) with REAL effects: `println`/`print`
   → `COut` (faithful — the model's own `w_log`), `panic` → `CPan`, over a PARTIAL `eval_value` (string literals +
-  supported integer/exact-float/bool CONSTANTS, the full list in NEXT; fails CLOSED elsewhere — `GTUint`/runtime/
-  fractional). `gosem_sound`: denotation ⊆ `SupportedProgram`.
+  supported integer/exact-float/bool CONSTANTS; fails CLOSED elsewhere — `GTUint`/runtime/fractional. The EXACT
+  coverage + the absent list live in `GoSem.v`'s `eval_value` (mirrored in ARCHITECTURE.md's GoSem section);
+  not re-spelled in this ledger). `gosem_sound`: denotation ⊆ `SupportedProgram`.
   `denote_program_dec`: denotability is DECIDABLE (`denote_program p <> None ↔ denotable_program p`); `eval` is
   partial, so `supported ⟺ denotes` is NOT general. `denotable_supported`: denotable ⊆ supported (STRICT). The
   COMPLETENESS converse holds OUTRIGHT on the println-of-evaluable-args class — `println_main_denotes`/`_runs`:
@@ -109,8 +110,8 @@ live emission is not "verified Go."
 ## RED (not done — do not overclaim)
 
 - **GoSem is slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC),
-  NOT `BehaviorSafe`. Slice 1 denotes only a SUBSET of supported programs (GREEN has the exact `eval_value`
-  coverage) and proves denotation⊆gate; there is NO `BehaviorSafe` GATE and no GoSem-backed gate on emission
+  NOT `BehaviorSafe`. Slice 1 denotes only a SUBSET of supported programs (exact `eval_value` coverage:
+  `GoSem.v` / ARCHITECTURE.md) and proves denotation⊆gate; there is NO `BehaviorSafe` GATE and no GoSem-backed gate on emission
   (the `panic_free_runs_ret` PROPERTY is proved but is NOT a gate). The goal's safety properties are modelled in
   the proof-only theories but are not yet a gate on emitted programs.
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
@@ -128,7 +129,7 @@ live emission is not "verified Go."
 
 ## NEXT
 
-Forward steps (what's DONE is in GREEN; this lists only what's next):
+Forward steps (this lists only what's NEXT; GREEN above is what's done):
 - GROW `eval_value` (runtime `len`/`int(x)` incl. a non-literal-string comparison; fractional floats; `GTUint`)
   — each WIDENS the completeness converse (`println_main_denotes`) toward a GENERAL `supported ⟺ denotes`.
 - Extend the cmd↔unified BRIDGE beyond the defer-free fragment: DEFER (`run_defers` ↔ `UDfr` LIFO), then
