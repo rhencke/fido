@@ -227,14 +227,16 @@ Definition bad_programs : list Program :=
     (* INVALID [EMapLit]/[CTMap] instances — now rejected by the STRUCTURAL [EMapLit] check (was a blanket
        quarantine; the supported witness `_ = map[int]int{1:2}` GRADUATED to [good_programs]).  Each LOCKS the
        supported map literal's boundary — a checker that skipped one of comparability / representability /
-       distinctness would wrongly admit it and FLIP [bad_programs_rejected]: a non-comparable slice KEY (caught
-       by the integer-key restriction); a non-representable VALUE then KEY (300 in [uint8] — caught by
-       [assignable_to_ty]); DUPLICATE constant keys (caught by [nodup_z] — Go forbids them); a map as a [println]
-       arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
+       distinctness / map-is-not-cap-able would wrongly admit it and FLIP [bad_programs_rejected]: a
+       non-comparable slice KEY (caught by the integer-key restriction); a non-representable VALUE then KEY (300
+       in [uint8] — caught by [assignable_to_ty]); DUPLICATE constant keys (caught by [nodup_z] — Go forbids
+       them); [cap] of a map (Go forbids it — caught by [PtMap]≠[PtAgg], so the [cap] arm gives [None]); a map as
+       a [println] arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
   ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])  (* map[[]int]int{..}: slice key not comparable *)
   ; gs_blank (EMapLit GTInt GTU8 [(EInt 1, EInt 300)])                    (* map[int]uint8{1:300}: value 300 overflows uint8 *)
   ; gs_blank (EMapLit GTU8 GTInt [(EInt 300, EInt 1)])                    (* map[uint8]int{300:1}: key 300 overflows uint8 *)
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 1, EInt 3)])   (* map[int]int{1:2, 1:3}: DUPLICATE constant key 1 — a Go compile error *)
+  ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* cap(map[int]int{1:2}): [cap] of a MAP is invalid Go — REJECTED ([PtMap] is not [cap]-able, unlike a slice) *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): map CONVERSION still quarantined (+ free ident) *)
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
@@ -315,6 +317,7 @@ Definition good_programs : list Program :=
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 2, EInt 3)]) (* multi-element map, DISTINCT constant keys *)
   ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (key/value types unconstrained beyond int key) *)
   ; gs_blank (EMapLit GTU8 GTU8 [(EInt 1, EInt 2)])                     (* map[uint8]uint8{1: 2} — typed key/value, consts in range *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* println(len(map[int]int{1:2})): [len] of a map IS valid (a runtime int) — unlike [cap] *)
   ].
 Example good_programs_supported : forallb supported_program good_programs = true.
 Proof. vm_compute. reflexivity. Qed.

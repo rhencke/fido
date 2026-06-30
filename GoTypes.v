@@ -38,8 +38,9 @@ Open Scope string_scope.
     overflow and division/shift-by-zero are decided from the folded value at EVERY level — while a typed
     constant ALSO carries its [GoTy] (so mixed-width arithmetic and out-of-range typed-constant results are
     rejected) and a RUNTIME numeric carries only its [GoTy] (no value constraint — runtime conversions
-    truncate, runtime div-by-zero is a panic not a compile error).  Aggregates ([PtAgg]) are a valid value but
-    never numeric/printable.  ★SCOPE: in the no-declaration Program model a FREE identifier is UNDEFINED, so it
+    truncate, runtime div-by-zero is a panic not a compile error).  Aggregates ([PtAgg] = slice/chan, [PtMap] =
+    map) are a valid value but never numeric/printable ([PtAgg] is [len]/[cap]-able, [PtMap] only [len]-able).
+    ★SCOPE: in the no-declaration Program model a FREE identifier is UNDEFINED, so it
     is REJECTED ([ptype (EId _) = None] — its emitted Go would not compile); the ONLY admitted predeclared
     value-identifier is [nil] ([PtNil]), and it is admitted ONLY as a slice/chan conversion operand
     ([[]int(nil)] / [chan int(nil)]) — never as a bare value, an arithmetic/comparison operand, or a
@@ -67,7 +68,8 @@ Inductive PTy : Type :=
   | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
   | PtStr
-  | PtAgg    (* a slice/chan aggregate value: a valid VALUE, but never numeric / order-comparable / printable *)
+  | PtAgg    (* a slice/chan aggregate value: a valid VALUE, [len]/[cap]-able, but never numeric / order-comparable / printable *)
+  | PtMap    (* a MAP aggregate value: a valid VALUE, [len]-able but NOT [cap]-able (Go forbids [cap] of a map), never numeric / comparable / printable — DISTINCT from [PtAgg] precisely so [cap] rejects it *)
   | PtNil.   (* the predeclared value-identifier [nil] — admitted ONLY as a slice/chan conversion operand ([[]T(nil)]) *)
 
 (** ---- numeric-type predicates over [GoTy] (the scalar numeric constructors) ---- *)
@@ -279,9 +281,10 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   end.
 
 (** EQUALITY ([==]/[!=]) operand check: COMPARABLE + mutually compatible.  Comparable = numeric / string /
-    bool — NOT [PtAgg] (slice/map/func equality is rejected) and NOT [PtNil] (a bare [nil == nil] is rejected;
-    a free ident, the only thing a slice could be compared against, is itself rejected at [ptype]).  Numeric
-    equality reuses [num_comparable] (so [int32 == int64] is rejected). *)
+    bool — NOT [PtAgg]/[PtMap] (slice/chan/map equality is rejected; both fall through to [num_comparable] which
+    is [false] on them) and NOT [PtNil] (a bare [nil == nil] is rejected; a free ident, the only thing a slice
+    could be compared against, is itself rejected at [ptype]).  Numeric equality reuses [num_comparable] (so
+    [int32 == int64] is rejected). *)
 Definition eq_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtBool, PtBool => true
@@ -289,7 +292,7 @@ Definition eq_comparable (cl cr : PTy) : bool :=
   | _, _ => num_comparable cl cr
   end.
 (** ORDERING ([<]/[<=]/[>]/[>=]) operand check: ORDERED + mutually compatible.  Ordered = numeric / string —
-    NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg]/[PtNil] (slice / nil ordering rejected). *)
+    NOT bool (so [(1==1) < (2==2)] is rejected) and NOT [PtAgg]/[PtMap]/[PtNil] (slice / map / nil ordering rejected). *)
 Definition ord_comparable (cl cr : PTy) : bool :=
   match cl, cr with
   | PtStr, PtStr => true
@@ -360,7 +363,7 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
   | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
   | PtBool => match t with GTBool => true | _ => false end
   | PtStr  => match t with GTString => true | _ => false end
-  | PtAgg | PtNil => false
+  | PtAgg | PtMap | PtNil => false
   end.
 
 (** Pairwise DISTINCTNESS of a list of integer-constant key VALUES.  A map composite literal with DUPLICATE
@@ -462,10 +465,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
           if String.eqb fn "len"
           then match a, ca with
                | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING CONSTANT is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS) *)
-               | _, PtAgg => Some (PtRunInt GTInt)                             (* [len] of a slice/aggregate: a runtime int (slices/maps are not constants) *)
+               | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)                   (* [len] of a slice/chan/map aggregate: a runtime int (aggregates are not constants).  [len] IS valid on a map (unlike [cap]) *)
                | _, _ => None end                                             (* a non-literal string ([string(x)]…): cannot soundly fold its length here — reject (fail-loud) *)
           else if String.eqb fn "cap"
-          then match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end          (* cap: aggregate ONLY (NOT string) *)
+          then match ca with PtAgg => Some (PtRunInt GTInt) | _ => None end          (* cap: slice/chan aggregate ONLY — NOT string, and NOT a map ([PtMap] -> None: Go forbids [cap] of a map) *)
           else match classify fn with
                | Some t => conv_to_scalar ca t                                              (* a scalar conversion T(a) *)
                | None => None                                                               (* unknown function: REJECT *)
@@ -512,7 +515,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                                                 | None => nil
                                                 end
                                             end) kvs))
-      then Some PtAgg else None
+      then Some PtMap else None
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
   end.
 
