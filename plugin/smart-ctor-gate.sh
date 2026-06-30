@@ -199,26 +199,32 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # bridged recognizer within a short window of such a phrase; the legit "unbridged example" must be a genuinely
 # unbridged producer (e.g. the masked fixed-width casts uint8(x)), never a cov_preds member.
 ub_re='unbridged|stays? on pp_(expr|prec)|not bridged'
-# ub_norm: ONE matcher for both the live scan and the self-test — strips Coq/markdown code delimiters ([], `)
-# so `[pp_expr]` / `\`pp_expr\`` / `[pp_prec]` read as bare pp_expr/pp_prec, and matches case-INsensitively.
-ub_norm()  { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' ' | tr -d '[]`'; }
-ub_near()  { printf '%s' "$(ub_norm "$2")" | grep -qiE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)"; }
-# self-test: marked ([pp_prec], `pp_expr`), mixed-case (UNBRIDGED, Stays On), and bare forms next to a member
-# are caught; the same name FAR from the unbridged clause ("; NOT every producer … uint8(x) stays on [pp_expr]")
-# is spared.
-if ! ub_near is_zz 'int->float32 is_zz stays on [pp_prec]' \
-   || ! ub_near is_zz 'is_zz Stays On `pp_expr`' \
-   || ! ub_near is_zz 'is_zz emits the same float32(x) UNBRIDGED' \
-   || ub_near is_zz 'is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on [pp_expr]'; then
-  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke (marked/mixed-case unbridged-near-member must be caught; far-from-clause must be spared)"; exit 1
+# ONE matcher used by the self-test, the live blocking scan, AND the diagnostic — no duplicate regex world.
+# ub_norm strips Coq/markdown code delimiters ([], `) so `[pp_expr]`/`\`pp_expr\``/`[pp_prec]` read as bare
+# pp_expr/pp_prec; ub_hits returns the matched "member-near-unbridged" spans (empty = clean), case-INsensitive.
+ub_norm() { printf '%s' "$1" | tr '\n\t' '  ' | tr -s ' ' | tr -d '[]`'; }
+ub_hits() { printf '%s' "$(ub_norm "$2")" | grep -oiE "($1[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$1)" || true; }
+# self-test exercises the LIVE ub_hits: marked ([pp_prec], `pp_expr`), mixed-case (UNBRIDGED, Stays On), and bare
+# forms next to a member yield hits; the same name FAR from the unbridged clause ("; NOT every producer …
+# uint8(x) stays on [pp_expr]") yields none.
+if [ -z "$(ub_hits is_zz 'int->float32 is_zz stays on [pp_prec]')" ] \
+   || [ -z "$(ub_hits is_zz 'is_zz Stays On `pp_expr`')" ] \
+   || [ -z "$(ub_hits is_zz 'is_zz emits the same float32(x) UNBRIDGED')" ] \
+   || [ -n "$(ub_hits is_zz 'is_zz widening; NOT every producer of those surface bytes -- e.g. the masked fixed-width casts uint8(x) stays on [pp_expr]')" ]; then
+  echo "fido: BRIDGED-VS-UNBRIDGED GATE self-test broke (marked/mixed-case unbridged-near-member must hit; far-from-clause must not)"; exit 1
+fi
+# invariant (lines tagged UBINV are this check): the matcher regex $ub_re must live in exactly one place
+# (ub_hits) — any other reference is a re-inlined duplicate matcher, the drift this guard exists to stop.
+if [ -n "$(grep -n 'ub_re' plugin/smart-ctor-gate.sh | grep -vE "ub_re=|ub_hits\(\)|UBINV")" ]; then  # UBINV
+  echo "fido: BRIDGED-VS-UNBRIDGED GATE — the UB matcher regex is referenced outside ub_hits (a re-inlined duplicate matcher); route all matching through ub_hits."; exit 1  # UBINV
 fi
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md; do
   [ -f "$f" ] || continue
-  ubflat=$(ub_norm "$(cat "$f" 2>/dev/null)")
   for m in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-    if printf '%s' "$ubflat" | grep -qiE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"; then
+    h=$(ub_hits "$m" "$(cat "$f" 2>/dev/null)")
+    if [ -n "$h" ]; then
       echo "fido: BRIDGED-VS-UNBRIDGED GATE — $f names the BRIDGED cov_preds recognizer $m as 'unbridged'/'stays on pp_expr|prec'; a bridged predicate cannot be the unbridged example (use a genuinely unbridged producer, e.g. the masked fixed-width casts uint8(x)):"
-      printf '%s' "$ubflat" | grep -oiE "($m[^.]{0,45}($ub_re))|(($ub_re)[^.]{0,45}$m)"
+      printf '%s\n' "$h"
       exit 1
     fi
   done
