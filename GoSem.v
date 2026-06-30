@@ -779,14 +779,20 @@ Example denotable_demo          : denotable_program gosem_demo_prog = true.     
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
 
-(** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions]
-    surface in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom
-    GoSem might pull in via [cmd]/[builtins]. *)
+(** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions] surface
+    in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom GoSem might
+    pull in via [cmd]/[builtins].  Covers the CHARACTERIZATION theorems AND every concrete run-WITNESS ([*_runs]):
+    a claimed-zero-axiom behavioral result must be SURFACED here, or future axiom drift on it goes unseen. *)
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.
 Print Assumptions strlit_main_runs.
 Print Assumptions gosem_demo_runs.
+Print Assumptions gosem_panic_demo_runs.
+Print Assumptions gosem_conv_demo_runs.
+Print Assumptions gosem_float_demo_runs.
+Print Assumptions gosem_bool_demo_runs.
+Print Assumptions gosem_strlit_runs.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
     branches is, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.str_*].  Because the names are
