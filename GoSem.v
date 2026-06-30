@@ -799,13 +799,22 @@ Example eval_uint_present   : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [
 Proof. vm_compute. reflexivity. Qed.
 Example eval_uint_oob_none  : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]) = None.   (* 2^32 ∉ GTUint's CONSERVATIVE 32-bit range — still FAILS CLOSED *)
 Proof. vm_compute. reflexivity. Qed.
-(* The [mk_uint] boxing makes [ptype]'s uint overflow/underflow rejection LOAD-BEARING for faithful-or-absent:
-   Go REJECTS [uint(3)-uint(5)] ("constant overflows uint"), so [ptype] must decline it (it does -> [None]),
-   and [eval_value] must NOT box a wrapped value.  A VALID uint ARITHMETIC const, by contrast, boxes its exact
-   value — proving [GTUint] now participates in arithmetic, not just literal conversions. *)
-Example eval_uint_underflow_none : eval_value (EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5])) = None.
+(* The [mk_uint] boxing makes the GATE's uint overflow/underflow rejection LOAD-BEARING: without it a Go-INVALID
+   uint const could be boxed and EMITTED (fail-OPEN — [go build] would then error).  Go REJECTS [uint(3)-uint(5)]
+   ("constant overflows uint").  What keeps it OUT of [SupportedProgram] (hence out of emission) is the GATE, NOT
+   [eval]: [ptype] -> [None] (root) ⇒ [printable_arg_ok] -> [false] (the predicate [expr_stmt_ok] consults — the
+   statement is UNSUPPORTED, never emitted).  [eval_value] -> [None] is a faithful-or-absent BACKSTOP behind that
+   gate (even IF the gate regressed, eval still never boxes a wrapped value), NOT the load-bearing rejection.  A
+   VALID uint ARITHMETIC const is, by contrast, supported AND boxes its exact value — [GTUint] participates in
+   arithmetic, not just literal conversions. *)
+Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
+Example ptype_uint_underflow_none  : ptype uint_underflow_e = None.            (* ROOT rejection — Go's "constant overflows uint" *)
 Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_add_faithful   : eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl)).
+Example gate_rejects_uint_underflow : printable_arg_ok uint_underflow_e = false. (* THE load-bearing GATE: unsupported as a print arg ⇒ never emitted *)
+Proof. vm_compute. reflexivity. Qed.
+Example eval_uint_underflow_none   : eval_value uint_underflow_e = None.        (* BACKSTOP behind the gate — faithful-or-absent, never a wrapped value *)
+Proof. vm_compute. reflexivity. Qed.
+Example eval_uint_add_faithful     : eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl)).
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
