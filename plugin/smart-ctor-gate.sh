@@ -1,7 +1,7 @@
 #!/bin/sh
-# Smart-constructor / dead-name / emission-discipline / bridge-recognizer / model-authority gate.
+# Smart-constructor / dead-name / emission-discipline / bridge-recognizer gate for the hand-written plugin OCaml.
 #
-# FIVE boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
+# FOUR boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
 # accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact that
 # the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
 #   1. SMART-CTOR BAN  — only the smart constructors [mk_named_ty]/[mk_goexpr_id]/[mk_goexpr_hex] (which re-check
@@ -13,8 +13,9 @@
 #   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
 #      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
 #      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
-#   5. MODEL-AUTHORITY SINGLE-SOURCE — the model's Go string-order primitives ([str_eqb]/[str_ltb]/…) are
-#      DEFINED only in builtins.v; a higher layer must DELEGATE, never fork a second implementation.
+# (The model-authority single-source guard — GoSem must not fork the model's string order — is NOT here: a
+#  source-text grep is bypassed by legal Rocq syntax, so it lives ROBUSTLY in GoSem.v as `Fail Check
+#  Fido.GoSem.str_*`; see the note after check 4.)
 #
 # This gate polices CODE discipline only.  Documentation / prose honesty (bridge-coverage wording, the
 # construction-vs-printing distinction) is the job of REVIEW, not this gate.  The human-facing bridge-coverage
@@ -105,36 +106,8 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
 
-# 5. MODEL-AUTHORITY SINGLE-SOURCE.  The Go string-order primitives ([str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/
-# [str_geb]) are DEFINED once, in the ROOT builtins.v (the model layer), recognized + lowered by the plugin; a
-# higher layer (GoSem / GoSafe / …) must DELEGATE to them, never fork a second implementation (the GoSem
-# [str_ltb] duplication, Codex 2026-06-30).  Flag a re-DEFINITION of one in ANY active .v EXCEPT the root
-# builtins.v — a CALL is fine, only a re-DEFINITION forks the authority.  [model_authority_scan ROOT] RECURSIVELY
-# scans the .v under ROOT (pruning [_build], excluding ONLY [ROOT/builtins.v] — a subdir [emitdemo/builtins.v]
-# is NOT exempt), matching the declaration command with an OPTIONAL leading Rocq attribute block ([#[local]] /
-# [#[global]]) and/or the [Local]/[Global] keyword — the real Rocq syntaxes for the same fork.
-model_authority_scan() {
-  # shellcheck disable=SC2046
-  grep -nE '^[[:space:]]*(#\[[^]]*\][[:space:]]*)?(Local[[:space:]]+|Global[[:space:]]+)?(Definition|Fixpoint|CoFixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
-    $(find "$1" -name _build -prune -o -name '*.v' ! -path "$1/builtins.v" -print 2>/dev/null) 2>/dev/null || true
-}
-# self-test: every real Rocq fork syntax — nested, and via the [Local] keyword AND the [#[local]]/[#[global]]
-# attribute forms — must be caught (and the real-tree scan must be clean below).
-ma_t=$(mktemp -d); mkdir -p "$ma_t/sub/deep"
-printf '%s\n' 'Local Fixpoint str_ltb (a b : string) : bool := false.'   > "$ma_t/sub/deep/forge_kw.v"
-printf '%s\n' '#[local] Definition str_ltb (a b : string) : bool := false.' > "$ma_t/sub/forge_attr1.v"
-printf '%s\n' '#[global] Fixpoint str_gtb (a b : string) : bool := false.'   > "$ma_t/forge_attr2.v"
-for forge in forge_kw forge_attr1 forge_attr2; do
-  if ! printf '%s' "$(model_authority_scan "$ma_t")" | grep -q "$forge"; then
-    echo "fido: MODEL-AUTHORITY self-test broke — fork form $forge.v was NOT caught"; rm -rf "$ma_t"; exit 1
-  fi
-done
-rm -rf "$ma_t"
-dupstr=$(model_authority_scan .)
-if [ -n "$dupstr" ]; then
-  echo "fido: MODEL-AUTHORITY GATE — a Go string-order primitive is RE-DEFINED outside builtins.v:"
-  echo "$dupstr"
-  echo "fido: delegate to the model's str_* (builtins.v); do not fork a second string order (single-authority)."
-  exit 1
-fi
-echo "fido: model-authority gate OK — string-order primitives defined only in builtins.v ✓"
+# NOTE: the model-authority single-source guard (GoSem must DELEGATE the model's string order, never fork a
+# second [str_*]) is NOT a shell check — a source-text grep is bypassed by legal Rocq definition syntax
+# (multiline / multiple [#[...]] attributes, [Program Definition], [Let], …).  It lives ROBUSTLY in GoSem.v as
+# `Fail Check Fido.GoSem.str_*` (Rocq's own name resolution; any GoSem-OWN binding fails the build).  REVIEW
+# polices a fork in any OTHER layer.

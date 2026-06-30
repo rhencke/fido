@@ -537,3 +537,17 @@ Proof. vm_compute. reflexivity. Qed.
     GoSem might pull in via [cmd]/[builtins]. *)
 Print Assumptions gosem_sound.
 Print Assumptions gosem_demo_runs.
+
+(** ---- SINGLE-AUTHORITY SEAL (robust, syntax-immune).  GoSem DELEGATES Go string order to the MODEL
+    ([builtins.v]'s [str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/[str_geb]) and must NEVER fork a second copy (the
+    str_ltb-duplication BLOCK, Codex 2026-06-30).  These [Fail Check]s FAIL THE BUILD the moment GoSem DEFINES
+    its own [str_*]: they consult Rocq's OWN name resolution, so — unlike a source-text grep — they catch ANY
+    definitional syntax ([Definition]/[Fixpoint]/[Program …]/[Let]/[Local]/[#[global]]/multiline attributes/…).
+    A bare [str_ltb] in GoSem keeps resolving to the imported MODEL constant; only a GoSem-OWN binding makes
+    [Check Fido.GoSem.str_ltb] succeed, which trips the [Fail].  (This REPLACES the brittle smart-ctor-gate
+    string-grep, which legal Rocq forms bypassed.) *)
+Fail Check Fido.GoSem.str_eqb.
+Fail Check Fido.GoSem.str_neqb.
+Fail Check Fido.GoSem.str_ltb.
+Fail Check Fido.GoSem.str_gtb.
+Fail Check Fido.GoSem.str_geb.
