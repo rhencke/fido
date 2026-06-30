@@ -140,14 +140,15 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
 - `EXPECTED_ASSUMPTIONS.txt` — the asserted trust base: the exact axiom set the MANIFEST-gate surfaces
-  (`main_effect`, GoSem's `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_runs` /
-  `run_cmd_seals_events` / `denote_program_run_agrees`) may depend on. (The spine GoAst..GoEmit is gated
+  (`main_effect`, GoSem's `gosem_trust_surface`, and the bridge surfaces `cmd_to_ucmd_run_agrees` /
+  `denote_program_run_agrees`) may depend on. (The spine GoAst..GoEmit is gated
   zero-axiom by the separate standalone printer/emit gates — see PROGRESS.md "Current gates".) As of 445aca3 this file is
   **EMPTY** — the model is axiom-free ("Closed under the global context"); the old
   PrimInt63/PrimFloat substrate is gone (integers `Z`, locations `nat`, floats `spec_float`).
-  The Dockerfile's prover stage extracts EVERY module's `Axioms:` report (via the shared
-  `plugin/manifest-axioms.sh`) and diffs it against this file, FAILING the build on any drift
-  (ANY axiom now reappearing is a regression). If a change *intentionally* alters the trust
+  The Dockerfile's prover stage diffs the MANIFEST surfaces' `Axioms:` reports (via the shared
+  `plugin/manifest-axioms.sh`) against this file, FAILING the build on any drift (an axiom reappearing
+  is a regression; the spine GoAst..GoEmit is gated by the separate printer/emit flows — see PROGRESS.md
+  "Current gates"). If a change *intentionally* alters the trust
   base, regenerate it (C-locale sort, from a fresh local build):
   `rm -f _build/default/main.vo _build/default/GoSem.vo && dune build 2>&1 | sh plugin/manifest-axioms.sh | LC_ALL=C sort -u > EXPECTED_ASSUMPTIONS.txt`
 - `negtests/` — the fail-closed regression harness (`make negtest`, review #4 R10). Each

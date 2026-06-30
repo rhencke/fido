@@ -16,7 +16,7 @@
 #
 # NOT policed here — GoSem axiom-freedom.  It is gated by Rocq's OWN assumption output, not by a grep over
 # GoSem.v: GoSem.v's [Print Assumptions] run when `dune build` compiles it, and the Docker manifest gate FAILS
-# on ANY module's [Axioms:] report (rule 3 — the manifest is empty).  Rocq reports an assumption for an axiom
+# on any of its surfaces' [Axioms:] reports (gosem_trust_surface among them; rule 3 — the manifest is empty).  Rocq reports an assumption for an axiom
 # introduced by ANY declaration form (Local/Global/Polymorphic Axiom, attributes, imported, transitive), so this
 # is immune to the syntax a source-text scan misses (the str_ltb / [Local Axiom] trap); plugin/axiom-authority-
 # selftest.sh PINS that completeness.  Likewise GoSem-uses-the-model's-string-order is enforced in ROCQ — by

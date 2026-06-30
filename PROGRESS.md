@@ -151,7 +151,7 @@ separate, still-trusted TCB.
 
 Zero-axiom is gated by `Print Assumptions` in THREE flows (trust-boundary ledger — single-sourced here):
 **manifest** (`manifest-axioms.sh` diffs the `dune build` log's `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`)
-covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_runs` / `run_cmd_seals_events` /
+covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `denote_program_run_agrees`); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
 grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not a gated public surface.
 

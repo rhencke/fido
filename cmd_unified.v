@@ -7,26 +7,25 @@
     four constructors are EXACTLY [unified.v]'s output / panic / return / defer fragment —
         CRet -> URet,  COut b xs -> UOut b xs,  CPan v -> UPan v,  CDfr d -> UDfr d.
     So [cmd_to_ucmd] is a TOTAL translation of cmd.v's [Cmd unit] command tree into a subset of [UCmd].  The
-    print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] now carry it, exactly the
-    model's [w_output : list (bool * list GoAny)]) — the bridge is EXACT on observable output, not payload-only.
-    The [cmd_out_events]/[cmd_panic] projections the exactness is stated against are NOT a second observation
-    authority: [run_cmd_seals_events] proves they ARE cmd.v's own [run_cmd]/[w_output] on the defer-free fragment.
+    print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
+    [w_output : list (bool * list GoAny)]).
 
-    This first slice proves EXACT OUTPUT + EXACT PANIC + RUN-TO-DONE for the DEFER-FREE fragment ([no_defer],
-    from cmd.v) — precisely the fragment GoSem slice 1 denotes: a single goroutine running [cmd_to_ucmd c]
-    [usteps] to completion (its goroutine goes [uc_live]:=false) emitting EXACTLY [c]'s output EVENTS (println
-    flag and payload), in order, into [uc_out], and ending with [uc_panic 0] equal to [c]'s panic outcome.
-    (Defer is excluded here: cmd.v runs deferred actions at return via [run_defers], unified.v via the
-    [UDfr]/[ustep_ret_defer] LIFO stack; relating those two defer disciplines is a later slice.  No
-    concurrency/heap/channel ops occur in this fragment, so [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)
-    This is proof-only: it emits no Go and adds no axiom. *)
+    PUBLIC surface = [cmd_to_ucmd_run_agrees]: for a DEFER-FREE [c] ([cmd.no_defer], the fragment GoSem slice 1
+    denotes), the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd 1 c w] — the unified
+    output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.  There is
+    NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic] projections, their [run_cmd] seal,
+    and the unified-side run lemma are LOCAL (file-private) proof plumbing — no exported theorem concludes with
+    them, so a consumer cannot prove bridge facts against a free observer instead of [run_cmd].  (Defer is
+    excluded: cmd.v runs deferred actions at return via [run_defers], unified.v via the [UDfr] LIFO stack —
+    a later slice.  No concurrency/heap ops in this fragment, so [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)
+    Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
 From Stdlib Require Import List.
 Import ListNotations.
 
-(** The total structural translation: cmd.v command tree -> the output/panic/return/defer fragment of UCmd.
-    [COut]'s [bool] (println vs print) is PRESERVED into [UOut]'s flag. *)
+(** PUBLIC.  The total structural translation: cmd.v command tree -> the output/panic/return/defer fragment of
+    UCmd, [COut]'s println flag PRESERVED into [UOut]'s flag. *)
 Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmd :=
   match c with
   | CRet _      => URet
@@ -35,18 +34,24 @@ Fixpoint cmd_to_ucmd (c : Cmd unit) : UCmd :=
   | CDfr d c'   => UDfr (cmd_to_ucmd d) (cmd_to_ucmd c')
   end.
 
-(** The output EVENTS [c] emits, in order — each is the FULL model event [(println?, payload)], not just the
-    payload (the defer-free reading: [go]'s [w_output] sequence). *)
-Fixpoint cmd_out_events (c : Cmd unit) : list (bool * list GoAny) :=
+(** PUBLIC.  The single-goroutine start config running [u] on goroutine 0 (live, empty defers, no panic, no
+    output), and the panic an [Outcome] carries — the cmd.v-side observation [uc_panic] agrees with. *)
+Definition ustart (u : UCmd) : UConfig :=
+  mkUCfg (fun t => if Nat.eqb t 0 then u else URet)
+         (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None).
+Definition ocpanic (oc : Outcome unit) : option GoAny :=
+  match oc with OPanic v _ => Some v | ORet _ _ => None end.
+
+(** ---- LOCAL proof plumbing (file-private — not exported, not gated; no PUBLIC theorem concludes with these) ----
+    The output EVENTS / final panic [c] emits on the defer-free fragment, and their SEAL to cmd.v's authority. *)
+Local Fixpoint cmd_out_events (c : Cmd unit) : list (bool * list GoAny) :=
   match c with
   | CRet _      => []
   | COut b xs c' => (b, xs) :: cmd_out_events c'
   | CPan _      => []
   | CDfr _ c'   => cmd_out_events c'
   end.
-
-(** [c]'s final panic outcome on the defer-free fragment: [Some v] if it reaches [CPan v], else [None]. *)
-Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
+Local Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
   match c with
   | CRet _      => None
   | COut _ _ c' => cmd_panic c'
@@ -54,42 +59,28 @@ Fixpoint cmd_panic (c : Cmd unit) : option GoAny :=
   | CDfr _ c'   => cmd_panic c'
   end.
 
-(** SEAL — these projections are NOT a second observation authority: on the defer-free fragment they are
-    PROVABLY cmd.v's own [run_cmd]/[w_output]/[Outcome].  Running [c] yields an Outcome whose World's output
-    is exactly [w_output w ++ cmd_out_events c] and whose panic status is exactly [cmd_panic c].  (On [CDfr]
-    they intentionally diverge from [run_cmd] — which runs defers — but [no_defer] forbids that input, so the
-    seal is total over the fragment the bridge claims.) *)
-Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
+Local Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
 Proof. reflexivity. Qed.
 
-Lemma run_cmd_seals_events : forall c w,
+(** SEAL: on the defer-free fragment the projections ARE cmd.v's own [run_cmd]/[w_output]/[Outcome] (so the
+    public theorem's [run_cmd] conclusion is grounded, not measured against a free observer). *)
+Local Lemma run_cmd_seals_events : forall c w,
   no_defer c = true ->
   exists w',
     run_cmd 1 c w = Some (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end)
     /\ w_output w' = w_output w ++ cmd_out_events c.
 Proof.
   intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros w Hnd.
-  - (* CRet a : run_cmd 1 (CRet tt) w = Some (ORet tt w), no output *)
-    destruct a. cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r.
-    split; reflexivity.
-  - (* COut bo xs c' : run_cmd 1 (COut..) w = run_cmd 1 c' (w_log bo xs w) (go reduces), then IH *)
-    cbn [cmd_panic cmd_out_events no_defer] in *.
+  - destruct a. cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
+  - cbn [cmd_panic cmd_out_events no_defer] in *.
     destruct (IH (w_log bo xs w) Hnd) as [w' [Hrun Hout]].
-    exists w'. split.
-    + exact Hrun.
-    + rewrite Hout, w_output_w_log, <- app_assoc. reflexivity.
-  - (* CPan v : run_cmd 1 (CPan v) w = Some (OPanic v w), no output *)
-    cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
-  - (* CDfr : excluded by no_defer *)
-    cbn [no_defer] in Hnd. discriminate Hnd.
+    exists w'. split; [exact Hrun | rewrite Hout, w_output_w_log, <- app_assoc; reflexivity ].
+  - cbn [cmd_panic cmd_out_events]. exists w. rewrite app_nil_r. split; reflexivity.
+  - cbn [no_defer] in Hnd. discriminate Hnd.
 Qed.
 
-(** EXACT OUTPUT + EXACT PANIC + RUN-TO-DONE.  From any config whose goroutine 0 runs [cmd_to_ucmd c]
-    (defer-free, empty defer stack, no active panic), [ustep] advances goroutine 0 to completion
-    ([uc_live 0]:=false), appending EXACTLY [c]'s output EVENTS (println flag + payload, tagged with
-    goroutine 0) to [uc_out], and leaving [uc_panic 0] equal to [c]'s panic outcome.  Buffers/heap/trace/
-    defers are unchanged. *)
-Theorem cmd_to_ucmd_runs : forall c,
+(** the unified-side run: the [usteps] run of [cmd_to_ucmd c] from any config, stated via the projections. *)
+Local Lemma cmd_to_ucmd_runs : forall c,
   no_defer c = true ->
   forall (ucap : nat -> option nat) p b h lv tr o df pa,
     lv 0 = true -> p 0 = cmd_to_ucmd c -> df 0 = [] -> pa 0 = None ->
@@ -99,17 +90,14 @@ Theorem cmd_to_ucmd_runs : forall c,
       /\ lv' 0 = false
       /\ pa' 0 = cmd_panic c.
 Proof.
-  intros c.
-  induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect';
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect';
     intros Hnd ucap p b h lv tr o df pa Hlv Hp Hdf Hpa.
-  - (* CRet a : URet -> ustep_ret_done -> goroutine done, no output, no panic *)
-    cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
     exists p, (upd lv 0 false), pa. rewrite app_nil_r. split; [ | split ].
     + eapply usteps_step; [ eapply ustep_ret_done; [exact Hlv | exact Hp | exact Hdf] | apply usteps_refl ].
     + apply upd_same.
     + exact Hpa.
-  - (* COut bo xs c' : UOut bo xs (..) -> ustep_out appends (0,(bo,xs)), then IH on c' *)
-    cbn [cmd_to_ucmd cmd_out_events cmd_panic no_defer] in *.
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic no_defer] in *.
     destruct (IH Hnd ucap (upd p 0 (cmd_to_ucmd c')) b h lv tr (o ++ [(0, (bo, xs))]) df pa
                   Hlv (upd_same _ _ _) Hdf Hpa) as [p' [lv' [pa' [Hus [Hdone Hpan]]]]].
     exists p', lv', pa'. split; [ | split; [exact Hdone | exact Hpan] ].
@@ -117,47 +105,51 @@ Proof.
        with ((o ++ [(0, (bo, xs))]) ++ map (fun e => (0, e)) (cmd_out_events c'))
       by (cbn [map]; rewrite <- app_assoc; reflexivity).
     eapply usteps_step; [ eapply ustep_out; [exact Hlv | exact Hp] | exact Hus ].
-  - (* CPan v : UPan v -> ustep_pan_done -> goroutine done (panicking with v), no output *)
-    cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
+  - cbn [cmd_to_ucmd cmd_out_events cmd_panic] in *.
     exists p, (upd lv 0 false), (upd pa 0 (Some v)). rewrite app_nil_r. split; [ | split ].
     + eapply usteps_step; [ eapply ustep_pan_done; [exact Hlv | exact Hp | exact Hdf] | apply usteps_refl ].
     + apply upd_same.
     + apply upd_same.
-  - (* CDfr d c' : excluded by no_defer *)
-    cbn [no_defer] in Hnd. discriminate Hnd.
+  - cbn [no_defer] in Hnd. discriminate Hnd.
 Qed.
 
-(** REGRESSIONS (Codex review): the bridge keeps print and println DISTINGUISHABLE, and the events carry the
-    flag — it does not collapse them. *)
-Example bridge_print_println_distinct : forall (a : GoAny),
+Local Lemma map_snd_pair0 : forall (l : list (bool * list GoAny)), map snd (map (fun e => (0, e)) l) = l.
+Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
+
+(** ---- PUBLIC bridge theorem — agreement with cmd.v's authoritative [run_cmd] (NO projection in the conclusion) ----
+    For a defer-free [c], the single-goroutine [usteps] run drives goroutine 0 to completion, and its observable
+    [uc_out] / [uc_panic] EQUAL [run_cmd 1 c w]'s appended [w_output] / Outcome panic.  [run_cmd] (via the seal),
+    not a free observer, is the authority. *)
+Theorem cmd_to_ucmd_run_agrees : forall c ucap w,
+  no_defer c = true ->
+  exists (uc : UConfig) (oc : Outcome unit),
+    usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ run_cmd 1 c w = Some oc
+    /\ uc_live uc 0 = false
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ uc_panic uc 0 = ocpanic oc.
+Proof.
+  intros c ucap w Hnd.
+  destruct (cmd_to_ucmd_runs c Hnd ucap
+              (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
+              (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
+              eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [Hus [Hdone Hpan]]]]].
+  destruct (run_cmd_seals_events c w Hnd) as [w' [Hrun Hout]].
+  exists (mkUCfg p' (fun _ => nil) (fun _ => 0) lv' nil
+                 (nil ++ map (fun e => (0, e)) (cmd_out_events c)) (fun _ => nil) pa'),
+         (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end).
+  unfold ustart.
+  split; [exact Hus | ]. split; [exact Hrun | ]. split; [exact Hdone | ]. split.
+  - cbn [uc_out]. rewrite app_nil_l, map_snd_pair0.
+    destruct (cmd_panic c); cbn [oc_world]; exact Hout.
+  - cbn [uc_panic]. rewrite Hpan. unfold ocpanic. destruct (cmd_panic c); reflexivity.
+Qed.
+
+(** LOCAL regressions (file-private): print and println stay DISTINGUISHABLE through the translation. *)
+Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
-Example bridge_events_carry_flag : forall (a b : GoAny),
-  cmd_out_events (COut true (a :: nil) (COut false (b :: nil) (CRet tt))) = (true, a :: nil) :: (false, b :: nil) :: nil.
-Proof. reflexivity. Qed.
-
-(** A concrete run: a [print] (flag=false) followed by [panic v] emits exactly that one [(false, a)] event
-    AND ends with [uc_panic 0 = Some v] — both observable facts, from the strengthened theorem. *)
-Example bridge_print_then_panic : forall (a v : GoAny),
-  exists p' lv' pa',
-    usteps (fun _ => None)
-      (mkUCfg (fun _ => cmd_to_ucmd (COut false (a :: nil) (CPan v)))
-              (fun _ => nil) (fun _ => 0) (fun _ => true) nil nil (fun _ => nil) (fun _ => None))
-      (mkUCfg p' (fun _ => nil) (fun _ => 0) lv' nil
-              (nil ++ map (fun e => (0, e)) (cmd_out_events (COut false (a :: nil) (CPan v)))) (fun _ => nil) pa')
-    /\ lv' 0 = false
-    /\ pa' 0 = Some v.
-Proof.
-  intros a v.
-  destruct (cmd_to_ucmd_runs (COut false (a :: nil) (CPan v)) eq_refl
-              (fun _ => None) (fun _ => cmd_to_ucmd (COut false (a :: nil) (CPan v)))
-              (fun _ => nil) (fun _ => 0) (fun _ => true) nil nil (fun _ => nil) (fun _ => None)
-              eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [Hus [Hdone Hpan]]]]].
-  exists p', lv', pa'. split; [exact Hus | split; [exact Hdone | exact Hpan] ].
-Qed.
-
-(** Public assumption surface for this module — the manifest gate captures these [Print Assumptions]:
-    the unified-side bridge AND the cmd.v-side seal that grounds its exactness in [run_cmd]/[w_output]. *)
-Print Assumptions cmd_to_ucmd_runs.
-Print Assumptions run_cmd_seals_events.
+(** Public assumption surface for this module — the manifest gate captures this ONE [Print Assumptions]:
+    the [run_cmd]-grounded bridge.  The projection plumbing is Local and deliberately NOT printed/gated. *)
+Print Assumptions cmd_to_ucmd_run_agrees.

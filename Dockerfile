@@ -78,8 +78,8 @@ COPY --chown=opam:opam negtests/ negtests/
 #  (3) AXIOM-MANIFEST GATE (review #4 R10): the MANIFEST flow of the trust-boundary ledger (the full split
 #      is single-sourced in PROGRESS.md "Current gates"; the spine GoAst..GoEmit is gated by the separate
 #      printer/emit greps in steps (5)+below).  `dune build` runs the manifest surfaces' `Print Assumptions`
-#      — `main_effect`, GoSem.v's `gosem_trust_surface`, and the bridge surfaces (`cmd_to_ucmd_runs` /
-#      `run_cmd_seals_events` / `denote_program_run_agrees`); each bundling constant's report is the UNION of
+#      — `main_effect`, GoSem.v's `gosem_trust_surface`, and the bridge surfaces (`cmd_to_ucmd_run_agrees` /
+#      `denote_program_run_agrees`); each bundling constant's report is the UNION of
 #      its whole transitive cone — into the build log.  Capture each `Axioms:` report (plugin/manifest-axioms.sh
 #      — the SAME extractor the self-test uses — no longer stops at `Extracted to`, so a surface that prints
 #      after extraction is still caught) and assert the union EXACTLY equals the committed
@@ -133,7 +133,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
     && sh plugin/manifest-axioms.sh < /tmp/build.log | LC_ALL=C sort -u > /tmp/got_axioms.txt \
     && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
-         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a module-level Print Assumptions cone's trust base changed (main_effect / gosem_trust_surface / a bridge surface / …)."; \
+         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a manifest-surface cone's trust base changed (main_effect / gosem_trust_surface / a bridge surface)."; \
          echo "fido: a NEW axiom reaching any gated theorem is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
          exit 1; \
        fi \
