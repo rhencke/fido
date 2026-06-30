@@ -1854,7 +1854,7 @@ let raw_term tab next =
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
    platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), and the bare unary
-   complement [^x] of a runtime local ([EUn UXor]) — which is then printed by the extracted, machine-checked
+   int64/uint64 complement [^x] of a runtime local ([EUn UXor]) — which is then printed by the extracted, machine-checked
    [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
    to [pp_prec] (Stage B is incremental;
@@ -2274,7 +2274,10 @@ let rec pp_expr state env = function
            (* P0 #2: widen the operand to the int carrier (a narrow-typed int8 would overflow `& 0xff`). *)
            fw_wrap s w (str "^int(" ++ pp_expr state env x ++ str ")")
        (* full-width int64 unary complement [i64_not x] → [^x].  Go's [^] on an
-          int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask. *)
+          int64 IS the full 64-bit complement (= -x-1), exactly the model — no mask.  ★When [^x] of a runtime
+          LOCAL is a BINOP OPERAND it is instead emitted by the VERIFIED [Printer.gprint] ([goexpr_bridge]'s
+          [EUn UXor] arm); this trusted arm now renders only the TOP-LEVEL [^x] and the typed-constant
+          force-wrapper IIFE (same for [u64_not] below). *)
        | MLglob r, [x] when is_i64_op r "not" ->
            if operand_is_runtime x then str "^" ++ pp_atom state env x
            else str "func(x int64) int64 { return ^x }(" ++ pp_expr state env x ++ str ")"
@@ -2516,7 +2519,7 @@ let rec pp_expr state env = function
            (* the whole binop tree is routed through [pp_prec] (ctx 0 = no outer parens at the top level),
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
               gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
-              the bare unary complement [^x]) via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
+              the bare int64/uint64 complement [^x]) via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
        (* native whole-struct equality [struct_eqb eqb a b] → [a == b]; the comparability
@@ -2833,7 +2836,7 @@ and pp_atom state env e =
    [p < ctx]; operands recurse at [p] (left) / [p+1] (right, for left-associativity); atoms / calls /
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
    [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
-   int·int64·uint64 literals / the bare unary complement [^x]) is delegated to the VERIFIED
+   int·int64·uint64 literals / the bare int64/uint64 complement [^x]) is delegated to the VERIFIED
    [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with

@@ -8,7 +8,7 @@ AST-first spine (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path towa
 zero-axiom printer with a proven EXPRESSION round-trip (programs/statements: print-injectivity only — no
 parser yet), self-consistent with its own Rocq grammar (NOT a Go-parser-acceptance proof), and gated
 certified emission. ⚠️ But the extracted printer is wired into the LIVE plugin for only a small expression
-class (a binop tree over locals, int/int64/uint64 literals, and unary complement `^x`) — everything else is
+class (a binop tree over locals, int/int64/uint64 literals, and int64/uint64 complement `^x`) — everything else is
 trusted OCaml `pp_expr` — and even there the proofs cover only
 AST→string serialization, NOT the trusted MiniML→AST construction that builds it; so the live `main.go` is
 NOT verified Go. There is no behavioral-safety layer yet. Until gap #10 closes
