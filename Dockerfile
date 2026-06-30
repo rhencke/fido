@@ -75,13 +75,17 @@ COPY --chown=opam:opam negtests/ negtests/
 #      regenerated.  So force every current driver's .vo out, making it recompile and
 #      re-extract afresh.  (Drivers auto-detected; the heavy proof libraries stay cached.)
 # Then a `test -n` guard fails LOUD rather than shipping nothing.
-#  (3) AXIOM-MANIFEST GATE (review #4 R10): the driver re-compile runs `Print Assumptions
-#      main_effect`, emitting the trust base.  Capture it and assert it EXACTLY equals the
-#      committed EXPECTED_ASSUMPTIONS.txt (the PrimInt63/PrimFloat substrate).  A NEW axiom
-#      reaching the extracted program — a stray `Require` pulling in funext/Classical, an
-#      `Admitted` that slipped the grep, etc. — is a trust-base regression (rule 3) and FAILS
-#      the build here, not silently in a `Print Assumptions` nobody reads.  (The pre-commit hook
-#      greps for DECLARED axioms; this catches TRANSITIVE/imported ones too.)
+#  (3) AXIOM-MANIFEST GATE (review #4 R10): `dune build` runs every module's `Print Assumptions`
+#      — `main_effect` AND the GoSem trusted-theorem surface (GoSem.v's tail) — emitting their
+#      trust bases into the build log.  Capture EVERY module's `Axioms:` report (the awk no longer
+#      stops at `Extracted to`, so a GoSem axiom that prints after extraction is still caught) and
+#      assert the union EXACTLY equals the committed EXPECTED_ASSUMPTIONS.txt (currently EMPTY —
+#      rule 3, zero axioms).  A NEW axiom reaching ANY gated theorem — a stray `Require` pulling in
+#      funext/Classical, a `Local Axiom`/`Polymorphic Axiom`/`Admitted` in GoSem that a source-text
+#      regex would miss, a transitive/imported one — is a trust-base regression and FAILS the build
+#      here.  Because this is Rocq's OWN assumption output, it is the AUTHORITY for GoSem axiom-
+#      freedom, immune to axiom-DECLARATION-FORM bypasses (the pre-commit source scan is only a
+#      coarse declaration tripwire); step (0) below self-tests that this authority catches every form.
 #  (4) NEGTEST HARNESS (review #4 R10): `negtests/run.sh` compiles each negative fixture and
 #      asserts extraction ABORTS with its declared message.  A fixture that EXTRACTS instead =
 #      a reopened fail-closed site (plausible-but-wrong Go where rule 2 demands `unsupported`),
@@ -91,13 +95,19 @@ COPY --chown=opam:opam negtests/ negtests/
 #      printer guarantee is vacuous if they differ).  Regenerate it from GoPrint.v here, FAIL on drift,
 #      and assert GoPrint.v's `Print Assumptions` show no "Axioms:" (GoPrint.v is part of the trust gate,
 #      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
-#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — 5 checks): smart-ctor ban (the live proof-carrying Printer
+#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — 4 checks): smart-ctor ban (the live proof-carrying Printer
 #      constructors GTNamed/EId erase their Rocq validity proof to a bare OCaml string, so a DIRECT call would
 #      bypass the verified invariant — assert plugin/go.ml builds them ONLY via the re-checking mk_named_ty /
-#      mk_goexpr_id), dead-name recurrence, emission discipline, bridge-recognizer scoping, and the GoSem
-#      axiom-freedom seal — a pure static scan, run FIRST so a side-door construction fails fast.
+#      mk_goexpr_id), dead-name recurrence, emission discipline, and bridge-recognizer scoping — a pure static
+#      scan, run FIRST so a side-door construction fails fast.
+#  (0) AXIOM-AUTHORITY SELF-TEST (axiom-authority-selftest.sh): pin that gate (3)'s authority — Rocq's own
+#      `Print Assumptions` output — catches an axiom introduced by EVERY declaration form Codex flagged
+#      (Local/Global/Polymorphic Axiom, Local Parameter, attribute-qualified) or that the kernel rejects the
+#      form outright (Private Axiom, top-level Context).  This is what makes the GoSem axiom gate a real seal
+#      rather than a bypassable regex; it compiles tiny axiom-bearing snippets, so it runs in the prover stage.
 RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     sh plugin/smart-ctor-gate.sh \
+    && sh plugin/axiom-authority-selftest.sh \
     && (rocq c -Q . Fido GoAst.v > /tmp/printer.log 2>&1 && rocq c -Q . Fido GoPrint.v >> /tmp/printer.log 2>&1 || (echo "fido: GoAst.v/GoPrint.v failed to compile:"; cat /tmp/printer.log; exit 1)) \
     && if grep -q '^Axioms:' /tmp/printer.log; then \
          echo "fido: VERIFIED-PRINTER AXIOM/ADMITTED — a GoAst/GoPrint theorem depends on an axiom (Print Assumptions):"; \
@@ -117,7 +127,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     && rm -f _build/default/*.go \
     && for v in $(grep -l 'Go Main Extraction' *.v); do rm -f "_build/default/${v%.v}.vo"; done \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
-    && awk '/^Axioms:/{f=1;next} /^Extracted to/{f=0} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' /tmp/build.log \
+    && awk '/^Axioms:/{f=1;next} f && /^[A-Za-z_][A-Za-z0-9_.]* :/ {print $1}' /tmp/build.log \
          | LC_ALL=C sort -u > /tmp/got_axioms.txt \
     && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
          echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — main_effect's trust base changed."; \

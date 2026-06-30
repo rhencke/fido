@@ -1,7 +1,7 @@
 #!/bin/sh
-# Smart-constructor / dead-name / emission-discipline / bridge-recognizer / GoSem-witness-coverage gate.
+# Smart-constructor / dead-name / emission-discipline / bridge-recognizer gate.
 #
-# FIVE boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
+# FOUR boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
 # accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact that
 # the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
 #   1. SMART-CTOR BAN  — only the smart constructors [mk_named_ty]/[mk_goexpr_id]/[mk_goexpr_hex] (which re-check
@@ -13,11 +13,15 @@
 #   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
 #      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
 #      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
-#   5. GOSEM AXIOM-FREEDOM SEAL — GoSem.v / GoSemAuthority.v (NOT extracted) contain no axiom-introducing
-#      vernacular (Axiom/Admitted/Parameter/…); with gated-axiom-free deps this seals all GoSem theorems zero-axiom.
-# (GoSem-uses-the-model's-string-order is enforced in ROCQ, not here — a source-text grep is bypassed by legal
-#  Rocq syntax — by GoSem.v's qualified-constant [str_cmp_*_model] branch pins (+ the GoSemAuthority.v tripwire);
-#  see the note after check 4.)
+#
+# NOT policed here — GoSem axiom-freedom.  It is gated by Rocq's OWN assumption output, not by a grep over
+# GoSem.v: GoSem.v's [Print Assumptions] run when `dune build` compiles it, and the Docker manifest gate FAILS
+# on ANY module's [Axioms:] report (rule 3 — the manifest is empty).  Rocq reports an assumption for an axiom
+# introduced by ANY declaration form (Local/Global/Polymorphic Axiom, attributes, imported, transitive), so this
+# is immune to the syntax a source-text scan misses (the str_ltb / [Local Axiom] trap); plugin/axiom-authority-
+# selftest.sh PINS that completeness.  Likewise GoSem-uses-the-model's-string-order is enforced in ROCQ — by
+# GoSem.v's qualified-constant [str_cmp_*_model] branch pins (+ the GoSemAuthority.v tripwire); see the note
+# after check 4.
 #
 # This gate polices CODE discipline only.  Documentation / prose honesty (bridge-coverage wording, the
 # construction-vs-printing distinction) is the job of REVIEW, not this gate.  The human-facing bridge-coverage
@@ -113,30 +117,8 @@ echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route throug
 # constant [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model]) — shadow-immune, so a fork that reroutes a
 # branch breaks a pin.  GoSemAuthority.v is a secondary post-import top-level tripwire ([Fail Check
 # Fido.GoSem.str_*]).  Scope: GoSem (the string-semantics layer); no claim about other modules.
-
-# 5. GOSEM AXIOM-FREEDOM SEAL (statement-shape-INDEPENDENT — supersedes the brittle run-witness body-parse, which
-# had legal-Rocq false negatives: proof-term [:= eq_refl], [@ORet], extra parens, … exactly the str_ltb shell-
-# parser trap).  GoSem.v / GoSemAuthority.v are NOT extracted, so the axiom-manifest gate (on the EXTRACTED
-# [main_effect]) does not cover them.  BUT their dependencies ([cmd]/[builtins]/[GoAst]/[GoTypes]/[GoSafe], all
-# gated axiom-free elsewhere) introduce no axiom, so a GoSem theorem can be non-axiom-free ONLY if GoSem.v ITSELF
-# introduces one.  Forbidding every axiom-INTRODUCING vernacular there (the closed keyword set below, with an
-# optional leading [#[...]] attribute) therefore SEALS ALL of GoSem's theorems as zero-axiom — for ANY statement
-# syntax, no per-witness detection needed.  (The [Print Assumptions] lines in GoSem.v additionally SURFACE key
-# results in the build log; they are documentation, not the seal.)  COMPLEMENTARY to the pre-commit hook's
-# all-tracked-.v anti-axiom scan: that one is broader (every .v) but COMMIT-time only (bypassable); this one is
-# GoSem-scoped but NON-bypassable (runs in the Docker prover stage, so `make check`/CI enforce it).
-ax_re='^[[:space:]]*(#\[[^]]*\][[:space:]]*)?(Admitted|Axiom|Axioms|Parameter|Parameters|Conjecture|Hypothesis|Hypotheses|Variable|Variables)\b'
-# self-test: a plain [Admitted.] AND an attribute-qualified [#[local] Axiom …] (the str_ltb-style bypass) MUST trip
-ax_t=$(mktemp)
-printf '%s\n' 'Admitted.' '#[local] Axiom forged_ax : True.' '  (* this Axiom mention in a comment must NOT trip *)' > "$ax_t"
-ax_hits=$(grep -cE "$ax_re" "$ax_t")
-[ "$ax_hits" = 2 ] || { echo "fido: GOSEM AXIOM-SEAL self-test broke — expected 2 hits (Admitted + #[local] Axiom), got $ax_hits"; rm -f "$ax_t"; exit 1; }
-rm -f "$ax_t"
-axdef=$(grep -nE "$ax_re" GoSem.v GoSemAuthority.v 2>/dev/null || true)
-if [ -n "$axdef" ]; then
-  echo "fido: GOSEM AXIOM-FREEDOM SEAL — an axiom-introducing vernacular is in GoSem.v / GoSemAuthority.v:"
-  echo "$axdef"
-  echo "fido: GoSem must stay axiom-free (it is not extracted — this is its only axiom check); remove the Axiom/Admitted/Parameter/…"
-  exit 1
-fi
-echo "fido: gosem axiom-freedom seal OK — no axiom-introducing vernacular in GoSem.v / GoSemAuthority.v ✓"
+#
+# GoSem axiom-freedom is likewise gated in ROCQ, not here (see the header): the Docker manifest gate captures
+# GoSem.v's [Print Assumptions] output and plugin/axiom-authority-selftest.sh pins its completeness.  A
+# source-text axiom-vernacular grep was tried here and DELETED — legal declaration forms ([Local Axiom],
+# [Polymorphic Axiom], attribute stacks) bypass any such regex (the str_ltb trap).

@@ -59,11 +59,18 @@ negtest:
 	dune build
 	@sh negtests/run.sh
 
-# Code-discipline gate: smart-ctor / dead-name / emission-discipline / bridge-recognizer / GoSem-axiom-freedom
-# seal (see plugin/smart-ctor-gate.sh). Runs here, in the
-# pre-commit hook, and non-bypassably in the Docker prover stage (so `make check` enforces it).
+# Code-discipline gate: smart-ctor / dead-name / emission-discipline / bridge-recognizer (see
+# plugin/smart-ctor-gate.sh). Runs here, in the pre-commit hook, and non-bypassably in the Docker prover
+# stage (so `make check` enforces it).
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
+
+# Axiom-authority self-test: pin that the GoSem axiom gate of record — Rocq's own `Print Assumptions`,
+# captured by the Docker manifest gate — catches an axiom in EVERY declaration form (Local/Global/Polymorphic
+# Axiom, attributes, …) or that the kernel rejects it. Needs host rocq (compiles tiny snippets). Runs
+# non-bypassably in the Docker prover stage; this is the local mirror.
+axiom-authority-selftest:
+	@sh plugin/axiom-authority-selftest.sh
 
 # Shared gate for the VERIFIED printer: compile the GoAst -> GoPrint spine STANDALONE (Stdlib only, no plugin
 # — sidesteps the build circularity, since the plugin links printer.ml extracted FROM GoPrint.v) and assert

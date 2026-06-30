@@ -11,11 +11,11 @@
 # Extraction failure (e.g. a broken proof) aborts the commit.
 set -e
 
-# Code-discipline gate (smart-ctor-gate.sh — 5 checks: smart-ctor ban / dead-name / emission-discipline /
-# bridge-recognizer / GoSem axiom-freedom seal): e.g. assert plugin/go.ml constructs the proof-carrying
-# Printer atoms/types ONLY via the re-checking smart constructors (a direct GTNamed/EId would bypass the
-# erased Rocq invariant), and GoSem.v introduces no axiom.  Cheap static scan; the Docker prover
-# stage runs it non-bypassably too, this is the fast local backstop.
+# Code-discipline gate (smart-ctor-gate.sh — 4 checks: smart-ctor ban / dead-name / emission-discipline /
+# bridge-recognizer): e.g. assert plugin/go.ml constructs the proof-carrying Printer atoms/types ONLY via the
+# re-checking smart constructors (a direct GTNamed/EId would bypass the erased Rocq invariant).  Cheap static
+# scan; the Docker prover stage runs it non-bypassably too, this is the fast local backstop.  (GoSem
+# axiom-freedom is gated by Rocq's own Print Assumptions in the Docker manifest gate, not by this script.)
 if git diff --cached --name-only | grep -qE '^plugin/'; then
   sh plugin/smart-ctor-gate.sh
 fi
@@ -61,9 +61,13 @@ if ls ./*.go >/dev/null 2>&1; then
   fi
 fi
 
-# Anti-axiom gate.  The headline guarantee is ZERO Fido axioms (definitively checked by
-# `Print Assumptions`; this grep is the cheap commit-time backstop — review #3 R10 widened it
-# from builtins.v/main.v to ALL theory files):
+# Anti-axiom gate.  The headline guarantee is ZERO Fido axioms.  The COMPLETE, declaration-form-immune check
+# is Rocq's own `Print Assumptions` — captured non-bypassably by the Docker manifest gate, which reports an
+# axiom no matter HOW it is declared (Local/Global/Polymorphic, attribute stacks, imported, transitive) or
+# refuses the form (Private Axiom, top-level Context).  This grep is a cheap commit-time DECLARATION tripwire
+# (review #3 R10 widened it from builtins.v/main.v to ALL theory files; it now also catches locality
+# modifiers and attribute stacks before the keyword — the forms a bare-keyword scan missed).  It is NOT the
+# authority and makes no completeness claim — a legal form it misses is caught by the Rocq manifest gate:
 #  (a) Axiom / Parameter / Conjecture / Admitted are forbidden in EVERY tracked .v — the proof-only
 #      theories (concurrency.v / relooper.v), the spine (GoAst/GoPrint/GoTypes/GoSafe/GoEmit), the emit demo
 #      (emitdemo/emit_demo.v) AND the fail-closed fixtures (negtests/*.v): an Admitted is an INCOMPLETE
@@ -88,9 +92,10 @@ if [ "$(printf '%s\n' $scanned_v | LC_ALL=C sort)" != "$(git ls-files '*.v' | LC
   echo "fido: the scan list must be DERIVED from 'git ls-files' so no .v is ever omitted."
   exit 1
 fi
-if grep -nE '^[[:space:]]*(Axiom|Parameter|Conjecture)[[:space:]]|Admitted' \
+amod='((#\[[^]]*\]|Local|Global|Polymorphic|Monomorphic)[[:space:]]+)*'   # optional locality/attribute prefix
+if grep -nE "^[[:space:]]*${amod}(Axiom|Axioms|Parameter|Parameters|Conjecture)[[:space:]]|Admitted" \
         $scanned_v 2>/dev/null \
-   || grep -nE '^[[:space:]]*(Hypothesis|Variable)[[:space:]]' builtins.v main.v 2>/dev/null; then
+   || grep -nE "^[[:space:]]*${amod}(Hypothesis|Hypotheses|Variable|Variables)[[:space:]]" builtins.v main.v 2>/dev/null; then
   echo "fido: ERROR — a Fido Axiom/Parameter/Conjecture/Admitted (any tracked .v), or a top-level"
   echo "fido: Hypothesis/Variable in an extracted file, was introduced.  The 0-axiom guarantee forbids"
   echo "fido: this; model the construct as a Definition (or a discharged Section variable in a proof file)."

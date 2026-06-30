@@ -151,9 +151,11 @@ separate, still-trusted TCB.
 ## Current gates
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the axiom-manifest
-  gate (`Print Assumptions` vs empty `EXPECTED_ASSUMPTIONS.txt`), the fail-closed `negtests/` harness, the
-  smart-ctor / dead-name / emission-discipline / bridge-recognizer / GoSem-axiom-freedom-seal gate, `emit-demo` (certified bytes go-build), gofmt, and
-  `go vet`.
+  gate (`Print Assumptions` vs empty `EXPECTED_ASSUMPTIONS.txt` — now captures EVERY module's `Axioms:` report,
+  so it also gates GoSem's trusted-theorem surface zero-axiom via Rocq's own output), the axiom-authority
+  self-test (pins that gate catches every axiom declaration form), the fail-closed `negtests/` harness, the
+  smart-ctor / dead-name / emission-discipline / bridge-recognizer gate, `emit-demo` (certified bytes go-build),
+  gofmt, and `go vet`.
 - `make emit-verify` — local: spine compiles zero-axiom (GoAst/GoPrint/GoTypes/GoSafe/GoEmit).
 - `make printer-verify` — local: GoPrint zero-axiom + `plugin/printer.ml` in sync.
 - `make negtest` — local: each `negtests/*.v` ABORTS extraction at a fail-closed backend site.

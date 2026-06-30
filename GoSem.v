@@ -779,11 +779,17 @@ Example denotable_demo          : denotable_program gosem_demo_prog = true.     
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
 
-(** GATE (documentation/visibility) — these [Print Assumptions] SURFACE the key behavioral results' trust base in
-    the build log.  They are NOT the axiom-freedom SEAL: GoSem is axiom-free because smart-ctor-gate.sh check 5
-    forbids any axiom-introducing vernacular in GoSem.v / GoSemAuthority.v (non-bypassably, in the Docker prover
-    stage), and every dependency ([cmd]/[builtins]/[GoAst]/[GoTypes]/[GoSafe]) is gated axiom-free — so EVERY
-    GoSem theorem is zero-axiom, for any statement syntax, with no per-witness list to keep complete. *)
+(** AXIOM-FREEDOM GATE (Rocq's OWN assumption output is the authority — NOT a source-text scan).  Each
+    [Print Assumptions] below RUNS when `dune build` compiles this file; its output lands in the build log, and
+    the Docker prover stage's manifest gate captures EVERY module's [Axioms:] report and FAILS on any (the
+    manifest is empty — rule 3).  Because Rocq reports an assumption for an axiom introduced by ANY form
+    (Axiom / Local Axiom / Polymorphic Axiom / attribute-qualified / imported / transitive), this gate is immune
+    to the declaration-syntax that a grep over GoSem.v would miss (the str_ltb / [Local Axiom] trap);
+    plugin/axiom-authority-selftest.sh PINS that completeness.  This is the certified zero-axiom SURFACE — the
+    results listed here.  (Coverage caveat, stated honestly: the manifest gate sees only [Print Assumptions]'d
+    theorems and only axioms they USE.  A declared-but-unused axiom, or an unlisted theorem, is additionally
+    guarded by the pre-commit source-scan tripwire + the fact that every dependency [cmd]/[builtins]/[GoAst]/
+    [GoTypes]/[GoSafe] is gated axiom-free — so no GoSem theorem can depend on an axiom either way.) *)
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
 Print Assumptions denote_program_runs.
