@@ -217,8 +217,16 @@ func Conv_f32_in_cmp(a float32, x float64) bool {
 	return a < float32(x)
 }
 
+func Conv_f64_to_i64_in_binop(y int64, f float64) int64 {
+	return y + int64(f)
+}
+
+func Conv_f64_to_u64_in_binop(y uint64, f float64) uint64 {
+	return y + uint64(f)
+}
+
 func Conv_operand_demo() {
-	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51))
+	println(Conv_in_binop(5, uint8((200&0xff))), Conv_f32_in_cmp(func(x float64) float32 { return float32(x) }(0x10000000000000p-52), 0x1c000000000000p-51), Conv_f64_to_i64_in_binop(10, 0x1d99999999999ap-51), Conv_f64_to_u64_in_binop(20, 0x17333333333333p-51))
 }
 
 func I64_to_narrow_demo() {

@@ -401,9 +401,17 @@ Definition conv_in_binop (y : GoI64) (x : GoU8) : GoI64 := i64_add y (i64_of_u8 
     (the [operand_is_runtime] inline case — the force-wrapper IIFE branch is NOT bridged); [gprint] emits it
     byte-identically to [pp_prec]. *)
 Definition conv_f32_in_cmp (a : GoFloat32) (x : GoFloat64) : bool := f32_ltb a (f32_of_f64 x).
+(** And the float64->int64 / float64->uint64 TRUNCATION-toward-zero conversions as binop operands
+    [y + int64(f)] / [y + uint64(f)] — the [is_f64_to_i64_ref] / [is_f64_to_u64_ref] arms.  [f] is a runtime
+    [float64] PARAM, so [goexpr_bridge] builds [ECall (EId "int64"/"uint64") [f]] (rendered inline
+    unconditionally — no force-wrapper, hence no runtime guard); [gprint] emits it byte-identically to [pp_prec]. *)
+Definition conv_f64_to_i64_in_binop (y : GoI64) (f : GoFloat64) : GoI64 := i64_add y (i64_of_f64 f).
+Definition conv_f64_to_u64_in_binop (y : GoU64) (f : GoFloat64) : GoU64 := u64_add y (u64_of_f64 f).
 Definition conv_operand_demo : IO unit :=
   println [ any (conv_in_binop (5)%i64 (u8_lit 200 eq_refl))       (* 5 + int64(uint8 200) = 205 *)
-          ; any (conv_f32_in_cmp (f32_lit 1) (3.5)%go64) ].        (* 1.0 < float32(3.5) = true *)
+          ; any (conv_f32_in_cmp (f32_lit 1) (3.5)%go64)           (* 1.0 < float32(3.5) = true *)
+          ; any (conv_f64_to_i64_in_binop (10)%i64 (3.7)%go64)     (* 10 + int64(3.7) = 13 *)
+          ; any (conv_f64_to_u64_in_binop (20)%u64 (2.9)%go64) ].  (* 20 + uint64(2.9) = 22 *)
 (** int64 → narrow TRUNCATION LOWERED: [u8_of_i64]…[i32_of_i64] → the SAME native mask /
     sign-extend as [uN_of_int] ([(x & 0xFF)] for [uN]; [((x & 0xFF) ^ 0x80) - 0x80] for [iN]),
     since [GoI64] and the narrow types share the int64 carrier.  Machine-checked faithful

@@ -1857,10 +1857,11 @@ let raw_term tab next =
    [goexpr_bridge] CONSTRUCTS a structured [coq_GExpr] directly (never by parsing a string) for the
    migrated expression class — a binary-operator TREE whose leaves are runtime locals ([MLrel] -> [EId]),
    platform-int / int64 / uint64 literals ([EInt] / [int64]/[uint64] conversions), the bare unary
-   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and EXACTLY two runtime conversions as
-   application-syntax [ECall]s — narrow->int64 widening ([is_i64_of_narrow_ref], [int64(x)]) and
-   float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]); NOT the other
-   producers of the same [int64(x)]/[float32(x)] surface bytes ([i64_of_f64], [f32_of_int], …) which stay on [pp_prec] —
+   int64/uint64 complement [^x] of a runtime local ([EUn UXor]), and FOUR runtime conversions as
+   application-syntax [ECall]s — narrow->int64 widening ([is_i64_of_narrow_ref], [int64(x)]),
+   float64->float32 narrowing ([is_f64_to_f32_ref] under [operand_is_runtime], [float32(x)]), and
+   float64->int64/uint64 truncation ([is_f64_to_i64_ref] [int64(f)] / [is_f64_to_u64_ref] [uint64(f)]); NOT
+   every producer of those surface bytes (e.g. int->float32 [is_int_to_f32_ref]) which stay on [pp_prec] —
    which is then printed by the extracted, machine-checked
    [Printer.gprint] (see [pp_prec]) instead of the trusted [pp_prec] string concatenation.  Any other shape
    (string/other literals, calls, selectors, func-lits, …) returns [None] and the whole expression falls back
@@ -1938,6 +1939,19 @@ let rec goexpr_bridge env e =
             | _ -> None)
        | MLglob r, [x] when is_f64_to_f32_ref r && operand_is_runtime x ->
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
+            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
+            | _ -> None)
+       (* float64 -> int64 / uint64 TRUNCATION-toward-zero [i64_of_f64 f] -> [int64(f)] / [u64_of_f64 f] ->
+          [uint64(f)] (go.ml [is_f64_to_i64_ref] / [is_f64_to_u64_ref] arms).  Same identifier-led-conversion
+          [ECall] shape; [pp_expr] renders both inline UNCONDITIONALLY (no force-wrapper — the operand is a
+          typed float64, never an untyped constant), so like [int64(x)] widening they need no runtime guard,
+          only that the operand bridges. *)
+       | MLglob r, [x] when is_f64_to_i64_ref r ->
+           (match goexpr_bridge env x, mk_goexpr_id "int64" with
+            | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
+            | _ -> None)
+       | MLglob r, [x] when is_f64_to_u64_ref r ->
+           (match goexpr_bridge env x, mk_goexpr_id "uint64" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
        | _ -> None)
@@ -2435,10 +2449,13 @@ let rec pp_expr state env = function
                 str ("float32(" ^ print_i64_dec num ^ ".0 / " ^ print_i64_dec den ^ ".0)")
             | Some _ -> unsupported "f32_of_fconst: den = 0 (a float32 constant cannot be ±Inf)"
             | None -> unsupported "f32_of_fconst of a non-constant FConst (only statically-known float constants are modeled)")
-       (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero) *)
+       (* [i64_of_f64 f] → [int64(f)] (float64 → int64 truncation toward zero).  As a binop operand and when
+          [f] bridges, [goexpr_bridge] now builds [ECall (EId "int64") [f]] and the verified [gprint] emits
+          these exact bytes; this arm still serves every other position. *)
        | MLglob r, [x] when is_f64_to_i64_ref r ->
            str "int64(" ++ pp_expr state env x ++ str ")"
-       (* [u64_of_f64 f] → [uint64(f)] (float64 → uint64 truncation toward zero) *)
+       (* [u64_of_f64 f] → [uint64(f)] (float64 → uint64 truncation toward zero); likewise bridged to
+          [ECall (EId "uint64") [f]] in the binop-operand case. *)
        | MLglob r, [x] when is_f64_to_u64_ref r ->
            str "uint64(" ++ pp_expr state env x ++ str ")"
        (* narrow → int64 widening → [int64(x)] (Go's widening conversion).  NOT identity: review
@@ -2551,7 +2568,8 @@ let rec pp_expr state env = function
               which re-collects [MLapp (head, all_args)] to the same head/operands.  [pp_prec] prints the
               gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
               the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] / float64→float32
-              [is_f64_to_f32_ref]-under-[operand_is_runtime])
+              [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
+              [is_f64_to_i64_ref]/[is_f64_to_u64_ref])
               via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
@@ -2870,7 +2888,8 @@ and pp_atom state env e =
    the typed-IIFE force-wrapper bind tighter than any operator and never wrap (they fall through to
    [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
    int·int64·uint64 literals / the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] /
-   float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime]) is delegated to the VERIFIED
+   float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
+   [is_f64_to_i64_ref]/[is_f64_to_u64_ref]) is delegated to the VERIFIED
    [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with
