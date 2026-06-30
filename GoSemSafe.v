@@ -11,7 +11,7 @@
     Naming discipline (rule: a name is a correctness claim): this is [panic_free_runs_ret], a SPECIFIC property,
     NOT [BehaviorSafe] / [SafeProgram]. *)
 
-From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem.
+From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified.
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 
@@ -120,5 +120,30 @@ Example panicking_prog_panics : forall w,
   = Some (OPanic (anyt TString "boom") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** Trust surface for this module (axiom-manifest gate captures its [Print Assumptions]). *)
+(** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing [panic_free_runs_ret] (the
+    denoted program's authoritative [run_cmd] reaches [ORet]) with the cmd↔unified bridge
+    [GoSemUnified.denote_program_run_agrees] (the [unified.v] [ustep] run AGREES with the deterministic
+    [run_cmd]): a syntactically panic-free supported program, once denoted, runs under [ustep] — the calculus
+    [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO panic
+    ([uc_panic 0 = None]), its output equal to the safe run's.  So the seed safety PROPERTY is not merely
+    denotational; it holds where the concurrency theory lives.  (Still a PROPERTY, NOT an emission gate.) *)
+Theorem panic_free_runs_ret_ustep : forall p c ucap w,
+  denote_program p = Some c -> panic_free (prog_body p) = true ->
+  exists (uc : UConfig) (w' : World),
+    usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ uc_live uc 0 = false
+    /\ uc_panic uc 0 = None
+    /\ w_output w' = w_output w ++ map snd (uc_out uc).
+Proof.
+  intros p c ucap w Hden Hpf.
+  destruct (panic_free_runs_ret p c w Hden Hpf) as [w' Hrun].
+  destruct (denote_program_run_agrees p c ucap w Hden) as [uc [oc [Hus [Hrun' [Hlive [Hout Hpan]]]]]].
+  assert (Hoc : oc = ORet tt w') by congruence. subst oc.
+  exists uc, w'. split; [ exact Hus | split; [ exact Hlive | split ] ].
+  - rewrite Hpan. reflexivity.
+  - cbn [oc_world] in Hout. exact Hout.
+Qed.
+
+(** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
 Print Assumptions panic_free_runs_ret.
+Print Assumptions panic_free_runs_ret_ustep.

@@ -99,8 +99,9 @@ live emission is not "verified Go."
   ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
 - **First behavioral-safety PROPERTY** — `GoSemSafe.v` (proof-only): `panic_free_runs_ret` — a syntactically
   panic-free supported program that DENOTES runs to `ORet`, provably NEVER panicking (`panic` is the fragment's
-  ONLY unsafe behavior — no pointers/slices/channels denoted). SEED of `BehaviorSafe` (syntactic property ⟹
-  runtime safety); ⚠ NOT the gate, not a gate on emission. Zero axioms.
+  ONLY unsafe behavior — no pointers/slices/channels denoted); and `panic_free_runs_ret_ustep` carries it to the
+  OPERATIONAL level (via the cmd↔unified bridge: it runs under `unified.v`'s `ustep` to completion, NO panic —
+  where race-freedom/liveness live). SEED of `BehaviorSafe`; ⚠ NOT a gate on emission. Zero axioms.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the
   manifest gate, the printer gate, and the emit gate (see **Current gates** for the exact split) each assert
   their surfaces zero-axiom via Rocq's own assumption output, `EXPECTED_ASSUMPTIONS.txt` is empty, and the
@@ -150,7 +151,7 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (trust-boundary ledger — single-sourced here):
 **manifest** (`manifest-axioms.sh` diffs the `dune build` log's `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`)
 covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`denote_program_run_agrees`) / `panic_free_runs_ret`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
+`denote_program_run_agrees`) / `panic_free_runs_ret` / `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
 grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not a gated public surface.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
