@@ -168,12 +168,14 @@ if [ -n "$scbad" ]; then
 fi
 echo "fido: stale-count gate OK — no numeric conversion-count / old demo-output prose ✓"
 
-# 5. BRIDGE-RECOGNIZER scoping (EXACT-SHAPE grammar).  Every conversion recognizer the verified-printer bridge
-# uses (named in cov_preds) MUST be EXACTLY the scoped alias `let <pred> = named_in ["lit"; …]`, and [named_in]
-# MUST be EXACTLY `from_builtins r && List.mem (global_basename r) ns`.  Only that grammar is accepted — the gate
-# does NOT interpret an arbitrary body (a substring test is forgeable: `not (named_in …)`, `named_in … || true`,
-# `ignore (named_in …); true`, a comment all pass a substring check).  Pinning the alias/helper grammar makes a
-# forged or weakened recognizer fail the gate; the from_builtins guard lives once, in the named_in helper.
+# 5. BRIDGE-RECOGNIZER scoping (UNIQUE binding + EXACT-SHAPE alias).  Every conversion recognizer the bridge uses
+# (named in cov_preds) MUST be bound EXACTLY ONCE at top level as the scoped alias `let <pred> = named_in
+# ["lit"; …]`, and [named_in] MUST be bound exactly once as `from_builtins r && List.mem (global_basename r) ns`.
+# Two forgeries are closed: (i) a substring test is fooled by `not (named_in …)` / `named_in … || true` /
+# `ignore (…); true` / a comment — so we pin the ANCHORED alias grammar; (ii) reading the first textual binding
+# ignores OCaml SHADOWING — a later `let <pred> r = true` (or a second, unscoped `named_in`) would be what
+# goexpr_bridge actually closes over — so we reject any name with != 1 top-level binding.  The from_builtins
+# guard then lives once, in a uniquely-bound pinned helper that the (uniquely-bound) aliases close over.
 recog_body() {  # the def of $1 in $2: its `let` line up to (EXCLUDING) the next top-level `let`/`(*`
   awk -v p="$1" '
     $0 ~ ("^let " p "([ =]|$)")           { inb=1; print; next }
@@ -181,10 +183,13 @@ recog_body() {  # the def of $1 in $2: its `let` line up to (EXCLUDING) the next
     inb                                    { print }
   ' "$2" 2>/dev/null
 }
-recog_norm()   { recog_body "$1" "$2" | tr '\n\t' '  ' | tr -s ' '; }       # def → one whitespace-squeezed line
-recog_alias()  { printf '%s' "$(recog_norm "$1" "$2")" | grep -qE "^let $1 = named_in \[\"[A-Za-z0-9_]+\"(; \"[A-Za-z0-9_]+\")*\] *\$"; }
-helper_exact() { printf '%s' "$(recog_norm named_in "$1")" | grep -qE '^let named_in ns r = from_builtins r && List\.mem \(global_basename r\) ns *$'; }
-rg_tmp=$(mktemp)
+count_binding() { grep -cE "^(let( rec)?|and) $1[ =(]" "$2" 2>/dev/null || true; }   # top-level bindings of $1 (incl. shadows)
+recog_norm()    { recog_body "$1" "$2" | tr '\n\t' '  ' | tr -s ' '; }
+recog_alias()   { printf '%s' "$(recog_norm "$1" "$2")" | grep -qE "^let $1 = named_in \[\"[A-Za-z0-9_]+\"(; \"[A-Za-z0-9_]+\")*\] *\$"; }
+helper_exact()  { printf '%s' "$(recog_norm named_in "$1")" | grep -qE '^let named_in ns r = from_builtins r && List\.mem \(global_basename r\) ns *$'; }
+recog_ok()      { [ "$(count_binding "$1" "$2")" = 1 ] && recog_alias "$1" "$2"; }   # UNIQUE binding AND exact alias
+helper_ok()     { [ "$(count_binding named_in "$1")" = 1 ] && helper_exact "$1"; }   # UNIQUE binding AND exact helper
+rg_tmp=$(mktemp); sh_tmp=$(mktemp)
 cat > "$rg_tmp" <<'RGEOF'
 let is_good = named_in ["a"; "b"]
 let mid x = 1
@@ -197,16 +202,26 @@ let is_trail = named_in ["a"] || foo
 let named_in ns r = from_builtins r && List.mem (global_basename r) ns
 let tail y = 2
 RGEOF
-# ONLY is_good is the exact alias and only the shown named_in is the exact helper; not/or/dead/comment/raw/
-# trailing-junk all FAIL because the anchored grammar rejects anything but `let X = named_in [string lits]`.
-if ! recog_alias is_good "$rg_tmp" || ! helper_exact "$rg_tmp" \
-   || recog_alias is_inv "$rg_tmp"  || recog_alias is_or "$rg_tmp"   || recog_alias is_dead "$rg_tmp" \
-   || recog_alias is_cmt "$rg_tmp"  || recog_alias is_raw "$rg_tmp"  || recog_alias is_trail "$rg_tmp"; then
-  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (only the exact named_in alias + exact named_in helper may pass)"; rm -f "$rg_tmp"; exit 1
+cat > "$sh_tmp" <<'SHEOF'
+let named_in ns r = from_builtins r && List.mem (global_basename r) ns
+let mid x = x
+let named_in ns r = true
+let is_dup = named_in ["a"]
+let mid2 y = y
+let is_dup r = true
+let is_solo = named_in ["a"]
+SHEOF
+# rg_tmp: is_good is the unique exact alias (pass) + unique exact helper (pass); every body-forge fails.
+# sh_tmp: a SHADOWING second named_in / is_dup binding (count 2) must fail; is_solo (count 1 + alias) passes.
+if ! recog_ok is_good "$rg_tmp" || ! helper_ok "$rg_tmp" \
+   || recog_ok is_inv "$rg_tmp" || recog_ok is_or "$rg_tmp"  || recog_ok is_dead "$rg_tmp" \
+   || recog_ok is_cmt "$rg_tmp" || recog_ok is_raw "$rg_tmp" || recog_ok is_trail "$rg_tmp" \
+   || helper_ok "$sh_tmp"       || recog_ok is_dup "$sh_tmp" || ! recog_ok is_solo "$sh_tmp"; then
+  echo "fido: BRIDGE-RECOGNIZER GATE self-test broke (a unique exact alias/helper must pass; body-forge + shadowing/duplicate bindings must fail)"; rm -f "$rg_tmp" "$sh_tmp"; exit 1
 fi
-rm -f "$rg_tmp"
-helper_exact plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — [named_in] is not EXACTLY 'from_builtins r && List.mem (global_basename r) ns'; its scoping guard must not weaken."; exit 1; }
+rm -f "$rg_tmp" "$sh_tmp"
+helper_ok plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — [named_in] must be bound EXACTLY ONCE as 'from_builtins r && List.mem (global_basename r) ns' (found $(count_binding named_in plugin/go.ml) top-level binding(s)); a shadowing or weakened binding reopens the forge."; exit 1; }
 for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[]'); do
-  recog_alias "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — $pred (a goexpr_bridge recognizer in cov_preds) is not EXACTLY 'let $pred = named_in [\"lit\"; …]'; only that scoped-alias shape is accepted (a hand-rolled body is a forge surface)."; exit 1; }
+  recog_ok "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER GATE — $pred must be EXACTLY ONE top-level binding 'let $pred = named_in [\"lit\"; …]' (found $(count_binding "$pred" plugin/go.ml)); a duplicate/shadowing or hand-rolled body is a forge surface."; exit 1; }
 done
-echo "fido: bridge-recognizer gate OK — every cov_preds recognizer is the exact named_in alias; named_in is the exact scoped helper ✓"
+echo "fido: bridge-recognizer gate OK — every cov_preds recognizer is the unique exact named_in alias; named_in is the unique exact scoped helper ✓"

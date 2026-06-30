@@ -217,8 +217,9 @@ let named n r = String.equal (global_basename r) n && from_builtins r
 (* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
    [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
    as exactly [let is_X = named_in […]] so the [from_builtins] guard lives here, once.  smart-ctor-gate.sh
-   check #5 accepts only that exact alias grammar (and pins this helper's body), so a hand-rolled recognizer
-   that could match a non-builtin — the shadowing forge hole — fails the gate. *)
+   check #5 requires each of those — and this helper — to be bound EXACTLY ONCE (no OCaml shadowing) with the
+   exact alias/helper grammar, so a hand-rolled or shadowing recognizer that could match a non-builtin — the
+   forge hole — fails the gate. *)
 let named_in ns r = from_builtins r && List.mem (global_basename r) ns
 
 let ref_has_suffix r suffix =
