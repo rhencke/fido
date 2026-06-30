@@ -444,6 +444,79 @@ Proof.
   cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (strlit_main_denotable arglists H).
 Qed.
 
+(** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
+    even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
+    modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
+    [denote_program_runs] closes the pipeline supported -> (denotes) -> [Cmd] -> (runs) -> [Outcome]: GoSem's
+    executable semantics is TOTAL on what it denotes. *)
+Fixpoint no_defer (c : Cmd unit) : bool :=
+  match c with
+  | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
+  end.
+
+Lemma cbind_no_defer : forall (c : Cmd unit) (k : unit -> Cmd unit),
+  no_defer c = true -> (forall u, no_defer (k u) = true) -> no_defer (cbind c k) = true.
+Proof.
+  intro c; induction c as [a|b xs c' IHc'|v|d c' IHc'] using Cmd_rect';
+    intros k Hc Hk; cbn [cbind no_defer] in *.
+  - apply Hk.
+  - apply IHc'; [exact Hc | exact Hk].
+  - reflexivity.
+  - discriminate Hc.
+Qed.
+
+Lemma denote_stmt_no_defer : forall s c b, denote_stmt s = Some (c, b) -> no_defer c = true.
+Proof.
+  intros s c b H. destruct s as [e| |ev|be]; cbn [denote_stmt] in H.
+  - destruct (expr_stmt_ok e); [|discriminate H].
+    destruct e as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
+    destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate H.
+    destruct (String.eqb (proj1_sig fi) "panic").
+    + destruct fargs as [|a [|? ?]]; try discriminate H.
+      destruct (eval_value a); [|discriminate H]. inversion H; subst; reflexivity.
+    + destruct (eval_args fargs); [|discriminate H]. inversion H; subst; reflexivity.
+  - inversion H; subst; reflexivity.
+  - discriminate H.
+  - destruct (svalue be); [|discriminate H]. destruct (eval_value be); [|discriminate H].
+    inversion H; subst; reflexivity.
+Qed.
+
+Lemma denote_body_no_defer : forall b c, denote_body b = Some c -> no_defer c = true.
+Proof.
+  induction b as [|s rest IH]; cbn [denote_body]; intros c H.
+  - inversion H; subst; reflexivity.
+  - destruct (denote_stmt s) as [[cs term]|] eqn:Es; [|discriminate H]. destruct term.
+    + destruct (forallb stmt_ok rest); [|discriminate H]. inversion H; subst.
+      exact (denote_stmt_no_defer s c true Es).
+    + destruct (denote_body rest) as [k|] eqn:Er; [|discriminate H]. inversion H; subst.
+      apply cbind_no_defer; [exact (denote_stmt_no_defer s cs false Es) | intro u; exact (IH k eq_refl)].
+Qed.
+
+Lemma no_defer_go_nil : forall (c : Cmd unit) w, no_defer c = true -> snd (go c w) = nil.
+Proof.
+  intro c; induction c as [a|b xs c' IHc'|v|d c' IHc'] using Cmd_rect';
+    intros w Hc; cbn [go no_defer] in *.
+  - reflexivity.
+  - apply IHc'; exact Hc.
+  - reflexivity.
+  - discriminate Hc.
+Qed.
+
+Lemma no_defer_run : forall (c : Cmd unit) w, no_defer c = true -> run_cmd 1 c w <> None.
+Proof.
+  intros c w Hc. unfold run_cmd.
+  pose proof (no_defer_go_nil c w Hc) as Hnil.
+  destruct (go c w) as [oc ds]. cbn [snd] in Hnil. subst ds.
+  cbn [run_defers]. destruct (oc_unit oc); discriminate.
+Qed.
+
+Theorem denote_program_runs : forall p c w, denote_program p = Some c -> run_cmd 1 c w <> None.
+Proof.
+  intros p c w H. apply (no_defer_run c w). unfold denote_program in H.
+  destruct (String.eqb (proj1_sig (prog_pkg p)) "main"); [|discriminate H].
+  exact (denote_body_no_defer (prog_body p) c H).
+Qed.
+
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
