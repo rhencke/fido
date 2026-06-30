@@ -631,6 +631,14 @@ let mk_goexpr_id name =
   (match Printer.go_ident cs with
    | Printer.True  -> Some (Printer.EId cs)
    | Printer.False -> None)
+(* [EHex] erases its [HexZ] non-negativity proof to a bare [Z], exactly like [EId]/[GTNamed].  [mk_goexpr_hex]
+   re-checks [hexz_ok] (= [HexZ]'s [0 <=? z]) at the boundary and returns [None] for a negative [z] (the caller
+   then falls back to the trusted printer) — so a forged out-of-domain [Printer.EHex] (which [print_hex]'s
+   round-trip does NOT cover) can never enter the verified [gprint] path. *)
+let mk_goexpr_hex z =
+  (match Printer.hexz_ok z with
+   | Printer.True  -> Some (Printer.EHex z)
+   | Printer.False -> None)
 (* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
@@ -2003,9 +2011,9 @@ let rec goexpr_bridge env e =
                 let bop = (match op with "add" -> Printer.BAdd | "sub" -> Printer.BSub | _ -> Printer.BMul) in
                 let mask = (1 lsl w) - 1 in
                 let wint l = Printer.ECall (fint, coq_list_of_ocaml [l]) in
-                Some (Printer.EBn (Printer.BAnd,
-                                   Printer.EBn (bop, wint la, wint lb),
-                                   Printer.EHex (coq_z_of_int64 (Int64.of_int mask))))
+                (match mk_goexpr_hex (coq_z_of_int64 (Int64.of_int mask)) with
+                 | Some hmask -> Some (Printer.EBn (Printer.BAnd, Printer.EBn (bop, wint la, wint lb), hmask))
+                 | None -> None)
             | _ -> None)
        | _ -> None)
   | _ -> None
@@ -2625,7 +2633,8 @@ let rec pp_expr state env = function
               gprint-representable sub-class (a binop tree over runtime locals / int·int64·uint64 literals /
               the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] / float64→float32
               [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
-              [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref])
+              [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
+              / unsigned fixed-width arithmetic [uN_add]/[sub]/[mul] as a bridging-binop operand (masked via [EHex]))
               via the VERIFIED [Printer.gprint] (see [goexpr_bridge]) and every
               other shape — operand parenthesisation, the typed-IIFE force-wrapper — via trusted strings. *)
            pp_prec state env 0 (MLapp (head, all_args))
@@ -2945,7 +2954,8 @@ and pp_atom state env e =
    [pp_expr]).  Stage B: the gprint-representable sub-class (a binop tree over runtime locals /
    int·int64·uint64 literals / the bare int64/uint64 complement [^x] / narrow→int64 [is_i64_of_narrow_ref] /
    float64→float32 [is_f64_to_f32_ref]-under-[operand_is_runtime] / float64→int64·uint64 truncation
-   [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]) is delegated to the VERIFIED
+   [is_f64_to_i64_ref]/[is_f64_to_u64_ref] / narrow→int [is_int_of_fw] / numeric→float64 [is_num_to_f64_ref] / int→float32 [is_int_to_f32_ref]
+   / unsigned fixed-width arithmetic [uN_add]/[sub]/[mul] as a bridging-binop operand (masked via [EHex])) is delegated to the VERIFIED
    [Printer.gprint] (see [goexpr_bridge]); everything else is still this trusted printer. *)
 and pp_prec state env ctx e =
   match strip_magic e with

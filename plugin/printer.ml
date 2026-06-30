@@ -1057,6 +1057,11 @@ type tyName = string
 
 type hexZ = z
 
+(** val hexz_ok : z -> bool **)
+
+let hexz_ok z0 =
+  Z.leb Z0 z0
+
 type goTy =
 | GTInt
 | GTInt64

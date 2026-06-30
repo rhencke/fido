@@ -4,10 +4,10 @@
 # Three boring, structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
 # accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact
 # that the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
-#   1. SMART-CTOR BAN  — the extracted [Printer] exposes proof-carrying constructors ([GTNamed], [EId]) that
-#      erase their Rocq validity proof to a bare string.  Only the smart constructors [mk_named_ty] /
-#      [mk_goexpr_id] (which re-check [nominal_type_ident] / [go_ident]) may build them; nothing else may use
-#      the raw [Printer.GTNamed] / [Printer.EId].
+#   1. SMART-CTOR BAN  — the extracted [Printer] exposes proof-carrying constructors ([GTNamed], [EId], [EHex])
+#      that erase their Rocq validity proof to a bare string / Z.  Only the smart constructors [mk_named_ty] /
+#      [mk_goexpr_id] / [mk_goexpr_hex] (which re-check [nominal_type_ident] / [go_ident] / [hexz_ok]) may build
+#      them; nothing else may use the raw [Printer.GTNamed] / [Printer.EId] / [Printer.EHex].
 #   2. DEAD-NAME RECURRENCE — the torn-down SRaw expression-printer overlay and the charter-forbidden
 #      raw-syntax constructor names must never reappear in ACTIVE code (history is allowed in docs only — see
 #      LESSONS.md for the SRaw postmortem).
@@ -34,15 +34,15 @@ offenders=$(awk '
   FNR==1 { s=0 }
   /SMART-CONSTRUCTORS-BEGIN/{s=1}
   /SMART-CONSTRUCTORS-END/{s=0; next}
-  !s && /Printer\.GTNamed|Printer\.EId/ {print FILENAME ":" FNR ": " $0}
+  !s && /Printer\.GTNamed|Printer\.EId|Printer\.EHex/ {print FILENAME ":" FNR ": " $0}
 ' $files)
 if [ -n "$offenders" ]; then
-  echo "fido: SMART-CTOR GATE — direct Printer.GTNamed / Printer.EId outside the smart-constructor block:"
+  echo "fido: SMART-CTOR GATE — direct Printer.GTNamed / Printer.EId / Printer.EHex outside the smart-constructor block:"
   echo "$offenders"
-  echo "fido: construct via mk_named_ty / mk_goexpr_id (which re-check nominal_type_ident / go_ident)."
+  echo "fido: construct via mk_named_ty / mk_goexpr_id / mk_goexpr_hex (which re-check nominal_type_ident / go_ident / hexz_ok)."
   exit 1
 fi
-echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId outside the block ✓"
+echo "fido: smart-ctor gate OK — no direct Printer.GTNamed / Printer.EId / Printer.EHex outside the block ✓"
 
 # 2. DEAD-NAME RECURRENCE.  The SRaw-overlay names + the charter-forbidden raw-syntax constructor names +
 # the retired structure names (goprint file, Front module) must not appear in active code.  Scope:
