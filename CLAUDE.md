@@ -12,8 +12,8 @@ class (a binop tree over locals, int/int64/uint64 literals, int64/uint64 complem
 `is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
 `is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, numeric→float64
 `is_num_to_f64_ref` (over int/int64/float32/uint64), and int/int64/uint64→float32 `is_int_to_f32_ref`; NOT
-every producer of those surface bytes — e.g. the masked fixed-width casts `uint8(x)` (rendered `(x & 0xff)`)
-stay on `pp_expr`)
+every producer of those surface bytes — e.g. the masked fixed-width casts `uint8(x)` stay on `pp_expr` (the
+`(x & 0xff)` EXPRESSION is trusted-assembled, though the mask constant itself is already the verified `print_hex`))
 — everything else is
 trusted OCaml `pp_expr` — and even there the proofs cover only
 AST→string serialization, NOT the trusted MiniML→AST construction that builds it; so the live `main.go` is
