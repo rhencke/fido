@@ -89,10 +89,11 @@ live emission is not "verified Go."
   but not denotable), and a concrete fragment denotes OUTRIGHT: `eval_args_strlit` (eval total on string-literal
   arg lists) ⟹ `denote_println_strlit` (a `println` of string literals denotes) ⟹ `strlit_main_denotes` (an
   UNBOUNDED program class — N `println(string-literals)` + `return` — always denotes). `denote_program_runs`
-  proves EXECUTABLE TOTALITY: every denotation RUNS to an Outcome (never stuck under `run_cmd`, even at fuel 1 —
-  slice-1 commands have no `CDfr`, so `no_defer` holds and `go` accumulates no defers), closing
-  supported→denotes→runs→Outcome. The demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` /
-  `println(3 < 5)` through `run_cmd` to the exact `w_log` World. Zero axioms.
+  proves EXECUTABLE TOTALITY: `denote_program p = Some c -> run_cmd 1 c w <> None` — a DENOTED program runs to an
+  Outcome, never stuck (slice-1 commands have no `CDfr`, so `no_defer` holds and `go` accumulates no defers). It
+  assumes the program DENOTES — NOT that supported ⟹ denotes (that converse is partial); composed with
+  `denote_program_dec`, a denotable program denotes-and-runs. The demo RUNS `println("hi")` / `println(int64(3))`
+  / `println(float64(3))` / `println(3 < 5)` through `run_cmd` to the exact `w_log` World. Zero axioms.
   ⚠ This is denotation⊆gate, NOT `BehaviorSafe` — no behavioral-safety claim. A comparison with a NON-literal
   string operand / runtime (a `len(..)`/`int(x)` operand) / fractional-float / non-literal-string / `GTUint`
   `eval` + the completeness converse are the next slices.

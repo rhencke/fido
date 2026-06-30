@@ -447,8 +447,11 @@ Qed.
 (** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
     even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
     modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
-    [denote_program_runs] closes the pipeline supported -> (denotes) -> [Cmd] -> (runs) -> [Outcome]: GoSem's
-    executable semantics is TOTAL on what it denotes. *)
+    [denote_program_runs] proves the DENOTATION->EXECUTION link: [denote_program p = Some c -> run_cmd 1 c w <>
+    None] — a DENOTED program ([Cmd]) RUNS to an [Outcome].  (It assumes the program DENOTES; it does NOT prove
+    supported ⟹ denotes — that converse is partial, see [denote_program_dec] / the strlit fragment.  Composed
+    with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
+    what it denotes. *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
@@ -759,6 +762,7 @@ Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = f
     GoSem might pull in via [cmd]/[builtins]. *)
 Print Assumptions gosem_sound.
 Print Assumptions denote_program_dec.
+Print Assumptions denote_program_runs.
 Print Assumptions gosem_demo_runs.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
