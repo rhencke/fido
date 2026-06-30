@@ -214,21 +214,24 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
 (** ---- DEFER bridge — first CONCRETE slice (the general [no_defer]-free theorem is future work) ----
-    [cmd_to_ucmd_run_agrees] is restricted to [no_defer c].  These FOUR file-private EXAMPLES show the SAME
+    [cmd_to_ucmd_run_agrees] is restricted to [no_defer c].  These FIVE file-private EXAMPLES show the SAME
     agreement shape holds for CONCRETE DEFERRED programs, and TOGETHER exercise every [ustep] defer rule a
-    general theorem must drive: [ustep_defer] (push the LIFO stack; ALL four), [ustep_ret_defer] (pop + run at
-    return; demos 1, 4), [ustep_pan_defer] (pop + run mid-panic; demos 2, 3), [ustep_ret_done] (demos 1, 2, 4),
-    and [ustep_pan_done] (panic with an EMPTY defer stack; demo 3) — PLUS the nested-defer INTERLEAVING (demo 4),
-    the structurally-new behaviour Phase B's stack-unwinding must generalise.  They are CONCRETE WITNESSES, NOT a
-    general defer theorem — each pins that the [CDfr -> UDfr] translation RUNS correctly under [ustep] and AGREES
-    with cmd.v's authoritative [run_cmd] (same shape as the public theorem) for that program.
+    general theorem must drive: [ustep_defer] (push the LIFO stack; ALL five), [ustep_ret_defer] (pop + run at
+    return; demos 1, 4, 5), [ustep_pan_defer] (pop + run mid-panic; demos 2, 3), [ustep_ret_done] (demos 1, 2, 4,
+    5), and [ustep_pan_done] (panic with an EMPTY defer stack; demo 3) — PLUS the nested-defer INTERLEAVING
+    (demo 4) and the sibling-defer LIFO ORDER (demo 5), the structurally-new behaviours Phase B's stack-unwinding
+    must generalise.  They are CONCRETE WITNESSES, NOT a general defer theorem — each pins that the
+    [CDfr -> UDfr] translation RUNS correctly under [ustep] and AGREES with cmd.v's authoritative [run_cmd]
+    (same shape as the public theorem) for that program.
       Demo 1 ([defer println(a); return]):  the defer RUNS at return (output [a], no panic).
       Demo 2 ([defer println(a); panic v]): the defer STILL runs (output [a]) while the panic propagates
               ([uc_panic 0 = Some v]) — the review-P0 "remaining defers run during unwinding" discipline.
       Demo 3 ([defer panic v2; panic v1]):  the deferred PANIC runs with the stack now empty -> [ustep_pan_done],
               and v2 REPLACES the active v1 ([uc_panic 0 = Some v2]) — faithful panic-replacement across the bridge.
       Demo 4 ([defer (defer println(a))]):  a deferred action that ITSELF defers — [ustep_defer] fires AGAIN
-              DURING the unwinding (NESTING), the inner defer running before the goroutine finishes (output [a]). *)
+              DURING the unwinding (NESTING), the inner defer running before the goroutine finishes (output [a]).
+      Demo 5 ([defer println(a); defer println(b); return]): SIBLING defers run LIFO — [b] deferred LAST runs
+              FIRST, so the output is [[b]; [a]] (two [ustep_ret_defer] pops in stack order). *)
 Local Example bridge_defer_return_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
   exists uc oc,
     usteps ucap (ustart (cmd_to_ucmd (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)))) uc
@@ -308,6 +311,33 @@ Proof.
   split. { vm_compute. reflexivity. }
   split. { reflexivity. }
   split. { cbn. reflexivity. } { reflexivity. }
+Qed.
+
+(** Demo 5 — LIFO ORDER across SIBLING defers ([defer println(a); defer println(b); return]).  [b] is deferred
+    LAST so it runs FIRST: the output is [[b]; [a]], NOT [[a]; [b]].  Exercises [ustep_ret_defer] TWICE, popping
+    the [uc_defers] stack in the order [ustep_defer] built it — the LIFO discipline Phase B's list-unwinding
+    must reproduce.  Agrees with cmd.v's [run_cmd] (whose [run_defers] runs the accumulated list head-first). *)
+Local Example bridge_defer_lifo_agrees : forall (a : GoAny) (b : GoAny) (ucap : nat -> option nat) w,
+  exists uc oc,
+    usteps ucap (ustart (cmd_to_ucmd (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))))) uc
+    /\ run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w = Some oc
+    /\ uc_live uc 0 = false
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ uc_panic uc 0 = ocpanic oc.
+Proof.
+  intros a b ucap w. eexists. exists (ORet tt (w_log true (a :: nil) (w_log true (b :: nil) w))).
+  split.
+  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_done   with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    apply usteps_refl. }
+  split. { vm_compute. reflexivity. }
+  split. { reflexivity. }
+  split. { cbn. rewrite <- app_assoc. reflexivity. } { reflexivity. }
 Qed.
 
 (** Public assumption surface for this module — the manifest gate captures this ONE [Print Assumptions]:
