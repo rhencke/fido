@@ -12,26 +12,35 @@
       - [println(args)] -> [COut true  [eval args]]   (faithful: model [println xs = w_log true  xs])
       - [print(args)]   -> [COut false [eval args]]   (faithful: model [print   xs = w_log false xs])
       - [panic(a)]      -> [CPan (eval a)]
-      - bare [return]   -> [CRet tt]
-      - [_ = e] (svalue e) -> a pure value discarded, no effect -> [CRet tt]
+      - [return]        -> STOPS the body ([denote_body]: the rest's commands are DROPPED, so a non-tail
+                           `return; println("bad")` faithfully produces NO output)
+      - [_ = e]         -> [CRet tt] ONLY when [e] is a scalar LITERAL ([eval_value e <> None] — no effect /
+                           no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
     [eval_value] (slice 1: string / int / hex LITERALS, boxed via the model's [anyt]/[intwrap]) supplies the
     printed/panicked values; conversions/arithmetic/etc. are the next slice and [eval] to [None] there.
+    ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
+    its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
+    examples below pin the [return]-stops and runtime-blank-un-denoted cases).
     SOUNDNESS is structural and clean because [denote] CONSULTS THE GATE: the effect arm fires only when
-    [expr_stmt_ok] holds, so [gosem_sound] — denotation ⊆ [SupportedProgram], no meaning given to invalid Go —
-    falls out, and a PARTIAL [eval_value] can grow without ever over-accepting (it only narrows COMPLETENESS,
-    never breaks soundness).  COMPLETENESS (supported ⇒ denotes) is the roadmap converse, reached as [eval]
-    covers the full printable subset; together they will pin "supported ⟺ has a defined GoSem behavior", the
-    foundation for [BehaviorSafe] -> [SafeProgram] -> [emit_safe].  No axioms.
+    [expr_stmt_ok] holds (and the blank arm when [svalue]), so [gosem_sound] — denotation ⊆ [SupportedProgram],
+    no meaning given to invalid Go — falls out, and a PARTIAL [eval_value] can grow without ever over-accepting
+    (it only narrows COMPLETENESS, never breaks soundness).  COMPLETENESS (supported ⇒ denotes) is the roadmap
+    converse, reached as [eval] covers the full printable subset; together they will pin "supported ⟺ has a
+    defined GoSem behavior", the foundation for [BehaviorSafe] -> [SafeProgram] -> [emit_safe].  No axioms.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 
-(** Evaluate a PRINTABLE value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's
-    bridged subset.  Slice 1: the literals — a string literal is the model string [anyt TString s]; an integer
+(** Evaluate a literal value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's
+    bridged subset.  Slice 1: the LITERALS — a string literal is the model string [anyt TString s]; an integer
     / hex literal takes its DEFAULT type [int] = the model's [GoInt] ([anyt TInt64 (intwrap z)]).  These are
     the exact values the model's [println]/[panic] would carry, so the denotation is FAITHFUL.  Conversions
-    ([int64(x)]), arithmetic ([1+2]), [len(..)], bools (from comparisons) — all [None] here, the next slice. *)
+    ([int64(x)]), arithmetic ([1+2]), [len(..)], bools (from comparisons) — all [None] here, the next slice.
+    ⚠ RAW evaluator with a CALLER-SIDE precondition: it boxes any [EInt z] (the out-of-range box is [intwrap]-
+    WRAPPED, not faithful), so it is sound ONLY when the caller has GATED [e] (range-checked it supported) —
+    [denote_stmt] always does (via [expr_stmt_ok] / [svalue]).  It is also the slice's "can I evaluate this
+    with NO runtime effect?" oracle: every literal it accepts is panic-free, so a [Some] means safe to denote. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EStr s  => Some (anyt TString s)
@@ -58,8 +67,14 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
     placeholder [CRet tt] that [denote_body]'s [cbind] threads the rest onto. *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit) :=
   match s with
-  | GsReturn        => Some (CRet tt)
-  | GsBlankAssign e => if svalue e then Some (CRet tt) else None   (* pure value, discarded — no effect *)
+  | GsReturn        => Some (CRet tt)   (* a statement's LOCAL meaning; [denote_body] adds [return]'s control flow (it STOPS the body) *)
+  | GsBlankAssign e =>
+      (* [_ = e] discards [e]'s VALUE but NOT its runtime EFFECTS.  Denote it ONLY when slice-1 [eval_value]
+         handles [e] (a scalar LITERAL — evaluation has NO effect and CANNOT panic), giving the faithful
+         [CRet tt].  A RUNTIME [e] (e.g. [1 / len([]int{})], which Go PANICS on) is left UN-denoted ([None])
+         until the evaluator models effects — GoSem must NEVER give it the WRONG (silent, no-panic) behavior.
+         [svalue e] is still required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
+      if svalue e then match eval_value e with Some _ => Some (CRet tt) | None => None end else None
   | GsReturnVal _   => None                                        (* a value return is invalid in void [main] *)
   | GsExprStmt e =>
       if expr_stmt_ok e then
@@ -85,7 +100,14 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
   | [] => Some (CRet tt)
   | s :: rest =>
       match denote_stmt s, denote_body rest with
-      | Some c, Some k => Some (cbind c (fun _ => k))
+      | Some c, Some k =>
+          match s with
+          | GsReturn => Some c   (* [return] STOPS the function: keep [c] (= [CRet tt]) and DROP the rest's
+                                    command [k] — but [rest] STILL had to denote ([Some k] required above), so
+                                    [denote_body] ⊆ the gate stays a clean [forallb stmt_ok] and a NON-tail
+                                    return is faithful (`return; println("bad")` produces NO output). *)
+          | _ => Some (cbind c (fun _ => k))
+          end
       | _, _ => None
       end
   end.
@@ -114,6 +136,8 @@ Proof.
   - reflexivity.
   - destruct (denote_stmt s) eqn:Es; [|congruence].
     destruct (denote_body rest) eqn:Er; [|congruence].
+    (* the inner [match s with GsReturn => Some c | _ => Some (cbind ..)] is [Some] either way, so [denote_body]
+       requires BOTH [denote_stmt s] and [denote_body rest] to denote — the uniform soundness fold. *)
     apply andb_true_intro; split.
     + apply denote_stmt_sound. congruence.
     + apply IH. congruence.
@@ -145,6 +169,35 @@ Example gosem_demo_runs : forall w,
   | None => None
   end = Some (ORet tt (w_log true (anyt TString "hi" :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** REGRESSION (P0, Codex 2026-06-30): [return] STOPS the body — a NON-tail return's successors do NOT run.
+    `func main(){ return; println("after") }` is SUPPORTED (Go compiles it), yet prints NOTHING; GoSem denotes
+    it to a no-output [CRet], NOT to running the [println].  [run_cmd] leaves the world UNCHANGED. *)
+Definition gosem_return_stops_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsReturn; GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "after"])].
+Example gosem_return_stops_supported : supported_program gosem_return_stops_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_return_stops_no_output : forall w,
+  match denote_program gosem_return_stops_prog with
+  | Some c => run_cmd 5 c w
+  | None => None
+  end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** REGRESSION (P0, Codex 2026-06-30): a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})`
+    ([len] of an empty slice = 0, a runtime divide-by-zero) — is SUPPORTED ([GoTypes] admits runtime division;
+    the div-by-zero is GoSem's concern), but slice-1 [eval_value] does NOT model it, so GoSem leaves it
+    UN-denoted ([denote_program = None]) rather than giving it the WRONG (silent, no-panic) behavior.  Once the
+    evaluator models runtime panics this becomes a [CPan]; until then it is honestly absent, not wrong. *)
+Definition gosem_runtime_blank_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsBlankAssign (EBn BDiv (EInt 1)
+                              (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]))].
+Example gosem_runtime_blank_supported : supported_program gosem_runtime_blank_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_runtime_blank_undenoted : denote_program gosem_runtime_blank_prog = None.
+Proof. reflexivity. Qed.
 
 (** GATE — GoSem is the (planned) behavioral trust base; keep it axiom-free.  These [Print Assumptions]
     surface in the build log so the axiom-manifest gate ([EXPECTED_ASSUMPTIONS.txt], empty) catches any axiom

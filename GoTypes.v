@@ -6,9 +6,9 @@
     value-position validity wrapper [svalue] — so the supportedness gate has ONE type authority:
       • GoSafe (ABOVE) reuses it for [SupportedProgram] — a free identifier / a closed type-error is
         rejected because [ptype] rejects it; the regressions that PIN those rejections live in GoSafe.
-      • A future GoSem (the planned behavioral semantics, also above GoTypes) should reuse [svalue]
-        (e.g. as the value-position gate for a blank-assign [_ = e]) rather than fork its own type-blind
-        predicate — keeping ONE type authority across the layers.
+      • GoSem (slice 1, the behavioral semantics, also above GoTypes) reuses [svalue] (its blank-assign
+        [_ = e] denotation gates on [svalue]) rather than fork its own type-blind predicate — keeping ONE type
+        authority across the layers.
     GoTypes has NO theorems (only [Definition]s / one [Inductive]), so it introduces NO axioms; the
     pre-commit all-[.v] axiom scan covers it.
     ============================================================================ *)

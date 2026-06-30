@@ -356,7 +356,7 @@ Fail Example forge_uint8_overflow :
     ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
     =================================================================================================== *)
 
-(** Reserved for the GoSem era: behavioral safety over the AST's denotation.  Stated only as the eventual
+(** Reserved for GoSem COMPLETION: behavioral safety over the AST's denotation.  Stated only as the eventual
     shape; NOT yet defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a placeholder
     [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the charter forbids
     (§8 Rule 4).  When GoSem lands: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its

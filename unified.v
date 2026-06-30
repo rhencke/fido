@@ -1,7 +1,7 @@
 (** ============================================================================
     unified.v — the single unified (PROOF-ONLY) closed-world operational semantics for the model fragments.
-    ⚠️ NOT the certified-emission path's semantics — a future GoSem must bridge or retire it before behavioral
-    safety enters certified emission (see ARCHITECTURE.md).  "Authoritative" below means authoritative AMONG the
+    ⚠️ NOT the certified-emission path's semantics — GoSem (slice 1 bridges cmd.v) must still bridge or retire
+    it before behavioral safety enters certified emission (see ARCHITECTURE.md).  "Authoritative" below means authoritative AMONG the
     proof-only model fragments (it unifies them), never Fido's certified-path semantics.
 
     The external review's DECISIVE finding: there were several semantic systems (the [IO]/[World]

@@ -30,8 +30,9 @@ As of 2026-06-28 Fido is course-correcting to an **AST-first, proof-gated emissi
 standing charter **`ARCHITECTURE.md`** is binding on every change and wins when in doubt. Spine: **`GoAst`**
 (structured Go syntax) → **`GoPrint`** (printing + expression parse round-trip / program print-injectivity —
 SYNTAX only) → **`GoSem`** (behavior;
-PLANNED, NOT built — when built it must bridge the existing proof-only semantics `unified.v`/
-`concurrency.v`/`cmd.v` (or retire them), not fork a second) →
+SLICE 1 landed — the `cmd.v` bridge + real println/print/panic effect denotation + denotation⊆gate soundness;
+it must continue to bridge the existing proof-only semantics `unified.v`/`concurrency.v` (or retire them), not
+fork a second; NO completeness / NO BehaviorSafe yet) →
 **`GoSafe`** (`SupportedProgram` syntactic gate now; `BehaviorSafe` later) → **`GoEmit`** (the ONLY blessed
 emit, requires a certificate — `EmittableProgram` now, `SafeProgram` later; NO official
 `emit : Program -> string`). The clean printer/parser work + `ConvTy` groundwork ARE now `GoAst` + `GoPrint`
