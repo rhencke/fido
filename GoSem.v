@@ -12,10 +12,10 @@
       - [println(args)] -> [COut true  [eval args]]   (faithful: model [println xs = w_log true  xs])
       - [print(args)]   -> [COut false [eval args]]   (faithful: model [print   xs = w_log false xs])
       - [panic(a)]      -> [CPan (eval a)]
-      - [return]        -> STOPS the body ([denote_body]: the rest's commands are DROPPED, so a non-tail
-                           `return; println("bad")` faithfully produces NO output).  The unreachable rest need
-                           only be SUPPORTED ([forallb stmt_ok]), NOT denotable — a return never depends on a
-                           successor slice 1 cannot yet evaluate.
+      - [return] / [panic] TERMINATE the body (the [terminates] predicate): their successors are UNREACHABLE,
+                           so a non-tail `return; println(..)` / `panic(..); println(..)` faithfully runs no
+                           successor.  The unreachable rest need only be SUPPORTED ([forallb stmt_ok]), NOT
+                           denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [e] is a scalar LITERAL ([eval_value e <> None] — no effect /
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
     [eval_value] (slice 1: string / int / hex LITERALS, boxed via the model's [anyt]/[intwrap]) supplies the
@@ -97,6 +97,17 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit) :=
       else None
   end.
 
+(** Does a statement's denotation TERMINATE the body (so its successors are UNREACHABLE)?  A bare [return]
+    ([CRet tt], dropped-rest below) and a [panic(..)] ([CPan], which [cmd.v]'s [cbind] short-circuits) both do;
+    [println]/[print] ([COut]) and a blank-assign ([CRet tt] threaded by [cbind]) FALL THROUGH to the rest.
+    [denote_body] uses this to gate a terminator's UNREACHABLE rest on SUPPORTEDNESS, not denotability. *)
+Definition terminates (s : GoStmt) : bool :=
+  match s with
+  | GsReturn => true
+  | GsExprStmt (ECall (EId f) _) => String.eqb (proj1_sig f) "panic"
+  | _ => false
+  end.
+
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
   match b with
   | [] => Some (CRet tt)
@@ -104,21 +115,18 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
       match denote_stmt s with
       | None => None
       | Some c =>
-          match s with
-          | GsReturn =>
-              (* [return] STOPS the function: the command is [c] (= [CRet tt]), with the REST DROPPED.  The
-                 rest is UNREACHABLE, so its DENOTABILITY is irrelevant — we require only that it be SUPPORTED
-                 ([forallb stmt_ok rest], the gate), NOT that it denote.  This keeps [denote_body] ⊆ the gate
-                 (for [gosem_sound]) while NOT making a [return] depend on a successor slice 1 cannot yet
-                 evaluate: `return; println(int64(3))` (supported, not-yet-denotable) faithfully denotes to a
-                 no-output [CRet]. *)
-              if forallb stmt_ok rest then Some c else None
-          | _ =>
-              match denote_body rest with
-              | Some k => Some (cbind c (fun _ => k))
-              | None => None
-              end
-          end
+          if terminates s then
+            (* [s] TERMINATES (return / panic): the command is [c] itself (which stops — [CRet]/[CPan]), the
+               REST is UNREACHABLE.  Its DENOTABILITY is irrelevant; require only that it be SUPPORTED
+               ([forallb stmt_ok rest], the gate).  This keeps [denote_body] ⊆ the gate (for [gosem_sound])
+               while NOT making a terminator depend on a successor slice 1 cannot yet evaluate
+               (`return; println(int64(3))` / `panic("x"); println(int64(3))` faithfully denote). *)
+            (if forallb stmt_ok rest then Some c else None)
+          else
+            match denote_body rest with
+            | Some k => Some (cbind c (fun _ => k))
+            | None => None
+            end
       end
   end.
 
@@ -147,12 +155,9 @@ Proof.
   - destruct (denote_stmt s) eqn:Es; [|congruence].   (* denote_stmt s = None => denote_body = None *)
     apply andb_true_intro; split.
     + apply denote_stmt_sound. congruence.             (* stmt_ok s, uniform via [Es] *)
-    + destruct s; simpl in H.                          (* the tail: GsReturn uses the gate, others use [denote_body rest] *)
-      * (* GsExprStmt *) destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
-      * (* GsReturn — required [forallb stmt_ok rest] directly, NOT [denote_body rest] *)
-        destruct (forallb stmt_ok rest) eqn:Ef; [reflexivity | congruence].
-      * (* GsReturnVal — [denote_stmt = None] contradicts [Es] *) discriminate Es.
-      * (* GsBlankAssign *) destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
+    + destruct (terminates s).                         (* terminator gates rest on supportedness; else on denotability *)
+      * destruct (forallb stmt_ok rest) eqn:Ef; [reflexivity | congruence].
+      * destruct (denote_body rest) eqn:Er; [|congruence]. apply IH. congruence.
 Qed.
 
 Theorem gosem_sound : forall p, denote_program p <> None -> supported_program p = true.
@@ -213,6 +218,24 @@ Example gosem_return_undenotable_no_output : forall w,
   | Some c => run_cmd 5 c w
   | None => None
   end = Some (ORet tt w).   (* denotes (NOT [None]) to a no-output [CRet], despite the un-denotable successor *)
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** REGRESSION (P0, Codex 2026-06-30, 3rd pass): like [return], a denoted [panic] TERMINATES — its successors
+    are UNREACHABLE, so their denotability is irrelevant (the [terminates] predicate covers BOTH).
+    `func main(){ panic("x"); println(int64(3)) }` denotes (NOT [None]) to a [CPan] despite the un-denotable
+    successor; [run_cmd] PANICS with [anyt TString "x"] and NO output. *)
+Definition gosem_panic_terminates_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                               [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])].
+Example gosem_panic_terminates_supported : supported_program gosem_panic_terminates_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_panic_terminates_runs : forall w,
+  match denote_program gosem_panic_terminates_prog with
+  | Some c => run_cmd 5 c w
+  | None => None
+  end = Some (OPanic (anyt TString "x") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REGRESSION (P0, Codex 2026-06-30): a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})`
