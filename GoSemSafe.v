@@ -94,7 +94,8 @@ Proof.
   exists w'. unfold run_cmd. rewrite Hgo. reflexivity.
 Qed.
 
-(** THE first behavioral-safety result: a panic-free supported program that DENOTES runs to an [ORet] —
+(** The first behavioral-safety result — the DENOTATIONAL one (its operational lift is
+    [panic_free_runs_ret_ustep] below): a panic-free supported program that DENOTES runs to an [ORet] —
     it provably NEVER panics at runtime.  ([no_defer] discharged via [denote_body_no_defer].) *)
 Theorem panic_free_runs_ret : forall p c w,
   denote_program p = Some c -> panic_free (prog_body p) = true ->

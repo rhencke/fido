@@ -97,7 +97,7 @@ live emission is not "verified Go."
   `run_cmd 1 c w` — unified output events EQUAL `run_cmd`'s appended `w_output`, `uc_panic 0` EQUALS the Outcome
   panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
   ⚠ Defer + channel/heap/spawn not yet bridged — later slices.
-- **First behavioral-safety PROPERTY** — `GoSemSafe.v` (proof-only): `panic_free_runs_ret` — a syntactically
+- **First behavioral-safety PROPERTIES** — `GoSemSafe.v` (proof-only): `panic_free_runs_ret` — a syntactically
   panic-free supported program that DENOTES runs to `ORet`, provably NEVER panicking (`panic` is the fragment's
   ONLY unsafe behavior — no pointers/slices/channels denoted); and `panic_free_runs_ret_ustep` carries it to the
   OPERATIONAL level (via the cmd↔unified bridge: it runs under `unified.v`'s `ustep` to completion, NO panic —
