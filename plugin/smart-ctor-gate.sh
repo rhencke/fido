@@ -81,31 +81,45 @@ echo "fido: emission-discipline gate OK — no direct print_program call outside
 #       [int64(x)]/[float32(x)] unbridged).  Coverage docs must name the predicates, not "runtime scalar
 #       conversions", and must SPELL OUT [operand_is_runtime] — never an `is_f64_to_f32_ref-runtime` shorthand
 #       that drops the guard (the non-runtime case stays on the trusted force-wrapper, NOT the verified printer).
-# Patterns are DENYLIST DATA, not a description of any design.  Case-insensitive; the verb (widen/lower) sits
-# DIRECTLY on "identity" via is/=/->/→/to — an ANCHORED assertion, NOT a loose window (which false-matched
-# "Lowering correctness (each variable's identity preserved)").  Two facts make the scan sound: the anchored
-# patterns cannot match a NEGATED form ("widen is NOT identity" breaks the verb→identity adjacency), AND
-# matching is SPAN-based (grep -oE) — so a "NOT identity" elsewhere on a line can NEVER immunize an unrelated
-# forbidden phrase, and the legitimate "real cast, NOT identity" simply never matches.  Per-line (these phrases
-# are single-line); there is NO whole-line "not identity" filter — that filter, dropping whole lines, was the bug.
+# Forbidden CONVERSION-COVERAGE prose (stale identity-lowering + vague bridge-coverage).  Patterns are DENYLIST
+# DATA.  Matching is SPAN-based and case-INsensitive (grep -oiE): each forbidden phrase matches as its OWN span,
+# so an unrelated "NOT identity" elsewhere on the line can NEVER immunize it (the old whole-line "not identity"
+# filter, which dropped the whole line, was the bug — deleted, no replacement: the anchored verb→identity
+# patterns can't match a negated form, so "a real cast, NOT identity" simply never matches).  cov_scan reports
+# single-line hits as file:line:match, PLUS a whitespace/newline-normalized pass so a phrase WRAPPED across
+# lines is still caught (reported file: [wrapped] match).
 cov_pat='(widen|lower)(s|ing|ed)?[[:space:]]*(is|=|->|→|to)[[:space:]]*identity|emitted as identity|no-op cast|recogni[sz]ed as identity|runtime scalar conversions|is_f64_to_f32_ref[^.]{0,4}runtime'
-cov_match() { grep -noE "$cov_pat" "$1" 2>/dev/null || true; }   # line:span — the testable matching core
-cov_scan()  { cov_match "$1" | sed "s|^|$1:|"; }                 # file:line:span — every hit located
-# self-test exercises the LIVE cov_scan on a fixture (this script is not self-scanned): 12 forbidden lines —
-# incl. THREE with "NOT identity" on the SAME line (the regressed case) — must all match; four legitimate lines
-# (a negated claim + two wrapper/variable erasures + the spelled-out [operand_is_runtime] form) must NOT.
+cov_line() { grep -noiE "$cov_pat" "$1" 2>/dev/null || true; }                                  # line:span (per line)
+cov_flat() { tr '\n\t' '  ' < "$1" 2>/dev/null | tr -s ' ' | grep -oiE "$cov_pat" || true; }    # spans incl. wrapped
+cov_scan() {                                                                                    # the live scanner
+  cov_line "$1" | sed "s|^|$1:|"                                                                 # file:line:match
+  cl=$(mktemp); cf=$(mktemp)
+  cov_line "$1" | sed 's/^[0-9][0-9]*://' | sort > "$cl"; cov_flat "$1" | sort > "$cf"
+  comm -23 "$cf" "$cl" | sed "s|^|$1: [wrapped] |"                                               # only newline-wrapped spans
+  rm -f "$cl" "$cf"
+}
+# self-test exercises the LIVE cov_scan (this script is not self-scanned).  Fixture: single-line bans (incl. three
+# with "NOT identity" on the SAME line), MIXED-CASE bans (would vanish if -i were dropped), a phrase split across
+# two lines (the wrapped path), and four legitimate lines that must NOT match.
 st_tmp=$(mktemp)
 printf '%s\n' \
   'widen is identity' 'lowering is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' \
   'emitted as identity' 'a no-op cast' 'runtime scalar conversions' 'is_f64_to_f32_ref-runtime' \
   'runtime scalar conversions; NOT identity' 'lowered to identity; NOT identity' 'is_f64_to_f32_ref-runtime; NOT identity' \
+  'Lowering is identity' 'Runtime scalar conversions' 'No-op cast' 'Is_f64_to_f32_ref-Runtime' \
+  'lowering is' 'identity' 'runtime scalar' 'conversions' \
   'a real cast, NOT identity' '[MkU8]/[u8raw] -> identity' 'Lowering correctness (each variable identity preserved)' \
   'is_f64_to_f32_ref + operand_is_runtime' > "$st_tmp"
-st_hit=$(cov_scan "$st_tmp" | cut -d: -f2 | sort -un | tr '\n' ' ')
-rm -f "$st_tmp"
-if [ "$st_hit" != "1 2 3 4 5 6 7 8 9 10 11 12 " ]; then
-  echo "fido: CONVERSION-COVERAGE GATE self-test FAILED — matched lines [$st_hit]; want exactly 1..12 (incl. same-line NOT-identity), none of the spared 13-16."; exit 1
-fi
+out=$(cov_scan "$st_tmp"); rm -f "$st_tmp"; stf=""
+for need in 'widen is identity' 'lowers to identity' 'lowered to identity' 'widened to identity' 'emitted as identity' \
+            'no-op cast' 'runtime scalar conversions' 'is_f64_to_f32_ref-runtime'; do
+  printf '%s' "$out" | grep -qiF "$need" || stf="$stf miss[$need]"; done
+for need in 'Lowering is identity' 'Runtime scalar conversions' 'No-op cast' 'Is_f64_to_f32_ref-Runtime'; do   # case-INsensitivity
+  printf '%s' "$out" | grep -qF "$need" || stf="$stf nocase[$need]"; done
+printf '%s' "$out" | grep -qi 'wrapped' || stf="$stf no-wrapped-path"                                          # cross-line
+for bad in 'operand_is_runtime' 'real cast' 'variable identity' 'u8raw'; do                                     # spared
+  printf '%s' "$out" | grep -qiF "$bad" && stf="$stf falsecatch[$bad]"; done
+if [ -n "$stf" ]; then echo "fido: CONVERSION-COVERAGE GATE self-test FAILED —$stf"; exit 1; fi
 covbad=""
 for f in $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md; do
   [ -f "$f" ] || continue
