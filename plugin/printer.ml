@@ -1055,6 +1055,8 @@ type ident = string
 
 type tyName = string
 
+type hexZ = z
+
 type goTy =
 | GTInt
 | GTInt64
@@ -1130,6 +1132,7 @@ type gExpr =
 | ESliceLit of goTy * gExpr list
 | EMapLit of goTy * goTy * (gExpr, gExpr) prod list
 | EStr of string
+| EHex of hexZ
 
 (** val print_ty : goTy -> string **)
 
@@ -1681,6 +1684,7 @@ let unop_needs_paren = function
 | EId _ -> False
 | EInt _ -> False
 | EStr _ -> False
+| EHex _ -> False
 | _ -> True
 
 (** val unop_paren : unaryOp -> gExpr -> bool **)
@@ -1858,3 +1862,4 @@ let rec gprint ctx = function
         (String ((Ascii (True, False, True, True, True, True, True, False)),
         EmptyString))))
 | EStr s -> print_string_lit s
+| EHex zc -> print_hex zc

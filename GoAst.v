@@ -59,6 +59,14 @@ Definition Ident : Type := { s : string | go_ident s = true }.
 Definition mkIdent (s : string) (H : go_ident s = true) : Ident := exist _ s H.
 Definition TyName : Type := { s : string | nominal_type_ident s = true }.
 Definition mkTyName (s : string) (H : nominal_type_ident s = true) : TyName := exist _ s H.
+(** A third validity-carrying sig type: [HexZ] for a HEX integer literal ([EHex] / [THex]).  Go hex literals
+    are NON-NEGATIVE ([-0xff] is unary minus applied to [0xff], not a negative literal), and [print_hex]
+    only round-trips for [0 <= z]; carrying [0 <=? z = true] IN THE TYPE makes a negative hex literal
+    UNREPRESENTABLE (rule 2: reject by construction), so the print/parse round-trip stays UNCONDITIONAL.
+    [Z] (not [nat]): a [uint32]/[uint64] mask like [0xffffffff] is billions of unary successors — infeasible
+    to extract — but a binary [Z] handles it.  Extracts to a bare [Z], the proof erased (like [Ident]). *)
+Definition HexZ : Type := { z : Z | (0 <=? z)%Z = true }.
+Definition mkHexZ (z : Z) (H : (0 <=? z)%Z = true) : HexZ := exist _ z H.
 
 (** A Go type, as the plugin renders them.  Note [GTInt] (Go's platform [int], the [GoInt]/[TInt64]
     tag) is DISTINCT from [GTInt64] (the full-width [int64], the [GoI64]/[TI64] tag) — conflating them
@@ -147,7 +155,8 @@ Inductive GExpr : Type :=
   | EConv : ConvTy -> GExpr -> GExpr   (* type-form conversion [[]T(x)] / [chan T(x)] / [map[K]V(x)] — PREFIX *)
   | ESliceLit : GoTy -> list GExpr -> GExpr  (* slice composite literal [[]T{e1, .., en}] — PREFIX type-led atom; element type + elements *)
   | EMapLit : GoTy -> GoTy -> list (GExpr * GExpr) -> GExpr  (* map composite literal [map[K]V{k1: v1, .., kn: vn}] — PREFIX type-led atom; key type + value type + KEYED (key, value) elements *)
-  | EStr : string -> GExpr.  (* STRING literal ["..."] — a LEAF (like [EInt]); carries the UNESCAPED content, printed via the verified [print_string_lit] *)
+  | EStr : string -> GExpr  (* STRING literal ["..."] — a LEAF (like [EInt]); carries the UNESCAPED content, printed via the verified [print_string_lit] *)
+  | EHex : HexZ -> GExpr.  (* HEX integer literal [0x...] — a LEAF (like [EInt], but printed in lowercase hex); the value is a NON-NEGATIVE [Z] (carried in [HexZ]).  Appended LAST so existing [induction e as [...]] bullet lists keep their order. *)
 
 (** Custom induction principle: the auto-generated [GExpr_ind] gives NO hypothesis for the elements of the
     nested [list]-valued children ([ECall]'s arg list, [ESliceLit]'s elements, [EMapLit]'s key/value pairs),
@@ -170,40 +179,42 @@ Fixpoint GExpr_ind' (P : GExpr -> Prop)
   (fslicelit : forall t es, List.Forall P es -> P (ESliceLit t es))
   (fmaplit : forall kt vt kvs, List.Forall (fun p => P (fst p) /\ P (snd p)) kvs -> P (EMapLit kt vt kvs))
   (fstr : forall s, P (EStr s))
+  (fhex : forall zc, P (EHex zc))
   (e : GExpr) : P e :=
   match e with
   | EId i  => fid i
   | EInt z => fint z
   | EStr s => fstr s
-  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0)
-  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr l)
-                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr r)
-  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0) f
-  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0)
-                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr i)
-  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0)
-                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr lo)
-                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr hi)
-  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0) args
+  | EHex zc => fhex zc
+  | EUn o e0 => fun_ o e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0)
+  | EBn o l r => fbn o l (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex l)
+                       r (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex r)
+  | ESel e0 f => fsel e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0) f
+  | EIndex e0 i => fidx e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0)
+                         i (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex i)
+  | ESlice e0 lo hi => fslc e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0)
+                            lo (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex lo)
+                            hi (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex hi)
+  | ECall e0 args => fcall e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0) args
       ((fix args_ind (l : list GExpr) : List.Forall P l :=
           match l with
           | nil => List.Forall_nil P
-          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr a) (args_ind r)
+          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex a) (args_ind r)
           end) args)
-  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0) T
-  | EConv c e0 => fconv c e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr e0)
+  | EAssert e0 T => fassert e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0) T
+  | EConv c e0 => fconv c e0 (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex e0)
   | ESliceLit t es => fslicelit t es
       ((fix elems_ind (l : list GExpr) : List.Forall P l :=
           match l with
           | nil => List.Forall_nil P
-          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr a) (elems_ind r)
+          | a :: r => List.Forall_cons a (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex a) (elems_ind r)
           end) es)
   | EMapLit kt vt kvs => fmaplit kt vt kvs
       ((fix pairs_ind (l : list (GExpr * GExpr)) : List.Forall (fun p => P (fst p) /\ P (snd p)) l :=
           match l with
           | nil => List.Forall_nil (fun p => P (fst p) /\ P (snd p))
-          | a :: r => List.Forall_cons a (conj (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr (fst a))
-                                               (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr (snd a)))
+          | a :: r => List.Forall_cons a (conj (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex (fst a))
+                                               (GExpr_ind' P fid fint fun_ fbn fsel fidx fslc fcall fassert fconv fslicelit fmaplit fstr fhex (snd a)))
                                          (pairs_ind r)
           end) kvs)
   end.

@@ -402,6 +402,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
   | EId i => if String.eqb (proj1_sig i) "nil" then Some PtNil else None   (* SCOPE: only the predeclared [nil]; every other ident is undefined -> rejected *)
   | EInt z => Some (PtIntConst z)
+  | EHex zc => Some (PtIntConst (proj1_sig zc))   (* a hex literal IS an integer constant (non-negative; same category as [EInt]) *)
   | EStr _ => Some PtStr   (* a string literal is the printable SCALAR string category *)
   | EBn o l r =>
       match ptype l, ptype r with
