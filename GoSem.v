@@ -816,6 +816,15 @@ Example eval_uint_underflow_none   : eval_value uint_underflow_e = None.        
 Proof. vm_compute. reflexivity. Qed.
 Example eval_uint_add_faithful     : eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl)).
 Proof. vm_compute. reflexivity. Qed.
+(* Go's len-CONSTANCY boundary (Go spec, "Length and capacity"): [len] of a STRING CONSTANT is itself a
+   compile-time CONSTANT — [ptype] already folds [len("abc")] -> [PtIntConst 3], so it denotes via the
+   integer-constant path (no special case in [eval_value]); but [len] of a SLICE LITERAL is a Go RUNTIME value
+   ([PtRunInt], no compile-time value), left faithfully UN-denoted (faithful-or-absent), though it IS a
+   supported print arg.  Pins both sides of the constant/runtime line for [len]. *)
+Example eval_len_string_const  : eval_value (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"]) = Some (anyt TInt64 (intwrap 3)).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_len_slice_lit_none : eval_value (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]]) = None.
+Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
     agrees with whether the program denotes — TRUE for the denoting demos (`println("hi")`, the `return`-stops
