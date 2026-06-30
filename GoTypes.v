@@ -479,8 +479,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     but the numeric/structural ones too ([float64(1) % float64(2)], [uint8(300)], [uint8(int(300))], [1/int(0)],
     [int64(3)+int32(2)], slice/bool comparison, [cap(string(x))], [chan int([]int{1})]) — AND, now, FREE
     identifiers (a bare [x] is undefined in the no-declaration model — [ptype (EId _) = None]).  Accepted: [EInt],
-    well-typed binops/unops/conversions, [len] of a string-or-aggregate, [cap] of an aggregate, and a slice
-    literal whose elements are ASSIGNABLE to its element type.  ★[PtNil] (the predeclared [nil]) is NOT a value:
+    well-typed binops/unops/conversions, [len] of a string LITERAL (folds to the constant byte count) or of an
+    aggregate (a runtime int), [cap] of an aggregate, and a slice literal whose elements are ASSIGNABLE to its
+    element type.  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const byte-length
+    is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
     inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]
     BOUNDARY: where a bare UNTYPED int constant is USED as a value (e.g. [_ = <untyped const>], or
