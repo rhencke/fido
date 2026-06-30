@@ -108,14 +108,11 @@ live emission is not "verified Go."
 
 ## RED (not done — do not overclaim)
 
-- **GoSem is slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC
-  supportedness), NOT `BehaviorSafe`. GoSem's slice 1 (see GREEN) denotes a SUBSET of the supported programs
-  and only proves denotation⊆gate — `eval_value` reaches only string literals + integer constants (excluding
-  `GTUint`) + exact-integer-valued float constants + constant bools (numeric/string-literal comparisons,
-  `&&`/`||`/`!`, `bool(x)`), NOT a non-literal-string comparison / runtime (`len(..)`/`int(x)`) / fractional-float
-  values; there is NO `BehaviorSafe` GATE and no GoSem-backed gate on emission (a first behavioral PROPERTY —
-  `panic_free_runs_ret`, see GREEN — is proved, but it is NOT a gate). The safety properties in the goal are
-  modelled in the proof-only theories but are not yet a gate on emitted programs.
+- **GoSem is slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC),
+  NOT `BehaviorSafe`. Slice 1 denotes only a SUBSET of supported programs (GREEN has the exact `eval_value`
+  coverage) and proves denotation⊆gate; there is NO `BehaviorSafe` GATE and no GoSem-backed gate on emission
+  (the `panic_free_runs_ret` PROPERTY is proved but is NOT a gate). The goal's safety properties are modelled in
+  the proof-only theories but are not yet a gate on emitted programs.
 - **gap #10**: the MiniML→Go plugin (`plugin/go.ml`) is trusted and unverified — no theorem relates the
   emitted Go to the source term. The golden tests are the only end-to-end check.
 - **Main output is the legacy path.** `main.go` is produced by the trusted plugin, not the certificate-gated
@@ -131,19 +128,14 @@ live emission is not "verified Go."
 
 ## NEXT
 
-GROW **GoSem** — slice 1 landed (the `cmd.v` bridge `denote_program` + real println/print/panic effect
-denotation + `gosem_sound`: denotation⊆`SupportedProgram`, faithful to the model; `eval_value` now folds string
-literals + integer constants/conversions/arithmetic + exact-integer-valued float constants + constant bools
-(numeric/string-literal comparisons, `&&`/`||`/`!`, `bool(x)`)). Continue: `eval_value` for runtime values
-(`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats — each WIDENS the completeness
-converse (`println_main_denotes`, OUTRIGHT on evaluable-printable args) toward a GENERAL `supported ⟺ denotes`.
-BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
-(`cmd_unified.v` + `GoSemUnified.v`: `denote_program_run_agrees` already runs DENOTED programs under `ustep`
-agreeing with `run_cmd`, for the defer-free fragment); next bridge slices are DEFER (cmd.v `run_defers` ↔ unified
-`UDfr` LIFO) and the channel/heap/spawn effects, then LIFT SUPPORTED programs once the completeness converse +
-remaining effects land. Then `BehaviorSafe` → `SafeProgram`
-(= EmittableProgram + BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel,
-widen the live GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
+Forward steps (what's DONE is in GREEN; this lists only what's next):
+- GROW `eval_value` (runtime `len`/`int(x)` incl. a non-literal-string comparison; fractional floats; `GTUint`)
+  — each WIDENS the completeness converse (`println_main_denotes`) toward a GENERAL `supported ⟺ denotes`.
+- Extend the cmd↔unified BRIDGE beyond the defer-free fragment: DEFER (`run_defers` ↔ `UDfr` LIFO), then
+  channel/heap/spawn — so a denoted program runs under `ustep` for the full fragment.
+- Grow the behavioral-safety layer toward a real `BehaviorSafe` predicate → `SafeProgram` (= EmittableProgram +
+  BehaviorSafe) → `emit_safe`; wire the certified path to the main output.
+- In parallel: widen the live GoPrint plugin bridge (unary / atoms / calls) + grow `GoStmt` forms — gate-honestly.
 
 ## Known trust base (TCB)
 
