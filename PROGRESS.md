@@ -18,8 +18,8 @@ session-typed protocol compliance, race freedom (ownership through channel ops),
 
 **Honest claim:** this is *verified model components with a TRUSTED extraction backend* — NOT "formally
 verified Go". Theorems are proved in Rocq; the `*.go` is extracted from `*.v` by the trusted plugin. No
-theorem yet relates emitted Go to its source term (gap #10), and there is no behavioral-safety layer yet, so
-do not headline it as "formally verified Go".
+theorem yet relates emitted Go to its source term (gap #10), and there is no behavioral-safety EMISSION GATE yet
+(only one proof-only property — `panic_free_runs_ret`, see GREEN), so do not headline it as "formally verified Go".
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
@@ -30,8 +30,9 @@ blessed emit; requires a certificate — `EmittableProgram` now; no raw `emit : 
 `GoTypes` is the shared lower module (`ptype`/`svalue`, conservative supported-subset classifier) that
 GoSafe consults. **GoSem** — the AST's behavioral semantics, which BRIDGES (or retires) the existing
 proof-only semantics (`unified.v`/`concurrency.v`/`cmd.v`) — is **slice-1 landed** (the `cmd.v` bridge +
-real println/print/panic effect denotation + `gosem_sound`: denotation⊆`SupportedProgram`); it holds NO
-behavioral-safety authority yet (slice 1 is denotation⊆gate, NOT `BehaviorSafe`).
+real println/print/panic effect denotation + `gosem_sound`: denotation⊆`SupportedProgram`); slice 1 is
+denotation⊆gate, NOT `BehaviorSafe`. The first behavioral PROPERTY (`panic_free_runs_ret`, GoSemSafe.v) builds
+ON this denotation, but there is NO `BehaviorSafe` emission GATE.
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
 (machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree

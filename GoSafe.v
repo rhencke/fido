@@ -356,11 +356,13 @@ Fail Example forge_uint8_overflow :
     ===== SEMANTIC: BehaviorSafe over GoSem (future) =====
     =================================================================================================== *)
 
-(** Reserved for GoSem COMPLETION: behavioral safety over the AST's denotation.  Stated only as the eventual
-    shape; NOT yet defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a placeholder
-    [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the charter forbids
-    (§8 Rule 4).  When GoSem lands: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its
-    GoSem denotation>], and GoEmit gains [SafeProgram]/[emit_safe]. *)
+(** Reserved for GoSem COMPLETION: the behavioral-safety GATE over the AST's denotation.  The GATE is NOT yet
+    defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a
+    placeholder [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the
+    charter forbids (§8 Rule 4).  (A FIRST proof-only PROPERTY does exist — [GoSemSafe.panic_free_runs_ret],
+    panic-freedom ⟹ no runtime panic — but it is NOT this gate and does NOT gate emission.)  When GoSem is
+    complete enough: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its GoSem denotation>],
+    and GoEmit gains [SafeProgram]/[emit_safe]. *)
 
 (** GATE — GoSafe is on the blessed emission path; keep it axiom-free (checked by the GOEMIT_GATE, mirroring
     the GoAst/GoPrint printer gate). *)

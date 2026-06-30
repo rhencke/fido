@@ -19,7 +19,8 @@ The central rule:
 Raw structured Go ASTs may represent unsafe programs.
 Only CERTIFIED ASTs may be emitted through the official path.
 Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe" only when
-GoSem-backed theorems exist — and the NAME of the certificate must never claim more than is proved.
+GoSem-backed SAFETY theorems back the certificate (a FIRST proof-only property, `panic_free_runs_ret`, exists
+but does NOT back it / gate emission) — and the NAME of the certificate must never claim more than is proved.
 ```
 
 Treat all existing code as provisional until it fits this architecture. Optimize for **architectural truth
@@ -112,7 +113,8 @@ repeat the exact overclaim this refactor kills (Rule 5).
 
 ```text
 SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
-BehaviorSafe      -- semantic (reserved for when GoSem-backed theorems exist): no nil deref / OOB /
+BehaviorSafe      -- semantic GATE (reserved; not yet defined — a first proof-only property
+                     `panic_free_runs_ret` exists but is NOT this gate): no nil deref / OOB /
                      send-on-closed / illegal close / data race; happens-before consistency; session safety.
 ```
 
@@ -274,7 +276,7 @@ discipline.
 [live]     Generated printer artifact (plugin/printer.ml) in sync. (make printer-verify + Docker stage)
 [live]     No raw-syntax constructor NAMES in source.             (plugin/smart-ctor-gate.sh)
 [live]     Official emit only via GoEmit's certificate API; no direct print_program call outside GoEmit.
-[on-land]  Print Assumptions for every public safety theorem (once BehaviorSafe exists).
+[live]     Print Assumptions for every public safety theorem (the panic-free property `panic_free_runs_ret` is manifest-gated now; the full BehaviorSafe theorems land later).
 [review]   The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
 [review]   Docs and NAMES do not claim more than the live path proves.
 ```

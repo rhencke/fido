@@ -133,7 +133,7 @@ RUN --mount=type=cache,id=fido-dune,uid=1000,gid=1000,target=/workspace/_build \
     && (dune build > /tmp/build.log 2>&1; rc=$?; cat /tmp/build.log; exit $rc) \
     && sh plugin/manifest-axioms.sh < /tmp/build.log | LC_ALL=C sort -u > /tmp/got_axioms.txt \
     && if ! diff EXPECTED_ASSUMPTIONS.txt /tmp/got_axioms.txt; then \
-         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a manifest-surface cone's trust base changed (main_effect / gosem_trust_surface / a bridge surface)."; \
+         echo "fido: AXIOM-MANIFEST DRIFT ('<' = expected, '>' = actual) — a manifest-surface cone's trust base changed (the surfaces are single-sourced in PROGRESS.md 'Current gates')."; \
          echo "fido: a NEW axiom reaching any gated theorem is a trust-base regression (rule 3); if the change is intended, regenerate EXPECTED_ASSUMPTIONS.txt."; \
          exit 1; \
        fi \

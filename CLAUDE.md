@@ -14,7 +14,9 @@ re-enumerated here). And even there the split is narrow: the TRUSTED plugin CONS
 AST) and only the VERIFIED `gprint` PRINTS it — the construction is NOT verified (the proofs cover AST→string
 serialization only, NOT the MiniML→AST construction that feeds it). Everything else is trusted OCaml `pp_expr`,
 likewise unverified in its construction; so the live `main.go` is NOT verified Go. There is no behavioral-safety
-layer yet. Until gap #10 closes and `GoSem`-backed safety exists, do not headline this as "formally verified
+EMISSION GATE yet — only one proof-only property (`GoSemSafe.panic_free_runs_ret`: panic-freedom ⟹ no runtime
+panic, for denoted slice-1 programs), which does NOT gate emission. Until gap #10 closes and a `GoSem`-backed
+safety GATE exists, do not headline this as "formally verified
 Go." Current state: `PROGRESS.md`.
 
 **Goal — a long-term TARGET, NOT today's state:** faithfully model *all* of Go in Rocq and lower it to
