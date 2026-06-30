@@ -451,12 +451,8 @@ Qed.
     None] — a DENOTED program ([Cmd]) RUNS to an [Outcome].  (It assumes the program DENOTES; it does NOT prove
     supported ⟹ denotes — that converse is partial, see [denote_program_dec] / the strlit fragment.  Composed
     with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
-    what it denotes. *)
-Fixpoint no_defer (c : Cmd unit) : bool :=
-  match c with
-  | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
-  end.
-
+    what it denotes.  ([no_defer] — the straight-line predicate this rests on — now lives in cmd.v, shared with
+    the cmd_unified.v bridge.) *)
 Lemma cbind_no_defer : forall (c : Cmd unit) (k : unit -> Cmd unit),
   no_defer c = true -> (forall u, no_defer (k u) = true) -> no_defer (cbind c k) = true.
 Proof.

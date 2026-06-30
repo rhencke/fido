@@ -100,9 +100,17 @@ live emission is not "verified Go."
 - **Model layer** (proof-only, emits no Go): `builtins.v` (the modelled Go layer — IO/heap/channels/maps/
   slices/sessions over concrete Rocq data, zero axioms), `cmd.v` (effect evaluator), `unified.v` (an existing
   proof-only closed-world operational semantics `ustep` with race-freedom + liveness/deadlock proved on it —
-  NOT the semantics of the certified-emission path; GoSem (slice 1 bridges `cmd.v`) must still bridge or retire
-  it before behavioral safety enters certified emission), `concurrency.v` (calculus-agnostic trace / happens-before / race /
-  bounded-deadlock theory).
+  NOT the semantics of the certified-emission path), `concurrency.v` (calculus-agnostic trace / happens-before /
+  race / bounded-deadlock theory).
+- **cmd↔unified bridge (FIRST slice)** — `cmd_unified.v` (proof-only): `cmd_to_ucmd : Cmd unit -> UCmd` is the
+  TOTAL structural translation of cmd.v's command tree into `unified.v`'s output/panic/return/defer fragment
+  (`CRet→URet`, `COut→UOut`, `CPan→UPan`, `CDfr→UDfr`). `cmd_to_ucmd_runs` proves OUTPUT PRESERVATION +
+  RUN-TO-DONE for the DEFER-FREE fragment (`cmd.no_defer`, which GoSem slice 1 denotes): a goroutine running
+  `cmd_to_ucmd c` `usteps` to completion (`uc_live 0 := false`) emitting EXACTLY `c`'s output payloads, in
+  order, into `uc_out`. So GoSem's `cmd.v` denotation now connects, for that fragment, to the SAME `ustep` on
+  which race-freedom/liveness are proved — the charter's "bridge, not a 2nd universe", first slice. Zero axioms.
+  ⚠ Defer (cmd.v `run_defers` ↔ unified `UDfr`/`ustep_ret_defer` LIFO) and the channel/heap/spawn effects are
+  NOT yet bridged — later slices.
 - **Whole model is axiom-free**: `Print Assumptions main_effect` = "Closed under the global context". The
   manifest gate also covers GoSem's `gosem_trust_surface` (the bundled certified GoSem results — Rocq's own
   assumption output over their whole cone, not a source-text scan); `EXPECTED_ASSUMPTIONS.txt` is empty and the
@@ -138,10 +146,12 @@ denotation + `gosem_sound`: denotation⊆`SupportedProgram`, faithful to the mod
 literals + integer constants/conversions/arithmetic + exact-integer-valued float constants + constant bools
 (numeric/string-literal comparisons, `&&`/`||`/`!`, `bool(x)`)). Continue: `eval_value` for runtime values
 (`len`/`int(x)`, incl. a non-literal-string comparison) and fractional floats; the COMPLETENESS converse
-(supported ⇒ denotes), BRIDGE/retire
-`unified.v`/`concurrency.v` (no second universe), then `BehaviorSafe` → `SafeProgram` (= EmittableProgram +
-BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel, widen the live
-GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
+(supported ⇒ denotes). BRIDGE `unified.v`/`concurrency.v` (no second universe) — FIRST slice landed
+(`cmd_unified.v`: output-preservation for the defer-free fragment); next bridge slices are DEFER (cmd.v
+`run_defers` ↔ unified `UDfr` LIFO) and the channel/heap/spawn effects, then compose with GoSem's
+`denote_program` so a supported program's denotation runs under `ustep`. Then `BehaviorSafe` → `SafeProgram`
+(= EmittableProgram + BehaviorSafe) → `emit_safe`, and wire the certified path to the main output. In parallel,
+widen the live GoPrint plugin bridge (unary / atoms / calls) and grow the `GoStmt` forms — gate-honestly, only as needed.
 
 ## Known trust base (TCB)
 

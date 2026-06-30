@@ -130,6 +130,11 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   ⚠️ It is NOT the semantics of the certified-emission path — GoSem (slice 1 bridges `cmd.v`) must still
   bridge or retire it before behavioral safety enters certified emission. The shallow `IO`/`World`, the
   `cmd.v` effect evaluator, and `rstep` are earlier, NARROWER fragments.
+- `cmd_unified.v` — proof-only (emits no Go): the FIRST slice of that bridge. `cmd_to_ucmd` totally
+  translates `cmd.v`'s command tree into `unified.v`'s output/panic/return/defer fragment, and
+  `cmd_to_ucmd_runs` proves output-preservation + run-to-done for the DEFER-FREE fragment (the one GoSem
+  slice 1 denotes), so that fragment's `cmd.v` denotation runs under the SAME `ustep` race-freedom holds on.
+  Defer + channel/heap/spawn effects are later slices. Zero axioms.
 - `preamble.v`, `dune` / `dune-project` — shared preamble; Docker build of plugin +
   theories.
 - `SPEC_CONFORMANCE.md` — the Go-spec conformance ledger.
