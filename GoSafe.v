@@ -108,9 +108,11 @@ Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
 (** ============================================================================================
     REGRESSIONS — grouped boolean fixtures.  INVARIANT: [ptype]/[svalue] is a CONSERVATIVE supported-subset
     CLASSIFIER, not Go's typechecker; add NO new rule unless it rejects a real accepted-bad program or admits a
-    needed demo.  Coverage is pinned by [forallb] over two lists — [bad_programs] (each [supported_program] is
-    [false]) and [good_programs] (each [true]) — plus a small set of [Fail … := eq_refl] forge-attempts proving
-    the CERTIFICATE itself cannot be inhabited for a rejected program.  The helpers below build the fixtures.
+    needed demo.  Coverage is pinned by [forallb] over THREE ledgers with DISTINCT contracts — [bad_programs]
+    (INVALID Go; each [supported_program] is [false] — the SOUNDNESS obligation), [valid_unsupported_programs]
+    (VALID Go the gate STILL rejects; each [false] — bounded fail-loud INCOMPLETENESS), and [good_programs]
+    (each [true]) — plus a small set of [Fail … := eq_refl] forge-attempts proving the CERTIFICATE itself cannot
+    be inhabited for a rejected program.  The helpers below build the fixtures.
     ============================================================================================ *)
 
 (** Program / expression builders shared by the lists (KEEP — they make the fixtures readable).  [pl_arg a] is
@@ -139,11 +141,14 @@ Definition unsupported_value_stmt : Program :=
     return in void [main] / [len] in statement context / [panic] arity), value-position errors (void call,
     conversion arity), the [ptype] CLOSED type-errors ([len]/[bool]/[&&]/[!]/int-of-slice; the FINDING 1-4
     numeric category / overflow / zero-divisor / shift / comparison / [cap]-of-string / aggregate-conversion
-    cases; the transitive typed-constant rules; float-rounding + platform-[uint] complement), the INVALID
-    [EMapLit]/[CTMap] instances (slice key / map as a [println] arg / free-ident map conversion), and
-    FREE-identifier use (no declarations in the model).  ⚠ This list is the SOUNDNESS obligation — invalid Go
-    that MUST be refused — NOT the incompleteness ledger.  A program Go's typechecker ACCEPTS but [ptype] still
-    rejects (a bounded, fail-loud conservatism) belongs in [valid_unsupported_programs] below, NEVER here. *)
+    cases; the transitive typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
+    companions that LOCK the [valid_unsupported_programs] [len] witnesses' soundness boundary; float-rounding +
+    platform-[uint] complement), the INVALID [EMapLit]/[CTMap] instances (slice key / key-or-value not
+    representable in the element type / map as a [println] arg / free-ident map conversion — the representability
+    pair LOCKS the valid map witness' boundary), and FREE-identifier use (no declarations in the model).  ⚠ This
+    list is the SOUNDNESS obligation — invalid Go that MUST be refused — NOT the incompleteness ledger.  A
+    program Go's typechecker ACCEPTS but [ptype] still rejects (a bounded, fail-loud conservatism) belongs in
+    [valid_unsupported_programs] below, NEVER here. *)
 Definition bad_programs : list Program :=
   [ (* statement shape *)
     unsupported_value_stmt                                               (* bare value statement *)
@@ -207,7 +212,9 @@ Definition bad_programs : list Program :=
   ; pl_arg (EBn BAdd (gs_i8 (EInt 100)) (gs_i8 (EInt 100)))
   ; pl_arg (gs_u8 (gs_int (gs_int (EInt 300))))
   ; pl_arg (EBn BDiv (EInt 1) (EBn BSub (gs_int (EInt 1)) (gs_int (EInt 1))))
-  ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"]) (EInt 200)))  (* int8(len("hi")+200): [len] of a string CONST folds to 2, 2+200=202 overflows int8 -> REJECTED.  Locks the len-string-constant soundness fix (a runtime-int model would WRONGLY admit this) *)
+  ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EStr "hi"]) (EInt 200)))  (* int8(len("hi")+200): [len] of a string LITERAL folds to 2, 2+200=202 overflows int8 -> REJECTED.  Locks the len-string-LITERAL soundness fix (a runtime-int model would WRONGLY admit this) *)
+  ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)]) (EInt 200)))  (* int8(len(string(65))+200): the NON-LITERAL companion to the [valid_unsupported_programs] witness `len(string(65))`.  string(65)="A", len folds to 1 EXACTLY, 1+200=201 overflows int8 — INVALID Go, REJECTED.  EXACT byte-length folding (the legitimate way to admit the witness) keeps THIS rejected; a sloppy [PtStr -> PtRunInt] runtime-int shortcut would make int8(runtime+200) SUPPORTED and FLIP [bad_programs_rejected] *)
+  ; pl_arg (gs_i8 (EBn BAdd (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EInt 200)))  (* int8(len("a"+"b")+200): the companion to the other witness `len("a"+"b")`.  "a"+"b"="ab", len folds to 2 EXACTLY, 2+200=202 overflows int8 — same soundness lock on the concat witness *)
   ; pl_arg (EBn BAdd (EStr "a") (EInt 1))                                (* "a" + 1: string + number is INVALID Go — REJECTED ([num_binop] gives None on the non-numeric [PtStr] operand) *)
   ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
   ; gs_blank (EInt 1099511627776)
@@ -218,9 +225,14 @@ Definition bad_programs : list Program :=
   ; gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))     (* x / float64(0) — const-zero divisor *)
   ; pl_arg (ECall (EId (mkIdent "uint32" eq_refl)) [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])
     (* INVALID [EMapLit]/[CTMap] instances rejected by the blanket quarantine (the quarantine's VALID witness
-       `_ = map[int]int{1:2}` lives in [valid_unsupported_programs]): a slice KEY (not comparable), a map as a
-       [println] arg (println takes no map), and a map conversion of a free ident *)
+       `_ = map[int]int{1:2}` lives in [valid_unsupported_programs]): a slice KEY (not comparable); a VALUE and a
+       KEY not representable in the [uint8] element type (the const 300); a map as a [println] arg (println takes
+       no map); and a map conversion of a free ident.  The two representability cases LOCK the valid witness'
+       admission boundary — a future map checker enforcing key-comparability but SKIPPING key/value assignability
+       would wrongly admit these and FLIP [bad_programs_rejected] *)
   ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])
+  ; gs_blank (EMapLit GTInt GTU8 [(EInt 1, EInt 300)])                    (* map[int]uint8{1:300}: value 300 overflows uint8 *)
+  ; gs_blank (EMapLit GTU8 GTInt [(EInt 300, EInt 1)])                    (* map[uint8]int{300:1}: key 300 overflows uint8 *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])
     (* free-identifier use — undefined in the no-declaration model *)
@@ -237,12 +249,16 @@ Proof. vm_compute. reflexivity. Qed.
 (** REJECTED-BUT-VALID — a SEPARATE contract from [bad_programs].  Go's typechecker ACCEPTS every program here,
     yet [ptype] still rejects it ([supported_program = false]): each falls outside the SOUND supported subset,
     so the gate refuses it rather than risk a plausible-but-wrong emission (rule 2 — fail loud, never
-    plausible-but-wrong).  This is BOUNDED, principled INCOMPLETENESS, not a soundness obligation: a later,
-    soundly-structural rule could admit any of these (then it moves to [good_programs]).  The two contracts
-    must not be confused — a [bad_programs] regression means an UNSOUND emission reopened; a regression that
-    ADMITS one of these is the subset legitimately GROWING.  Current members: [len] of a non-literal string
-    CONST (byte length not folded), and a [map] literal (the [EMapLit] quarantine — comparable-key /
-    assignability not yet soundly structural). *)
+    plausible-but-wrong).  This is BOUNDED, principled INCOMPLETENESS, not a soundness obligation.  ⚠ Admitting
+    a member is legitimate growth ONLY via an EXACT, soundly-STRUCTURAL rule that STILL rejects its INVALID
+    companion in [bad_programs] — NEVER a sloppy widening: fold [len] of a string CONST to its exact byte length
+    (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
+    runtime-int shortcut would reopen those), or check a [map] literal's key-comparability AND key/value
+    assignability (which keeps `map[int]uint8{1:300}` / `map[uint8]int{300:1}` rejected).  Only then does the
+    member move to [good_programs] while its companion STAYS in [bad_programs].  The two contracts must not be
+    confused — a [bad_programs] regression means an UNSOUND emission reopened; admitting one of THESE (with its
+    companion preserved) is the subset legitimately GROWING.  Current members: [len] of a non-literal string
+    CONST (byte length not folded), and a [map] literal (the [EMapLit] quarantine). *)
 Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
