@@ -144,11 +144,22 @@ echo "fido: conversion-coverage gate OK — no stale identity-lowering / vague b
 
 # STALE-COUNT guard: bridge-coverage prose must NOT state a numeric COUNT of conversions (it drifts every time
 # one is added — name the predicates instead), nor preserve the old conv_operand_demo two-output line "205 / true".
-# Scanned in active docs + sources (NOT this script — the self-test fixture below holds the literal stale phrases).
+# sc_scan is the ONE scanner (single set of flags — case-INsensitive, so UPPERCASE "FOUR runtime conversions"
+# can't slip past); the self-test and the active-file scan both call it, so they cannot diverge.  Scanned in
+# active docs + sources (NOT this script — the self-test fixture holds the literal stale phrases).
 sc_pat='(exactly[[:space:]]+)?(one|two|three|four|five|six|seven|eight|nine|ten|[0-9]+)[[:space:]]+runtime[[:space:]]+conversion|205[[:space:]]*/[[:space:]]*true'
-sc_self=$(printf 'four runtime conversions\n205 / true\nthe runtime conversions\n' | grep -inE "$sc_pat" | grep -c . || true)
-[ "$sc_self" -eq 2 ] || { echo "fido: STALE-COUNT GATE self-test broke (want 2 catches, got $sc_self)"; exit 1; }
-scbad=$(grep -rnE "$sc_pat" $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md 2>/dev/null || true)
+sc_scan() { grep -rniE "$sc_pat" "$@" 2>/dev/null || true; }
+# self-test exercises the LIVE sc_scan: all four stale forms (incl. UPPERCASE + numeric) must be caught, and
+# "the runtime conversions" must be spared.
+sc_tmp=$(mktemp)
+printf '%s\n' 'four runtime conversions' 'FOUR runtime conversions' '4 runtime conversions' '205 / true' 'the runtime conversions' > "$sc_tmp"
+sc_hit=$(sc_scan "$sc_tmp" | grep -c . || true)
+sc_leak=$(sc_scan "$sc_tmp" | grep -ic 'the runtime conversions' || true)
+rm -f "$sc_tmp"
+if [ "$sc_hit" -ne 4 ] || [ "$sc_leak" -ne 0 ]; then
+  echo "fido: STALE-COUNT GATE self-test broke (want 4 stale catches incl. UPPERCASE/numeric, 0 leak; got hit=$sc_hit leak=$sc_leak)"; exit 1
+fi
+scbad=$(sc_scan $(ls *.v 2>/dev/null) plugin/go.ml plugin/g_go_extraction.mlg CLAUDE.md PROGRESS.md ARCHITECTURE.md SPEC_CONFORMANCE.md)
 if [ -n "$scbad" ]; then
   echo "fido: STALE-COUNT GATE — bridge-coverage prose states a numeric conversion count (drifts) or the old '205 / true' demo output:"
   echo "$scbad"
