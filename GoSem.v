@@ -306,37 +306,35 @@ Example gosem_return_stops_no_output : forall w,
   end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION (P0, Codex 2026-06-30, 2nd/3rd pass): a TERMINATOR ([return]/[panic]) must NOT depend on its
-    UNREACHABLE successors DENOTING — only on them being SUPPORTED.  Witness: a SUPPORTED-but-UNDENOTABLE
-    statement [println(len([]int{1}))] — [len] of a slice is a runtime [PtRunInt] (printable, so [stmt_ok] =
-    true), but slice-1 [eval_value] does not model a runtime value, so [denote_stmt = None].  Pinned DIRECTLY
-    (this stays undenotable as the integer-CONSTANT eval grows — it is runtime, not a constant): *)
-Definition undenotable_succ : GoStmt :=
-  GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                    [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]).
-Example undenotable_succ_supported   : stmt_ok undenotable_succ = true.    Proof. reflexivity. Qed.
-Example undenotable_succ_undenotable : denote_stmt undenotable_succ = None. Proof. reflexivity. Qed.
+(** UNIVERSAL TERMINATOR PROPERTY (consolidates the old undenotable-successor witnesses, Codex 2026-06-30):
+    a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
+    their SUPPORTEDNESS.  Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
+    ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
+    [denote_body rest].  A UNIVERSAL lemma (not a fixture) so it can never erode as [eval_value] grows — the old
+    test needed a supported-but-UNDENOTABLE successor, a witness that shrinks toward nonexistent (the
+    no-variable model makes every supported expr ultimately evaluable, see the eval-growth roadmap). *)
+Lemma denote_body_terminator_ignores_succ : forall s c rest,
+  denote_stmt s = Some (c, true) ->
+  denote_body (s :: rest) = (if forallb stmt_ok rest then Some c else None).
+Proof. intros s c rest H. cbn [denote_body]. rewrite H. reflexivity. Qed.
 
-(** `func main(){ return; <undenotable_succ> }` denotes (NOT [None]) to a no-output [CRet] — the [GsReturn] arm
-    gates on [forallb stmt_ok rest], NOT [denote_body rest]. *)
-Definition gosem_return_undenotable_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsReturn; undenotable_succ].
-Example gosem_return_undenotable_supported : supported_program gosem_return_undenotable_prog = true.
+(** The two terminators the lemma covers (so it is not vacuous): bare [return] -> [CRet tt], and a denoted
+    [panic("x")] -> [CPan (anyt TString "x")], each with the [true] terminates-flag. *)
+Example denote_stmt_return_terminates : denote_stmt GsReturn = Some (CRet tt, true).
 Proof. reflexivity. Qed.
-Example gosem_return_undenotable_no_output : forall w,
-  match denote_program gosem_return_undenotable_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt w).
-Proof. intro w. vm_compute. reflexivity. Qed.
+Example denote_stmt_panic_terminates :
+  denote_stmt (GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]))
+  = Some (CPan (anyt TString "x"), true).
+Proof. vm_compute. reflexivity. Qed.
 
-(** Likewise a denoted [panic] TERMINATES: `func main(){ panic("x"); <undenotable_succ> }` denotes (NOT [None])
-    to a [CPan] despite the undenotable successor; [run_cmd] PANICS with [anyt TString "x"] and NO output. *)
-Definition gosem_panic_terminates_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]); undenotable_succ].
-Example gosem_panic_terminates_supported : supported_program gosem_panic_terminates_prog = true.
+(** A denoted [panic] TERMINATES end-to-end: `func main(){ panic("x") }` denotes to a [CPan] and [run_cmd]
+    PANICS with [anyt TString "x"]. *)
+Definition gosem_panic_demo_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
+Example gosem_panic_demo_supported : supported_program gosem_panic_demo_prog = true.
 Proof. reflexivity. Qed.
-Example gosem_panic_terminates_runs : forall w,
-  match denote_program gosem_panic_terminates_prog with Some c => run_cmd 5 c w | None => None end
+Example gosem_panic_demo_runs : forall w,
+  match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
   = Some (OPanic (anyt TString "x") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
