@@ -214,6 +214,13 @@ let from_builtins r =
    Stdlib refs are package-qualified and use [ref_has_suffix]. *)
 let named n r = String.equal (global_basename r) n && from_builtins r
 
+(* [named_in ns r]: the list form of [named] — TRUE iff [r] is a [builtins.v] ref whose basename is one of
+   [ns].  EVERY conversion recognizer the verified-printer bridge routes through (the cov_preds set) is defined
+   as [named_in […]] so the [from_builtins] guard is STRUCTURAL: a raw [List.mem (global_basename r) …] without
+   [from_builtins] is a shadowing forge hole (a user global with the same basename would be lowered to the
+   intrinsic).  smart-ctor-gate.sh check #5 enforces that those recognizers carry no raw [global_basename]. *)
+let named_in ns r = from_builtins r && List.mem (global_basename r) ns
+
 let ref_has_suffix r suffix =
   let p = global_path r in
   let n = String.length p and m = String.length suffix in
@@ -298,10 +305,8 @@ let is_f32_cmp_ref    r = List.mem (global_basename r)
    a narrow Go param [x uint8] is a real [uint8], so a bare [x] at an [int] destination
    is invalid Go (review #4 P1 #4) — see the [is_int_of_fw] emission arm.
    ([FW_of_int] NARROWS — handled via [fixed_width_op]'s "of_int".) *)
-let is_int_of_fw r =
-  from_builtins r &&
-  List.mem (global_basename r)
-    ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"; "int_of_u32"; "int_of_i32"]
+let is_int_of_fw =
+  named_in ["int_of_u8"; "int_of_i8"; "int_of_u16"; "int_of_i16"; "int_of_u32"; "int_of_i32"]
 
 (* Full-width int64 <-> uint64 conversions.  Unlike the narrow widths (whose value is
    already int64-carried and which widen via an INLINE cast [int(x)]/[int64(x)], not
@@ -993,7 +998,7 @@ let is_float_opp_ref r = is_float_op_ref r "opp"
    widening fails exactly here, returning the record [GoI64]).  The body's leaf primitives
    ([of_uint63]) and Z↔int63 conversion helpers ([of_Z]/[of_pos]) have their own decls
    suppressed; the [Z]/[positive] arithmetic is already covered by [is_zarith_helper]. *)
-let is_num_to_f64_ref r = from_builtins r && (let n = global_basename r in n = "f64_of_int" || n = "f64_of_i64" || n = "f64_of_f32" || n = "f64_of_u64")
+let is_num_to_f64_ref = named_in ["f64_of_int"; "f64_of_i64"; "f64_of_f32"; "f64_of_u64"]
 (* DIRECT integer → float32 ([f32_of_int]/[f32_of_i64]/[f32_of_u64]): Go's [float32(x)] cast rounds
    the integer ONCE to binary32 (NOT the double-rounding [float32(float64(x))]).  The
    [binary_normalize] body is proof-only; recognised → the direct cast.  No constant-overflow risk
@@ -1001,23 +1006,20 @@ let is_num_to_f64_ref r = from_builtins r && (let n = global_basename r in n = "
 let is_int_to_f32_ref r = from_builtins r && (let n = global_basename r in n = "f32_of_int" || n = "f32_of_i64" || n = "f32_of_u64")
 (* [f32_of_f64 a] — float64 → float32 narrowing (round-nearest-even): Go's native [float32(a)].
    The SpecFloat round body is proof-only (suppressed by module); recognised → the cast. *)
-let is_f64_to_f32_ref r =
-  from_builtins r && (let n = global_basename r in String.equal n "f32_of_f64" || String.equal n "f32_lit")
+let is_f64_to_f32_ref = named_in ["f32_of_f64"; "f32_lit"]
 (* [i64_of_f64 f] — float64 → int64 TRUNCATION (toward zero): Go's native [int64(f)].  The
    model's [f64_trunc_Z]/[Prim2SF] body is proof-only (suppressed by name/module); recognised
    here → the native cast.  Must be applied to a VARIABLE, not a constant (Go rejects
    [int64(3.7)] on an untyped float constant) — demoed through a typed-param wrapper. *)
-let is_f64_to_i64_ref r = from_builtins r && String.equal (global_basename r) "i64_of_f64"
-let is_f64_to_u64_ref r = from_builtins r && String.equal (global_basename r) "u64_of_f64"
+let is_f64_to_i64_ref = named_in ["i64_of_f64"]
+let is_f64_to_u64_ref = named_in ["u64_of_f64"]
 (* narrow → int64 WIDENING ([i64_of_u8]…[i64_of_i32]): value-preserving, lowered to [int64(x)]
    (NOT identity — review #4 P1 #4: a narrow operand at a boundary is a real [uint8]/[int8]/… Go
    value, so [int64(x)] is needed to land it in an [int64] destination; idempotent on an already-
    int64-carried operand).  (The faithful Coq body crosses PrimInt63→Z via [to_Z], whose value-
    position match would otherwise drag/fail; recognising the op by name sidesteps it.) *)
-let is_i64_of_narrow_ref r =
-  from_builtins r &&
-  List.mem (global_basename r)
-    ["i64_of_u8"; "i64_of_i8"; "i64_of_u16"; "i64_of_i16"; "i64_of_u32"; "i64_of_i32"]
+let is_i64_of_narrow_ref =
+  named_in ["i64_of_u8"; "i64_of_i8"; "i64_of_u16"; "i64_of_i16"; "i64_of_u32"; "i64_of_i32"]
 let is_of_uint63_ref r = ref_has_suffix r ".PrimFloat.of_uint63"
 let is_int63_of_z_ref r = let n = global_basename r in n = "of_Z" || n = "of_pos" || n = "of_pos_rec"
 
