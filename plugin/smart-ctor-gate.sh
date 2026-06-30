@@ -1,7 +1,7 @@
 #!/bin/sh
-# Smart-constructor / dead-name / emission-discipline / bridge-recognizer gate for the hand-written plugin OCaml.
+# Smart-constructor / dead-name / emission-discipline / bridge-recognizer / model-authority gate.
 #
-# FOUR boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
+# FIVE boring, CODE-LEVEL structural-discipline checks (grep tripwires, NOT type-level seals — they catch the
 # accidental/obvious bypass, not an aliased side door; the real guarantees are the Rocq proofs + the fact that
 # the AST admits no raw-syntax constructor and GoEmit exports no `emit : Program -> string`):
 #   1. SMART-CTOR BAN  — only the smart constructors [mk_named_ty]/[mk_goexpr_id]/[mk_goexpr_hex] (which re-check
@@ -13,6 +13,8 @@
 #   4. BRIDGE-RECOGNIZER scoping — every conversion recognizer the live printer bridge routes through ([cov_preds]
 #      below, machine-readable GATE DATA) is a scoped `let is_X = named_in [...]`, with the [from_builtins] guard
 #      living ONCE in [named_in] (a raw [global_basename] match would lower a same-named user global).
+#   5. MODEL-AUTHORITY SINGLE-SOURCE — the model's Go string-order primitives ([str_eqb]/[str_ltb]/…) are
+#      DEFINED only in builtins.v; a higher layer must DELEGATE, never fork a second implementation.
 #
 # This gate polices CODE discipline only.  Documentation / prose honesty (bridge-coverage wording, the
 # construction-vs-printing distinction) is the job of REVIEW, not this gate.  The human-facing bridge-coverage
@@ -102,3 +104,18 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
   recog_routed "$pred" plugin/go.ml || { echo "fido: BRIDGE-RECOGNIZER TRIPWIRE — $pred should be 'let $pred = named_in [\"lit\"; …]', routing its basename match through the from_builtins-scoped [named_in] rather than a raw [global_basename]."; exit 1; }
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
+
+# 5. MODEL-AUTHORITY SINGLE-SOURCE.  The Go string-order primitives ([str_eqb]/[str_neqb]/[str_ltb]/[str_gtb]/
+# [str_geb]) are DEFINED once, in builtins.v (the model layer), recognized + lowered by the plugin; a higher
+# layer (GoSem / GoSafe / …) must DELEGATE to them, never fork a second implementation (the GoSem [str_ltb]
+# duplication, Codex 2026-06-30).  Flag any Definition/Fixpoint of one in a .v file OTHER than builtins.v
+# (a CALL is fine — only a re-DEFINITION forks the authority).
+dupstr=$(grep -nE '^[[:space:]]*(Definition|Fixpoint)[[:space:]]+(str_eqb|str_neqb|str_ltb|str_gtb|str_geb|str_leb)\b' \
+  $(for f in *.v; do [ "$f" = builtins.v ] || echo "$f"; done) 2>/dev/null || true)
+if [ -n "$dupstr" ]; then
+  echo "fido: MODEL-AUTHORITY GATE — a Go string-order primitive is RE-DEFINED outside builtins.v:"
+  echo "$dupstr"
+  echo "fido: delegate to the model's str_* (builtins.v); do not fork a second string order (single-authority)."
+  exit 1
+fi
+echo "fido: model-authority gate OK — string-order primitives defined only in builtins.v ✓"

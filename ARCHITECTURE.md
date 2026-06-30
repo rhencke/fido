@@ -81,7 +81,7 @@ with REAL observable effects — `println`/`print` -> `COut` (faithful: the same
 gated/default-in-range untyped integer constants and supported typed integer constants — literals, conversions
 `int64(3)`, arithmetic `1+2`, complement `^x` — EXCLUDING `GTUint`, plus exact-integer-valued float constants
 `float64(3)`/`-float32(5)` boxed to the canonical binary64/binary32 value, plus a constant bool built from
-NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`, `"a"<"b"` — string ordering via a byte-wise `str_ltb`)
+NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`, `"a"<"b"` — string order DELEGATED to the model's `str_ltb`)
 combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity `bool(x)` conversion (comparability validated by `ptype`,
 value computed in GoSem by the self-sealed `eval_bool`), all via the model's value ctors, failing closed at the
 boundary on an out-of-range/out-of-interval value); and `gosem_sound` proves the gate connection

@@ -78,7 +78,7 @@ live emission is not "verified Go."
   EXCLUDING `GTUint` — and exact-integer-valued float constants `float64(3)`/`-float32(5)` (canonical
   binary64/binary32), all boxed via the model's value ctors, failing closed at the boundary on an out-of-range/
   out-of-interval value; plus a constant bool built from NUMERIC or STRING-LITERAL comparisons (`1==1`, `3<5`,
-  `"a"<"b"` — string ordering via a byte-wise `str_ltb`) combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity
+  `"a"<"b"` — string order DELEGATED to the model's `str_ltb`) combined by `==`/`!=`/`&&`/`||`/`!`, plus the identity
   `bool(x)` conversion — comparability validated by `ptype`, value computed in GoSem by the self-sealed
   `eval_bool`). `gosem_sound` proves denotation ⊆ `SupportedProgram` (the effect arm consults `expr_stmt_ok`),
   and the demo RUNS `println("hi")` / `println(int64(3))` / `println(float64(3))` / `println(3 < 5)` through

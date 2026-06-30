@@ -38,7 +38,7 @@
     defined GoSem behavior", the foundation for [BehaviorSafe] -> [SafeProgram] -> [emit_safe].  No axioms.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
-From Stdlib Require Import String Ascii List Bool ZArith.
+From Stdlib Require Import String List Bool ZArith.
 Import ListNotations.
 
 (** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED
@@ -108,29 +108,18 @@ Definition const_z (e : GExpr) : option Z :=
 Definition const_str (e : GExpr) : option string :=
   match e with EStr s => Some s | _ => None end.
 
-(** Go strings compare LEXICALLY BYTE-WISE (Go spec, "Comparison operators").  [str_ltb s t] = is [s] strictly
-    less than [t]? — the empty string precedes any non-empty one, and at the first differing byte the smaller
-    UNSIGNED byte value ([nat_of_ascii] in [0..255]) wins.  This is the SOLE authority for string ordering
-    (the model layer does not model it); equality stays the model's [String.eqb] (= Go byte-equality). *)
-Fixpoint str_ltb (s t : string) : bool :=
-  match s, t with
-  | EmptyString,  EmptyString  => false
-  | EmptyString,  String _ _   => true
-  | String _ _,   EmptyString  => false
-  | String a s',  String b t'  =>
-      if Ascii.eqb a b then str_ltb s' t' else Nat.ltb (nat_of_ascii a) (nat_of_ascii b)
-  end.
-
-(** The 6 COMPARISON ops on STRING constants — equality via the model's [String.eqb], ordering via [str_ltb]
-    ([>]/[>=] swap operands; [<=]/[>=] add the equal case).  Non-comparison ops -> [None]. *)
-Definition str_cmp_op (op : BinOp) : option (string -> string -> bool) :=
+(** The 6 COMPARISON ops on STRING constants — DELEGATED to the MODEL's string order ([builtins.v]: [str_eqb] /
+    [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise unsigned Go order, plugin-lowered to the native
+    Go operators).  GoSem does NOT fork a second string order; [<=] is DERIVED from the model's [>=] ([s <= t]
+    iff [t >= s]).  Non-comparison ops -> [None]. *)
+Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
   match op with
-  | BEq => Some String.eqb
-  | BNe => Some (fun s t => negb (String.eqb s t))
+  | BEq => Some str_eqb
+  | BNe => Some str_neqb
   | BLt => Some str_ltb
-  | BLe => Some (fun s t => orb (str_ltb s t) (String.eqb s t))
-  | BGt => Some (fun s t => str_ltb t s)
-  | BGe => Some (fun s t => orb (str_ltb t s) (String.eqb s t))
+  | BLe => Some (fun s t => str_geb t s)   (* [s <= t]  iff  [t >= s] — derived from the model order, not re-implemented *)
+  | BGt => Some str_gtb
+  | BGe => Some str_geb
   | _   => None
   end.
 
@@ -483,10 +472,11 @@ Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. r
 Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
 
 (** GROWTH (slice 1 -> STRING comparisons + identity bool CONVERSION): [eval_value] now folds a comparison of
-    two string LITERALS — equality via the model's [String.eqb], ordering via [str_ltb] (Go byte-wise
-    lexicographic) — and the identity [bool(x)] conversion.  Pinned across [==]/[!=]/[<]/[<=]/[>], a false case,
-    the prefix case ["a" < "ab"], and [bool(1==1)].  STILL ABSENT: a comparison whose string operand is
-    NON-literal ([string(65)] carries no recoverable value). *)
+    two string LITERALS — DELEGATED to the model's byte-wise order ([str_eqb]/[str_ltb]/[str_gtb]/[str_geb]) —
+    and the identity [bool(x)] conversion.  Pinned across all 6 ops [==]/[!=]/[<]/[<=]/[>]/[>=] (incl. a false
+    case, the prefix case ["a" < "ab"], and a HIGH-BYTE pair confirming UNSIGNED byte order: ["\200" > "\100"]),
+    and [bool(1==1)].  STILL ABSENT: a comparison whose string operand is NON-literal ([string(65)] carries no
+    recoverable value). *)
 Example eval_str_cmp_supported : ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool.
 Proof. reflexivity. Qed.
 Example eval_str_eq     : eval_value (EBn BEq (EStr "a") (EStr "a")) = Some (anyt TBool true).
@@ -502,6 +492,17 @@ Proof. vm_compute. reflexivity. Qed.
 Example eval_str_gt     : eval_value (EBn BGt (EStr "b") (EStr "a")) = Some (anyt TBool true).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_str_prefix : eval_value (EBn BLt (EStr "a") (EStr "ab")) = Some (anyt TBool true).   (* "" < "b" tail: shorter prefix is less *)
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_ge     : eval_value (EBn BGe (EStr "b") (EStr "a")) = Some (anyt TBool true).
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_ge_f   : eval_value (EBn BGe (EStr "a") (EStr "b")) = Some (anyt TBool false).
+Proof. vm_compute. reflexivity. Qed.
+(** HIGH-BYTE: a 1-byte string of byte 200 vs byte 100.  UNSIGNED (the model's [str_ltb], via [u8raw]) gives
+    [200 > 100 = true]; a SIGNED int8 read would give [-56 < 100 = false].  Pins GoSem's fold to the model's
+    unsigned-byte order. *)
+Example eval_str_highbyte : eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
+                                                (EStr (String (Ascii.ascii_of_nat 100) EmptyString)))
+                          = Some (anyt TBool true).
 Proof. vm_compute. reflexivity. Qed.
 Example eval_bool_conv_supported : ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
 Proof. reflexivity. Qed.
