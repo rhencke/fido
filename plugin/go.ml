@@ -1897,19 +1897,20 @@ let mlident_name = function
   | Tmp v -> go_safe (Id.to_string v)
 let rel_name env i =
   try mlident_name (List.nth env (i - 1)) with Not_found -> "_db" ^ string_of_int i
-(* The inline identifier-led CONVERSIONS [conv(x)] the bridge handles UNCONDITIONALLY: (recognizer, Go type
-   name).  Each is rendered inline by [pp_expr] with NO force-wrapper, so it needs no runtime guard — its
-   operand is a TYPED value (never an untyped constant that could overflow at compile time), regardless of
-   whether the conversion WIDENS (value-preserving), TRUNCATES (float->int), or ROUNDS (int->float32, or a
-   large int->float64); only that the operand bridges is required.  (The float64->float32 narrowing
-   [is_f64_to_f32_ref] is NOT here: it carries an [operand_is_runtime] guard, handled by its own arm.) *)
+(* The inline identifier-led CONVERSIONS [conv(x)] the bridge handles: (recognizer, Go type name).  Each is a
+   conversion that the trusted [pp_expr] renders INLINE UNCONDITIONALLY (no force-wrapper IIFE); the bridge
+   simply MIRRORS that decision — it reproduces the same inline [<ty>(...)] for any bridging operand and does
+   NOT re-derive when a force-wrapper would be needed.  (The float64->float32 narrowing [is_f64_to_f32_ref] is
+   NOT here: [pp_expr] force-wraps IT for a non-runtime operand, so the bridge carries the matching
+   [operand_is_runtime] guard in its own arm.)  The conversions themselves widen / truncate / round — see the
+   per-entry notes; that is orthogonal to the inline-vs-force-wrapper rendering the bridge is mirroring. *)
 let inline_conv_table = [
-  (is_i64_of_narrow_ref, "int64");    (* narrow -> int64 widening (value-preserving, no Go-constant overflow) *)
-  (is_f64_to_i64_ref,    "int64");    (* float64 -> int64 truncation-toward-zero (typed-float operand) *)
+  (is_i64_of_narrow_ref, "int64");    (* narrow -> int64 widening *)
+  (is_f64_to_i64_ref,    "int64");    (* float64 -> int64 truncation-toward-zero *)
   (is_f64_to_u64_ref,    "uint64");   (* float64 -> uint64 truncation-toward-zero *)
-  (is_int_of_fw,         "int");      (* narrow -> platform-int widening (value-preserving) *)
-  (is_num_to_f64_ref,    "float64");  (* int/int64/float32/uint64 -> float64 *)
-  (is_int_to_f32_ref,    "float32");  (* int/int64/uint64 -> float32 direct cast (rounds once) *)
+  (is_int_of_fw,         "int");      (* narrow -> platform-int widening *)
+  (is_num_to_f64_ref,    "float64");  (* int/int64/float32/uint64 -> float64 (may round) *)
+  (is_int_to_f32_ref,    "float32");  (* int/int64/uint64 -> float32 (rounds once) *)
 ]
 let rec goexpr_bridge env e =
   match strip_magic e with
@@ -1958,10 +1959,10 @@ let rec goexpr_bridge env e =
           [ECall (EId "<ty>") [bridge x]] (amendment 3 — same shape as the [i64_lit]/[u64_lit] arms, only the
           single operand is a bridged SUB-EXPRESSION, not a folded literal).  [pp_expr] renders each as
           [<ty>(<pp_expr x>)] and the operand bridges through the SAME [goexpr_bridge] recursion, so
-          [gprint x] = [pp_expr x] (bridge invariant) and the bytes match.  All are rendered UNCONDITIONALLY by
-          [pp_expr] (no force-wrapper) — their operand is a TYPED value (not an untyped constant), so none risks
-          a Go-constant overflow and none needs a runtime guard, whether the conversion widens / truncates /
-          rounds (see [inline_conv_table]'s per-entry notes); only that the operand bridges is required. *)
+          [gprint x] = [pp_expr x] (bridge invariant) and the bytes match.  [pp_expr] renders each of these
+          conversions INLINE UNCONDITIONALLY (no force-wrapper IIFE), so the bridge MIRRORS that — it reproduces
+          the inline [<ty>(...)] and declines (None) only when the operand fails to bridge.  (The force-wrapped
+          float64->float32 narrowing is the NEXT arm, guarded by [operand_is_runtime].) *)
        | MLglob r, [x] when List.exists (fun (p, _) -> p r) inline_conv_table ->
            (match goexpr_bridge env x, mk_goexpr_id (snd (List.find (fun (p, _) -> p r) inline_conv_table)) with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
