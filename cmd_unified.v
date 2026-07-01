@@ -855,13 +855,14 @@ Proof.
   cbn in H. injection H as <-. exists w'. reflexivity.
 Qed.
 
-(** PANIC CHARACTERIZATION of [run_cmd] for ANY [c] (nested defers included): a COMPLETED run ends with EXACTLY
-    the flattened last-raised panic of [c]'s defer forest ([cmd_defers c]) seeded by the body's own panic
-    [cmd_panic c].  The panic-side companion to [run_cmd_out_monotone] (output APPENDS) — together they pin what
-    a defer-unwinding run's Outcome carries.  Consumes [run_defers_panic_eq]; the [ORet]-result case needs
-    [cmd_panic c = None] (else the body's in-flight panic would survive to the result, by
-    [nested_defers_panic_some]). *)
-Theorem run_cmd_panic_char : forall fuel (c : Cmd unit) w oc,
+(** LOCAL plumbing (NOT a public surface — its statement names the Local projections [nested_defers_panic] /
+    [cmd_defers] / [cmd_panic], so it stays private per this module's boundary until a PUBLIC bridge over
+    [run_cmd]/[usteps] consumes it): a COMPLETED [run_cmd] ends with EXACTLY the flattened last-raised panic of
+    [c]'s defer forest ([cmd_defers c]) seeded by the body's own panic [cmd_panic c].  This is the panic-side
+    lemma the eventual full nested+panicking bridge will use to tie the ustep's flatten-threading to
+    [run_cmd]'s Outcome.  Consumes [run_defers_panic_eq]; the [ORet]-result case needs [cmd_panic c = None]
+    (else the body's in-flight panic would survive to the result, by [nested_defers_panic_some]). *)
+Local Lemma run_cmd_panic_char : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc ->
   nested_defers_panic fuel (cmd_defers c) (cmd_panic c) = Some (ocpanic oc).
 Proof.
@@ -884,14 +885,17 @@ Proof.
 Qed.
 
 (** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the single
-    in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  Every
-    OTHER definition here (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections, their [run_cmd] seal
-    [go_chars], the [run_defers]/unwind plumbing, Phase A) is Local and covered TRANSITIVELY through these
-    cones, not separately printed. *)
+    in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  The
+    projection/unwind plumbing that FEEDS those cones (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
+    their [run_cmd] seal [go_chars], the [run_defers]/unwind machinery, Phase A) is Local and covered
+    TRANSITIVELY through them, not separately printed.  The panic-characterization plumbing
+    ([nested_defers_panic] / [nested_defers_panic_some] / [run_defers_panic_eq] / [run_cmd_panic_char]) is also
+    Local but STAGED for the future nested+panicking bridge — NOT yet in a public cone (so deliberately NOT a
+    gated surface: no public theorem exports the projection world); it is zero-axiom by the whole-file
+    Qed-closed compile + the pre-commit anti-assumption declaration scan. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
 Print Assumptions bridge_nested_np.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.
-Print Assumptions run_cmd_panic_char.
 Print Assumptions run_cmd_terminates.
