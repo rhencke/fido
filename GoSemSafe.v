@@ -173,16 +173,32 @@ Example panicking_prog_panics : forall w,
   = Some (OPanic (anyt TString "boom") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** End-to-end lock for [run_cmd_panics_world]: `func main(){ println("x"); panic("boom") }` runs to [OPanic]
-    with the PRE-PANIC output "x" already logged — the output before the panic still happens. *)
+(** End-to-end APPLICATION of [run_cmd_panics_world] (not a black-box compute): `func main(){ println("x");
+    panic("boom") }` DENOTES to a defer-free [COut]-then-[CPan] command, so BOTH premises hold explicitly
+    ([panic_after_output_premises]: [no_defer] + [cmd_panic_val = Some boom]) and the theorem APPLIES — the
+    program runs to [OPanic boom] with the pre-panic output "x" already logged. *)
 Definition panic_after_output_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"]);
      GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "boom"])].
+Definition panic_after_output_cmd : Cmd unit :=
+  COut true (anyt TString "x" :: nil) (CPan (anyt TString "boom")).
+Example panic_after_output_denotes :
+  denote_program panic_after_output_prog = Some panic_after_output_cmd.
+Proof. vm_compute. reflexivity. Qed.
+Example panic_after_output_premises :
+  no_defer panic_after_output_cmd = true
+  /\ cmd_panic_val panic_after_output_cmd = Some (anyt TString "boom").
+Proof. split; reflexivity. Qed.
 Example panic_after_output_runs : forall w,
-  match denote_program panic_after_output_prog with Some c => run_cmd 1 c w | None => None end
+  run_cmd 1 panic_after_output_cmd w
   = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "x" :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
+Proof.
+  intro w.
+  rewrite (run_cmd_panics_world panic_after_output_cmd w (anyt TString "boom")
+             (proj1 panic_after_output_premises) (proj2 panic_after_output_premises)).
+  reflexivity.
+Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing [panic_free_runs_ret] (the
     denoted program's authoritative [run_cmd] reaches [ORet]) with the cmd↔unified bridge
