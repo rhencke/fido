@@ -958,32 +958,19 @@ Proof.
   - exact (denotable_stmts_main_denotes b H Hd).
 Qed.
 
-(** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
-    `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
-    [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
-    the model's own [println] produces. *)
+(** ---- End-to-end demo fixture with REAL OBSERVABLE OUTPUT: `func main(){ println("hi"); return }` runs
+    through cmd.v's authoritative [run_cmd] to the very [w_log true ["hi"]] the model's own [println]
+    produces — pinned as the typed field [rc_println_str] of [GoSemRequiredCategoryCoverage] below. *)
 Definition gosem_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
-Example gosem_demo_runs : forall w,
-  match denote_program gosem_demo_prog with
-  | Some c => run_cmd 5 c w
-  | None => None
-  end = Some (ORet tt (w_log true (anyt TString "hi" :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION: [return] STOPS the body — a NON-tail return's successors do NOT run.
-    `func main(){ return; println("after") }` is SUPPORTED (Go compiles it), yet prints NOTHING; GoSem denotes
-    it to a no-output [CRet], NOT to running the [println].  [run_cmd] leaves the world UNCHANGED. *)
+(** REGRESSION fixture: [return] STOPS the body — `func main(){ return; println("after") }` is SUPPORTED yet
+    prints NOTHING (the world is UNCHANGED).  Pinned as the typed field [rc_return_stops] of
+    [GoSemRequiredCategoryCoverage] below. *)
 Definition gosem_return_stops_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsReturn; GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "after"])].
-Example gosem_return_stops_no_output : forall w,
-  match denote_program gosem_return_stops_prog with
-  | Some c => run_cmd 5 c w
-  | None => None
-  end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
-Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** UNIVERSAL TERMINATOR PROPERTY:
     a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
@@ -1006,14 +993,10 @@ Example denote_stmt_terminators :
      = Some (CPan (anyt TString "x"), true).
 Proof. split; vm_compute; reflexivity. Qed.
 
-(** A denoted [panic] TERMINATES end-to-end: `func main(){ panic("x") }` denotes to a [CPan] and [run_cmd]
-    PANICS with [anyt TString "x"]. *)
+(** A denoted [panic] TERMINATES end-to-end in [OPanic] — pinned as the typed field [rc_panic] of
+    [GoSemRequiredCategoryCoverage] below. *)
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
-Example gosem_panic_demo_runs : forall w,
-  match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (OPanic (anyt TString "x") w).
-Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REGRESSION fixture: a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})` — is SUPPORTED, but
     slice-1 [eval_value] does not model runtime effects, so GoSem leaves it UN-denoted (see
@@ -1097,23 +1080,30 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REQUIRED-CATEGORY COVERAGE as a TYPED obligation.  [runs_to e v] = [println(e); return] denotes and runs
     through cmd.v's [run_cmd] to the world logging [v].  The RECORD TYPE [GoSemRequiredCategoryCoverage] fixes,
-    in its FIELD TYPES, the EXACT six behavior categories the model must exhibit end-to-end (int CONVERSION,
-    exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL, and a constant in-bounds
-    int-slice-literal INDEX).  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
-    discharging ALL six with the stated programs+values: a
-    category cannot be dropped without editing this typed STATEMENT (the record), never silently by convention.
-    Table-INDEPENDENT (no reference to [eval_value_good]).  (String-literal println / return / panic behaviors
-    are pinned separately by [gosem_demo_runs] / [gosem_return_stops_no_output] / [gosem_panic_demo_runs].) *)
+    in its FIELD TYPES, the EXACT nine behavior categories the model must exhibit end-to-end (string-literal
+    PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL, a
+    constant in-bounds int-slice-literal INDEX, a non-tail RETURN that stops the body with NO output, and a
+    denoted PANIC ending in [OPanic]).  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
+    discharging ALL nine with the stated programs+values: a category cannot be dropped without editing this
+    typed STATEMENT (the record), never silently by convention.  Table-INDEPENDENT (no reference to
+    [eval_value_good]). *)
 Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
   forall w, match denote_program (println_prog e) with
             | Some c => run_cmd 5 c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
 Record GoSemRequiredCategoryCoverage : Prop := {
+  rc_println_str : runs_to (EStr "hi") (anyt TString "hi");   (* = [gosem_demo_prog]: observable output, the model's own [w_log] *)
   rc_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3));
   rc_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)));
   rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
   rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
   rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* constant in-bounds int-slice index folds+runs to the element *)
+  rc_return_stops : forall w,                                 (* [return] STOPS the body: the successor println NEVER runs, world UNCHANGED *)
+    match denote_program gosem_return_stops_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (ORet tt w);
+  rc_panic : forall w,                                        (* a denoted [panic("x")] ends in [OPanic] with the model's exact value *)
+    match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (OPanic (anyt TString "x") w);
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
@@ -1178,7 +1168,6 @@ Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    denote_program_runs, out_main_runs, println_main_runs, denotable_stmts_main_runs,
-   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    slice_index_supported_but_undenoted,
