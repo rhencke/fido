@@ -65,15 +65,17 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 - **cmd↔unified bridge** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` translates cmd.v's
   tree into `unified.v`'s output/panic/return/defer fragment (println flag preserved). `cmd_to_ucmd_run_agrees`
   / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
-  two ORTHOGONAL agreement bridges: `bridge_flat_agrees` (ANY `flat c` — one level of `no_defer` defers, any
-  panicking — via the `(prog, pa)` 2-mode, final panic last-raised-wins) + `bridge_nested_np` (NESTED, arbitrary
-  depth, panic-free `cmd_no_panic c` — UNCONDITIONAL, completion discharged by `run_cmd_terminates`). Supporting cmd.v-side properties
-  for ANY `c` (nested incl.): `run_cmd_terminates` (`run_cmd` returns `Some` for enough fuel — nested defers
-  terminate, via a `defers_sz` node-count measure) + two about a COMPLETING run (`run_cmd fuel c w = Some oc`):
-  `run_cmd_out_monotone` (that run's output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing
-  panic-free run returns `ORet`). ⚠ The full nested+panicking AGREEMENT (2-level invariant) + chan/heap/spawn
-  later (the panic-side flatten characterization `run_defers_panic_eq`/`run_cmd_panic_char` is LOCAL plumbing
-  already staged for it — not a public surface). Zero axioms.
+  the GENERAL `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics) the `ustep` run agrees with
+  `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended `w_output`. It unwinds the
+  LIFO defer forest under the `(prog, pa)` 2-mode, threading the panic to the flattened last-raised value
+  (`nested_defers_panic`, proven `= run_defers`'s result by `run_defers_panic_eq`; the ustep-vs-run_defers seed
+  reconciliation is `nested_defers_panic_seed`), grounded on `run_cmd_panic_char`; completion discharged by
+  `run_cmd_terminates`. (SUBSUMES the former `bridge_flat_agrees`/`bridge_nested_np`, now deleted along with their
+  bespoke `flat`/`unwind_flat`/`unwind_prefix_np` machinery — one general theorem, smaller file.) Supporting
+  cmd.v-side properties for ANY `c`: `run_cmd_terminates` (`run_cmd` returns `Some` for enough fuel — nested
+  defers terminate, via a `defers_sz` node-count measure) + two about a COMPLETING run (`run_cmd fuel c w = Some
+  oc`): `run_cmd_out_monotone` (output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing
+  panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
   liveness live). SEED of `BehaviorSafe`; ⚠ NOT a gate. Zero axioms.
@@ -99,8 +101,8 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
   (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
-- Extend the cmd↔unified bridge to the FULL nested+panicking case (the 2-level `(prog, pa)` invariant unifying
-  `bridge_flat_agrees` + `bridge_nested_np`); then chan/heap/spawn.
+- Extend the cmd↔unified bridge past the pure output/panic/return/defer fragment to chan/heap/spawn (the FULL
+  nested+panicking DEFER case is now `bridge_agrees`).
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
 - Widen the live GoPrint plugin bridge (postfix / atoms / calls) + grow `GoStmt` forms — gate-honestly.
@@ -117,7 +119,7 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`bridge_flat_agrees` / `bridge_nested_np` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
+`bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
 `run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
 `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
