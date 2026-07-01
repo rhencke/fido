@@ -36,17 +36,17 @@ denotation⊆gate, NOT `BehaviorSafe`. The first behavioral PROPERTIES (`panic_f
 
 The legacy **trusted plugin** (`plugin/go.ml`) still emits `main.go`. The extracted printer `plugin/printer.ml`
 (machine-checked from GoPrint) is wired into that live path for only a SMALL expression class — a binop tree
-over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, and the runtime
+over runtime locals, int/int64/uint64 literals, the bare int64/uint64 complement `^x`, plain record-field
+selectors `x.Field` (`is_record_proj`; defined-type value projections stay a `T(x)` cast), and the runtime
 conversions — narrow→int64 widening `is_i64_of_narrow_ref`, float64→float32 narrowing
-`is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation
-`is_f64_to_i64_ref`/`is_f64_to_u64_ref`, narrow→int widening `is_int_of_fw`, numeric→float64
-`is_num_to_f64_ref` over int/int64/float32/uint64, and int/int64/uint64→float32 `is_int_to_f32_ref` — and the
-fixed-width ARITHMETIC `(u|i)N_add`/`sub`/`mul` (unsigned: the masked `(int(a) op int(b)) & 0xMASK`; signed:
-that masked form additionally SIGN-EXTENDED; masks/sign-bits = the verified `EHex` leaf) when a bridging-binop
-operand (NOT every producer of those surface bytes — e.g. the fixed-width CONVERSIONS `uint8(x)`, fw
-shifts/div/mod, and standalone fw ops stay on `pp_expr`: their mask constant is the verified `print_hex`, but
-the surrounding expression is trusted-assembled by `fw_wrap`); every other shape is
-printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
+`is_f64_to_f32_ref`+`operand_is_runtime`, float64→int64/uint64 truncation `is_f64_to_i64_ref`/`is_f64_to_u64_ref`,
+narrow→int widening `is_int_of_fw`, numeric→float64 `is_num_to_f64_ref`, and int/int64/uint64→float32
+`is_int_to_f32_ref` — and the fixed-width ARITHMETIC `(u|i)N_add`/`sub`/`mul` (unsigned: the masked
+`(int(a) op int(b)) & 0xMASK`; signed: that masked form additionally SIGN-EXTENDED; masks/sign-bits =
+the verified `EHex` leaf) when a bridging-binop operand (NOT every producer of those surface bytes —
+e.g. the fixed-width CONVERSIONS `uint8(x)`, fw shifts/div/mod, and standalone fw ops stay on `pp_expr`:
+their mask is the verified `print_hex` but the surrounding expr is trusted-assembled by `fw_wrap`);
+every other shape is printed by the trusted OCaml `pp_expr`. The printer proofs cover only AST→string
 serialization (`gprint`'s expression round-trip / program injectivity over the Rocq grammar) — they do NOT
 cover the trusted MiniML→`GExpr` CONSTRUCTION that feeds it, and are not a Go-parser-acceptance proof; so the
 live emission is not "verified Go."

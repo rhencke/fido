@@ -639,6 +639,16 @@ let mk_goexpr_hex z =
   (match Printer.hexz_ok z with
    | Printer.True  -> Some (Printer.EHex z)
    | Printer.False -> None)
+(* [ESel]'s field is an [Ident] (an erased [go_ident] proof, exactly like [EId]'s payload).  [mk_goexpr_sel]
+   re-checks [go_ident] on the field name at the boundary and returns [None] when it is not a valid Go
+   identifier (the caller then falls back to the trusted printer) — so a forged [Printer.ESel] with an invalid
+   field can never enter the verified [gprint] path.  The base is an already-built (recursively validated)
+   [Printer.GExpr]. *)
+let mk_goexpr_sel base name =
+  let cs = coq_string_of_ocaml name in
+  (match Printer.go_ident cs with
+   | Printer.True  -> Some (Printer.ESel (base, cs))
+   | Printer.False -> None)
 (* ── SMART-CONSTRUCTORS-END ────────────────────────────────────────────────────────────────────── *)
 let rec coq_list_of_ocaml = function [] -> Printer.Nil | x :: xs -> Printer.Cons (x, coq_list_of_ocaml xs)
 (* A comma/separator-joined sequence rendered through the VERIFIED [Printer.print_sep] (proved to emit
@@ -1970,6 +1980,21 @@ let rec goexpr_bridge env e =
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
+       (* a record-field SELECTOR [x.Field] = [MLapp (proj, [x])] where [proj] is a PLAIN struct-field accessor
+          -> [ESel (bridge x) Field].  Mirrors [pp_expr]'s record-projection arm ORDER exactly: the
+          DEFINED-TYPE value projection ([is_record_proj] AND [defined_prim_proj]) renders as a CAST
+          [<under>(x)] (pp_expr arm ~2454, BEFORE the selector arm), so it is EXCLUDED here; only the plain
+          field-access arm (~2465) [<pp_atom (peel_embedded recv)>.<Field>] is what [ESel] reproduces
+          ([gprint_ESel] = [gparen x ++ "." ++ Field]).  A single-arg app ([rest = []]) is the pure selector
+          (no method dispatch).  The receiver bridges through the SAME recursion, so its bytes match; an
+          EMBEDDED-projection receiver ([is_embedded_proj], which [pp_expr] would peel) is NOT [is_record_proj],
+          so it fails to bridge -> the whole selector declines (None) and stays on [pp_expr] — never a
+          peel mismatch. *)
+       | MLglob r, [d]
+         when is_record_proj r && not (Hashtbl.mem defined_prim_proj (global_path r)) ->
+           (match goexpr_bridge env d with
+            | Some ld -> mk_goexpr_sel ld (proj_field_name r)
+            | None    -> None)
        (* fixed-width arithmetic [(u|i)N_add a b] / [sub] / [mul] -> the masked (unsigned) or masked+sign-
           extended (signed) form.  Mirrors the trusted [fw_wrap] lowering (operands WIDENED to the [int] carrier
           first — a narrow-typed operand would overflow the mask), but built as the VERIFIED [EBn] tree so
