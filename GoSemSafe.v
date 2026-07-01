@@ -14,7 +14,9 @@
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
-      the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.
+      the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.  Plus a
+      COHERENCE lemma [panic_free_denotable_supported]: the predicate REFINES [SupportedProgram] (a safe program
+      is always emittable) — what the eventual [SafeProgram = Emittable + BehaviorSafe] needs to be coherent.
 
     Naming discipline (a name is a correctness claim): SPECIFIC panic-free properties, NOT [BehaviorSafe] /
     [SafeProgram]; the predicate is [panic_free_denotable], never [safe].  Kept in their own module so GoSem.v
@@ -200,8 +202,22 @@ Example panic_free_denotable_decides :
   panic_free_denotable safe_prog = true /\ panic_free_denotable panicking_prog = false.
 Proof. split; reflexivity. Qed.
 
+(** COHERENCE with the emission gate: [panic_free_denotable] REFINES [SupportedProgram] — every panic-free-
+    denotable program already satisfies the exact [Prop] the emission certificate carries
+    ([GoEmit.EmittableProgram] holds a [SupportedProgram] proof; [SupportedProgram p := supported_program
+    p = true]).  So a program this seed calls safe is ALWAYS emittable — no safe-but-unemittable gap.  This is
+    the property the eventual [SafeProgram = EmittableProgram + BehaviorSafe] needs to be sound (a safety
+    condition that did NOT refine supportedness would make [SafeProgram] uninhabited / incoherent); it holds
+    now for the seed.  ⚠ Still a coherence PROPERTY, NOT [SafeProgram] and NOT an emission gate. *)
+Lemma panic_free_denotable_supported : forall p,
+  panic_free_denotable p = true -> SupportedProgram p.
+Proof.
+  intros p H. apply andb_true_iff in H as [Hden _]. exact (denotable_supported p Hden).
+Qed.
+
 (** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
 Print Assumptions panic_free_runs_ret.
 Print Assumptions panic_free_runs_ret_ustep.
 Print Assumptions panic_free_denotable_runs_ret.
 Print Assumptions panic_free_denotable_runs_ret_ustep.
+Print Assumptions panic_free_denotable_supported.
