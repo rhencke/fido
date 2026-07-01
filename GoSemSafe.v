@@ -15,8 +15,8 @@
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
       the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.  Plus a
-      COHERENCE lemma [panic_free_denotable_supported]: the predicate REFINES [SupportedProgram] (a safe program
-      is always emittable) — what the eventual [SafeProgram = Emittable + BehaviorSafe] needs to be coherent.
+      REFINEMENT lemma [panic_free_denotable_supported]: [panic_free_denotable p = true] implies
+      [SupportedProgram p] (its support proof suffices for [GoEmit]'s [ep_supported] field).
 
     Naming discipline (a name is a correctness claim): SPECIFIC panic-free properties, NOT [BehaviorSafe] /
     [SafeProgram]; the predicate is [panic_free_denotable], never [safe].  Kept in their own module so GoSem.v
@@ -202,13 +202,11 @@ Example panic_free_denotable_decides :
   panic_free_denotable safe_prog = true /\ panic_free_denotable panicking_prog = false.
 Proof. split; reflexivity. Qed.
 
-(** COHERENCE with the emission gate: [panic_free_denotable] REFINES [SupportedProgram] — every panic-free-
-    denotable program already satisfies the exact [Prop] the emission certificate carries
-    ([GoEmit.EmittableProgram] holds a [SupportedProgram] proof; [SupportedProgram p := supported_program
-    p = true]).  So a program this seed calls safe is ALWAYS emittable — no safe-but-unemittable gap.  This is
-    the property the eventual [SafeProgram = EmittableProgram + BehaviorSafe] needs to be sound (a safety
-    condition that did NOT refine supportedness would make [SafeProgram] uninhabited / incoherent); it holds
-    now for the seed.  ⚠ Still a coherence PROPERTY, NOT [SafeProgram] and NOT an emission gate. *)
+(** [panic_free_denotable] REFINES [SupportedProgram]: [panic_free_denotable p = true] implies
+    [supported_program p = true], which IS [SupportedProgram p] — the [Prop] [GoEmit.EmittableProgram] carries in
+    its [ep_supported] field.  So this support proof suffices to build that [ep_supported] component.  Exactly
+    that implication — NOT a claim about "safe" programs in general, about a future [BehaviorSafe], or about
+    [SafeProgram]. *)
 Lemma panic_free_denotable_supported : forall p,
   panic_free_denotable p = true -> SupportedProgram p.
 Proof.
