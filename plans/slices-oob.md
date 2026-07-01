@@ -19,10 +19,11 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   `[]int{10,20}[-1]` ("must not be negative") and `[..][2^63]` ("overflows int"), but ACCEPTS an **OOB
   positive** constant `[]int{10,20}[5]` — for a SLICE (unlike an array) OOB is a **run-time PANIC**, not a
   compile error. (Tested with `go build`.)
-- So a negative, or a genuinely int-overflowing (≥ the platform `int` max, e.g. `2^63`), constant index is
-  **INVALID Go** on any platform (supportedness reject); an OOB-positive constant, and any **runtime** integer
-  index, are **VALID Go** — their OOB is **behavioral** (a run-time panic) and needs runtime values GoSem
-  lacks. (Fido's 32-bit `GTInt` guard rejects *more* than this — see the conservatism bullet below.)
+- So a negative, or a genuinely int-overflowing (strictly **greater** than the platform `int` max — e.g.
+  `2^63`, one past the 64-bit `int64` max `2^63-1`), constant index is **INVALID Go** on any platform
+  (supportedness reject); an **OOB-positive** constant that *fits* the platform `int`, and any **runtime**
+  integer index, are **VALID Go** — their OOB is **behavioral** (a run-time panic) and needs runtime values
+  GoSem lacks. (Fido's 32-bit `GTInt` guard rejects *more* than this — see the conservatism bullet below.)
 - ⚠ Fido models `int` CONSERVATIVELY (`GTInt` = 32-bit min, since Go `int` is platform 32/64-bit), so B1's
   representability check (`int_const_repr _ GTInt`) is fail-CLOSED, NOT an exact gc match: a large index valid
   only on a 64-bit gc (`[2^40]`) is conservatively REJECTED (safe incompleteness), consistent with Fido's
