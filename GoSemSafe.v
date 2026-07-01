@@ -146,10 +146,10 @@ Qed.
 
 (** Boundary demos: a panic-free program runs to [ORet]; a program that DOES panic runs to [OPanic] (the
     property is exactly about the [panic] primitive, not vacuous). *)
-Definition safe_prog : Program :=
+Definition panic_free_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "ok"]); GsReturn].
-Example safe_prog_runs_ret : forall w,
-  match denote_program safe_prog with Some c => run_cmd 1 c w | None => None end
+Example panic_free_prog_runs_ret : forall w,
+  match denote_program panic_free_prog with Some c => run_cmd 1 c w | None => None end
   = Some (ORet tt (w_log true (anyt TString "ok" :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
@@ -265,9 +265,9 @@ Proof.
   - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
 Qed.
 
-(** The predicate DECIDES (non-vacuous): TRUE for the panic-free [safe_prog], FALSE for [panicking_prog]. *)
+(** The predicate DECIDES (non-vacuous): TRUE for [panic_free_prog], FALSE for [panicking_prog]. *)
 Example panic_free_denotable_decides :
-  panic_free_denotable safe_prog = true /\ panic_free_denotable panicking_prog = false.
+  panic_free_denotable panic_free_prog = true /\ panic_free_denotable panicking_prog = false.
 Proof. split; reflexivity. Qed.
 
 (** [panic_free_denotable] REFINES [SupportedProgram]: [panic_free_denotable p = true] implies
