@@ -41,7 +41,8 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   (`[1]` in-bounds, `[5]` OOB-positive, `[len(..)]` runtime) vs rejected (`[-1]` negative, `[2^63]` overflow,
   `["x"]` string). **← done.**
 - **B2 — denote the in-bounds value (DONE).** `eval_value` gains an `EIndex (ESliceLit t es) idx` arm that
-  evaluates the WHOLE literal (`eval_int_slice_elems` — EVERY element, re-typed to `t`, all-or-`None`) then
+  evaluates the WHOLE literal (`eval_int_slice_elems` — EVERY element assignability-gated to `t`, then boxable
+  constants boxed to `t` (a wrong-typed const is DECLINED, not retyped), all-or-`None`) then
   indexes the value list at the constant in-bounds `k`. Whole-literal is REQUIRED, not just bounds: Go builds
   the entire literal before indexing, so a runtime/panicking/out-of-range element — even an UNSELECTED one
   (`[]int{20, 1/len([]int{})}[0]` PANICS, verified `go run`) — makes the fold `None` (undenoted), never a wrong
@@ -50,11 +51,12 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   `20`). The evaluator boundary is SEALED to `ptype`'s: `eval_int_slice_elems` gates each element on
   `assignable_to_ty` (so `[]int{int64(1)}` — a wrong-typed const — is declined exactly as `ptype` declines it),
   and the arm's constant index is gated on `int_const_repr k GTInt` — proved by `eval_slice_index_supported`
-  (the reduction's hypotheses IMPLY `ptype (EIndex ..) = Some (PtRunInt t)`), so there is NO looser second
-  boundary. Result — the boss's goal for the CONSTANT fragment at the DENOTATION layer, proved at CLASS level
-  (`forall`) over the `ptype`-SUPPORTED fragment by `eval_slice_index_inbounds_class` (in-bounds → k-th boxed
-  element value) + `eval_slice_index_oob_class` (OOB → `None`) via `eval_slice_index_reduces` (all gated in
-  `gosem_trust_surface`): a provably-in-bounds
+  (the reduction's hypotheses IMPLY `ptype (EIndex ..) = Some (PtRunInt t)`, a strict INCLUSION), so there is NO
+  looser second boundary. Result — the boss's goal for the CONSTANT fragment at the DENOTATION layer, proved at
+  CLASS level (`forall`) over the FULLY-EVALUABLE ALL-CONSTANT subfragment (a strict SUBSET of `ptype`-support —
+  runtime index/elements are supported but B2-undenoted, `slice_index_supported_but_undenoted`) by
+  `eval_slice_index_inbounds_class` (in-bounds → k-th boxed element value) + `eval_slice_index_oob_class`
+  (OOB → `None`) via `eval_slice_index_reduces` (all gated in `gosem_trust_surface`): a provably-in-bounds
   all-constant slice-index DENOTES, while an OOB one (or one with a runtime element) is DECLINED (not folded to a
   wrong value). GoSem only; the in-bounds denotation is transitively CERTIFIED via the gated
   `denotable_stmts_main_denotes`. The EMISSION-GATE consequence on a representative valid-Go pair is
@@ -74,16 +76,18 @@ what gc compile-errors — a negative constant, a non-integer index, and (CONSER
 an int-overflowing constant. It does NOT bounds-check (a slice OOB is a valid-Go run-time panic — SUPPORTED).
 B2 (denotation) folds an IN-BOUNDS index into an ALL-CONSTANT slice literal to the element value — the WHOLE
 literal must evaluate (a runtime/panicking element, even unselected, rejects it, since Go builds the literal
-before indexing) — and DECLINES OOB. The CLASS-LEVEL property (over the WHOLE constant int-slice-index fragment,
-not a fixture) is proved by the `forall` theorems `GoSem.eval_slice_index_inbounds_class` (in-bounds → the k-th
-boxed element VALUE) and `eval_slice_index_oob_class` (OOB → `None`), both via the reduction
+before indexing) — and DECLINES OOB. The CLASS-LEVEL property (over the FULLY-EVALUABLE ALL-CONSTANT slice-index
+SUBFRAGMENT, not a fixture) is proved by the `forall` theorems `GoSem.eval_slice_index_inbounds_class` (in-bounds
+→ the k-th boxed element VALUE) and `eval_slice_index_oob_class` (OOB → `None`), both via the reduction
 `eval_slice_index_reduces` (`eval_value` of the index = `nth_error vs (Z.to_nat k)`), all gated zero-axiom in
-`gosem_trust_surface`. Crucially the fragment is the `ptype`-SUPPORTED one, NOT a looser private evaluator: the
-evaluator gates elements on `assignable_to_ty` and the index on `int_const_repr k GTInt` — the SAME checks
+`gosem_trust_surface`. That subfragment is a STRICT SUBSET of `ptype`-support, NOT a looser private evaluator:
+the evaluator gates elements on `assignable_to_ty` and the index on `int_const_repr k GTInt` — the SAME checks
 `ptype` uses — and `eval_slice_index_supported` proves those hypotheses IMPLY `ptype (EIndex ..) = Some (PtRunInt
-t)`, so a wrong-typed element (`[]int{int64(1)}`) or a non-representable index is declined identically by both
-(regressions `slice_index_illtyped_element_undenoted` / `slice_index_unrepresentable_index_undenoted`). That IS "behavioral safety > panic-freedom" for the CONSTANT fragment at the DENOTATION
-layer (a non-`panic()` unsafe op the denotation declines, never folding it to a wrong value). B2's OOB handling
+t)` (an INCLUSION, not equality — `ptype` ALSO supports a runtime index or runtime elements, which B2 does not
+yet denote: `slice_index_supported_but_undenoted`). So a wrong-typed element (`[]int{int64(1)}`) or a
+non-representable index is declined identically by both (regressions `slice_index_illtyped_element_undenoted` /
+`slice_index_unrepresentable_index_undenoted`). That IS "behavioral safety > panic-freedom" for that subfragment
+at the DENOTATION layer (a non-`panic()` unsafe op the denotation declines, never folding it to a wrong value). B2's OOB handling
 REACHES the behavioral EMISSION gate on a REPRESENTATIVE valid-Go pair: `GoSemSafe.panic_free_gate_slice` (gated
 in `gosem_panic_free_surface`) proves BOTH programs are SUPPORTED (valid Go — sharing the fixture with the
 support authority), the in-bounds one is ACCEPTED + EMITTED by `panic_free_gate` / `emit_panic_free_gated`, and

@@ -231,7 +231,8 @@ Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
       (* slices-oob.md B2: a CONSTANT in-bounds index into an INT-slice literal folds to the k-th element.
-         Go evaluates the WHOLE literal ([eval_int_slice_elems] — ALL elements, re-typed to [t]) BEFORE indexing,
+         Go evaluates the WHOLE literal ([eval_int_slice_elems] — ALL elements, each ASSIGNABILITY-GATED to [t]
+         then, if a boxable constant, boxed to [t]; a wrong-typed const is DECLINED, not retyped) BEFORE indexing,
          so a runtime / panicking / out-of-range element (even an UNSELECTED one, e.g. [1/len([]int{})]) makes
          the whole thing [None] and is NOT denoted -> the gate REJECTS it (never a wrong printed value).  Then
          index the boxed VALUE list ([nth_error] declines an OOB constant; a runtime index has [int_const_val =
@@ -690,10 +691,14 @@ Proof.
     exact (IH vs' eq_refl).   (* [destruct]'s substitution rewrote IH's premise to [Some vs' = Some vs] *)
 Qed.
 
-(** ★ SUPPORTEDNESS BRIDGE (slices-oob.md B2) — the reduction's hypotheses are exactly [ptype]'s SUPPORTEDNESS
-    boundary: they IMPLY [ptype (EIndex (ESliceLit t es) idx) = Some (PtRunInt t)], i.e. the expression is VALID
-    Rocq-Go.  So the class reduction below is over the [ptype]-SUPPORTED all-constant fragment, NOT a looser
-    private-evaluator boundary — no second authority that can drift from the live model. *)
+(** ★ SUPPORTEDNESS INCLUSION BRIDGE (slices-oob.md B2) — the reduction's hypotheses IMPLY
+    [ptype (EIndex (ESliceLit t es) idx) = Some (PtRunInt t)], i.e. the expression is VALID Rocq-Go.  This is an
+    INCLUSION (subfragment ⊆ [ptype]-supported), NOT an equivalence: the reduction fragment is the FULLY-EVALUABLE
+    ALL-CONSTANT one (constant index + every element a boxable constant), a STRICT SUBSET of what [ptype] accepts
+    — [ptype] ALSO supports a RUNTIME index and RUNTIME same-typed elements ([GoTypes.v] runtime-index /
+    [assignable_to_ty] arms), which B2 does NOT yet denote (pinned strict by [slice_index_supported_but_undenoted]).
+    So the class reduction below is over that named subfragment, sealed to consult [ptype]'s OWN element/index
+    checks (no looser private boundary), NOT over the whole [ptype] slice-index fragment. *)
 Lemma eval_slice_index_supported :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -719,13 +724,15 @@ Proof.
 Qed.
 
 (** ★ CLASS THEOREM (slices-oob.md B2) — the GENERIC reduction the fixtures below instantiate, over the
-    [ptype]-SUPPORTED constant int-slice-index fragment (any element type [t], any all-constant literal [es], any
-    non-negative INT-REPRESENTABLE constant index [k] — the SAME boundary [eval_slice_index_supported] proves is
-    [ptype]-valid): whenever the literal FULLY evaluates ([eval_int_slice_elems t es = Some vs]), [eval_value] of
-    the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the class-level in-bounds-faithful /
-    OOB-declined property: [nth_error] yields the k-th boxed element VALUE when in-bounds and [None] when OOB —
-    the two corollaries below discharge both cases for the whole fragment, so the "class-level" claim names a
-    real theorem (paired with the supportedness bridge), not a fixture. *)
+    FULLY-EVALUABLE ALL-CONSTANT slice-index subfragment (any element type [t], any all-constant literal [es]
+    that fully evaluates, any non-negative INT-REPRESENTABLE CONSTANT index [k]) — a STRICT SUBSET of
+    [ptype]-supported ([eval_slice_index_supported] proves the inclusion; runtime index / runtime elements are
+    [ptype]-supported but OUTSIDE this fragment): whenever the literal FULLY evaluates ([eval_int_slice_elems t es
+    = Some vs]), [eval_value] of the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the
+    class-level in-bounds-faithful / OOB-declined property FOR THAT SUBFRAGMENT: [nth_error] yields the k-th boxed
+    element VALUE when in-bounds and [None] when OOB — the two corollaries below discharge both cases for the
+    whole subfragment, so the "class-level" claim names a real theorem (paired with the inclusion bridge), not a
+    fixture. *)
 Lemma eval_slice_index_reduces :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -749,7 +756,7 @@ Proof.
 Qed.
 
 (** CLASS — OOB DECLINED: a constant index AT OR PAST the (fully-evaluated) length folds to [None], for the
-    WHOLE supported fragment (never a wrong value — faithful-or-absent). *)
+    whole fully-evaluable all-constant subfragment (never a wrong value — faithful-or-absent). *)
 Lemma eval_slice_index_oob_class :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -767,7 +774,7 @@ Proof.
 Qed.
 
 (** CLASS — IN-BOUNDS FAITHFUL: a constant index STRICTLY WITHIN the length folds to the k-th boxed element
-    VALUE (a real [Some], never [None]), for the WHOLE supported fragment. *)
+    VALUE (a real [Some], never [None]), for the whole fully-evaluable all-constant subfragment. *)
 Lemma eval_slice_index_inbounds_class :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -847,6 +854,18 @@ Example slice_index_unrepresentable_index_undenoted :
   ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None
   /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None.
 Proof. split; vm_compute; reflexivity. Qed.
+(** REGRESSION (Codex — the STRICT-SUBSET pin): the B2 subfragment is STRICTLY SMALLER than [ptype]-supported.
+    A RUNTIME index ([[]int{10,20}[len([]int{1})]]) and a RUNTIME same-typed ELEMENT ([[]int{len([]int{1})}[0]])
+    are BOTH [ptype]-SUPPORTED ([= Some (PtRunInt GTInt)] — valid Go), yet B2 does NOT denote either
+    ([eval_value = None], the program too): the runtime index has [int_const_val = None] and the runtime element
+    makes [eval_int_slice_elems = None].  So [eval_slice_index_supported] is a strict INCLUSION, not equality —
+    these live in [ptype] but outside the fully-evaluable all-constant subfragment (B3 territory). *)
+Example slice_index_supported_but_undenoted :
+  ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = Some (PtRunInt GTInt)
+  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = None
+  /\ ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = Some (PtRunInt GTInt)
+  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None.
+Proof. split; [vm_compute; reflexivity | split; [vm_compute; reflexivity | split; vm_compute; reflexivity]]. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
@@ -1242,6 +1261,7 @@ Definition gosem_trust_surface :=
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
+   slice_index_supported_but_undenoted,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.
 
