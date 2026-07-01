@@ -884,15 +884,14 @@ Proof.
   - reflexivity.
 Qed.
 
-(** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the single
-    in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  The
-    projection/unwind plumbing that FEEDS those cones (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
-    their [run_cmd] seal [go_chars], the [run_defers]/unwind machinery, Phase A) is Local and covered
-    TRANSITIVELY through them, not separately printed.  The panic-characterization plumbing
-    ([nested_defers_panic] / [nested_defers_panic_some] / [run_defers_panic_eq] / [run_cmd_panic_char]) is also
-    Local but STAGED for the future nested+panicking bridge — NOT yet in a public cone (so deliberately NOT a
-    gated surface: no public theorem exports the projection world); it is zero-axiom by the whole-file
-    Qed-closed compile + the pre-commit anti-assumption declaration scan. *)
+(** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the SINGLE
+    zero-axiom authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty; a
+    [Print Assumptions] audits its whole dependency CONE, so the Local plumbing those public theorems CONSUME —
+    [cmd_out_events]/[cmd_panic]/[cmd_defers]/[go_chars], the [run_defers]/unwind machinery, Phase A — is
+    assumption-audited TRANSITIVELY through them).  The panic-characterization lemmas ([nested_defers_panic] /
+    [nested_defers_panic_some] / [run_defers_panic_eq] / [run_cmd_panic_char]) are Local staged plumbing for the
+    future nested+panicking bridge — in NO public cone yet, so NOT a certified surface and making NO zero-axiom
+    claim; they earn their [Print Assumptions] audit when a public bridge (over [run_cmd]/[usteps]) consumes them. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
 Print Assumptions bridge_nested_np.
