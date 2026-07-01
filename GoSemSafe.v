@@ -11,15 +11,18 @@
       GIVEN a program that DENOTES ([denote_program p = Some c]) and is syntactically panic-free, [run_cmd]
       yields [ORet], never [OPanic]; the lift holds where [unified.v]'s race-freedom / liveness live ([run_cmd]
       stays the authority).  [panic_free_runs_ret_output] gives the EXPLICIT output world [cmd_out_world c w]
-      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.  The DUAL
-      [run_cmd_panics_world]: a defer-free command that DOES panic runs to [OPanic v] with the exact PRE-panic
-      output — the outputs before the panic still happen.
+      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
       the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.  Plus a
       REFINEMENT lemma [panic_free_denotable_supported]: [panic_free_denotable p = true] implies
       [SupportedProgram p] (its support proof suffices for [GoEmit]'s [ep_supported] field).
+
+    COMMAND-LEVEL building blocks (cmd.v [Cmd], DEFER-FREE only — premise [no_defer c = true]; NOT lifted to
+    programs): a defer-free command's [run_cmd] output is exactly [cmd_out_world c w], ending in [ORet]
+    ([run_cmd_panic_free_world], when [cmd_no_panic]) or in [OPanic v] with that same pre-panic output
+    ([run_cmd_panics_world], when [cmd_panic_val c = Some v]).  These say NOTHING about commands WITH defers.
 
     Naming discipline (a name is a correctness claim): SPECIFIC panic-free properties, NOT [BehaviorSafe] /
     [SafeProgram]; the predicate is [panic_free_denotable], never [safe].  Kept in their own module so GoSem.v
@@ -80,8 +83,9 @@ Proof.
       apply cbind_no_panic; [exact (denote_stmt_no_panic s cs false Es Hs) | intro u; exact (IH k eq_refl Hrest)].
 Qed.
 
-(** The output world of a [CPan]-free, defer-free command: [go] threads each [COut] through [w_log], so the
-    result is exactly this fold of the logs (a structural spec of [go]'s world, independent of [Outcome]). *)
+(** The PRE-TERMINAL output world of a defer-free command: [go] threads each [COut] through [w_log], stopping
+    at the terminal ([CRet] or [CPan]).  A structural spec of [go]'s accumulated world, independent of the
+    [Outcome] — SHARED by both tails ([go_panic_free_world]'s [ORet] and [go_panics_world]'s [OPanic]). *)
 Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   match c with
   | COut b xs c' => cmd_out_world c' (w_log b xs w)

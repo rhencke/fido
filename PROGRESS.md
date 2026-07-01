@@ -76,9 +76,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics; `panic_free_runs_ret_output` gives the EXPLICIT output world `cmd_out_world c w`
-  — the accumulated logs — and the existential is its corollary; the dual `run_cmd_panics_world` characterizes
-  a PANICKING command: it runs to `OPanic v` with the exact pre-panic output) + `panic_free_runs_ret_ustep`
-  (same, lifted to `ustep`, where race-freedom / liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
+  — the accumulated logs — and the existential is its corollary; the dual `run_cmd_panics_world` is a
+  cmd.v-level lemma for a DEFER-FREE command whose body panics (`no_defer` + `cmd_panic_val c = Some v`): it
+  runs to `OPanic v` with the exact pre-panic output — it says NOTHING about commands with defers) +
+  `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom / liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
   `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_ustep`]
   prove it entails the safe run, and `panic_free_denotable_supported` proves `panic_free_denotable p = true`
   implies `SupportedProgram p` (its support proof suffices for GoEmit's `ep_supported` field).
