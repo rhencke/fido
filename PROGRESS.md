@@ -65,16 +65,11 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 - **cmd↔unified bridge** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` translates cmd.v's
   tree into `unified.v`'s output/panic/return/defer fragment (println flag preserved). `cmd_to_ucmd_run_agrees`
   / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
-  the GENERAL `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics) the `ustep` run agrees with
-  `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended `w_output`. It unwinds the
-  LIFO defer forest under the `(prog, pa)` 2-mode, threading the panic to the flattened last-raised value
-  (`nested_defers_panic`, proven `= run_defers`'s result by `run_defers_panic_eq`; the ustep-vs-run_defers seed
-  reconciliation is `nested_defers_panic_seed`), grounded on `run_cmd_panic_char`; completion discharged by
-  `run_cmd_terminates`. (SUBSUMES the former `bridge_flat_agrees`/`bridge_nested_np`, now deleted along with their
-  bespoke `flat`/`unwind_flat`/`unwind_prefix_np` machinery — one general theorem, smaller file.) Supporting
-  cmd.v-side properties for ANY `c`: `run_cmd_terminates` (`run_cmd` returns `Some` for enough fuel — nested
-  defers terminate, via a `defers_sz` node-count measure) + two about a COMPLETING run (`run_cmd fuel c w = Some
-  oc`): `run_cmd_out_monotone` (output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing
+  the single general `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics) the `ustep` run agrees
+  with `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended `w_output` (unwinds
+  the LIFO defer forest under the `(prog, pa)` 2-mode, threading the last-raised panic). Supporting cmd.v-side
+  properties for ANY `c`: `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure) +
+  `run_cmd_out_monotone` (a completing run's output only APPENDS) + `run_cmd_no_panic_ret` (a completing
   panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
@@ -101,8 +96,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
   (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
-- Extend the cmd↔unified bridge past the pure output/panic/return/defer fragment to chan/heap/spawn (the FULL
-  nested+panicking DEFER case is now `bridge_agrees`).
+- Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
 - Widen the live GoPrint plugin bridge (postfix / atoms / calls) + grow `GoStmt` forms — gate-honestly.

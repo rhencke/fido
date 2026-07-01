@@ -598,7 +598,7 @@ Proof.
       rewrite Hwd, Hout, <- !app_assoc. reflexivity.
 Qed.
 
-(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a
+(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (arbitrary defer nesting): a
     COMPLETING run ([run_cmd fuel c w = Some oc]) only ever APPENDS to the world's output (the body's
     [cmd_out_events c] then, via [run_defers_out], every defer's, recursively), never RETRACTS.  A cmd.v-side
     faithfulness guarantee — Go's deferred actions and
@@ -646,12 +646,11 @@ Proof.
 Qed.
 
 (** LOCAL plumbing (NOT a public surface — its statement names the Local projections [nested_defers_panic] /
-    [cmd_defers] / [cmd_panic], so it stays private per this module's boundary until a PUBLIC bridge over
-    [run_cmd]/[usteps] consumes it): a COMPLETED [run_cmd] ends with EXACTLY the flattened last-raised panic of
-    [c]'s defer forest ([cmd_defers c]) seeded by the body's own panic [cmd_panic c].  This is the panic-side
-    lemma the eventual full nested+panicking bridge will use to tie the ustep's flatten-threading to
-    [run_cmd]'s Outcome.  Consumes [run_defers_panic_eq]; the [ORet]-result case needs [cmd_panic c = None]
-    (else the body's in-flight panic would survive to the result, by [nested_defers_panic_some]). *)
+    [cmd_defers] / [cmd_panic], so it is Local; CONSUMED by [bridge_agrees], which ties the ustep's
+    flatten-threading to [run_cmd]'s Outcome): a COMPLETED [run_cmd] ends with EXACTLY the flattened last-raised
+    panic of [c]'s defer forest ([cmd_defers c]) seeded by the body's own panic [cmd_panic c].  Consumes
+    [run_defers_panic_eq]; the [ORet]-result case needs [cmd_panic c = None] (else the body's in-flight panic
+    would survive to the result, by [nested_defers_panic_some]). *)
 Local Lemma run_cmd_panic_char : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc ->
   nested_defers_panic fuel (cmd_defers c) (cmd_panic c) = Some (ocpanic oc).
@@ -746,9 +745,8 @@ Qed.
 
 (** ★ The GENERAL cmd↔unified defer bridge — for ANY [c] (arbitrary defer nesting, any panics), the
     single-goroutine [usteps] run AGREES with cmd.v's authoritative [run_cmd]: finishes ([uc_live 0 = false]),
-    panic EQUALS the Outcome's ([uc_panic 0 = ocpanic oc]), output EQUALS [run_cmd]'s appended [w_output].
-    SUBSUMES the former one-level-any-panic and any-depth-panic-free bridges — the full nested+panicking case in a
-    single theorem.  Composes [run_cmd_terminates] (some [fuel] completes) with [bridge_agrees_complete]
+    panic EQUALS the Outcome's ([uc_panic 0 = ocpanic oc]), output EQUALS [run_cmd]'s appended [w_output].  The
+    SINGLE public defer bridge.  Composes [run_cmd_terminates] (some [fuel] completes) with [bridge_agrees_complete]
     (which threads the panic through [unwind_prefix_panic], grounded on [run_cmd_panic_char]). *)
 Theorem bridge_agrees : forall (c : Cmd unit) ucap w,
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),
