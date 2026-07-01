@@ -1653,7 +1653,9 @@ Definition parse_str (s : string) : option (GExpr * list Token) :=
   match lex s with Some toks => parse toks | None => None end.
 
 (** END-TO-END round-trip by example: [parse_str (gprint 0 e) = Some (e, [])] — the printed AST lexes and
-    parses back to itself.  (The general theorem [parse_str (gprint 0 e) = Some (e, [])] is next.) *)
+    parses back to itself.  (The GENERAL theorem [parse_print_roundtrip : forall e, parse_str (gprint 0 e) =
+    Some (e, nil)] is PROVEN below — via [gtokens_lex] (lexer side) + [gtokens_parse] (parser side); these
+    examples just illustrate specific shapes.) *)
 Notation EX a := (EId (exist (fun s : string => go_ident s = true) a eq_refl)) (only parsing).
 (* parse_str inherits the fail-closed rejection (lex feeds parse): a malformed escape never reaches the
    parser — [parse_str] returns [None] (cf. the [lex_bad_*] negative examples). *)
@@ -4884,8 +4886,9 @@ Qed.
     bracket/keyword-led composite heads ([ []T / chan T / map[K]V ]).  A dedicated 3-constructor inductive
     (NOT a [{T | conv_ok T}] subset) makes the restriction STRUCTURAL — illegal states unrepresentable, ZERO
     proof obligations — and [convty_ty] embeds it into [GoTy] so the M5 type printer/lexer/parser are reused
-    VERBATIM.  This is the M5-analog groundwork for the upcoming [EConv] expression form, exactly as
-    [parse_gty] preceded the [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
+    VERBATIM.  This is the M5-analog conversion-type layer BEHIND the [EConv] expression form (LANDED — its
+    round-trip is gated as [parse_convty_roundtrip] / [parse_conv_print]), exactly as [parse_gty] backs the
+    [EAssert] type assertion (M6).  (Pointer [*T] is excluded: a bare [*T(x)] is
     ambiguous with a deref and would need parentheses around the pointer type; primitives and named types are
     identifier-led, so they ARE the call form [ECall (EId T) [x]] already.) *)
 Definition conv_print  (c : ConvTy) : string     := print_ty (convty_ty c).
