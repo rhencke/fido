@@ -18,7 +18,7 @@
                            denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string CONSTANT — a LITERAL or a CONCATENATION [a+b] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
+    [eval_value] (slice 1: a string CONSTANT — a LITERAL, a CONCATENATION [a+b], or an ASCII rune conversion [string(65)] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)] / in-range [uint(3)], ARITHMETIC [1+2], complement [^x]
     — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
@@ -26,7 +26,8 @@
     STRING-CONSTANT comparisons (literals AND concatenations; string compares DELEGATED to the model's [str_*]
     family — no local GoSem order) combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion)
     supplies the printed/panicked values; a string (or string-comparison operand) built from a NON-literal LEAF
-    (the rune conversion [string(65)]), bools with a runtime operand,
+    BEYOND the folded set (a MULTI-BYTE rune conversion [string(200)] — ASCII runes [string(65)] now fold to
+    their byte), bools with a runtime operand,
     an out-of-conservative-range or COMPLEMENTED [uint], fractional/runtime floats, and RUNTIME values
     ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
@@ -120,10 +121,12 @@ Definition const_z (e : GExpr) : option Z :=
 
 (** The constant string VALUE of a supported [PtStr] expression — THE SINGLE string-value authority (both
     [eval_value]'s [PtStr] arm AND [eval_bool]'s string comparisons consult it; no literal-only fork).  Folds a
-    string LITERAL [EStr s] and the CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is
-    byte APPEND, so [String.append] is exact).  SEALED under [ptype] = [PtStr] (so it never folds an ill-typed
-    [+] like [`"a" + 1`], which [ptype] rejects).  ABSENT (-> [None], honestly): a non-literal LEAF like the rune
-    conversion [string(65)] (no recoverable value tracked yet) and any RUNTIME string. *)
+    string LITERAL [EStr s], the CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is
+    byte APPEND, so [String.append] is exact), and the ASCII rune conversion [string(z)] for a code point
+    [z ∈ [0,127]] (whose UTF-8 encoding is the single byte [z] — [string(65)] = ["A"], exact via [const_z]).
+    SEALED under [ptype] = [PtStr] (so it never folds an ill-typed [+] like [`"a" + 1`], which [ptype] rejects).
+    ABSENT (-> [None], honestly): a MULTI-BYTE rune [string(200)] (UTF-8 > 1 byte) or out-of-range/negative rune
+    (Go yields [U+FFFD]), and any RUNTIME string. *)
 Fixpoint eval_str (e : GExpr) : option string :=
   match ptype e with
   | Some PtStr =>   (* SEAL: fold ONLY what [ptype] validated as a string *)
@@ -133,6 +136,19 @@ Fixpoint eval_str (e : GExpr) : option string :=
                          | Some sa, Some sb => Some (String.append sa sb)
                          | _, _ => None
                          end
+      | ECall (EId i) (a :: nil) =>   (* the rune conversion [string(z)] *)
+          if String.eqb (proj1_sig i) "string"
+          then match const_z a with
+               | Some z =>
+                   (* FAITHFUL-OR-ABSENT: fold ONLY code points [0,127], whose UTF-8 encoding IS the single
+                      byte [z] ([string(65)] = ["A"]) — trivially exact.  A rune >127 (multi-byte UTF-8) or an
+                      out-of-range/negative rune (Go yields [U+FFFD]) is NOT folded here — absent, never wrong. *)
+                   if andb (Z.leb 0 z) (Z.leb z 127)
+                   then Some (String (Ascii.ascii_of_nat (Z.to_nat z)) EmptyString)
+                   else None
+               | None => None
+               end
+          else None
       | _ => None
       end
   | _ => None
@@ -168,8 +184,8 @@ Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
         [str_cmp_op]/[eval_str]), or [==]/[!=] of two bool sub-bools;
       - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!];
       - the identity bool CONVERSION [bool(x)] (Go allows it only for an already-bool [x]) -> the value of [x].
-    NOT folded (-> [None], honestly absent): a comparison whose string operand is a rune-conversion LEAF
-    ([string(65)], no recoverable value — concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
+    NOT folded (-> [None], honestly absent): a comparison whose string operand is a MULTI-BYTE rune conversion
+    ([string(200)] — ASCII runes [string(65)] and concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
   match ptype e with
   | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
@@ -204,8 +220,8 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     const, e.g. a conversion [int64(3)] or typed-const arithmetic; [PtFloatConst t z] = a typed float const that
     came from the EXACT integer [z]), and [box_int] / [box_float] attach the model value, FAILING CLOSED on an
     out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
-    string CONSTANT ([anyt TString s], folded via the self-sealed [eval_str] — a LITERAL or a CONCATENATION
-    [a + b], since [PtStr] carries no value), an untyped integer
+    string CONSTANT ([anyt TString s], folded via the self-sealed [eval_str] — a LITERAL, a CONCATENATION
+    [a + b], or an ASCII rune conversion [string(65)], since [PtStr] carries no value), an untyped integer
     constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
     [int64(3)] / in-range [uint(3)] (boxed by [mk_uint]), ARITHMETIC [1+2], complement [^x] — complement still
     EXCLUDING [GTUint]), and a TYPED FLOAT constant of an exact
@@ -216,7 +232,8 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     identity [bool(x)] conversion, reusing the operands' [ptype] numeric values ([const_z]) and string values
     ([eval_str]).  ABSENT (-> [None], the next sub-slices):
     a bool with a RUNTIME operand, a string (or string-comparison operand) built from a
-    non-literal LEAF (the rune-const conversion [string(65)]), an out-of-conservative-range or COMPLEMENTED
+    non-literal LEAF beyond the folded set (a MULTI-BYTE rune conversion [string(200)] — ASCII runes
+    [string(65)] now fold), an out-of-conservative-range or COMPLEMENTED
     [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent,
     never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
@@ -389,10 +406,10 @@ Qed.
     class — a print/println of a RUNTIME arg is supported but not [denotable_arg], so it does NOT denote
     ([out_boundary_runtime_undenoted]).  A print/println ARG denotes iff it EVALUATES and is PRINTABLE:
     [denotable_arg].  A `main` body of denotable-arg output statements + [return] ALWAYS denotes for the args
-    [eval_value] folds: string CONSTANTS (literals AND concatenations) plus
-    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (one built from a NON-literal
-    LEAF like `string(65)` is supported but eval-partial, so NOT [denotable_arg]; pinned by
-    [denotable_arg_runeconv_string]).
+    [eval_value] folds: string CONSTANTS (literals, concatenations, ASCII rune conversions [string(65)]) plus
+    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (a MULTI-BYTE rune conversion
+    like `string(200)` is supported but eval-partial, so NOT [denotable_arg]; pinned by
+    [denotable_arg_runeconv_multibyte]).
     ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
     program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
     that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
@@ -414,12 +431,19 @@ Proof. vm_compute. reflexivity. Qed.
 Example eval_str_concat_faithful : eval_value (EBn BAdd (EStr "a") (EStr "b")) = Some (anyt TString "ab").
 Proof. vm_compute. reflexivity. Qed.
 
-(** BOUNDARY PIN (keeps the converse claim EXACT — [eval_str] folds LITERALS + concatenations, not "any string
-    constant"): a SUPPORTED string built from a NON-literal LEAF — the rune-const conversion [`string(65)`] (=
-    ["A"], in GoSafe's supported set as a [PtStr]) — is NOT [denotable_arg]; [eval_str] has no value for the
-    conversion leaf.  Until such non-literal string VALUES are tracked, they stay OUTSIDE the denoted fragment. *)
-Example denotable_arg_runeconv_string :
-  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = false.
+(** ASCII rune conversions now DENOTE: [`string(65)`] folds to the EXACT model value [anyt TString "A"] (a code
+    point in [0,127] whose UTF-8 encoding IS the single byte 65), so it is [denotable_arg].  BOUNDARY PIN (keeps
+    the converse EXACT): a MULTI-BYTE rune [`string(200)`] (UTF-8 = 2 bytes — [eval_str] folds only [0,127], the
+    rest faithfully absent) is still supported ([PtStr]) but NOT [denotable_arg].  Until multi-byte rune encoding
+    is modelled, those stay OUTSIDE the denoted fragment. *)
+Example denotable_arg_runeconv_ascii :
+  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example eval_runeconv_ascii_faithful :
+  eval_value (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some (anyt TString "A").
+Proof. vm_compute. reflexivity. Qed.
+Example denotable_arg_runeconv_multibyte :
+  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 200]) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Lemma eval_args_denotable : forall args, forallb denotable_arg args = true -> eval_args args <> None.
@@ -822,8 +846,8 @@ Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. r
     [str_eqb]/[str_ltb]/…) across all 6 ops, plus the identity [bool(x)] conversion.  Since [eval_bool] now
     consults [eval_str] (the single string-value authority), a CONCATENATION operand folds too
     ([`("a"+"b") == "ab"`] = [true]).  The high-byte pair "\200" > "\100" pins UNSIGNED byte order (a signed
-    int8 read would flip it). A rune-conversion string operand ([string(65)]) carries no value -> ABSENT
-    (`eval_absent` group). *)
+    int8 read would flip it). An ASCII rune-conversion operand folds too ([`string(65) == "A"`] = [true], via
+    [eval_str]'s [0,127] arm); a MULTI-BYTE rune operand ([string(200)]) stays ABSENT (`eval_absent` group). *)
 Example eval_str_ptype_supported :
   ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
   /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
@@ -841,6 +865,7 @@ Example eval_str_folds :
   /\ eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
                         (EStr (String (Ascii.ascii_of_nat 100) EmptyString))) = Some (anyt TBool true)  (* unsigned byte order *)
   /\ eval_value (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) = Some (anyt TBool true)  (* CONCAT operand folds via [eval_str] *)
+  /\ eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")) = Some (anyt TBool true)  (* ASCII rune-conv operand folds via [eval_str] *)
   /\ eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
@@ -868,7 +893,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     uint overflow/underflow rejection LOAD-BEARING: a Go-INVALID uint const is kept OUT of [SupportedProgram]
     by the GATE ([ptype]->None ⇒ [printable_arg_ok]->false ⇒ unsupported ⇒ never emitted), NOT by [eval] (whose
     [None] is a faithful-or-absent BACKSTOP). [len] of a string LITERAL folds ([ptype] -> [PtIntConst]); [len]
-    of a NON-literal string const ([string(65)], ["a"+"b"]) or a slice literal is not folded, faithfully absent. *)
+    of a non-[EStr] string const ([string(65)], ["a"+"b"]) or a slice literal is not folded — no literal byte-count
+    for [ptype] to measure (independent of whether the string's VALUE folds in [eval_str]), faithfully absent. *)
 Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
 Example uint_underflow_gate :   (* LOAD-BEARING: root [ptype] rejection ⇒ the print-arg gate rejects it (never emitted) *)
   ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false.
@@ -887,7 +913,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition eval_absent : list GExpr :=
   [ EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) (EBn BEq (EInt 2) (EInt 2))
-  ; EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")
+  ; EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 200]) (EStr "A")   (* MULTI-BYTE rune -> string absent (only [0,127] fold) *)
   ; EInt 2147483648
   ; ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]
   ; uint_underflow_e
