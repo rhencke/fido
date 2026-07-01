@@ -182,7 +182,8 @@ Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A)
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v), shared by GoSem (executable totality: [go] accumulates no defers)
     and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto [unified.v]'s [ustep]; the [flat] extension —
-    one-level [no_defer] defers — is bridged by [bridge_flat_agrees], nested defers not yet). *)
+    one-level [no_defer] defers — by [bridge_flat_agrees], and NESTED panic-free defers by [bridge_nested_np];
+    the full nested+panicking case not yet). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false

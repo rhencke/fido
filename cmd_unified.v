@@ -21,8 +21,8 @@
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [run_cmd] seal ([go_chars]), and the unified-side run lemmas are LOCAL (file-private) proof plumbing —
     no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free observer
-    instead of [run_cmd].  (NESTED defers are a later slice: a deferred action that itself defers — [flat] is
-    one-level.  No concurrency/heap ops in this fragment, so [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)
+    instead of [run_cmd].  (The full nested+PANICKING agreement is a later slice; no concurrency/heap ops in this
+    fragment, so [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)
     Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
@@ -126,7 +126,8 @@ Qed.
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
     is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is Phase B (done for ANY
-    [flat c] — panics allowed — in [bridge_flat_agrees]; NESTED defers are later).  This
+    [flat c] — panics allowed — in [bridge_flat_agrees], and for NESTED panic-free defers in [bridge_nested_np]
+    via [unwind_prefix_np]; the nested+panicking case is later).  This
     is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
     [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
     list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
@@ -226,38 +227,6 @@ Qed.
 Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
-
-(** ---- DEFER bridge — a CONCRETE witness for the one case still NOT general ----
-    [cmd_to_ucmd_run_agrees] handles [no_defer]; [bridge_flat_agrees] (below) handles ANY [flat c] — any number of
-    [no_defer] defers, panicking or not (the (prog, pa) 2-mode over [ustep_ret_defer]/[ustep_pan_defer]/
-    [ustep_ret_done]/[ustep_pan_done] with panic-replacement).  NESTED defers (a deferred action that ITSELF
-    defers — NOT [flat]) are outside both; ONE file-private EXAMPLE witnesses that case, AGREEING with cmd.v's
-    [run_cmd]:
-      NESTING ([defer (defer println(a))]): [ustep_defer] fires AGAIN DURING the unwinding (the stack never
-              exceeds ONE entry, but a second defer is registered mid-unwind), the inner defer running before the
-              goroutine finishes (output [a]).
-    NESTED defers GENERALLY (then channel/heap/spawn) are the next Phase-B slice. *)
-Local Example bridge_defer_nested_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
-  exists uc oc,
-    usteps ucap (ustart (cmd_to_ucmd (CDfr (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)) (CRet tt)))) uc
-    /\ run_cmd 5 (CDfr (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)) (CRet tt)) w = Some oc
-    /\ uc_live uc 0 = false
-    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
-    /\ uc_panic uc 0 = ocpanic oc.
-Proof.
-  intros a ucap w. eexists. exists (ORet tt (w_log true (a :: nil) w)).
-  split.
-  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_done   with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    apply usteps_refl. }
-  split. { vm_compute. reflexivity. }
-  split. { reflexivity. }
-  split. { cbn. reflexivity. } { reflexivity. }
-Qed.
 
 (** ---- The GENERAL defer theorem: MULTIPLE flat defers, PANICS ALLOWED (the (prog, pa) 2-mode) ----
     For ANY [flat c] (every deferred action [no_defer], but the
@@ -633,17 +602,18 @@ Qed.
 
 (** NESTED (arbitrary-depth) non-panicking defer bridge — the first coverage PAST [flat]'s one level.  For any
     [cmd_no_panic c] whose [run_cmd] COMPLETES (returns [Some oc] — CONDITIONAL, since termination for nesting is
-    a separate cmd.v-side property not yet proven), the single-goroutine [usteps] run AGREES with [run_cmd]:
-    finishes ([uc_live 0 = false]), never panics ([uc_panic 0 = None]), output EQUALS [run_cmd]'s appended
-    [w_output].  Phase A runs the body (pushing [cmd_defers c]), [unwind_prefix_np] does the nested unwind (tail
-    []), a final [ret_done] closes goroutine 0.  Orthogonal to [bridge_flat_agrees] (which allows panics but only
-    one level); the FULL nested+panicking theorem needs the 2-level (prog, pa) panic invariant. *)
+    a separate cmd.v-side property not yet proven), the single-goroutine [usteps] run AGREES with [run_cmd]: it
+    finishes ([uc_live 0 = false]), its panic EQUALS the Outcome's ([uc_panic 0 = ocpanic oc], = [None] as [c] is
+    panic-free), and its output EQUALS [run_cmd]'s appended [w_output] — same agreement surface as
+    [bridge_flat_agrees].  Phase A runs the body (pushing [cmd_defers c]), [unwind_prefix_np] does the nested
+    unwind (tail []), a final [ret_done] closes goroutine 0.  Orthogonal to [bridge_flat_agrees] (which allows
+    panics but only one level); the FULL nested+panicking theorem needs the 2-level (prog, pa) panic invariant. *)
 Theorem bridge_nested_np : forall fuel (c : Cmd unit) ucap w oc,
   run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
   exists uc : UConfig,
     usteps ucap (ustart (cmd_to_ucmd c)) uc
     /\ uc_live uc 0 = false
-    /\ uc_panic uc 0 = None
+    /\ uc_panic uc 0 = ocpanic oc
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc).
 Proof.
   intros fuel c ucap w oc H Hnp.
@@ -673,7 +643,7 @@ Proof.
     eapply usteps_trans; [ exact Hus2 | ].
     eapply usteps_step; [ eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ] | apply usteps_refl ].
   - cbn [uc_live]. apply upd_same.
-  - cbn [uc_panic]. reflexivity.
+  - cbn [uc_panic ocpanic]. reflexivity.
   - cbn [oc_world uc_out] in Hw |- *. rewrite Hw, Hout, !map_app. cbn [map app].
     rewrite !map_snd_pair0, app_assoc. reflexivity.
 Qed.
@@ -681,8 +651,9 @@ Qed.
 (** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a run
     only ever APPENDS to the world's output (the body's [cmd_out_events c] then, via [run_defers_out], every
     defer's, recursively), never RETRACTS.  A cmd.v-side faithfulness guarantee — Go's deferred actions and
-    panics cannot un-print already-printed output.  This is a cmd.v-side property (distinct from the ustep
-    AGREEMENT bridges), and the general (all-[c]) OUTPUT half [bridge_nested_np] consumes. *)
+    panics cannot un-print already-printed output.  A standalone cmd.v-side property (distinct from the ustep
+    AGREEMENT bridges), via [run_defers_out]; [bridge_nested_np] establishes its nested output AGREEMENT
+    independently (through [unwind_prefix_np]), so this theorem is a sibling, not a dependency, of the bridge. *)
 Theorem run_cmd_out_monotone : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc ->
   exists evs, w_output (oc_world oc) = w_output w ++ evs.
@@ -705,9 +676,9 @@ Qed.
 
 (** PANIC-FREEDOM of [run_cmd] for ANY [c] (nested defers included): a [cmd_no_panic c] run that COMPLETES
     returns [ORet] — Go's panic-free program cannot end in a panic.  Via [go_chars] (the body is [ORet], as
-    [cmd_no_panic c ⇒ cmd_panic c = None]) + [run_defers_no_panic] (the defers preserve it).  The panic-free
-    companion to [run_cmd_out_monotone]; together the cmd.v-side spec of the non-panicking fragment that the
-    ustep bridge [bridge_nested_np] consumes. *)
+    [cmd_no_panic c ⇒ cmd_panic c = None]) + [run_defers_no_panic] (the defers preserve it).  A standalone
+    cmd.v-side property, panic-free companion to [run_cmd_out_monotone]; [bridge_nested_np] proves the SAME
+    non-panicking fragment agree with [ustep], resting on the shared [run_defers_no_panic] (not on this theorem). *)
 Theorem run_cmd_no_panic_ret : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
   exists w', oc = ORet tt w'.

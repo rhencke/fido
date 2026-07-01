@@ -95,7 +95,9 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
   (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
-- Extend the cmd↔unified bridge past current flat defers to NESTED defers, then chan/heap/spawn.
+- Extend the cmd↔unified bridge to the FULL nested+panicking case (the 2-level `(prog, pa)` invariant unifying
+  `bridge_flat_agrees` + `bridge_nested_np`), and/or `run_cmd` termination-for-nesting (to make `bridge_nested_np`
+  unconditional); then chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
 - Widen the live GoPrint plugin bridge (postfix / atoms / calls) + grow `GoStmt` forms — gate-honestly.
