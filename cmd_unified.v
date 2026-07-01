@@ -10,13 +10,12 @@
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
 
-    PUBLIC surfaces: TWO single-goroutine [usteps] AGREEMENT bridges — [cmd_to_ucmd_run_agrees] (a DEFER-FREE
-    [c], [cmd.no_defer] — the fragment GoSem slice 1 denotes) and [bridge_flat_agrees] (ANY [flat c] — any
-    number of [no_defer] defers, panicking or not; the (prog, pa) 2-mode unwind, final panic =
-    [flat_defers_panic] last-raised-wins) — for which the [usteps] run AGREES with cmd.v's AUTHORITATIVE
-    [run_cmd] (the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the
-    Outcome's panic); PLUS one cmd.v-side property, [run_cmd_out_monotone] (ANY [c], nested defers included:
-    [run_cmd] only APPENDS output, never retracts — the general OUTPUT half of the future nested bridge).
+    The module exposes single-goroutine [usteps] AGREEMENT bridges (the [usteps] run AGREES with cmd.v's
+    AUTHORITATIVE [run_cmd] — the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0]
+    EQUALS the Outcome's panic; the widest is [flat c] — any number of [no_defer] defers, panicking or not) plus
+    a cmd.v-side output-monotonicity property ([run_cmd] never retracts already-emitted output, for ANY [c]
+    including nested defers).  The EXACT gated public-surface set is the [Print Assumptions] block at the end of
+    this file (the single in-file authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [run_cmd] seal ([go_chars]), and the unified-side run lemmas are LOCAL (file-private) proof plumbing —
     no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free observer
@@ -542,12 +541,11 @@ Proof.
   - cbn [oc_world]. rewrite Hevs, Hout, <- app_assoc. reflexivity.
 Qed.
 
-(** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
-    no_defer [run_cmd]-grounded bridge, its [flat]-defer generalisation ([bridge_flat_agrees]: ANY [flat c] —
-    any number of [no_defer] defers, panicking or not, via the (prog, pa) 2-mode), AND the general (all-[c])
-    output-monotonicity of [run_cmd] ([run_cmd_out_monotone]).  The projection plumbing
-    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_defers_flat]/[run_defers_out]/
-    [unwind_flat]/Phase A) is Local and covered TRANSITIVELY through these cones, not separately printed. *)
+(** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the single
+    in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  Every
+    OTHER definition here (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections, their [run_cmd] seal
+    [go_chars], the [run_defers]/unwind plumbing, Phase A) is Local and covered TRANSITIVELY through these
+    cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
 Print Assumptions run_cmd_out_monotone.
