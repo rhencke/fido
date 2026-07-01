@@ -452,19 +452,20 @@ Fixpoint ptype (e : GExpr) : option PTy :=
           match ptype e0 with Some PtNil => Some PtAgg | _ => None end
       end
   | EIndex (ESliceLit t es) idx =>
-      (* indexing a slice LITERAL directly by an INTEGER index.  A CONSTANT index into a known-length literal is
-         COMPILE-TIME bounds-checked by Go (gc: "index N out of bounds [0:len]"), so an OOB or NEGATIVE constant
-         index is INVALID Go -> rejected.  An in-bounds constant, or a RUNTIME (non-constant) integer index
-         (whose bounds are a run-time property, deferred to a behavioral brick), is VALID Go -> SUPPORTED (a
-         runtime int of element type [t]).  Brick 1 (plans/slices-oob.md): INTEGER element types. *)
+      (* indexing a slice LITERAL directly by an INTEGER index.  For a SLICE, gc compile-checks a CONSTANT index
+         only for NON-NEGATIVE + INT-REPRESENTABLE (verified: gc rejects [[]int{..}[-1]] "must not be negative"
+         and [..[2^63]] "overflows int", but ACCEPTS an OOB positive [[]int{10,20}[5]] — OOB is a RUN-TIME PANIC,
+         NOT a compile error, unlike an ARRAY).  So reject a negative / non-int-representable constant; accept an
+         OOB-but-representable constant, OR any RUNTIME (non-constant) integer index (its bounds — incl. OOB — are
+         behavioral, deferred to B3).  Result: a runtime int of element type [t].  Brick 1: INTEGER elem types. *)
       if is_int_goty t
          && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then match ptype idx with
            | Some ci =>
                if is_int_cat ci then
                  match int_const_val ci with
-                 | Some k => if (0 <=? k)%Z && Nat.ltb (Z.to_nat k) (length es) then Some (PtRunInt t) else None
-                 | None   => Some (PtRunInt t)   (* runtime integer index: bounds are behavioral (B3) *)
+                 | Some k => if (0 <=? k)%Z && int_const_repr k GTInt then Some (PtRunInt t) else None
+                 | None   => Some (PtRunInt t)   (* runtime integer index: bounds (incl. OOB) are behavioral (B3) *)
                  end
                else None
            | None => None
@@ -515,9 +516,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
     [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
     whose elements are ASSIGNABLE to its element type, an INTEGER-indexed access into an INTEGER slice literal
-    ([]int{..}[i] — a runtime int; a CONSTANT index is compile-time bounds-checked so an OOB/negative constant
-    is REJECTED, while a RUNTIME index's bounds are behavioral, left to a later brick), and an INTEGER-key map
-    LITERAL whose constant keys are
+    ([]int{..}[i] — a runtime int; a NEGATIVE or non-int-representable CONSTANT index is REJECTED (gc compile
+    error), but an OOB positive constant is VALID Go (a run-time panic) so SUPPORTED, and a RUNTIME index's
+    bounds are behavioral), and an INTEGER-key map LITERAL whose constant keys are
     assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
