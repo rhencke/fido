@@ -13,9 +13,13 @@
     - GATE-SHAPE: [panic_free_denotable] — a DECIDABLE predicate on the RAW [Program] (denotability AND syntactic
       panic-freedom) that ENTAILS the panic-free run to [ORet] ([panic_free_denotable_runs_ret][_output][_ustep]) and REFINES
       [SupportedProgram] ([panic_free_denotable_supported]).  This is the eventual gate's SHAPE, not the gate.
+    - EMISSION-CERT SEED: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
+      [emit_panic_free] (seed of [emit_safe]) emits through the blessed [emit_supported] path but its PRECONDITION
+      is a proven panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].  Panic-only fragment;
+      does NOT gate main output; NOT [SafeProgram] / [BehaviorSafe].
     Plus cmd.v-level DEFER-FREE building blocks ([run_cmd_panic_free_world] / [run_cmd_panics_world]). *)
 
-From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified.
+From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified GoEmit.
 From Stdlib Require Import String List Bool.
 Import ListNotations.
 
@@ -281,6 +285,47 @@ Proof.
   intros p H. apply andb_true_iff in H as [Hden _]. exact (denotable_supported p Hden).
 Qed.
 
+(** ---- SEED of the GoSem-BACKED emission certificate (north-star: [BehaviorSafe] -> [SafeProgram] ->
+    [emit_safe]).  Slice 1's ONLY unsafe runtime op is [panic] (no ptrs / slices / channels denoted), so on the
+    DENOTED fragment "panic-free" IS the behavioral-safety condition — a full [BehaviorSafe] (nil deref / OOB /
+    send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT [SafeProgram] /
+    [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via [panic_free_denotable_supported]) AND
+    carries the decidable panic-free RUN guarantee.  It is the FIRST certificate whose PRECONDITION is
+    behavioral (a proven [ORet] run), not merely the syntactic [SupportedProgram] of [GoEmit.EmittableProgram]. *)
+Record PanicFreeEmittable : Type := mkPanicFreeEmittable {
+  pfe_program    : Program;
+  pfe_panic_free : panic_free_denotable pfe_program = true;
+}.
+
+(** REFINEMENT: a [PanicFreeEmittable] IS an [EmittableProgram] (still emittable through the BLESSED path) —
+    its behavioral precondition discharges the syntactic [ep_supported] via [panic_free_denotable_supported]. *)
+Definition pfe_emittable (c : PanicFreeEmittable) : EmittableProgram :=
+  mkEmittable (pfe_program c) (panic_free_denotable_supported (pfe_program c) (pfe_panic_free c)).
+
+(** SEED of [emit_safe]: the blessed emitter on the behavioral certificate.  Goes THROUGH [emit_supported]
+    (no forked emission logic — pinned by [emit_panic_free_via_blessed]); the difference from plain
+    [emit_supported] is the STRONGER precondition — you cannot build a [PanicFreeEmittable] without discharging
+    [panic_free_denotable], so this emitter accepts ONLY programs with a proven panic-free run. *)
+Definition emit_panic_free (c : PanicFreeEmittable) : string := emit_supported (pfe_emittable c).
+Lemma emit_panic_free_via_blessed : forall c, emit_panic_free c = emit_supported (pfe_emittable c).
+Proof. reflexivity. Qed.
+
+(** The behavioral guarantee TRAVELS with the certificate: a [PanicFreeEmittable]'s program DENOTES and RUNS to
+    [ORet] (never [OPanic]) under minimal fuel — the FIRST emission certificate carrying a GoSem-backed
+    execution guarantee.  (Direct from [panic_free_denotable_runs_ret] on the carried proof.) *)
+Theorem pfe_runs_ret : forall (c : PanicFreeEmittable) w,
+  exists cmd w', denote_program (pfe_program c) = Some cmd /\ run_cmd 1 cmd w = Some (ORet tt w').
+Proof.
+  intros c w. exact (panic_free_denotable_runs_ret (pfe_program c) w (pfe_panic_free c)).
+Qed.
+
+(** A concrete behavioral certificate ([panic_free_prog] = `println("ok"); return`) built + emitted through the
+    behavioral path, its run guarantee discharged. *)
+Definition pfe_demo : PanicFreeEmittable := mkPanicFreeEmittable panic_free_prog eq_refl.
+Example pfe_demo_runs : forall w,
+  exists cmd w', denote_program (pfe_program pfe_demo) = Some cmd /\ run_cmd 1 cmd w = Some (ORet tt w').
+Proof. intro w. exact (pfe_runs_ret pfe_demo w). Qed.
+
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
     [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
     Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
@@ -288,5 +333,5 @@ Qed.
 Definition gosem_panic_free_surface :=
   (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
    panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
-   panic_free_denotable_supported).
+   panic_free_denotable_supported, pfe_runs_ret).
 Print Assumptions gosem_panic_free_surface.

@@ -83,24 +83,27 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   `run_cmd_out_monotone` (a completing run's output only APPENDS) + `run_cmd_no_panic_ret` (a completing
   panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
-  runs to `ORet`, never panics; `panic_free_runs_ret_output` gives the EXPLICIT output world `cmd_out_world c w`
-  — the accumulated logs — and the existential is its corollary; the dual `run_cmd_panics_world` is a
-  cmd.v-level lemma for a DEFER-FREE command whose body panics (`no_defer` + `cmd_panic_val c = Some v`): it
-  runs to `OPanic v` with the exact pre-panic output — it says NOTHING about commands with defers) +
+  runs to `ORet`, never panics; `_output` gives the EXPLICIT output world `cmd_out_world c w`; the dual
+  `run_cmd_panics_world` is the cmd.v-level DEFER-FREE panic lemma — `no_defer` + `cmd_panic_val c = Some v` ⇒
+  `OPanic v` with exact pre-panic output, silent on defers) +
   `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom / liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
   `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_output`][`_ustep`]
   prove it entails the panic-free run to `ORet` (`_output` = the EXPLICIT output world), and `panic_free_denotable_supported` proves `panic_free_denotable p = true`
-  implies `SupportedProgram p` (its support proof suffices for GoEmit's `ep_supported` field).
-  SEED of `BehaviorSafe`; ⚠ NOT a gate (name stays specific, not `safe`). Zero axioms.
+  implies `SupportedProgram p`. Built on that, `PanicFreeEmittable` (program + `panic_free_denotable`) REFINES
+  GoEmit's `EmittableProgram` — the FIRST emission certificate whose precondition is a proven panic-free RUN
+  (`pfe_runs_ret`), not just syntactic `SupportedProgram`; `emit_panic_free` (seed of `emit_safe`) emits only
+  behaviorally-certified programs through the blessed path. SEED of `BehaviorSafe`→`SafeProgram`→`emit_safe`;
+  ⚠ scoped to slice 1's panic-only fragment, does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
 
-- **GoSem slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC),
-  NOT `BehaviorSafe`; slice 1 denotes a SUBSET of supported programs and proves denotation⊆gate. No
-  `BehaviorSafe` gate, no GoSem-backed emission gate (GoSemSafe.v's panic-free properties are proved but are NOT gates).
+- **GoSem slice 1 only / behavioral cert is panic-only + off the main path.** The blessed SYNTACTIC certificate
+  is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
+  (precondition = a proven panic-free RUN), but it is scoped to slice 1's panic-only fragment (NOT full
+  `BehaviorSafe` — no nil deref / OOB / send-on-closed / race), and it does NOT gate the main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
 - **Main output is the legacy path:** `main.go` comes from the trusted plugin, not the certificate-gated
