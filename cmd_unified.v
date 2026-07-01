@@ -486,7 +486,7 @@ Proof.
 Qed.
 
 (** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
-    no_defer [run_cmd]-grounded bridge AND its defer-bearing generalisation ([bridge_flat_agrees]: ANY [flat c] —
+    no_defer [run_cmd]-grounded bridge AND its [flat]-defer generalisation ([bridge_flat_agrees]: ANY [flat c] —
     any number of [no_defer] defers, panicking or not, via the (prog, pa) 2-mode).  The projection plumbing
     ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_defers_flat]/[unwind_flat]/
     Phase A) is Local and covered TRANSITIVELY through these cones, not separately printed. *)
