@@ -14,7 +14,7 @@ spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is 
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10); `emit_panic_free` is a narrow panic-only emission cert OFF the main path — no full BehaviorSafe gate.
+Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepts only denoted+panic-free programs; modeled runtime panics are rejected by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
@@ -27,13 +27,10 @@ semantics (`cmd.v`/`unified.v`/`concurrency.v`); slice 1 only (below).
 **Live plugin bridge:** the legacy trusted plugin (`plugin/go.ml`) still emits `main.go`; the extracted
 `plugin/printer.ml` (from GoPrint) prints a SMALL expression class on that live path — a binop tree over
 runtime locals, int/int64/uint64 literals, the bare `^x` complement, a runtime local's plain field selector
-`local.Field` (`is_record_proj`, NOT an embedded field nor a defined-type value projection, and only a local
-receiver — the one shape where `gprint` matches the trusted `pp_expr`'s peel/atom rendering, pinned by the
-selector-bridge gate), the runtime numeric
-conversions, and fixed-width `(u|i)N_add`/`sub`/`mul` as a bridging-binop operand. Every other shape stays on
-trusted `pp_expr`. The trusted plugin CONSTRUCTS the `GExpr` (choice of AST); only the verified `gprint`
-PRINTS it — the proofs cover AST→string serialization, NOT the MiniML→`GExpr` construction, and are not a
-Go-parser acceptance. So the live emission is NOT "verified Go."
+(`is_record_proj`: local receiver, not embedded/defined-type projection — pinned by the selector-bridge gate),
+the runtime numeric conversions, and fixed-width `(u|i)N_add`/`sub`/`mul` as a bridging-binop operand. Every
+other shape stays on trusted `pp_expr`. The trusted plugin CONSTRUCTS the `GExpr`; only the verified `gprint`
+PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The live emission is NOT "verified Go."
 
 ## GREEN (proved / working)
 
@@ -64,12 +61,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   individually denotes — return/panic terminators, blank-assign, print·println interleaved, incl. a
   terminator + supported dead tail; SUFFICIENT not necessary, still conditional on `stmt_denotable`, not full
   `supported_program`). Its tightness is PROVED, not asserted: `denotable_body_terminator_free_iff` — on a
-  terminator-free body the compositional converse is EXACT (iff), so the terminator dead-tail escape is the
-  SOLE source of "sufficient not necessary". Denoted programs run through
-  `cmd.v` — the converse has a RUN-level twin `denotable_stmts_main_runs` (denotable-stmts body not only
-  denotes but RUNS to an Outcome, never stuck), paralleling `out_main_runs`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
-  comparators ARE the model's `str_*`); a GoSem fact in neither tuple is an internal helper / example, not
-  certified. NO `BehaviorSafe`. Zero axioms.
+  terminator-free body the compositional converse is EXACT (iff), the terminator dead-tail escape being the
+  SOLE slack. RUN-level twins: `denotable_stmts_main_runs` / `out_main_runs`. Certified public surface =
+  `gosem_trust_surface` + `gosem_string_authority_surface` (the string comparators ARE the model's `str_*`); a
+  GoSem fact in neither tuple is an internal helper / example, not certified. NO `BehaviorSafe`. Zero axioms.
 - **Model layer** (proof-only): `builtins.v` (the Go layer over concrete Rocq data), `cmd.v` (effect
   evaluator), `unified.v` (`ustep` operational semantics with race-freedom + liveness/deadlock proved on it —
   NOT the emission path), `concurrency.v` (trace / happens-before / race / bounded-deadlock theory).
@@ -84,27 +79,26 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure — a pure `run_cmd` property).
   ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free
-  denoted program runs to `ORet`, never panics; `_output` gives the EXPLICIT output world `cmd_out_world c w`;
-  `_ustep` lifts it to `ustep`, where race-freedom / liveness live; the dual `run_cmd_panics_world` is the
-  cmd.v-level DEFER-FREE panic lemma). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE
-  predicate on the raw `Program`; `panic_free_denotable_runs_ret`[`_output`][`_ustep`] prove it entails the
-  panic-free run, and `_supported` proves it implies `SupportedProgram`. Built on that, `PanicFreeEmittable`
-  (program + `panic_free_denotable`) REFINES GoEmit's `EmittableProgram` — the FIRST emission cert whose
-  precondition is a proven panic-free RUN (`pfe_runs_ret`), not syntactic `SupportedProgram`; `emit_panic_free`
-  emits only behaviorally-certified programs through the blessed path. `panic_free_gate : Program→option
-  PanicFreeEmittable` decides + certs-or-rejects (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end
-  decide-then-emit (ancestor of a total `emit_safe`). ⚠ panic-only fragment, does NOT gate main output, NOT
-  full `BehaviorSafe`. Zero axioms.
+  denoted program runs to `ORet`, never panics; `_output` pins the explicit output world; `_ustep` lifts it to
+  `ustep`). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate;
+  `panic_free_denotable_runs_ret`[`_output`][`_ustep`] prove it entails the panic-free run, `_supported` that it
+  implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
+  whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
+  (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
+  ⚠ accepts only DENOTED + syntactically panic-free programs — modeled runtime panics (OOB const slice index /
+  panicking literal element / runtime blank-assign) are rejected by NON-denotation, `panic_free_gate_slice`
+  pins the OOB case — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
 
-- **GoSem slice 1 only / behavioral cert is panic-only + off the main path.** The blessed SYNTACTIC certificate
+- **GoSem slice 1 only / behavioral cert is narrow + off the main path.** The blessed SYNTACTIC certificate
   is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
-  (precondition = a proven panic-free RUN), but it is scoped to slice 1's panic-only fragment (NOT full
-  `BehaviorSafe` — no nil deref / OOB / send-on-closed / race), and it does NOT gate the main output.
+  (precondition = a proven panic-free RUN). It accepts only programs that DENOTE and have no syntactic panic;
+  modeled runtime panics are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
+  race, and runtime OOB beyond the declined constant fragment, are unmodeled — and it does NOT gate main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
 - **Main output is the legacy path:** `main.go` comes from the trusted plugin, not the certificate-gated
@@ -116,24 +110,12 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 ## NEXT
 
-- **DENOTE `GsDefer` (now UNBLOCKED — the fuel-1 blocker is gone).** The completed defer bridge
-  (`cmd_unified.bridge_agrees` / `run_cmd_terminates`: `∀ c w, ∃ fuel oc, run_cmd fuel c w = Some oc` for ANY
-  `c`, arbitrary defer nesting) supplies the sufficient-fuel execution the `GsDefer`→`CDfr` denotation needed —
-  so the earlier "undenoted until `run_cmd` fuel>1" is satisfied. Scoped arc (one clean tick): (a) factor a
-  single `denote_effect_call : GExpr → option (Cmd unit * bool)` authority, rewire `GsExprStmt` through it
-  (behavior-preserving); (b) denote `GsDefer e` as `Some (CDfr d (CRet tt), false)` where `d = denote_effect_call
-  e` (faithful: `cbind (CDfr d (CRet tt)) k = CDfr d k` = Go's `defer d; rest`; the deferred action runs at
-  return via `run_defers`, LIFO); (c) update the `GsDefer` arm of `denote_stmt_sound` (gated on `expr_stmt_ok e`
-  = `stmt_ok (GsDefer e)`, so `denote ⊆ gate` holds); (d) the `no_defer`-based run infra
-  (`denote_stmt_no_defer` / `denote_body_no_defer` / `no_defer_run`, etc.) no longer holds universally —
-  DELETE that dead cluster (shrinks the file) and re-prove the 4 gated run theorems (`denote_program_runs` /
-  `out_main_runs` / `println_main_runs` / `denotable_stmts_main_runs`) with conclusion `∃ fuel oc, run_cmd fuel c
-  w = Some oc` via `run_cmd_terminates`. ★DESIGN (DONE): `run_cmd_terminates` + its termination machinery now
-  live in `cmd.v` (pure `run_cmd`/`run_defers` properties, re-proved against `go` directly via `go_defers_sz_lt`
-  so none of `cmd_unified.v`'s private projections moved; keeps `GoSem`'s dep footprint lightweight).
-  (e) faithfulness pins: defer-only, defer-println-then-println (LIFO output),
-  defer-panic (panic at return), all gated in `gosem_trust_surface`; (f) update the fuel-1 comments + this item.
-  This closes `GsDefer`, the non-eval-closable half of the `stmt_denotable`→`stmt_ok` gap.
+- **DENOTE `GsDefer` (UNBLOCKED; on hold while consolidating).** `cmd.run_cmd_terminates` (relocated, DONE)
+  supplies the sufficient-fuel foundation. Scoped design in the 008b420 commit message: `GsDefer e` ↦
+  `CDfr d (CRet tt)` via a shared `denote_effect_call`; extend `stmt_is_panic`/`denote_stmt_no_panic` (a
+  deferred panic IS a panic site); replace the fuel-1 `no_defer` run layer with ∃-fuel; `bridge_agrees`
+  subsumes `denote_program_run_agrees`; LIFO/defer-panic pins. Closes the non-eval-closable half of the
+  `stmt_denotable`→`stmt_ok` gap.
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
   not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
   statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap on the DEFER-FREE

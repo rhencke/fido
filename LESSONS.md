@@ -106,3 +106,19 @@ that *nothing else* is. Make accepted == emitted a **proven bijection**: keep th
 `unescape_opt body = Some s -> body = esc_string s`. Tighten the decoder until that theorem holds
 (here: restrict raw bytes and `\xHH` to exactly `esc_byte`'s output), and have the gate DEFER its
 exactness claim to the live theorem, not to phrase-grep. "Exact" asserted in prose ≠ "exact" proven.
+
+## Never guess a target-language semantics — test it before encoding it (2026-07-01)
+
+**What happened.** The slice-index supportedness rule was written from a *guessed* gc behavior
+("constant OOB index = compile error"). Three review bounces later, a two-minute `go build` of a
+five-line program settled it: for a SLICE, gc compile-checks a constant index only for
+non-negative + int-representable; a constant OOB-positive index is VALID Go that panics at run
+time. A fourth bounce found the denotation folding only the *selected* literal element — but
+`go run` shows Go constructs the WHOLE literal first, so an unselected panicking element panics.
+
+**The rule.** Before encoding any target-language boundary (what compiles, what panics, when
+operands evaluate), write the smallest concrete program and run the real toolchain (`go build` /
+`go run` in the pinned container). One observation beats any number of plausible recollections;
+the verified-against artifact is the toolchain, not memory. Corollary: an evaluator helper's
+accept-set must be sealed to the SUPPORTEDNESS gate's own checks and the inclusion proved —
+a looser private boundary certifies invalid programs (`eval_slice_index_supported`).

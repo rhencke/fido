@@ -185,16 +185,12 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
   | _ => None
   end.
 
-(** Evaluate EVERY element of an int-slice LITERAL to its boxed value, ALL-or-[None].  The element gate is
-    [ptype]'s OWN slice-literal check — [assignable_to_ty ce t] — so this evaluator's accept-set is a SUBSET of
-    [ptype]-supported: it NEVER accepts an element [ptype] would reject.  A TYPED constant of the WRONG type
-    ([int64(1)] in an [[]int]) is DECLINED here exactly as [ptype] declines [[]int{int64(1)}] ([numty_eqb]
-    mismatch — a typed constant is NOT untyped), closing the side-condition leak an [int_const_val]-only gate had.
-    On TOP of assignability it demands the element be a CONSTANT boxable to [t] ([int_const_val]+[box_int]): Go
-    constructs the WHOLE literal before indexing, so a RUNTIME / panicking element (e.g. [1/len([]int{})] or
-    [len(..)], both [PtRunInt], [int_const_val = None]) makes the whole thing [None] — indexing it is then
-    undenoted, NEVER a wrong value.  Sealed-to-[ptype] proved: [eval_int_slice_elems_forall_assignable] /
-    [eval_slice_index_supported]. *)
+(** Evaluate EVERY element of an int-slice LITERAL to its boxed value, ALL-or-[None].  Each element is gated by
+    [ptype]'s OWN check ([assignable_to_ty ce t] — a wrong-typed constant like [int64(1)] in an [[]int] is
+    declined exactly as [ptype] declines it; proved: [eval_int_slice_elems_forall_assignable] /
+    [eval_slice_index_supported]) and must be a CONSTANT boxable to [t]: Go constructs the WHOLE literal before
+    indexing, so a runtime / panicking element — even an unselected one — makes the fold [None], never a wrong
+    value. *)
 Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny) :=
   match es with
   | [] => Some []
@@ -230,13 +226,10 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
 Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
-      (* slices-oob.md B2: a CONSTANT in-bounds index into an INT-slice literal folds to the k-th element.
-         Go evaluates the WHOLE literal ([eval_int_slice_elems] — ALL elements, each ASSIGNABILITY-GATED to [t]
-         then, if a boxable constant, boxed to [t]; a wrong-typed const is DECLINED, not retyped) BEFORE indexing,
-         so a runtime / panicking / out-of-range element (even an UNSELECTED one, e.g. [1/len([]int{})]) makes
-         the whole thing [None] and is NOT denoted -> the gate REJECTS it (never a wrong printed value).  Then
-         index the boxed VALUE list ([nth_error] declines an OOB constant; a runtime index has [int_const_val =
-         None]).  [ptype] still classifies the whole [PtRunInt] (Go: slice-index is a runtime, non-constant int). *)
+      (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is evaluated
+         first ([eval_int_slice_elems] — Go builds the literal before indexing, so a runtime/panicking/malformed
+         element, even unselected, declines the fold), then the boxed value list is indexed ([nth_error]: OOB ->
+         [None]; a runtime index has [int_const_val = None]).  [ptype] still classifies the whole [PtRunInt]. *)
       if is_int_goty t
       then match ptype idx with
            | Some ci =>
@@ -373,18 +366,12 @@ Proof.
   - congruence.
 Qed.
 
-(** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (the converse-direction companion of
-    [gosem_sound] / [denote_body_sound]).  [denotable_body] is a pure [bool] decision procedure mirroring
-    [denote_body]'s discipline: a body denotes iff its head statement denotes ([denote_stmt s <> None]) AND —
-    at a TERMINATOR — the unreachable rest is merely SUPPORTED ([forallb stmt_ok rest]), else the rest is
-    itself denotable.  [denote_body_dec] proves the two AGREE: denotability decomposes statement-by-statement,
-    with NO body-level failure mode of its own beyond [denote_stmt]'s.  This is the SCAFFOLD toward the eventual
-    "supported ⟺ denotes".  The [denotable_*] ⊊ [supported_*] gap has TWO independent sources: (a) unmodeled
-    VALUE forms (runtime [len]/[int(x)], fractional floats) that [eval_value] does not yet fold; (b) [GsDefer]
-    — supported + emittable but undenoted until [run_cmd] fuel > 1.  [eval_value] growth closes only (a), and
-    only on the DEFER-FREE fragment; full "supported ⟺ denotes" ALSO needs defer denotation.  TODAY [denotable_*]
-    pins the EXACT denotable fragment as a decidable predicate.  (It is a CHARACTERIZATION/decidability result,
-    NOT yet [supported_program ⟹ denotes] — [eval_value] is partial AND defer is unmodeled.) *)
+(** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
+    [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
+    unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
+    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap has TWO
+    sources — (a) unmodeled VALUE forms (runtime [len]/[int(x)], fractional floats), which [eval_value] growth
+    closes; (b) [GsDefer] (supported + emittable, undenoted until [run_cmd] fuel > 1), which it never touches. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
   | [] => true
@@ -422,20 +409,13 @@ Proof.
   - split; intro H; [congruence | discriminate].
 Qed.
 
-(** ---- COMPLETENESS FRAGMENT — the [supported ⟹ denotes] direction for the PRINT/PRINTLN-of-DENOTABLE-ARGS
-    fragment (AUTHORITY: [out_main_denotes] below; [print] as well as [println]).  NOT the whole supported output
-    class — a print/println of a RUNTIME arg is supported but not [denotable_arg], so it does NOT denote
-    ([out_boundary_runtime_undenoted]).  A print/println ARG denotes iff it EVALUATES and is PRINTABLE:
-    [denotable_arg].  A `main` body of denotable-arg output statements + [return] ALWAYS denotes for the args
-    [eval_value] folds: string CONSTANTS (literals, concatenations, identity string conversions, ASCII rune
-    conversions [string(65)]) plus the folded integer / exact-float / bool CONSTANTS — NOT every supported string
-    (a MULTI-BYTE rune conversion like `string(200)` is supported at classifier+gate but eval-partial, so NOT
-    [denotable_arg]; the FULL supported-but-absent boundary is pinned by [runeconv_multibyte_boundary]).
-    ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
-    program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
-    that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
-    blank-assign is supported but not denotable) — the gap covering BOTH eval-partial forms (eval-growth closes
-    these) AND [GsDefer] (supported + emittable, undenoted until [run_cmd] fuel > 1, which eval-growth never touches). *)
+(** ---- COMPLETENESS FRAGMENT — [supported ⟹ denotes] for the PRINT/PRINTLN-of-DENOTABLE-ARGS fragment
+    (AUTHORITY: [out_main_denotes]).  NOT the whole supported output class: an ARG denotes iff it EVALUATES and
+    is PRINTABLE ([denotable_arg] — exactly the per-arg denotation condition, so the converse holds OUTRIGHT on
+    this fragment); a RUNTIME arg is supported but not [denotable_arg] ([out_boundary_runtime_undenoted]), and a
+    supported-but-eval-partial constant (multi-byte rune [string(200)]) is pinned by
+    [runeconv_multibyte_boundary].  [denotable_supported] pins denotable ⊆ supported — a STRICT inclusion (the
+    gap: eval-partial value forms + undenoted [GsDefer]). *)
 Definition denotable_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -550,12 +530,12 @@ Qed.
 Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
 Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
 
-(** Grounding: a multi-statement `func main(){ println("a"); println("b"); return }` is denotable. *)
+(** Grounding fixture: a multi-statement `func main(){ println("a"); println("b"); return }` — its
+    denotability is pinned in [gosem_denotability_decisions] below. *)
 Definition gosem_strlit_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
-Example gosem_strlit_denotable : denotable_program gosem_strlit_prog = true.   Proof. reflexivity. Qed.
 
 (** [println_main_denotes] — the all-[println] COROLLARY of [out_main_denotes]: a `main` body of N
     [println(args)] (every arg [denotable_arg]) + [return] denotes.  [println_main_body] is [out_main_body] with
@@ -610,17 +590,12 @@ Example out_boundary_runtime_undenoted :
   /\ denote_program out_runtime_prog = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** ---- GENERAL statement-compositional CONVERSE: a body whose EVERY statement INDIVIDUALLY denotes is a
-    denotable body, so its `main` DENOTES.  This GENERALIZES [out_main_denotes] (the pure output-call fragment)
-    to ALL denoting statement forms interleaved — [return] / [panic] terminators, blank constant-assignment,
-    and print·println — INCLUDING a terminator followed by (supported) DEAD code, which [out_main_body] cannot
-    even express.  It is SUFFICIENT, not necessary: a terminator's UNREACHABLE rest need only be SUPPORTED
-    ([denotable_body]'s terminator arm gates on [forallb stmt_ok rest]), so a denotable body may carry a
-    non-denotable-but-supported dead tail.  Rests on [denote_stmt_sound] (via [stmt_denotable ⟹ stmt_ok]).
-    STILL CONDITIONAL on [stmt_denotable], NOT full [supported_program] — which also admits [GsDefer] (undenoted
-    until [run_cmd] fuel > 1) and runtime args slice 1 cannot evaluate (the boundary above).  [eval_value] growth
-    closes ONLY the runtime-arg gap and ONLY on the defer-free fragment; full [stmt_denotable = stmt_ok] ALSO
-    needs defer denotation. *)
+(** ---- GENERAL statement-compositional CONVERSE: a body whose EVERY statement INDIVIDUALLY denotes is
+    denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
+    interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
+    terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
+    [supported_program] — the gap is the eval-partial value forms + undenoted [GsDefer] (see the decidability
+    note above). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -691,14 +666,11 @@ Proof.
     exact (IH vs' eq_refl).   (* [destruct]'s substitution rewrote IH's premise to [Some vs' = Some vs] *)
 Qed.
 
-(** ★ SUPPORTEDNESS INCLUSION BRIDGE (slices-oob.md B2) — the reduction's hypotheses IMPLY
-    [ptype (EIndex (ESliceLit t es) idx) = Some (PtRunInt t)], i.e. the expression is VALID Rocq-Go.  This is an
-    INCLUSION (subfragment ⊆ [ptype]-supported), NOT an equivalence: the reduction fragment is the FULLY-EVALUABLE
-    ALL-CONSTANT one (constant index + every element a boxable constant), a STRICT SUBSET of what [ptype] accepts
-    — [ptype] ALSO supports a RUNTIME index and RUNTIME same-typed elements ([GoTypes.v] runtime-index /
-    [assignable_to_ty] arms), which B2 does NOT yet denote (pinned strict by [slice_index_supported_but_undenoted]).
-    So the class reduction below is over that named subfragment, sealed to consult [ptype]'s OWN element/index
-    checks (no looser private boundary), NOT over the whole [ptype] slice-index fragment. *)
+(** ★ SUPPORTEDNESS INCLUSION BRIDGE — the reduction's hypotheses IMPLY [ptype = Some (PtRunInt t)] (valid
+    Rocq-Go).  A strict INCLUSION, not an equivalence: the fully-evaluable all-constant subfragment ⊊
+    [ptype]-supported ([ptype] also admits a RUNTIME index / RUNTIME same-typed elements, undenoted — strictness
+    pinned by [slice_index_supported_but_undenoted]).  The evaluator consults [ptype]'s OWN element/index checks,
+    so there is no looser private boundary. *)
 Lemma eval_slice_index_supported :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -723,16 +695,10 @@ Proof.
   reflexivity.
 Qed.
 
-(** ★ CLASS THEOREM (slices-oob.md B2) — the GENERIC reduction the fixtures below instantiate, over the
-    FULLY-EVALUABLE ALL-CONSTANT slice-index subfragment (any element type [t], any all-constant literal [es]
-    that fully evaluates, any non-negative INT-REPRESENTABLE CONSTANT index [k]) — a STRICT SUBSET of
-    [ptype]-supported ([eval_slice_index_supported] proves the inclusion; runtime index / runtime elements are
-    [ptype]-supported but OUTSIDE this fragment): whenever the literal FULLY evaluates ([eval_int_slice_elems t es
-    = Some vs]), [eval_value] of the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the
-    class-level in-bounds-faithful / OOB-declined property FOR THAT SUBFRAGMENT: [nth_error] yields the k-th boxed
-    element VALUE when in-bounds and [None] when OOB — the two corollaries below discharge both cases for the
-    whole subfragment, so the "class-level" claim names a real theorem (paired with the inclusion bridge), not a
-    fixture. *)
+(** ★ CLASS THEOREM — the generic reduction over the fully-evaluable all-constant slice-index subfragment (any
+    int element type [t], any fully-evaluating literal [es], any non-negative int-representable constant [k]):
+    [eval_value] of the index = [nth_error vs (Z.to_nat k)].  The two corollaries below discharge both
+    [nth_error] cases — in-bounds ⇒ the k-th boxed element VALUE, OOB ⇒ [None] — for the whole subfragment. *)
 Lemma eval_slice_index_reduces :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -794,84 +760,48 @@ Proof.
   - exfalso. apply Hne. reflexivity.
 Qed.
 
-(** slices-oob.md B2 — a CONSTANT IN-BOUNDS slice-literal index now DENOTES, folding to the k-th element's
-    VALUE (evidence-carrying): [[]int{10,20}[1]] evaluates to EXACTLY what the element literal [20] does — the
-    fold is faithful, no exact box ctor needed.  (A concrete instance of [eval_slice_index_inbounds_class].) *)
-Example eval_slice_index_inbounds_faithful :
-  eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) = eval_value (EInt 20)
-  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0)) = eval_value (EInt 10).
-Proof. split; reflexivity. Qed.
-(** An OOB constant index is DECLINED ([eval_value = None]) — [[]int{10,20}[5]] is valid Go that PANICS, so it
-    is not folded; the program does NOT denote and the gate REJECTS it (faithful-or-absent, never a wrong value). *)
-Example eval_slice_index_oob_none :
-  eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)) = None.
-Proof. reflexivity. Qed.
-(** END-TO-END (DENOTATION layer): [println([]int{10,20}[1])] (an ALL-CONSTANT literal, in-bounds) DENOTES,
-    while the OOB [println([]int{10,20}[5])] does NOT denote — GoSem DECLINES the OOB (faithful-or-absent), and a
-    literal with a runtime/panicking element is declined too ([slice_index_runtime_element_undenoted]).  This is
-    the DENOTATION fact that makes B2 "behavioral safety > panic-freedom" (the in-bounds access denotes
-    panic-free; the OOB one is declined, not folded to a wrong value); the EMISSION-GATE consequence — a
-    SUPPORTED (valid-Go) OOB program REJECTED behaviorally — is pinned in [GoSemSafe.panic_free_gate_slice]. *)
-Example slice_index_prog_inbounds_denotes :
-  denote_program (mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn]) <> None.
-Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
-Example slice_index_prog_oob_undenoted :
-  denote_program (mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn]) = None.
-Proof. reflexivity. Qed.
-(** REGRESSION (Codex P0): a runtime-PANICKING UNSELECTED element blocks the WHOLE fold.
-    [println([]int{20, 1/len([]int{})}[0])] PANICS in Go (div-by-zero during literal construction, verified
-    `go run`) — folding only the selected [20] would be a WRONG denotation.  Because [eval_int_slice_elems]
-    evaluates ALL elements, the runtime second element makes [eval_value] = [None] and the program UNdenoted. *)
-Example slice_index_runtime_element_undenoted :
-  eval_value (EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)) = None
-  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
-       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-          [EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)]); GsReturn]) = None.
-Proof. split; vm_compute; reflexivity. Qed.
-(** A MALFORMED UNSELECTED element ([300] out of [uint8] range) also blocks the fold: [box_int GTU8 300 = None]
-    makes the whole thing [None] (this literal is ALSO [ptype]-unsupported, so doubly rejected). *)
-Example slice_index_malformed_element_none :
-  eval_value (EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1)) = None.
-Proof. reflexivity. Qed.
-(** REGRESSION (Codex — side-condition leak): a WRONG-TYPED constant element is UNSUPPORTED, and the sealed
-    evaluator now DECLINES it too (no accepting-what-[ptype]-rejects).  [[]int{int64(1)}[0]]: the typed [int64]
-    constant is NOT assignable to [int] ([numty_eqb GTInt64 GTInt = false]), so [ptype] REJECTS the literal
-    ([= None]), [eval_value] folds to [None] (via [assignable_to_ty] in [eval_int_slice_elems]), and the [println]
-    program does NOT denote — the evaluator boundary equals [ptype]'s, not a looser one. *)
-Example slice_index_illtyped_element_undenoted :
-  ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)) = None
-  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)) = None
-  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
-       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-          [EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)]); GsReturn]) = None.
-Proof. split; [vm_compute; reflexivity | split; vm_compute; reflexivity]. Qed.
-(** REGRESSION (Codex — index boundary): a non-int-representable CONSTANT index is UNSUPPORTED (Fido's
-    conservative 32-bit [GTInt]) and DECLINED.  [[]int{10,20}[2^40]]: [int_const_repr (2^40) GTInt = false], so
-    [ptype = None] and [eval_value = None] — the index boundary matches [ptype], not merely [0<=?k]. *)
-Example slice_index_unrepresentable_index_undenoted :
-  ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None
-  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None.
-Proof. split; vm_compute; reflexivity. Qed.
-(** REGRESSION (Codex — the STRICT-SUBSET pin): the B2 subfragment is STRICTLY SMALLER than [ptype]-supported.
-    A RUNTIME index ([[]int{10,20}[len([]int{1})]]) and a RUNTIME same-typed ELEMENT ([[]int{len([]int{1})}[0]])
-    are BOTH [ptype]-SUPPORTED ([= Some (PtRunInt GTInt)] — valid Go), yet B2 does NOT denote either — at the
-    EXPRESSION level ([eval_value = None]) AND end-to-end as a [println(..); return] PROGRAM
-    ([denote_program = None]): the runtime index has [int_const_val = None] and the runtime element makes
-    [eval_int_slice_elems = None].  So [eval_slice_index_supported] is a strict INCLUSION, not equality — these
-    live in [ptype] but outside the fully-evaluable all-constant subfragment (B3 territory). *)
+(** ---- SLICE-INDEX fixtures (grouped; the CLASS theorems above are the authorities). ----
+    DENOTING side: the [eval_value_good] rows [[]int{10,20}[1]]/[[0]]] (exact element values) + [rc_sliceidx]
+    (end-to-end run).  DECLINED side, three layers on shared fixtures:
+    - [slice_index_unsupported_ok]: invalid Go is REJECTED by [ptype] AND declined by [eval_value] — a
+      wrong-typed element ([[]int{int64(1)}], not assignable to [int]) and a constant index over the
+      CONSERVATIVE 32-bit [GTInt] ([2^40]); the evaluator's accept-set is never looser than [ptype]'s.
+    - [slice_index_undenoted_ok]: [println(e); return] does NOT denote (and [eval_value e = None]) for the
+      VALID-Go OOB constant [[..][5]] (a slice OOB is a RUN-TIME panic, not a compile error — declined, never
+      a wrong value), a runtime-PANICKING UNSELECTED element ([[]int{20, 1/len([]int{})}[0]] panics in Go
+      during whole-literal construction, verified `go run` — hence [eval_int_slice_elems] evaluates ALL
+      elements), the wrong-typed-element literal, and an out-of-[uint8]-range element.  Faithful-or-absent:
+      declined-as-undenoted, NOT proven-unsafe. *)
+Definition println_prog (e : GExpr) : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [e]); GsReturn].
+Definition slice_index_unsupported : list GExpr :=
+  [ EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)
+  ; EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776) ].
+Example slice_index_unsupported_ok :
+  forallb (fun e => match ptype e, eval_value e with None, None => true | _, _ => false end)
+          slice_index_unsupported = true.
+Proof. vm_compute. reflexivity. Qed.
+Definition slice_index_undenoted : list GExpr :=
+  [ EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
+  ; EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)
+  ; EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)
+  ; EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1) ].
+Example slice_index_undenoted_ok :
+  forallb (fun e => match eval_value e, denote_program (println_prog e) with
+                    | None, None => true | _, _ => false end)
+          slice_index_undenoted = true.
+Proof. vm_compute. reflexivity. Qed.
+(** STRICT-SUBSET pin (GATED): a RUNTIME index and a RUNTIME same-typed element are [ptype]-SUPPORTED (valid
+    Go) yet undenoted at BOTH the expression and program level — so [eval_slice_index_supported] is a strict
+    INCLUSION, not equality; runtime cases await runtime values. *)
 Example slice_index_supported_but_undenoted :
   ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = Some (PtRunInt GTInt)
   /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = None
-  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
-       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-          [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])]); GsReturn]) = None
+  /\ denote_program (println_prog (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]))) = None
   /\ ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = Some (PtRunInt GTInt)
   /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None
-  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
-       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-          [EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)]); GsReturn]) = None.
+  /\ denote_program (println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0))) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
@@ -1035,9 +965,6 @@ Qed.
 Definition gosem_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
-Example gosem_demo_denotes : denote_program gosem_demo_prog
-                           = Some (COut true (anyt TString "hi" :: nil) (CRet tt)).
-Proof. vm_compute. reflexivity. Qed.
 Example gosem_demo_runs : forall w,
   match denote_program gosem_demo_prog with
   | Some c => run_cmd 5 c w
@@ -1045,7 +972,7 @@ Example gosem_demo_runs : forall w,
   end = Some (ORet tt (w_log true (anyt TString "hi" :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION (P0, Codex 2026-06-30): [return] STOPS the body — a NON-tail return's successors do NOT run.
+(** REGRESSION: [return] STOPS the body — a NON-tail return's successors do NOT run.
     `func main(){ return; println("after") }` is SUPPORTED (Go compiles it), yet prints NOTHING; GoSem denotes
     it to a no-output [CRet], NOT to running the [println].  [run_cmd] leaves the world UNCHANGED. *)
 Definition gosem_return_stops_prog : Program :=
@@ -1058,7 +985,7 @@ Example gosem_return_stops_no_output : forall w,
   end = Some (ORet tt w).   (* w UNCHANGED — no [w_log]; the [println] after [return] never runs *)
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** UNIVERSAL TERMINATOR PROPERTY (consolidates the old undenotable-successor witnesses, Codex 2026-06-30):
+(** UNIVERSAL TERMINATOR PROPERTY:
     a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
     their SUPPORTEDNESS.  Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
     ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
@@ -1073,12 +1000,11 @@ Proof. intros s c rest H. cbn [denote_body]. rewrite H. reflexivity. Qed.
 
 (** The two terminators the lemma covers (so it is not vacuous): bare [return] -> [CRet tt], and a denoted
     [panic("x")] -> [CPan (anyt TString "x")], each with the [true] terminates-flag. *)
-Example denote_stmt_return_terminates : denote_stmt GsReturn = Some (CRet tt, true).
-Proof. reflexivity. Qed.
-Example denote_stmt_panic_terminates :
-  denote_stmt (GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]))
-  = Some (CPan (anyt TString "x"), true).
-Proof. vm_compute. reflexivity. Qed.
+Example denote_stmt_terminators :
+  denote_stmt GsReturn = Some (CRet tt, true)
+  /\ denote_stmt (GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"]))
+     = Some (CPan (anyt TString "x"), true).
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** A denoted [panic] TERMINATES end-to-end: `func main(){ panic("x") }` denotes to a [CPan] and [run_cmd]
     PANICS with [anyt TString "x"]. *)
@@ -1089,40 +1015,29 @@ Example gosem_panic_demo_runs : forall w,
   = Some (OPanic (anyt TString "x") w).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REGRESSION (P0, Codex 2026-06-30): a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})`
-    ([len] of an empty slice = 0, a runtime divide-by-zero) — is SUPPORTED ([GoTypes] admits runtime division;
-    the div-by-zero is GoSem's concern), but slice-1 [eval_value] does NOT model it, so GoSem leaves it
-    UN-denoted ([denote_program = None]) rather than giving it the WRONG (silent, no-panic) behavior.  Once the
-    evaluator models runtime panics this becomes a [CPan]; until then it is honestly absent, not wrong. *)
+(** REGRESSION fixture: a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})` — is SUPPORTED, but
+    slice-1 [eval_value] does not model runtime effects, so GoSem leaves it UN-denoted (see
+    [gosem_denotability_decisions]) rather than giving it the WRONG (silent, no-panic) behavior. *)
 Definition gosem_runtime_blank_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsBlankAssign (EBn BDiv (EInt 1)
                               (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]))].
-Example gosem_runtime_blank_undenoted : denote_program gosem_runtime_blank_prog = None.
-Proof. reflexivity. Qed.
 
-(** BOUNDARY — a [defer <call>] statement is SUPPORTED (emittable) but NOT YET denoted (faithful-or-ABSENT): its
-    [cmd.v] denotation is a [CDfr], which needs [run_cmd] fuel > 1, and GoSem's execution/safety story is fuel-1
-    (slice 1 denotes [no_defer] only).  So `func main(){ defer println("bye"); return }` is supported yet does
-    NOT denote — the RIGHT behavior is (not yet) NONE, never a WRONG one. *)
+(** BOUNDARY fixture: a [defer <call>] is SUPPORTED (emittable) but NOT YET denoted (faithful-or-ABSENT): its
+    [cmd.v] denotation is a [CDfr], and GoSem's execution/safety story is fuel-1 ([no_defer] only) — so
+    `func main(){ defer println("bye"); return }` is supported yet undenoted (never a WRONG behavior). *)
 Definition gosem_defer_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn].
-Example gosem_defer_undenoted : denote_program gosem_defer_prog = None.
-Proof. reflexivity. Qed.
-Example gosem_defer_not_denotable : denotable_program gosem_defer_prog = false.  (* the decidable predicate agrees *)
-Proof. reflexivity. Qed.
 
 (** ---- [eval_value] FOLD TABLE (grouped regression) ---- each LISTED row's constant [eval_value] denotes to
     the paired value, pinned as one [(expr, value)] list.  A BREADTH sample, NOT a completeness claim: some
-    printable supported constants are honestly ABSENT (e.g. the multi-byte rune [string(200)], pinned separately
-    by [runeconv_multibyte_boundary]).  The listed rows exercise integer conversions/arith/complement (boxing
-    the model's EXACT value per signedness/width; [^int64(5)] = [-6]), exact-integer FLOAT constants (the UNIQUE
-    canonical binary64/32), constant BOOLs (the 6 numeric or STRING-constant comparisons — order via the model's
-    [str_*] — combined by [==]/[!=]/[&&]/[||]/[!] + the identity [bool(x)]), and string CONSTANTs (literal /
-    concat / ASCII-rune / identity string conv: ["a"+"b"] = ["ab"] byte append, [string(65)] = ["A"] ([0,127]
-    arm), high-byte "\200">"\100" pins UNSIGNED order).  The [box_*]/[ptype] FAIL-CLOSED pins (out-of-range
-    boxing / ill-typed compare / uint underflow) are separate below — those lock the GATE boundary, not a fold. *)
+    printable supported constants are honestly ABSENT (e.g. the multi-byte rune [string(200)], pinned by
+    [runeconv_multibyte_boundary]).  Rows exercise: integer conversions/arith/complement (the model's EXACT
+    value per signedness/width), exact-integer FLOAT constants, constant BOOLs (numeric + string comparisons,
+    [&&]/[||]/[!], [bool(x)]), string CONSTANTs (literal/concat/ASCII-rune/identity conv; high-byte order is
+    UNSIGNED), and the constant in-bounds slice-index.  The [box_*]/[ptype] FAIL-CLOSED pins are separate below
+    — those lock the GATE boundary, not a fold. *)
 Definition eval_value_good : list (GExpr * GoAny) :=
   [ (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3], anyt TI64 (i64wrap 3))
   ; (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5], anyt TU8 (u8wrap 5))
@@ -1161,6 +1076,8 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab"), anyt TBool true)
   ; (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A"), anyt TBool true)
   ; (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EStr "ab"), anyt TBool true)
+  ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1), anyt TInt64 (intwrap 20))   (* constant in-bounds slice-index -> the EXACT element value *)
+  ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0), anyt TInt64 (intwrap 10))
   ].
 Example eval_value_good_ok :
   map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
@@ -1172,9 +1089,6 @@ Proof. vm_compute. reflexivity. Qed.
     OVER the table, so it does NOT by itself pin WHICH behaviors are present (a shrunk table still proves it);
     the required behavior CATEGORIES are pinned STANDALONE, table-independently, by [gosem_category_coverage]
     below. *)
-Definition println_prog (e : GExpr) : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [e]); GsReturn].
 Example eval_value_good_runs : forall w,
   map (fun p => match denote_program (println_prog (fst p)) with
                 | Some c => run_cmd 5 c w | None => None end) eval_value_good
@@ -1199,7 +1113,7 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
   rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
-  rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* slices-oob.md B2: constant in-bounds int-slice index folds+runs to the element *)
+  rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* constant in-bounds int-slice index folds+runs to the element *)
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
@@ -1219,11 +1133,8 @@ Example eval_value_failclosed :
   /\ ptype mixed_width_cmp = None /\ eval_bool mixed_width_cmp = None /\ eval_value mixed_width_cmp = None
   /\ ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false
   /\ ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
-  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool
-  (* slices-oob.md B2 (Codex P0): a slice literal with a RUNTIME-panicking UNSELECTED element, or a malformed
-     out-of-range element, must NOT fold — the WHOLE literal is evaluated, so [eval_value] = [None] (undenoted). *)
-  /\ eval_value (EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)) = None
-  /\ eval_value (EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1)) = None.
+  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
+  (* slice-literal fail-closed rows (runtime-panicking / malformed element) live in [slice_index_undenoted_ok] *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
@@ -1241,13 +1152,15 @@ Definition eval_absent : list GExpr :=
 Example eval_absent_none : forallb (fun e => match eval_value e with None => true | Some _ => false end) eval_absent = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
-    agrees with whether the program denotes — TRUE for the denoting demos (`println("hi")`, the `return`-stops
-    program), FALSE for the supported-but-undenoted runtime blank-assign `_ = 1/len([]int{})` and the
-    supported-but-undenoted defer program (`gosem_defer_not_denotable`, above). *)
-Example denotable_demo          : denotable_program gosem_demo_prog = true.            Proof. reflexivity. Qed.
-Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
-Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
+(** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
+    [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos, FALSE (and
+    [denote_program = None]) for the supported-but-undenoted runtime blank-assign and defer programs. *)
+Example gosem_denotability_decisions :
+  forallb denotable_program [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog] = true
+  /\ forallb (fun p => negb (denotable_program p)) [gosem_runtime_blank_prog; gosem_defer_prog] = true
+  /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
+       [gosem_runtime_blank_prog; gosem_defer_prog] = true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** All five demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :

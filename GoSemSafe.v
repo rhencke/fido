@@ -3,9 +3,14 @@
 
     ⚠ MODULE-WIDE CAVEAT (stated ONCE; the defs below do NOT repeat it): NONE of these PROPERTIES is the
     [BehaviorSafe] gate.  The emission cert + decidable gate below ([emit_panic_free] / [panic_free_gate] /
-    [emit_panic_free_gated]) ARE behavioral, but NARROW — slice 1 denotes NO pointers / slices / channels, so
-    [panic] is the ONLY unsafe runtime op; they do NOT gate the MAIN output (that stays the trusted plugin) and
-    are NOT full [BehaviorSafe].  Names are "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
+    [emit_panic_free_gated]) ARE behavioral, but NARROW — they cover the currently DENOTED GoSem fragment,
+    which has no modeled nil/pointer/channel hazards and includes the constant slice-literal-index subfragment
+    (in-bounds fully-evaluable cases denote; OOB / runtime / panicking cases are DECLINED).  So the gate rejects
+    BOTH an explicit [panic()] AND every currently-modeled runtime-panic case — the latter by NON-DENOTATION
+    (a SUPPORTED program with a runtime-panic construct simply fails to denote; that is faithful-or-absent
+    rejection, not a proof it is unsafe).  Among ACCEPTED (denoted, panic-free) programs no [OPanic] occurs.
+    They do NOT gate the MAIN output (that stays the trusted plugin) and are NOT full [BehaviorSafe].  Names are
+    "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
 
     Structure (each def's exact contract is at its site; the public surface is bundled in
     [gosem_panic_free_surface], single-sourced in PROGRESS.md "Current gates"):
@@ -291,12 +296,14 @@ Proof.
 Qed.
 
 (** ---- SEED of the GoSem-BACKED emission certificate (north-star: [BehaviorSafe] -> [SafeProgram] ->
-    [emit_safe]).  Slice 1's ONLY unsafe runtime op is [panic] (no ptrs / slices / channels denoted), so on the
-    DENOTED fragment "panic-free" IS the behavioral-safety condition — a full [BehaviorSafe] (nil deref / OOB /
-    send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT [SafeProgram] /
-    [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via [panic_free_denotable_supported]) AND
-    carries the decidable panic-free RUN guarantee.  It is the FIRST certificate whose PRECONDITION is
-    behavioral (a proven [ORet] run), not merely the syntactic [SupportedProgram] of [GoEmit.EmittableProgram]. *)
+    [emit_safe]).  On the DENOTED fragment "panic-free" IS the behavioral-safety condition: the fragment has no
+    modeled nil/pointer/channel hazards, and its modeled runtime-panic cases (an OOB constant slice index, a
+    panicking literal element, a runtime blank-assign) are DECLINED at denotation — a full [BehaviorSafe]
+    (nil deref / send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT
+    [SafeProgram] / [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via
+    [panic_free_denotable_supported]) AND carries the decidable panic-free RUN guarantee.  It is the FIRST
+    certificate whose PRECONDITION is behavioral (a proven [ORet] run), not merely the syntactic
+    [SupportedProgram] of [GoEmit.EmittableProgram]. *)
 Record PanicFreeEmittable : Type := mkPanicFreeEmittable {
   pfe_program    : Program;
   pfe_panic_free : panic_free_denotable pfe_program = true;
@@ -391,20 +398,11 @@ Example panic_free_gate_decides :
   (exists c, panic_free_gate panic_free_prog = Some c) /\ panic_free_gate panicking_prog = None.
 Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
 
-(** slices-oob.md B2 — a REPRESENTATIVE valid-Go slice pair reaching the behavioral EMISSION gate.  BOTH
-    programs are SUPPORTED (valid Go: an OOB-positive CONSTANT slice index is a run-time panic, not a compile
-    error — B1), so the two authorities SHARE the fixture and [slice_oob_prog]'s rejection is genuinely
-    BEHAVIORAL, not syntactic: [panic_free_gate] ACCEPTS the provably-in-bounds [println([]int{10,20}[1])] (it
-    denotes via GoSem's B2 fold, panic-free) and REJECTS the SUPPORTED [println([]int{10,20}[5])] — and it
-    rejects it via NON-DENOTATION (GoSem declines to model the OOB run-time panic, so it does not denote — the
-    [None] arm), the SAME faithful-or-absent mechanism that declines ANY unmodeled construct, NOT a positive
-    proof the OOB program is unsafe.  [emit_panic_free_gated] correspondingly EMITS the safe one and REJECTS the
-    OOB.  This is a REPRESENTATIVE PIN that a non-[panic()] unsafe op reaches the emission gate on a VALID-Go
-    program.  The class-level in-bounds-faithful / OOB-declined property (over the fully-evaluable all-constant
-    slice-index SUBFRAGMENT, not this pair) is a separate authority — the DENOTATION-layer [forall] theorems
-    [GoSem.eval_slice_index_inbounds_class] / [eval_slice_index_oob_class] (gated in [gosem_trust_surface]); see
-    GoSem for the exact boundary ([eval_slice_index_supported] is a strict INCLUSION into [ptype]-support, NOT
-    equality).  This fixture only pins the emission-gate reach on a concrete valid-Go pair. *)
+(** Representative emission-gate reach test for a NON-[panic()] runtime panic.  [slice_oob_prog] is VALID Go
+    and [SupportedProgram] (an OOB-positive constant slice index is a run-time panic, not a compile error);
+    GoSem DECLINES it, so [panic_free_gate] rejects it — by NON-denotation (faithful-or-absent), NOT a positive
+    proof that OOB programs are unsafe.  The in-bounds twin is accepted and emitted.  The class-level
+    denotation boundary lives in GoSem ([eval_slice_index_{reduces,inbounds_class,oob_class,supported}]). *)
 Definition slice_safe_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].
