@@ -45,5 +45,7 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   soundness theorem extends to "emit ⟹ no explicit panic AND no OOB".
 
 ## Honesty
-B1 alone is the SUPPORTEDNESS (compile-time OOB) brick — it does NOT yet denote slices or model the runtime
-OOB panic. Frame it exactly so; the "behavioral safety > panic-freedom" claim lands with B3/B4.
+B1 is SUPPORTEDNESS only: it accepts an integer-indexed int-slice literal as a runtime int, rejecting only the
+constant indices gc rejects at compile time (negative, int-overflow). It does NOT bounds-check (OOB is a
+run-time panic, valid Go — SUPPORTED), does NOT denote slices, and does NOT model the runtime OOB panic. The
+"behavioral safety > panic-freedom" claim lands with B3/B4 (runtime OOB panic + the gate rejecting it).
