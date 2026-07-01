@@ -68,8 +68,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   two ORTHOGONAL agreement bridges: `bridge_flat_agrees` (ANY `flat c` — one level of `no_defer` defers, any
   panicking — via the `(prog, pa)` 2-mode, final panic last-raised-wins) + `bridge_nested_np` (NESTED, arbitrary
   depth, but panic-free `cmd_no_panic c`; CONDITIONAL on the run completing). Supporting cmd.v-side properties
-  for ANY `c` (nested incl.): `run_cmd_out_monotone` (output only APPENDS) + `run_cmd_no_panic_ret` (panic-free
-  run returns `ORet`). ⚠ The full nested+panicking agreement (2-level invariant) + chan/heap/spawn later. Zero axioms.
+  for ANY `c` (nested incl.), each about a COMPLETING run (`run_cmd fuel c w = Some oc`): `run_cmd_out_monotone`
+  (that run's output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing panic-free run returns
+  `ORet`). ⚠ Termination/fuel-sufficiency for nesting is unproved; the full nested+panicking agreement (2-level
+  invariant) + chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
   liveness live). SEED of `BehaviorSafe`; ⚠ NOT a gate. Zero axioms.

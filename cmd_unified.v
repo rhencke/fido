@@ -15,8 +15,8 @@
     EQUALS the Outcome's panic) over two ORTHOGONAL defer classes: [flat c] (one level of [no_defer] defers, any
     panicking) and NESTED but panic-free ([cmd_no_panic c], arbitrary depth, CONDITIONAL on the [run_cmd]
     completing) — the full nested+panicking case is later.  Plus cmd.v-side properties for ANY [c] (nested
-    included): [run_cmd] never retracts already-emitted
-    output, and a panic-free [c] that completes returns [ORet].  The EXACT gated public-surface set is the
+    included), each about a COMPLETING [run_cmd]: its output only APPENDS (never retracts), and a panic-free such
+    run returns [ORet].  The EXACT gated public-surface set is the
     [Print Assumptions] block at the end of this file (the single in-file authority); this header does not
     re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
@@ -649,9 +649,10 @@ Proof.
     rewrite !map_snd_pair0, app_assoc. reflexivity.
 Qed.
 
-(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a run
-    only ever APPENDS to the world's output (the body's [cmd_out_events c] then, via [run_defers_out], every
-    defer's, recursively), never RETRACTS.  A cmd.v-side faithfulness guarantee — Go's deferred actions and
+(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a
+    COMPLETING run ([run_cmd fuel c w = Some oc]) only ever APPENDS to the world's output (the body's
+    [cmd_out_events c] then, via [run_defers_out], every defer's, recursively), never RETRACTS.  A cmd.v-side
+    faithfulness guarantee — Go's deferred actions and
     panics cannot un-print already-printed output.  A standalone cmd.v-side property (distinct from the ustep
     AGREEMENT bridges), via [run_defers_out].  The nested-defer bridge [bridge_nested_np] (for [cmd_no_panic c]
     whose [run_cmd] COMPLETES) establishes its output agreement independently through [unwind_prefix_np], so this
