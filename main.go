@@ -1913,15 +1913,6 @@ func Triple_demo() {
 	println(x, y, z)
 }
 
-func Mr_io(k int64) (int64, int64) {
-	return k, 1
-}
-
-func Io_multiret_demo() {
-	x, y := Mr_io(5)
-	println(x, y)
-}
-
 func Sum_pair(a int64, b int64) int64 {
 	x, y := Swap2(a, b)
 	return x + y
@@ -2895,7 +2886,6 @@ func main() {
 	Method_expr_demo()
 	Multiret_demo()
 	Triple_demo()
-	Io_multiret_demo()
 	Pure_destr_demo()
 	Stmt_blank_demo()
 	Narrow_pair_demo()
