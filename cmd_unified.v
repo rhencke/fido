@@ -12,8 +12,9 @@
 
     The module exposes single-goroutine [usteps] AGREEMENT bridges (the [usteps] run AGREES with cmd.v's
     AUTHORITATIVE [run_cmd] — the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0]
-    EQUALS the Outcome's panic; the widest is [flat c] — any number of [no_defer] defers, panicking or not) plus
-    cmd.v-side properties that hold for ANY [c] (nested defers included): [run_cmd] never retracts already-emitted
+    EQUALS the Outcome's panic) over two ORTHOGONAL defer classes: [flat c] (one level of [no_defer] defers, any
+    panicking) and NESTED but panic-free ([cmd_no_panic c], arbitrary depth) — the full nested+panicking case is
+    later.  Plus cmd.v-side properties for ANY [c] (nested included): [run_cmd] never retracts already-emitted
     output, and a panic-free [c] that completes returns [ORet].  The EXACT gated public-surface set is the
     [Print Assumptions] block at the end of this file (the single in-file authority); this header does not
     re-enumerate it.
@@ -526,6 +527,74 @@ Proof.
       * rewrite Hpanic, Hpan. cbn [flat_defers_panic]. rewrite Hprog2, upd_same. destruct (cmd_panic d) as [vd|]; reflexivity.
 Qed.
 
+(** ustep-side for NESTED non-panicking defers (arbitrary depth): given [run_defers fuel ds acc = Some result]
+    over [cmd_no_panic] defers from a panic-free [acc], the ustep unwinds the FRONT [ds] of the stack
+    [map ds ++ map ds_tail] down to [map ds_tail], keeping [prog 0 = URet] / [pa 0 = None] and advancing the
+    output by EXACTLY [run_defers]'s world delta [evs].  Induction on FUEL, the [ds_tail] parameter carrying the
+    not-yet-run frames: at a [cons], pop [d] ([ustep_ret_defer]), run its body ([cmd_to_ucmd_body_runs] pushes
+    [cmd_defers d]), then the IH runs [d]'s nested defers (tail [ds' ++ ds_tail]) and the rest (tail [ds_tail]).
+    NO (prog, pa) 2-mode: panic-freedom keeps [prog = URet], every pop is [ret_defer], never touching [pa]. *)
+Local Lemma unwind_prefix_np : forall fuel ds acc result,
+  run_defers fuel ds acc = Some result ->
+  Forall (fun d => cmd_no_panic d = true) ds -> ocpanic acc = None ->
+  forall ucap p b h lv tr o df pa ds_tail,
+    lv 0 = true -> p 0 = URet -> pa 0 = None ->
+    df 0 = map cmd_to_ucmd ds ++ map cmd_to_ucmd ds_tail ->
+    exists (p' : nat -> UCmd) (df' : nat -> list UCmd) evs,
+      usteps ucap (mkUCfg p b h lv tr o df pa)
+                  (mkUCfg p' b h lv tr (o ++ map (fun e => (0, e)) evs) df' pa)
+      /\ p' 0 = URet /\ df' 0 = map cmd_to_ucmd ds_tail
+      /\ w_output (oc_world result) = w_output (oc_world acc) ++ evs.
+Proof.
+  induction fuel as [| n IH]; intros ds acc result H Hall Hacc ucap p b h lv tr o df pa ds_tail Hlv Hp Hpa Hdf;
+    [ discriminate H | ].
+  destruct ds as [| d ds'].
+  - cbn in H. injection H as <-. exists p, df, nil.
+    cbn [map] in Hdf. rewrite !app_nil_r.
+    split; [ apply usteps_refl | split; [ exact Hp | split; [ exact Hdf | reflexivity ] ] ].
+  - inversion Hall as [| x l Hnp Hall' Heq]; subst.
+    rewrite run_defers_unfold in H.
+    destruct (go_chars d (oc_world acc)) as [w_d [Hgo Hout]]. rewrite Hgo in H. cbn zeta in H.
+    replace (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)
+       with (ORet tt w_d) in H by (rewrite (cmd_no_panic_cmd_panic d Hnp); reflexivity).
+    destruct (run_defers n (cmd_defers d) (ORet tt w_d)) as [net_d|] eqn:Enet; [ | discriminate H ].
+    assert (Hnet : ocpanic net_d = None)
+      by exact (run_defers_no_panic n (cmd_defers d) (ORet tt w_d) net_d Enet (cmd_no_panic_defers d Hnp) eq_refl).
+    destruct net_d as [[] w_net | v' w_net]; cbn [ocpanic] in Hnet; [ | discriminate Hnet ].
+    cbn [map] in Hdf.
+    (* Phase A on d (pops via ret_defer first), pushing cmd_defers d onto the front of the residual stack *)
+    destruct (cmd_to_ucmd_body_runs d ucap (upd p 0 (cmd_to_ucmd d)) b h lv tr o
+                (upd df 0 (map cmd_to_ucmd ds' ++ map cmd_to_ucmd ds_tail)) pa Hlv (upd_same _ _ _))
+      as [pA [dfA [HusA [HprogA HdfA]]]].
+    rewrite (cmd_no_panic_cmd_panic d Hnp) in HprogA. cbn in HprogA.
+    rewrite upd_same in HdfA.
+    (* IH 1: run d's nested defers, tail = ds' ++ ds_tail *)
+    assert (HdfA' : dfA 0 = map cmd_to_ucmd (cmd_defers d) ++ map cmd_to_ucmd (ds' ++ ds_tail))
+      by (rewrite HdfA, map_app; reflexivity).
+    destruct (IH (cmd_defers d) (ORet tt w_d) (ORet tt w_net) Enet (cmd_no_panic_defers d Hnp) eq_refl
+                ucap pA b h lv tr (o ++ map (fun e => (0, e)) (cmd_out_events d)) dfA pa (ds' ++ ds_tail)
+                Hlv HprogA Hpa HdfA')
+      as [pB [dfB [evs1 [HusB [HprogB [HdfB Hw1]]]]]].
+    (* IH 2: run the rest ds', tail = ds_tail *)
+    assert (HdfB' : dfB 0 = map cmd_to_ucmd ds' ++ map cmd_to_ucmd ds_tail)
+      by (rewrite HdfB, map_app; reflexivity).
+    destruct (IH ds' (oc_set_world acc w_net) result H Hall'
+                (eq_trans (ocpanic_set_world acc w_net) Hacc)
+                ucap pB b h lv tr ((o ++ map (fun e => (0, e)) (cmd_out_events d)) ++ map (fun e => (0, e)) evs1)
+                dfB pa ds_tail Hlv HprogB Hpa HdfB')
+      as [pC [dfC [evs2 [HusC [HprogC [HdfC Hw2]]]]]].
+    exists pC, dfC, (cmd_out_events d ++ evs1 ++ evs2).
+    split; [ | split; [ exact HprogC | split; [ exact HdfC | ] ] ].
+    + replace (o ++ map (fun e => (0, e)) (cmd_out_events d ++ evs1 ++ evs2))
+         with (((o ++ map (fun e => (0, e)) (cmd_out_events d)) ++ map (fun e => (0, e)) evs1)
+                 ++ map (fun e => (0, e)) evs2)
+        by (rewrite !map_app, !app_assoc; reflexivity).
+      eapply usteps_step; [ eapply ustep_ret_defer; [ exact Hlv | exact Hp | rewrite Hdf; reflexivity ] | ].
+      eapply usteps_trans; [ exact HusA | ]. eapply usteps_trans; [ exact HusB | exact HusC ].
+    + rewrite Hw2. cbn [oc_world] in Hw1 |- *. rewrite oc_world_set_world.
+      rewrite Hw1, Hout, <- !app_assoc. reflexivity.
+Qed.
+
 (** The GENERAL defer theorem: for ANY [flat c], the single-goroutine [usteps] run AGREES with [run_cmd] — same
     shape as [cmd_to_ucmd_run_agrees] but for the full flat class (any number of [no_defer] defers, panicking or
     not).  Phase A runs the body (leaving [prog 0] per [cmd_panic c], defers stacked), then [unwind_flat] does the
@@ -562,11 +631,58 @@ Proof.
       rewrite !map_snd_pair0, app_assoc; reflexivity.
 Qed.
 
+(** NESTED (arbitrary-depth) non-panicking defer bridge — the first coverage PAST [flat]'s one level.  For any
+    [cmd_no_panic c] whose [run_cmd] COMPLETES (returns [Some oc] — CONDITIONAL, since termination for nesting is
+    a separate cmd.v-side property not yet proven), the single-goroutine [usteps] run AGREES with [run_cmd]:
+    finishes ([uc_live 0 = false]), never panics ([uc_panic 0 = None]), output EQUALS [run_cmd]'s appended
+    [w_output].  Phase A runs the body (pushing [cmd_defers c]), [unwind_prefix_np] does the nested unwind (tail
+    []), a final [ret_done] closes goroutine 0.  Orthogonal to [bridge_flat_agrees] (which allows panics but only
+    one level); the FULL nested+panicking theorem needs the 2-level (prog, pa) panic invariant. *)
+Theorem bridge_nested_np : forall fuel (c : Cmd unit) ucap w oc,
+  run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
+  exists uc : UConfig,
+    usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ uc_live uc 0 = false
+    /\ uc_panic uc 0 = None
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc).
+Proof.
+  intros fuel c ucap w oc H Hnp.
+  destruct (go_chars c w) as [w_body [Hgo Hout]].
+  unfold run_cmd in H. rewrite Hgo in H. rewrite (cmd_no_panic_cmd_panic c Hnp) in H. cbn [oc_unit] in H.
+  destruct (run_defers fuel (cmd_defers c) (ORet tt w_body)) as [result|] eqn:Erd; [ | discriminate H ].
+  assert (Hresnp : ocpanic result = None)
+    by exact (run_defers_no_panic fuel (cmd_defers c) (ORet tt w_body) result Erd (cmd_no_panic_defers c Hnp) eq_refl).
+  destruct result as [[] w_r | v w_r]; cbn [ocpanic] in Hresnp; [ | discriminate Hresnp ].
+  cbn in H. injection H as <-.
+  destruct (cmd_to_ucmd_body_runs c ucap
+              (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
+              (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
+              eq_refl eq_refl) as [p' [df' [Hus1 [Hprog1 Hdf1]]]].
+  rewrite (cmd_no_panic_cmd_panic c Hnp) in Hprog1. cbn in Hprog1.
+  cbn in Hdf1. rewrite app_nil_r in Hdf1.
+  assert (Hdf1' : df' 0 = map cmd_to_ucmd (cmd_defers c) ++ map cmd_to_ucmd nil)
+    by (rewrite Hdf1; cbn [map]; rewrite app_nil_r; reflexivity).
+  destruct (unwind_prefix_np fuel (cmd_defers c) (ORet tt w_body) (ORet tt w_r) Erd
+              (cmd_no_panic_defers c Hnp) eq_refl ucap p' (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
+              (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' (fun _ => None) nil
+              eq_refl Hprog1 eq_refl Hdf1')
+    as [p'' [df'' [evs [Hus2 [Hprog2 [Hdf2 Hw]]]]]].
+  cbn [map] in Hdf2.
+  eexists. split; [ | split; [ | split ] ].
+  - unfold ustart. eapply usteps_trans; [ exact Hus1 | ].
+    eapply usteps_trans; [ exact Hus2 | ].
+    eapply usteps_step; [ eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ] | apply usteps_refl ].
+  - cbn [uc_live]. apply upd_same.
+  - cbn [uc_panic]. reflexivity.
+  - cbn [oc_world uc_out] in Hw |- *. rewrite Hw, Hout, !map_app. cbn [map app].
+    rewrite !map_snd_pair0, app_assoc. reflexivity.
+Qed.
+
 (** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a run
     only ever APPENDS to the world's output (the body's [cmd_out_events c] then, via [run_defers_out], every
     defer's, recursively), never RETRACTS.  A cmd.v-side faithfulness guarantee — Go's deferred actions and
-    panics cannot un-print already-printed output.  This is the general (all-[c]) OUTPUT half of the eventual
-    nested [ustep] bridge; the AGREEMENT bridge itself is still [flat] only ([bridge_flat_agrees]). *)
+    panics cannot un-print already-printed output.  This is a cmd.v-side property (distinct from the ustep
+    AGREEMENT bridges), and the general (all-[c]) OUTPUT half [bridge_nested_np] consumes. *)
 Theorem run_cmd_out_monotone : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc ->
   exists evs, w_output (oc_world oc) = w_output w ++ evs.
@@ -590,8 +706,8 @@ Qed.
 (** PANIC-FREEDOM of [run_cmd] for ANY [c] (nested defers included): a [cmd_no_panic c] run that COMPLETES
     returns [ORet] — Go's panic-free program cannot end in a panic.  Via [go_chars] (the body is [ORet], as
     [cmd_no_panic c ⇒ cmd_panic c = None]) + [run_defers_no_panic] (the defers preserve it).  The panic-free
-    companion to [run_cmd_out_monotone]; together the cmd.v-side spec of the non-panicking fragment (still cmd.v
-    only — the AGREEMENT bridge is [flat]). *)
+    companion to [run_cmd_out_monotone]; together the cmd.v-side spec of the non-panicking fragment that the
+    ustep bridge [bridge_nested_np] consumes. *)
 Theorem run_cmd_no_panic_ret : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
   exists w', oc = ORet tt w'.
@@ -613,5 +729,6 @@ Qed.
     cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
+Print Assumptions bridge_nested_np.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.
