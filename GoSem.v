@@ -738,9 +738,10 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     a TERMINATOR ([return] / a denoted [panic]) must NOT depend on its UNREACHABLE successors DENOTING — only on
     their SUPPORTEDNESS.  Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
     ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
-    [denote_body rest].  A UNIVERSAL lemma (not a fixture) so it can never erode as [eval_value] grows — the old
-    test needed a supported-but-UNDENOTABLE successor, a witness that shrinks toward nonexistent (the
-    no-variable model makes every supported expr ultimately evaluable, see the eval-growth roadmap). *)
+    [denote_body rest].  A UNIVERSAL lemma (over ALL [rest]), NOT a fixture keyed to one specific
+    supported-but-undenotable successor — so it never erodes.  Such successors PERSIST, not vanish: [GsDefer]
+    is supported + emittable yet undenoted (until [run_cmd] fuel > 1), and a runtime-arg statement is supported
+    yet eval-partial; the lemma holds for EVERY [rest] regardless of how [eval_value] grows. *)
 Lemma denote_body_terminator_ignores_succ : forall s c rest,
   denote_stmt s = Some (c, true) ->
   denote_body (s :: rest) = (if forallb stmt_ok rest then Some c else None).
