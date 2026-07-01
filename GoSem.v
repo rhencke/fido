@@ -9,8 +9,8 @@
     - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
       [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
       [_ = e] -> [CRet] when [e] is a constant.  Print/panic args fold via [eval_value] (constants only — the
-      exact fold set is the [eval_value_good] table below; runtime / out-of-range / [GsDefer]'s CDfr etc. are
-      NOT yet denoted).
+      folds exercised are listed in the [eval_value_good] table below; runtime / out-of-range / [GsDefer]'s CDfr
+      etc. are NOT yet denoted).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -186,10 +186,10 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
 
 (** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL via [ptype] (the SINGLE folding
     authority): [ptype] folds a numeric constant to its VALUE+TYPE, and [box_int] / [box_float] attach the model
-    value, FAILING CLOSED on an out-of-range/interval [z] (self-sound, not caller-gated).  Coverage — the
-    [eval_value_good] table pins it EXACTLY: integer constants (conversions / in-range [uint] via [mk_uint] /
-    arithmetic / complement, EXCLUDING platform-[uint] complement), exact-integer FLOAT constants, string
-    constants ([eval_str]), and constant bools ([eval_bool]).  ABSENT ([None], honestly): runtime operands
+    value, FAILING CLOSED on an out-of-range/interval [z] (self-sound, not caller-gated).  Coverage exercised —
+    the [eval_value_good] table (gated by [eval_value_good_ok]) folds: integer constants (conversions / in-range
+    [uint] via [mk_uint] / arithmetic / complement, EXCLUDING platform-[uint] complement), exact-integer FLOAT
+    constants, string constants ([eval_str]), and constant bools ([eval_bool]).  ABSENT ([None], honestly): runtime operands
     ([len(..)]/[int(x)]), out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
@@ -792,27 +792,27 @@ Example eval_value_good_runs : forall w,
   = map (fun p => Some (ORet tt (w_log true (snd p :: nil) w))) eval_value_good.
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** REQUIRED-CATEGORY COVERAGE (the EXACT-coverage guarantee, [gosem_trust_surface]-gated): one NAMED, standalone
-    run witness per behavior category the consolidated table must exhibit — int CONVERSION, exact FLOAT, numeric-
-    compare BOOL, string CONCAT, and string-compare-of-concat BOOL.  Each pins a SPECIFIC program's end-to-end
-    behavior INDEPENDENTLY of [eval_value_good]'s contents, so deleting a category from the table can no longer
-    silently shrink the gated coverage (deleting the category deletes its named witness ⇒ the surface fails).
-    (String-LITERAL println is pinned by [gosem_demo_runs]; RETURN/PANIC by [gosem_return_stops_no_output] /
-    [gosem_panic_demo_runs] — the old six per-category demos, now each a one-line [runs_to].) *)
+(** REQUIRED-CATEGORY COVERAGE as a TYPED obligation.  [runs_to e v] = [println(e); return] denotes and runs
+    through cmd.v's [run_cmd] to the world logging [v].  The RECORD TYPE [GoSemRequiredCategoryCoverage] fixes,
+    in its FIELD TYPES, the EXACT five behavior categories the model must exhibit end-to-end (int CONVERSION,
+    exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL).  [gosem_category_coverage]
+    inhabits that type, so it can be built ONLY by discharging ALL five with the stated programs+values: a
+    category cannot be dropped without editing this typed STATEMENT (the record), never silently by convention.
+    Table-INDEPENDENT (no reference to [eval_value_good]).  (String-literal println / return / panic behaviors
+    are pinned separately by [gosem_demo_runs] / [gosem_return_stops_no_output] / [gosem_panic_demo_runs].) *)
 Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
   forall w, match denote_program (println_prog e) with
             | Some c => run_cmd 5 c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
-Example cover_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3)).
-Proof. intro w; vm_compute; reflexivity. Qed.
-Example cover_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3))).
-Proof. intro w; vm_compute; reflexivity. Qed.
-Example cover_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true).
-Proof. intro w; vm_compute; reflexivity. Qed.
-Example cover_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab").
-Proof. intro w; vm_compute; reflexivity. Qed.
-Example cover_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true).
-Proof. intro w; vm_compute; reflexivity. Qed.
-Definition gosem_category_coverage := (cover_conv, cover_float, cover_bool, cover_concat, cover_concatcmp).
+Record GoSemRequiredCategoryCoverage : Prop := {
+  rc_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3));
+  rc_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)));
+  rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
+  rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
+  rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
+}.
+Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
+Proof. constructor; intro w; vm_compute; reflexivity. Qed.
+Check gosem_category_coverage : GoSemRequiredCategoryCoverage.   (* the typed obligation, made explicit *)
 
 (** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
     ([mk_uint]/[box_*] never carry a [*wrap]-mangled value); a mixed-WIDTH ill-typed compare [int64(1)==int32(1)]
