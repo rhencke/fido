@@ -76,7 +76,8 @@ The demos in `main.v` are the test suite; `expected_output.txt` is the golden ru
 - `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine (see `ARCHITECTURE.md`).
 - `GoSem.v` + `GoSemUnified.v` + `cmd_unified.v` — GoSem slice 1 (the `cmd.v` bridge into `unified.v`);
   `GoSemSafe.v` — the first behavioral-safety PROPERTIES (panic-freedom, incl. a decidable gate-SHAPE
-  predicate), NOT a gate. Status in `PROGRESS.md`. All proof-only.
+  predicate) + a NARROW panic-only emission cert (`emit_panic_free`, OFF the main path), NOT a full
+  BehaviorSafe gate. Status in `PROGRESS.md`. All proof-only.
 - `unified.v` — proof-only: the `ustep` operational semantics (race-freedom + liveness/deadlock proved on it),
   NOT the certified-emission path. `concurrency.v` — proof-only: calculus-agnostic trace / happens-before /
   race / bounded-deadlock theory. `relooper.v` — demoted.

@@ -12,9 +12,10 @@ The central rule:
 Raw structured Go ASTs may represent unsafe programs.
 Only CERTIFIED ASTs may be emitted through the official path.
 Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe" only when
-GoSem-backed SAFETY theorems back the certificate (FIRST proof-only properties exist in `GoSemSafe.v` — panic-
-freedom, including a decidable gate-SHAPE predicate — but do NOT back it / gate emission) — and the NAME of the
-certificate must never claim more than is proved.
+GoSem-backed SAFETY theorems back the certificate — a FIRST NARROW one now does (`GoSemSafe.emit_panic_free`:
+precondition = a proven panic-free run, panic-only, OFF the main path), but the general behaviorally-safe
+certificate for the emitted/main output does NOT yet exist — and the NAME of the certificate must never claim
+more than is proved.
 ```
 
 Treat all existing code as provisional until it fits this architecture. Optimize for **architectural truth

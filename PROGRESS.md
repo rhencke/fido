@@ -10,7 +10,7 @@ lowering into ordinary Go (channels, goroutines, maps, slices). The behavioral-s
 emitting, that nil deref / use-after-close / out-of-bounds / send-on-closed / failed assertion / data race /
 silent overflow cannot happen. Long-term: concurrent programs with session-typed protocol compliance, race
 freedom, and deadlock freedom over the Go memory model's happens-before. Built incrementally. ⚠️ TODAY the
-spine gates SUPPORTED SYNTACTIC emission ONLY; behavioral safety is NOT active.
+spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is only a narrow off-main `emit_panic_free` seed.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
