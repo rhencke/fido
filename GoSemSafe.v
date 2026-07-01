@@ -10,7 +10,8 @@
     - DENOTATION-HYPOTHESIS properties — [panic_free_runs_ret] (+ operational lift [panic_free_runs_ret_ustep]):
       GIVEN a program that DENOTES ([denote_program p = Some c]) and is syntactically panic-free, [run_cmd]
       yields [ORet], never [OPanic]; the lift holds where [unified.v]'s race-freedom / liveness live ([run_cmd]
-      stays the authority).
+      stays the authority).  [panic_free_runs_ret_output] gives the EXPLICIT output world [cmd_out_world c w]
+      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
@@ -77,37 +78,53 @@ Proof.
       apply cbind_no_panic; [exact (denote_stmt_no_panic s cs false Es Hs) | intro u; exact (IH k eq_refl Hrest)].
 Qed.
 
-(** A [CPan]-free, defer-free command runs (via [go]) to an [ORet] — never an [OPanic]. *)
-Lemma go_no_panic : forall c w,
-  cmd_no_panic c = true -> no_defer c = true -> exists w', go c w = (ORet tt w', nil).
+(** The output world of a [CPan]-free, defer-free command: [go] threads each [COut] through [w_log], so the
+    result is exactly this fold of the logs (a structural spec of [go]'s world, independent of [Outcome]). *)
+Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
+  match c with
+  | COut b xs c' => cmd_out_world c' (w_log b xs w)
+  | _ => w
+  end.
+
+(** A [CPan]-free, defer-free command runs (via [go]) to an [ORet] with output EXACTLY [cmd_out_world c w] —
+    never an [OPanic], and the world is EXPLICIT (the accumulated logs), not merely existential. *)
+Lemma go_panic_free_world : forall c w,
+  cmd_no_panic c = true -> no_defer c = true -> go c w = (ORet tt (cmd_out_world c w), nil).
 Proof.
   intro c; induction c as [a | b xs c' IH | v | d c' IH] using Cmd_rect';
-    intros w Hnp Hnd; cbn [go cmd_no_panic no_defer] in *.
-  - destruct a. exists w. reflexivity.
-  - destruct (IH (w_log b xs w) Hnp Hnd) as [w' Hgo]. exists w'. exact Hgo.
+    intros w Hnp Hnd; cbn [go cmd_no_panic no_defer cmd_out_world] in *.
+  - destruct a. reflexivity.
+  - exact (IH (w_log b xs w) Hnp Hnd).
   - discriminate Hnp.
   - discriminate Hnd.
 Qed.
 
-Lemma run_cmd_no_panic : forall c w,
-  cmd_no_panic c = true -> no_defer c = true -> exists w', run_cmd 1 c w = Some (ORet tt w').
+Lemma run_cmd_panic_free_world : forall c w,
+  cmd_no_panic c = true -> no_defer c = true -> run_cmd 1 c w = Some (ORet tt (cmd_out_world c w)).
 Proof.
-  intros c w Hnp Hnd. destruct (go_no_panic c w Hnp Hnd) as [w' Hgo].
-  exists w'. unfold run_cmd. rewrite Hgo. reflexivity.
+  intros c w Hnp Hnd. unfold run_cmd. rewrite (go_panic_free_world c w Hnp Hnd). reflexivity.
 Qed.
 
-(** The first behavioral-safety result — the DENOTATIONAL one (its operational lift is
-    [panic_free_runs_ret_ustep] below): a panic-free supported program that DENOTES runs to an [ORet] —
-    it provably NEVER panics at runtime.  ([no_defer] discharged via [denote_body_no_defer].) *)
-Theorem panic_free_runs_ret : forall p c w,
+(** The DENOTATIONAL behavioral-safety result, EXPLICIT-OUTPUT form: a panic-free supported program that
+    DENOTES runs to [ORet] with output exactly [cmd_out_world c w] — never [OPanic].  ([no_defer] via
+    [denote_body_no_defer].)  The existential [panic_free_runs_ret] below is its corollary (used by the
+    operational lift). *)
+Theorem panic_free_runs_ret_output : forall p c w,
   denote_program p = Some c -> panic_free (prog_body p) = true ->
-  exists w', run_cmd 1 c w = Some (ORet tt w').
+  run_cmd 1 c w = Some (ORet tt (cmd_out_world c w)).
 Proof.
   intros p c w Hden Hpf. unfold denote_program in Hden.
   destruct (String.eqb (proj1_sig (prog_pkg p)) "main") eqn:E; [|discriminate Hden].
-  apply run_cmd_no_panic.
+  apply run_cmd_panic_free_world.
   - exact (denote_body_no_panic (prog_body p) c Hden Hpf).
   - exact (denote_body_no_defer (prog_body p) c Hden).
+Qed.
+
+Corollary panic_free_runs_ret : forall p c w,
+  denote_program p = Some c -> panic_free (prog_body p) = true ->
+  exists w', run_cmd 1 c w = Some (ORet tt w').
+Proof.
+  intros p c w Hden Hpf. exists (cmd_out_world c w). exact (panic_free_runs_ret_output p c w Hden Hpf).
 Qed.
 
 (** Boundary demos: a panic-free program runs to [ORet]; a program that DOES panic runs to [OPanic] (the
@@ -215,6 +232,7 @@ Qed.
 
 (** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
 Print Assumptions panic_free_runs_ret.
+Print Assumptions panic_free_runs_ret_output.
 Print Assumptions panic_free_runs_ret_ustep.
 Print Assumptions panic_free_denotable_runs_ret.
 Print Assumptions panic_free_denotable_runs_ret_ustep.
