@@ -7,8 +7,9 @@ the source term (gap #10), so the golden tests are the only end-to-end check. Th
 (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap. The extracted printer is
 wired into the LIVE plugin for only a SMALL expression class (single-sourced in `PROGRESS.md`), and even there
 the TRUSTED plugin CONSTRUCTS the `GExpr` and only the VERIFIED `gprint` PRINTS it — the construction is NOT
-verified. The behavioral-safety emission cert is only a NARROW seed (`emit_panic_free`, panic-only, OFF the
-main path), not a full gate on the emitted output. Do not headline this as "formally verified Go."
+verified. The behavioral-safety emission cert is only a NARROW seed (`emit_panic_free`: accepts only denoted +
+syntactically panic-free programs, modeled runtime panics rejected by non-denotation; OFF the main path), not
+a full gate on the emitted output. Do not headline this as "formally verified Go."
 **Current state, goal, and roadmap: `PROGRESS.md`.**
 
 ## Architecture direction — `ARCHITECTURE.md` GOVERNS (binding; read it)
@@ -75,9 +76,10 @@ The demos in `main.v` are the test suite; `expected_output.txt` is the golden ru
   their `.v` bodies suppressed. **Trusted and unverified** (gap #10).
 - `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine (see `ARCHITECTURE.md`).
 - `GoSem.v` + `GoSemUnified.v` + `cmd_unified.v` — GoSem slice 1 (the `cmd.v` bridge into `unified.v`);
-  `GoSemSafe.v` — the first behavioral-safety PROPERTIES (panic-freedom) + a NARROW panic-only, DECIDABLE
-  emission gate (`panic_free_gate`/`emit_panic_free_gated`, end-to-end sound: emit ⟹ proven panic-free run;
-  OFF the main path), NOT a full BehaviorSafe gate. Status in `PROGRESS.md`. All NOT extracted (it builds Go
+  `GoSemSafe.v` — the first behavioral-safety PROPERTIES (panic-freedom) + a NARROW DECIDABLE emission gate
+  (`panic_free_gate`/`emit_panic_free_gated`, end-to-end sound: emit ⟹ proven panic-free run; accepts only
+  denoted + syntactically panic-free programs, modeled runtime panics rejected by non-denotation; OFF the main
+  path), NOT a full BehaviorSafe gate. Status in `PROGRESS.md`. All NOT extracted (it builds Go
   source but is not run).
 - `unified.v` — proof-only: the `ustep` operational semantics (race-freedom + liveness/deadlock proved on it),
   NOT the certified-emission path. `concurrency.v` — proof-only: calculus-agnostic trace / happens-before /
