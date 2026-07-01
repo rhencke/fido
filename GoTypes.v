@@ -452,15 +452,24 @@ Fixpoint ptype (e : GExpr) : option PTy :=
           match ptype e0 with Some PtNil => Some PtAgg | _ => None end
       end
   | EIndex (ESliceLit t es) idx =>
-      (* indexing a well-typed slice LITERAL by an INTEGER index is VALID Go — the result is a RUNTIME value of
-         element type [t] (Go treats slice indexing as NON-constant), so SUPPORTED but not a constant.  BOUNDS
-         are a RUNTIME property: for a SLICE an out-of-range index is a run-time PANIC, NOT a compile error
-         (compile-time in-range is required only for ARRAYS/strings), so OOB is a BEHAVIORAL concern for a later
-         brick, NOT supportedness.  Brick 1 (plans/slices-oob.md): INTEGER element types; ANY integer index. *)
+      (* indexing a slice LITERAL directly by an INTEGER index.  A CONSTANT index into a known-length literal is
+         COMPILE-TIME bounds-checked by Go (gc: "index N out of bounds [0:len]"), so an OOB or NEGATIVE constant
+         index is INVALID Go -> rejected.  An in-bounds constant, or a RUNTIME (non-constant) integer index
+         (whose bounds are a run-time property, deferred to a behavioral brick), is VALID Go -> SUPPORTED (a
+         runtime int of element type [t]).  Brick 1 (plans/slices-oob.md): INTEGER element types. *)
       if is_int_goty t
          && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
-         && (match ptype idx with Some ci => is_int_cat ci | None => false end)
-      then Some (PtRunInt t) else None
+      then match ptype idx with
+           | Some ci =>
+               if is_int_cat ci then
+                 match int_const_val ci with
+                 | Some k => if (0 <=? k)%Z && Nat.ltb (Z.to_nat k) (length es) then Some (PtRunInt t) else None
+                 | None   => Some (PtRunInt t)   (* runtime integer index: bounds are behavioral (B3) *)
+                 end
+               else None
+           | None => None
+           end
+      else None
   | ESliceLit t es =>
       if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
@@ -506,8 +515,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
     [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
     whose elements are ASSIGNABLE to its element type, an INTEGER-indexed access into an INTEGER slice literal
-    ([]int{..}[i] — a runtime int; bounds are a RUNTIME property, so an OOB index is SUPPORTED here and left to
-    a later behavioral brick, NOT a supportedness error), and an INTEGER-key map LITERAL whose constant keys are
+    ([]int{..}[i] — a runtime int; a CONSTANT index is compile-time bounds-checked so an OOB/negative constant
+    is REJECTED, while a RUNTIME index's bounds are behavioral, left to a later brick), and an INTEGER-key map
+    LITERAL whose constant keys are
     assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:

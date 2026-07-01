@@ -235,7 +235,9 @@ Definition bad_programs : list Program :=
   ; pl_arg (EInt 1099511627776)                                          (* 2^40 default-int overflow *)
   ; gs_blank (EInt 1099511627776)
   ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
-  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EStr "x"))      (* []int{10,20}["x"]: a STRING index is INVALID Go — a slice index must be an integer; [ptype] of the index is [PtStr] so [is_int_cat] fails -> UNSUPPORTED.  (An OOB integer index is NOT here — it is valid Go, in [good_programs].) slices-oob.md brick 1 *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EStr "x"))      (* []int{10,20}["x"]: a STRING index is INVALID Go — a slice index must be an integer; [ptype idx] = [PtStr] so [is_int_cat] fails -> UNSUPPORTED. slices-oob.md brick 1 *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5))        (* []int{10,20}[5]: a CONSTANT index into a known-length LITERAL is compile-time bounds-checked by Go (gc: "index 5 out of bounds [0:2]") — INVALID Go, REJECTED.  A ptype rule that skipped the constant bounds check would accept invalid Go.  (A RUNTIME index is NOT compile-checked — see the `[len(..)]` entry in good_programs.) *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EUn UNeg (EInt 1)))  (* []int{10,20}[-1]: a NEGATIVE constant index is INVALID Go (gc: "must not be negative") — REJECTED by the [0 <=? k] guard *)
     (* float-constant rounding + platform-uint complement (the rep must not lie) *)
   ; pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))                  (* int64(float64(maxint64)) rounds up *)
   ; pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))
@@ -338,9 +340,8 @@ Definition good_programs : list Program :=
   ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (key/value types unconstrained beyond int key) *)
   ; gs_blank (EMapLit GTU8 GTU8 [(EInt 1, EInt 2)])                     (* map[uint8]uint8{1: 2} — typed key/value, consts in range *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* println(len(map[int]int{1:2})): [len] of a map IS valid (a runtime int) — unlike [cap] *)
-  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1))       (* println([]int{10,20}[1]): integer-indexed slice literal — VALID Go, a RUNTIME int (supported, like [len]). slices-oob.md brick 1 *)
-  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5))       (* []int{10,20}[5]: an OOB constant index is STILL supported — for a SLICE, OOB is a RUNTIME panic, NOT a compile error (unlike an array), so SUPPORTEDNESS (syntax) accepts it; the BEHAVIORAL gate rejects it in a later brick (slices-oob.md B3) *)
-  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]))  (* []int{10,20}[len([]int{1})]: a RUNTIME (non-constant) integer index is supported too — the rule is NOT [EInt]-only *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1))       (* println([]int{10,20}[1]): CONSTANT in-bounds index into a slice literal — VALID Go, a RUNTIME int (supported, like [len]). slices-oob.md brick 1 *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]))  (* []int{10,20}[len([]int{1})]: a RUNTIME (non-constant) integer index — VALID Go, bounds are a run-time property (NOT compile-checked), supported.  Locks that the rule is NOT [EInt]-only *)
   ; mkProgram (mkIdent "main" eq_refl)                                   (* defer println("bye"); return — a deferred CALL is supported (same gate as an expr statement) *)
       [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn]
   ].
