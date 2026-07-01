@@ -507,7 +507,7 @@ Proof.
   exact (out_main_denotes _ (denotable_arglists_out arglists H)).
 Qed.
 
-(** Coverage: the general converse takes MIXED evaluable args — `println("a"); println(int64(3)); return`
+(** Coverage (the all-[println] corollary): MIXED evaluable args — `println("a"); println(int64(3)); return`
     denotes (a string literal AND an integer-constant conversion), not just strings. *)
 Example println_main_denotes_mixed :
   denote_program (mkProgram (mkIdent "main" eq_refl)
@@ -536,7 +536,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
     [denote_program_runs] proves the DENOTATION->EXECUTION link: [denote_program p = Some c -> run_cmd 1 c w <>
     None] — a DENOTED program ([Cmd]) RUNS to an [Outcome].  (It assumes the program DENOTES; it does NOT prove
-    supported ⟹ denotes in GENERAL — that converse is partial, see [denote_program_dec] / [println_main_denotes].
+    supported ⟹ denotes in GENERAL — that converse is partial, see [denote_program_dec] / [out_main_denotes]
+    (the authority; its all-[println] corollary is [println_main_denotes]).
     Composed with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
     what it denotes.  ([no_defer] — the straight-line predicate this rests on — now lives in cmd.v, shared with
     the cmd_unified.v bridge.) *)
