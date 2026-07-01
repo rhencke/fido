@@ -120,9 +120,10 @@ The correctness of an *emitted* program rests on, and only on:
    the TCB until the certified path subsumes it.
 
 `GoPrint` proves the bytes; items 3 and 5 are why this is "Go with proofs," not "Go without trust." FUTURE
-(not today's TCB): once emission goes through a GoSem-backed certificate, item 5's plugin is replaced by an
-**adequacy assumption** ("real Go realizes `GoSem`") — gap #10's heir. No GoSem-backed emission exists yet, so
-that assumption is **not** part of the current trust base.
+(not today's TCB): once emission of the OBSERVED output goes through a GoSem-backed certificate, item 5's
+plugin is replaced by an **adequacy assumption** ("real Go realizes `GoSem`") — gap #10's heir. The FIRST
+GoSem-backed emission cert (`GoSemSafe.emit_panic_free`, panic-only) now exists but does NOT emit the
+main/observed output, so that assumption is **not** yet part of the current trust base.
 
 ---
 

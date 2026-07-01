@@ -14,7 +14,7 @@ spine gates SUPPORTED SYNTACTIC emission ONLY; behavioral safety is NOT active.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10), and there is no behavioral-safety emission gate (only proof-only properties).
+Go to its source term (gap #10); `emit_panic_free` is a narrow panic-only emission cert OFF the main path — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 

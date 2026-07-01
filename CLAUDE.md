@@ -7,7 +7,8 @@ the source term (gap #10), so the golden tests are the only end-to-end check. Th
 (`GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit`) is the path toward closing that gap. The extracted printer is
 wired into the LIVE plugin for only a SMALL expression class (single-sourced in `PROGRESS.md`), and even there
 the TRUSTED plugin CONSTRUCTS the `GExpr` and only the VERIFIED `gprint` PRINTS it — the construction is NOT
-verified. There is no behavioral-safety emission gate yet. Do not headline this as "formally verified Go."
+verified. The behavioral-safety emission cert is only a NARROW seed (`emit_panic_free`, panic-only, OFF the
+main path), not a full gate on the emitted output. Do not headline this as "formally verified Go."
 **Current state, goal, and roadmap: `PROGRESS.md`.**
 
 ## Architecture direction — `ARCHITECTURE.md` GOVERNS (binding; read it)

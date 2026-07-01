@@ -1,9 +1,11 @@
 (** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only, no Go).
 
-    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the theorems below do NOT repeat it): NONE of these is the [BehaviorSafe]
-    gate, and NONE gates emission.  Slice 1 denotes NO pointers / slices / channels, so an explicit [panic] is
-    the ONLY unsafe runtime op — panic-freedom is the fragment-appropriate safety condition, NOT the full
-    behavioral-safety target.  Names are "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
+    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the theorems below do NOT repeat it): NONE of these PROPERTIES is the
+    [BehaviorSafe] gate.  The [emit_panic_free] certificate below IS a behavioral emission cert, but a NARROW
+    one — slice 1 denotes NO pointers / slices / channels, so [panic] is the ONLY unsafe runtime op; it does NOT
+    gate the MAIN output (that stays the trusted plugin) and is NOT full [BehaviorSafe].  Panic-freedom is the
+    fragment-appropriate safety condition, NOT the full behavioral-safety target.  Names are "panic-free …",
+    NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
 
     Two families (each theorem's exact contract is at its def site; the public surface is bundled in
     [gosem_panic_free_surface] and single-sourced in PROGRESS.md "Current gates"):
@@ -333,5 +335,5 @@ Proof. intro w. exact (pfe_runs_ret pfe_demo w). Qed.
 Definition gosem_panic_free_surface :=
   (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
    panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
-   panic_free_denotable_supported, pfe_runs_ret).
+   panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed).
 Print Assumptions gosem_panic_free_surface.
