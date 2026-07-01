@@ -67,6 +67,10 @@ B2 (denotation) folds an IN-BOUNDS index into an ALL-CONSTANT slice literal to t
 literal must evaluate (a runtime/panicking element, even unselected, rejects it, since Go builds the literal
 before indexing) — and DECLINES OOB. So the gate now ACCEPTS a provably-in-bounds all-constant slice-index and
 REJECTS a constant OOB one (or one with a runtime element). That IS "behavioral safety > panic-freedom" for the
-CONSTANT fragment (a non-`panic()` unsafe op the gate rejects). STILL MISSING: RUNTIME
+CONSTANT fragment (a non-`panic()` unsafe op the gate rejects). B2's OOB handling REACHES the behavioral
+EMISSION gate: `panic_free_gate` / `emit_panic_free_gated` ACCEPTS a safe const-slice program and REJECTS the
+OOB one (`GoSemSafe.panic_free_gate_slice`, gated in `gosem_panic_free_surface`) — the const-slice OOB gate is
+now a CERTIFIED behavioral-emission property, not just a denotability fact. (Boss deferred B3 — runtime index —
+so the RUNTIME half stays open.) STILL MISSING: RUNTIME
 indexing + the runtime OOB panic effect (B3 — needs GoSem runtime values + a cmd.v slice effect) and the
 gate/soundness extension over slices (B4).

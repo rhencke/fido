@@ -24,7 +24,7 @@
     Plus cmd.v-level DEFER-FREE building blocks ([run_cmd_panic_free_world] / [run_cmd_panics_world]). *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified GoEmit.
-From Stdlib Require Import String List Bool Sumbool.
+From Stdlib Require Import String List Bool Sumbool ZArith.   (* ZArith registers Z's number notation so [EInt 10] type-directs to [Z] while nat fuel stays nat (as in GoSem) *)
 Import ListNotations.
 
 (** A statement is the panic primitive [panic(e)] — the only [denote_stmt] arm that yields a [CPan]. *)
@@ -391,6 +391,29 @@ Example panic_free_gate_decides :
   (exists c, panic_free_gate panic_free_prog = Some c) /\ panic_free_gate panicking_prog = None.
 Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
 
+(** slices-oob.md B2 reaches the behavioral EMISSION gate: [panic_free_gate] ACCEPTS a provably-in-bounds
+    all-constant slice-index program ([println([]int{10,20}[1])] — denotes via GoSem's B2 fold, panic-free) and
+    REJECTS the OOB [println([]int{10,20}[5])] (the OOB is a run-time panic GoSem declines, so it is not
+    denotable — the [None] arm of [panic_free_gate]); [emit_panic_free_gated] correspondingly EMITS the safe one
+    and REJECTS the OOB.  So "behavioral safety > panic-freedom" now holds AT THE GATE for the const-slice
+    fragment: a non-[panic()] unsafe op (OOB) the gate rejects, while admitting the safe access. *)
+Definition slice_safe_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].
+Definition slice_oob_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn].
+Example panic_free_gate_slice :
+  (exists c, panic_free_gate slice_safe_prog = Some c)
+  /\ panic_free_gate slice_oob_prog = None
+  /\ emit_panic_free_gated slice_safe_prog <> None
+  /\ emit_panic_free_gated slice_oob_prog = None.
+Proof.
+  split; [ apply panic_free_gate_complete; vm_compute; reflexivity | ].
+  split; [ vm_compute; reflexivity | ].
+  split; [ vm_compute; discriminate | vm_compute; reflexivity ].
+Qed.
+
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
     [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
     Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
@@ -399,5 +422,6 @@ Definition gosem_panic_free_surface :=
   (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
    panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
    panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed,
-   panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some, emit_panic_free_gated_sound).
+   panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some, emit_panic_free_gated_sound,
+   panic_free_gate_slice).
 Print Assumptions gosem_panic_free_surface.
