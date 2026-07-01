@@ -96,8 +96,8 @@ live emission is not "verified Go."
   DENOTED program (`no_defer` discharged) runs under `ustep` to completion AND AGREES with cmd.v's authoritative
   `run_cmd 1 c w` — unified output events EQUAL `run_cmd`'s appended `w_output`, `uc_panic 0` EQUALS the Outcome
   panic. So GoSem's denotation runs on the SAME `ustep` race-freedom/liveness hold on. Zero axioms.
-  ★Defer bridged for ONE non-panicking defer (gated, GENERAL): `bridge_one_np_defer_agrees` — all `CDfr d c'`
-  (`d`/`c'` no_defer, `d` non-panicking) AGREES with `run_cmd`. ⚠ Multiple/panicking/nested + chan/heap/spawn later.
+  ★Defer bridged for ONE defer (gated, GENERAL): `bridge_one_defer_agrees` — ANY `CDfr d c'` (`d`/`c'` no_defer,
+  EITHER may panic; a deferred panic replaces) AGREES with `run_cmd`. ⚠ Multiple/nested defers + chan/heap/spawn later.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v` (proof-only): `panic_free_runs_ret` — a syntactically
   panic-free supported program that DENOTES runs to `ORet`, provably NEVER panicking (`panic` is the fragment's
   ONLY unsafe behavior — no pointers/slices/channels denoted); and `panic_free_runs_ret_ustep` carries it to the
@@ -152,7 +152,7 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (trust-boundary ledger — single-sourced here):
 **manifest** (`manifest-axioms.sh` diffs the `dune build` log's `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`)
 covers `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`bridge_one_np_defer_agrees` / `denote_program_run_agrees`) / `panic_free_runs_ret` / `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
+`bridge_one_defer_agrees` / `denote_program_run_agrees`) / `panic_free_runs_ret` / `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled STANDALONE →
 grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not a gated public surface.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom

@@ -340,44 +340,48 @@ Proof.
   split. { cbn. rewrite <- app_assoc. reflexivity. } { reflexivity. }
 Qed.
 
-(** ---- First GENERAL defer-agreement THEOREM (not a demo): one no_defer NON-PANICKING defer ----
-    cmd.v-side grounding: [run_cmd] of [CDfr d c'] (defer [d]; then body [c']), for [d]/[c'] both [no_defer] and
-    the defer [d] NON-PANICKING ([cmd_panic d = None]), runs the body THEN the single deferred [d]: the outcome
-    is the BODY's ([cmd_panic c']) and the world is advanced by the body's output THEN [d]'s.  Derived purely
-    from [go_chars] (applied to [CDfr d c'] and to [d]) + the one-element [run_defers] reduction — so it stays
-    grounded in cmd.v's authoritative [run_cmd].  Fuel [2] is the MINIMAL principled count (one [run_defers]
-    step to run [d], one for its empty tail), paralleling [run_cmd 1] for the zero-defer public theorem — NOT
-    the arbitrary [5] the concrete demos carry. *)
-Local Lemma run_cmd_one_np_defer : forall d c' w,
-  no_defer d = true -> no_defer c' = true -> cmd_panic d = None ->
+(** ---- First GENERAL defer-agreement THEOREM (not a demo): ONE no_defer defer ----
+    cmd.v-side grounding: [run_cmd] of [CDfr d c'] (defer [d]; then body [c']), for [d]/[c'] both [no_defer],
+    runs the body THEN the single deferred [d].  The world is advanced by the body's output THEN [d]'s; the
+    OUTCOME is [d]'s panic if [d] panics (a deferred panic REPLACES the active one), else the body's
+    ([cmd_panic c']).  Derived purely from [go_chars] (applied to [CDfr d c'] and to [d]) + the one-element
+    [run_defers] reduction — so it stays grounded in cmd.v's authoritative [run_cmd].  Fuel [2] is the MINIMAL
+    principled count (one [run_defers] step to run [d], one for its empty tail), paralleling [run_cmd 1] for the
+    zero-defer public theorem — NOT the arbitrary [5] the concrete demos carry. *)
+Local Lemma run_cmd_one_defer : forall d c' w,
+  no_defer d = true -> no_defer c' = true ->
   exists w'',
     run_cmd 2 (CDfr d c') w
-      = Some (match cmd_panic c' with None => ORet tt w'' | Some v => OPanic v w'' end)
+      = Some (match cmd_panic d with
+              | Some vd => OPanic vd w''
+              | None    => match cmd_panic c' with None => ORet tt w'' | Some v => OPanic v w'' end
+              end)
     /\ w_output w'' = w_output w ++ cmd_out_events c' ++ cmd_out_events d.
 Proof.
-  intros d c' w Hd Hc' Hdp.
+  intros d c' w Hd Hc'.
   destruct (go_chars (CDfr d c') w) as [w' [Hgo Hout]].
   destruct (go_chars d w') as [w'' [Hgod Houtd]].
-  rewrite Hdp in Hgod. (* cmd_panic d = None -> go d w' = (ORet tt w'', cmd_defers d) *)
   exists w''. split.
   - unfold run_cmd. rewrite Hgo. cbn [cmd_defers cmd_panic] in *.
     rewrite (cmd_defers_no_defer c' Hc'), (cmd_defers_no_defer d Hd) in *. cbn [app] in *.
-    (* ds = [d]; oc_world (oc_unit oc) = w'; go d w' = (ORet tt w'', []) *)
-    destruct (cmd_panic c') as [vb | ];
+    (* ds = [d]; oc_world (oc_unit oc) = w'; go d w' = (<outcome cmd_panic d> w'', []) *)
+    destruct (cmd_panic c') as [vb | ]; destruct (cmd_panic d) as [vd | ];
       cbn [oc_unit oc_world run_defers]; rewrite Hgod;
       cbn [run_defers oc_set_world oc_world]; reflexivity.
   - rewrite Houtd, Hout. cbn [cmd_out_events] in *. rewrite <- app_assoc. reflexivity.
 Qed.
 
-(** The first GENERAL (not concrete-demo) defer agreement: for [CDfr d c'] with [d]/[c'] both [no_defer] and the
-    deferred [d] NON-PANICKING, the single-goroutine [usteps] run AGREES with cmd.v's authoritative [run_cmd] —
-    SAME shape as [cmd_to_ucmd_run_agrees], for a CLASS [no_defer] rejects (defer-bearing).  Built from Phase A
-    ([cmd_to_ucmd_body_runs], run the body leaving [d] stacked) + ONE pop ([ustep_ret_defer] if the body
-    returned, [ustep_pan_defer] if it panicked — absorbing the body's panic into [pa]) + Phase A on [d] +
-    [ustep_ret_done]; [run_cmd] grounded by [run_cmd_one_np_defer].  Defers that THEMSELVES panic / multiple
-    defers / nesting are later Phase-B slices. *)
-Theorem bridge_one_np_defer_agrees : forall d c' ucap w,
-  no_defer d = true -> no_defer c' = true -> cmd_panic d = None ->
+(** The first GENERAL (not concrete-demo) defer agreement: for ANY [CDfr d c'] with [d]/[c'] both [no_defer], the
+    single-goroutine [usteps] run AGREES with cmd.v's authoritative [run_cmd] — SAME shape as
+    [cmd_to_ucmd_run_agrees], for a CLASS [no_defer] rejects (defer-bearing).  NO restriction on whether [d] or
+    [c'] panics: the statement is grounded in the abstract Outcome [oc] ([= run_cmd]'s result), not the private
+    [cmd_panic].  FOUR leaves (body returns/panics × [d] returns/panics): Phase A ([cmd_to_ucmd_body_runs], run
+    the body leaving [d] stacked) + ONE pop ([ustep_ret_defer] / [ustep_pan_defer], absorbing the body's panic
+    into [pa]) + Phase A on [d] + the finish ([ustep_ret_done] if [d] returned, [ustep_pan_done] if [d] panicked
+    — its panic REPLACING any active one); [run_cmd] grounded by [run_cmd_one_defer].  Multiple defers / nesting
+    are later Phase-B slices. *)
+Theorem bridge_one_defer_agrees : forall d c' ucap w,
+  no_defer d = true -> no_defer c' = true ->
   exists (uc : UConfig) (oc : Outcome unit),
     usteps ucap (ustart (cmd_to_ucmd (CDfr d c'))) uc
     /\ run_cmd 2 (CDfr d c') w = Some oc
@@ -385,58 +389,78 @@ Theorem bridge_one_np_defer_agrees : forall d c' ucap w,
     /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
     /\ uc_panic uc 0 = ocpanic oc.
 Proof.
-  intros d c' ucap w Hd Hc' Hdp.
-  destruct (run_cmd_one_np_defer d c' w Hd Hc' Hdp) as [w'' [Hrun Hwout]].
+  intros d c' ucap w Hd Hc'.
+  destruct (run_cmd_one_defer d c' w Hd Hc') as [w'' [Hrun Hwout]].
   destruct (cmd_to_ucmd_body_runs (CDfr d c') ucap
               (fun t => if Nat.eqb t 0 then cmd_to_ucmd (CDfr d c') else URet)
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
               eq_refl eq_refl) as [p' [df' [Hus1 [Hprog1 Hdf1]]]].
   cbn [cmd_panic cmd_defers cmd_out_events] in Hprog1, Hdf1.
   rewrite (cmd_defers_no_defer c' Hc') in Hdf1. cbn [map app] in Hdf1.
-  (* run [d] off the stack via Phase A, from the post-pop config (prog := [cmd_to_ucmd d], df := []). *)
   pose (oB := nil ++ map (fun e => (0, e)) (cmd_out_events c')).
-  destruct (cmd_panic c') as [vb | ] eqn:Ec; cbn in Hprog1.
-  - (* body PANICS vb: pan_defer absorbs vb, run d, ret_done; final panic vb. *)
+  (* The output-agreement and liveness goals are identical across all four leaves. *)
+  assert (Hout_ag : forall (dfx : nat -> list UCmd) (px : nat -> UCmd) (lvx : nat -> bool) pax (ocx : Outcome unit),
+    oc_world ocx = w'' ->
+    w_output (oc_world ocx) = w_output w ++ map snd (uc_out
+      (mkUCfg px (fun _ => nil) (fun _ => 0) lvx nil (oB ++ map (fun e => (0, e)) (cmd_out_events d)) dfx pax))).
+  { intros dfx px lvx pax ocx Hocx. cbn [uc_out]. rewrite Hocx, Hwout. subst oB.
+    rewrite !map_app. cbn [map app]. rewrite !map_snd_pair0. rewrite app_assoc. reflexivity. }
+  destruct (cmd_panic c') as [vb | ]; cbn in Hprog1.
+  - (* body PANICS vb: pan_defer absorbs vb into pa, then run d. *)
     destruct (cmd_to_ucmd_body_runs d ucap (upd p' 0 (cmd_to_ucmd d))
                 (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil oB (upd df' 0 nil)
                 (upd (fun _ : nat => @None GoAny) 0 (Some vb)) eq_refl (upd_same _ _ _))
       as [p'' [df'' [Hus2 [Hprog2 Hdf2]]]].
-    rewrite Hdp in Hprog2. cbn [cmd_defers] in Hdf2. rewrite (cmd_defers_no_defer d Hd) in Hdf2.
-    cbn [map] in Hdf2. rewrite upd_same in Hdf2.
-    eexists. exists (OPanic vb w''). split; [ | split; [ exact Hrun | split ] ].
-    + eapply usteps_trans; [ exact Hus1 | ].
-      eapply usteps_step. { eapply ustep_pan_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
-      eapply usteps_trans; [ exact Hus2 | ].
-      eapply usteps_step. { eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
-      apply usteps_refl.
-    + cbn [uc_live]. apply upd_same.
-    + split.
-      * cbn [oc_world uc_out]. rewrite Hwout. subst oB. rewrite !map_app. cbn [map app].
-        rewrite !map_snd_pair0. rewrite app_assoc. reflexivity.
-      * cbn [uc_panic]. rewrite upd_same. reflexivity.
-  - (* body RETURNS: ret_defer, run d, ret_done; no panic. *)
+    cbn [cmd_defers] in Hdf2. rewrite (cmd_defers_no_defer d Hd) in Hdf2. cbn [map] in Hdf2. rewrite upd_same in Hdf2.
+    destruct (cmd_panic d) as [vd | ]; cbn in Hprog2.
+    + (* d panics vd: pan_done REPLACES vb -> Some vd. *)
+      eexists. exists (OPanic vd w''). split; [ | split; [ exact Hrun | split ] ].
+      * eapply usteps_trans; [ exact Hus1 | ].
+        eapply usteps_step. { eapply ustep_pan_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
+        eapply usteps_trans; [ exact Hus2 | ].
+        eapply usteps_step. { eapply ustep_pan_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
+        apply usteps_refl.
+      * cbn [uc_live]. apply upd_same.
+      * split; [ apply Hout_ag; reflexivity | cbn [uc_panic]; rewrite upd_same; reflexivity ].
+    + (* d returns: ret_done keeps the active vb. *)
+      eexists. exists (OPanic vb w''). split; [ | split; [ exact Hrun | split ] ].
+      * eapply usteps_trans; [ exact Hus1 | ].
+        eapply usteps_step. { eapply ustep_pan_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
+        eapply usteps_trans; [ exact Hus2 | ].
+        eapply usteps_step. { eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
+        apply usteps_refl.
+      * cbn [uc_live]. apply upd_same.
+      * split; [ apply Hout_ag; reflexivity | cbn [uc_panic]; rewrite upd_same; reflexivity ].
+  - (* body RETURNS: ret_defer, then run d (pa stays None until d). *)
     destruct (cmd_to_ucmd_body_runs d ucap (upd p' 0 (cmd_to_ucmd d))
                 (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil oB (upd df' 0 nil)
                 (fun _ => None) eq_refl (upd_same _ _ _))
       as [p'' [df'' [Hus2 [Hprog2 Hdf2]]]].
-    rewrite Hdp in Hprog2. cbn [cmd_defers] in Hdf2. rewrite (cmd_defers_no_defer d Hd) in Hdf2.
-    cbn [map] in Hdf2. rewrite upd_same in Hdf2.
-    eexists. exists (ORet tt w''). split; [ | split; [ exact Hrun | split ] ].
-    + eapply usteps_trans; [ exact Hus1 | ].
-      eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
-      eapply usteps_trans; [ exact Hus2 | ].
-      eapply usteps_step. { eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
-      apply usteps_refl.
-    + cbn [uc_live]. apply upd_same.
-    + split.
-      * cbn [oc_world uc_out]. rewrite Hwout. subst oB. rewrite !map_app. cbn [map app].
-        rewrite !map_snd_pair0. rewrite app_assoc. reflexivity.
-      * cbn [uc_panic]. reflexivity.
+    cbn [cmd_defers] in Hdf2. rewrite (cmd_defers_no_defer d Hd) in Hdf2. cbn [map] in Hdf2. rewrite upd_same in Hdf2.
+    destruct (cmd_panic d) as [vd | ]; cbn in Hprog2.
+    + (* d panics vd: pan_done -> Some vd. *)
+      eexists. exists (OPanic vd w''). split; [ | split; [ exact Hrun | split ] ].
+      * eapply usteps_trans; [ exact Hus1 | ].
+        eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
+        eapply usteps_trans; [ exact Hus2 | ].
+        eapply usteps_step. { eapply ustep_pan_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
+        apply usteps_refl.
+      * cbn [uc_live]. apply upd_same.
+      * split; [ apply Hout_ag; reflexivity | cbn [uc_panic]; rewrite upd_same; reflexivity ].
+    + (* d returns: ret_done -> ORet, no panic. *)
+      eexists. exists (ORet tt w''). split; [ | split; [ exact Hrun | split ] ].
+      * eapply usteps_trans; [ exact Hus1 | ].
+        eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); [ reflexivity | rewrite Hprog1; reflexivity | rewrite Hdf1; reflexivity ]. }
+        eapply usteps_trans; [ exact Hus2 | ].
+        eapply usteps_step. { eapply ustep_ret_done with (tid := 0); [ reflexivity | exact Hprog2 | exact Hdf2 ]. }
+        apply usteps_refl.
+      * cbn [uc_live]. apply upd_same.
+      * split; [ apply Hout_ag; reflexivity | cbn [uc_panic]; reflexivity ].
 Qed.
 
 (** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
     no_defer [run_cmd]-grounded bridge AND its first defer-bearing generalisation.  The projection plumbing
-    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[go_chars]/[run_cmd_one_np_defer]/Phase A) is Local and covered
+    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[go_chars]/[run_cmd_one_defer]/Phase A) is Local and covered
     TRANSITIVELY through these two cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
-Print Assumptions bridge_one_np_defer_agrees.
+Print Assumptions bridge_one_defer_agrees.
