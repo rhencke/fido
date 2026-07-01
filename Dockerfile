@@ -98,11 +98,11 @@ COPY --chown=opam:opam negtests/ negtests/
 #      printer guarantee is vacuous if they differ).  Regenerate it from GoPrint.v here, FAIL on drift,
 #      and assert GoPrint.v's `Print Assumptions` show no "Axioms:" (GoPrint.v is part of the trust gate,
 #      not just main_effect).  Then COPY the fresh (proved) copy over so the plugin is built from it.
-#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — 4 checks): smart-ctor ban (the live proof-carrying Printer
-#      constructors GTNamed/EId erase their Rocq validity proof to a bare OCaml string, so a DIRECT call would
-#      bypass the verified invariant — assert plugin/go.ml builds them ONLY via the re-checking mk_named_ty /
-#      mk_goexpr_id), dead-name recurrence, emission discipline, and bridge-recognizer scoping — a pure static
-#      scan, run FIRST so a side-door construction fails fast.
+#  (6) CODE-DISCIPLINE GATE (smart-ctor-gate.sh — the structural checks enumerated in that file): e.g. the
+#      smart-ctor ban (the live proof-carrying Printer constructors GTNamed/EId erase their Rocq validity proof
+#      to a bare OCaml string, so a DIRECT call would bypass the verified invariant — assert plugin/go.ml builds
+#      them ONLY via the re-checking mk_named_ty / mk_goexpr_id), plus dead-name / emission / bridge-recognizer /
+#      selector-bridge scoping — a pure static scan, run FIRST so a side-door construction fails fast.
 #  (0) AXIOM-AUTHORITY SELF-TEST (axiom-authority-selftest.sh): pin that gate (3)'s authority — Rocq's own
 #      `Print Assumptions` output, parsed by the shared plugin/manifest-axioms.sh — catches an axiom introduced
 #      by every declaration form in its TABLE (plain/Local/Global/Polymorphic/Monomorphic Axiom, Parameter,

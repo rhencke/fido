@@ -1,8 +1,9 @@
 #!/bin/sh
-# Smart-constructor / dead-name / emission-discipline / bridge-recognizer gate — five CODE-LEVEL structural
-# checks (grep tripwires, NOT type-level seals: they catch the accidental/obvious bypass, not an aliased side
-# door; the real guarantees are the Rocq proofs + the AST admitting no raw-syntax constructor + GoEmit exporting
-# no `emit : Program -> string`).  Each check documents itself at its site below.
+# Structural code-discipline gate — five CODE-LEVEL checks (smart-ctor ban / dead-name / emission-discipline /
+# bridge-recognizer / selector-bridge; each documents itself at its numbered site below).  These are grep
+# tripwires, NOT type-level seals: they catch the accidental/obvious bypass, not an aliased side door; the real
+# guarantees are the Rocq proofs + the AST admitting no raw-syntax constructor + GoEmit exporting no
+# `emit : Program -> string`.
 #
 # NOT policed here — GoSem axiom-freedom and GoSem-uses-the-model's-string-order, both enforced in ROCQ (a
 # source-text grep is bypassable by legal syntax like [Local Axiom]); see the closing note.  Prose honesty is
@@ -94,6 +95,5 @@ fi
 echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + MLrel-receiver guards ✓"
 
 # NOTE (enforced in ROCQ, not here): string-order — GoSem.v pins each [str_cmp_op] branch to the qualified
-# [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model], shadow-immune, bundled into
-# [gosem_string_authority_surface]).  Axiom-freedom — the Docker manifest gate captures GoSem's [Print
-# Assumptions] surfaces (single-sourced in PROGRESS.md "Current gates") + axiom-authority-selftest.sh pins it.
+# [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model], bundled into [gosem_string_authority_surface]).
+# Axiom-freedom — the manifest gate captures GoSem's [Print Assumptions] surfaces + axiom-authority-selftest.sh.

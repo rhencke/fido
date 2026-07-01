@@ -64,8 +64,9 @@ deferred). Purely syntactic — no safety claims here.
 `GoSafe`/`cmd`) — SLICE 1.** `denote_program : Program -> option (Cmd unit)` bridges into `cmd.v`'s proven
 command tree (no second universe): print/println → `COut` (the model's own `w_log`), panic → `CPan`, return,
 blank constant-assignment, over a PARTIAL `eval_value` (constants only; exact coverage in `GoSem.v`, not
-here). `gosem_sound`: denotation ⊆ `SupportedProgram`. Certified surface = `gosem_trust_surface`. NO
-completeness, NO `BehaviorSafe`. As GoSem grows it must **bridge or retire** `unified.v` (proven `ustep` /
+here). `gosem_sound`: denotation ⊆ `SupportedProgram`. Certified surface: the `Print Assumptions`-gated
+`gosem_*_surface` tuples (exact list single-sourced in PROGRESS.md "Current gates"). NO completeness, NO
+`BehaviorSafe`. As GoSem grows it must **bridge or retire** `unified.v` (proven `ustep` /
 race-freedom / liveness) and `concurrency.v` (trace / happens-before / race / deadlock) — ONE behavioral
 authority, never a second universe.
 

@@ -777,6 +777,20 @@ Example eval_value_good_ok :
   map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
 Proof. vm_compute. reflexivity. Qed.
 
+(** Each folded row RUNS end-to-end: [println(e); return] denotes and EXECUTES through cmd.v's authoritative
+    [run_cmd] to the world logging the EXACT model value [v] the fold produced ([w_log true [v]]).  This grouped
+    run-witness table REPLACES + strictly widens (6 -> 36 rows) the old per-category run demos
+    (conv/float/bool/strlit/concat/concat-cmp), and is MANIFEST-GATED (in [gosem_trust_surface]) — a concrete
+    behavior surface, not a bare compile. *)
+Definition println_prog (e : GExpr) : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [e]); GsReturn].
+Example eval_value_good_runs : forall w,
+  map (fun p => match denote_program (println_prog (fst p)) with
+                | Some c => run_cmd 5 c w | None => None end) eval_value_good
+  = map (fun p => Some (ORet tt (w_log true (snd p :: nil) w))) eval_value_good.
+Proof. intro w. vm_compute. reflexivity. Qed.
+
 (** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
     ([mk_uint]/[box_*] never carry a [*wrap]-mangled value); a mixed-WIDTH ill-typed compare [int64(1)==int32(1)]
     has [ptype = None] so [eval_bool]/[eval_value] fail closed (no fabricated [true]); the uint underflow
@@ -832,7 +846,8 @@ Proof. reflexivity. Qed.
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denote_program_runs, out_main_runs, println_main_runs,
-   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs).
+   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
+   eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none).
 Print Assumptions gosem_trust_surface.
 
 (** ---- STRING-AUTHORITY PINS (gated): each of [str_cmp_op]'s six branches IS, by reflexivity, the FULLY

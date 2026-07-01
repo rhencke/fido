@@ -59,9 +59,9 @@ negtest:
 	dune build
 	@sh negtests/run.sh
 
-# Code-discipline gate: smart-ctor / dead-name / emission-discipline / bridge-recognizer (see
-# plugin/smart-ctor-gate.sh). Runs here, in the pre-commit hook, and non-bypassably in the Docker prover
-# stage (so `make check` enforces it).
+# Code-discipline gate: the structural / smart-ctor checks (enumerated in plugin/smart-ctor-gate.sh — that
+# file is the single source for what they are). Runs here, in the pre-commit hook, and non-bypassably in the
+# Docker prover stage (so `make check` enforces it).
 smart-ctor-gate:
 	@sh plugin/smart-ctor-gate.sh
 

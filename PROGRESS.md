@@ -122,8 +122,8 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
-  flows, the axiom-authority self-test, the fail-closed `negtests/` harness, the smart-ctor / dead-name /
-  emission-discipline / bridge-recognizer gate, `emit-demo`, gofmt, and `go vet`.
+  flows, the axiom-authority self-test, the fail-closed `negtests/` harness, the code-discipline gate (the
+  structural checks enumerated in `plugin/smart-ctor-gate.sh`), `emit-demo`, gofmt, and `go vet`.
 - `make emit-verify` / `make printer-verify` — local mirrors of the emit / printer gates.
 - `make negtest` — local: each `negtests/*.v` ABORTS extraction at a fail-closed backend site.
 - Pre-commit hook: re-extracts + auto-stages Go, and an anti-axiom DECLARATION scan over every tracked `.v`.
