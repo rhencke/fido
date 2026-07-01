@@ -508,7 +508,7 @@ Qed.
 
 (** The active panic after running flat defers [ds] (in [go]-accumulation / run order, head first) seeded with
     [p0]: last panic wins (a returning defer keeps the active panic).  = the fold [run_defers] performs. *)
-Fixpoint flat_defers_panic (ds : list (Cmd unit)) (p0 : option GoAny) : option GoAny :=
+Local Fixpoint flat_defers_panic (ds : list (Cmd unit)) (p0 : option GoAny) : option GoAny :=
   match ds with
   | nil => p0
   | d :: ds' => flat_defers_panic ds' (match cmd_panic d with Some v => Some v | None => p0 end)
@@ -729,9 +729,9 @@ Qed.
 (** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
     no_defer [run_cmd]-grounded bridge AND its three defer-bearing generalisations (ONE defer either-panics;
     MULTIPLE non-panicking defers; MULTIPLE flat defers with panics — the 2-mode).  The projection plumbing
-    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[go_chars]/[run_cmd_one_defer]/[run_defers_np]/[run_defers_flat]/
-    [unwind_np]/[unwind_flat]/Phase A) is Local and covered TRANSITIVELY through these cones, not separately
-    printed. *)
+    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_cmd_one_defer]/
+    [run_defers_np]/[run_defers_flat]/[unwind_np]/[unwind_flat]/Phase A) is Local and covered TRANSITIVELY
+    through these cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_one_defer_agrees.
 Print Assumptions bridge_flat_np_agrees.
