@@ -18,12 +18,12 @@
                            denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string CONSTANT — a LITERAL, a CONCATENATION [a+b], or an ASCII rune conversion [string(65)] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
+    [eval_value] (slice 1: a string CONSTANT — a LITERAL, a CONCATENATION [a+b], an identity string conversion, or an ASCII rune conversion [string(65)] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)] / in-range [uint(3)], ARITHMETIC [1+2], complement [^x]
     — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
     failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
-    STRING-CONSTANT comparisons (literals AND concatenations; string compares DELEGATED to the model's [str_*]
+    STRING-CONSTANT comparisons (any [eval_str]-folded operand — literals, concatenations, string/rune conversions; string compares DELEGATED to the model's [str_*]
     family — no local GoSem order) combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion)
     supplies the printed/panicked values; a string (or string-comparison operand) built from a NON-literal LEAF
     BEYOND the folded set (a MULTI-BYTE rune conversion [string(200)] — ASCII runes [string(65)] now fold to
@@ -122,8 +122,10 @@ Definition const_z (e : GExpr) : option Z :=
 (** The constant string VALUE of a supported [PtStr] expression — THE SINGLE string-value authority (both
     [eval_value]'s [PtStr] arm AND [eval_bool]'s string comparisons consult it; no literal-only fork).  Folds a
     string LITERAL [EStr s], the CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is
-    byte APPEND, so [String.append] is exact), and the ASCII rune conversion [string(z)] for a code point
-    [z ∈ [0,127]] (whose UTF-8 encoding is the single byte [z] — [string(65)] = ["A"], exact via [const_z]).
+    byte APPEND, so [String.append] is exact), and the string CONVERSION [string(a)] — its arm MIRRORS
+    [conv_to_scalar]'s two [GTString] cases: an IDENTITY string source ([PtStr] -> [eval_str a], so [string("a"+"b")]
+    = its bytes) or an ASCII rune ([PtIntConst]/[PtTIntConst] with code point [z ∈ [0,127]] -> the single byte [z],
+    since its UTF-8 encoding IS that byte — [string(65)] = ["A"]).
     SEALED under [ptype] = [PtStr] (so it never folds an ill-typed [+] like [`"a" + 1`], which [ptype] rejects).
     ABSENT (-> [None], honestly): a MULTI-BYTE rune [string(200)] (UTF-8 > 1 byte) or out-of-range/negative rune
     (Go yields [U+FFFD]), and any RUNTIME string. *)
@@ -136,17 +138,18 @@ Fixpoint eval_str (e : GExpr) : option string :=
                          | Some sa, Some sb => Some (String.append sa sb)
                          | _, _ => None
                          end
-      | ECall (EId i) (a :: nil) =>   (* the rune conversion [string(z)] *)
+      | ECall (EId i) (a :: nil) =>   (* the string conversion [string(a)] — MIRRORS [conv_to_scalar]'s [GTString] cases *)
           if String.eqb (proj1_sig i) "string"
-          then match const_z a with
-               | Some z =>
-                   (* FAITHFUL-OR-ABSENT: fold ONLY code points [0,127], whose UTF-8 encoding IS the single
-                      byte [z] ([string(65)] = ["A"]) — trivially exact.  A rune >127 (multi-byte UTF-8) or an
-                      out-of-range/negative rune (Go yields [U+FFFD]) is NOT folded here — absent, never wrong. *)
+          then match ptype a with
+               | Some PtStr => eval_str a   (* string SOURCE: the identity conversion [string("a"+"b")] = its bytes *)
+               | Some (PtIntConst z) | Some (PtTIntConst _ z) =>
+                   (* rune conversion.  FAITHFUL-OR-ABSENT: fold ONLY code points [0,127], whose UTF-8 encoding IS
+                      the single byte [z] ([string(65)] = ["A"]) — trivially exact.  A rune >127 (multi-byte UTF-8)
+                      or an out-of-range/negative rune (Go yields [U+FFFD]) is NOT folded — absent, never wrong. *)
                    if andb (Z.leb 0 z) (Z.leb z 127)
                    then Some (String (Ascii.ascii_of_nat (Z.to_nat z)) EmptyString)
                    else None
-               | None => None
+               | _ => None
                end
           else None
       | _ => None
@@ -179,13 +182,13 @@ Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
     mixed-width [int64(1)==int32(1)]) comparison returns [None], NOT a value.  The precondition is thus
     ENFORCED here, not assumed of the caller (so [const_z]'s type-erasure can never fold an ill-typed compare).
     Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) / string CONSTANTS ([eval_str] — the
-    single string-value authority, literals AND concatenations) and recurses STRUCTURALLY (terminates) over the bool forms:
+    single string-value authority — literals, concatenations, string/rune conversions) and recurses STRUCTURALLY (terminates) over the bool forms:
       - a COMPARISON: NUMERIC (the 6 ops via [cmp_op]/[const_z]), STRING-CONSTANT (the 6 ops via
         [str_cmp_op]/[eval_str]), or [==]/[!=] of two bool sub-bools;
       - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!];
       - the identity bool CONVERSION [bool(x)] (Go allows it only for an already-bool [x]) -> the value of [x].
     NOT folded (-> [None], honestly absent): a comparison whose string operand is a MULTI-BYTE rune conversion
-    ([string(200)] — ASCII runes [string(65)] and concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
+    ([string(200)] — ASCII-rune [string(65)], string-source and concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
   match ptype e with
   | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
@@ -221,14 +224,15 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     came from the EXACT integer [z]), and [box_int] / [box_float] attach the model value, FAILING CLOSED on an
     out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
     string CONSTANT ([anyt TString s], folded via the self-sealed [eval_str] — a LITERAL, a CONCATENATION
-    [a + b], or an ASCII rune conversion [string(65)], since [PtStr] carries no value), an untyped integer
+    [a + b], an identity string conversion [string("a"+"b")], or an ASCII rune conversion [string(65)], since
+    [PtStr] carries no value), an untyped integer
     constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
     [int64(3)] / in-range [uint(3)] (boxed by [mk_uint]), ARITHMETIC [1+2], complement [^x] — complement still
     EXCLUDING [GTUint]), and a TYPED FLOAT constant of an exact
     integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
     a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
     GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
-    STRING-CONSTANT comparisons (literals AND concatenations) combined by [==]/[!=]/[&&]/[||]/[!], plus the
+    STRING-CONSTANT comparisons (any [eval_str]-folded operand — literals, concatenations, string/rune conversions) combined by [==]/[!=]/[&&]/[||]/[!], plus the
     identity [bool(x)] conversion, reusing the operands' [ptype] numeric values ([const_z]) and string values
     ([eval_str]).  ABSENT (-> [None], the next sub-slices):
     a bool with a RUNTIME operand, a string (or string-comparison operand) built from a
@@ -241,7 +245,7 @@ Definition eval_value (e : GExpr) : option GoAny :=
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
   | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
-  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal or concatenation ([PtStr] carries no value; [eval_str] folds it) *)
+  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
   | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
   | _                       => None
   end.
@@ -406,10 +410,10 @@ Qed.
     class — a print/println of a RUNTIME arg is supported but not [denotable_arg], so it does NOT denote
     ([out_boundary_runtime_undenoted]).  A print/println ARG denotes iff it EVALUATES and is PRINTABLE:
     [denotable_arg].  A `main` body of denotable-arg output statements + [return] ALWAYS denotes for the args
-    [eval_value] folds: string CONSTANTS (literals, concatenations, ASCII rune conversions [string(65)]) plus
-    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (a MULTI-BYTE rune conversion
-    like `string(200)` is supported but eval-partial, so NOT [denotable_arg]; pinned by
-    [denotable_arg_runeconv_multibyte]).
+    [eval_value] folds: string CONSTANTS (literals, concatenations, identity string conversions, ASCII rune
+    conversions [string(65)]) plus the folded integer / exact-float / bool CONSTANTS — NOT every supported string
+    (a MULTI-BYTE rune conversion like `string(200)` is supported at classifier+gate but eval-partial, so NOT
+    [denotable_arg]; the FULL supported-but-absent boundary is pinned by [runeconv_multibyte_boundary]).
     ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
     program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
     that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
@@ -431,20 +435,36 @@ Proof. vm_compute. reflexivity. Qed.
 Example eval_str_concat_faithful : eval_value (EBn BAdd (EStr "a") (EStr "b")) = Some (anyt TString "ab").
 Proof. vm_compute. reflexivity. Qed.
 
-(** ASCII rune conversions now DENOTE: [`string(65)`] folds to the EXACT model value [anyt TString "A"] (a code
-    point in [0,127] whose UTF-8 encoding IS the single byte 65), so it is [denotable_arg].  BOUNDARY PIN (keeps
-    the converse EXACT): a MULTI-BYTE rune [`string(200)`] (UTF-8 = 2 bytes — [eval_str] folds only [0,127], the
-    rest faithfully absent) is still supported ([PtStr]) but NOT [denotable_arg].  Until multi-byte rune encoding
-    is modelled, those stay OUTSIDE the denoted fragment. *)
+(** String CONVERSIONS now DENOTE, mirroring [conv_to_scalar]'s two [GTString] cases: (1) the IDENTITY
+    string-source conversion [`string("a"+"b")`] folds via [eval_str a] to the source bytes; (2) an ASCII rune
+    [`string(65)`] folds to the EXACT model value [anyt TString "A"] (a code point in [0,127] whose UTF-8
+    encoding IS the single byte 65).  Both are [denotable_arg]. *)
 Example denotable_arg_runeconv_ascii :
   denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example eval_runeconv_ascii_faithful :
-  eval_value (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some (anyt TString "A").
-Proof. vm_compute. reflexivity. Qed.
-Example denotable_arg_runeconv_multibyte :
-  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 200]) = false.
-Proof. vm_compute. reflexivity. Qed.
+Example eval_string_conv_faithful :
+  eval_value (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some (anyt TString "A")
+  /\ eval_value (ECall (EId (mkIdent "string" eq_refl)) [EStr "A"]) = Some (anyt TString "A")   (* identity string source *)
+  /\ eval_value (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) = Some (anyt TString "ab").
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
+(** BOUNDARY PIN (keeps the converse EXACT — pins the FULL state, not just non-denotability): a MULTI-BYTE rune
+    [`string(200)`] (UTF-8 = 2 bytes — [eval_str] folds only [0,127]) is SUPPORTED at the classifier AND the gate
+    ([ptype] = [PtStr], [printable_arg_ok], so [println(string(200))] is a [supported_program]) yet ABSENT
+    ([eval_value] = [None], so the program does NOT denote).  Pinning support+absence TOGETHER stops the boundary
+    from silently sliding to "rejected" (if [ptype] dropped it) or "wrong" (if [eval] folded it).  Until
+    multi-byte rune encoding is modelled, these stay OUTSIDE the denoted fragment, faithfully absent. *)
+Definition runeconv_mb : GExpr := ECall (EId (mkIdent "string" eq_refl)) [EInt 200].
+Definition runeconv_mb_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runeconv_mb]); GsReturn].
+Example runeconv_multibyte_boundary :
+  ptype runeconv_mb = Some PtStr                  (* SUPPORTED at the classifier (a valid [PtStr]) *)
+  /\ printable_arg_ok runeconv_mb = true          (* ... and printable *)
+  /\ supported_program runeconv_mb_prog = true    (* ... so [println(string(200))] IS a supported program *)
+  /\ eval_value runeconv_mb = None                (* yet ABSENT: the multi-byte rune is not folded *)
+  /\ denote_program runeconv_mb_prog = None.      (* ... so the SUPPORTED program does NOT denote (faithful-or-absent) *)
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 Lemma eval_args_denotable : forall args, forallb denotable_arg args = true -> eval_args args <> None.
 Proof.
