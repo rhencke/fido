@@ -145,6 +145,57 @@ Proof.
   - cbn [oc_world] in Hout. exact Hout.
 Qed.
 
+(** Toward the [BehaviorSafe] SHAPE (still a PROPERTY, still NOT a gate).  [panic_free_runs_ret] takes the
+    denotation [denote_program p = Some c] as a HYPOTHESIS; a real gate must instead be DECIDABLE on the raw
+    [Program].  So fold its two conditions into one boolean predicate: [panic_free_denotable p] = the DECIDABLE
+    image of "denotes" ([denotable_program], from [denote_program_dec]) AND the syntactic [panic_free].  It
+    ENTAILS the safe run WITHOUT a denotation handed in — the exact "decidable syntactic predicate ⟹ runtime
+    safety" form the eventual gate will take, now computable from the program alone.
+    ⚠ Honesty: this is NOT [BehaviorSafe] / [SafeProgram] and does NOT gate emission.  In slice 1's fragment
+    (no pointers / slices / channels reach [denote_program]) [panic] is the ONLY unsafe op, so panic-freedom is
+    the fragment-appropriate safety condition — the NAME stays specific ([panic_free_denotable], never [safe]),
+    and this predicate is NOT yet strong enough to certify the full behavioral-safety target. *)
+Definition panic_free_denotable (p : Program) : bool :=
+  denotable_program p && panic_free (prog_body p).
+
+Theorem panic_free_denotable_runs_ret : forall p w,
+  panic_free_denotable p = true ->
+  exists c w', denote_program p = Some c /\ run_cmd 1 c w = Some (ORet tt w').
+Proof.
+  intros p w H. apply andb_true_iff in H as [Hden Hpf].
+  destruct (denote_program p) as [c|] eqn:Ec.
+  - destruct (panic_free_runs_ret p c w Ec Hpf) as [w' Hrun].
+    exists c, w'. split; [reflexivity | exact Hrun].
+  - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
+Qed.
+
+(** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
+Theorem panic_free_denotable_runs_ret_ustep : forall p ucap w,
+  panic_free_denotable p = true ->
+  exists c uc w',
+    denote_program p = Some c
+    /\ run_cmd 1 c w = Some (ORet tt w')
+    /\ usteps ucap (ustart (cmd_to_ucmd c)) uc
+    /\ uc_live uc 0 = false
+    /\ uc_panic uc 0 = None
+    /\ w_output w' = w_output w ++ map snd (uc_out uc).
+Proof.
+  intros p ucap w H. apply andb_true_iff in H as [Hden Hpf].
+  destruct (denote_program p) as [c|] eqn:Ec.
+  - destruct (panic_free_runs_ret_ustep p c ucap w Ec Hpf)
+      as [uc [w' [Hrun [Hus [Hlive [Hpan Hout]]]]]].
+    exists c, uc, w'.
+    split; [reflexivity | split; [exact Hrun | split; [exact Hus | split; [exact Hlive | split; [exact Hpan | exact Hout]]]]].
+  - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
+Qed.
+
+(** The predicate DECIDES (non-vacuous): TRUE for the panic-free [safe_prog], FALSE for [panicking_prog]. *)
+Example panic_free_denotable_decides :
+  panic_free_denotable safe_prog = true /\ panic_free_denotable panicking_prog = false.
+Proof. split; reflexivity. Qed.
+
 (** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
 Print Assumptions panic_free_runs_ret.
 Print Assumptions panic_free_runs_ret_ustep.
+Print Assumptions panic_free_denotable_runs_ret.
+Print Assumptions panic_free_denotable_runs_ret_ustep.

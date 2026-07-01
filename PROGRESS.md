@@ -76,7 +76,9 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
-  liveness live). SEED of `BehaviorSafe`; ⚠ NOT a gate. Zero axioms.
+  liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
+  `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_ustep`]
+  prove it entails the safe run. SEED of `BehaviorSafe`; ⚠ NOT a gate (name stays specific, not `safe`). Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
@@ -118,7 +120,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
 `run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
-`panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
+`panic_free_runs_ret_ustep` / `panic_free_denotable_runs_ret`[`_ustep`]; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
