@@ -727,19 +727,22 @@ Proof. reflexivity. Qed.
 Example gosem_defer_not_denotable : denotable_program gosem_defer_prog = false.  (* the decidable predicate agrees *)
 Proof. reflexivity. Qed.
 
-(** ---- [eval_value] FOLD TABLE (grouped regression) ---- every printable constant [eval_value] denotes,
-    pinned as one [(expr, value)] list.  Integer conversions/arith box the model's EXACT value (per
-    signedness/width); an exact-integer FLOAT constant boxes the UNIQUE canonical binary64/32; a constant BOOL
-    from the 6 numeric or STRING-constant comparisons (order via the model's [str_*]) combined by
-    [==]/[!=]/[&&]/[||]/[!] + the identity [bool(x)]; a string CONSTANT (literal / concat / ASCII-rune / identity
-    string conv).  ["a"+"b"] = ["ab"] (byte append), [string(65)] = ["A"] ([0,127] arm), high-byte "\200">"\100"
-    pins UNSIGNED order.  The [box_*]/[ptype] FAIL-CLOSED pins (out-of-range boxing / ill-typed compare / uint
-    underflow) are separate below — those lock the GATE boundary, not a fold. *)
+(** ---- [eval_value] FOLD TABLE (grouped regression) ---- each LISTED row's constant [eval_value] denotes to
+    the paired value, pinned as one [(expr, value)] list.  A BREADTH sample, NOT a completeness claim: some
+    printable supported constants are honestly ABSENT (e.g. the multi-byte rune [string(200)], pinned separately
+    by [runeconv_multibyte_boundary]).  The listed rows exercise integer conversions/arith/complement (boxing
+    the model's EXACT value per signedness/width; [^int64(5)] = [-6]), exact-integer FLOAT constants (the UNIQUE
+    canonical binary64/32), constant BOOLs (the 6 numeric or STRING-constant comparisons — order via the model's
+    [str_*] — combined by [==]/[!=]/[&&]/[||]/[!] + the identity [bool(x)]), and string CONSTANTs (literal /
+    concat / ASCII-rune / identity string conv: ["a"+"b"] = ["ab"] byte append, [string(65)] = ["A"] ([0,127]
+    arm), high-byte "\200">"\100" pins UNSIGNED order).  The [box_*]/[ptype] FAIL-CLOSED pins (out-of-range
+    boxing / ill-typed compare / uint underflow) are separate below — those lock the GATE boundary, not a fold. *)
 Definition eval_value_good : list (GExpr * GoAny) :=
   [ (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3], anyt TI64 (i64wrap 3))
   ; (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5], anyt TU8 (u8wrap 5))
   ; (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127], anyt TI8 (i8wrap 127))
   ; (EBn BAdd (EInt 1) (EInt 2), anyt TInt64 (intwrap 3))
+  ; (EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [EInt 5]), anyt TI64 (i64wrap (-6)))   (* ^int64(5) = bitwise NOT = -6 *)
   ; (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3], anyt TUint (uint_lit 3 eq_refl))
   ; (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4]), anyt TUint (uint_lit 7 eq_refl))
   ; (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3], anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)))
