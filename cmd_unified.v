@@ -14,9 +14,10 @@
     (arbitrary defer nesting, any panics) the [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the
     unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.  It
     unwinds the LIFO defer forest under the (prog, pa) 2-mode, threading the panic to the flattened last-raised
-    value (grounded on [run_cmd_panic_char]), with [run_cmd] completion discharged internally by
-    [run_cmd_terminates].  Plus cmd.v-side properties for ANY [c]: [run_cmd] TERMINATES for enough fuel, and — for
-    a COMPLETING [run_cmd] — its output only APPENDS (never retracts) and a panic-free such run returns [ORet].
+    value (grounded on [run_cmd_panic_char]), with [run_cmd] completion discharged internally by cmd.v's
+    [run_cmd_terminates] (termination lives in cmd.v — a pure [run_cmd] property).  Plus cmd.v-side properties
+    for a COMPLETING [run_cmd] on ANY [c]: its output only APPENDS (never retracts) and a panic-free such run
+    returns [ORet].
     The EXACT gated public-surface set is the [Print Assumptions] block at the end of this file (the single in-file
     authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
@@ -78,26 +79,6 @@ Local Lemma cmd_defers_no_defer : forall c, no_defer c = true -> cmd_defers c = 
 Proof.
   intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hnd; cbn in *;
     [ reflexivity | exact (IH Hnd) | reflexivity | discriminate Hnd ].
-Qed.
-
-(** A structural node-count of a command, and of a defer list — the termination measure for [run_defers] over a
-    NESTED defer forest ([go d] peels the head into strictly-smaller sub-forests). *)
-Local Fixpoint cmd_sz (c : Cmd unit) : nat :=
-  match c with
-  | CRet _ => 1 | COut _ _ c' => S (cmd_sz c') | CPan _ => 1 | CDfr d c' => S (cmd_sz d + cmd_sz c')
-  end.
-Local Fixpoint defers_sz (ds : list (Cmd unit)) : nat :=
-  match ds with [] => 0 | d :: ds' => cmd_sz d + defers_sz ds' end.
-Local Lemma defers_sz_app : forall l1 l2, defers_sz (l1 ++ l2) = defers_sz l1 + defers_sz l2.
-Proof. induction l1 as [|d l1 IH]; intro l2; cbn [defers_sz app]; [ reflexivity | rewrite IH; lia ]. Qed.
-(** A command's accumulated defer forest is strictly SMALLER than the command (its own body node is dropped). *)
-Local Lemma cmd_defers_sz_lt : forall c, defers_sz (cmd_defers c) < cmd_sz c.
-Proof.
-  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; cbn [cmd_sz cmd_defers].
-  - cbn; lia.
-  - lia.
-  - cbn; lia.
-  - rewrite defers_sz_app. cbn [defers_sz]. lia.
 Qed.
 
 Local Lemma w_output_w_log : forall b xs w, w_output (w_log b xs w) = w_output w ++ ((b, xs) :: nil).
@@ -245,20 +226,6 @@ Local Lemma ocpanic_set_world : forall (acc : Outcome unit) w, ocpanic (oc_set_w
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
 Local Lemma oc_world_set_world : forall (acc : Outcome unit) w, oc_world (oc_set_world acc w) = w.
 Proof. intros [[] w0 | v w0] w; reflexivity. Qed.
-
-(** One definitional unfolding of [run_defers] over a [cons] with fuel to spare — a controlled rewrite so the
-    step lemma need not fight [cbn]'s aggressiveness on the (variable-list) tail recursion. *)
-Local Lemma run_defers_unfold : forall n d ds acc,
-  run_defers (S n) (d :: ds) acc
-    = (let '(oc_d, ds_d) := go d (oc_world acc) in
-       match run_defers n ds_d oc_d with
-       | None => None
-       | Some net_d =>
-           run_defers n ds (match net_d with
-                            | OPanic v' w' => OPanic v' w'
-                            | ORet _ w' => oc_set_world acc w' end)
-       end).
-Proof. reflexivity. Qed.
 
 (** run_defers is OUTPUT-MONOTONE for ARBITRARY nesting: unwinding a defer list only ever APPENDS to the
     world's output trace (each deferred body's [cmd_out_events] and, recursively, its own nested defers'),
@@ -414,66 +381,6 @@ Proof.
       by exact (IH (cmd_defers d) (ORet tt w_d) net_d Enet (cmd_no_panic_defers d Hnp) eq_refl).
     destruct net_d as [[] w' | v' w']; cbn [ocpanic] in Hnet; [ | discriminate Hnet ].
     exact (IH ds' (oc_set_world acc w') result H Hall' (eq_trans (ocpanic_set_world acc w') Hacc)).
-Qed.
-
-(** [run_defers] is MONOTONE in fuel: extra fuel never changes a successful result (it only guards against
-    exhaustion).  Induction on the fuel [f]. *)
-Local Lemma run_defers_mono : forall f ds acc r,
-  run_defers f ds acc = Some r -> forall f', f <= f' -> run_defers f' ds acc = Some r.
-Proof.
-  induction f as [| n IH]; intros ds acc r H f' Hle; [ discriminate H | ].
-  destruct f' as [| n']; [ inversion Hle | ]. apply le_S_n in Hle.
-  destruct ds as [| d ds']; [ cbn in H |- *; exact H | ].
-  rewrite run_defers_unfold in H. rewrite run_defers_unfold.
-  destruct (go d (oc_world acc)) as [oc_d ds_d].
-  destruct (run_defers n ds_d oc_d) as [net_d|] eqn:Enet; [ | discriminate H ].
-  rewrite (IH ds_d oc_d net_d Enet n' Hle). exact (IH ds' _ r H n' Hle).
-Qed.
-
-(** [run_defers] TERMINATES for enough fuel, over ARBITRARY nesting: bounded strong induction on the defer
-    forest's node-count [defers_sz] (each [go d] peels [d] into the strictly-smaller [cmd_defers d] + [ds']),
-    lifting the two sub-results to a common fuel via [run_defers_mono].  No well-founded machinery — plain [nat]
-    induction on the [defers_sz] bound.  The tail [ds']'s seed depends on the nested run's RESULT, so the two
-    sub-runs are resolved to concrete [net_d]/[r] before choosing the common fuel. *)
-Local Lemma run_defers_terminates : forall ds acc, exists f, run_defers f ds acc <> None.
-Proof.
-  assert (aux : forall n ds acc, defers_sz ds <= n -> exists f, run_defers f ds acc <> None).
-  { induction n as [| n IH]; intros ds acc Hle.
-    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
-      cbn [defers_sz] in Hle. pose proof (cmd_defers_sz_lt d). lia.
-    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
-      cbn [defers_sz] in Hle. pose proof (cmd_defers_sz_lt d) as Hlt.
-      destruct (go_chars d (oc_world acc)) as [w_d [Hgo _]].
-      destruct (IH (cmd_defers d)
-                  (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)) as [f1 H1]; [ lia | ].
-      destruct (run_defers f1 (cmd_defers d)
-                  (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)) as [net_d|] eqn:Enet;
-        [ | exfalso; apply H1; reflexivity ].
-      destruct (IH ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end))
-        as [f2 H2]; [ lia | ].
-      destruct (run_defers f2 ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end))
-        as [r|] eqn:Erest; [ | exfalso; apply H2; reflexivity ].
-      exists (S (Nat.max f1 f2)).
-      assert (Hfull : run_defers (S (Nat.max f1 f2)) (d :: ds') acc = Some r).
-      { rewrite run_defers_unfold, Hgo. cbn zeta.
-        rewrite (run_defers_mono _ _ _ _ Enet (Nat.max f1 f2) ltac:(lia)). cbn match.
-        exact (run_defers_mono _ _ _ _ Erest (Nat.max f1 f2) ltac:(lia)). }
-      rewrite Hfull. discriminate. }
-  intros ds acc. exact (aux (defers_sz ds) ds acc (le_n _)).
-Qed.
-
-(** [run_cmd] TERMINATES for enough fuel, for ANY [c] (nested defers included): the body ([go]) plus the defer
-    forest ([run_defers_terminates]).  A cmd.v-side property CONSUMED by [bridge_agrees] below to discharge its
-    [run_cmd]-completion obligation (making that bridge UNCONDITIONAL). *)
-Theorem run_cmd_terminates : forall (c : Cmd unit) w, exists fuel oc, run_cmd fuel c w = Some oc.
-Proof.
-  intros c w. destruct (go_chars c w) as [w_body [Hgo _]].
-  destruct (run_defers_terminates (cmd_defers c) (oc_unit (fst (go c w)))) as [fuel Hrd].
-  destruct (run_defers fuel (cmd_defers c) (oc_unit (fst (go c w)))) as [result|] eqn:Erd;
-    [ | exfalso; apply Hrd; reflexivity ].
-  exists fuel.
-  unfold run_cmd. rewrite Hgo. cbn [fst] in Erd. rewrite Hgo in Erd. cbn [fst] in Erd. cbn zeta. rewrite Erd.
-  destruct result as [[] w' | v w']; eexists; reflexivity.
 Qed.
 
 (** Pop ONE defer off goroutine 0's stack, uniformly across the 2-mode: [ustep_ret_defer] if [prog = URet]
@@ -746,8 +653,9 @@ Qed.
 (** ★ The GENERAL cmd↔unified defer bridge — for ANY [c] (arbitrary defer nesting, any panics), the
     single-goroutine [usteps] run AGREES with cmd.v's authoritative [run_cmd]: finishes ([uc_live 0 = false]),
     panic EQUALS the Outcome's ([uc_panic 0 = ocpanic oc]), output EQUALS [run_cmd]'s appended [w_output].  The
-    SINGLE public defer bridge.  Composes [run_cmd_terminates] (some [fuel] completes) with [bridge_agrees_complete]
-    (which threads the panic through [unwind_prefix_panic], grounded on [run_cmd_panic_char]). *)
+    SINGLE public defer bridge.  Composes cmd.v's [run_cmd_terminates] (some [fuel] completes) with
+    [bridge_agrees_complete] (which threads the panic through [unwind_prefix_panic], grounded on
+    [run_cmd_panic_char]). *)
 Theorem bridge_agrees : forall (c : Cmd unit) ucap w,
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),
     usteps ucap (ustart (cmd_to_ucmd c)) uc
@@ -775,4 +683,3 @@ Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_agrees.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.
-Print Assumptions run_cmd_terminates.

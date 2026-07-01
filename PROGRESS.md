@@ -78,10 +78,11 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
   the single general `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics) the `ustep` run agrees
   with `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended `w_output` (unwinds
-  the LIFO defer forest under the `(prog, pa)` 2-mode, threading the last-raised panic). Supporting cmd.v-side
-  properties for ANY `c`: `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure) +
-  `run_cmd_out_monotone` (a completing run's output only APPENDS) + `run_cmd_no_panic_ret` (a completing
-  panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
+  the LIFO defer forest under the `(prog, pa)` 2-mode, threading the last-raised panic; completion discharged by
+  `cmd.run_cmd_terminates`). Supporting properties for a COMPLETING run on ANY `c`: `run_cmd_out_monotone`
+  (output only APPENDS) + `run_cmd_no_panic_ret` (a panic-free run returns `ORet`). TERMINATION lives in `cmd.v`:
+  `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure — a pure `run_cmd` property).
+  ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free
   denoted program runs to `ORet`, never panics; `_output` gives the EXPLICIT output world `cmd_out_world c w`;
   `_ustep` lifts it to `ustep`, where race-freedom / liveness live; the dual `run_cmd_panics_world` is the
@@ -127,12 +128,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   (`denote_stmt_no_defer` / `denote_body_no_defer` / `no_defer_run`, etc.) no longer holds universally —
   DELETE that dead cluster (shrinks the file) and re-prove the 4 gated run theorems (`denote_program_runs` /
   `out_main_runs` / `println_main_runs` / `denotable_stmts_main_runs`) with conclusion `∃ fuel oc, run_cmd fuel c
-  w = Some oc` via `run_cmd_terminates`. ★DESIGN: RELOCATE `run_cmd_terminates` (+ the `Local`
-  `run_defers_terminates` + supporting lemmas) from `cmd_unified.v` to `cmd.v` — they are pure `cmd.v`
-  `run_cmd`/`run_defers` termination properties, so they belong there, and it keeps `GoSem`'s dep footprint
-  lightweight (importing `cmd_unified` instead would pull the heavy `concurrency`+`unified` stack into `GoSem`);
-  `cmd_unified` then imports them from `cmd`, and the manifest bridge-surface reference for `run_cmd_terminates`
-  moves accordingly. (e) faithfulness pins: defer-only, defer-println-then-println (LIFO output),
+  w = Some oc` via `run_cmd_terminates`. ★DESIGN (DONE): `run_cmd_terminates` + its termination machinery now
+  live in `cmd.v` (pure `run_cmd`/`run_defers` properties, re-proved against `go` directly via `go_defers_sz_lt`
+  so none of `cmd_unified.v`'s private projections moved; keeps `GoSem`'s dep footprint lightweight).
+  (e) faithfulness pins: defer-only, defer-println-then-println (LIFO output),
   defer-panic (panic at return), all gated in `gosem_trust_surface`; (f) update the fuel-1 comments + this item.
   This closes `GsDefer`, the non-eval-closable half of the `stmt_denotable`→`stmt_ok` gap.
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
@@ -155,9 +154,9 @@ separate, still-trusted TCB.
 
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
-`main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
-`run_cmd_terminates` / `denote_program_run_agrees`) / `gosem_panic_free_surface` (the GoSemSafe panic-free
+`main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
+surfaces (`cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
+`denote_program_run_agrees`) / `gosem_panic_free_surface` (the GoSemSafe panic-free
 bundle); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 

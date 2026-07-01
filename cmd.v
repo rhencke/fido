@@ -19,7 +19,7 @@
     [Cmd] (a shallow drop/no-op would silently erase a deferred effect — review #6/#12).  Subsequent slices
     add [catch], heap/channel ops, and the small-step interleaving semantics (the #22 unification). *)
 From Fido Require Import preamble.
-From Stdlib Require Import List.
+From Stdlib Require Import List Lia.
 Import ListNotations.
 
 (** The program syntax.  [COut] = a [print]/[println] of [xs] THEN the continuation; [CPan] = panic
@@ -169,6 +169,105 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'
   end.
+
+(** ---- TERMINATION: [run_cmd] never diverges — for ANY [c] (arbitrary defer nesting) enough fuel returns
+    [Some].  Pure [run_cmd]/[run_defers] properties over cmd.v's own [go], so they live HERE; the measure is a
+    structural node-count ([go d] spends [d]'s body nodes, so its accumulated defer forest is strictly smaller).
+    [run_cmd_terminates] is a gated public surface ([Print Assumptions] below); consumed by cmd_unified.v's
+    [bridge_agrees] (discharging its completion obligation) and by GoSem's run layer. *)
+Local Fixpoint cmd_sz (c : Cmd unit) : nat :=
+  match c with
+  | CRet _ => 1 | COut _ _ c' => S (cmd_sz c') | CPan _ => 1 | CDfr d c' => S (cmd_sz d + cmd_sz c')
+  end.
+Local Fixpoint defers_sz (ds : list (Cmd unit)) : nat :=
+  match ds with nil => 0 | d :: ds' => cmd_sz d + defers_sz ds' end.
+Local Lemma defers_sz_app : forall ds1 ds2, defers_sz (ds1 ++ ds2) = defers_sz ds1 + defers_sz ds2.
+Proof. induction ds1 as [|d ds1 IH]; intro ds2; cbn; [reflexivity | rewrite IH; lia]. Qed.
+
+(** The defer forest [go] accumulates from [d] is strictly SMALLER than [d] (its body nodes are spent). *)
+Local Lemma go_defers_sz_lt : forall (d : Cmd unit) w, defers_sz (snd (go d w)) < cmd_sz d.
+Proof.
+  intro d; induction d as [a | b xs c' IH | v | d0 c' IH] using Cmd_rect'; intro w; cbn [go cmd_sz].
+  - cbn; lia.
+  - pose proof (IH (w_log b xs w)); lia.
+  - cbn; lia.
+  - pose proof (IH w) as H'. destruct (go c' w) as [oc ds]. cbn. cbn [snd] in H'.
+    rewrite defers_sz_app. cbn [defers_sz]. lia.
+Qed.
+
+(** One definitional unfolding of [run_defers] over a [cons] with fuel to spare — a controlled rewrite so
+    consumers need not fight [cbn]'s aggressiveness on the (variable-list) tail recursion.  PUBLIC: shared with
+    cmd_unified.v's unwind/characterization lemmas. *)
+Lemma run_defers_unfold : forall n d ds acc,
+  run_defers (S n) (d :: ds) acc
+    = (let '(oc_d, ds_d) := go d (oc_world acc) in
+       match run_defers n ds_d oc_d with
+       | None => None
+       | Some net_d =>
+           run_defers n ds (match net_d with
+                            | OPanic v' w' => OPanic v' w'
+                            | ORet _ w' => oc_set_world acc w' end)
+       end).
+Proof. reflexivity. Qed.
+
+(** [run_defers] is MONOTONE in fuel: extra fuel never changes a successful result (it only guards against
+    exhaustion).  Induction on the fuel [f]. *)
+Local Lemma run_defers_mono : forall f ds acc r,
+  run_defers f ds acc = Some r -> forall f', f <= f' -> run_defers f' ds acc = Some r.
+Proof.
+  induction f as [| n IH]; intros ds acc r H f' Hle; [ discriminate H | ].
+  destruct f' as [| n']; [ inversion Hle | ]. apply le_S_n in Hle.
+  destruct ds as [| d ds']; [ cbn in H |- *; exact H | ].
+  rewrite run_defers_unfold in H. rewrite run_defers_unfold.
+  destruct (go d (oc_world acc)) as [oc_d ds_d].
+  destruct (run_defers n ds_d oc_d) as [net_d|] eqn:Enet; [ | discriminate H ].
+  rewrite (IH ds_d oc_d net_d Enet n' Hle). exact (IH ds' _ r H n' Hle).
+Qed.
+
+(** [run_defers] TERMINATES for enough fuel, over ARBITRARY nesting: bounded strong induction on the defer
+    forest's node-count [defers_sz] (each [go d] peels [d] into a strictly-smaller sub-forest — [go_defers_sz_lt]),
+    lifting the two sub-results to a common fuel via [run_defers_mono].  No well-founded machinery — plain [nat]
+    induction on the [defers_sz] bound.  The tail [ds']'s seed depends on the nested run's RESULT, so the two
+    sub-runs are resolved to concrete [net_d]/[r] before choosing the common fuel. *)
+Local Lemma run_defers_terminates : forall ds acc, exists f, run_defers f ds acc <> None.
+Proof.
+  assert (aux : forall n ds acc, defers_sz ds <= n -> exists f, run_defers f ds acc <> None).
+  { induction n as [| n IH]; intros ds acc Hle.
+    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
+      cbn [defers_sz] in Hle. pose proof (go_defers_sz_lt d (oc_world acc)). lia.
+    - destruct ds as [| d ds']; [ exists 1; cbn; discriminate | ].
+      cbn [defers_sz] in Hle.
+      pose proof (go_defers_sz_lt d (oc_world acc)) as Hlt.
+      destruct (go d (oc_world acc)) as [oc_d ds_d] eqn:Hgo. cbn [snd] in Hlt.
+      destruct (IH ds_d oc_d) as [f1 H1]; [ lia | ].
+      destruct (run_defers f1 ds_d oc_d) as [net_d|] eqn:Enet; [ | exfalso; apply H1; reflexivity ].
+      destruct (IH ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end))
+        as [f2 H2]; [ lia | ].
+      destruct (run_defers f2 ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end))
+        as [r|] eqn:Erest; [ | exfalso; apply H2; reflexivity ].
+      exists (S (Nat.max f1 f2)).
+      assert (Hfull : run_defers (S (Nat.max f1 f2)) (d :: ds') acc = Some r).
+      { rewrite run_defers_unfold, Hgo. cbn zeta.
+        rewrite (run_defers_mono _ _ _ _ Enet (Nat.max f1 f2) ltac:(lia)). cbn match.
+        exact (run_defers_mono _ _ _ _ Erest (Nat.max f1 f2) ltac:(lia)). }
+      rewrite Hfull. discriminate. }
+  intros ds acc. exact (aux (defers_sz ds) ds acc (le_n _)).
+Qed.
+
+(** [run_cmd] TERMINATES for enough fuel, for ANY [c] (nested defers included): the body ([go]) plus the defer
+    forest ([run_defers_terminates]). *)
+Theorem run_cmd_terminates : forall (c : Cmd unit) w, exists fuel oc, run_cmd fuel c w = Some oc.
+Proof.
+  intros c w.
+  destruct (run_defers_terminates (snd (go c w)) (oc_unit (fst (go c w)))) as [fuel Hrd].
+  destruct (run_defers fuel (snd (go c w)) (oc_unit (fst (go c w)))) as [result|] eqn:Erd;
+    [ | exfalso; apply Hrd; reflexivity ].
+  exists fuel. unfold run_cmd.
+  destruct (go c w) as [oc0 ds]. cbn [fst snd] in Erd.
+  cbn zeta. rewrite Erd.
+  destruct result as [[] w' | v w']; eexists; reflexivity.
+Qed.
+Print Assumptions run_cmd_terminates.
 
 (** ---- The #12 fix, demonstrated ---- *)
 
