@@ -10,11 +10,13 @@
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
 
-    PUBLIC surfaces = [cmd_to_ucmd_run_agrees] (a DEFER-FREE [c], [cmd.no_defer] — the fragment GoSem slice 1
-    denotes) and [bridge_flat_agrees] (ANY [flat c] — any number of [no_defer] defers, panicking or not; the
-    (prog, pa) 2-mode unwind, final panic = [flat_defers_panic] last-raised-wins).  For all,
-    the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the unified output events
-    EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.
+    PUBLIC surfaces: TWO single-goroutine [usteps] AGREEMENT bridges — [cmd_to_ucmd_run_agrees] (a DEFER-FREE
+    [c], [cmd.no_defer] — the fragment GoSem slice 1 denotes) and [bridge_flat_agrees] (ANY [flat c] — any
+    number of [no_defer] defers, panicking or not; the (prog, pa) 2-mode unwind, final panic =
+    [flat_defers_panic] last-raised-wins) — for which the [usteps] run AGREES with cmd.v's AUTHORITATIVE
+    [run_cmd] (the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the
+    Outcome's panic); PLUS one cmd.v-side property, [run_cmd_out_monotone] (ANY [c], nested defers included:
+    [run_cmd] only APPENDS output, never retracts — the general OUTPUT half of the future nested bridge).
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [run_cmd] seal ([go_chars]), and the unified-side run lemmas are LOCAL (file-private) proof plumbing —
     no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free observer
