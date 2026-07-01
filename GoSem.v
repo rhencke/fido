@@ -856,16 +856,23 @@ Example slice_index_unrepresentable_index_undenoted :
 Proof. split; vm_compute; reflexivity. Qed.
 (** REGRESSION (Codex — the STRICT-SUBSET pin): the B2 subfragment is STRICTLY SMALLER than [ptype]-supported.
     A RUNTIME index ([[]int{10,20}[len([]int{1})]]) and a RUNTIME same-typed ELEMENT ([[]int{len([]int{1})}[0]])
-    are BOTH [ptype]-SUPPORTED ([= Some (PtRunInt GTInt)] — valid Go), yet B2 does NOT denote either
-    ([eval_value = None], the program too): the runtime index has [int_const_val = None] and the runtime element
-    makes [eval_int_slice_elems = None].  So [eval_slice_index_supported] is a strict INCLUSION, not equality —
-    these live in [ptype] but outside the fully-evaluable all-constant subfragment (B3 territory). *)
+    are BOTH [ptype]-SUPPORTED ([= Some (PtRunInt GTInt)] — valid Go), yet B2 does NOT denote either — at the
+    EXPRESSION level ([eval_value = None]) AND end-to-end as a [println(..); return] PROGRAM
+    ([denote_program = None]): the runtime index has [int_const_val = None] and the runtime element makes
+    [eval_int_slice_elems = None].  So [eval_slice_index_supported] is a strict INCLUSION, not equality — these
+    live in [ptype] but outside the fully-evaluable all-constant subfragment (B3 territory). *)
 Example slice_index_supported_but_undenoted :
   ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = Some (PtRunInt GTInt)
   /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = None
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+          [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])]); GsReturn]) = None
   /\ ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = Some (PtRunInt GTInt)
-  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None.
-Proof. split; [vm_compute; reflexivity | split; [vm_compute; reflexivity | split; vm_compute; reflexivity]]. Qed.
+  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+          [EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)]); GsReturn]) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional

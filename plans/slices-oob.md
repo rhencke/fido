@@ -11,8 +11,9 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
 - **GoTypes**: `ptype (ESliceLit t es)` = `PtAgg` when every element is `assignable_to_ty _ t`. `PtRunInt t` is
   a RUNTIME (non-constant) int (how `len` classifies).
 - **GoSem** (post-B2): `eval_value` is ptype-driven EXCEPT an `EIndex (ESliceLit..)` arm that folds a constant
-  in-bounds int-slice index to the element; it denotes CONSTANT in-bounds indexing (B2), NOT runtime/OOB.
-  **cmd.v** still has no slice/index effect (needed for B3's runtime index + OOB panic).
+  in-bounds int-slice index to the element; it denotes only the FULLY-EVALUABLE ALL-CONSTANT in-bounds
+  subfragment (B2) — a runtime index, a runtime element, or OOB is NOT denoted. **cmd.v** still has no
+  slice/index effect (needed for B3's runtime index + OOB panic).
 
 ## The faithfulness pin (drives the brick order) — VERIFIED against gc 1.23
 - Slice indexing yields a **non-constant** value — `[]int{10,20}[1]` is a runtime `int`, NOT a Go constant.
@@ -52,7 +53,7 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   `assignable_to_ty` (so `[]int{int64(1)}` — a wrong-typed const — is declined exactly as `ptype` declines it),
   and the arm's constant index is gated on `int_const_repr k GTInt` — proved by `eval_slice_index_supported`
   (the reduction's hypotheses IMPLY `ptype (EIndex ..) = Some (PtRunInt t)`, a strict INCLUSION), so there is NO
-  looser second boundary. Result — the boss's goal for the CONSTANT fragment at the DENOTATION layer, proved at
+  looser second boundary. Result — the boss's B2 denotation goal at the DENOTATION layer, proved at
   CLASS level (`forall`) over the FULLY-EVALUABLE ALL-CONSTANT subfragment (a strict SUBSET of `ptype`-support —
   runtime index/elements are supported but B2-undenoted, `slice_index_supported_but_undenoted`) by
   `eval_slice_index_inbounds_class` (in-bounds → k-th boxed element value) + `eval_slice_index_oob_class`
@@ -70,7 +71,11 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   soundness theorem extends to "emit ⟹ no explicit panic AND no OOB".
 
 ## Honesty
-B1+B2 cover the CONSTANT-index fragment. B1 (supportedness) makes an int-slice index SUPPORTED, rejecting only
+Three distinct authorities, do NOT conflate: (1) B1 = `ptype` SUPPORTEDNESS, which covers the broad
+constant-index cases (and even a runtime index / runtime same-typed element — valid Go); (2) B2 = the CLASS
+DENOTATION theorem, which covers ONLY the fully-evaluable all-constant slice-index SUBFRAGMENT (strictly smaller
+than B1 — a runtime index/element is supported but B2-undenoted); (3) the representative EMISSION-GATE fixture
+`panic_free_gate_slice`. B1 (supportedness) makes an int-slice index SUPPORTED, rejecting only
 what gc compile-errors — a negative constant, a non-integer index, and (CONSERVATIVELY, fail-closed, Fido's
 32-bit `int` — NOT exactly gc's boundary; a 64-bit gc accepts `[2^40]` that Fido rejects, safe incompleteness)
 an int-overflowing constant. It does NOT bounds-check (a slice OOB is a valid-Go run-time panic — SUPPORTED).
