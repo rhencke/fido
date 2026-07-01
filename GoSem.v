@@ -671,9 +671,10 @@ Proof. split; reflexivity. Qed.
 Example eval_slice_index_oob_none :
   eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)) = None.
 Proof. reflexivity. Qed.
-(** END-TO-END: [println([]int{10,20}[1])] DENOTES (gate accepts the in-bounds slice-index), while the OOB
-    [println([]int{10,20}[5])] does NOT denote (gate rejects the OOB — "behavioral safety > panic-freedom" for
-    the constant fragment). *)
+(** END-TO-END: [println([]int{10,20}[1])] (an ALL-CONSTANT literal, in-bounds) DENOTES — the gate accepts it —
+    while the OOB [println([]int{10,20}[5])] does NOT denote (gate rejects the OOB — "behavioral safety >
+    panic-freedom" for the all-constant-literal fragment; a literal with a runtime/panicking element is rejected
+    too, by [slice_index_runtime_element_undenoted]). *)
 Example slice_index_prog_inbounds_denotes :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn]) <> None.
@@ -1007,9 +1008,10 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REQUIRED-CATEGORY COVERAGE as a TYPED obligation.  [runs_to e v] = [println(e); return] denotes and runs
     through cmd.v's [run_cmd] to the world logging [v].  The RECORD TYPE [GoSemRequiredCategoryCoverage] fixes,
-    in its FIELD TYPES, the EXACT five behavior categories the model must exhibit end-to-end (int CONVERSION,
-    exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL).  [gosem_category_coverage]
-    inhabits that type, so it can be built ONLY by discharging ALL five with the stated programs+values: a
+    in its FIELD TYPES, the EXACT six behavior categories the model must exhibit end-to-end (int CONVERSION,
+    exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL, and a constant in-bounds
+    int-slice-literal INDEX).  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
+    discharging ALL six with the stated programs+values: a
     category cannot be dropped without editing this typed STATEMENT (the record), never silently by convention.
     Table-INDEPENDENT (no reference to [eval_value_good]).  (String-literal println / return / panic behaviors
     are pinned separately by [gosem_demo_runs] / [gosem_return_stops_no_output] / [gosem_panic_demo_runs].) *)
