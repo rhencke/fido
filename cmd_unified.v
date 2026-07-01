@@ -12,7 +12,7 @@
 
     PUBLIC surfaces = [cmd_to_ucmd_run_agrees] (a DEFER-FREE [c], [cmd.no_defer] — the fragment GoSem slice 1
     denotes), [bridge_one_defer_agrees] (ONE defer: any [CDfr d c'] with [d]/[c'] [no_defer], either may panic),
-    and [bridge_flat_np_agrees] (MULTIPLE flat defers, fully NON-PANICKING — [flat c] + [no_panic c]).  For all,
+    and [bridge_flat_np_agrees] (MULTIPLE flat defers, fully NON-PANICKING — [flat c] + [cmd_no_panic c]).  For all,
     the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the unified output events
     EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
@@ -76,27 +76,22 @@ Proof.
     [ reflexivity | exact (IH Hnd) | reflexivity | discriminate Hnd ].
 Qed.
 
-(** [no_panic c] — [c] has NO [CPan] ANYWHERE (body OR any deferred action): it can never panic.  Public
-    (syntactic, like [no_defer]).  [flat c] — every deferred action is [no_defer] (a one-level defer list).
-    Both feed the fully-non-panicking multiple-defer theorem below; being syntactic + public, they let its
-    statement avoid the Local [cmd_panic]. *)
-Fixpoint no_panic (c : Cmd unit) : bool :=
-  match c with
-  | CRet _ => true | COut _ _ c' => no_panic c' | CPan _ => false | CDfr d c' => no_panic d && no_panic c'
-  end.
+(** [flat c] — every deferred action is [no_defer] (a one-level defer list).  Feeds the fully-non-panicking
+    multiple-defer theorem below together with cmd.v's [cmd_no_panic] (the SINGLE panic-freedom authority — no
+    local copy); both being syntactic + public keep that theorem's statement free of the Local [cmd_panic]. *)
 Fixpoint flat (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => flat c' | CPan _ => true | CDfr d c' => no_defer d && flat c'
   end.
-Local Lemma no_panic_cmd_panic : forall c, no_panic c = true -> cmd_panic c = None.
+Local Lemma cmd_no_panic_cmd_panic : forall c, cmd_no_panic c = true -> cmd_panic c = None.
 Proof.
   intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hnp; cbn in *;
     [ reflexivity | exact (IH Hnp) | discriminate Hnp
     | apply andb_prop in Hnp; exact (IHc' (proj2 Hnp)) ].
 Qed.
-(** Under [flat] + [no_panic], every deferred action [go] accumulates is BOTH [no_defer] and [no_panic]. *)
-Local Lemma flat_np_defers : forall c, flat c = true -> no_panic c = true ->
-  Forall (fun d => no_defer d = true /\ no_panic d = true) (cmd_defers c).
+(** Under [flat] + [cmd_no_panic], every deferred action [go] accumulates is BOTH [no_defer] and [cmd_no_panic]. *)
+Local Lemma flat_np_defers : forall c, flat c = true -> cmd_no_panic c = true ->
+  Forall (fun d => no_defer d = true /\ cmd_no_panic d = true) (cmd_defers c).
 Proof.
   intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hf Hnp; cbn in *.
   - constructor.
@@ -247,22 +242,20 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
-(** ---- DEFER bridge — CONCRETE witnesses for the NOT-YET-GENERAL cases ----
+(** ---- DEFER bridge — CONCRETE witness for the ONE case still NOT general ----
     [cmd_to_ucmd_run_agrees] handles [no_defer]; [bridge_one_defer_agrees] (proved below) handles ANY ONE defer
     ([CDfr d c'] with [d]/[c'] [no_defer], EITHER may panic — covering [ustep_ret_defer]/[ustep_pan_defer]/
-    [ustep_ret_done]/[ustep_pan_done] and panic-replacement generally in its four leaves).  So the earlier
-    single-defer demos (return / panic-propagation / panic-replacement) are now SUBSUMED by that theorem and were
-    removed.  These TWO file-private EXAMPLES pin the behaviours the general theorem does NOT yet cover — MORE
-    THAN ONE deferred action runs (whether NESTED or SIBLING); each pins that the [CDfr -> UDfr] translation RUNS
-    correctly under [ustep] and AGREES with cmd.v's authoritative [run_cmd]:
+    [ustep_ret_done]/[ustep_pan_done] and panic-replacement generally in its four leaves); [bridge_flat_np_agrees]
+    (below) handles MULTIPLE non-panicking FLAT defers ([flat c] + [cmd_no_panic c] — every deferred action is
+    itself [no_defer]).  So the earlier single-defer demos (return / panic-propagation / panic-replacement) AND
+    the sibling-LIFO demo ([defer println(a); defer println(b); return] — [flat] + non-panicking, popped LIFO)
+    are now SUBSUMED by those theorems and were removed.  ONE file-private EXAMPLE remains — the case NONE of the
+    theorems yet cover, because its deferred action is NOT [flat]:
       NESTING ([defer (defer println(a))]): a deferred action that ITSELF defers — [ustep_defer] fires AGAIN
               DURING the unwinding (the stack never exceeds ONE entry, but a second defer is registered
-              mid-unwind), the inner defer running before the goroutine finishes (output [a]).
-      SIBLING LIFO ([defer println(a); defer println(b); return]): TWO defers pushed by the body ([ustep_defer]
-              twice BEFORE it returns, so the stack reaches DEPTH 2), popped LIFO — [b] deferred LAST runs FIRST,
-              output [[b]; [a]] (two [ustep_ret_defer] pops in stack order, NO defer-during-unwind).
-    Multiple NON-panicking flat defers are done ([bridge_flat_np_agrees]); multiple PANICKING (the 2-mode
-    invariant) or NESTED defers are the next Phase-B slice. *)
+              mid-unwind), the inner defer running before the goroutine finishes (output [a]).  It AGREES with
+              cmd.v's [run_cmd], whose [run_defers] runs the accumulated list (the deferred [d] appends via [go]).
+    Multiple PANICKING defers (the 2-mode invariant) or NESTED defers GENERALLY are the next Phase-B slice. *)
 Local Example bridge_defer_nested_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
   exists uc oc,
     usteps ucap (ustart (cmd_to_ucmd (CDfr (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)) (CRet tt)))) uc
@@ -283,33 +276,6 @@ Proof.
   split. { vm_compute. reflexivity. }
   split. { reflexivity. }
   split. { cbn. reflexivity. } { reflexivity. }
-Qed.
-
-(** SIBLING LIFO witness ([defer println(a); defer println(b); return]).  [b] is deferred
-    LAST so it runs FIRST: the output is [[b]; [a]], NOT [[a]; [b]].  Exercises [ustep_ret_defer] TWICE, popping
-    the [uc_defers] stack in the order [ustep_defer] built it — the LIFO discipline Phase B's list-unwinding
-    must reproduce.  Agrees with cmd.v's [run_cmd] (whose [run_defers] runs the accumulated list head-first). *)
-Local Example bridge_defer_lifo_agrees : forall (a : GoAny) (b : GoAny) (ucap : nat -> option nat) w,
-  exists uc oc,
-    usteps ucap (ustart (cmd_to_ucmd (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))))) uc
-    /\ run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w = Some oc
-    /\ uc_live uc 0 = false
-    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
-    /\ uc_panic uc 0 = ocpanic oc.
-Proof.
-  intros a b ucap w. eexists. exists (ORet tt (w_log true (a :: nil) (w_log true (b :: nil) w))).
-  split.
-  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_out        with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    eapply usteps_step. { eapply ustep_ret_done   with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
-    apply usteps_refl. }
-  split. { vm_compute. reflexivity. }
-  split. { reflexivity. }
-  split. { cbn. rewrite <- app_assoc. reflexivity. } { reflexivity. }
 Qed.
 
 (** ---- First GENERAL defer-agreement THEOREM (not a demo): ONE no_defer defer ----
@@ -431,16 +397,16 @@ Proof.
 Qed.
 
 (** ---- SECOND general defer theorem: MULTIPLE flat defers, fully NON-PANICKING ----
-    For [flat c] (every deferred action [no_defer]) AND [no_panic c] (no [CPan] anywhere), the [usteps] run of
+    For [flat c] (every deferred action [no_defer]) AND [cmd_no_panic c] (no [CPan] anywhere), the [usteps] run of
     [cmd_to_ucmd c] AGREES with cmd.v's [run_cmd].  This is the common cleanup pattern ([defer f(); defer g();
     body], nothing panics) — ANY NUMBER of defers, but no panic, so the unwind is pure [ustep_ret_defer] pops
     ending in [ustep_ret_done] (the panic-in-flight 2-mode invariant is NOT needed).  [bridge_one_defer_agrees]
     (above) is the ORTHOGONAL axis: exactly one defer but EITHER side may panic. *)
 
-(** cmd.v-side: [run_defers] over a list of [no_defer]+[no_panic] actions from an [ORet] just runs each in
+(** cmd.v-side: [run_defers] over a list of [no_defer]+[cmd_no_panic] actions from an [ORet] just runs each in
     order, threading the world — no panic, no nesting.  Fuel [S (length ds)] suffices (one level per defer). *)
 Local Lemma run_defers_np : forall ds w0,
-  Forall (fun d => no_defer d = true /\ no_panic d = true) ds ->
+  Forall (fun d => no_defer d = true /\ cmd_no_panic d = true) ds ->
   exists w', run_defers (S (length ds)) ds (ORet tt w0) = Some (ORet tt w')
     /\ w_output w' = w_output w0 ++ concat (map cmd_out_events ds).
 Proof.
@@ -448,18 +414,18 @@ Proof.
   - exists w0. cbn [run_defers concat map]. rewrite app_nil_r. split; reflexivity.
   - inversion Hall as [| x l [Hnd Hnp] Hall' Heq]; subst.
     destruct (go_chars d w0) as [w_d [Hgo Hout]].
-    rewrite (no_panic_cmd_panic d Hnp), (cmd_defers_no_defer d Hnd) in Hgo.
+    rewrite (cmd_no_panic_cmd_panic d Hnp), (cmd_defers_no_defer d Hnd) in Hgo.
     destruct (IH w_d Hall') as [w' [Hrun Houtf]].
     exists w'. split.
     + cbn [run_defers length]. cbn [oc_world]. rewrite Hgo. cbn [run_defers oc_set_world]. exact Hrun.
     + rewrite Houtf, Hout. cbn [concat map]. rewrite <- app_assoc. reflexivity.
 Qed.
 
-(** ustep-side: from [prog 0 = URet], [pa 0 = None], [df 0 = map cmd_to_ucmd ds] (all [no_defer]+[no_panic]),
-    the run pops each defer via [ustep_ret_defer] + runs it (Phase A, [no_panic] ⇒ back to [URet]) and finishes
+(** ustep-side: from [prog 0 = URet], [pa 0 = None], [df 0 = map cmd_to_ucmd ds] (all [no_defer]+[cmd_no_panic]),
+    the run pops each defer via [ustep_ret_defer] + runs it (Phase A, [cmd_no_panic] ⇒ back to [URet]) and finishes
     with [ustep_ret_done]; [pa] stays [None] throughout (nothing panics). *)
 Local Lemma unwind_np : forall ds ucap p b h lv tr o df pa,
-  Forall (fun d => no_defer d = true /\ no_panic d = true) ds ->
+  Forall (fun d => no_defer d = true /\ cmd_no_panic d = true) ds ->
   lv 0 = true -> p 0 = URet -> df 0 = map cmd_to_ucmd ds -> pa 0 = None ->
   exists (p' : nat -> UCmd) (lv' : nat -> bool) (df' : nat -> list UCmd),
     usteps ucap (mkUCfg p b h lv tr o df pa)
@@ -474,7 +440,7 @@ Proof.
     destruct (cmd_to_ucmd_body_runs d ucap (upd p 0 (cmd_to_ucmd d)) b h lv tr o
                 (upd df 0 (map cmd_to_ucmd ds')) pa Hlv (upd_same _ _ _))
       as [p'' [df'' [Hus2 [Hprog2 Hdf2]]]].
-    rewrite (no_panic_cmd_panic d Hnp) in Hprog2.
+    rewrite (cmd_no_panic_cmd_panic d Hnp) in Hprog2.
     cbn [cmd_defers] in Hdf2. rewrite (cmd_defers_no_defer d Hnd) in Hdf2. cbn [map] in Hdf2. rewrite upd_same in Hdf2.
     destruct (IH ucap p'' b h lv tr (o ++ map (fun e => (0, e)) (cmd_out_events d)) df'' pa
                 Hall' Hlv Hprog2 Hdf2 Hpa) as [p' [lv' [df' [Hus3 Hdone]]]].
@@ -486,16 +452,16 @@ Proof.
     eapply usteps_trans; [ exact Hus2 | exact Hus3 ].
 Qed.
 
-(** cmd.v authority for the theorem: [run_cmd] of a [flat]+[no_panic] [c] reaches [ORet], world advanced by the
+(** cmd.v authority for the theorem: [run_cmd] of a [flat]+[cmd_no_panic] [c] reaches [ORet], world advanced by the
     body's output THEN every defer's (in [go]-accumulation order).  From [go_chars] + [run_defers_np]. *)
 Local Lemma run_cmd_flat_np : forall c w,
-  flat c = true -> no_panic c = true ->
+  flat c = true -> cmd_no_panic c = true ->
   exists w', run_cmd (S (length (cmd_defers c))) c w = Some (ORet tt w')
     /\ w_output w' = w_output w ++ cmd_out_events c ++ concat (map cmd_out_events (cmd_defers c)).
 Proof.
   intros c w Hf Hnp.
   destruct (go_chars c w) as [w_body [Hgo Hout]].
-  rewrite (no_panic_cmd_panic c Hnp) in Hgo.
+  rewrite (cmd_no_panic_cmd_panic c Hnp) in Hgo.
   destruct (run_defers_np (cmd_defers c) w_body (flat_np_defers c Hf Hnp)) as [w' [Hrun Houtf]].
   exists w'. split.
   - unfold run_cmd. rewrite Hgo. cbn [oc_unit]. rewrite Hrun. cbn [oc_set_world]. reflexivity.
@@ -503,10 +469,10 @@ Proof.
 Qed.
 
 Theorem bridge_flat_np_agrees : forall c ucap w,
-  flat c = true -> no_panic c = true ->
-  exists (uc : UConfig) (w' : World),
+  flat c = true -> cmd_no_panic c = true ->
+  exists (uc : UConfig) (w' : World) (fuel : nat),
     usteps ucap (ustart (cmd_to_ucmd c)) uc
-    /\ run_cmd (S (length (cmd_defers c))) c w = Some (ORet tt w')   (* cmd.v's AUTHORITATIVE run — grounds w' *)
+    /\ run_cmd fuel c w = Some (ORet tt w')   (* cmd.v's AUTHORITATIVE run (some SUFFICIENT fuel) — grounds w' *)
     /\ uc_live uc 0 = false
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
@@ -517,12 +483,12 @@ Proof.
               (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
               (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
               eq_refl eq_refl) as [p' [df' [Hus1 [Hprog1 Hdf1]]]].
-  rewrite (no_panic_cmd_panic c Hnp) in Hprog1. cbn in Hprog1.
+  rewrite (cmd_no_panic_cmd_panic c Hnp) in Hprog1. cbn in Hprog1.
   cbn in Hdf1. rewrite app_nil_r in Hdf1.
   destruct (unwind_np (cmd_defers c) ucap p' (fun _ => nil) (fun _ => 0) (fun t => Nat.eqb t 0) nil
               (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' (fun _ => None)
               (flat_np_defers c Hf Hnp) eq_refl Hprog1 Hdf1 eq_refl) as [p'' [lv'' [df'' [Hus2 Hdone]]]].
-  eexists. exists w'. split; [ | split; [ exact Hrun | split ] ].
+  eexists. exists w'. exists (S (length (cmd_defers c))). split; [ | split; [ exact Hrun | split ] ].
   - unfold ustart. eapply usteps_trans; [ exact Hus1 | exact Hus2 ].
   - exact Hdone.
   - split.

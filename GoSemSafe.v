@@ -26,15 +26,8 @@ Definition stmt_is_panic (s : GoStmt) : bool :=
   end.
 Definition panic_free (b : list GoStmt) : bool := forallb (fun s => negb (stmt_is_panic s)) b.
 
-(** A command with no [CPan] node — it cannot end in a panic Outcome. *)
-Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
-  match c with
-  | CRet _      => true
-  | COut _ _ c' => cmd_no_panic c'
-  | CPan _      => false
-  | CDfr d c'   => cmd_no_panic d && cmd_no_panic c'
-  end.
-
+(** [cmd_no_panic] (no [CPan] anywhere — cannot end in a panic Outcome) is now the SINGLE authority in cmd.v,
+    shared with the cmd↔unified bridge; used here for the panic-free safety property. *)
 Lemma cbind_no_panic : forall (c : Cmd unit) (k : unit -> Cmd unit),
   cmd_no_panic c = true -> (forall u, cmd_no_panic (k u) = true) -> cmd_no_panic (cbind c k) = true.
 Proof.
