@@ -27,8 +27,9 @@ Open Scope string_scope.
     dropping it; a MIXED const/runtime numeric op becomes runtime BY CONSTRUCTION (the result is not constant,
     so the constant operand's value is legitimately no longer tracked).  ⚠ STRING and BOOL constants are NOT
     value-carrying ([PtStr]/[PtBool] hold no value): ["a"+"b"] and [string(65)] are a value-LESS [PtStr], so a
-    form NEEDING the folded value fail-CLOSES ([len("a"+"b")] / [len(string(65))] -> rejected, pinned in
-    [GoSafe.bad_programs]).  A FREE identifier is
+    form NEEDING the folded value fail-CLOSES — [len("a"+"b")] / [len(string(65))] are VALID Go that Fido
+    REJECTS (the string value is not folded), pinned in [GoSafe.valid_unsupported_programs] (NOT [bad_programs],
+    which holds INVALID Go — e.g. their [int8(len(...)+200)] overflow companions).  A FREE identifier is
     REJECTED (no-declaration model — a bare [x] is undefined); the sole predeclared value-ident [nil] ([PtNil])
     is admitted only inside a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
     accepted-bad closed program or admits an intentionally supported demo; the deliberately relied-on
@@ -38,7 +39,7 @@ Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
   | PtFloatConst (t : GoTy) (z : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), value the INTEGER [z] it came from *)
-  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING CONSTANT folds to [PtIntConst], NOT this) *)
+  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING LITERAL folds to [PtIntConst], NOT this; a NON-literal string const like ["a"+"b"] does not fold -> rejected) *)
   | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
   | PtStr
@@ -213,8 +214,9 @@ Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z =
     - [/] and [%] reject a CONSTANT-ZERO divisor (incl. a TYPED const zero [int(0)] and one folded from a
       constant subexpression, [1/(int(1)-int(1))]);
     - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and let the count type be
-      independent of the left type; the result takes the LEFT operand's type AND constness (a typed-const left
-      shifted by a const count FOLDS, with the result repr-checked in the type);
+      independent of the left type; the result takes the LEFT operand's TYPE, and its CONSTNESS ONLY when the
+      shift COUNT is ALSO constant (a const-left/const-count shift FOLDS, repr-checked in the type; a RUNTIME
+      count -> runtime of the left's type);
     - all other forms combine via [num_arith], which folds NUMERIC constants (preserving the value) and
       repr-checks typed-constant results so [int8(100)+int8(100)] is rejected. *)
 Definition shfold (o : BinOp) (a b : Z) : Z := match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end.

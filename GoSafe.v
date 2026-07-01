@@ -144,7 +144,7 @@ Definition unsupported_value_stmt : Program :=
     return in void [main] / [len] in statement context / [panic] arity), value-position errors (void call,
     conversion arity), the [ptype] CLOSED type-errors ([len]/[bool]/[&&]/[!]/int-of-slice; the FINDING 1-4
     numeric category / overflow / zero-divisor / shift / comparison / [cap]-of-string / aggregate-conversion
-    cases; the transitive typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
+    cases; the transitive NUMERIC typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
     companions that LOCK the [valid_unsupported_programs] [len] witnesses' soundness boundary; float-rounding +
     platform-[uint] complement), the INVALID [EMapLit]/[CTMap] instances (slice key / key-or-value not
     representable in the element type / DUPLICATE constant keys / [cap] of a map / map as a [println] arg /
