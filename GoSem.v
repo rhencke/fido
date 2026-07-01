@@ -201,7 +201,7 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
           | Some cmp, Some x, Some y => Some (cmp x y)                      (* numeric comparison *)
           | _, _, _ =>
               match str_cmp_op op, eval_str a, eval_str b with
-              | Some scmp, Some s, Some t => Some (scmp s t)               (* string-CONSTANT comparison (literal or concat, via [eval_str]) *)
+              | Some scmp, Some s, Some t => Some (scmp s t)               (* string-CONSTANT comparison (any [eval_str]-folded operand, via [str_cmp_op]) *)
               | _, _, _ =>
                   match op, eval_bool a, eval_bool b with                 (* else [==]/[!=] of two bool sub-bools *)
                   | BEq, Some x, Some y => Some (Bool.eqb x y)
@@ -836,8 +836,8 @@ Example gosem_float_demo_runs : forall w,
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** [eval_value] folds a constant bool from the 6 NUMERIC comparisons combined by [==]/[!=]/[&&]/[||]/[!]
-    (nested), delegates STRING-CONSTANT order to the model (via [eval_str]/[str_cmp_op] — literals AND
-    concatenations), and folds the identity [bool(x)] conversion (next
+    (nested), delegates STRING-CONSTANT order to the model (via [eval_str]/[str_cmp_op] — any [eval_str]-folded
+    operand: literals, concatenations, string/rune conversions), and folds the identity [bool(x)] conversion (next
     block). A bool with any RUNTIME operand is ABSENT, not folded wrong (`eval_absent` group below). *)
 Example eval_bool_folds :
   eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true)
@@ -886,6 +886,7 @@ Example eval_str_folds :
                         (EStr (String (Ascii.ascii_of_nat 100) EmptyString))) = Some (anyt TBool true)  (* unsigned byte order *)
   /\ eval_value (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) = Some (anyt TBool true)  (* CONCAT operand folds via [eval_str] *)
   /\ eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")) = Some (anyt TBool true)  (* ASCII rune-conv operand folds via [eval_str] *)
+  /\ eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EStr "ab")) = Some (anyt TBool true)  (* identity string-source conv operand folds via [eval_str] *)
   /\ eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
@@ -927,7 +928,8 @@ Example eval_conv_folds :   (* in-range conversions/arith box their EXACT value;
   /\ eval_value (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"]) = Some (anyt TInt64 (intwrap 3)).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
-    with a runtime [len] operand (even under [&&]), a non-literal string operand, an untyped const past the
+    with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
+    byte — ASCII-rune/string-source/concat operands DO fold), an untyped const past the
     default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), and
     a runtime slice [len]. *)
 Definition eval_absent : list GExpr :=
