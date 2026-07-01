@@ -230,8 +230,9 @@ Qed.
     [panic_free_denotable p] = the decidable image of "denotes" ([denotable_program], from [denote_program_dec])
     AND syntactic [panic_free] — computable from the program alone, and it ENTAILS the panic-free run to [ORet]
     (below).  (The
-    module-wide caveat applies: this predicate is the gate's SHAPE; the NARROW emission cert built on it is
-    [emit_panic_free] (panic-only, off the main path), NOT full [BehaviorSafe].) *)
+    module-wide caveat applies: the DECIDABLE gate consuming this predicate is [panic_free_gate] (below), and
+    the narrow emission cert/emitter built on it are [emit_panic_free] / [emit_panic_free_gated] — panic-only,
+    off the main path, NOT full [BehaviorSafe].) *)
 Definition panic_free_denotable (p : Program) : bool :=
   denotable_program p && panic_free (prog_body p).
 
