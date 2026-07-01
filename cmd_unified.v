@@ -11,9 +11,8 @@
     [w_output : list (bool * list GoAny)]).
 
     PUBLIC surfaces = [cmd_to_ucmd_run_agrees] (a DEFER-FREE [c], [cmd.no_defer] — the fragment GoSem slice 1
-    denotes) and [bridge_flat_agrees] (MULTIPLE flat defers, panics ALLOWED — just [flat c]; the (prog, pa)
-    2-mode unwind, final panic = [flat_defers_panic] last-raised-wins — which SUBSUMES the non-panicking flat
-    case AND the single-[no_defer]-defer case, since [CDfr d c'] with [d]/[c'] [no_defer] IS [flat]).  For all,
+    denotes) and [bridge_flat_agrees] (ANY [flat c] — any number of [no_defer] defers, panicking or not; the
+    (prog, pa) 2-mode unwind, final panic = [flat_defers_panic] last-raised-wins).  For all,
     the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the unified output events
     EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
@@ -123,9 +122,8 @@ Qed.
 (** Phase A of the defer bridge (general — NO [no_defer]): [ustep] runs [cmd_to_ucmd c]'s BODY to its outcome,
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
-    is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is Phase B (done for MULTIPLE
-    flat defers — panics allowed, including the single-defer case — in [bridge_flat_agrees]; NESTED
-    defers are later).  This
+    is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is Phase B (done for ANY
+    [flat c] — panics allowed — in [bridge_flat_agrees]; NESTED defers are later).  This
     is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
     [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
     list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
@@ -227,16 +225,14 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
 (** ---- DEFER bridge — a CONCRETE witness for the one case still NOT general ----
-    [cmd_to_ucmd_run_agrees] handles [no_defer]; [bridge_flat_agrees] (below) handles MULTIPLE FLAT defers WITH
-    panics (the (prog, pa) 2-mode, covering [ustep_ret_defer]/[ustep_pan_defer]/[ustep_ret_done]/[ustep_pan_done]
-    and panic-replacement) — which SUBSUMES the non-panicking flat case, the earlier two-panic witness ([defer
-    panic v1; defer panic v2; return]), AND the single-[no_defer]-defer case ([CDfr d c'] with [d]/[c'] [no_defer]
-    IS [flat]), so the separate non-panicking-flat theorem, the single-defer theorem, and the two-panic witness
-    were all deleted.  The earlier single-defer + sibling-LIFO demos are likewise SUBSUMED and were removed.  ONE
-    file-private EXAMPLE remains, for the case NO theorem yet covers — it AGREES with cmd.v's [run_cmd]:
-      NESTING ([defer (defer println(a))]): a deferred action that ITSELF defers (NOT [flat]) — [ustep_defer]
-              fires AGAIN DURING the unwinding (the stack never exceeds ONE entry, but a second defer is
-              registered mid-unwind), the inner defer running before the goroutine finishes (output [a]).
+    [cmd_to_ucmd_run_agrees] handles [no_defer]; [bridge_flat_agrees] (below) handles ANY [flat c] — any number of
+    [no_defer] defers, panicking or not (the (prog, pa) 2-mode over [ustep_ret_defer]/[ustep_pan_defer]/
+    [ustep_ret_done]/[ustep_pan_done] with panic-replacement).  NESTED defers (a deferred action that ITSELF
+    defers — NOT [flat]) are outside both; ONE file-private EXAMPLE witnesses that case, AGREEING with cmd.v's
+    [run_cmd]:
+      NESTING ([defer (defer println(a))]): [ustep_defer] fires AGAIN DURING the unwinding (the stack never
+              exceeds ONE entry, but a second defer is registered mid-unwind), the inner defer running before the
+              goroutine finishes (output [a]).
     NESTED defers GENERALLY (then channel/heap/spawn) are the next Phase-B slice. *)
 Local Example bridge_defer_nested_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
   exists uc oc,
@@ -266,8 +262,8 @@ Qed.
     [flat_defers_panic (cmd_defers c) (cmd_panic c)] — the body's panic threaded through the defers, each
     panicking defer REPLACING the active one (Go's last-raised-wins; = cmd.v's [run_defers] semantics).  Under
     [ustep] this is the 2-mode unwind: a defer's panic rides in [prog] as [UPan v] until the NEXT pop moves it
-    into [pa] ([ustep_pan_defer]), a later panic superseding it — so this SUBSUMES the two-panic witness.  The
-    invariant threaded by [unwind_flat] is [current = match prog 0 with UPan v => Some v | URet => pa 0]. *)
+    into [pa] ([ustep_pan_defer]), a later panic superseding it.  The invariant threaded by [unwind_flat] is
+    [current = match prog 0 with UPan v => Some v | URet => pa 0]. *)
 
 (** The active panic after running flat defers [ds] (in [go]-accumulation / run order, head first) seeded with
     [p0]: last panic wins (a returning defer keeps the active panic).  = the fold [run_defers] performs. *)
@@ -454,10 +450,9 @@ Proof.
 Qed.
 
 (** The GENERAL defer theorem: for ANY [flat c], the single-goroutine [usteps] run AGREES with [run_cmd] — same
-    shape as [cmd_to_ucmd_run_agrees] but for the full flat class (any number of defers, any panicking; the
-    single-[no_defer]-defer case [CDfr d c'] is [flat], so it is covered here).  Phase A runs the body (leaving
-    [prog 0] per [cmd_panic c], defers stacked), then [unwind_flat] does the 2-mode unwind; [run_cmd] grounded by
-    [run_cmd_flat].  SUBSUMES the non-panicking flat case, the single-defer case, and the two-panic witness. *)
+    shape as [cmd_to_ucmd_run_agrees] but for the full flat class (any number of [no_defer] defers, panicking or
+    not).  Phase A runs the body (leaving [prog 0] per [cmd_panic c], defers stacked), then [unwind_flat] does the
+    2-mode unwind; [run_cmd] grounded by [run_cmd_flat]. *)
 Theorem bridge_flat_agrees : forall c ucap w,
   flat c = true ->
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),
@@ -491,10 +486,9 @@ Proof.
 Qed.
 
 (** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
-    no_defer [run_cmd]-grounded bridge AND its defer-bearing generalisation ([bridge_flat_agrees]: MULTIPLE flat
-    defers with panics — the 2-mode, which SUBSUMES the non-panicking flat case AND the single-[no_defer]-defer
-    case).  The projection plumbing ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/
-    [run_defers_flat]/[unwind_flat]/Phase A) is Local and covered TRANSITIVELY through these cones, not
-    separately printed. *)
+    no_defer [run_cmd]-grounded bridge AND its defer-bearing generalisation ([bridge_flat_agrees]: ANY [flat c] —
+    any number of [no_defer] defers, panicking or not, via the (prog, pa) 2-mode).  The projection plumbing
+    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_defers_flat]/[unwind_flat]/
+    Phase A) is Local and covered TRANSITIVELY through these cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
