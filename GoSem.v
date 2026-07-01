@@ -792,7 +792,8 @@ Example gosem_float_demo_runs : forall w,
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** [eval_value] folds a constant bool from the 6 NUMERIC comparisons combined by [==]/[!=]/[&&]/[||]/[!]
-    (nested), delegates string-literal order to the model, and folds the identity [bool(x)] conversion (next
+    (nested), delegates STRING-CONSTANT order to the model (via [eval_str]/[str_cmp_op] — literals AND
+    concatenations), and folds the identity [bool(x)] conversion (next
     block). A bool with any RUNTIME operand is ABSENT, not folded wrong (`eval_absent` group below). *)
 Example eval_bool_folds :
   eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true)
