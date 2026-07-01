@@ -192,7 +192,7 @@ Fixpoint no_defer (c : Cmd unit) : bool :=
     [OPanic] outcome.  A pure [Cmd] predicate (sibling of [no_defer]), so it lives here in cmd.v — the SINGLE
     authority; consumed by GoSemSafe (the panic-free safety property) and cmd_unified.v ([run_cmd_no_panic_ret],
     and the side condition of the NESTED-defer bridge [bridge_nested_np] — which agrees with [ustep] for any
-    [cmd_no_panic c] whose [run_cmd] COMPLETES, arbitrary defer depth); never a second copy. *)
+    [cmd_no_panic c], arbitrary defer depth); never a second copy. *)
 Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'

@@ -67,7 +67,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
   two ORTHOGONAL agreement bridges: `bridge_flat_agrees` (ANY `flat c` — one level of `no_defer` defers, any
   panicking — via the `(prog, pa)` 2-mode, final panic last-raised-wins) + `bridge_nested_np` (NESTED, arbitrary
-  depth, but panic-free `cmd_no_panic c`; CONDITIONAL on the run completing). Supporting cmd.v-side properties
+  depth, panic-free `cmd_no_panic c` — UNCONDITIONAL, completion discharged by `run_cmd_terminates`). Supporting cmd.v-side properties
   for ANY `c` (nested incl.): `run_cmd_terminates` (`run_cmd` returns `Some` for enough fuel — nested defers
   terminate, via a `defers_sz` node-count measure) + two about a COMPLETING run (`run_cmd fuel c w = Some oc`):
   `run_cmd_out_monotone` (that run's output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing
@@ -99,8 +99,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
   (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
 - Extend the cmd↔unified bridge to the FULL nested+panicking case (the 2-level `(prog, pa)` invariant unifying
-  `bridge_flat_agrees` + `bridge_nested_np`), and/or WIRE `run_cmd_terminates` into `bridge_nested_np` to drop
-  its "conditional on the run completing" premise; then chan/heap/spawn.
+  `bridge_flat_agrees` + `bridge_nested_np`); then chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
 - Widen the live GoPrint plugin bridge (postfix / atoms / calls) + grow `GoStmt` forms — gate-honestly.
