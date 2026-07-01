@@ -47,9 +47,11 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   (`[]int{20, 1/len([]int{})}[0]` PANICS, verified `go run`) — makes the fold `None` (undenoted), never a wrong
   value. OOB / negative / runtime INDEX → `None` too. `ptype` keeps it `PtRunInt` (Go: a non-constant int);
   folding is faithful in the VALUE contexts the fragment has (`println([]int{10,20}[1])` prints `20`). Result —
-  the boss's goal for the CONSTANT fragment: the gate ACCEPTS a provably-in-bounds all-constant slice-index and
-  REJECTS an OOB one or one with a runtime element. GoSem only; the in-bounds denotation is
-  transitively CERTIFIED via the gated `denotable_stmts_main_denotes`.
+  the boss's goal for the CONSTANT fragment at the DENOTATION layer: a provably-in-bounds all-constant
+  slice-index DENOTES, while an OOB one (or one with a runtime element) is DECLINED (not folded to a wrong
+  value). GoSem only; the in-bounds denotation is transitively CERTIFIED via the gated
+  `denotable_stmts_main_denotes`. The EMISSION-GATE consequence on a representative valid-Go pair is
+  `GoSemSafe.panic_free_gate_slice` (see Honesty).
 - **B3 — runtime index + runtime OOB panic.** The behavioral core: a runtime index `s[i]` denotes to an effect
   that bounds-checks and PANICS (`rt_index_oob`, a `CPan`) on OOB. Needs runtime values in GoSem + a slice
   effect in cmd.v. The behavioral gate must then require in-bounds EVIDENCE (`i < len s`) — the evidence-carrying
@@ -66,11 +68,15 @@ an int-overflowing constant. It does NOT bounds-check (a slice OOB is a valid-Go
 B2 (denotation) folds an IN-BOUNDS index into an ALL-CONSTANT slice literal to the element value — the WHOLE
 literal must evaluate (a runtime/panicking element, even unselected, rejects it, since Go builds the literal
 before indexing) — and DECLINES OOB. So the gate now ACCEPTS a provably-in-bounds all-constant slice-index and
-REJECTS a constant OOB one (or one with a runtime element). That IS "behavioral safety > panic-freedom" for the
-CONSTANT fragment (a non-`panic()` unsafe op the gate rejects). B2's OOB handling REACHES the behavioral
-EMISSION gate: `panic_free_gate` / `emit_panic_free_gated` ACCEPTS a safe const-slice program and REJECTS the
-OOB one (`GoSemSafe.panic_free_gate_slice`, gated in `gosem_panic_free_surface`) — the const-slice OOB gate is
-now a CERTIFIED behavioral-emission property, not just a denotability fact. (Boss deferred B3 — runtime index —
-so the RUNTIME half stays open.) STILL MISSING: RUNTIME
-indexing + the runtime OOB panic effect (B3 — needs GoSem runtime values + a cmd.v slice effect) and the
-gate/soundness extension over slices (B4).
+DECLINES a constant OOB one (or one with a runtime element). That IS "behavioral safety > panic-freedom" for the
+CONSTANT fragment at the DENOTATION layer (a non-`panic()` unsafe op the denotation declines, never folding it to
+a wrong value). B2's OOB handling REACHES the behavioral EMISSION gate on a REPRESENTATIVE valid-Go pair:
+`GoSemSafe.panic_free_gate_slice` (gated in `gosem_panic_free_surface`) proves BOTH programs are SUPPORTED (valid
+Go — sharing the fixture with the support authority), the in-bounds one is ACCEPTED + EMITTED by
+`panic_free_gate` / `emit_panic_free_gated`, and the OOB one (valid Go!) is REJECTED — behaviorally, via
+NON-DENOTATION (GoSem declines to model the OOB run-time panic, the same faithful-or-absent mechanism that
+declines any unmodeled construct — NOT a positive proof the OOB program is unsafe). It is a representative PIN
+that a non-`panic()` unsafe op reaches the gate on a valid-Go program, NOT a fragment-CLASS certification (the
+class-level faithfulness lives at the denotation layer in B2's `eval_value` theorems). (Boss deferred B3 —
+runtime index — so the RUNTIME half stays open.) STILL MISSING: RUNTIME indexing + the runtime OOB panic effect
+(B3 — needs GoSem runtime values + a cmd.v slice effect) and the gate/soundness extension over slices (B4).

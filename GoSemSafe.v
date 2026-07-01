@@ -391,12 +391,17 @@ Example panic_free_gate_decides :
   (exists c, panic_free_gate panic_free_prog = Some c) /\ panic_free_gate panicking_prog = None.
 Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
 
-(** slices-oob.md B2 reaches the behavioral EMISSION gate: [panic_free_gate] ACCEPTS a provably-in-bounds
-    all-constant slice-index program ([println([]int{10,20}[1])] — denotes via GoSem's B2 fold, panic-free) and
-    REJECTS the OOB [println([]int{10,20}[5])] (the OOB is a run-time panic GoSem declines, so it is not
-    denotable — the [None] arm of [panic_free_gate]); [emit_panic_free_gated] correspondingly EMITS the safe one
-    and REJECTS the OOB.  So "behavioral safety > panic-freedom" now holds AT THE GATE for the const-slice
-    fragment: a non-[panic()] unsafe op (OOB) the gate rejects, while admitting the safe access. *)
+(** slices-oob.md B2 — a REPRESENTATIVE valid-Go slice pair reaching the behavioral EMISSION gate.  BOTH
+    programs are SUPPORTED (valid Go: an OOB-positive CONSTANT slice index is a run-time panic, not a compile
+    error — B1), so the two authorities SHARE the fixture and [slice_oob_prog]'s rejection is genuinely
+    BEHAVIORAL, not syntactic: [panic_free_gate] ACCEPTS the provably-in-bounds [println([]int{10,20}[1])] (it
+    denotes via GoSem's B2 fold, panic-free) and REJECTS the SUPPORTED [println([]int{10,20}[5])] — and it
+    rejects it via NON-DENOTATION (GoSem declines to model the OOB run-time panic, so it does not denote — the
+    [None] arm), the SAME faithful-or-absent mechanism that declines ANY unmodeled construct, NOT a positive
+    proof the OOB program is unsafe.  [emit_panic_free_gated] correspondingly EMITS the safe one and REJECTS the
+    OOB.  This is a REPRESENTATIVE PIN that a non-[panic()] unsafe op reaches the gate on a VALID-Go program —
+    NOT a fragment-class certification (the class-level in-bounds-faithful / OOB-declined property is carried at
+    the DENOTATION layer by GoSem's B2 [eval_value] theorems, not here). *)
 Definition slice_safe_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].
@@ -404,11 +409,15 @@ Definition slice_oob_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn].
 Example panic_free_gate_slice :
-  (exists c, panic_free_gate slice_safe_prog = Some c)
-  /\ panic_free_gate slice_oob_prog = None
+  supported_program slice_safe_prog = true                 (* BOTH are valid Go (B1: OOB-positive const index = run-time panic) ... *)
+  /\ supported_program slice_oob_prog = true
+  /\ (exists c, panic_free_gate slice_safe_prog = Some c)   (* ... the in-bounds one the BEHAVIORAL gate ACCEPTS ... *)
+  /\ panic_free_gate slice_oob_prog = None                  (* ... the OOB one (VALID Go!) it REJECTS behaviorally, via non-denotation *)
   /\ emit_panic_free_gated slice_safe_prog <> None
   /\ emit_panic_free_gated slice_oob_prog = None.
 Proof.
+  split; [ vm_compute; reflexivity | ].
+  split; [ vm_compute; reflexivity | ].
   split; [ apply panic_free_gate_complete; vm_compute; reflexivity | ].
   split; [ vm_compute; reflexivity | ].
   split; [ vm_compute; discriminate | vm_compute; reflexivity ].

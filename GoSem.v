@@ -671,10 +671,12 @@ Proof. split; reflexivity. Qed.
 Example eval_slice_index_oob_none :
   eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)) = None.
 Proof. reflexivity. Qed.
-(** END-TO-END: [println([]int{10,20}[1])] (an ALL-CONSTANT literal, in-bounds) DENOTES — the gate accepts it —
-    while the OOB [println([]int{10,20}[5])] does NOT denote (gate rejects the OOB — "behavioral safety >
-    panic-freedom" for the all-constant-literal fragment; a literal with a runtime/panicking element is rejected
-    too, by [slice_index_runtime_element_undenoted]). *)
+(** END-TO-END (DENOTATION layer): [println([]int{10,20}[1])] (an ALL-CONSTANT literal, in-bounds) DENOTES,
+    while the OOB [println([]int{10,20}[5])] does NOT denote — GoSem DECLINES the OOB (faithful-or-absent), and a
+    literal with a runtime/panicking element is declined too ([slice_index_runtime_element_undenoted]).  This is
+    the DENOTATION fact that makes B2 "behavioral safety > panic-freedom" (the in-bounds access denotes
+    panic-free; the OOB one is declined, not folded to a wrong value); the EMISSION-GATE consequence — a
+    SUPPORTED (valid-Go) OOB program REJECTED behaviorally — is pinned in [GoSemSafe.panic_free_gate_slice]. *)
 Example slice_index_prog_inbounds_denotes :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn]) <> None.
