@@ -804,26 +804,25 @@ demo `goroutine_demo`.  The goroutine FORK happens-before edge (`go` ⤳ gorouti
 is PROVEN race-free (`fork_program_race_free`, see the memory model).  ✓ at the lowering
 + ordering level; the scheduler / interleaving is idealised away (Tier 5 #14).
 
-### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ✓ FAITHFUL cmd.v model; ⚠ legacy `run_io` idealizes
+### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ✓ FAITHFUL cmd.v model; shallow `run_io` fails loud
 Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit — and a panic does NOT
-cancel the remaining defers.
-Fido has THREE distinct defer representations; keep them separate:
-1. **Legacy plugin RUNTIME emission (trusted, ⚠ its `run_io` model idealizes):** the trusted `plugin/go.ml`
-   emits native Go `defer_call f` → `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos
-   `defer_demo`, `defer_loop_demo` (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).  But
-   its `run_io` MODEL `defer_call (_ : IO unit) : IO unit := fun w => ORet tt w` is a NO-OP (the deferred
-   effect is dropped) — so a `run_io`-based theorem does NOT capture `defer`.  A documented idealization of
-   the LEGACY model, not a hole (benign for theorems that don't depend on a deferred effect).
-2. **cmd.v `CDfr` / `run_defers` — FAITHFUL (✓, the defer capstone):** `cmd.v`'s command tree models `defer`
-   as `CDfr d k` and `run_defers` runs the LIFO stack at function-scope return: a panicking defer REPLACES the
-   active panic (last-raised-wins) but the older defers STILL run (review #12 P0 fix), and every defer's
-   effects happen.  The cmd↔unified bridge `bridge_agrees` proves the `ustep` run AGREES with this model for
-   ANY command (defers + panics).  This — not the `run_io` no-op — is the faithful defer semantics.
-3. **GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ⚠ not denoted yet):** `defer <call>` is a real AST
-   statement, print-injective (`print_stmt_inj`), and syntactically SUPPORTED + certificate-emittable (gated to
-   a call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
+cancel the remaining defers.  Fido has THREE distinct defer representations; keep them separate:
+1. **Plugin RUNTIME emission (trusted):** the trusted `plugin/go.ml` lowers `defer_call f` BY NAME to native
+   Go `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos `defer_demo`, `defer_loop_demo`
+   (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).
+2. **Shallow `run_io` — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential `World -> Outcome` cannot
+   reify a func-scoped defer to run it at return, so `defer_call (_ : IO unit) := fun w => OPanic … w` PANICS
+   rather than silently dropping the effect (`builtins.v`; the review #6/#12 fix that replaced the old
+   `ORet tt w` no-op, which had erased an observable deferred effect).
+3. **cmd.v `CDfr` / `run_defers` — FAITHFUL:** `cmd.v` models `defer` as `CDfr d k`; `run_defers` runs the
+   LIFO stack at func-scope return — a panicking defer REPLACES the active panic (last-raised-wins) but the
+   older defers STILL run (review #12), every defer's effects happen.  `bridge_agrees` proves the `ustep` run
+   AGREES with this for ANY command (defers + panics).  This is the faithful defer semantics.
+4. **GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, not denoted yet):** `defer <call>` is a real AST
+   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
+   call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
    its `CDfr` denotation needs `run_cmd` fuel > 1, whereas GoSem slice 1 is fuel-1 (denotes `no_defer` only).
-   Denoting `GsDefer` (into the faithful cmd.v model of #2) awaits the sufficient-fuel generalization.
+   Denoting `GsDefer` (into the faithful cmd.v model of #3) awaits the sufficient-fuel generalization.
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking
 Spec: send on a **closed** channel ⇒ panic; send on **nil** blocks forever.
