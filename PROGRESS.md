@@ -82,18 +82,18 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   properties for ANY `c`: `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure) +
   `run_cmd_out_monotone` (a completing run's output only APPENDS) + `run_cmd_no_panic_ret` (a completing
   panic-free run returns `ORet`). ⚠ chan/heap/spawn later. Zero axioms.
-- **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
-  runs to `ORet`, never panics; `_output` gives the EXPLICIT output world `cmd_out_world c w`; the dual
-  `run_cmd_panics_world` is the cmd.v-level DEFER-FREE panic lemma — `no_defer` + `cmd_panic_val c = Some v` ⇒
-  `OPanic v` with exact pre-panic output, silent on defers) +
-  `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom / liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
-  `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_output`][`_ustep`]
-  prove it entails the panic-free run to `ORet` (`_output` = the EXPLICIT output world), and `panic_free_denotable_supported` proves `panic_free_denotable p = true`
-  implies `SupportedProgram p`. Built on that, `PanicFreeEmittable` (program + `panic_free_denotable`) REFINES
-  GoEmit's `EmittableProgram` — the FIRST emission certificate whose precondition is a proven panic-free RUN
-  (`pfe_runs_ret`), not just syntactic `SupportedProgram`; `emit_panic_free` (seed of `emit_safe`) emits only
-  behaviorally-certified programs through the blessed path. SEED of `BehaviorSafe`→`SafeProgram`→`emit_safe`;
-  ⚠ scoped to slice 1's panic-only fragment, does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
+- **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free
+  denoted program runs to `ORet`, never panics; `_output` gives the EXPLICIT output world `cmd_out_world c w`;
+  `_ustep` lifts it to `ustep`, where race-freedom / liveness live; the dual `run_cmd_panics_world` is the
+  cmd.v-level DEFER-FREE panic lemma). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE
+  predicate on the raw `Program`; `panic_free_denotable_runs_ret`[`_output`][`_ustep`] prove it entails the
+  panic-free run, and `_supported` proves it implies `SupportedProgram`. Built on that, `PanicFreeEmittable`
+  (program + `panic_free_denotable`) REFINES GoEmit's `EmittableProgram` — the FIRST emission cert whose
+  precondition is a proven panic-free RUN (`pfe_runs_ret`), not syntactic `SupportedProgram`; `emit_panic_free`
+  emits only behaviorally-certified programs through the blessed path. `panic_free_gate : Program→option
+  PanicFreeEmittable` decides + certs-or-rejects (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end
+  decide-then-emit (ancestor of a total `emit_safe`). ⚠ panic-only fragment, does NOT gate main output, NOT
+  full `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.

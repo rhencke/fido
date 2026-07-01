@@ -20,10 +20,13 @@
       [emit_panic_free] (seed of [emit_safe]) emits through the blessed [emit_supported] path but its PRECONDITION
       is a proven panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].  Panic-only fragment;
       does NOT gate main output; NOT [SafeProgram] / [BehaviorSafe].
+    - DECIDABLE GATE: [panic_free_gate] : [Program -> option PanicFreeEmittable] decides [panic_free_denotable]
+      and builds the cert-or-rejects (SOUND + COMPLETE); [emit_panic_free_gated] is the end-to-end decide-then-
+      emit (ancestor of a total [emit_safe]).  Same panic-only / off-main scope.
     Plus cmd.v-level DEFER-FREE building blocks ([run_cmd_panic_free_world] / [run_cmd_panics_world]). *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified GoEmit.
-From Stdlib Require Import String List Bool.
+From Stdlib Require Import String List Bool Sumbool.
 Import ListNotations.
 
 (** A statement is the panic primitive [panic(e)] — the only [denote_stmt] arm that yields a [CPan]. *)
@@ -330,6 +333,47 @@ Example pfe_demo_runs : forall w,
   exists cmd w', denote_program (pfe_program pfe_demo) = Some cmd /\ run_cmd 1 cmd w = Some (ORet tt w').
 Proof. intro w. exact (pfe_runs_ret pfe_demo w). Qed.
 
+(** ---- The DECIDABLE panic-free emission GATE.  [PanicFreeEmittable] alone needs a hand proof of
+    [panic_free_denotable p = true]; [panic_free_gate] builds the cert BY DECISION on ANY raw [Program] —
+    either REJECT ([None]) or return the cert — so an emit-or-reject pipeline needs NO per-program proof.
+    [emit_panic_free_gated] composes it end-to-end: from ANY program, reject or emit Go source CARRYING the
+    panic-free run guarantee — the honest ancestor of [emit_safe] as a TOTAL decide-then-emit function.
+    Panic-only fragment: does NOT gate the main output, NOT the full [BehaviorSafe] gate. *)
+Definition panic_free_gate (p : Program) : option PanicFreeEmittable :=
+  match sumbool_of_bool (panic_free_denotable p) with
+  | left H  => Some (mkPanicFreeEmittable p H)
+  | right _ => None
+  end.
+Definition emit_panic_free_gated (p : Program) : option string :=
+  match panic_free_gate p with Some c => Some (emit_panic_free c) | None => None end.
+
+(** SOUND — a returned cert is FOR [p] and [p] is panic-free-denotable (so [pfe_runs_ret] applies to it). *)
+Lemma panic_free_gate_sound : forall p c,
+  panic_free_gate p = Some c -> panic_free_denotable p = true /\ pfe_program c = p.
+Proof.
+  intros p c H. unfold panic_free_gate in H.
+  destruct (sumbool_of_bool (panic_free_denotable p)) as [Ht|Hf].
+  - injection H as <-. cbn. split; [exact Ht | reflexivity].
+  - discriminate H.
+Qed.
+(** COMPLETE — every panic-free-denotable program is ACCEPTED. *)
+Lemma panic_free_gate_complete : forall p,
+  panic_free_denotable p = true -> exists c, panic_free_gate p = Some c.
+Proof.
+  intros p H. unfold panic_free_gate.
+  destruct (sumbool_of_bool (panic_free_denotable p)) as [Ht|Hf];
+    [eexists; reflexivity | rewrite H in Hf; discriminate].
+Qed.
+(** The gated emitter goes THROUGH the accepted cert's blessed emission (no forked logic). *)
+Lemma emit_panic_free_gated_some : forall p c,
+  panic_free_gate p = Some c -> emit_panic_free_gated p = Some (emit_panic_free c).
+Proof. intros p c H. unfold emit_panic_free_gated. rewrite H. reflexivity. Qed.
+
+(** The gate DECIDES both ways on the boundary demos (ACCEPTS panic-free, REJECTS panicking). *)
+Example panic_free_gate_decides :
+  (exists c, panic_free_gate panic_free_prog = Some c) /\ panic_free_gate panicking_prog = None.
+Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
+
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
     [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
     Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
@@ -337,5 +381,6 @@ Proof. intro w. exact (pfe_runs_ret pfe_demo w). Qed.
 Definition gosem_panic_free_surface :=
   (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
    panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
-   panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed).
+   panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed,
+   panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some).
 Print Assumptions gosem_panic_free_surface.
