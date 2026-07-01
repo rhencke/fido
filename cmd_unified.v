@@ -13,8 +13,9 @@
     The module exposes single-goroutine [usteps] AGREEMENT bridges (the [usteps] run AGREES with cmd.v's
     AUTHORITATIVE [run_cmd] — the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0]
     EQUALS the Outcome's panic) over two ORTHOGONAL defer classes: [flat c] (one level of [no_defer] defers, any
-    panicking) and NESTED but panic-free ([cmd_no_panic c], arbitrary depth) — the full nested+panicking case is
-    later.  Plus cmd.v-side properties for ANY [c] (nested included): [run_cmd] never retracts already-emitted
+    panicking) and NESTED but panic-free ([cmd_no_panic c], arbitrary depth, CONDITIONAL on the [run_cmd]
+    completing) — the full nested+panicking case is later.  Plus cmd.v-side properties for ANY [c] (nested
+    included): [run_cmd] never retracts already-emitted
     output, and a panic-free [c] that completes returns [ORet].  The EXACT gated public-surface set is the
     [Print Assumptions] block at the end of this file (the single in-file authority); this header does not
     re-enumerate it.
@@ -126,8 +127,8 @@ Qed.
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
     is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is Phase B (done for ANY
-    [flat c] — panics allowed — in [bridge_flat_agrees], and for NESTED panic-free defers in [bridge_nested_np]
-    via [unwind_prefix_np]; the nested+panicking case is later).  This
+    [flat c] — panics allowed — in [bridge_flat_agrees], and for NESTED [cmd_no_panic c] whose [run_cmd]
+    COMPLETES in [bridge_nested_np] via [unwind_prefix_np]; the nested+panicking case is later).  This
     is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
     [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
     list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
@@ -652,8 +653,9 @@ Qed.
     only ever APPENDS to the world's output (the body's [cmd_out_events c] then, via [run_defers_out], every
     defer's, recursively), never RETRACTS.  A cmd.v-side faithfulness guarantee — Go's deferred actions and
     panics cannot un-print already-printed output.  A standalone cmd.v-side property (distinct from the ustep
-    AGREEMENT bridges), via [run_defers_out]; [bridge_nested_np] establishes its nested output AGREEMENT
-    independently (through [unwind_prefix_np]), so this theorem is a sibling, not a dependency, of the bridge. *)
+    AGREEMENT bridges), via [run_defers_out].  The nested-defer bridge [bridge_nested_np] (for [cmd_no_panic c]
+    whose [run_cmd] COMPLETES) establishes its output agreement independently through [unwind_prefix_np], so this
+    theorem is a sibling, not a dependency, of the bridge. *)
 Theorem run_cmd_out_monotone : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc ->
   exists evs, w_output (oc_world oc) = w_output w ++ evs.
@@ -677,8 +679,9 @@ Qed.
 (** PANIC-FREEDOM of [run_cmd] for ANY [c] (nested defers included): a [cmd_no_panic c] run that COMPLETES
     returns [ORet] — Go's panic-free program cannot end in a panic.  Via [go_chars] (the body is [ORet], as
     [cmd_no_panic c ⇒ cmd_panic c = None]) + [run_defers_no_panic] (the defers preserve it).  A standalone
-    cmd.v-side property, panic-free companion to [run_cmd_out_monotone]; [bridge_nested_np] proves the SAME
-    non-panicking fragment agree with [ustep], resting on the shared [run_defers_no_panic] (not on this theorem). *)
+    cmd.v-side property, panic-free companion to [run_cmd_out_monotone]; the bridge [bridge_nested_np] proves the
+    SAME [cmd_no_panic] fragment agrees with [ustep] when [run_cmd] COMPLETES, resting on the shared
+    [run_defers_no_panic] (not on this theorem). *)
 Theorem run_cmd_no_panic_ret : forall fuel (c : Cmd unit) w oc,
   run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
   exists w', oc = ORet tt w'.

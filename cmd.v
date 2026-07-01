@@ -181,9 +181,8 @@ Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A)
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
     predicate, so it lives here (cmd.v), shared by GoSem (executable totality: [go] accumulates no defers)
-    and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto [unified.v]'s [ustep]; the [flat] extension —
-    one-level [no_defer] defers — by [bridge_flat_agrees], and NESTED panic-free defers by [bridge_nested_np];
-    the full nested+panicking case not yet). *)
+    and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto [unified.v]'s [ustep] — [cmd_to_ucmd_run_agrees];
+    the [flat] extension, one-level [no_defer] defers, by [bridge_flat_agrees]). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
@@ -191,8 +190,9 @@ Fixpoint no_defer (c : Cmd unit) : bool :=
 
 (** [cmd_no_panic c] — [c] has NO [CPan] node ANYWHERE (body or any deferred action): it can never end in an
     [OPanic] outcome.  A pure [Cmd] predicate (sibling of [no_defer]), so it lives here in cmd.v — the SINGLE
-    authority; consumed by GoSemSafe (the panic-free safety property) and cmd_unified.v ([run_cmd_no_panic_ret]);
-    never a second copy. *)
+    authority; consumed by GoSemSafe (the panic-free safety property) and cmd_unified.v ([run_cmd_no_panic_ret],
+    and the side condition of the NESTED-defer bridge [bridge_nested_np] — which agrees with [ustep] for any
+    [cmd_no_panic c] whose [run_cmd] COMPLETES, arbitrary defer depth); never a second copy. *)
 Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'
