@@ -63,7 +63,9 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement
   individually denotes — return/panic terminators, blank-assign, print·println interleaved, incl. a
   terminator + supported dead tail; SUFFICIENT not necessary, still conditional on `stmt_denotable`, not full
-  `supported_program`). Denoted programs run through
+  `supported_program`). Its tightness is PROVED, not asserted: `denotable_body_terminator_free_iff` — on a
+  terminator-free body the compositional converse is EXACT (iff), so the terminator dead-tail escape is the
+  SOLE source of "sufficient not necessary". Denoted programs run through
   `cmd.v`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
   comparators ARE the model's `str_*`); a GoSem fact in neither tuple is an internal helper / example, not
   certified. NO `BehaviorSafe`. Zero axioms.

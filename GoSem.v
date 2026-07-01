@@ -606,6 +606,44 @@ Example denotable_stmts_mixed_denotes :
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "dead"])]) <> None.
 Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
 
+(** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
+    READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
+    converse is EXACT (an iff): the body denotes iff EVERY statement individually denotes.  The ONLY slack is the
+    terminator escape — a terminator's UNREACHABLE rest need only be SUPPORTED, so a denotable body may carry an
+    undenotable-but-supported DEAD tail (pinned by [denotable_body_escapes_stmt_denotable] below). *)
+Definition stmt_terminates (s : GoStmt) : bool :=
+  match denote_stmt s with Some (_, true) => true | _ => false end.
+
+Lemma denotable_body_terminator_free_necessary : forall b,
+  forallb (fun s => negb (stmt_terminates s)) b = true ->
+  denotable_body b = true -> forallb stmt_denotable b = true.
+Proof.
+  induction b as [|s rest IH]; [reflexivity|].
+  cbn [forallb denotable_body]. intros Htf Hden.
+  apply andb_true_iff in Htf as [Hs Hrest]. apply negb_true_iff in Hs. unfold stmt_terminates in Hs.
+  destruct (denote_stmt s) as [[c term]|] eqn:Es.
+  - destruct term; [discriminate Hs|].                       (* terminator excluded by [terminator_free] *)
+    apply andb_true_intro. split; [unfold stmt_denotable; rewrite Es; reflexivity | exact (IH Hrest Hden)].
+  - discriminate Hden.                                       (* [denote_stmt s = None] => [denotable_body] false *)
+Qed.
+
+Corollary denotable_body_terminator_free_iff : forall b,
+  forallb (fun s => negb (stmt_terminates s)) b = true ->
+  (denotable_body b = true <-> forallb stmt_denotable b = true).
+Proof.
+  intros b Htf. split;
+    [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
+Qed.
+
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; defer println("x")] is a
+    DENOTABLE body ([return] terminates; the [defer] is a SUPPORTED dead tail) whose [defer] does NOT denote, so
+    [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a terminator — exactly why the
+    iff above does not apply to it. *)
+Example denotable_body_escapes_stmt_denotable :
+  denotable_body [GsReturn; GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"])] = true
+  /\ forallb stmt_denotable [GsReturn; GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"])] = false.
+Proof. split; reflexivity. Qed.
+
 (** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
     even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
     modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
@@ -934,7 +972,7 @@ Proof. reflexivity. Qed.
     to certify one, ADD it to the tuple. *)
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
-   denotable_stmts_main_denotes,
+   denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    denote_program_runs, out_main_runs, println_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
