@@ -309,6 +309,36 @@ Local Lemma run_defers_unfold : forall n d ds acc,
        end).
 Proof. reflexivity. Qed.
 
+(** run_defers is OUTPUT-MONOTONE for ARBITRARY nesting: unwinding a defer list only ever APPENDS to the
+    world's output trace (each deferred body's [cmd_out_events] and, recursively, its own nested defers'),
+    never RETRACTS.  Grounded in [go_chars] (each [go d] appends [cmd_out_events d]); induction on FUEL, the IH
+    applied to the nested run ([cmd_defers d]) and the tail ([ds']).  Note [oc_world acc'] = [oc_world net_d]
+    (a returning defer keeps [acc]'s panic but takes the run's advanced world; a panicking one carries its
+    own), so the world only grows across both sub-runs. *)
+Local Lemma run_defers_out : forall fuel ds acc result,
+  run_defers fuel ds acc = Some result ->
+  exists evs, w_output (oc_world result) = w_output (oc_world acc) ++ evs.
+Proof.
+  induction fuel as [| n IH]; intros ds acc result H; [ discriminate H | ].
+  destruct ds as [| d ds'].
+  - cbn in H. injection H as <-. exists nil. rewrite app_nil_r. reflexivity.
+  - rewrite run_defers_unfold in H.
+    destruct (go_chars d (oc_world acc)) as [w_d [Hgo Hout]]. rewrite Hgo in H. cbn zeta in H.
+    destruct (run_defers n (cmd_defers d)
+                (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)) as [net_d|] eqn:Enet;
+      [ | discriminate H ].
+    destruct (IH (cmd_defers d)
+                (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end) net_d Enet) as [evs1 Hevs1].
+    destruct (IH ds' (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end)
+                result H) as [evs2 Hevs2].
+    exists (cmd_out_events d ++ evs1 ++ evs2).
+    assert (Hw1 : w_output (oc_world net_d) = w_output w_d ++ evs1)
+      by (rewrite Hevs1; destruct (cmd_panic d); reflexivity).
+    assert (Hw2 : w_output (oc_world result) = w_output (oc_world net_d) ++ evs2)
+      by (rewrite Hevs2; destruct net_d as [[] w' | v' w']; cbn [oc_world]; [ rewrite oc_world_set_world | ]; reflexivity).
+    rewrite Hw2, Hw1, Hout, <- !app_assoc. reflexivity.
+Qed.
+
 (** Running ONE [no_defer] defer [d] (head of the list): [go d] is atomic ([cmd_defers d = []]), so [run_defers]
     over [d :: ds] reduces to [run_defers] over [ds] with the accumulator advanced — panic REPLACED if [d]
     panicked, else the world advanced (active panic kept).  Grounded in [go_chars]. *)
@@ -485,10 +515,37 @@ Proof.
       rewrite !map_snd_pair0, app_assoc; reflexivity.
 Qed.
 
+(** OUTPUT-MONOTONICITY of [run_cmd], for ANY [c] (nested defers included — NOT restricted to [flat]): a run
+    only ever APPENDS to the world's output (the body's [cmd_out_events c] then, via [run_defers_out], every
+    defer's, recursively), never RETRACTS.  A cmd.v-side faithfulness guarantee — Go's deferred actions and
+    panics cannot un-print already-printed output.  This is the general (all-[c]) OUTPUT half of the eventual
+    nested [ustep] bridge; the AGREEMENT bridge itself is still [flat] only ([bridge_flat_agrees]). *)
+Theorem run_cmd_out_monotone : forall fuel (c : Cmd unit) w oc,
+  run_cmd fuel c w = Some oc ->
+  exists evs, w_output (oc_world oc) = w_output w ++ evs.
+Proof.
+  intros fuel c w oc H.
+  destruct (go_chars c w) as [w_body [Hgo Hout]].
+  unfold run_cmd in H. rewrite Hgo in H. cbn zeta in H.
+  destruct (run_defers fuel (cmd_defers c)
+              (oc_unit (match cmd_panic c with None => ORet tt w_body | Some v => OPanic v w_body end))) as [result|] eqn:Erd;
+    [ | discriminate H ].
+  destruct (run_defers_out fuel (cmd_defers c) _ result Erd) as [evs Hevs].
+  assert (Hseed : oc_world (oc_unit (match cmd_panic c with None => ORet tt w_body | Some v => OPanic v w_body end)) = w_body)
+    by (destruct (cmd_panic c); reflexivity).
+  rewrite Hseed in Hevs.
+  exists (cmd_out_events c ++ evs).
+  destruct result as [[] w' | v w']; cbn [oc_world] in Hevs; cbn in H; injection H as <-.
+  - rewrite oc_world_set_world, Hevs, Hout, <- app_assoc. reflexivity.
+  - cbn [oc_world]. rewrite Hevs, Hout, <- app_assoc. reflexivity.
+Qed.
+
 (** Public assumption surfaces for this module — the manifest gate captures these [Print Assumptions]: the
-    no_defer [run_cmd]-grounded bridge AND its [flat]-defer generalisation ([bridge_flat_agrees]: ANY [flat c] —
-    any number of [no_defer] defers, panicking or not, via the (prog, pa) 2-mode).  The projection plumbing
-    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_defers_flat]/[unwind_flat]/
-    Phase A) is Local and covered TRANSITIVELY through these cones, not separately printed. *)
+    no_defer [run_cmd]-grounded bridge, its [flat]-defer generalisation ([bridge_flat_agrees]: ANY [flat c] —
+    any number of [no_defer] defers, panicking or not, via the (prog, pa) 2-mode), AND the general (all-[c])
+    output-monotonicity of [run_cmd] ([run_cmd_out_monotone]).  The projection plumbing
+    ([cmd_out_events]/[cmd_panic]/[cmd_defers]/[flat_defers_panic]/[go_chars]/[run_defers_flat]/[run_defers_out]/
+    [unwind_flat]/Phase A) is Local and covered TRANSITIVELY through these cones, not separately printed. *)
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
+Print Assumptions run_cmd_out_monotone.
