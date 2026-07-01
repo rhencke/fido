@@ -155,14 +155,18 @@ check: extract emit-demo
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
 	  exit 1; \
 	fi
-	@# SELECTOR-BRIDGE fixture (Codex regression gate): [embed_arith] must emit the EXACT peeled selector line.
-	@# A bridge re-broadening (-> `d.Animal.Legs + k`) or a pp_expr peel_embedded regression (-> `(d.Animal).Legs
-	@# + k`) both break this exact string — a SOURCE-byte change the runtime golden can't see (same value).
-	@if ! grep -qF 'return d.Legs + k' main.go; then \
-	  echo "fido: SELECTOR-BRIDGE FIXTURE FAILED — Embed_arith must emit the exact peeled 'return d.Legs + k' in main.go; it does not (the ESel bridge or pp_expr's peel_embedded regressed onto the embedded receiver -> d.Animal.Legs / (d.Animal).Legs)."; \
+	@# SELECTOR-BRIDGE fixture (Codex regression gate): EXTRACT the generated Embed_arith function and require it
+	@# EXACTLY (byte-for-byte, fixture-scoped — NOT a substring grep).  A bridge re-broadening (d.Animal.Legs), a
+	@# pp_expr peel_embedded regression ((d.Animal).Legs), or any other body edit changes this block — a
+	@# SOURCE-byte regression the runtime golden can't see (same value either way).
+	@expected=$$(printf 'func (d Dog) Embed_arith(k int64) int64 {\n\treturn d.Legs + k\n}'); \
+	actual=$$(awk '/^func \(d Dog\) Embed_arith\(/{f=1} f{print} f&&/^}/{exit}' main.go); \
+	if [ "$$actual" != "$$expected" ]; then \
+	  echo "fido: SELECTOR-BRIDGE FIXTURE FAILED — the generated Embed_arith is not the exact peeled block (ESel bridge / pp_expr peel_embedded regressed onto the embedded receiver):"; \
+	  printf 'expected:\n%s\nactual:\n%s\n' "$$expected" "$$actual"; \
 	  exit 1; \
 	fi; \
-	echo "fido: selector-bridge fixture OK — Embed_arith emits the exact peeled 'return d.Legs + k' ✓"
+	echo "fido: selector-bridge fixture OK — Embed_arith matches the exact peeled block 'return d.Legs + k' ✓"
 	@set +e; $(GORUN) > /tmp/fido_out.txt 2>&1; rc=$$?; set -e; \
 	if [ $$rc -ne 0 ]; then \
 	  echo "fido: PROGRAM EXITED NON-ZERO (status $$rc) — an uncaught panic / crash, NOT a benign diff:"; \
