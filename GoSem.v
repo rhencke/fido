@@ -1,46 +1,23 @@
 (** ============================================================================
-    GoSem.v — the AST's BEHAVIORAL semantics, as a BRIDGE into the existing proof-only models
-    (charter Phase 5; ARCHITECTURE.md §GoSem).  GoSem does NOT fork a second semantics universe — it
-    TRANSLATES a GoAst [Program] into [cmd.v]'s already-proven command tree [Cmd unit] and reuses that
-    file's [run_cmd] interpreter (+ [cbind] sequencing), the GoSafe gate ([expr_stmt_ok] / [svalue]) for which programs
-    have meaning, and the MODEL's own value constructors ([anyt] / [intwrap]) for the printed values — so the
-    factoring is single-authority and the modelling is faithful (a denoted [println] produces EXACTLY the
-    [w_log] output the model's [println] does).
+    GoSem.v — the AST's BEHAVIORAL semantics as a BRIDGE into cmd.v (charter Phase 5; ARCHITECTURE.md §GoSem).
+    GoSem forks NO second universe: [denote_program : Program -> option (Cmd unit)] TRANSLATES a GoAst program
+    into cmd.v's proven command tree, reusing cmd.v's [run_cmd] interpreter + [cbind], the GoSafe gate
+    ([expr_stmt_ok] / [svalue]), and the model's own value ctors ([anyt] / [intwrap]) — single-authority, faithful
+    (a denoted [println] produces EXACTLY the [w_log] the model's [println] does).
 
-    SLICE 1 (this file, to grow): the bridge + its GATE-CONNECTION + REAL OBSERVABLE EFFECTS.
-    [denote_program] translates a SUBSET of the supported statement forms into [Cmd unit] (a supported form it
-    does NOT yet denote — e.g. [GsDefer], whose [cmd.v] [CDfr] denotation needs [run_cmd] fuel > 1 — is left
-    [None], faithful-or-ABSENT, NOT given wrong behavior):
-      - [println(args)] -> [COut true  [eval args]]   (faithful: model [println xs = w_log true  xs])
-      - [print(args)]   -> [COut false [eval args]]   (faithful: model [print   xs = w_log false xs])
-      - [panic(a)]      -> [CPan (eval a)]
-      - [return] / [panic] TERMINATE the body (the [denote_stmt] flag): their successors are UNREACHABLE,
-                           so a non-tail `return; println(..)` / `panic(..); println(..)` faithfully runs no
-                           successor.  The unreachable rest need only be SUPPORTED ([forallb stmt_ok]), NOT
-                           denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
-      - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
-                           no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string CONSTANT — a LITERAL, a CONCATENATION [a+b], an identity string conversion, or an ASCII rune conversion [string(65)] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
-    INTEGER constant (literals, CONVERSIONS [int64(3)] / in-range [uint(3)], ARITHMETIC [1+2], complement [^x]
-    — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
-    or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
-    failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
-    STRING-CONSTANT comparisons (any [eval_str]-folded operand — literals, concatenations, string/rune conversions; string compares DELEGATED to the model's [str_*]
-    family — no local GoSem order) combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion)
-    supplies the printed/panicked values; a string (or string-comparison operand) built from a NON-literal LEAF
-    BEYOND the folded set (a MULTI-BYTE rune conversion [string(200)] — ASCII runes [string(65)] now fold to
-    their byte), bools with a runtime operand,
-    an out-of-conservative-range or COMPLEMENTED [uint], fractional/runtime floats, and RUNTIME values
-    ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
-    ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
-    its RIGHT behavior or (not yet) NO behavior ([denote_program = None]), NEVER a wrong one (the two regression
-    examples below pin the [return]-stops and runtime-blank-un-denoted cases).
-    SOUNDNESS is structural and clean because [denote] CONSULTS THE GATE: the effect arm fires only when
-    [expr_stmt_ok] holds (and the blank arm when [svalue]), so [gosem_sound] — denotation ⊆ [SupportedProgram],
-    no meaning given to invalid Go — falls out, and a PARTIAL [eval_value] can grow without ever over-accepting
-    (it only narrows COMPLETENESS, never breaks soundness).  COMPLETENESS (supported ⇒ denotes) is the roadmap
-    converse, reached as [eval] covers the full printable subset; together they will pin "supported ⟺ has a
-    defined GoSem behavior", the foundation for [BehaviorSafe] -> [SafeProgram] -> [emit_safe].  No axioms.
+    SLICE 1 (partial, to grow):
+    - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
+      [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
+      [_ = e] -> [CRet] when [e] is a constant.  Print/panic args fold via [eval_value] (constants only — the
+      exact fold set is the [eval_value_good] table below; runtime / out-of-range / [GsDefer]'s CDfr etc. are
+      NOT yet denoted).
+    - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
+      NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
+    - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
+      [eval_value] narrows only COMPLETENESS, never soundness).  NOT [supported ⇒ denotes] (the roadmap
+      converse), and does NOT define [BehaviorSafe].
+    - Public TRUST SURFACE (zero-axiom, [Print Assumptions]-gated): [gosem_trust_surface] +
+      [gosem_string_authority_surface].  No axioms.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Stdlib Require Import String List Bool ZArith.
@@ -121,16 +98,12 @@ Definition const_z (e : GExpr) : option Z :=
   | _ => None
   end.
 
-(** The constant string VALUE of a supported [PtStr] expression — THE SINGLE string-value authority (both
-    [eval_value]'s [PtStr] arm AND [eval_bool]'s string comparisons consult it; no literal-only fork).  Folds a
-    string LITERAL [EStr s], the CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is
-    byte APPEND, so [String.append] is exact), and the string CONVERSION [string(a)] — its arm MIRRORS
-    [conv_to_scalar]'s two [GTString] cases: an IDENTITY string source ([PtStr] -> [eval_str a], so [string("a"+"b")]
-    = its bytes) or an ASCII rune ([PtIntConst]/[PtTIntConst] with code point [z ∈ [0,127]] -> the single byte [z],
-    since its UTF-8 encoding IS that byte — [string(65)] = ["A"]).
-    SEALED under [ptype] = [PtStr] (so it never folds an ill-typed [+] like [`"a" + 1`], which [ptype] rejects).
-    ABSENT (-> [None], honestly): a MULTI-BYTE rune [string(200)] (UTF-8 > 1 byte) or out-of-range/negative rune
-    (Go yields [U+FFFD]), and any RUNTIME string. *)
+(** The constant string VALUE of a supported [PtStr] expr — THE SINGLE string-value authority (both
+    [eval_value]'s [PtStr] arm AND [eval_bool]'s string comparisons consult it).  Folds a LITERAL [EStr s], the
+    CONCATENATION [a + b] (Go [+] on strings = byte [String.append], exact), and the CONVERSION [string(a)]
+    (mirroring [conv_to_scalar]'s [GTString] cases: an identity string source, or an ASCII rune [z ∈ [0,127]]
+    whose UTF-8 IS the single byte [z]).  SEALED under [ptype = PtStr] (never folds ill-typed [`"a" + 1`]).
+    ABSENT ([None], honestly): a multi-byte rune [string(200)] and any runtime string. *)
 Fixpoint eval_str (e : GExpr) : option string :=
   match ptype e with
   | Some PtStr =>   (* SEAL: fold ONLY what [ptype] validated as a string *)
@@ -176,21 +149,13 @@ Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
   | _   => None
   end.
 
-(** Fold a CONSTANT bool expression to its [bool], or [None] if any leaf is runtime / not yet modelled.  GoSem
-    is the home for bool VALUE because [ptype] keeps [PtBool] a value-less category (comparison/logical results
-    are SEMANTICS, not classification).
-    ★SELF-SEALED: every entry (top AND each recursive call) first demands [ptype e = Some PtBool], so [eval_bool]
-    can NEVER assign a value to an expression [ptype] rejects — a direct call on a ptype-rejected (e.g.
-    mixed-width [int64(1)==int32(1)]) comparison returns [None], NOT a value.  The precondition is thus
-    ENFORCED here, not assumed of the caller (so [const_z]'s type-erasure can never fold an ill-typed compare).
-    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) / string CONSTANTS ([eval_str] — the
-    single string-value authority — literals, concatenations, string/rune conversions) and recurses STRUCTURALLY (terminates) over the bool forms:
-      - a COMPARISON: NUMERIC (the 6 ops via [cmp_op]/[const_z]), STRING-CONSTANT (the 6 ops via
-        [str_cmp_op]/[eval_str]), or [==]/[!=] of two bool sub-bools;
-      - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!];
-      - the identity bool CONVERSION [bool(x)] (Go allows it only for an already-bool [x]) -> the value of [x].
-    NOT folded (-> [None], honestly absent): a comparison whose string operand is a MULTI-BYTE rune conversion
-    ([string(200)] — ASCII-rune [string(65)], string-source and concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
+(** Fold a CONSTANT bool to its [bool], else [None] (bool VALUE lives here: [ptype] keeps [PtBool] value-less).
+    SELF-SEALED: every entry (top + each recursive call) first demands [ptype e = Some PtBool], so a
+    [ptype]-rejected compare (e.g. mixed-width [int64(1)==int32(1)]) returns [None], not a fabricated value — the
+    precondition is enforced here, not assumed of the caller.  Reuses [ptype]'s numeric operand values
+    ([const_z]) / string constants ([eval_str], the single string-value authority), recursing over the 6 numeric
+    or string-constant COMPARISONs, the LOGICAL [&&]/[||]/[!], and the identity [bool(x)].  A runtime-operand or
+    multi-byte-rune leaf is honestly absent ([None]). *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
   match ptype e with
   | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
@@ -219,29 +184,13 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
   | _ => None
   end.
 
-(** Evaluate a value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's bridged subset.
-    FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds a numeric constant to
-    its VALUE and TYPE ([PtIntConst z] = untyped int, taking default [int]; [PtTIntConst t z] = a typed int
-    const, e.g. a conversion [int64(3)] or typed-const arithmetic; [PtFloatConst t z] = a typed float const that
-    came from the EXACT integer [z]), and [box_int] / [box_float] attach the model value, FAILING CLOSED on an
-    out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
-    string CONSTANT ([anyt TString s], folded via the self-sealed [eval_str] — a LITERAL, a CONCATENATION
-    [a + b], an identity string conversion [string("a"+"b")], or an ASCII rune conversion [string(65)], since
-    [PtStr] carries no value), an untyped integer
-    constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
-    [int64(3)] / in-range [uint(3)] (boxed by [mk_uint]), ARITHMETIC [1+2], complement [^x] — complement still
-    EXCLUDING [GTUint]), and a TYPED FLOAT constant of an exact
-    integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
-    a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
-    GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
-    STRING-CONSTANT comparisons (any [eval_str]-folded operand — literals, concatenations, string/rune conversions) combined by [==]/[!=]/[&&]/[||]/[!], plus the
-    identity [bool(x)] conversion, reusing the operands' [ptype] numeric values ([const_z]) and string values
-    ([eval_str]).  ABSENT (-> [None], the next sub-slices):
-    a bool with a RUNTIME operand, a string (or string-comparison operand) built from a
-    non-literal LEAF beyond the folded set (a MULTI-BYTE rune conversion [string(200)] — ASCII runes
-    [string(65)] now fold), an out-of-conservative-range or COMPLEMENTED
-    [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent,
-    never wrong. *)
+(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL via [ptype] (the SINGLE folding
+    authority): [ptype] folds a numeric constant to its VALUE+TYPE, and [box_int] / [box_float] attach the model
+    value, FAILING CLOSED on an out-of-range/interval [z] (self-sound, not caller-gated).  Coverage — the
+    [eval_value_good] table pins it EXACTLY: integer constants (conversions / in-range [uint] via [mk_uint] /
+    arithmetic / complement, EXCLUDING platform-[uint] complement), exact-integer FLOAT constants, string
+    constants ([eval_str]), and constant bools ([eval_bool]).  ABSENT ([None], honestly): runtime operands
+    ([len(..)]/[int(x)]), out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
@@ -262,16 +211,12 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
       end
   end.
 
-(** Translate ONE statement to its command PAIRED WITH whether control TERMINATES here (i.e. its successors
-    are UNREACHABLE), or [None] if outside slice 1's bridged subset.  Carrying the flag HERE makes [denote_stmt]
-    the SINGLE control-flow authority — [denote_body] never re-decides which statements stop the body, so there
-    is no second predicate to drift.  (The flag is ESSENTIAL, not derivable from the command: a [return] and a
-    blank-assign both produce [CRet tt], yet the first STOPS the body and the second FALLS THROUGH.)
-    The EFFECT arm ([GsExprStmt]) FIRES ONLY WHEN [expr_stmt_ok] holds (the gate's authority) — this is what
-    makes [denote] ⊆ the gate, hence [gosem_sound], regardless of how partial [eval_value] is.  Faithful:
-    [println]/[print] is a fall-through [COut] (model: [println=w_log true], [print=w_log false]); [panic] is a
-    TERMINATING [CPan]; bare [return] TERMINATES with [CRet tt] (rest dropped by [denote_body]); a blank-assign
-    of a LITERAL value is a fall-through, effect-free [CRet tt]. *)
+(** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
+    unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
+    it is ESSENTIAL, not derivable (a [return] and a blank-assign both give [CRet tt] but differ
+    stop/fall-through).  The EFFECT arm fires ONLY when [expr_stmt_ok] holds — this makes [denote] ⊆ the gate
+    ([gosem_sound]), however partial [eval_value] is.  [println]/[print] -> fall-through [COut]; [panic] ->
+    terminating [CPan]; [return] -> terminating [CRet]; a blank-assign of a constant -> fall-through [CRet]. *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
@@ -301,11 +246,9 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
         end
       else None
   | GsDefer _ => None
-      (* [defer <call>] is SUPPORTED + emittable but NOT YET denoted (faithful-or-ABSENT): its [cmd.v] denotation
-         is [CDfr (<call> as command) (CRet tt)], which [run_defers] runs at scope exit — needing [run_cmd] fuel
-         > 1, whereas GoSem's whole execution/safety story is fuel-1 (valid ONLY because slice 1 denotes
-         [no_defer]).  Denoting defers needs that fuel-1 foundation generalized to sufficient-fuel (via the
-         cmd↔unified [run_cmd_terminates]); until then a defer program does NOT denote. *)
+      (* [defer <call>] is SUPPORTED + emittable but NOT YET denoted (faithful-or-ABSENT): its [cmd.v] [CDfr]
+         denotation needs [run_cmd] fuel > 1, whereas slice 1's execution story is fuel-1 (denotes [no_defer]
+         only).  Denoting defers needs that foundation generalized to sufficient-fuel; until then it is absent. *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -436,26 +379,14 @@ Proof. intros e H Hn. unfold denotable_arg in H. rewrite Hn in H. discriminate. 
 Lemma denotable_arg_printable : forall e, denotable_arg e = true -> printable_arg_ok e = true.
 Proof. intros e H. unfold denotable_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
 
-(** String CONCATENATION now denotes (was the old boundary): [`"a" + "b"`] is [denotable_arg], and [eval_value]
-    folds it to the EXACT model value [anyt TString "ab"] ([eval_str]'s byte [String.append]) — faithful, not
-    just non-[None]. *)
+(** String CONCATENATION and CONVERSIONS DENOTE (the [eval_value] folds are in [eval_value_good]; these pin the
+    stronger [denotable_arg] — evaluable AND printable): [`"a" + "b"`], the ASCII rune [`string(65)`], the
+    identity [`string("a"+"b")`]. *)
 Example denotable_arg_str_concat : denotable_arg (EBn BAdd (EStr "a") (EStr "b")) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example eval_str_concat_faithful : eval_value (EBn BAdd (EStr "a") (EStr "b")) = Some (anyt TString "ab").
-Proof. vm_compute. reflexivity. Qed.
-
-(** String CONVERSIONS now DENOTE, mirroring [conv_to_scalar]'s two [GTString] cases: (1) the IDENTITY
-    string-source conversion [`string("a"+"b")`] folds via [eval_str a] to the source bytes; (2) an ASCII rune
-    [`string(65)`] folds to the EXACT model value [anyt TString "A"] (a code point in [0,127] whose UTF-8
-    encoding IS the single byte 65).  Both are [denotable_arg]. *)
 Example denotable_arg_runeconv_ascii :
   denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example eval_string_conv_faithful :
-  eval_value (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = Some (anyt TString "A")
-  /\ eval_value (ECall (EId (mkIdent "string" eq_refl)) [EStr "A"]) = Some (anyt TString "A")   (* identity string source *)
-  /\ eval_value (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) = Some (anyt TString "ab").
-Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** BOUNDARY PIN (keeps the converse EXACT — pins the FULL state, not just non-denotability): a MULTI-BYTE rune
     [`string(200)`] (UTF-8 = 2 bytes — [eval_str] folds only [0,127]) is SUPPORTED at the classifier AND the gate
@@ -712,22 +643,6 @@ Proof.
   exact (out_main_runs _ w (denotable_arglists_out arglists H)).
 Qed.
 
-(** Concrete observable output: `func main(){ println("a"); println("b"); return }` RUNS, logging "a" THEN "b"
-    (the world's output trace is [w_log] of "b" over [w_log] of "a" over the start world). *)
-Example gosem_strlit_runs : forall w,
-  match denote_program gosem_strlit_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TString "b" :: nil) (w_log true (anyt TString "a" :: nil) w))).
-Proof. intro w. vm_compute. reflexivity. Qed.
-
-(** END-TO-END concat faithfulness: `func main(){ println("a" + "b"); return }` denotes AND RUNS, logging the
-    ONE model string [anyt TString "ab"] — Go's [+] is byte append, matching [eval_str]'s [String.append]. *)
-Example gosem_str_concat_runs : forall w,
-  match denote_program (mkProgram (mkIdent "main" eq_refl)
-          [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]); GsReturn]) with
-  | Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TString "ab" :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
-
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
@@ -735,8 +650,6 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Definition gosem_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
-Example gosem_demo_supported : supported_program gosem_demo_prog = true.
-Proof. reflexivity. Qed.
 Example gosem_demo_denotes : denote_program gosem_demo_prog
                            = Some (COut true (anyt TString "hi" :: nil) (CRet tt)).
 Proof. vm_compute. reflexivity. Qed.
@@ -753,8 +666,6 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Definition gosem_return_stops_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsReturn; GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "after"])].
-Example gosem_return_stops_supported : supported_program gosem_return_stops_prog = true.
-Proof. reflexivity. Qed.
 Example gosem_return_stops_no_output : forall w,
   match denote_program gosem_return_stops_prog with
   | Some c => run_cmd 5 c w
@@ -787,8 +698,6 @@ Proof. vm_compute. reflexivity. Qed.
     PANICS with [anyt TString "x"]. *)
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
-Example gosem_panic_demo_supported : supported_program gosem_panic_demo_prog = true.
-Proof. reflexivity. Qed.
 Example gosem_panic_demo_runs : forall w,
   match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
   = Some (OPanic (anyt TString "x") w).
@@ -803,8 +712,6 @@ Definition gosem_runtime_blank_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsBlankAssign (EBn BDiv (EInt 1)
                               (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]))].
-Example gosem_runtime_blank_supported : supported_program gosem_runtime_blank_prog = true.
-Proof. reflexivity. Qed.
 Example gosem_runtime_blank_undenoted : denote_program gosem_runtime_blank_prog = None.
 Proof. reflexivity. Qed.
 
@@ -815,141 +722,76 @@ Proof. reflexivity. Qed.
 Definition gosem_defer_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn].
-Example gosem_defer_supported : supported_program gosem_defer_prog = true.
-Proof. reflexivity. Qed.
 Example gosem_defer_undenoted : denote_program gosem_defer_prog = None.
 Proof. reflexivity. Qed.
 Example gosem_defer_not_denotable : denotable_program gosem_defer_prog = false.  (* the decidable predicate agrees *)
 Proof. reflexivity. Qed.
 
-(** [eval_value] denotes any printable [ptype] integer-constant fold, FAITHFULLY boxing the model's value —
-    pinned per signedness/width + a folded binop (the `int64(3)` end-to-end run is `gosem_conv_demo_runs`). *)
-Example eval_numconv_folds :
-  eval_value (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]) = Some (anyt TI64 (i64wrap 3))
-  /\ eval_value (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5]) = Some (anyt TU8 (u8wrap 5))
-  /\ eval_value (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127]) = Some (anyt TI8 (i8wrap 127))
-  /\ eval_value (EBn BAdd (EInt 1) (EInt 2)) = Some (anyt TInt64 (intwrap 3)).
-Proof. repeat split; vm_compute; reflexivity. Qed.
-Definition gosem_conv_demo_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]]); GsReturn].
-Example gosem_conv_demo_supported : supported_program gosem_conv_demo_prog = true.
-Proof. reflexivity. Qed.
-Example gosem_conv_demo_runs : forall w,
-  match denote_program gosem_conv_demo_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
+(** ---- [eval_value] FOLD TABLE (grouped regression) ---- every printable constant [eval_value] denotes,
+    pinned as one [(expr, value)] list.  Integer conversions/arith box the model's EXACT value (per
+    signedness/width); an exact-integer FLOAT constant boxes the UNIQUE canonical binary64/32; a constant BOOL
+    from the 6 numeric or STRING-constant comparisons (order via the model's [str_*]) combined by
+    [==]/[!=]/[&&]/[||]/[!] + the identity [bool(x)]; a string CONSTANT (literal / concat / ASCII-rune / identity
+    string conv).  ["a"+"b"] = ["ab"] (byte append), [string(65)] = ["A"] ([0,127] arm), high-byte "\200">"\100"
+    pins UNSIGNED order.  The [box_*]/[ptype] FAIL-CLOSED pins (out-of-range boxing / ill-typed compare / uint
+    underflow) are separate below — those lock the GATE boundary, not a fold. *)
+Definition eval_value_good : list (GExpr * GoAny) :=
+  [ (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3], anyt TI64 (i64wrap 3))
+  ; (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5], anyt TU8 (u8wrap 5))
+  ; (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127], anyt TI8 (i8wrap 127))
+  ; (EBn BAdd (EInt 1) (EInt 2), anyt TInt64 (intwrap 3))
+  ; (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3], anyt TUint (uint_lit 3 eq_refl))
+  ; (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4]), anyt TUint (uint_lit 7 eq_refl))
+  ; (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3], anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)))
+  ; (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5], anyt TFloat32 (f32_lit (sf_of_Z 5)))
+  ; (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"], anyt TInt64 (intwrap 3))
+  ; (EBn BAdd (EStr "a") (EStr "b"), anyt TString "ab")
+  ; (ECall (EId (mkIdent "string" eq_refl)) [EInt 65], anyt TString "A")
+  ; (ECall (EId (mkIdent "string" eq_refl)) [EStr "A"], anyt TString "A")
+  ; (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")], anyt TString "ab")
+  ; (EBn BEq (EInt 1) (EInt 1), anyt TBool true)
+  ; (EBn BLt (EInt 3) (EInt 5), anyt TBool true)
+  ; (EBn BEq (EInt 1) (EInt 2), anyt TBool false)
+  ; (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]), anyt TBool true)
+  ; (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)), anyt TBool true)
+  ; (EBn BLOr (EBn BEq (EInt 1) (EInt 2)) (EBn BLt (EInt 3) (EInt 5)), anyt TBool true)
+  ; (EUn UNot (EBn BEq (EInt 1) (EInt 2)), anyt TBool true)
+  ; (EBn BEq (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)), anyt TBool true)
+  ; (EUn UNot (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 3))), anyt TBool true)
+  ; (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)], anyt TBool true)
+  ; (EBn BEq (EStr "a") (EStr "a"), anyt TBool true)
+  ; (EBn BNe (EStr "a") (EStr "b"), anyt TBool true)
+  ; (EBn BLt (EStr "a") (EStr "b"), anyt TBool true)
+  ; (EBn BLt (EStr "b") (EStr "a"), anyt TBool false)
+  ; (EBn BLe (EStr "a") (EStr "a"), anyt TBool true)
+  ; (EBn BGt (EStr "b") (EStr "a"), anyt TBool true)
+  ; (EBn BLt (EStr "a") (EStr "ab"), anyt TBool true)
+  ; (EBn BGe (EStr "b") (EStr "a"), anyt TBool true)
+  ; (EBn BGe (EStr "a") (EStr "b"), anyt TBool false)
+  ; (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString)) (EStr (String (Ascii.ascii_of_nat 100) EmptyString)), anyt TBool true)
+  ; (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab"), anyt TBool true)
+  ; (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A"), anyt TBool true)
+  ; (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EStr "ab"), anyt TBool true)
+  ].
+Example eval_value_good_ok :
+  map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
+Proof. vm_compute. reflexivity. Qed.
 
-(** [eval_value] denotes an exact-integer-valued FLOAT constant, boxing the model's UNIQUE canonical
-    binary64/binary32 value; the boundary (2^53+1, not exactly representable) fails closed at the builder. *)
-Example eval_floatconv_folds :
-  eval_value (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) = Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)))
-  /\ eval_value (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5]) = Some (anyt TFloat32 (f32_lit (sf_of_Z 5)))
-  /\ box_float GTFloat64 9007199254740993 = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
-Definition gosem_float_demo_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                               [ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]]); GsReturn].
-Example gosem_float_demo_supported : supported_program gosem_float_demo_prog = true.
-Proof. reflexivity. Qed.
-Example gosem_float_demo_runs : forall w,
-  match denote_program gosem_float_demo_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
-
-(** [eval_value] folds a constant bool from the 6 NUMERIC comparisons combined by [==]/[!=]/[&&]/[||]/[!]
-    (nested), delegates STRING-CONSTANT order to the model (via [eval_str]/[str_cmp_op] — any [eval_str]-folded
-    operand: literals, concatenations, string/rune conversions), and folds the identity [bool(x)] conversion (next
-    block). A bool with any RUNTIME operand is ABSENT, not folded wrong (`eval_absent` group below). *)
-Example eval_bool_folds :
-  eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true)
-  /\ eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true)
-  /\ eval_value (EBn BEq (EInt 1) (EInt 2)) = Some (anyt TBool false)
-  /\ eval_value (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])
-                        (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])) = Some (anyt TBool true)
-  /\ eval_value (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true)
-  /\ eval_value (EBn BLOr (EBn BEq (EInt 1) (EInt 2)) (EBn BLt (EInt 3) (EInt 5))) = Some (anyt TBool true)
-  /\ eval_value (EUn UNot (EBn BEq (EInt 1) (EInt 2))) = Some (anyt TBool true)
-  /\ eval_value (EBn BEq (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true)
-  /\ eval_value (EUn UNot (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 3)))) = Some (anyt TBool true).
-Proof. repeat split; vm_compute; reflexivity. Qed.
-
-(** SEAL REGRESSION (Codex 2026-06-30): [eval_bool] FAILS CLOSED on a [ptype]-rejected comparison — it does NOT
-    rely on a caller having gated.  A mixed-WIDTH typed comparison [int64(1) == int32(1)] is ILL-TYPED (Go
-    forbids comparing distinct int types), so [ptype = None]; a DIRECT [eval_bool] call AND [eval_value] both
-    return [None], never a fabricated [true] from [const_z]'s type-erased values. *)
+(** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
+    ([mk_uint]/[box_*] never carry a [*wrap]-mangled value); a mixed-WIDTH ill-typed compare [int64(1)==int32(1)]
+    has [ptype = None] so [eval_bool]/[eval_value] fail closed (no fabricated [true]); the uint underflow
+    [uint(3)-uint(5)] has [ptype = None] ⇒ [printable_arg_ok = false] ⇒ never emitted (the ROOT rejection, not
+    the eval backstop).  A supported [ptype = Some PtBool] pins the two string/bool categories are ADMITTED. *)
 Definition mixed_width_cmp : GExpr :=
   EBn BEq (ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "int32" eq_refl)) [EInt 1]).
-Example mixed_width_ptype_none     : ptype mixed_width_cmp = None.      Proof. reflexivity. Qed.
-Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. reflexivity. Qed.
-Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
-
-(** [eval_value] folds a comparison of two string CONSTANTS (order DELEGATED to the model's byte-wise
-    [str_eqb]/[str_ltb]/…) across all 6 ops, plus the identity [bool(x)] conversion.  Since [eval_bool] now
-    consults [eval_str] (the single string-value authority), a CONCATENATION operand folds too
-    ([`("a"+"b") == "ab"`] = [true]).  The high-byte pair "\200" > "\100" pins UNSIGNED byte order (a signed
-    int8 read would flip it). An ASCII rune-conversion operand folds too ([`string(65) == "A"`] = [true], via
-    [eval_str]'s [0,127] arm); a MULTI-BYTE rune operand ([string(200)]) stays ABSENT (`eval_absent` group). *)
-Example eval_str_ptype_supported :
-  ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
-  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
-Proof. split; reflexivity. Qed.
-Example eval_str_folds :
-  eval_value (EBn BEq (EStr "a") (EStr "a")) = Some (anyt TBool true)
-  /\ eval_value (EBn BNe (EStr "a") (EStr "b")) = Some (anyt TBool true)
-  /\ eval_value (EBn BLt (EStr "a") (EStr "b")) = Some (anyt TBool true)
-  /\ eval_value (EBn BLt (EStr "b") (EStr "a")) = Some (anyt TBool false)
-  /\ eval_value (EBn BLe (EStr "a") (EStr "a")) = Some (anyt TBool true)
-  /\ eval_value (EBn BGt (EStr "b") (EStr "a")) = Some (anyt TBool true)
-  /\ eval_value (EBn BLt (EStr "a") (EStr "ab")) = Some (anyt TBool true)   (* shorter prefix is less *)
-  /\ eval_value (EBn BGe (EStr "b") (EStr "a")) = Some (anyt TBool true)
-  /\ eval_value (EBn BGe (EStr "a") (EStr "b")) = Some (anyt TBool false)
-  /\ eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
-                        (EStr (String (Ascii.ascii_of_nat 100) EmptyString))) = Some (anyt TBool true)  (* unsigned byte order *)
-  /\ eval_value (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) = Some (anyt TBool true)  (* CONCAT operand folds via [eval_str] *)
-  /\ eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")) = Some (anyt TBool true)  (* ASCII rune-conv operand folds via [eval_str] *)
-  /\ eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EStr "ab")) = Some (anyt TBool true)  (* identity string-source conv operand folds via [eval_str] *)
-  /\ eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
-Proof. repeat split; vm_compute; reflexivity. Qed.
-Definition gosem_bool_demo_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EBn BLt (EInt 3) (EInt 5)]); GsReturn].
-Example gosem_bool_demo_supported : supported_program gosem_bool_demo_prog = true.
-Proof. reflexivity. Qed.
-Example gosem_bool_demo_runs : forall w,
-  match denote_program gosem_bool_demo_prog with Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
-
-(** END-TO-END: a bool built from a CONCAT comparison RUNS — `func main(){ println(("a"+"b") == "ab"); return }`
-    logs [anyt TBool true] (proving [eval_bool] consults [eval_str], not a literal-only path). *)
-Example gosem_concat_cmp_runs : forall w,
-  match denote_program (mkProgram (mkIdent "main" eq_refl)
-          [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                             [EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")]); GsReturn]) with
-  | Some c => run_cmd 5 c w | None => None end
-  = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
-Proof. intro w. vm_compute. reflexivity. Qed.
-
-(** FAILS CLOSED: the eval growth never carries a [*wrap]-mangled out-of-range value — an IN-range conversion
-    boxes its EXACT value ([mk_uint] discharges the model's [in_u64] proof). [mk_uint] boxing makes the GATE's
-    uint overflow/underflow rejection LOAD-BEARING: a Go-INVALID uint const is kept OUT of [SupportedProgram]
-    by the GATE ([ptype]->None ⇒ [printable_arg_ok]->false ⇒ unsupported ⇒ never emitted), NOT by [eval] (whose
-    [None] is a faithful-or-absent BACKSTOP). [len] of a string LITERAL folds ([ptype] -> [PtIntConst]); [len]
-    of a non-[EStr] string const ([string(65)], ["a"+"b"]) or a slice literal is not folded — no literal byte-count
-    for [ptype] to measure (independent of whether the string's VALUE folds in [eval_str]), faithfully absent. *)
 Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
-Example uint_underflow_gate :   (* LOAD-BEARING: root [ptype] rejection ⇒ the print-arg gate rejects it (never emitted) *)
-  ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false.
-Proof. vm_compute. split; reflexivity. Qed.
-Example eval_conv_folds :   (* in-range conversions/arith box their EXACT value; the builder rejects OOB *)
-  box_int GTU8 300 = None
-  /\ eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = Some (anyt TUint (uint_lit 3 eq_refl))
-  /\ eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3])
-                          (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl))
-  /\ eval_value (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"]) = Some (anyt TInt64 (intwrap 3)).
+Example eval_value_failclosed :
+  box_float GTFloat64 9007199254740993 = None
+  /\ box_int GTU8 300 = None
+  /\ ptype mixed_width_cmp = None /\ eval_bool mixed_width_cmp = None /\ eval_value mixed_width_cmp = None
+  /\ ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false
+  /\ ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
+  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
@@ -975,34 +817,35 @@ Example denotable_demo          : denotable_program gosem_demo_prog = true.     
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.
 
-(** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results this project certifies zero-axiom.
-    Bundling their proof terms into ONE constant makes a SINGLE [Print Assumptions] report the UNION of their
-    ENTIRE transitive cones — every lemma and constant they use, not just the top statements.  This runs when
-    `dune build` compiles GoSem.v; the Docker prover stage's manifest gate captures the [Axioms:] report and
-    FAILS on any (rule 3 — the manifest is empty).  Because Rocq tracks assumptions through the whole cone and
-    reports an axiom in ANY declaration form (plain / Local / Global / Polymorphic / Monomorphic / attribute-
-    qualified / imported / transitive), this is a COMPLETE, mechanically-gated seal *for exactly this surface* —
-    NOT a module-wide claim.  A GoSem theorem that is NOT bundled here is, by definition, outside the certified
-    surface (it is not claimed zero-axiom); to certify one, ADD it to the tuple.  plugin/axiom-authority-
-    selftest.sh pins that the manifest mechanism catches an axiom in every such declaration form. *)
+(** All five demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
+Example demo_progs_supported :
+  forallb supported_program
+    [gosem_demo_prog; gosem_return_stops_prog; gosem_panic_demo_prog;
+     gosem_runtime_blank_prog; gosem_defer_prog] = true.
+Proof. reflexivity. Qed.
+
+(** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results certified zero-axiom.  Bundling the
+    proof terms into ONE constant makes a SINGLE [Print Assumptions] cover their whole transitive cones; the
+    Docker manifest gate captures the report and FAILS on any axiom (rule 3, manifest empty).  This is a seal
+    for exactly this surface, NOT a module-wide claim — a theorem not bundled here is not claimed zero-axiom;
+    to certify one, ADD it to the tuple. *)
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denote_program_runs, out_main_runs, println_main_runs,
-   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
-   gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs,
-   gosem_str_concat_runs, gosem_concat_cmp_runs).
+   gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs).
 Print Assumptions gosem_trust_surface.
 
-(** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
-    branches is, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.str_*].  Because the names are
-    qualified, these proofs are SHADOW-IMMUNE — a local/nested [str_ltb] in GoSem cannot reroute the live path
-    without breaking a pin (the pin's RHS is the model constant, not a re-resolvable bare name), and rerouting a
-    branch to a fork makes its pin FAIL the build.  ([<=] is the model's [str_geb] with operands swapped — pinned
-    in its own right.)  GoSemAuthority.v is a secondary top-level tripwire ([Fail Check Fido.GoSem.str_*]); these
-    pins are what mechanically tie the executed semantics to the model order. *)
+(** ---- STRING-AUTHORITY PINS (gated): each of [str_cmp_op]'s six branches IS, by reflexivity, the FULLY
+    QUALIFIED model constant [Fido.builtins.str_*] — so a fork that reroutes a branch breaks a pin and FAILS the
+    build ([<=] = the model's [str_geb] with operands swapped).  Bundled into [gosem_string_authority_surface]
+    so its [Print Assumptions] certifies the whole cone zero-axiom (the honest place for the "authority
+    guarantee" claim); a fork that DIDN'T reroute a live branch would be dead code. *)
 Example str_cmp_eq_model : str_cmp_op BEq = Some Fido.builtins.str_eqb.                     Proof. reflexivity. Qed.
 Example str_cmp_ne_model : str_cmp_op BNe = Some Fido.builtins.str_neqb.                    Proof. reflexivity. Qed.
 Example str_cmp_lt_model : str_cmp_op BLt = Some Fido.builtins.str_ltb.                     Proof. reflexivity. Qed.
 Example str_cmp_le_model : str_cmp_op BLe = Some (fun s t => Fido.builtins.str_geb t s).    Proof. reflexivity. Qed.
 Example str_cmp_gt_model : str_cmp_op BGt = Some Fido.builtins.str_gtb.                     Proof. reflexivity. Qed.
 Example str_cmp_ge_model : str_cmp_op BGe = Some Fido.builtins.str_geb.                     Proof. reflexivity. Qed.
+Definition gosem_string_authority_surface :=
+  (str_cmp_eq_model, str_cmp_ne_model, str_cmp_lt_model, str_cmp_le_model, str_cmp_gt_model, str_cmp_ge_model).
+Print Assumptions gosem_string_authority_surface.

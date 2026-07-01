@@ -59,8 +59,9 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   panic → `CPan`, `return`, and blank constant-assignment, over a PARTIAL `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`; fails CLOSED on runtime / fractional / out-of-range —
   exact coverage in `GoSem.v`). Proves denotation ⊆ `SupportedProgram` and that denoted programs run through
-  `cmd.v`. Certified public surface = `gosem_trust_surface` (the ONLY zero-assumption GoSem claim; any GoSem
-  fact not in that tuple is an internal helper / example, not certified). NO `BehaviorSafe`. Zero axioms.
+  `cmd.v`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
+  comparators ARE the model's `str_*`); a GoSem fact in neither tuple is an internal helper / example, not
+  certified. NO `BehaviorSafe`. Zero axioms.
 - **Model layer** (proof-only): `builtins.v` (the Go layer over concrete Rocq data), `cmd.v` (effect
   evaluator), `unified.v` (`ustep` operational semantics with race-freedom + liveness/deadlock proved on it —
   NOT the emission path), `concurrency.v` (trace / happens-before / race / bounded-deadlock theory).
@@ -114,7 +115,7 @@ separate, still-trusted TCB.
 
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
-`main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
+`main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
 `run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
 `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
