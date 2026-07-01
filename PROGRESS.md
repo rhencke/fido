@@ -134,8 +134,8 @@ live emission is not "verified Go."
 Forward steps (this lists only what's NEXT; GREEN above is what's done):
 - GROW `eval_value` (runtime `len`/`int(x)` incl. a non-literal-string comparison; fractional floats)
   — each WIDENS the completeness converse (`println_main_denotes`) toward a GENERAL `supported ⟺ denotes`.
-- Extend the cmd↔unified BRIDGE beyond the defer-free fragment: DEFER (`run_defers` ↔ `UDfr` LIFO), then
-  channel/heap/spawn — so a denoted program runs under `ustep` for the full fragment.
+- Extend the cmd↔unified BRIDGE past ONE defer (`bridge_one_defer_agrees`, done) to MULTIPLE / NESTED defers
+  (`run_defers` ↔ `UDfr` LIFO), then channel/heap/spawn — so a denoted program runs under `ustep` for the full fragment.
 - Grow the behavioral-safety layer toward a real `BehaviorSafe` predicate → `SafeProgram` (= EmittableProgram +
   BehaviorSafe) → `emit_safe`; wire the certified path to the main output.
 - In parallel: widen the live GoPrint plugin bridge (unary / atoms / calls) + grow `GoStmt` forms — gate-honestly.

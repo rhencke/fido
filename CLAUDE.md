@@ -138,7 +138,8 @@ a Rocq / plugin change didn't alter observable behaviour anywhere. The demos in
   PRESERVED into `UOut`/`uc_out`). The PUBLIC results `cmd_to_ucmd_run_agrees` (cmd-level) and
   `GoSemUnified.denote_program_run_agrees` (program-level, `no_defer` discharged): a DENOTED program
   (`denote_program p = Some c`) runs under `ustep` AND its conclusion AGREES with cmd.v's authoritative
-  `run_cmd 1 c w` on output + panic. Defer + channel/heap/spawn are later slices. Zero axioms.
+  `run_cmd 1 c w` on output + panic. `bridge_one_defer_agrees` extends this to ONE defer (any `CDfr d c'`,
+  `d`/`c'` `no_defer`, either may panic); multiple/nested defers + channel/heap/spawn are later slices. Zero axioms.
 - `GoSemSafe.v` — proof-only (emits no Go): the FIRST behavioral-safety PROPERTIES (the seed of `BehaviorSafe`,
   NOT the gate). `panic_free_runs_ret`: a syntactically panic-free supported program that denotes runs to an
   `ORet` — provably never panics (`panic` is the slice-1 fragment's only unsafe behavior); and

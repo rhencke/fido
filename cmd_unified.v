@@ -10,15 +10,16 @@
     print/println flag on [COut] is PRESERVED ([unified.v]'s [UOut]/[uc_out] carry it, exactly the model's
     [w_output : list (bool * list GoAny)]).
 
-    PUBLIC surface = [cmd_to_ucmd_run_agrees]: for a DEFER-FREE [c] ([cmd.no_defer], the fragment GoSem slice 1
-    denotes), the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd 1 c w] — the unified
-    output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.  There is
-    NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic] projections, their [run_cmd] seal,
-    and the unified-side run lemma are LOCAL (file-private) proof plumbing — no exported theorem concludes with
-    them, so a consumer cannot prove bridge facts against a free observer instead of [run_cmd].  (Defer is
-    excluded: cmd.v runs deferred actions at return via [run_defers], unified.v via the [UDfr] LIFO stack —
-    a later slice.  No concurrency/heap ops in this fragment, so [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)
-    Proof-only: emits no Go, adds no axiom. *)
+    PUBLIC surfaces = [cmd_to_ucmd_run_agrees] (a DEFER-FREE [c], [cmd.no_defer] — the fragment GoSem slice 1
+    denotes) and [bridge_one_defer_agrees] (ONE defer: any [CDfr d c'] with [d]/[c'] [no_defer], either may
+    panic).  For both, the single-goroutine [usteps] run AGREES with cmd.v's AUTHORITATIVE [run_cmd] — the
+    unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0] EQUALS the Outcome's panic.
+    There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
+    their [run_cmd] seal ([go_chars]), and the unified-side run lemmas are LOCAL (file-private) proof plumbing —
+    no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free observer
+    instead of [run_cmd].  (MULTIPLE / NESTED defers are a later slice: cmd.v runs deferred actions at return via
+    [run_defers], unified.v via the [UDfr] LIFO stack.  No concurrency/heap ops in this fragment, so
+    [uc_bufs]/[uc_heap]/[uc_trace] are untouched.)  Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
 From Stdlib Require Import List.
@@ -112,7 +113,8 @@ Qed.
 (** Phase A of the defer bridge (general — NO [no_defer]): [ustep] runs [cmd_to_ucmd c]'s BODY to its outcome,
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
-    is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is the (future) Phase B.  This
+    is NOT yet finished ([lv], [pa] untouched); the stack-UNWINDING ([run_defers]) is Phase B (done for ONE defer
+    in [bridge_one_defer_agrees] below; the MULTIPLE / NESTED case is later).  This
     is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
     [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
     list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
@@ -213,7 +215,8 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
-(** ---- DEFER bridge — first CONCRETE slice (the general [no_defer]-free theorem is future work) ----
+(** ---- DEFER bridge — CONCRETE witnesses (the general ONE-defer theorem [bridge_one_defer_agrees] is proved
+    below; MULTIPLE / NESTED defers are still future work) ----
     [cmd_to_ucmd_run_agrees] is restricted to [no_defer c].  These FIVE file-private EXAMPLES show the SAME
     agreement shape holds for CONCRETE DEFERRED programs, and TOGETHER exercise every [ustep] defer rule a
     general theorem must drive: [ustep_defer] (push the LIFO stack; ALL five), [ustep_ret_defer] (pop + run at
