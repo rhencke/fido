@@ -804,19 +804,26 @@ demo `goroutine_demo`.  The goroutine FORK happens-before edge (`go` ⤳ gorouti
 is PROVEN race-free (`fork_program_race_free`, see the memory model).  ✓ at the lowering
 + ordering level; the scheduler / interleaving is idealised away (Tier 5 #14).
 
-### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ⚠ MODEL idealizes the deferred effect
-Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit.
-Ours (RUNTIME — ✓): `defer_call f` → `defer func(){ f }()` (function-scoped, LIFO, run-at-return — Go
-provides the scoping/ordering); the block-scoped `with_defer` (IIFE + `defer`) coexists.
-Demos: `defer_demo`, `defer_loop_demo` (a `defer` in a loop captures each iteration's
-value — prints 2,1,0, not 2,2,2 — the golden RUNTIME output is faithful).
-**MODEL — ⚠ idealized (be exact, review #5):** `defer_call (_ : IO unit) : IO unit := fun w => ORet tt w`
-is a NO-OP in the `run_io` model — the deferred effect is dropped, not run at return.  So the EMITTED Go
-is spec-faithful (native `defer` does LIFO/return-time), but the MODEL and the runtime DIVERGE on a
-program where defer's effect is observable: `run_io` omits the deferred output, the runtime runs it.  A
-`run_io`-based theorem therefore does NOT capture `defer`; faithful modeling needs return-time / panic-exit
-semantics `run_io` (a sequential `World -> Outcome`) does not express — a documented idealization, not a
-hole (the divergence is benign for the current theorems, which don't depend on a deferred effect).
+### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ✓ FAITHFUL cmd.v model; ⚠ legacy `run_io` idealizes
+Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit — and a panic does NOT
+cancel the remaining defers.
+Fido has THREE distinct defer representations; keep them separate:
+1. **Legacy plugin RUNTIME emission (trusted, ⚠ its `run_io` model idealizes):** the trusted `plugin/go.ml`
+   emits native Go `defer_call f` → `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos
+   `defer_demo`, `defer_loop_demo` (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).  But
+   its `run_io` MODEL `defer_call (_ : IO unit) : IO unit := fun w => ORet tt w` is a NO-OP (the deferred
+   effect is dropped) — so a `run_io`-based theorem does NOT capture `defer`.  A documented idealization of
+   the LEGACY model, not a hole (benign for theorems that don't depend on a deferred effect).
+2. **cmd.v `CDfr` / `run_defers` — FAITHFUL (✓, the defer capstone):** `cmd.v`'s command tree models `defer`
+   as `CDfr d k` and `run_defers` runs the LIFO stack at function-scope return: a panicking defer REPLACES the
+   active panic (last-raised-wins) but the older defers STILL run (review #12 P0 fix), and every defer's
+   effects happen.  The cmd↔unified bridge `bridge_agrees` proves the `ustep` run AGREES with this model for
+   ANY command (defers + panics).  This — not the `run_io` no-op — is the faithful defer semantics.
+3. **GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ⚠ not denoted yet):** `defer <call>` is a real AST
+   statement, print-injective (`print_stmt_inj`), and syntactically SUPPORTED + certificate-emittable (gated to
+   a call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
+   its `CDfr` denotation needs `run_cmd` fuel > 1, whereas GoSem slice 1 is fuel-1 (denotes `no_defer` only).
+   Denoting `GsDefer` (into the faithful cmd.v model of #2) awaits the sufficient-fuel generalization.
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking
 Spec: send on a **closed** channel ⇒ panic; send on **nil** blocks forever.

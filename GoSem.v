@@ -8,7 +8,9 @@
     [w_log] output the model's [println] does).
 
     SLICE 1 (this file, to grow): the bridge + its GATE-CONNECTION + REAL OBSERVABLE EFFECTS.
-    [denote_program] translates the supported statement forms into [Cmd unit]:
+    [denote_program] translates a SUBSET of the supported statement forms into [Cmd unit] (a supported form it
+    does NOT yet denote — e.g. [GsDefer], whose [cmd.v] [CDfr] denotation needs [run_cmd] fuel > 1 — is left
+    [None], faithful-or-ABSENT, NOT given wrong behavior):
       - [println(args)] -> [COut true  [eval args]]   (faithful: model [println xs = w_log true  xs])
       - [print(args)]   -> [COut false [eval args]]   (faithful: model [print   xs = w_log false xs])
       - [panic(a)]      -> [CPan (eval a)]
@@ -817,6 +819,8 @@ Example gosem_defer_supported : supported_program gosem_defer_prog = true.
 Proof. reflexivity. Qed.
 Example gosem_defer_undenoted : denote_program gosem_defer_prog = None.
 Proof. reflexivity. Qed.
+Example gosem_defer_not_denotable : denotable_program gosem_defer_prog = false.  (* the decidable predicate agrees *)
+Proof. reflexivity. Qed.
 
 (** [eval_value] denotes any printable [ptype] integer-constant fold, FAITHFULLY boxing the model's value —
     pinned per signedness/width + a folded binop (the `int64(3)` end-to-end run is `gosem_conv_demo_runs`). *)
@@ -965,7 +969,8 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
     agrees with whether the program denotes — TRUE for the denoting demos (`println("hi")`, the `return`-stops
-    program), FALSE for the supported-but-undenoted runtime blank-assign `_ = 1/len([]int{})`. *)
+    program), FALSE for the supported-but-undenoted runtime blank-assign `_ = 1/len([]int{})` and the
+    supported-but-undenoted defer program (`gosem_defer_not_denotable`, above). *)
 Example denotable_demo          : denotable_program gosem_demo_prog = true.            Proof. reflexivity. Qed.
 Example denotable_return_stops  : denotable_program gosem_return_stops_prog = true.    Proof. reflexivity. Qed.
 Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = false.  Proof. reflexivity. Qed.

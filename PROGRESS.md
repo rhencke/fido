@@ -42,8 +42,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   binop/unary/atom core + every postfix form (selector / index / two-bound slice / variadic call /
   type-assertion) + the prefix conversion `EConv` + slice/map composite literals + string literals
   (`EStr`, fail-closed exact lexer `unescape_opt_image` — accepted == emitted).
-- **Program/statement layer:** `GoStmt` (expr-stmt / `return` / `return e` / `_ = e`); `print_stmt_inj` +
-  `print_program_inj` (distinct programs emit distinct Go); zero axioms.
+- **Program/statement layer:** `GoStmt` (expr-stmt / `return` / `return e` / `_ = e` / `defer <call>`);
+  `print_stmt_inj` (5-ctor/25-case) + `print_program_inj` (distinct programs emit distinct Go); zero axioms.
+  `GsDefer` is syntactically supported + emittable (gated to a call via `expr_stmt_ok`), but GoSem does NOT
+  denote it yet (its `CDfr` denotation needs `run_cmd` fuel > 1 — see GoSem slice-1 below).
 - **GoSafe `SupportedProgram`** — a DECIDABLE supported-subset gate (not a package-name proxy): rejects
   bare-value statements, non-callable calls, value-returns from void `main`, free/undefined identifiers, and
   closed type-errors (`ptype`, a conservative constant-aware classifier). Admits slice literals + integer-key

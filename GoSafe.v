@@ -81,10 +81,13 @@ Definition expr_stmt_ok (e : GExpr) : bool :=
   end.
 
 (** A statement in the SUPPORTED subset: an expression statement must be [expr_stmt_ok]; a bare [return] is
-    always fine (a valid tail of a void func like [main]); a VALUE return [return e] ([GsReturnVal]) is
-    REJECTED — the only function we emit is [main], which is VOID, so `return <value>` is invalid Go ("too
-    many return values").  (It becomes supported, conditional on the enclosing function's result type, once
-    NON-void functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.) *)
+    always fine (a valid tail of a void func like [main]); a blank assign [_ = e] needs [svalue e]; a deferred
+    call [defer <e>] ([GsDefer]) reuses [expr_stmt_ok] (Go requires the deferred expr be a CALL — so
+    [defer 1] / [defer len(..)] / [defer panic()] / [defer println(<slice>)] are rejected exactly as the
+    matching expr statements, pinned in [bad_programs]); a VALUE return [return e] ([GsReturnVal]) is REJECTED —
+    the only function we emit is [main], which is VOID, so `return <value>` is invalid Go ("too many return
+    values").  (It becomes supported, conditional on the enclosing function's result type, once NON-void
+    functions enter the AST — a clean demonstration that GoAst represents more than the gate admits.) *)
 Definition stmt_ok (s : GoStmt) : bool :=
   match s with
   | GsExprStmt e    => expr_stmt_ok e
@@ -95,8 +98,9 @@ Definition stmt_ok (s : GoStmt) : bool :=
   end.
 
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
-    entirely in the printer/emitter's STRUCTURALLY-supported statement subset (each statement is a [return] or
-    a structurally-well-formed call expression statement).  It rejects the structural absurdities Go's grammar/
+    entirely in the printer/emitter's STRUCTURALLY-supported statement subset (each statement is a [return], a
+    structurally-well-formed call expression statement, a blank assign of a value, or a [defer] of such a call).
+    It rejects the structural absurdities Go's grammar/
     statement rules forbid: a bare-value statement `func main(){ 1 }` ("evaluated but not used") and a call of a
     non-callable `func main(){ 1() }` are both [false], so no certificate exists and [emit_supported] can never
     print them.  SCOPE OF THE CLAIM (kept honest): this is CONSERVATIVE STRUCTURAL scope + type-category
@@ -126,6 +130,8 @@ Definition pl_arg (a : GExpr) : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [a])].
 Definition gs_blank (a : GExpr) : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsBlankAssign a].
+Definition gs_defer (a : GExpr) : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsDefer a; GsReturn].
 Definition gs_f64 (a : GExpr) : GExpr := ECall (EId (mkIdent "float64" eq_refl)) [a].
 Definition gs_i64 (a : GExpr) : GExpr := ECall (EId (mkIdent "int64" eq_refl)) [a].
 Definition gs_i32 (a : GExpr) : GExpr := ECall (EId (mkIdent "int32" eq_refl)) [a].
@@ -170,6 +176,11 @@ Definition bad_programs : list Program :=
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EId (mkIdent "x" eq_refl)])]
   ; mkProgram (mkIdent "main" eq_refl) [GsExprStmt (EStr "x")]
   ; mkProgram (mkIdent "main" eq_refl) [GsReturnVal (EInt 1)]
+    (* [defer <call>] reuses [expr_stmt_ok], so it rejects the SAME non-call / value-builtin / arity / arg shapes *)
+  ; gs_defer (EInt 1)                                                    (* defer of a NON-call value *)
+  ; gs_defer (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])  (* defer of [len] — a value builtin, not a statement call *)
+  ; gs_defer (ECall (EId (mkIdent "panic" eq_refl)) nil)                 (* defer panic() — bad arity *)
+  ; gs_defer (ECall (EId (mkIdent "println" eq_refl)) [ESliceLit GTInt [EInt 1]])  (* defer println(<slice>) — non-printable arg *)
     (* value position / arg errors *)
   ; pl_arg (ECall (EId (mkIdent "println" eq_refl)) [EInt 1])            (* void call used as value *)
   ; pl_arg (ECall (EId (mkIdent "int" eq_refl)) [EInt 1; EInt 2])        (* conversion arity *)
