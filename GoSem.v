@@ -372,7 +372,8 @@ Qed.
     ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
     program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
     that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
-    blank-assign is supported but not denotable) — the gap being the not-yet-evaluable forms the roadmap closes. *)
+    blank-assign is supported but not denotable) — the gap covering BOTH eval-partial forms (eval-growth closes
+    these) AND [GsDefer] (supported + emittable, undenoted until [run_cmd] fuel > 1, which eval-growth never touches). *)
 Definition denotable_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
