@@ -13,9 +13,10 @@
     The module exposes single-goroutine [usteps] AGREEMENT bridges (the [usteps] run AGREES with cmd.v's
     AUTHORITATIVE [run_cmd] — the unified output events EQUAL [run_cmd]'s appended [w_output], and [uc_panic 0]
     EQUALS the Outcome's panic; the widest is [flat c] — any number of [no_defer] defers, panicking or not) plus
-    a cmd.v-side output-monotonicity property ([run_cmd] never retracts already-emitted output, for ANY [c]
-    including nested defers).  The EXACT gated public-surface set is the [Print Assumptions] block at the end of
-    this file (the single in-file authority); this header does not re-enumerate it.
+    cmd.v-side properties that hold for ANY [c] (nested defers included): [run_cmd] never retracts already-emitted
+    output, and a panic-free [c] that completes returns [ORet].  The EXACT gated public-surface set is the
+    [Print Assumptions] block at the end of this file (the single in-file authority); this header does not
+    re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [run_cmd] seal ([go_chars]), and the unified-side run lemmas are LOCAL (file-private) proof plumbing —
     no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free observer
@@ -340,6 +341,51 @@ Proof.
     rewrite Hw2, Hw1, Hout, <- !app_assoc. reflexivity.
 Qed.
 
+(** [cmd_no_panic] (cmd.v's panic-freedom predicate) implies the body has no in-flight panic — relates it to the
+    Local [cmd_panic]; feeds the panic-free run properties below. *)
+Local Lemma cmd_no_panic_cmd_panic : forall c, cmd_no_panic c = true -> cmd_panic c = None.
+Proof.
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hnp; cbn in *;
+    [ reflexivity | exact (IH Hnp) | discriminate Hnp | apply andb_prop in Hnp; exact (IHc' (proj2 Hnp)) ].
+Qed.
+
+(** Under [cmd_no_panic] every deferred action [go] accumulates is itself [cmd_no_panic] (the defer forest is
+    panic-free too). *)
+Local Lemma cmd_no_panic_defers : forall c,
+  cmd_no_panic c = true -> Forall (fun d => cmd_no_panic d = true) (cmd_defers c).
+Proof.
+  intros c. induction c as [a | bo xs c' IH | v | d c' IHc'] using Cmd_rect'; intros Hnp; cbn in *.
+  - constructor.
+  - exact (IH Hnp).
+  - discriminate Hnp.
+  - apply andb_prop in Hnp as [Hnpd Hnpc'].
+    apply Forall_app; split; [ exact (IHc' Hnpc') | constructor; [ exact Hnpd | constructor ] ].
+Qed.
+
+(** run_defers PRESERVES panic-freedom for ARBITRARY nesting: over [cmd_no_panic] defers (each recursively),
+    from a panic-free accumulator, the net outcome is panic-free.  Induction on FUEL: [go d] is [ORet]
+    ([cmd_no_panic d ⇒ cmd_panic d = None]), the nested run stays panic-free (IH), so [acc'] keeps [acc]'s
+    absent panic ([oc_set_world]). *)
+Local Lemma run_defers_no_panic : forall fuel ds acc result,
+  run_defers fuel ds acc = Some result ->
+  Forall (fun d => cmd_no_panic d = true) ds ->
+  ocpanic acc = None -> ocpanic result = None.
+Proof.
+  induction fuel as [| n IH]; intros ds acc result H Hall Hacc; [ discriminate H | ].
+  destruct ds as [| d ds'].
+  - cbn in H. injection H as <-. exact Hacc.
+  - inversion Hall as [| x l Hnp Hall' Heq]; subst.
+    rewrite run_defers_unfold in H.
+    destruct (go_chars d (oc_world acc)) as [w_d [Hgo Hout]]. rewrite Hgo in H. cbn zeta in H.
+    replace (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)
+       with (ORet tt w_d) in H by (rewrite (cmd_no_panic_cmd_panic d Hnp); reflexivity).
+    destruct (run_defers n (cmd_defers d) (ORet tt w_d)) as [net_d|] eqn:Enet; [ | discriminate H ].
+    assert (Hnet : ocpanic net_d = None)
+      by exact (IH (cmd_defers d) (ORet tt w_d) net_d Enet (cmd_no_panic_defers d Hnp) eq_refl).
+    destruct net_d as [[] w' | v' w']; cbn [ocpanic] in Hnet; [ | discriminate Hnet ].
+    exact (IH ds' (oc_set_world acc w') result H Hall' (eq_trans (ocpanic_set_world acc w') Hacc)).
+Qed.
+
 (** Running ONE [no_defer] defer [d] (head of the list): [go d] is atomic ([cmd_defers d = []]), so [run_defers]
     over [d :: ds] reduces to [run_defers] over [ds] with the accumulator advanced — panic REPLACED if [d]
     panicked, else the world advanced (active panic kept).  Grounded in [go_chars]. *)
@@ -541,6 +587,25 @@ Proof.
   - cbn [oc_world]. rewrite Hevs, Hout, <- app_assoc. reflexivity.
 Qed.
 
+(** PANIC-FREEDOM of [run_cmd] for ANY [c] (nested defers included): a [cmd_no_panic c] run that COMPLETES
+    returns [ORet] — Go's panic-free program cannot end in a panic.  Via [go_chars] (the body is [ORet], as
+    [cmd_no_panic c ⇒ cmd_panic c = None]) + [run_defers_no_panic] (the defers preserve it).  The panic-free
+    companion to [run_cmd_out_monotone]; together the cmd.v-side spec of the non-panicking fragment (still cmd.v
+    only — the AGREEMENT bridge is [flat]). *)
+Theorem run_cmd_no_panic_ret : forall fuel (c : Cmd unit) w oc,
+  run_cmd fuel c w = Some oc -> cmd_no_panic c = true ->
+  exists w', oc = ORet tt w'.
+Proof.
+  intros fuel c w oc H Hnp.
+  destruct (go_chars c w) as [w_body [Hgo Hout]].
+  unfold run_cmd in H. rewrite Hgo in H. rewrite (cmd_no_panic_cmd_panic c Hnp) in H. cbn [oc_unit] in H.
+  destruct (run_defers fuel (cmd_defers c) (ORet tt w_body)) as [result|] eqn:Erd; [ | discriminate H ].
+  assert (Hres : ocpanic result = None)
+    by exact (run_defers_no_panic fuel (cmd_defers c) (ORet tt w_body) result Erd (cmd_no_panic_defers c Hnp) eq_refl).
+  destruct result as [[] w' | v w']; cbn [ocpanic] in Hres; [ | discriminate Hres ].
+  cbn in H. injection H as <-. exists w'. reflexivity.
+Qed.
+
 (** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the single
     in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  Every
     OTHER definition here (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections, their [run_cmd] seal
@@ -549,3 +614,4 @@ Qed.
 Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_flat_agrees.
 Print Assumptions run_cmd_out_monotone.
+Print Assumptions run_cmd_no_panic_ret.
