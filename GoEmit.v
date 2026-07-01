@@ -28,7 +28,8 @@ Record EmittableProgram : Type := mkEmittable {
 Definition emit_supported (p : EmittableProgram) : string := print_program (ep_program p).
 
 (** ---- THE FIRST CERTIFIED EMISSION (the AST-first seed) ----  a runnable `package main` whose `func main`
-    body is twelve real statements — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
+    body exercises every landed statement/expression form (the exact list is [demo_prog] / [demo_emit_bytes]
+    below, the single authorities — this prose does not re-count them) — [println(1)], [println(int64(3))] (a value-position scalar CONVERSION),
     [println(1 + 2)] (a binary-operator [EBn], exercising operator printing + gofmt spacing through the path),
     [println("hi")] (a STRING-literal [EStr], exercising [print_string_lit] through the path),
     [println(0xff)] (a HEX-literal [EHex], exercising [print_hex] through the path),
