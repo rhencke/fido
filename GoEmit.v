@@ -36,12 +36,12 @@ Definition emit_supported (p : EmittableProgram) : string := print_program (ep_p
     [println(len("hi"))] / [println(cap([]int{1}))] (the [len]/[cap] builtins — the supported non-conversion
     [ECall] paths), [_ = []int(nil)] (a [GsBlankAssign] discarding a type-form [EConv] CONVERSION value),
     [_ = []int{1}] (a slice composite literal [ESliceLit]), [_ = map[int]int{1: 2}] (an integer-key map
-    composite literal [EMapLit] — the newly-un-quarantined form), then a bare [return] — all Go builtins / no
-    import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the machine-checked [gprint]
-    (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the landed [EBn], [EStr] (`"hi"`),
-    [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`), [ESliceLit] (`[]int{1}`),
-    [EMapLit] (`map[int]int{1: 2}`) and [GsBlankAssign] (`_ = e`) forms END-TO-END through the BLESSED emitter to
-    compilable Go —
+    composite literal [EMapLit] — the newly-un-quarantined form), a [GsDefer] (`defer println("bye")`), then a
+    bare [return] — all Go builtins / no import (rule 5), built as structured [GExpr]/[GoStmt]s and printed by the
+    machine-checked [gprint] (`make emit-demo` then confirms the Go compiler BUILDS it).  This exercises the
+    landed [EBn], [EStr] (`"hi"`), [EHex] (`0xff`), [EUn] (`^5`), [len]/[cap] [ECall]s, [EConv] (`[]int(nil)`),
+    [ESliceLit] (`[]int{1}`), [EMapLit] (`map[int]int{1: 2}`), [GsBlankAssign] (`_ = e`) and [GsDefer]
+    (`defer <call>`) forms END-TO-END through the BLESSED emitter to compilable Go —
     not just in isolated round-trip proofs.  Emitted ONLY through the
     proof-gated path: [demo_supported] discharges the certificate, [emit_supported] prints it, [demo_emit_bytes]
     pins the exact emitted Go source.  (A non-main package — OR a body outside the supported statement subset,
@@ -64,6 +64,7 @@ Definition demo_prog : Program :=
              GsBlankAssign (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)));
              GsBlankAssign (ESliceLit GTInt [EInt 1]);
              GsBlankAssign (EMapLit GTInt GTInt [(EInt 1, EInt 2)]);
+             GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]);
              GsReturn].
 Lemma demo_supported : SupportedProgram demo_prog.
 Proof. reflexivity. Qed.
@@ -81,6 +82,7 @@ Example demo_emit_bytes :
                go_tab ++ "_ = []int(nil)" ++ go_nl ++
                go_tab ++ "_ = []int{1}" ++ go_nl ++
                go_tab ++ "_ = map[int]int{1: 2}" ++ go_nl ++
+               go_tab ++ "defer println(""bye"")" ++ go_nl ++
                go_tab ++ "return" ++ go_nl ++ "}" ++ go_nl)%string.
 Proof. vm_compute; reflexivity. Qed.
 
