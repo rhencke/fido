@@ -2707,6 +2707,17 @@ Definition triple_demo : IO unit :=
   let '(x, y, z) := triple3 (1)%i64 (2)%i64 (3)%i64 in   (* (1, 2, 3) *)
   println [any x; any y; any z].                          (* 1 2 3 *)
 
+(** IO-VALUE-POSITION multiple return: an IO FUNCTION returning a PAIR ([IO (A * B)]) lowers to the Go
+    multi-return [func Mr_io(k int64) (int64, int64) { return k, 1 }] (the effectful `(v, err)` idiom), and a
+    caller [p <-' mr_io k ;; let '(x,y) := p] FUSES the bind + destructure to [x, y := Mr_io(k)] — the same
+    structured emission the pure `let '(x,y) := swap2 …` path uses.  Was a fail-OPEN gap: [ret (a, b)] fell
+    through to [pp_expr]'s pair-ctor rejection, and the bind bound the 2-value return to one var. *)
+Definition mr_io (k : GoI64) : IO (GoI64 * GoI64) := ret (k, (1)%i64).
+Definition io_multiret_demo : IO unit :=
+  x_y <-' mr_io (5)%i64 ;;
+  let '(x, y) := x_y in
+  println [any x; any y].                                 (* 5 1 *)
+
 (** PURE-value-position multiple-return destructure — a value-returning (NON-IO) function that
     destructures a multi-return and uses the components, e.g. Go `func f() int64 { x, y := g();
     return x + y }`.  Covers 2-ary (`sum_pair` over `swap2`) and N-ary (`sum3` over `triple3`).  Was
@@ -3619,6 +3630,7 @@ Definition main_effect : IO unit :=
   method_expr_demo              >>'   (* prints: 11 (method expression Point.Sum_coords applied to p) *)
   multiret_demo                 >>'   (* prints: 4 3 (multiple return values + destructure) *)
   triple_demo                   >>'   (* prints: 1 2 3 (N-ary 3-return + nested destructure) *)
+  io_multiret_demo              >>'   (* prints: 5 1 (IO-value multiple return: func Mr_io() (int64, int64) + fused x,y := Mr_io()) *)
   pure_destr_demo               >>'   (* prints: 7 6 5 (destructure in a PURE value fn; last = blank binder) *)
   stmt_blank_demo               >>'   (* prints: 7 (blank-binder destructure, IO/statement position) *)
   narrow_pair_demo              >>'   (* prints: 44 7 (narrow `(uint8, uint8)` multi-return, components cast) *)

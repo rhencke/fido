@@ -424,6 +424,11 @@ rejects it; a non-spine pair VALUE aborts at its `pp_expr`).  The DESTRUCTURE lo
 IO/statement (`pp_stmts`/`emit_block`) AND pure-value-returning (`pp_pure_tail`) — a non-IO `func f()
 int64 { x, y := g(); return x + y }` was a fail-closed gap (found by self-review 2026-06-23, pre-dating
 the N-ary work); now handled (`pure_destr_demo` → `7 6 5`: `sum_pair` 2-ary + `sum3` N-ary, golden-locked).
+An IO-VALUE-returning function (`IO (A*B) := ret (a,b)` — the effectful `(v, err)` idiom) also lowers to
+`func F() (A, B) { return a, b }` (`pp_io_body`'s ret-tail, mirroring `pp_pure_tail`'s pair case); a caller
+`p <-' f k ;; let '(x,y) := p` FUSES the `bind` + destructure to `x, y := F(k)` — `io_multiret_demo` → `5 1`,
+golden-locked (2026-07-01). Restricted to the flat 2-binder case with the bound pair used only via the
+destructure (`dbn_free`); other shapes stay on the scalar-bind path.
 A WILDCARD binder `let '(_, y) := …` (Coq extracts the `_` as an unused gensym, which left as a real
 `:=` binder is invalid Go — `declared and not used`) is blanked to Go `_` via `pp_destr_binder`/`dbn_free`
 (`snd_of`, `stmt_blank_demo`) — both positions; this fixed a fail-OPEN the pure-position fix had exposed.

@@ -3353,6 +3353,33 @@ let pp_io_body ?(ret_val=false) state tab env body =
                              | _ -> fallback ())
                         | _ -> fallback ())
                    | _ -> fallback ())
+              (* IO MULTIPLE RETURN: [bind (io-pair action) (fun p => let '(x,y) := p in body)] — the bound
+                 pair [p] (MLrel 1) is IMMEDIATELY destructured, so FUSE through the call → [x, y := action();
+                 body], the SAME shape the pure [let '(x,y) := f()] path emits ([flatten_destructure] keeps [p]
+                 as an unused placeholder so the body's de-Bruijn indices resolve).  Restricted to the FLAT
+                 2-binder case with [p] used ONLY via the destructure ([dbn_free 3]); else a scalar bind's
+                 [p := action] fallthrough would assign 2 return values to 1 var (a go-build error). *)
+              | _ when (match ids, strip_magic body with
+                        | [_], MLcase (_, scrut, [| (dids, dpat, dbody) |]) ->
+                            (match strip_magic scrut with MLrel 1 -> true | _ -> false)
+                            && (match dpat with Pcons (r, _) | Pusual r -> is_pair_ref r | _ -> false)
+                            && List.length dids = 2
+                            && (match strip_magic dbody with
+                                | MLcase (_, s2, _) -> (match strip_magic s2 with MLrel 2 -> false | _ -> true)
+                                | _ -> true)
+                            && dbn_free 3 dbody && not (is_void_call m)
+                        | _ -> false) ->
+                  let dids, dbody = (match strip_magic body with
+                    | MLcase (_, _, [| (dids, _, dbody) |]) -> dids, dbody | _ -> assert false) in
+                  let flat_ids, fbody, fenv = flatten_destructure dids dbody new_env in
+                  let emit_m = (match m with
+                    | MLglob r when not (is_bool_true r || is_bool_false r
+                                         || is_unit_tt r || is_map_make_ref r) ->
+                        pp_expr state env m ++ str "()"
+                    | _ -> pp_expr state env m) in
+                  str tab ++ pp_sep_list ", " (pp_destr_binder fenv fbody) flat_ids
+                    ++ str " := " ++ emit_m ++ fnl ()
+                    ++ pp_stmts tab fenv fbody
               | _ ->
              let vis_ids = List.filter (fun id -> not (is_dummy id)) ids in
              let lhs = match vis_ids with
@@ -4408,10 +4435,25 @@ let pp_io_body ?(ret_val=false) state tab env body =
      tails are handled here: [ret v] → [return v], and a clean value-read ([map_len]/[len]/
      [cap]) → [return <expr>].  Bind-chains / control-flow value tails are NOT yet handled
      (they fall through to the void emission, which go build rejects — loud, not silent). *)
+  (* [ret (a, b)] from an [IO (A * B)] function is a Go MULTIPLE RETURN [return a, b] — the SAME structured
+     emission pure functions use ([pp_pure_tail]'s pair case): N-ary flatten + a narrow-slot cast per component
+     (P1 #4).  Without this the pair falls through to [pp_expr], which rejects the [pair] constructor. *)
+  let pair_return = function
+    | MLcons (_, pr, pargs) when is_pair_ref pr && (List.length pargs = 2 || List.length pargs = 4) ->
+        let a, b = (match pargs with [a; b] -> a, b | [_; _; a; b] -> a, b | _ -> assert false) in
+        let vals = flatten_pair_value a @ [b] in
+        let pp_val v0 =
+          match value_narrow_conv env v0 with
+          | Some gt -> str (gt ^ "(") ++ pp_expr state env v0 ++ str ")"
+          | None    -> pp_expr state env v0 in
+        Some (pp_sep_list ", " pp_val vals)
+    | _ -> None
+  in
   let ret_tail =
     if not ret_val then None
     else match collect_app body [] with
-      | MLglob r, [v] when is_ret_ref r -> Some (pp_expr state env v)
+      | MLglob r, [v] when is_ret_ref r ->
+          (match pair_return v with Some _ as d -> d | None -> Some (pp_expr state env v))
       | MLglob r, _ when is_map_len_ref r || is_len_ref r || is_cap_ref r
                       || is_gofunc_call_ref r ->  (* gofunc_call f x → return f(x) (review #8) *)
           Some (pp_expr state env body)
