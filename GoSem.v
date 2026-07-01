@@ -192,13 +192,42 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     constants, string constants ([eval_str]), and constant bools ([eval_bool]).  ABSENT ([None], honestly): runtime operands
     ([len(..)]/[int(x)]), out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
-  match ptype e with
-  | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
-  | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-  | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
-  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
-  | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
-  | _                       => None
+  match e with
+  | EIndex (ESliceLit t es) idx =>
+      (* slices-oob.md B2: a CONSTANT in-bounds index into an INT-slice literal folds to the k-th element's
+         boxed value — EVIDENCE-CARRYING: [nth_error] yields a value ONLY when in-bounds, so an OOB constant (or
+         a runtime / non-int index — [int_const_val = None]) stays [None] and is NOT denoted -> the gate REJECTS
+         it (a slice OOB is a run-time PANIC; declining is faithful-or-absent, never a wrong value).  Faithful
+         only in VALUE contexts (all this fragment has); [ptype] still classifies the whole thing [PtRunInt]
+         (Go treats slice indexing as a runtime, non-constant int). *)
+      if is_int_goty t
+      then match ptype idx with
+           | Some ci =>
+               match int_const_val ci with
+               | Some k => if (0 <=? k)%Z
+                           then match nth_error es (Z.to_nat k) with
+                                | Some el =>                                                   (* IN-BOUNDS: fold the element *)
+                                    match ptype el with
+                                    | Some ce => match int_const_val ce with Some z => box_int t z | None => None end
+                                    | None => None
+                                    end
+                                | None => None                                                (* OOB constant: undenoted *)
+                                end
+                           else None                                                          (* negative constant *)
+               | None => None                                                                 (* runtime index (B3) *)
+               end
+           | None => None
+           end
+      else None
+  | _ =>
+      match ptype e with
+      | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
+      | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
+      | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
+      | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
+      | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
+      | _                       => None
+      end
   end.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -605,6 +634,30 @@ Example denotable_stmts_mixed_denotes :
      GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "boom"]);
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "dead"])]) <> None.
 Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
+
+(** slices-oob.md B2 — a CONSTANT IN-BOUNDS slice-literal index now DENOTES, folding to the k-th element's
+    VALUE (evidence-carrying): [[]int{10,20}[1]] evaluates to EXACTLY what the element literal [20] does — the
+    fold is faithful, no exact box ctor needed. *)
+Example eval_slice_index_inbounds_faithful :
+  eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) = eval_value (EInt 20)
+  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0)) = eval_value (EInt 10).
+Proof. split; reflexivity. Qed.
+(** An OOB constant index is DECLINED ([eval_value = None]) — [[]int{10,20}[5]] is valid Go that PANICS, so it
+    is not folded; the program does NOT denote and the gate REJECTS it (faithful-or-absent, never a wrong value). *)
+Example eval_slice_index_oob_none :
+  eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)) = None.
+Proof. reflexivity. Qed.
+(** END-TO-END: [println([]int{10,20}[1])] DENOTES (gate accepts the in-bounds slice-index), while the OOB
+    [println([]int{10,20}[5])] does NOT denote (gate rejects the OOB — "behavioral safety > panic-freedom" for
+    the constant fragment). *)
+Example slice_index_prog_inbounds_denotes :
+  denote_program (mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn]) <> None.
+Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
+Example slice_index_prog_oob_undenoted :
+  denote_program (mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn]) = None.
+Proof. reflexivity. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional

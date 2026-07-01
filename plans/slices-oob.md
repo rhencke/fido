@@ -10,8 +10,9 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   `rt_index_oob : GoAny := "runtime error: index out of range"`.
 - **GoTypes**: `ptype (ESliceLit t es)` = `PtAgg` when every element is `assignable_to_ty _ t`. `PtRunInt t` is
   a RUNTIME (non-constant) int (how `len` classifies).
-- **GoSem**: `eval_value` is ptype-driven (folds `PtIntConst`/`PtTIntConst`/`PtFloatConst`/`PtStr`/`PtBool`);
-  denotes NO indexing. **cmd.v** has no slice/index effect.
+- **GoSem** (post-B2): `eval_value` is ptype-driven EXCEPT an `EIndex (ESliceLit..)` arm that folds a constant
+  in-bounds int-slice index to the element; it denotes CONSTANT in-bounds indexing (B2), NOT runtime/OOB.
+  **cmd.v** still has no slice/index effect (needed for B3's runtime index + OOB panic).
 
 ## The faithfulness pin (drives the brick order) — VERIFIED against gc 1.23
 - Slice indexing yields a **non-constant** value — `[]int{10,20}[1]` is a runtime `int`, NOT a Go constant.
@@ -39,10 +40,14 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   `None`. Result is a runtime int (supported-but-not-denoted). GoTypes/GoSafe only; fixtures pin supported
   (`[1]` in-bounds, `[5]` OOB-positive, `[len(..)]` runtime) vs rejected (`[-1]` negative, `[2^63]` overflow,
   `["x"]` string). **← done.**
-- **B2 — denote the in-bounds value.** Fold `[]int{..}[k]` to the k-th element's value so the gate ACCEPTS it.
-  Needs a faithful "runtime value with a known static fold" — either a new ptype category or an eval_value arm
-  that computes the value while ptype keeps it `PtRunInt` (folding is faithful in VALUE contexts, which is all
-  the current fragment has). Pick the least-unfaithful mechanism; do NOT claim it is a Go constant.
+- **B2 — denote the in-bounds value (DONE).** `eval_value` gains an `EIndex (ESliceLit t es) idx` arm: a
+  CONSTANT in-bounds index folds to the k-th element's boxed value (evidence-carrying — `nth_error` yields a
+  value ONLY in-bounds, so OOB / negative / runtime → `None`, undenoted). `ptype` keeps it `PtRunInt` (Go: a
+  non-constant int); folding is faithful in the VALUE contexts the fragment has (verified `go run`:
+  `println([]int{10,20}[1])` prints `20`). Result — the boss's goal for the CONSTANT fragment: the gate ACCEPTS
+  a provably-in-bounds constant slice-index (`println([]int{10,20}[1])` denotes) and REJECTS an OOB one (`[5]`
+  undenoted → gate rejects; a slice OOB is a run-time panic). GoSem only; the in-bounds denotation is
+  transitively CERTIFIED via the gated `denotable_stmts_main_denotes`.
 - **B3 — runtime index + runtime OOB panic.** The behavioral core: a runtime index `s[i]` denotes to an effect
   that bounds-checks and PANICS (`rt_index_oob`, a `CPan`) on OOB. Needs runtime values in GoSem + a slice
   effect in cmd.v. The behavioral gate must then require in-bounds EVIDENCE (`i < len s`) — the evidence-carrying
@@ -52,9 +57,12 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   soundness theorem extends to "emit ⟹ no explicit panic AND no OOB".
 
 ## Honesty
-B1 is SUPPORTEDNESS only: it accepts an integer-indexed int-slice literal as a runtime int. It rejects a
-negative constant (a gc compile error) and a non-integer index, and — CONSERVATIVELY — a constant index over
-Fido's 32-bit `int`; that last is fail-CLOSED, NOT exactly gc's boundary (a 64-bit gc accepts a large index
-like `[2^40]` that Fido rejects — safe incompleteness). It does NOT bounds-check (OOB is a run-time panic,
-valid Go — SUPPORTED), does NOT denote slices, and does NOT model the runtime OOB panic. The "behavioral
-safety > panic-freedom" claim lands with B3/B4 (runtime OOB panic + the gate rejecting it).
+B1+B2 cover the CONSTANT-index fragment. B1 (supportedness) makes an int-slice index SUPPORTED, rejecting only
+what gc compile-errors — a negative constant, a non-integer index, and (CONSERVATIVELY, fail-closed, Fido's
+32-bit `int` — NOT exactly gc's boundary; a 64-bit gc accepts `[2^40]` that Fido rejects, safe incompleteness)
+an int-overflowing constant. It does NOT bounds-check (a slice OOB is a valid-Go run-time panic — SUPPORTED).
+B2 (denotation) folds a constant IN-BOUNDS index to the element value and DECLINES OOB — so the gate now ACCEPTS
+a provably-in-bounds constant slice-index and REJECTS a constant OOB one. That IS "behavioral safety >
+panic-freedom" for the CONSTANT fragment (a non-`panic()` unsafe op the gate rejects). STILL MISSING: RUNTIME
+indexing + the runtime OOB panic effect (B3 — needs GoSem runtime values + a cmd.v slice effect) and the
+gate/soundness extension over slices (B4).
