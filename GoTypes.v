@@ -1,17 +1,9 @@
-(** ============================================================================
-    GoTypes.v — the SHARED constant-aware type-category checker (AST-first spine; see ARCHITECTURE.md).
-
-    A LOWER shared module (imports ONLY GoAst, below GoSafe): it owns [ptype] (the structural, constant-aware
-    TYPE-CATEGORY assignment [GExpr -> option PTy]), its numeric/conversion combinators, and the
-    value-position validity wrapper [svalue] — so the supportedness gate has ONE type authority:
-      • GoSafe (ABOVE) reuses it for [SupportedProgram] — a free identifier / a closed type-error is
-        rejected because [ptype] rejects it; the regressions that PIN those rejections live in GoSafe.
-      • GoSem (slice 1, the behavioral semantics, also above GoTypes) reuses [svalue] (its blank-assign
-        [_ = e] denotation gates on [svalue]) rather than fork its own type-blind predicate — keeping ONE type
-        authority across the layers.
-    GoTypes has NO theorems (only [Definition]s / one [Inductive]), so it introduces NO axioms; the
-    pre-commit all-[.v] axiom scan covers it.
-    ============================================================================ *)
+(** GoTypes.v — the SHARED constant-aware type-category checker (AST-first spine; see ARCHITECTURE.md).
+    A LOWER module (imports ONLY GoAst, below GoSafe): it owns [ptype] ([GExpr -> option PTy], the structural
+    constant-aware TYPE-CATEGORY assignment), its numeric/conversion combinators, and the value-position wrapper
+    [svalue] — so the layers above share ONE type authority (GoSafe's [SupportedProgram] rejects a free ident /
+    closed type-error because [ptype] does — the pinning regressions live in GoSafe; GoSem slice-1's blank-assign
+    gates on [svalue]).  NO theorems (only [Definition]s / one [Inductive]) ⇒ NO axioms. *)
 From Fido Require Import GoAst.   (* GoAst supplies the syntax ([GExpr]/[GoTy]/[BinOp]/…) AND [classify]
                                      (the keyword -> [GoTy] map for scalar conversions).  DELIBERATELY the
                                      ONLY Fido import — GoTypes is the bottom of the type-category layer. *)
@@ -23,43 +15,18 @@ Open Scope string_scope.
     ===== TYPE-CATEGORY: ptype classifier (PTy + numeric/conversion combinators) =====
     =================================================================================================== *)
 
-(** ---- A CONSTANT-AWARE STRUCTURAL TYPE-CATEGORY for the supported expression subset ([ptype]) ----
-    The supportedness gate must NOT certify INVALID Go, so [ptype] is constant-aware, not shape-only: it
-    REJECTS closed type / numeric / structural errors — float modulo or shift ([float64(1) % float64(2)],
-    [float64(1) << 2]), constant overflow ([uint8(300)], [[]uint8{300}]), mixed fixed-width arithmetic
-    ([int64(3) + int32(2)]), bool ordering ([(1==1) < (2==2)]), slice equality/ordering, [cap] of a string
-    ([cap(string(x))]), invalid aggregate conversions ([chan int([]int{1})]), and — because Go's constant
-    rules apply TRANSITIVELY through a conversion (a conversion of a constant is itself a typed CONSTANT) —
-    const div / shift-by-zero and overflow that survive a conversion ([1 / int(0)], [1 << int(-1)],
-    [uint8(int(300))], [uint8(float64(300))]).
-    [ptype] assigns each expression a REFINED, CONSTANT-AWARE TYPE CATEGORY, or REJECTS it ([None]) as
-    structurally ill-typed.  CONSTANTNESS SURVIVES conversions and constant binops: integers are split from
-    floats and CONSTANTS from RUNTIME values; a constant carries its VALUE (a [Z]) — so representability/
-    overflow and division/shift-by-zero are decided from the folded value at EVERY level — while a typed
-    constant ALSO carries its [GoTy] (so mixed-width arithmetic and out-of-range typed-constant results are
-    rejected) and a RUNTIME numeric carries only its [GoTy] (no value constraint — runtime conversions
-    truncate, runtime div-by-zero is a panic not a compile error).  Aggregates ([PtAgg] = slice/chan, [PtMap] =
-    map) are a valid value but never numeric/printable ([PtAgg] is [len]/[cap]-able, [PtMap] only [len]-able).
-    ★SCOPE: in the no-declaration Program model a FREE identifier is UNDEFINED, so it
-    is REJECTED ([ptype (EId _) = None] — its emitted Go would not compile); the ONLY admitted predeclared
-    value-identifier is [nil] ([PtNil]), and it is admitted ONLY as a slice/chan conversion operand
-    ([[]int(nil)] / [chan int(nil)]) — never as a bare value, an arithmetic/comparison operand, or a
-    [len]/[cap]/[print]/[println] argument.
-    ★ANTI-REGRESSION INVARIANT — NO rule turns a constant category ([PtIntConst]/[PtTIntConst]/[PtFloatConst])
-    into a runtime category ([PtRunInt]/[PtRunFloat]) while dropping the value: constantness is PRESERVED
-    through every conversion/binop, or the form is REJECTED.  (Conversions of a runtime operand DO yield a
-    runtime category — but there was never a value to drop.)
-    ★POSTURE — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's typechecker; it is NOT proven
-    complete or sound (there is no [ptype]-vs-Go-typechecker theorem — that is GoSem's job), and makes NO claim
-    to reject every invalid form.  It admits a SUBSET and REJECTS anything it cannot classify as clearly
-    supported, so it over-rejects much VALID Go too (any conversion of a KNOWN aggregate, [string] of a typed
-    int, const+typed when not representable, nested-aggregate elements, float-CONSTANT arithmetic,
-    platform-[uint] complement, an untyped const whose default-[int] value overflows, a not-exactly-
-    representable const->float).  The closed-invalid CLASSES it is known to reject are PINNED by GoSafe's
-    regressions (each added when found).  Because a FREE identifier is REJECTED (the no-declaration model
-    has no variable bindings, so a bare [x] is undefined and its Go would not compile), the gate admits NO
-    free-identifier form: the sole predeclared value-ident, [nil] ([PtNil]), is admitted only inside a
-    slice/chan conversion. *)
+(** ★TOP INVARIANT — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's typechecker.  It is NOT
+    proven complete or sound (no [ptype]-vs-Go theorem — that is GoSem's job); it admits a SUBSET and REJECTS
+    anything it cannot classify as clearly supported, so it OVER-REJECTS much valid Go.  It IS constant-aware: a
+    constant carries its VALUE (a [Z]) — so overflow / div-or-shift-by-zero are decided from the folded value at
+    EVERY level, transitively through conversions (a conversion of a constant is itself a typed constant) — and
+    a typed constant ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range typed results rejected); a
+    runtime numeric carries only its [GoTy].  ANTI-REGRESSION: constantness is PRESERVED through every
+    conversion/binop (a const category is NEVER silently dropped to a runtime one while losing the value), or
+    the form is REJECTED.  A FREE identifier is REJECTED (no-declaration model — a bare [x] is undefined); the
+    sole predeclared value-ident [nil] ([PtNil]) is admitted only inside a slice/chan conversion.  A new [ptype]
+    rule lands ONLY if it rejects a real accepted-bad closed program or admits an intentionally supported demo;
+    each closed-invalid class it rejects is PINNED by a GoSafe regression. *)
 Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
@@ -397,21 +364,10 @@ Definition complement_const (t : GoTy) (z : Z) : option Z :=
   | _ => None             (* non-integer type *)
   end.
 
-(** ===================================================================================================
-    ===== SCOPE: identifier admissibility (nil only; free idents rejected) =====
-    The scope rule is realized HERE in [ptype]'s [EId] case (and in [svalue]'s [PtNil] rejection below): the
-    no-declaration Program model has no variable bindings, so a FREE identifier is UNDEFINED and its emitted Go
-    would not compile.  [ptype (EId i)] therefore returns a category ONLY for the predeclared value-identifier
-    [nil] (-> [PtNil]); EVERY other identifier is REJECTED ([None]).  [PtNil] is admitted ONLY as a slice/chan
-    conversion operand (the [EConv] case) and nowhere else.
-    =================================================================================================== *)
-
-(** ★INVARIANT — [ptype] is NOT Go's typechecker; it is a CONSERVATIVE supported-subset classifier.  No new
-    rule may be added to it unless it (a) REJECTS a real CLOSED bad program currently accepted, or (b) ADMITS a
-    needed supported demo intentionally.  (This is the standing tightening discipline — grow the certificate's
-    HONESTY, not its surface area.)
-    [ptype]: the structural TYPE-CATEGORY assignment.  [None] = structurally ill-typed / out-of-scope
-    (rejected). *)
+(** [ptype]: the structural TYPE-CATEGORY assignment ([None] = structurally ill-typed / out-of-scope, rejected).
+    Scope is realized in the [EId] case — only the predeclared [nil] (-> [PtNil], admitted only as a slice/chan
+    conversion operand); every other identifier is undefined -> rejected.  Posture + tightening discipline: the
+    TOP INVARIANT above. *)
 Fixpoint ptype (e : GExpr) : option PTy :=
   match e with
   | EId i => if String.eqb (proj1_sig i) "nil" then Some PtNil else None   (* SCOPE: only the predeclared [nil]; every other ident is undefined -> rejected *)
