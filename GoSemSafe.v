@@ -15,7 +15,8 @@
       [unified.v]'s [ustep], keeping [run_cmd] the authority).
     - GATE-SHAPE: [panic_free_denotable] — a DECIDABLE predicate on the RAW [Program] (denotability AND syntactic
       panic-freedom) that ENTAILS the panic-free run to [ORet] ([panic_free_denotable_runs_ret][_output][_ustep]) and REFINES
-      [SupportedProgram] ([panic_free_denotable_supported]).  This is the eventual gate's SHAPE, not the gate.
+      [SupportedProgram] ([panic_free_denotable_supported]).  This is the DECIDABLE predicate; the (narrow) gate
+      that decides it is [panic_free_gate] below — NOT the full [BehaviorSafe] gate.
     - EMISSION-CERT SEED: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
       [emit_panic_free] (seed of [emit_safe]) emits through the blessed [emit_supported] path but its PRECONDITION
       is a proven panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].  Panic-only fragment;
@@ -369,6 +370,26 @@ Lemma emit_panic_free_gated_some : forall p c,
   panic_free_gate p = Some c -> emit_panic_free_gated p = Some (emit_panic_free c).
 Proof. intros p c H. unfold emit_panic_free_gated. rewrite H. reflexivity. Qed.
 
+(** END-TO-END SOUNDNESS of the gated emitter: if it EMITS ([Some s]) then (1) the program is
+    [panic_free_denotable], (2) its denotation RUNS to [ORet] under minimal fuel — never [OPanic] — for every
+    world, and (3) [s] is the BLESSED emission ([emit_panic_free]) of the very cert the gate accepted (emission
+    goes through GoEmit's certificate path, not a fork).  So a successful [emit_panic_free_gated] carries the
+    behavioral guarantee AND is byte-identical to the blessed path — the honest ancestor of [emit_safe]'s
+    soundness (panic-only fragment; still no theorem to REAL Go — gap #10). *)
+Theorem emit_panic_free_gated_sound : forall p s,
+  emit_panic_free_gated p = Some s ->
+  panic_free_denotable p = true
+  /\ (forall w, exists cmd w', denote_program p = Some cmd /\ run_cmd 1 cmd w = Some (ORet tt w'))
+  /\ (exists c, panic_free_gate p = Some c /\ s = emit_panic_free c).
+Proof.
+  intros p s H. unfold emit_panic_free_gated in H.
+  destruct (panic_free_gate p) as [c|] eqn:Eg; [|discriminate H]. injection H as <-.
+  destruct (panic_free_gate_sound p c Eg) as [Hpf _].
+  split; [exact Hpf | split].
+  - intros w. exact (panic_free_denotable_runs_ret p w Hpf).
+  - exists c. split; reflexivity.
+Qed.
+
 (** The gate DECIDES both ways on the boundary demos (ACCEPTS panic-free, REJECTS panicking). *)
 Example panic_free_gate_decides :
   (exists c, panic_free_gate panic_free_prog = Some c) /\ panic_free_gate panicking_prog = None.
@@ -382,5 +403,5 @@ Definition gosem_panic_free_surface :=
   (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
    panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
    panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed,
-   panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some).
+   panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some, emit_panic_free_gated_sound).
 Print Assumptions gosem_panic_free_surface.

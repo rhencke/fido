@@ -169,9 +169,10 @@ Phase 4  Grow the AST/printer form-by-form (each: represented, printed, round-tr
          literals + EStr landed; each new form is print-injective + gate-honest.
 Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no second universe),  IN PROGRESS
          widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
-         ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission-cert SEED
-           (`PanicFreeEmittable`/`emit_panic_free` — precondition = a proven panic-free run, panic-only
-           fragment, off the main path). NEXT = eval non-literals, then full `BehaviorSafe` (nil deref/OOB/race).
+         ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission cert + DECIDABLE gate
+           (`PanicFreeEmittable`/`emit_panic_free`, `panic_free_gate`/`emit_panic_free_gated` — end-to-end
+           sound: emit ⟹ proven panic-free run + blessed bytes; panic-only, off the main path). NEXT = eval
+           non-literals, then full `BehaviorSafe` (nil deref/OOB/race).
 ```
 
 Proceed in small structural steps. Every patch should either move a concept into the correct module, delete
