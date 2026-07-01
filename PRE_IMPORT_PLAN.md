@@ -382,7 +382,7 @@ B3, which was backwards):**
 
 ### C — Structs / methods / interfaces completion (ladder 9)
 
-Core works.  Remaining: embedded fields + promotion · struct tags · field-wise
+Core works (embedded fields + promotion DONE — `peel_embedded`).  Remaining: struct tags · field-wise
 `==` (struct comparability) · **pointer receivers** (needs B) · method
 values/expressions (`recv.M` as a closure, `T.M`) · single-method interface
 curried-return form · nullary (unit-thunk) methods · native `interface{…}`
@@ -440,7 +440,7 @@ The two keystones first because they unblock C/D/E; the cross-cutting tracks
 2. **Phase B — aliasing / mutation / pointers.**  Backing-store heap; slices as
    aliasing handles; arrays; pointers; pointer receivers.  Deepest build.
 3. **Phase C — structs/methods/interfaces completion.**  Pointer receivers land
-   here (need B); type switch; embedded fields; comparability; interface gaps.
+   here (need B); type switch; comparability; interface gaps.  (Embedded fields + promotion DONE.)
 4. **Phase D — floats.**  float32 model (or boundary), conversions, `Q`
    constants.  (Stops at the `math`-import line: `abs`/`sqrt` deferred.)
 5. **Phase E — strings rune view.**  After B's `[]byte` decision.

@@ -114,6 +114,17 @@ for pred in $(printf '%s' "$cov_preds" | grep -oE '\[is_[a-z0-9_]+\]' | tr -d '[
 done
 echo "fido: bridge-recognizer tripwire OK — cov_preds recognizers route through the from_builtins-scoped named_in ✓"
 
+# 5. SELECTOR-BRIDGE guard invariant.  The ESel live-bridge ([mk_goexpr_sel]) may emit [local.Field] ONLY for
+# a plain field of an [MLrel] receiver — the sole shape matching [pp_expr]'s peel_embedded/pp_atom rendering.
+# Dropping [not (is_embedded_proj r)] or the [MLrel] receiver guard re-opens an embedded/nested byte
+# divergence (d.Animal.Legs vs d.Legs) that the RUNTIME golden cannot see; assert both guards sit on the arm.
+selctx=$(grep -B8 'mk_goexpr_sel ld' plugin/go.ml || true)
+if ! printf '%s\n' "$selctx" | grep -q 'not (is_embedded_proj' || ! printf '%s\n' "$selctx" | grep -q 'MLrel _'; then
+  echo "fido: SELECTOR-BRIDGE GATE — the ESel arm (mk_goexpr_sel) lost its 'not (is_embedded_proj r)' or 'MLrel' receiver guard; an embedded/nested selector would bridge to a peel-divergent form (invisible to the runtime golden)."
+  exit 1
+fi
+echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + MLrel-receiver guards ✓"
+
 # NOTE: "GoSem's string comparison uses the model's string order" is enforced in ROCQ, not by a shell grep
 # (which legal Rocq syntax bypasses): GoSem.v pins each [str_cmp_op] branch to the FULLY QUALIFIED model
 # constant [Fido.builtins.str_*] by reflexivity ([str_cmp_*_model]) — shadow-immune, so a fork that reroutes a

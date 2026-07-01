@@ -1980,19 +1980,14 @@ let rec goexpr_bridge env e =
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
-       (* a record-field SELECTOR of a RUNTIME LOCAL [local.Field] = [MLapp (proj, [MLrel])] -> [ESel (EId
-          local) Field].  DELIBERATELY NARROW to the byte-parity-GUARANTEED case, because [pp_expr]'s selector
-          arm (~2465) renders [<pp_atom (peel_embedded recv)>.<Field>] — it PEELS an embedded hop off the
-          receiver and passes it through [pp_atom], neither of which [gprint_ESel] ([gparen d ++ "." ++ Field])
-          reproduces for a general receiver.  So bridge ONLY when parity is provable:
-            - [proj] is a PLAIN struct field: [is_record_proj] AND NOT [defined_prim_proj] (that renders as a
-              CAST [<under>(x)] at pp_expr arm ~2454) AND NOT [is_embedded_proj] (an embedded FIELD; also in
-              [record_proj_field], so [is_record_proj] alone does NOT exclude it);
-            - the RECEIVER is a runtime local ([MLrel], after [strip_magic]): [peel_embedded] is a no-op on it
-              and [pp_atom]/[gprint] render it identically (the bare name), so no peel/paren divergence.
-          Every OTHER receiver (an EMBEDDED-projection app that pp_expr would peel, a NESTED selector, a call,
-          …) and every embedded/defined-type field declines (None) and stays on the trusted [pp_expr] — a
-          fall-back to correct bytes, never a parity guess (rule 2: faithful-or-reject). *)
+       (* a record-field SELECTOR of a runtime LOCAL [local.Field] -> [ESel (EId local) Field].  INVARIANT
+          (pinned by plugin/smart-ctor-gate.sh): bridge ONLY a PLAIN field ([is_record_proj] AND not
+          [defined_prim_proj] AND not [is_embedded_proj] — an embedded field is ALSO in [record_proj_field]) of
+          an [MLrel] receiver.  Reason to decline everything else: [pp_expr]'s selector arm renders
+          [<pp_atom (peel_embedded recv)>.Field] — it PEELS an embedded hop and re-runs [pp_atom] on the
+          receiver, which [gprint_ESel] ([local ++ "." ++ Field]) does not reproduce for a non-[MLrel] receiver.
+          So a non-local / embedded / defined-type case stays on the trusted [pp_expr] (unverified, like the
+          rest of the plugin), NOT a bridged parity guess (rule 2: faithful-or-reject). *)
        | MLglob r, [d]
          when is_record_proj r
            && not (Hashtbl.mem defined_prim_proj (global_path r))

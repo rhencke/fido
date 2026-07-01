@@ -28,7 +28,8 @@ semantics (`cmd.v`/`unified.v`/`concurrency.v`); slice 1 only (below).
 `plugin/printer.ml` (from GoPrint) prints a SMALL expression class on that live path — a binop tree over
 runtime locals, int/int64/uint64 literals, the bare `^x` complement, a runtime local's plain field selector
 `local.Field` (`is_record_proj`, NOT an embedded field nor a defined-type value projection, and only a local
-receiver — where byte-parity with `pp_expr`'s peel/atom rendering is guaranteed), the runtime numeric
+receiver — the one shape where `gprint` matches the trusted `pp_expr`'s peel/atom rendering, pinned by the
+selector-bridge gate), the runtime numeric
 conversions, and fixed-width `(u|i)N_add`/`sub`/`mul` as a bridging-binop operand. Every other shape stays on
 trusted `pp_expr`. The trusted plugin CONSTRUCTS the `GExpr` (choice of AST); only the verified `gprint`
 PRINTS it — the proofs cover AST→string serialization, NOT the MiniML→`GExpr` construction, and are not a

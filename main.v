@@ -3238,8 +3238,8 @@ Definition deftype_slice_demo : IO unit :=
     name ([animal : Animal]); the plugin emits it as an ANONYMOUS embedded field, so the Go
     struct genuinely embeds [Animal] and Go promotes its method set.  [Animal] needs >= 2
     fields (a 1-field record is unboxed by Coq).  Accessing the embedded type's field/method
-    is through the embedded field — [species (animal d)] → [(d.Animal).Species], and the
-    promoted method [speak (animal d)] → [(d.Animal).Speak()] — both valid, faithful Go. *)
+    emits the PROMOTED SHORTHAND (the plugin's [peel_embedded] peels the [.Animal] hop) —
+    [species (animal d)] → [d.Species], and the promoted method [speak (animal d)] → [d.Speak()]. *)
 Record Animal := MkAnimal { species : GoString ; legs : GoI64 }.
 Definition speak (a : Animal) : GoString := species a.   (* a value-receiver method on Animal *)
 Record Dog := MkDog { animal : Animal ; breed : GoString }.   (* field name = type name → embedded *)
@@ -3247,9 +3247,18 @@ Definition mk_dog (sp br : GoString) : Dog := MkDog (MkAnimal sp (4)%i64) br.
 (* the embedded type's method is reachable on the composite (its method set is promoted) *)
 Example embed_speak : forall sp br, speak (animal (mk_dog sp br)) = sp.
 Proof. reflexivity. Qed.
+(* SELECTOR-BRIDGE FIXTURE (Codex regression gate): the embedded int field [legs] as an operand of a
+   bridging binop [legs (animal d) + k] with a RUNTIME [k] (so the arith force-wrapper does NOT fire and the
+   binop actually reaches [goexpr_bridge]).  The receiver of [legs] is [animal d] — an EMBEDDED projection, NOT
+   an [MLrel] — which the verified-printer ESel bridge REFUSES, so the operand declines and the binop stays on
+   the trusted [pp_expr], which PEELS the [.Animal] hop to emit [d.Legs + k] (NOT the non-peeled
+   [d.Animal.Legs + k] a re-broadened bridge would produce).  The build (Makefile) greps main.go for the peeled
+   form: a bridge regression onto an embedded receiver is a SOURCE-byte change the runtime golden can't see. *)
+Definition embed_arith (d : Dog) (k : GoI64) : GoI64 := i64_add (legs (animal d)) k.
 Definition embed_demo : IO unit :=
   bind (println [any (species (animal (mk_dog "canine"%string "lab"%string)))])  (fun _ =>   (* canine *)
-  println [any (speak (animal (mk_dog "canine"%string "lab"%string)))]).                   (* canine *)
+  bind (println [any (speak (animal (mk_dog "canine"%string "lab"%string)))]) (fun _ =>       (* canine *)
+  println [any (embed_arith (mk_dog "canine"%string "lab"%string) (1)%i64)])).                (* 5 = legs 4 + 1 *)
 
 (** GO GENERICS (type parameters, Go 1.18+).  Rocq's parametric polymorphism maps directly
     to a Go generic: a function's type VARIABLES become a [func F[T1 any, …]] type-parameter

@@ -2443,9 +2443,14 @@ func Mk_dog(sp string, br string) Dog {
 	return Dog{Animal: Animal{Species: sp, Legs: 4}, Breed: br}
 }
 
+func (d Dog) Embed_arith(k int64) int64 {
+	return d.Legs + k
+}
+
 func Embed_demo() {
 	println((Mk_dog("canine", "lab")).Species)
 	println((Mk_dog("canine", "lab")).Speak())
+	println((Mk_dog("canine", "lab")).Embed_arith(1))
 }
 
 func Gid[T1 any](x T1) T1 {
