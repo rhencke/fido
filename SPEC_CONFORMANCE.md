@@ -806,23 +806,24 @@ is PROVEN race-free (`fork_program_race_free`, see the memory model).  ✓ at th
 
 ### [Defer statements](https://go.dev/ref/spec#Defer_statements) — ✓ EMITTED Go; ✓ FAITHFUL cmd.v model; shallow `run_io` fails loud
 Spec: `defer f()` runs `f` at function return (LIFO), on both normal and panic exit — and a panic does NOT
-cancel the remaining defers.  Fido has THREE distinct defer representations; keep them separate:
-1. **Plugin RUNTIME emission (trusted):** the trusted `plugin/go.ml` lowers `defer_call f` BY NAME to native
-   Go `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos `defer_demo`, `defer_loop_demo`
-   (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).
-2. **Shallow `run_io` — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential `World -> Outcome` cannot
-   reify a func-scoped defer to run it at return, so `defer_call (_ : IO unit) := fun w => OPanic … w` PANICS
-   rather than silently dropping the effect (`builtins.v`; the review #6/#12 fix that replaced the old
-   `ORet tt w` no-op, which had erased an observable deferred effect).
-3. **cmd.v `CDfr` / `run_defers` — FAITHFUL:** `cmd.v` models `defer` as `CDfr d k`; `run_defers` runs the
-   LIFO stack at func-scope return — a panicking defer REPLACES the active panic (last-raised-wins) but the
-   older defers STILL run (review #12), every defer's effects happen.  `bridge_agrees` proves the `ustep` run
-   AGREES with this for ANY command (defers + panics).  This is the faithful defer semantics.
-4. **GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, not denoted yet):** `defer <call>` is a real AST
-   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
-   call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
-   its `CDfr` denotation needs `run_cmd` fuel > 1, whereas GoSem slice 1 is fuel-1 (denotes `no_defer` only).
-   Denoting `GsDefer` (into the faithful cmd.v model of #3) awaits the sufficient-fuel generalization.
+cancel the remaining defers.  Fido has THREE defer REPRESENTATIONS (R) and one shallow-semantics BOUNDARY (B);
+keep them separate:
+- **(R1) Plugin RUNTIME emission (trusted):** the trusted `plugin/go.ml` lowers `defer_call f` BY NAME to
+  native Go `defer func(){ f }()` (Go provides the LIFO/return-time scoping); demos `defer_demo`,
+  `defer_loop_demo` (a `defer` in a loop prints 2,1,0 — golden RUNTIME output faithful).
+- **(R2) cmd.v `CDfr` / `run_defers` — the FAITHFUL model:** `cmd.v` models `defer` as `CDfr d k`;
+  `run_defers` (via `run_cmd`, the SOLE `Cmd` interpreter) runs the LIFO stack at func-scope return — a
+  panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run (review #12),
+  every defer's effects happen.  `bridge_agrees` proves the `ustep` run AGREES with this for ANY command.
+- **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, not denoted yet):** `defer <call>` is a real AST
+  statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
+  call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
+  its `CDfr` denotation needs `run_cmd` fuel > 1, whereas GoSem slice 1 is fuel-1 (`no_defer` only).  Denoting
+  `GsDefer` (into R2's faithful model) awaits the sufficient-fuel generalization.
+- **(B) shallow `IO` (`World -> Outcome`) — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential shallow
+  reading cannot reify a func-scoped defer, so `builtins.defer_call (_ : IO unit) := fun w => OPanic … w`
+  PANICS rather than silently dropping the effect (review #6/#12, which replaced the old `ORet tt w` no-op).
+  There is NO shallow `Cmd -> IO` interpreter — `run_cmd` (R2) is the only `Cmd` semantics.
 
 ### [Send statements](https://go.dev/ref/spec#Send_statements) — ✓ open/closed; ⚠ nil/blocking
 Spec: send on a **closed** channel ⇒ panic; send on **nil** blocks forever.

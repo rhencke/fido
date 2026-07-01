@@ -2,7 +2,7 @@
     GoSem.v — the AST's BEHAVIORAL semantics, as a BRIDGE into the existing proof-only models
     (charter Phase 5; ARCHITECTURE.md §GoSem).  GoSem does NOT fork a second semantics universe — it
     TRANSLATES a GoAst [Program] into [cmd.v]'s already-proven command tree [Cmd unit] and reuses that
-    file's [denote] / [run_cmd] interpreters, the GoSafe gate ([expr_stmt_ok] / [svalue]) for which programs
+    file's [run_cmd] interpreter (+ [cbind] sequencing), the GoSafe gate ([expr_stmt_ok] / [svalue]) for which programs
     have meaning, and the MODEL's own value constructors ([anyt] / [intwrap]) for the printed values — so the
     factoring is single-authority and the modelling is faithful (a denoted [println] produces EXACTLY the
     [w_log] output the model's [println] does).

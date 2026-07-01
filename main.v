@@ -1987,7 +1987,10 @@ Definition str_range_demo : IO unit :=
 
 (** Capture in a goto loop: each iteration defers [println iv].  The loop-temp
     [iv] is captured BY VALUE per iteration, so the deferred calls (LIFO at
-    return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give). *)
+    return) print 2, 1, 0 — not 2, 2, 2 (which a shared cell would give).
+    ⚠ This is the EMITTED-Go RUNTIME (native `defer func(){…}()`); the shallow
+    `run_io` model of [defer_call] FAILS LOUD (it cannot reify a func-scoped
+    defer — the faithful model is [run_cmd] over [CDfr], cmd.v). *)
 Definition defer_loop_demo : IO unit :=
   bind (ref_new TInt64 (int_lit 0 eq_refl)) (fun i =>
   run_blocks 0%nat [
@@ -2001,7 +2004,9 @@ Definition defer_loop_demo : IO unit :=
   ]).
 
 (** Function-scoped defer: [defer_call] runs at function return, LIFO across all
-    defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1. *)
+    defers — distinct from block-scoped [with_defer].  Prints 3, then 2, then 1
+    as EMITTED Go (native `defer`); the shallow `run_io` model of [defer_call]
+    fail-louds (faithful model = [run_cmd]/[CDfr], cmd.v). *)
 Definition defer_demo : IO unit :=
   bind (defer_call (println [any (int_lit 1 eq_refl)])) (fun _ =>   (* runs 3rd (LIFO) *)
   bind (defer_call (println [any (int_lit 2 eq_refl)])) (fun _ =>   (* runs 2nd *)

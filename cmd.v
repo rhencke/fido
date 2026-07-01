@@ -12,11 +12,12 @@
     its CONTINUATION, so [cbind] (append the continuation) and the interpreters are genuine structural
     [Fixpoint]s.
 
-    SLICE 1 (this file, to grow): the syntax for output/panic, [cbind], a faithful denotation
-    [denote : Cmd A -> IO A] back to the shallow model (a [Cmd]-written program runs EXACTLY as the
-    shallow one — so a migration is golden byte-identical), and the monad laws + the fact that [denote]
-    is a monad morphism.  Subsequent slices add [catch], heap/channel ops, [defer] with its func-scope
-    stack (the #12 fix), and the small-step interleaving semantics (the #22 unification). *)
+    SLICE 1 (this file, to grow): the syntax for output/panic/defer, [cbind] + the monad laws, and the
+    AUTHORITATIVE operational interpreter [run_cmd] — which runs the body THEN its [defer] stack (LIFO,
+    func-scope return, on panic too; the #12 fix).  There is NO shallow [Cmd -> IO] reading: a sequential
+    [World -> Outcome] cannot run a func-scoped defer at return, so [run_cmd] is the ONLY semantics for a
+    [Cmd] (a shallow drop/no-op would silently erase a deferred effect — review #6/#12).  Subsequent slices
+    add [catch], heap/channel ops, and the small-step interleaving semantics (the #22 unification). *)
 From Fido Require Import preamble.
 From Stdlib Require Import List.
 Import ListNotations.
@@ -36,7 +37,7 @@ Arguments CDfr {A} _ _.
 (** The deferred action [Cmd unit] makes [A] a NON-uniform parameter, so Coq's auto-generated [Cmd_ind]
     has a POLYMORPHIC motive ([forall A, Cmd A -> Prop]) and a spurious induction hypothesis for the
     deferred — which is ill-typed for motives where [A] is load-bearing (e.g. [cbind_assoc], whose [k :
-    A -> Cmd B] pins [A]).  But [cbind]/[denote] treat the deferred OPAQUELY (they recurse only into the
+    A -> Cmd B] pins [A]).  But [cbind] treats the deferred OPAQUELY (it recurses only into the
     continuation), so this MONOMORPHIC principle — recurse into the continuation, leave the deferred
     abstract — is exactly the right tool and keeps every structural proof a clean four-case induction. *)
 Fixpoint Cmd_rect' (A : Type) (P : Cmd A -> Type)
@@ -61,21 +62,6 @@ Fixpoint cbind {A B} (c : Cmd A) (k : A -> Cmd B) : Cmd B :=
   | CDfr d c' => CDfr d (cbind c' k)
   end.
 
-(** The shallow output op (identical to [print]/[println] in builtins.v — appends to the [w_output]
-    trace, the observable that makes equality Go-observational, review #12). *)
-Definition out (b : bool) (xs : list GoAny) : IO unit := fun w => ORet tt (w_log b xs w).
-
-(** Denotation back to the shallow model: structural, so a [Cmd] program's runtime behaviour IS the
-    corresponding shallow [IO] — the migration preserves observable behaviour exactly. *)
-Fixpoint denote {A} (c : Cmd A) : IO A :=
-  match c with
-  | CRet a => ret a
-  | COut b xs c' => bind (out b xs) (fun _ => denote c')
-  | CPan v => panic v
-  | CDfr _ c' => denote c'   (* the SHALLOW reading DROPS the deferred action — exactly the [defer_call]
-                                no-op the review (#12) flags as a bug.  [run_cmd] below is the FAITHFUL
-                                operational semantics that actually runs it; their difference IS the bug. *)
-  end.
 
 (** ---- The deep syntax is a LAWFUL monad ---- *)
 Lemma cbind_ret_l : forall {A B} (a : A) (k : A -> Cmd B), cbind (CRet a) k = k a.
@@ -98,25 +84,12 @@ Proof.
   - rewrite IH; reflexivity.
 Qed.
 
-(** ---- [denote] is a MONAD MORPHISM (observationally): the deep program's runtime behaviour is its
-    shallow denotation, so reasoning/extraction can move between the two ---- *)
-Lemma denote_ret : forall {A} (a : A), denote (CRet a) = ret a.
-Proof. reflexivity. Qed.
-Lemma denote_bind : forall {A B} (c : Cmd A) (k : A -> Cmd B),
-  denote (cbind c k) =io= bind (denote c) (fun a => denote (k a)).
-Proof.
-  intros A B c k. induction c as [a | b xs c' IH | v | d c' IH] using Cmd_ind'; cbn.
-  - rewrite bind_ret_l. reflexivity.
-  - rewrite bind_assoc. setoid_rewrite IH. reflexivity.
-  - rewrite bind_panic_l. reflexivity.
-  - exact IH.
-Qed.
+(** ---- The AUTHORITATIVE (and ONLY) operational interpreter — [defer] is no longer a no-op (review #12) ----
 
-(** ---- The AUTHORITATIVE operational interpreter — [defer] is no longer a no-op (review #12) ----
-
-    [denote] above gives the SHALLOW reading (defers dropped); [run_cmd] here is the faithful semantics
-    that actually runs them at function-scope return.  The difference between the two on a deferred
-    program is EXACTLY the #12 bug, now fixed by taking [run_cmd] as authoritative. *)
+    [run_cmd] runs the body THEN its defers at function-scope return (LIFO, on panic too).  There is no
+    shallow [Cmd -> IO] reading of a [Cmd]: a sequential [World -> Outcome] cannot run a func-scoped defer,
+    so a "shallow" reading would DROP the deferred effect — precisely the #12 bug — which is why [run_cmd]
+    is the sole semantics (and why [builtins.defer_call] FAILS LOUD instead of silently dropping). *)
 Definition oc_world {A} (oc : Outcome A) : World := match oc with ORet _ w => w | OPanic _ w => w end.
 Definition oc_set_world {A} (oc : Outcome A) (w : World) : Outcome A :=
   match oc with ORet a _ => ORet a w | OPanic v _ => OPanic v w end.
@@ -203,13 +176,6 @@ Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
 Example defer_runs_lifo : forall (a b : GoAny) (w : World),
   run_cmd 5 (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt))) w
     = Some (ORet tt (w_log true (a :: nil) (w_log true (b :: nil) w))).
-Proof. reflexivity. Qed.
-
-(** The SHALLOW denotation of the SAME program runs NEITHER deferred (output unchanged) — the [defer_call]
-    no-op the review flags.  The contrast with [defer_runs_lifo] IS review #12, made explicit and fixed. *)
-Example defer_shallow_drops : forall (a b : GoAny) (w : World),
-  run_io (denote (CDfr (COut true (a :: nil) (CRet tt)) (CDfr (COut true (b :: nil) (CRet tt)) (CRet tt)))) w
-    = ORet tt w.
 Proof. reflexivity. Qed.
 
 (** Defers run even when the body PANICS (Go semantics): the deferred [println(a)] still happens, then the
