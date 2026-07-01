@@ -332,6 +332,64 @@ Proof.
     rewrite Hw2, Hw1, Hout, <- !app_assoc. reflexivity.
 Qed.
 
+(** ---- The PANIC characterization (the panic-side analog of [run_defers_out]'s output-APPEND law).  Where
+    output only grows, the active PANIC is THREADED: unwinding the LIFO defer forest, a (nested) defer whose net
+    outcome PANICS REPLACES the active panic, one that RETURNS KEEPS it — so the final panic is the LAST one
+    raised.  [nested_defers_panic] is that single-accumulator threading, recursing into each defer's OWN
+    [cmd_defers] (the NESTED generalization of the one-level [flat_defers_panic]).  It is NOT a second authority:
+    [run_defers_panic_eq] proves [run_defers] REALIZES it at the SAME fuel, so it merely NAMES which panic wins. *)
+Local Fixpoint nested_defers_panic (fuel : nat) (ds : list (Cmd unit)) (p0 : option GoAny) : option (option GoAny) :=
+  match fuel with
+  | O => None
+  | S n =>
+    match ds with
+    | nil => Some p0
+    | d :: ds' =>
+        match nested_defers_panic n (cmd_defers d) (cmd_panic d) with   (* d's NET panic, seeded by its body's *)
+        | None => None
+        | Some pd => nested_defers_panic n ds' (match pd with Some v => Some v | None => p0 end)
+        end                                                             (* d panicked -> REPLACE [p0]; else KEEP *)
+    end
+  end.
+
+(** A Some-seed yields a Some-result: a panic in flight is never LOST (a returning defer keeps it, a panicking
+    one replaces it with another Some) — the forward companion to [run_defers_no_panic]. *)
+Local Lemma nested_defers_panic_some : forall f ds v r,
+  nested_defers_panic f ds (Some v) = Some r -> exists v', r = Some v'.
+Proof.
+  induction f as [| n IH]; intros ds v r H; [ discriminate H | ].
+  destruct ds as [| d ds']; cbn [nested_defers_panic] in H.
+  - injection H as <-. exists v. reflexivity.
+  - destruct (nested_defers_panic n (cmd_defers d) (cmd_panic d)) as [pd|]; [ | discriminate H ].
+    destruct pd as [v'|]; [ exact (IH ds' v' r H) | exact (IH ds' v r H) ].
+Qed.
+
+(** [run_defers] REALIZES [nested_defers_panic] at the SAME fuel: its final panic is exactly the flattened
+    last-raised panic.  Induction on FUEL, mirroring [run_defers_out] — IH on the nested run ([cmd_defers d],
+    seeded [cmd_panic d]) and the tail ([ds']); the tail's seed [acc']'s panic is [Some (panic net_d)] if [d]
+    panicked else [ocpanic acc], exactly [nested_defers_panic]'s [match pd ...] step. *)
+Local Lemma run_defers_panic_eq : forall fuel ds acc result,
+  run_defers fuel ds acc = Some result ->
+  nested_defers_panic fuel ds (ocpanic acc) = Some (ocpanic result).
+Proof.
+  induction fuel as [| n IH]; intros ds acc result H; [ discriminate H | ].
+  destruct ds as [| d ds'].
+  - cbn in H |- *. injection H as <-. reflexivity.
+  - rewrite run_defers_unfold in H.
+    destruct (go_chars d (oc_world acc)) as [w_d [Hgo _]]. rewrite Hgo in H. cbn zeta in H.
+    destruct (run_defers n (cmd_defers d)
+                (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end)) as [net_d|] eqn:Enet;
+      [ | discriminate H ].
+    assert (Hseed : ocpanic (match cmd_panic d with None => ORet tt w_d | Some v => OPanic v w_d end) = cmd_panic d)
+      by (destruct (cmd_panic d); reflexivity).
+    pose proof (IH (cmd_defers d) _ net_d Enet) as Hnest. rewrite Hseed in Hnest.
+    pose proof (IH ds' _ result H) as Htail.
+    cbn [nested_defers_panic]. rewrite Hnest.
+    replace (match ocpanic net_d with Some v => Some v | None => ocpanic acc end)
+       with (ocpanic (match net_d with OPanic v' w' => OPanic v' w' | ORet _ w' => oc_set_world acc w' end));
+      [ exact Htail | destruct net_d as [[] w' | v' w']; cbn [ocpanic]; [ rewrite ocpanic_set_world | ]; reflexivity ].
+Qed.
+
 (** [cmd_no_panic] (cmd.v's panic-freedom predicate) implies the body has no in-flight panic — relates it to the
     Local [cmd_panic]; feeds the panic-free run properties below. *)
 Local Lemma cmd_no_panic_cmd_panic : forall c, cmd_no_panic c = true -> cmd_panic c = None.
@@ -797,6 +855,34 @@ Proof.
   cbn in H. injection H as <-. exists w'. reflexivity.
 Qed.
 
+(** PANIC CHARACTERIZATION of [run_cmd] for ANY [c] (nested defers included): a COMPLETED run ends with EXACTLY
+    the flattened last-raised panic of [c]'s defer forest ([cmd_defers c]) seeded by the body's own panic
+    [cmd_panic c].  The panic-side companion to [run_cmd_out_monotone] (output APPENDS) — together they pin what
+    a defer-unwinding run's Outcome carries.  Consumes [run_defers_panic_eq]; the [ORet]-result case needs
+    [cmd_panic c = None] (else the body's in-flight panic would survive to the result, by
+    [nested_defers_panic_some]). *)
+Theorem run_cmd_panic_char : forall fuel (c : Cmd unit) w oc,
+  run_cmd fuel c w = Some oc ->
+  nested_defers_panic fuel (cmd_defers c) (cmd_panic c) = Some (ocpanic oc).
+Proof.
+  intros fuel c w oc H.
+  destruct (go_chars c w) as [w_body [Hgo _]].
+  unfold run_cmd in H. rewrite Hgo in H. cbn zeta in H.
+  destruct (run_defers fuel (cmd_defers c)
+              (oc_unit (match cmd_panic c with None => ORet tt w_body | Some v => OPanic v w_body end))) as [result|] eqn:Erd;
+    [ | discriminate H ].
+  assert (Hseed : ocpanic (oc_unit (match cmd_panic c with None => ORet tt w_body | Some v => OPanic v w_body end)) = cmd_panic c)
+    by (destruct (cmd_panic c); reflexivity).
+  pose proof (run_defers_panic_eq fuel (cmd_defers c) _ result Erd) as Heq. rewrite Hseed in Heq.
+  rewrite Heq. f_equal.
+  destruct result as [[] w' | v' w']; cbn [ocpanic] in *; cbn in H; injection H as <-.
+  - (* result RETURNS: the body could not have panicked, else the in-flight panic would survive to the result *)
+    destruct (cmd_panic c) as [v0|] eqn:Ecp; [ | rewrite ocpanic_set_world; reflexivity ].
+    (* [cmd_panic c = Some v0] contradicts [ocpanic result = None] via [nested_defers_panic_some] *)
+    apply nested_defers_panic_some in Heq. destruct Heq as [? Hcontra]. discriminate Hcontra.
+  - reflexivity.
+Qed.
+
 (** The EXACT gated public-surface set for this module is the [Print Assumptions] lines below — the single
     in-file authority (the Docker manifest gate scrapes their [Axioms:] report, which must be empty).  Every
     OTHER definition here (the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections, their [run_cmd] seal
@@ -807,4 +893,5 @@ Print Assumptions bridge_flat_agrees.
 Print Assumptions bridge_nested_np.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.
+Print Assumptions run_cmd_panic_char.
 Print Assumptions run_cmd_terminates.

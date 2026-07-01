@@ -69,9 +69,11 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   panicking — via the `(prog, pa)` 2-mode, final panic last-raised-wins) + `bridge_nested_np` (NESTED, arbitrary
   depth, panic-free `cmd_no_panic c` — UNCONDITIONAL, completion discharged by `run_cmd_terminates`). Supporting cmd.v-side properties
   for ANY `c` (nested incl.): `run_cmd_terminates` (`run_cmd` returns `Some` for enough fuel — nested defers
-  terminate, via a `defers_sz` node-count measure) + two about a COMPLETING run (`run_cmd fuel c w = Some oc`):
-  `run_cmd_out_monotone` (that run's output only APPENDS, never retracts) + `run_cmd_no_panic_ret` (a completing
-  panic-free run returns `ORet`). ⚠ The full nested+panicking AGREEMENT (2-level invariant) + chan/heap/spawn
+  terminate, via a `defers_sz` node-count measure) + three about a COMPLETING run (`run_cmd fuel c w = Some oc`):
+  `run_cmd_out_monotone` (that run's output only APPENDS, never retracts), `run_cmd_no_panic_ret` (a completing
+  panic-free run returns `ORet`), and `run_cmd_panic_char` (the panic-side companion — the run ends with EXACTLY
+  the flattened last-raised panic of the LIFO defer forest, via `nested_defers_panic` = the panic analog of
+  `run_defers_out`'s output law). ⚠ The full nested+panicking AGREEMENT (2-level invariant) + chan/heap/spawn
   later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
@@ -117,7 +119,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `bridge_flat_agrees` / `bridge_nested_np` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
-`run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
+`run_cmd_panic_char` / `run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
 `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
