@@ -1,4 +1,5 @@
-(** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only, no Go).
+(** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only — NOT extracted;
+    but the [emit_panic_free] cert below BUILDS Go source via the blessed printer, so this file is not "no Go").
 
     ⚠ MODULE-WIDE CAVEAT (stated ONCE; the theorems below do NOT repeat it): NONE of these PROPERTIES is the
     [BehaviorSafe] gate.  The [emit_panic_free] certificate below IS a behavioral emission cert, but a NARROW
