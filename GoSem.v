@@ -647,17 +647,14 @@ Proof. reflexivity. Qed.
 Example gosem_runtime_blank_undenoted : denote_program gosem_runtime_blank_prog = None.
 Proof. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> integer conversions / arithmetic): [eval_value] now denotes any printable [ptype] folds
-    to an integer constant, FAITHFULLY boxing it as the model's value.  Pinned per signedness/width + a folded
-    binop; and END-TO-END, `println(int64(3))` runs to [w_log true [GoI64 3]]. *)
-Example eval_int64_conv : eval_value (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3])  = Some (anyt TI64 (i64wrap 3)).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_uint8_conv : eval_value (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5])  = Some (anyt TU8 (u8wrap 5)).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_int8_conv  : eval_value (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127]) = Some (anyt TI8 (i8wrap 127)).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_arith_fold : eval_value (EBn BAdd (EInt 1) (EInt 2))                      = Some (anyt TInt64 (intwrap 3)).
-Proof. vm_compute. reflexivity. Qed.
+(** [eval_value] denotes any printable [ptype] integer-constant fold, FAITHFULLY boxing the model's value —
+    pinned per signedness/width + a folded binop (the `int64(3)` end-to-end run is `gosem_conv_demo_runs`). *)
+Example eval_numconv_folds :
+  eval_value (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]) = Some (anyt TI64 (i64wrap 3))
+  /\ eval_value (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 5]) = Some (anyt TU8 (u8wrap 5))
+  /\ eval_value (ECall (EId (mkIdent "int8" eq_refl)) [EInt 127]) = Some (anyt TI8 (i8wrap 127))
+  /\ eval_value (EBn BAdd (EInt 1) (EInt 2)) = Some (anyt TInt64 (intwrap 3)).
+Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_conv_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
@@ -669,18 +666,13 @@ Example gosem_conv_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> exact-integer-valued FLOAT constants): [eval_value] now denotes a [PtFloatConst] too,
-    boxing it as the model's UNIQUE canonical binary64/binary32 value (faithful — inside the contiguous-exact
-    interval every integer is exact).  Pinned for [float64]/[float32]; the boundary fails closed; and
-    END-TO-END `println(float64(3))` runs to [w_log true [GoFloat64 3.0]] (the canonical binary64 of 3). *)
-Example eval_float64_conv : eval_value (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3])
-                          = Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3))).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_float32_conv : eval_value (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5])
-                          = Some (anyt TFloat32 (f32_lit (sf_of_Z 5))).
-Proof. vm_compute. reflexivity. Qed.
-Example box_float_oob_none : box_float GTFloat64 9007199254740993 = None.   (* 2^53+1 ∉ [-2^53,2^53] (NOT exactly representable): rejected at the builder *)
-Proof. reflexivity. Qed.
+(** [eval_value] denotes an exact-integer-valued FLOAT constant, boxing the model's UNIQUE canonical
+    binary64/binary32 value; the boundary (2^53+1, not exactly representable) fails closed at the builder. *)
+Example eval_floatconv_folds :
+  eval_value (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) = Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)))
+  /\ eval_value (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5]) = Some (anyt TFloat32 (f32_lit (sf_of_Z 5)))
+  /\ box_float GTFloat64 9007199254740993 = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_float_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
@@ -692,39 +684,21 @@ Example gosem_float_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)) :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> constant bools): [eval_value] folds — via [eval_bool] — a bool built from NUMERIC
-    comparisons (the 6 ops) combined by [==]/[!=]/[&&]/[||]/[!] (nested).  Pinned across the operators (incl. a
-    false case, exact-float operands, a bool-equality of two numeric compares, and a NESTED `!((1==1) && (2==3))`);
-    END-TO-END `println(3 < 5)` runs to [w_log true [true]].  (String-literal comparisons and the identity
-    [bool(x)] conversion are folded too — see the next block.)  ABSENT (-> [None], pinned below): any bool with
-    a RUNTIME operand ([len(..)==0], even under [&&]). *)
-Example eval_bool_eq     : eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_lt     : eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_false  : eval_value (EBn BEq (EInt 1) (EInt 2)) = Some (anyt TBool false).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_float  : eval_value (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])
-                                               (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))
-                         = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_and    : eval_value (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_or     : eval_value (EBn BLOr  (EBn BEq (EInt 1) (EInt 2)) (EBn BLt (EInt 3) (EInt 5))) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_not    : eval_value (EUn UNot (EBn BEq (EInt 1) (EInt 2))) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_booleq : eval_value (EBn BEq (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_nested : eval_value (EUn UNot (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 3)))) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_runtime_absent :   (* a comparison with a RUNTIME [len(..)] operand: honestly absent, not folded wrong *)
-  eval_value (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) = None.
-Proof. reflexivity. Qed.
-Example eval_bool_logic_runtime_absent :   (* a RUNTIME operand even UNDER [&&] makes the whole fold absent (not folded wrong) *)
-  eval_value (EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0))
-                        (EBn BEq (EInt 2) (EInt 2))) = None.
-Proof. reflexivity. Qed.
+(** [eval_value] folds a constant bool from the 6 NUMERIC comparisons combined by [==]/[!=]/[&&]/[||]/[!]
+    (nested), delegates string-literal order to the model, and folds the identity [bool(x)] conversion (next
+    block). A bool with any RUNTIME operand is ABSENT, not folded wrong (`eval_absent` group below). *)
+Example eval_bool_folds :
+  eval_value (EBn BEq (EInt 1) (EInt 1)) = Some (anyt TBool true)
+  /\ eval_value (EBn BLt (EInt 3) (EInt 5)) = Some (anyt TBool true)
+  /\ eval_value (EBn BEq (EInt 1) (EInt 2)) = Some (anyt TBool false)
+  /\ eval_value (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])
+                        (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])) = Some (anyt TBool true)
+  /\ eval_value (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true)
+  /\ eval_value (EBn BLOr (EBn BEq (EInt 1) (EInt 2)) (EBn BLt (EInt 3) (EInt 5))) = Some (anyt TBool true)
+  /\ eval_value (EUn UNot (EBn BEq (EInt 1) (EInt 2))) = Some (anyt TBool true)
+  /\ eval_value (EBn BEq (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2))) = Some (anyt TBool true)
+  /\ eval_value (EUn UNot (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 3)))) = Some (anyt TBool true).
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** SEAL REGRESSION (Codex 2026-06-30): [eval_bool] FAILS CLOSED on a [ptype]-rejected comparison — it does NOT
     rely on a caller having gated.  A mixed-WIDTH typed comparison [int64(1) == int32(1)] is ILL-TYPED (Go
@@ -736,46 +710,28 @@ Example mixed_width_ptype_none     : ptype mixed_width_cmp = None.      Proof. r
 Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. reflexivity. Qed.
 Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
 
-(** GROWTH (slice 1 -> STRING comparisons + identity bool CONVERSION): [eval_value] now folds a comparison of
-    two string LITERALS — DELEGATED to the model's byte-wise order ([str_eqb]/[str_ltb]/[str_gtb]/[str_geb]) —
-    and the identity [bool(x)] conversion.  Pinned across all 6 ops [==]/[!=]/[<]/[<=]/[>]/[>=] (incl. a false
-    case, the prefix case ["a" < "ab"], and a HIGH-BYTE pair confirming UNSIGNED byte order: ["\200" > "\100"]),
-    and [bool(1==1)].  STILL ABSENT: a comparison whose string operand is NON-literal ([string(65)] carries no
-    recoverable value). *)
-Example eval_str_cmp_supported : ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool.
-Proof. reflexivity. Qed.
-Example eval_str_eq     : eval_value (EBn BEq (EStr "a") (EStr "a")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_ne     : eval_value (EBn BNe (EStr "a") (EStr "b")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_lt     : eval_value (EBn BLt (EStr "a") (EStr "b")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_lt_f   : eval_value (EBn BLt (EStr "b") (EStr "a")) = Some (anyt TBool false).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_le_eq  : eval_value (EBn BLe (EStr "a") (EStr "a")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_gt     : eval_value (EBn BGt (EStr "b") (EStr "a")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_prefix : eval_value (EBn BLt (EStr "a") (EStr "ab")) = Some (anyt TBool true).   (* "" < "b" tail: shorter prefix is less *)
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_ge     : eval_value (EBn BGe (EStr "b") (EStr "a")) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_ge_f   : eval_value (EBn BGe (EStr "a") (EStr "b")) = Some (anyt TBool false).
-Proof. vm_compute. reflexivity. Qed.
-(** HIGH-BYTE: a 1-byte string of byte 200 vs byte 100.  UNSIGNED (the model's [str_ltb], via [u8raw]) gives
-    [200 > 100 = true]; a SIGNED int8 read would give [-56 < 100 = false].  Pins GoSem's fold to the model's
-    unsigned-byte order. *)
-Example eval_str_highbyte : eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
-                                                (EStr (String (Ascii.ascii_of_nat 100) EmptyString)))
-                          = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_bool_conv_supported : ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
-Proof. reflexivity. Qed.
-Example eval_bool_conv : eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_str_nonlit_absent :   (* a NON-literal string operand ([string(65)]) has no recoverable value -> absent *)
-  eval_value (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")) = None.
-Proof. reflexivity. Qed.
+(** [eval_value] folds a comparison of two string LITERALS (order DELEGATED to the model's byte-wise
+    [str_eqb]/[str_ltb]/…) across all 6 ops, plus the identity [bool(x)] conversion. The high-byte pair
+    "\200" > "\100" pins UNSIGNED byte order (a signed int8 read would flip it). A NON-literal string operand
+    ([string(65)]) carries no value -> ABSENT (`eval_absent` group). *)
+Example eval_str_ptype_supported :
+  ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
+  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
+Proof. split; reflexivity. Qed.
+Example eval_str_folds :
+  eval_value (EBn BEq (EStr "a") (EStr "a")) = Some (anyt TBool true)
+  /\ eval_value (EBn BNe (EStr "a") (EStr "b")) = Some (anyt TBool true)
+  /\ eval_value (EBn BLt (EStr "a") (EStr "b")) = Some (anyt TBool true)
+  /\ eval_value (EBn BLt (EStr "b") (EStr "a")) = Some (anyt TBool false)
+  /\ eval_value (EBn BLe (EStr "a") (EStr "a")) = Some (anyt TBool true)
+  /\ eval_value (EBn BGt (EStr "b") (EStr "a")) = Some (anyt TBool true)
+  /\ eval_value (EBn BLt (EStr "a") (EStr "ab")) = Some (anyt TBool true)   (* shorter prefix is less *)
+  /\ eval_value (EBn BGe (EStr "b") (EStr "a")) = Some (anyt TBool true)
+  /\ eval_value (EBn BGe (EStr "a") (EStr "b")) = Some (anyt TBool false)
+  /\ eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
+                        (EStr (String (Ascii.ascii_of_nat 100) EmptyString))) = Some (anyt TBool true)  (* unsigned byte order *)
+  /\ eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
+Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EBn BLt (EInt 3) (EInt 5)]); GsReturn].
@@ -786,44 +742,36 @@ Example gosem_bool_demo_runs : forall w,
   = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
-(** BOUNDARY (Codex 2026-06-30, extended for [GTUint]): the eval growth FAILS CLOSED — it never carries a
-    [*wrap]-mangled out-of-range value.  Pinned directly at [box_int] and end-to-end through [eval_value]: an
-    out-of-range fixed-width value, an untyped const past the default-[int] range, and an OUT-OF-conservative-range
-    [uint] conversion all evaluate to [None]; an IN-range [uint] conversion boxes its EXACT value ([eval_uint_present]
-    below), since [mk_uint] discharges the model's [in_u64] proof rather than [*wrap]-mangling. *)
-Example box_int_oob_none    : box_int GTU8 300 = None.   (* 300 ∉ [0,255]: rejected at the builder, not [u8wrap]-mangled to 44 *)
-Proof. reflexivity. Qed.
-Example eval_default_oob_none : eval_value (EInt 2147483648) = None.   (* 2^31 ∉ GTInt's conservative 32-bit range *)
-Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_present   : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = Some (anyt TUint (uint_lit 3 eq_refl)).   (* [GTUint] now boxed via [mk_uint] — the model's EXACT uint value 3 *)
-Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_oob_none  : eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]) = None.   (* 2^32 ∉ GTUint's CONSERVATIVE 32-bit range — still FAILS CLOSED *)
-Proof. vm_compute. reflexivity. Qed.
-(* The [mk_uint] boxing makes the GATE's uint overflow/underflow rejection LOAD-BEARING: without it a Go-INVALID
-   uint const could be boxed and EMITTED (fail-OPEN — [go build] would then error).  Go REJECTS [uint(3)-uint(5)]
-   ("constant overflows uint").  What keeps it OUT of [SupportedProgram] (hence out of emission) is the GATE, NOT
-   [eval]: [ptype] -> [None] (root) ⇒ [printable_arg_ok] -> [false] (the predicate [expr_stmt_ok] consults — the
-   statement is UNSUPPORTED, never emitted).  [eval_value] -> [None] is a faithful-or-absent BACKSTOP behind that
-   gate (even IF the gate regressed, eval still never boxes a wrapped value), NOT the load-bearing rejection.  A
-   VALID uint ARITHMETIC const is, by contrast, supported AND boxes its exact value — [GTUint] participates in
-   arithmetic, not just literal conversions. *)
+(** FAILS CLOSED: the eval growth never carries a [*wrap]-mangled out-of-range value — an IN-range conversion
+    boxes its EXACT value ([mk_uint] discharges the model's [in_u64] proof). [mk_uint] boxing makes the GATE's
+    uint overflow/underflow rejection LOAD-BEARING: a Go-INVALID uint const is kept OUT of [SupportedProgram]
+    by the GATE ([ptype]->None ⇒ [printable_arg_ok]->false ⇒ unsupported ⇒ never emitted), NOT by [eval] (whose
+    [None] is a faithful-or-absent BACKSTOP). [len] of a string CONSTANT folds ([ptype] -> [PtIntConst]); [len]
+    of a slice literal is a runtime value, faithfully absent. *)
 Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
-Example ptype_uint_underflow_none  : ptype uint_underflow_e = None.            (* ROOT rejection — Go's "constant overflows uint" *)
-Proof. vm_compute. reflexivity. Qed.
-Example gate_rejects_uint_underflow : printable_arg_ok uint_underflow_e = false. (* THE load-bearing GATE: unsupported as a print arg ⇒ never emitted *)
-Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_underflow_none   : eval_value uint_underflow_e = None.        (* BACKSTOP behind the gate — faithful-or-absent, never a wrapped value *)
-Proof. vm_compute. reflexivity. Qed.
-Example eval_uint_add_faithful     : eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl)).
-Proof. vm_compute. reflexivity. Qed.
-(* Go's len-CONSTANCY boundary (Go spec, "Length and capacity"): [len] of a STRING CONSTANT is itself a
-   compile-time CONSTANT — [ptype] already folds [len("abc")] -> [PtIntConst 3], so it denotes via the
-   integer-constant path (no special case in [eval_value]); but [len] of a SLICE LITERAL is a Go RUNTIME value
-   ([PtRunInt], no compile-time value), left faithfully UN-denoted (faithful-or-absent), though it IS a
-   supported print arg.  Pins both sides of the constant/runtime line for [len]. *)
-Example eval_len_string_const  : eval_value (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"]) = Some (anyt TInt64 (intwrap 3)).
-Proof. vm_compute. reflexivity. Qed.
-Example eval_len_slice_lit_none : eval_value (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]]) = None.
+Example uint_underflow_gate :   (* LOAD-BEARING: root [ptype] rejection ⇒ the print-arg gate rejects it (never emitted) *)
+  ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false.
+Proof. vm_compute. split; reflexivity. Qed.
+Example eval_conv_folds :   (* in-range conversions/arith box their EXACT value; the builder rejects OOB *)
+  box_int GTU8 300 = None
+  /\ eval_value (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) = Some (anyt TUint (uint_lit 3 eq_refl))
+  /\ eval_value (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3])
+                          (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4])) = Some (anyt TUint (uint_lit 7 eq_refl))
+  /\ eval_value (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"]) = Some (anyt TInt64 (intwrap 3)).
+Proof. repeat split; vm_compute; reflexivity. Qed.
+(** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
+    with a runtime [len] operand (even under [&&]), a non-literal string operand, an untyped const past the
+    default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), and
+    a runtime slice [len]. *)
+Definition eval_absent : list GExpr :=
+  [ EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
+  ; EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) (EBn BEq (EInt 2) (EInt 2))
+  ; EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) (EStr "A")
+  ; EInt 2147483648
+  ; ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]
+  ; uint_underflow_e
+  ; ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]] ].
+Example eval_absent_none : forallb (fun e => match eval_value e with None => true | Some _ => false end) eval_absent = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses: [denotable_program] (the decidable predicate of [denote_program_dec])
