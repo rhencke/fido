@@ -87,7 +87,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 - **GoSem slice 1 only / no behavioral safety.** The blessed certificate is `SupportedProgram` (SYNTACTIC),
   NOT `BehaviorSafe`; slice 1 denotes a SUBSET of supported programs and proves denotation⊆gate. No
-  `BehaviorSafe` gate, no GoSem-backed emission gate (`panic_free_runs_ret*` are proved but are NOT gates).
+  `BehaviorSafe` gate, no GoSem-backed emission gate (GoSemSafe.v's panic-free properties are proved but are NOT gates).
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
 - **Main output is the legacy path:** `main.go` comes from the trusted plugin, not the certificate-gated

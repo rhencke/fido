@@ -12,8 +12,8 @@ The central rule:
 Raw structured Go ASTs may represent unsafe programs.
 Only CERTIFIED ASTs may be emitted through the official path.
 Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe" only when
-GoSem-backed SAFETY theorems back the certificate (FIRST proof-only properties, `panic_free_runs_ret` and its
-operational lift `panic_free_runs_ret_ustep`, exist but do NOT back it / gate emission) — and the NAME of the
+GoSem-backed SAFETY theorems back the certificate (FIRST proof-only properties exist in `GoSemSafe.v` — panic-
+freedom, including a decidable gate-SHAPE predicate — but do NOT back it / gate emission) — and the NAME of the
 certificate must never claim more than is proved.
 ```
 
@@ -84,9 +84,9 @@ repeat the exact overclaim this refactor kills (Rule 5).
 
 ```text
 SupportedProgram  -- syntactic: in the supported subset; no unmodeled constructs; no raw escape hatches.
-BehaviorSafe      -- semantic GATE (reserved; not yet defined — first proof-only properties
-                     `panic_free_runs_ret`(+`_ustep`) exist but are NOT this gate): no nil deref / OOB /
-                     send-on-closed / illegal close / data race; happens-before consistency; session safety.
+BehaviorSafe      -- semantic GATE (reserved; not yet defined — first proof-only panic-free properties in
+                     GoSemSafe.v exist but are NOT this gate): no nil deref / OOB / send-on-closed / illegal
+                     close / data race; happens-before consistency; session safety.
 ```
 
 Safety must become the **ticket required by the emitter**, not a theorem sitting near an AST.
@@ -228,7 +228,7 @@ discipline.
 [live]     Generated printer artifact (plugin/printer.ml) in sync. (make printer-verify + Docker stage)
 [live]     No raw-syntax constructor NAMES in source.             (plugin/smart-ctor-gate.sh)
 [live]     Official emit only via GoEmit's certificate API; no direct print_program call outside GoEmit.
-[live]     Print Assumptions for every public safety theorem (the panic-free property `panic_free_runs_ret` and its operational lift `panic_free_runs_ret_ustep` are manifest-gated now; the full BehaviorSafe theorems land later).
+[live]     Print Assumptions for every public safety theorem (GoSemSafe.v's panic-free properties are manifest-gated now — exact list single-sourced in PROGRESS.md "Current gates"; the full BehaviorSafe theorems land later).
 [review]   The Phase-1 gate is named SupportedProgram, NOT SafeProgram, until GoSem-backed BehaviorSafe exists.
 [review]   Docs and NAMES do not claim more than the live path proves.
 ```
