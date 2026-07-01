@@ -1980,18 +1980,24 @@ let rec goexpr_bridge env e =
            (match goexpr_bridge env x, mk_goexpr_id "float32" with
             | Some lx, Some f -> Some (Printer.ECall (f, coq_list_of_ocaml [lx]))
             | _ -> None)
-       (* a record-field SELECTOR [x.Field] = [MLapp (proj, [x])] where [proj] is a PLAIN struct-field accessor
-          -> [ESel (bridge x) Field].  Mirrors [pp_expr]'s record-projection arm ORDER exactly: the
-          DEFINED-TYPE value projection ([is_record_proj] AND [defined_prim_proj]) renders as a CAST
-          [<under>(x)] (pp_expr arm ~2454, BEFORE the selector arm), so it is EXCLUDED here; only the plain
-          field-access arm (~2465) [<pp_atom (peel_embedded recv)>.<Field>] is what [ESel] reproduces
-          ([gprint_ESel] = [gparen x ++ "." ++ Field]).  A single-arg app ([rest = []]) is the pure selector
-          (no method dispatch).  The receiver bridges through the SAME recursion, so its bytes match; an
-          EMBEDDED-projection receiver ([is_embedded_proj], which [pp_expr] would peel) is NOT [is_record_proj],
-          so it fails to bridge -> the whole selector declines (None) and stays on [pp_expr] — never a
-          peel mismatch. *)
+       (* a record-field SELECTOR of a RUNTIME LOCAL [local.Field] = [MLapp (proj, [MLrel])] -> [ESel (EId
+          local) Field].  DELIBERATELY NARROW to the byte-parity-GUARANTEED case, because [pp_expr]'s selector
+          arm (~2465) renders [<pp_atom (peel_embedded recv)>.<Field>] — it PEELS an embedded hop off the
+          receiver and passes it through [pp_atom], neither of which [gprint_ESel] ([gparen d ++ "." ++ Field])
+          reproduces for a general receiver.  So bridge ONLY when parity is provable:
+            - [proj] is a PLAIN struct field: [is_record_proj] AND NOT [defined_prim_proj] (that renders as a
+              CAST [<under>(x)] at pp_expr arm ~2454) AND NOT [is_embedded_proj] (an embedded FIELD; also in
+              [record_proj_field], so [is_record_proj] alone does NOT exclude it);
+            - the RECEIVER is a runtime local ([MLrel], after [strip_magic]): [peel_embedded] is a no-op on it
+              and [pp_atom]/[gprint] render it identically (the bare name), so no peel/paren divergence.
+          Every OTHER receiver (an EMBEDDED-projection app that pp_expr would peel, a NESTED selector, a call,
+          …) and every embedded/defined-type field declines (None) and stays on the trusted [pp_expr] — a
+          fall-back to correct bytes, never a parity guess (rule 2: faithful-or-reject). *)
        | MLglob r, [d]
-         when is_record_proj r && not (Hashtbl.mem defined_prim_proj (global_path r)) ->
+         when is_record_proj r
+           && not (Hashtbl.mem defined_prim_proj (global_path r))
+           && not (is_embedded_proj r)
+           && (match strip_magic d with MLrel _ -> true | _ -> false) ->
            (match goexpr_bridge env d with
             | Some ld -> mk_goexpr_sel ld (proj_field_name r)
             | None    -> None)
