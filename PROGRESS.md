@@ -64,10 +64,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   NOT the emission path), `concurrency.v` (trace / happens-before / race / bounded-deadlock theory).
 - **cmd↔unified bridge** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` translates cmd.v's
   tree into `unified.v`'s output/panic/return/defer fragment (println flag preserved). `cmd_to_ucmd_run_agrees`
-  / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged:
-  `bridge_one_defer_agrees` (any one defer) + `bridge_flat_agrees` (multiple flat defers, panics ALLOWED — the
-  `(prog, pa)` 2-mode, final panic last-raised-wins; subsumes the non-panicking case). ⚠ Nested + chan/heap/spawn
-  later. Zero axioms.
+  / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
+  `bridge_flat_agrees` (multiple flat defers, panics ALLOWED — the `(prog, pa)` 2-mode, final panic
+  last-raised-wins; subsumes both the non-panicking flat case and the single-`no_defer`-defer case). ⚠ Nested +
+  chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free denoted program
   runs to `ORet`, never panics) + `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom /
   liveness live). SEED of `BehaviorSafe`; ⚠ NOT a gate. Zero axioms.
@@ -110,7 +110,7 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
-`bridge_one_defer_agrees` / `bridge_flat_agrees` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
+`bridge_flat_agrees` / `denote_program_run_agrees`) / `panic_free_runs_ret` /
 `panic_free_runs_ret_ustep`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
