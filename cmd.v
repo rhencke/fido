@@ -189,9 +189,8 @@ Fixpoint no_defer (c : Cmd unit) : bool :=
   end.
 
 (** [cmd_no_panic c] — [c] has NO [CPan] node ANYWHERE (body or any deferred action): it can never end in an
-    [OPanic] outcome.  A pure [Cmd] predicate, so it lives here in cmd.v — the SINGLE authority, shared by
-    GoSemSafe (the panic-free safety property) and cmd_unified.v (the fully-non-panicking multiple-defer
-    bridge); never a second copy. *)
+    [OPanic] outcome.  A pure [Cmd] predicate (sibling of [no_defer]), so it lives here in cmd.v — the SINGLE
+    authority; consumed by GoSemSafe (the panic-free safety property); never a second copy. *)
 Fixpoint cmd_no_panic (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => cmd_no_panic c' | CPan _ => false | CDfr d c' => cmd_no_panic d && cmd_no_panic c'

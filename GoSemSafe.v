@@ -26,8 +26,8 @@ Definition stmt_is_panic (s : GoStmt) : bool :=
   end.
 Definition panic_free (b : list GoStmt) : bool := forallb (fun s => negb (stmt_is_panic s)) b.
 
-(** [cmd_no_panic] (no [CPan] anywhere — cannot end in a panic Outcome) is now the SINGLE authority in cmd.v,
-    shared with the cmd↔unified bridge; used here for the panic-free safety property. *)
+(** [cmd_no_panic] (no [CPan] anywhere — cannot end in a panic Outcome) is the SINGLE authority in cmd.v (a
+    [Cmd] predicate beside [no_defer]); consumed here for the panic-free safety property. *)
 Lemma cbind_no_panic : forall (c : Cmd unit) (k : unit -> Cmd unit),
   cmd_no_panic c = true -> (forall u, cmd_no_panic (k u) = true) -> cmd_no_panic (cbind c k) = true.
 Proof.
