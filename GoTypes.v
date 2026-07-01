@@ -455,9 +455,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       (* indexing a slice LITERAL directly by an INTEGER index.  For a SLICE, gc compile-checks a CONSTANT index
          only for NON-NEGATIVE + INT-REPRESENTABLE (verified: gc rejects [[]int{..}[-1]] "must not be negative"
          and [..[2^63]] "overflows int", but ACCEPTS an OOB positive [[]int{10,20}[5]] — OOB is a RUN-TIME PANIC,
-         NOT a compile error, unlike an ARRAY).  So reject a negative / non-int-representable constant; accept an
-         OOB-but-representable constant, OR any RUNTIME (non-constant) integer index (its bounds — incl. OOB — are
-         behavioral, deferred to B3).  Result: a runtime int of element type [t].  Brick 1: INTEGER elem types. *)
+         NOT a compile error, unlike an ARRAY).  So reject a negative / non-int-representable constant (against
+         Fido's CONSERVATIVE [GTInt] = 32-bit min, so a huge index valid only on a 64-bit gc is fail-CLOSED
+         rejected — safe incompleteness); accept an OOB-but-representable constant, OR any RUNTIME (non-constant)
+         integer index (its bounds — incl. OOB — are behavioral, deferred to B3).  Brick 1: INTEGER elem types. *)
       if is_int_goty t
          && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then match ptype idx with

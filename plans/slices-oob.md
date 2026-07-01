@@ -22,6 +22,10 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
 - So a negative / overflow constant index is **INVALID Go** (supportedness reject); an OOB-positive constant,
   and any **runtime** integer index, are **VALID Go** — their OOB is **behavioral** (a run-time panic) and
   needs runtime values GoSem lacks.
+- ⚠ Fido models `int` CONSERVATIVELY (`GTInt` = 32-bit min, since Go `int` is platform 32/64-bit), so B1's
+  representability check (`int_const_repr _ GTInt`) is fail-CLOSED, NOT an exact gc match: a large index valid
+  only on a 64-bit gc (`[2^40]`) is conservatively REJECTED (safe incompleteness), consistent with Fido's
+  existing conservative int-literal handling. The `[2^63]` fixture is genuinely invalid on any platform.
 - ⚠ Do NOT guess Go semantics — `go build` a tiny program to settle it. (Cost me 3 bounces before I tested.)
 
 ## Bricks (each: faithful, self-contained, accepted-good + rejected-bad fixtures)
@@ -30,8 +34,8 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   a negative/overflow constant → `None` (gc compile error); an OOB-POSITIVE constant, or a RUNTIME integer
   index → `PtRunInt t` (SUPPORTED, valid Go, bounds behavioral); a non-integer index / non-int element →
   `None`. Result is a runtime int (supported-but-not-denoted). GoTypes/GoSafe only; fixtures pin supported
-  (`[1]` in-bounds, `[5]` OOB-positive, `[len(..)]` runtime) vs rejected (`[-1]` negative, `["x"]` string).
-  **← done.**
+  (`[1]` in-bounds, `[5]` OOB-positive, `[len(..)]` runtime) vs rejected (`[-1]` negative, `[2^63]` overflow,
+  `["x"]` string). **← done.**
 - **B2 — denote the in-bounds value.** Fold `[]int{..}[k]` to the k-th element's value so the gate ACCEPTS it.
   Needs a faithful "runtime value with a known static fold" — either a new ptype category or an eval_value arm
   that computes the value while ptype keeps it `PtRunInt` (folding is faithful in VALUE contexts, which is all
