@@ -1,33 +1,19 @@
-(** GoSemSafe.v — the FIRST behavioral-safety properties over GoSem's denotation (proof-only, no Go).
+(** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only, no Go).
 
-    ⚠ NONE of these is the [BehaviorSafe] gate; NONE gates emission.  The charter's behavioral-safety TARGET (no
-    nil-deref / OOB / send-on-closed / data race / …) concerns Go constructs the slice-1 fragment does NOT
-    denote (no pointers / slices / channels reach [denote_program] yet).  In THAT fragment the ONLY unsafe
-    runtime behavior is an explicit [panic], so panic-freedom is the fragment-appropriate safety condition.
+    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the theorems below do NOT repeat it): NONE of these is the [BehaviorSafe]
+    gate, and NONE gates emission.  Slice 1 denotes NO pointers / slices / channels, so an explicit [panic] is
+    the ONLY unsafe runtime op — panic-freedom is the fragment-appropriate safety condition, NOT the full
+    behavioral-safety target.  Names are "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
 
-    TWO families (each theorem's own doc is at its def site; the names are also the manifest surfaces
-    single-sourced in PROGRESS.md "Current gates"):
-    - DENOTATION-HYPOTHESIS properties — [panic_free_runs_ret] (+ operational lift [panic_free_runs_ret_ustep]):
-      GIVEN a program that DENOTES ([denote_program p = Some c]) and is syntactically panic-free, [run_cmd]
-      yields [ORet], never [OPanic]; the lift holds where [unified.v]'s race-freedom / liveness live ([run_cmd]
-      stays the authority).  [panic_free_runs_ret_output] gives the EXPLICIT output world [cmd_out_world c w]
-      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
-    - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
-      ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
-      ([_output] gives the EXPLICIT output [cmd_out_world c w], the existential is its corollary; + [_ustep]):
-      the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
-      the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.  Plus a
-      REFINEMENT lemma [panic_free_denotable_supported]: [panic_free_denotable p = true] implies
-      [SupportedProgram p] (its support proof suffices for [GoEmit]'s [ep_supported] field).
-
-    COMMAND-LEVEL building blocks (cmd.v [Cmd], DEFER-FREE only — premise [no_defer c = true]; NOT lifted to
-    programs): a defer-free command's [run_cmd] output is exactly [cmd_out_world c w], ending in [ORet]
-    ([run_cmd_panic_free_world], when [cmd_no_panic]) or in [OPanic v] with that same pre-panic output
-    ([run_cmd_panics_world], when [cmd_panic_val c = Some v]).  These say NOTHING about commands WITH defers.
-
-    Naming discipline (a name is a correctness claim): SPECIFIC panic-free properties, NOT [BehaviorSafe] /
-    [SafeProgram]; the predicate is [panic_free_denotable], never [safe].  Kept in their own module so GoSem.v
-    does not grow. *)
+    Two families (each theorem's exact contract is at its def site; the public surface is bundled in
+    [gosem_safe_panic_surface] and single-sourced in PROGRESS.md "Current gates"):
+    - DENOTATION-HYPOTHESIS: a program that DENOTES + is syntactically panic-free runs (via [run_cmd]) to [ORet]
+      never [OPanic] ([panic_free_runs_ret]; [_output] pins the explicit output world; [_ustep] lifts it to
+      [unified.v]'s [ustep], keeping [run_cmd] the authority).
+    - GATE-SHAPE: [panic_free_denotable] — a DECIDABLE predicate on the RAW [Program] (denotability AND syntactic
+      panic-freedom) that ENTAILS the safe run ([panic_free_denotable_runs_ret][_output][_ustep]) and REFINES
+      [SupportedProgram] ([panic_free_denotable_supported]).  This is the eventual gate's SHAPE, not the gate.
+    Plus cmd.v-level DEFER-FREE building blocks ([run_cmd_panic_free_world] / [run_cmd_panics_world]). *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified.
 From Stdlib Require Import String List Bool.
@@ -209,8 +195,7 @@ Qed.
     [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO panic
     ([uc_panic 0 = None]), its output equal to the safe run's.  cmd.v's [run_cmd] STAYS the authority: the
     conclusion CARRIES [run_cmd 1 c w = Some (ORet tt w')] and ties [uc_out] to that [w'] (not a free observer).
-    So the seed safety PROPERTY is not merely denotational; it holds where the concurrency theory lives.  (Still
-    a PROPERTY, NOT an emission gate.) *)
+    So the seed safety property is not merely denotational; it holds where the concurrency theory lives. *)
 Theorem panic_free_runs_ret_ustep : forall p c ucap w,
   denote_program p = Some c -> panic_free (prog_body p) = true ->
   exists (uc : UConfig) (w' : World),
@@ -229,16 +214,11 @@ Proof.
   - cbn [oc_world] in Hout. exact Hout.
 Qed.
 
-(** Toward the [BehaviorSafe] SHAPE (still a PROPERTY, still NOT a gate).  [panic_free_runs_ret] takes the
-    denotation [denote_program p = Some c] as a HYPOTHESIS; a real gate must instead be DECIDABLE on the raw
-    [Program].  So fold its two conditions into one boolean predicate: [panic_free_denotable p] = the DECIDABLE
-    image of "denotes" ([denotable_program], from [denote_program_dec]) AND the syntactic [panic_free].  It
-    ENTAILS the safe run WITHOUT a denotation handed in — the exact "decidable syntactic predicate ⟹ runtime
-    safety" form the eventual gate will take, now computable from the program alone.
-    ⚠ Honesty: this is NOT [BehaviorSafe] / [SafeProgram] and does NOT gate emission.  In slice 1's fragment
-    (no pointers / slices / channels reach [denote_program]) [panic] is the ONLY unsafe op, so panic-freedom is
-    the fragment-appropriate safety condition — the NAME stays specific ([panic_free_denotable], never [safe]),
-    and this predicate is NOT yet strong enough to certify the full behavioral-safety target. *)
+(** The GATE-SHAPE predicate.  [panic_free_runs_ret] takes the denotation [denote_program p = Some c] as a
+    HYPOTHESIS; a real gate must be DECIDABLE on the raw [Program].  So fold its two conditions into one boolean:
+    [panic_free_denotable p] = the decidable image of "denotes" ([denotable_program], from [denote_program_dec])
+    AND syntactic [panic_free] — computable from the program alone, and it ENTAILS the safe run (below).  (The
+    module-wide caveat applies: this is the gate's SHAPE, not [BehaviorSafe] / an emission gate.) *)
 Definition panic_free_denotable (p : Program) : bool :=
   denotable_program p && panic_free (prog_body p).
 
@@ -300,12 +280,12 @@ Proof.
   intros p H. apply andb_true_iff in H as [Hden _]. exact (denotable_supported p Hden).
 Qed.
 
-(** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
-Print Assumptions panic_free_runs_ret.
-Print Assumptions panic_free_runs_ret_output.
-Print Assumptions run_cmd_panics_world.
-Print Assumptions panic_free_runs_ret_ustep.
-Print Assumptions panic_free_denotable_runs_ret_output.
-Print Assumptions panic_free_denotable_runs_ret.
-Print Assumptions panic_free_denotable_runs_ret_ustep.
-Print Assumptions panic_free_denotable_supported.
+(** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
+    [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
+    Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
+    not advertised zero-axiom). *)
+Definition gosem_safe_panic_surface :=
+  (panic_free_runs_ret, panic_free_runs_ret_output, run_cmd_panics_world, panic_free_runs_ret_ustep,
+   panic_free_denotable_runs_ret_output, panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
+   panic_free_denotable_supported).
+Print Assumptions gosem_safe_panic_surface.
