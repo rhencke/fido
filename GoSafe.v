@@ -237,7 +237,7 @@ Definition bad_programs : list Program :=
   ; gs_blank (ESliceLit GTU8 [gs_int (EInt 300)])
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EStr "x"))      (* []int{10,20}["x"]: a STRING index is INVALID Go — a slice index must be an integer; [ptype idx] = [PtStr] so [is_int_cat] fails -> UNSUPPORTED. slices-oob.md brick 1 *)
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EUn UNeg (EInt 1)))  (* []int{10,20}[-1]: a NEGATIVE constant index is INVALID Go (verified gc: "index -1 must not be negative") — REJECTED by the [0 <=? k] guard.  (An OOB *positive* constant is NOT here — it is valid Go, in good_programs.) *)
-  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 9223372036854775808))  (* []int{10,20}[2^63]: a constant index that OVERFLOWS int is INVALID Go (verified gc: "overflows int") — REJECTED by the [int_const_repr k GTInt] guard (pins the overflow arm, distinct from the negative one) *)
+  ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 9223372036854775808))  (* []int{10,20}[2^63]: 2^63 overflows int on ANY platform — INVALID Go (verified gc: "overflows int"), REJECTED by the [int_const_repr k GTInt] guard (pins the overflow arm, distinct from the negative one).  NB: that guard is CONSERVATIVE 32-bit, so it also over-rejects some indices a 64-bit gc accepts — this fixture is only the genuinely-invalid end *)
     (* float-constant rounding + platform-uint complement (the rep must not lie) *)
   ; pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))                  (* int64(float64(maxint64)) rounds up *)
   ; pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))

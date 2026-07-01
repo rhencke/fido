@@ -517,9 +517,10 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
     [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
     whose elements are ASSIGNABLE to its element type, an INTEGER-indexed access into an INTEGER slice literal
-    ([]int{..}[i] — a runtime int; a NEGATIVE or non-int-representable CONSTANT index is REJECTED (gc compile
-    error), but an OOB positive constant is VALID Go (a run-time panic) so SUPPORTED, and a RUNTIME index's
-    bounds are behavioral), and an INTEGER-key map LITERAL whose constant keys are
+    ([]int{..}[i] — a runtime int; a NEGATIVE constant index is REJECTED (gc compile error), as is one not
+    representable in Fido's CONSERVATIVE 32-bit [GTInt] (fail-CLOSED: a huge index valid only on a 64-bit gc is
+    over-rejected, NOT an exact gc boundary), but an OOB positive constant is VALID Go (a run-time panic) so
+    SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose constant keys are
     assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:

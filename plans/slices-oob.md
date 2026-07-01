@@ -31,7 +31,8 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
 ## Bricks (each: faithful, self-contained, accepted-good + rejected-bad fixtures)
 - **B1 — supportedness (ptype).** `ptype (EIndex (ESliceLit t es) idx)` for an INT element type `t`: a
   CONSTANT integer index is checked non-negative + int-representable (`0 <= k` && `int_const_repr k GTInt`) —
-  a negative/overflow constant → `None` (gc compile error); an OOB-POSITIVE constant, or a RUNTIME integer
+  a negative constant (a gc compile error) or one over Fido's conservative 32-bit `int` (fail-closed, see the
+  pin) → `None`; an OOB-POSITIVE constant, or a RUNTIME integer
   index → `PtRunInt t` (SUPPORTED, valid Go, bounds behavioral); a non-integer index / non-int element →
   `None`. Result is a runtime int (supported-but-not-denoted). GoTypes/GoSafe only; fixtures pin supported
   (`[1]` in-bounds, `[5]` OOB-positive, `[len(..)]` runtime) vs rejected (`[-1]` negative, `[2^63]` overflow,
