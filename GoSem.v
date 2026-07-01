@@ -317,9 +317,12 @@ Qed.
     at a TERMINATOR — the unreachable rest is merely SUPPORTED ([forallb stmt_ok rest]), else the rest is
     itself denotable.  [denote_body_dec] proves the two AGREE: denotability decomposes statement-by-statement,
     with NO body-level failure mode of its own beyond [denote_stmt]'s.  This is the SCAFFOLD toward the eventual
-    "supported ⟺ denotes": as [eval_value] grows toward total on the supported value forms, [denotable_*]
-    converges to [supported_*]; TODAY it pins the EXACT denotable fragment as a decidable predicate.  (It is a
-    CHARACTERIZATION/decidability result, NOT yet [supported_program ⟹ denotes] — [eval_value] is partial.) *)
+    "supported ⟺ denotes".  The [denotable_*] ⊊ [supported_*] gap has TWO independent sources: (a) unmodeled
+    VALUE forms (runtime [len]/[int(x)], fractional floats) that [eval_value] does not yet fold; (b) [GsDefer]
+    — supported + emittable but undenoted until [run_cmd] fuel > 1.  [eval_value] growth closes only (a), and
+    only on the DEFER-FREE fragment; full "supported ⟺ denotes" ALSO needs defer denotation.  TODAY [denotable_*]
+    pins the EXACT denotable fragment as a decidable predicate.  (It is a CHARACTERIZATION/decidability result,
+    NOT yet [supported_program ⟹ denotes] — [eval_value] is partial AND defer is unmodeled.) *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
   | [] => true
@@ -551,9 +554,10 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     even express.  It is SUFFICIENT, not necessary: a terminator's UNREACHABLE rest need only be SUPPORTED
     ([denotable_body]'s terminator arm gates on [forallb stmt_ok rest]), so a denotable body may carry a
     non-denotable-but-supported dead tail.  Rests on [denote_stmt_sound] (via [stmt_denotable ⟹ stmt_ok]).
-    STILL CONDITIONAL on [stmt_denotable], NOT full [supported_program] — which also admits defer / runtime
-    args slice 1 cannot evaluate (the boundary above); as [eval_value] grows, [stmt_denotable] converges to
-    [stmt_ok]. *)
+    STILL CONDITIONAL on [stmt_denotable], NOT full [supported_program] — which also admits [GsDefer] (undenoted
+    until [run_cmd] fuel > 1) and runtime args slice 1 cannot evaluate (the boundary above).  [eval_value] growth
+    closes ONLY the runtime-arg gap and ONLY on the defer-free fragment; full [stmt_denotable = stmt_ok] ALSO
+    needs defer denotation. *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 

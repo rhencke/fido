@@ -110,8 +110,10 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 ## NEXT
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — the general converse
-  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case shrinks the
-  `stmt_denotable`→`stmt_ok` gap, converging the CONDITIONAL converse toward a full `supported ⟺ denotes`.
+  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case closes part of the
+  `stmt_denotable`→`stmt_ok` gap. But that gap has TWO sources: unmodeled value forms (eval-closable) AND
+  `GsDefer` (supported+emittable, undenoted until `run_cmd` fuel>1 — NOT eval-closable). So eval growth
+  converges toward `supported ⟺ denotes` only on the DEFER-FREE fragment; the full converse also needs defer denotation.
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
