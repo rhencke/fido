@@ -11,7 +11,9 @@
       GIVEN a program that DENOTES ([denote_program p = Some c]) and is syntactically panic-free, [run_cmd]
       yields [ORet], never [OPanic]; the lift holds where [unified.v]'s race-freedom / liveness live ([run_cmd]
       stays the authority).  [panic_free_runs_ret_output] gives the EXPLICIT output world [cmd_out_world c w]
-      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
+      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.  The DUAL
+      [run_cmd_panics_world]: a defer-free command that DOES panic runs to [OPanic v] with the exact PRE-panic
+      output — the outputs before the panic still happen.
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
@@ -105,6 +107,30 @@ Proof.
   intros c w Hnp Hnd. unfold run_cmd. rewrite (go_panic_free_world c w Hnp Hnd). reflexivity.
 Qed.
 
+(** The DUAL, panic path: the panic value a defer-free command ends in ([None] if it never panics). *)
+Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
+  match c with COut _ _ c' => cmd_panic_val c' | CPan v => Some v | _ => None end.
+
+(** A defer-free command that DOES panic ([cmd_panic_val = Some v]) runs (via [go]) to [OPanic v] with the
+    EXACT pre-panic output [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the
+    panic carries [v].  The dual of [go_panic_free_world]. *)
+Lemma go_panics_world : forall c w v,
+  no_defer c = true -> cmd_panic_val c = Some v -> go c w = (OPanic v (cmd_out_world c w), nil).
+Proof.
+  intro c; induction c as [a | b xs c' IH | v0 | d c' IH] using Cmd_rect';
+    intros w v Hnd Hpv; cbn [go no_defer cmd_panic_val cmd_out_world] in *.
+  - discriminate Hpv.
+  - exact (IH (w_log b xs w) v Hnd Hpv).
+  - injection Hpv as ->. reflexivity.
+  - discriminate Hnd.
+Qed.
+
+Lemma run_cmd_panics_world : forall c w v,
+  no_defer c = true -> cmd_panic_val c = Some v -> run_cmd 1 c w = Some (OPanic v (cmd_out_world c w)).
+Proof.
+  intros c w v Hnd Hpv. unfold run_cmd. rewrite (go_panics_world c w v Hnd Hpv). reflexivity.
+Qed.
+
 (** The DENOTATIONAL behavioral-safety result, EXPLICIT-OUTPUT form: a panic-free supported program that
     DENOTES runs to [ORet] with output exactly [cmd_out_world c w] — never [OPanic].  ([no_defer] via
     [denote_body_no_defer].)  The existential [panic_free_runs_ret] below is its corollary (used by the
@@ -141,6 +167,17 @@ Definition panicking_prog : Program :=
 Example panicking_prog_panics : forall w,
   match denote_program panicking_prog with Some c => run_cmd 1 c w | None => None end
   = Some (OPanic (anyt TString "boom") w).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** End-to-end lock for [run_cmd_panics_world]: `func main(){ println("x"); panic("boom") }` runs to [OPanic]
+    with the PRE-PANIC output "x" already logged — the output before the panic still happens. *)
+Definition panic_after_output_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"]);
+     GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "boom"])].
+Example panic_after_output_runs : forall w,
+  match denote_program panic_after_output_prog with Some c => run_cmd 1 c w | None => None end
+  = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "x" :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing [panic_free_runs_ret] (the
@@ -233,6 +270,7 @@ Qed.
 (** Trust surface for this module (axiom-manifest gate captures these [Print Assumptions]). *)
 Print Assumptions panic_free_runs_ret.
 Print Assumptions panic_free_runs_ret_output.
+Print Assumptions run_cmd_panics_world.
 Print Assumptions panic_free_runs_ret_ustep.
 Print Assumptions panic_free_denotable_runs_ret.
 Print Assumptions panic_free_denotable_runs_ret_ustep.
