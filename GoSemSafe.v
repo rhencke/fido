@@ -11,9 +11,7 @@
       GIVEN a program that DENOTES ([denote_program p = Some c]) and is syntactically panic-free, [run_cmd]
       yields [ORet], never [OPanic]; the lift holds where [unified.v]'s race-freedom / liveness live ([run_cmd]
       stays the authority).  [panic_free_runs_ret_output] gives the EXPLICIT output world [cmd_out_world c w]
-      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.  And
-      [panic_free_ustep_output_is_denoted_events]: the [ustep] run's OBSERVED output equals EXACTLY the denoted
-      [COut] events ([cmd_out_events c]) — the operational semantics emits precisely the denoted trace.
+      (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
       ([_output] gives the EXPLICIT output [cmd_out_world c w], the existential is its corollary; + [_ustep]):
@@ -94,23 +92,6 @@ Fixpoint cmd_out_world (c : Cmd unit) (w : World) : World :=
   | COut b xs c' => cmd_out_world c' (w_log b xs w)
   | _ => w
   end.
-
-(** The output EVENTS a defer-free command emits ([(is_println, args)] per [COut], up to its terminal) — the
-    denotation-side spec of the observable trace. *)
-Fixpoint cmd_out_events (c : Cmd unit) : list (bool * list GoAny) :=
-  match c with COut b xs c' => (b, xs) :: cmd_out_events c' | _ => nil end.
-
-(** [cmd_out_world] appends EXACTLY [cmd_out_events c] to the world's output trace ([w_log] appends one event). *)
-Lemma w_output_cmd_out_world : forall c w,
-  w_output (cmd_out_world c w) = w_output w ++ cmd_out_events c.
-Proof.
-  intro c; induction c as [a | b xs c' IH | v | d c' IH] using Cmd_rect';
-    intro w; cbn [cmd_out_world cmd_out_events].
-  - rewrite app_nil_r; reflexivity.
-  - rewrite (IH (w_log b xs w)). cbn [w_log w_output]. rewrite <- app_assoc. reflexivity.
-  - rewrite app_nil_r; reflexivity.
-  - rewrite app_nil_r; reflexivity.
-Qed.
 
 (** A [CPan]-free, defer-free command runs (via [go]) to an [ORet] with output EXACTLY [cmd_out_world c w] —
     never an [OPanic], and the world is EXPLICIT (the accumulated logs), not merely existential. *)
@@ -248,32 +229,6 @@ Proof.
   - cbn [oc_world] in Hout. exact Hout.
 Qed.
 
-(** OUTPUT FAITHFULNESS at the operational level: the [ustep] run of a panic-free denoted program produces
-    observed output ([map snd (uc_out uc)]) EXACTLY equal to the program's denoted [COut] events
-    ([cmd_out_events c]) — the operational semantics does not merely terminate without panic, it emits PRECISELY
-    the denoted trace.  Composes [panic_free_runs_ret_ustep] + [panic_free_runs_ret_output] (pins the world to
-    [cmd_out_world c w]) + [w_output_cmd_out_world] (its trace is [cmd_out_events c]). *)
-Theorem panic_free_ustep_output_is_denoted_events : forall p c ucap (w : World),
-  denote_program p = Some c -> panic_free (prog_body p) = true ->
-  exists uc : UConfig,
-    usteps ucap (ustart (cmd_to_ucmd c)) uc
-    /\ uc_live uc 0 = false
-    /\ uc_panic uc 0 = None
-    /\ map snd (uc_out uc) = cmd_out_events c.
-Proof.
-  intros p c ucap w Hden Hpf.
-  destruct (panic_free_runs_ret_ustep p c ucap w Hden Hpf)
-    as [uc [w' [Hrun [Hus [Hlive [Hpan Hout]]]]]].
-  pose proof (panic_free_runs_ret_output p c w Hden Hpf) as Hrun2.
-  assert (Hw' : w' = cmd_out_world c w) by congruence.
-  exists uc. split; [exact Hus | split; [exact Hlive | split; [exact Hpan | ]]].
-  subst w'. rewrite w_output_cmd_out_world in Hout.
-  (* left-cancel the shared [w_output w] prefix *)
-  assert (cancel : forall (l a b : list (bool * list GoAny)), l ++ a = l ++ b -> a = b).
-  { induction l as [|x l IH]; simpl; intros a b Hab; [exact Hab | injection Hab as Hab'; apply IH; exact Hab']. }
-  symmetry. exact (cancel _ _ _ Hout).
-Qed.
-
 (** Toward the [BehaviorSafe] SHAPE (still a PROPERTY, still NOT a gate).  [panic_free_runs_ret] takes the
     denotation [denote_program p = Some c] as a HYPOTHESIS; a real gate must instead be DECIDABLE on the raw
     [Program].  So fold its two conditions into one boolean predicate: [panic_free_denotable p] = the DECIDABLE
@@ -350,7 +305,6 @@ Print Assumptions panic_free_runs_ret.
 Print Assumptions panic_free_runs_ret_output.
 Print Assumptions run_cmd_panics_world.
 Print Assumptions panic_free_runs_ret_ustep.
-Print Assumptions panic_free_ustep_output_is_denoted_events.
 Print Assumptions panic_free_denotable_runs_ret_output.
 Print Assumptions panic_free_denotable_runs_ret.
 Print Assumptions panic_free_denotable_runs_ret_ustep.
