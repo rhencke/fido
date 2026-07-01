@@ -185,25 +185,31 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
   | _ => None
   end.
 
-(** Evaluate EVERY element of an int-slice LITERAL to its boxed value, RE-TYPED to the slice element type [t]
-    (an untyped element ADAPTS to [t], as Go stores it), ALL-or-[None].  Go constructs the WHOLE literal before
-    indexing, so ONE runtime / panicking / out-of-range element (e.g. [1/len([]int{})], which PANICS during
-    construction) makes the whole thing [None] — indexing it is then undenoted, NEVER a wrong printed value.
-    Uses [ptype]+[int_const_val]+[box_int] (the existing folding authorities), so it adds no second classifier
-    and each element's constness + representability is sealed the SAME way [eval_value] seals a scalar. *)
+(** Evaluate EVERY element of an int-slice LITERAL to its boxed value, ALL-or-[None].  The element gate is
+    [ptype]'s OWN slice-literal check — [assignable_to_ty ce t] — so this evaluator's accept-set is a SUBSET of
+    [ptype]-supported: it NEVER accepts an element [ptype] would reject.  A TYPED constant of the WRONG type
+    ([int64(1)] in an [[]int]) is DECLINED here exactly as [ptype] declines [[]int{int64(1)}] ([numty_eqb]
+    mismatch — a typed constant is NOT untyped), closing the side-condition leak an [int_const_val]-only gate had.
+    On TOP of assignability it demands the element be a CONSTANT boxable to [t] ([int_const_val]+[box_int]): Go
+    constructs the WHOLE literal before indexing, so a RUNTIME / panicking element (e.g. [1/len([]int{})] or
+    [len(..)], both [PtRunInt], [int_const_val = None]) makes the whole thing [None] — indexing it is then
+    undenoted, NEVER a wrong value.  Sealed-to-[ptype] proved: [eval_int_slice_elems_forall_assignable] /
+    [eval_slice_index_supported]. *)
 Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny) :=
   match es with
   | [] => Some []
   | el :: rest =>
       match ptype el with
       | Some ce =>
-          match int_const_val ce with
-          | Some z => match box_int t z, eval_int_slice_elems t rest with
-                      | Some v, Some vs => Some (v :: vs)
-                      | _, _ => None
-                      end
-          | None => None                                                     (* runtime / non-int element -> whole literal undenoted *)
-          end
+          if assignable_to_ty ce t                                          (* SEAL: [ptype]'s OWN element check — a wrong-typed const is REJECTED, as in [ptype] *)
+          then match int_const_val ce with
+               | Some z => match box_int t z, eval_int_slice_elems t rest with
+                           | Some v, Some vs => Some (v :: vs)
+                           | _, _ => None
+                           end
+               | None => None                                               (* runtime / non-int-const element ([PtRunInt]) -> whole literal undenoted *)
+               end
+          else None                                                         (* assignable-to-[t] FAILS ([int64(1)] in [[]int]) -> [ptype] rejects; so do we *)
       | None => None
       end
   end.
@@ -212,8 +218,10 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
     string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
     out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
     evaluating the WHOLE literal ([eval_int_slice_elems] — ALL elements, so a runtime/panicking/out-of-range
-    element rejects it) and indexing — STILL sealed through [ptype]/[int_const_val]/[box_int], not a second
-    classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
+    element rejects it) and indexing.  Its accept-boundary is [ptype]'s OWN — elements gated by
+    [assignable_to_ty] and the constant index by [(0<=?k) && int_const_repr k GTInt], the SAME checks [ptype]'s
+    slice arm uses — so the arm accepts NO expression [ptype] rejects (proved: [eval_slice_index_supported]); it
+    is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
     integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
     platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
     bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below.  ABSENT ([None], honestly): runtime
@@ -232,12 +240,12 @@ Definition eval_value (e : GExpr) : option GoAny :=
       then match ptype idx with
            | Some ci =>
                match int_const_val ci with
-               | Some k => if (0 <=? k)%Z
+               | Some k => if (0 <=? k)%Z && int_const_repr k GTInt                          (* [ptype]'s OWN constant-index boundary: nonneg + int-representable (conservative 32-bit) *)
                            then match eval_int_slice_elems t es with
                                 | Some vs => nth_error vs (Z.to_nat k)                         (* IN-BOUNDS -> the k-th value; OOB -> None *)
                                 | None => None                                                (* a runtime/panicking element -> undenoted *)
                                 end
-                           else None                                                          (* negative constant *)
+                           else None                                                          (* negative, or non-int-representable (unsupported), constant *)
                | None => None                                                                 (* runtime index (B3) *)
                end
            | None => None
@@ -659,63 +667,120 @@ Example denotable_stmts_mixed_denotes :
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "dead"])]) <> None.
 Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
 
-(** ★ CLASS THEOREM (slices-oob.md B2) — the GENERIC reduction the fixtures below instantiate, quantified over
-    the WHOLE constant int-slice-index fragment (any element type [t], any all-constant literal [es], any
-    non-negative constant index [k]): whenever the literal FULLY evaluates ([eval_int_slice_elems t es = Some
-    vs]), [eval_value] of the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the
-    class-level in-bounds-faithful / OOB-declined property: [nth_error] yields the k-th boxed element VALUE when
-    in-bounds and [None] when OOB — the two corollaries below discharge both cases for the whole fragment, so the
-    "class-level" claim names a real theorem, not a fixture. *)
+(** A value-carrying int-constant category ([int_const_val] = [Some]) IS an int category — so a constant slice
+    INDEX satisfies [ptype]'s [is_int_cat] guard.  (Bridges the reduction hyps to [ptype]'s supportedness.) *)
+Lemma int_const_val_is_int_cat :
+  forall ci k, int_const_val ci = Some k -> is_int_cat ci = true.
+Proof. intros ci k H; destruct ci; cbn in H; try discriminate; reflexivity. Qed.
+
+(** The SEALED evaluator's accept-set ⊆ [ptype]'s element check: if [eval_int_slice_elems] succeeds, EVERY
+    element is [assignable_to_ty _ t] — exactly [ptype]'s slice-literal [forallb] gate.  (Induction on [es].) *)
+Lemma eval_int_slice_elems_forall_assignable :
+  forall t es vs, eval_int_slice_elems t es = Some vs ->
+    forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es = true.
+Proof.
+  intros t es. induction es as [|el rest IH]; intros vs H.
+  - reflexivity.
+  - cbn [forallb]. cbn [eval_int_slice_elems] in H.
+    destruct (ptype el) as [ce|] eqn:Ec; [|discriminate H].          (* [destruct] reduces the [match ptype el] in BOTH goal and H *)
+    destruct (assignable_to_ty ce t) eqn:Ea; [|discriminate H]. cbn [andb].
+    destruct (int_const_val ce) as [z|] eqn:Ev; [|discriminate H].
+    destruct (box_int t z) as [v|] eqn:Eb; [|discriminate H].
+    destruct (eval_int_slice_elems t rest) as [vs'|] eqn:Er; [|discriminate H].
+    exact (IH vs' eq_refl).   (* [destruct]'s substitution rewrote IH's premise to [Some vs' = Some vs] *)
+Qed.
+
+(** ★ SUPPORTEDNESS BRIDGE (slices-oob.md B2) — the reduction's hypotheses are exactly [ptype]'s SUPPORTEDNESS
+    boundary: they IMPLY [ptype (EIndex (ESliceLit t es) idx) = Some (PtRunInt t)], i.e. the expression is VALID
+    Rocq-Go.  So the class reduction below is over the [ptype]-SUPPORTED all-constant fragment, NOT a looser
+    private-evaluator boundary — no second authority that can drift from the live model. *)
+Lemma eval_slice_index_supported :
+  forall t es idx ci k vs,
+    is_int_goty t = true ->
+    ptype idx = Some ci ->
+    int_const_val ci = Some k ->
+    (0 <=? k)%Z = true ->
+    int_const_repr k GTInt = true ->
+    eval_int_slice_elems t es = Some vs ->
+    ptype (EIndex (ESliceLit t es) idx) = Some (PtRunInt t).
+Proof.
+  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv.
+  pose proof (eval_int_slice_elems_forall_assignable t es vs Hv) as Hall.
+  pose proof (int_const_val_is_int_cat ci k Hi) as Hcat.
+  (* iota-only reductions ([cbv beta iota]) keep [int_const_repr]/[andb] FOLDED so [rewrite Hr]/[Hk] still find them;
+     [cbn [ptype]] exposes the arm without touching the folded helpers. *)
+  cbn [ptype].
+  rewrite Ht, Hall. cbv beta iota delta [andb].
+  rewrite Hp. cbv beta iota.
+  rewrite Hcat. cbv beta iota.
+  rewrite Hi. cbv beta iota.
+  rewrite Hk, Hr. cbv beta iota delta [andb].
+  reflexivity.
+Qed.
+
+(** ★ CLASS THEOREM (slices-oob.md B2) — the GENERIC reduction the fixtures below instantiate, over the
+    [ptype]-SUPPORTED constant int-slice-index fragment (any element type [t], any all-constant literal [es], any
+    non-negative INT-REPRESENTABLE constant index [k] — the SAME boundary [eval_slice_index_supported] proves is
+    [ptype]-valid): whenever the literal FULLY evaluates ([eval_int_slice_elems t es = Some vs]), [eval_value] of
+    the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the class-level in-bounds-faithful /
+    OOB-declined property: [nth_error] yields the k-th boxed element VALUE when in-bounds and [None] when OOB —
+    the two corollaries below discharge both cases for the whole fragment, so the "class-level" claim names a
+    real theorem (paired with the supportedness bridge), not a fixture. *)
 Lemma eval_slice_index_reduces :
   forall t es idx ci k vs,
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
     (0 <=? k)%Z = true ->
+    int_const_repr k GTInt = true ->
     eval_int_slice_elems t es = Some vs ->
     eval_value (EIndex (ESliceLit t es) idx) = nth_error vs (Z.to_nat k).
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hv.
-  (* Expose the [EIndex (ESliceLit..)] arm ([cbn [eval_value]] keeps [is_int_goty t] FOLDED — whitelist delta),
-     then rewrite each scrutinee and iota-reduce the match it heads before the next rewrite (rewriting a [match
-     Some _] scrutinee does NOT reduce it, so the next hyp's LHS would otherwise sit under a bound variable). *)
-  cbn [eval_value]. rewrite Ht. cbn.
-  rewrite Hp. cbn.
-  rewrite Hi. cbn.
-  rewrite Hk. rewrite Hv. reflexivity.
+  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv.
+  (* Expose the [EIndex (ESliceLit..)] arm ([cbn [eval_value]] keeps [is_int_goty t]/[int_const_repr] FOLDED —
+     whitelist delta), then rewrite each scrutinee and IOTA-reduce (never full [cbn], which would unfold
+     [int_const_repr] and defeat [rewrite Hr]) the match it heads before the next rewrite. *)
+  cbn [eval_value].
+  rewrite Ht. cbv beta iota.
+  rewrite Hp. cbv beta iota.
+  rewrite Hi. cbv beta iota.
+  rewrite Hk, Hr. cbv beta iota delta [andb].
+  rewrite Hv. reflexivity.
 Qed.
 
 (** CLASS — OOB DECLINED: a constant index AT OR PAST the (fully-evaluated) length folds to [None], for the
-    WHOLE fragment (never a wrong value — faithful-or-absent). *)
+    WHOLE supported fragment (never a wrong value — faithful-or-absent). *)
 Lemma eval_slice_index_oob_class :
   forall t es idx ci k vs,
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
     (0 <=? k)%Z = true ->
+    int_const_repr k GTInt = true ->
     eval_int_slice_elems t es = Some vs ->
     (length vs <= Z.to_nat k)%nat ->
     eval_value (EIndex (ESliceLit t es) idx) = None.
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hv Hoob.
-  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hv).
+  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv Hoob.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hr Hv).
   apply (proj2 (nth_error_None vs (Z.to_nat k))). exact Hoob.
 Qed.
 
 (** CLASS — IN-BOUNDS FAITHFUL: a constant index STRICTLY WITHIN the length folds to the k-th boxed element
-    VALUE (a real [Some], never [None]), for the WHOLE fragment. *)
+    VALUE (a real [Some], never [None]), for the WHOLE supported fragment. *)
 Lemma eval_slice_index_inbounds_class :
   forall t es idx ci k vs,
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
     (0 <=? k)%Z = true ->
+    int_const_repr k GTInt = true ->
     eval_int_slice_elems t es = Some vs ->
     (Z.to_nat k < length vs)%nat ->
     exists v, eval_value (EIndex (ESliceLit t es) idx) = Some v /\ nth_error vs (Z.to_nat k) = Some v.
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hv Hin.
-  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hv).
+  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv Hin.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hr Hv).
   pose proof (proj2 (nth_error_Some vs (Z.to_nat k)) Hin) as Hne.
   destruct (nth_error vs (Z.to_nat k)) as [v|] eqn:E.
   - exists v. split; reflexivity.
@@ -763,6 +828,25 @@ Proof. split; vm_compute; reflexivity. Qed.
 Example slice_index_malformed_element_none :
   eval_value (EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1)) = None.
 Proof. reflexivity. Qed.
+(** REGRESSION (Codex — side-condition leak): a WRONG-TYPED constant element is UNSUPPORTED, and the sealed
+    evaluator now DECLINES it too (no accepting-what-[ptype]-rejects).  [[]int{int64(1)}[0]]: the typed [int64]
+    constant is NOT assignable to [int] ([numty_eqb GTInt64 GTInt = false]), so [ptype] REJECTS the literal
+    ([= None]), [eval_value] folds to [None] (via [assignable_to_ty] in [eval_int_slice_elems]), and the [println]
+    program does NOT denote — the evaluator boundary equals [ptype]'s, not a looser one. *)
+Example slice_index_illtyped_element_undenoted :
+  ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)) = None
+  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)) = None
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+          [EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)]); GsReturn]) = None.
+Proof. split; [vm_compute; reflexivity | split; vm_compute; reflexivity]. Qed.
+(** REGRESSION (Codex — index boundary): a non-int-representable CONSTANT index is UNSUPPORTED (Fido's
+    conservative 32-bit [GTInt]) and DECLINED.  [[]int{10,20}[2^40]]: [int_const_repr (2^40) GTInt = false], so
+    [ptype = None] and [eval_value = None] — the index boundary matches [ptype], not merely [0<=?k]. *)
+Example slice_index_unrepresentable_index_undenoted :
+  ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None
+  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1099511627776)) = None.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
@@ -1157,7 +1241,7 @@ Definition gosem_trust_surface :=
    denote_program_runs, out_main_runs, println_main_runs, denotable_stmts_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
-   eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
+   eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.
 

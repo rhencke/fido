@@ -402,8 +402,10 @@ Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
     OOB.  This is a REPRESENTATIVE PIN that a non-[panic()] unsafe op reaches the emission gate on a VALID-Go
     program.  The class-level in-bounds-faithful / OOB-declined property (over the WHOLE constant int-slice-index
     fragment, not this pair) is a separate authority — the DENOTATION-layer [forall] theorems
-    [GoSem.eval_slice_index_inbounds_class] / [eval_slice_index_oob_class] (gated in [gosem_trust_surface]) — NOT
-    this fixture, which only pins the emission-gate reach on a concrete valid-Go pair. *)
+    [GoSem.eval_slice_index_inbounds_class] / [eval_slice_index_oob_class], stated over the [ptype]-SUPPORTED
+    fragment ([eval_slice_index_supported] proves their hypotheses ARE [ptype]'s supportedness boundary), all
+    gated in [gosem_trust_surface] — NOT this fixture, which only pins the emission-gate reach on a concrete
+    valid-Go pair. *)
 Definition slice_safe_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].

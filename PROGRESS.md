@@ -58,7 +58,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   tree (reuses `cbind`/`run_cmd`, no second universe): print/println → `COut` (the model's own `w_log`),
   panic → `CPan`, `return`, and blank constant-assignment, over a PARTIAL `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`, and an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element (whole literal evaluated — a runtime element rejects it; in-bounds DENOTES, OOB DECLINED); fails CLOSED
-  on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
+  on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the `ptype`-SUPPORTED fragment (`eval_slice_index_{reduces,inbounds_class,oob_class}` + the `eval_slice_index_supported` bridge — evaluator sealed to `ptype` via `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
   and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement
   individually denotes — return/panic terminators, blank-assign, print·println interleaved, incl. a
