@@ -66,7 +66,8 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   `supported_program`). Its tightness is PROVED, not asserted: `denotable_body_terminator_free_iff` — on a
   terminator-free body the compositional converse is EXACT (iff), so the terminator dead-tail escape is the
   SOLE source of "sufficient not necessary". Denoted programs run through
-  `cmd.v`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
+  `cmd.v` — the converse has a RUN-level twin `denotable_stmts_main_runs` (denotable-stmts body not only
+  denotes but RUNS to an Outcome, never stuck), paralleling `out_main_runs`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
   comparators ARE the model's `str_*`); a GoSem fact in neither tuple is an internal helper / example, not
   certified. NO `BehaviorSafe`. Zero axioms.
 - **Model layer** (proof-only): `builtins.v` (the Go layer over concrete Rocq data), `cmd.v` (effect

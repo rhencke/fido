@@ -743,6 +743,23 @@ Proof.
   exact (out_main_runs _ w (denotable_arglists_out arglists H)).
 Qed.
 
+(** GENERAL RUN-level converse — the [run_cmd] twin of [denotable_stmts_main_denotes], as [out_main_runs] is of
+    [out_main_denotes] for the output fragment: a body whose every statement individually denotes not only
+    DENOTES but RUNS to an Outcome under minimal fuel (never stuck).  [denote_program_runs] supplies the run;
+    [denotable_stmts_main_denotes] rules out the [None] branch. *)
+Theorem denotable_stmts_main_runs : forall b w,
+  forallb stmt_denotable b = true ->
+  match denote_program (mkProgram (mkIdent "main" eq_refl) b) with
+  | Some c => run_cmd 1 c w <> None
+  | None => False
+  end.
+Proof.
+  intros b w H.
+  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) b)) as [c|] eqn:Hd.
+  - exact (denote_program_runs _ c w Hd).
+  - exact (denotable_stmts_main_denotes b H Hd).
+Qed.
+
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
     `func main(){ println("hi"); return }` denotes to a [Cmd unit] and RUNS through cmd.v's authoritative
     [run_cmd] to a World whose output trace records the `println` — FAITHFULLY, the very [w_log true ["hi"]]
@@ -973,7 +990,7 @@ Proof. reflexivity. Qed.
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
-   denote_program_runs, out_main_runs, println_main_runs,
+   denote_program_runs, out_main_runs, println_main_runs, denotable_stmts_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    gosem_category_coverage).
