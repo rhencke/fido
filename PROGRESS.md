@@ -80,8 +80,8 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   cmd.v-level lemma for a DEFER-FREE command whose body panics (`no_defer` + `cmd_panic_val c = Some v`): it
   runs to `OPanic v` with the exact pre-panic output — it says NOTHING about commands with defers) +
   `panic_free_runs_ret_ustep` (same, lifted to `ustep`, where race-freedom / liveness live). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate on the raw
-  `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_ustep`]
-  prove it entails the safe run, and `panic_free_denotable_supported` proves `panic_free_denotable p = true`
+  `Program` (the gate SHAPE, computable without a denotation handed in); `panic_free_denotable_runs_ret`[`_output`][`_ustep`]
+  prove it entails the safe run (`_output` = the EXPLICIT output world), and `panic_free_denotable_supported` proves `panic_free_denotable p = true`
   implies `SupportedProgram p` (its support proof suffices for GoEmit's `ep_supported` field).
   SEED of `BehaviorSafe`; ⚠ NOT a gate (name stays specific, not `safe`). Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
@@ -125,7 +125,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 `main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
 `run_cmd_terminates` / `denote_program_run_agrees`) / `panic_free_runs_ret`[`_output`] / `run_cmd_panics_world` /
-`panic_free_runs_ret_ustep` / `panic_free_denotable_runs_ret`[`_ustep`] / `panic_free_denotable_supported`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
+`panic_free_runs_ret_ustep` / `panic_free_denotable_runs_ret`[`_output`][`_ustep`] / `panic_free_denotable_supported`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom

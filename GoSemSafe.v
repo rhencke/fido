@@ -14,7 +14,8 @@
       (the accumulated logs), of which [panic_free_runs_ret] is the existential corollary.
     - GATE-SHAPE properties — [panic_free_denotable] (a DECIDABLE predicate on the RAW [Program]: denotability
       ANDed with syntactic panic-freedom, needing NO denotation handed in) + [panic_free_denotable_runs_ret]
-      (+ [_ustep]): the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
+      ([_output] gives the EXPLICIT output [cmd_out_world c w], the existential is its corollary; + [_ustep]):
+      the predicate ENTAILS the safe run.  THIS family — not the denotation-hypothesis one — is
       the exact "decidable syntactic predicate ⟹ runtime safety" SHAPE the eventual gate will have.  Plus a
       REFINEMENT lemma [panic_free_denotable_supported]: [panic_free_denotable p = true] implies
       [SupportedProgram p] (its support proof suffices for [GoEmit]'s [ep_supported] field).
@@ -241,15 +242,26 @@ Qed.
 Definition panic_free_denotable (p : Program) : bool :=
   denotable_program p && panic_free (prog_body p).
 
-Theorem panic_free_denotable_runs_ret : forall p w,
+(** EXPLICIT-OUTPUT form (mirrors [panic_free_runs_ret_output] for the gate-shape predicate): the decidable
+    [panic_free_denotable] entails the program runs to [ORet] with output EXACTLY [cmd_out_world c w].  Composes
+    [denote_program_dec] (the predicate's denotability conjunct gives the denotation) with
+    [panic_free_runs_ret_output]. *)
+Theorem panic_free_denotable_runs_ret_output : forall p w,
   panic_free_denotable p = true ->
-  exists c w', denote_program p = Some c /\ run_cmd 1 c w = Some (ORet tt w').
+  exists c, denote_program p = Some c /\ run_cmd 1 c w = Some (ORet tt (cmd_out_world c w)).
 Proof.
   intros p w H. apply andb_true_iff in H as [Hden Hpf].
   destruct (denote_program p) as [c|] eqn:Ec.
-  - destruct (panic_free_runs_ret p c w Ec Hpf) as [w' Hrun].
-    exists c, w'. split; [reflexivity | exact Hrun].
+  - exists c. split; [reflexivity | exact (panic_free_runs_ret_output p c w Ec Hpf)].
   - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
+Qed.
+
+Corollary panic_free_denotable_runs_ret : forall p w,
+  panic_free_denotable p = true ->
+  exists c w', denote_program p = Some c /\ run_cmd 1 c w = Some (ORet tt w').
+Proof.
+  intros p w H. destruct (panic_free_denotable_runs_ret_output p w H) as [c [Hden Hrun]].
+  exists c, (cmd_out_world c w). split; [exact Hden | exact Hrun].
 Qed.
 
 (** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
@@ -293,6 +305,7 @@ Print Assumptions panic_free_runs_ret.
 Print Assumptions panic_free_runs_ret_output.
 Print Assumptions run_cmd_panics_world.
 Print Assumptions panic_free_runs_ret_ustep.
+Print Assumptions panic_free_denotable_runs_ret_output.
 Print Assumptions panic_free_denotable_runs_ret.
 Print Assumptions panic_free_denotable_runs_ret_ustep.
 Print Assumptions panic_free_denotable_supported.
