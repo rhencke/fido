@@ -18,14 +18,15 @@
                            denotable — a terminator never depends on a successor slice 1 cannot yet evaluate.
       - [_ = e]         -> [CRet tt] ONLY when [eval_value e <> None] (a constant slice 1 evaluates — no effect,
                            no panic); a RUNTIME [e] (e.g. [1/len([]int{})], which Go PANICS on) is UN-denoted
-    [eval_value] (slice 1: a string LITERAL, plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
+    [eval_value] (slice 1: a string CONSTANT — a LITERAL or a CONCATENATION [a+b] — plus any printable [ptype] that folds to a NUMERIC CONSTANT — an
     INTEGER constant (literals, CONVERSIONS [int64(3)] / in-range [uint(3)], ARITHMETIC [1+2], complement [^x]
     — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
     failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
     STRING-LITERAL comparisons (string compares DELEGATED to the model's [str_*] family — no local GoSem order)
     combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked
-    values; a comparison with a NON-literal string operand, bools with a runtime operand, non-literal strings,
+    values; a comparison with a NON-literal string operand, bools with a runtime operand, a string built from a
+    NON-literal LEAF (the rune conversion [string(65)]),
     an out-of-conservative-range or COMPLEMENTED [uint], fractional/runtime floats, and RUNTIME values
     ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
@@ -182,13 +183,34 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
   | _ => None
   end.
 
+(** The constant string VALUE of a supported [PtStr] expression — a string LITERAL [EStr s], or the
+    CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is byte APPEND, so [String.append]
+    is exact).  SEALED under [ptype] = [PtStr] (so it never folds an ill-typed [+] like [`"a" + 1`], which
+    [ptype] rejects).  ABSENT (-> [None], honestly): a non-literal leaf like [string(65)] (a rune-const
+    conversion — no recoverable value tracked yet) and any RUNTIME string.  Extends [const_str] (literals only,
+    used by [eval_bool]'s string comparisons) with the concatenation the completeness converse needs. *)
+Fixpoint eval_str (e : GExpr) : option string :=
+  match ptype e with
+  | Some PtStr =>   (* SEAL: fold ONLY what [ptype] validated as a string *)
+      match e with
+      | EStr s        => Some s
+      | EBn BAdd a b  => match eval_str a, eval_str b with
+                         | Some sa, Some sb => Some (String.append sa sb)
+                         | _, _ => None
+                         end
+      | _ => None
+      end
+  | _ => None
+  end.
+
 (** Evaluate a value expression to the MODEL's runtime [GoAny], or [None] if outside slice 1's bridged subset.
     FAITHFUL via [ptype] — the SINGLE constant-folding authority: [ptype] already folds a numeric constant to
     its VALUE and TYPE ([PtIntConst z] = untyped int, taking default [int]; [PtTIntConst t z] = a typed int
     const, e.g. a conversion [int64(3)] or typed-const arithmetic; [PtFloatConst t z] = a typed float const that
     came from the EXACT integer [z]), and [box_int] / [box_float] attach the model value, FAILING CLOSED on an
     out-of-range / out-of-interval [z] (so [eval_value] is self-sound, not caller-gated).  Live coverage: a
-    string LITERAL ([anyt TString s], matched syntactically since [PtStr] carries no value), an untyped integer
+    string CONSTANT ([anyt TString s], folded via the self-sealed [eval_str] — a LITERAL or a CONCATENATION
+    [a + b], since [PtStr] carries no value), an untyped integer
     constant whose default-[int] value is in range, a supported TYPED integer constant (literals, CONVERSIONS
     [int64(3)] / in-range [uint(3)] (boxed by [mk_uint]), ARITHMETIC [1+2], complement [^x] — complement still
     EXCLUDING [GTUint]), and a TYPED FLOAT constant of an exact
@@ -197,15 +219,16 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
     GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
     STRING-LITERAL comparisons combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion,
     reusing the operands' [ptype] values via [const_z] / [const_str].  ABSENT (-> [None], the next sub-slices):
-    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, non-literal strings, an
-    out-of-conservative-range or COMPLEMENTED [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]:
-    [len(..)], [int(x)]…).  Honestly absent, never wrong. *)
+    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, a string built from a
+    non-literal LEAF (the rune-const conversion [string(65)]), an out-of-conservative-range or COMPLEMENTED
+    [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent,
+    never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
   | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
-  | Some PtStr              => match e with EStr s => Some (anyt TString s) | _ => None end     (* a string LITERAL ([PtStr] carries no value) *)
+  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal or concatenation ([PtStr] carries no value; [eval_str] folds it) *)
   | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
   | _                       => None
   end.
@@ -370,9 +393,10 @@ Qed.
     class — a print/println of a RUNTIME arg is supported but not [denotable_arg], so it does NOT denote
     ([out_boundary_runtime_undenoted]).  A print/println ARG denotes iff it EVALUATES and is PRINTABLE:
     [denotable_arg].  A `main` body of denotable-arg output statements + [return] ALWAYS denotes for the args
-    [eval_value] folds: string LITERALS plus
-    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (a non-literal string like
-    `"a"+"b"` is supported but eval-partial, so NOT [denotable_arg]; pinned by [denotable_arg_nonliteral_string]).
+    [eval_value] folds: string CONSTANTS (literals AND concatenations) plus
+    the folded integer / exact-float / bool CONSTANTS — NOT every supported string (one built from a NON-literal
+    LEAF like `string(65)` is supported but eval-partial, so NOT [denotable_arg]; pinned by
+    [denotable_arg_runeconv_string]).
     ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
     program.)  [denotable_arg] is EXACTLY the per-arg denotation condition, so this is the converse OUTRIGHT on
     that fragment.  [denotable_supported] pins denotable ⊆ supported; the inclusion is STRICT (a runtime
@@ -386,11 +410,20 @@ Proof. intros e H Hn. unfold denotable_arg in H. rewrite Hn in H. discriminate. 
 Lemma denotable_arg_printable : forall e, denotable_arg e = true -> printable_arg_ok e = true.
 Proof. intros e H. unfold denotable_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
 
-(** BOUNDARY PIN (keeps the converse claim EXACT — string LITERALS, not "any string constant"): a SUPPORTED
-    non-literal string [`"a" + "b"`] (in GoSafe's supported set) is NOT [denotable_arg] — [eval_value] folds
-    only string LITERALS, not concatenations.  Until string-constant VALUES are tracked through [PTy] /
-    [eval_value], such supported-but-eval-partial strings stay OUTSIDE the denoted fragment. *)
-Example denotable_arg_nonliteral_string : denotable_arg (EBn BAdd (EStr "a") (EStr "b")) = false.
+(** String CONCATENATION now denotes (was the old boundary): [`"a" + "b"`] is [denotable_arg], and [eval_value]
+    folds it to the EXACT model value [anyt TString "ab"] ([eval_str]'s byte [String.append]) — faithful, not
+    just non-[None]. *)
+Example denotable_arg_str_concat : denotable_arg (EBn BAdd (EStr "a") (EStr "b")) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example eval_str_concat_faithful : eval_value (EBn BAdd (EStr "a") (EStr "b")) = Some (anyt TString "ab").
+Proof. vm_compute. reflexivity. Qed.
+
+(** BOUNDARY PIN (keeps the converse claim EXACT — [eval_str] folds LITERALS + concatenations, not "any string
+    constant"): a SUPPORTED string built from a NON-literal LEAF — the rune-const conversion [`string(65)`] (=
+    ["A"], in GoSafe's supported set as a [PtStr]) — is NOT [denotable_arg]; [eval_str] has no value for the
+    conversion leaf.  Until such non-literal string VALUES are tracked, they stay OUTSIDE the denoted fragment. *)
+Example denotable_arg_runeconv_string :
+  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = false.
 Proof. vm_compute. reflexivity. Qed.
 
 Lemma eval_args_denotable : forall args, forallb denotable_arg args = true -> eval_args args <> None.
@@ -634,6 +667,15 @@ Qed.
 Example gosem_strlit_runs : forall w,
   match denote_program gosem_strlit_prog with Some c => run_cmd 5 c w | None => None end
   = Some (ORet tt (w_log true (anyt TString "b" :: nil) (w_log true (anyt TString "a" :: nil) w))).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** END-TO-END concat faithfulness: `func main(){ println("a" + "b"); return }` denotes AND RUNS, logging the
+    ONE model string [anyt TString "ab"] — Go's [+] is byte append, matching [eval_str]'s [String.append]. *)
+Example gosem_str_concat_runs : forall w,
+  match denote_program (mkProgram (mkIdent "main" eq_refl)
+          [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]); GsReturn]) with
+  | Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt (w_log true (anyt TString "ab" :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** ---- A load-bearing end-to-end witness with REAL OBSERVABLE OUTPUT: a supported
