@@ -544,6 +544,63 @@ Example out_boundary_runtime_undenoted :
   /\ denote_program out_runtime_prog = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
+(** ---- GENERAL statement-compositional CONVERSE: a body whose EVERY statement INDIVIDUALLY denotes is a
+    denotable body, so its `main` DENOTES.  This GENERALIZES [out_main_denotes] (the pure output-call fragment)
+    to ALL denoting statement forms interleaved — [return] / [panic] terminators, blank constant-assignment,
+    and print·println — INCLUDING a terminator followed by (supported) DEAD code, which [out_main_body] cannot
+    even express.  It is SUFFICIENT, not necessary: a terminator's UNREACHABLE rest need only be SUPPORTED
+    ([denotable_body]'s terminator arm gates on [forallb stmt_ok rest]), so a denotable body may carry a
+    non-denotable-but-supported dead tail.  Rests on [denote_stmt_sound] (via [stmt_denotable ⟹ stmt_ok]).
+    STILL CONDITIONAL on [stmt_denotable], NOT full [supported_program] — which also admits defer / runtime
+    args slice 1 cannot evaluate (the boundary above); as [eval_value] grows, [stmt_denotable] converges to
+    [stmt_ok]. *)
+Definition stmt_denotable (s : GoStmt) : bool :=
+  match denote_stmt s with Some _ => true | None => false end.
+
+Lemma stmt_denotable_ok : forall s, stmt_denotable s = true -> stmt_ok s = true.
+Proof.
+  intros s H. unfold stmt_denotable in H.
+  destruct (denote_stmt s) eqn:Es; [|discriminate H].
+  apply denote_stmt_sound. rewrite Es. discriminate.
+Qed.
+
+Lemma forallb_stmt_denotable_ok : forall b,
+  forallb stmt_denotable b = true -> forallb stmt_ok b = true.
+Proof.
+  induction b as [|s rest IH]; [reflexivity|]. cbn [forallb]. intro H.
+  apply andb_true_iff in H as [Hs Hr]. rewrite (stmt_denotable_ok s Hs). exact (IH Hr).
+Qed.
+
+Lemma denotable_body_of_stmts : forall b,
+  forallb stmt_denotable b = true -> denotable_body b = true.
+Proof.
+  induction b as [|s rest IH]; [reflexivity|]. cbn [forallb denotable_body]. intro H.
+  apply andb_true_iff in H as [Hs Hrest]. unfold stmt_denotable in Hs.
+  destruct (denote_stmt s) as [[c term]|] eqn:Es; [|discriminate Hs].
+  destruct term.
+  - exact (forallb_stmt_denotable_ok rest Hrest).   (* terminator: unreachable rest need only be SUPPORTED *)
+  - exact (IH Hrest).                                (* continuer: rest must itself be DENOTABLE *)
+Qed.
+
+Theorem denotable_stmts_main_denotes : forall b,
+  forallb stmt_denotable b = true ->
+  denote_program (mkProgram (mkIdent "main" eq_refl) b) <> None.
+Proof.
+  intros b H. apply (proj2 (denote_program_dec _)).
+  cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (denotable_body_of_stmts b H).
+Qed.
+
+(** Coverage — a MIXED body [out_main_denotes] CANNOT express: [println("a"); _ = int64(3); panic("boom");
+    println("dead")] interleaves a continuer output call, a blank constant-assignment, a [panic] TERMINATOR,
+    and a SUPPORTED dead tail — and DENOTES by APPLYING the general converse (not a black-box compute). *)
+Example denotable_stmts_mixed_denotes :
+  denote_program (mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
+     GsBlankAssign (ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]);
+     GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "boom"]);
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "dead"])]) <> None.
+Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
+
 (** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
     even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
     modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
@@ -871,6 +928,7 @@ Proof. reflexivity. Qed.
     to certify one, ADD it to the tuple. *)
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
+   denotable_stmts_main_denotes,
    denote_program_runs, out_main_runs, println_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,

@@ -58,7 +58,12 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
   tree (reuses `cbind`/`run_cmd`, no second universe): print/println → `COut` (the model's own `w_log`),
   panic → `CPan`, `return`, and blank constant-assignment, over a PARTIAL `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`; fails CLOSED on runtime / fractional / out-of-range —
-  exact coverage in `GoSem.v`). Proves denotation ⊆ `SupportedProgram` and that denoted programs run through
+  exact coverage in `GoSem.v`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
+  direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
+  and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement
+  individually denotes — return/panic terminators, blank-assign, print·println interleaved, incl. a
+  terminator + supported dead tail; SUFFICIENT not necessary, still conditional on `stmt_denotable`, not full
+  `supported_program`). Denoted programs run through
   `cmd.v`. Certified public surface = `gosem_trust_surface` + `gosem_string_authority_surface` (the string
   comparators ARE the model's `str_*`); a GoSem fact in neither tuple is an internal helper / example, not
   certified. NO `BehaviorSafe`. Zero axioms.
@@ -104,8 +109,9 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 ## NEXT
 
-- GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
-  (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
+- GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — the general converse
+  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case shrinks the
+  `stmt_denotable`→`stmt_ok` gap, converging the CONDITIONAL converse toward a full `supported ⟺ denotes`.
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
