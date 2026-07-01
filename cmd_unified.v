@@ -242,20 +242,23 @@ Local Example bridge_print_println_distinct : forall (a : GoAny),
   cmd_to_ucmd (COut true (a :: nil) (CRet tt)) <> cmd_to_ucmd (COut false (a :: nil) (CRet tt)).
 Proof. intros a H. cbn in H. discriminate H. Qed.
 
-(** ---- DEFER bridge — CONCRETE witness for the ONE case still NOT general ----
+(** ---- DEFER bridge — CONCRETE witnesses for the cases still NOT general ----
     [cmd_to_ucmd_run_agrees] handles [no_defer]; [bridge_one_defer_agrees] (proved below) handles ANY ONE defer
     ([CDfr d c'] with [d]/[c'] [no_defer], EITHER may panic — covering [ustep_ret_defer]/[ustep_pan_defer]/
     [ustep_ret_done]/[ustep_pan_done] and panic-replacement generally in its four leaves); [bridge_flat_np_agrees]
     (below) handles MULTIPLE non-panicking FLAT defers ([flat c] + [cmd_no_panic c] — every deferred action is
     itself [no_defer]).  So the earlier single-defer demos (return / panic-propagation / panic-replacement) AND
     the sibling-LIFO demo ([defer println(a); defer println(b); return] — [flat] + non-panicking, popped LIFO)
-    are now SUBSUMED by those theorems and were removed.  ONE file-private EXAMPLE remains — the case NONE of the
-    theorems yet cover, because its deferred action is NOT [flat]:
-      NESTING ([defer (defer println(a))]): a deferred action that ITSELF defers — [ustep_defer] fires AGAIN
-              DURING the unwinding (the stack never exceeds ONE entry, but a second defer is registered
-              mid-unwind), the inner defer running before the goroutine finishes (output [a]).  It AGREES with
-              cmd.v's [run_cmd], whose [run_defers] runs the accumulated list (the deferred [d] appends via [go]).
-    Multiple PANICKING defers (the 2-mode invariant) or NESTED defers GENERALLY are the next Phase-B slice. *)
+    are now SUBSUMED by those theorems and were removed.  TWO file-private EXAMPLES remain, for cases NONE of the
+    theorems yet cover — each AGREES with cmd.v's authoritative [run_cmd]:
+      NESTING ([defer (defer println(a))]): a deferred action that ITSELF defers (NOT [flat]) — [ustep_defer]
+              fires AGAIN DURING the unwinding (the stack never exceeds ONE entry, but a second defer is
+              registered mid-unwind), the inner defer running before the goroutine finishes (output [a]).
+      MULTIPLE-PANICKING FLAT ([defer panic v1; defer panic v2; return]): [flat] defers that PANIC, which
+              [bridge_flat_np_agrees] excludes ([cmd_no_panic]).  The unwind is the (prog, pa) 2-mode:
+              [ustep_ret_defer] then [ustep_pan_defer] (records v2 into [pa]) then [ustep_pan_done] (records v1),
+              so [uc_panic 0 = Some v1] — the last-raised panic, matching [run_cmd]'s [OPanic v1].
+    A GENERAL flat-PANICKING theorem (the 2-mode invariant) or NESTED defers GENERALLY are the next Phase-B slice. *)
 Local Example bridge_defer_nested_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
   exists uc oc,
     usteps ucap (ustart (cmd_to_ucmd (CDfr (CDfr (COut true (a :: nil) (CRet tt)) (CRet tt)) (CRet tt)))) uc
@@ -276,6 +279,37 @@ Proof.
   split. { vm_compute. reflexivity. }
   split. { reflexivity. }
   split. { cbn. reflexivity. } { reflexivity. }
+Qed.
+
+(** MULTIPLE-PANICKING flat defers — a concrete witness of the 2-mode case [bridge_flat_np_agrees] EXCLUDES
+    (it needs [cmd_no_panic]), NOT yet a general theorem.  [defer panic v1; defer panic v2; return] =
+    [CDfr (CPan v1) (CDfr (CPan v2) (CRet tt))]: [go] accumulates the defer list [[CPan v2; CPan v1]] (v2
+    deferred LAST runs FIRST), and [run_defers] REPLACES the active panic each pop, so the FINAL panic is v1
+    (the first-deferred, last-raised) — [run_cmd] returns [OPanic v1].  Under [ustep] the body returns [URet];
+    [ustep_ret_defer] pops the first defer (CPan v2) into [prog] as [UPan v2] (pa still None); [ustep_pan_defer]
+    fires on that panic — RECORDING v2 into [pa] and popping the older defer (CPan v1) into [prog] as [UPan v1];
+    [ustep_pan_done] then records v1 (df empty), leaving [uc_panic 0 = Some v1], AGREEING with [run_cmd].  This
+    exercises the (prog, pa) 2-mode the general flat-PANICKING theorem needs: a panic rides in [prog] until the
+    next pop moves it to [pa], a later panic replacing the earlier. *)
+Local Example bridge_defer_two_panic_agrees : forall (v1 v2 : GoAny) (ucap : nat -> option nat) w,
+  exists uc oc,
+    usteps ucap (ustart (cmd_to_ucmd (CDfr (CPan v1) (CDfr (CPan v2) (CRet tt))))) uc
+    /\ run_cmd 5 (CDfr (CPan v1) (CDfr (CPan v2) (CRet tt))) w = Some oc
+    /\ uc_live uc 0 = false
+    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
+    /\ uc_panic uc 0 = ocpanic oc.
+Proof.
+  intros v1 v2 ucap w. eexists. exists (OPanic v1 w).
+  split.
+  { eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_defer     with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_ret_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_pan_defer with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    eapply usteps_step. { eapply ustep_pan_done  with (tid := 0); rewrite ?upd_same; cbn; reflexivity. }
+    apply usteps_refl. }
+  split. { vm_compute. reflexivity. }
+  split. { reflexivity. }
+  split. { cbn. rewrite app_nil_r. reflexivity. } { reflexivity. }
 Qed.
 
 (** ---- First GENERAL defer-agreement THEOREM (not a demo): ONE no_defer defer ----
