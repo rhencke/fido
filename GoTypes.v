@@ -451,6 +451,16 @@ Fixpoint ptype (e : GExpr) : option PTy :=
              ([chan int([]int{1})], mismatched conversions) *)
           match ptype e0 with Some PtNil => Some PtAgg | _ => None end
       end
+  | EIndex (ESliceLit t es) (EInt k) =>
+      (* CONSTANT index into a well-typed slice LITERAL: valid Go iff [0 <= k < len es], and its result is a
+         RUNTIME value of element type [t] (Go treats slice indexing as NON-constant), so SUPPORTED but not a
+         constant.  A constant OOB index into a known-length literal is a Go COMPILE error -> REJECTED here.
+         Brick 1 (plans/slices-oob.md): INTEGER element types only; runtime index / non-literal slice fall to
+         the [EIndex _ _] catch-all below (unclassified for now — needs GoSem runtime values). *)
+      if is_int_goty t
+         && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
+         && (0 <=? k)%Z && Nat.ltb (Z.to_nat k) (length es)
+      then Some (PtRunInt t) else None
   | ESliceLit t es =>
       if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
@@ -495,7 +505,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
     [ptype (EId _) = None]).  Accepted: [EInt], well-typed binops/unops/conversions, [len] of a string LITERAL
     (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
     [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
-    whose elements are ASSIGNABLE to its element type, and an INTEGER-key map LITERAL whose constant keys are
+    whose elements are ASSIGNABLE to its element type, a CONSTANT IN-BOUNDS index into an INTEGER slice literal
+    ([]int{..}[k] — a runtime int; a constant OOB index is Go's compile error, REJECTED), and an INTEGER-key
+    map LITERAL whose constant keys are
     assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
