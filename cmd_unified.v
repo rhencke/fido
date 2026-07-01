@@ -220,14 +220,15 @@ Proof. intros a H. cbn in H. discriminate H. Qed.
     ([CDfr d c'] with [d]/[c'] [no_defer], EITHER may panic — covering [ustep_ret_defer]/[ustep_pan_defer]/
     [ustep_ret_done]/[ustep_pan_done] and panic-replacement generally in its four leaves).  So the earlier
     single-defer demos (return / panic-propagation / panic-replacement) are now SUBSUMED by that theorem and were
-    removed.  These TWO file-private EXAMPLES pin the behaviours the general theorem does NOT yet cover — a defer
-    stack with MORE THAN ONE entry; each pins that the [CDfr -> UDfr] translation RUNS correctly under [ustep]
-    and AGREES with cmd.v's authoritative [run_cmd]:
+    removed.  These TWO file-private EXAMPLES pin the behaviours the general theorem does NOT yet cover — MORE
+    THAN ONE deferred action runs (whether NESTED or SIBLING); each pins that the [CDfr -> UDfr] translation RUNS
+    correctly under [ustep] and AGREES with cmd.v's authoritative [run_cmd]:
       NESTING ([defer (defer println(a))]): a deferred action that ITSELF defers — [ustep_defer] fires AGAIN
-              DURING the unwinding, the inner defer running before the goroutine finishes (output [a]).
+              DURING the unwinding (the stack never exceeds ONE entry, but a second defer is registered
+              mid-unwind), the inner defer running before the goroutine finishes (output [a]).
       SIBLING LIFO ([defer println(a); defer println(b); return]): TWO defers pushed by the body ([ustep_defer]
-              twice BEFORE it returns), popped LIFO — [b] deferred LAST runs FIRST, output [[b]; [a]] (two
-              [ustep_ret_defer] pops in stack order, NO defer-during-unwind).
+              twice BEFORE it returns, so the stack reaches DEPTH 2), popped LIFO — [b] deferred LAST runs FIRST,
+              output [[b]; [a]] (two [ustep_ret_defer] pops in stack order, NO defer-during-unwind).
     Multiple / nested defers are the next Phase-B slice (the panic-in-flight 2-mode invariant). *)
 Local Example bridge_defer_nested_agrees : forall (a : GoAny) (ucap : nat -> option nat) w,
   exists uc oc,
