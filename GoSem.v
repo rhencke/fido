@@ -746,8 +746,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     boxes its EXACT value ([mk_uint] discharges the model's [in_u64] proof). [mk_uint] boxing makes the GATE's
     uint overflow/underflow rejection LOAD-BEARING: a Go-INVALID uint const is kept OUT of [SupportedProgram]
     by the GATE ([ptype]->None ⇒ [printable_arg_ok]->false ⇒ unsupported ⇒ never emitted), NOT by [eval] (whose
-    [None] is a faithful-or-absent BACKSTOP). [len] of a string CONSTANT folds ([ptype] -> [PtIntConst]); [len]
-    of a slice literal is a runtime value, faithfully absent. *)
+    [None] is a faithful-or-absent BACKSTOP). [len] of a string LITERAL folds ([ptype] -> [PtIntConst]); [len]
+    of a NON-literal string const ([string(65)], ["a"+"b"]) or a slice literal is not folded, faithfully absent. *)
 Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
 Example uint_underflow_gate :   (* LOAD-BEARING: root [ptype] rejection ⇒ the print-arg gate rejects it (never emitted) *)
   ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false.

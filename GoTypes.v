@@ -39,7 +39,7 @@ Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
   | PtFloatConst (t : GoTy) (z : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), value the INTEGER [z] it came from *)
-  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING LITERAL folds to [PtIntConst], NOT this; a NON-literal string const like ["a"+"b"] does not fold -> rejected) *)
+  | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING LITERAL folds to [PtIntConst], NOT this; a non-literal string const (["a"+"b"], [string(65)]) is supported as [PtStr] but carries no value, so [len] of IT is rejected) *)
   | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
   | PtStr
@@ -431,7 +431,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | Some ca =>
           if String.eqb fn "len"
           then match a, ca with
-               | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING CONSTANT is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS) *)
+               | EStr s, _ => Some (PtIntConst (Z.of_nat (String.length s)))   (* [len] of a STRING LITERAL ([EStr]) is itself a CONSTANT (its byte count) — Go folds it; modelling it as a runtime int would wrongly certify e.g. [int8(len("..")+200)] (a const-202->int8 overflow Go REJECTS).  A NON-literal string const ([string(65)], ["a"+"b"]) has no [EStr] to measure, so it hits the [_, _ => None] reject below (fail-loud). *)
                | _, (PtAgg | PtMap) => Some (PtRunInt GTInt)                   (* [len] of a slice/chan/map aggregate: a runtime int (aggregates are not constants).  [len] IS valid on a map (unlike [cap]) *)
                | _, _ => None end                                             (* a non-literal string ([string(x)]…): cannot soundly fold its length here — reject (fail-loud) *)
           else if String.eqb fn "cap"

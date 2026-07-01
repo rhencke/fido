@@ -263,9 +263,9 @@ Proof. vm_compute. reflexivity. Qed.
     `map[int]int{1:2}` GRADUATED from here to [good_programs] once [ptype] gained a structural
     integer-key/representability/distinctness check — and its companions `map[int]uint8{1:300}` /
     `map[uint8]int{300:1}` / `map[int]int{1:2,1:3}` STAYED in [bad_programs], exactly as this contract demands.
-    The remaining member's path: fold [len] of a string CONST to its exact byte length (which keeps
-    `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt] runtime-int shortcut
-    would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
+    The remaining member's FUTURE path: fold [len] of a NON-LITERAL string const to its exact byte length
+    (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
+    runtime-int shortcut would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
     Current members: [len] of a non-literal string CONST (byte length not folded). *)
 Definition valid_unsupported_programs : list Program :=
