@@ -15,19 +15,19 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
 
 ## The faithfulness pin (drives the brick order)
 - Go treats slice indexing as **non-constant** — `[]int{10,20}[1]` is a runtime `int`, NOT a Go constant.
-- A **constant** index OOB on a known-length literal (`[]int{10,20}[5]`) is a Go **COMPILE error**
-  ("index out of bounds"), NOT a runtime panic.
-- A **runtime** index (`s[i]`, `i` a runtime value) is where OOB is a genuine **runtime panic** — and that
-  needs a runtime-value model GoSem does not have yet (it is constant-folding only).
-
-So OOB splits into a compile-time half (decidable now) and a runtime half (needs runtime values).
+- For a **slice**, an out-of-range index — even a *constant* one, `[]int{10,20}[5]` — is a **run-time PANIC**,
+  NOT a compile error. (Compile-time in-range is required only for **arrays**/strings.) So OOB slice indexing
+  is VALID Go that is **SUPPORTED** (syntax) — OOB-safety is entirely a **behavioral** property, never
+  supportedness. (Do NOT misfile an OOB index as invalid Go.)
+- Denoting the indexed value AND the runtime OOB panic both need runtime values GoSem does not have yet (it is
+  constant-folding only).
 
 ## Bricks (each: faithful, self-contained, accepted-good + rejected-bad fixtures)
-- **B1 — compile-time bounds check (ptype).** `ptype (EIndex (ESliceLit t es) (EInt k))` for an INT element
-  type `t`: in-bounds (`0 <= k < len es`, elements well-typed) → `PtRunInt t` (SUPPORTED, runtime, like `len`);
-  OOB / non-constant index / non-int element → `None` (UNSUPPORTED — faithful to Go's compile error). Result:
-  an in-bounds constant int-slice index is supported-but-not-denoted; an OOB one is REJECTED by the gate (via
-  unsupportedness). GoTypes-only; fixtures pin both. **← first brick, this tick.**
+- **B1 — supportedness (ptype).** `ptype (EIndex (ESliceLit t es) idx)` for an INT element type `t` and ANY
+  INTEGER index `idx` → `PtRunInt t` (SUPPORTED, a runtime int, like `len`); a non-integer index or non-int
+  element → `None` (invalid Go). NO bounds check — for a slice, OOB is a runtime panic (valid Go), so it stays
+  SUPPORTED and is a behavioral concern (B3). Supported-but-not-denoted. GoTypes/GoSafe only; fixtures pin
+  supported (in-bounds, OOB, runtime index) vs rejected (string index). **← done.**
 - **B2 — denote the in-bounds value.** Fold `[]int{..}[k]` to the k-th element's value so the gate ACCEPTS it.
   Needs a faithful "runtime value with a known static fold" — either a new ptype category or an eval_value arm
   that computes the value while ptype keeps it `PtRunInt` (folding is faithful in VALUE contexts, which is all
