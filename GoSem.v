@@ -23,10 +23,10 @@
     — complement still EXCLUDING [GTUint], whose platform-width fold is unsound)
     or an exact-integer-valued FLOAT constant ([float64(3)], [-float32(5)]) — boxed via the model's value ctors,
     failing closed on an out-of-range/out-of-interval value; plus a constant bool built from NUMERIC or
-    STRING-LITERAL comparisons (string compares DELEGATED to the model's [str_*] family — no local GoSem order)
-    combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion) supplies the printed/panicked
-    values; a comparison with a NON-literal string operand, bools with a runtime operand, a string built from a
-    NON-literal LEAF (the rune conversion [string(65)]),
+    STRING-CONSTANT comparisons (literals AND concatenations; string compares DELEGATED to the model's [str_*]
+    family — no local GoSem order) combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion)
+    supplies the printed/panicked values; a string (or string-comparison operand) built from a NON-literal LEAF
+    (the rune conversion [string(65)]), bools with a runtime operand,
     an out-of-conservative-range or COMPLEMENTED [uint], fractional/runtime floats, and RUNTIME values
     ([len(..)]/[int(x)]…) are the next sub-slices and [eval] to [None] there.
     ★FAITHFUL-OR-ABSENT: GoSem denotes ONLY what it models correctly — so a SUPPORTED program receives either
@@ -118,10 +118,25 @@ Definition const_z (e : GExpr) : option Z :=
   | _ => None
   end.
 
-(** The constant VALUE of a string operand: ONLY a string LITERAL [EStr s] (whose bytes are known); a
-    non-literal string (e.g. [string(65)]) carries no recoverable value -> [None] (honestly absent). *)
-Definition const_str (e : GExpr) : option string :=
-  match e with EStr s => Some s | _ => None end.
+(** The constant string VALUE of a supported [PtStr] expression — THE SINGLE string-value authority (both
+    [eval_value]'s [PtStr] arm AND [eval_bool]'s string comparisons consult it; no literal-only fork).  Folds a
+    string LITERAL [EStr s] and the CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is
+    byte APPEND, so [String.append] is exact).  SEALED under [ptype] = [PtStr] (so it never folds an ill-typed
+    [+] like [`"a" + 1`], which [ptype] rejects).  ABSENT (-> [None], honestly): a non-literal LEAF like the rune
+    conversion [string(65)] (no recoverable value tracked yet) and any RUNTIME string. *)
+Fixpoint eval_str (e : GExpr) : option string :=
+  match ptype e with
+  | Some PtStr =>   (* SEAL: fold ONLY what [ptype] validated as a string *)
+      match e with
+      | EStr s        => Some s
+      | EBn BAdd a b  => match eval_str a, eval_str b with
+                         | Some sa, Some sb => Some (String.append sa sb)
+                         | _, _ => None
+                         end
+      | _ => None
+      end
+  | _ => None
+  end.
 
 (** The 6 COMPARISON ops on STRING constants — DELEGATED to the MODEL's string order, named by their FULLY
     QUALIFIED paths ([Fido.builtins.str_eqb] / [str_neqb] / [str_ltb] / [str_gtb] / [str_geb], the byte-wise
@@ -147,14 +162,14 @@ Definition str_cmp_op (op : BinOp) : option (GoString -> GoString -> bool) :=
     can NEVER assign a value to an expression [ptype] rejects — a direct call on a ptype-rejected (e.g.
     mixed-width [int64(1)==int32(1)]) comparison returns [None], NOT a value.  The precondition is thus
     ENFORCED here, not assumed of the caller (so [const_z]'s type-erasure can never fold an ill-typed compare).
-    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) / string literals ([const_str]) and
-    recurses STRUCTURALLY (terminates) over the bool forms:
-      - a COMPARISON: NUMERIC (the 6 ops via [cmp_op]/[const_z]), STRING-LITERAL (the 6 ops via
-        [str_cmp_op]/[const_str]), or [==]/[!=] of two bool sub-bools;
+    Inside the gate it reuses [ptype]'s numeric operand values ([const_z]) / string CONSTANTS ([eval_str] — the
+    single string-value authority, literals AND concatenations) and recurses STRUCTURALLY (terminates) over the bool forms:
+      - a COMPARISON: NUMERIC (the 6 ops via [cmp_op]/[const_z]), STRING-CONSTANT (the 6 ops via
+        [str_cmp_op]/[eval_str]), or [==]/[!=] of two bool sub-bools;
       - the LOGICAL connectives [&&]/[||] (short-circuit is irrelevant — constants have no effects) and [!];
       - the identity bool CONVERSION [bool(x)] (Go allows it only for an already-bool [x]) -> the value of [x].
-    NOT folded (-> [None], honestly absent): a comparison whose string operand is NON-literal ([string(65)],
-    no recoverable value) and any RUNTIME-operand leaf. *)
+    NOT folded (-> [None], honestly absent): a comparison whose string operand is a rune-conversion LEAF
+    ([string(65)], no recoverable value — concat operands DO fold via [eval_str]) and any RUNTIME-operand leaf. *)
 Fixpoint eval_bool (e : GExpr) : option bool :=
   match ptype e with
   | Some PtBool =>   (* SEAL: fold ONLY what [ptype] validated as a bool *)
@@ -166,8 +181,8 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
           match cmp_op op, const_z a, const_z b with
           | Some cmp, Some x, Some y => Some (cmp x y)                      (* numeric comparison *)
           | _, _, _ =>
-              match str_cmp_op op, const_str a, const_str b with
-              | Some scmp, Some s, Some t => Some (scmp s t)               (* string-LITERAL comparison *)
+              match str_cmp_op op, eval_str a, eval_str b with
+              | Some scmp, Some s, Some t => Some (scmp s t)               (* string-CONSTANT comparison (literal or concat, via [eval_str]) *)
               | _, _, _ =>
                   match op, eval_bool a, eval_bool b with                 (* else [==]/[!=] of two bool sub-bools *)
                   | BEq, Some x, Some y => Some (Bool.eqb x y)
@@ -178,26 +193,6 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
           end
       | ECall (EId f) (a :: nil) =>                                        (* identity bool CONVERSION [bool(x)] *)
           if String.eqb (proj1_sig f) "bool" then eval_bool a else None
-      | _ => None
-      end
-  | _ => None
-  end.
-
-(** The constant string VALUE of a supported [PtStr] expression — a string LITERAL [EStr s], or the
-    CONCATENATION [a + b] of two folded string constants (Go's [+] on strings is byte APPEND, so [String.append]
-    is exact).  SEALED under [ptype] = [PtStr] (so it never folds an ill-typed [+] like [`"a" + 1`], which
-    [ptype] rejects).  ABSENT (-> [None], honestly): a non-literal leaf like [string(65)] (a rune-const
-    conversion — no recoverable value tracked yet) and any RUNTIME string.  Extends [const_str] (literals only,
-    used by [eval_bool]'s string comparisons) with the concatenation the completeness converse needs. *)
-Fixpoint eval_str (e : GExpr) : option string :=
-  match ptype e with
-  | Some PtStr =>   (* SEAL: fold ONLY what [ptype] validated as a string *)
-      match e with
-      | EStr s        => Some s
-      | EBn BAdd a b  => match eval_str a, eval_str b with
-                         | Some sa, Some sb => Some (String.append sa sb)
-                         | _, _ => None
-                         end
       | _ => None
       end
   | _ => None
@@ -217,9 +212,10 @@ Fixpoint eval_str (e : GExpr) : option string :=
     integer value ([float64(3)], [-float32(5)]) — with NO second folding logic.  Bools: [ptype] keeps [PtBool]
     a pure CATEGORY (no value — comparison/logical VALUES are SEMANTICS, GoSem's job, not the classifier's), so
     GoSem folds a constant bool HERE via the self-sealed [eval_bool] — a bool built from NUMERIC or
-    STRING-LITERAL comparisons combined by [==]/[!=]/[&&]/[||]/[!], plus the identity [bool(x)] conversion,
-    reusing the operands' [ptype] values via [const_z] / [const_str].  ABSENT (-> [None], the next sub-slices):
-    a comparison with a NON-literal string operand, a bool with a RUNTIME operand, a string built from a
+    STRING-CONSTANT comparisons (literals AND concatenations) combined by [==]/[!=]/[&&]/[||]/[!], plus the
+    identity [bool(x)] conversion, reusing the operands' [ptype] numeric values ([const_z]) and string values
+    ([eval_str]).  ABSENT (-> [None], the next sub-slices):
+    a bool with a RUNTIME operand, a string (or string-comparison operand) built from a
     non-literal LEAF (the rune-const conversion [string(65)]), an out-of-conservative-range or COMPLEMENTED
     [uint], and all RUNTIME numeric values ([PtRunInt]/[PtRunFloat]: [len(..)], [int(x)]…).  Honestly absent,
     never wrong. *)
@@ -821,10 +817,12 @@ Example mixed_width_ptype_none     : ptype mixed_width_cmp = None.      Proof. r
 Example mixed_width_eval_bool_none : eval_bool mixed_width_cmp = None.  Proof. reflexivity. Qed.
 Example mixed_width_eval_none      : eval_value mixed_width_cmp = None. Proof. reflexivity. Qed.
 
-(** [eval_value] folds a comparison of two string LITERALS (order DELEGATED to the model's byte-wise
-    [str_eqb]/[str_ltb]/…) across all 6 ops, plus the identity [bool(x)] conversion. The high-byte pair
-    "\200" > "\100" pins UNSIGNED byte order (a signed int8 read would flip it). A NON-literal string operand
-    ([string(65)]) carries no value -> ABSENT (`eval_absent` group). *)
+(** [eval_value] folds a comparison of two string CONSTANTS (order DELEGATED to the model's byte-wise
+    [str_eqb]/[str_ltb]/…) across all 6 ops, plus the identity [bool(x)] conversion.  Since [eval_bool] now
+    consults [eval_str] (the single string-value authority), a CONCATENATION operand folds too
+    ([`("a"+"b") == "ab"`] = [true]).  The high-byte pair "\200" > "\100" pins UNSIGNED byte order (a signed
+    int8 read would flip it). A rune-conversion string operand ([string(65)]) carries no value -> ABSENT
+    (`eval_absent` group). *)
 Example eval_str_ptype_supported :
   ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
   /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
@@ -841,6 +839,7 @@ Example eval_str_folds :
   /\ eval_value (EBn BGe (EStr "a") (EStr "b")) = Some (anyt TBool false)
   /\ eval_value (EBn BGt (EStr (String (Ascii.ascii_of_nat 200) EmptyString))
                         (EStr (String (Ascii.ascii_of_nat 100) EmptyString))) = Some (anyt TBool true)  (* unsigned byte order *)
+  /\ eval_value (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) = Some (anyt TBool true)  (* CONCAT operand folds via [eval_str] *)
   /\ eval_value (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some (anyt TBool true).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 Definition gosem_bool_demo_prog : Program :=
@@ -850,6 +849,16 @@ Example gosem_bool_demo_supported : supported_program gosem_bool_demo_prog = tru
 Proof. reflexivity. Qed.
 Example gosem_bool_demo_runs : forall w,
   match denote_program gosem_bool_demo_prog with Some c => run_cmd 5 c w | None => None end
+  = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
+Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** END-TO-END: a bool built from a CONCAT comparison RUNS — `func main(){ println(("a"+"b") == "ab"); return }`
+    logs [anyt TBool true] (proving [eval_bool] consults [eval_str], not a literal-only path). *)
+Example gosem_concat_cmp_runs : forall w,
+  match denote_program (mkProgram (mkIdent "main" eq_refl)
+          [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                             [EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")]); GsReturn]) with
+  | Some c => run_cmd 5 c w | None => None end
   = Some (ORet tt (w_log true (anyt TBool true :: nil) w)).
 Proof. intro w. vm_compute. reflexivity. Qed.
 
@@ -906,7 +915,8 @@ Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denote_program_runs, out_main_runs, println_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
-   gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs).
+   gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs,
+   gosem_str_concat_runs, gosem_concat_cmp_runs).
 Print Assumptions gosem_trust_surface.
 
 (** ---- DELEGATION PINS (the AUTHORITY guarantee for the live path): EVERY one of [str_cmp_op]'s SIX comparison
