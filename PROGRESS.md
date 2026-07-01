@@ -115,11 +115,30 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 
 ## NEXT
 
-- GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — the general converse
-  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case closes part of the
-  `stmt_denotable`→`stmt_ok` gap. But that gap has TWO sources: unmodeled value forms (eval-closable) AND
-  `GsDefer` (supported+emittable, undenoted until `run_cmd` fuel>1 — NOT eval-closable). So eval growth
-  converges toward `supported ⟺ denotes` only on the DEFER-FREE fragment; the full converse also needs defer denotation.
+- **DENOTE `GsDefer` (now UNBLOCKED — the fuel-1 blocker is gone).** The completed defer bridge
+  (`cmd_unified.bridge_agrees` / `run_cmd_terminates`: `∀ c w, ∃ fuel oc, run_cmd fuel c w = Some oc` for ANY
+  `c`, arbitrary defer nesting) supplies the sufficient-fuel execution the `GsDefer`→`CDfr` denotation needed —
+  so the earlier "undenoted until `run_cmd` fuel>1" is satisfied. Scoped arc (one clean tick): (a) factor a
+  single `denote_effect_call : GExpr → option (Cmd unit * bool)` authority, rewire `GsExprStmt` through it
+  (behavior-preserving); (b) denote `GsDefer e` as `Some (CDfr d (CRet tt), false)` where `d = denote_effect_call
+  e` (faithful: `cbind (CDfr d (CRet tt)) k = CDfr d k` = Go's `defer d; rest`; the deferred action runs at
+  return via `run_defers`, LIFO); (c) update the `GsDefer` arm of `denote_stmt_sound` (gated on `expr_stmt_ok e`
+  = `stmt_ok (GsDefer e)`, so `denote ⊆ gate` holds); (d) the `no_defer`-based run infra
+  (`denote_stmt_no_defer` / `denote_body_no_defer` / `no_defer_run`, etc.) no longer holds universally —
+  DELETE that dead cluster (shrinks the file) and re-prove the 4 gated run theorems (`denote_program_runs` /
+  `out_main_runs` / `println_main_runs` / `denotable_stmts_main_runs`) with conclusion `∃ fuel oc, run_cmd fuel c
+  w = Some oc` via `run_cmd_terminates`. ★DESIGN: RELOCATE `run_cmd_terminates` (+ the `Local`
+  `run_defers_terminates` + supporting lemmas) from `cmd_unified.v` to `cmd.v` — they are pure `cmd.v`
+  `run_cmd`/`run_defers` termination properties, so they belong there, and it keeps `GoSem`'s dep footprint
+  lightweight (importing `cmd_unified` instead would pull the heavy `concurrency`+`unified` stack into `GoSem`);
+  `cmd_unified` then imports them from `cmd`, and the manifest bridge-surface reference for `run_cmd_terminates`
+  moves accordingly. (e) faithfulness pins: defer-only, defer-println-then-println (LIFO output),
+  defer-panic (panic at return), all gated in `gosem_trust_surface`; (f) update the fuel-1 comments + this item.
+  This closes `GsDefer`, the non-eval-closable half of the `stmt_denotable`→`stmt_ok` gap.
+- GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
+  not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
+  statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap on the DEFER-FREE
+  fragment (the `GsDefer` half is the item above).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
