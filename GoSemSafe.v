@@ -191,12 +191,13 @@ Example panic_after_output_premises :
   /\ cmd_panic_val panic_after_output_cmd = Some (anyt TString "boom").
 Proof. split; reflexivity. Qed.
 Example panic_after_output_runs : forall w,
-  run_cmd 1 panic_after_output_cmd w
+  match denote_program panic_after_output_prog with Some c => run_cmd 1 c w | None => None end
   = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "x" :: nil) w)).
 Proof.
   intro w.
+  rewrite panic_after_output_denotes.   (* PROGRAM denotes to the defer-free command... *)
   rewrite (run_cmd_panics_world panic_after_output_cmd w (anyt TString "boom")
-             (proj1 panic_after_output_premises) (proj2 panic_after_output_premises)).
+             (proj1 panic_after_output_premises) (proj2 panic_after_output_premises)).   (* ...run via the theorem *)
   reflexivity.
 Qed.
 
