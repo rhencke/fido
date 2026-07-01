@@ -326,7 +326,9 @@ embedded field, emitted in the PROMOTED SHORTHAND `species (animal d)` → `d.Sp
 method `speak (animal d)` → `d.Speak()` (a `peel_embedded` peephole, which compiles only because Go
 promotes through the embedded field — genuinely exercising promotion; safe since Coq projection names
 are unique, so no shadowing).  The embedded type needs ≥2 fields (1-field records unbox).  `embed_demo`
-→ `canine / canine`.  An INTERFACE (its method-dictionary) embeds the SAME way — the dict IS a struct:
+→ `canine / canine / 5` (the `5` = the embedded-selector regression fixture `embed_arith`: `legs (animal d) + k`
+emits the peeled `d.Legs + k`, pinned exactly by the Makefile selector-bridge gate).  An INTERFACE (its
+method-dictionary) embeds the SAME way — the dict IS a struct:
 `type LoggedGreeter struct { Greeter; Lg_calls int64 }` promotes the embedded interface's method
 (emitted `lg.Greet(5)`, NOT `lg.Greeter.Greet(…)`) alongside the struct's own field, a common Go
 wrap-an-interface pattern (`embed_iface_in_struct_demo` → `105 / 7`; `promoted_greet` reflexivity).

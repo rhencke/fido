@@ -155,15 +155,14 @@ check: extract emit-demo
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
 	  exit 1; \
 	fi
-	@# SELECTOR-BRIDGE fixture (Codex regression gate): [embed_arith]'s embedded-int selector must emit the
-	@# PEELED [.Legs] (ESel bridge DECLINES the embedded receiver -> trusted pp_expr peels), never the
-	@# non-peeled [.Animal.Legs] a re-broadened bridge would produce — a SOURCE-byte regression the runtime
-	@# golden cannot see (same value either way).
-	@if ! grep -q '\.Legs' main.go || grep -q '\.Animal\.Legs' main.go; then \
-	  echo "fido: SELECTOR-BRIDGE FIXTURE FAILED — expected the peeled '.Legs' (and NOT '.Animal.Legs') in main.go; the ESel bridge regressed onto an embedded receiver."; \
+	@# SELECTOR-BRIDGE fixture (Codex regression gate): [embed_arith] must emit the EXACT peeled selector line.
+	@# A bridge re-broadening (-> `d.Animal.Legs + k`) or a pp_expr peel_embedded regression (-> `(d.Animal).Legs
+	@# + k`) both break this exact string — a SOURCE-byte change the runtime golden can't see (same value).
+	@if ! grep -qF 'return d.Legs + k' main.go; then \
+	  echo "fido: SELECTOR-BRIDGE FIXTURE FAILED — Embed_arith must emit the exact peeled 'return d.Legs + k' in main.go; it does not (the ESel bridge or pp_expr's peel_embedded regressed onto the embedded receiver -> d.Animal.Legs / (d.Animal).Legs)."; \
 	  exit 1; \
 	fi; \
-	echo "fido: selector-bridge fixture OK — embedded selector peels to .Legs (bridge declined the embedded receiver) ✓"
+	echo "fido: selector-bridge fixture OK — Embed_arith emits the exact peeled 'return d.Legs + k' ✓"
 	@set +e; $(GORUN) > /tmp/fido_out.txt 2>&1; rc=$$?; set -e; \
 	if [ $$rc -ne 0 ]; then \
 	  echo "fido: PROGRAM EXITED NON-ZERO (status $$rc) — an uncaught panic / crash, NOT a benign diff:"; \

@@ -3247,13 +3247,9 @@ Definition mk_dog (sp br : GoString) : Dog := MkDog (MkAnimal sp (4)%i64) br.
 (* the embedded type's method is reachable on the composite (its method set is promoted) *)
 Example embed_speak : forall sp br, speak (animal (mk_dog sp br)) = sp.
 Proof. reflexivity. Qed.
-(* SELECTOR-BRIDGE FIXTURE (Codex regression gate): the embedded int field [legs] as an operand of a
-   bridging binop [legs (animal d) + k] with a RUNTIME [k] (so the arith force-wrapper does NOT fire and the
-   binop actually reaches [goexpr_bridge]).  The receiver of [legs] is [animal d] — an EMBEDDED projection, NOT
-   an [MLrel] — which the verified-printer ESel bridge REFUSES, so the operand declines and the binop stays on
-   the trusted [pp_expr], which PEELS the [.Animal] hop to emit [d.Legs + k] (NOT the non-peeled
-   [d.Animal.Legs + k] a re-broadened bridge would produce).  The build (Makefile) greps main.go for the peeled
-   form: a bridge regression onto an embedded receiver is a SOURCE-byte change the runtime golden can't see. *)
+(* SELECTOR-BRIDGE regression fixture: an embedded field [legs] as a RUNTIME-operand binop operand
+   ([legs (animal d) + k]) — its EMBEDDED receiver makes the ESel bridge decline, emitting the peeled
+   [d.Legs + k].  The Makefile pins that exact line; the invariant + reason live at the bridge arm in go.ml. *)
 Definition embed_arith (d : Dog) (k : GoI64) : GoI64 := i64_add (legs (animal d)) k.
 Definition embed_demo : IO unit :=
   bind (println [any (species (animal (mk_dog "canine"%string "lab"%string)))])  (fun _ =>   (* canine *)
@@ -3646,7 +3642,7 @@ Definition main_effect : IO unit :=
   deftype_iface_demo            >>'   (* prints: 120 (defined type satisfies an interface) *)
   named_func_demo               >>'   (* prints: 42 (named func type, type Handler func(int64) int64) *)
   deftype_slice_demo            >>'   (* prints: 3 (defined type over a slice, type IntList []int64) *)
-  embed_demo                    >>'   (* prints: canine / canine (struct embedding + promotion) *)
+  embed_demo                    >>'   (* prints: canine / canine / 5 (struct embedding + promotion; 5 = the d.Legs+k embedded-selector source-gate fixture) *)
   generics_demo                 >>'   (* prints: go / 3 / 2 / first (Go generics, type params) *)
   comparable_demo               >>'   (* prints: true true false true true (generic [K comparable]: int64/uint64/string/struct/DEFINED-TYPE → native ==) *)
   gstruct_demo                  >>'   (* prints: hi / true / 1 (generic struct Box[T]) *)
