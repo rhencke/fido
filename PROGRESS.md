@@ -124,7 +124,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / the bridge surfaces (`cmd_to_ucmd_run_agrees` /
 `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
-`run_cmd_terminates` / `denote_program_run_agrees`) / `gosem_safe_panic_surface` (the GoSemSafe panic-free
+`run_cmd_terminates` / `denote_program_run_agrees`) / `gosem_panic_free_surface` (the GoSemSafe panic-free
 bundle); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
