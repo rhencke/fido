@@ -50,7 +50,9 @@ the first unsafe op that is not an explicit `panic()`, and prove the gate reject
   soundness theorem extends to "emit ⟹ no explicit panic AND no OOB".
 
 ## Honesty
-B1 is SUPPORTEDNESS only: it accepts an integer-indexed int-slice literal as a runtime int, rejecting only the
-constant indices gc rejects at compile time (negative, int-overflow). It does NOT bounds-check (OOB is a
-run-time panic, valid Go — SUPPORTED), does NOT denote slices, and does NOT model the runtime OOB panic. The
-"behavioral safety > panic-freedom" claim lands with B3/B4 (runtime OOB panic + the gate rejecting it).
+B1 is SUPPORTEDNESS only: it accepts an integer-indexed int-slice literal as a runtime int. It rejects a
+negative constant (a gc compile error) and a non-integer index, and — CONSERVATIVELY — a constant index over
+Fido's 32-bit `int`; that last is fail-CLOSED, NOT exactly gc's boundary (a 64-bit gc accepts a large index
+like `[2^40]` that Fido rejects — safe incompleteness). It does NOT bounds-check (OOB is a run-time panic,
+valid Go — SUPPORTED), does NOT denote slices, and does NOT model the runtime OOB panic. The "behavioral
+safety > panic-freedom" claim lands with B3/B4 (runtime OOB panic + the gate rejecting it).
