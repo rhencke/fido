@@ -365,10 +365,12 @@ Proof.
   - split; intro H; [congruence | discriminate].
 Qed.
 
-(** ---- COMPLETENESS FRAGMENT — the [supported ⟹ denotes] direction for the println-of-evaluable-args class
-    (GENERALISED to the full PRINT/PRINTLN output-statement class by [out_main_denotes] below).
-    A println ARG denotes iff it EVALUATES and is PRINTABLE: [denotable_arg].  A `main` body of N [println(args)]
-    (every arg [denotable_arg]) + [return] ALWAYS denotes for the args [eval_value] folds: string LITERALS plus
+(** ---- COMPLETENESS FRAGMENT — the [supported ⟹ denotes] direction for the PRINT/PRINTLN-of-DENOTABLE-ARGS
+    fragment (AUTHORITY: [out_main_denotes] below; [print] as well as [println]).  NOT the whole supported output
+    class — a print/println of a RUNTIME arg is supported but not [denotable_arg], so it does NOT denote
+    ([out_boundary_runtime_undenoted]).  A print/println ARG denotes iff it EVALUATES and is PRINTABLE:
+    [denotable_arg].  A `main` body of denotable-arg output statements + [return] ALWAYS denotes for the args
+    [eval_value] folds: string LITERALS plus
     the folded integer / exact-float / bool CONSTANTS — NOT every supported string (a non-literal string like
     `"a"+"b"` is supported but eval-partial, so NOT [denotable_arg]; pinned by [denotable_arg_nonliteral_string]).
     ([gosem_strlit_*] demos string literals; [println_main_denotes_mixed] a mixed string-literal+int-const
@@ -407,79 +409,13 @@ Proof.
   apply andb_true_iff in H as [Ha Hrest]. rewrite (denotable_arg_printable a Ha), (IH Hrest). reflexivity.
 Qed.
 
-Lemma expr_stmt_ok_println_denotable : forall f args,
-  proj1_sig f = "println"%string -> forallb denotable_arg args = true ->
-  expr_stmt_ok (ECall (EId f) args) = true.
-Proof.
-  intros f args Hf Hargs. cbn [expr_stmt_ok stmt_call_ok]. rewrite Hf. cbn.
-  rewrite (forallb_denotable_printable args Hargs). reflexivity.
-Qed.
-
-(** A [println] of evaluable-printable args denotes — as a CONTINUER ([Some (_, false)]): the exact shape
-    [denotable_body] consumes when it is followed by more statements. *)
-Lemma denote_println_denotable : forall f args,
-  proj1_sig f = "println"%string -> forallb denotable_arg args = true ->
-  exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
-Proof.
-  intros f args Hf Hargs. cbn [denote_stmt].
-  rewrite (expr_stmt_ok_println_denotable f args Hf Hargs). rewrite Hf. cbn.
-  destruct (eval_args args) as [vs|] eqn:Ea.
-  - exists (COut true vs (CRet tt)). reflexivity.
-  - exfalso. exact (eval_args_denotable args Hargs Ea).
-Qed.
-
-Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
-Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
-
-(** Grounding: a multi-statement `func main(){ println("a"); println("b"); return }` is denotable. *)
-Definition gosem_strlit_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
-             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
-Example gosem_strlit_denotable : denotable_program gosem_strlit_prog = true.   Proof. reflexivity. Qed.
-
-(** BODY-LEVEL: a `main` body of N [println(args)] (every arg [denotable_arg]) + [return] ALWAYS denotes — the
-    println-of-evaluable-args fragment as an UNBOUNDED program class, the [supported ⟹ denotes] converse on it.
-    By induction over the arg-lists (no [GExpr] destructuring): each [println] is a denoting CONTINUER, the
-    trailing [return] terminates a (vacuously supported) empty rest. *)
-Fixpoint println_main_body (arglists : list (list GExpr)) : list GoStmt :=
-  match arglists with
-  | [] => [GsReturn]
-  | args :: rest => GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) args) :: println_main_body rest
-  end.
-
-Lemma println_main_denotable : forall arglists,
-  forallb (forallb denotable_arg) arglists = true -> denotable_body (println_main_body arglists) = true.
-Proof.
-  induction arglists as [|args rest IH]; intro H.
-  - reflexivity.
-  - cbn in H. apply andb_true_iff in H as [Hargs Hrest]. cbn [println_main_body].
-    destruct (denote_println_denotable (mkIdent "println" eq_refl) args eq_refl Hargs) as [c Hc].
-    cbn [denotable_body]. rewrite Hc. exact (IH Hrest).
-Qed.
-
-(** ...and hence such a program DENOTES (via [denote_program_dec]) — the general converse. *)
-Theorem println_main_denotes : forall arglists,
-  forallb (forallb denotable_arg) arglists = true ->
-  denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists)) <> None.
-Proof.
-  intros arglists H. apply (proj2 (denote_program_dec _)).
-  cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (println_main_denotable arglists H).
-Qed.
-
-(** Coverage: the general converse takes MIXED evaluable args — `println("a"); println(int64(3)); return`
-    denotes (a string literal AND an integer-constant conversion), not just strings. *)
-Example println_main_denotes_mixed :
-  denote_program (mkProgram (mkIdent "main" eq_refl)
-    (println_main_body [[EStr "a"]; [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]]])) <> None.
-Proof. apply println_main_denotes. reflexivity. Qed.
-
-(** GENERALISATION — the whole PRINT/PRINTLN output-statement class.  [println_main_denotes] covers a body of
-    [println]s; [print] is its sibling — the gate admits it the SAME way ([stmt_call_ok] accepts both) and it
-    denotes IDENTICALLY, only with the [COut] flag FALSE (model: [print = w_log false]).  [out_main_denotes]
-    SUBSUMES [println_main_denotes]: a body of arbitrary output statements — each [(pr, args)] is [println args]
-    ([pr]=true) or [print args] ([pr]=false), every arg [denotable_arg] — ALWAYS denotes.  So the certified
-    [supported ⟹ denotes] converse now spans the full print/println fragment, not just [println]. *)
+(** THE CONVERSE AUTHORITY — [supported ⟹ denotes] on the PRINT/PRINTLN-of-DENOTABLE-ARGS fragment.  A
+    print/println arg denotes iff it EVALUATES + is PRINTABLE ([denotable_arg]).  [out_call pr]: [println]
+    (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
+    the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
+    RUNTIME arg ([println(len([]int{1}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote (pinned
+    by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
+    below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
   if pr then ECall (EId (mkIdent "println" eq_refl)) args
         else ECall (EId (mkIdent "print" eq_refl)) args.
@@ -495,6 +431,8 @@ Proof.
   intros f args Hf Hargs. cbn [expr_stmt_ok stmt_call_ok].
   destruct Hf as [Hf|Hf]; rewrite Hf; cbn; rewrite (forallb_denotable_printable args Hargs); reflexivity.
 Qed.
+(** A print/println of denotable args denotes — as a CONTINUER ([Some (_, false)]): the shape [denotable_body]
+    consumes when it is followed by more statements. *)
 Lemma denote_out_denotable : forall f args,
   (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb denotable_arg args = true ->
   exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
@@ -529,11 +467,69 @@ Proof.
   intros stmts H. apply (proj2 (denote_program_dec _)).
   cbn [denotable_program prog_pkg prog_body proj1_sig]. exact (out_main_denotable stmts H).
 Qed.
+
+Corollary denotable_supported : forall p, denotable_program p = true -> supported_program p = true.
+Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
+
+(** Grounding: a multi-statement `func main(){ println("a"); println("b"); return }` is denotable. *)
+Definition gosem_strlit_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
+Example gosem_strlit_denotable : denotable_program gosem_strlit_prog = true.   Proof. reflexivity. Qed.
+
+(** [println_main_denotes] — the all-[println] COROLLARY of [out_main_denotes]: a `main` body of N
+    [println(args)] (every arg [denotable_arg]) + [return] denotes.  [println_main_body] is [out_main_body] with
+    every flag [true] ([println_main_body_out]); kept for the [gosem_strlit] / `_runs` demos. *)
+Fixpoint println_main_body (arglists : list (list GExpr)) : list GoStmt :=
+  match arglists with
+  | [] => [GsReturn]
+  | args :: rest => GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) args) :: println_main_body rest
+  end.
+Lemma println_main_body_out : forall arglists,
+  println_main_body arglists = out_main_body (map (fun a => (true, a)) arglists).
+Proof.
+  induction arglists as [|args rest IH]; [reflexivity|].
+  cbn [println_main_body out_main_body map out_call]. rewrite IH. reflexivity.
+Qed.
+Lemma denotable_arglists_out : forall arglists,
+  forallb (forallb denotable_arg) arglists = true ->
+  forallb (fun s => forallb denotable_arg (snd s)) (map (fun a => (true, a)) arglists) = true.
+Proof.
+  induction arglists as [|args rest IH]; [reflexivity|].
+  cbn; intro H; apply andb_true_iff in H as [Ha Hr]; rewrite Ha; cbn; exact (IH Hr).
+Qed.
+Theorem println_main_denotes : forall arglists,
+  forallb (forallb denotable_arg) arglists = true ->
+  denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists)) <> None.
+Proof.
+  intros arglists H. rewrite (println_main_body_out arglists).
+  exact (out_main_denotes _ (denotable_arglists_out arglists H)).
+Qed.
+
+(** Coverage: the general converse takes MIXED evaluable args — `println("a"); println(int64(3)); return`
+    denotes (a string literal AND an integer-constant conversion), not just strings. *)
+Example println_main_denotes_mixed :
+  denote_program (mkProgram (mkIdent "main" eq_refl)
+    (println_main_body [[EStr "a"]; [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]]])) <> None.
+Proof. apply println_main_denotes. reflexivity. Qed.
+
 (** Coverage: a MIXED print+println body denotes — [println("a"); print(int64(3)); return]. *)
 Example out_main_denotes_mixed :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     (out_main_body [(true, [EStr "a"]); (false, [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])])) <> None.
 Proof. apply out_main_denotes. reflexivity. Qed.
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len([]int{1}))] is SUPPORTED
+    (valid Go) yet its arg is a RUNTIME [len] (NOT [denotable_arg]), so the program does NOT denote. *)
+Definition out_runtime_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+                       [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]); GsReturn].
+Example out_boundary_runtime_undenoted :
+  supported_program out_runtime_prog = true
+  /\ denotable_arg (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) = false
+  /\ denote_program out_runtime_prog = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
     even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
@@ -607,8 +603,20 @@ Proof.
   exact (denote_body_no_defer (prog_body p) c H).
 Qed.
 
-(** Capstone: the unbounded println-of-evaluable-args fragment not only DENOTES but RUNS to an Outcome —
-    composing [println_main_denotes] (it denotes) with [denote_program_runs] (a denotation runs). *)
+(** Capstone: a DENOTED print/println-of-denotable-args program not only DENOTES but RUNS to an Outcome —
+    composing [out_main_denotes] with [denote_program_runs].  [println_main_runs] is the all-[println] corollary. *)
+Theorem out_main_runs : forall stmts w,
+  forallb (fun s => forallb denotable_arg (snd s)) stmts = true ->
+  match denote_program (mkProgram (mkIdent "main" eq_refl) (out_main_body stmts)) with
+  | Some c => run_cmd 1 c w <> None
+  | None => False
+  end.
+Proof.
+  intros stmts w H.
+  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) (out_main_body stmts))) as [c|] eqn:Hd.
+  - exact (denote_program_runs _ c w Hd).
+  - exact (out_main_denotes stmts H Hd).
+Qed.
 Theorem println_main_runs : forall arglists w,
   forallb (forallb denotable_arg) arglists = true ->
   match denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists)) with
@@ -616,10 +624,8 @@ Theorem println_main_runs : forall arglists w,
   | None => False
   end.
 Proof.
-  intros arglists w H.
-  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists))) as [c|] eqn:Hd.
-  - exact (denote_program_runs _ c w Hd).
-  - exact (println_main_denotes arglists H Hd).
+  intros arglists w H. rewrite (println_main_body_out arglists).
+  exact (out_main_runs _ w (denotable_arglists_out arglists H)).
 Qed.
 
 (** Concrete observable output: `func main(){ println("a"); println("b"); return }` RUNS, logging "a" THEN "b"
@@ -854,8 +860,8 @@ Example denotable_runtime_blank : denotable_program gosem_runtime_blank_prog = f
     surface (it is not claimed zero-axiom); to certify one, ADD it to the tuple.  plugin/axiom-authority-
     selftest.sh pins that the manifest mechanism catches an axiom in every such declaration form. *)
 Definition gosem_trust_surface :=
-  (gosem_sound, denote_program_dec, denotable_supported, println_main_denotes, out_main_denotes,
-   denote_program_runs, println_main_runs,
+  (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
+   denote_program_runs, out_main_runs, println_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    gosem_conv_demo_runs, gosem_float_demo_runs, gosem_bool_demo_runs, gosem_strlit_runs).
 Print Assumptions gosem_trust_surface.

@@ -91,7 +91,7 @@ Go-parser acceptance. So the live emission is NOT "verified Go."
 ## NEXT
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats) — each widens the completeness converse
-  (`out_main_denotes`, now over the whole print/println output-statement class) toward a general `supported ⟺ denotes`.
+  (`out_main_denotes`, the print/println-of-DENOTABLE-args fragment) toward a general `supported ⟺ denotes`.
 - Extend the cmd↔unified bridge past current defers to multiple-panicking / nested, then chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
