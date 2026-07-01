@@ -659,9 +659,72 @@ Example denotable_stmts_mixed_denotes :
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "dead"])]) <> None.
 Proof. apply denotable_stmts_main_denotes. reflexivity. Qed.
 
+(** ★ CLASS THEOREM (slices-oob.md B2) — the GENERIC reduction the fixtures below instantiate, quantified over
+    the WHOLE constant int-slice-index fragment (any element type [t], any all-constant literal [es], any
+    non-negative constant index [k]): whenever the literal FULLY evaluates ([eval_int_slice_elems t es = Some
+    vs]), [eval_value] of the index reduces to [nth_error vs (Z.to_nat k)].  This ONE [forall] is the
+    class-level in-bounds-faithful / OOB-declined property: [nth_error] yields the k-th boxed element VALUE when
+    in-bounds and [None] when OOB — the two corollaries below discharge both cases for the whole fragment, so the
+    "class-level" claim names a real theorem, not a fixture. *)
+Lemma eval_slice_index_reduces :
+  forall t es idx ci k vs,
+    is_int_goty t = true ->
+    ptype idx = Some ci ->
+    int_const_val ci = Some k ->
+    (0 <=? k)%Z = true ->
+    eval_int_slice_elems t es = Some vs ->
+    eval_value (EIndex (ESliceLit t es) idx) = nth_error vs (Z.to_nat k).
+Proof.
+  intros t es idx ci k vs Ht Hp Hi Hk Hv.
+  (* Expose the [EIndex (ESliceLit..)] arm ([cbn [eval_value]] keeps [is_int_goty t] FOLDED — whitelist delta),
+     then rewrite each scrutinee and iota-reduce the match it heads before the next rewrite (rewriting a [match
+     Some _] scrutinee does NOT reduce it, so the next hyp's LHS would otherwise sit under a bound variable). *)
+  cbn [eval_value]. rewrite Ht. cbn.
+  rewrite Hp. cbn.
+  rewrite Hi. cbn.
+  rewrite Hk. rewrite Hv. reflexivity.
+Qed.
+
+(** CLASS — OOB DECLINED: a constant index AT OR PAST the (fully-evaluated) length folds to [None], for the
+    WHOLE fragment (never a wrong value — faithful-or-absent). *)
+Lemma eval_slice_index_oob_class :
+  forall t es idx ci k vs,
+    is_int_goty t = true ->
+    ptype idx = Some ci ->
+    int_const_val ci = Some k ->
+    (0 <=? k)%Z = true ->
+    eval_int_slice_elems t es = Some vs ->
+    (length vs <= Z.to_nat k)%nat ->
+    eval_value (EIndex (ESliceLit t es) idx) = None.
+Proof.
+  intros t es idx ci k vs Ht Hp Hi Hk Hv Hoob.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hv).
+  apply (proj2 (nth_error_None vs (Z.to_nat k))). exact Hoob.
+Qed.
+
+(** CLASS — IN-BOUNDS FAITHFUL: a constant index STRICTLY WITHIN the length folds to the k-th boxed element
+    VALUE (a real [Some], never [None]), for the WHOLE fragment. *)
+Lemma eval_slice_index_inbounds_class :
+  forall t es idx ci k vs,
+    is_int_goty t = true ->
+    ptype idx = Some ci ->
+    int_const_val ci = Some k ->
+    (0 <=? k)%Z = true ->
+    eval_int_slice_elems t es = Some vs ->
+    (Z.to_nat k < length vs)%nat ->
+    exists v, eval_value (EIndex (ESliceLit t es) idx) = Some v /\ nth_error vs (Z.to_nat k) = Some v.
+Proof.
+  intros t es idx ci k vs Ht Hp Hi Hk Hv Hin.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hv).
+  pose proof (proj2 (nth_error_Some vs (Z.to_nat k)) Hin) as Hne.
+  destruct (nth_error vs (Z.to_nat k)) as [v|] eqn:E.
+  - exists v. split; reflexivity.
+  - exfalso. apply Hne. reflexivity.
+Qed.
+
 (** slices-oob.md B2 — a CONSTANT IN-BOUNDS slice-literal index now DENOTES, folding to the k-th element's
     VALUE (evidence-carrying): [[]int{10,20}[1]] evaluates to EXACTLY what the element literal [20] does — the
-    fold is faithful, no exact box ctor needed. *)
+    fold is faithful, no exact box ctor needed.  (A concrete instance of [eval_slice_index_inbounds_class].) *)
 Example eval_slice_index_inbounds_faithful :
   eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) = eval_value (EInt 20)
   /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0)) = eval_value (EInt 10).
@@ -1094,6 +1157,7 @@ Definition gosem_trust_surface :=
    denote_program_runs, out_main_runs, println_main_runs, denotable_stmts_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
+   eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.
 

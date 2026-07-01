@@ -399,9 +399,11 @@ Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
     rejects it via NON-DENOTATION (GoSem declines to model the OOB run-time panic, so it does not denote — the
     [None] arm), the SAME faithful-or-absent mechanism that declines ANY unmodeled construct, NOT a positive
     proof the OOB program is unsafe.  [emit_panic_free_gated] correspondingly EMITS the safe one and REJECTS the
-    OOB.  This is a REPRESENTATIVE PIN that a non-[panic()] unsafe op reaches the gate on a VALID-Go program —
-    NOT a fragment-class certification (the class-level in-bounds-faithful / OOB-declined property is carried at
-    the DENOTATION layer by GoSem's B2 [eval_value] theorems, not here). *)
+    OOB.  This is a REPRESENTATIVE PIN that a non-[panic()] unsafe op reaches the emission gate on a VALID-Go
+    program.  The class-level in-bounds-faithful / OOB-declined property (over the WHOLE constant int-slice-index
+    fragment, not this pair) is a separate authority — the DENOTATION-layer [forall] theorems
+    [GoSem.eval_slice_index_inbounds_class] / [eval_slice_index_oob_class] (gated in [gosem_trust_surface]) — NOT
+    this fixture, which only pins the emission-gate reach on a concrete valid-Go pair. *)
 Definition slice_safe_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].
