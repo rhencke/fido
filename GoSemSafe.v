@@ -43,7 +43,7 @@ Qed.
 Lemma denote_stmt_no_panic : forall s c term,
   denote_stmt s = Some (c, term) -> stmt_is_panic s = false -> cmd_no_panic c = true.
 Proof.
-  intros s c term H Hnp. destruct s as [e | | ev | be]; cbn [denote_stmt] in H.
+  intros s c term H Hnp. destruct s as [e | | ev | be | de]; cbn [denote_stmt] in H.
   - destruct (expr_stmt_ok e); [|discriminate H].
     destruct e as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
     destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate H.
@@ -53,6 +53,7 @@ Proof.
   - discriminate H.
   - destruct (svalue be); [|discriminate H]. destruct (eval_value be); [|discriminate H].
     inversion H; subst; reflexivity.
+  - discriminate H.   (* GsDefer: [denote_stmt] = None *)
 Qed.
 
 (** A panic-free DENOTED body denotes to a [CPan]-free command. *)

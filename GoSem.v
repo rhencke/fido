@@ -298,6 +298,12 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
         | _ => None
         end
       else None
+  | GsDefer _ => None
+      (* [defer <call>] is SUPPORTED + emittable but NOT YET denoted (faithful-or-ABSENT): its [cmd.v] denotation
+         is [CDfr (<call> as command) (CRet tt)], which [run_defers] runs at scope exit — needing [run_cmd] fuel
+         > 1, whereas GoSem's whole execution/safety story is fuel-1 (valid ONLY because slice 1 denotes
+         [no_defer]).  Denoting defers needs that fuel-1 foundation generalized to sufficient-fuel (via the
+         cmd↔unified [run_cmd_terminates]); until then a defer program does NOT denote. *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -332,11 +338,12 @@ Definition denote_program (p : Program) : option (Cmd unit) :=
     [expr_stmt_ok]), this is structural. *)
 Lemma denote_stmt_sound : forall s, denote_stmt s <> None -> stmt_ok s = true.
 Proof.
-  intros s H. destruct s as [e| |e0|e]; simpl in *.
+  intros s H. destruct s as [e| |e0|e|e]; simpl in *.
   - destruct (expr_stmt_ok e); [reflexivity | congruence].   (* GsExprStmt: gated on [expr_stmt_ok] *)
   - reflexivity.                                             (* GsReturn *)
   - congruence.                                              (* GsReturnVal: None *)
   - destruct (svalue e); [reflexivity | congruence].         (* GsBlankAssign: gated on [svalue] = stmt_ok *)
+  - congruence.                                              (* GsDefer: [denote_stmt] = None, so [H] is absurd *)
 Qed.
 
 Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b = true.
@@ -627,7 +634,7 @@ Qed.
 
 Lemma denote_stmt_no_defer : forall s c b, denote_stmt s = Some (c, b) -> no_defer c = true.
 Proof.
-  intros s c b H. destruct s as [e| |ev|be]; cbn [denote_stmt] in H.
+  intros s c b H. destruct s as [e| |ev|be|de]; cbn [denote_stmt] in H.
   - destruct (expr_stmt_ok e); [|discriminate H].
     destruct e as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
     destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate H.
@@ -639,6 +646,7 @@ Proof.
   - discriminate H.
   - destruct (svalue be); [|discriminate H]. destruct (eval_value be); [|discriminate H].
     inversion H; subst; reflexivity.
+  - discriminate H.   (* GsDefer: [denote_stmt] = None *)
 Qed.
 
 Lemma denote_body_no_defer : forall b c, denote_body b = Some c -> no_defer c = true.
@@ -796,6 +804,18 @@ Definition gosem_runtime_blank_prog : Program :=
 Example gosem_runtime_blank_supported : supported_program gosem_runtime_blank_prog = true.
 Proof. reflexivity. Qed.
 Example gosem_runtime_blank_undenoted : denote_program gosem_runtime_blank_prog = None.
+Proof. reflexivity. Qed.
+
+(** BOUNDARY — a [defer <call>] statement is SUPPORTED (emittable) but NOT YET denoted (faithful-or-ABSENT): its
+    [cmd.v] denotation is a [CDfr], which needs [run_cmd] fuel > 1, and GoSem's execution/safety story is fuel-1
+    (slice 1 denotes [no_defer] only).  So `func main(){ defer println("bye"); return }` is supported yet does
+    NOT denote — the RIGHT behavior is (not yet) NONE, never a WRONG one. *)
+Definition gosem_defer_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn].
+Example gosem_defer_supported : supported_program gosem_defer_prog = true.
+Proof. reflexivity. Qed.
+Example gosem_defer_undenoted : denote_program gosem_defer_prog = None.
 Proof. reflexivity. Qed.
 
 (** [eval_value] denotes any printable [ptype] integer-constant fold, FAITHFULLY boxing the model's value —

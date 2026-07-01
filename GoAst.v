@@ -237,7 +237,8 @@ Inductive GoStmt : Type :=
   | GsExprStmt    : GExpr -> GoStmt   (* an expression used as a statement, e.g. a function call [f(a, b)] *)
   | GsReturn      : GoStmt            (* a bare [return] (no value) — valid as the tail of a void func like main *)
   | GsReturnVal   : GExpr -> GoStmt   (* a value return [return e] — valid only in a NON-void function (not main) *)
-  | GsBlankAssign : GExpr -> GoStmt.  (* a blank assignment [_ = e] — discards a VALUE (valid anywhere [e] is a value) *)
+  | GsBlankAssign : GExpr -> GoStmt   (* a blank assignment [_ = e] — discards a VALUE (valid anywhere [e] is a value) *)
+  | GsDefer       : GExpr -> GoStmt.  (* a deferred call [defer f(a, b)] — the call runs at function-scope return (LIFO) *)
 
 (** ---- A GO PROGRAM ---- the top-level unit GoEmit emits: a package name + the body of [func main()] (a
     list of [GoStmt]s).  No raw strings — the package is a validated [Ident] and the body is structured

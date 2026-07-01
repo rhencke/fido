@@ -91,6 +91,7 @@ Definition stmt_ok (s : GoStmt) : bool :=
   | GsReturn        => true
   | GsReturnVal _   => false   (* value return is invalid in the void [main] — the only function emitted today *)
   | GsBlankAssign e => svalue e  (* [_ = e] is valid iff [e] PRODUCES a value — so [_ = println(1)] (void) is rejected *)
+  | GsDefer e       => expr_stmt_ok e  (* [defer <call>]: Go requires the deferred expr be a function CALL — same gate as an expr statement *)
   end.
 
 (** PHASE-1 supportedness — DECIDABLE (bool-reflected): the program is a runnable `package main` whose body is
@@ -325,6 +326,8 @@ Definition good_programs : list Program :=
   ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (key/value types unconstrained beyond int key) *)
   ; gs_blank (EMapLit GTU8 GTU8 [(EInt 1, EInt 2)])                     (* map[uint8]uint8{1: 2} — typed key/value, consts in range *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* println(len(map[int]int{1:2})): [len] of a map IS valid (a runtime int) — unlike [cap] *)
+  ; mkProgram (mkIdent "main" eq_refl)                                   (* defer println("bye"); return — a deferred CALL is supported (same gate as an expr statement) *)
+      [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn]
   ].
 Example good_programs_supported : forallb supported_program good_programs = true.
 Proof. vm_compute. reflexivity. Qed.

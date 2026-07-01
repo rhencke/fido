@@ -4955,6 +4955,7 @@ Definition print_stmt (s : GoStmt) : string :=
   | GsReturn        => "return"
   | GsReturnVal e   => ("return " ++ gprint 0 e)%string
   | GsBlankAssign e => ("_ = " ++ gprint 0 e)%string
+  | GsDefer e       => ("defer " ++ gprint 0 e)%string
   end.
 Fixpoint print_stmts (ss : list GoStmt) : string :=
   match ss with
@@ -5027,23 +5028,46 @@ Proof.
   rewrite parse_str_blank_None in R. discriminate R.
 Qed.
 
+(** A printed [defer <call>] (the [GsDefer] text "defer " ++ X) does NOT parse back: "defer" is a Go RESERVED
+    WORD ([go_keyword]), so the lexer's identifier finalizer [lex_ident "defer" = None] (it is not [func]/
+    [return]/[chan]/[map] and [go_ident "defer" = false]) FAILS the whole lex — [lex ("defer " ++ X) = None]
+    regardless of the suffix [X], as the identifier is finalized at the following space.  Hence no [gprint]
+    output equals "defer " ++ gprint 0 e — the [GsExprStmt] / [GsDefer] disjointness (the [GsDefer] analogue of
+    [gprint_neq_return_val]). *)
+Lemma scan_id_defer : forall X, scan_id ("defer " ++ X)%string = ("defer"%string, (" " ++ X)%string).
+Proof. intro X. reflexivity. Qed.
+Lemma lex_ident_defer : lex_ident "defer" = None.
+Proof. reflexivity. Qed.
+Lemma lex_aux_defer : forall f X, lex_aux (S f) ("defer " ++ X)%string = None.
+Proof. intros f X. cbn [lex_aux]. rewrite scan_id_defer. rewrite lex_ident_defer. reflexivity. Qed.
+Lemma parse_str_defer_gprint : forall e, parse_str ("defer " ++ gprint 0 e)%string = None.
+Proof. intro e. unfold parse_str, lex. rewrite lex_aux_defer. reflexivity. Qed.
+Lemma gprint_neq_defer : forall e1 e2, gprint 0 e2 <> ("defer " ++ gprint 0 e1)%string.
+Proof.
+  intros e1 e2 H. pose proof (parse_print_roundtrip e2) as R. rewrite H in R.
+  rewrite parse_str_defer_gprint in R. discriminate R.
+Qed.
+
 (** Statement-printer INJECTIVITY — the honest statement-level analogue of [gprint_inj]: distinct statements
-    print to distinct text.  A 4-constructor (16-case) proof: expression statements lift from [gprint_inj];
-    the [GsExprStmt] cross cases close by [gprint_neq_return] / [gprint_neq_return_val] / [gprint_neq_blank];
-    the keyword/prefix-vs-keyword/prefix cases by string [discriminate] (distinct leading bytes) or
-    [sapp_inv_head] (a shared "return " / "_ = " prefix is injective).  (The list-level / whole-[print_program]
-    lift — via a "gprint emits no newline" delimiter argument — is proved just below as [print_program_inj].) *)
+    print to distinct text.  A 5-constructor (25-case) proof: expression statements lift from [gprint_inj];
+    the [GsExprStmt] cross cases close by [gprint_neq_return] / [gprint_neq_return_val] / [gprint_neq_blank] /
+    [gprint_neq_defer]; the keyword/prefix-vs-keyword/prefix cases by string [discriminate] (distinct leading
+    bytes) or [sapp_inv_head] (a shared "return " / "_ = " / "defer " prefix is injective).  (The list-level /
+    whole-[print_program] lift — via a "gprint emits no newline" delimiter argument — is proved just below as
+    [print_program_inj].) *)
 Lemma print_stmt_inj : forall s1 s2, print_stmt s1 = print_stmt s2 -> s1 = s2.
 Proof.
-  intros [e1| |r1|b1] [e2| |r2|b2] H; simpl in H.
+  intros [e1| |r1|b1|d1] [e2| |r2|b2|d2] H; simpl in H.
   (* s1 = GsExprStmt e1 *)
   - f_equal. exact (gprint_inj e1 e2 H).
   - exfalso. exact (gprint_neq_return e1 H).
   - exfalso. exact (gprint_neq_return_val r2 e1 H).
   - exfalso. exact (gprint_neq_blank b2 e1 H).
+  - exfalso. exact (gprint_neq_defer d2 e1 H).
   (* s1 = GsReturn *)
   - exfalso. symmetry in H. exact (gprint_neq_return e2 H).
   - reflexivity.
+  - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
   - exfalso. cbn in H. discriminate H.
   (* s1 = GsReturnVal r1 *)
@@ -5051,11 +5075,19 @@ Proof.
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "return ") in H. exact (gprint_inj r1 r2 H).
   - exfalso. cbn in H. discriminate H.
+  - exfalso. cbn in H. discriminate H.
   (* s1 = GsBlankAssign b1 *)
   - exfalso. symmetry in H. exact (gprint_neq_blank b1 e2 H).
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - exfalso. symmetry in H. cbn in H. discriminate H.
   - f_equal. apply (sapp_inv_head "_ = ") in H. exact (gprint_inj b1 b2 H).
+  - exfalso. cbn in H. discriminate H.
+  (* s1 = GsDefer d1 *)
+  - exfalso. symmetry in H. exact (gprint_neq_defer d1 e2 H).
+  - exfalso. cbn in H. discriminate H.
+  - exfalso. cbn in H. discriminate H.
+  - exfalso. cbn in H. discriminate H.
+  - f_equal. apply (sapp_inv_head "defer ") in H. exact (gprint_inj d1 d2 H).
 Qed.
 
 (** ============================================================================
@@ -5300,9 +5332,10 @@ Proof.
 Qed.
 Lemma no_nl_print_stmt : forall s, no_nl (print_stmt s).
 Proof.
-  intros [e| |r|b]; cbn [print_stmt].
+  intros [e| |r|b|d]; cbn [print_stmt].
   - apply no_nl_gprint.
   - no_nl_lit.
+  - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
   - apply no_nl_app; [ no_nl_lit | apply no_nl_gprint ].
 Qed.
