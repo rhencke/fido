@@ -8,9 +8,10 @@
     SLICE 1 (partial, to grow):
     - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
       [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
-      [_ = e] -> [CRet] when [e] is a constant.  Print/panic args fold via [eval_value] (constants only — the
-      folds exercised are listed in the [eval_value_good] table below; runtime / out-of-range / [GsDefer]'s CDfr
-      etc. are NOT yet denoted).
+      [_ = e] -> [CRet] when [e] is a constant.  Print/panic args fold via [eval_value] (scalar constants, AND a
+      CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]] — the WHOLE literal is
+      evaluated, so a runtime/panicking element rejects it; the scalar folds are in the [eval_value_good] table
+      below; runtime / out-of-range / OOB / [GsDefer]'s CDfr etc. are NOT yet denoted).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -184,34 +185,57 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
   | _ => None
   end.
 
-(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL via [ptype] (the SINGLE folding
-    authority): [ptype] folds a numeric constant to its VALUE+TYPE, and [box_int] / [box_float] attach the model
-    value, FAILING CLOSED on an out-of-range/interval [z] (self-sound, not caller-gated).  Coverage exercised —
-    the [eval_value_good] table (gated by [eval_value_good_ok]) folds: integer constants (conversions / in-range
-    [uint] via [mk_uint] / arithmetic / complement, EXCLUDING platform-[uint] complement), exact-integer FLOAT
-    constants, string constants ([eval_str]), and constant bools ([eval_bool]).  ABSENT ([None], honestly): runtime operands
-    ([len(..)]/[int(x)]), out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
+(** Evaluate EVERY element of an int-slice LITERAL to its boxed value, RE-TYPED to the slice element type [t]
+    (an untyped element ADAPTS to [t], as Go stores it), ALL-or-[None].  Go constructs the WHOLE literal before
+    indexing, so ONE runtime / panicking / out-of-range element (e.g. [1/len([]int{})], which PANICS during
+    construction) makes the whole thing [None] — indexing it is then undenoted, NEVER a wrong printed value.
+    Uses [ptype]+[int_const_val]+[box_int] (the existing folding authorities), so it adds no second classifier
+    and each element's constness + representability is sealed the SAME way [eval_value] seals a scalar. *)
+Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny) :=
+  match es with
+  | [] => Some []
+  | el :: rest =>
+      match ptype el with
+      | Some ce =>
+          match int_const_val ce with
+          | Some z => match box_int t z, eval_int_slice_elems t rest with
+                      | Some v, Some vs => Some (v :: vs)
+                      | _, _ => None
+                      end
+          | None => None                                                     (* runtime / non-int element -> whole literal undenoted *)
+          end
+      | None => None
+      end
+  end.
+
+(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a numeric /
+    string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
+    out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
+    evaluating the WHOLE literal ([eval_int_slice_elems] — ALL elements, so a runtime/panicking/out-of-range
+    element rejects it) and indexing — STILL sealed through [ptype]/[int_const_val]/[box_int], not a second
+    classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
+    integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
+    platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
+    bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below.  ABSENT ([None], honestly): runtime
+    operands ([len(..)]/[int(x)]), OOB / runtime slice INDEX, any runtime/out-of-range slice ELEMENT,
+    out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
-      (* slices-oob.md B2: a CONSTANT in-bounds index into an INT-slice literal folds to the k-th element's
-         boxed value — EVIDENCE-CARRYING: [nth_error] yields a value ONLY when in-bounds, so an OOB constant (or
-         a runtime / non-int index — [int_const_val = None]) stays [None] and is NOT denoted -> the gate REJECTS
-         it (a slice OOB is a run-time PANIC; declining is faithful-or-absent, never a wrong value).  Faithful
-         only in VALUE contexts (all this fragment has); [ptype] still classifies the whole thing [PtRunInt]
-         (Go treats slice indexing as a runtime, non-constant int). *)
+      (* slices-oob.md B2: a CONSTANT in-bounds index into an INT-slice literal folds to the k-th element.
+         Go evaluates the WHOLE literal ([eval_int_slice_elems] — ALL elements, re-typed to [t]) BEFORE indexing,
+         so a runtime / panicking / out-of-range element (even an UNSELECTED one, e.g. [1/len([]int{})]) makes
+         the whole thing [None] and is NOT denoted -> the gate REJECTS it (never a wrong printed value).  Then
+         index the boxed VALUE list ([nth_error] declines an OOB constant; a runtime index has [int_const_val =
+         None]).  [ptype] still classifies the whole [PtRunInt] (Go: slice-index is a runtime, non-constant int). *)
       if is_int_goty t
       then match ptype idx with
            | Some ci =>
                match int_const_val ci with
                | Some k => if (0 <=? k)%Z
-                           then match nth_error es (Z.to_nat k) with
-                                | Some el =>                                                   (* IN-BOUNDS: fold the element *)
-                                    match ptype el with
-                                    | Some ce => match int_const_val ce with Some z => box_int t z | None => None end
-                                    | None => None
-                                    end
-                                | None => None                                                (* OOB constant: undenoted *)
+                           then match eval_int_slice_elems t es with
+                                | Some vs => nth_error vs (Z.to_nat k)                         (* IN-BOUNDS -> the k-th value; OOB -> None *)
+                                | None => None                                                (* a runtime/panicking element -> undenoted *)
                                 end
                            else None                                                          (* negative constant *)
                | None => None                                                                 (* runtime index (B3) *)
@@ -658,6 +682,21 @@ Example slice_index_prog_oob_undenoted :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)]); GsReturn]) = None.
 Proof. reflexivity. Qed.
+(** REGRESSION (Codex P0): a runtime-PANICKING UNSELECTED element blocks the WHOLE fold.
+    [println([]int{20, 1/len([]int{})}[0])] PANICS in Go (div-by-zero during literal construction, verified
+    `go run`) — folding only the selected [20] would be a WRONG denotation.  Because [eval_int_slice_elems]
+    evaluates ALL elements, the runtime second element makes [eval_value] = [None] and the program UNdenoted. *)
+Example slice_index_runtime_element_undenoted :
+  eval_value (EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)) = None
+  /\ denote_program (mkProgram (mkIdent "main" eq_refl)
+       [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
+          [EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)]); GsReturn]) = None.
+Proof. split; vm_compute; reflexivity. Qed.
+(** A MALFORMED UNSELECTED element ([300] out of [uint8] range) also blocks the fold: [box_int GTU8 300 = None]
+    makes the whole thing [None] (this literal is ALSO [ptype]-unsupported, so doubly rejected). *)
+Example slice_index_malformed_element_none :
+  eval_value (EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1)) = None.
+Proof. reflexivity. Qed.
 
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
@@ -983,6 +1022,7 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
   rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
+  rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* slices-oob.md B2: constant in-bounds int-slice index folds+runs to the element *)
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
@@ -1002,7 +1042,11 @@ Example eval_value_failclosed :
   /\ ptype mixed_width_cmp = None /\ eval_bool mixed_width_cmp = None /\ eval_value mixed_width_cmp = None
   /\ ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false
   /\ ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
-  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
+  /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool
+  (* slices-oob.md B2 (Codex P0): a slice literal with a RUNTIME-panicking UNSELECTED element, or a malformed
+     out-of-range element, must NOT fold — the WHOLE literal is evaluated, so [eval_value] = [None] (undenoted). *)
+  /\ eval_value (EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)) = None
+  /\ eval_value (EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1)) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
