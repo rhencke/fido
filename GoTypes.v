@@ -17,14 +17,18 @@ Open Scope string_scope.
 
 (** ★TOP INVARIANT — [ptype] is a CONSERVATIVE SUPPORTED-SUBSET classifier, NOT Go's typechecker.  It is NOT
     proven complete or sound (no [ptype]-vs-Go theorem — that is GoSem's job); it admits a SUBSET and REJECTS
-    anything it cannot classify as clearly supported, so it OVER-REJECTS much valid Go.  It IS constant-aware: a
-    constant carries its VALUE (a [Z]) — so overflow / div-or-shift-by-zero are decided from the folded value at
-    EVERY level, transitively through conversions (a conversion of a constant is itself a typed constant) — and
-    a typed constant ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range typed results rejected); a
-    runtime numeric carries only its [GoTy].  ANTI-REGRESSION (constant-ONLY expressions): a conversion/binop of
-    ALL-CONSTANT operands preserves/folds constness or is REJECTED — it never silently yields a runtime category
-    while dropping the value.  (A MIXED constant/runtime operation becomes runtime BY CONSTRUCTION — the result
-    is not constant, so the constant operand's value is legitimately no longer tracked.)  A FREE identifier is
+    anything it cannot classify as clearly supported, so it OVER-REJECTS much valid Go.  It is value-aware ONLY
+    for the NUMERIC value-carrying categories ([PtIntConst]/[PtTIntConst]/[PtFloatConst]): a numeric constant
+    carries its VALUE (a [Z]) — so overflow / div-or-shift-by-zero are decided from the folded value,
+    transitively through all-constant NUMERIC conversions/binops (a numeric-const conversion folds to a typed
+    numeric const) — and a typed numeric const ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range
+    typed results rejected); a runtime numeric carries only its [GoTy].  ANTI-REGRESSION (all-constant NUMERIC
+    ops): they preserve/fold the value or are REJECTED — never silently yielding a runtime category while
+    dropping it; a MIXED const/runtime numeric op becomes runtime BY CONSTRUCTION (the result is not constant,
+    so the constant operand's value is legitimately no longer tracked).  ⚠ STRING and BOOL constants are NOT
+    value-carrying ([PtStr]/[PtBool] hold no value): ["a"+"b"] and [string(65)] are a value-LESS [PtStr], so a
+    form NEEDING the folded value fail-CLOSES ([len("a"+"b")] / [len(string(65))] -> rejected, pinned in
+    [GoSafe.bad_programs]).  A FREE identifier is
     REJECTED (no-declaration model — a bare [x] is undefined); the sole predeclared value-ident [nil] ([PtNil])
     is admitted only inside a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
     accepted-bad closed program or admits an intentionally supported demo; the deliberately relied-on
@@ -150,7 +154,7 @@ Definition num_comparable (cl cr : PTy) : bool :=
 
 (** ARITHMETIC COMBINATION — single authority for the value-following binops [+ - * / % & | ^ &^] (the SHIFTS
     are separate: their count is independent).  [fold] computes the VALUE for the constant*constant cases; the
-    result CATEGORY preserves constness:
+    result CATEGORY preserves the NUMERIC constant's value (num_arith only sees numeric categories):
     - both UNTYPED int consts -> a new UNTYPED int const (ARBITRARY PRECISION — no overflow until used);
     - untyped const + TYPED int const -> a TYPED const, with the FOLDED RESULT representability-checked in the
       type (so [int8(100)+int8(100)] = 200 -> REJECT) — and likewise typed+typed of the SAME type (DIFFERENT
@@ -211,8 +215,8 @@ Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z =
     - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and let the count type be
       independent of the left type; the result takes the LEFT operand's type AND constness (a typed-const left
       shifted by a const count FOLDS, with the result repr-checked in the type);
-    - all other forms combine via [num_arith], which folds constants (preserving constness) and repr-checks
-      typed-constant results so [int8(100)+int8(100)] is rejected. *)
+    - all other forms combine via [num_arith], which folds NUMERIC constants (preserving the value) and
+      repr-checks typed-constant results so [int8(100)+int8(100)] is rejected. *)
 Definition shfold (o : BinOp) (a b : Z) : Z := match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end.
 Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   match o with
@@ -270,9 +274,10 @@ Definition ord_comparable (cl cr : PTy) : bool :=
   end.
 
 (** SCALAR CONVERSION [T(a)] type-checker, for a scalar type keyword [T] (its [GoTy] via [classify]).  ★The
-    KEY constant-aware rule: in Go a conversion of a CONSTANT is itself a TYPED CONSTANT, so the constant rules
-    apply TRANSITIVELY — constness must SURVIVE the conversion (so [1/int(0)], [uint8(int(300))],
-    [uint8(float64(300))] are REJECTED, not silently dropped to a runtime category).  So:
+    KEY rule for NUMERIC constants: in Go a conversion of a numeric CONSTANT is itself a TYPED numeric CONSTANT,
+    so the constant rules apply TRANSITIVELY — its value must SURVIVE the conversion (so [1/int(0)],
+    [uint8(int(300))], [uint8(float64(300))] are REJECTED, not silently dropped to a runtime category).
+    ([string(x)] is a value-LESS [PtStr] — string constants carry no value; see the top invariant.)  So:
     - [bool(a)] needs a bool source;
     - [string(a)] a string source (or a rune-representable int CONSTANT, untyped or typed — NOT an arbitrary
       runtime int, conservative);

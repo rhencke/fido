@@ -207,7 +207,7 @@ Definition bad_programs : list Program :=
     (* FINDING 4 — aggregate conversion soundness *)
   ; gs_blank (EConv (CTChan GTInt) (ESliceLit GTInt [EInt 1]))
   ; gs_blank (EConv (CTSlice GTInt) (ESliceLit GTString []))
-    (* transitive typed-constant rules (constantness survives conversions/binops) *)
+    (* transitive NUMERIC typed-constant rules (a numeric const's value survives conversions/binops) *)
   ; pl_arg (EBn BDiv (EInt 1) (gs_int (EInt 0)))
   ; pl_arg (EBn BRem (EInt 1) (gs_int (EInt 0)))
   ; pl_arg (EBn BShl (EInt 1) (gs_int (EInt (-1))))
