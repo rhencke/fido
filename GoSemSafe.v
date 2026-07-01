@@ -1,29 +1,26 @@
 (** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only — NOT extracted;
     but the [emit_panic_free] cert below BUILDS Go source via the blessed printer, so this file is not "no Go").
 
-    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the theorems below do NOT repeat it): NONE of these PROPERTIES is the
-    [BehaviorSafe] gate.  The [emit_panic_free] certificate below IS a behavioral emission cert, but a NARROW
-    one — slice 1 denotes NO pointers / slices / channels, so [panic] is the ONLY unsafe runtime op; it does NOT
-    gate the MAIN output (that stays the trusted plugin) and is NOT full [BehaviorSafe].  Panic-freedom is the
-    fragment-appropriate safety condition, NOT the full behavioral-safety target.  Names are "panic-free …",
-    NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
+    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the defs below do NOT repeat it): NONE of these PROPERTIES is the
+    [BehaviorSafe] gate.  The emission cert + decidable gate below ([emit_panic_free] / [panic_free_gate] /
+    [emit_panic_free_gated]) ARE behavioral, but NARROW — slice 1 denotes NO pointers / slices / channels, so
+    [panic] is the ONLY unsafe runtime op; they do NOT gate the MAIN output (that stays the trusted plugin) and
+    are NOT full [BehaviorSafe].  Names are "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
 
-    Two families (each theorem's exact contract is at its def site; the public surface is bundled in
-    [gosem_panic_free_surface] and single-sourced in PROGRESS.md "Current gates"):
-    - DENOTATION-HYPOTHESIS: a program that DENOTES + is syntactically panic-free runs (via [run_cmd]) to [ORet]
-      never [OPanic] ([panic_free_runs_ret]; [_output] pins the explicit output world; [_ustep] lifts it to
-      [unified.v]'s [ustep], keeping [run_cmd] the authority).
-    - GATE-SHAPE: [panic_free_denotable] — a DECIDABLE predicate on the RAW [Program] (denotability AND syntactic
-      panic-freedom) that ENTAILS the panic-free run to [ORet] ([panic_free_denotable_runs_ret][_output][_ustep]) and REFINES
-      [SupportedProgram] ([panic_free_denotable_supported]).  This is the DECIDABLE predicate; the (narrow) gate
-      that decides it is [panic_free_gate] below — NOT the full [BehaviorSafe] gate.
-    - EMISSION-CERT SEED: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
-      [emit_panic_free] (seed of [emit_safe]) emits through the blessed [emit_supported] path but its PRECONDITION
-      is a proven panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].  Panic-only fragment;
-      does NOT gate main output; NOT [SafeProgram] / [BehaviorSafe].
-    - DECIDABLE GATE: [panic_free_gate] : [Program -> option PanicFreeEmittable] decides [panic_free_denotable]
-      and builds the cert-or-rejects (SOUND + COMPLETE); [emit_panic_free_gated] is the end-to-end decide-then-
-      emit (ancestor of a total [emit_safe]).  Same panic-only / off-main scope.
+    Structure (each def's exact contract is at its site; the public surface is bundled in
+    [gosem_panic_free_surface], single-sourced in PROGRESS.md "Current gates"):
+    - PROPERTIES: a program that DENOTES + is syntactically panic-free runs (via [run_cmd]) to [ORet], never
+      [OPanic] ([panic_free_runs_ret]; [_output] pins the explicit output world; [_ustep] lifts it to [ustep],
+      keeping [run_cmd] the authority).
+    - PREDICATE: [panic_free_denotable] folds "denotes + syntactically panic-free" into ONE DECIDABLE bool on the
+      RAW [Program]; it ENTAILS the panic-free run ([panic_free_denotable_runs_ret][_output][_ustep]) and REFINES
+      [SupportedProgram] ([panic_free_denotable_supported]).
+    - CERT + EMITTER: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
+      [emit_panic_free] emits through the blessed [emit_supported] path, but its PRECONDITION is a proven
+      panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].
+    - DECIDABLE GATE: [panic_free_gate] : [Program -> option PanicFreeEmittable] decides the predicate and
+      builds-cert-or-rejects (SOUND + COMPLETE); [emit_panic_free_gated] is the end-to-end decide-then-emit
+      ([emit_panic_free_gated_sound]: emit ⟹ the run guarantee + blessed bytes) — the ancestor of [emit_safe].
     Plus cmd.v-level DEFER-FREE building blocks ([run_cmd_panic_free_world] / [run_cmd_panics_world]). *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoSemUnified GoEmit.
@@ -231,8 +228,7 @@ Qed.
     AND syntactic [panic_free] — computable from the program alone, and it ENTAILS the panic-free run to [ORet]
     (below).  (The
     module-wide caveat applies: the DECIDABLE gate consuming this predicate is [panic_free_gate] (below), and
-    the narrow emission cert/emitter built on it are [emit_panic_free] / [emit_panic_free_gated] — panic-only,
-    off the main path, NOT full [BehaviorSafe].) *)
+    the narrow emission cert/emitter built on it are [emit_panic_free] / [emit_panic_free_gated].) *)
 Definition panic_free_denotable (p : Program) : bool :=
   denotable_program p && panic_free (prog_body p).
 
@@ -339,8 +335,7 @@ Proof. intro w. exact (pfe_runs_ret pfe_demo w). Qed.
     [panic_free_denotable p = true]; [panic_free_gate] builds the cert BY DECISION on ANY raw [Program] —
     either REJECT ([None]) or return the cert — so an emit-or-reject pipeline needs NO per-program proof.
     [emit_panic_free_gated] composes it end-to-end: from ANY program, reject or emit Go source CARRYING the
-    panic-free run guarantee — the honest ancestor of [emit_safe] as a TOTAL decide-then-emit function.
-    Panic-only fragment: does NOT gate the main output, NOT the full [BehaviorSafe] gate. *)
+    panic-free run guarantee — the honest ancestor of [emit_safe] as a TOTAL decide-then-emit function. *)
 Definition panic_free_gate (p : Program) : option PanicFreeEmittable :=
   match sumbool_of_bool (panic_free_denotable p) with
   | left H  => Some (mkPanicFreeEmittable p H)
@@ -376,7 +371,7 @@ Proof. intros p c H. unfold emit_panic_free_gated. rewrite H. reflexivity. Qed.
     world, and (3) [s] is the BLESSED emission ([emit_panic_free]) of the very cert the gate accepted (emission
     goes through GoEmit's certificate path, not a fork).  So a successful [emit_panic_free_gated] carries the
     behavioral guarantee AND is byte-identical to the blessed path — the honest ancestor of [emit_safe]'s
-    soundness (panic-only fragment; still no theorem to REAL Go — gap #10). *)
+    soundness (still no theorem to REAL Go — gap #10). *)
 Theorem emit_panic_free_gated_sound : forall p s,
   emit_panic_free_gated p = Some s ->
   panic_free_denotable p = true
