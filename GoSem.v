@@ -777,11 +777,12 @@ Example eval_value_good_ok :
   map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
 Proof. vm_compute. reflexivity. Qed.
 
-(** Each folded row RUNS end-to-end: [println(e); return] denotes and EXECUTES through cmd.v's authoritative
-    [run_cmd] to the world logging the EXACT model value [v] the fold produced ([w_log true [v]]).  This grouped
-    run-witness table REPLACES + strictly widens (6 -> 36 rows) the old per-category run demos
-    (conv/float/bool/strlit/concat/concat-cmp), and is MANIFEST-GATED (in [gosem_trust_surface]) — a concrete
-    behavior surface, not a bare compile. *)
+(** BREADTH run-witness: every row of the fold table also RUNS end-to-end — [println(e); return] denotes and
+    EXECUTES through cmd.v's authoritative [run_cmd] to the world logging the EXACT model value [v] the fold
+    produced ([w_log true [v]]).  MANIFEST-GATED (in [gosem_trust_surface]).  NOTE this theorem is quantified
+    OVER the table, so it does NOT by itself pin WHICH behaviors are present (a shrunk table still proves it);
+    the required behavior CATEGORIES are pinned STANDALONE, table-independently, by [gosem_category_coverage]
+    below. *)
 Definition println_prog (e : GExpr) : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [e]); GsReturn].
@@ -790,6 +791,28 @@ Example eval_value_good_runs : forall w,
                 | Some c => run_cmd 5 c w | None => None end) eval_value_good
   = map (fun p => Some (ORet tt (w_log true (snd p :: nil) w))) eval_value_good.
 Proof. intro w. vm_compute. reflexivity. Qed.
+
+(** REQUIRED-CATEGORY COVERAGE (the EXACT-coverage guarantee, [gosem_trust_surface]-gated): one NAMED, standalone
+    run witness per behavior category the consolidated table must exhibit — int CONVERSION, exact FLOAT, numeric-
+    compare BOOL, string CONCAT, and string-compare-of-concat BOOL.  Each pins a SPECIFIC program's end-to-end
+    behavior INDEPENDENTLY of [eval_value_good]'s contents, so deleting a category from the table can no longer
+    silently shrink the gated coverage (deleting the category deletes its named witness ⇒ the surface fails).
+    (String-LITERAL println is pinned by [gosem_demo_runs]; RETURN/PANIC by [gosem_return_stops_no_output] /
+    [gosem_panic_demo_runs] — the old six per-category demos, now each a one-line [runs_to].) *)
+Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
+  forall w, match denote_program (println_prog e) with
+            | Some c => run_cmd 5 c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
+Example cover_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3)).
+Proof. intro w; vm_compute; reflexivity. Qed.
+Example cover_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3))).
+Proof. intro w; vm_compute; reflexivity. Qed.
+Example cover_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true).
+Proof. intro w; vm_compute; reflexivity. Qed.
+Example cover_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab").
+Proof. intro w; vm_compute; reflexivity. Qed.
+Example cover_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true).
+Proof. intro w; vm_compute; reflexivity. Qed.
+Definition gosem_category_coverage := (cover_conv, cover_float, cover_bool, cover_concat, cover_concatcmp).
 
 (** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
     ([mk_uint]/[box_*] never carry a [*wrap]-mangled value); a mixed-WIDTH ill-typed compare [int64(1)==int32(1)]
@@ -847,7 +870,8 @@ Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denote_program_runs, out_main_runs, println_main_runs,
    gosem_demo_runs, gosem_return_stops_no_output, gosem_panic_demo_runs,
-   eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none).
+   eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
+   gosem_category_coverage).
 Print Assumptions gosem_trust_surface.
 
 (** ---- STRING-AUTHORITY PINS (gated): each of [str_cmp_op]'s six branches IS, by reflexivity, the FULLY
