@@ -21,12 +21,15 @@ Open Scope string_scope.
     constant carries its VALUE (a [Z]) — so overflow / div-or-shift-by-zero are decided from the folded value at
     EVERY level, transitively through conversions (a conversion of a constant is itself a typed constant) — and
     a typed constant ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range typed results rejected); a
-    runtime numeric carries only its [GoTy].  ANTI-REGRESSION: constantness is PRESERVED through every
-    conversion/binop (a const category is NEVER silently dropped to a runtime one while losing the value), or
-    the form is REJECTED.  A FREE identifier is REJECTED (no-declaration model — a bare [x] is undefined); the
-    sole predeclared value-ident [nil] ([PtNil]) is admitted only inside a slice/chan conversion.  A new [ptype]
-    rule lands ONLY if it rejects a real accepted-bad closed program or admits an intentionally supported demo;
-    each closed-invalid class it rejects is PINNED by a GoSafe regression. *)
+    runtime numeric carries only its [GoTy].  ANTI-REGRESSION (constant-ONLY expressions): a conversion/binop of
+    ALL-CONSTANT operands preserves/folds constness or is REJECTED — it never silently yields a runtime category
+    while dropping the value.  (A MIXED constant/runtime operation becomes runtime BY CONSTRUCTION — the result
+    is not constant, so the constant operand's value is legitimately no longer tracked.)  A FREE identifier is
+    REJECTED (no-declaration model — a bare [x] is undefined); the sole predeclared value-ident [nil] ([PtNil])
+    is admitted only inside a slice/chan conversion.  A new [ptype] rule lands ONLY if it rejects a real
+    accepted-bad closed program or admits an intentionally supported demo; the deliberately relied-on
+    closed-invalid classes are PINNED in [GoSafe.bad_programs] (CURATED fixtures — NOT an exhaustive
+    ptype-rejection theorem; the broad catch-all arms reject far more than is pinned). *)
 Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
