@@ -51,7 +51,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     (`reval_val_with`; `denote_expr` is a thin wrapper over the same pipeline).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`); compositional converses
     (`out_main_denotes`, `denotable_stmts_main_denotes`, tightness `denotable_body_terminator_free_iff`).
-  - non-GTInt carrier OPERATIONS absent, pinned: `typed_runtime_{not,convchain,shift}_absent`.
+  - typed UNARY on non-GTInt carriers denotes (T1, `typed_unop` — dispatch + holes pinned); the
+    remaining carrier-operation absents stay pinned: `typed_runtime_{not,convchain,shift}_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
@@ -78,10 +79,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- CONSOLIDATION FIRST (standing rule): no new GoSem/GoTypes features until the current mass is
-  consolidated (docs compressed, surfaces reviewable, comments trimmed).
-- Then: the TYPED-runtime tier (`plans/typed-runtime-tier.md` — non-GTInt carrier operations); the
-  general dyadic↔`SF*` agreement theorem (drops the per-instance float guard).
+- The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary LANDED (consolidation pass done
+  2026-07-02 — keep the byte/size discipline while growing); next T2 conversion chains, the
+  well-taggedness invariant, T3–T5; then the general dyadic↔`SF*` agreement theorem.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

@@ -612,7 +612,39 @@ Definition cmp_verdict (o : BinOp) : option (GoInt -> GoInt -> bool) :=
     consume literally the same code.  [reval_val_with] is the whole value pipeline: the constant fold,
     then the [GTInt] fragment (boxed [TInt64]), then the exits. *)
 Inductive RAny : Type := RAVal (g : GoAny) | RAPanic (p : GoAny).
-Definition rexit_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
+(** Tier T1 typed-unary dispatch — the per-width MODEL op for a unary op at a non-GTInt integer
+    width, on the boxed carrier (the [unbox_int] tag-convoy pattern per width).  [^] covers all eight
+    fixed widths; [-] only [i64]/[u64] (no narrow-neg model ops); [GTUint] has NO ops — every hole is
+    an explicit [None] (absent), pinned total below ([typed_unop_complete]). *)
+Definition typed_unop (o : UnaryOp) (t : GoTy) (g : GoAny) : option GoAny :=
+  match g with
+  | existT _ _ (pair x tag) =>
+      match o, t with
+      | UXor, GTU8    => match tag in GoTypeTag A return A -> option GoAny with
+                         | TU8  => fun v => Some (anyt TU8  (u8_not v))  | _ => fun _ => None end x
+      | UXor, GTI8    => match tag in GoTypeTag A return A -> option GoAny with
+                         | TI8  => fun v => Some (anyt TI8  (i8_not v))  | _ => fun _ => None end x
+      | UXor, GTU16   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TU16 => fun v => Some (anyt TU16 (u16_not v)) | _ => fun _ => None end x
+      | UXor, GTI16   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TI16 => fun v => Some (anyt TI16 (i16_not v)) | _ => fun _ => None end x
+      | UXor, GTU32   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TU32 => fun v => Some (anyt TU32 (u32_not v)) | _ => fun _ => None end x
+      | UXor, GTI32   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TI32 => fun v => Some (anyt TI32 (i32_not v)) | _ => fun _ => None end x
+      | UXor, GTInt64 => match tag in GoTypeTag A return A -> option GoAny with
+                         | TI64 => fun v => Some (anyt TI64 (i64_not v)) | _ => fun _ => None end x
+      | UXor, GTU64   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TU64 => fun v => Some (anyt TU64 (u64_not v)) | _ => fun _ => None end x
+      | UNeg, GTInt64 => match tag in GoTypeTag A return A -> option GoAny with
+                         | TI64 => fun v => Some (anyt TI64 (i64_neg v)) | _ => fun _ => None end x
+      | UNeg, GTU64   => match tag in GoTypeTag A return A -> option GoAny with
+                         | TU64 => fun v => Some (anyt TU64 (u64_neg v)) | _ => fun _ => None end x
+      | _, _ => None
+      end
+  end.
+
+Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | ECall (EId f) (a :: nil) =>
       (* tier R3, the EXIT half — a width conversion OUT of the [GTInt] fragment: [ptype]'s
@@ -631,6 +663,24 @@ Definition rexit_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
               | None => None
               end
           | Some (RPanic p) => Some (RAPanic p)
+          | None => None
+          end
+      | _ => None
+      end
+  | EUn o a =>
+      (* tier T1 — typed unary on a non-GTInt runtime carrier ([^int64(len ..)] etc.): the outer
+         [ptype] pins the width [t] (the GTInt case lives in [reval_int]); the ARG evaluates at FULL
+         power ([rv] — so an R3-converted operand works), then [typed_unop] applies the width's model
+         op on the boxed carrier.  A hole in the op table ([GTUint], narrow [-]) is absent. *)
+      match ptype e with
+      | Some (PtRunInt t) =>
+          if numty_eqb t GTInt then None else
+          match rv a with
+          | Some (RAVal g)   => match typed_unop o t g with
+                                | Some g' => Some (RAVal g')
+                                | None => None
+                                end
+          | Some (RAPanic p) => Some (RAPanic p)
           | None => None
           end
       | _ => None
@@ -661,16 +711,30 @@ Definition rexit_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
       end
   | _ => None
   end.
-Definition reval_val_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
-  match eval_value e with
-  | Some v => Some (RAVal v)
-  | None =>
-      match rec e with
-      | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
-      | Some (RPanic p) => Some (RAPanic p)
-      | None => rexit_with rec e
-      end
-  end.
+Definition reval_val_with (rec : GExpr -> option RRes) : GExpr -> option RAny :=
+  fix rv (e : GExpr) : option RAny :=
+    match eval_value e with
+    | Some v => Some (RAVal v)
+    | None =>
+        match rec e with
+        | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
+        | Some (RPanic p) => Some (RAPanic p)
+        | None => rexit_with rec rv e
+        end
+    end.
+(* One-step unfolding equation (the fix reduces only on constructors; [destruct e] closes each case). *)
+Lemma reval_val_with_eq : forall rec e,
+  reval_val_with rec e
+  = match eval_value e with
+    | Some v => Some (RAVal v)
+    | None =>
+        match rec e with
+        | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
+        | Some (RPanic p) => Some (RAPanic p)
+        | None => rexit_with rec (reval_val_with rec) e
+        end
+    end.
+Proof. intros rec e. destruct e; reflexivity. Qed.
 (** Map-literal CONSTRUCTION for the runtime tier (R5) — walk ALL the (key, value) PAIRS, evaluating
     each VALUE through the FULL shared evaluator (so a value ANY tier denotes — R3 width conversions and
     R4 comparisons included — constructs; ONE authority with [denote_expr], no drift).  ⚠ Go leaves the
@@ -920,7 +984,7 @@ Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = So
 Proof.
   intros e v H. unfold denote_expr.
   rewrite (eval_value_floats_checked e v H). cbn [negb].
-  unfold reval_val_with. rewrite H. reflexivity.
+  rewrite reval_val_with_eq, H. reflexivity.
 Qed.
 
 (** ★ CLASS — the determined divide-by-zero PANICS, through the runtime tier: a SUPPORTED runtime
@@ -996,7 +1060,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx, Hb, Hnth. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** Out-of-bounds (negative or >= length): the denotation PANICS with the model's exact
     [rt_index_oob i n] — index raw and STRUCTURAL constructed length, the Go payload. *)
@@ -1016,7 +1080,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx, Hb. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking ELEMENT aborts construction (the verified go-run order): ITS panic is the denotation —
     the index is never consulted. *)
@@ -1032,7 +1096,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking INDEX (after successful construction) panics with ITS payload — Go's evaluation order
     (literal first, then index). *)
@@ -1049,7 +1113,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
     unfold reval_elems in Hes. rewrite Hes, Hidx. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 
 (** ★ CLASS (tier R3) — the two universal WIDTH-CONVERSION denotation theorems, quantified over the
@@ -1109,7 +1173,7 @@ Proof.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hw. reflexivity.
@@ -1128,7 +1192,7 @@ Proof.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   rewrite Ha. reflexivity.
@@ -1153,7 +1217,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
@@ -1171,7 +1235,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. reflexivity.
@@ -1190,7 +1254,7 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
@@ -1225,7 +1289,7 @@ Proof.
     unfold rconstr_vals in Hvals. rewrite Hvals. cbv beta iota.
     exact (rval_len_repr (length kvs) Hrepr). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_maplen_panic : forall f kt vt kvs p,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
@@ -1243,7 +1307,57 @@ Proof.
     rewrite Hcond. cbv beta iota.
     unfold rconstr_vals in Hvals. rewrite Hvals. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+
+(** ★ CLASS (T1) — typed unary on a non-GTInt carrier, quantified over the reval-evaluable fragment:
+    the arg evaluated at FULL power ([reval_val]), the width's model op applied by [typed_unop] (its
+    live branches / holes pinned at the fixture site).  The [typed_unop … = Some g'] hypothesis is the
+    dispatch boundary: proving it redundant needs the evaluator WELL-TAGGEDNESS invariant (a value's
+    tag matches its [ptype] width) — a named open obligation in plans/typed-runtime-tier.md, not
+    assumed here. *)
+Lemma denote_expr_typed_unop_runs : forall o a t g g',
+  floats_checked (EUn o a) = true ->
+  ptype (EUn o a) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  eval_value (EUn o a) = None ->
+  reval_val a = Some (RAVal g) ->
+  typed_unop o t g = Some g' ->
+  denote_expr (EUn o a) = Some (CRet g', false).
+Proof.
+  intros o a t g g' Hfc Hpt Ht Hev Ha Hu.
+  assert (He : reval_int (EUn o a) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht.
+    cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EUn o a) = Some (RAVal g')).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hu. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
+Qed.
+Lemma denote_expr_typed_unop_panic : forall o a t p,
+  floats_checked (EUn o a) = true ->
+  ptype (EUn o a) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  eval_value (EUn o a) = None ->
+  reval_val a = Some (RAPanic p) ->
+  denote_expr (EUn o a) = Some (CPan p, true).
+Proof.
+  intros o a t p Hfc Hpt Ht Hev Ha.
+  assert (He : reval_int (EUn o a) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht.
+    cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EUn o a) = Some (RAPanic p)).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
 
 (** ★ DISPATCH AUTHORITY PINS (gated) — [cmp_verdict]'s WHOLE dispatch table.  Each comparison branch
@@ -1297,7 +1411,7 @@ Proof.
       unfold int_div. reflexivity. }
     exact (K _ eq_refl pf). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_rem_runs : forall a b va vb (pf : Z.eqb (intraw vb) 0 = false),
   floats_checked (EBn BRem a b) = true ->
@@ -1321,7 +1435,7 @@ Proof.
       unfold int_mod. reflexivity. }
     exact (K _ eq_refl pf). }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_neg_runs : forall a va,
   floats_checked (EUn UNeg a) = true ->
@@ -1334,7 +1448,7 @@ Proof.
   assert (Hr : reval_int (EUn UNeg a) = Some (RVal (int_neg va))).
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_neg_panic : forall a p,
   floats_checked (EUn UNeg a) = true ->
@@ -1347,7 +1461,7 @@ Proof.
   assert (Hr : reval_int (EUn UNeg a) = Some (RPanic p)).
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_not_runs : forall a va,
   floats_checked (EUn UXor a) = true ->
@@ -1360,7 +1474,7 @@ Proof.
   assert (Hr : reval_int (EUn UXor a) = Some (RVal (int_not va))).
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_not_panic : forall a p,
   floats_checked (EUn UXor a) = true ->
@@ -1373,7 +1487,7 @@ Proof.
   assert (Hr : reval_int (EUn UXor a) = Some (RPanic p)).
   { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -1616,7 +1730,7 @@ Qed.
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
     (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
     multi-byte rune [string(200)] ([runeconv_multibyte_boundary], = [out_boundary_runtime_undenoted]'s
-    witness) and the TYPED-width complement [runnot_u8_e] ([typed_runtime_not_absent]).
+    witness) and the GoUint-hole complement [runnot_uint_e] ([typed_runtime_not_absent]).
     [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
@@ -2384,22 +2498,63 @@ Example runtime_not_supported :
   forallb supported_program (map println_prog [ runnot_e ; runnot_panic_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** ⚠ THE TYPED-WIDTH BOUNDARY, pinned honest: [^] (and the tier generally) computes only in the
-    [GTInt] fragment — a complement of a TYPED-width runtime integer ([^int64(len ..)] /
-    [^uint8(len ..)] / [^uint(len ..)]) is SUPPORTED valid Go yet UNDENOTED (the typed-runtime-tier
-    generalization — per-width carriers and ops in [reval] — is the named next arc; the model ops
-    [i64_not]/[u64_not]/the width wraps exist, the tier's carrier does not).  The class is pinned
-    three-wide just below; [runnot_u8_e] joins [undenoted_frontier] as its REPRESENTATIVE — the gap
-    is mechanically pinned, never prose. *)
+(** ★ T1 pins (typed unary, grouped): [^int64(len3)] and [^uint8(len3)] DENOTE at their widths via
+    the model's [i64_not]/[u8_not] (the R3-converted operand evaluated at full power); [-int64(len3)]
+    via [i64_neg]; a PANICKING typed operand propagates.  The HOLES stay pinned absent:
+    [^uint(len3)] (GoUint has no ops) and [-uint8(len3)] (no narrow-neg model op).
+    [typed_unop]'s live branches are pinned against the QUALIFIED model ops and its holes to [None]
+    ([typed_unop_*] below) — the dispatch cannot drift while the surface is green. *)
 Definition runnot_i64_e : GExpr := EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
 Definition runnot_u8_e  : GExpr := EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]).
 Definition runnot_uint_e : GExpr := EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
+Definition runneg_i64_e : GExpr := EUn UNeg (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
+Definition runneg_u8_e  : GExpr := EUn UNeg (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]).
+Definition runnot_panic_i64_e : GExpr :=
+  EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [divzero_e]).
+Example runtime_typed_unop_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]
+  = [ Some (ORet tt (w_log true (anyt TI64 (i64_not (i64wrap 3)) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8  (u8_not  (u8wrap  3)) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TI64 (i64_neg (i64wrap 3)) :: nil) w))
+    ; Some (OPanic rt_div_zero w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_typed_unop_supported :
+  forallb supported_program
+    (map println_prog [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
 Example typed_runtime_not_absent :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
-          [ runnot_i64_e ; runnot_u8_e ; runnot_uint_e ] = true.
+          [ runnot_uint_e ; runneg_u8_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
+(** DISPATCH AUTHORITY (gated): each live [typed_unop] branch IS the fully qualified model op; the
+    holes ([GTUint], narrow [-]) are [None] for EVERY payload. *)
+Example typed_unop_u8_model  : forall v, typed_unop UXor GTU8  (anyt TU8  v) = Some (anyt TU8  (Fido.builtins.u8_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_i8_model  : forall v, typed_unop UXor GTI8  (anyt TI8  v) = Some (anyt TI8  (Fido.builtins.i8_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_u16_model : forall v, typed_unop UXor GTU16 (anyt TU16 v) = Some (anyt TU16 (Fido.builtins.u16_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_i16_model : forall v, typed_unop UXor GTI16 (anyt TI16 v) = Some (anyt TI16 (Fido.builtins.i16_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_u32_model : forall v, typed_unop UXor GTU32 (anyt TU32 v) = Some (anyt TU32 (Fido.builtins.u32_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_i32_model : forall v, typed_unop UXor GTI32 (anyt TI32 v) = Some (anyt TI32 (Fido.builtins.i32_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_i64_model : forall v, typed_unop UXor GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_u64_model : forall v, typed_unop UXor GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_not v)).
+Proof. reflexivity. Qed.
+Example typed_unop_neg_i64_model : forall v, typed_unop UNeg GTInt64 (anyt TI64 v) = Some (anyt TI64 (Fido.builtins.i64_neg v)).
+Proof. reflexivity. Qed.
+Example typed_unop_neg_u64_model : forall v, typed_unop UNeg GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_neg v)).
+Proof. reflexivity. Qed.
+Example typed_unop_uint_hole : forall g, typed_unop UXor GTUint g = None.
+Proof. intros [A [x tag]]. reflexivity. Qed.
+Example typed_unop_neg_u8_hole : forall g, typed_unop UNeg GTU8 g = None.
+Proof. intros [A [x tag]]. reflexivity. Qed.
 (** The conversion-CHAIN boundary, pinned: the R3 exit denotes conversions FROM GTINT OPERANDS only
     ([denote_expr_conv_runs] demands [reval_int a]); a chain through a non-GTInt intermediate
     ([int64(uint8(len ..))]) is [ptype]-supported yet ABSENT — the same typed-carrier gap, same next
@@ -2949,13 +3104,14 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
-    runtime form) and the TYPED-width complement [runnot_u8_e] (the representative of the class pinned
-    three-wide by [typed_runtime_not_absent]; the conversion-CHAIN and SHIFT case tables live OUTSIDE
-    this list — [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND
-    undenoted AND eval-level absent. *)
+    runtime form) and the GoUint-hole complement [runnot_uint_e] (the representative of the remaining
+    typed-unary absents, pinned with the narrow-neg hole by [typed_runtime_not_absent]; the
+    conversion-CHAIN and SHIFT case tables live OUTSIDE this list —
+    [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND undenoted AND
+    eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
-  ; runnot_u8_e ].
+  ; runnot_uint_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
@@ -3002,7 +3158,13 @@ Definition gosem_runtime_int_surface :=
    cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
    runtime_conv_runs, runtime_conv_supported, runtime_bool_runs, runtime_bool_supported,
-   rval_len_repr).
+   rval_len_repr,
+   denote_expr_typed_unop_runs, denote_expr_typed_unop_panic,
+   runtime_typed_unop_runs, runtime_typed_unop_supported,
+   typed_unop_u8_model, typed_unop_i8_model, typed_unop_u16_model, typed_unop_i16_model,
+   typed_unop_u32_model, typed_unop_i32_model, typed_unop_i64_model, typed_unop_u64_model,
+   typed_unop_neg_i64_model, typed_unop_neg_u64_model,
+   typed_unop_uint_hole, typed_unop_neg_u8_hole).
 Definition gosem_map_surface :=
   (eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
    map_len_invalid_type_rejected,

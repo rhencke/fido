@@ -3,7 +3,7 @@
 **Goal.** Operations on non-GTInt runtime carriers denote: `^int64(len ..)`, typed same-width
 arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see T5), and
 conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`). All currently supported-but-undenoted, pinned:
-`typed_runtime_not_absent` (the `^` class, three-wide), `typed_runtime_convchain_absent` (the chain),
+`typed_runtime_not_absent` (now the GoUint/narrow-neg holes), `typed_runtime_convchain_absent` (the chain),
 `typed_runtime_shift_absent` (the five-case shift SHAPE table), representative `runnot_u8_e` in
 `undenoted_frontier`. Conversion EXITS **from GTInt operands** already
 denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sources are outside it).
@@ -24,8 +24,10 @@ denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sou
   (the `unbox_int` pattern per width, local to each arm). Every branch equated against the fully
   qualified `Fido.builtins.*` op; every hole an explicit `None` covered by the all-constructor case
   theorem.
-- **Slices.** T1 unary (`^` all fixed widths via `*_not`; `-` via `i64_neg`/`u64_neg` only — see
-  holes). T2 conversion chains (the generalized R3 arm — `rv` sources). T3 same-width
+- **Slices.** T1 unary — LANDED (`typed_unop`, the `EUn` arm in `rexit_with`, the evaluator fixpoint;
+  live branches + holes pinned; class lemmas `denote_expr_typed_unop_{runs,panic}`). ⚠ OPEN SEALING
+  OBLIGATION: the evaluator WELL-TAGGEDNESS invariant (a `reval_val` value's tag matches its `ptype`
+  width) — proving it makes the class lemmas' `typed_unop … = Some` hypothesis redundant. T2 conversion chains (the generalized R3 arm — `rv` sources). T3 same-width
   arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
   `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:
