@@ -6856,7 +6856,9 @@ Definition gosem_frontier_surface :=
    runtime_float_source_conv_absent, runtime_conv_absent_src_pinned,
    typed_binop_uint_program_absent,
    typed_shift_uint_program_absent).
-(** The ONE composed public gate — same members as ever, now auditable per topic. *)
+(** The ONE composed public gate: [gosem_trust_surface] composes the topic surfaces above, and
+    the topic surfaces DEFINE the current public contract (per the surface policy — endpoints
+    and intentional pins; internal helpers ride the endpoints' assumption cones). *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
    gosem_runtime_int_surface, gosem_map_surface, gosem_frontier_surface).
