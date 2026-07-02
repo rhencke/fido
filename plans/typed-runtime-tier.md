@@ -1,21 +1,22 @@
 # The TYPED-runtime tier — non-GTInt runtime CARRIER OPERATIONS (the named next arc)
 
-**Goal.** Operations on non-GTInt runtime carriers denote: `^int64(len ..)`, typed same-width
-arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see T5), and
-conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`). All currently supported-but-undenoted, pinned:
-`typed_unary_holes_absent` (now the GoUint/narrow-neg holes), `typed_runtime_convchain_absent` (the chain),
-`typed_runtime_shift_absent` (the five-case shift SHAPE table), representative `runnot_uint_e` in
-`undenoted_frontier`. Conversion EXITS **from GTInt operands** already
-denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sources are outside it).
+**Goal.** Operations on non-GTInt runtime carriers denote: `^int64(len ..)` (T1 — LANDED),
+conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`, T2 — LANDED), typed
+same-width arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see
+T5). Still supported-but-undenoted, pinned: `typed_unary_holes_absent` (the GoUint/narrow-neg
+holes), `typed_runtime_shift_absent` (the five-case shift SHAPE table),
+`runtime_float_source_conv_absent` (the runtime-FLOAT-source conversion — the float arc), the
+representatives in `undenoted_frontier`.
 
 ## Design (decided; implement in slices)
 
 - **The shared evaluator becomes the fixpoint.** `reval_val_with (rec)` turns into `fix rv e` so the
   typed arms evaluate their operands at FULL power (`rv a` on strict subterms — the guard accepts
   pattern-bound subterm recursion; the `rconstr_vals_with (reval_val_with reval_int)` precedent).
-  `rexit_with` takes the fixpoint (`rv`) as a parameter (landed with T1); the R3 conversion arm STILL
-  uses `rec a` (GTInt sources) — generalizing it to `rv a` is T2, the point where conversion CHAINS
-  close (they are pinned absent until then).
+  `rexit_with` takes the fixpoint (`rv`) as a parameter (landed with T1); T2 (LANDED) generalized
+  BOTH conversion arms to full-power sources (`rv a` in the exit arm; `reval_val_with reval_int a`
+  in `reval_int`'s own `int(x)` arm), reading the source carrier via `runint_raw` — the point where
+  conversion CHAINS closed, for exit targets AND the `int` target.
   ⚠ This reshapes `denote_expr`'s unfolding: every conv/cmp class-lemma proof that `unfold rexit_with`
   needs the same mechanical rework as the shared-evaluator refactor (assert the sub-result, then the
   wrapper steps).
@@ -29,7 +30,11 @@ denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sou
   live branches + holes pinned; class lemmas `denote_expr_typed_unop_{runs,panic}`). The WELL-TAGGEDNESS
   invariant is PROVEN (`reval_val_typed`, on `ptype_int_ok` — every classifier `PtRunInt`/`PtTIntConst`
   carries an int width) and the public theorem is SEALED (`denote_expr_typed_unop_runs_sealed` — no
-  caller-side dispatch premise); all typed-unary holes pinned eight-wide (`typed_unary_holes_absent`). T2 conversion chains (the generalized R3 arm — `rv` sources). T3 same-width
+  caller-side dispatch premise); all typed-unary holes pinned eight-wide (`typed_unary_holes_absent`).
+  T2 conversion chains — LANDED (`runint_raw` + both arms at full power; sealed
+  `denote_expr_conv_runs_sealed` with the source split proved exhaustive by
+  `ptype_call_runint_conv_arg`; runs pins `typed_runtime_convchain_runs` incl. the truncating
+  `int8(^uint8(len ..))` = −4, go-run-verified; float-source complement pinned absent). T3 same-width
   arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
   `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:

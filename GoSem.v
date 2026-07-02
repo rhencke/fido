@@ -5,11 +5,12 @@
     ctors) — single-authority, faithful.
 
     SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
-    over the exact-or-absent [eval_value] fold and the runtime GTInt tier R1–R7 (ONE shared evaluator,
-    [reval_val_with]; [denote_expr] is a thin wrapper).  FAITHFUL-OR-ABSENT: the right behavior or
-    [None] ("not modeled yet", never "invalid" and never wrong).  [gosem_sound]: denotation ⊆
-    [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].  Absence boundaries are PINNED, not
-    prose: [undenoted_frontier] + [typed_unary_holes_absent] + [typed_runtime_{convchain,shift}_absent].
+    over the exact-or-absent [eval_value] fold, the runtime GTInt tier R1–R7, and the typed-runtime
+    tier T1–T2 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
+    FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
+    wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
+    Absence boundaries are PINNED, not prose: [undenoted_frontier] + [typed_unary_holes_absent] +
+    [runtime_float_source_conv_absent] + [typed_runtime_shift_absent].
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
     (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)
@@ -590,6 +591,25 @@ Definition wrap_runint (t : GoTy) (z : Z) : option GoAny :=
   | _       => None
   end.
 
+(** Tier T2 raw READING — the mathematical value a boxed integer carrier represents (a signed carrier
+    reads signed, an unsigned one nonnegative).  Go's integer conversion converts the VALUE — "sign
+    extended to implicit infinite precision; otherwise ... zero extended", then truncated (spec,
+    Conversions) — which is exactly read-then-[wrap_runint]: sign/zero extension IS the carrier's raw
+    value.  A non-integer tag is [None] (fail-closed: a bool/string/float-tagged source never
+    converts here). *)
+Definition runint_raw (g : GoAny) : option Z :=
+  match g with
+  | existT _ _ (pair x tag) =>
+      match tag in GoTypeTag A return A -> option Z with
+      | TInt64 => fun v => Some (intraw v)  | TUint => fun v => Some (uintraw v)
+      | TU8    => fun v => Some (u8raw v)   | TI8   => fun v => Some (i8raw v)
+      | TU16   => fun v => Some (u16raw v)  | TI16  => fun v => Some (i16raw v)
+      | TU32   => fun v => Some (u32raw v)  | TI32  => fun v => Some (i32raw v)
+      | TI64   => fun v => Some (i64raw v)  | TU64  => fun v => Some (u64raw v)
+      | _      => fun _ => None
+      end x
+  end.
+
 (** Tier R4 comparison dispatch — the verdict function per comparison [BinOp], built ONLY from the
     model's own [int_eqb]/[int_ltb]/[int_leb] ([!=] is the negation of [==]; [>]/[>=] are the argument
     swap — Go's exact [int] comparison semantics).  [None] = not a comparison ([&&]/[||] operate on
@@ -684,22 +704,28 @@ Qed.
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | ECall (EId f) (a :: nil) =>
-      (* tier R3, the EXIT half — a width conversion OUT of the [GTInt] fragment: [ptype]'s
+      (* tiers R3+T2, the EXIT half — a width conversion to a non-[GTInt] integer target: [ptype]'s
          [PtRunInt t] on a one-arg call can ONLY be [conv_to_scalar] (or [len]/[cap], which are
          [GTInt] — excluded here) — PROVED, not asserted: [ptype_call_runint_conv] seals [t] to an
-         integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]); the ARG must
-         itself be the [GTInt] runtime fragment — a runtime-FLOAT or other-width source is absent
-         there, so no wrong truncation can slip through.  A panicking arg panics (Go's order). *)
+         integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]).  T2: the ARG
+         evaluates at FULL power ([rv]), so a chain through a non-[GTInt] intermediate
+         ([int64(uint8(len ..))]) converts exactly like Go — read the carrier's value ([runint_raw]),
+         wrap into the target.  A non-integer-tagged source (a runtime FLOAT — none evaluate yet) is
+         absent fail-closed.  A panicking arg panics (Go's order). *)
       match ptype e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
-          match rec a with
-          | Some (RVal v) =>
-              match wrap_runint t (intraw v) with
-              | Some g => Some (RAVal g)
+          match rv a with
+          | Some (RAVal g) =>
+              match runint_raw g with
+              | Some z =>
+                  match wrap_runint t z with
+                  | Some g' => Some (RAVal g')
+                  | None => None
+                  end
               | None => None
               end
-          | Some (RPanic p) => Some (RAPanic p)
+          | Some (RAPanic p) => Some (RAPanic p)
           | None => None
           end
       | _ => None
@@ -916,15 +942,21 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                    end
               else None
           | ECall (EId f) (a :: nil) =>
-              (* tier R3, the IN-fragment half — [int(x)] of a runtime int: Go's same-width identity
-                 conversion, via the model's own [intwrap].  The outer [PtRunInt GTInt] guard scopes the
-                 arm; [int(<runtime float>)] and [int(<other-width runtime>)] have an ABSENT arg
-                 ([reval_int a = None] — its ptype is not the [GTInt] fragment), so they stay honestly
-                 absent, never a wrong wrap.  Non-[GTInt] targets EXIT the fragment in [denote_expr]. *)
+              (* tiers R3+T2, the IN-fragment half — [int(x)]: Go's conversion INTO [int], via the
+                 model's own [intwrap] on the source carrier's raw value.  T2: the ARG evaluates at
+                 FULL power ([reval_val_with] over THIS engine — the map arm's precedent), so a chain
+                 through a non-[GTInt] intermediate ([int(uint8(len ..))]) converts exactly like Go.
+                 A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed
+                 ([runint_raw]).  Non-[GTInt] targets EXIT the fragment in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
-              then match reval_int a with
-                   | Some (RVal v) => Some (RVal (intwrap (intraw v)))
-                   | other => other
+              then match reval_val_with reval_int a with
+                   | Some (RAVal g) =>
+                       match runint_raw g with
+                       | Some z => Some (RVal (intwrap z))
+                       | None => None
+                       end
+                   | Some (RAPanic p) => Some (RPanic p)
+                   | None => None
                    end
               else None
           | EIndex (ESliceLit et es) idx =>
@@ -1153,13 +1185,14 @@ Proof.
   cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 
-(** ★ CLASS (tier R3) — the two universal WIDTH-CONVERSION denotation theorems, quantified over the
-    whole reval-evaluable fragment and SEALED to [ptype]'s own boundary: any one-arg call classified
+(** ★ CLASS (tiers R3+T2) — the WIDTH-CONVERSION denotation theorems, quantified over the whole
+    reval-evaluable fragment (T2: the source is ANY full-evaluator value — chains through non-[GTInt]
+    intermediates included) and SEALED to [ptype]'s own boundary: any one-arg call classified
     [PtRunInt t] with [t ≠ GTInt] is NECESSARILY a [conv_to_scalar] conversion to an INTEGER keyword
-    target ([ptype_call_runint_conv] — [len]/[cap] classify [GTInt]), on which the exit boxing is TOTAL
-    ([wrap_runint_total]) — so the value theorem PRODUCES the wrapped result, with NO caller-side
-    totality premise.  A panicking arg panics first (Go's operand order).  The same-width [int(x)]
-    class is [reval_int]'s own arm, covered by the R1 tier lemmas. *)
+    target ([ptype_call_runint_conv] — [len]/[cap] classify [GTInt]), whose OPERAND is runtime-int- or
+    runtime-float-classified ([ptype_call_runint_conv_arg] — the split is PROVED exhaustive), and on
+    which the exit boxing is TOTAL ([wrap_runint_total]).  A panicking arg panics first (Go's operand
+    order).  The same-width [int(x)] class is [reval_int]'s own arm, covered by the R1 tier lemmas. *)
 Lemma conv_to_scalar_runint : forall ca t' t,
   conv_to_scalar ca t' = Some (PtRunInt t) -> t' = t /\ is_int_goty t = true.
 Proof.
@@ -1192,35 +1225,76 @@ Proof.
   intros t z Hi Ht; destruct t; try discriminate Hi; try discriminate Ht;
     eexists; reflexivity.
 Qed.
-Lemma denote_expr_conv_runs : forall f a t v,
+(** The raw reading is TOTAL on any payload whose tag matches an INTEGER width (consumed by the
+    sealed T2 theorem: the well-taggedness invariant supplies the match). *)
+Lemma runint_raw_total : forall s g,
+  is_int_goty s = true -> tag_matches s g = true -> exists z, runint_raw g = Some z.
+Proof.
+  intros s [A [x tag]] Hs Hm; destruct s; try discriminate Hs;
+    destruct tag; try discriminate Hm; eexists; reflexivity.
+Qed.
+(** The conversion SOURCE-shape seal: a [conv_to_scalar] result of [PtRunInt _] can only arise from a
+    runtime-int or runtime-float operand (the two runtime rows of the integer-target arm). *)
+Lemma conv_to_scalar_runint_src : forall ca t' t,
+  conv_to_scalar ca t' = Some (PtRunInt t) ->
+  (exists s, ca = PtRunInt s) \/ (exists s, ca = PtRunFloat s).
+Proof.
+  intros ca t' t H.
+  destruct t'; simpl in H; destruct ca; try discriminate H;
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b; try discriminate H
+           end;
+    eauto.
+Qed.
+Lemma ptype_call_runint_conv_arg : forall f a t,
+  ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  (exists s, ptype a = Some (PtRunInt s)) \/ (exists s, ptype a = Some (PtRunFloat s)).
+Proof.
+  intros f a t H Ht. cbn [ptype] in H.
+  destruct (ptype a) as [ca|] eqn:Hpa; [|discriminate].
+  destruct (String.eqb (proj1_sig f) "len").
+  - destruct a; destruct ca; try discriminate H;
+      inversion H; subst; discriminate Ht.
+  - destruct (String.eqb (proj1_sig f) "cap").
+    + destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
+    + destruct (classify (proj1_sig f)) as [t'|]; [|discriminate].
+      destruct (conv_to_scalar_runint_src ca t' t H) as [[s ->]|[s ->]];
+        [left|right]; exists s; reflexivity.
+Qed.
+Lemma denote_expr_conv_runs : forall f a t g z,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   eval_value (ECall (EId f) (a :: nil)) = None ->
-  reval_int a = Some (RVal v) ->
-  exists g, wrap_runint t (intraw v) = Some g
-    /\ denote_expr (ECall (EId f) (a :: nil)) = Some (CRet g, false).
+  reval_val a = Some (RAVal g) ->
+  runint_raw g = Some z ->
+  exists g', wrap_runint t z = Some g'
+    /\ denote_expr (ECall (EId f) (a :: nil)) = Some (CRet g', false).
 Proof.
-  intros f a t v Hfc Hpt Ht Hev Ha.
-  destruct (wrap_runint_total t (intraw v)
-              (ptype_call_runint_conv f a t Hpt Ht) Ht) as [g Hw].
-  exists g. split; [exact Hw|].
+  intros f a t g z Hfc Hpt Ht Hev Ha Hz.
+  destruct (wrap_runint_total t z
+              (ptype_call_runint_conv f a t Hpt Ht) Ht) as [g' Hw].
+  exists g'. split; [exact Hw|].
   assert (He : reval_int (ECall (EId f) (a :: nil)) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (ECall (EId f) (a :: nil))
+                = Some (RAVal g')).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hz. cbv beta iota. rewrite Hw. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
-  unfold rexit_with. cbv beta iota.
-  rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
-  rewrite Ha. cbv beta iota. rewrite Hw. reflexivity.
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
 Lemma denote_expr_conv_panic : forall f a t p,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   eval_value (ECall (EId f) (a :: nil)) = None ->
-  reval_int a = Some (RPanic p) ->
+  reval_val a = Some (RAPanic p) ->
   denote_expr (ECall (EId f) (a :: nil)) = Some (CPan p, true).
 Proof.
   intros f a t p Hfc Hpt Ht Hev Ha.
@@ -1228,11 +1302,14 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (ECall (EId f) (a :: nil))
+                = Some (RAPanic p)).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
-  cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
-  unfold rexit_with. cbv beta iota.
-  rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
-  rewrite Ha. reflexivity.
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
 
 (** ★ CLASS (tier R4) — the runtime bool COMPARISON denotation theorems, quantified over the whole
@@ -1610,13 +1687,14 @@ Proof.
     injection Hg as <-. exact (proj2 (typed_unop_tag_exact _ _ _ _ Hu)).
   - (* EBn: the R4 exit reads PtBool — excluded by [Hpt] *)
     rewrite Hpt in Hg. cbv beta iota in Hg. discriminate Hg.
-  - (* ECall: the R3 exit *)
+  - (* ECall: the R3+T2 exit *)
     destruct fn; try discriminate Hg.
     destruct args as [|a0 [|? ?]]; try discriminate Hg.
     rewrite Hpt in Hg. cbv beta iota in Hg.
     destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
-    destruct (reval_int a0) as [[v0|p]|]; cbv beta iota in Hg; try discriminate Hg.
-    destruct (wrap_runint t (intraw v0)) as [g'|] eqn:Hw; cbv beta iota in Hg; [|discriminate Hg].
+    destruct (reval_val_with reval_int a0) as [[g0|p]|]; cbv beta iota in Hg; try discriminate Hg.
+    destruct (runint_raw g0) as [z|]; cbv beta iota in Hg; [|discriminate Hg].
+    destruct (wrap_runint t z) as [g'|] eqn:Hw; cbv beta iota in Hg; [|discriminate Hg].
     injection Hg as <-. exact (wrap_runint_tag _ _ _ Hw).
 Qed.
 (** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
@@ -1707,6 +1785,34 @@ Proof.
   exists g'. split; [exact Hu|]. split.
   - exact (proj2 (typed_unop_tag_exact _ _ _ _ Hu)).
   - exact (denote_expr_typed_unop_runs o a t g g' Hfc Hpt Ht Hev Ha Hu).
+Qed.
+
+(** ★ THE SEALED T2 THEOREM — the conversion exit is TOTAL on every evaluated RUNTIME-INT-classified
+    source, with NO caller-side raw/wrap premise: the operand-shape split is PROVED exhaustive
+    ([ptype_call_runint_conv_arg] — a [PtRunInt]-classified one-arg call's operand is [PtRunInt] or
+    [PtRunFloat]); on the [PtRunInt] side the well-taggedness invariant ([reval_val_typed]) forces the
+    payload's tag, on which the raw reading is total ([runint_raw_total]) and the target wrap is total
+    ([wrap_runint_total]).  The [PtRunFloat] complement stays ABSENT, pinned at the fixture site
+    ([runtime_float_source_conv_absent]) — the float arc, not this one. *)
+Theorem denote_expr_conv_runs_sealed : forall f a t s g,
+  floats_checked (ECall (EId f) (a :: nil)) = true ->
+  ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  eval_value (ECall (EId f) (a :: nil)) = None ->
+  ptype a = Some (PtRunInt s) ->
+  reval_val a = Some (RAVal g) ->
+  exists z g', runint_raw g = Some z
+    /\ wrap_runint t z = Some g'
+    /\ tag_matches t g' = true
+    /\ denote_expr (ECall (EId f) (a :: nil)) = Some (CRet g', false).
+Proof.
+  intros f a t s g Hfc Hpt Ht Hev Hpa Ha.
+  pose proof (ptype_int_ok _ _ Hpa) as Hs. cbn in Hs.
+  pose proof (reval_val_typed a s g Hpa Ha) as Htag.
+  destruct (runint_raw_total s g Hs Htag) as [z Hz].
+  destruct (denote_expr_conv_runs f a t g z Hfc Hpt Ht Hev Ha Hz) as [g' [Hw Hd]].
+  exists z, g'.
+  repeat split; [exact Hz | exact Hw | exact (wrap_runint_tag _ _ _ Hw) | exact Hd].
 Qed.
 
 
@@ -2919,17 +3025,44 @@ Theorem typed_unop_holes_none : forall g : GoAny,
   /\ typed_unop UNeg GTU16 g = None /\ typed_unop UNeg GTI16 g = None
   /\ typed_unop UNeg GTU32 g = None /\ typed_unop UNeg GTI32 g = None.
 Proof. intros [A [x tag]]. repeat split; reflexivity. Qed.
-(** The conversion-CHAIN boundary, pinned: the R3 exit denotes conversions FROM GTINT OPERANDS only
-    ([denote_expr_conv_runs] demands [reval_int a]); a chain through a non-GTInt intermediate
-    ([int64(uint8(len ..))]) is [ptype]-supported yet ABSENT — the same typed-carrier gap, same next
-    arc. *)
+(** T2 — conversion CHAINS through a non-[GTInt] intermediate DENOTE (both conversion arms evaluate
+    their source at FULL power): the EXIT-target chain [int64(uint8(len ..))], the [GTInt]-target
+    chain [int(uint8(len ..))], and the TRUNCATING chain [int8(^uint8(len ..))] (a T1 typed unary
+    INSIDE a conversion: [^uint8(3)] = 252, zero-extended and wrapped to [i8] −4 — the non-identity
+    witness; all three verified against gc via go run: 3, 3, −4).  The RUNTIME-FLOAT source complement
+    stays absent — [runtime_float_source_conv_absent] below. *)
 Definition runconv_chain_e : GExpr :=
   ECall (EId (mkIdent "int64" eq_refl))
         [ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]].
-Example typed_runtime_convchain_absent :
-  supported_program (println_prog runconv_chain_e) = true
-  /\ denotable_program (println_prog runconv_chain_e) = false
-  /\ denote_program (println_prog runconv_chain_e) = None.
+Definition runconv_chain_int_e : GExpr :=
+  ECall (EId (mkIdent "int" eq_refl))
+        [ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]].
+Definition runconv_chain_trunc_e : GExpr :=
+  ECall (EId (mkIdent "int8" eq_refl))
+        [EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])].
+Example typed_runtime_convchain_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runconv_chain_e ; runconv_chain_int_e ; runconv_chain_trunc_e ]
+  = [ Some (ORet tt (w_log true (anyt TI64 (i64wrap 3) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TI8 (i8wrap 252) :: nil) w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example typed_runtime_convchain_supported :
+  forallb supported_program
+    (map println_prog [ runconv_chain_e ; runconv_chain_int_e ; runconv_chain_trunc_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
+(** The RUNTIME-FLOAT SOURCE boundary, pinned: [conv_to_scalar]'s other runtime row ([PtRunFloat] —
+    the split sealed by [ptype_call_runint_conv_arg]) classifies [int64(float64(len ..))] as
+    [PtRunInt GTInt64], but NO runtime-float form evaluates yet, so the chain is supported-but-ABSENT
+    (fail-closed at [runint_raw]/the arg) — flips with the float arc, not this one. *)
+Definition runconv_float_src_e : GExpr :=
+  ECall (EId (mkIdent "int64" eq_refl))
+        [ECall (EId (mkIdent "float64" eq_refl)) [runlen3_e]].
+Example runtime_float_source_conv_absent :
+  ptype runconv_float_src_e = Some (PtRunInt GTInt64)
+  /\ supported_program (println_prog runconv_float_src_e) = true
+  /\ denotable_program (println_prog runconv_float_src_e) = false
+  /\ denote_program (println_prog runconv_float_src_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** The SHIFT boundary, pinned as a CASE TABLE: Go's shift is HETEROGENEOUS ([ptype]'s [BShl|BShr]
     arm — the LEFT operand fixes the result width, the COUNT is an independent integer of any width).
@@ -3468,14 +3601,16 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
-    runtime form) and the typed-unary hole representative [runnot_uint_e] (the class pinned
-    eight-wide by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]; the
-    conversion-CHAIN and SHIFT case tables live OUTSIDE this list —
-    [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND undenoted AND
+    runtime form), the typed-unary hole representative [runnot_uint_e] (the class pinned eight-wide
+    by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]), and the
+    RUNTIME-FLOAT-source conversion [runconv_float_src_e] (its own pin
+    [runtime_float_source_conv_absent]; the SHIFT case table lives OUTSIDE this list —
+    [typed_runtime_shift_absent]).  Each member is pinned supported AND undenoted AND
     eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
-  ; runnot_uint_e ].
+  ; runnot_uint_e
+  ; runconv_float_src_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
@@ -3517,7 +3652,9 @@ Definition gosem_runtime_int_surface :=
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
+   denote_expr_conv_runs, denote_expr_conv_panic, denote_expr_conv_runs_sealed,
+   ptype_call_runint_conv, ptype_call_runint_conv_arg, wrap_runint_total, runint_raw_total,
+   typed_runtime_convchain_runs, typed_runtime_convchain_supported,
    denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic,
    cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
@@ -3539,7 +3676,7 @@ Definition gosem_map_surface :=
    rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent).
 Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
-   typed_unary_holes_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent).
+   typed_unary_holes_absent, runtime_float_source_conv_absent, typed_runtime_shift_absent).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
