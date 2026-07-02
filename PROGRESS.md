@@ -118,7 +118,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- RUNTIME tier: the GTInt-FRAGMENT arc R1–R7 is complete; NEXT = the TYPED-runtime tier (plans/typed-runtime-tier.md — per-width carrier OPERATIONS — `^int64(len ..)`, conversion chains, mixed-count shifts supported-but-undenoted — `typed_runtime_{not,convchain,shift}_absent`); the GENERAL dyadic↔`SF*` theorem — each case shrinks the
+- RUNTIME tier: the GTInt-FRAGMENT arc R1–R7 is complete; NEXT = the TYPED-runtime tier (plans/typed-runtime-tier.md — per-width carrier OPERATIONS — `^int64(len ..)`, conversion chains, the five-case shift shape table supported-but-undenoted — `typed_runtime_{not,convchain,shift}_absent`); the GENERAL dyadic↔`SF*` theorem — each case shrinks the
   supported-but-undenoted gap (`denotable_*` ⊊ `supported_*`; `stmt_denotable_ok` is the proved direction),
   representatively witnessed by `undenoted_frontier` (a fixture list, NOT per-class coverage; no theorem bounds the gap).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.

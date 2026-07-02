@@ -2446,7 +2446,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     The table exercises BOTH ops, a NON-GTInt count, and [i64]/[u64] LEFT operands (the raw-[Z]
     model-shift family), pinning each case's [ptype] RESULT WIDTH and its supported-but-absent status —
     a future [typed_shift] handling only one op / only [GTInt] counts / only small-width lefts breaks
-    this gate.  When slice T5 lands, this same table flips to denoting cases in the same commit. *)
+    this gate ([shift_case_shape] makes the coverage STRUCTURAL, not comment-backed).  When T5 lands,
+    this same table flips to denoting cases in the same commit. *)
 Definition runshift_mixed_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
            (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
@@ -2464,15 +2465,30 @@ Definition runshift_u64left_e : GExpr :=
            (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
 Definition typed_shift_cases : list GExpr :=
   [ runshift_mixed_e ; runshift_shr_e ; runshift_i64count_e ; runshift_i64left_e ; runshift_u64left_e ].
+(** The SHAPE extractor — [Some] ONLY for a genuine shift node, carrying the op and BOTH operand
+    classifications: swapping a witness for same-width arithmetic, dropping [BShr], or degrading the
+    non-[GTInt] count to [GTInt] all change the extracted shape and break the pin below. *)
+Definition shift_case_shape (e : GExpr) : option (BinOp * (option PTy * option PTy)) :=
+  match e with
+  | EBn BShl a b => Some (BShl, (ptype a, ptype b))
+  | EBn BShr a b => Some (BShr, (ptype a, ptype b))
+  | _ => None
+  end.
 Example typed_runtime_shift_absent :
-  map ptype typed_shift_cases
+  map shift_case_shape typed_shift_cases
+    = [ Some (BShl, (Some (PtRunInt GTU8),    Some (PtRunInt GTInt)))
+      ; Some (BShr, (Some (PtRunInt GTU8),    Some (PtRunInt GTInt)))
+      ; Some (BShl, (Some (PtRunInt GTU8),    Some (PtRunInt GTInt64)))   (* the NON-GTInt count *)
+      ; Some (BShl, (Some (PtRunInt GTInt64), Some (PtRunInt GTInt)))     (* the i64 LEFT *)
+      ; Some (BShr, (Some (PtRunInt GTU64),   Some (PtRunInt GTInt))) ]   (* the u64 LEFT, BShr *)
+  /\ map ptype typed_shift_cases
     = [ Some (PtRunInt GTU8) ; Some (PtRunInt GTU8) ; Some (PtRunInt GTU8)
       ; Some (PtRunInt GTInt64) ; Some (PtRunInt GTU64) ]
   /\ forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
        typed_shift_cases = true.
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in

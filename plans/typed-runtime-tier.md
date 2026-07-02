@@ -4,7 +4,7 @@
 arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see T5), and
 conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`). All currently supported-but-undenoted, pinned:
 `typed_runtime_not_absent` (the `^` class, three-wide), `typed_runtime_convchain_absent` (the chain),
-`typed_runtime_shift_absent` (the mixed-count shift), representative `runnot_u8_e` in
+`typed_runtime_shift_absent` (the five-case shift SHAPE table), representative `runnot_u8_e` in
 `undenoted_frontier`. Conversion EXITS **from GTInt operands** already
 denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sources are outside it).
 
@@ -34,8 +34,9 @@ denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sou
   A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated
   independently (any integer runtime/const form), admissibility derived from `ptype`, never a caller
   promise; the model ops are heterogeneous too (small widths take `GoInt` counts, `i64/u64` raw `Z` —
-  reconcile per width at the dispatch, fail-closed on any unmodelled pairing).  Mixed-count absence is
-  pinned NOW (`typed_runtime_shift_absent`) so the slice cannot silently land same-width-only.
+  reconcile per width at the dispatch, fail-closed on any unmodelled pairing).  The five-case shift SHAPE table is
+  pinned NOW (`typed_runtime_shift_absent` + `shift_case_shape` — both ops, a non-GTInt count,
+  i64/u64 lefts, structurally checked) so the slice cannot silently land narrow.
 - **Witness succession per slice** (the standing rule): each landing flips its pins + the five-site
   sweep + class lemmas sealed to `ptype` (no caller-side totality premises) + non-identity pins
   (wrap/sign witnesses) in ONE commit.
