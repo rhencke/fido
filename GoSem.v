@@ -2429,6 +2429,18 @@ Example typed_runtime_not_absent :
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
           [ runnot_i64_e ; runnot_u8_e ; runnot_uint_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
+(** The conversion-CHAIN boundary, pinned: the R3 exit denotes conversions FROM GTINT OPERANDS only
+    ([denote_expr_conv_runs] demands [reval_int a]); a chain through a non-GTInt intermediate
+    ([int64(uint8(len ..))]) is [ptype]-supported yet ABSENT — the same typed-carrier gap, same next
+    arc. *)
+Definition runconv_chain_e : GExpr :=
+  ECall (EId (mkIdent "int64" eq_refl))
+        [ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]].
+Example typed_runtime_convchain_absent :
+  supported_program (println_prog runconv_chain_e) = true
+  /\ denotable_program (println_prog runconv_chain_e) = false
+  /\ denote_program (println_prog runconv_chain_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
@@ -2963,7 +2975,7 @@ Definition gosem_trust_surface :=
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   typed_runtime_not_absent,
+   typed_runtime_not_absent, typed_runtime_convchain_absent,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
