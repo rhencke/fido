@@ -15,9 +15,11 @@
 #      could name GOIMAGE indirectly.
 #   6. The EFFECTIVE value equals the authority line's RHS exactly.
 #   7. The only repo-wide Go-image reference (TAG or DIGEST-ONLY spelling) is the authority line;
-#      the Dockerfile bans non-default '# escape=' parser directives (they re-type continuations),
-#      has EXACTLY ONE default-less ARG GOIMAGE, and the builder stage consumes it verbatim
-#      (FROM ${GOIMAGE} AS builder) with no other FROM referencing a Go image.
+#      the Dockerfile bans ALL escape parser directives in any position or spelling, Docker's
+#      leading-whitespace comment rule included (a directive would re-type the continuation
+#      character the normalizer assumes), has EXACTLY ONE default-less ARG GOIMAGE, and the builder
+#      stage consumes it verbatim (FROM ${GOIMAGE} AS builder) with no other FROM referencing a Go
+#      image.
 set -eu
 mk="$1"; eff="$2"; df="${3:-Dockerfile}"
 # THE Go-image reference detector — tag OR digest-only spellings (single-sourced; the selftest
@@ -72,8 +74,8 @@ if [ -n "$bad" ]; then
   echo "fido: TOOLCHAIN DRIFT — a Go-image spelling (tag or digest form) outside the single GOIMAGE authority line:"
   echo "$bad"; exit 1
 fi
-if grep -niE '^#[ \t]*escape[ \t]*=' "$df"; then
-  echo "fido: TOOLCHAIN DRIFT — a '# escape=' parser directive is BANNED (it re-types the continuation character the normalizer assumes)"; exit 1
+if grep -niE '^[[:space:]]*#[[:space:]]*escape[[:space:]]*=' "$df"; then
+  echo "fido: TOOLCHAIN DRIFT — an escape parser directive is BANNED in any position/spelling (Docker ignores leading whitespace before comments; a directive would re-type the continuation character the normalizer assumes)"; exit 1
 fi
 dfnorm=$(awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }' "$df" \
   | awk '{ sub(/^[ \t]+/, "");

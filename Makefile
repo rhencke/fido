@@ -238,10 +238,8 @@ go-verify:
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # The tooling gates, wired into [check]:
-# [toolchain-gate] — delegates to plugin/toolchain-gate.sh, the single statement of what is
-# enforced (Makefile logical-line scan with eval/include/recipe-prefix-redefinition/computed-LHS bans; exactly
-# one strict authority line; effective == authority; repo-wide single spelling; NORMALIZED
-# Dockerfile checks — one default-less ARG, verbatim builder FROM, no rogue Go FROM).
+# [toolchain-gate] — delegates to plugin/toolchain-gate.sh; that script's header IS the single
+# statement of what is enforced (this comment deliberately does not duplicate the list).
 # [toolchain-selftest] — proves CLI/env overrides are INERT (the `override` directive) and that
 # synthesized Makefile-side mutations (global/target/pattern/private, CONTINUED lines, sinclude,
 # recipe-prefixed and brace eval, computed LHS) all fail the gate.
@@ -286,11 +284,15 @@ toolchain-selftest:
 	  'arg GOIMAGE=evil-default' \
 	  'from @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
 	  '  FROM @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
-	  '# escape=`@@NL@@FROM `@@NL@@ @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue'; do \
+	  ; do \
 	  cp Dockerfile "$$tmp"; printf '%s\n' "$$dfevil" | sed -e 's/@@NL@@/\n/g' -e 's/@@GOIMG@@/golang/g' >> "$$tmp"; \
 	  if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
 	    echo "fido: toolchain-gate ACCEPTED a Dockerfile mutation: $$dfevil"; exit 1; fi; \
 	done; \
+	{ head -1 Dockerfile; printf '  # escape=`\n'; tail -n +2 Dockerfile; \
+	  printf 'FROM `\n  gola%s@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue\n' ng; } > "$$tmp"; \
+	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED an ACTIVE leading-whitespace escape directive + backtick-split rogue FROM"; exit 1; fi; \
 	re=$$(sed -n "s/^GO_IMAGE_RE='\(.*\)'$$/\1/p" plugin/toolchain-gate.sh); \
 	test -n "$$re" || { echo "fido: could not extract GO_IMAGE_RE from the gate script"; exit 1; }; \
 	printf 'x gola%s@sha256:aa\n' ng | grep -qE "$$re" || { echo "fido: the Go-image detector misses DIGEST-ONLY spellings"; exit 1; }; \
