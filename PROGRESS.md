@@ -47,8 +47,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     `floats_checked` boundary) + const slice-index/`len`/map-`len` folds, all fail-closed.
   - the runtime GTInt tier R1–R8 (len, `+ - * / %`, `& | ^ &^` + heterogeneous shifts via the
     engine's own model ops (`int_bitop`/`int_shift_op` dispatch pinned; negative count panics
-    `rt_shift_neg`, ≥64 saturates; const counts read off the GATE's own value — total, no
-    evaluation premise, untyped counts gate-bounded to the conservative platform-`uint` window;
+    `rt_shift_neg`, ≥64 saturates; const counts read off the GATE — total, untyped ones bounded
+    to the conservative platform-`uint` window;
     `gtint_bitwise_runs`/`gtint_shift_runs`/`shift_bigconst_runs`), unary `- ^`, slice index with exact
     `rt_index_oob`, width-conversion exits, comparisons, map-`len` over runtime values with
     order-independent panics) — all via the MODEL'S OWN ops through ONE shared evaluator
@@ -73,7 +73,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     dispatch — the `GTInt` width stays the R4 engine; SEALED `denote_expr_typed_cmp_runs_sealed`
     over the shape split `ptype_cmp_bool_args`, operands via the same width seal; `uint` +
     cross-width pinned); HETEROGENEOUS SHIFTS denote (T5 — the left at its width, the count ANY
-    int width/const read via the sealed count layer (const counts off the GATE directly — total,
+    int width/const read via the sealed count layer (const counts off the GATE —
     `shift_count_const_total`), counts ≥ 64 SATURATE exactly, a NEGATIVE
     runtime count panics `rt_shift_neg`; SEALED `denote_expr_typed_shift_runs_sealed` over
     `ptype_shift_runint_args`; the five-case shape table FLIPPED to denoting,
