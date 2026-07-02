@@ -52,7 +52,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   - denotation ⊆ `SupportedProgram` (`gosem_sound`); compositional converses
     (`out_main_denotes`, `denotable_stmts_main_denotes`, tightness `denotable_body_terminator_free_iff`).
   - typed UNARY on non-GTInt carriers denotes (T1, `typed_unop` — dispatch + holes pinned); the
-    remaining carrier-operation absents stay pinned: `typed_runtime_{not,convchain,shift}_absent`.
+    remaining carrier-operation absents stay pinned: `typed_unary_holes_absent + typed_runtime_{convchain,shift}_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.

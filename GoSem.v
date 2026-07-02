@@ -615,7 +615,7 @@ Inductive RAny : Type := RAVal (g : GoAny) | RAPanic (p : GoAny).
 (** Tier T1 typed-unary dispatch — the per-width MODEL op for a unary op at a non-GTInt integer
     width, on the boxed carrier (the [unbox_int] tag-convoy pattern per width).  [^] covers all eight
     fixed widths; [-] only [i64]/[u64] (no narrow-neg model ops); [GTUint] has NO ops — every hole is
-    an explicit [None] (absent), pinned total below ([typed_unop_complete]). *)
+    an explicit [None] (absent); the whole matrix is sealed below ([typed_unop_tag_exact] + the branch/hole pins). *)
 Definition typed_unop (o : UnaryOp) (t : GoTy) (g : GoAny) : option GoAny :=
   match g with
   | existT _ _ (pair x tag) =>
@@ -643,6 +643,43 @@ Definition typed_unop (o : UnaryOp) (t : GoTy) (g : GoAny) : option GoAny :=
       | _, _ => None
       end
   end.
+
+(** The tag↔width matcher — the SPEC [typed_unop]'s matrix is sealed against. *)
+Definition tag_matches (t : GoTy) (g : GoAny) : bool :=
+  match g with
+  | existT _ _ (pair _ tag) =>
+      match t, tag with
+      | GTInt, TInt64 | GTInt64, TI64 | GTU8, TU8 | GTI8, TI8 | GTU16, TU16 | GTI16, TI16
+      | GTU32, TU32 | GTI32, TI32 | GTU64, TU64 | GTUint, TUint => true
+      | _, _ => false
+      end
+  end.
+(** MATRIX SOUNDNESS: a [Some] result arises ONLY from a payload whose tag matches the width — a
+    mismatched-tag payload can never be operated on wrongly — and the RESULT carries the same width's
+    tag (consumed by the well-taggedness invariant below). *)
+Lemma typed_unop_tag_exact : forall o t g r,
+  typed_unop o t g = Some r -> tag_matches t g = true /\ tag_matches t r = true.
+Proof.
+  intros o t g r H. destruct g as [A [x tag]].
+  destruct o; destruct t; cbn in H; try discriminate H;
+    destruct tag; try discriminate H;
+    injection H as <-; split; reflexivity.
+Qed.
+(** MATRIX TOTALITY on the live cells: a MATCHING tag always computes (with the holes' complement,
+    every [(o, t, tag)] cell is decided — live → the model op; anything else → [None]). *)
+Lemma typed_unop_live_total : forall o t g,
+  tag_matches t g = true ->
+  ((o = UXor /\ is_int_goty t = true /\ numty_eqb t GTInt = false /\ numty_eqb t GTUint = false)
+   \/ (o = UNeg /\ (t = GTInt64 \/ t = GTU64))) ->
+  exists r, typed_unop o t g = Some r.
+Proof.
+  intros o t g Hm Hlive. destruct g as [A [x tag]].
+  destruct Hlive as [[-> [Hi [Ht Hu]]] | [-> [-> | ->]]].
+  - destruct t; try discriminate Hi; try discriminate Ht; try discriminate Hu;
+      destruct tag; try discriminate Hm; eexists; reflexivity.
+  - destruct tag; try discriminate Hm; eexists; reflexivity.
+  - destruct tag; try discriminate Hm; eexists; reflexivity.
+Qed.
 
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
@@ -1310,12 +1347,299 @@ Proof.
   cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
 
-(** ★ CLASS (T1) — typed unary on a non-GTInt carrier, quantified over the reval-evaluable fragment:
-    the arg evaluated at FULL power ([reval_val]), the width's model op applied by [typed_unop] (its
-    live branches / holes pinned at the fixture site).  The [typed_unop … = Some g'] hypothesis is the
-    dispatch boundary: proving it redundant needs the evaluator WELL-TAGGEDNESS invariant (a value's
-    tag matches its [ptype] width) — a named open obligation in plans/typed-runtime-tier.md, not
-    assumed here. *)
+(** ---- THE WELL-TAGGEDNESS SEAL (T1's open obligation, closed) ----
+    [ptype_int_ok]: every [PtRunInt t]/[PtTIntConst t _] the classifier produces carries an INTEGER
+    keyword width.  [reval_val_typed]: a [reval_val] VALUE's tag matches its [ptype] width — so the
+    typed-unary dispatch is total on the live cells with NO caller-side premise
+    ([denote_expr_typed_unop_runs_sealed]). *)
+Lemma numty_eqb_eq : forall a b, numty_eqb a b = true -> a = b.
+Proof. intros a b; destruct a; destruct b; cbn; intro H; first [reflexivity | discriminate H]. Qed.
+Definition pty_int_ok (p : PTy) : bool :=
+  match p with PtRunInt t | PtTIntConst t _ => is_int_goty t | _ => true end.
+Lemma dy_fold_at_float : forall t df a b pt,
+  dy_fold_at t df a b = Some pt -> exists d, pt = PtFloatConst t d.
+Proof.
+  intros t df a b pt H. unfold dy_fold_at in H.
+  destruct df as [f|]; [|discriminate].
+  destruct (f a b) as [[m e']|]; [|discriminate].
+  destruct (float_dyadic_repr _ _ _); [|discriminate].
+  injection H as <-. eexists. reflexivity.
+Qed.
+Lemma num_arith_int_ok : forall f df cl cr pt,
+  pty_int_ok cl = true -> pty_int_ok cr = true ->
+  num_arith f df cl cr = Some pt -> pty_int_ok pt = true.
+Proof.
+  intros f df cl cr pt Hl Hr H.
+  destruct cl; destruct cr; cbn in *; try discriminate H;
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate H
+           end;
+    try (injection H as <-; cbn in *; first [assumption | reflexivity]);
+    apply dy_fold_at_float in H; destruct H as [dcst ->]; reflexivity.
+Qed.
+Lemma num_binop_int_ok : forall o cl cr pt,
+  pty_int_ok cl = true -> pty_int_ok cr = true ->
+  num_binop o cl cr = Some pt -> pty_int_ok pt = true.
+Proof.
+  intros o cl cr pt Hl Hr H. destruct o; cbn in H; try discriminate H;
+    try (exact (num_arith_int_ok _ _ _ _ _ Hl Hr H));
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate H
+           end;
+    try (exact (num_arith_int_ok _ _ _ _ _ Hl Hr H)).
+  (* the shift arm: outputs untyped-const fold / PtRunInt GTInt / typed rows carrying an input width *)
+  all: destruct cl; try discriminate H; cbn in Hl;
+       try (destruct (int_const_val cr) as [b0|] eqn:Ecv);
+       repeat match type of H with
+              | (if ?b then _ else _) = _ => destruct b eqn:?; try discriminate H
+              end;
+       injection H as <-; cbn; first [assumption | reflexivity].
+Qed.
+Lemma conv_to_scalar_int_ok : forall ca t' pt,
+  conv_to_scalar ca t' = Some pt -> pty_int_ok pt = true.
+Proof.
+  intros ca t' pt H.
+  destruct t'; simpl in H; destruct ca; try discriminate H;
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b; try discriminate H
+           end;
+    injection H as <-; reflexivity.
+Qed.
+Lemma ptype_int_ok : forall e pt, ptype e = Some pt -> pty_int_ok pt = true.
+Proof.
+  induction e using GExpr_ind'; intros pt Hp; cbn [ptype] in Hp.
+  - (* EId *) destruct (String.eqb _ _); [injection Hp as <-; reflexivity | discriminate Hp].
+  - (* EInt *) injection Hp as <-. reflexivity.
+  - (* EUn *)
+    destruct (ptype e) as [c|]; [|discriminate Hp].
+    specialize (IHe _ eq_refl).
+    destruct o; try discriminate Hp.
+    + (* UNot *) destruct c; try discriminate Hp. injection Hp as <-. reflexivity.
+    + (* UXor *) destruct c; try discriminate Hp; cbv zeta in Hp;
+        try (destruct (complement_const _ _) as [r|] eqn:Ecc in Hp; try discriminate Hp);
+        repeat match type of Hp with
+               | (if ?b then _ else _) = _ => destruct b; try discriminate Hp
+               end;
+        injection Hp as <-; cbn in *; first [assumption | reflexivity].
+    + (* UNeg *) destruct c; try discriminate Hp; cbv zeta in Hp;
+        repeat match type of Hp with
+               | (if ?b then _ else _) = _ => destruct b; try discriminate Hp
+               end;
+        injection Hp as <-; cbn in *; first [assumption | reflexivity].
+  - (* EBn *)
+    destruct (ptype e1) as [cl|]; [|discriminate Hp].
+    destruct (ptype e2) as [cr|]; [|discriminate Hp].
+    specialize (IHe1 _ eq_refl). specialize (IHe2 _ eq_refl).
+    destruct o;
+      try (exact (num_binop_int_ok _ _ _ _ IHe1 IHe2 Hp));
+      try (destruct cl; destruct cr; try discriminate Hp;
+           first [ injection Hp as <-; reflexivity
+                 | exact (num_binop_int_ok _ _ _ _ IHe1 IHe2 Hp) ]);
+      try (destruct (eq_comparable _ _); [injection Hp as <-; reflexivity | discriminate Hp]);
+      try (destruct (ord_comparable _ _); [injection Hp as <-; reflexivity | discriminate Hp]);
+      try (destruct (andb _ _); [injection Hp as <-; reflexivity | discriminate Hp]).
+  - (* ESel *) discriminate Hp.
+  - (* EIndex *)
+    destruct e1; try discriminate Hp.
+    destruct (andb _ _) eqn:Eg; [|discriminate Hp].
+    apply andb_true_iff in Eg as [Ei _].
+    destruct (ptype e2) as [ci|]; [|discriminate Hp].
+    destruct (is_int_cat ci); [|discriminate Hp].
+    destruct (int_const_val ci) as [k|];
+      [destruct (andb _ _); [|discriminate Hp]|];
+      injection Hp as <-; exact Ei.
+  - (* ESlice *) discriminate Hp.
+  - (* ECall *)
+    destruct e; try discriminate Hp.
+    destruct args as [|a [|? ?]]; try discriminate Hp.
+    destruct (ptype a) as [ca|]; [|discriminate Hp].
+    destruct (String.eqb (proj1_sig i) "len").
+    + destruct a; try destruct ca; try discriminate Hp; injection Hp as <-; reflexivity.
+    + destruct (String.eqb (proj1_sig i) "cap").
+      * destruct ca; try discriminate Hp. injection Hp as <-. reflexivity.
+      * destruct (classify (proj1_sig i)) as [t'|]; [|discriminate Hp].
+        exact (conv_to_scalar_int_ok _ _ _ Hp).
+  - (* EAssert *) discriminate Hp.
+  - (* EConv *)
+    destruct c; try discriminate Hp;
+      destruct (goty_supported _); try discriminate Hp;
+      destruct (ptype e) as [c0|]; try discriminate Hp;
+      destruct c0; try discriminate Hp; injection Hp as <-; reflexivity.
+  - (* ESliceLit *)
+    destruct (andb _ _); [injection Hp as <-; reflexivity | discriminate Hp].
+  - (* EMapLit *)
+    destruct (andb _ _); [injection Hp as <-; reflexivity | discriminate Hp].
+  - (* EStr *) injection Hp as <-. reflexivity.
+  - (* EHex *) injection Hp as <-. reflexivity.
+Qed.
+
+(* Support seals for [reval_val_typed]. *)
+Lemma box_int_tag : forall t z g, box_int t z = Some g -> tag_matches t g = true.
+Proof.
+  intros t z g H. unfold box_int in H.
+  destruct (int_const_repr z t); [|discriminate H].
+  destruct t; try discriminate H; try (injection H as <-; reflexivity).
+  (* GTUint via the mk_uint convoy *)
+  unfold mk_uint in H.
+  assert (K : forall b (pf : in_u64 z = b),
+            (match b as b0 return (in_u64 z = b0 -> option GoAny) with
+             | true  => fun pf0 => Some (anyt TUint (uint_lit z pf0))
+             | false => fun _   => None
+             end) pf = Some g -> tag_matches GTUint g = true).
+  { intros b pf Hb. destruct b; [injection Hb as <-; reflexivity | discriminate Hb]. }
+  exact (K _ eq_refl H).
+Qed.
+Lemma wrap_runint_tag : forall t z g, wrap_runint t z = Some g -> tag_matches t g = true.
+Proof. intros t z g H; destruct t; try discriminate H; injection H as <-; reflexivity. Qed.
+Lemma eval_int_slice_elems_tags : forall t es vs,
+  eval_int_slice_elems t es = Some vs ->
+  forall v, In v vs -> tag_matches t v = true.
+Proof.
+  intros t es; induction es as [|e es' IH]; intros vs H v Hin; cbn in H.
+  - injection H as <-. destruct Hin.
+  - destruct (ptype e) as [ce|]; [|discriminate H].
+    destruct (assignable_to_ty ce t); [|discriminate H].
+    destruct (int_const_val ce) as [z|]; [|discriminate H].
+    destruct (box_int t z) as [g0|] eqn:Hb; [|discriminate H].
+    destruct (eval_int_slice_elems t es') as [vs'|] eqn:He; [|discriminate H].
+    injection H as <-. destruct Hin as [<-|Hin].
+    + exact (box_int_tag _ _ _ Hb).
+    + exact (IH _ eq_refl _ Hin).
+Qed.
+
+Lemma reval_int_runint : forall a r,
+  eval_value a = None -> reval_int a = Some r -> ptype a = Some (PtRunInt GTInt).
+Proof.
+  intros a r Hev Hr; destruct a; cbn [reval_int] in Hr; rewrite Hev in Hr; cbv beta iota in Hr;
+    destruct (ptype _) as [pt|] eqn:Ept; try discriminate Hr;
+    destruct pt; try discriminate Hr;
+    match type of Hr with
+    | (if negb (numty_eqb ?tt GTInt) then _ else _) = _ =>
+        destruct (numty_eqb tt GTInt) eqn:Et; cbn in Hr; try discriminate Hr;
+        (assert (tt = GTInt) by (destruct tt; cbn in Et; congruence); subst; first [reflexivity | exact Ept])
+    end.
+Qed.
+Lemma eval_value_runint_tag : forall a t v,
+  ptype a = Some (PtRunInt t) -> eval_value a = Some v -> tag_matches t v = true.
+Proof.
+  intros a t v Hpt Hv. unfold eval_value in Hv.
+  destruct (floats_checked a); [|discriminate Hv].
+  destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
+    cbn [eval_value_core] in Hv;
+    try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv).
+  - (* EIndex e1 e2 *)
+    destruct e1 as [| | | | | | | | | |et es| | |];
+      try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv).
+    cbn [ptype] in Hpt.
+    destruct (is_int_goty et) eqn:Ei; [|discriminate Hv].
+    cbn [andb] in Hpt. cbv beta iota in Hv.
+    match type of Hpt with
+    | context [forallb ?f es] => destruct (forallb f es) eqn:Ef; [|discriminate Hpt]
+    end.
+    cbv beta iota in Hpt.
+    destruct (ptype e2) as [ci|]; [|discriminate Hv].
+    cbv beta iota in Hv, Hpt.
+    destruct (is_int_cat ci) eqn:Eic; [|discriminate Hpt].
+    cbv beta iota in Hpt.
+    destruct (int_const_val ci) as [k|] eqn:Ecv; [|discriminate Hv].
+    cbv beta iota in Hv, Hpt.
+    match type of Hv with
+    | context [if ?b then _ else _] => destruct b eqn:Ek; [|discriminate Hv]
+    end.
+    cbv beta iota in Hv, Hpt.
+    destruct (eval_int_slice_elems et es) as [vs|] eqn:Ee; [|discriminate Hv].
+    cbv beta iota in Hv.
+    injection Hpt as <-.
+    exact (eval_int_slice_elems_tags _ _ _ Ee _ (nth_error_In _ _ Hv)).
+  - (* ECall fn args *)
+    destruct fn as [i| | | | | | | | | | | | |];
+      try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv).
+    destruct args as [|a0 [|? ?]];
+      try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv);
+      [| destruct a0; unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv ].
+    destruct a0 as [| | | | | | | | | |et es|mkt mvt mkvs| |];
+      try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv).
+    + (* len of ESliceLit *)
+      destruct (andb (String.eqb (proj1_sig i) "len") (is_int_goty et)) eqn:Ea;
+        [|unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv].
+      destruct (eval_int_slice_elems et es) as [vs|]; [|discriminate Hv].
+      apply andb_true_iff in Ea as [El' _].
+      cbn [ptype] in Hpt.
+      match type of Hpt with
+      | context [if ?b then Some PtAgg else None] =>
+          destruct b; cbv beta iota in Hpt; [|discriminate Hpt]
+      end.
+      rewrite El' in Hpt. cbv beta iota in Hpt.
+      injection Hpt as <-. exact (box_int_tag _ _ _ Hv).
+    + (* len of EMapLit *)
+      destruct (andb _ _) eqn:Ea;
+        [|unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; discriminate Hv].
+      apply andb_true_iff in Ea as [Ea1 _]. apply andb_true_iff in Ea1 as [Ea2 _].
+      apply andb_true_iff in Ea2 as [Ea3 _]. apply andb_true_iff in Ea3 as [El' _].
+      cbn [ptype] in Hpt.
+      match type of Hpt with
+      | context [if ?b then Some PtMap else None] =>
+          destruct b; cbv beta iota in Hpt; [|discriminate Hpt]
+      end.
+      rewrite El' in Hpt. cbv beta iota in Hpt.
+      injection Hpt as <-. exact (box_int_tag _ _ _ Hv).
+Qed.
+
+(** THE WELL-TAGGEDNESS INVARIANT — a [reval_val] VALUE's tag matches its [ptype] width.  A destruct,
+    not an induction: each exit's result tag comes from its own dispatch seal ([wrap_runint_tag],
+    [typed_unop_tag_exact]); the fold and the GTInt engine come from [eval_value_runint_tag] and
+    [reval_int_runint]. *)
+Theorem reval_val_typed : forall a t g,
+  ptype a = Some (PtRunInt t) ->
+  reval_val a = Some (RAVal g) ->
+  tag_matches t g = true.
+Proof.
+  intros a t g Hpt Hg. unfold reval_val in Hg. rewrite reval_val_with_eq in Hg.
+  destruct (eval_value a) as [v|] eqn:Hev.
+  { injection Hg as <-. exact (eval_value_runint_tag a t v Hpt Hev). }
+  destruct (reval_int a) as [[x|p]|] eqn:Hri.
+  { injection Hg as <-.
+    pose proof (reval_int_runint a _ Hev Hri) as Hgi.
+    rewrite Hpt in Hgi. injection Hgi as ->. reflexivity. }
+  { discriminate Hg. }
+  destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
+    cbn [rexit_with] in Hg; try discriminate Hg.
+  - (* EUn: the T1 arm *)
+    rewrite Hpt in Hg. cbv beta iota in Hg.
+    destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
+    destruct (reval_val_with reval_int a0) as [[g'|p]|]; cbv beta iota in Hg; try discriminate Hg.
+    destruct (typed_unop o t g') as [g''|] eqn:Hu; cbv beta iota in Hg; [|discriminate Hg].
+    injection Hg as <-. exact (proj2 (typed_unop_tag_exact _ _ _ _ Hu)).
+  - (* EBn: the R4 exit reads PtBool — excluded by [Hpt] *)
+    rewrite Hpt in Hg. cbv beta iota in Hg. discriminate Hg.
+  - (* ECall: the R3 exit *)
+    destruct fn; try discriminate Hg.
+    destruct args as [|a0 [|? ?]]; try discriminate Hg.
+    rewrite Hpt in Hg. cbv beta iota in Hg.
+    destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
+    destruct (reval_int a0) as [[v0|p]|]; cbv beta iota in Hg; try discriminate Hg.
+    destruct (wrap_runint t (intraw v0)) as [g'|] eqn:Hw; cbv beta iota in Hg; [|discriminate Hg].
+    injection Hg as <-. exact (wrap_runint_tag _ _ _ Hw).
+Qed.
+(** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
+    width (the [UNeg]/[UXor] rows preserve [PtRunInt t]; every const row yields a const category). *)
+Lemma ptype_unary_runint : forall o a t,
+  ptype (EUn o a) = Some (PtRunInt t) -> ptype a = Some (PtRunInt t).
+Proof.
+  intros o a t H. cbn [ptype] in H.
+  destruct (ptype a) as [c|] eqn:Hpa; [|discriminate H].
+  destruct o; try discriminate H; destruct c; try discriminate H; cbv zeta in H;
+    try (destruct (complement_const _ _) as [r|] in H; try discriminate H);
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b; try discriminate H
+           end;
+    injection H as <-; first [reflexivity | exact Hpa].
+Qed.
+
+(** ★ CLASS (T1).  [denote_expr_typed_unop_runs] is the INTERNAL dispatch-hypothesis form (a proof
+    step for the sealed theorem below — NOT exported); the PUBLIC theorem is
+    [denote_expr_typed_unop_runs_sealed], which derives the dispatch fact from [ptype] via the
+    well-taggedness invariant. *)
 Lemma denote_expr_typed_unop_runs : forall o a t g g',
   floats_checked (EUn o a) = true ->
   ptype (EUn o a) = Some (PtRunInt t) ->
@@ -1359,6 +1683,34 @@ Proof.
   unfold denote_expr. rewrite Hfc. cbn [negb].
   rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
+
+(** ★ THE SEALED T1 THEOREM — NO caller-side dispatch premise: [ptype] pins the operand's width
+    ([ptype_unary_runint]) and its int-ness ([ptype_int_ok]); the WELL-TAGGEDNESS invariant
+    ([reval_val_typed]) forces the payload's tag; [typed_unop_live_total] then computes.  The
+    live-cell hypothesis only SCOPES the class (the [^]-non-uint / [-]-i64/u64 cells — the holes are
+    pinned absent at the fixture site). *)
+Theorem denote_expr_typed_unop_runs_sealed : forall o a t g,
+  floats_checked (EUn o a) = true ->
+  ptype (EUn o a) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  eval_value (EUn o a) = None ->
+  reval_val a = Some (RAVal g) ->
+  ((o = UXor /\ numty_eqb t GTUint = false) \/ (o = UNeg /\ (t = GTInt64 \/ t = GTU64))) ->
+  exists g', typed_unop o t g = Some g'
+    /\ tag_matches t g' = true
+    /\ denote_expr (EUn o a) = Some (CRet g', false).
+Proof.
+  intros o a t g Hfc Hpt Ht Hev Ha Hlive.
+  pose proof (ptype_unary_runint o a t Hpt) as Hpa.
+  pose proof (ptype_int_ok _ _ Hpt) as Hint. cbn in Hint.
+  pose proof (reval_val_typed a t g Hpa Ha) as Htag.
+  destruct (typed_unop_live_total o t g Htag) as [g' Hu].
+  { destruct Hlive as [[-> Hu8]|[-> Hw]]; [left|right]; auto. }
+  exists g'. split; [exact Hu|]. split.
+  - exact (proj2 (typed_unop_tag_exact _ _ _ _ Hu)).
+  - exact (denote_expr_typed_unop_runs o a t g g' Hfc Hpt Ht Hev Ha Hu).
+Qed.
+
 
 (** ★ DISPATCH AUTHORITY PINS (gated) — [cmp_verdict]'s WHOLE dispatch table.  Each comparison branch
     IS, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.int_eqb]/[int_ltb]/[int_leb]
@@ -1730,7 +2082,7 @@ Qed.
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
     (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
     multi-byte rune [string(200)] ([runeconv_multibyte_boundary], = [out_boundary_runtime_undenoted]'s
-    witness) and the GoUint-hole complement [runnot_uint_e] ([typed_runtime_not_absent]).
+    witness) and the GoUint-hole complement [runnot_uint_e] ([typed_unary_holes_absent]).
     [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
@@ -2509,6 +2861,12 @@ Definition runnot_u8_e  : GExpr := EUn UXor (ECall (EId (mkIdent "uint8" eq_refl
 Definition runnot_uint_e : GExpr := EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
 Definition runneg_i64_e : GExpr := EUn UNeg (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
 Definition runneg_u8_e  : GExpr := EUn UNeg (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]).
+Definition runneg_i8_e  : GExpr := EUn UNeg (ECall (EId (mkIdent "int8" eq_refl)) [runlen3_e]).
+Definition runneg_u16_e : GExpr := EUn UNeg (ECall (EId (mkIdent "uint16" eq_refl)) [runlen3_e]).
+Definition runneg_i16_e : GExpr := EUn UNeg (ECall (EId (mkIdent "int16" eq_refl)) [runlen3_e]).
+Definition runneg_u32_e : GExpr := EUn UNeg (ECall (EId (mkIdent "uint32" eq_refl)) [runlen3_e]).
+Definition runneg_i32_e : GExpr := EUn UNeg (ECall (EId (mkIdent "int32" eq_refl)) [runlen3_e]).
+Definition runneg_uint_e : GExpr := EUn UNeg (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
 Definition runnot_panic_i64_e : GExpr :=
   EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [divzero_e]).
 Example runtime_typed_unop_runs : forall w,
@@ -2523,11 +2881,13 @@ Example runtime_typed_unop_supported :
   forallb supported_program
     (map println_prog [ runnot_i64_e ; runnot_u8_e ; runneg_i64_e ; runnot_panic_i64_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example typed_runtime_not_absent :
+Example typed_unary_holes_absent :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
-          [ runnot_uint_e ; runneg_u8_e ] = true.
+          [ runnot_uint_e
+          ; runneg_uint_e ; runneg_u8_e ; runneg_i8_e ; runneg_u16_e
+          ; runneg_i16_e ; runneg_u32_e ; runneg_i32_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_unop] branch IS the fully qualified model op; the
     holes ([GTUint], narrow [-]) are [None] for EVERY payload. *)
@@ -3105,7 +3465,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
     runtime form) and the GoUint-hole complement [runnot_uint_e] (the representative of the remaining
-    typed-unary absents, pinned with the narrow-neg hole by [typed_runtime_not_absent]; the
+    typed-unary absents, pinned with the narrow-neg hole by [typed_unary_holes_absent]; the
     conversion-CHAIN and SHIFT case tables live OUTSIDE this list —
     [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND undenoted AND
     eval-level absent. *)
@@ -3159,7 +3519,9 @@ Definition gosem_runtime_int_surface :=
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
    runtime_conv_runs, runtime_conv_supported, runtime_bool_runs, runtime_bool_supported,
    rval_len_repr,
-   denote_expr_typed_unop_runs, denote_expr_typed_unop_panic,
+   denote_expr_typed_unop_runs_sealed, denote_expr_typed_unop_panic,
+   reval_val_typed, ptype_int_ok, ptype_unary_runint,
+   typed_unop_tag_exact, typed_unop_live_total,
    runtime_typed_unop_runs, runtime_typed_unop_supported,
    typed_unop_u8_model, typed_unop_i8_model, typed_unop_u16_model, typed_unop_i16_model,
    typed_unop_u32_model, typed_unop_i32_model, typed_unop_i64_model, typed_unop_u64_model,
@@ -3173,7 +3535,7 @@ Definition gosem_map_surface :=
    rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent).
 Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
-   typed_runtime_not_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent).
+   typed_unary_holes_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
