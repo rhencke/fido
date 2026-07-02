@@ -84,15 +84,19 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     end
   else None.
 
-(** ---- The per-instance fold↔model AGREEMENT GUARD ---- [ptype] folds float-const arithmetic exactly
-    (dyadic); the MODEL computes with its own [f64_*]/[f32_*] spec_float ops (the very ops the emitted Go
-    runs).  [eval_value] accepts a folded float binop/negation ONLY when the folded value, boxed, EQUALS
-    (structurally) the model op applied to the boxed operands — checked PER INSTANCE at fold time, so the
-    ACCEPTED (denoted) fold surface IS the verified-agreement surface BY CONSTRUCTION
-    ([float_fold_checked_agrees_f64]/[_f32] below); a disagreeing instance would be ABSENT ([None]), never
-    wrong.  (Mathematically no disagreement should exist — IEEE ops are correctly rounded, so an exactly
-    representable result is returned exactly; PROVING that once and for all — the general dyadic↔[SF*]
-    class theorem — would let the runtime check be DROPPED, and is the stated frontier.) *)
+(** ---- THE single float-constant denotation authority ---- [ptype] folds float-const arithmetic
+    exactly (sealed dyadics); the MODEL computes with its own [f64_*]/[f32_*]/[SFopp] spec_float ops (the
+    very ops the emitted Go runs).  [fsf_checked] recursively RE-VERIFIES every fold inside a
+    float-constant expression — each binop/negation at ANY depth (under conversions, inside either
+    operand) must equal, STRUCTURALLY, the model op applied to the verified operand carriers; a leaf (an
+    int-constant conversion source) renders directly; cross-width conversions verify against the model's
+    [f32_of_f64]/[f64_of_f32].  [eval_value_ptype]'s [PtFloatConst] arm boxes ONLY through this check, and
+    every denoting/evaluability consumer ([eval_value], [map_entries_evaluable]) boxes only through
+    [eval_value_ptype] — so the accepted float surface IS the verified-agreement surface with NO bypass
+    (the gated [fsf_checked_*_agrees] theorems below); a disagreeing instance would be ABSENT ([None]),
+    never wrong.  (Mathematically no disagreement should exist — IEEE ops are correctly rounded, so an
+    exactly representable result is returned exactly; PROVING that once — the general dyadic↔[SF*] class
+    theorem — would let this runtime re-verification be dropped, the stated frontier.) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
   | S754_zero s1, S754_zero s2 => Bool.eqb s1 s2
@@ -102,75 +106,94 @@ Definition sf_eqb_struct (x y : spec_float) : bool :=
       andb (Bool.eqb s1 s2) (andb (Pos.eqb m1 m2) (Z.eqb e1 e2))
   | _, _ => false
   end.
-(** A float-op OPERAND's exact dyadic at type [t]: a same-typed float const, or an untyped int const in
-    the exact interval (Go converts it to [t] — the model operand is its boxed float). *)
-Definition operand_dy_at (t : GoTy) (a : GExpr) : option (Z * Z) :=
+(** The boxed CARRIER of a dyadic at width [t] (binary64: the canonical spec_float; binary32: the
+    [f32val] carrier). *)
+Definition sf_render (t : GoTy) (m e : Z) : option spec_float :=
+  match t with
+  | GTFloat64 => Some (renorm 53 1024 (sf_of_dyadic m e))
+  | GTFloat32 => Some (f32val (f32_lit (sf_of_dyadic m e)))
+  | _ => None
+  end.
+Definition sf_model_binop (t : GoTy) (op : BinOp) : option (spec_float -> spec_float -> spec_float) :=
+  match t with
+  | GTFloat64 =>
+      match op with
+      | BAdd => Some f64_add | BSub => Some f64_sub | BMul => Some f64_mul | BDiv => Some f64_div
+      | _ => None
+      end
+  | GTFloat32 =>
+      match op with
+      | BAdd => Some (fun x y => f32val (f32_add (f32_lit x) (f32_lit y)))
+      | BSub => Some (fun x y => f32val (f32_sub (f32_lit x) (f32_lit y)))
+      | BMul => Some (fun x y => f32val (f32_mul (f32_lit x) (f32_lit y)))
+      | BDiv => Some (fun x y => f32val (f32_div (f32_lit x) (f32_lit y)))
+      | _ => None
+      end
+  | _ => None
+  end.
+Definition sf_model_neg (t : GoTy) : option (spec_float -> spec_float) :=
+  match t with
+  | GTFloat64 => Some SFopp
+  | GTFloat32 => Some (fun x => f32val (f32_neg (f32_lit x)))
+  | _ => None
+  end.
+(** A float-op OPERAND's verified carrier at [t] — a same-typed float const (recursively verified via
+    [rec], instantiated with [fsf_checked] itself) or an untyped int const in the exact interval (Go
+    converts it to [t]; a leaf).  Parametrized so the Fixpoint below can use it mid-definition; the
+    instance [fsf_operand] names it for the theorems. *)
+Definition fsf_operand_with (rec : GExpr -> option spec_float) (t : GoTy) (a : GExpr)
+  : option spec_float :=
   match ptype a with
-  | Some (PtFloatConst t' d) => if numty_eqb t' t then Some (dy_m d, dy_e d) else None
   | Some (PtIntConst z) =>
       if int_in_float_exact_interval t z
-      then Some (dy_m (dy_make z 0), dy_e (dy_make z 0)) else None
+      then sf_render t (dy_m (dy_make z 0)) (dy_e (dy_make z 0)) else None
+  | Some (PtFloatConst ta _) => if numty_eqb ta t then rec a else None
   | _ => None
   end.
-Definition f64_model_binop (op : BinOp) : option (GoFloat64 -> GoFloat64 -> GoFloat64) :=
-  match op with
-  | BAdd => Some f64_add | BSub => Some f64_sub | BMul => Some f64_mul | BDiv => Some f64_div
-  | _ => None
-  end.
-Definition f32_model_binop (op : BinOp) : option (GoFloat32 -> GoFloat32 -> GoFloat32) :=
-  match op with
-  | BAdd => Some f32_add | BSub => Some f32_sub | BMul => Some f32_mul | BDiv => Some f32_div
-  | _ => None
-  end.
-Definition float_fold_checked (t : GoTy) (op : BinOp) (a b : GExpr) (d : DyConst) : option GoAny :=
-  match operand_dy_at t a, operand_dy_at t b with
-  | Some (ma, ea), Some (mb, eb) =>
-      match t with
-      | GTFloat64 =>
-          match f64_model_binop op with
-          | Some f =>
-              let va := renorm 53 1024 (sf_of_dyadic ma ea) in
-              let vb := renorm 53 1024 (sf_of_dyadic mb eb) in
-              let vr := renorm 53 1024 (sf_of_dyadic (dy_m d) (dy_e d)) in
-              if andb (float_dyadic_repr GTFloat64 (dy_m d) (dy_e d)) (sf_eqb_struct (f va vb) vr)
-              then Some (anyt TFloat64 vr) else None
-          | None => None
+Fixpoint fsf_checked (e : GExpr) : option spec_float :=
+  match ptype e with
+  | Some (PtFloatConst t d) =>
+      match sf_render t (dy_m d) (dy_e d) with
+      | None => None
+      | Some vr =>
+          match e with
+          | EBn op a b =>
+              match fsf_operand_with fsf_checked t a, fsf_operand_with fsf_checked t b,
+                    sf_model_binop t op with
+              | Some va, Some vb, Some f => if sf_eqb_struct (f va vb) vr then Some vr else None
+              | _, _, _ => None
+              end
+          | EUn _ a =>
+              match fsf_operand_with fsf_checked t a, sf_model_neg t with
+              | Some va, Some fneg => if sf_eqb_struct (fneg va) vr then Some vr else None
+              | _, _ => None
+              end
+          | ECall _ (a :: nil) =>
+              (* the scalar float CONVERSION [float64(x)]/[float32(x)] *)
+              match ptype a with
+              | Some (PtIntConst _) | Some (PtTIntConst _ _) => Some vr   (* leaf: int-const source, no fold inside *)
+              | Some (PtFloatConst ta _) =>
+                  match fsf_checked a with
+                  | Some va =>
+                      if numty_eqb ta t
+                      then (if sf_eqb_struct va vr then Some vr else None)                   (* same-width identity *)
+                      else match t, ta with
+                           | GTFloat32, GTFloat64 =>                                        (* narrow via the model's f32_of_f64 *)
+                               if sf_eqb_struct (f32val (f32_of_f64 va)) vr then Some vr else None
+                           | GTFloat64, GTFloat32 =>                                        (* widen via the model's f64_of_f32 *)
+                               if sf_eqb_struct (f64_of_f32 (f32_lit va)) vr then Some vr else None
+                           | _, _ => None
+                           end
+                  | None => None
+                  end
+              | _ => None
+              end
+          | _ => None
           end
-      | GTFloat32 =>
-          match f32_model_binop op with
-          | Some f =>
-              let va := f32_lit (sf_of_dyadic ma ea) in
-              let vb := f32_lit (sf_of_dyadic mb eb) in
-              let vr := f32_lit (sf_of_dyadic (dy_m d) (dy_e d)) in
-              if andb (float_dyadic_repr GTFloat32 (dy_m d) (dy_e d))
-                      (sf_eqb_struct (f32val (f va vb)) (f32val vr))
-              then Some (anyt TFloat32 vr) else None
-          | None => None
-          end
-      | _ => None
       end
-  | _, _ => None
+  | _ => None
   end.
-(** Negation is the only float-folding UNARY op — same guard shape against the model's [SFopp]/[f32_neg]. *)
-Definition float_neg_checked (t : GoTy) (a : GExpr) (d : DyConst) : option GoAny :=
-  match operand_dy_at t a with
-  | Some (ma, ea) =>
-      match t with
-      | GTFloat64 =>
-          let va := renorm 53 1024 (sf_of_dyadic ma ea) in
-          let vr := renorm 53 1024 (sf_of_dyadic (dy_m d) (dy_e d)) in
-          if andb (float_dyadic_repr GTFloat64 (dy_m d) (dy_e d)) (sf_eqb_struct (SFopp va) vr)
-          then Some (anyt TFloat64 vr) else None
-      | GTFloat32 =>
-          let va := f32_lit (sf_of_dyadic ma ea) in
-          let vr := f32_lit (sf_of_dyadic (dy_m d) (dy_e d)) in
-          if andb (float_dyadic_repr GTFloat32 (dy_m d) (dy_e d))
-                  (sf_eqb_struct (f32val (f32_neg va)) (f32val vr))
-          then Some (anyt TFloat32 vr) else None
-      | _ => None
-      end
-  | None => None
-  end.
+Definition fsf_operand : GoTy -> GExpr -> option spec_float := fsf_operand_with fsf_checked.
 
 (** The COMPARISON [BinOp]s fold a constant integer pair to a [bool] ([>]/[>=] reuse [<]/[<=] with swapped
     operands).  Arithmetic / [BLAnd] / [BLOr] are NOT comparisons -> [None] HERE; the logical [&&]/[||] are
@@ -325,7 +348,11 @@ Definition eval_value_ptype (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-  | Some (PtFloatConst t d) => box_float t (dy_m d) (dy_e d)                                   (* typed float const — EXACT dyadic; arithmetic FOLDS reach the boxing only through [eval_value]'s per-instance fold↔model agreement GUARD below *)
+  | Some (PtFloatConst t d) =>
+      match fsf_checked e with                                            (* THE single float authority: every fold inside [e], at any depth, re-verified against the model op *)
+      | Some _ => box_float t (dy_m d) (dy_e d)
+      | None => None
+      end
   | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
   | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
   | _                       => None
@@ -425,20 +452,6 @@ Definition eval_value (e : GExpr) : option GoAny :=
          && nodup_z (map_key_vals kvs) && map_entries_evaluable kt vt kvs
       then box_int GTInt (Z.of_nat (length kvs))
       else eval_value_ptype e
-  | EBn op a b =>
-      (* a FLOAT-const arithmetic fold reaches denotation ONLY through the per-instance fold↔model
-         agreement guard ([float_fold_checked] — see its block comment); every other binop (int/bool/
-         string categories) takes the ptype-driven default unchanged. *)
-      match ptype (EBn op a b) with
-      | Some (PtFloatConst t d) => float_fold_checked t op a b d
-      | _ => eval_value_ptype (EBn op a b)
-      end
-  | EUn uop a =>
-      (* float-const NEGATION — the only float-folding unary — through the same guard shape *)
-      match ptype (EUn uop a) with
-      | Some (PtFloatConst t d) => float_neg_checked t a d
-      | _ => eval_value_ptype (EUn uop a)
-      end
   | _ => eval_value_ptype e
   end.
 
@@ -1513,6 +1526,12 @@ Definition eval_value_good : list (GExpr * GoAny) :=
      anyt TFloat32 (f32_lit (sf_of_dyadic 5 (-1))))           (* float32 fractional — width-correct boxing *)
   ; (EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (EInt 2),
      anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 (-1))))    (* float const / UNTYPED int const (mixed) *)
+  ; (ECall (EId (mkIdent "float64" eq_refl))
+           [EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])],
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 1)))       (* float64(<fold>) — a NESTED fold under a conversion passes the RECURSIVE guard (no bypass) *)
+  ; (ECall (EId (mkIdent "len" eq_refl))
+           [EMapLit GTInt GTFloat64 [(EInt 1, EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))]],
+     anyt TInt64 (intwrap 1))                                 (* a map VALUE containing a float fold — the evaluability check routes through the same guarded authority *)
   ; (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"], anyt TInt64 (intwrap 3))
   ; (EBn BAdd (EStr "a") (EStr "b"), anyt TString "ab")
   ; (ECall (EId (mkIdent "string" eq_refl)) [EInt 65], anyt TString "A")
@@ -1619,12 +1638,12 @@ Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
 Check gosem_category_coverage : GoSemRequiredCategoryCoverage.   (* the typed obligation, made explicit *)
 
-(** ★ THE LIVE FOLD↔MODEL AGREEMENT THEOREMS — over the guard EVERY accepted float fold passes through
-    ([eval_value]'s [EBn]/[EUn] arms route float-const results ONLY via [float_fold_checked]/
-    [float_neg_checked]): whenever the guard ACCEPTS, the denoted value IS the model op applied to the
-    boxed operands — both widths, all four binops, and negation.  Non-vacuous: the [eval_value_good] float
-    rows are accepted instances.  ([f32] states the CARRIER equality [f32val] — record proof fields admit
-    no equality without proof irrelevance, and the carrier is the observable value.) *)
+(** ★ THE LIVE FOLD↔MODEL AGREEMENT THEOREMS — over [fsf_checked], the ONE path every float-constant
+    denotation takes ([eval_value_ptype] boxes a [PtFloatConst] only when it accepts; [eval_value] and
+    [map_entries_evaluable] box only through [eval_value_ptype]): whenever it ACCEPTS a binop / negation /
+    conversion node, the value IS the model op applied to the verified operand carriers — at any depth,
+    both widths.  Non-vacuous: the [eval_value_good] float rows (incl. the NESTED-under-conversion and
+    map-VALUE rows) are accepted instances. *)
 Lemma sf_eqb_struct_eq : forall x y, sf_eqb_struct x y = true -> x = y.
 Proof.
   intros x y H; destruct x; destruct y; cbn in H; try discriminate H.
@@ -1634,67 +1653,76 @@ Proof.
   - apply andb_true_iff in H as [H1 H2]; apply andb_true_iff in H2 as [H2 H3].
     apply Bool.eqb_prop in H1; apply Pos.eqb_eq in H2; apply Z.eqb_eq in H3; subst; reflexivity.
 Qed.
-Theorem float_fold_checked_agrees_f64 : forall op a b d f ma ea mb eb v,
-  f64_model_binop op = Some f ->
-  operand_dy_at GTFloat64 a = Some (ma, ea) ->
-  operand_dy_at GTFloat64 b = Some (mb, eb) ->
-  float_fold_checked GTFloat64 op a b d = Some v ->
-  v = anyt TFloat64 (f (renorm 53 1024 (sf_of_dyadic ma ea)) (renorm 53 1024 (sf_of_dyadic mb eb))).
+Theorem fsf_checked_binop_agrees : forall op a b t d f va vb vr,
+  ptype (EBn op a b) = Some (PtFloatConst t d) ->
+  sf_model_binop t op = Some f ->
+  fsf_operand t a = Some va -> fsf_operand t b = Some vb ->
+  fsf_checked (EBn op a b) = Some vr ->
+  vr = f va vb.
 Proof.
-  intros op a b d f ma ea mb eb v Hf Ha Hb H.
-  unfold float_fold_checked in H. rewrite Ha, Hb, Hf in H. cbv zeta in H.
-  destruct (float_dyadic_repr GTFloat64 (dy_m d) (dy_e d)); [|discriminate H].
-  destruct (sf_eqb_struct
-              (f (renorm 53 1024 (sf_of_dyadic ma ea)) (renorm 53 1024 (sf_of_dyadic mb eb)))
-              (renorm 53 1024 (sf_of_dyadic (dy_m d) (dy_e d)))) eqn:Heq; [|discriminate H].
-  apply sf_eqb_struct_eq in Heq. injection H as <-.
-  rewrite Heq. reflexivity.
+  intros op a b t d f va vb vr Hp Hf Ha Hb H.
+  cbn [fsf_checked] in H. rewrite Hp in H. cbv beta iota in H.
+  destruct (sf_render t (dy_m d) (dy_e d)) as [vr0|] eqn:Hr; [|discriminate H].
+  unfold fsf_operand in Ha, Hb. rewrite Ha, Hb, Hf in H.
+  destruct (sf_eqb_struct (f va vb) vr0) eqn:Heq; [|discriminate H].
+  apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
 Qed.
-Theorem float_fold_checked_agrees_f32 : forall op a b d f ma ea mb eb v,
-  f32_model_binop op = Some f ->
-  operand_dy_at GTFloat32 a = Some (ma, ea) ->
-  operand_dy_at GTFloat32 b = Some (mb, eb) ->
-  float_fold_checked GTFloat32 op a b d = Some v ->
-  v = anyt TFloat32 (f32_lit (sf_of_dyadic (dy_m d) (dy_e d)))
-  /\ f32val (f32_lit (sf_of_dyadic (dy_m d) (dy_e d)))
-     = f32val (f (f32_lit (sf_of_dyadic ma ea)) (f32_lit (sf_of_dyadic mb eb))).
+Theorem fsf_checked_neg_agrees : forall uop a t d fneg va vr,
+  ptype (EUn uop a) = Some (PtFloatConst t d) ->
+  sf_model_neg t = Some fneg ->
+  fsf_operand t a = Some va ->
+  fsf_checked (EUn uop a) = Some vr ->
+  vr = fneg va.
 Proof.
-  intros op a b d f ma ea mb eb v Hf Ha Hb H.
-  unfold float_fold_checked in H. rewrite Ha, Hb, Hf in H. cbv zeta in H.
-  destruct (float_dyadic_repr GTFloat32 (dy_m d) (dy_e d)); [|discriminate H].
-  destruct (sf_eqb_struct
-              (f32val (f (f32_lit (sf_of_dyadic ma ea)) (f32_lit (sf_of_dyadic mb eb))))
-              (f32val (f32_lit (sf_of_dyadic (dy_m d) (dy_e d))))) eqn:Heq; [|discriminate H].
-  apply sf_eqb_struct_eq in Heq. injection H as <-.
-  split; [reflexivity | symmetry; exact Heq].
+  intros uop a t d fneg va vr Hp Hf Ha H.
+  cbn [fsf_checked] in H. rewrite Hp in H. cbv beta iota in H.
+  destruct (sf_render t (dy_m d) (dy_e d)) as [vr0|] eqn:Hr; [|discriminate H].
+  unfold fsf_operand in Ha. rewrite Ha, Hf in H.
+  destruct (sf_eqb_struct (fneg va) vr0) eqn:Heq; [|discriminate H].
+  apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
 Qed.
-Theorem float_neg_checked_agrees_f64 : forall a d ma ea v,
-  operand_dy_at GTFloat64 a = Some (ma, ea) ->
-  float_neg_checked GTFloat64 a d = Some v ->
-  v = anyt TFloat64 (SFopp (renorm 53 1024 (sf_of_dyadic ma ea))).
+Theorem fsf_checked_conv_same_agrees : forall g a t d ta da va vr,
+  ptype (ECall g (a :: nil)) = Some (PtFloatConst t d) ->
+  ptype a = Some (PtFloatConst ta da) ->
+  numty_eqb ta t = true ->
+  fsf_checked a = Some va ->
+  fsf_checked (ECall g (a :: nil)) = Some vr ->
+  vr = va.
 Proof.
-  intros a d ma ea v Ha H.
-  unfold float_neg_checked in H. rewrite Ha in H. cbv zeta in H.
-  destruct (float_dyadic_repr GTFloat64 (dy_m d) (dy_e d)); [|discriminate H].
-  destruct (sf_eqb_struct (SFopp (renorm 53 1024 (sf_of_dyadic ma ea)))
-                          (renorm 53 1024 (sf_of_dyadic (dy_m d) (dy_e d)))) eqn:Heq; [|discriminate H].
-  apply sf_eqb_struct_eq in Heq. injection H as <-.
-  rewrite Heq. reflexivity.
+  intros g a t d ta da va vr Hp Hpa Hty Ha H.
+  cbn [fsf_checked] in H. rewrite Hp in H. cbv beta iota in H.
+  destruct (sf_render t (dy_m d) (dy_e d)) as [vr0|] eqn:Hr; [|discriminate H].
+  rewrite Hpa, Ha, Hty in H.
+  destruct (sf_eqb_struct va vr0) eqn:Heq; [|discriminate H].
+  apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
 Qed.
-Theorem float_neg_checked_agrees_f32 : forall a d ma ea v,
-  operand_dy_at GTFloat32 a = Some (ma, ea) ->
-  float_neg_checked GTFloat32 a d = Some v ->
-  v = anyt TFloat32 (f32_lit (sf_of_dyadic (dy_m d) (dy_e d)))
-  /\ f32val (f32_lit (sf_of_dyadic (dy_m d) (dy_e d)))
-     = f32val (f32_neg (f32_lit (sf_of_dyadic ma ea))).
+Theorem fsf_checked_conv_narrow_agrees : forall g a d da va vr,
+  ptype (ECall g (a :: nil)) = Some (PtFloatConst GTFloat32 d) ->
+  ptype a = Some (PtFloatConst GTFloat64 da) ->
+  fsf_checked a = Some va ->
+  fsf_checked (ECall g (a :: nil)) = Some vr ->
+  vr = f32val (f32_of_f64 va).
 Proof.
-  intros a d ma ea v Ha H.
-  unfold float_neg_checked in H. rewrite Ha in H. cbv zeta in H.
-  destruct (float_dyadic_repr GTFloat32 (dy_m d) (dy_e d)); [|discriminate H].
-  destruct (sf_eqb_struct (f32val (f32_neg (f32_lit (sf_of_dyadic ma ea))))
-                          (f32val (f32_lit (sf_of_dyadic (dy_m d) (dy_e d))))) eqn:Heq; [|discriminate H].
-  apply sf_eqb_struct_eq in Heq. injection H as <-.
-  split; [reflexivity | symmetry; exact Heq].
+  intros g a d da va vr Hp Hpa Ha H.
+  cbn [fsf_checked] in H. rewrite Hp in H. cbv beta iota in H.
+  destruct (sf_render GTFloat32 (dy_m d) (dy_e d)) as [vr0|] eqn:Hr; [|discriminate H].
+  rewrite Hpa, Ha in H. cbn [numty_eqb] in H.
+  destruct (sf_eqb_struct (f32val (f32_of_f64 va)) vr0) eqn:Heq; [|discriminate H].
+  apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
+Qed.
+Theorem fsf_checked_conv_widen_agrees : forall g a d da va vr,
+  ptype (ECall g (a :: nil)) = Some (PtFloatConst GTFloat64 d) ->
+  ptype a = Some (PtFloatConst GTFloat32 da) ->
+  fsf_checked a = Some va ->
+  fsf_checked (ECall g (a :: nil)) = Some vr ->
+  vr = f64_of_f32 (f32_lit va).
+Proof.
+  intros g a d da va vr Hp Hpa Ha H.
+  cbn [fsf_checked] in H. rewrite Hp in H. cbv beta iota in H.
+  destruct (sf_render GTFloat64 (dy_m d) (dy_e d)) as [vr0|] eqn:Hr; [|discriminate H].
+  rewrite Hpa, Ha in H. cbn [numty_eqb] in H.
+  destruct (sf_eqb_struct (f64_of_f32 (f32_lit va)) vr0) eqn:Heq; [|discriminate H].
+  apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
 Qed.
 
 (** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
@@ -1766,8 +1794,8 @@ Definition gosem_trust_surface :=
    eval_len_reduces, eval_len_supported,
    eval_map_len_reduces, eval_map_len_supported, map_len_supported_but_undenoted, maplen_divzero_runs,
    map_len_invalid_type_rejected,
-   float_fold_checked_agrees_f64, float_fold_checked_agrees_f32,
-   float_neg_checked_agrees_f64, float_neg_checked_agrees_f32,
+   fsf_checked_binop_agrees, fsf_checked_neg_agrees,
+   fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).

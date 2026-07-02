@@ -91,8 +91,10 @@ Definition float_dyadic_repr (t : GoTy) (m e : Z) : bool :=
 (** The SEALED dyadic payload — normalization is STRUCTURAL, not a comment: [DyConst]'s proof field
     witnesses the carried pair is in the IMAGE of [dy_norm] (the [builtins.GoFloat32]/[mkF32] pattern —
     an unnormalized payload like [(2, 0)] is UNCONSTRUCTABLE: no [m0 e0] normalizes to it, so the
-    [dy_div]-misbehaving states are impossible, not discouraged).  The ONLY way in is [dy_make] (its
-    provenance proof is definitional — no theorem, so this file's Definitions-only policy holds). *)
+    [dy_div]-misbehaving states are impossible, not discouraged).  EVERY construction must exhibit the
+    image witness: [dy_make] supplies it definitionally (no theorem, so this file's Definitions-only
+    policy holds); a direct [mkDy] must PROVE its pair is [dy_norm]'s output — unprovable for an
+    unnormalized pair, so the invariant is mechanical, not conventional. *)
 Record DyConst : Type := mkDy {
   dy_m : Z ; dy_e : Z ;
   dy_ok : exists m0 e0, (dy_m, dy_e) = dy_norm m0 e0
@@ -230,9 +232,10 @@ Definition num_comparable (cl cr : PTy) : bool :=
       types REJECT: mixed width [int64(3)+int32(2)]);
     - a const combined with a RUNTIME int -> a runtime int of that type (the const must be REPRESENTABLE in /
       of the SAME type as the runtime), value no longer tracked (there is a runtime operand, so no fold);
-    - runtime + runtime int -> same type;  runtime FLOAT + runtime float (or + untyped int const repr-as-float)
-      -> runtime float of that type;  any FLOAT CONSTANT operand -> REJECT (conservative — we do not track
-      fractional values, and no positive needs constant-float arithmetic);
+    - runtime + runtime int -> same type;  runtime FLOAT + runtime float (or + untyped int const repr-as-float,
+      or + a same-typed float CONST, value dropped) -> runtime float of that type;
+    - float CONST ∘ float CONST (same type) and float CONST ∘ untyped int const: the EXACT dyadic fold
+      ([dy_fold_at] — [+ - *] always exact, [/] exact-or-reject, result repr-checked at the type);
     - any non-numeric operand (bool/str/agg/nil) -> REJECT.
     Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_cat] FIRST, so no float reaches
     those; [num_arith] still rejects float-const + the [/]-zero check is done by the caller. *)
@@ -384,10 +387,9 @@ Definition ord_comparable (cl cr : PTy) : bool :=
       CONSTANT, with the carried VALUE [z] REPRESENTABILITY-CHECKED against [T] (to an int type -> [PtTIntConst
       T z], to a float type -> an exact-dyadic [PtFloatConst]).  This rejects [uint8(300)], [uint8(int(300))],
       [uint8(float64(300))], [int8(128)].  A float->int constant conversion is sound because a [PtFloatConst]
-      is BUILT only when the source integer is within the float's CONTIGUOUS exact interval
-      ([int_in_float_exact_interval] — [|z|<=2^53]/[2^24], a CONSERVATIVE SUFFICIENT test; a constant outside it
-      is REJECTED at the const->float step, never carried as a rounded lie), so its carried [z] is the true value
-      and the later int range-check is exact;
+      carries its EXACT dyadic value (every admitting gate — int source via [int_in_float_exact_interval],
+      fold via [dy_fold_at], cross-width via [float_dyadic_repr] — is exact-or-reject, never a rounded lie),
+      so the integer-valued check ([dy_e >= 0]) and the int range-check are exact;
     - a NUMERIC target with a RUNTIME source ([PtRunInt]/[PtRunFloat]) yields a RUNTIME value (runtime
       conversions truncate/round and are valid — NO representability constraint), so [int64(len([]int{1}))],
       [uint8(len([]int{1}))] (whose inner [len …] is a runtime int) stay admitted; (a runtime source can only
