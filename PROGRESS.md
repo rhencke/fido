@@ -46,8 +46,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **GoSafe `SupportedProgram`** — a DECIDABLE supported-subset gate (not a package-name proxy): rejects
   bare-value statements, non-callable calls, value-returns from void `main`, free/undefined identifiers, and
   closed type-errors (`ptype`, a conservative constant-aware classifier). Admits slice literals + integer-key
-  map literals structurally (`nodup_z` distinct constant keys; recursive `goty_valid` rejects an invalid
-  nested map-key type — even in an EMPTY literal). `classify` lives in GoAst, so GoSafe does not import the printer.
+  map literals structurally (`nodup_z` distinct constant keys; the recursive supported-type gate `goty_supported`
+  rejects invalid nested map keys even in EMPTY literals + quarantines valid ptr/chan keys). `classify` lives in GoAst, so GoSafe does not import the printer.
 - **GoEmit** emits ONLY via a certificate (`EmittableProgram = Program + SupportedProgram`;
   `emit_supported = print_program`; `emit_supported_program_inj`). `make emit-demo` builds one certified
   program with the real Go toolchain (gofmt-clean + go build + go vet); a dependency of `make check`.
@@ -58,7 +58,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   fields `rc_div_zero`/`rc_arg_panic`), and `defer <call>` → `CDfr` (runs at return, LIFO — typed fields
   `rc_defer_lifo`/`rc_defer_panic`; its ARGS evaluate at DEFER time, `rc_defer_arg_panic`), over a PARTIAL
   `eval_value` (string / integer /
-  exact-float / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED), and `len` of an ALL-CONSTANT integer-keyed MAP literal→its entry count (`eval_map_len_{reduces,supported}`, same whole-literal discipline — a runtime VALUE rejects, `map_len_supported_but_undenoted`; both empty-literal `len` forms feed the div-zero shape); fails CLOSED
+  exact-float / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED), and `len` of an ALL-CONSTANT integer-keyed `goty_supported`-typed MAP literal→its entry count (`eval_map_len_{reduces,supported}`, same whole-literal discipline — a runtime VALUE rejects, `map_len_supported_but_undenoted`; both empty-literal `len` forms feed the div-zero shape); fails CLOSED
   on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
   and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement

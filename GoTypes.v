@@ -354,24 +354,27 @@ Fixpoint nodup_z (l : list Z) : bool :=
   | x :: r => andb (negb (existsb (Z.eqb x) r)) (nodup_z r)
   end.
 
-(** Structural VALIDITY of a [GoTy] as written Go — the single recursive authority every [ptype] arm that
-    ADMITS a type ([ESliceLit] / [EMapLit] / the [EConv] aggregate conversions) consults, so an INVALID
-    nested type can never become a supported (or, downstream, denoted) expression: Go forbids a
-    non-comparable map KEY (https://go.dev/ref/spec#Map_types — [map[[]int]int] is a compile error), and
-    that key may hide at ANY depth ([map[int]map[[]int]int{}] is invalid even EMPTY — no entry check sees
-    it).  Conservative in-core rule: a map key must be a comparable SCALAR keyword type ([goty_scalar]; Go
-    also admits pointer / chan / comparable-struct / interface keys — REJECTED here, fail-loud
-    incompleteness, never unsoundness).  A bare [GTNamed] is a valid type REFERENCE (its underlying type is
-    not structurally visible), but as a map key it is rejected by the same scalar rule. *)
-Definition goty_scalar (t : GoTy) : bool :=
+(** The SUPPORTED-TYPE gate — the single recursive authority every [ptype] arm that ADMITS a type
+    ([ESliceLit] / [EMapLit] / the [EConv] aggregate conversions) consults.  Deliberately NOT named
+    "valid" (naming is a correctness claim): its accept-set is a strict SUBSET of valid Go, and its
+    rejections span TWO distinct classes that must never be conflated:
+    - INVALID Go — a NON-COMPARABLE map KEY (https://go.dev/ref/spec#Map_types: [map[[]int]int] is a
+      compile error), which may hide at ANY depth ([map[int]map[[]int]int{}] is invalid even EMPTY, where
+      no entry check sees it).  Rejecting these is the SOUNDNESS side ([GoSafe.bad_programs]).
+    - VALID Go, outside the core — pointer / chan map keys (comparable in Go) and named-type keys
+      (underlying type not structurally visible, so comparability is undecidable here) — conservatively
+      rejected: fail-loud INCOMPLETENESS, quarantined in [GoSafe.valid_unsupported_programs].
+    SOUND direction: every type this gate ACCEPTS is valid Go — an accepted map key is a comparable
+    SCALAR keyword type ([goty_key_supported], the supported subset of Go's comparable key types). *)
+Definition goty_key_supported (t : GoTy) : bool :=
   match t with
   | GTPtr _ | GTSlice _ | GTChan _ | GTMap _ _ | GTNamed _ => false
   | _ => true
   end.
-Fixpoint goty_valid (t : GoTy) : bool :=
+Fixpoint goty_supported (t : GoTy) : bool :=
   match t with
-  | GTPtr u | GTSlice u | GTChan u => goty_valid u
-  | GTMap k v => goty_scalar k && goty_valid v
+  | GTPtr u | GTSlice u | GTChan u => goty_supported u
+  | GTMap k v => goty_key_supported k && goty_supported v
   | _ => true
   end.
 
@@ -480,10 +483,11 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) *)
       | CTSlice _ | CTChan _ =>
           (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]) and a
-             structurally VALID target type ([goty_valid] — [[]map[[]int]int(nil)] is invalid Go); a KNOWN
+             SUPPORTED target type ([goty_supported] — [[]map[[]int]int(nil)] hides an invalid map key;
+             valid-but-out-of-core key types are rejected the same way); a KNOWN
              aggregate/scalar operand — or a free ident (now rejected upstream) — is REJECTED
              ([chan int([]int{1})], mismatched conversions) *)
-          if goty_valid (convty_ty c)
+          if goty_supported (convty_ty c)
           then match ptype e0 with Some PtNil => Some PtAgg | _ => None end
           else None
       end
@@ -509,12 +513,12 @@ Fixpoint ptype (e : GExpr) : option PTy :=
            end
       else None
   | ESliceLit t es =>
-      if goty_valid t
+      if goty_supported t
          && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
   | EMapLit kt vt kvs =>
       (* a MAP literal [map[K]V{k1:v1, ..}]: SOUNDLY supported when the key type is an INTEGER scalar, the
-         value TYPE is structurally valid ([goty_valid] — an invalid nested map key like
+         value TYPE passes the supported-type gate ([goty_supported] — an invalid nested map key like
          [map[int]map[[]int]int{}] is rejected even EMPTY, where no entry check could see it), every KEY is an
          integer CONSTANT assignable to [kt], every VALUE is assignable to [vt], and the constant keys are
          PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
@@ -523,7 +527,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
          value not foldable in [PTy].  This LIFTS the old blanket quarantine to a structural check; the GoSafe
          companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability), [map[int]int{1:2,1:3}]
          (distinctness), and [map[int]map[[]int]int{}] (nested validity) lock it. *)
-      if andb (andb (andb (is_int_goty kt) (goty_valid vt))
+      if andb (andb (andb (is_int_goty kt) (goty_supported vt))
                     (forallb (fun kv => match kv with
                                         | (k, v) =>
                                             match ptype k, ptype v with
@@ -553,12 +557,12 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     [ptype (EId _) = None]).  Accepted: [EInt], well-typed binops/unops/conversions, [len] of a string LITERAL
     (folds to the constant byte count) or of an aggregate — slice/chan [PtAgg] OR map [PtMap] — (a runtime int),
     [cap] of a slice/chan aggregate ONLY ([PtAgg]; NOT a map — Go forbids [cap] of a map), a slice literal
-    whose elements are ASSIGNABLE to its element type, an INTEGER-indexed access into an INTEGER slice literal
+    whose element type is [goty_supported] and whose elements are ASSIGNABLE to it, an INTEGER-indexed access into an INTEGER slice literal
     ([]int{..}[i] — a runtime int; a NEGATIVE constant index is REJECTED (gc compile error), as is one not
     representable in Fido's CONSERVATIVE 32-bit [GTInt] (fail-CLOSED: a huge index valid only on a 64-bit gc is
     over-rejected, NOT an exact gc boundary), but an OOB positive constant is VALID Go (a run-time panic) so
-    SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose constant keys are
-    assignable to the key type, DISTINCT, and values assignable to the value type (a map is a value and
+    SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose value TYPE is
+    [goty_supported], constant keys assignable to the key type and DISTINCT, values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY

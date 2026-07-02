@@ -13,7 +13,7 @@
       call runs at function-scope return, LIFO — its ARGS evaluate at DEFER time).  Call ARGS are effectful
       ([denote_args] — a panicking arg panics before its call); values fold via [eval_value] (scalar
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
-      such a literal, and [len] of an ALL-CONSTANT integer-keyed map literal — the WHOLE literal is
+      such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
       evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
       [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet denoted).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
@@ -266,8 +266,8 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
     platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
     bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
     literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
-    its entry count ([eval_map_len_reduces] — the gate's [nodup_z] makes constant keys distinct, so the count IS
-    Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
+    its entry count ([eval_map_len_reduces] — under the gate's OWN conditions, [goty_supported] value type +
+    [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
     runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
     out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
@@ -310,13 +310,13 @@ Definition eval_value (e : GExpr) : option GoAny :=
       (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's [int].
          Go constructs the literal (ALL keys and values) before [len], so a runtime / wrong-typed key or value
          declines the fold ([map_entries_evaluable] — the whole-literal discipline).  The arm carries the
-         GATE's OWN side conditions — [goty_valid vt] (an invalid nested map-key type like
+         GATE's OWN side conditions — [goty_supported vt] (an invalid nested map-key type like
          [map[int]map[[]int]int{}] must NEVER receive behavior, even empty) and the [nodup_z] distinctness
          check ([map_key_vals], [ptype]'s own key list) without which a duplicate-key literal (invalid Go)
          would fold [length kvs], which is NOT the map's [len].  [ptype] still classifies the call
          [PtRunInt GTInt] (a map is not a constant).  Any OTHER call with a map-literal argument falls
          through to the ptype-driven default unchanged. *)
-      if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_valid vt
+      if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
          && nodup_z (map_key_vals kvs) && map_entries_evaluable kt vt kvs
       then box_int GTInt (Z.of_nat (length kvs))
       else eval_value_ptype e
@@ -338,7 +338,7 @@ Definition divisor_zero (b : GExpr) : bool :=
       String.eqb (proj1_sig f) "len" && is_int_goty t
       && match eval_int_slice_elems t es with Some nil => true | _ => false end
   | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
-      String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_valid vt
+      String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
       && match kvs with nil => true | _ => false end
   | _ => false
   end.
@@ -1030,7 +1030,7 @@ Qed.
     (valid Rocq-Go; [ptype] classifies a slice-[len] RUNTIME, exactly as it does the index — the evaluator
     folds the determined VALUE without loosening the gate).  A strict INCLUSION: [ptype] also admits [len] of
     a literal with runtime elements, which stays unfolded ([out_boundary_runtime_undenoted]). *)
-Lemma is_int_goty_valid : forall t, is_int_goty t = true -> goty_valid t = true.
+Lemma is_int_goty_supported : forall t, is_int_goty t = true -> goty_supported t = true.
 Proof. destruct t; intro H; first [reflexivity | discriminate H]. Qed.
 
 Lemma eval_len_supported : forall t es f vs,
@@ -1041,7 +1041,7 @@ Lemma eval_len_supported : forall t es f vs,
 Proof.
   intros t es f vs Hf Ht Hv.
   pose proof (eval_int_slice_elems_forall_assignable t es vs Hv) as Hall.
-  pose proof (is_int_goty_valid t Ht) as Hvt.
+  pose proof (is_int_goty_supported t Ht) as Hvt.
   cbn [ptype]. rewrite Hvt, Hall. cbv beta iota zeta delta [andb].
   rewrite Hf. cbv beta iota.
   reflexivity.
@@ -1079,14 +1079,14 @@ Proof.
 Qed.
 
 (** ★ CLASS THEOREM (map-[len]) — over the fully-evaluable all-constant-entry subfragment: [len] of a
-    VALID-typed ([goty_valid]) integer-keyed map literal whose entries ALL evaluate (and whose constant keys
+    gate-supported-typed ([goty_supported]) integer-keyed map literal whose entries ALL evaluate (and whose constant keys
     are distinct — the gate's OWN [nodup_z] condition, so the entry count IS Go's [len]) folds to that
     count, boxed as Go's [int].  The side conditions are exactly the GATE's — never [is_int_goty kt]
     alone. *)
 Lemma eval_map_len_reduces : forall kt vt kvs f,
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty kt = true ->
-  goty_valid vt = true ->
+  goty_supported vt = true ->
   nodup_z (map_key_vals kvs) = true ->
   map_entries_evaluable kt vt kvs = true ->
   eval_value (ECall (EId f) (EMapLit kt vt kvs :: nil)) = box_int GTInt (Z.of_nat (length kvs)).
@@ -1102,7 +1102,7 @@ Qed.
 Lemma eval_map_len_supported : forall kt vt kvs f,
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty kt = true ->
-  goty_valid vt = true ->
+  goty_supported vt = true ->
   nodup_z (map_key_vals kvs) = true ->
   map_entries_evaluable kt vt kvs = true ->
   ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (PtRunInt GTInt).
@@ -1180,7 +1180,9 @@ Example maplen_divzero_runs : forall w,
      | Some c => run_cmd 5 c w | None => None end = Some (OPanic rt_div_zero w).
 Proof. intro w; split; vm_compute; reflexivity. Qed.
 
-(** FAIL-CLOSED pins for an INVALID NESTED map type (the [goty_valid] authority): [map[int]map[[]int]int]
+(** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
+    authority — its valid-but-out-of-core class is quarantined in [GoSafe.valid_unsupported_programs]):
+    [map[int]map[[]int]int]
     hides a non-comparable slice KEY inside the VALUE type, so even the EMPTY literal is invalid Go — the
     gate REJECTS it at the ROOT ([ptype = None] ⇒ unsupported, never emitted) and NO layer assigns it
     behavior ([eval_value] / [divisor_zero] / [denote_program] all decline) through [len],

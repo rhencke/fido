@@ -153,7 +153,8 @@ Definition unsupported_value_stmt : Program :=
     numeric category / overflow / zero-divisor / shift / comparison / [cap]-of-string / aggregate-conversion
     cases; the transitive NUMERIC typed-constant rules — INCL. the [int8(len(<non-literal string const>)+200)] overflow
     companions that LOCK the [valid_unsupported_programs] [len] witnesses' soundness boundary; float-rounding +
-    platform-[uint] complement), the INVALID [EMapLit]/[CTMap] instances (slice key / key-or-value not
+    platform-[uint] complement), the INVALID [EMapLit]/[CTMap] instances (slice key / an invalid NESTED map-key type, even in an
+    EMPTY literal ([goty_supported]) / key-or-value not
     representable in the element type / DUPLICATE constant keys / [cap] of a map / map as a [println] arg /
     free-ident map conversion — these LOCK the now-supported map literal's boundary), and FREE-identifier use
     (no declarations in the model).  ⚠ This
@@ -249,12 +250,12 @@ Definition bad_programs : list Program :=
        distinctness / map-is-not-cap-able would wrongly admit it and FLIP [bad_programs_rejected]: a
        non-comparable slice KEY (caught by the integer-key restriction); a non-representable VALUE then KEY (300
        in [uint8] — caught by [assignable_to_ty]); DUPLICATE constant keys (caught by [nodup_z] — Go forbids
-       them); an INVALID NESTED map-key type hidden in a VALUE/element/conversion type (caught by [goty_valid]
+       them); an INVALID NESTED map-key type hidden in a VALUE/element/conversion type (caught by [goty_supported]
        — even an EMPTY literal, where no entry check could see it); [cap] of a map (Go forbids it — caught by
        [PtMap]≠[PtAgg], so the [cap] arm gives [None]); a map as
        a [println] arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
   ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])  (* map[[]int]int{..}: slice key not comparable *)
-  ; gs_blank (EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) [])              (* map[int]map[[]int]int{}: a non-comparable slice KEY hidden in the VALUE type — invalid Go even EMPTY ([goty_valid]) *)
+  ; gs_blank (EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) [])              (* map[int]map[[]int]int{}: a non-comparable slice KEY hidden in the VALUE type — invalid Go even EMPTY ([goty_supported]) *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []])  (* println(len(map[int]map[[]int]int{})): the len of an invalid-typed literal is rejected at the ROOT *)
   ; gs_blank (EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []]))  (* 1/len(map[int]map[[]int]int{}): no divide-by-zero behavior for invalid source *)
   ; gs_blank (ESliceLit (GTMap (GTSlice GTInt) GTInt) [])                  (* []map[[]int]int{}: the same invalid nested key type through a SLICE literal *)
@@ -289,10 +290,14 @@ Proof. vm_compute. reflexivity. Qed.
     (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
     runtime-int shortcut would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
-    Current members: [len] of a non-literal string CONST (byte length not folded). *)
+    Current members: [len] of a non-literal string CONST (byte length not folded); a VALID
+    pointer- or chan-KEYED map type nested in a map literal's value type ([goty_supported] conservatively
+    admits only comparable SCALAR keyword keys — Go also allows ptr/chan/comparable-struct/interface keys). *)
 Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
+  ; gs_blank (EMapLit GTInt (GTMap (GTPtr GTInt) GTInt) [])              (* _ = map[int]map[*int]int{}: a POINTER map key is comparable — VALID Go — but outside [goty_key_supported]'s scalar subset — REJECTED (incompleteness, not invalidity) *)
+  ; gs_blank (EMapLit GTInt (GTMap (GTChan GTInt) GTInt) [])             (* _ = map[int]map[chan int]int{}: a CHAN map key is comparable — VALID Go — likewise conservatively REJECTED *)
   ].
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
@@ -317,9 +322,8 @@ Proof. reflexivity. Qed.
     values) with [len] on ANY of them but [cap] on slice/chan [PtAgg] ONLY (a map is len-able, not cap-able),
     in-range / folded constants and same-width typed arithmetic, [panic]/bare-return/blank-assign/string
     literals, the EXACT float→int constant tracking ([uint8(float64(255))] is in range) + fixed-width complement,
-    and an INTEGER-key map LITERAL whose constant keys are distinct, assignable to the key type, with values
-    assignable to the value
-    type ([map[int]int{1:2}]). *)
+    and an INTEGER-key map LITERAL whose value TYPE is [goty_supported], constant keys distinct + assignable
+    to the key type, values assignable to the value type ([map[int]int{1:2}]). *)
 Definition good_programs : list Program :=
   [ pl_arg (gs_i64 (EInt 3))                                             (* println(int64(3)) *)
   ; gs_blank (EConv (CTSlice GTInt) (EId (mkIdent "nil" eq_refl)))       (* _ = []int(nil) *)
@@ -344,7 +348,7 @@ Definition good_programs : list Program :=
   ; pl_arg (gs_u8 (EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 0])))  (* uint8(^uint8(0)) fixed width *)
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                   (* _ = map[int]int{1: 2} — integer-key map literal, const key distinct + assignable *)
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 2, EInt 3)]) (* multi-element map, DISTINCT constant keys *)
-  ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (key/value types unconstrained beyond int key) *)
+  ; gs_blank (EMapLit GTInt GTString [])                               (* _ = map[int]string{} — empty (int key; value type gated only by [goty_supported]) *)
   ; gs_blank (EMapLit GTU8 GTU8 [(EInt 1, EInt 2)])                     (* map[uint8]uint8{1: 2} — typed key/value, consts in range *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* println(len(map[int]int{1:2})): [len] of a map IS valid (a runtime int) — unlike [cap] *)
   ; pl_arg (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1))       (* println([]int{10,20}[1]): CONSTANT in-bounds index into a slice literal — VALID Go, a RUNTIME int (supported, like [len]) *)
