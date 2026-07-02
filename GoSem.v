@@ -1642,7 +1642,8 @@ Qed.
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
     (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
     multi-byte rune [string(200)] ([runeconv_multibyte_boundary], = [out_boundary_runtime_undenoted]'s
-    witness).  [denotable_supported] pins denotable ⊆ supported. *)
+    witness) and the TYPED-width complement [runnot_u8_e] ([typed_runtime_not_absent]).
+    [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -2415,8 +2416,9 @@ Proof. vm_compute. reflexivity. Qed.
     [GTInt] fragment — a complement of a TYPED-width runtime integer ([^int64(len ..)] /
     [^uint8(len ..)] / [^uint(len ..)]) is SUPPORTED valid Go yet UNDENOTED (the typed-runtime-tier
     generalization — per-width carriers and ops in [reval] — is the named next arc; the model ops
-    [i64_not]/[u64_not]/the width wraps exist, the tier's carrier does not).  These join
-    [undenoted_frontier], so the gap is mechanically pinned, never prose. *)
+    [i64_not]/[u64_not]/the width wraps exist, the tier's carrier does not).  The class is pinned
+    three-wide just below; [runnot_u8_e] joins [undenoted_frontier] as its REPRESENTATIVE — the gap
+    is mechanically pinned, never prose. *)
 Definition runnot_i64_e : GExpr := EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
 Definition runnot_u8_e  : GExpr := EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]).
 Definition runnot_uint_e : GExpr := EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
@@ -2915,8 +2917,9 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND known
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
-    claim.  The TYPED-width [^] class is separately pinned three-wide ([typed_runtime_not_absent]).  Member: the
-    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form).  (The OOB
+    claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
+    runtime form) and the TYPED-width complement [runnot_u8_e] (the representative of the class pinned
+    three-wide by [typed_runtime_not_absent]).  (The OOB
     constant index and the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime
     width CONVERSION at tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 —
     [runtime_bool_runs]; the runtime map VALUE at tier R5 — [runtime_maplen_runs].)  Each member is

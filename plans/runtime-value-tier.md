@@ -2,8 +2,9 @@
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
 (R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values +
-R6 nonzero `%`/unary `-` + R7 unary `^` ALL LANDED) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
-`undenoted_frontier`. In the CLOSED world the runtime forms are
+R6 nonzero `%`/unary `-` + R7 unary `^` ALL LANDED, GTInt fragment) — NOT the whole gap: GoSem's
+`undenoted_frontier` carries REPRESENTATIVE witnesses only (known absent classes can lack a member —
+its comment is the authority). In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
