@@ -70,9 +70,11 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    in-window equals `binary_round` of the core at the adjusted exponent, raw digits UNBOUNDED
    (the target-at-or-below-raw-exponent regime reduces to rung 4's `binary_round_of_norm`
    with DERIVED premises; the other regime consumes the appended zeros via 5a).
-   5c PARTIAL: `binary_normalize_wide_determined` (rung 4's endpoint) and
-   `dy_norm_value_unique` (via `pos_odd_split_iter`) are LANDED + gated; REMAINING: the
-   `SFadd` finite-arm assembly closing
+   5c PARTIAL: `binary_normalize_wide_determined` (rung 4's endpoint),
+   `dy_norm_value_unique` (via `pos_odd_split_iter`), and the LIVE render endpoint
+   `sf_render_signed_value_f64` (a windowed nonzero dyadic renders to a canonical finite
+   whose SIGNED mantissa carries the value in difference form — `cond_Zopp s mc = m*2^(e-T)`)
+   are LANDED + gated; REMAINING: the `SFadd` finite-arm assembly closing
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).

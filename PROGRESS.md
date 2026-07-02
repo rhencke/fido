@@ -83,8 +83,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   `box_float_gate`) and `renorm_binary_round_idem`; the WIDE bridge
   `binary_round_of_norm_wide` (raw-digits-unbounded odd-core determinism, gated; the carry
   class pinned `add_carry_raw_wide_accepted`); the determinism endpoint
-  `binary_normalize_wide_determined` + `dy_norm_value_unique`. Next: the `SFadd` finite-arm
-  assembly closing ADD/SUB. (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
+  `binary_normalize_wide_determined` + `dy_norm_value_unique` + the live render endpoint
+  `sf_render_signed_value_f64`. Next: the `SFadd` finite-arm assembly closing ADD/SUB. (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
   physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.
 - Extend the cmd↔unified bridge to chan/heap/spawn.

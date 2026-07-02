@@ -6877,8 +6877,6 @@ Qed.
     canonical finite whose SIGNED mantissa carries the value in DIFFERENCE form
     ([cond_Zopp s mc = m * 2^(e-T)], all exponents nonneg differences — [Z.pow] is zero on
     negatives, so absolute "m*2^e" values are never stated). *)
-Lemma cond_Zopp_mul : forall s a b, cond_Zopp s (a * b)%Z = (cond_Zopp s a * b)%Z.
-Proof. intros [|] a b; cbn [cond_Zopp]; ring. Qed.
 Lemma render_signed_value_f64 : forall m e p,
   Z.abs m = Zpos p ->
   float_dyadic_repr GTFloat64 m e = true ->
@@ -6893,7 +6891,6 @@ Proof.
     by (unfold fexp, emin in *; lia).
   assert (HTe : (emin 53 1024 <= fexp 53 1024 (Zpos (digits2_pos p) + e))%Z)
     by (unfold fexp, emin in *; lia).
-  pose proof (shl_align_snd p e _ HT) as Hsnd.
   pose proof (shl_align_fst_val p e _ HT) as Hval.
   destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
     injection Habs as ->.
@@ -6917,6 +6914,33 @@ Proof.
       rewrite Hval. ring.
     + exact HTe.
     + exact HT.
+Qed.
+
+(** the [sf_render]↔[binary_normalize] identity — the LIVE render is uniformly the
+    normalizer (zero included). *)
+Lemma renorm_sf_of_dyadic : forall prec emax m e,
+  renorm prec emax (sf_of_dyadic m e) = binary_normalize prec emax m e false.
+Proof.
+  intros prec emax [|p|p] e;
+    cbn [sf_of_dyadic renorm cond_Zopp Z.opp binary_normalize]; reflexivity.
+Qed.
+(** ★ the LIVE render endpoint (gated): on the gate's window, [sf_render GTFloat64] of a
+    NONZERO dyadic is a canonical finite whose SIGNED mantissa carries the value in
+    difference form. *)
+Theorem sf_render_signed_value_f64 : forall m e p,
+  Z.abs m = Zpos p ->
+  float_dyadic_repr GTFloat64 m e = true ->
+  exists s mc T,
+    sf_render GTFloat64 m e = Some (S754_finite s mc T)
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (emin 53 1024 <= T)%Z /\ (T <= e)%Z.
+Proof.
+  intros m e p Habs Hrep.
+  destruct (render_signed_value_f64 m e p Habs Hrep)
+    as [s [mc [T [Hbn [Hv [He1 He2]]]]]].
+  exists s, mc, T.
+  split; [|split; [|split]]; [| exact Hv | exact He1 | exact He2].
+  unfold sf_render. rewrite renorm_sf_of_dyadic, Hbn. reflexivity.
 Qed.
 
 (** ---- rung 5c's VALUE-UNIQUENESS kit: [dy_norm] is determined by the VALUE — aligned
@@ -7209,7 +7233,7 @@ Definition gosem_float_surface :=
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
-   dy_norm_value_unique,
+   dy_norm_value_unique, sf_render_signed_value_f64,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
