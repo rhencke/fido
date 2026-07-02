@@ -57,7 +57,7 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
 Definition printable_arg_ok (e : GExpr) : bool :=
   match ptype e with
   | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
-  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _ _)
+  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _)
   | Some (PtRunInt _) | Some (PtRunFloat _) | Some PtBool | Some PtStr => true
   | _ => false
   end.
@@ -242,7 +242,10 @@ Definition bad_programs : list Program :=
     (* float-constant rounding + platform-uint complement (the rep must not lie) *)
   ; pl_arg (gs_i64 (gs_f64 (EInt 9223372036854775807)))                  (* int64(float64(maxint64)) rounds up *)
   ; pl_arg (gs_i32 (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2147483647]))
-  ; gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))     (* x / float64(0) — const-zero divisor *)
+  ; gs_blank (EBn BDiv (EId (mkIdent "x" eq_refl)) (gs_f64 (EInt 0)))     (* x / float64(0) — const-zero divisor (ALSO a free-ident rejection; the CLOSED witnesses below isolate the zero-divisor rule itself) *)
+  ; gs_blank (EBn BDiv (gs_f64 (EInt 1)) (gs_f64 (EInt 0)))                (* float64(1)/float64(0): CLOSED const-zero float divisor — Go compile error; FLIPS if [is_zero_const] stops seeing [PtFloatConst] *)
+  ; gs_blank (EBn BDiv (ECall (EId (mkIdent "float32" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "float32" eq_refl)) [EInt 0]))  (* float32(1)/float32(0): the float32 width of the same rule *)
+  ; gs_blank (EBn BDiv (gs_f64 (EInt 1)) (EBn BSub (gs_f64 (EInt 1)) (gs_f64 (EInt 1))))  (* float64(1)/(float64(1)-float64(1)): the divisor's ZERO arises by FOLDING — locks that the zero test runs on the folded dyadic *)
   ; pl_arg (ECall (EId (mkIdent "uint32" eq_refl)) [EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [EInt 0])])
     (* INVALID [EMapLit]/[CTMap] instances — now rejected by the STRUCTURAL [EMapLit] check (was a blanket
        quarantine; the supported witness `_ = map[int]int{1:2}` GRADUATED to [good_programs]).  Each LOCKS the
