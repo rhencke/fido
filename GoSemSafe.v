@@ -385,14 +385,22 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** The ABSENT (non-denotation) rejection mechanism, pinned: [GoSem.runconv_e] (a runtime width
     conversion — the tier-R3 frontier witness) is SUPPORTED valid Go that GoSem does NOT yet denote, so
     the gate rejects it by NON-denotation — faithful-or-absent, NO behavior judgment (unlike the
-    denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  When tier R3
-    lands and [runconv_e] denotes, this pin BREAKS — swap in the next frontier member in the same
-    commit (the witness-succession rule). *)
+    denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  The absent side
+    is NOT "non-panic shapes only": [panic_absent_prog] is a syntactic PANIC form ([panic(runconv_e)] —
+    supported, [panic] accepts any svalue) whose ARG does not yet denote, so IT TOO rejects by
+    non-denotation, not by a judgment on any panic.  When tier R3 lands and [runconv_e] denotes, BOTH
+    pins BREAK — swap in the next frontier member in the same commit (the witness-succession rule). *)
+Definition panic_absent_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [runconv_e])].
 Example panic_free_gate_absent :
   supported_program (println_prog runconv_e) = true
   /\ denotable_program (println_prog runconv_e) = false
   /\ panic_free_gate (println_prog runconv_e) = None
-  /\ emit_panic_free_gated (println_prog runconv_e) = None.
+  /\ emit_panic_free_gated (println_prog runconv_e) = None
+  /\ supported_program panic_absent_prog = true
+  /\ denotable_program panic_absent_prog = false
+  /\ panic_free_gate panic_absent_prog = None
+  /\ emit_panic_free_gated panic_absent_prog = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE

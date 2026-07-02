@@ -91,7 +91,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
   ⚠ Since tier R2 the runtime-panic forms (OOB/runtime index, panicking elements) DENOTE to `CPan`, caught by
-  `cmd_no_panic` (`panic_free_gate_slice` facts unchanged); NON-denotation rejects only absent NON-panic forms; `panic_free_gate_defer`/`_div`/`_arg_panic`
+  `cmd_no_panic` (`panic_free_gate_slice` facts unchanged); NON-denotation rejects ABSENCE — no behavior judgment, and not only non-panic shapes: a syntactic `panic(<undenoted arg>)` also rejects there (`panic_free_gate_absent` pins both); `panic_free_gate_defer`/`_div`/`_arg_panic`
   pin the denotable-panic one (defer-println ACCEPTED+emitted; defer-panic, the determined divide-by-zero, and
   arg-panics supported+DENOTABLE yet rejected by `cmd_no_panic`) — does NOT gate main output, NOT full
   `BehaviorSafe`. Zero axioms.
@@ -105,7 +105,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
   (precondition = a proven panic-free RUN). Accepted iff the program denotes to `c` with `cmd_no_panic c` —
   any denotable panic is rejected there (since tier R2 that includes OOB/runtime-index panics with the
-  exact `rt_index_oob i n` payloads); non-denotation rejects only absent NON-panic forms. NOT full
+  exact `rt_index_oob i n` payloads); non-denotation rejects ABSENCE, not a behavior judgment — the absent side can include syntactic panic forms with not-yet-denoted args (`panic_free_gate_absent`). NOT full
   `BehaviorSafe` — nil deref / send-on-closed / race are unmodeled — and it does NOT gate main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
