@@ -71,11 +71,11 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R5): every RUNTIME-classified witness DENOTES; the pinned
-  `undenoted_frontier` WITNESS (non-exhaustive — known absent classes: runtime floats, runtime unary
-  ops, nonzero runtime `%`) is the multi-byte rune `runeconv_mb` alone. Each rule that lands FLIPS its
-  member's pins — swap the successor in the same commit and sweep the stale-claim phrases repo-wide
-  (each of R3/R4/R5 flipped the SAME five sites: frontier, out-boundary, the GoSemSafe absent pair, the
+- Witness succession — CURRENT STATE (post-R6): every RUNTIME-classified witness DENOTES; the pinned
+  `undenoted_frontier` WITNESS (non-exhaustive — known absent classes: runtime floats, the `^`
+  complement of a platform int) is the multi-byte rune `runeconv_mb` alone. Any rule that lands FLIPS
+  its member's pins — swap the successor in the same commit and sweep the stale-claim phrases
+  repo-wide (the five recurring sites: frontier, out-boundary, the GoSemSafe absent pair, the
   dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is
   the EVAL-ONLY sufficient fragment; the runtime tier's own converse — and any THEOREM bounding the
   gap — is open work.

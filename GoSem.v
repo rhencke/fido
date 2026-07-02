@@ -537,7 +537,7 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1–R5).
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1–R6).
     Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
     evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
     carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
@@ -1599,9 +1599,10 @@ Qed.
 (** ---- COMPLETENESS FRAGMENT — [supported ⟹ denotes] for the PRINT/PRINTLN-of-FOLDED-ARGS fragment
     (AUTHORITY: [out_main_denotes]).  [folded_arg] is the EVAL-ONLY (constant-folded) printable-argument
     fragment — deliberately NARROWER than the live denotation boundary ([denote_expr], which since tiers
-    R1–R5 also denotes RUNTIME-determined args: [runlen_e], the runtime index, the runtime width
-    CONVERSION [runconv_e], the runtime bool COMPARISON [runbool_e], and the runtime-map-value [len]
-    [maplen_runval_e] — NOT folded, yet denoted): a [folded_arg] certainly
+    R1–R6 also denotes RUNTIME-determined args: [runlen_e], the runtime index, the runtime width
+    CONVERSION [runconv_e], the runtime bool COMPARISON [runbool_e], the runtime-map-value [len]
+    [maplen_runval_e], and the R6 unary-minus / nonzero-[%] forms ([runneg_e]/[runrem_e]) — NOT
+    folded, yet denoted): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
     (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
@@ -2830,14 +2831,15 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
     [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer, the
-    determined divide-by-zero, and the R3/R4/R5 runtime forms included), FALSE (and
+    determined divide-by-zero, and the R3/R4/R5/R6 runtime forms included), FALSE (and
     [denote_program = None]) for the supported-but-undenoted multi-byte-rune program ([runeconv_mb_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
      gosem_runtime_blank_prog; gosem_arg_panic_prog; gosem_defer_arg_panic_prog;
      println_prog runlen_e; println_prog runconv_e; println_prog runbool_e;
-     println_prog maplen_runval_e] = true
+     println_prog maplen_runval_e; println_prog runneg_e; println_prog runrem_e;
+     println_prog runrem_neg_e; println_prog runneg_panic_e] = true
   /\ forallb (fun p => negb (denotable_program p)) [runeconv_mb_prog] = true
   /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
        [runeconv_mb_prog] = true.
