@@ -15,7 +15,10 @@
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
       such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
       evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
-      [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet denoted).
+      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1) denotes DETERMINED runtime
+      integers with the MODEL'S OWN ops — runtime [len] (a panicking element aborts construction),
+      [+ - * /] with the determined zero divisor panicking [rt_div_zero]; a runtime INDEX and width
+      conversions are NOT yet denoted (tiers R2/R3).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -513,7 +516,7 @@ Local Definition eval_value_core (e : GExpr) : option GoAny :=
   end.
 
 (** [eval_value] = the float boundary, ONCE, then the evaluator core.  Every value consumer
-    ([denote_expr]/[eval_args]/[denotable_arg]/the statement layer) enters here, so the boundary covers
+    ([denote_expr]/[eval_args]/[folded_arg]/the statement layer) enters here, so the boundary covers
     slice elements, map entries, comparison operands, and conversion sources uniformly — no per-consumer
     validators. *)
 Definition eval_value (e : GExpr) : option GoAny :=
@@ -533,8 +536,9 @@ Qed.
     carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
     fold authority) via the checked [unbox_int]; [len] of an int-slice literal is the count of its
     CONSTRUCTED elements (evaluated left-to-right, the FIRST panicking element aborting construction —
-    the verified go-run order); [+ - *] are the model's [int_add]/[int_sub]/[int_mul]; [/] is the model's
-    [int_div] through the evidence-erased [int_div_raw] (sealed by [int_div_raw_is_int_div]), and a
+    the verified go-run order; the length goes through [box_int]'s fail-closed [GTInt] builder —
+    [rval_len]); [+ - *] are the model's [int_add]/[int_sub]/[int_mul]; [/] is the model's
+    evidence-carrying [int_div], its nonzero proof produced by the guarding test itself, and a
     determined ZERO divisor is Go's runtime panic [rt_div_zero] ([%] by zero panics identically; a
     nonzero [%] has no model op yet — honestly absent).  [RPanic] = a determined runtime panic;
     [None] = not-yet-denotable (absent, never wrong).  This tier SUBSUMES the retired shape-based
@@ -547,14 +551,15 @@ Definition unbox_int (v : GoAny) : option GoInt :=
       | _ => fun _ => None
       end x
   end.
-(** The model's division, evidence-erased: [int_div] carries a nonzero proof it never USES computationally,
-    so [int_div_raw] is DEFINITIONALLY equal to it for every evidence — [int_div_raw_is_int_div] (gated)
-    seals the spelling to the model op (no second division authority); [reval_int] guards the zero case
-    itself (→ [rt_div_zero]), so the evidence-carrying call site is never needed here. *)
-Definition int_div_raw (a b : GoInt) : GoInt := intwrap (wrap64 (Z.quot (intraw a) (intraw b))).
-Lemma int_div_raw_is_int_div : forall a b pf, int_div_raw a b = int_div a b pf.
-Proof. reflexivity. Qed.
 Inductive RRes : Type := RVal (v : GoInt) | RPanic (p : GoAny).
+(** The CHECKED length result — through [box_int] (the ONE fail-closed [GTInt] builder: a length outside
+    Fido's conservative range DECLINES, never wraps) and the sealed [unbox_int]; no raw [intwrap] of a
+    source-derived length anywhere in the tier. *)
+Definition rval_len (n : nat) : option RRes :=
+  match box_int GTInt (Z.of_nat n) with
+  | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
+  | None => None
+  end.
 Fixpoint reval_int (e : GExpr) : option RRes :=
   match eval_value e with
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
@@ -567,7 +572,7 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
               if String.eqb (proj1_sig f) "len" && is_int_goty et
               then (fix construct (l : list GExpr) (n : nat) : option RRes :=
                       match l with
-                      | nil => Some (RVal (intwrap (Z.of_nat n)))
+                      | nil => rval_len n
                       | x :: r =>
                           match reval_int x with
                           | Some (RVal _)   => construct r (S n)
@@ -586,8 +591,12 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                   | BSub => Some (RVal (int_sub va vb))
                   | BMul => Some (RVal (int_mul va vb))
                   | BDiv =>
-                      if Z.eqb (intraw vb) 0 then Some (RPanic rt_div_zero)
-                      else Some (RVal (int_div_raw va vb))
+                      (* the model's EVIDENCE-CARRYING division, its nonzero proof produced by the very
+                         test that guards the branch (the dependent convoy) — no raw division spelling *)
+                      (match Z.eqb (intraw vb) 0 as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+                       | true  => fun _  => Some (RPanic rt_div_zero)
+                       | false => fun pf => Some (RVal (int_div va vb pf))
+                       end) eq_refl
                   | BRem => if Z.eqb (intraw vb) 0 then Some (RPanic rt_div_zero) else None
                   | _ => None
                   end
@@ -637,7 +646,16 @@ Proof.
   unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
   cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
   rewrite Ha, Hb.
-  destruct Ho as [-> | ->]; rewrite Hz; reflexivity.
+  destruct Ho as [-> | ->].
+  - (* BDiv: eliminate the dependent convoy by generalizing the scrutinee AND its proof together *)
+    assert (K : forall (z : bool) (pf : Z.eqb (intraw vb) 0 = z), z = true ->
+              (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+               | true  => fun _   => Some (RPanic rt_div_zero)
+               | false => fun pf0 => Some (RVal (int_div va vb pf0))
+               end) pf = Some (RPanic rt_div_zero)).
+    { intros z pf Hzt. destruct z; [reflexivity | discriminate Hzt]. }
+    rewrite (K _ eq_refl Hz). reflexivity.
+  - rewrite Hz. reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -868,29 +886,30 @@ Proof.
   - split; intro H; [congruence | discriminate].
 Qed.
 
-(** ---- COMPLETENESS FRAGMENT — [supported ⟹ denotes] for the PRINT/PRINTLN-of-DENOTABLE-ARGS fragment
-    (AUTHORITY: [out_main_denotes]).  NOT the whole supported output class: an ARG denotes iff it EVALUATES and
-    is PRINTABLE ([denotable_arg] — exactly the per-arg denotation condition, so the converse holds OUTRIGHT on
-    this fragment); a RUNTIME arg is supported but not [denotable_arg] ([out_boundary_runtime_undenoted]), and a
+(** ---- COMPLETENESS FRAGMENT — [supported ⟹ denotes] for the PRINT/PRINTLN-of-FOLDED-ARGS fragment
+    (AUTHORITY: [out_main_denotes]).  [folded_arg] is the EVAL-ONLY (constant-folded) printable-argument
+    fragment — deliberately NARROWER than the live denotation boundary ([denote_expr], which since tier R1
+    also denotes RUNTIME-determined args like [runlen_e]): a [folded_arg] certainly denotes, so the
+    SUFFICIENT converse below holds outright on this fragment; the converse for the runtime tier is future
+    work.  A runtime-index arg is neither folded nor yet denoted ([out_boundary_runtime_undenoted]); a
     supported-but-eval-partial constant (multi-byte rune [string(200)]) is pinned by
-    [runeconv_multibyte_boundary].  [denotable_supported] pins denotable ⊆ supported — a STRICT inclusion (the
-    gap: the eval-partial value forms). *)
-Definition denotable_arg (e : GExpr) : bool :=
+    [runeconv_multibyte_boundary].  [denotable_supported] pins denotable ⊆ supported. *)
+Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
-Lemma denotable_arg_eval : forall e, denotable_arg e = true -> eval_value e <> None.
-Proof. intros e H Hn. unfold denotable_arg in H. rewrite Hn in H. discriminate. Qed.
+Lemma folded_arg_eval : forall e, folded_arg e = true -> eval_value e <> None.
+Proof. intros e H Hn. unfold folded_arg in H. rewrite Hn in H. discriminate. Qed.
 
-Lemma denotable_arg_printable : forall e, denotable_arg e = true -> printable_arg_ok e = true.
-Proof. intros e H. unfold denotable_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
+Lemma folded_arg_printable : forall e, folded_arg e = true -> printable_arg_ok e = true.
+Proof. intros e H. unfold folded_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
 
 (** String CONCATENATION and CONVERSIONS DENOTE (the [eval_value] folds are in [eval_value_good]; these pin the
-    stronger [denotable_arg] — evaluable AND printable): [`"a" + "b"`], the ASCII rune [`string(65)`], the
+    stronger [folded_arg] — evaluable AND printable): [`"a" + "b"`], the ASCII rune [`string(65)`], the
     identity [`string("a"+"b")`]. *)
-Example denotable_arg_str_concat : denotable_arg (EBn BAdd (EStr "a") (EStr "b")) = true.
+Example folded_arg_str_concat : folded_arg (EBn BAdd (EStr "a") (EStr "b")) = true.
 Proof. vm_compute. reflexivity. Qed.
-Example denotable_arg_runeconv_ascii :
-  denotable_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = true.
+Example folded_arg_runeconv_ascii :
+  folded_arg (ECall (EId (mkIdent "string" eq_refl)) [EInt 65]) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** BOUNDARY PIN (keeps the converse EXACT — pins the FULL state, not just non-denotability): a MULTI-BYTE rune
@@ -911,28 +930,30 @@ Example runeconv_multibyte_boundary :
   /\ denote_program runeconv_mb_prog = None.      (* ... so the SUPPORTED program does NOT denote (faithful-or-absent) *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-Lemma eval_args_denotable : forall args, forallb denotable_arg args = true -> eval_args args <> None.
+Lemma eval_args_denotable : forall args, forallb folded_arg args = true -> eval_args args <> None.
 Proof.
   induction args as [|a rest IH]; simpl; intro H; [discriminate|].
   apply andb_true_iff in H as [Ha Hrest]. specialize (IH Hrest).
-  pose proof (denotable_arg_eval a Ha) as Hva.
+  pose proof (folded_arg_eval a Ha) as Hva.
   destruct (eval_value a); [|exfalso; apply Hva; reflexivity].
   destruct (eval_args rest); [discriminate | exfalso; apply IH; reflexivity].
 Qed.
 
 Lemma forallb_denotable_printable : forall args,
-  forallb denotable_arg args = true -> forallb printable_arg_ok args = true.
+  forallb folded_arg args = true -> forallb printable_arg_ok args = true.
 Proof.
   induction args as [|a rest IH]; simpl; intro H; [reflexivity|].
-  apply andb_true_iff in H as [Ha Hrest]. rewrite (denotable_arg_printable a Ha), (IH Hrest). reflexivity.
+  apply andb_true_iff in H as [Ha Hrest]. rewrite (folded_arg_printable a Ha), (IH Hrest). reflexivity.
 Qed.
 
-(** THE CONVERSE AUTHORITY — [supported ⟹ denotes] on the PRINT/PRINTLN-of-DENOTABLE-ARGS fragment.  A
-    print/println arg denotes iff it EVALUATES + is PRINTABLE ([denotable_arg]).  [out_call pr]: [println]
+(** THE CONVERSE AUTHORITY — [supported ⟹ denotes] on the PRINT/PRINTLN-of-FOLDED-ARGS fragment.  A
+    [folded_arg] (EVALUATES + PRINTABLE) certainly denotes — sufficient, NOT the full denotation boundary
+    (the runtime tier denotes more).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println([]int{10,20}[len([]int{1})])]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
-    (pinned by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
+    RUNTIME arg ([println([]int{10,20}[len([]int{1})])]) is SUPPORTED but NOT [folded_arg], so it does NOT denote
+    (pinned by [out_boundary_runtime_undenoted]); the runtime tier denotes MORE than this folded fragment
+    covers — its converse is future work.  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
   if pr then ECall (EId (mkIdent "println" eq_refl)) args
@@ -943,7 +964,7 @@ Fixpoint out_main_body (stmts : list (bool * list GExpr)) : list GoStmt :=
   | (pr, args) :: rest => GsExprStmt (out_call pr args) :: out_main_body rest
   end.
 Lemma expr_stmt_ok_out_denotable : forall f args,
-  (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb denotable_arg args = true ->
+  (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb folded_arg args = true ->
   expr_stmt_ok (ECall (EId f) args) = true.
 Proof.
   intros f args Hf Hargs. cbn [expr_stmt_ok stmt_call_ok].
@@ -952,7 +973,7 @@ Qed.
 (** A print/println of denotable args denotes — as a CONTINUER ([Some (_, false)]): the shape [denotable_body]
     consumes when it is followed by more statements. *)
 Lemma denote_out_denotable : forall f args,
-  (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb denotable_arg args = true ->
+  (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb folded_arg args = true ->
   exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
 Proof.
   intros f args Hf Hargs. cbn [denote_stmt]. unfold denote_call.
@@ -963,7 +984,7 @@ Proof.
       | exfalso; exact (eval_args_denotable args Hargs Ea) ]).
 Qed.
 Lemma denote_out_call_denotable : forall pr args,
-  forallb denotable_arg args = true ->
+  forallb folded_arg args = true ->
   exists c, denote_stmt (GsExprStmt (out_call pr args)) = Some (c, false).
 Proof.
   intros pr args Hargs. destruct pr; cbn [out_call].
@@ -971,7 +992,7 @@ Proof.
   - exact (denote_out_denotable (mkIdent "print" eq_refl) args (or_intror eq_refl) Hargs).
 Qed.
 Lemma out_main_denotable : forall stmts,
-  forallb (fun s => forallb denotable_arg (snd s)) stmts = true -> denotable_body (out_main_body stmts) = true.
+  forallb (fun s => forallb folded_arg (snd s)) stmts = true -> denotable_body (out_main_body stmts) = true.
 Proof.
   induction stmts as [|[pr args] rest IH]; intro H.
   - reflexivity.
@@ -980,7 +1001,7 @@ Proof.
     cbn [denotable_body]. rewrite Hc. exact (IH Hrest).
 Qed.
 Theorem out_main_denotes : forall stmts,
-  forallb (fun s => forallb denotable_arg (snd s)) stmts = true ->
+  forallb (fun s => forallb folded_arg (snd s)) stmts = true ->
   denote_program (mkProgram (mkIdent "main" eq_refl) (out_main_body stmts)) <> None.
 Proof.
   intros stmts H. apply (proj2 (denote_program_dec _)).
@@ -998,7 +1019,7 @@ Definition gosem_strlit_prog : Program :=
              GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]); GsReturn].
 
 (** [println_main_denotes] — the all-[println] COROLLARY of [out_main_denotes]: a `main` body of N
-    [println(args)] (every arg [denotable_arg]) + [return] denotes.  [println_main_body] is [out_main_body] with
+    [println(args)] (every arg [folded_arg]) + [return] denotes.  [println_main_body] is [out_main_body] with
     every flag [true] ([println_main_body_out]); kept for the [gosem_strlit] / `_runs` demos. *)
 Fixpoint println_main_body (arglists : list (list GExpr)) : list GoStmt :=
   match arglists with
@@ -1011,19 +1032,19 @@ Proof.
   induction arglists as [|args rest IH]; [reflexivity|].
   cbn [println_main_body out_main_body map out_call]. rewrite IH. reflexivity.
 Qed.
-Lemma denotable_arglists_out : forall arglists,
-  forallb (forallb denotable_arg) arglists = true ->
-  forallb (fun s => forallb denotable_arg (snd s)) (map (fun a => (true, a)) arglists) = true.
+Lemma folded_arglists_out : forall arglists,
+  forallb (forallb folded_arg) arglists = true ->
+  forallb (fun s => forallb folded_arg (snd s)) (map (fun a => (true, a)) arglists) = true.
 Proof.
   induction arglists as [|args rest IH]; [reflexivity|].
   cbn; intro H; apply andb_true_iff in H as [Ha Hr]; rewrite Ha; cbn; exact (IH Hr).
 Qed.
 Theorem println_main_denotes : forall arglists,
-  forallb (forallb denotable_arg) arglists = true ->
+  forallb (forallb folded_arg) arglists = true ->
   denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists)) <> None.
 Proof.
   intros arglists H. rewrite (println_main_body_out arglists).
-  exact (out_main_denotes _ (denotable_arglists_out arglists H)).
+  exact (out_main_denotes _ (folded_arglists_out arglists H)).
 Qed.
 
 (** Coverage (the all-[println] corollary): MIXED evaluable args — `println("a"); println(int64(3)); return`
@@ -1061,7 +1082,7 @@ Definition maplen_runval_e : GExpr :=
 
 (** BOUNDARY — the fragment is NOT the whole supported output class: [println([]int{10,20}[len([]int{1})])]
     is SUPPORTED (valid Go) yet its arg is a RUNTIME slice INDEX GoSem does not yet evaluate (tier R2; NOT
-    [denotable_arg] either — the eval level is constant-only), so the program does NOT denote.  (The
+    [folded_arg] either — the eval level is constant-only), so the program does NOT denote.  (The
     runtime-ELEMENT [len] witness that used to sit here now DENOTES through tier R1 — [runtime_tier_runs];
     it remains the strictness pin for the EVAL-level [eval_len_supported] inclusion, since [eval_value
     runlen_e = None] still.) *)
@@ -1070,7 +1091,7 @@ Definition out_runtime_prog : Program :=
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
 Example out_boundary_runtime_undenoted :
   supported_program out_runtime_prog = true
-  /\ denotable_arg runidx_e = false
+  /\ folded_arg runidx_e = false
   /\ denote_program out_runtime_prog = None
   /\ eval_value runlen_e = None.   (* the eval-level strictness pin survives the tier: constant folds only *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -1079,7 +1100,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is the eval-partial value forms (see the decidability note above). *)
+    [supported_program] — the gap is the not-yet-denoted runtime forms (index/conversions, tiers R2/R3). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -1951,7 +1972,7 @@ Definition gosem_trust_surface :=
    fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
-   denote_expr_pure, denote_expr_div_zero, int_div_raw_is_int_div, runtime_tier_runs, runtime_tier_supported,
+   denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
    arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).

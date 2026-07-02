@@ -1,7 +1,7 @@
-# The RUNTIME-value tier (B3 / ARCHITECTURE Phase 5 "eval non-literals") — the next foundation arc
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1 LANDED (55ff088 + seal fixes); R2/R3 next
 
-**Why.** The sole remaining supported-but-undenoted source is runtime-CLASSIFIED value forms (`len` over
-runtime elements/values, `int(x)` of runtime `x`, runtime slice indexing). In the CLOSED world these are
+**Why (pre-R1 framing; R1 closed the len/arith half).** The remaining supported-but-undenoted sources are
+runtime-CLASSIFIED value forms (runtime slice indexing — R2; width conversions — R3; runtime map values). In the CLOSED world these are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
@@ -61,7 +61,9 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession after R1: `runlen_e` DENOTES → successor undenoted witness = the runtime-INDEX shape
-  `[]int{10,20}[len([]int{1})]` (already spelled in `slice_index_supported_but_undenoted`) until R2; after
-  R2 the successor is a runtime width-conversion (`int64(len([]int{1}))`) until R3; after R3 enumerate
-  what remains (runtime floats, runtime string len) or state the fragment-total converse WITH a theorem.
+- Witness succession — CURRENT STATE (post-R1): `runlen_e` DENOTES; the undenoted witnesses are
+  `runidx_e` (runtime index — R2), `maplen_runval_e` (runtime map VALUE — needs a map-value runtime rule,
+  not just R2/R3), and width conversions of runtime ints (R3). After R2 swap `runidx_e`'s roles to the
+  conversion shape; after R3 enumerate what remains (runtime floats, runtime string len, map values) or
+  state the fragment-total converse WITH a theorem. NOTE: `folded_arg` (né `denotable_arg`) is the
+  EVAL-ONLY sufficient fragment; the runtime tier's own converse is open work.
