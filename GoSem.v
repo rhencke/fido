@@ -6839,37 +6839,86 @@ Example add_carry_raw_wide_accepted :
      = Some (anyt TFloat64 (S754_finite false 9007199254740991%positive 1)).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** ★ the rung-4 ENDPOINT (gated): [dy_norm]-equal representations normalize to the SAME
-    canonical float — the value quotient the whole agreement arc states equality through. *)
-Theorem binary_normalize_norm_determined : forall prec emax m1 e1 m2 e2 s,
-  dy_norm m1 e1 = dy_norm m2 e2 ->
-  (Z.abs m1 = Z0 \/ exists p, Z.abs m1 = Zpos p
-     /\ (Zpos (digits2_pos p) <= prec)%Z /\ (emin prec emax <= e1)%Z
-     /\ (Zpos (digits2_pos p) + e1 <= emax)%Z) ->
-  (Z.abs m2 = Z0 \/ exists p, Z.abs m2 = Zpos p
-     /\ (Zpos (digits2_pos p) <= prec)%Z /\ (emin prec emax <= e2)%Z
-     /\ (Zpos (digits2_pos p) + e2 <= emax)%Z) ->
+(** ★ the DETERMINISM endpoint (gated; rung 4's raw-side-windowed form SUPERSEDED in 5c by
+    this WIDE corollary): [dy_norm]-equal representations normalize to the SAME canonical
+    float, with the window premises on the SHARED NORMAL FORM only — the raw sides' digit
+    counts are UNBOUNDED ([binary_round_of_norm_wide]), exactly what [SFadd]'s raw aligned
+    sums need. *)
+Theorem binary_normalize_wide_determined : forall prec emax m1 e1 m2 e2 s zq k,
+  dy_norm m1 e1 = (zq, k) ->
+  dy_norm m2 e2 = (zq, k) ->
+  (zq = Z0 \/ exists q, Z.abs zq = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= k)%Z
+     /\ (Zpos (digits2_pos q) + k <= emax)%Z) ->
   (2 <= emax)%Z ->
   binary_normalize prec emax m1 e1 s = binary_normalize prec emax m2 e2 s.
 Proof.
-  intros prec emax m1 e1 m2 e2 s Hn H1 H2 Hemax.
+  intros prec emax m1 e1 m2 e2 s zq k H1 H2 HW Hemax.
   destruct m1 as [|p1|p1]; destruct m2 as [|p2|p2];
-    cbn [dy_norm Z.abs] in *;
-    (* zero-vs-nonzero and sign mismatches are impossible: dy_norm preserves zero-ness and sign *)
+    cbn [dy_norm] in H1, H2;
     try (destruct (pos_odd_split p1) as [q1 k1] eqn:E1);
     try (destruct (pos_odd_split p2) as [q2 k2] eqn:E2);
-    try discriminate Hn;
+    injection H1 as <- <-;
+    try discriminate H2;
     [ reflexivity | | ];
-    (* both positive / both negative *)
-    injection Hn as Hq Hk;
-    (destruct H1 as [H1 | [pp1 [Hp1 W1]]]; [discriminate H1|]);
-    (destruct H2 as [H2 | [pp2 [Hp2 W2]]]; [discriminate H2|]);
-    injection Hp1 as ->; injection Hp2 as ->;
-    destruct W1 as [Wd1 [We1 Wde1]]; destruct W2 as [Wd2 [We2 Wde2]];
+    injection H2 as Hq Hk;
+    (destruct HW as [HW | [q [Habs W]]]; [discriminate HW|]);
+    cbn [Z.abs] in Habs; injection Habs as <-;
+    destruct W as [Wd [We Wde]];
+    assert (Wd2 : (Zpos (digits2_pos q2) <= prec)%Z) by (rewrite Hq; exact Wd);
+    assert (We2 : (emin prec emax <= e2 + k2)%Z) by (rewrite Hk; exact We);
+    assert (Wde2 : (Zpos (digits2_pos q2) + (e2 + k2) <= emax)%Z)
+      by (rewrite Hq, Hk; exact Wde);
     cbn [binary_normalize];
-    rewrite (binary_round_of_norm prec emax _ _ e1 q1 k1 E1 Wd1 We1 Wde1 Hemax);
-    rewrite (binary_round_of_norm prec emax _ _ e2 q2 k2 E2 Wd2 We2 Wde2 Hemax);
-    rewrite Hq; f_equal; lia.
+    rewrite (binary_round_of_norm_wide prec emax _ _ e1 q1 k1 E1 Wd We Wde Hemax);
+    rewrite (binary_round_of_norm_wide prec emax _ _ e2 q2 k2 E2 Wd2 We2 Wde2 Hemax);
+    rewrite Hq, Hk; reflexivity.
+Qed.
+(** ---- rung 5c's VALUE-UNIQUENESS kit: [dy_norm] is determined by the VALUE — aligned
+    value-equal pairs normalize identically (the assembly needs this to identify [SFadd]'s raw
+    sum over CANONICAL operand mantissas with [dy_add]'s sum over the DYADIC pairs). *)
+Lemma pos_odd_split_iter : forall j m,
+  pos_odd_split (Pos.iter xO m j)
+  = (fst (pos_odd_split m), (snd (pos_odd_split m) + Zpos j)%Z).
+Proof.
+  induction j using Pos.peano_ind; intro m.
+  - cbn [Pos.iter pos_odd_split].
+    destruct (pos_odd_split m) as [q k]. cbn [fst snd]. f_equal; lia.
+  - rewrite Pos.iter_succ. cbn [pos_odd_split].
+    rewrite IHj.
+    destruct (pos_odd_split m) as [q k]. cbn [fst snd].
+    f_equal; rewrite Pos2Z.inj_succ; lia.
+Qed.
+Lemma dy_norm_value_unique : forall m1 e1 m2 e2,
+  (e1 <= e2)%Z ->
+  m1 = (m2 * 2 ^ (e2 - e1))%Z ->
+  dy_norm m1 e1 = dy_norm m2 e2.
+Proof.
+  intros m1 e1 m2 e2 He Hv.
+  destruct (Z.sub e2 e1) as [|dp|dp] eqn:Ed.
+  - rewrite Z.pow_0_r, Z.mul_1_r in Hv. subst m1.
+    assert (e1 = e2) by lia. subst. reflexivity.
+  - destruct m2 as [|p2|p2].
+    + rewrite Z.mul_0_l in Hv. subst m1. reflexivity.
+    + assert (Hm1 : m1 = Zpos (Pos.iter xO p2 dp))
+        by (rewrite iter_xO_val; exact Hv).
+      rewrite Hm1.
+      pose proof (pos_odd_split_iter dp p2) as Hit.
+      unfold dy_norm. cbv beta iota. rewrite Hit.
+      destruct (pos_odd_split p2) as [q k]. cbn [fst snd]. cbv beta iota.
+      f_equal; lia.
+    + assert (Hm1 : m1 = Zneg (Pos.iter xO p2 dp)).
+      { change (Zneg (Pos.iter xO p2 dp)) with (- Zpos (Pos.iter xO p2 dp))%Z.
+        rewrite iter_xO_val, Hv.
+        change (Zneg p2) with (- Zpos p2)%Z. ring. }
+      rewrite Hm1.
+      pose proof (pos_odd_split_iter dp p2) as Hit.
+      unfold dy_norm. cbv beta iota. rewrite Hit.
+      destruct (pos_odd_split p2) as [q k]. cbn [fst snd]. cbv beta iota.
+      f_equal; lia.
+  - exfalso.
+    assert (Hlt : (e2 - e1 < 0)%Z) by (rewrite Ed; lia).
+    lia.
 Qed.
 
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
@@ -7114,7 +7163,8 @@ Definition gosem_float_surface :=
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
-   binary_normalize_norm_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
+   binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
+   dy_norm_value_unique,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,

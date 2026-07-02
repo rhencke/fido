@@ -82,9 +82,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   the LIVE-boundary bridge (`ptype_float_const_repr`, `ptype_float_payload_{f64,f32}`,
   `box_float_gate`) and `renorm_binary_round_idem`; rung-4 value-determinism; the WIDE bridge
   `binary_round_of_norm_wide` (raw-digits-unbounded odd-core determinism, gated; the carry
-  class pinned `add_carry_raw_wide_accepted`). Next: 5c — the wide determinism corollary +
-  `dy_norm` uniqueness + the `SFadd` finite-arm assembly. (The typed-runtime tier T1–T5 + R8
-  is COMPLETE — ledger in `LESSONS.md`.)
+  class pinned `add_carry_raw_wide_accepted`); the wide determinism endpoint
+  (`binary_normalize_wide_determined`) + `dy_norm_value_unique`. Next: the `SFadd` finite-arm
+  assembly closing ADD/SUB. (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
   physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.
 - Extend the cmd↔unified bridge to chan/heap/spawn.

@@ -52,14 +52,13 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    (c) `renorm_binary_round_idem` — renorm idempotence on the in-window class (the output's
    digits+exponent reproduces the `fexp` target; re-alignment is `shl_align_id`), unblocking
    the f32 wrappers (`f32_neg` re-rounds through `f32_of_f64`).
-4. **`binary_normalize` VALUE-determinism — LANDED** (windowed; gated
-   `binary_normalize_norm_determined`): `dy_norm`-equal representations normalize to the SAME
-   canonical float.  NO doubling induction was needed: with rung 3, both sides reduce to
-   closed canonical forms, digits+exponent is invariant under the odd-core split
-   (`pos_odd_split_digits`), so the `fexp` targets coincide and the aligned mantissas are
-   value-equal positives (`binary_round_of_norm`).  ⚠ the determinism theorem's window
-   premises are on the NORMALIZER INPUTS — see rung 5 for why `SFadd`'s raw aligned sum can
-   fail them even on ACCEPTED results.
+4. **`binary_normalize` VALUE-determinism — LANDED, then WIDENED in 5c**: the gated endpoint
+   is `binary_normalize_wide_determined` — `dy_norm`-equal representations normalize to the
+   SAME canonical float with window premises on the SHARED NORMAL FORM only (raw-side digits
+   UNBOUNDED via `binary_round_of_norm_wide`); the original raw-side-windowed form is
+   superseded and deleted.  NO doubling induction was needed: with rung 3, both sides reduce
+   to closed canonical forms, digits+exponent is invariant under the odd-core split
+   (`pos_odd_split_digits`), so the `fexp` targets coincide (`binary_round_of_norm`).
 5. **ADD/SUB (f64) — 5a + 5b LANDED; remaining = 5c.**
    `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas); `SFadd`
    normalizes the RAW aligned sum, whose mantissa can exceed `prec` digits even for
@@ -72,9 +71,10 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    in-window equals `binary_round` of the core at the adjusted exponent, raw digits UNBOUNDED
    (the target-at-or-below-raw-exponent regime reduces to rung 4's `binary_round_of_norm`
    with DERIVED premises; the other regime consumes the appended zeros via 5a).
-   REMAINING (5c): the wide determinism corollary (window premises on the SHARED normal form
-   only — supersedes the rung-4 endpoint, whose surface entry is swept then), `dy_norm`
-   value-uniqueness, and the `SFadd` finite-arm assembly closing
+   5c PARTIAL: the wide determinism corollary (`binary_normalize_wide_determined`, gated —
+   supersedes and deletes the rung-4 endpoint) and `dy_norm` value-uniqueness
+   (`dy_norm_value_unique` via `pos_odd_split_iter`, gated) are LANDED; REMAINING: the
+   `SFadd` finite-arm assembly closing
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).
