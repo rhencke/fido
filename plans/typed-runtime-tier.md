@@ -6,8 +6,9 @@ same-width arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETERO
 T5). Still supported-but-undenoted, pinned: `typed_unary_holes_absent` (the GoUint/narrow-neg
 holes), `typed_runtime_shift_absent` (the five-case shift SHAPE table), the runtime-FLOAT-source
 class (CLASS-sealed absent — `reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`;
-supported-side pin `runtime_float_source_conv_absent` — the float arc), the representatives in
-`undenoted_frontier`.
+supported-side pin `runtime_float_source_conv_absent` — the float arc), the ABSENT-source
+conversion (`runtime_conv_absent_src_pinned` — the `denote_expr_conv_src_absent` propagation
+class: `PtRunInt` alone never implies denotation), the representatives in `undenoted_frontier`.
 
 ## Design (decided; implement in slices)
 

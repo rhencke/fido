@@ -9,9 +9,10 @@
     tier T1–T2 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
-    Absence boundaries are PINNED, not prose: [undenoted_frontier] + [typed_unary_holes_absent] +
-    the runtime-float CLASS theorems ([reval_val_runfloat_none] / [denote_expr_conv_float_src_absent])
-    + [typed_runtime_shift_absent].
+    Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority
+    (the frontier list, the typed-unary holes, the runtime-float CLASS theorems, the ABSENT-source
+    conversion pin [runtime_conv_absent_src_pinned], the shift table); this header does not
+    duplicate its member list.
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
     (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)
@@ -3299,8 +3300,10 @@ Proof. intros [A [x tag]]. repeat split; reflexivity. Qed.
     their source at FULL power): the EXIT-target chain [int64(uint8(len ..))], the [GTInt]-target
     chain [int(uint8(len ..))], and the TRUNCATING chain [int8(^uint8(len ..))] (a T1 typed unary
     INSIDE a conversion: [^uint8(3)] = 252, zero-extended and wrapped to [i8] −4 — the non-identity
-    witness; all three verified against gc via go run: 3, 3, −4).  The RUNTIME-FLOAT source complement
-    stays absent — [runtime_float_source_conv_absent] below. *)
+    witness; all three verified against gc via go run: 3, 3, −4).  These witnesses have EVALUATED
+    sources; the TWO absent complements are pinned separately — the runtime-FLOAT source
+    ([runtime_float_source_conv_absent] below) and the ABSENT runtime-int source
+    ([runtime_conv_absent_src_pinned], the [denote_expr_conv_src_absent] class). *)
 Definition runconv_chain_e : GExpr :=
   ECall (EId (mkIdent "int64" eq_refl))
         [ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]].
