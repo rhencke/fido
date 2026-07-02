@@ -1764,6 +1764,10 @@ Definition u64_lit (z : Z) (pf : in_u64 z = true) : GoU64 := MkU64 z (squash pf)
    bare carrier, which Go infers as [int]).  An out-of-range constant is unrepresentable: [eq_refl]
    cannot prove [in_u64 z = true] when [z] ∉ [[0, 2^64)]. *)
 Definition uint_lit (z : Z) (pf : in_u64 z = true) : GoUint := MkUint z (squash pf).
+(* [uintwrap] — the TOTAL wrap into the platform-[uint] range (mod 2^64, [wrapU64] — Go's runtime
+   [uint(x)] conversion semantics; [uint] is 64-bit here).  The proof-carrying [uint_lit] stays the
+   fail-closed CONSTANT builder; this is the RUNTIME-conversion authority (GoSem tier R3). *)
+Definition uintwrap (z : Z) : GoUint := MkUint (wrapU64 z) (squash (in_u64_wrapU64 z)).
 Definition u64_add (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a + u64raw b)).
 Definition u64_sub (a b : GoU64) : GoU64 := u64wrap (wrapU64 (u64raw a - u64raw b)).
 (* Unary negation: [-x] mod 2^64 (so [-1 = 2^64-1]).  Lowers to the prefix [-x]. *)

@@ -1,8 +1,8 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1+R2 LANDED; R3 (width conversions) next
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1+R2+R3 LANDED; next: runtime bool / map-value rules
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
-(R1 len/arith + R2 slice indexing LANDED; width conversions — R3 — remain; runtime map values need their
-OWN rule) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
+(R1 len/arith + R2 slice indexing + R3 width conversions LANDED; runtime bool comparisons and map
+values need their OWN rules) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
 `undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
@@ -17,9 +17,11 @@ runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANIC
 - OOB payloads are the model's EXACT `rt_index_oob i n` (digits; negative form omits length — verified
   against gc via `go run`; length = the STRUCTURAL list/`sh_len` nat, never a round-trip through the
   wrapped `len`).
-- R3 (width conversions of runtime ints): Go truncates at runtime (mod 2^w) — the model's `*wrap` ops
-  ARE that semantics; fold via the model's own wraps (agreement-by-construction). Runtime FLOATS stay
-  absent until the model-op evaluation extends (a fresh agreement question — do NOT smuggle).
+- R3 (LANDED): `int(x)` folds IN-fragment (`intwrap` identity); every other integer width EXITS at
+  `denote_expr` via `wrap_runint` — the model's own per-width wraps (`u8wrap`…`u64wrap`, `i64wrap`,
+  the new total `uintwrap`), Go's runtime truncation, agreement-by-construction; class theorems
+  `denote_expr_conv_{runs,panic}`. Runtime FLOATS stay absent until the model-op evaluation extends
+  (a fresh agreement question — do NOT smuggle); so do runtime-float→int truncations.
 
 ## Review-lesson checklist (apply from the start)
 - Every new fold's upstream GATE rejection becomes load-bearing — probe nested/empty shapes at ptype
@@ -53,14 +55,15 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   RETIRES the shape-based `divisor_zero`, whose seal becomes a corollary). **R2** (LANDED) runtime slice INDEX:
   in-bounds → the element, OOB → `RPanic (rt_index_oob i n)` — the first runtime OOB panics in
   denotation, exact payloads.
-  **R3** width conversions of runtime ints via the model wraps.
+  **R3** (LANDED) width conversions of runtime ints via the model wraps (`wrap_runint`; `int(x)` in-fragment).
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R2): `runlen_e`, `runidx_e`, the OOB constant index, and
-  panicking-element constructions all DENOTE; the pinned `undenoted_frontier` WITNESSES
-  (non-exhaustive) are `runconv_e` (a runtime width conversion — R3), a runtime bool COMPARISON (no
-  rule yet), `maplen_runval_e` (map-value rule), and the multi-byte rune. Each tier that lands FLIPS
-  its member's pin — swap the successor in the same commit. NOTE: `folded_arg` (né `denotable_arg`) is
+- Witness succession — CURRENT STATE (post-R3): `runlen_e`, `runidx_e`, `runconv_e`, the OOB constant
+  index, and panicking-element constructions all DENOTE; the pinned `undenoted_frontier` WITNESSES
+  (non-exhaustive) are `runbool_e` (a runtime bool comparison — no rule yet), `maplen_runval_e`
+  (map-value rule), and the multi-byte rune. Each rule that lands FLIPS its member's pins — swap the
+  successor in the same commit (R3 flipped FIVE runconv_e sites: frontier, out-boundary, the
+  GoSemSafe absent pair, the dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is
   the EVAL-ONLY sufficient fragment; the runtime tier's own converse — and any THEOREM bounding the
   gap — is open work.
