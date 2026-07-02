@@ -11,11 +11,14 @@ folded-zero divisor). `box_float` renders the dyadic directly (`sf_of_dyadic` = 
 consumer flows through — checks `floats_checked e` ONCE at its top: every `PtFloatConst` SUBexpression of
 `e`, at any depth and in any position (binop operands, under `float64(..)`, laundered through `int(..)`,
 comparison operands, slice elements, map keys/values, string-conversion sources), must pass
-`fsf_checked`, the recursive checker verifying each fold node against the MODEL's own
-`f64_*`/`f32_*`/`SFopp`/`f32_of_f64`/`f64_of_f32` ops. Gated: `fsf_checked_{binop,neg,conv_same,
-conv_narrow,conv_widen}_agrees` (every accepted node IS the model-op value) + `eval_value_floats_checked`
-(a denoted value implies the whole expression passed the boundary). Accepted surface = verified surface
-by construction; a disagreeing instance would be absent, never wrong.
+`fsf_checked`, the per-node checker verifying each fold node against the MODEL's own
+`f64_*`/`f32_*`/`SFopp`/`f32_of_f64`/`f64_of_f32` ops. Gated, all three tiers:
+`floats_checked_children_eqs` (a definitional recursion equation per `GExpr` constructor — deleting any
+child branch breaks Coq), `eval_value_floats_checked` (a denoted value implies the whole expression passed
+the boundary), and `fsf_checked_{binop,neg,conv_same,conv_narrow,conv_widen}_agrees` (every accepted node
+IS the model-op value). The unchecked scalar fold and the evaluator core are `Local` — not callable
+outside GoSem. Accepted surface = verified surface by construction; a disagreeing instance would be
+absent, never wrong.
 
 **Remaining obligation (PROGRESS NEXT).** Prove the GENERAL dyadic↔`SF*` agreement class theorem
 (exactly-representable operands and result ⟹ the model op returns the exact dyadic) — then the runtime

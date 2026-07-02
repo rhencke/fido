@@ -221,11 +221,12 @@ Fixpoint floats_checked (e : GExpr) : bool :=
      | EMapLit _ _ kvs => forallb (fun kv => floats_checked (fst kv) && floats_checked (snd kv)) kvs
      end.
 
-(** STRUCTURAL RECURSION GATES for the float boundary — one definitional equation per child-carrying
-    constructor (every laundering position: binop/comparison operands, the unary operand, call args incl.
-    scalar/string conversion sources, slice elements, map KEYS and VALUES, index children, [EConv]
-    sources).  Deleting any recursive child branch of [floats_checked] FALSIFIES its equation — Coq
-    breaks, not just a review.  Gated in [gosem_trust_surface]. *)
+(** STRUCTURAL RECURSION GATES for the float boundary — one definitional equation per [GExpr]
+    constructor, ALL 14 (child-carrying: binop/comparison operands, the unary operand, call args incl.
+    scalar/string conversion sources, slice elements, map KEYS and VALUES, index/slice children, [ESel]/
+    [EAssert]/[EConv] sources; plus the four leaves).  Deleting any recursive child branch of
+    [floats_checked] FALSIFIES its equation — Coq breaks, not just a review.  Gated in
+    [gosem_trust_surface]. *)
 Lemma floats_checked_children_eqs :
   (forall o a b, floats_checked (EBn o a b) = fc_node (EBn o a b) && (floats_checked a && floats_checked b))
   /\ (forall o a, floats_checked (EUn o a) = fc_node (EUn o a) && floats_checked a)
@@ -236,7 +237,15 @@ Lemma floats_checked_children_eqs :
         = fc_node (EMapLit kt vt kvs)
           && forallb (fun kv => floats_checked (fst kv) && floats_checked (snd kv)) kvs)
   /\ (forall a i, floats_checked (EIndex a i) = fc_node (EIndex a i) && (floats_checked a && floats_checked i))
-  /\ (forall c a, floats_checked (EConv c a) = fc_node (EConv c a) && floats_checked a).
+  /\ (forall c a, floats_checked (EConv c a) = fc_node (EConv c a) && floats_checked a)
+  /\ (forall a f, floats_checked (ESel a f) = fc_node (ESel a f) && floats_checked a)
+  /\ (forall a lo hi, floats_checked (ESlice a lo hi)
+        = fc_node (ESlice a lo hi) && (floats_checked a && floats_checked lo && floats_checked hi))
+  /\ (forall a t, floats_checked (EAssert a t) = fc_node (EAssert a t) && floats_checked a)
+  /\ (forall i, floats_checked (EId i) = fc_node (EId i) && true)
+  /\ (forall z, floats_checked (EInt z) = fc_node (EInt z) && true)
+  /\ (forall str, floats_checked (EStr str) = fc_node (EStr str) && true)
+  /\ (forall h, floats_checked (EHex h) = fc_node (EHex h) && true).
 Proof. repeat split; intros; reflexivity. Qed.
 
 (** The COMPARISON [BinOp]s fold a constant integer pair to a [bool] ([>]/[>=] reuse [<]/[<=] with swapped
@@ -391,12 +400,12 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
     coverage lives in [eval_value]'s [floats_checked] boundary (and [map_entries_evaluable] carries the
     boundary itself).  A numeric / string / bool CONSTANT evaluates to the model value its [ptype] category
     carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
-Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
+Local Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
   | Some (PtFloatConst t d) =>
-      match fsf_checked e with                                            (* THE single float authority: every fold inside [e], at any depth, re-verified against the model op *)
+      match fsf_checked e with                                            (* the PER-NODE agreement check; child positions are the [floats_checked] boundary's job *)
       | Some _ => box_float t (dy_m d) (dy_e d)
       | None => None
       end
@@ -450,7 +459,7 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
     [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
     runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
     out-of-range or COMPLEMENTED [uint], a rounding (non-exact) float op, multi-byte-rune — never wrong. *)
-Definition eval_value_core (e : GExpr) : option GoAny :=
+Local Definition eval_value_core (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
       (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is evaluated
