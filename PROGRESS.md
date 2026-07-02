@@ -77,17 +77,12 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`): rungs 1–4 + 5a/5b landed —
-  NEG-f64 + the signed-zero constant layer; the `shl_align` spec; `binary_round_exact` with
-  the LIVE-boundary bridge (`ptype_float_const_repr`, `ptype_float_payload_{f64,f32}`,
-  `box_float_gate`) and `renorm_binary_round_idem`; the WIDE bridge
-  `binary_round_of_norm_wide` (raw-digits-unbounded odd-core determinism, gated; the carry
-  class pinned `add_carry_raw_wide_accepted`); the determinism endpoint
-  `binary_normalize_wide_determined` + `dy_norm_value_unique`; ★ rung 5 CLOSED — ADD + SUB
-  at binary64 (`sf_render_{add,sub}_agrees_f64`: the live render of the fold IS the model op
-  of the renders, all shapes). Next: MUL/exact-DIV (rung 6). (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
-- CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
-  physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.
+- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`, the per-rung ledger):
+  rungs 1–5 LANDED, ★ rung 5 CLOSED — ADD + SUB at binary64 (`sf_render_{add,sub}_agrees_f64`:
+  the live render of the fold IS the model op of the renders, all shapes). Next: MUL/exact-DIV
+  (rung 6), the f32 row (7), checker completeness (8). (T1–T5 + R8 COMPLETE — `LESSONS.md`.)
+- CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features — the §3a GoSem split
+  (file 1/4 `GoSemCore.v` DONE), surfaces stay endpoint-only.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
