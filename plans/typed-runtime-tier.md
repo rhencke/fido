@@ -62,15 +62,15 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   Go for ≤64-bit carriers, go-run-verified incl. the huge-count 0; the negative-count panic
   `rt_shift_neg` gc-exact; the count layer `shift_count` sealed total on runtime AND const counts;
   the five-case shape table FLIPPED to denoting `typed_runtime_shift_runs` in this commit;
-  `GTInt`-left + `uint`-left pinned absent). Original design (now implemented): ⚠ NOT same-width binops:
+  `uint`-left pinned absent, the `GTInt` left later flipped by tier R8). Original design (now implemented): ⚠ NOT same-width binops:
   Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;
   the COUNT is an INDEPENDENT integer of any width, nonnegative — a signed negative count PANICS).
   A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated
   independently (any integer runtime/const form), admissibility derived from `ptype`, never a caller
   promise; the model ops are heterogeneous too (small widths take `GoInt` counts, `i64/u64` raw `Z` —
   reconciled per width at the dispatch; counts >= 64 saturate exactly).  The five-case shift SHAPE
-  table (`shift_case_shape`) now DENOTES (`typed_runtime_shift_runs`); only the `GTInt`-left and
-  `GTUint`-left rows remain absent, pinned.
+  table (`shift_case_shape`) now DENOTES (`typed_runtime_shift_runs`); only the `GTUint`-left row
+  remains absent, pinned (the `GTInt`-left row runs since tier R8 — `gtint_shift_runs`).
 - **Per-slice update obligations** (the standing rule): each landing flips its pins across the five
   recurring witness sites (`undenoted_frontier`, the out-boundary example, GoSemSafe's absent pair,
   the dead-tail escape, the arg-panic short-circuit trio) + class lemmas sealed to `ptype` (no
@@ -84,9 +84,9 @@ survey snapshot, re-grep before wiring each slice)
   `eqb neqb ltb leb gtb geb`, `and or xor andnot shl shr`, `not` — COMPLETE for T1/T3/T4.
 - **neg**: `i64_neg`, `u64_neg`, `int_neg` ONLY — unary `-` on u8..i32 has NO model op (Go's `-x`
   there = `0 - x` wrapped; if wanted, model `*_neg` as Definitions first — never compose silently).
-- **int** (GTInt, the R1–R7 fragment): `add sub mul div mod eqb ltb leb neg not` — no
-  bitwise/shift ops (runtime `&`/`|`/`^`/`<<`/`>>` on PLAIN int are ptype-supported yet absent: a
-  future GTInt-fragment slice needs `int_and`... as model Definitions first).
+- **int** (GTInt, the R1–R8 fragment): `add sub mul div mod eqb ltb leb neg not`, and since
+  tier R8 `and or xor andnot shl shr` (runtime `&`/`|`/`^`/`&^`/`<<`/`>>` on PLAIN int DENOTE
+  through the engine's `int_bitop`/`int_shift_op` dispatch).
 - **uint** (platform GoUint): `lit` only — EVERY runtime uint operation is absent until modelled.
 
 ## Not this arc

@@ -1587,6 +1587,21 @@ Definition int_neg (a : GoInt) : GoInt := intwrap (wrap64 (Z.opp (intraw a))).
    (verified `go run`: ^3 = -4, ^-1 = 0, ^minint = maxint); a bijection on the int64 window, so the
    wrap is the identity here — [intwrap] kept for the carrier's range invariant. *)
 Definition int_not (a : GoInt) : GoInt := intwrap (Z.lnot (intraw a)).
+(* Go's BITWISE binops on [int] — total on the carrier (the two's-complement window is closed
+   under [land]/[lor]/[lxor]; [&^] = AND NOT, [Z.land a (Z.lnot b)]); [intwrap] kept for the
+   carrier's range invariant (verified `go run`: 3&1=1, 3|4=7, 3^1=2, 3&^1=2, 3&^2=1). *)
+Definition int_and    (a b : GoInt) : GoInt := intwrap (Z.land (intraw a) (intraw b)).
+Definition int_or     (a b : GoInt) : GoInt := intwrap (Z.lor  (intraw a) (intraw b)).
+Definition int_xor    (a b : GoInt) : GoInt := intwrap (Z.lxor (intraw a) (intraw b)).
+Definition int_andnot (a b : GoInt) : GoInt := intwrap (Z.land (intraw a) (Z.lnot (intraw b))).
+(* Go's SHIFTS on [int] — the EXACT [i64_shl]/[i64_shr] shape: evidence-gated NONNEGATIVE count
+   ([<<] wraps at [2^63] via [intwrap]'s [wrap64]; [>>] is the ARITHMETIC shift — [Z.shiftr] on a
+   negative is floor division, Go's sign fill; verified `go run`: 3<<62 wraps negative, -3>>1 = -2,
+   -3>>64 = -1).  The consumer saturates counts >= 64 BEFORE the op (GoSem's [int_shift_checked]),
+   so the shift amount stays small. *)
+Definition int_shl (x : GoInt) (k : Z) (_ : (0 <=? k)%Z = true) : GoInt := intwrap (Z.shiftl (intraw x) k).
+Definition int_shr (x : GoInt) (k : Z) (_ : (0 <=? k)%Z = true) : GoInt := intwrap (Z.shiftr (intraw x) k).
+Fail Definition int_shl_neg : GoInt := int_shl (intwrap 1%Z) (-1)%Z eq_refl.
 Definition int_eqb (a b : GoInt) : bool := Z.eqb (intraw a) (intraw b).
 Definition int_ltb (a b : GoInt) : bool := Z.ltb (intraw a) (intraw b).
 Definition int_leb (a b : GoInt) : bool := Z.leb (intraw a) (intraw b).

@@ -45,7 +45,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     defer-time args), and call args — faithful-or-absent.
   - exact-or-absent value evaluator: constants (string / int / bool / exact-DYADIC floats behind the
     `floats_checked` boundary) + const slice-index/`len`/map-`len` folds, all fail-closed.
-  - the runtime GTInt tier R1–R7 (len, `+ - * / %`, unary `- ^`, slice index with exact
+  - the runtime GTInt tier R1–R8 (len, `+ - * / %`, `& | ^ &^` + heterogeneous shifts via the
+    engine's own model ops (`int_bitop`/`int_shift_op` dispatch pinned; negative count panics
+    `rt_shift_neg`, ≥64 saturates; `gtint_bitwise_runs`/`gtint_shift_runs`), unary `- ^`, slice index with exact
     `rt_index_oob`, width-conversion exits, comparisons, map-`len` over runtime values with
     order-independent panics) — all via the MODEL'S OWN ops through ONE shared evaluator
     (`reval_val_with`; `denote_expr` is a thin wrapper over the same pipeline).
@@ -72,7 +74,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     int width/const read via the sealed count layer, counts ≥ 64 SATURATE exactly, a NEGATIVE
     runtime count panics `rt_shift_neg`; SEALED `denote_expr_typed_shift_runs_sealed` over
     `ptype_shift_runint_args`; the five-case shape table FLIPPED to denoting,
-    `typed_runtime_shift_runs`; `GTInt`-left + `uint`-left rows pinned absent).
+    `typed_runtime_shift_runs`; `uint`-left pinned absent, the `GTInt` left runs via R8).
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
@@ -101,8 +103,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - The TYPED-runtime tier is COMPLETE (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion
   chains + T3 same-width arithmetic (incl. the mixed-const operand WIDTH SEAL) + T4 comparisons +
-  T5 heterogeneous shifts, all LANDED + SEALED. Next: the general dyadic↔`SF*` agreement theorem;
-  a GTInt bitwise/shift model-op slice. Keep the byte/size discipline while growing.
+  T5 heterogeneous shifts, all LANDED + SEALED; the GTInt engine's R8 bitwise/shift rows landed
+  too. Next: the general dyadic↔`SF*` agreement theorem. Keep the byte/size discipline while growing.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

@@ -5,8 +5,9 @@
     ctors) — single-authority, faithful.
 
     SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
-    over the exact-or-absent [eval_value] fold, the runtime GTInt tier R1–R7, and the typed-runtime
-    tier T1–T5 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
+    over the exact-or-absent [eval_value] fold, the runtime GTInt tier R1–R8 (R8 = the engine's own
+    bitwise + heterogeneous-shift rows), and the typed-runtime tier T1–T5 (ONE shared evaluator,
+    [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
     Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority,
@@ -1599,7 +1600,77 @@ Proof.
   destruct (shift_op o); [destruct t; try discriminate H; reflexivity | reflexivity].
 Qed.
 
-
+(** ---- Tier R8 — the GTInt ENGINE's bitwise + shift dispatch ----
+    The engine's own [GoInt] carrier takes the four bitwise binops as TOTAL model ops through ONE
+    dispatch authority ([int_bitop]) and the two shifts through a count-checked convoy
+    ([int_shift_checked] — [shift_checked_wide]'s exact shape at the engine's result type [RRes]):
+    a NEGATIVE count panics [rt_shift_neg] (gc's exact payload), a count >= 64 SATURATES
+    ([Z.min z 64] — exact for the 64-bit carrier), and the model op takes the raw [Z] count behind
+    the nonneg-evidence convoy.  go-run-verified: 3&1=1, 3|4=7, 3^1=2, 3&^2=1, 3<<62 wraps
+    negative, 3<<huge = 0, -3>>huge = -1, -3>>1 = -2, a negative runtime count panics. *)
+Definition int_bitop (o : BinOp) : option (GoInt -> GoInt -> GoInt) :=
+  match o with
+  | BAnd    => Some int_and
+  | BOr     => Some int_or
+  | BXor    => Some int_xor
+  | BAndNot => Some int_andnot
+  | _       => None
+  end.
+Definition int_shift_op (o : BinOp) : option (GoInt -> forall k : Z, (0 <=? k)%Z = true -> GoInt) :=
+  match o with
+  | BShl => Some int_shl
+  | BShr => Some int_shr
+  | _    => None
+  end.
+Definition int_shift_checked
+    (op : GoInt -> forall k : Z, (0 <=? k)%Z = true -> GoInt) (x : GoInt) (z : Z) : option RRes :=
+  (match (0 <=? z)%Z as b return (0 <=? z)%Z = b -> option RRes with
+   | false => fun _ => Some (RPanic rt_shift_neg)
+   | true => fun _ =>
+       (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RRes with
+        | true  => fun pf => Some (RVal (op x (Z.min z 64) pf))
+        | false => fun _  => None
+        end) eq_refl
+   end) eq_refl.
+Lemma int_shift_checked_cases : forall op (x : GoInt) z,
+  ((0 <=? z)%Z = false /\ int_shift_checked op x z = Some (RPanic rt_shift_neg))
+  \/ ((0 <=? z)%Z = true
+      /\ exists pf, int_shift_checked op x z = Some (RVal (op x (Z.min z 64) pf))).
+Proof.
+  intros op x z. unfold int_shift_checked.
+  assert (K2 : forall b2 (pf2 : (0 <=? Z.min z 64)%Z = b2), b2 = true ->
+      exists pf, (match b2 as b0 return (0 <=? Z.min z 64)%Z = b0 -> option RRes with
+                  | true  => fun pf0 => Some (RVal (op x (Z.min z 64) pf0))
+                  | false => fun _   => None
+                  end) pf2 = Some (RVal (op x (Z.min z 64) pf))).
+  { intros b2 pf2 Hb2. destruct b2; [eexists; reflexivity | discriminate Hb2]. }
+  assert (K : forall b (pfb : (0 <=? z)%Z = b),
+      ((0 <=? z)%Z = false
+       /\ (match b as b0 return (0 <=? z)%Z = b0 -> option RRes with
+           | false => fun _ => Some (RPanic rt_shift_neg)
+           | true => fun _ =>
+               (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RRes with
+                | true  => fun pf => Some (RVal (op x (Z.min z 64) pf))
+                | false => fun _  => None
+                end) eq_refl
+           end) pfb = Some (RPanic rt_shift_neg))
+      \/ ((0 <=? z)%Z = true
+          /\ exists pf, (match b as b0 return (0 <=? z)%Z = b0 -> option RRes with
+              | false => fun _ => Some (RPanic rt_shift_neg)
+              | true => fun _ =>
+                  (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RRes with
+                   | true  => fun pf0 => Some (RVal (op x (Z.min z 64) pf0))
+                   | false => fun _  => None
+                   end) eq_refl
+              end) pfb = Some (RVal (op x (Z.min z 64) pf)))).
+  { intros b pfb. destruct b.
+    - right. split; [exact pfb|].
+      assert (Hm : (0 <=? Z.min z 64)%Z = true)
+        by (apply Z.leb_le; apply Z.leb_le in pfb; lia).
+      exact (K2 _ eq_refl Hm).
+    - left. split; [exact pfb | reflexivity]. }
+  exact (K _ eq_refl).
+Qed.
 
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
@@ -1937,6 +2008,28 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
               | None => None
               end
           | EBn o a b =>
+              if shift_op o then
+                (* tier R8 — the GTInt SHIFT: the LEFT operand is the engine's own fragment
+                   (evaluated FIRST — a panicking left fires before the count, Go's order); the
+                   COUNT evaluates at FULL power at ITS OWN width through T5's sealed count layer
+                   ([shift_count] over the shared evaluator — a [uint8]-counted GTInt shift works),
+                   then the checked convoy applies the dispatched model op ([int_shift_checked]:
+                   a NEGATIVE count panics [rt_shift_neg], counts >= 64 saturate). *)
+                match reval_int a with
+                | Some (RVal va) =>
+                    match shift_count (reval_val_with reval_int) b with
+                    | Some (inl z) =>
+                        match int_shift_op o with
+                        | Some f => int_shift_checked f va z
+                        | None => None   (* unreachable under [shift_op o = true]; fail-closed *)
+                        end
+                    | Some (inr p) => Some (RPanic p)
+                    | None => None
+                    end
+                | Some (RPanic p) => Some (RPanic p)
+                | None => None
+                end
+              else
               match reval_int a, reval_int b with
               | Some (RPanic p), _ => Some (RPanic p)            (* left-to-right: a panicking LEFT operand fires first *)
               | Some (RVal _), Some (RPanic p) => Some (RPanic p)
@@ -1959,7 +2052,15 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                        | true  => fun _  => Some (RPanic rt_div_zero)
                        | false => fun pf => Some (RVal (int_mod va vb pf))
                        end) eq_refl
-                  | _ => None
+                  | _ =>
+                      (* tier R8 — the GTInt BITWISE rows ([& | ^ &^]): TOTAL model ops through the
+                         ONE dispatch authority ([int_bitop]).  Everything else is fail-closed
+                         (shifts are routed above; comparison/logical binops never classify
+                         [PtRunInt]). *)
+                      match int_bitop o with
+                      | Some f => Some (RVal (f va vb))
+                      | None => None
+                      end
                   end
               | _, _ => None
               end
@@ -3820,7 +3921,8 @@ Qed.
     the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact payload); operand/count panics
     propagate left-to-right; ABSENT sides stay absent.  [GTUint] left is the hole row
     ([typed_shift_uint_none], pinned [typed_shift_uint_program_absent]); an untyped-const LEFT
-    classifies [GTInt] (the engine's absent row, [typed_shift_gtint_none]). *)
+    classifies [GTInt] — the ENGINE's own R8 row runs it ([gtint_shift_runs]; [typed_shift]
+    itself stays op-less there, [typed_shift_gtint_none]). *)
 Theorem denote_expr_typed_shift_runs_sealed : forall o a b t ga z,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some (PtRunInt t) ->
@@ -3996,6 +4098,186 @@ Proof.
     { intros z pf0 Hz. destruct z; [discriminate Hz|].
       unfold int_mod. reflexivity. }
     exact (K _ eq_refl pf). }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+(** ---- Tier R8 sealed — the GTInt BITWISE + SHIFT rows ----
+    DISPATCH AUTHORITY (gated): each live row IS, by reflexivity, the FULLY QUALIFIED model op —
+    a rerouted row breaks a pin and fails the build. *)
+Example int_bitop_and_model    : int_bitop BAnd    = Some Fido.builtins.int_and.    Proof. reflexivity. Qed.
+Example int_bitop_or_model     : int_bitop BOr     = Some Fido.builtins.int_or.     Proof. reflexivity. Qed.
+Example int_bitop_xor_model    : int_bitop BXor    = Some Fido.builtins.int_xor.    Proof. reflexivity. Qed.
+Example int_bitop_andnot_model : int_bitop BAndNot = Some Fido.builtins.int_andnot. Proof. reflexivity. Qed.
+Example int_shift_op_shl_model : int_shift_op BShl = Some Fido.builtins.int_shl.    Proof. reflexivity. Qed.
+Example int_shift_op_shr_model : int_shift_op BShr = Some Fido.builtins.int_shr.    Proof. reflexivity. Qed.
+(* completeness: the dispatches are live on EXACTLY their ops — no silent hole, no silent widening *)
+Lemma int_bitop_complete : forall o,
+  (exists f, int_bitop o = Some f) <-> (o = BAnd \/ o = BOr \/ o = BXor \/ o = BAndNot).
+Proof.
+  intro o; split.
+  - intros [f Hf]; destruct o; try discriminate Hf; auto.
+  - intro H; destruct o;
+      first [ eexists; reflexivity
+            | exfalso; destruct H as [H|[H|[H|H]]]; discriminate H ].
+Qed.
+Lemma int_shift_op_complete : forall o,
+  (exists f, int_shift_op o = Some f) <-> shift_op o = true.
+Proof.
+  intro o; split.
+  - intros [f Hf]; destruct o; try discriminate Hf; reflexivity.
+  - intro H; destruct o; try discriminate H; eexists; reflexivity.
+Qed.
+(** ★ CLASS — GTInt BITWISE runs: a supported runtime [GTInt] [& | ^ &^] whose operands both
+    evaluate denotes to the dispatched model op's value (the engine row IS [int_bitop]'s row).
+    go-run-verified: 3&1=1, 3|4=7, 3^1=2, 3&^1=2, 3&^2=1. *)
+Lemma denote_expr_bitwise_runs : forall o f a b va vb,
+  int_bitop o = Some f ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RVal vb) ->
+  denote_expr (EBn o a b) = Some (CRet (anyt TInt64 (f va vb)), false).
+Proof.
+  intros o f a b va vb Hop Hfc Hpt Ha Hb.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hs : shift_op o = false)
+    by (destruct o; try discriminate Hop; reflexivity).
+  assert (Hr : reval_int (EBn o a b) = Some (RVal (f va vb))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha, Hb.
+    destruct o; try discriminate Hop;
+      cbn [int_bitop] in Hop; injection Hop as <-; reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+(** the panic sides, Go's left-to-right order — a panicking LEFT fires before the right operand,
+    a panicking RIGHT fires after an evaluated left *)
+Lemma denote_expr_bitwise_left_panic : forall o f a b p,
+  int_bitop o = Some f ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o f a b p Hop Hfc Hpt Ha.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hs : shift_op o = false)
+    by (destruct o; try discriminate Hop; reflexivity).
+  assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_bitwise_right_panic : forall o f a b va p,
+  int_bitop o = Some f ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o f a b va p Hop Hfc Hpt Ha Hb.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hs : shift_op o = false)
+    by (destruct o; try discriminate Hop; reflexivity).
+  assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha, Hb. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+(** ★ CLASS — the GTInt SHIFT decided per OUTCOME (T5's discipline at the engine's own width):
+    the dispatched model op's value on a NONNEGATIVE count (>= 64 saturating — exact for the
+    64-bit carrier), the NEGATIVE-count panic (gc's payload), a panicking LEFT or COUNT
+    propagated in Go's order (left before count). *)
+Lemma denote_expr_int_shift_runs : forall o f a b va z,
+  int_shift_op o = Some f ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  shift_count (reval_val_with reval_int) b = Some (inl z) ->
+  (0 <=? z)%Z = true ->
+  exists pf,
+    denote_expr (EBn o a b) = Some (CRet (anyt TInt64 (f va (Z.min z 64) pf)), false).
+Proof.
+  intros o f a b va z Hop Hfc Hpt Ha Hcnt Hz.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hs : shift_op o = true)
+    by (destruct o; try discriminate Hop; reflexivity).
+  destruct (int_shift_checked_cases f va z) as [[Ez _] | [_ [pf Ev]]]; [congruence|].
+  exists pf.
+  assert (Hr : reval_int (EBn o a b) = Some (RVal (f va (Z.min z 64) pf))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt.
+    cbv beta iota. rewrite Hop. cbv beta iota. exact Ev. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_int_shift_neg_panic : forall o a b va z,
+  shift_op o = true ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  shift_count (reval_val_with reval_int) b = Some (inl z) ->
+  (0 <=? z)%Z = false ->
+  denote_expr (EBn o a b) = Some (CPan rt_shift_neg, true).
+Proof.
+  intros o a b va z Hs Hfc Hpt Ha Hcnt Hz.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hf : exists f, int_shift_op o = Some f)
+    by (apply int_shift_op_complete; exact Hs).
+  destruct Hf as [f Hop].
+  destruct (int_shift_checked_cases f va z) as [[_ Ep] | [Ez _]]; [|congruence].
+  assert (Hr : reval_int (EBn o a b) = Some (RPanic rt_shift_neg)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt.
+    cbv beta iota. rewrite Hop. cbv beta iota. exact Ep. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_int_shift_left_panic : forall o a b p,
+  shift_op o = true ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b p Hs Hfc Hpt Ha.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_int_shift_count_panic : forall o a b va p,
+  shift_op o = true ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  shift_count (reval_val_with reval_int) b = Some (inr p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b va p Hs Hfc Hpt Ha Hcnt.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hr : reval_int (EBn o a b) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Hs.
+    cbv beta iota. rewrite Ha. cbv beta iota. rewrite Hcnt. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
 Qed.
@@ -5527,17 +5809,56 @@ Example typed_shift_edge_supported :
   forallb supported_program (map println_prog
     [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
-(** The absent LEFT rows at program level: an untyped-const left classifies [GTInt] (the engine's
-    row — no GTInt shifts modeled yet), a [uint] left is the op-less hole row. *)
+(** The GTInt LEFT rows now RUN through the engine (tier R8) — the former
+    [typed_shift_gtint_left_absent] pin FLIPPED: an untyped-const left ([2 << len] — classifies
+    [GTInt]), a runtime left with a WRAPPING const count ([len << 62] — negative like gc), a
+    TYPED-width count ([len << uint8]), the HUGE count (saturates: << exhausts to 0), the
+    sign-fill >> (-3 >> huge = -1), and the NEGATIVE runtime count (gc's exact panic payload) —
+    go-run-verified: 16, -4611686018427387904, 24, 0, -1, panic.  The [uint] left stays the
+    op-less hole row.  Bitwise: go-run-verified 1, 7, 2, 1. *)
 Definition runshift_intleft_e  : GExpr := EBn BShl (EInt 2) runlen3_e.
+Definition gtint_shift_wrap_e     : GExpr := EBn BShl runlen3_e (EInt 62).
+Definition gtint_shift_typedcnt_e : GExpr := EBn BShl runlen3_e runb_u8.
+Definition gtint_shift_huge_e     : GExpr :=
+  EBn BShl runlen3_e (EUn UXor (ECall (EId (mkIdent "uint64" eq_refl)) [runlen3_e])).
+Definition gtint_shift_signfill_e : GExpr :=
+  EBn BShr (EBn BSub (EInt 0) runlen3_e)
+           (EUn UXor (ECall (EId (mkIdent "uint64" eq_refl)) [runlen3_e])).
+Definition gtint_shift_negcnt_e   : GExpr := EBn BShl runlen3_e (EBn BSub (EInt 0) runlen3_e).
+Definition gtint_and_e    : GExpr := EBn BAnd    runlen3_e (EInt 1).
+Definition gtint_or_e     : GExpr := EBn BOr     runlen3_e (EInt 4).
+Definition gtint_xor_e    : GExpr := EBn BXor    runlen3_e (EInt 1).
+Definition gtint_andnot_e : GExpr := EBn BAndNot runlen3_e (EInt 2).
+Example gtint_shift_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
+      ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]
+  = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 16) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 13835058055282163712) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 24) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 55340232221128654848) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap (-1)) :: nil) w))
+    ; Some (OPanic rt_shift_neg w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example gtint_bitwise_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]
+  = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 7) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 2) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example gtint_shift_supported :
+  forallb supported_program (map println_prog
+    [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
+    ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example gtint_bitwise_supported :
+  forallb supported_program (map println_prog
+    [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
 Definition runshift_uintleft_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]) (EInt 1).
-Example typed_shift_gtint_left_absent :
-  ptype runshift_intleft_e = Some (PtRunInt GTInt)
-  /\ supported_program (println_prog runshift_intleft_e) = true
-  /\ denotable_program (println_prog runshift_intleft_e) = false
-  /\ denote_program (println_prog runshift_intleft_e) = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
 Example typed_shift_uint_program_absent :
   ptype runshift_uintleft_e = Some (PtRunInt GTUint)
   /\ supported_program (println_prog runshift_uintleft_e) = true
@@ -6177,6 +6498,13 @@ Definition gosem_runtime_int_surface :=
    typed_runtime_shift_runs, typed_shift_edge_runs, typed_shift_edge_supported,
    typed_shift_u8_model, typed_shift_i8_model, typed_shift_u16_model, typed_shift_i16_model,
    typed_shift_u32_model, typed_shift_i32_model, typed_shift_i64_model, typed_shift_u64_model,
+   int_bitop_and_model, int_bitop_or_model, int_bitop_xor_model, int_bitop_andnot_model,
+   int_shift_op_shl_model, int_shift_op_shr_model, int_bitop_complete, int_shift_op_complete,
+   denote_expr_bitwise_runs, denote_expr_bitwise_left_panic, denote_expr_bitwise_right_panic,
+   denote_expr_int_shift_runs, denote_expr_int_shift_neg_panic,
+   denote_expr_int_shift_left_panic, denote_expr_int_shift_count_panic,
+   int_shift_checked_cases,
+   gtint_bitwise_runs, gtint_bitwise_supported, gtint_shift_runs, gtint_shift_supported,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
    typed_mixed_const_runs, typed_mixed_const_supported,
@@ -6193,7 +6521,7 @@ Definition gosem_frontier_surface :=
    typed_unary_holes_absent, reval_val_runfloat_none, denote_expr_conv_float_src_absent,
    runtime_float_source_conv_absent, runtime_conv_absent_src_pinned,
    typed_binop_uint_program_absent,
-   typed_shift_gtint_left_absent, typed_shift_uint_program_absent).
+   typed_shift_uint_program_absent).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
