@@ -51,7 +51,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     (`reval_val_with`; `denote_expr` is a thin wrapper over the same pipeline).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`); compositional converses
     (`out_main_denotes`, `denotable_stmts_main_denotes`, tightness `denotable_body_terminator_free_iff`).
-  - typed-runtime tier T1–T2: typed UNARY's live cells denote (`^` all fixed widths, `-` i64/u64;
+  - typed-runtime tier T1–T3: typed UNARY's live cells denote (`^` all fixed widths, `-` i64/u64;
     SEALED `denote_expr_typed_unop_runs_sealed` on the proven well-taggedness invariant
     `reval_val_typed`; holes absent for every payload, `typed_unop_holes_none` +
     `typed_unary_holes_absent`); conversions are decided PER SOURCE OUTCOME for exit AND `int`
@@ -59,8 +59,11 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     `denote_expr_conv{,_int}_runs_sealed`), a panicking one panics (`..conv{,_int}_panic`), an
     ABSENT one stays absent (`denote_expr_conv_src_absent`; `PtRunInt` alone never implies
     denotation — pinned `runtime_conv_absent_src_pinned`); the float side CLASS-absent
-    (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`). Shifts stay pinned:
-    `typed_runtime_shift_absent`.
+    (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`); SAME-WIDTH typed
+    arithmetic/bitwise denotes on evaluated operands (nine ops × 8 fixed widths, `typed_binop` —
+    value / div-zero panic / operand panic / absent each proved, SEALED
+    `denote_expr_typed_binop_runs_sealed`, shape split proved `ptype_binop_runint_args`;
+    MIXED-CONST + `uint` rows pinned absent). Shifts stay pinned: `typed_runtime_shift_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
@@ -87,9 +90,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion chains LANDED +
-  SEALED; next T3 same-width arithmetic, T4 comparisons, T5 heterogeneous shifts; then the general
-  dyadic↔`SF*` agreement theorem. Keep the byte/size discipline while growing.
+- The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion chains + T3
+  same-width arithmetic LANDED + SEALED; next T4 comparisons, T5 heterogeneous shifts,
+  const-materialization-at-width (the mixed-const shape); then the general dyadic↔`SF*` agreement
+  theorem. Keep the byte/size discipline while growing.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

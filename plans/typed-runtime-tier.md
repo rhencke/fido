@@ -43,9 +43,14 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   operand shapes split exhaustively by `ptype_call_runint_conv_arg`, the float side CLASS-absent
   (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`); runs pins
   `typed_runtime_convchain_runs` incl. the truncating `int8(^uint8(len ..))` = −4,
-  go-run-verified). T3 same-width
-  arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
-  `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
+  go-run-verified). T3 same-width arithmetic/bitwise — LANDED (`typed_binop`, nine ops × 8 widths;
+  div/mod via the generic `div_checked` evidence convoy; sealed
+  `denote_expr_typed_binop_runs_sealed` + panic/absent companions; operand-shape split proved
+  `ptype_binop_runint_args` — the MIXED-CONST rows (one runtime + one int-const operand, valid Go)
+  pinned absent `typed_mixed_const_operand_absent` until CONST-MATERIALIZATION-AT-WIDTH (a named
+  future slice: box the const at the binop's width via ptype's own repr check); `uint` row pinned
+  `typed_binop_uint_program_absent`; go-run-verified runs pins incl. wrap 252+252=248 and
+  `-4 % 3 = -1`). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:
   Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;
   the COUNT is an INDEPENDENT integer of any width, nonnegative — a signed negative count PANICS).
