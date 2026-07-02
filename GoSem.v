@@ -428,7 +428,7 @@ Local Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
     verdict.  Each entry is gated by [ptype]'s OWN map-arm checks ([assignable_to_ty] on BOTH sides + an
     integer-CONSTANT key; proved ⊆ [ptype]: [eval_map_len_supported]) and must fully EVALUATE (key boxable
     to [kt]; value folded by the CONSTANT default [eval_value_ptype_core] — a supported RUNTIME value like
-    [len([]int{2})] declines: absent, not wrong, [map_len_supported_but_undenoted]).  Deliberately a [bool],
+    [len([]int{2})] declines: absent, not wrong, [map_len_eval_absent]).  Deliberately a [bool],
     NOT a list of boxed pairs: [len] needs only "construction completes, panic-free" + the count, and a pair
     list boxed by the DEFAULT fold would carry default-typed values (a [map[int]uint8] value boxed as [int])
     — semantically misleading entries nothing may consume.  A target-typed map VALUE evaluator is future
@@ -592,22 +592,123 @@ Definition reval_elems_with (rec : GExpr -> option RRes) : list GExpr -> option 
         | None => None
         end
     end.
-(** Map-VALUE construction for the runtime tier (R5) — like [reval_elems_with] but walking the map
-    literal's (key, value) PAIRS, evaluating each VALUE (keys are constants under the [PtRunInt] guard:
-    [ptype]'s map arm rejects runtime keys).  Structured this way — the value bound by the PAIR pattern —
-    so the [Fixpoint] guard accepts the recursion (a [map snd kvs] argument would not be structural). *)
-Definition reval_map_vals_with (rec : GExpr -> option RRes) : list (GExpr * GExpr) -> option RElems :=
-  fix go (l : list (GExpr * GExpr)) : option RElems :=
+(** Tier R3 EXIT boxing — a width conversion OUT of the [GTInt] runtime fragment, computed with the
+    MODEL'S OWN per-width wrap (Go's runtime conversion TRUNCATES mod 2^w — the wraps ARE that
+    semantics; the SAME wraps [box_int] renders constants with, minus its constant-range gate, which
+    would be WRONG here: Go does not reject an out-of-range runtime conversion, it wraps).  [GTInt] is
+    deliberately [None]: the same-width [int(x)] lives INSIDE [reval_int] (one authority per target).
+    Non-integer targets are unreachable under the caller's [PtRunInt] guard; defensive [None]. *)
+Definition wrap_runint (t : GoTy) (z : Z) : option GoAny :=
+  match t with
+  | GTInt64 => Some (anyt TI64  (i64wrap z))
+  | GTU8    => Some (anyt TU8   (u8wrap  z))
+  | GTI8    => Some (anyt TI8   (i8wrap  z))
+  | GTU16   => Some (anyt TU16  (u16wrap z))
+  | GTI16   => Some (anyt TI16  (i16wrap z))
+  | GTU32   => Some (anyt TU32  (u32wrap z))
+  | GTI32   => Some (anyt TI32  (i32wrap z))
+  | GTU64   => Some (anyt TU64  (u64wrap z))
+  | GTUint  => Some (anyt TUint (uintwrap z))
+  | _       => None
+  end.
+
+(** Tier R4 comparison dispatch — the verdict function per comparison [BinOp], built ONLY from the
+    model's own [int_eqb]/[int_ltb]/[int_leb] ([!=] is the negation of [==]; [>]/[>=] are the argument
+    swap — Go's exact [int] comparison semantics).  [None] = not a comparison ([&&]/[||] operate on
+    BOOLS, never the int fragment; arithmetic never yields the bool exit). *)
+Definition cmp_verdict (o : BinOp) : option (GoInt -> GoInt -> bool) :=
+  match o with
+  | BEq => Some int_eqb
+  | BNe => Some (fun x y => negb (int_eqb x y))
+  | BLt => Some int_ltb
+  | BLe => Some int_leb
+  | BGt => Some (fun x y => int_ltb y x)
+  | BGe => Some (fun x y => int_leb y x)
+  | _ => None
+  end.
+
+(** ---- THE SHARED VALUE EVALUATOR (one authority — no per-consumer drift) ----
+    [RAny] is the full-typed runtime result ([GoAny] value or panic).  [rexit_with] is THE one spelling
+    of the fragment EXITS — the R3 width conversion and the R4 bool comparison — parametrized over the
+    int-fragment engine (the [fsf_operand_with] pattern) so [reval_int]'s map arm and [denote_expr]
+    consume literally the same code.  [reval_val_with] is the whole value pipeline: the constant fold,
+    then the [GTInt] fragment (boxed [TInt64]), then the exits. *)
+Inductive RAny : Type := RAVal (g : GoAny) | RAPanic (p : GoAny).
+Definition rexit_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
+  match e with
+  | ECall (EId f) (a :: nil) =>
+      (* tier R3, the EXIT half — a width conversion OUT of the [GTInt] fragment: [ptype]'s
+         [PtRunInt t] on a one-arg call can ONLY be [conv_to_scalar] (or [len]/[cap], which are
+         [GTInt] — excluded here) — PROVED, not asserted: [ptype_call_runint_conv] seals [t] to an
+         integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]); the ARG must
+         itself be the [GTInt] runtime fragment — a runtime-FLOAT or other-width source is absent
+         there, so no wrong truncation can slip through.  A panicking arg panics (Go's order). *)
+      match ptype e with
+      | Some (PtRunInt t) =>
+          if numty_eqb t GTInt then None else
+          match rec a with
+          | Some (RVal v) =>
+              match wrap_runint t (intraw v) with
+              | Some g => Some (RAVal g)
+              | None => None
+              end
+          | Some (RPanic p) => Some (RAPanic p)
+          | None => None
+          end
+      | _ => None
+      end
+  | EBn o a b =>
+      (* tier R4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a comparison
+         (or [&&]/[||] — dispatched away by [cmp_verdict]); both operands must evaluate in the [GTInt]
+         runtime fragment (a string / bool / mixed-width operand is absent there, so no wrong compare
+         can slip through), and the verdict is the model's own comparison op.  A panicking operand
+         panics LEFT-to-right (Go's order), before any comparison. *)
+      match ptype e with
+      | Some PtBool =>
+          match cmp_verdict o with
+          | None => None
+          | Some cmp =>
+              match rec a with
+              | Some (RVal va) =>
+                  match rec b with
+                  | Some (RVal vb) => Some (RAVal (anyt TBool (cmp va vb)))
+                  | Some (RPanic p) => Some (RAPanic p)
+                  | None => None
+                  end
+              | Some (RPanic p) => Some (RAPanic p)
+              | None => None
+              end
+          end
+      | _ => None
+      end
+  | _ => None
+  end.
+Definition reval_val_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny :=
+  match eval_value e with
+  | Some v => Some (RAVal v)
+  | None =>
+      match rec e with
+      | Some (RVal x)   => Some (RAVal (anyt TInt64 x))
+      | Some (RPanic p) => Some (RAPanic p)
+      | None => rexit_with rec e
+      end
+  end.
+(** Map-literal CONSTRUCTION for the runtime tier (R5) — walk the (key, value) PAIRS, evaluating each
+    VALUE through the FULL shared evaluator (so a value ANY tier denotes — R3 width conversions and R4
+    comparisons included — constructs; ONE authority with [denote_expr], no drift).  [Some RCOk] =
+    every value denotes; [Some (RCPanic p)] = the FIRST panicking value aborts construction (source
+    order; keys are constants under the [PtRunInt] guard and cannot panic); [None] = an absent value
+    keeps the whole form absent.  The value is bound by the PAIR pattern so the enclosing [Fixpoint]'s
+    guard accepts the recursion. *)
+Inductive RConstr : Type := RCOk | RCPanic (p : GoAny).
+Definition rconstr_vals_with (rval : GExpr -> option RAny) : list (GExpr * GExpr) -> option RConstr :=
+  fix go (l : list (GExpr * GExpr)) : option RConstr :=
     match l with
-    | nil => Some (REVals nil)
+    | nil => Some RCOk
     | (_, v) :: r =>
-        match rec v with
-        | Some (RVal x) =>
-            match go r with
-            | Some (REVals vs) => Some (REVals (x :: vs))
-            | other => other
-            end
-        | Some (RPanic p) => Some (REPanic p)
+        match rval v with
+        | Some (RAVal _)   => go r
+        | Some (RAPanic p) => Some (RCPanic p)
         | None => None
         end
     end.
@@ -639,12 +740,13 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  mirrored) — then evaluates each VALUE through the tier: all values → the entry count
                  via the checked [rval_len]; the FIRST panicking value aborts construction with ITS
                  panic (constant keys cannot panic); an absent value keeps the whole form absent.
-                 Values walk via [reval_map_vals_with] (pair-structural — see its comment). *)
+                 Values walk the FULL shared evaluator ([rconstr_vals_with (reval_val_with reval_int)])
+                 — R3-converted and R4-compared values construct exactly as they denote standalone. *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
                  && nodup_z (map_key_vals kvs)
-              then match reval_map_vals_with reval_int kvs with
-                   | Some (REVals _)  => rval_len (length kvs)
-                   | Some (REPanic p) => Some (RPanic p)
+              then match rconstr_vals_with (reval_val_with reval_int) kvs with
+                   | Some RCOk        => rval_len (length kvs)
+                   | Some (RCPanic p) => Some (RPanic p)
                    | None => None
                    end
               else None
@@ -711,109 +813,28 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
   end.
 
 Definition reval_elems : list GExpr -> option RElems := reval_elems_with reval_int.
-Definition reval_map_vals : list (GExpr * GExpr) -> option RElems := reval_map_vals_with reval_int.
-
-(** Tier R3 EXIT boxing — a width conversion OUT of the [GTInt] runtime fragment, computed with the
-    MODEL'S OWN per-width wrap (Go's runtime conversion TRUNCATES mod 2^w — the wraps ARE that
-    semantics; the SAME wraps [box_int] renders constants with, minus its constant-range gate, which
-    would be WRONG here: Go does not reject an out-of-range runtime conversion, it wraps).  [GTInt] is
-    deliberately [None]: the same-width [int(x)] lives INSIDE [reval_int] (one authority per target).
-    Non-integer targets are unreachable under the caller's [PtRunInt] guard; defensive [None]. *)
-Definition wrap_runint (t : GoTy) (z : Z) : option GoAny :=
-  match t with
-  | GTInt64 => Some (anyt TI64  (i64wrap z))
-  | GTU8    => Some (anyt TU8   (u8wrap  z))
-  | GTI8    => Some (anyt TI8   (i8wrap  z))
-  | GTU16   => Some (anyt TU16  (u16wrap z))
-  | GTI16   => Some (anyt TI16  (i16wrap z))
-  | GTU32   => Some (anyt TU32  (u32wrap z))
-  | GTI32   => Some (anyt TI32  (i32wrap z))
-  | GTU64   => Some (anyt TU64  (u64wrap z))
-  | GTUint  => Some (anyt TUint (uintwrap z))
-  | _       => None
-  end.
-
-(** Tier R4 comparison dispatch — the verdict function per comparison [BinOp], built ONLY from the
-    model's own [int_eqb]/[int_ltb]/[int_leb] ([!=] is the negation of [==]; [>]/[>=] are the argument
-    swap — Go's exact [int] comparison semantics).  [None] = not a comparison ([&&]/[||] operate on
-    BOOLS, never the int fragment; arithmetic never yields the bool exit). *)
-Definition cmp_verdict (o : BinOp) : option (GoInt -> GoInt -> bool) :=
-  match o with
-  | BEq => Some int_eqb
-  | BNe => Some (fun x y => negb (int_eqb x y))
-  | BLt => Some int_ltb
-  | BLe => Some int_leb
-  | BGt => Some (fun x y => int_ltb y x)
-  | BGe => Some (fun x y => int_leb y x)
-  | _ => None
-  end.
+Definition reval_val : GExpr -> option RAny := reval_val_with reval_int.
+Definition rconstr_vals : list (GExpr * GExpr) -> option RConstr := rconstr_vals_with (reval_val_with reval_int).
 
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
-  match eval_value e with
-  | Some v => Some (CRet v, false)
-  | None =>
-      (* the RUNTIME tier — under the SAME float boundary [eval_value] enforces at its own top *)
-      if negb (floats_checked e) then None else
-      match reval_int e with
-      | Some (RVal v)   => Some (CRet (anyt TInt64 v), false)
-      | Some (RPanic p) => Some (CPan p, true)
-      | None =>
-          (* tier R3, the EXIT half — a width conversion OUT of the [GTInt] fragment: [ptype]'s
-             [PtRunInt t] on a one-arg call can ONLY be [conv_to_scalar] (or [len]/[cap], which are
-             [GTInt] — excluded here) — PROVED, not asserted: [ptype_call_runint_conv] seals [t] to an
-             integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]); the ARG must itself be the
-             [GTInt] runtime fragment ([reval_int a]) — a runtime-FLOAT or other-width source is absent
-             there, so no wrong truncation can slip through.  A panicking arg panics (Go's order). *)
-          match e with
-          | ECall (EId f) (a :: nil) =>
-              match ptype e with
-              | Some (PtRunInt t) =>
-                  if numty_eqb t GTInt then None else
-                  match reval_int a with
-                  | Some (RVal v) =>
-                      match wrap_runint t (intraw v) with
-                      | Some g => Some (CRet g, false)
-                      | None => None
-                      end
-                  | Some (RPanic p) => Some (CPan p, true)
-                  | None => None
-                  end
-              | _ => None
-              end
-          | EBn o a b =>
-              (* tier R4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a
-                 comparison (or [&&]/[||] — dispatched away by [cmp_verdict]); both operands must
-                 evaluate in the [GTInt] runtime fragment ([reval_int] — a string / bool / mixed-width
-                 operand is absent there, so no wrong compare can slip through), and the verdict is the
-                 model's own comparison op.  A panicking operand panics LEFT-to-right (Go's order),
-                 before any comparison. *)
-              match ptype e with
-              | Some PtBool =>
-                  match cmp_verdict o with
-                  | None => None
-                  | Some cmp =>
-                      match reval_int a with
-                      | Some (RVal va) =>
-                          match reval_int b with
-                          | Some (RVal vb) => Some (CRet (anyt TBool (cmp va vb)), false)
-                          | Some (RPanic p) => Some (CPan p, true)
-                          | None => None
-                          end
-                      | Some (RPanic p) => Some (CPan p, true)
-                      | None => None
-                      end
-                  end
-              | _ => None
-              end
-          | _ => None
-          end
-      end
+  (* the FLOAT boundary once at the top, then THE shared value evaluator ([reval_val_with reval_int]:
+     constant fold -> the GTInt runtime fragment -> the R3/R4 exits) — the SAME pipeline the map arm's
+     construction walk consumes, so no consumer can drift. *)
+  if negb (floats_checked e) then None else
+  match reval_val_with reval_int e with
+  | Some (RAVal v)   => Some (CRet v, false)
+  | Some (RAPanic p) => Some (CPan p, true)
+  | None => None
   end.
 
 (** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value
     (fall-through — a pure expression cannot terminate control flow). *)
 Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = Some (CRet v, false).
-Proof. intros e v H. unfold denote_expr. rewrite H. reflexivity. Qed.
+Proof.
+  intros e v H. unfold denote_expr.
+  rewrite (eval_value_floats_checked e v H). cbn [negb].
+  unfold reval_val_with. rewrite H. reflexivity.
+Qed.
 
 (** ★ CLASS — the determined divide-by-zero PANICS, through the runtime tier: a SUPPORTED runtime
     [GTInt] [/] or [%] whose operands BOTH evaluate ([reval_int] values) with divisor raw 0 denotes to
@@ -832,7 +853,9 @@ Proof.
   assert (Hev : eval_value (EBn o a b) = None).
   { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
     unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  assert (Hgoal : reval_int (EBn o a b) = Some (RPanic rt_div_zero));
+    [| unfold denote_expr; rewrite Hfc; cbn [negb];
+       unfold reval_val_with; rewrite Hev, Hgoal; reflexivity ].
   cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
   rewrite Ha, Hb.
   destruct Ho as [-> | ->].
@@ -875,9 +898,11 @@ Proof.
   destruct (nth_error vs (Z.to_nat (intraw vi))) as [v|] eqn:Hnth;
     [| exfalso; apply Hne; reflexivity].
   exists v. split; [reflexivity|].
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
-  unfold reval_elems in Hes. rewrite Hes, Hidx, Hb, Hnth. reflexivity.
+  assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RVal v)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+    unfold reval_elems in Hes. rewrite Hes, Hidx, Hb, Hnth. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 (** Out-of-bounds (negative or >= length): the denotation PANICS with the model's exact
     [rt_index_oob i n] — index raw and STRUCTURAL constructed length, the Go payload. *)
@@ -892,9 +917,12 @@ Lemma denote_expr_index_oob : forall et es idx vs vi,
     = Some (CPan (rt_index_oob (intraw vi) (length vs)), true).
 Proof.
   intros et es idx vs vi Hfc Hpt Hev Hes Hidx Hb.
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
-  unfold reval_elems in Hes. rewrite Hes, Hidx, Hb. reflexivity.
+  assert (Hr : reval_int (EIndex (ESliceLit et es) idx)
+               = Some (RPanic (rt_index_oob (intraw vi) (length vs)))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+    unfold reval_elems in Hes. rewrite Hes, Hidx, Hb. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking ELEMENT aborts construction (the verified go-run order): ITS panic is the denotation —
     the index is never consulted. *)
@@ -906,9 +934,11 @@ Lemma denote_expr_index_elem_panic : forall et es idx p,
   denote_expr (EIndex (ESliceLit et es) idx) = Some (CPan p, true).
 Proof.
   intros et es idx p Hfc Hpt Hev Hes.
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
-  unfold reval_elems in Hes. rewrite Hes. reflexivity.
+  assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+    unfold reval_elems in Hes. rewrite Hes. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 (** A panicking INDEX (after successful construction) panics with ITS payload — Go's evaluation order
     (literal first, then index). *)
@@ -921,9 +951,11 @@ Lemma denote_expr_index_idx_panic : forall et es idx vs p,
   denote_expr (EIndex (ESliceLit et es) idx) = Some (CPan p, true).
 Proof.
   intros et es idx vs p Hfc Hpt Hev Hes Hidx.
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
-  unfold reval_elems in Hes. rewrite Hes, Hidx. reflexivity.
+  assert (Hr : reval_int (EIndex (ESliceLit et es) idx) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+    unfold reval_elems in Hes. rewrite Hes, Hidx. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 
 (** ★ CLASS (tier R3) — the two universal WIDTH-CONVERSION denotation theorems, quantified over the
@@ -982,8 +1014,9 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  rewrite He. cbv beta iota.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hw. reflexivity.
 Qed.
@@ -1000,8 +1033,9 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  rewrite He. cbv beta iota.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   rewrite Ha. reflexivity.
 Qed.
@@ -1024,8 +1058,9 @@ Proof.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  rewrite He. cbv beta iota.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
@@ -1041,8 +1076,9 @@ Proof.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  rewrite He. cbv beta iota.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. reflexivity.
 Qed.
@@ -1059,8 +1095,9 @@ Proof.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
-  rewrite He. cbv beta iota.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, He. cbv beta iota.
+  unfold rexit_with. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
@@ -1068,29 +1105,32 @@ Qed.
 (** ★ CLASS (tier R5) — the map-value [len] denotation theorems, quantified over the whole
     reval-evaluable fragment: [len] of a map literal [ptype] classifies [PtRunInt GTInt] (which forces
     ALL-CONSTANT DISTINCT keys — [ptype]'s map arm), under the fold arm's own side conditions, whose
-    VALUES all evaluate in the runtime tier denotes to the DISTINCT-KEY COUNT (boxed through the checked
+    VALUES all evaluate through the SHARED evaluator ([rconstr_vals] = the same [reval_val_with
+    reval_int] pipeline [denote_expr] consumes — R3/R4-form values included) denotes to the
+    DISTINCT-KEY COUNT (boxed through the checked
     [rval_len] — [int_const_repr] on the count is the fail-closed representability boundary, discharged
     by [rval_len_repr]); a panicking VALUE aborts construction with ITS panic. *)
-Lemma denote_expr_maplen_runs : forall f kt vt kvs vs,
+Lemma denote_expr_maplen_runs : forall f kt vt kvs,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
   ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (PtRunInt GTInt) ->
   eval_value (ECall (EId f) (EMapLit kt vt kvs :: nil)) = None ->
   (String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
      && nodup_z (map_key_vals kvs))%bool = true ->
-  reval_map_vals kvs = Some (REVals vs) ->
+  rconstr_vals kvs = Some RCOk ->
   int_const_repr (Z.of_nat (length kvs)) GTInt = true ->
   denote_expr (ECall (EId f) (EMapLit kt vt kvs :: nil))
     = Some (CRet (anyt TInt64 (intwrap (Z.of_nat (length kvs)))), false).
 Proof.
-  intros f kt vt kvs vs Hfc Hpt Hev Hcond Hvals Hrepr.
+  intros f kt vt kvs Hfc Hpt Hev Hcond Hvals Hrepr.
   assert (Hr : reval_int (ECall (EId f) (EMapLit kt vt kvs :: nil))
                = Some (RVal (intwrap (Z.of_nat (length kvs))))).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbn [numty_eqb negb].
     rewrite Hcond. cbv beta iota.
-    unfold reval_map_vals in Hvals. rewrite Hvals. cbv beta iota.
+    unfold rconstr_vals in Hvals. rewrite Hvals. cbv beta iota.
     exact (rval_len_repr (length kvs) Hrepr). }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb]. rewrite Hr. reflexivity.
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 Lemma denote_expr_maplen_panic : forall f kt vt kvs p,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
@@ -1098,7 +1138,7 @@ Lemma denote_expr_maplen_panic : forall f kt vt kvs p,
   eval_value (ECall (EId f) (EMapLit kt vt kvs :: nil)) = None ->
   (String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
      && nodup_z (map_key_vals kvs))%bool = true ->
-  reval_map_vals kvs = Some (REPanic p) ->
+  rconstr_vals kvs = Some (RCPanic p) ->
   denote_expr (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (CPan p, true).
 Proof.
   intros f kt vt kvs p Hfc Hpt Hev Hcond Hvals.
@@ -1106,8 +1146,9 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbn [numty_eqb negb].
     rewrite Hcond. cbv beta iota.
-    unfold reval_map_vals in Hvals. rewrite Hvals. reflexivity. }
-  unfold denote_expr. rewrite Hev, Hfc. cbn [negb]. rewrite Hr. reflexivity.
+    unfold rconstr_vals in Hvals. rewrite Hvals. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
 Qed.
 
 (** ★ DISPATCH AUTHORITY PINS (gated) — [cmp_verdict]'s WHOLE dispatch table.  Each comparison branch
@@ -1852,7 +1893,7 @@ Qed.
 (** ★ SUPPORTEDNESS INCLUSION BRIDGE (map-[len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
     (valid Rocq-Go; the evaluator folds the determined count without loosening the gate).  A strict INCLUSION:
     [ptype] also admits a map literal with a RUNTIME value, which stays unfolded — strictness pinned by
-    [map_len_supported_but_undenoted]. *)
+    [map_len_eval_absent]. *)
 Lemma eval_map_len_supported : forall kt vt kvs f,
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty kt = true ->
@@ -2015,7 +2056,7 @@ Proof. vm_compute. reflexivity. Qed.
     leaves it absent — so [eval_map_len_supported] is a strict INCLUSION, not equality.  (Since tier R5
     the shape DENOTES through the runtime tier — [runtime_maplen_runs] — so the strictness claim is
     scoped to [eval_value] only.) *)
-Example map_len_supported_but_undenoted :
+Example map_len_eval_absent :
   ptype maplen_runval_e = Some (PtRunInt GTInt)
   /\ eval_value maplen_runval_e = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -2023,8 +2064,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** ★ RUNTIME MAP-VALUE pins (tier R5, grouped): [len(map[int]int{1: len([]int{2})})] prints 1; a
     TWO-entry literal mixing a runtime and a constant value prints 2 (the fold declines it — one
     runtime value — so the COUNT comes from the tier); a PANICKING value aborts construction
-    ([len(map[int]int{1: 1/len([]int{})})] → [rt_div_zero], before any output).  All supported (gate
-    unchanged). *)
+    ([len(map[int]int{1: 1/len([]int{})})] → [rt_div_zero], before any output); and the shared-evaluator
+    reach cases below.  All supported (gate unchanged). *)
 Definition maplen_run2_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt
@@ -2032,16 +2073,34 @@ Definition maplen_run2_e : GExpr :=
            (EInt 2, EInt 5)]].
 Definition maplen_panic_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, divzero_e)]].
+(** The SHARED-evaluator reach pins: values in R3-CONVERSION form ([int64(<runtime>)]), R4-COMPARISON
+    form ([<runtime> == 1]), and a PANICKING R3-converted value construct/abort under a map literal
+    EXACTLY as they denote standalone — one evaluator, no drift. *)
+Definition maplen_i64_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [EMapLit GTInt GTInt64 [(EInt 1, ECall (EId (mkIdent "int64" eq_refl))
+                                               [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])]].
+Definition maplen_bool_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [EMapLit GTInt GTBool [(EInt 1, EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 1))]].
+Definition maplen_convpanic_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [EMapLit GTInt GTInt64 [(EInt 1, ECall (EId (mkIdent "int64" eq_refl)) [divzero_e])]].
 Example runtime_maplen_runs : forall w,
   map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
-      [ maplen_runval_e ; maplen_run2_e ; maplen_panic_e ]
+      [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
+      ; maplen_panic_e ; maplen_convpanic_e ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 2) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (OPanic rt_div_zero w)
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 Example runtime_maplen_supported :
   forallb supported_program
-    (map println_prog [ maplen_runval_e ; maplen_run2_e ; maplen_panic_e ]) = true.
+    (map println_prog [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
+                      ; maplen_panic_e ; maplen_convpanic_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** The determined divide-by-zero through the MAP shape: [_ = 1 / len(map[int]int{})] is SUPPORTED (valid Go —
@@ -2531,8 +2590,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
     byte — ASCII-rune/string-source/concat operands DO fold), an untyped const past the
     default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), a
-    slice-literal [len] with a RUNTIME element, and a map-literal [len] with a RUNTIME value (runtime values
-    await B3). *)
+    slice-literal [len] with a RUNTIME element, and a map-literal [len] with a RUNTIME value (both
+    EVAL-level absent only — they DENOTE through the runtime tier). *)
 Definition eval_absent : list GExpr :=
   [ EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) (EBn BEq (EInt 2) (EInt 2))
@@ -2597,7 +2656,7 @@ Definition gosem_trust_surface :=
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    eval_len_reduces, eval_len_supported,
-   eval_map_len_reduces, eval_map_len_supported, map_len_supported_but_undenoted, maplen_divzero_runs,
+   eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
    map_len_invalid_type_rejected,
    fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
