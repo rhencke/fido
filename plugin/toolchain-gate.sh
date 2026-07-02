@@ -1,10 +1,11 @@
 #!/bin/sh
 # fido toolchain-gate — the GOIMAGE ONE-AUTHORITY checker (Make-aware, fail-closed).
-#   usage: toolchain-gate.sh <makefile> <effective-goimage-value>
+#   usage: toolchain-gate.sh <makefile> <effective-goimage-value> [dockerfile]
 # What it mechanically enforces, in order:
 #   1. NO dynamic-parse constructs: $(eval ...) / ${eval ...} are banned ANYWHERE in the makefile —
-#      including recipe lines, where make expands them before the shell runs (a recipe-prefixed
-#      eval is a make-side mutation, not shell).
+#      including recipe lines, where make expands them before the shell runs — and .RECIPEPREFIX is
+#      banned (it would re-type tab lines from recipe-shell into make syntax, breaking the
+#      recipe-line classification below).
 #   2. Logical lines are NORMALIZED (GNU make joins a trailing-backslash line with the next) before
 #      any assignment scanning, so a continued target-specific assignment cannot hide.
 #   3. NO include of any spelling (include / -include / sinclude): this file is the WHOLE parse.
@@ -13,14 +14,18 @@
 #   5. NO computed assignment LHS ($(...) or ${...} before the first operator) — an expanded LHS
 #      could name GOIMAGE indirectly.
 #   6. The EFFECTIVE value equals the authority line's RHS exactly.
-#   7. The only repo-wide Go-image spelling is the authority line; the Dockerfile ARG is
-#      default-less (the makefile is the only source of the image).
+#   7. The only repo-wide Go-image spelling is the authority line; the Dockerfile has EXACTLY ONE
+#      ARG GOIMAGE, it is default-less, and the builder stage consumes it verbatim
+#      (FROM ${GOIMAGE} AS builder).
 set -eu
-mk="$1"; eff="$2"
+mk="$1"; eff="$2"; df="${3:-Dockerfile}"
 
-# (1) eval ban — every physical line, recipes included.
+# (1) eval + .RECIPEPREFIX bans — every physical line, recipes included.
 if grep -nE '\$[({][[:space:]]*eval' "$mk"; then
   echo "fido: TOOLCHAIN DRIFT — \$(eval)/\${eval} is BANNED (dynamic make-side mutation, even in recipes)"; exit 1
+fi
+if grep -n '\.RECIPEPREFIX' "$mk"; then
+  echo "fido: TOOLCHAIN DRIFT — .RECIPEPREFIX is BANNED (it re-types tab lines from recipe-shell into make syntax)"; exit 1
 fi
 
 # (2) logical-line normalization (join trailing-backslash continuations).
@@ -54,14 +59,26 @@ rhs=$(printf '%s\n' "$norm" | sed -n 's/^override GOIMAGE := //p' | sed 's/ *$//
   echo "fido: TOOLCHAIN DRIFT — effective GOIMAGE '$eff' != the authority value '$rhs'"; exit 1
 }
 
-# (7) repo-wide: no other Go-image spelling; Dockerfile ARG default-less.
+# (7) repo-wide: no other Go-image spelling; the Dockerfile's ARG is UNIQUE and default-less and
+#     the builder stage consumes it verbatim.
 bad=$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true)
 if [ -n "$bad" ]; then
   echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"
   echo "$bad"; exit 1
 fi
-grep -q '^ARG GOIMAGE$' Dockerfile || {
-  echo "fido: TOOLCHAIN DRIFT — the Dockerfile GOIMAGE ARG must be DEFAULT-LESS"; exit 1
+n_arg=$(grep -cE '^[ \t]*ARG[ \t]+GOIMAGE([ \t]*$|=)' "$df" || true)
+if [ "$n_arg" != "1" ]; then
+  echo "fido: TOOLCHAIN DRIFT — expected exactly ONE 'ARG GOIMAGE' in $df, found $n_arg (a duplicate/defaulted ARG is a second authority)"; exit 1
+fi
+grep -qE '^ARG GOIMAGE$' "$df" || {
+  echo "fido: TOOLCHAIN DRIFT — the single ARG must be exactly 'ARG GOIMAGE' (default-less)"; exit 1
 }
+n_from=$(grep -cE '^FROM \$\{GOIMAGE\} AS builder$' "$df" || true)
+if [ "$n_from" != "1" ]; then
+  echo "fido: TOOLCHAIN DRIFT — the builder stage must consume the ARG verbatim: exactly one 'FROM \${GOIMAGE} AS builder' in $df (found $n_from)"; exit 1
+fi
+if grep -nE '^FROM ' "$df" | grep -v -E '(\$\{GOIMAGE\} AS builder$)' | grep -iE 'golang'; then
+  echo "fido: TOOLCHAIN DRIFT — another FROM references a Go image"; exit 1
+fi
 
 echo "fido: toolchain-gate OK — one strict GOIMAGE authority (logical-line scan; eval/include/computed-LHS banned; effective == authority) ✓"

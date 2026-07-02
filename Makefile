@@ -252,7 +252,7 @@ go-verify:
 # trap cleanup.
 MKFILE := $(firstword $(MAKEFILE_LIST))
 toolchain-gate:
-	@sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)'
+	@sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' Dockerfile
 toolchain-selftest:
 	@auth=$$($(MAKE) -s print-goimage); \
 	got=$$($(MAKE) -s GOIMAGE=unpinned-override print-goimage); \
@@ -274,12 +274,21 @@ toolchain-selftest:
 	  '-include evil.mk' \
 	  'evil-target:@@NL@@	@$$@@LP@@eval extract: GOIMAGE := evil)' \
 	  'evil-target:@@NL@@	@$$@@LB@@eval extract: GOIMAGE := evil}' \
-	  'INDIR = GOIMAGE@@NL@@$$@@LP@@INDIR) := evil'; do \
-	  cp $(MKFILE) "$$tmp"; printf '%s\n' "$$evil" | sed -e 's/@@NL@@/\n/g' -e 's/@@LP@@/(/g' -e 's/@@LB@@/{/g' >> "$$tmp"; \
+	  'INDIR = GOIMAGE@@NL@@$$@@LP@@INDIR) := evil' \
+	  '@@RP@@ := >@@NL@@@@TAB@@extract: GOIMAGE := evil'; do \
+	  rp=$$(printf '.%s' 'RECIPEPREFIX'); \
+	  cp $(MKFILE) "$$tmp"; printf '%s\n' "$$evil" | sed -e 's/@@NL@@/\n/g' -e 's/@@LP@@/(/g' -e 's/@@LB@@/{/g' -e 's/@@TAB@@/\t/g' -e "s/@@RP@@/$$rp/g" >> "$$tmp"; \
 	  if $(MAKE) -f "$$tmp" -s toolchain-gate >/dev/null 2>&1; then \
 	    echo "fido: toolchain-gate ACCEPTED a Makefile-side GOIMAGE mutation: $$evil"; exit 1; fi; \
 	done
-	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; every tested Makefile-side mutation class REJECTED ✓"
+	@set -eu; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
+	cp Dockerfile "$$tmp"; echo 'ARG GOIMAGE=evil-default' >> "$$tmp"; \
+	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED a duplicated/defaulted Dockerfile ARG GOIMAGE"; exit 1; fi; \
+	sed 's/^FROM $${GOIMAGE} AS builder$$/FROM alpine AS builder/' Dockerfile > "$$tmp"; \
+	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED a builder FROM that bypasses \$${GOIMAGE}"; exit 1; fi
+	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; every tested Makefile-side mutation class + Dockerfile drift REJECTED ✓"
 go-verify-selftest:
 	@set -eu; \
 	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
