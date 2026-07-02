@@ -53,10 +53,11 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   program with the real Go toolchain (gofmt-clean + go build + go vet); a dependency of `make check`.
 - **GoSem slice 1** — `denote_program : Program -> option (Cmd unit)` bridges the AST into `cmd.v`'s command
   tree (reuses `cbind`/`run_cmd`, no second universe): print/println → `COut` (the model's own `w_log`),
-  panic → `CPan`, `return`, blank assignment via the EFFECTFUL `denote_expr` (a constant falls through; a
-  determined integer divide-by-zero panics with the model's `rt_div_zero` — `_ = 1/len([]int{})` gets its TRUE
-  panic, typed field `rc_div_zero`), and `defer <call>` → `CDfr` (runs at return, LIFO; a deferred panic fires
-  at return — typed fields `rc_defer_lifo`/`rc_defer_panic`), over a PARTIAL `eval_value` (string / integer /
+  panic → `CPan`, `return`, blank assignment + call ARGS via the EFFECTFUL `denote_expr`/`denote_args` (a
+  constant falls through; a determined integer divide-by-zero panics with the model's `rt_div_zero` — typed
+  fields `rc_div_zero`/`rc_arg_panic`), and `defer <call>` → `CDfr` (runs at return, LIFO — typed fields
+  `rc_defer_lifo`/`rc_defer_panic`; its ARGS evaluate at DEFER time, `rc_defer_arg_panic`), over a PARTIAL
+  `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, and `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED); fails CLOSED
   on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
@@ -96,7 +97,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` empty; the three gates (below) assert their
   surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
-- **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
+- **Golden end-to-end**: `make check` diffs runtime output vs `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
 
@@ -112,7 +113,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only the small live-bridged class above
   (construct trusted, print verified).
 - **Map CONVERSIONS `map[K]V(x)` QUARANTINED** from `SupportedProgram` (key comparability not soundly
-  structural for a conversion); re-admit when types seal a comparable-key builder. Map LITERALS graduated (GREEN).
+  structural); re-admit when types seal a comparable-key builder. Map LITERALS graduated (GREEN).
 - Latent typed-lowering residuals (e.g. an untyped `func(x any) any` lambda) remain dead but unproven.
 
 ## NEXT
@@ -138,8 +139,7 @@ Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here):
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
 surfaces (`cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret`) /
-`gosem_panic_free_surface` (the GoSemSafe panic-free
-bundle); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
+`gosem_panic_free_surface`; **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 
 - `make check` — Docker prover stage: re-extract, run, diff vs `expected_output.txt`; plus the three zero-axiom
