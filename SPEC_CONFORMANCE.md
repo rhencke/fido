@@ -1153,3 +1153,12 @@ is the remaining liveness frontier.
   interleaving); the FIFO refinement (kth recv ↔ kth send pairing); disciplined
   deadlock-freedom for receiving programs; and the unverified plugin lowering
   (`Cmd` ↔ extracted Go).
+
+## Bounds-panic payload (2026-07-02)
+
+`rt_index_oob i n` now renders Go's EXACT runtime payload (verified against gc 1.23 via `go run`):
+a non-negative out-of-range index yields `runtime error: index out of range [i] with length n`; a
+NEGATIVE index yields `runtime error: index out of range [i]` with NO length part.  Digits via the
+model's own `Z_dec_string` (proof-side only — the digit chain is suppressed at extraction; emitted Go
+panics natively).  Consumers: `slice_get`/`slice_idx_get`/`slice_idx_set` and GoSem's runtime-index
+denotation (tier R2) — one payload authority, no collapsed class-wide value.

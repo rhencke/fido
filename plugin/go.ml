@@ -4721,7 +4721,13 @@ let is_inlined_ref r =
      "for_each_idx"; "for_each_idx_from"; "int_range"; "int_range_aux";
      (* runtime-panic VALUES (review #6 P1 #15) — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
-     "rt_nil_deref"; "rt_index_oob"; "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
+     "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "n_dec_aux";
+     (* the [Z_dec_string] digit chain (stdlib deps of [Ascii.ascii_of_nat] / [N] div-mod) — used only
+        inside the suppressed panic-payload builder, never emitted *)
+     "zero"; "one"; "shift"; "ascii_of_pos"; "ascii_of_N"; "ascii_of_nat";
+     "append"; "div"; "modulo"; "to_nat"; "size_nat"; "succ_double"; "double"; "compare"; "compare_cont";
+     "pos_div_eucl"; "div_eucl"; "sub_mask"; "pred_N"; "of_succ_nat"; "iter_op";
+     "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
      "rt_chan_send_block"] ||
   is_go_type_tag_ctor r || is_zero_val_ref r ||

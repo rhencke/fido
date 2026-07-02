@@ -2346,7 +2346,7 @@ Definition slice_makecap_demo : IO unit :=
     Pre-fix the model silently wrote the spare backing cell and returned normally. *)
 Example slice_write_past_len_panics : forall (v : GoI64) (w : World),
   run_io (slice_idx_set (mkSliceH 100 0 1 2 TI64) (int_lit 1 eq_refl) v) w
-    = OPanic rt_index_oob w.
+    = OPanic (rt_index_oob 1 1) w.
 Proof. intros v w. apply run_slice_idx_set_oob. now vm_compute. Qed.
 
 (** review R5 follow-up: the model REALLOCATES to cap = len+1 (NO spare), so a SECOND append after a

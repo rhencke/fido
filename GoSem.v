@@ -600,9 +600,10 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
           | EIndex (ESliceLit et es) idx =>
               (* tier R2 — the RUNTIME slice INDEX: Go evaluates the literal (construction, abort on a
                  panicking element) THEN the index; in-bounds yields the element, out-of-bounds (negative
-                 or >= length) PANICS with the MODEL's own [rt_index_oob] ([slice_idx_get]'s value — the
-                 model's fixed-message posture, inherited).  The outer [PtRunInt GTInt] guard pins the
-                 element type to [GTInt]. *)
+                 or >= length) PANICS with the MODEL's own [rt_index_oob i n] — the EXACT Go payload
+                 (index and length rendered; a negative index omits the length part — verified against
+                 gc via go run; [slice_idx_get]'s payload, shared).  The outer [PtRunInt GTInt] guard
+                 pins the element type to [GTInt]. *)
               match reval_elems_with reval_int es with
               | Some (REVals vs) =>
                   match reval_int idx with
@@ -612,7 +613,7 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                            | Some v => Some (RVal v)
                            | None => None   (* unreachable under the bounds check; fail-closed *)
                            end
-                      else Some (RPanic rt_index_oob)
+                      else Some (RPanic (rt_index_oob (intraw vi) (Z.of_nat (length vs))))
                   | Some (RPanic p) => Some (RPanic p)
                   | None => None
                   end
@@ -1465,7 +1466,7 @@ Example slice_index_panics_denote : forall w,
                  match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end))
       [ EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
       ; EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0) ]
-  = [ (None, Some (OPanic rt_index_oob w)) ; (None, Some (OPanic rt_div_zero w)) ].
+  = [ (None, Some (OPanic (rt_index_oob 5 2) w)) ; (None, Some (OPanic rt_div_zero w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 (** STRICT-SUBSET pin (GATED), at the EVAL level: a RUNTIME index and a RUNTIME same-typed element are
     [ptype]-SUPPORTED (valid Go) yet the CONSTANT fold leaves them absent — so [eval_slice_index_supported]
@@ -1480,7 +1481,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ★ RUNTIME-INDEX pins (tier R2, grouped): a RUNTIME in-bounds index yields the element
     ([]int{10,20}[len([]int{1})] prints 20); a runtime element under a CONSTANT index constructs then
-    indexes ([]int{len([]int{1})}[0] prints 1); a runtime NEGATIVE index panics [rt_index_oob]
+    indexes ([]int{len([]int{1})}[0] prints 1); a runtime NEGATIVE index panics [rt_index_oob (-1) 2]
     (len([]int{1}) - len([]int{1,2}) = -1).  All supported (the gate unchanged). *)
 Example runtime_index_runs : forall w,
   map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
@@ -1491,7 +1492,7 @@ Example runtime_index_runs : forall w,
                          (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]])) ]
   = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 20) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
-    ; Some (OPanic rt_index_oob w) ].
+    ; Some (OPanic (rt_index_oob (-1) 2) w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 Example runtime_index_supported :
   forallb supported_program
