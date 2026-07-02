@@ -1,7 +1,9 @@
 # The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1 LANDED (55ff088 + seal fixes); R2/R3 next
 
-**Why (pre-R1 framing; R1 closed the len/arith half).** The remaining supported-but-undenoted sources are
-runtime-CLASSIFIED value forms (runtime slice indexing — R2; width conversions — R3; runtime map values). In the CLOSED world these are
+**Why (pre-R1 framing; R1 closed the len/arith half).** This arc covers the RUNTIME-classified subset of
+the supported-but-undenoted frontier (runtime slice indexing — R2; width conversions — R3; runtime map
+values need their OWN rule) — NOT the whole gap: eval-partial constants (the multi-byte rune) and the OOB
+CONSTANT index are separate frontier classes, pinned in GoSem's `undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full

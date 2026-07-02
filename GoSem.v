@@ -846,8 +846,9 @@ Qed.
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
-    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap is the
-    not-yet-denoted runtime forms (index/conversions/map values — tiers R2/R3 of the runtime tier) — a
+    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap is
+    EXACTLY the [undenoted_frontier] witness classes (pinned below — eval-partial constants like the
+    multi-byte rune INCLUDED, not only runtime forms) — a
     [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
@@ -1100,7 +1101,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is the not-yet-denoted runtime forms (index/conversions, tiers R2/R3). *)
+    [supported_program] — the gap is the [undenoted_frontier] witness classes (pinned below). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -1948,6 +1949,22 @@ Example gosem_denotability_decisions :
        [out_runtime_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
+(** ★ THE supported-but-undenoted FRONTIER — the ONE named witness set every gap comment cites (a prose
+    claim about the [denotable_*] ⊊ [supported_*] gap must point HERE, never re-enumerate): the
+    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, NOT a runtime form), the valid-Go
+    OOB CONSTANT slice index (a runtime panic Go compiles — the INDEX arm declines it), the RUNTIME slice
+    index ([runidx_e] — tier R2), and the runtime map VALUE ([maplen_runval_e] — needs its own map-value
+    rule, not R2/R3).  Each is supported AND undenoted, pinned as one group. *)
+Definition undenoted_frontier : list GExpr :=
+  [ runeconv_mb
+  ; EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
+  ; runidx_e
+  ; maplen_runval_e ].
+Example undenoted_frontier_pinned :
+  forallb (fun e => supported_program (println_prog e)
+                    && negb (denotable_program (println_prog e))) undenoted_frontier = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
   forallb supported_program
@@ -1973,6 +1990,7 @@ Definition gosem_trust_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+   undenoted_frontier_pinned,
    arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
