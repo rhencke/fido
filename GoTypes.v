@@ -485,7 +485,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   | ECall _ _ => None
   | EConv c e0 =>
       match c with
-      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) — even the VALID [map[K]V(nil)]; pinned in [GoSafe.valid_unsupported_programs] *)
+      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED — the TARGET type is wholly unchecked here (key comparability at EVERY depth); a future admission must consult [goty_supported] on the WHOLE target.  Even the VALID [map[K]V(nil)] is rejected (pinned in [GoSafe.valid_unsupported_programs]); both invalid-target companions (root + nested key) pinned in [GoSafe.bad_programs] *)
       | CTSlice _ | CTChan _ =>
           (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]) and a
              SUPPORTED target type ([goty_supported] — [[]map[[]int]int(nil)] hides an invalid map key;
@@ -569,7 +569,8 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose value TYPE is
     [goty_supported], constant keys assignable to the key type and DISTINCT, values assignable to the value type (a map is a value and
     [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined — the valid
-    [map[int]int(nil)] is pinned in [GoSafe.valid_unsupported_programs]).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
+    [map[int]int(nil)] pinned in [GoSafe.valid_unsupported_programs], its invalid-target companions in
+    [GoSafe.bad_programs]).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
     inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]

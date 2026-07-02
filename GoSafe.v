@@ -268,6 +268,7 @@ Definition bad_programs : list Program :=
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* cap(map[int]int{1:2}): [cap] of a MAP is invalid Go — REJECTED ([PtMap] is not [cap]-able, unlike a slice) *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): a FREE-IDENT operand — undefined; the CTMap quarantine's valid-operand witness lives in [valid_unsupported_programs] *)
   ; gs_blank (EConv (CTMap (GTSlice GTInt) GTInt) (EId (mkIdent "nil" eq_refl)))  (* _ = map[[]int]int(nil): a NON-COMPARABLE key in the conversion TARGET type — INVALID Go; this pin FLIPS if CTMap is ever admitted without a target key-comparability check *)
+  ; gs_blank (EConv (CTMap GTInt (GTMap (GTSlice GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))  (* _ = map[int]map[[]int]int(nil): the invalid key hidden in the target's NESTED value type — an outer-key-only CTMap admission would wrongly accept this; forces the FULL recursive target gate *)
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
   ; gs_blank (EId (mkIdent "x" eq_refl))
@@ -293,8 +294,10 @@ Proof. vm_compute. reflexivity. Qed.
     rejected): the len-string members graduate by folding [len] of a NON-LITERAL string const to its exact
     byte length (keeping `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a
     [PtStr -> PtRunInt] runtime-int shortcut would reopen those); the [map[int]int(nil)] CONVERSION
-    graduates when the CTMap arm gains a structural target key-comparability check (keeping
-    `map[[]int]int(nil)` in [bad_programs] rejected); the ptr/chan-key block graduates when
+    graduates only when the CTMap arm consults the FULL recursive target-type gate (the [goty_supported]
+    equivalent over the whole [GTMap k v] — outer key AND nested value types; keeping BOTH
+    `map[[]int]int(nil)` and `map[int]map[[]int]int(nil)` in [bad_programs] rejected — an outer-key-only
+    check would wrongly admit the nested one); the ptr/chan-key block graduates when
     [goty_key_supported] grows past scalars on a modelled ptr/chan key-equality semantics (keeping the
     slice/map-key members of [bad_programs] rejected).  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
