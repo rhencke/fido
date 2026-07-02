@@ -267,6 +267,7 @@ Definition bad_programs : list Program :=
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 1, EInt 3)])   (* map[int]int{1:2, 1:3}: DUPLICATE constant key 1 — a Go compile error *)
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* cap(map[int]int{1:2}): [cap] of a MAP is invalid Go — REJECTED ([PtMap] is not [cap]-able, unlike a slice) *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): a FREE-IDENT operand — undefined; the CTMap quarantine's valid-operand witness lives in [valid_unsupported_programs] *)
+  ; gs_blank (EConv (CTMap (GTSlice GTInt) GTInt) (EId (mkIdent "nil" eq_refl)))  (* _ = map[[]int]int(nil): a NON-COMPARABLE key in the conversion TARGET type — INVALID Go; this pin FLIPS if CTMap is ever admitted without a target key-comparability check *)
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
   ; gs_blank (EId (mkIdent "x" eq_refl))
@@ -288,9 +289,15 @@ Proof. vm_compute. reflexivity. Qed.
     `map[int]int{1:2}` GRADUATED from here to [good_programs] once [ptype] gained a structural
     integer-key/representability/distinctness check — and its companions `map[int]uint8{1:300}` /
     `map[uint8]int{300:1}` / `map[int]int{1:2,1:3}` STAYED in [bad_programs], exactly as this contract demands.
-    The remaining member's FUTURE path: fold [len] of a NON-LITERAL string const to its exact byte length
-    (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
-    runtime-int shortcut would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
+    Each current class's own FUTURE path (per the contract above, each names the companion that must stay
+    rejected): the len-string members graduate by folding [len] of a NON-LITERAL string const to its exact
+    byte length (keeping `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a
+    [PtStr -> PtRunInt] runtime-int shortcut would reopen those); the [map[int]int(nil)] CONVERSION
+    graduates when the CTMap arm gains a structural target key-comparability check (keeping
+    `map[[]int]int(nil)` in [bad_programs] rejected); the ptr/chan-key block graduates when
+    [goty_key_supported] grows past scalars on a modelled ptr/chan key-equality semantics (keeping the
+    slice/map-key members of [bad_programs] rejected).  The two contracts must not be confused — a
+    [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
     Current members: [len] of a non-literal string CONST (byte length not folded); the valid
     [map[int]int(nil)] CONVERSION (the blanket CTMap quarantine, pinned on a VALID operand); and the
