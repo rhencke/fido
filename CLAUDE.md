@@ -75,7 +75,7 @@ The demos in `main.v` are the test suite; `expected_output.txt` is the golden ru
 - `plugin/go.ml` (+ `g_go_extraction.mlg`) — the Rocq → MiniML → Go extraction plugin. Ops recognized by name,
   their `.v` bodies suppressed. **Trusted and unverified** (gap #10).
 - `GoAst`/`GoPrint`/`GoTypes`/`GoSafe`/`GoEmit` — the certified-emission spine (see `ARCHITECTURE.md`).
-- `GoSem.v` + `cmd_unified.v` — GoSem slice 1 (the `cmd.v` bridge into `unified.v`);
+- `GoSem.v`/`GoSemCore.v` + `cmd_unified.v` — GoSem slice 1 (the `cmd.v` bridge into `unified.v`);
   `GoSemSafe.v` — the first behavioral-safety PROPERTIES (panic-freedom) + a NARROW DECIDABLE emission gate
   (`panic_free_gate`/`emit_panic_free_gated`, end-to-end sound: emit ⟹ proven panic-free run; accepted iff
   the program denotes to `c` with `cmd_no_panic c` — denotable panics rejected there, an ABSENT (undenoted)

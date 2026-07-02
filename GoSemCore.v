@@ -1,15 +1,16 @@
 (** ============================================================================
-    GoSemCore.v — GoSem's VALUE core (the ARCHITECTURE.md §3a physical split, file 1):
-    box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
-    ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary + [fsf_checked],
-    [eval_value] (the single fold authority every consumer enters through) — plus the
-    dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md; rungs 1–5 landed: NEG, the
-    window bridges, wide determinism, ADD + SUB at binary64).
-    PURE VALUE LAYER: no denotation here — [denote_expr]/[denote_program], the runtime
-    tiers, the pins, and the gated surfaces live downstream in GoSem.v (which re-exports
-    this file; the surfaces remain the public authority).
+    GoSemCore.v — GoSem's pure FOLD/FLOAT layer (the ARCHITECTURE.md §3a physical split,
+    file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
+    ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
+    [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
+    rungs 1–5 landed: NEG, the window bridges, wide determinism, ADD + SUB at binary64).
+    NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSem.v with the proofs
+    that compute through them — the core must stay UNCALLABLE from importers (it would skip
+    the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
+    Denotation, the runtime tiers, the pins, and the gated surfaces are downstream in
+    GoSem.v (which re-exports this file; the surfaces remain the public authority).
     ============================================================================ *)
-From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
+From Fido Require Import GoAst GoTypes preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.
 (** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED
@@ -420,141 +421,6 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
       | None => None
       end
   end.
-
-(** INTERNAL (core-only) ptype-driven scalar fold — NOT a float boundary and NOT directly consumable as a
-    trusted denotation path: its [PtFloatConst] arm runs only the PER-NODE [fsf_checked]; the child-position
-    coverage lives in [eval_value]'s [floats_checked] boundary (and [map_entries_evaluable] carries the
-    boundary itself).  A numeric / string / bool CONSTANT evaluates to the model value its [ptype] category
-    carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
-(* non-[Local] since the §3a split: GoSem.v's tier proofs compute through the core *)
-Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
-  match ptype e with
-  | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
-  | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-  | Some (PtFloatConst t d) =>
-      match fsf_checked e with                                            (* the PER-NODE agreement check; child positions are the [floats_checked] boundary's job *)
-      | Some _ => box_float t (dy_m d) (dy_e d)
-      | None => None
-      end
-  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
-  | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
-  | _                       => None
-  end.
-
-(** EVALUABILITY of every entry of an integer-keyed MAP literal, ALL-or-nothing — the whole-literal
-    discipline of [eval_int_slice_elems]: Go constructs the ENTIRE literal before [len], so a runtime /
-    wrong-typed key or value — even one irrelevant to the queried length — declines the check, never a wrong
-    verdict.  Each entry is gated by [ptype]'s OWN map-arm checks ([assignable_to_ty] on BOTH sides + an
-    integer-CONSTANT key; proved ⊆ [ptype]: [eval_map_len_supported]) and must fully EVALUATE (key boxable
-    to [kt]; value folded by the CONSTANT default [eval_value_ptype_core] — a supported RUNTIME value like
-    [len([]int{2})] declines: absent, not wrong, [map_len_eval_absent]).  Deliberately a [bool],
-    NOT a list of boxed pairs: [len] needs only "construction completes, panic-free" + the count, and a pair
-    list boxed by the DEFAULT fold would carry default-typed values (a [map[int]uint8] value boxed as [int])
-    — semantically misleading entries nothing may consume.  A target-typed map VALUE evaluator is future
-    work (with map indexing), not smuggled in through [len]. *)
-Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : bool :=
-  match kvs with
-  | [] => true
-  | (k, v) :: rest =>
-      match ptype k, ptype v with
-      | Some ck, Some cv =>
-          assignable_to_ty ck kt && assignable_to_ty cv vt
-          && match int_const_val ck with
-             | Some z => match box_int kt z with Some _ => true | None => false end
-             | None => false
-             end
-          && match eval_value_ptype_core v with Some _ => true | None => false end
-          && floats_checked k && floats_checked v   (* BOUNDARY-CARRYING: a laundered fold in a key or value is re-verified even if this helper is consumed outside [eval_value] *)
-          && map_entries_evaluable kt vt rest
-      | _, _ => false
-      end
-  end.
-
-(** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a numeric /
-    string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
-    out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
-    evaluating the WHOLE literal ([eval_int_slice_elems] — ALL elements, so a runtime/panicking/out-of-range
-    element rejects it) and indexing.  Its accept-boundary is [ptype]'s OWN — elements gated by
-    [assignable_to_ty] and the constant index by [(0<=?k) && int_const_repr k GTInt], the SAME checks [ptype]'s
-    slice arm uses — so the arm accepts NO expression [ptype] rejects (proved: [eval_slice_index_supported]); it
-    is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
-    integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
-    platform-[uint] complement), exact-DYADIC FLOAT constants (fractional arithmetic included), string constants ([eval_str]), and constant
-    bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
-    literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
-    its entry count ([eval_map_len_reduces] — under the gate's OWN conditions, [goty_supported] value type +
-    [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
-    runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
-    out-of-range or COMPLEMENTED [uint], a rounding (non-exact) float op, multi-byte-rune — never wrong. *)
-Definition eval_value_core (e : GExpr) : option GoAny :=
-  match e with
-  | EIndex (ESliceLit t es) idx =>
-      (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is evaluated
-         first ([eval_int_slice_elems] — Go builds the literal before indexing, so a runtime/panicking/malformed
-         element, even unselected, declines the fold), then the boxed value list is indexed ([nth_error]: OOB ->
-         [None]; a runtime index has [int_const_val = None]).  [ptype] still classifies the whole [PtRunInt]. *)
-      if is_int_goty t
-      then match ptype idx with
-           | Some ci =>
-               match int_const_val ci with
-               | Some k => if (0 <=? k)%Z && int_const_repr k GTInt                          (* [ptype]'s OWN constant-index boundary: nonneg + int-representable (conservative 32-bit) *)
-                           then match eval_int_slice_elems t es with
-                                | Some vs => nth_error vs (Z.to_nat k)                         (* IN-BOUNDS -> the k-th value; OOB -> None *)
-                                | None => None                                                (* a runtime/panicking element -> undenoted *)
-                                end
-                           else None                                                          (* negative, or non-int-representable (unsupported), constant *)
-               | None => None                                                                 (* runtime index (B3) *)
-               end
-           | None => None
-           end
-      else None
-  | ECall (EId f) (ESliceLit t es :: nil) =>
-      (* [len] of a FULLY-EVALUABLE int-slice LITERAL folds to its length, boxed as Go's [int] ([box_int GTInt]
-         — range-checked, fail-closed).  Go evaluates the literal (ALL elements) before [len], so a
-         runtime/panicking element declines the fold ([eval_int_slice_elems] — same whole-literal discipline as
-         the index arm; [ptype] still classifies the call [PtRunInt GTInt], like the index).  [len] of a STRING
-         literal already folds via [ptype] ([PtIntConst]); [len] of a non-int-element slice stays honestly
-         absent ([len] of a fully-evaluable MAP literal folds in its OWN arm below).  Any OTHER call with a
-         slice-literal argument falls through to the ptype-driven default unchanged. *)
-      if String.eqb (proj1_sig f) "len" && is_int_goty t
-      then match eval_int_slice_elems t es with
-           | Some vs => box_int GTInt (Z.of_nat (length vs))
-           | None => None
-           end
-      else eval_value_ptype_core e
-  | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
-      (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's [int].
-         Go constructs the literal (ALL keys and values) before [len], so a runtime / wrong-typed key or value
-         declines the fold ([map_entries_evaluable] — the whole-literal discipline).  The arm carries the
-         GATE's OWN side conditions — [goty_supported vt] (an invalid nested map-key type like
-         [map[int]map[[]int]int{}] must NEVER receive behavior, even empty) and the [nodup_z] distinctness
-         check ([map_key_vals], [ptype]'s own key list) without which a duplicate-key literal (invalid Go)
-         would fold [length kvs], which is NOT the map's [len].  [ptype] still classifies the call
-         [PtRunInt GTInt] (a map is not a constant).  Any OTHER call with a map-literal argument falls
-         through to the ptype-driven default unchanged. *)
-      if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
-         && nodup_z (map_key_vals kvs) && map_entries_evaluable kt vt kvs
-      then box_int GTInt (Z.of_nat (length kvs))
-      else eval_value_ptype_core e
-  | _ => eval_value_ptype_core e
-  end.
-
-(** [eval_value] = the float boundary, ONCE, then the evaluator core.  Every value consumer
-    ([denote_expr]/[eval_args]/[folded_arg]/the statement layer) enters here, so the boundary covers
-    slice elements, map entries, comparison operands, and conversion sources uniformly — no per-consumer
-    validators. *)
-Definition eval_value (e : GExpr) : option GoAny :=
-  if floats_checked e then eval_value_core e else None.
-
-(** The structural SEAL: a denoted value implies the whole expression passed the float boundary — every
-    [PtFloatConst] subexpression, at any depth, was re-verified against the CONSTANT-fold layer
-    ([sf_const_binop]/[sf_const_neg]). *)
-Theorem eval_value_floats_checked : forall e v, eval_value e = Some v -> floats_checked e = true.
-Proof.
-  intros e v H. unfold eval_value in H.
-  destruct (floats_checked e); [reflexivity | discriminate H].
-Qed.
-
 
 (** ★ THE LIVE FOLD↔CONST-LAYER AGREEMENT THEOREMS — over [fsf_checked], the per-node checker the
     [floats_checked] BOUNDARY applies to every float-constant subexpression: whenever a binop / negation /
@@ -968,30 +834,6 @@ Proof.
     cbn [shr shr_record_of_loc shr_m].
     rewrite Hcap. reflexivity.
 Qed.
-
-(** the rung-5 OBLIGATION pinned mechanically (the CARRY shape): an ACCEPTED normalized ADD
-    result whose RAW aligned sum exceeds [prec] digits — [(2^53-1) + (2^53-1)] has raw sum
-    [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
-    result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
-    already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
-    does NOT reject this class — it is EXACTLY the landed wide bridge's domain
-    ([binary_round_of_norm_wide] above): rung 5c's assembly must route through that bridge,
-    never through rungs 3+4 alone. *)
-Definition add_carry_e : GExpr :=
-  EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991])
-           (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991]).
-Example add_carry_raw_wide_accepted :
-  Zpos (digits2_pos 18014398509481982%positive) = 54%Z
-  /\ dy_norm 18014398509481982 0 = (9007199254740991%Z, 1%Z)
-  /\ float_dyadic_repr GTFloat64 9007199254740991 1 = true
-  /\ match ptype add_carry_e with
-     | Some (PtFloatConst GTFloat64 d) =>
-         andb (Z.eqb (dy_m d) 9007199254740991) (Z.eqb (dy_e d) 1)
-     | _ => false
-     end = true
-  /\ eval_value add_carry_e
-     = Some (anyt TFloat64 (S754_finite false 9007199254740991%positive 1)).
-Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ★ the DETERMINISM endpoint (gated): [dy_norm]-equal representations normalize to the SAME
     canonical float, with the window premises on the SHARED NORMAL FORM only — the raw sides'

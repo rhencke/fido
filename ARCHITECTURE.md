@@ -158,10 +158,12 @@ assumption-gate problem, not the file-level one. The split mirrors the surfaces,
 proof cluster, `GoSem.v` becoming the composition/re-export point:
 
 - `GoSemCore.v` — **PEELED**: box/render (`box_int`/`box_float`/`sf_*`), the const-op layer,
-  `eval_value` + the `floats_checked` boundary, `fsf_checked`, and the pure dyadic↔SF* arc
-  (rungs 1–5).  The float RUN pins + all surface definitions stay downstream (the float surface
-  composes run-level pins, so it lives with them); `eval_value_{ptype_,}core` became non-`Local`
-  (GoSem's tier proofs compute through the core — the helper cannot move, `eval_value` needs it).
+  the `floats_checked` machinery + `fsf_checked`, and the pure dyadic↔SF* arc (rungs 1–5).
+  The EVALUATOR (`eval_value` + its `Local` core helpers) is NOT in Core: it stays with the
+  proofs that compute through it (GoSem.v today; it moves WITH the tier proofs when they peel).
+  The core helpers must never be public — a caller could skip the float boundary — and their
+  uncallability is negtest-sealed (`neg_float_boundary_bypass_*`).  The float RUN pins + all
+  surface definitions stay downstream (the float surface composes run-level pins).
 - `GoSemRuntimeInt.v` — `reval_int`/`rexit_with`/`reval_val_with`, the typed tiers T1–T5 + R8
   dispatch/convoys and their seals (→ `gosem_runtime_int_surface`).
 - `GoSemAgg.v` — slice-literal/map construction walks + index/len (→ slice-index + map surfaces).
