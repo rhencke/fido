@@ -238,11 +238,10 @@ go-verify:
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # The tooling gates, wired into [check]:
-# [toolchain-gate] — delegates to plugin/toolchain-gate.sh (the Make-AWARE one-authority checker:
-# logical-line normalization before scanning, every eval form banned anywhere incl. recipes, every
-# include spelling banned, computed assignment LHS banned, exactly one strict authority line,
-# effective value == authority RHS, repo-wide spelling + Dockerfile default-less ARG). The script
-# is the single statement of what is enforced.
+# [toolchain-gate] — delegates to plugin/toolchain-gate.sh, the single statement of what is
+# enforced (Makefile logical-line scan with eval/include/recipe-prefix-redefinition/computed-LHS bans; exactly
+# one strict authority line; effective == authority; repo-wide single spelling; NORMALIZED
+# Dockerfile checks — one default-less ARG, verbatim builder FROM, no rogue Go FROM).
 # [toolchain-selftest] — proves CLI/env overrides are INERT (the `override` directive) and that
 # synthesized Makefile-side mutations (global/target/pattern/private, CONTINUED lines, sinclude,
 # recipe-prefixed and brace eval, computed LHS) all fail the gate.
@@ -282,9 +281,15 @@ toolchain-selftest:
 	    echo "fido: toolchain-gate ACCEPTED a Makefile-side GOIMAGE mutation: $$evil"; exit 1; fi; \
 	done
 	@set -eu; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
-	cp Dockerfile "$$tmp"; echo 'ARG GOIMAGE=evil-default' >> "$$tmp"; \
-	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
-	  echo "fido: toolchain-gate ACCEPTED a duplicated/defaulted Dockerfile ARG GOIMAGE"; exit 1; fi; \
+	for dfevil in \
+	  'ARG GOIMAGE=evil-default' \
+	  'arg GOIMAGE=evil-default' \
+	  'from golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
+	  '  FROM golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue'; do \
+	  cp Dockerfile "$$tmp"; printf '%s\n' "$$dfevil" >> "$$tmp"; \
+	  if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
+	    echo "fido: toolchain-gate ACCEPTED a Dockerfile mutation: $$dfevil"; exit 1; fi; \
+	done; \
 	sed 's/^FROM $${GOIMAGE} AS builder$$/FROM alpine AS builder/' Dockerfile > "$$tmp"; \
 	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
 	  echo "fido: toolchain-gate ACCEPTED a builder FROM that bypasses \$${GOIMAGE}"; exit 1; fi

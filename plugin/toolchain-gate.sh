@@ -60,25 +60,31 @@ rhs=$(printf '%s\n' "$norm" | sed -n 's/^override GOIMAGE := //p' | sed 's/ *$//
 }
 
 # (7) repo-wide: no other Go-image spelling; the Dockerfile's ARG is UNIQUE and default-less and
-#     the builder stage consumes it verbatim.
+#     the builder stage consumes it verbatim.  Dockerfile instructions are CASE-INSENSITIVE and may
+#     be indented or backslash-continued, so the file is NORMALIZED first (continuations joined,
+#     leading whitespace stripped, the opcode uppercased) and every check runs on normalized lines.
 bad=$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true)
 if [ -n "$bad" ]; then
   echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"
   echo "$bad"; exit 1
 fi
-n_arg=$(grep -cE '^[ \t]*ARG[ \t]+GOIMAGE([ \t]*$|=)' "$df" || true)
+dfnorm=$(awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }' "$df" \
+  | awk '{ sub(/^[ \t]+/, "");
+           if (match($0, /^[A-Za-z]+/)) { $0 = toupper(substr($0, RSTART, RLENGTH)) substr($0, RLENGTH + 1) }
+           print }')
+n_arg=$(printf '%s\n' "$dfnorm" | grep -cE '^ARG[ \t]+GOIMAGE([ \t]*$|=)' || true)
 if [ "$n_arg" != "1" ]; then
-  echo "fido: TOOLCHAIN DRIFT — expected exactly ONE 'ARG GOIMAGE' in $df, found $n_arg (a duplicate/defaulted ARG is a second authority)"; exit 1
+  echo "fido: TOOLCHAIN DRIFT — expected exactly ONE normalized 'ARG GOIMAGE' in $df, found $n_arg (a duplicate/defaulted ARG is a second authority)"; exit 1
 fi
-grep -qE '^ARG GOIMAGE$' "$df" || {
-  echo "fido: TOOLCHAIN DRIFT — the single ARG must be exactly 'ARG GOIMAGE' (default-less)"; exit 1
+printf '%s\n' "$dfnorm" | grep -qE '^ARG[ \t]+GOIMAGE[ \t]*$' || {
+  echo "fido: TOOLCHAIN DRIFT — the single ARG must be default-less ('ARG GOIMAGE')"; exit 1
 }
-n_from=$(grep -cE '^FROM \$\{GOIMAGE\} AS builder$' "$df" || true)
+n_from=$(printf '%s\n' "$dfnorm" | grep -cE '^FROM[ \t]+\$\{GOIMAGE\}[ \t]+AS[ \t]+builder[ \t]*$' || true)
 if [ "$n_from" != "1" ]; then
-  echo "fido: TOOLCHAIN DRIFT — the builder stage must consume the ARG verbatim: exactly one 'FROM \${GOIMAGE} AS builder' in $df (found $n_from)"; exit 1
+  echo "fido: TOOLCHAIN DRIFT — the builder stage must consume the ARG verbatim: exactly one normalized 'FROM \${GOIMAGE} AS builder' in $df (found $n_from)"; exit 1
 fi
-if grep -nE '^FROM ' "$df" | grep -v -E '(\$\{GOIMAGE\} AS builder$)' | grep -iE 'golang'; then
+if printf '%s\n' "$dfnorm" | grep -E '^FROM[ \t]' | grep -v -E '\$\{GOIMAGE\}[ \t]+AS[ \t]+builder[ \t]*$' | grep -iE 'golang'; then
   echo "fido: TOOLCHAIN DRIFT — another FROM references a Go image"; exit 1
 fi
 
-echo "fido: toolchain-gate OK — one strict GOIMAGE authority (logical-line scan; eval/include/computed-LHS banned; effective == authority) ✓"
+echo "fido: toolchain-gate OK — one strict GOIMAGE authority: Makefile logical-line scan (eval/include/.RECIPEPREFIX/computed-LHS banned), effective == authority, repo-wide single spelling, normalized Dockerfile (one default-less ARG, verbatim builder FROM, no rogue Go FROM) ✓"
