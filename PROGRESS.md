@@ -58,7 +58,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   fields `rc_div_zero`/`rc_arg_panic`), and `defer <call>` → `CDfr` (runs at return, LIFO — typed fields
   `rc_defer_lifo`/`rc_defer_panic`; its ARGS evaluate at DEFER time, `rc_defer_arg_panic`), over a PARTIAL
   `eval_value` (string / integer /
-  exact-DYADIC-float (SEALED normalized payload; fractional incl., exact-or-reject; `eval_value`'s `floats_checked` BOUNDARY re-verifies every `PtFloatConst` subexpression — any depth/position, laundered-through-`int(..)` included — via `fsf_checked` against the model op; gated: the per-constructor recursion equations `floats_checked_children_eqs` + `eval_value_floats_checked` + `fsf_checked_*_agrees`) / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED), `len` of an ALL-CONSTANT integer-keyed `goty_supported`-typed MAP literal→its entry count (`eval_map_len_{reduces,supported}`, same whole-literal discipline — a runtime VALUE rejects, `map_len_supported_but_undenoted`; both empty-literal `len` forms feed the div-zero shape), and the RUNTIME tier `reval_int` (R1 — DETERMINED runtime ints via the MODEL'S OWN ops: runtime `len` with abort-on-panicking-element, `+ - * /`, checked `rval_len` length); fails CLOSED
+  exact-DYADIC-float (SEALED normalized payload; fractional incl., exact-or-reject; `eval_value`'s `floats_checked` BOUNDARY re-verifies every `PtFloatConst` subexpression — any depth/position, laundered-through-`int(..)` included — via `fsf_checked` against the model op; gated: the per-constructor recursion equations `floats_checked_children_eqs` + `eval_value_floats_checked` + `fsf_checked_*_agrees`) / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED), `len` of an ALL-CONSTANT integer-keyed `goty_supported`-typed MAP literal→its entry count (`eval_map_len_{reduces,supported}`, same whole-literal discipline — a runtime VALUE rejects, `map_len_supported_but_undenoted`; both empty-literal `len` forms feed the div-zero shape), and the RUNTIME tier `reval_int` (R1+R2 — DETERMINED runtime ints via the MODEL'S OWN ops: runtime `len` with abort-on-panicking-element, `+ - * /`, checked `rval_len`, and the runtime slice INDEX — in-bounds→element, OOB→the model's `rt_index_oob` panic); fails CLOSED
   on runtime / rounding / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
   and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement
@@ -90,8 +90,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
-  ⚠ Undenoted runtime-panic forms (OOB const slice index; runtime index until R2) are rejected by
-  NON-denotation — `panic_free_gate_slice` pins it (a PANICKING literal element now DENOTES as `CPan`, tier R1 — caught by `cmd_no_panic`); `panic_free_gate_defer`/`_div`/`_arg_panic`
+  ⚠ Since tier R2 the runtime-panic forms (OOB/runtime index, panicking elements) DENOTE to `CPan`, caught by
+  `cmd_no_panic` (`panic_free_gate_slice` facts unchanged); NON-denotation rejects only absent NON-panic forms; `panic_free_gate_defer`/`_div`/`_arg_panic`
   pin the denotable-panic one (defer-println ACCEPTED+emitted; defer-panic, the determined divide-by-zero, and
   arg-panics supported+DENOTABLE yet rejected by `cmd_no_panic`) — does NOT gate main output, NOT full
   `BehaviorSafe`. Zero axioms.
@@ -118,8 +118,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- RUNTIME tier R2/R3 (`plans/runtime-value-tier.md`): runtime slice INDEX (the first OOB panic in denotation)
-  then width conversions; the GENERAL dyadic↔`SF*` theorem to DROP the per-instance guard — each case shrinks the
+- RUNTIME tier R3 (`plans/runtime-value-tier.md`): width conversions of runtime ints (R2 LANDED — the
+  runtime index + the first OOB `rt_index_oob` panics in denotation); the GENERAL dyadic↔`SF*` theorem — each case shrinks the
   supported-but-undenoted gap (`denotable_*` ⊊ `supported_*`; `stmt_denotable_ok` is the proved direction),
   representatively witnessed by `undenoted_frontier` (a fixture list, NOT per-class coverage; no theorem bounds the gap).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.

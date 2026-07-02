@@ -560,6 +560,27 @@ Definition rval_len (n : nat) : option RRes :=
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
   | None => None
   end.
+(** Element CONSTRUCTION for the runtime tier — evaluate every element of an int-slice literal
+    left-to-right through [rec] (instantiated with [reval_int]): all values, or the FIRST panicking
+    element (aborting construction — the verified go-run order), or [None] (absent).  Parametrized (the
+    [fsf_operand_with] pattern) so the Fixpoint below can use it mid-definition and theorems can name the
+    instance [reval_elems]. *)
+Inductive RElems : Type := REVals (vs : list GoInt) | REPanic (p : GoAny).
+Definition reval_elems_with (rec : GExpr -> option RRes) : list GExpr -> option RElems :=
+  fix go (l : list GExpr) : option RElems :=
+    match l with
+    | nil => Some (REVals nil)
+    | x :: r =>
+        match rec x with
+        | Some (RVal v) =>
+            match go r with
+            | Some (REVals vs) => Some (REVals (v :: vs))
+            | other => other
+            end
+        | Some (RPanic p) => Some (REPanic p)
+        | None => None
+        end
+    end.
 Fixpoint reval_int (e : GExpr) : option RRes :=
   match eval_value e with
   | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
@@ -570,17 +591,34 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
           match e with
           | ECall (EId f) (ESliceLit et es :: nil) =>
               if String.eqb (proj1_sig f) "len" && is_int_goty et
-              then (fix construct (l : list GExpr) (n : nat) : option RRes :=
-                      match l with
-                      | nil => rval_len n
-                      | x :: r =>
-                          match reval_int x with
-                          | Some (RVal _)   => construct r (S n)
-                          | Some (RPanic p) => Some (RPanic p)   (* a panicking element ABORTS construction *)
-                          | None => None
-                          end
-                      end) es O
+              then match reval_elems_with reval_int es with
+                   | Some (REVals vs)  => rval_len (length vs)
+                   | Some (REPanic p)  => Some (RPanic p)   (* a panicking element ABORTS construction *)
+                   | None => None
+                   end
               else None
+          | EIndex (ESliceLit et es) idx =>
+              (* tier R2 — the RUNTIME slice INDEX: Go evaluates the literal (construction, abort on a
+                 panicking element) THEN the index; in-bounds yields the element, out-of-bounds (negative
+                 or >= length) PANICS with the MODEL's own [rt_index_oob] ([slice_idx_get]'s value — the
+                 model's fixed-message posture, inherited).  The outer [PtRunInt GTInt] guard pins the
+                 element type to [GTInt]. *)
+              match reval_elems_with reval_int es with
+              | Some (REVals vs) =>
+                  match reval_int idx with
+                  | Some (RVal vi) =>
+                      if andb (Z.leb 0 (intraw vi)) (Z.ltb (intraw vi) (Z.of_nat (length vs)))
+                      then match nth_error vs (Z.to_nat (intraw vi)) with
+                           | Some v => Some (RVal v)
+                           | None => None   (* unreachable under the bounds check; fail-closed *)
+                           end
+                      else Some (RPanic rt_index_oob)
+                  | Some (RPanic p) => Some (RPanic p)
+                  | None => None
+                  end
+              | Some (REPanic p) => Some (RPanic p)
+              | None => None
+              end
           | EBn o a b =>
               match reval_int a, reval_int b with
               | Some (RPanic p), _ => Some (RPanic p)            (* left-to-right: a panicking LEFT operand fires first *)
@@ -607,6 +645,8 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
       | _ => None
       end
   end.
+
+Definition reval_elems : list GExpr -> option RElems := reval_elems_with reval_int.
 
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   match eval_value e with
@@ -952,7 +992,7 @@ Qed.
     (the runtime tier denotes more).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println([]int{10,20}[len([]int{1})])]) is SUPPORTED but NOT [folded_arg], so it does NOT denote
+    RUNTIME arg ([println(int64(len([]int{1})))]) is SUPPORTED but NOT [folded_arg], so it does NOT denote
     (pinned by [out_boundary_runtime_undenoted]); the runtime tier denotes MORE than this folded fragment
     covers — its converse is future work.  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
@@ -1064,9 +1104,10 @@ Proof. apply out_main_denotes. reflexivity. Qed.
     [divzero_e]/[divzero_map_e] = the determined divide-by-zero through each empty-literal [len];
     [maplen_e] = a fully-evaluable map-[len] (DENOTES — [eval_value_good]/[rc_maplen]); [runlen_e] (a
     slice-[len] whose ELEMENT is runtime — DENOTES since tier R1, [runtime_tier_runs], though still
-    eval-level absent); [runidx_e] (a RUNTIME slice index — undenoted until tier R2) and
-    [maplen_runval_e] (a map-[len] whose VALUE is runtime).  These are LOCAL fixture spellings; the
-    pinned witness group for the gap is [undenoted_frontier] below. *)
+    eval-level absent); [runidx_e] (a RUNTIME slice index — DENOTES since tier R2, [runtime_index_runs]);
+    [runconv_e] (a RUNTIME width conversion — undenoted until tier R3) and [maplen_runval_e] (a map-[len]
+    whose VALUE is runtime).  These are LOCAL fixture spellings; the pinned witness group for the gap is
+    [undenoted_frontier] below. *)
 Definition divzero_e : GExpr :=
   EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
 Definition divzero_map_e : GExpr :=
@@ -1078,22 +1119,24 @@ Definition runlen_e : GExpr :=
         [ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]].
 Definition runidx_e : GExpr :=
   EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition runconv_e : GExpr :=
+  ECall (EId (mkIdent "int64" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]].
 Definition maplen_runval_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt [(EInt 1, ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 2]])]].
 
-(** BOUNDARY — the fragment is NOT the whole supported output class: [println([]int{10,20}[len([]int{1})])]
-    is SUPPORTED (valid Go) yet its arg is a RUNTIME slice INDEX GoSem does not yet evaluate (tier R2; NOT
-    [folded_arg] either — the eval level is constant-only), so the program does NOT denote.  (The
-    runtime-ELEMENT [len] witness that used to sit here now DENOTES through tier R1 — [runtime_tier_runs];
-    it remains the strictness pin for the EVAL-level [eval_len_supported] inclusion, since [eval_value
-    runlen_e = None] still.) *)
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println(int64(len([]int{1})))]
+    is SUPPORTED (valid Go) yet its arg is a RUNTIME width CONVERSION GoSem does not yet evaluate (tier
+    R3; NOT [folded_arg] either — the eval level is constant-only), so the program does NOT denote.
+    (The runtime-INDEX witness that used to sit here DENOTES through tier R2 — [runtime_index_runs];
+    [eval_value runlen_e = None] remains the strictness pin for the EVAL-level [eval_len_supported]
+    inclusion.) *)
 Definition out_runtime_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runconv_e]); GsReturn].
 Example out_boundary_runtime_undenoted :
   supported_program out_runtime_prog = true
-  /\ folded_arg runidx_e = false
+  /\ folded_arg runconv_e = false
   /\ denote_program out_runtime_prog = None
   /\ eval_value runlen_e = None.   (* the eval-level strictness pin survives the tier: constant folds only *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
@@ -1406,26 +1449,55 @@ Example slice_index_unsupported_ok :
           slice_index_unsupported = true.
 Proof. vm_compute. reflexivity. Qed.
 Definition slice_index_undenoted : list GExpr :=
-  [ EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
-  ; EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0)
-  ; EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)
+  [ EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]]) (EInt 0)
   ; EIndex (ESliceLit GTU8 [EInt 300; EInt 1]) (EInt 1) ].
 Example slice_index_undenoted_ok :
   forallb (fun e => match eval_value e, denote_program (println_prog e) with
                     | None, None => true | _, _ => false end)
           slice_index_undenoted = true.
 Proof. vm_compute. reflexivity. Qed.
-(** STRICT-SUBSET pin (GATED): a RUNTIME index and a RUNTIME same-typed element are [ptype]-SUPPORTED (valid
-    Go) yet undenoted at BOTH the expression and program level — so [eval_slice_index_supported] is a strict
-    INCLUSION, not equality; runtime cases await runtime values. *)
+(** Since tier R2 the OOB CONSTANT index and the PANICKING-element construction DENOTE — to their TRUE
+    runtime panics (the model's [rt_index_oob] / [rt_div_zero]), still EVAL-level absent: the behavioral
+    boundary moved from non-denotation to a denoted [CPan] (which the panic-free gate rejects by
+    [cmd_no_panic] — [GoSemSafe.panic_free_gate_slice]'s facts are unchanged). *)
+Example slice_index_panics_denote : forall w,
+  map (fun e => (eval_value e,
+                 match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end))
+      [ EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
+      ; EIndex (ESliceLit GTInt [EInt 20; EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]) (EInt 0) ]
+  = [ (None, Some (OPanic rt_index_oob w)) ; (None, Some (OPanic rt_div_zero w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+(** STRICT-SUBSET pin (GATED), at the EVAL level: a RUNTIME index and a RUNTIME same-typed element are
+    [ptype]-SUPPORTED (valid Go) yet the CONSTANT fold leaves them absent — so [eval_slice_index_supported]
+    is a strict INCLUSION, not equality.  (Since tier R2 BOTH shapes DENOTE through the runtime tier —
+    [runtime_index_runs] — so the strictness claim is scoped to [eval_value] only.) *)
 Example slice_index_supported_but_undenoted :
-  ptype (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = Some (PtRunInt GTInt)
-  /\ eval_value (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])) = None
-  /\ denote_program (println_prog (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]))) = None
+  ptype runidx_e = Some (PtRunInt GTInt)
+  /\ eval_value runidx_e = None
   /\ ptype (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = Some (PtRunInt GTInt)
-  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None
-  /\ denote_program (println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0))) = None.
+  /\ eval_value (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
+
+(** ★ RUNTIME-INDEX pins (tier R2, grouped): a RUNTIME in-bounds index yields the element
+    ([]int{10,20}[len([]int{1})] prints 20); a runtime element under a CONSTANT index constructs then
+    indexes ([]int{len([]int{1})}[0] prints 1); a runtime NEGATIVE index panics [rt_index_oob]
+    (len([]int{1}) - len([]int{1,2}) = -1).  All supported (the gate unchanged). *)
+Example runtime_index_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runidx_e
+      ; EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)
+      ; EIndex (ESliceLit GTInt [EInt 10; EInt 20])
+               (EBn BSub (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])
+                         (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]])) ]
+  = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 20) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (OPanic rt_index_oob w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_index_supported :
+  forallb supported_program
+    [ println_prog runidx_e
+    ; println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0)) ] = true.
+Proof. vm_compute. reflexivity. Qed.
 
 (** STRICT-SUBSET pin (GATED, map-[len]): a map literal whose VALUE is a same-typed RUNTIME int
     ([map[int]int{1: len([]int{2})}]) is [ptype]-SUPPORTED (valid Go) yet undenoted at BOTH the expression
@@ -1524,15 +1596,15 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runidx_e)]
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runconv_e)]
     is a DENOTABLE body ([return] terminates; the runtime-arg [println] is a SUPPORTED dead tail) whose tail
     does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
     terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
-    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e])] = true
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runconv_e])] = true
   /\ forallb stmt_denotable [GsReturn;
-       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e])] = false.
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runconv_e])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
@@ -1603,21 +1675,21 @@ Definition gosem_defer_arg_panic_prog : Program :=
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
-    in each is the runtime slice INDEX ([runidx_e], supported-printable yet undenoted —
+    in each is the runtime width CONVERSION ([runconv_e], supported-printable yet undenoted —
     [out_boundary_runtime_undenoted]): as a LATER ARG of the panicking call, as the SUCCESSOR statement, and
     as the successor of a DEFERRED panicking-arg call.  Each program denotes and runs to [OPanic rt_div_zero]
     with NO output. *)
 Definition gosem_arg_panic_tail_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runidx_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runconv_e]); GsReturn].
 Definition gosem_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runconv_e]); GsReturn].
 Definition gosem_defer_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runconv_e]); GsReturn].
 Definition arg_panic_shortcircuit_progs : list Program :=
   [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
 Example arg_panic_shortcircuit_runs : forall w,
@@ -1940,7 +2012,7 @@ Proof. vm_compute. reflexivity. Qed.
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
     [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer and the
     determined divide-by-zero included), FALSE (and [denote_program = None]) for the supported-but-undenoted
-    runtime-slice-INDEX program ([out_runtime_prog]). *)
+    runtime-width-CONVERSION program ([out_runtime_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
@@ -1955,16 +2027,15 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND several
     known undenoted classes have NO member here yet (e.g. runtime unary [-]/[^], nonzero runtime [%],
     runtime float forms) — this list is representative, never a coverage claim.  Members: the
-    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form), the valid-Go
-    OOB CONSTANT slice index (the INDEX arm declines it), the RUNTIME slice index ([runidx_e] — tier R2),
-    a RUNTIME width CONVERSION ([int64(len(..))] — tier R3), a RUNTIME bool COMPARISON ([len(..) == 0] —
-    no runtime bool rule yet), and the runtime map VALUE ([maplen_runval_e] — needs its own map-value
-    rule).  Each member is pinned supported AND undenoted AND eval-level absent. *)
+    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form), a RUNTIME
+    width CONVERSION ([runconv_e] — tier R3), a RUNTIME bool COMPARISON ([len(..) == 0] — no runtime bool
+    rule yet), and the runtime map VALUE ([maplen_runval_e] — needs its own map-value rule).  (The OOB
+    constant index and the runtime index LEFT this list at tier R2 — they now DENOTE, as [rt_index_oob]
+    panics or values: [runtime_index_runs].)  Each member is pinned supported AND undenoted AND eval-level
+    absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
-  ; EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
-  ; runidx_e
-  ; ECall (EId (mkIdent "int64" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]
+  ; runconv_e
   ; EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; maplen_runval_e ].
 Example undenoted_frontier_pinned :
@@ -1999,6 +2070,7 @@ Definition gosem_trust_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+   runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    undenoted_frontier_pinned,
    arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
