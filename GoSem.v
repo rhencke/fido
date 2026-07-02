@@ -1,40 +1,17 @@
 (** ============================================================================
-    GoSem.v — the AST's BEHAVIORAL semantics as a BRIDGE into cmd.v (charter Phase 5; ARCHITECTURE.md §GoSem).
-    GoSem forks NO second universe: [denote_program : Program -> option (Cmd unit)] TRANSLATES a GoAst program
-    into cmd.v's proven command tree, reusing cmd.v's [run_cmd] interpreter + [cbind], the GoSafe gate
-    ([expr_stmt_ok] / [svalue]), and the model's own value ctors ([anyt] / [intwrap]) — single-authority, faithful
-    (a denoted [println] produces EXACTLY the [w_log] the model's [println] does).
+    GoSem.v — the AST's BEHAVIORAL semantics as a BRIDGE into cmd.v (ARCHITECTURE.md §GoSem).
+    No second universe: [denote_program : Program -> option (Cmd unit)] translates a GoAst program into
+    cmd.v's proven command tree (reusing [run_cmd]/[cbind], the GoSafe gate, the model's own value
+    ctors) — single-authority, faithful.
 
-    SLICE 1 (partial, to grow):
-    - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
-      [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
-      [_ = e] -> through the EFFECTFUL [denote_expr] (a constant falls through as [CRet]; a determined
-      integer divide-by-zero panics with the model's [rt_div_zero]); [defer <call>] -> [CDfr] (the deferred
-      call runs at function-scope return, LIFO — its ARGS evaluate at DEFER time).  Call ARGS are effectful
-      ([denote_args] — a panicking arg panics before its call); values fold via [eval_value] (scalar
-      constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
-      such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
-      evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
-      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1–R7) denotes DETERMINED runtime
-      integers with the MODEL'S OWN ops — runtime [len] (a panicking element aborts construction),
-      [+ - * / %] and unary [- ^] with the determined zero divisor panicking [rt_div_zero], the runtime slice INDEX
-      (in-bounds → the element; OOB → the EXACT parameterized [rt_index_oob i n] payload), (R3) width
-      CONVERSIONS of runtime ints ([int(x)] in-fragment; every other integer width via the model's own
-      wraps — [wrap_runint], Go's runtime truncation), (R4) runtime bool COMPARISONS of int-fragment
-      operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
-      over RUNTIME map values (every value through the SHARED evaluator; panics denote only
-      order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
-      class theorems).  The [reval_int] CARRIER is [GTInt]: typed-width conversion EXITS from GTInt
-      operands DENOTE ([denote_expr_conv_runs]); OPERATIONS on non-GTInt runtime carriers are not yet
-      denoted — the pinned boundary is [typed_runtime_{not,convchain,shift}_absent] — nor are [!] of a
-      runtime bool comparison and runtime FLOATS.
-    - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
-      NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
-    - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
-      [eval_value] narrows only COMPLETENESS, never soundness).  NOT [supported ⇒ denotes] (the roadmap
-      converse), and does NOT define [BehaviorSafe].
-    - Public TRUST SURFACE (zero-axiom, [Print Assumptions]-gated): [gosem_trust_surface] +
-      [gosem_string_authority_surface].  No axioms.
+    SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
+    over the exact-or-absent [eval_value] fold and the runtime GTInt tier R1–R7 (ONE shared evaluator,
+    [reval_val_with]; [denote_expr] is a thin wrapper).  FAITHFUL-OR-ABSENT: the right behavior or
+    [None] ("not modeled yet", never "invalid" and never wrong).  [gosem_sound]: denotation ⊆
+    [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].  Absence boundaries are PINNED, not
+    prose: [undenoted_frontier] + [typed_runtime_{not,convchain,shift}_absent].
+    Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
+    (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Stdlib Require Import String List Bool ZArith Lia.
@@ -100,7 +77,10 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     at [eval_value]'s top, is what makes the no-bypass claim; [fsf_checked] alone is NOT an authority: its
     int-constant conversion leaves deliberately do NOT recurse, the boundary's full-syntax recursion
     covers them) ---- [ptype] folds float-const arithmetic exactly (sealed dyadics); the MODEL computes
-    with its own [f64_*]/[f32_*]/[SFopp] spec_float ops (the very ops the emitted Go runs).
+    with its own [f64_*]/[f32_*]/[SFopp] spec_float ops.  CLAIM HYGIENE: for the ACCEPTED exact-dyadic
+    subset the model value agrees with the printed Go constant expression's observable value (Go may
+    CONSTANT-fold these at compile time — no "same runtime op" claim); non-exact/rounding cases are
+    REJECTED until the general dyadic↔SF agreement theorem lands.
     [fsf_checked] verifies ONE float-constant node against the model op on the verified operand carriers
     (recursing through float operands and float-to-float conversions; cross-width via
     [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (Mathematically no
@@ -3004,43 +2984,51 @@ Example demo_progs_supported :
      gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true.
 Proof. reflexivity. Qed.
 
-(** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results certified zero-axiom.  Bundling the
-    proof terms into ONE constant makes a SINGLE [Print Assumptions] cover their whole transitive cones; the
-    Docker manifest gate captures the report and FAILS on any axiom (rule 3, manifest empty).  This is a seal
-    for exactly this surface, NOT a module-wide claim — a theorem not bundled here is not claimed zero-axiom;
-    to certify one, ADD it to the tuple. *)
-Definition gosem_trust_surface :=
+(** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results certified zero-axiom,
+    grouped into TOPIC surfaces (core / float / slice-index / runtime-int / map / frontier) and composed
+    into ONE constant so a SINGLE [Print Assumptions] covers every transitive cone; the Docker manifest
+    gate FAILS on any axiom (rule 3).  A theorem not bundled here is not claimed zero-axiom; to certify
+    one, add it to its topic surface. *)
+Definition gosem_core_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
-   eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
-   eval_len_reduces, eval_len_supported,
-   eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
-   map_len_invalid_type_rejected,
-   fsf_checked_binop_agrees, fsf_checked_neg_agrees,
+   denote_expr_pure, arg_panic_shortcircuit_runs, gosem_category_coverage).
+Definition gosem_float_surface :=
+  (fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
-   eval_value_floats_checked, floats_checked_children_eqs,
-   denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+   eval_value_floats_checked, floats_checked_children_eqs).
+Definition gosem_slice_index_surface :=
+  (eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class,
+   eval_slice_index_inbounds_class, eval_len_reduces, eval_len_supported,
+   slice_index_supported_but_undenoted,
+   denote_expr_index_in_bounds, denote_expr_index_oob,
+   denote_expr_index_elem_panic, denote_expr_index_idx_panic,
+   runtime_index_runs, runtime_index_supported, slice_index_panics_denote).
+Definition gosem_runtime_int_surface :=
+  (denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   typed_runtime_not_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent,
-   denote_expr_index_in_bounds, denote_expr_index_oob,
-   denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
    denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic,
    cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
-   denote_expr_maplen_runs, denote_expr_maplen_panic, rval_len_repr,
+   runtime_conv_runs, runtime_conv_supported, runtime_bool_runs, runtime_bool_supported,
+   rval_len_repr).
+Definition gosem_map_surface :=
+  (eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
+   map_len_invalid_type_rejected,
+   denote_expr_maplen_runs, denote_expr_maplen_panic,
    runtime_maplen_runs, runtime_maplen_supported, runtime_maplen_ambiguous_absent,
-   rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent,
-   runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
-   runtime_conv_runs, runtime_conv_supported,
-   runtime_bool_runs, runtime_bool_supported,
-   undenoted_frontier_pinned,
-   arg_panic_shortcircuit_runs,
-   slice_index_supported_but_undenoted,
-   gosem_category_coverage).
+   rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent).
+Definition gosem_frontier_surface :=
+  (undenoted_frontier_pinned,
+   typed_runtime_not_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent).
+(** The ONE composed public gate — same members as ever, now auditable per topic. *)
+Definition gosem_trust_surface :=
+  (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
+   gosem_runtime_int_surface, gosem_map_surface, gosem_frontier_surface).
 Print Assumptions gosem_trust_surface.
 
 (** ---- STRING-AUTHORITY PINS (gated): each of [str_cmp_op]'s six branches IS, by reflexivity, the FULLY

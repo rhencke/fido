@@ -4693,7 +4693,12 @@ let is_inlined_ref r =
   (* the [Z_dec_string] digit chain (STDLIB deps of [Ascii.ascii_of_nat] / [N]/[Pos] div-mod /
      [String.append]) — used only inside the suppressed panic-payload builder, never emitted.
      MODULE-QUALIFIED: applies to Stdlib refs ONLY, so a same-basename USER definition still
-     emits (or fail-louds) normally. *)
+     emits (or fail-louds) normally.
+     ⚠ INVARIANT (guarded by the pipeline, not by trust): every name below must stay UNREACHABLE
+     from emitted user code — suppression removes the DEFINITION, so any future path that emits a
+     CALL to one of these leaves an undefined Go identifier and [go build]/[go vet] in [make check]
+     FAILS LOUDLY (exactly how the earlier basename-"sub" leak surfaced as "undefined: Sub").
+     If that ever fires, isolate the payload builder instead of widening this list. *)
   (is_stdlib_ref r && List.mem (global_basename r)
      ["zero"; "one"; "shift"; "ascii_of_pos"; "ascii_of_N"; "ascii_of_nat";
       "append"; "div"; "modulo"; "to_nat"; "size_nat"; "succ_double"; "double"; "compare"; "compare_cont";
