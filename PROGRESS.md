@@ -115,8 +115,9 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
   not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
-  statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap, whose SOLE
-  remaining source is the eval-partial value forms (defer now denotes).
+  statement-compositional, so each eval case shrinks the supported-but-undenoted gap (`denotable_*` ⊊
+  `supported_*` — `stmt_denotable ⟹ stmt_ok` is already proved, `stmt_denotable_ok`), whose SOLE remaining
+  source is the eval-partial value forms (defer now denotes).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
