@@ -15,17 +15,17 @@
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
       such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
       evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
-      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1–R5) denotes DETERMINED runtime
+      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1–R6) denotes DETERMINED runtime
       integers with the MODEL'S OWN ops — runtime [len] (a panicking element aborts construction),
-      [+ - * /] with the determined zero divisor panicking [rt_div_zero], the runtime slice INDEX
+      [+ - * / %] and unary [-] with the determined zero divisor panicking [rt_div_zero], the runtime slice INDEX
       (in-bounds → the element; OOB → the EXACT parameterized [rt_index_oob i n] payload), (R3) width
       CONVERSIONS of runtime ints ([int(x)] in-fragment; every other integer width via the model's own
       wraps — [wrap_runint], Go's runtime truncation), (R4) runtime bool COMPARISONS of int-fragment
       operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
       over RUNTIME map values (every value through the SHARED evaluator; panics denote only
       order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
-      class theorems).  Runtime FLOATS (and e.g. runtime unary ops / nonzero runtime [%]) are not yet
-      denoted.
+      class theorems).  Runtime FLOATS (and e.g. the [^] complement of a platform int — no model op)
+      are not yet denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -546,8 +546,9 @@ Qed.
     the verified go-run order; the length goes through [box_int]'s fail-closed [GTInt] builder —
     [rval_len]); [+ - *] are the model's [int_add]/[int_sub]/[int_mul]; [/] is the model's
     evidence-carrying [int_div], its nonzero proof produced by the guarding test itself, and a
-    determined ZERO divisor is Go's runtime panic [rt_div_zero] ([%] by zero panics identically; a
-    nonzero [%] has no model op yet — honestly absent).  [RPanic] = a determined runtime panic;
+    determined ZERO divisor is Go's runtime panic [rt_div_zero] ([%] computes via the model's
+    evidence-carrying [int_mod], zero divisor panicking identically — R6, with runtime unary MINUS via
+    [int_neg]).  [RPanic] = a determined runtime panic;
     [None] = not-yet-denotable (absent, never wrong).  This tier SUBSUMES the retired shape-based
     [divisor_zero] (its zero-judgment is now [eval_value]'s own fold of the divisor, through the leaf). *)
 Definition unbox_int (v : GoAny) : option GoInt :=
@@ -889,10 +890,25 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                        | true  => fun _  => Some (RPanic rt_div_zero)
                        | false => fun pf => Some (RVal (int_div va vb pf))
                        end) eq_refl
-                  | BRem => if Z.eqb (intraw vb) 0 then Some (RPanic rt_div_zero) else None
+                  | BRem =>
+                      (* the model's EVIDENCE-CARRYING remainder ([int_mod] = Go's truncated [%]),
+                         the same dependent convoy as [BDiv] *)
+                      (match Z.eqb (intraw vb) 0 as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+                       | true  => fun _  => Some (RPanic rt_div_zero)
+                       | false => fun pf => Some (RVal (int_mod va vb pf))
+                       end) eq_refl
                   | _ => None
                   end
               | _, _ => None
+              end
+          | EUn UNeg a =>
+              (* tier R6 — runtime unary MINUS via the model's own [int_neg] (two's-complement, wraps
+                 at 2^63 like Go).  [^] (complement) of a platform int stays ABSENT: the model has no
+                 [int]-width complement op yet (only [i64_not]/[u64_not]) — honestly absent, never an
+                 improvised bit trick. *)
+              match reval_int a with
+              | Some (RVal v) => Some (RVal (int_neg v))
+              | other => other
               end
           | _ => None
           end
@@ -955,7 +971,14 @@ Proof.
                end) pf = Some (RPanic rt_div_zero)).
     { intros z pf Hzt. destruct z; [reflexivity | discriminate Hzt]. }
     rewrite (K _ eq_refl Hz). reflexivity.
-  - rewrite Hz. reflexivity.
+  - (* BRem: the same convoy elimination, [int_mod] in the false branch *)
+    assert (K : forall (z : bool) (pf : Z.eqb (intraw vb) 0 = z), z = true ->
+              (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+               | true  => fun _   => Some (RPanic rt_div_zero)
+               | false => fun pf0 => Some (RVal (int_mod va vb pf0))
+               end) pf = Some (RPanic rt_div_zero)).
+    { intros z pf Hzt. destruct z; [reflexivity | discriminate Hzt]. }
+    rewrite (K _ eq_refl Hz). reflexivity.
 Qed.
 
 (** ★ CLASS (tier R2) — the four universal RUNTIME-INDEX denotation theorems, one per outcome of the
@@ -1264,6 +1287,85 @@ Example cmp_verdict_complete : forall o,
                   | _ => None
                   end.
 Proof. intro o; destruct o; reflexivity. Qed.
+
+(** ★ CLASS (R1/R6 values) — the evidence-carrying DIVISION and REMAINDER value theorems (the zero
+    cases are [denote_expr_div_zero]) and runtime unary MINUS, quantified over the reval-evaluable
+    fragment.  [int_div]/[int_mod]/[int_neg] are the model's own ops; the quantified [pf] is the
+    nonzero evidence — the ops ignore its identity definitionally, so any proof yields the same value. *)
+Lemma denote_expr_div_runs : forall a b va vb (pf : Z.eqb (intraw vb) 0 = false),
+  floats_checked (EBn BDiv a b) = true ->
+  ptype (EBn BDiv a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RVal vb) ->
+  denote_expr (EBn BDiv a b) = Some (CRet (anyt TInt64 (int_div va vb pf)), false).
+Proof.
+  intros a b va vb pf Hfc Hpt Ha Hb.
+  assert (Hev : eval_value (EBn BDiv a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hr : reval_int (EBn BDiv a b) = Some (RVal (int_div va vb pf))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
+    assert (K : forall (z : bool) (pf0 : Z.eqb (intraw vb) 0 = z), z = false ->
+              (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+               | true  => fun _   => Some (RPanic rt_div_zero)
+               | false => fun pf1 => Some (RVal (int_div va vb pf1))
+               end) pf0 = Some (RVal (int_div va vb pf))).
+    { intros z pf0 Hz. destruct z; [discriminate Hz|].
+      unfold int_div. reflexivity. }
+    exact (K _ eq_refl pf). }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_rem_runs : forall a b va vb (pf : Z.eqb (intraw vb) 0 = false),
+  floats_checked (EBn BRem a b) = true ->
+  ptype (EBn BRem a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RVal vb) ->
+  denote_expr (EBn BRem a b) = Some (CRet (anyt TInt64 (int_mod va vb pf)), false).
+Proof.
+  intros a b va vb pf Hfc Hpt Ha Hb.
+  assert (Hev : eval_value (EBn BRem a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (Hr : reval_int (EBn BRem a b) = Some (RVal (int_mod va vb pf))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha, Hb.
+    assert (K : forall (z : bool) (pf0 : Z.eqb (intraw vb) 0 = z), z = false ->
+              (match z as z0 return Z.eqb (intraw vb) 0 = z0 -> option RRes with
+               | true  => fun _   => Some (RPanic rt_div_zero)
+               | false => fun pf1 => Some (RVal (int_mod va vb pf1))
+               end) pf0 = Some (RVal (int_mod va vb pf))).
+    { intros z pf0 Hz. destruct z; [discriminate Hz|].
+      unfold int_mod. reflexivity. }
+    exact (K _ eq_refl pf). }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_neg_runs : forall a va,
+  floats_checked (EUn UNeg a) = true ->
+  ptype (EUn UNeg a) = Some (PtRunInt GTInt) ->
+  eval_value (EUn UNeg a) = None ->
+  reval_int a = Some (RVal va) ->
+  denote_expr (EUn UNeg a) = Some (CRet (anyt TInt64 (int_neg va)), false).
+Proof.
+  intros a va Hfc Hpt Hev Ha.
+  assert (Hr : reval_int (EUn UNeg a) = Some (RVal (int_neg va))).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+Qed.
+Lemma denote_expr_neg_panic : forall a p,
+  floats_checked (EUn UNeg a) = true ->
+  ptype (EUn UNeg a) = Some (PtRunInt GTInt) ->
+  eval_value (EUn UNeg a) = None ->
+  reval_int a = Some (RPanic p) ->
+  denote_expr (EUn UNeg a) = Some (CPan p, true).
+Proof.
+  intros a p Hfc Hpt Hev Ha.
+  assert (Hr : reval_int (EUn UNeg a) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb]. rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  unfold reval_val_with. rewrite Hev, Hr. reflexivity.
+Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
   match args with
@@ -2237,6 +2339,28 @@ Example runtime_tier_supported :
     [println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e] = true.
 Proof. vm_compute. reflexivity. Qed.
 
+(** ★ R6 pins (grouped): runtime unary MINUS ([-len([]int{1,2,3})] prints -3, the model's [int_neg]);
+    nonzero runtime [%] ([7 % len([]int{1,2,3})] prints 1, the model's evidence-carrying [int_mod]);
+    the NEGATIVE-dividend remainder ([-7 % len(..3)] prints -1 — Go's TRUNCATED [%], [Z.rem]'s sign);
+    and a PANICKING unary operand propagates ([-(1/len([]int{}))] → [rt_div_zero]).  All supported. *)
+Definition runlen3_e : GExpr := ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2; EInt 3]].
+Definition runneg_e : GExpr := EUn UNeg runlen3_e.
+Definition runrem_e : GExpr := EBn BRem (EInt 7) runlen3_e.
+Definition runrem_neg_e : GExpr := EBn BRem (EUn UNeg (EInt 7)) runlen3_e.
+Definition runneg_panic_e : GExpr := EUn UNeg divzero_e.
+Example runtime_negrem_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runneg_e ; runrem_e ; runrem_neg_e ; runneg_panic_e ]
+  = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap (-3)) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap (-1)) :: nil) w))
+    ; Some (OPanic rt_div_zero w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_negrem_supported :
+  forallb supported_program
+    (map println_prog [ runneg_e ; runrem_e ; runrem_neg_e ; runneg_panic_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
     [GoSafe.valid_unsupported_programs]):
@@ -2720,9 +2844,9 @@ Example gosem_denotability_decisions :
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** REPRESENTATIVE named witnesses of the supported-but-undenoted gap, pinned as a group.
-    ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND several
-    known undenoted classes have NO member here yet (e.g. runtime unary [-]/[^], nonzero runtime [%],
-    runtime float forms) — this list is representative, never a coverage claim.  Member: the
+    ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND known
+    undenoted classes can have NO member here (e.g. the [^] complement of a platform int — no model
+    op — and runtime float forms) — this list is representative, never a coverage claim.  Member: the
     MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form).  (The OOB
     constant index and the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime
     width CONVERSION at tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 —
@@ -2762,6 +2886,8 @@ Definition gosem_trust_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+   denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
+   runtime_negrem_runs, runtime_negrem_supported,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,

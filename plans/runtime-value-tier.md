@@ -1,15 +1,15 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R5 LANDED (the runtime arc is COMPLETE for the current fragment)
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R6 LANDED (the runtime arc is COMPLETE for the current fragment)
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
-(R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values ALL
-LANDED) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
+(R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values +
+R6 nonzero `%`/unary `-` ALL LANDED) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
 `undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
 `BehaviorSafe` (nil deref / OOB / race) per Phase 5's ordering.
 
-## Live invariants (R1–R5 as landed)
+## Live invariants (R1–R6 as landed)
 
 - The runtime tier lives in `denote_expr` via `reval_int` (RVal | RPanic | None-absent), UNDER the same
   `floats_checked` boundary `eval_value` enforces; the terminal-flag/short-circuit machinery carries
@@ -65,6 +65,9 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   evaluation order UNSPECIFIED: a panic denotes ONLY when order-INDEPENDENT — sealed by the quantified
   walker theorems `rconstr_vals_{ok_iff,panic_sound,two_panics_absent}` (the fixture
   `runtime_maplen_ambiguous_absent` is a witness, not the authority).
+  **R6** (LANDED) nonzero runtime `%` via the evidence-carrying `int_mod` (the `int_div` convoy) and runtime
+  unary `-` via `int_neg`; the `^` complement of a platform int stays ABSENT (no model op — add `int_not`
+  as a modelled Definition first if ever needed).
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
