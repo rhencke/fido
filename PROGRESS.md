@@ -80,10 +80,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`): rungs 1–4 + 5a/5b landed —
   NEG-f64 + the signed-zero constant layer; the `shl_align` spec; `binary_round_exact` with
   the LIVE-boundary bridge (`ptype_float_const_repr`, `ptype_float_payload_{f64,f32}`,
-  `box_float_gate`) and `renorm_binary_round_idem`; rung-4 value-determinism; the WIDE bridge
+  `box_float_gate`) and `renorm_binary_round_idem`; the WIDE bridge
   `binary_round_of_norm_wide` (raw-digits-unbounded odd-core determinism, gated; the carry
-  class pinned `add_carry_raw_wide_accepted`); the wide determinism endpoint
-  (`binary_normalize_wide_determined`) + `dy_norm_value_unique`. Next: the `SFadd` finite-arm
+  class pinned `add_carry_raw_wide_accepted`); the determinism endpoint
+  `binary_normalize_wide_determined` + `dy_norm_value_unique`. Next: the `SFadd` finite-arm
   assembly closing ADD/SUB. (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
   physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.

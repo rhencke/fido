@@ -6839,11 +6839,10 @@ Example add_carry_raw_wide_accepted :
      = Some (anyt TFloat64 (S754_finite false 9007199254740991%positive 1)).
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** ★ the DETERMINISM endpoint (gated; rung 4's raw-side-windowed form SUPERSEDED in 5c by
-    this WIDE corollary): [dy_norm]-equal representations normalize to the SAME canonical
-    float, with the window premises on the SHARED NORMAL FORM only — the raw sides' digit
-    counts are UNBOUNDED ([binary_round_of_norm_wide]), exactly what [SFadd]'s raw aligned
-    sums need. *)
+(** ★ the DETERMINISM endpoint (gated): [dy_norm]-equal representations normalize to the SAME
+    canonical float, with the window premises on the SHARED NORMAL FORM only — the raw sides'
+    digit counts are UNBOUNDED ([binary_round_of_norm_wide]), exactly what [SFadd]'s raw
+    aligned sums need. *)
 Theorem binary_normalize_wide_determined : forall prec emax m1 e1 m2 e2 s zq k,
   dy_norm m1 e1 = (zq, k) ->
   dy_norm m2 e2 = (zq, k) ->
