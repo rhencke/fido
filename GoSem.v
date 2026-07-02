@@ -10,9 +10,10 @@
       [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
       [_ = e] -> [CRet] when [e] is a constant; [defer <call>] -> [CDfr] (the deferred call runs at
       function-scope return, LIFO — [run_cmd]'s [run_defers]).  Print/panic args fold via [eval_value] (scalar
-      constants, AND a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]] — the
-      WHOLE literal is evaluated, so a runtime/panicking element rejects it; the scalar folds are in the
-      [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet denoted).
+      constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], and [len]
+      of such a literal — the WHOLE literal is evaluated, so a runtime/panicking element rejects either; the
+      scalar folds are in the [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet
+      denoted).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -211,6 +212,18 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
       end
   end.
 
+(** The ptype-driven DEFAULT fold: a numeric / string / bool CONSTANT evaluates to the model value its [ptype]
+    category carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
+Definition eval_value_ptype (e : GExpr) : option GoAny :=
+  match ptype e with
+  | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
+  | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
+  | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
+  | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
+  | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
+  | _                       => None
+  end.
+
 (** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a numeric /
     string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
     out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
@@ -221,9 +234,11 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
     is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
     integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
     platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
-    bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below.  ABSENT ([None], honestly): runtime
-    operands ([len(..)]/[int(x)]), OOB / runtime slice INDEX, any runtime/out-of-range slice ELEMENT,
-    out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
+    bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
+    literal folds to its length ([eval_len_reduces]).  ABSENT ([None], honestly): [len] of a MAP literal or of a
+    literal with runtime elements, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB /
+    runtime slice INDEX, any runtime/out-of-range slice ELEMENT, out-of-range or COMPLEMENTED [uint],
+    fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
@@ -246,15 +261,21 @@ Definition eval_value (e : GExpr) : option GoAny :=
            | None => None
            end
       else None
-  | _ =>
-      match ptype e with
-      | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
-      | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-      | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
-      | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
-      | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
-      | _                       => None
-      end
+  | ECall (EId f) (ESliceLit t es :: nil) =>
+      (* [len] of a FULLY-EVALUABLE int-slice LITERAL folds to its length, boxed as Go's [int] ([box_int GTInt]
+         — range-checked, fail-closed).  Go evaluates the literal (ALL elements) before [len], so a
+         runtime/panicking element declines the fold ([eval_int_slice_elems] — same whole-literal discipline as
+         the index arm; [ptype] still classifies the call [PtRunInt GTInt], like the index).  [len] of a STRING
+         literal already folds via [ptype] ([PtIntConst]); [len] of a MAP literal / non-int-element slice stays
+         honestly absent.  Any OTHER call with a slice-literal argument falls through to the ptype-driven
+         default unchanged. *)
+      if String.eqb (proj1_sig f) "len" && is_int_goty t
+      then match eval_int_slice_elems t es with
+           | Some vs => box_int GTInt (Z.of_nat (length vs))
+           | None => None
+           end
+      else eval_value_ptype e
+  | _ => eval_value_ptype e
   end.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -494,8 +515,8 @@ Qed.
     print/println arg denotes iff it EVALUATES + is PRINTABLE ([denotable_arg]).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println(len([]int{1}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote (pinned
-    by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
+    RUNTIME arg ([println(len(map[int]int{1: 2}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
+    (pinned by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
   if pr then ECall (EId (mkIdent "println" eq_refl)) args
@@ -600,15 +621,17 @@ Example out_main_denotes_mixed :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     (out_main_body [(true, [EStr "a"]); (false, [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])])) <> None.
 Proof. apply out_main_denotes. reflexivity. Qed.
-(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len([]int{1}))] is SUPPORTED
-    (valid Go) yet its arg is a RUNTIME [len] (NOT [denotable_arg]), so the program does NOT denote. *)
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len(map[int]int{1: 2}))] is
+    SUPPORTED (valid Go) yet its arg is a RUNTIME [len] GoSem does not fold (no map evaluator; NOT
+    [denotable_arg]), so the program does NOT denote.  (A slice-literal [len] now folds — this witness is the
+    strictness pin for the [eval_len_supported] inclusion.) *)
 Definition out_runtime_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                       [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]); GsReturn].
+                       [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]]); GsReturn].
 Example out_boundary_runtime_undenoted :
   supported_program out_runtime_prog = true
-  /\ denotable_arg (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) = false
+  /\ denotable_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]) = false
   /\ denote_program out_runtime_prog = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
@@ -781,6 +804,39 @@ Proof.
   - exfalso. apply Hne. reflexivity.
 Qed.
 
+(** ★ CLASS THEOREM ([len]) — over the same fully-evaluable all-constant subfragment: [len] of a literal that
+    FULLY evaluates folds to its LENGTH, boxed as Go's [int] (range-checked).  Go evaluates the literal before
+    [len], so a runtime/panicking element declines the fold — the whole-literal discipline shared with the
+    index arm. *)
+Lemma eval_len_reduces : forall t es f vs,
+  String.eqb (proj1_sig f) "len" = true ->
+  is_int_goty t = true ->
+  eval_int_slice_elems t es = Some vs ->
+  eval_value (ECall (EId f) (ESliceLit t es :: nil)) = box_int GTInt (Z.of_nat (length vs)).
+Proof.
+  intros t es f vs Hf Ht Hv.
+  cbn [eval_value].
+  rewrite Hf, Ht. cbv beta iota delta [andb].
+  rewrite Hv. reflexivity.
+Qed.
+
+(** ★ SUPPORTEDNESS INCLUSION BRIDGE ([len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
+    (valid Rocq-Go; [ptype] classifies a slice-[len] RUNTIME, exactly as it does the index — the evaluator
+    folds the determined VALUE without loosening the gate).  A strict INCLUSION: [ptype] also admits [len] of a
+    MAP literal / a literal with runtime elements, which stay unfolded ([out_boundary_runtime_undenoted]). *)
+Lemma eval_len_supported : forall t es f vs,
+  String.eqb (proj1_sig f) "len" = true ->
+  is_int_goty t = true ->
+  eval_int_slice_elems t es = Some vs ->
+  ptype (ECall (EId f) (ESliceLit t es :: nil)) = Some (PtRunInt GTInt).
+Proof.
+  intros t es f vs Hf Ht Hv.
+  pose proof (eval_int_slice_elems_forall_assignable t es vs Hv) as Hall.
+  cbn [ptype]. rewrite Hall. cbv beta iota zeta.
+  rewrite Hf. cbv beta iota.
+  reflexivity.
+Qed.
+
 (** ---- SLICE-INDEX fixtures (grouped; the CLASS theorems above are the authorities). ----
     DENOTING side: the [eval_value_good] rows [[]int{10,20}[1]]/[[0]]] (exact element values) + [rc_sliceidx]
     (end-to-end run).  DECLINED side, three layers on shared fixtures:
@@ -854,15 +910,15 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(len([]int{1}))]
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(len(map…))]
     is a DENOTABLE body ([return] terminates; the runtime-arg [println] is a SUPPORTED dead tail) whose tail
     does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
     terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
-    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])] = true
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]])] = true
   /\ forallb stmt_denotable [GsReturn;
-       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])] = false.
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
@@ -992,6 +1048,7 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (EBn BEq (ECall (EId (mkIdent "string" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")]) (EStr "ab"), anyt TBool true)
   ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1), anyt TInt64 (intwrap 20))   (* constant in-bounds slice-index -> the EXACT element value *)
   ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0), anyt TInt64 (intwrap 10))
+  ; (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]], anyt TInt64 (intwrap 2))   (* len of a fully-evaluable literal -> its length as Go [int] *)
   ].
 Example eval_value_good_ok :
   map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
@@ -1013,9 +1070,9 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     through cmd.v's [run_cmd] to the world logging [v].  The RECORD TYPE [GoSemRequiredCategoryCoverage] fixes,
     in its FIELD TYPES (one per required behavior category), the EXACT end-to-end behaviors the model must
     exhibit — string-literal PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT,
-    string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, a non-tail RETURN that stops
-    the body with NO output, a denoted PANIC ending in [OPanic], defer LIFO ordering at return, and a DEFERRED
-    panic firing at return.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
+    string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, [len] of a fully-evaluable
+    literal, a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic], defer
+    LIFO ordering at return, and a DEFERRED panic firing at return.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
     discharging EVERY field with the stated programs+values: a category cannot be dropped without editing this
     typed STATEMENT (the record), never silently by convention.  Table-INDEPENDENT (no reference to
     [eval_value_good]). *)
@@ -1030,6 +1087,7 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
   rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* constant in-bounds int-slice index folds+runs to the element *)
+  rc_len       : runs_to (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 10; EInt 20]]) (anyt TInt64 (intwrap 2));  (* len of a fully-evaluable literal folds+runs to its length *)
   rc_return_stops : forall w,                                 (* [return] STOPS the body: the successor println NEVER runs, world UNCHANGED *)
     match denote_program gosem_return_stops_prog with Some c => run_cmd 5 c w | None => None end
     = Some (ORet tt w);
@@ -1070,7 +1128,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
     byte — ASCII-rune/string-source/concat operands DO fold), an untyped const past the
     default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), and
-    a runtime slice [len]. *)
+    a map-literal [len] (no map evaluator). *)
 Definition eval_absent : list GExpr :=
   [ EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) (EBn BEq (EInt 2) (EInt 2))
@@ -1078,7 +1136,7 @@ Definition eval_absent : list GExpr :=
   ; EInt 2147483648
   ; ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]
   ; uint_underflow_e
-  ; ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]] ].
+  ; ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]] ].   (* len of a MAP literal: supported, honestly unfolded (no map evaluator) *)
 Example eval_absent_none : forallb (fun e => match eval_value e with None => true | Some _ => false end) eval_absent = true.
 Proof. vm_compute. reflexivity. Qed.
 
@@ -1110,6 +1168,7 @@ Definition gosem_trust_surface :=
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
+   eval_len_reduces, eval_len_supported,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.

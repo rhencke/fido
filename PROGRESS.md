@@ -56,7 +56,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   panic → `CPan`, `return`, blank constant-assignment, and `defer <call>` → `CDfr` (runs at function-scope
   return, LIFO; a deferred panic fires at return — both pinned as typed Record fields
   `rc_defer_lifo`/`rc_defer_panic`), over a PARTIAL `eval_value` (string / integer /
-  exact-float / bool CONSTANTS incl. in-range `uint`, and an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element (whole literal evaluated — a runtime element rejects it; in-bounds DENOTES, OOB DECLINED); fails CLOSED
+  exact-float / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, and `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED); fails CLOSED
   on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
   and the GENERAL statement-compositional `denotable_stmts_main_denotes` (any body whose every statement
@@ -113,11 +113,11 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
-  not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
-  statement-compositional, so each eval case shrinks the supported-but-undenoted gap (`denotable_*` ⊊
-  `supported_*` — `stmt_denotable ⟹ stmt_ok` is already proved, `stmt_denotable_ok`), whose SOLE remaining
-  source is the eval-partial value forms (defer now denotes).
+- GROW `eval_value` (`len` of maps / genuinely-runtime operands like `int(x)` need runtime values; fractional
+  floats need `PtFloatConst` to carry a real float, not just an integer `z`) — the general converse
+  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case shrinks the
+  supported-but-undenoted gap (`denotable_*` ⊊ `supported_*` — `stmt_denotable ⟹ stmt_ok` is already proved,
+  `stmt_denotable_ok`), whose SOLE remaining source is the eval-partial value forms.
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
