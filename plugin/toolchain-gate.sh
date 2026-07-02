@@ -14,11 +14,15 @@
 #   5. NO computed assignment LHS ($(...) or ${...} before the first operator) — an expanded LHS
 #      could name GOIMAGE indirectly.
 #   6. The EFFECTIVE value equals the authority line's RHS exactly.
-#   7. The only repo-wide Go-image spelling is the authority line; the Dockerfile has EXACTLY ONE
-#      ARG GOIMAGE, it is default-less, and the builder stage consumes it verbatim
-#      (FROM ${GOIMAGE} AS builder).
+#   7. The only repo-wide Go-image reference (TAG or DIGEST-ONLY spelling) is the authority line;
+#      the Dockerfile bans non-default '# escape=' parser directives (they re-type continuations),
+#      has EXACTLY ONE default-less ARG GOIMAGE, and the builder stage consumes it verbatim
+#      (FROM ${GOIMAGE} AS builder) with no other FROM referencing a Go image.
 set -eu
 mk="$1"; eff="$2"; df="${3:-Dockerfile}"
+# THE Go-image reference detector — tag OR digest-only spellings (single-sourced; the selftest
+# asserts its coverage directly).
+GO_IMAGE_RE='golang[:@]'
 
 # (1) eval + .RECIPEPREFIX bans — every physical line, recipes included.
 if grep -nE '\$[({][[:space:]]*eval' "$mk"; then
@@ -63,10 +67,13 @@ rhs=$(printf '%s\n' "$norm" | sed -n 's/^override GOIMAGE := //p' | sed 's/ *$//
 #     the builder stage consumes it verbatim.  Dockerfile instructions are CASE-INSENSITIVE and may
 #     be indented or backslash-continued, so the file is NORMALIZED first (continuations joined,
 #     leading whitespace stripped, the opcode uppercased) and every check runs on normalized lines.
-bad=$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true)
+bad=$(git grep -nIE "$GO_IMAGE_RE" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true)
 if [ -n "$bad" ]; then
-  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"
+  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling (tag or digest form) outside the single GOIMAGE authority line:"
   echo "$bad"; exit 1
+fi
+if grep -niE '^#[ \t]*escape[ \t]*=' "$df"; then
+  echo "fido: TOOLCHAIN DRIFT — a '# escape=' parser directive is BANNED (it re-types the continuation character the normalizer assumes)"; exit 1
 fi
 dfnorm=$(awk '{ if (sub(/\\$/, "")) { buf = buf $0 " "; next } print buf $0; buf = "" } END { if (buf != "") print buf }' "$df" \
   | awk '{ sub(/^[ \t]+/, "");
@@ -87,4 +94,4 @@ if printf '%s\n' "$dfnorm" | grep -E '^FROM[ \t]' | grep -v -E '\$\{GOIMAGE\}[ \
   echo "fido: TOOLCHAIN DRIFT — another FROM references a Go image"; exit 1
 fi
 
-echo "fido: toolchain-gate OK — one strict GOIMAGE authority: Makefile logical-line scan (eval/include/.RECIPEPREFIX/computed-LHS banned), effective == authority, repo-wide single spelling, normalized Dockerfile (one default-less ARG, verbatim builder FROM, no rogue Go FROM) ✓"
+echo "fido: toolchain-gate OK — one strict GOIMAGE authority: Makefile logical-line scan (eval/include/.RECIPEPREFIX/computed-LHS banned), effective == authority, repo-wide single Go-image reference (tag+digest forms), normalized Dockerfile (escape-directive ban, one default-less ARG, verbatim builder FROM, no rogue Go FROM) ✓"

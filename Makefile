@@ -284,12 +284,17 @@ toolchain-selftest:
 	for dfevil in \
 	  'ARG GOIMAGE=evil-default' \
 	  'arg GOIMAGE=evil-default' \
-	  'from golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
-	  '  FROM golang@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue'; do \
-	  cp Dockerfile "$$tmp"; printf '%s\n' "$$dfevil" >> "$$tmp"; \
+	  'from @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
+	  '  FROM @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
+	  '# escape=`@@NL@@FROM `@@NL@@ @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue'; do \
+	  cp Dockerfile "$$tmp"; printf '%s\n' "$$dfevil" | sed -e 's/@@NL@@/\n/g' -e 's/@@GOIMG@@/golang/g' >> "$$tmp"; \
 	  if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
 	    echo "fido: toolchain-gate ACCEPTED a Dockerfile mutation: $$dfevil"; exit 1; fi; \
 	done; \
+	re=$$(sed -n "s/^GO_IMAGE_RE='\(.*\)'$$/\1/p" plugin/toolchain-gate.sh); \
+	test -n "$$re" || { echo "fido: could not extract GO_IMAGE_RE from the gate script"; exit 1; }; \
+	printf 'x gola%s@sha256:aa\n' ng | grep -qE "$$re" || { echo "fido: the Go-image detector misses DIGEST-ONLY spellings"; exit 1; }; \
+	printf 'x gola%s:1.99-alpine\n' ng | grep -qE "$$re" || { echo "fido: the Go-image detector misses TAG spellings"; exit 1; }; \
 	sed 's/^FROM $${GOIMAGE} AS builder$$/FROM alpine AS builder/' Dockerfile > "$$tmp"; \
 	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
 	  echo "fido: toolchain-gate ACCEPTED a builder FROM that bypasses \$${GOIMAGE}"; exit 1; fi
