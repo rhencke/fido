@@ -200,8 +200,8 @@ Qed.
 
 (** ---- SEED of the GoSem-BACKED emission certificate (future path: [BehaviorSafe] -> [SafeProgram] ->
     [emit_safe]).  On the DENOTED fragment "panic-free" IS the behavioral-safety condition: the fragment has no
-    modeled nil/pointer/channel hazards; any denoted panic is caught by [cmd_no_panic], and the still-undenoted
-    runtime-panic forms by non-denotation — a full [BehaviorSafe]
+    modeled nil/pointer/channel hazards; any denoted panic is caught by [cmd_no_panic], and an ABSENT
+    (undenoted) program by non-denotation — a full [BehaviorSafe]
     (nil deref / send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT
     [SafeProgram] / [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via
     [panic_free_denotable_supported]) AND carries the decidable panic-free RUN guarantee.  It is the FIRST

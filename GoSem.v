@@ -934,7 +934,7 @@ Qed.
     fragment — deliberately NARROWER than the live denotation boundary ([denote_expr], which since tier R1
     also denotes RUNTIME-determined args like [runlen_e]): a [folded_arg] certainly denotes, so the
     SUFFICIENT converse below holds outright on this fragment; the converse for the runtime tier is future
-    work.  A runtime-index arg is neither folded nor yet denoted ([out_boundary_runtime_undenoted]); a
+    work.  A runtime-CONVERSION arg is neither folded nor yet denoted ([out_boundary_runtime_undenoted]); a
     supported-but-eval-partial constant (multi-byte rune [string(200)]) is pinned by
     [runeconv_multibyte_boundary].  [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
@@ -1220,9 +1220,9 @@ Qed.
 
 (** ★ SUPPORTEDNESS INCLUSION BRIDGE — the reduction's hypotheses IMPLY [ptype = Some (PtRunInt t)] (valid
     Rocq-Go).  A strict INCLUSION, not an equivalence: the fully-evaluable all-constant subfragment ⊊
-    [ptype]-supported ([ptype] also admits a RUNTIME index / RUNTIME same-typed elements, undenoted — strictness
-    pinned by [slice_index_supported_but_undenoted]).  The evaluator consults [ptype]'s OWN element/index checks,
-    so there is no looser private boundary. *)
+    [ptype]-supported ([ptype] also admits a RUNTIME index / RUNTIME same-typed elements — EVAL-level absent,
+    strictness pinned by [slice_index_supported_but_undenoted]; the runtime TIER denotes them since R2).  The
+    evaluator consults [ptype]'s OWN element/index checks, so there is no looser private boundary. *)
 Lemma eval_slice_index_supported :
   forall t es idx ci k vs,
     is_int_goty t = true ->
@@ -1435,11 +1435,10 @@ Qed.
       wrong-typed element ([[]int{int64(1)}], not assignable to [int]) and a constant index over the
       CONSERVATIVE 32-bit [GTInt] ([2^40]); the evaluator's accept-set is never looser than [ptype]'s.
     - [slice_index_undenoted_ok]: [println(e); return] does NOT denote (and [eval_value e = None]) for the
-      VALID-Go OOB constant [[..][5]] (a slice OOB is a RUN-TIME panic, not a compile error — declined, never
-      a wrong value), a runtime-PANICKING UNSELECTED element ([[]int{20, 1/len([]int{})}[0]] panics in Go
-      during whole-literal construction, verified `go run` — hence [eval_int_slice_elems] evaluates ALL
-      elements), the wrong-typed-element literal, and an out-of-[uint8]-range element.  Faithful-or-absent:
-      declined-as-undenoted, NOT proven-unsafe. *)
+      ptype-REJECTED shapes (the wrong-typed-element literal, an out-of-[uint8]-range element).  The VALID-Go
+      OOB constant [[..][5]] and the runtime-PANICKING UNSELECTED element ([[]int{20, 1/len([]int{})}[0]],
+      construction order verified `go run`) DENOTE their TRUE panics since tier R2 —
+      [slice_index_panics_denote]. *)
 Definition println_prog (e : GExpr) : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [e]); GsReturn].
@@ -1991,7 +1990,7 @@ Example eval_value_failclosed :
   /\ ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false
   /\ ptype (EBn BEq (EStr "a") (EStr "a")) = Some PtBool
   /\ ptype (ECall (EId (mkIdent "bool" eq_refl)) [EBn BEq (EInt 1) (EInt 1)]) = Some PtBool.
-  (* slice-literal fail-closed rows (runtime-panicking / malformed element) live in [slice_index_undenoted_ok] *)
+  (* slice-literal fail-closed rows (malformed element) live in [slice_index_undenoted_ok]; the runtime-panicking shapes DENOTE ([slice_index_panics_denote]) *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1

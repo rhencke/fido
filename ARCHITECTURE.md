@@ -14,7 +14,7 @@ Only CERTIFIED ASTs may be emitted through the official path.
 Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe" only when
 GoSem-backed SAFETY theorems back the certificate — a FIRST NARROW one now does (`GoSemSafe.emit_panic_free`:
 precondition = a proven panic-free run: accepted iff the program denotes to [c] with [cmd_no_panic c] —
-denotable panics — however they arise — are rejected THERE; undenoted runtime-panic forms are rejected by
+denotable panics — however they arise — are rejected THERE; an ABSENT (undenoted) program is rejected by
 non-denotation; OFF the main path), but the general behaviorally-safe
 certificate for the emitted/main output does NOT yet exist — and the NAME of the certificate must never claim
 more than is proved.
@@ -175,7 +175,7 @@ Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no seco
          ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission cert + DECIDABLE gate
            (`PanicFreeEmittable`/`emit_panic_free`, `panic_free_gate`/`emit_panic_free_gated` — end-to-end
            sound: emit ⟹ proven panic-free run + blessed bytes; accepted iff the program denotes to c with
-           cmd_no_panic c — denotable panics rejected there, undenoted runtime-panic forms by non-denotation;
+           cmd_no_panic c — denotable panics rejected there, an absent (undenoted) program by non-denotation;
            off the main path). NEXT = eval
            non-literals, then full `BehaviorSafe` (nil deref/OOB/race).
 ```

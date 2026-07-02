@@ -134,7 +134,7 @@ let is_stdlib_ref r =
   let p = global_fullpath r in
   let pre s = String.length p >= String.length s
               && String.equal (String.sub p 0 (String.length s)) s in
-  pre "Stdlib." || pre "Corelib." || pre "Coq." 
+  pre "Stdlib." || pre "Corelib." || pre "Coq."
 
 (* ---- Record (Go struct) support ----
    A Rocq Record is a Go value-struct (both have value/copy semantics, so no

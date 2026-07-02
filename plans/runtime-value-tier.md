@@ -1,31 +1,25 @@
 # The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1+R2 LANDED; R3 (width conversions) next
 
-**Why (pre-R1 framing; R1 closed the len/arith half).** This arc covers the RUNTIME-classified subset of
-the supported-but-undenoted frontier (runtime slice indexing — R2; width conversions — R3; runtime map
-values need their OWN rule) — NOT the whole gap: eval-partial constants (the multi-byte rune), the OOB
-CONSTANT index, runtime conversions/comparisons are separate classes, WITNESSED (non-exhaustively) in
-GoSem's `undenoted_frontier`. In the CLOSED world the runtime forms are
+**Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
+(R1 len/arith + R2 slice indexing LANDED; width conversions — R3 — remain; runtime map values need their
+OWN rule) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
+`undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
 `BehaviorSafe` (nil deref / OOB / race) per Phase 5's ordering.
 
-## Design sketch (decide precisely at implementation start)
+## Live invariants (R1+R2 as landed)
 
-- A RUNTIME evaluation tier inside `denote_expr` (Cmd-valued): evaluate a supported expression to either
-  a value or a PANIC command — e.g. slice index with a runtime index evaluates index + whole literal,
-  then in-bounds → element, OOB → `CPan` with Go's EXACT runtime message (verify the exact
-  "index out of range [i] with length n" format with a real `go run` before modeling — rt_* constant in
-  builtins like rt_div_zero).
-- `int(x)`/width conversions of runtime ints: Go TRUNCATES at runtime (mod 2^w) — the model's `*wrap`
-  ops ARE that semantics; fold via the model's own wraps (agreement-by-construction, no new guard tier
-  needed for ints — wraps are the definition). Runtime FLOATS stay absent until the model-op evaluation
-  extends (a fresh agreement question — do NOT smuggle).
-- The float boundary (`floats_checked`) stays at `eval_value`'s top; the runtime tier must sit UNDER the
-  same boundary discipline (a laundered float fold inside a runtime expression is already covered by the
-  boundary's syntax recursion — verify with rows).
-- Terminal flags: a runtime-panicking value is a KNOWN panic → the existing computed-flag/short-circuit
-  machinery (denote_expr's bool) carries it; args/statements after it are gate-checked-not-denoted.
+- The runtime tier lives in `denote_expr` via `reval_int` (RVal | RPanic | None-absent), UNDER the same
+  `floats_checked` boundary `eval_value` enforces; the terminal-flag/short-circuit machinery carries
+  runtime panics unchanged.
+- OOB payloads are the model's EXACT `rt_index_oob i n` (digits; negative form omits length — verified
+  against gc via `go run`; length = the STRUCTURAL list/`sh_len` nat, never a round-trip through the
+  wrapped `len`).
+- R3 (width conversions of runtime ints): Go truncates at runtime (mod 2^w) — the model's `*wrap` ops
+  ARE that semantics; fold via the model's own wraps (agreement-by-construction). Runtime FLOATS stay
+  absent until the model-op evaluation extends (a fresh agreement question — do NOT smuggle).
 
 ## Review-lesson checklist (apply from the start)
 - Every new fold's upstream GATE rejection becomes load-bearing — probe nested/empty shapes at ptype

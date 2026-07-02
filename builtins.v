@@ -3914,7 +3914,7 @@ Fixpoint go_list_nth {A : Type} (xs : list A) (i : nat) (d : A) : A :=
 Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) : IO A :=
   fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
            then ORet (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) w
-           else OPanic (rt_index_oob (intraw i) (Z.to_nat (intraw (len xs)))) w.   (* out of bounds / negative: Go panics, with the EXACT payload; the length boundary is a [nat] (never negative by type) *)
+           else OPanic (rt_index_oob (intraw i) (List.length xs)) w.   (* out of bounds / negative: Go panics with the EXACT payload — the STRUCTURAL list length (a [nat]), never a round-trip through the wrapped [len] *)
 
 (** Safe checked index (the safe-by-construction default for slice access).
     [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in

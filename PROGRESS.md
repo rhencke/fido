@@ -14,7 +14,7 @@ only a narrow off-main `emit_panic_free` seed.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepted iff the program denotes to `c` with `cmd_no_panic c` — any denotable panic rejected there; undenoted runtime-panic forms rejected by non-denotation) — no full BehaviorSafe gate.
+Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepted iff the program denotes to `c` with `cmd_no_panic c` — any denotable panic rejected there; an ABSENT (undenoted) program by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
