@@ -64,7 +64,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   terminator + supported dead tail; SUFFICIENT not necessary, still conditional on `stmt_denotable`, not full
   `supported_program`). Its tightness is PROVED, not asserted: `denotable_body_terminator_free_iff` — on a
   terminator-free body the compositional converse is EXACT (iff), the terminator dead-tail escape being the
-  SOLE slack. RUN-level twins: `denotable_stmts_main_runs` / `out_main_runs`. Certified public surface =
+  SOLE slack. Every denotation RUNS for enough fuel (`cmd.run_cmd_terminates`, universal). Certified public surface =
   `gosem_trust_surface` + `gosem_string_authority_surface` (the string comparators ARE the model's `str_*`); a
   GoSem fact in neither tuple is an internal helper / example, not certified. NO `BehaviorSafe`. Zero axioms.
 - **Model layer** (proof-only): `builtins.v` (the Go layer over concrete Rocq data), `cmd.v` (effect
@@ -115,8 +115,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
   not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
-  statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap on the DEFER-FREE
-  fragment (the `GsDefer` half is the item above).
+  statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap, whose SOLE
+  remaining source is the eval-partial value forms (defer now denotes).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.

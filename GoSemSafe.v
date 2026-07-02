@@ -113,7 +113,7 @@ Fixpoint cmd_panic_val (c : Cmd unit) : option GoAny :=
 
 (** A defer-free command that DOES panic ([cmd_panic_val = Some v]) runs (via [go]) to [OPanic v] with the
     EXACT pre-panic output [cmd_out_world c w] — faithful: the outputs BEFORE the panic still happen, then the
-    panic carries [v].  The dual of [go_panic_free_world]. *)
+    panic carries [v]. *)
 Lemma go_panics_world : forall c w v,
   no_defer c = true -> cmd_panic_val c = Some v -> go c w = (OPanic v (cmd_out_world c w), nil).
 Proof.
