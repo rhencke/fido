@@ -51,8 +51,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     (`reval_val_with`; `denote_expr` is a thin wrapper over the same pipeline).
   - denotation ⊆ `SupportedProgram` (`gosem_sound`); compositional converses
     (`out_main_denotes`, `denotable_stmts_main_denotes`, tightness `denotable_body_terminator_free_iff`).
-  - typed UNARY on non-GTInt carriers denotes (T1, `typed_unop` — dispatch + holes pinned); the
-    remaining carrier-operation absents stay pinned: `typed_unary_holes_absent + typed_runtime_{convchain,shift}_absent`.
+  - typed UNARY: the LIVE cells denote (T1 — `^` all fixed widths, `-` i64/u64; SEALED
+    `denote_expr_typed_unop_runs_sealed` on the proven well-taggedness invariant `reval_val_typed`);
+    the hole cells are absent for every payload (`typed_unop_holes_none`), witnessed by
+    `typed_unary_holes_absent`; chains + shifts stay pinned: `typed_runtime_{convchain,shift}_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
@@ -79,9 +81,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary LANDED (consolidation pass done
-  2026-07-02 — keep the byte/size discipline while growing); next T2 conversion chains, the
-  well-taggedness invariant, T3–T5; then the general dyadic↔`SF*` agreement theorem.
+- The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary LANDED + SEALED (the
+  well-taggedness invariant is PROVEN); next T2 conversion chains, then T3–T5; then the general
+  dyadic↔`SF*` agreement theorem. Keep the byte/size discipline while growing.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

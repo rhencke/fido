@@ -9,7 +9,7 @@
     [reval_val_with]; [denote_expr] is a thin wrapper).  FAITHFUL-OR-ABSENT: the right behavior or
     [None] ("not modeled yet", never "invalid" and never wrong).  [gosem_sound]: denotation ⊆
     [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].  Absence boundaries are PINNED, not
-    prose: [undenoted_frontier] + [typed_runtime_{not,convchain,shift}_absent].
+    prose: [undenoted_frontier] + [typed_unary_holes_absent] + [typed_runtime_{convchain,shift}_absent].
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
     (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)
@@ -615,7 +615,7 @@ Inductive RAny : Type := RAVal (g : GoAny) | RAPanic (p : GoAny).
 (** Tier T1 typed-unary dispatch — the per-width MODEL op for a unary op at a non-GTInt integer
     width, on the boxed carrier (the [unbox_int] tag-convoy pattern per width).  [^] covers all eight
     fixed widths; [-] only [i64]/[u64] (no narrow-neg model ops); [GTUint] has NO ops — every hole is
-    an explicit [None] (absent); the whole matrix is sealed below ([typed_unop_tag_exact] + the branch/hole pins). *)
+    an explicit [None] (absent); the matrix is sealed below: [typed_unop_tag_exact] + the qualified branch pins + the COMPLETE hole theorem [typed_unop_holes_none]. *)
 Definition typed_unop (o : UnaryOp) (t : GoTy) (g : GoAny) : option GoAny :=
   match g with
   | existT _ _ (pair x tag) =>
@@ -1352,8 +1352,6 @@ Qed.
     keyword width.  [reval_val_typed]: a [reval_val] VALUE's tag matches its [ptype] width — so the
     typed-unary dispatch is total on the live cells with NO caller-side premise
     ([denote_expr_typed_unop_runs_sealed]). *)
-Lemma numty_eqb_eq : forall a b, numty_eqb a b = true -> a = b.
-Proof. intros a b; destruct a; destruct b; cbn; intro H; first [reflexivity | discriminate H]. Qed.
 Definition pty_int_ok (p : PTy) : bool :=
   match p with PtRunInt t | PtTIntConst t _ => is_int_goty t | _ => true end.
 Lemma dy_fold_at_float : forall t df a b pt,
@@ -2082,8 +2080,8 @@ Qed.
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
     (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
     multi-byte rune [string(200)] ([runeconv_multibyte_boundary], = [out_boundary_runtime_undenoted]'s
-    witness) and the GoUint-hole complement [runnot_uint_e] ([typed_unary_holes_absent]).
-    [denotable_supported] pins denotable ⊆ supported. *)
+    witness) and the typed-unary hole class ([runnot_uint_e] et al. — eight-wide,
+    [typed_unary_holes_absent]).  [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -2852,8 +2850,9 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** ★ T1 pins (typed unary, grouped): [^int64(len3)] and [^uint8(len3)] DENOTE at their widths via
     the model's [i64_not]/[u8_not] (the R3-converted operand evaluated at full power); [-int64(len3)]
-    via [i64_neg]; a PANICKING typed operand propagates.  The HOLES stay pinned absent:
-    [^uint(len3)] (GoUint has no ops) and [-uint8(len3)] (no narrow-neg model op).
+    via [i64_neg]; a PANICKING typed operand propagates.  The HOLES stay absent — sealed by
+    [typed_unop_holes_none] (every ptype-reachable absent cell, every payload) and witnessed
+    eight-wide at the program level ([typed_unary_holes_absent]).
     [typed_unop]'s live branches are pinned against the QUALIFIED model ops and its holes to [None]
     ([typed_unop_*] below) — the dispatch cannot drift while the surface is green. *)
 Definition runnot_i64_e : GExpr := EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
@@ -2890,7 +2889,7 @@ Example typed_unary_holes_absent :
           ; runneg_i16_e ; runneg_u32_e ; runneg_i32_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
 (** DISPATCH AUTHORITY (gated): each live [typed_unop] branch IS the fully qualified model op; the
-    holes ([GTUint], narrow [-]) are [None] for EVERY payload. *)
+    holes are sealed by the COMPLETE quantified theorem [typed_unop_holes_none] below. *)
 Example typed_unop_u8_model  : forall v, typed_unop UXor GTU8  (anyt TU8  v) = Some (anyt TU8  (Fido.builtins.u8_not v)).
 Proof. reflexivity. Qed.
 Example typed_unop_i8_model  : forall v, typed_unop UXor GTI8  (anyt TI8  v) = Some (anyt TI8  (Fido.builtins.i8_not v)).
@@ -2911,10 +2910,15 @@ Example typed_unop_neg_i64_model : forall v, typed_unop UNeg GTInt64 (anyt TI64 
 Proof. reflexivity. Qed.
 Example typed_unop_neg_u64_model : forall v, typed_unop UNeg GTU64 (anyt TU64 v) = Some (anyt TU64 (Fido.builtins.u64_neg v)).
 Proof. reflexivity. Qed.
-Example typed_unop_uint_hole : forall g, typed_unop UXor GTUint g = None.
-Proof. intros [A [x tag]]. reflexivity. Qed.
-Example typed_unop_neg_u8_hole : forall g, typed_unop UNeg GTU8 g = None.
-Proof. intros [A [x tag]]. reflexivity. Qed.
+(** THE COMPLETE HOLE THEOREM — every ptype-reachable absent cell is [None] for EVERY payload
+    (quantified over [GoAny], not fixtures): [^] at [GTUint], and [-] at every width below [i64]. *)
+Theorem typed_unop_holes_none : forall g : GoAny,
+  typed_unop UXor GTUint g = None
+  /\ typed_unop UNeg GTUint g = None
+  /\ typed_unop UNeg GTU8  g = None /\ typed_unop UNeg GTI8  g = None
+  /\ typed_unop UNeg GTU16 g = None /\ typed_unop UNeg GTI16 g = None
+  /\ typed_unop UNeg GTU32 g = None /\ typed_unop UNeg GTI32 g = None.
+Proof. intros [A [x tag]]. repeat split; reflexivity. Qed.
 (** The conversion-CHAIN boundary, pinned: the R3 exit denotes conversions FROM GTINT OPERANDS only
     ([denote_expr_conv_runs] demands [reval_int a]); a chain through a non-GTInt intermediate
     ([int64(uint8(len ..))]) is [ptype]-supported yet ABSENT — the same typed-carrier gap, same next
@@ -3464,8 +3468,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
-    runtime form) and the GoUint-hole complement [runnot_uint_e] (the representative of the remaining
-    typed-unary absents, pinned with the narrow-neg hole by [typed_unary_holes_absent]; the
+    runtime form) and the typed-unary hole representative [runnot_uint_e] (the class pinned
+    eight-wide by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]; the
     conversion-CHAIN and SHIFT case tables live OUTSIDE this list —
     [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND undenoted AND
     eval-level absent. *)
@@ -3526,7 +3530,7 @@ Definition gosem_runtime_int_surface :=
    typed_unop_u8_model, typed_unop_i8_model, typed_unop_u16_model, typed_unop_i16_model,
    typed_unop_u32_model, typed_unop_i32_model, typed_unop_i64_model, typed_unop_u64_model,
    typed_unop_neg_i64_model, typed_unop_neg_u64_model,
-   typed_unop_uint_hole, typed_unop_neg_u8_hole).
+   typed_unop_holes_none).
 Definition gosem_map_surface :=
   (eval_map_len_reduces, eval_map_len_supported, map_len_eval_absent, maplen_divzero_runs,
    map_len_invalid_type_rejected,
