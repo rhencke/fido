@@ -58,7 +58,11 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   pins it, two int consts default to the `GTInt` engine; sealed
   `denote_expr_typed_cmp_runs_sealed` over `ptype_cmp_bool_args` (via `num_comparable`'s rows),
   operands through the same width seal; panic/absent companions; `uint` + cross-width pinned;
-  go-run-verified runs pins incl. both mixed-const kinds). T5 SHIFTS — ⚠ NOT same-width binops:
+  go-run-verified runs pins incl. both mixed-const kinds). T5 SHIFTS — LANDED (`typed_shift` per the design below; counts ≥ 64 SATURATE to 64 — exactly
+  Go for ≤64-bit carriers, go-run-verified incl. the huge-count 0; the negative-count panic
+  `rt_shift_neg` gc-exact; the count layer `shift_count` sealed total on runtime AND const counts;
+  the five-case shape table FLIPPED to denoting `typed_runtime_shift_runs` in this commit;
+  `GTInt`-left + `uint`-left pinned absent). Original design (now implemented): ⚠ NOT same-width binops:
   Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;
   the COUNT is an INDEPENDENT integer of any width, nonnegative — a signed negative count PANICS).
   A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated

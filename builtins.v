@@ -657,6 +657,7 @@ Notation any x := (anyt (the_tag _) x).
     extracted — they are listed in the plugin's [is_inlined_ref]. *)
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
 Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
+Definition rt_shift_neg    : GoAny := anyt TString "runtime error: negative shift amount"%string.    (* a NEGATIVE runtime shift count — consumed by GoSem's T5 typed-shift denotation (not extracted); payload verified against gc via go run *)
 (** Decimal rendering of a [Z] (for the EXACT runtime panic payloads below): digits accumulated
     least-significant-first into the string, fuel = the positive's bit-size (>= its digit count). *)
 Fixpoint n_dec_aux (fuel : nat) (n : N) (acc : string) : string :=

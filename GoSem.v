@@ -6,7 +6,7 @@
 
     SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
     over the exact-or-absent [eval_value] fold, the runtime GTInt tier R1–R7, and the typed-runtime
-    tier T1–T4 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
+    tier T1–T5 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
     Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority
@@ -1300,6 +1300,307 @@ Proof.
   intros o t ga gb H. unfold typed_cmp.
   destruct (cmp_binop o); [destruct t; try discriminate H; reflexivity | reflexivity].
 Qed.
+(** ---- Tier T5 — HETEROGENEOUS typed SHIFT dispatch ----
+    Go's shift is NOT a same-width binop: the LEFT operand fixes the result width; the COUNT is an
+    independent integer of ANY width.  A NEGATIVE runtime count PANICS ([rt_shift_neg], gc's exact
+    payload, go-run-verified); a count >= 64 SATURATES to 64 before the model op — for a carrier of
+    <= 64 bits, shifting by >= 64 IS shifting by 64 ([<<]: >= w trailing zero bits, 0 mod 2^w;
+    [>>]: exhausted to 0 / the sign fill; go-run-verified [uint8(3) << ^uint64(3)] = 0) — so NO
+    count value is unmodelled.  Small widths take the model's [GoInt] count, [i64]/[u64] the raw
+    [Z] count, each behind its own nonneg-evidence convoy. *)
+Definition shift_op (o : BinOp) : bool := match o with BShl | BShr => true | _ => false end.
+Definition shift_amount (z : Z) : GoInt := intwrap (Z.min z 64).
+Lemma shift_amount_nonneg : forall z,
+  (0 <=? z)%Z = true -> Z.leb 0 (intraw (shift_amount z)) = true.
+Proof.
+  intros z Hz. unfold shift_amount, intwrap. cbn [intraw].
+  apply Z.leb_le. apply Z.leb_le in Hz. unfold wrap64.
+  rewrite Z.mod_small by lia. lia.
+Qed.
+Definition shift_checked_small {A : Type} (tag : GoTypeTag A)
+    (op : A -> forall k : GoInt, Z.leb 0 (intraw k) = true -> A) (x : A) (z : Z) : option RAny :=
+  (match (0 <=? z)%Z as b return (0 <=? z)%Z = b -> option RAny with
+   | false => fun _ => Some (RAPanic rt_shift_neg)
+   | true => fun _ =>
+       (match Z.leb 0 (intraw (shift_amount z)) as b2
+              return Z.leb 0 (intraw (shift_amount z)) = b2 -> option RAny with
+        | true  => fun pf => Some (RAVal (anyt tag (op x (shift_amount z) pf)))
+        | false => fun _  => None
+        end) eq_refl
+   end) eq_refl.
+Definition shift_checked_wide {A : Type} (tag : GoTypeTag A)
+    (op : A -> forall k : Z, (0 <=? k)%Z = true -> A) (x : A) (z : Z) : option RAny :=
+  (match (0 <=? z)%Z as b return (0 <=? z)%Z = b -> option RAny with
+   | false => fun _ => Some (RAPanic rt_shift_neg)
+   | true => fun _ =>
+       (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RAny with
+        | true  => fun pf => Some (RAVal (anyt tag (op x (Z.min z 64) pf)))
+        | false => fun _  => None
+        end) eq_refl
+   end) eq_refl.
+Lemma shift_checked_small_cases : forall (A : Type) (tag : GoTypeTag A) op (x : A) z,
+  ((0 <=? z)%Z = false /\ shift_checked_small tag op x z = Some (RAPanic rt_shift_neg))
+  \/ ((0 <=? z)%Z = true
+      /\ exists pf, shift_checked_small tag op x z
+                    = Some (RAVal (anyt tag (op x (shift_amount z) pf)))).
+Proof.
+  intros A tag op x z. unfold shift_checked_small.
+  assert (K2 : forall b2 (pf2 : Z.leb 0 (intraw (shift_amount z)) = b2), b2 = true ->
+      exists pf, (match b2 as b0 return Z.leb 0 (intraw (shift_amount z)) = b0 -> option RAny with
+                  | true  => fun pf0 => Some (RAVal (anyt tag (op x (shift_amount z) pf0)))
+                  | false => fun _   => None
+                  end) pf2 = Some (RAVal (anyt tag (op x (shift_amount z) pf)))).
+  { intros b2 pf2 Hb2. destruct b2; [eexists; reflexivity | discriminate Hb2]. }
+  assert (K : forall b (pfb : (0 <=? z)%Z = b),
+      ((0 <=? z)%Z = false
+       /\ (match b as b0 return (0 <=? z)%Z = b0 -> option RAny with
+           | false => fun _ => Some (RAPanic rt_shift_neg)
+           | true => fun _ =>
+               (match Z.leb 0 (intraw (shift_amount z)) as b2
+                      return Z.leb 0 (intraw (shift_amount z)) = b2 -> option RAny with
+                | true  => fun pf => Some (RAVal (anyt tag (op x (shift_amount z) pf)))
+                | false => fun _  => None
+                end) eq_refl
+           end) pfb = Some (RAPanic rt_shift_neg))
+      \/ ((0 <=? z)%Z = true
+          /\ exists pf, (match b as b0 return (0 <=? z)%Z = b0 -> option RAny with
+              | false => fun _ => Some (RAPanic rt_shift_neg)
+              | true => fun _ =>
+                  (match Z.leb 0 (intraw (shift_amount z)) as b2
+                         return Z.leb 0 (intraw (shift_amount z)) = b2 -> option RAny with
+                   | true  => fun pf0 => Some (RAVal (anyt tag (op x (shift_amount z) pf0)))
+                   | false => fun _  => None
+                   end) eq_refl
+              end) pfb = Some (RAVal (anyt tag (op x (shift_amount z) pf))))).
+  { intros b pfb. destruct b.
+    - right. split; [exact pfb|]. exact (K2 _ eq_refl (shift_amount_nonneg z pfb)).
+    - left. split; [exact pfb | reflexivity]. }
+  exact (K _ eq_refl).
+Qed.
+Lemma shift_checked_wide_cases : forall (A : Type) (tag : GoTypeTag A) op (x : A) z,
+  ((0 <=? z)%Z = false /\ shift_checked_wide tag op x z = Some (RAPanic rt_shift_neg))
+  \/ ((0 <=? z)%Z = true
+      /\ exists pf, shift_checked_wide tag op x z
+                    = Some (RAVal (anyt tag (op x (Z.min z 64) pf)))).
+Proof.
+  intros A tag op x z. unfold shift_checked_wide.
+  assert (K2 : forall b2 (pf2 : (0 <=? Z.min z 64)%Z = b2), b2 = true ->
+      exists pf, (match b2 as b0 return (0 <=? Z.min z 64)%Z = b0 -> option RAny with
+                  | true  => fun pf0 => Some (RAVal (anyt tag (op x (Z.min z 64) pf0)))
+                  | false => fun _   => None
+                  end) pf2 = Some (RAVal (anyt tag (op x (Z.min z 64) pf)))).
+  { intros b2 pf2 Hb2. destruct b2; [eexists; reflexivity | discriminate Hb2]. }
+  assert (K : forall b (pfb : (0 <=? z)%Z = b),
+      ((0 <=? z)%Z = false
+       /\ (match b as b0 return (0 <=? z)%Z = b0 -> option RAny with
+           | false => fun _ => Some (RAPanic rt_shift_neg)
+           | true => fun _ =>
+               (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RAny with
+                | true  => fun pf => Some (RAVal (anyt tag (op x (Z.min z 64) pf)))
+                | false => fun _  => None
+                end) eq_refl
+           end) pfb = Some (RAPanic rt_shift_neg))
+      \/ ((0 <=? z)%Z = true
+          /\ exists pf, (match b as b0 return (0 <=? z)%Z = b0 -> option RAny with
+              | false => fun _ => Some (RAPanic rt_shift_neg)
+              | true => fun _ =>
+                  (match (0 <=? Z.min z 64)%Z as b2 return (0 <=? Z.min z 64)%Z = b2 -> option RAny with
+                   | true  => fun pf0 => Some (RAVal (anyt tag (op x (Z.min z 64) pf0)))
+                   | false => fun _  => None
+                   end) eq_refl
+              end) pfb = Some (RAVal (anyt tag (op x (Z.min z 64) pf))))).
+  { intros b pfb. destruct b.
+    - right. split; [exact pfb|].
+      assert (Hm : (0 <=? Z.min z 64)%Z = true)
+        by (apply Z.leb_le; apply Z.leb_le in pfb; lia).
+      exact (K2 _ eq_refl Hm).
+    - left. split; [exact pfb | reflexivity]. }
+  exact (K _ eq_refl).
+Qed.
+
+Definition typed_shift (o : BinOp) (t : GoTy) (ga : GoAny) (z : Z) : option RAny :=
+  if shift_op o then
+    match t with
+    | GTU8 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TU8 => fun va =>
+                match o with
+                | BShl => shift_checked_small TU8 u8_shl va z
+                | BShr => shift_checked_small TU8 u8_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI8 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TI8 => fun va =>
+                match o with
+                | BShl => shift_checked_small TI8 i8_shl va z
+                | BShr => shift_checked_small TI8 i8_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU16 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TU16 => fun va =>
+                match o with
+                | BShl => shift_checked_small TU16 u16_shl va z
+                | BShr => shift_checked_small TU16 u16_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI16 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TI16 => fun va =>
+                match o with
+                | BShl => shift_checked_small TI16 i16_shl va z
+                | BShr => shift_checked_small TI16 i16_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU32 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TU32 => fun va =>
+                match o with
+                | BShl => shift_checked_small TU32 u32_shl va z
+                | BShr => shift_checked_small TU32 u32_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI32 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TI32 => fun va =>
+                match o with
+                | BShl => shift_checked_small TI32 i32_shl va z
+                | BShr => shift_checked_small TI32 i32_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTInt64 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TI64 => fun va =>
+                match o with
+                | BShl => shift_checked_wide TI64 i64_shl va z
+                | BShr => shift_checked_wide TI64 i64_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU64 =>
+        match ga with
+        | existT _ _ (pair xa taga) =>
+            match taga in GoTypeTag A return A -> option RAny with
+            | TU64 => fun va =>
+                match o with
+                | BShl => shift_checked_wide TU64 u64_shl va z
+                | BShr => shift_checked_wide TU64 u64_shr va z
+                | _ => None
+                end
+            | _ => fun _ => None
+            end xa
+        end
+    | _ => None
+    end
+  else None.
+(** The COUNT layer — full evaluation, then the raw reading off ANY int carrier. *)
+Definition shift_count (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
+  match rv e with
+  | Some (RAVal g) => match runint_raw g with Some z => Some (inl z) | None => None end
+  | Some (RAPanic p) => Some (inr p)
+  | None => None
+  end.
+(** The typed-shift seal set. *)
+Lemma typed_shift_tag_exact : forall o t ga z g,
+  typed_shift o t ga z = Some (RAVal g) ->
+  tag_matches t ga = true /\ tag_matches t g = true.
+Proof.
+  intros o t [A [xa taga]] z g H.
+  unfold typed_shift in H.
+  destruct o; cbv beta iota delta [shift_op] in H; try discriminate H;
+  destruct t; cbv beta iota in H; try discriminate H;
+  destruct taga; cbv beta iota in H; try discriminate H;
+  first
+    [ (edestruct shift_checked_small_cases as [[Ez Ep] | [Ez [pf Ev]]];
+       [ rewrite Ep in H; discriminate H
+       | rewrite Ev in H; injection H as <-; split; reflexivity ])
+    | (edestruct shift_checked_wide_cases as [[Ez Ep] | [Ez [pf Ev]]];
+       [ rewrite Ep in H; discriminate H
+       | rewrite Ev in H; injection H as <-; split; reflexivity ]) ].
+Qed.
+Lemma typed_shift_panic_neg : forall o t ga z p,
+  typed_shift o t ga z = Some (RAPanic p) ->
+  p = rt_shift_neg /\ (0 <=? z)%Z = false.
+Proof.
+  intros o t [A [xa taga]] z p H.
+  unfold typed_shift in H.
+  destruct o; cbv beta iota delta [shift_op] in H; try discriminate H;
+  destruct t; cbv beta iota in H; try discriminate H;
+  destruct taga; cbv beta iota in H; try discriminate H;
+  first
+    [ (edestruct shift_checked_small_cases as [[Ez Ep] | [Ez [pf Ev]]];
+       [ rewrite Ep in H; injection H as <-; split; [reflexivity | exact Ez]
+       | rewrite Ev in H; discriminate H ])
+    | (edestruct shift_checked_wide_cases as [[Ez Ep] | [Ez [pf Ev]]];
+       [ rewrite Ep in H; injection H as <-; split; [reflexivity | exact Ez]
+       | rewrite Ev in H; discriminate H ]) ].
+Qed.
+Lemma typed_shift_live_total : forall o t ga z,
+  shift_op o = true ->
+  tag_matches t ga = true ->
+  numty_eqb t GTInt = false -> numty_eqb t GTUint = false -> is_int_goty t = true ->
+  exists r, typed_shift o t ga z = Some r.
+Proof.
+  intros o t [A [xa taga]] z Ho Ha Hgi Hgu Hi.
+  destruct o; try discriminate Ho;
+  destruct t; try discriminate Hi; try discriminate Hgi; try discriminate Hgu;
+  destruct taga; try discriminate Ha;
+  unfold typed_shift; cbv beta iota;
+  first
+    [ (edestruct shift_checked_small_cases as [[Ez Ep] | [Ez [pf Ev]]]; eexists;
+       first [exact Ep | exact Ev])
+    | (edestruct shift_checked_wide_cases as [[Ez Ep] | [Ez [pf Ev]]]; eexists;
+       first [exact Ep | exact Ev]) ].
+Qed.
+Lemma typed_shift_nonshift_none : forall o t ga z,
+  shift_op o = false -> typed_shift o t ga z = None.
+Proof. intros o t ga z H. unfold typed_shift. rewrite H. reflexivity. Qed.
+Lemma typed_shift_gtint_none : forall o ga z, typed_shift o GTInt ga z = None.
+Proof. intros o ga z. unfold typed_shift. destruct (shift_op o); reflexivity. Qed.
+Lemma typed_shift_uint_none : forall o ga z, typed_shift o GTUint ga z = None.
+Proof. intros o ga z. unfold typed_shift. destruct (shift_op o); reflexivity. Qed.
+Lemma typed_shift_nonint_none : forall o t ga z,
+  is_int_goty t = false -> typed_shift o t ga z = None.
+Proof.
+  intros o t ga z H. unfold typed_shift.
+  destruct (shift_op o); [destruct t; try discriminate H; reflexivity | reflexivity].
+Qed.
+
 
 
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
@@ -1406,11 +1707,21 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
           if numty_eqb t GTInt then None else
           match typed_operand rv t a with
           | Some (RAVal ga) =>
-              match typed_operand rv t b with
-              | Some (RAVal gb) => typed_binop o t ga gb
-              | Some (RAPanic p) => Some (RAPanic p)
-              | None => None
-              end
+              if typed_arith_op o then
+                match typed_operand rv t b with
+                | Some (RAVal gb) => typed_binop o t ga gb
+                | Some (RAPanic p) => Some (RAPanic p)
+                | None => None
+                end
+              else if shift_op o then
+                (* tier T5 — the COUNT evaluates at FULL power at ITS OWN width and is read as a
+                   raw [Z] ([shift_count]); the width-sealed left operand feeds [typed_shift]. *)
+                match shift_count rv b with
+                | Some (inl z) => typed_shift o t ga z
+                | Some (inr p) => Some (RAPanic p)
+                | None => None
+                end
+              else None
           | Some (RAPanic p) => Some (RAPanic p)
           | None => None
           end
@@ -1933,6 +2244,34 @@ Lemma conv_to_scalar_agg_none : forall t', conv_to_scalar PtAgg t' = None.
 Proof. intro t'; destruct t'; reflexivity. Qed.
 Lemma conv_to_scalar_map_none : forall t', conv_to_scalar PtMap t' = None.
 Proof. intro t'; destruct t'; reflexivity. Qed.
+Lemma ptype_call_slicelit_shape : forall f et es p,
+  ptype (ECall (EId f) (ESliceLit et es :: nil)) = Some p -> p = PtRunInt GTInt.
+Proof.
+  intros f et es p H. cbn [ptype] in H.
+  match type of H with
+  | context [if ?b then Some PtAgg else None] => destruct b
+  end; cbv beta iota in H; [|discriminate H].
+  destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H;
+  [injection H as <-; reflexivity|].
+  destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H;
+  [injection H as <-; reflexivity|].
+  destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
+  [rewrite conv_to_scalar_agg_none in H; discriminate H | discriminate H].
+Qed.
+Lemma ptype_call_maplit_shape : forall f kt vt kvs p,
+  ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some p -> p = PtRunInt GTInt.
+Proof.
+  intros f kt vt kvs p H. cbn [ptype] in H.
+  match type of H with
+  | context [if ?b then Some PtMap else None] => destruct b
+  end; cbv beta iota in H; [|discriminate H].
+  destruct (String.eqb (proj1_sig f) "len"); cbv beta iota in H;
+  [injection H as <-; reflexivity|].
+  destruct (String.eqb (proj1_sig f) "cap"); cbv beta iota in H;
+  [discriminate H|].
+  destruct (classify (proj1_sig f)) as [t'|]; cbv beta iota in H;
+  [rewrite conv_to_scalar_map_none in H; discriminate H | discriminate H].
+Qed.
 Lemma classify_gtint_name : forall s, classify s = Some GTInt -> String.eqb s "int" = true.
 Proof.
   intros s H. unfold classify in H.
@@ -2157,6 +2496,76 @@ Proof.
     | right; left; split; [exists z; right; reflexivity | reflexivity]
     | right; right; split; [exists z; left; split; [reflexivity | exact R] | reflexivity]
     | right; right; split; [exists z; right; reflexivity | reflexivity] ] ).
+Qed.
+
+(** ---- The T5 SHIFT shape seal: a [PtRunInt t]-classified shift ([t] ≠ [GTInt]) has a LEFT
+    operand that is runtime-at-[t] or a typed constant AT [t] ([ptype]'s own shift rows), and a
+    COUNT that is a runtime integer of SOME width or an int constant ([is_int_cat], nonneg by
+    [is_neg_const]). *)
+Lemma ptype_shift_runint_args : forall o a b t,
+  shift_op o = true ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  (ptype a = Some (PtRunInt t) \/ (exists z', ptype a = Some (PtTIntConst t z')))
+  /\ ((exists s, ptype b = Some (PtRunInt s))
+      \/ (exists cb z0, ptype b = Some cb /\ int_const_val cb = Some z0)).
+Proof.
+  intros o a b t Ho Hpt Ht. cbn [ptype] in Hpt.
+  destruct (ptype a) as [cl|] eqn:Ea; [|discriminate Hpt].
+  destruct (ptype b) as [cr|] eqn:Eb; [|discriminate Hpt].
+  cbv beta iota in Hpt.
+  destruct o; try discriminate Ho;
+  ( cbn [num_binop] in Hpt;
+    match type of Hpt with
+    | (if ?bb then _ else _) = _ =>
+        let E := fresh "E" in
+        destruct bb eqn:E; cbv beta iota in Hpt; [|discriminate Hpt]
+    end;
+    apply andb_true_iff in E; destruct E as [Eil Eir];
+    match type of Hpt with
+    | (if ?bb then _ else _) = _ =>
+        destruct bb; cbv beta iota in Hpt; [discriminate Hpt|]
+    end;
+    destruct cl; cbv beta iota in Hpt; try discriminate Hpt;
+    [ (destruct (int_const_val cr) eqn:Ec; cbv beta iota in Hpt;
+       [ repeat match type of Hpt with
+                | (if ?bb then _ else _) = _ =>
+                    destruct bb; cbv beta iota in Hpt; try discriminate Hpt
+                end; try discriminate Hpt
+       | injection Hpt as <-; discriminate Ht ])
+    | (destruct (int_const_val cr) eqn:Ec; cbv beta iota in Hpt;
+       [ repeat match type of Hpt with
+                | (if ?bb then _ else _) = _ =>
+                    destruct bb; cbv beta iota in Hpt; try discriminate Hpt
+                end; try discriminate Hpt
+       | injection Hpt as <-; split;
+         [ right; eexists; reflexivity
+         | destruct cr; try discriminate Eir;
+           try (cbn in Ec; discriminate Ec);
+           left; eexists; reflexivity ] ])
+    | (injection Hpt as <-; split;
+       [ left; reflexivity
+       | destruct cr; try discriminate Eir;
+         first [ (left; eexists; reflexivity)
+               | (right; eexists; eexists; split; reflexivity) ] ]) ] ).
+Qed.
+
+(** A [rexit_with] exit fires only for [PtRunInt]/[PtBool]-classified nodes — any other class
+    computes [None] (feeds the count layer's const-totality: a const-classified operand's value can
+    only come from the FOLD). *)
+Lemma rexit_nonexit_class_none : forall e c,
+  ptype e = Some c ->
+  match c with PtRunInt _ => false | PtBool => false | _ => true end = true ->
+  rexit_with reval_int (reval_val_with reval_int) e = None.
+Proof.
+  intros e c Hpt Hc.
+  destruct e as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c0 e0|et es|kt vt kvs|str|hx];
+    cbn [rexit_with]; try reflexivity.
+  - rewrite Hpt. destruct c; try discriminate Hc; reflexivity.
+  - rewrite Hpt. destruct c; try discriminate Hc; reflexivity.
+  - destruct fn; try reflexivity.
+    destruct args as [|a0 [|? ?]]; try reflexivity.
+    rewrite Hpt. destruct c; try discriminate Hc; reflexivity.
 Qed.
 
 (** ---- The classifier's TYPED-CONST REPR invariant: every [PtTIntConst t z] the classifier
@@ -2664,6 +3073,48 @@ Proof.
       destruct Hlit.
 Qed.
 
+(** The FOLD's tag for CONST-classified expressions: an untyped int constant boxes at [GTInt]'s
+    tag, a typed one at ITS width (feeds the shift count's const-totality). *)
+Lemma eval_value_const_int_tag : forall e v,
+  eval_value e = Some v ->
+  match ptype e with
+  | Some (PtIntConst _) => tag_matches GTInt v = true
+  | Some (PtTIntConst s _) => tag_matches s v = true
+  | _ => True
+  end.
+Proof.
+  intros e v Hv.
+  destruct (ptype e) as [c|] eqn:Hpt; [|exact I].
+  destruct c; try exact I;
+  ( unfold eval_value in Hv; destruct (floats_checked e); [|discriminate Hv];
+    destruct e as [i|z0|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c0 e0|et es|kt vt kvs|str|hx];
+      cbn [eval_value_core] in Hv;
+      try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; cbv beta iota in Hv;
+           exact (box_int_tag _ _ _ Hv));
+    [ destruct e1 as [| | | | | | | | | |t0 es0| | |];
+        try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; cbv beta iota in Hv;
+             exact (box_int_tag _ _ _ Hv));
+      exfalso; cbn [ptype] in Hpt;
+      repeat match type of Hpt with
+             | (if ?bb then _ else _) = _ => destruct bb; try discriminate Hpt
+             | (match ?x with Some _ => _ | None => _ end) = _ =>
+                 destruct x; try discriminate Hpt
+             end
+    | destruct fn as [i0| | | | | | | | | | | | |];
+        try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; cbv beta iota in Hv;
+             exact (box_int_tag _ _ _ Hv));
+      destruct args as [|a0 [|? ?]];
+        try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; cbv beta iota in Hv;
+             exact (box_int_tag _ _ _ Hv));
+        [| destruct a0; unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv;
+           cbv beta iota in Hv; exact (box_int_tag _ _ _ Hv) ];
+      destruct a0 as [| | | | | | | | | |t0 es0|mkt mvt mkvs| |];
+        try (unfold eval_value_ptype_core in Hv; rewrite Hpt in Hv; cbv beta iota in Hv;
+             exact (box_int_tag _ _ _ Hv));
+      [ pose proof (ptype_call_slicelit_shape _ _ _ _ Hpt) as Esh; discriminate Esh
+      | pose proof (ptype_call_maplit_shape _ _ _ _ _ Hpt) as Esh; discriminate Esh ] ] ).
+Qed.
+
 (** THE WELL-TAGGEDNESS INVARIANT — a [reval_val] VALUE's tag matches its [ptype] width.  A destruct,
     not an induction: each exit's result tag comes from its own dispatch seal ([wrap_runint_tag],
     [typed_unop_tag_exact]); the fold and the GTInt engine come from [eval_value_runint_tag] and
@@ -2695,9 +3146,14 @@ Proof.
     destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
     destruct (typed_operand (reval_val_with reval_int) t l) as [[ga|p]|];
       cbv beta iota in Hg; try discriminate Hg.
-    destruct (typed_operand (reval_val_with reval_int) t r) as [[gb|p]|];
-      cbv beta iota in Hg; try discriminate Hg.
-    exact (proj2 (proj2 (typed_binop_tag_exact _ _ _ _ _ Hg))).
+    destruct (typed_arith_op o); cbv beta iota in Hg.
+    + destruct (typed_operand (reval_val_with reval_int) t r) as [[gb|p]|];
+        cbv beta iota in Hg; try discriminate Hg.
+      exact (proj2 (proj2 (typed_binop_tag_exact _ _ _ _ _ Hg))).
+    + destruct (shift_op o); cbv beta iota in Hg; [|discriminate Hg].
+      destruct (shift_count (reval_val_with reval_int) r) as [[z|p]|];
+        cbv beta iota in Hg; try discriminate Hg.
+      exact (proj2 (typed_shift_tag_exact _ _ _ _ _ Hg)).
   - (* ECall: the R3+T2 exit *)
     destruct fn; try discriminate Hg.
     destruct args as [|a0 [|? ?]]; try discriminate Hg.
@@ -2787,6 +3243,46 @@ Proof.
        | context [box_int ?tt ?zz] => destruct (box_int tt zz); discriminate H
        end);
   eexists; split; [reflexivity | split; [assumption | exact H]].
+Qed.
+
+(** The COUNT layer sealed: an evaluated count is rawable — a RUNTIME count via the well-taggedness
+    invariant; a CONSTANT count via the fold's own int box (its value can only come from the fold:
+    the engine demands [PtRunInt GTInt] and every exit demands [PtRunInt]/[PtBool],
+    [rexit_nonexit_class_none]). *)
+Lemma shift_count_runint_total : forall s b gb,
+  ptype b = Some (PtRunInt s) ->
+  reval_val b = Some (RAVal gb) ->
+  exists z, shift_count reval_val b = Some (inl z).
+Proof.
+  intros s b gb Hpt Hb.
+  pose proof (reval_val_typed b s gb Hpt Hb) as Htag.
+  pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
+  destruct (runint_raw_total s gb Hi Htag) as [z Hz].
+  exists z. unfold shift_count. rewrite Hb, Hz. reflexivity.
+Qed.
+Lemma shift_count_const_total : forall b gb c z0,
+  ptype b = Some c -> int_const_val c = Some z0 ->
+  reval_val b = Some (RAVal gb) ->
+  exists z, shift_count reval_val b = Some (inl z).
+Proof.
+  intros b gb c z0 Hpt Hic Hb.
+  assert (Hev : eval_value b = Some gb).
+  { unfold reval_val in Hb. rewrite reval_val_with_eq in Hb.
+    destruct (eval_value b) as [v|] eqn:E; cbv beta iota in Hb.
+    - injection Hb as <-. reflexivity.
+    - destruct (reval_int b) as [[x|p]|] eqn:Er; cbv beta iota in Hb.
+      + pose proof (reval_int_runint b _ E Er) as Hr. rewrite Hpt in Hr.
+        injection Hr as ->. cbn in Hic. discriminate Hic.
+      + discriminate Hb.
+      + rewrite (rexit_nonexit_class_none b c Hpt) in Hb; [discriminate Hb|].
+        destruct c; cbn in Hic; try discriminate Hic; reflexivity. }
+  pose proof (eval_value_const_int_tag b gb Hev) as Htag. rewrite Hpt in Htag.
+  destruct c; cbn [int_const_val] in Hic; try discriminate Hic.
+  - destruct (runint_raw_total GTInt gb eq_refl Htag) as [zc Hz].
+    exists zc. unfold shift_count. rewrite Hb, Hz. reflexivity.
+  - pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
+    destruct (runint_raw_total _ gb Hi Htag) as [zc Hz].
+    exists zc. unfold shift_count. rewrite Hb, Hz. reflexivity.
 Qed.
 
 (** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
@@ -3048,7 +3544,7 @@ Qed.
     left-to-right (only the runtime row can panic, [typed_operand_panic_runtime]) and ABSENT
     operands stay absent (the companion lemmas below) — never decided by classification alone.
     [GTUint] is the hole row ([typed_binop_uint_none], pinned [typed_binop_uint_program_absent]);
-    shifts are T5 ([typed_runtime_shift_absent]). *)
+    shifts are the T5 exit (their own sealed theorem below). *)
 Theorem denote_expr_typed_binop_runs_sealed : forall o a b t ga gb,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some (PtRunInt t) ->
@@ -3089,7 +3585,8 @@ Proof.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some r).
   { unfold rexit_with. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
-    rewrite Ha. cbv beta iota. rewrite Hb. cbv beta iota. exact Hr. }
+    rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
+    rewrite Hb. cbv beta iota. exact Hr. }
   split; [exact Hr|]. split.
   - unfold denote_expr. rewrite Hfc. cbn [negb].
     rewrite reval_val_with_eq, Hev, He, Hrx.
@@ -3121,12 +3618,13 @@ Lemma denote_expr_typed_binop_right_panic : forall o a b t ga p,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
+  typed_arith_op o = true ->
   eval_value (EBn o a b) = None ->
   typed_operand reval_val t a = Some (RAVal ga) ->
   typed_operand reval_val t b = Some (RAPanic p) ->
   denote_expr (EBn o a b) = Some (CPan p, true).
 Proof.
-  intros o a b t ga p Hfc Hpt Ht Hev Ha Hb.
+  intros o a b t ga p Hfc Hpt Ht Ho Hev Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
@@ -3135,7 +3633,8 @@ Proof.
   assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some (RAPanic p)).
   { unfold rexit_with. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
-    rewrite Ha. cbv beta iota. rewrite Hb. reflexivity. }
+    rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
+    rewrite Hb. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
@@ -3145,12 +3644,13 @@ Qed.
 Theorem denote_expr_typed_binop_src_absent : forall o a b t,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
+  typed_arith_op o = true ->
   (typed_operand reval_val t a = None
    \/ (exists ga, typed_operand reval_val t a = Some (RAVal ga)
                   /\ typed_operand reval_val t b = None)) ->
   denote_expr (EBn o a b) = None.
 Proof.
-  intros o a b t Hpt Ht Habs.
+  intros o a b t Hpt Ht Ho Habs.
   unfold denote_expr.
   destruct (floats_checked (EBn o a b)) eqn:Hfc; cbn [negb]; [|reflexivity].
   assert (Hev : eval_value (EBn o a b) = None).
@@ -3164,7 +3664,8 @@ Proof.
   cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   destruct Habs as [Hna | [ga [Ha Hnb]]].
   - unfold reval_val in Hna. rewrite Hna. reflexivity.
-  - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Hnb. reflexivity.
+  - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Ho. cbv beta iota.
+    rewrite Hnb. reflexivity.
 Qed.
 
 (** A [cmp_width] result other than [GTInt] is an INT width (it comes from a [PtRunInt] operand —
@@ -3311,6 +3812,112 @@ Proof.
   destruct Habs as [Hna | [ga [Ha Hnb]]].
   - unfold reval_val in Hna. rewrite Hna. reflexivity.
   - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Hnb. reflexivity.
+Qed.
+
+(** ★ THE SEALED T5 THEOREM — HETEROGENEOUS typed SHIFTS over [ptype]'s own shape split
+    ([ptype_shift_runint_args]: the LEFT is runtime-at-[t] or a typed constant AT [t] — the operand
+    width seal covers both; the COUNT is any-width runtime or an int constant, its value read off
+    the carrier by the sealed count layer, total on both shapes — [shift_count_runint_total] /
+    [shift_count_const_total]).  The result is decided per OUTCOME: the width's model op's VALUE, or
+    the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact payload); operand/count panics
+    propagate left-to-right; ABSENT sides stay absent.  [GTUint] left is the hole row
+    ([typed_shift_uint_none], pinned [typed_shift_uint_program_absent]); an untyped-const LEFT
+    classifies [GTInt] (the engine's absent row, [typed_shift_gtint_none]). *)
+Theorem denote_expr_typed_shift_runs_sealed : forall o a b t ga z,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false -> numty_eqb t GTUint = false ->
+  shift_op o = true ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  shift_count reval_val b = Some (inl z) ->
+  exists r, typed_shift o t ga z = Some r
+    /\ denote_expr (EBn o a b)
+       = Some (match r with RAVal g => (CRet g, false) | RAPanic p => (CPan p, true) end)
+    /\ (forall g, r = RAVal g -> tag_matches t g = true).
+Proof.
+  intros o a b t ga z Hfc Hpt Ht Hu Ho Hev Ha Hcnt.
+  pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
+  pose proof (ptype_shift_runint_args o a b t Ho Hpt Ht) as [Hleft _].
+  assert (Hna : typed_arith_op o = false)
+    by (destruct o; try discriminate Ho; reflexivity).
+  assert (Hta : tag_matches t ga = true).
+  { apply (typed_operand_typed t a ga Hi); [|exact Ha].
+    destruct Hleft as [Hpa | [z' Hpa]];
+      [ left; exact Hpa | right; exists z'; right; exact Hpa ]. }
+  destruct (typed_shift_live_total o t ga z Ho Hta Ht Hu Hi) as [r Hr].
+  exists r.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht.
+    cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha, Hcnt.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b) = Some r).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
+    rewrite Ho. cbv beta iota. rewrite Hcnt. cbv beta iota. exact Hr. }
+  split; [exact Hr|]. split.
+  - unfold denote_expr. rewrite Hfc. cbn [negb].
+    rewrite reval_val_with_eq, Hev, He, Hrx.
+    destruct r as [g|p]; reflexivity.
+  - intros g ->. exact (proj2 (typed_shift_tag_exact _ _ _ _ _ Hr)).
+Qed.
+(** The COUNT-side panic propagation (the left already evaluated; Go's order). *)
+Lemma denote_expr_typed_shift_count_panic : forall o a b t ga p,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  shift_op o = true ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  shift_count reval_val b = Some (inr p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b t ga p Hfc Hpt Ht Ho Hev Ha Hcnt.
+  assert (Hna : typed_arith_op o = false)
+    by (destruct o; try discriminate Ho; reflexivity).
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht.
+    cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha, Hcnt.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
+                = Some (RAPanic p)).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
+    rewrite Ho. cbv beta iota. rewrite Hcnt. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
+Qed.
+(** The ABSENT-side propagation, shift edition (left absent is the shared T3 lemma's disjunct;
+    here: left evaluated, the COUNT absent). *)
+Theorem denote_expr_typed_shift_src_absent : forall o a b t ga,
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  shift_op o = true ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  shift_count reval_val b = None ->
+  denote_expr (EBn o a b) = None.
+Proof.
+  intros o a b t ga Hpt Ht Ho Ha Hcnt.
+  assert (Hna : typed_arith_op o = false)
+    by (destruct o; try discriminate Ho; reflexivity).
+  unfold denote_expr.
+  destruct (floats_checked (EBn o a b)) eqn:Hfc; cbn [negb]; [|reflexivity].
+  assert (Hev : eval_value (EBn o a b) = None).
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Ht.
+    cbv beta iota delta [negb]. reflexivity. }
+  unfold reval_val in Ha, Hcnt.
+  rewrite reval_val_with_eq, Hev, He. cbv beta iota.
+  cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+  rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
+  rewrite Ho. cbv beta iota. rewrite Hcnt. reflexivity.
 Qed.
 
 
@@ -4850,13 +5457,11 @@ Example typed_binop_u64_model : forall a b,
   /\ typed_binop BAndNot GTU64 (anyt TU64 a) (anyt TU64 b) = Some (RAVal (anyt TU64 (Fido.builtins.u64_andnot a b))).
 Proof. intros; repeat split; reflexivity. Qed.
 
-(** The SHIFT boundary, pinned as a CASE TABLE: Go's shift is HETEROGENEOUS ([ptype]'s [BShl|BShr]
-    arm — the LEFT operand fixes the result width, the COUNT is an independent integer of any width).
-    The table exercises BOTH ops, a NON-GTInt count, and [i64]/[u64] LEFT operands (the raw-[Z]
-    model-shift family), pinning each case's [ptype] RESULT WIDTH and its supported-but-absent status —
-    a future [typed_shift] handling only one op / only [GTInt] counts / only small-width lefts breaks
-    this gate ([shift_case_shape] makes the coverage STRUCTURAL, not comment-backed).  When T5 lands,
-    this same table flips to denoting cases in the same commit. *)
+(** T5 — the SHIFT case table DENOTES (flipped in the landing commit, as pinned): both ops, a
+    NON-GTInt count, [i64]/[u64] LEFT operands — each case's [ptype] RESULT WIDTH pinned by the
+    STRUCTURAL [shift_case_shape] extractor, its run go-run-verified against gc (6, 1, 6, 6, 1).
+    The EDGE pins below cover const/typed/HUGE (saturating) counts and the NEGATIVE-count panic;
+    the [GTInt]-left (untyped-const left) and [GTUint]-left rows stay pinned absent. *)
 Definition runshift_mixed_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
            (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
@@ -4883,7 +5488,7 @@ Definition shift_case_shape (e : GExpr) : option (BinOp * (option PTy * option P
   | EBn BShr a b => Some (BShr, (ptype a, ptype b))
   | _ => None
   end.
-Example typed_runtime_shift_absent :
+Example typed_runtime_shift_runs : forall w,
   map shift_case_shape typed_shift_cases
     = [ Some (BShl, (Some (PtRunInt GTU8),    Some (PtRunInt GTInt)))
       ; Some (BShr, (Some (PtRunInt GTU8),    Some (PtRunInt GTInt)))
@@ -4893,20 +5498,60 @@ Example typed_runtime_shift_absent :
   /\ map ptype typed_shift_cases
     = [ Some (PtRunInt GTU8) ; Some (PtRunInt GTU8) ; Some (PtRunInt GTU8)
       ; Some (PtRunInt GTInt64) ; Some (PtRunInt GTU64) ]
-  /\ forallb (fun e => supported_program (println_prog e)
-                    && negb (denotable_program (println_prog e))
-                    && match denote_program (println_prog e) with None => true | Some _ => false end)
-       typed_shift_cases = true.
+  /\ map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+        typed_shift_cases
+     = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 6) :: nil) w))
+       ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 1) :: nil) w))
+       ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 6) :: nil) w))
+       ; Some (ORet tt (w_log true (anyt TI64 (i64wrap 6) :: nil) w))
+       ; Some (ORet tt (w_log true (anyt TU64 (u64wrap 1) :: nil) w)) ]
+  /\ forallb supported_program (map println_prog typed_shift_cases) = true.
+Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
+(** The shift EDGES: a constant count, a typed-width count, a HUGE count (saturates — gc gives 0),
+    and the NEGATIVE runtime count (gc's exact panic payload) — go-run-verified: 12, 24, 0, panic. *)
+Definition runshift_constcnt_e : GExpr := EBn BShl runb_u8 (EInt 2).
+Definition runshift_typedcnt_e : GExpr := EBn BShl runb_u8 runb_u8.
+Definition runshift_hugecnt_e  : GExpr :=
+  EBn BShl runb_u8 (EUn UXor (ECall (EId (mkIdent "uint64" eq_refl)) [runlen3_e])).
+Definition runshift_negcnt_e   : GExpr := EBn BShl runb_u8 runb_i64n.
+Example typed_shift_edge_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]
+  = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 12) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 24) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 55340232221128654848) :: nil) w))
+    ; Some (OPanic rt_shift_neg w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example typed_shift_edge_supported :
+  forallb supported_program (map println_prog
+    [ runshift_constcnt_e ; runshift_typedcnt_e ; runshift_hugecnt_e ; runshift_negcnt_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
+(** The absent LEFT rows at program level: an untyped-const left classifies [GTInt] (the engine's
+    row — no GTInt shifts modeled yet), a [uint] left is the op-less hole row. *)
+Definition runshift_intleft_e  : GExpr := EBn BShl (EInt 2) runlen3_e.
+Definition runshift_uintleft_e : GExpr :=
+  EBn BShl (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]) (EInt 1).
+Example typed_shift_gtint_left_absent :
+  ptype runshift_intleft_e = Some (PtRunInt GTInt)
+  /\ supported_program (println_prog runshift_intleft_e) = true
+  /\ denotable_program (println_prog runshift_intleft_e) = false
+  /\ denote_program (println_prog runshift_intleft_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+Example typed_shift_uint_program_absent :
+  ptype runshift_uintleft_e = Some (PtRunInt GTUint)
+  /\ supported_program (println_prog runshift_uintleft_e) = true
+  /\ denotable_program (println_prog runshift_uintleft_e) = false
+  /\ denote_program (println_prog runshift_uintleft_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 (** The ABSENT-SOURCE conversion witness — [PtRunInt] classification alone NEVER implies denotation:
     a conversion over a supported-but-undenoted runtime-int source (a shift) is itself
     supported-but-undenoted, exactly [denote_expr_conv_src_absent]'s class at program level.  A
     future prose claim of "runtime-int source ⟹ denotes" breaks against this pin. *)
 Definition runconv_absent_src_e : GExpr :=
-  ECall (EId (mkIdent "int64" eq_refl)) [runshift_mixed_e].
+  ECall (EId (mkIdent "int64" eq_refl)) [runuint_binop_e].
 Example runtime_conv_absent_src_pinned :
   ptype runconv_absent_src_e = Some (PtRunInt GTInt64)
-  /\ ptype runshift_mixed_e = Some (PtRunInt GTU8)
+  /\ ptype runuint_binop_e = Some (PtRunInt GTUint)
   /\ supported_program (println_prog runconv_absent_src_e) = true
   /\ denotable_program (println_prog runconv_absent_src_e) = false
   /\ denote_program (println_prog runconv_absent_src_e) = None.
@@ -5404,8 +6049,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]), and the
     RUNTIME-FLOAT-source conversion [runconv_float_src_e] (CLASS-sealed —
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
-    [runtime_float_source_conv_absent]; the SHIFT case table lives OUTSIDE this list —
-    [typed_runtime_shift_absent]).  Each member is pinned supported AND undenoted AND
+    [runtime_float_source_conv_absent]).  Each member is pinned supported AND undenoted AND
     eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
@@ -5487,6 +6131,14 @@ Definition gosem_runtime_int_surface :=
    typed_cmp_uint_program_absent, typed_cmp_cross_width_rejected,
    typed_cmp_u8_model, typed_cmp_i8_model, typed_cmp_u16_model, typed_cmp_i16_model,
    typed_cmp_u32_model, typed_cmp_i32_model, typed_cmp_i64_model, typed_cmp_u64_model,
+   denote_expr_typed_shift_runs_sealed, denote_expr_typed_shift_count_panic,
+   denote_expr_typed_shift_src_absent,
+   typed_shift_tag_exact, typed_shift_panic_neg, typed_shift_live_total,
+   typed_shift_nonshift_none, typed_shift_gtint_none, typed_shift_uint_none,
+   typed_shift_nonint_none, ptype_shift_runint_args,
+   shift_count_runint_total, shift_count_const_total,
+   shift_checked_small_cases, shift_checked_wide_cases,
+   typed_runtime_shift_runs, typed_shift_edge_runs, typed_shift_edge_supported,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
    typed_mixed_const_runs, typed_mixed_const_supported,
@@ -5501,8 +6153,9 @@ Definition gosem_map_surface :=
 Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
    typed_unary_holes_absent, reval_val_runfloat_none, denote_expr_conv_float_src_absent,
-   runtime_float_source_conv_absent, typed_runtime_shift_absent, runtime_conv_absent_src_pinned,
-   typed_binop_uint_program_absent).
+   runtime_float_source_conv_absent, runtime_conv_absent_src_pinned,
+   typed_binop_uint_program_absent,
+   typed_shift_gtint_left_absent, typed_shift_uint_program_absent).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,
