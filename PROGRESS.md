@@ -41,8 +41,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   (`EStr`, fail-closed exact lexer `unescape_opt_image` — accepted == emitted).
 - **Program/statement layer:** `GoStmt` (expr-stmt / `return` / `return e` / `_ = e` / `defer <call>`);
   `print_stmt_inj` (5-ctor/25-case) + `print_program_inj` (distinct programs emit distinct Go); zero axioms.
-  `GsDefer` is syntactically supported + emittable (gated to a call via `expr_stmt_ok`), but GoSem does NOT
-  denote it yet (its `CDfr` denotation needs `run_cmd` fuel > 1 — see GoSem slice-1 below).
+  `GsDefer` is syntactically supported + emittable (gated to a call via `expr_stmt_ok`) AND denoted by GoSem
+  (`CDfr` — see the GoSem bullet below).
 - **GoSafe `SupportedProgram`** — a DECIDABLE supported-subset gate (not a package-name proxy): rejects
   bare-value statements, non-callable calls, value-returns from void `main`, free/undefined identifiers, and
   closed type-errors (`ptype`, a conservative constant-aware classifier). Admits slice literals + integer-key
@@ -53,7 +53,9 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   program with the real Go toolchain (gofmt-clean + go build + go vet); a dependency of `make check`.
 - **GoSem slice 1** — `denote_program : Program -> option (Cmd unit)` bridges the AST into `cmd.v`'s command
   tree (reuses `cbind`/`run_cmd`, no second universe): print/println → `COut` (the model's own `w_log`),
-  panic → `CPan`, `return`, and blank constant-assignment, over a PARTIAL `eval_value` (string / integer /
+  panic → `CPan`, `return`, blank constant-assignment, and `defer <call>` → `CDfr` (runs at function-scope
+  return, LIFO; a deferred panic fires at return — both pinned as typed Record fields
+  `rc_defer_lifo`/`rc_defer_panic`), over a PARTIAL `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`, and an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element (whole literal evaluated — a runtime element rejects it; in-bounds DENOTES, OOB DECLINED); fails CLOSED
   on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
@@ -68,26 +70,27 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **Model layer** (proof-only): `builtins.v` (the Go layer over concrete Rocq data), `cmd.v` (effect
   evaluator), `unified.v` (`ustep` operational semantics with race-freedom + liveness/deadlock proved on it —
   NOT the emission path), `concurrency.v` (trace / happens-before / race / bounded-deadlock theory).
-- **cmd↔unified bridge** — `cmd_unified.v` + `GoSemUnified.v` (proof-only): `cmd_to_ucmd` translates cmd.v's
-  tree into `unified.v`'s output/panic/return/defer fragment (println flag preserved). `cmd_to_ucmd_run_agrees`
-  / `denote_program_run_agrees`: a denoted program runs under `ustep` and AGREES with `run_cmd`. Defer bridged by
-  the single general `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics) the `ustep` run agrees
-  with `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended `w_output` (unwinds
-  the LIFO defer forest under the `(prog, pa)` 2-mode, threading the last-raised panic; completion discharged by
-  `cmd.run_cmd_terminates`). Supporting properties for a COMPLETING run on ANY `c`: `run_cmd_out_monotone`
+- **cmd↔unified bridge** — `cmd_unified.v` (proof-only): `cmd_to_ucmd` translates cmd.v's
+  tree into `unified.v`'s output/panic/return/defer fragment (println flag preserved). The single general
+  `bridge_agrees`: for ANY `c` (arbitrary defer nesting, ANY panics — so every GoSem denotation) the `ustep`
+  run agrees with `run_cmd` — finishes, panic EQUALS the Outcome's, output EQUALS `run_cmd`'s appended
+  `w_output` (unwinds the LIFO defer forest under the `(prog, pa)` 2-mode, threading the last-raised panic;
+  completion discharged by `cmd.run_cmd_terminates`); `cmd_to_ucmd_run_agrees` is the fuel-1 `no_defer` form. Supporting properties for a COMPLETING run on ANY `c`: `run_cmd_out_monotone`
   (output only APPENDS) + `run_cmd_no_panic_ret` (a panic-free run returns `ORet`). TERMINATION lives in `cmd.v`:
   `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure — a pure `run_cmd` property).
   ⚠ chan/heap/spawn later. Zero axioms.
 - **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free
-  denoted program runs to `ORet`, never panics; `_output` pins the explicit output world; `_ustep` lifts it to
-  `ustep`). `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate;
-  `panic_free_denotable_runs_ret`[`_output`][`_ustep`] prove it entails the panic-free run, `_supported` that it
+  denoted program runs to `ORet` for enough fuel — defers included; a DEFERRED panic counts as a panic site,
+  so `panic_free` rejects it; `_ustep` lifts the guarantee to `ustep` via the general `bridge_agrees`).
+  `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate;
+  `panic_free_denotable_runs_ret`[`_ustep`] prove it entails the panic-free run, `_supported` that it
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
   ⚠ accepts only DENOTED + syntactically panic-free programs — modeled runtime panics (OOB const slice index /
   panicking literal element / runtime blank-assign) are rejected by NON-denotation, `panic_free_gate_slice`
-  pins the OOB case — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
+  pins the OOB case, `panic_free_gate_defer` pins the defer boundary (defer-println ACCEPTED+emitted;
+  defer-panic supported+DENOTABLE yet rejected) — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
@@ -110,12 +113,6 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- **DENOTE `GsDefer` (UNBLOCKED; on hold while consolidating).** `cmd.run_cmd_terminates` (relocated, DONE)
-  supplies the sufficient-fuel foundation. Scoped design in the 008b420 commit message: `GsDefer e` ↦
-  `CDfr d (CRet tt)` via a shared `denote_effect_call`; extend `stmt_is_panic`/`denote_stmt_no_panic` (a
-  deferred panic IS a panic site); replace the fuel-1 `no_defer` run layer with ∃-fuel; `bridge_agrees`
-  subsumes `denote_program_run_agrees`; LIFO/defer-panic pins. Closes the non-eval-closable half of the
-  `stmt_denotable`→`stmt_ok` gap.
 - GROW `eval_value` (runtime `len`/`int(x)`; fractional floats — needs `PtFloatConst` to carry a real float,
   not just an integer `z`) — the general converse (`denotable_stmts_main_denotes`) is already
   statement-compositional, so each eval case closes part of the `stmt_denotable`→`stmt_ok` gap on the DEFER-FREE
@@ -137,8 +134,8 @@ separate, still-trusted TCB.
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` diffs the `dune build` `Axioms:` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers
 `main_effect` / `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret` /
-`denote_program_run_agrees`) / `gosem_panic_free_surface` (the GoSemSafe panic-free
+surfaces (`cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` / `run_cmd_no_panic_ret`) /
+`gosem_panic_free_surface` (the GoSemSafe panic-free
 bundle); **printer** + **emit** (GoAst/GoPrint and GoTypes/GoSafe/GoEmit compiled
 STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions` under none of the three is not gated.
 

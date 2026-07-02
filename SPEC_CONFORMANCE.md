@@ -815,11 +815,13 @@ keep them separate:
   `run_defers` (via `run_cmd`, the SOLE `Cmd` interpreter) runs the LIFO stack at func-scope return — a
   panicking defer REPLACES the active panic (last-raised-wins) but the older defers STILL run (review #12),
   every defer's effects happen.  `bridge_agrees` proves the `ustep` run AGREES with this for ANY command.
-- **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, not denoted yet):** `defer <call>` is a real AST
+- **(R3) GoAst `GsDefer` — STRUCTURED syntax (✓ emittable, ✓ DENOTED):** `defer <call>` is a real AST
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
-  call via `expr_stmt_ok`).  GoSem does NOT denote it yet (`denote_stmt GsDefer = None`, faithful-or-absent):
-  its `CDfr` denotation needs `run_cmd` fuel > 1, whereas GoSem slice 1 is fuel-1 (`no_defer` only).  Denoting
-  `GsDefer` (into R2's faithful model) awaits the sufficient-fuel generalization.
+  call via `expr_stmt_ok`), and GoSem DENOTES it into R2's faithful model (`denote_stmt GsDefer = CDfr d (CRet
+  tt)` via the shared `denote_effect_call`; the deferred call runs at return, LIFO — end-to-end pins
+  `GoSem.rc_defer_lifo` / `rc_defer_panic`).  A deferred panic is a panic SITE (`GoSemSafe.stmt_is_panic`), so
+  the panic-free gate rejects `defer panic(v)` while accepting + emitting `defer println(..)`
+  (`GoSemSafe.panic_free_gate_defer`).
 - **(B) shallow `IO` (`World -> Outcome`) — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential shallow
   reading cannot reify a func-scoped defer, so `builtins.defer_call (_ : IO unit) := fun w => OPanic … w`
   PANICS rather than silently dropping the effect (review #6/#12, which replaced the old `ORet tt w` no-op).

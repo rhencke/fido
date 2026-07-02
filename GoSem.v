@@ -8,10 +8,11 @@
     SLICE 1 (partial, to grow):
     - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
       [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
-      [_ = e] -> [CRet] when [e] is a constant.  Print/panic args fold via [eval_value] (scalar constants, AND a
-      CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]] — the WHOLE literal is
-      evaluated, so a runtime/panicking element rejects it; the scalar folds are in the [eval_value_good] table
-      below; runtime / out-of-range / OOB / [GsDefer]'s CDfr etc. are NOT yet denoted).
+      [_ = e] -> [CRet] when [e] is a constant; [defer <call>] -> [CDfr] (the deferred call runs at
+      function-scope return, LIFO — [run_cmd]'s [run_defers]).  Print/panic args fold via [eval_value] (scalar
+      constants, AND a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]] — the
+      WHOLE literal is evaluated, so a runtime/panicking element rejects it; the scalar folds are in the
+      [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet denoted).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -266,12 +267,37 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
       end
   end.
 
+(** The SINGLE effect-call authority — denote a supported CALL expression ([println]/[print]/[panic]) to its
+    command PAIRED WITH the TERMINATES flag.  Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for BOTH
+    [GsExprStmt] and [GsDefer]), so every consumer keeps [denote] ⊆ the gate ([gosem_sound]).  Consumed by the
+    expression-statement arm (the call runs NOW) and the [GsDefer] arm (the SAME call, deferred to run at
+    function-scope return via [CDfr]) — one authority, so the deferred call can never denote differently from
+    the immediate one. *)
+Definition denote_effect_call (e : GExpr) : option (Cmd unit * bool) :=
+  if expr_stmt_ok e then
+    match e with
+    | ECall (EId f) args =>
+        let fn := proj1_sig f in
+        if String.eqb fn "panic"
+        then match args with
+             | a :: nil => match eval_value a with Some v => Some (CPan v, true) | None => None end  (* TERMINATES *)
+             | _ => None
+             end
+        else match eval_args args with                        (* println / print: fall through *)
+             | Some vs => Some (COut (String.eqb fn "println") vs (CRet tt), false)
+             | None => None
+             end
+    | _ => None
+    end
+  else None.
+
 (** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
     unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
     it is ESSENTIAL, not derivable (a [return] and a blank-assign both give [CRet tt] but differ
-    stop/fall-through).  The EFFECT arm fires ONLY when [expr_stmt_ok] holds — this makes [denote] ⊆ the gate
-    ([gosem_sound]), however partial [eval_value] is.  [println]/[print] -> fall-through [COut]; [panic] ->
-    terminating [CPan]; [return] -> terminating [CRet]; a blank-assign of a constant -> fall-through [CRet]. *)
+    stop/fall-through).  The effect arms go through [denote_effect_call] (gated on [expr_stmt_ok] — [denote] ⊆
+    the gate, [gosem_sound] — however partial [eval_value] is).  [println]/[print] -> fall-through [COut];
+    [panic] -> terminating [CPan]; [return] -> terminating [CRet]; a blank-assign of a constant -> fall-through
+    [CRet]; [defer <call>] -> fall-through [CDfr] (the call runs at function-scope return). *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
@@ -283,27 +309,19 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
       if svalue e then match eval_value e with Some _ => Some (CRet tt, false) | None => None end else None
   | GsReturnVal _   => None                                        (* a value return is invalid in void [main] *)
-  | GsExprStmt e =>
-      if expr_stmt_ok e then
-        match e with
-        | ECall (EId f) args =>
-            let fn := proj1_sig f in
-            if String.eqb fn "panic"
-            then match args with
-                 | a :: nil => match eval_value a with Some v => Some (CPan v, true) | None => None end  (* TERMINATES *)
-                 | _ => None
-                 end
-            else match eval_args args with                        (* println / print: fall through *)
-                 | Some vs => Some (COut (String.eqb fn "println") vs (CRet tt), false)
-                 | None => None
-                 end
-        | _ => None
-        end
-      else None
-  | GsDefer _ => None
-      (* [defer <call>] is SUPPORTED + emittable but NOT YET denoted (faithful-or-ABSENT): its [cmd.v] [CDfr]
-         denotation needs [run_cmd] fuel > 1, whereas slice 1's execution story is fuel-1 (denotes [no_defer]
-         only).  Denoting defers needs that foundation generalized to sufficient-fuel; until then it is absent. *)
+  | GsExprStmt e    => denote_effect_call e
+  | GsDefer e =>
+      (* [defer <call>] — FAITHFUL via [cmd.v]'s [CDfr]: the deferred command [d] is registered NOW and runs at
+         function-scope RETURN ([run_cmd]'s [run_defers], LIFO — Go's order), while control FALLS THROUGH (flag
+         [false]: a [defer panic(v)] does NOT stop the body; its panic fires at return).  [cbind (CDfr d (CRet
+         tt)) k = CDfr d (k tt)], so a body composes to exactly Go's "register d; rest".  The deferred call's
+         ARGS are constants (slice-1 [eval_value]), so Go's evaluate-args-AT-DEFER-TIME rule has no observable
+         timing here.  [denote_effect_call]'s own flag is discarded — it describes the call run IMMEDIATELY;
+         deferral makes the statement a fall-through regardless. *)
+      match denote_effect_call e with
+      | Some (d, _) => Some (CDfr d (CRet tt), false)
+      | None => None
+      end
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -336,14 +354,18 @@ Definition denote_program (p : Program) : option (Cmd unit) :=
     GoSem gives a behavior ONLY to a program GoSafe accepts.  Because each [denote_stmt] arm that returns
     [Some] is itself gated ([GsReturn] is always [stmt_ok]; [GsBlankAssign] on [svalue]; [GsExprStmt] under
     [expr_stmt_ok]), this is structural. *)
+Lemma denote_effect_call_ok : forall e, denote_effect_call e <> None -> expr_stmt_ok e = true.
+Proof. intros e H. unfold denote_effect_call in H. destruct (expr_stmt_ok e); [reflexivity | congruence]. Qed.
+
 Lemma denote_stmt_sound : forall s, denote_stmt s <> None -> stmt_ok s = true.
 Proof.
   intros s H. destruct s as [e| |e0|e|e]; simpl in *.
-  - destruct (expr_stmt_ok e); [reflexivity | congruence].   (* GsExprStmt: gated on [expr_stmt_ok] *)
+  - exact (denote_effect_call_ok e H).                       (* GsExprStmt: gated on [expr_stmt_ok] *)
   - reflexivity.                                             (* GsReturn *)
   - congruence.                                              (* GsReturnVal: None *)
   - destruct (svalue e); [reflexivity | congruence].         (* GsBlankAssign: gated on [svalue] = stmt_ok *)
-  - congruence.                                              (* GsDefer: [denote_stmt] = None, so [H] is absurd *)
+  - apply denote_effect_call_ok.                             (* GsDefer: the SAME [expr_stmt_ok] gate, through [denote_effect_call] *)
+    destruct (denote_effect_call e) as [[d b]|]; congruence.
 Qed.
 
 Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b = true.
@@ -369,9 +391,9 @@ Qed.
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
-    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap has TWO
-    sources — (a) unmodeled VALUE forms (runtime [len]/[int(x)], fractional floats), which [eval_value] growth
-    closes; (b) [GsDefer] (supported + emittable, undenoted until [run_cmd] fuel > 1), which it never touches. *)
+    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap is the
+    unmodeled VALUE forms (runtime [len]/[int(x)], fractional floats), which [eval_value] growth closes — a
+    [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
   | [] => true
@@ -415,7 +437,7 @@ Qed.
     this fragment); a RUNTIME arg is supported but not [denotable_arg] ([out_boundary_runtime_undenoted]), and a
     supported-but-eval-partial constant (multi-byte rune [string(200)]) is pinned by
     [runeconv_multibyte_boundary].  [denotable_supported] pins denotable ⊆ supported — a STRICT inclusion (the
-    gap: eval-partial value forms + undenoted [GsDefer]). *)
+    gap: the eval-partial value forms). *)
 Definition denotable_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -496,7 +518,7 @@ Lemma denote_out_denotable : forall f args,
   (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb denotable_arg args = true ->
   exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
 Proof.
-  intros f args Hf Hargs. cbn [denote_stmt].
+  intros f args Hf Hargs. cbn [denote_stmt]. unfold denote_effect_call.
   rewrite (expr_stmt_ok_out_denotable f args Hf Hargs).
   destruct Hf as [Hf|Hf]; rewrite Hf; cbn;
     (destruct (eval_args args) as [vs|] eqn:Ea;
@@ -594,8 +616,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is the eval-partial value forms + undenoted [GsDefer] (see the decidability
-    note above). *)
+    [supported_program] — the gap is the eval-partial value forms (see the decidability note above). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -833,130 +854,22 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; defer println("x")] is a
-    DENOTABLE body ([return] terminates; the [defer] is a SUPPORTED dead tail) whose [defer] does NOT denote, so
-    [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a terminator — exactly why the
-    iff above does not apply to it. *)
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(len([]int{1}))]
+    is a DENOTABLE body ([return] terminates; the runtime-arg [println] is a SUPPORTED dead tail) whose tail
+    does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
+    terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
-  denotable_body [GsReturn; GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"])] = true
-  /\ forallb stmt_denotable [GsReturn; GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "x"])] = false.
-Proof. split; reflexivity. Qed.
+  denotable_body [GsReturn;
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])] = true
+  /\ forallb stmt_denotable [GsReturn;
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]])] = false.
+Proof. split; vm_compute; reflexivity. Qed.
 
-(** ---- EXECUTABLE TOTALITY: every GoSem denotation RUNS to an Outcome — it never gets STUCK under [run_cmd],
-    even with MINIMAL fuel 1.  Slice-1 denotations are [COut]/[CRet]/[CPan] chains with NO [CDfr] (defer is not
-    modelled yet), so [cmd.v]'s [go] accumulates an EMPTY deferred list and [run_defers] returns immediately.
-    [denote_program_runs] proves the DENOTATION->EXECUTION link: [denote_program p = Some c -> run_cmd 1 c w <>
-    None] — a DENOTED program ([Cmd]) RUNS to an [Outcome].  (It assumes the program DENOTES; it does NOT prove
-    supported ⟹ denotes in GENERAL — that converse is partial, see [denote_program_dec] / [out_main_denotes]
-    (the authority; its all-[println] corollary is [println_main_denotes]).
-    Composed with [denote_program_dec], a DENOTABLE program denotes-and-runs.)  GoSem's executable semantics is TOTAL on
-    what it denotes.  ([no_defer] — the straight-line predicate this rests on — now lives in cmd.v, shared with
-    the cmd_unified.v bridge.) *)
-Lemma cbind_no_defer : forall (c : Cmd unit) (k : unit -> Cmd unit),
-  no_defer c = true -> (forall u, no_defer (k u) = true) -> no_defer (cbind c k) = true.
-Proof.
-  intro c; induction c as [a|b xs c' IHc'|v|d c' IHc'] using Cmd_rect';
-    intros k Hc Hk; cbn [cbind no_defer] in *.
-  - apply Hk.
-  - apply IHc'; [exact Hc | exact Hk].
-  - reflexivity.
-  - discriminate Hc.
-Qed.
-
-Lemma denote_stmt_no_defer : forall s c b, denote_stmt s = Some (c, b) -> no_defer c = true.
-Proof.
-  intros s c b H. destruct s as [e| |ev|be|de]; cbn [denote_stmt] in H.
-  - destruct (expr_stmt_ok e); [|discriminate H].
-    destruct e as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
-    destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate H.
-    destruct (String.eqb (proj1_sig fi) "panic").
-    + destruct fargs as [|a [|? ?]]; try discriminate H.
-      destruct (eval_value a); [|discriminate H]. inversion H; subst; reflexivity.
-    + destruct (eval_args fargs); [|discriminate H]. inversion H; subst; reflexivity.
-  - inversion H; subst; reflexivity.
-  - discriminate H.
-  - destruct (svalue be); [|discriminate H]. destruct (eval_value be); [|discriminate H].
-    inversion H; subst; reflexivity.
-  - discriminate H.   (* GsDefer: [denote_stmt] = None *)
-Qed.
-
-Lemma denote_body_no_defer : forall b c, denote_body b = Some c -> no_defer c = true.
-Proof.
-  induction b as [|s rest IH]; cbn [denote_body]; intros c H.
-  - inversion H; subst; reflexivity.
-  - destruct (denote_stmt s) as [[cs term]|] eqn:Es; [|discriminate H]. destruct term.
-    + destruct (forallb stmt_ok rest); [|discriminate H]. inversion H; subst.
-      exact (denote_stmt_no_defer s c true Es).
-    + destruct (denote_body rest) as [k|] eqn:Er; [|discriminate H]. inversion H; subst.
-      apply cbind_no_defer; [exact (denote_stmt_no_defer s cs false Es) | intro u; exact (IH k eq_refl)].
-Qed.
-
-Lemma no_defer_go_nil : forall (c : Cmd unit) w, no_defer c = true -> snd (go c w) = nil.
-Proof.
-  intro c; induction c as [a|b xs c' IHc'|v|d c' IHc'] using Cmd_rect';
-    intros w Hc; cbn [go no_defer] in *.
-  - reflexivity.
-  - apply IHc'; exact Hc.
-  - reflexivity.
-  - discriminate Hc.
-Qed.
-
-Lemma no_defer_run : forall (c : Cmd unit) w, no_defer c = true -> run_cmd 1 c w <> None.
-Proof.
-  intros c w Hc. unfold run_cmd.
-  pose proof (no_defer_go_nil c w Hc) as Hnil.
-  destruct (go c w) as [oc ds]. cbn [snd] in Hnil. subst ds.
-  cbn [run_defers]. destruct (oc_unit oc); discriminate.
-Qed.
-
-Theorem denote_program_runs : forall p c w, denote_program p = Some c -> run_cmd 1 c w <> None.
-Proof.
-  intros p c w H. apply (no_defer_run c w). unfold denote_program in H.
-  destruct (String.eqb (proj1_sig (prog_pkg p)) "main"); [|discriminate H].
-  exact (denote_body_no_defer (prog_body p) c H).
-Qed.
-
-(** Capstone: a DENOTED print/println-of-denotable-args program not only DENOTES but RUNS to an Outcome —
-    composing [out_main_denotes] with [denote_program_runs].  [println_main_runs] is the all-[println] corollary. *)
-Theorem out_main_runs : forall stmts w,
-  forallb (fun s => forallb denotable_arg (snd s)) stmts = true ->
-  match denote_program (mkProgram (mkIdent "main" eq_refl) (out_main_body stmts)) with
-  | Some c => run_cmd 1 c w <> None
-  | None => False
-  end.
-Proof.
-  intros stmts w H.
-  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) (out_main_body stmts))) as [c|] eqn:Hd.
-  - exact (denote_program_runs _ c w Hd).
-  - exact (out_main_denotes stmts H Hd).
-Qed.
-Theorem println_main_runs : forall arglists w,
-  forallb (forallb denotable_arg) arglists = true ->
-  match denote_program (mkProgram (mkIdent "main" eq_refl) (println_main_body arglists)) with
-  | Some c => run_cmd 1 c w <> None
-  | None => False
-  end.
-Proof.
-  intros arglists w H. rewrite (println_main_body_out arglists).
-  exact (out_main_runs _ w (denotable_arglists_out arglists H)).
-Qed.
-
-(** GENERAL RUN-level converse — the [run_cmd] twin of [denotable_stmts_main_denotes], as [out_main_runs] is of
-    [out_main_denotes] for the output fragment: a body whose every statement individually denotes not only
-    DENOTES but RUNS to an Outcome under minimal fuel (never stuck).  [denote_program_runs] supplies the run;
-    [denotable_stmts_main_denotes] rules out the [None] branch. *)
-Theorem denotable_stmts_main_runs : forall b w,
-  forallb stmt_denotable b = true ->
-  match denote_program (mkProgram (mkIdent "main" eq_refl) b) with
-  | Some c => run_cmd 1 c w <> None
-  | None => False
-  end.
-Proof.
-  intros b w H.
-  destruct (denote_program (mkProgram (mkIdent "main" eq_refl) b)) as [c|] eqn:Hd.
-  - exact (denote_program_runs _ c w Hd).
-  - exact (denotable_stmts_main_denotes b H Hd).
-Qed.
+(** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
+    [Cmd unit] — defers included — runs to [Some] Outcome for enough fuel, so a denoted program always RUNS;
+    GoSem needs no denotation-side totality layer.  Concrete end-to-end runs (with their EXACT output worlds,
+    incl. the defer LIFO order and a deferred panic) are pinned by the typed [GoSemRequiredCategoryCoverage]
+    fields below. *)
 
 (** ---- End-to-end demo fixture with REAL OBSERVABLE OUTPUT: `func main(){ println("hi"); return }` runs
     through cmd.v's authoritative [run_cmd] to the very [w_log true ["hi"]] the model's own [println]
@@ -977,9 +890,9 @@ Definition gosem_return_stops_prog : Program :=
     their SUPPORTEDNESS.  Stated for ALL [s]/[c]/[rest]: whenever [denote_stmt] marks [s] terminating
     ([Some (c, true)]), [denote_body] emits [c] and gates the rest ONLY on [forallb stmt_ok rest], NEVER on
     [denote_body rest].  A UNIVERSAL lemma (over ALL [rest]), NOT a fixture keyed to one specific
-    supported-but-undenotable successor — so it never erodes.  Such successors PERSIST, not vanish: [GsDefer]
-    is supported + emittable yet undenoted (until [run_cmd] fuel > 1), and a runtime-arg statement is supported
-    yet eval-partial; the lemma holds for EVERY [rest] regardless of how [eval_value] grows. *)
+    supported-but-undenotable successor — so it never erodes.  Such successors PERSIST, not vanish: a
+    runtime-arg statement is supported yet eval-partial; the lemma holds for EVERY [rest] regardless of how
+    [eval_value] grows. *)
 Lemma denote_body_terminator_ignores_succ : forall s c rest,
   denote_stmt s = Some (c, true) ->
   denote_body (s :: rest) = (if forallb stmt_ok rest then Some c else None).
@@ -1006,12 +919,30 @@ Definition gosem_runtime_blank_prog : Program :=
             [GsBlankAssign (EBn BDiv (EInt 1)
                               (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]))].
 
-(** BOUNDARY fixture: a [defer <call>] is SUPPORTED (emittable) but NOT YET denoted (faithful-or-ABSENT): its
-    [cmd.v] denotation is a [CDfr], and GoSem's execution/safety story is fuel-1 ([no_defer] only) — so
-    `func main(){ defer println("bye"); return }` is supported yet undenoted (never a WRONG behavior). *)
+(** Defer fixture: `func main(){ defer println("bye"); return }` — DENOTES to a [CDfr] (the deferred
+    [println] runs at function-scope return); pinned denotable in [gosem_denotability_decisions] and accepted
+    by GoSemSafe's panic-free gate ([GoSemSafe.panic_free_gate_defer]). *)
 Definition gosem_defer_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "bye"]); GsReturn].
+
+(** Defer LIFO fixture: `defer println("a"); defer println("b"); println("hi"); return` — the body prints
+    "hi", then the defers run at return in LIFO order ("b" was deferred LAST so runs FIRST, then "a"), exactly
+    Go.  Pinned end-to-end as the typed field [rc_defer_lifo]. *)
+Definition gosem_defer_lifo_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
+             GsDefer (ECall (EId (mkIdent "println" eq_refl)) [EStr "b"]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
+
+(** Deferred-PANIC fixture: `defer panic("boom"); println("hi"); return` — the deferral does NOT stop the body
+    (the "hi" prints), then the deferred panic fires at return and the run ends in [OPanic].  Pinned end-to-end
+    as the typed field [rc_defer_panic]; REJECTED by GoSemSafe's panic-free gate (a deferred panic IS a panic
+    site — [GoSemSafe.panic_free_gate_defer]). *)
+Definition gosem_defer_panic_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+            [GsDefer (ECall (EId (mkIdent "panic" eq_refl)) [EStr "boom"]);
+             GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
 
 (** ---- [eval_value] FOLD TABLE (grouped regression) ---- each LISTED row's constant [eval_value] denotes to
     the paired value, pinned as one [(expr, value)] list.  A BREADTH sample, NOT a completeness claim: some
@@ -1080,11 +1011,12 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** REQUIRED-CATEGORY COVERAGE as a TYPED obligation.  [runs_to e v] = [println(e); return] denotes and runs
     through cmd.v's [run_cmd] to the world logging [v].  The RECORD TYPE [GoSemRequiredCategoryCoverage] fixes,
-    in its FIELD TYPES, the EXACT nine behavior categories the model must exhibit end-to-end (string-literal
-    PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT, string-compare-of-concat BOOL, a
-    constant in-bounds int-slice-literal INDEX, a non-tail RETURN that stops the body with NO output, and a
-    denoted PANIC ending in [OPanic]).  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
-    discharging ALL nine with the stated programs+values: a category cannot be dropped without editing this
+    in its FIELD TYPES (one per required behavior category), the EXACT end-to-end behaviors the model must
+    exhibit — string-literal PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT,
+    string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, a non-tail RETURN that stops
+    the body with NO output, a denoted PANIC ending in [OPanic], defer LIFO ordering at return, and a DEFERRED
+    panic firing at return.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
+    discharging EVERY field with the stated programs+values: a category cannot be dropped without editing this
     typed STATEMENT (the record), never silently by convention.  Table-INDEPENDENT (no reference to
     [eval_value_good]). *)
 Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
@@ -1104,6 +1036,14 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_panic : forall w,                                        (* a denoted [panic("x")] ends in [OPanic] with the model's exact value *)
     match denote_program gosem_panic_demo_prog with Some c => run_cmd 5 c w | None => None end
     = Some (OPanic (anyt TString "x") w);
+  rc_defer_lifo : forall w,                                   (* defers run at RETURN, LIFO: body "hi", then "b" (deferred LAST, runs FIRST), then "a" *)
+    match denote_program gosem_defer_lifo_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (ORet tt (w_log true (anyt TString "a" :: nil)
+                      (w_log true (anyt TString "b" :: nil)
+                        (w_log true (anyt TString "hi" :: nil) w))));
+  rc_defer_panic : forall w,                                  (* a DEFERRED panic does NOT stop the body ("hi" prints) and fires at return *)
+    match denote_program gosem_defer_panic_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "hi" :: nil) w));
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
@@ -1143,20 +1083,21 @@ Example eval_absent_none : forallb (fun e => match eval_value e with None => tru
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
-    [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos, FALSE (and
-    [denote_program = None]) for the supported-but-undenoted runtime blank-assign and defer programs. *)
+    [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer included),
+    FALSE (and [denote_program = None]) for the supported-but-undenoted runtime blank-assign. *)
 Example gosem_denotability_decisions :
-  forallb denotable_program [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog] = true
-  /\ forallb (fun p => negb (denotable_program p)) [gosem_runtime_blank_prog; gosem_defer_prog] = true
+  forallb denotable_program
+    [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog] = true
+  /\ forallb (fun p => negb (denotable_program p)) [gosem_runtime_blank_prog] = true
   /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
-       [gosem_runtime_blank_prog; gosem_defer_prog] = true.
+       [gosem_runtime_blank_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** All five demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
+(** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
   forallb supported_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_panic_demo_prog;
-     gosem_runtime_blank_prog; gosem_defer_prog] = true.
+     gosem_runtime_blank_prog; gosem_defer_prog; gosem_defer_lifo_prog; gosem_defer_panic_prog] = true.
 Proof. reflexivity. Qed.
 
 (** GOSEM TRUST SURFACE — the EXPLICIT, bounded set of public GoSem results certified zero-axiom.  Bundling the
@@ -1167,7 +1108,6 @@ Proof. reflexivity. Qed.
 Definition gosem_trust_surface :=
   (gosem_sound, denote_program_dec, denotable_supported, out_main_denotes, println_main_denotes,
    denotable_stmts_main_denotes, denotable_body_terminator_free_iff,
-   denote_program_runs, out_main_runs, println_main_runs, denotable_stmts_main_runs,
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    slice_index_supported_but_undenoted,

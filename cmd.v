@@ -153,9 +153,10 @@ Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A)
   end.
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
-    predicate, so it lives here (cmd.v), shared by GoSem (executable totality: [go] accumulates no defers)
-    and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto [unified.v]'s [ustep] — [cmd_to_ucmd_run_agrees];
-    the general defer bridge [bridge_agrees] covers ANY [c], defers and panics included). *)
+    predicate, so it lives here (cmd.v); consumed by GoSemSafe (the defer-free exact-output panic lemma
+    [go_panics_world]/[run_cmd_panics_world]) and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto
+    [unified.v]'s [ustep] — [cmd_to_ucmd_run_agrees]; the general defer bridge [bridge_agrees] covers ANY [c],
+    defers and panics included). *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
