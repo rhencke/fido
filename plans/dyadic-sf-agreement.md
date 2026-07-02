@@ -70,9 +70,10 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    `add_carry_raw_wide_accepted` (which also computes the checker ACCEPTING the expression,
    so the live path already exercises the raw-wide case).  Closing rung 5 therefore needs a
    NAMED lemma: `binary_round` on a raw mantissa that normalizes exactly through DISCARDED
-   ZERO BITS (right-shift-through-zeros exactness — `shr_1` over an `xO`-chain keeps the
-   round/sticky bits false) agrees with `binary_round` of the odd core at the adjusted
-   exponent; THEN rung 4's determinism closes
+   ZERO BITS agrees with `binary_round` of the odd core at the adjusted exponent (5b, the wide
+   bridge).  5a LANDED: the zeros walk itself — `iter_pos_shr1_zeros` (exactly-k zero bits
+   shifted out by exactly k steps keep round/sticky FALSE; `iter_pos`/`Pos.iter` bridged to
+   `Nat.iter`).  THEN rung 4's determinism closes
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).

@@ -302,6 +302,45 @@ Proof.
     rewrite (binary_round_exact prec emax _ mz _ Hd2 He2 Hde2 Hemax);
     rewrite Hdig, shl_align_id; reflexivity.
 Qed.
+(** ---- Rung 5a — RIGHT-SHIFT-THROUGH-ZEROS exactness (plans/dyadic-sf-agreement.md): shifting
+    a mantissa right through its own appended zero bits keeps the round/sticky bits FALSE, so
+    the location stays exact.  [iter_pos] (SpecFloat's binary-structural iterator) and
+    [Pos.iter] are both bridged to [Nat.iter], where the zeros walk is a plain induction. *)
+Lemma pos_iter_nat : forall (A : Type) (f : A -> A) (x : A) n,
+  Pos.iter f x n = Nat.iter (Pos.to_nat n) f x.
+Proof.
+  intros A f x n; revert x; induction n using Pos.peano_ind; intro x.
+  - reflexivity.
+  - rewrite Pos.iter_succ, Pos2Nat.inj_succ. cbn [Nat.iter]. now rewrite IHn.
+Qed.
+Lemma iter_pos_nat : forall (A : Type) (f : A -> A) n (x : A),
+  @SpecFloat.iter_pos A f n x = Nat.iter (Pos.to_nat n) f x.
+Proof.
+  intros A f; induction n; intro x; cbn [SpecFloat.iter_pos].
+  - rewrite 2!IHn, <- Nat.iter_add, <- Nat.iter_succ_r, Pos2Nat.inj_xI.
+    f_equal. lia.
+  - rewrite 2!IHn, <- Nat.iter_add, Pos2Nat.inj_xO.
+    f_equal. lia.
+  - reflexivity.
+Qed.
+Lemma nat_iter_shr1_zeros : forall k m,
+  Nat.iter k shr_1 (Build_shr_record (Zpos (Nat.iter k xO m)) false false)
+  = Build_shr_record (Zpos m) false false.
+Proof.
+  induction k; intro m; [reflexivity|].
+  rewrite Nat.iter_succ_r.
+  change (Nat.iter (S k) xO m) with (xO (Nat.iter k xO m)).
+  cbn [shr_1 orb].
+  apply IHk.
+Qed.
+(** exactly-[k] zero bits shifted out by exactly [k] steps: the mantissa's [xO]-chain is
+    consumed with the record staying [(…, false, false)] — [loc_Exact] all the way. *)
+Lemma iter_pos_shr1_zeros : forall k m,
+  @SpecFloat.iter_pos shr_record shr_1 k (Build_shr_record (Zpos (Pos.iter xO m k)) false false)
+  = Build_shr_record (Zpos m) false false.
+Proof.
+  intros k m. rewrite iter_pos_nat, pos_iter_nat. apply nat_iter_shr1_zeros.
+Qed.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 
