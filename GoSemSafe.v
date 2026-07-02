@@ -316,7 +316,7 @@ Example panic_free_gate_slice :
   supported_program slice_safe_prog = true                 (* BOTH are valid Go (B1: OOB-positive const index = run-time panic) ... *)
   /\ supported_program slice_oob_prog = true
   /\ (exists c, panic_free_gate slice_safe_prog = Some c)   (* ... the in-bounds one the BEHAVIORAL gate ACCEPTS ... *)
-  /\ panic_free_gate slice_oob_prog = None                  (* ... the OOB one (VALID Go!) it REJECTS behaviorally — since tier R2 it DENOTES to a [CPan rt_index_oob], caught by [cmd_no_panic] *)
+  /\ panic_free_gate slice_oob_prog = None                  (* ... the OOB one (VALID Go!) it REJECTS behaviorally — since tier R2 it DENOTES to a [CPan] carrying the exact [rt_index_oob i n] payload, caught by [cmd_no_panic] *)
   /\ emit_panic_free_gated slice_safe_prog <> None
   /\ emit_panic_free_gated slice_oob_prog = None.
 Proof.

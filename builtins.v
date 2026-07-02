@@ -672,11 +672,11 @@ Definition Z_dec_string (z : Z) : string :=
     out-of-range index reads "index out of range [i] with length n"; a NEGATIVE index reads
     "index out of range [i]" with NO length part.  Parametrized — every panic site supplies the
     actual index and length, no collapsed class-wide value. *)
-Definition rt_index_oob (i n : Z) : GoAny :=
+Definition rt_index_oob (i : Z) (n : nat) : GoAny :=
   anyt TString (if (i <? 0)%Z
                 then ("runtime error: index out of range [" ++ Z_dec_string i ++ "]")%string
                 else ("runtime error: index out of range [" ++ Z_dec_string i ++ "] with length "
-                      ++ Z_dec_string n)%string).
+                      ++ Z_dec_string (Z.of_nat n))%string).
 Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds out of range"%string.
 Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.
 Definition rt_nil_map      : GoAny := anyt TString "assignment to entry in nil map"%string.
@@ -3914,7 +3914,7 @@ Fixpoint go_list_nth {A : Type} (xs : list A) (i : nat) (d : A) : A :=
 Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) : IO A :=
   fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
            then ORet (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) w
-           else OPanic (rt_index_oob (intraw i) (intraw (len xs))) w.   (* out of bounds / negative: Go panics, with the EXACT payload *)
+           else OPanic (rt_index_oob (intraw i) (Z.to_nat (intraw (len xs)))) w.   (* out of bounds / negative: Go panics, with the EXACT payload; the length boundary is a [nat] (never negative by type) *)
 
 (** Safe checked index (the safe-by-construction default for slice access).
     [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in
@@ -5204,10 +5204,10 @@ Definition slice_idx_get {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) : IO
                 | Some a => ORet a w
                 | None   => OPanic rt_nil_deref w
                 end
-           else OPanic (rt_index_oob (intraw i) (Z.of_nat (sh_len s))) w.
+           else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Definition slice_idx_set {A} (s : SliceH A) (i : GoInt) (v : A) : IO unit :=
   fun w => if slice_in_len s i then ORet tt (ref_upd (sh_cell s (Z.to_nat (intraw i))) v w)
-           else OPanic (rt_index_oob (intraw i) (Z.of_nat (sh_len s))) w.
+           else OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Lemma run_slice_idx_get : forall {A} (tag : GoTypeTag A) (s : SliceH A) (i : GoInt) (a : A) (w : World),
   slice_in_len s i = true ->
   ref_sel_opt (sh_cell s (Z.to_nat (intraw i))) w = Some a ->
@@ -5221,7 +5221,7 @@ Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivit
     write index 1 witness) is rejected, not silently aimed at the spare capacity cell. *)
 Lemma run_slice_idx_set_oob : forall {A} (s : SliceH A) (i : GoInt) (v : A) (w : World),
   slice_in_len s i = false ->
-  run_io (slice_idx_set s i v) w = OPanic (rt_index_oob (intraw i) (Z.of_nat (sh_len s))) w.
+  run_io (slice_idx_set s i v) w = OPanic (rt_index_oob (intraw i) (sh_len s)) w.
 Proof. intros A s i v w Hi. unfold slice_idx_set, run_io. rewrite Hi. reflexivity. Qed.
 (* [s[a:b]]: same backing [base], [offset] shifted by [a] — SHARES the cells.  [subslice_desc]
    is the PURE descriptor on internal [nat] indices (the aliasing lemmas reason about it);

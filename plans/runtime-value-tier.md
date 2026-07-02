@@ -1,4 +1,4 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1 LANDED (55ff088 + seal fixes); R2/R3 next
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1+R2 LANDED; R3 (width conversions) next
 
 **Why (pre-R1 framing; R1 closed the len/arith half).** This arc covers the RUNTIME-classified subset of
 the supported-but-undenoted frontier (runtime slice indexing — R2; width conversions — R3; runtime map
@@ -43,9 +43,9 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 
 ## Post-survey design (2026-07-02 — anchors the implementation window)
 
-- The MODEL already decides everything: `rt_index_oob = "runtime error: index out of range"` (FIXED
-  message, no digits — `slice_idx_get`'s existing posture; GoSem INHERITS it, no new conformance
-  decision) and the wrap ops (`int_add = intwrap (intraw a + intraw b)` etc.) are the arithmetic
+- The MODEL decides the semantics; the payload is now EXACT: `rt_index_oob i n` renders Go's real
+  message (digits; a NEGATIVE index omits the length part — both verified against gc via go run; length
+  boundary a `nat`). The wrap ops (`int_add = intwrap (intraw a + intraw b)` etc.) are the arithmetic
   authority. The runtime tier COMPUTES WITH THE MODEL'S OWN OPS on the carriers — single authority, no
   fold↔model agreement gap by construction (the float-arc lesson applied up front).
 - Shape: `Inductive RRes := RVal (v : GoInt) | RPanic (p : GoAny).` and a recursive
@@ -56,15 +56,17 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 - Slices: **R1** `len` of int-slice literals with runtime-evaluable elements (elements recursively
   `reval_int`'d; first panicking element aborts construction — matches the verified go-run behavior) +
   runtime `+ - *` via model ops, `/`/`%` with a ZERO runtime divisor → `RPanic rt_div_zero` (subsumes and
-  RETIRES the shape-based `divisor_zero`, whose seal becomes a corollary). **R2** runtime slice INDEX:
-  in-bounds → the element, OOB → `RPanic rt_index_oob` — the first runtime OOB panic in denotation.
+  RETIRES the shape-based `divisor_zero`, whose seal becomes a corollary). **R2** (LANDED) runtime slice INDEX:
+  in-bounds → the element, OOB → `RPanic (rt_index_oob i n)` — the first runtime OOB panics in
+  denotation, exact payloads.
   **R3** width conversions of runtime ints via the model wraps.
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R1): `runlen_e` DENOTES; the pinned `undenoted_frontier`
-  WITNESSES (non-exhaustive) are `runidx_e` (R2), a runtime width CONVERSION (R3), a runtime bool
-  COMPARISON (no rule yet), `maplen_runval_e` (map-value rule), the OOB constant index, and the
-  multi-byte rune. Each tier that lands FLIPS its member's pin — swap the successor in the same commit.
-  NOTE: `folded_arg` (né `denotable_arg`) is the EVAL-ONLY sufficient fragment; the runtime tier's own
-  converse — and any THEOREM bounding the gap — is open work.
+- Witness succession — CURRENT STATE (post-R2): `runlen_e`, `runidx_e`, the OOB constant index, and
+  panicking-element constructions all DENOTE; the pinned `undenoted_frontier` WITNESSES
+  (non-exhaustive) are `runconv_e` (a runtime width conversion — R3), a runtime bool COMPARISON (no
+  rule yet), `maplen_runval_e` (map-value rule), and the multi-byte rune. Each tier that lands FLIPS
+  its member's pin — swap the successor in the same commit. NOTE: `folded_arg` (né `denotable_arg`) is
+  the EVAL-ONLY sufficient fragment; the runtime tier's own converse — and any THEOREM bounding the
+  gap — is open work.

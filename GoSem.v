@@ -15,10 +15,11 @@
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
       such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
       evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
-      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1) denotes DETERMINED runtime
+      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1+R2) denotes DETERMINED runtime
       integers with the MODEL'S OWN ops — runtime [len] (a panicking element aborts construction),
-      [+ - * /] with the determined zero divisor panicking [rt_div_zero]; a runtime INDEX and width
-      conversions are NOT yet denoted (tiers R2/R3).
+      [+ - * /] with the determined zero divisor panicking [rt_div_zero], and the runtime slice INDEX
+      (in-bounds → the element; OOB → the EXACT parameterized [rt_index_oob i n] payload); width
+      conversions are NOT yet denoted (tier R3).
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -530,7 +531,7 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1).
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1+R2).
     Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
     evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
     carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
@@ -613,7 +614,7 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                            | Some v => Some (RVal v)
                            | None => None   (* unreachable under the bounds check; fail-closed *)
                            end
-                      else Some (RPanic (rt_index_oob (intraw vi) (Z.of_nat (length vs))))
+                      else Some (RPanic (rt_index_oob (intraw vi) (length vs)))
                   | Some (RPanic p) => Some (RPanic p)
                   | None => None
                   end

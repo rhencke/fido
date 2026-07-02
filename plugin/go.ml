@@ -124,6 +124,18 @@ let global_basename r =
   try Id.to_string (Nametab.basename_of_global r.glob)
   with Not_found -> ""
 
+(* The FULL path of a global (e.g. "Stdlib.Strings.Ascii.zero") — lets suppression lists be
+   MODULE-QUALIFIED: a stdlib-only suppression can never silently swallow a same-basename USER
+   definition (which keeps emitting, or fail-louds, normally). *)
+let global_fullpath r =
+  try Libnames.string_of_path (Nametab.path_of_global r.glob)
+  with Not_found -> ""
+let is_stdlib_ref r =
+  let p = global_fullpath r in
+  let pre s = String.length p >= String.length s
+              && String.equal (String.sub p 0 (String.length s)) s in
+  pre "Stdlib." || pre "Corelib." || pre "Coq." 
+
 (* ---- Record (Go struct) support ----
    A Rocq Record is a Go value-struct (both have value/copy semantics, so no
    aliasing model is needed).  A record's [ind_kind] carries its projection refs;
@@ -4678,6 +4690,14 @@ let is_proof_only_state r = List.mem (global_basename r) proof_only_names
 
 let is_inlined_ref r =
   is_proof_only_state r ||
+  (* the [Z_dec_string] digit chain (STDLIB deps of [Ascii.ascii_of_nat] / [N]/[Pos] div-mod /
+     [String.append]) — used only inside the suppressed panic-payload builder, never emitted.
+     MODULE-QUALIFIED: applies to Stdlib refs ONLY, so a same-basename USER definition still
+     emits (or fail-louds) normally. *)
+  (is_stdlib_ref r && List.mem (global_basename r)
+     ["zero"; "one"; "shift"; "ascii_of_pos"; "ascii_of_N"; "ascii_of_nat";
+      "append"; "div"; "modulo"; "to_nat"; "size_nat"; "succ_double"; "double"; "compare"; "compare_cont";
+      "pos_div_eucl"; "div_eucl"; "sub_mask"; "pred_N"; "of_succ_nat"; "iter_op"]) ||
   (* Z-carried signed-narrow sign-extend helpers (review #6 #13): internal, only inside by-name-
      lowered narrow op bodies (the masked Go is emitted by [fixed_width_op]); never emitted. *)
   List.mem (global_basename r) ["i8_norm_z"; "i16_norm_z"; "i32_norm_z"] ||
@@ -4722,11 +4742,6 @@ let is_inlined_ref r =
      (* runtime-panic VALUES (review #6 P1 #15) — used only inside suppressed panic-op bodies,
         never emitted (the native Go op panics on its own) *)
      "rt_nil_deref"; "rt_index_oob"; "Z_dec_string"; "n_dec_aux";
-     (* the [Z_dec_string] digit chain (stdlib deps of [Ascii.ascii_of_nat] / [N] div-mod) — used only
-        inside the suppressed panic-payload builder, never emitted *)
-     "zero"; "one"; "shift"; "ascii_of_pos"; "ascii_of_N"; "ascii_of_nat";
-     "append"; "div"; "modulo"; "to_nat"; "size_nat"; "succ_double"; "double"; "compare"; "compare_cont";
-     "pos_div_eucl"; "div_eucl"; "sub_mask"; "pred_N"; "of_succ_nat"; "iter_op";
      "rt_slice_bounds"; "rt_neg_make"; "rt_nil_map";
      "rt_send_closed"; "rt_close_closed"; "rt_close_nil"; "rt_assert_fail"; "rt_select_block";
      "rt_chan_send_block"] ||
