@@ -32,11 +32,9 @@ runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANIC
   level FIRST (the goty_supported episode).
 - Class claims = gated ∀-theorems sealed to the gate's boundary; fixtures are witnesses.
 - Quarantine valid-but-rejected in the ledger per surface; invalid companions in bad_programs.
-- Witness succession: folding a form kills its supported-but-undenoted witnesses (runlen_e,
-  maplen_runval_e, out_runtime_prog, the shortcircuit fixtures' undenoted pieces, converse-escape) — swap
-  successors in the SAME commit. After this arc the undenoted frontier may be EMPTY for the output
-  fragment → the completeness converse may become total on it (a major claim — state it only with the
-  theorem).
+- Witness succession (rule; the CURRENT witness state lives in the post-R1 section below and in GoSem's
+  pinned `undenoted_frontier`): folding a form kills its supported-but-undenoted witnesses — swap
+  successors in the SAME commit; a totality claim for any fragment needs a THEOREM.
 - Exact panic MESSAGES verified against real Go before modeling.
 - Grep-verify batch edits before committing.
 

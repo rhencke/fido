@@ -1065,7 +1065,8 @@ Proof. apply out_main_denotes. reflexivity. Qed.
     [maplen_e] = a fully-evaluable map-[len] (DENOTES — [eval_value_good]/[rc_maplen]); [runlen_e] (a
     slice-[len] whose ELEMENT is runtime — DENOTES since tier R1, [runtime_tier_runs], though still
     eval-level absent); [runidx_e] (a RUNTIME slice index — undenoted until tier R2) and
-    [maplen_runval_e] (a map-[len] whose VALUE is runtime) = the supported-but-undenoted witnesses. *)
+    [maplen_runval_e] (a map-[len] whose VALUE is runtime).  These are LOCAL fixture spellings; the
+    pinned witness group for the gap is [undenoted_frontier] below. *)
 Definition divzero_e : GExpr :=
   EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
 Definition divzero_map_e : GExpr :=
@@ -1950,14 +1951,15 @@ Example gosem_denotability_decisions :
        [out_runtime_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** NAMED WITNESSES of the supported-but-undenoted gap — one per KNOWN class, pinned as a group.
-    ⚠ NON-EXHAUSTIVE: a WITNESS list, NOT a proved characterization (no theorem bounds the gap's exact
-    extent — proving one is open work); gap prose cites these witnesses and must not claim completeness.
-    Classes witnessed: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
-    runtime form), the valid-Go OOB CONSTANT slice index (the INDEX arm declines it), the RUNTIME slice
-    index ([runidx_e] — tier R2), a RUNTIME width CONVERSION ([int64(len(..))] — tier R3), a RUNTIME
-    bool COMPARISON ([len(..) == 0] — no runtime bool rule yet), and the runtime map VALUE
-    ([maplen_runval_e] — needs its own map-value rule).  Each is supported AND undenoted. *)
+(** REPRESENTATIVE named witnesses of the supported-but-undenoted gap, pinned as a group.
+    ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND several
+    known undenoted classes have NO member here yet (e.g. runtime unary [-]/[^], nonzero runtime [%],
+    runtime float forms) — this list is representative, never a coverage claim.  Members: the
+    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form), the valid-Go
+    OOB CONSTANT slice index (the INDEX arm declines it), the RUNTIME slice index ([runidx_e] — tier R2),
+    a RUNTIME width CONVERSION ([int64(len(..))] — tier R3), a RUNTIME bool COMPARISON ([len(..) == 0] —
+    no runtime bool rule yet), and the runtime map VALUE ([maplen_runval_e] — needs its own map-value
+    rule).  Each member is pinned supported AND undenoted AND eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
@@ -1967,7 +1969,9 @@ Definition undenoted_frontier : list GExpr :=
   ; maplen_runval_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
-                    && negb (denotable_program (println_prog e))) undenoted_frontier = true.
+                    && negb (denotable_program (println_prog e))
+                    && match eval_value e with None => true | Some _ => false end)
+          undenoted_frontier = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
