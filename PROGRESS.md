@@ -112,8 +112,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **Main output is the legacy path:** `main.go` comes from the trusted plugin, not the certificate-gated
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only the small live-bridged class above
   (construct trusted, print verified).
-- **Map CONVERSIONS `map[K]V(x)` QUARANTINED** from `SupportedProgram` (target type unchecked; valid `map[int]int(nil)`
-  + both invalid-target companions ledger-pinned); re-admit only via full recursive `goty_supported`. Map LITERALS graduated (GREEN).
+- **Map CONVERSIONS `map[K]V(x)` QUARANTINED** from `SupportedProgram` (valid `map[int]int(nil)` ledger-pinned;
+  the unsupported-target CLASS sealed by gated `ctmap_conv_unsupported_target_rejected`). Map LITERALS graduated (GREEN).
 - Latent typed-lowering residuals (e.g. an untyped `func(x any) any` lambda) remain dead but unproven.
 
 ## NEXT

@@ -268,7 +268,8 @@ Definition bad_programs : list Program :=
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* cap(map[int]int{1:2}): [cap] of a MAP is invalid Go — REJECTED ([PtMap] is not [cap]-able, unlike a slice) *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): a FREE-IDENT operand — undefined; the CTMap quarantine's valid-operand witness lives in [valid_unsupported_programs] *)
   ; gs_blank (EConv (CTMap (GTSlice GTInt) GTInt) (EId (mkIdent "nil" eq_refl)))  (* _ = map[[]int]int(nil): a NON-COMPARABLE key in the conversion TARGET type — INVALID Go; this pin FLIPS if CTMap is ever admitted without a target key-comparability check *)
-  ; gs_blank (EConv (CTMap GTInt (GTMap (GTSlice GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))  (* _ = map[int]map[[]int]int(nil): the invalid key hidden in the target's NESTED value type — an outer-key-only CTMap admission would wrongly accept this; forces the FULL recursive target gate *)
+  ; gs_blank (EConv (CTMap GTInt (GTMap (GTSlice GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))  (* _ = map[int]map[[]int]int(nil): the invalid key hidden in the target's NESTED value type — an outer-key-only CTMap admission would wrongly accept this *)
+  ; gs_blank (EConv (CTMap GTInt (GTSlice (GTMap (GTSlice GTInt) GTInt))) (EId (mkIdent "nil" eq_refl)))  (* _ = map[int][]map[[]int]int(nil): the invalid key under a SLICE wrapper inside the target — a direct-map-value-only check would wrongly accept this.  These rows are WITNESSES; the CLASS gate is the ∀-theorem [ctmap_conv_unsupported_target_rejected] below *)
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
   ; gs_blank (EId (mkIdent "x" eq_refl))
@@ -294,10 +295,10 @@ Proof. vm_compute. reflexivity. Qed.
     rejected): the len-string members graduate by folding [len] of a NON-LITERAL string const to its exact
     byte length (keeping `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a
     [PtStr -> PtRunInt] runtime-int shortcut would reopen those); the [map[int]int(nil)] CONVERSION
-    graduates only when the CTMap arm consults the FULL recursive target-type gate (the [goty_supported]
-    equivalent over the whole [GTMap k v] — outer key AND nested value types; keeping BOTH
-    `map[[]int]int(nil)` and `map[int]map[[]int]int(nil)` in [bad_programs] rejected — an outer-key-only
-    check would wrongly admit the nested one); the ptr/chan-key block graduates when
+    graduates only when the CTMap arm consults the FULL recursive target-type gate — enforced by the GATED
+    ∀-theorem [ctmap_conv_unsupported_target_rejected] below (every [goty_supported]-rejected target stays
+    unsupported), which a graduating arm must RE-ESTABLISH; the [bad_programs] CTMap rows (root / nested /
+    slice-wrapped) are its witnesses; the ptr/chan-key block graduates when
     [goty_key_supported] grows past scalars on a modelled ptr/chan key-equality semantics (keeping the
     slice/map-key members of [bad_programs] rejected).  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
@@ -333,6 +334,17 @@ Definition valid_unsupported_programs : list Program :=
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
 Proof. vm_compute. reflexivity. Qed.
+
+(** ★ THE CTMAP TARGET CLASS GATE — universal, NOT sample rows: for EVERY target type [map[k]v] the
+    supported-type authority rejects ([goty_supported (GTMap k v) = false]), the nil map CONVERSION to it
+    is NOT a supported program.  Today this holds because the CTMap arm fail-closes outright; if CTMap ever
+    GRADUATES, re-establishing THIS gated theorem forces the new arm to consult the same recursive target
+    authority — no outer-key-only or direct-map-value-only shortcut can satisfy it.  The [bad_programs]
+    CTMap rows are concrete witnesses of this class, not the gate. *)
+Theorem ctmap_conv_unsupported_target_rejected : forall k v,
+  goty_supported (GTMap k v) = false ->
+  supported_program (gs_blank (EConv (CTMap k v) (EId (mkIdent "nil" eq_refl)))) = false.
+Proof. intros k v _. reflexivity. Qed.
 
 (** The [len(string(65))] entry above ([valid_unsupported_programs]) rejects via the NON-LITERAL-[PtStr] [len]
     fallback SPECIFICALLY, not via an unsupported argument — pinned by the pair below: [string(65)] IS a
@@ -433,3 +445,4 @@ Fail Example forge_uint8_overflow :
     the GoAst/GoPrint printer gate). *)
 Print Assumptions SupportedProgram.
 Print Assumptions bad_programs_rejected.
+Print Assumptions ctmap_conv_unsupported_target_rejected.
