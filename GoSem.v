@@ -533,7 +533,7 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1+R2).
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1–R3).
     Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
     evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
     carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
@@ -696,7 +696,8 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
       | None =>
           (* tier R3, the EXIT half — a width conversion OUT of the [GTInt] fragment: [ptype]'s
              [PtRunInt t] on a one-arg call can ONLY be [conv_to_scalar] (or [len]/[cap], which are
-             [GTInt] — excluded here), so [t] names the conversion target; the ARG must itself be the
+             [GTInt] — excluded here) — PROVED, not asserted: [ptype_call_runint_conv] seals [t] to an
+             integer keyword target, on which [wrap_runint] is total ([wrap_runint_total]); the ARG must itself be the
              [GTInt] runtime fragment ([reval_int a]) — a runtime-FLOAT or other-width source is absent
              there, so no wrong truncation can slip through.  A panicking arg panics (Go's order). *)
           match e with
@@ -837,21 +838,57 @@ Proof.
 Qed.
 
 (** ★ CLASS (tier R3) — the two universal WIDTH-CONVERSION denotation theorems, quantified over the
-    whole reval-evaluable fragment: any one-arg call [ptype] classifies [PtRunInt t] with [t ≠ GTInt]
-    (necessarily a [conv_to_scalar] conversion — [len]/[cap] are [GTInt]) whose arg evaluates in the
-    [GTInt] runtime fragment denotes to the MODEL-wrapped value of the target width ([wrap_runint] —
-    Go's runtime truncation), or to the arg's own panic (Go evaluates the operand first).  The
-    same-width [int(x)] class is [reval_int]'s own arm, covered by the R1 tier lemmas. *)
-Lemma denote_expr_conv_runs : forall f a t v g,
+    whole reval-evaluable fragment and SEALED to [ptype]'s own boundary: any one-arg call classified
+    [PtRunInt t] with [t ≠ GTInt] is NECESSARILY a [conv_to_scalar] conversion to an INTEGER keyword
+    target ([ptype_call_runint_conv] — [len]/[cap] classify [GTInt]), on which the exit boxing is TOTAL
+    ([wrap_runint_total]) — so the value theorem PRODUCES the wrapped result, with NO caller-side
+    totality premise.  A panicking arg panics first (Go's operand order).  The same-width [int(x)]
+    class is [reval_int]'s own arm, covered by the R1 tier lemmas. *)
+Lemma conv_to_scalar_runint : forall ca t' t,
+  conv_to_scalar ca t' = Some (PtRunInt t) -> t' = t /\ is_int_goty t = true.
+Proof.
+  intros ca t' t H.
+  destruct t'; simpl in H; destruct ca; try discriminate;
+    repeat match type of H with
+           | (if ?b then _ else _) = _ => destruct b; try discriminate
+           end;
+    inversion H; subst; split; reflexivity.
+Qed.
+Lemma ptype_call_runint_conv : forall f a t,
+  ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false ->
+  is_int_goty t = true.
+Proof.
+  intros f a t H Ht. cbn [ptype] in H.
+  destruct (ptype a) as [ca|]; [|discriminate].
+  destruct (String.eqb (proj1_sig f) "len").
+  - destruct a; destruct ca; try discriminate H;
+      inversion H; subst; discriminate Ht.
+  - destruct (String.eqb (proj1_sig f) "cap").
+    + destruct ca; try discriminate H. inversion H; subst. discriminate Ht.
+    + destruct (classify (proj1_sig f)) as [t'|]; [|discriminate].
+      exact (proj2 (conv_to_scalar_runint ca t' t H)).
+Qed.
+Lemma wrap_runint_total : forall t z,
+  is_int_goty t = true -> numty_eqb t GTInt = false ->
+  exists g, wrap_runint t z = Some g.
+Proof.
+  intros t z Hi Ht; destruct t; try discriminate Hi; try discriminate Ht;
+    eexists; reflexivity.
+Qed.
+Lemma denote_expr_conv_runs : forall f a t v,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   eval_value (ECall (EId f) (a :: nil)) = None ->
   reval_int a = Some (RVal v) ->
-  wrap_runint t (intraw v) = Some g ->
-  denote_expr (ECall (EId f) (a :: nil)) = Some (CRet g, false).
+  exists g, wrap_runint t (intraw v) = Some g
+    /\ denote_expr (ECall (EId f) (a :: nil)) = Some (CRet g, false).
 Proof.
-  intros f a t v g Hfc Hpt Ht Hev Ha Hw.
+  intros f a t v Hfc Hpt Ht Hev Ha.
+  destruct (wrap_runint_total t (intraw v)
+              (ptype_call_runint_conv f a t Hpt Ht) Ht) as [g Hw].
+  exists g. split; [exact Hw|].
   assert (He : reval_int (ECall (EId f) (a :: nil)) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
@@ -1173,10 +1210,11 @@ Qed.
     [folded_arg] (EVALUATES + PRINTABLE) certainly denotes — sufficient, NOT the full denotation boundary
     (the runtime tier denotes more).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
-    the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println(int64(len([]int{1})))]) is SUPPORTED but NOT [folded_arg], so it does NOT denote
-    (pinned by [out_boundary_runtime_undenoted]); the runtime tier denotes MORE than this folded fragment
-    covers — its converse is future work.  [println_main_denotes]
+    the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class in EITHER direction:
+    the runtime tier denotes MORE than the folded fragment ([println(int64(len([]int{1})))] = [runconv_e] is
+    NOT [folded_arg] yet DENOTES since tier R3 — [runtime_conv_runs]; the tier's own converse is future
+    work), and some supported args do not denote AT ALL yet ([println(runbool_e)], a runtime bool
+    comparison — pinned by [out_boundary_runtime_undenoted]).  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
   if pr then ECall (EId (mkIdent "println" eq_refl)) args
@@ -1685,7 +1723,9 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** ★ RUNTIME-CONVERSION pins (tier R3, grouped): [int64(len([]int{1}))] EXITS the fragment at width
     int64 (prints 1 as the model's [GoI64]); [uint8(len([]int{1})*300)] TRUNCATES (Go's runtime wrap:
-    300 mod 256 prints 44); [int(len([]int{1}))] is the IN-fragment same-width identity; and a
+    300 mod 256 prints 44); [int(len([]int{1}))] is the IN-fragment same-width identity;
+    [uint(len([]int{1}) - len([]int{1,2}))] WRAPS a negative runtime int to 2^64-1 (the [uintwrap]
+    authority at a non-identity value); and a
     PANICKING arg panics FIRST ([int64(1/len([]int{}))] → [rt_div_zero] — Go evaluates the operand
     before converting).  All supported (the gate is unchanged). *)
 Definition runconv_trunc_e : GExpr :=
@@ -1695,18 +1735,24 @@ Definition runconv_int_e : GExpr :=
   ECall (EId (mkIdent "int" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]].
 Definition runconv_panic_e : GExpr :=
   ECall (EId (mkIdent "int64" eq_refl)) [divzero_e].
+Definition runconv_uint_e : GExpr :=
+  ECall (EId (mkIdent "uint" eq_refl))
+        [EBn BSub (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]])
+                  (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]])].
 Example runtime_conv_runs : forall w,
   map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
-      [ runconv_e ; runconv_trunc_e ; runconv_int_e ; runconv_panic_e ]
+      [ runconv_e ; runconv_trunc_e ; runconv_int_e ; runconv_uint_e ; runconv_panic_e ]
   = [ Some (ORet tt (w_log true (anyt TI64 (i64wrap 1) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 300) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TUint (uintwrap (-1)) :: nil) w))   (* uint(-1 runtime) = 2^64-1: the [uintwrap] branch exercised at a WRAPPING value *)
     ; Some (OPanic rt_div_zero w) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
 Example runtime_conv_supported :
   forallb supported_program
     [ println_prog runconv_e ; println_prog runconv_trunc_e
-    ; println_prog runconv_int_e ; println_prog runconv_panic_e ] = true.
+    ; println_prog runconv_int_e ; println_prog runconv_uint_e
+    ; println_prog runconv_panic_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** STRICT-SUBSET pin (GATED, map-[len]): a map literal whose VALUE is a same-typed RUNTIME int
@@ -2281,7 +2327,7 @@ Definition gosem_trust_surface :=
    denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
-   denote_expr_conv_runs, denote_expr_conv_panic,
+   denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    runtime_conv_runs, runtime_conv_supported,
    undenoted_frontier_pinned,

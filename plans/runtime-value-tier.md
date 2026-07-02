@@ -9,7 +9,7 @@ always 1 — so a deterministic runtime evaluator can denote them faithfully. Th
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
 `BehaviorSafe` (nil deref / OOB / race) per Phase 5's ordering.
 
-## Live invariants (R1+R2 as landed)
+## Live invariants (R1–R3 as landed)
 
 - The runtime tier lives in `denote_expr` via `reval_int` (RVal | RPanic | None-absent), UNDER the same
   `floats_checked` boundary `eval_value` enforces; the terminal-flag/short-circuit machinery carries
