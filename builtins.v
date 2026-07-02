@@ -650,6 +650,7 @@ Notation any x := (anyt (the_tag _) x).
     (whose own panic fires), so these values live solely in the suppressed op bodies and are never
     extracted — they are listed in the plugin's [is_inlined_ref]. *)
 Definition rt_nil_deref    : GoAny := anyt TString "runtime error: invalid memory address or nil pointer dereference"%string.
+Definition rt_div_zero     : GoAny := anyt TString "runtime error: integer divide by zero"%string.   (* integer / and % by zero — consumed by GoSem's effectful denotation (not extracted) *)
 Definition rt_index_oob    : GoAny := anyt TString "runtime error: index out of range"%string.
 Definition rt_slice_bounds : GoAny := anyt TString "runtime error: slice bounds out of range"%string.
 Definition rt_neg_make     : GoAny := anyt TString "runtime error: makeslice: len out of range"%string.

@@ -8,8 +8,9 @@
     SLICE 1 (partial, to grow):
     - DENOTES a SUBSET of supported statements: [println]/[print] -> [COut] (the model's [w_log]); [panic] ->
       [CPan]; [return]/[panic] TERMINATE (their unreachable successors need only be SUPPORTED, not denotable);
-      [_ = e] -> [CRet] when [e] is a constant; [defer <call>] -> [CDfr] (the deferred call runs at
-      function-scope return, LIFO — [run_cmd]'s [run_defers]).  Print/panic args fold via [eval_value] (scalar
+      [_ = e] -> through the EFFECTFUL [denote_expr] (a constant falls through as [CRet]; a determined
+      integer divide-by-zero panics with the model's [rt_div_zero]); [defer <call>] -> [CDfr] (the deferred
+      call runs at function-scope return, LIFO — [run_cmd]'s [run_defers]).  Print/panic args fold via [eval_value] (scalar
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], and [len]
       of such a literal — the WHOLE literal is evaluated, so a runtime/panicking element rejects either; the
       scalar folds are in the [eval_value_good] table below; runtime / out-of-range / OOB values are NOT yet
@@ -278,6 +279,84 @@ Definition eval_value (e : GExpr) : option GoAny :=
   | _ => eval_value_ptype e
   end.
 
+(** ---- EFFECTFUL expression denotation (slice 1 of the runtime-panic layer).  Supported programs are CLOSED
+    (free identifiers are rejected), so every expression's outcome is DETERMINED; what the pure [eval_value]
+    cannot express is a PANICKING outcome.  [denote_expr] denotes an expression to a COMMAND: [CRet v] when the
+    pure fold gives its value, [CPan rt_div_zero] for an integer [/] or [%] whose determined divisor is ZERO
+    (Go's runtime "integer divide by zero" — a runtime panic, since [ptype] admits only a RUNTIME-classified
+    zero divisor there: a CONSTANT zero divisor is a Go COMPILE error, rejected by [num_binop]).  Everything
+    else is honestly [None].  The arm is SEALED to the classifier ([ptype = PtRunInt] required) and to the
+    evaluator ([divisor_zero]'s zero-judgment provably AGREES with [eval_value] — [divisor_zero_eval]), so it
+    is a subset of the supported fragment with no second folding authority. *)
+Definition divisor_zero (b : GExpr) : bool :=
+  match b with
+  | ECall (EId f) (ESliceLit t es :: nil) =>
+      String.eqb (proj1_sig f) "len" && is_int_goty t
+      && match eval_int_slice_elems t es with Some nil => true | _ => false end
+  | _ => false
+  end.
+
+(** The SEAL: [divisor_zero]'s judgment IS the evaluator's — a zero-judged divisor evaluates to the boxed
+    integer 0 (the [len] of an empty fully-evaluable literal). *)
+Lemma divisor_zero_eval : forall b, divisor_zero b = true -> eval_value b = box_int GTInt 0.
+Proof.
+  intros b H. unfold divisor_zero in H.
+  destruct b as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
+  destruct fe as [ f | | | | | | | | | | | | | ]; try discriminate H.
+  destruct fargs as [|a rest]; try discriminate H.
+  destruct a as [ | | | | | | | | | | t es | | | ]; try discriminate H.
+  destruct rest as [|? ?]; try discriminate H.
+  apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
+  destruct (eval_int_slice_elems t es) as [[|v vs]|] eqn:He; try discriminate H2.
+  cbn [eval_value]. rewrite Hf, Ht. cbv beta iota delta [andb].
+  rewrite He. reflexivity.
+Qed.
+
+Definition denote_expr (e : GExpr) : option (Cmd GoAny) :=
+  match eval_value e with
+  | Some v => Some (CRet v)
+  | None =>
+      match e with
+      | EBn o a b =>
+          match o with
+          | BDiv | BRem =>
+              match ptype e with
+              | Some (PtRunInt _) =>                        (* SUPPORTED runtime INTEGER / or % (float /0 is ±Inf, not a panic — excluded by the guard) *)
+                  match eval_value a, divisor_zero b with
+                  | Some _, true => Some (CPan rt_div_zero)  (* the dividend evaluates cleanly, the divisor is determined 0 -> Go's runtime panic *)
+                  | _, _ => None
+                  end
+              | _ => None
+              end
+          | _ => None
+          end
+      | _ => None
+      end
+  end.
+
+(** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value. *)
+Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = Some (CRet v).
+Proof. intros e v H. unfold denote_expr. rewrite H. reflexivity. Qed.
+
+(** ★ CLASS — the determined divide-by-zero PANICS: a SUPPORTED runtime integer [/] or [%] whose dividend
+    evaluates cleanly and whose divisor is determined 0 denotes to [CPan rt_div_zero] (Go's exact runtime
+    panic value).  Sealed by construction: the arm requires [ptype = Some (PtRunInt t)] (supported) and
+    [divisor_zero] (which agrees with [eval_value] — [divisor_zero_eval]). *)
+Lemma denote_expr_div_zero : forall o a b t va,
+  (o = BDiv \/ o = BRem) ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  eval_value a = Some va ->
+  divisor_zero b = true ->
+  denote_expr (EBn o a b) = Some (CPan rt_div_zero).
+Proof.
+  intros o a b t va Ho Hpt Ha Hdz.
+  unfold denote_expr.
+  assert (Hev : eval_value (EBn o a b) = None).
+  { cbn [eval_value]. unfold eval_value_ptype. rewrite Hpt. reflexivity. }
+  rewrite Hev.
+  destruct Ho as [-> | ->]; rewrite Hpt, Ha, Hdz; reflexivity.
+Qed.
+
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
   match args with
   | [] => Some []
@@ -314,7 +393,7 @@ Definition denote_effect_call (e : GExpr) : option (Cmd unit * bool) :=
 
 (** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
     unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
-    it is ESSENTIAL, not derivable (a [return] and a blank-assign both give [CRet tt] but differ
+    it is ESSENTIAL, not derivable (a [return] and a CONSTANT blank-assign both give [CRet tt] but differ
     stop/fall-through).  The effect arms go through [denote_effect_call] (gated on [expr_stmt_ok] — [denote] ⊆
     the gate, [gosem_sound] — however partial [eval_value] is).  [println]/[print] -> fall-through [COut];
     [panic] -> terminating [CPan]; [return] -> terminating [CRet]; a blank-assign of a constant -> fall-through
@@ -323,12 +402,17 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
   | GsBlankAssign e =>
-      (* [_ = e] discards [e]'s VALUE but NOT its runtime EFFECTS.  Denote it ONLY when slice-1 [eval_value]
-         handles [e] (a scalar LITERAL — no effect, CANNOT panic), giving the faithful fall-through [CRet tt].
-         A RUNTIME [e] (e.g. [1 / len([]int{})], which Go PANICS on) is left UN-denoted ([None]) until the
-         evaluator models effects — GoSem must NEVER give it the WRONG (silent) behavior.  [svalue e] is still
-         required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
-      if svalue e then match eval_value e with Some _ => Some (CRet tt, false) | None => None end else None
+      (* [_ = e] discards [e]'s VALUE but NOT its runtime EFFECTS — denoted through the EFFECTFUL
+         [denote_expr]: a pure constant gives the fall-through [CRet tt] ([cbind] of its [CRet v] — the same
+         command as before), and a determined runtime panic ([1 / len([]int{})]) gives its TRUE [CPan] (Go
+         evaluates [e] and panics).  Runtime forms [denote_expr] does not cover stay honestly [None].
+         [svalue e] is still required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
+      if svalue e then
+        match denote_expr e with
+        | Some ce => Some (cbind ce (fun _ => CRet tt), false)
+        | None => None
+        end
+      else None
   | GsReturnVal _   => None                                        (* a value return is invalid in void [main] *)
   | GsExprStmt e    => denote_effect_call e
   | GsDefer e =>
@@ -967,9 +1051,10 @@ Proof. split; vm_compute; reflexivity. Qed.
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
 
-(** REGRESSION fixture: a RUNTIME blank-assign Go PANICS on — `_ = 1 / len([]int{})` — is SUPPORTED, but
-    slice-1 [eval_value] does not model runtime effects, so GoSem leaves it UN-denoted (see
-    [gosem_denotability_decisions]) rather than giving it the WRONG (silent, no-panic) behavior. *)
+(** The determined-DIVIDE-BY-ZERO fixture: `_ = 1 / len([]int{})` is SUPPORTED (a runtime integer division —
+    a CONSTANT zero divisor would be a compile error), and now DENOTES to its TRUE behavior via [denote_expr]:
+    the run PANICS with Go's exact runtime value [rt_div_zero] — pinned end-to-end as the typed field
+    [rc_div_zero]. *)
 Definition gosem_runtime_blank_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsBlankAssign (EBn BDiv (EInt 1)
@@ -1072,7 +1157,8 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     exhibit — string-literal PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT,
     string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, [len] of a fully-evaluable
     literal, a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic], defer
-    LIFO ordering at return, and a DEFERRED panic firing at return.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
+    LIFO ordering at return, a DEFERRED panic firing at return, and the determined DIVIDE-BY-ZERO panicking
+    with Go's exact runtime value.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
     discharging EVERY field with the stated programs+values: a category cannot be dropped without editing this
     typed STATEMENT (the record), never silently by convention.  Table-INDEPENDENT (no reference to
     [eval_value_good]). *)
@@ -1102,6 +1188,9 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_defer_panic : forall w,                                  (* a DEFERRED panic does NOT stop the body ("hi" prints) and fires at return *)
     match denote_program gosem_defer_panic_prog with Some c => run_cmd 5 c w | None => None end
     = Some (OPanic (anyt TString "boom") (w_log true (anyt TString "hi" :: nil) w));
+  rc_div_zero : forall w,                                     (* the determined divide-by-zero PANICS with Go's exact runtime value *)
+    match denote_program gosem_runtime_blank_prog with Some c => run_cmd 5 c w | None => None end
+    = Some (OPanic rt_div_zero w);
 }.
 Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
@@ -1141,14 +1230,16 @@ Example eval_absent_none : forallb (fun e => match eval_value e with None => tru
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
-    [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer included),
-    FALSE (and [denote_program = None]) for the supported-but-undenoted runtime blank-assign. *)
+    [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer and the
+    determined divide-by-zero included), FALSE (and [denote_program = None]) for the supported-but-undenoted
+    map-[len] program ([out_runtime_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
-    [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog] = true
-  /\ forallb (fun p => negb (denotable_program p)) [gosem_runtime_blank_prog] = true
+    [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
+     gosem_runtime_blank_prog] = true
+  /\ forallb (fun p => negb (denotable_program p)) [out_runtime_prog] = true
   /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
-       [gosem_runtime_blank_prog] = true.
+       [out_runtime_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
@@ -1169,6 +1260,7 @@ Definition gosem_trust_surface :=
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    eval_len_reduces, eval_len_supported,
+   denote_expr_pure, divisor_zero_eval, denote_expr_div_zero,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.

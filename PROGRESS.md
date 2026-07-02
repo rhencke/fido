@@ -1,7 +1,7 @@
 # Fido — status
 
-Short live ledger. Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LESSONS.md`; Go-spec table:
-`SPEC_CONFORMANCE.md`. History is in git — this file is the **current** state only.
+Short live ledger. Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LESSONS.md`; Go-spec:
+`SPEC_CONFORMANCE.md`. History is in git — **current** state only.
 
 ## The goal
 
@@ -53,9 +53,10 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   program with the real Go toolchain (gofmt-clean + go build + go vet); a dependency of `make check`.
 - **GoSem slice 1** — `denote_program : Program -> option (Cmd unit)` bridges the AST into `cmd.v`'s command
   tree (reuses `cbind`/`run_cmd`, no second universe): print/println → `COut` (the model's own `w_log`),
-  panic → `CPan`, `return`, blank constant-assignment, and `defer <call>` → `CDfr` (runs at function-scope
-  return, LIFO; a deferred panic fires at return — both pinned as typed Record fields
-  `rc_defer_lifo`/`rc_defer_panic`), over a PARTIAL `eval_value` (string / integer /
+  panic → `CPan`, `return`, blank assignment via the EFFECTFUL `denote_expr` (a constant falls through; a
+  determined integer divide-by-zero panics with the model's `rt_div_zero` — `_ = 1/len([]int{})` gets its TRUE
+  panic, typed field `rc_div_zero`), and `defer <call>` → `CDfr` (runs at return, LIFO; a deferred panic fires
+  at return — typed fields `rc_defer_lifo`/`rc_defer_panic`), over a PARTIAL `eval_value` (string / integer /
   exact-float / bool CONSTANTS incl. in-range `uint`, an IN-BOUNDS index into an ALL-CONSTANT int-slice literal `[]int{..}[k]`→element, and `len` of such a literal→its length (`eval_len_{reduces,supported}`; whole literal evaluated — a runtime element rejects either; in-bounds DENOTES, OOB DECLINED); fails CLOSED
   on runtime / fractional / out-of-range / OOB — exact coverage in `GoSem.v`; the class-level in-bounds/OOB property is proved over the fully-evaluable ALL-CONSTANT subfragment (`eval_slice_index_{reduces,inbounds_class,oob_class}`), a STRICT subset of `ptype`-support via the `eval_slice_index_supported` INCLUSION bridge (runtime index/elements are supported but B2-undenoted — `slice_index_supported_but_undenoted`; evaluator sealed to `ptype`'s own `assignable_to_ty`+`int_const_repr`), and the emission-gate consequence on a representative valid-Go OOB pair is `GoSemSafe.panic_free_gate_slice`). Proves denotation ⊆ `SupportedProgram` (`gosem_sound`) and — the CONVERSE
   direction — that whole classes of supported programs DENOTE: `out_main_denotes` (the output-call fragment)
@@ -88,12 +89,13 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
-  ⚠ Undenoted runtime-panic forms (OOB const slice index / panicking literal element / runtime blank-assign)
-  are rejected by NON-denotation — `panic_free_gate_slice` pins the OOB case, `panic_free_gate_defer` the
-  defer boundary (defer-println ACCEPTED+emitted; defer-panic supported+DENOTABLE yet rejected by
-  `cmd_no_panic`) — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
-- **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
-  gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
+  ⚠ Undenoted runtime-panic forms (OOB const slice index / panicking literal element) are rejected by
+  NON-denotation — `panic_free_gate_slice` pins the OOB case; `panic_free_gate_defer`/`_div` pin the
+  denotable-panic mechanism (defer-println ACCEPTED+emitted; defer-panic and the determined divide-by-zero
+  supported+DENOTABLE yet rejected by `cmd_no_panic`) — does NOT gate main output, NOT full `BehaviorSafe`.
+  Zero axioms.
+- **Whole model axiom-free**: `Print Assumptions main_effect` empty; the three gates (below) assert their
+  surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
 
 ## RED (not done — do not overclaim)
