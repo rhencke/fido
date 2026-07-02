@@ -71,9 +71,14 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    so the live path already exercises the raw-wide case).  Closing rung 5 therefore needs a
    NAMED lemma: `binary_round` on a raw mantissa that normalizes exactly through DISCARDED
    ZERO BITS agrees with `binary_round` of the odd core at the adjusted exponent (5b, the wide
-   bridge).  5a LANDED: the zeros walk itself — `iter_pos_shr1_zeros` (exactly-k zero bits
-   shifted out by exactly k steps keep round/sticky FALSE; `iter_pos`/`Pos.iter` bridged to
-   `Nat.iter`).  THEN rung 4's determinism closes
+   bridge).  5a LANDED: the zeros walk — `iter_pos_shr1_zeros`.  5b LANDED (gated):
+   `binary_round_of_norm_wide` — [binary_round] on a RAW mantissa whose ODD CORE is in-window
+   equals [binary_round] of the core at the adjusted exponent, raw digits UNBOUNDED: if the
+   fexp target sits at/below the raw exponent the raw side is secretly in-window (rung 4's
+   `binary_round_of_norm`); otherwise the raw mantissa IS the core-canonical mantissa with
+   `T-e` appended zeros and the 5a walk consumes them.  REMAINING (5c): the wide determinism
+   corollary (window premises on the SHARED normal form only), `dy_norm` value-uniqueness, and
+   the `SFadd` finite-arm assembly; THEN determinism closes
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).

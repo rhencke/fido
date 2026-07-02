@@ -6742,6 +6742,79 @@ Proof.
   rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
   f_equal. f_equal. lia.
 Qed.
+(** ---- rung 5b — the WIDE bridge: [binary_round] on a RAW mantissa whose odd core is
+    in-window agrees with [binary_round] of the core at the adjusted exponent — the raw digit
+    count may EXCEED [prec] (the carry class).  Two regimes: if the [fexp] target stays at or
+    below the raw exponent, the raw side is secretly in-window too (the target formula forces
+    [digits <= prec]) and rung 4's [binary_round_of_norm] applies; otherwise the raw mantissa
+    IS the core-canonical mantissa with [T-e] appended zero bits, and the 5a zeros walk
+    ([iter_pos_shr1_zeros]) consumes them with the location staying exact. *)
+Lemma binary_round_of_norm_wide : forall prec emax s p e q a,
+  pos_odd_split p = (q, a) ->
+  (Zpos (digits2_pos q) <= prec)%Z ->
+  (emin prec emax <= e + a)%Z ->
+  (Zpos (digits2_pos q) + (e + a) <= emax)%Z ->
+  (2 <= emax)%Z ->
+  binary_round prec emax s p e = binary_round prec emax s q (e + a).
+Proof.
+  intros prec emax s p e q a Hsp Hdq He Hde Hemax.
+  destruct (pos_odd_split_val p q a Hsp) as [Ha Hv].
+  pose proof (pos_odd_split_digits p q a Hsp) as Hdp.
+  set (T := fexp prec emax (Zpos (digits2_pos q) + (e + a))) in *.
+  assert (HTa : (T <= e + a)%Z) by (unfold T, fexp, emin in *; lia).
+  destruct (Z.leb T e) eqn:Ecase.
+  - (* the target at or below the raw exponent: the raw side is in-window after all *)
+    apply Z.leb_le in Ecase.
+    apply (binary_round_of_norm prec emax s p e q a Hsp); [| | |exact Hemax].
+    + (* digits p <= prec: T >= digits p + e - prec always, so T <= e forces it *)
+      unfold T, fexp, emin in *; lia.
+    + (* emin <= e: emin <= T <= e *)
+      unfold T, fexp, emin in *; lia.
+    + lia.
+  - (* the raw exponent below the target: shift back through the appended zeros *)
+    apply Z.leb_gt in Ecase.
+    (* the RHS in canonical form *)
+    assert (Heq2 : (emin prec emax <= e + a)%Z) by exact He.
+    rewrite (binary_round_exact prec emax s q (e + a) Hdq Heq2 Hde Hemax).
+    pose proof (shl_align_snd q (e + a) _ HTa) as Hsndc.
+    pose proof (shl_align_digits q (e + a) _ HTa) as Hdigc.
+    pose proof (shl_align_fst_val q (e + a) _ HTa) as Hvalc.
+    destruct (shl_align q (e + a) T) as [mc ezc] eqn:Ec.
+    cbn [fst snd] in Hsndc, Hdigc, Hvalc |- *. subst ezc.
+    (* the positive shift count k = T - e *)
+    destruct (Z.sub T e) as [|kp|kp] eqn:Ek; [lia| |lia].
+    (* the raw mantissa IS the canonical core mantissa with kp appended zeros *)
+    assert (Hpiter : p = Pos.iter xO mc kp).
+    { apply Pos2Z.inj. rewrite iter_xO_val, Hvalc, Hv.
+      rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+      f_equal. f_equal. lia. }
+    assert (Hcap : Z.leb T (emax - prec) = true)
+      by (apply Z.leb_le; unfold T, fexp, emin in *; lia).
+    (* dissolve the abbreviation so every rewrite below is syntactic on the raw terms; the
+       destruct above could not abstract the goal's RAW occurrence (its subject named the
+       folded [T]), so replace it explicitly *)
+    unfold T in *.
+    rewrite Ec. cbn [fst].
+    (* walk the raw side *)
+    unfold binary_round.
+    rewrite Hdp.
+    replace (Zpos (digits2_pos q) + a + e)%Z with (Zpos (digits2_pos q) + (e + a))%Z by lia.
+    unfold shl_align. rewrite Ek. cbv beta iota.
+    unfold binary_round_aux, shr_fexp.
+    cbn [Zdigits2].
+    rewrite Hdp.
+    replace (Zpos (digits2_pos q) + a + e)%Z with (Zpos (digits2_pos q) + (e + a))%Z by lia.
+    rewrite Ek.
+    cbn [shr shr_record_of_loc].
+    rewrite Hpiter, iter_pos_shr1_zeros.
+    cbn [shr_m loc_of_shr_record shr_r shr_s round_nearest_even Zdigits2].
+    replace (e + Zpos kp)%Z
+      with (fexp prec emax (Zpos (digits2_pos q) + (e + a))) by lia.
+    rewrite Hdigc, Z.sub_diag.
+    cbn [shr shr_record_of_loc shr_m].
+    rewrite Hcap. reflexivity.
+Qed.
+
 (** the rung-5 OBLIGATION pinned mechanically (the CARRY shape): an ACCEPTED normalized ADD
     result whose RAW aligned sum exceeds [prec] digits — [(2^53-1) + (2^53-1)] has raw sum
     [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
@@ -7040,7 +7113,7 @@ Definition gosem_float_surface :=
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
-   binary_normalize_norm_determined, add_carry_raw_wide_accepted,
+   binary_normalize_norm_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
