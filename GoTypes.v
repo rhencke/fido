@@ -363,8 +363,9 @@ Fixpoint nodup_z (l : list Z) : bool :=
       no entry check sees it).  Rejecting these is the SOUNDNESS side ([GoSafe.bad_programs]).
     - VALID Go, outside the core — pointer / chan map keys (comparable in Go) — conservatively rejected:
       fail-loud INCOMPLETENESS, quarantined in [GoSafe.valid_unsupported_programs] with a fixture on EVERY
-      rejecting surface (root literal via the int-only key restriction, nested map value type, slice
-      element type, nil aggregate conversion).
+      rejecting surface — the CARTESIAN [GoSafe.ptrchan_key_quarantine]: root literal (int-only key
+      restriction), nested map value type, slice element type, and the CTSlice/CTChan/CTMap nil
+      conversions.
     [GTNamed] map keys are also rejected, but they are NOT a quarantinable valid class HERE: the closed
     world has no type declarations, so no closed program can validly name one — a named key type never
     reaches this gate from valid closed source.
@@ -484,7 +485,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
   | ECall _ _ => None
   | EConv c e0 =>
       match c with
-      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) *)
+      | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) — even the VALID [map[K]V(nil)]; pinned in [GoSafe.valid_unsupported_programs] *)
       | CTSlice _ | CTChan _ =>
           (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]) and a
              SUPPORTED target type ([goty_supported] — [[]map[[]int]int(nil)] hides an invalid map key;
@@ -567,7 +568,8 @@ Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with pt
     over-rejected, NOT an exact gc boundary), but an OOB positive constant is VALID Go (a run-time panic) so
     SUPPORTED, and a RUNTIME index's bounds are behavioral), and an INTEGER-key map LITERAL whose value TYPE is
     [goty_supported], constant keys assignable to the key type and DISTINCT, values assignable to the value type (a map is a value and
-    [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
+    [len]-able but not [cap]-able; the [map[K]V(x)] CONVERSION stays quarantined — the valid
+    [map[int]int(nil)] is pinned in [GoSafe.valid_unsupported_programs]).  ([len] of a NON-literal string — e.g. [len(string(65))] — is REJECTED: its const
     byte-length is not folded here.)  ★[PtNil] (the predeclared [nil]) is NOT a value:
     a bare [_ = nil] is "use of untyped nil" (invalid) — [svalue (EId "nil") = false]; [nil] is a value ONLY
     inside a slice/chan conversion ([[]int(nil)], which [ptype] gives [PtAgg]).  ★UNTYPED-CONSTANT DEFAULT-[int]

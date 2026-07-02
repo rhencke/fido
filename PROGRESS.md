@@ -113,7 +113,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   emitter (`emit-demo` is a separate certified demo). GoPrint drives only the small live-bridged class above
   (construct trusted, print verified).
 - **Map CONVERSIONS `map[K]V(x)` QUARANTINED** from `SupportedProgram` (key comparability not soundly
-  structural); re-admit when types seal a comparable-key builder. Map LITERALS graduated (GREEN).
+  structural; the valid `map[int]int(nil)` ledger-pinned); re-admit when types seal a comparable-key builder. Map LITERALS graduated (GREEN).
 - Latent typed-lowering residuals (e.g. an untyped `func(x any) any` lambda) remain dead but unproven.
 
 ## NEXT

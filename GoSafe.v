@@ -253,7 +253,9 @@ Definition bad_programs : list Program :=
        them); an INVALID NESTED map-key type hidden in a VALUE/element/conversion type (caught by [goty_supported]
        — even an EMPTY literal, where no entry check could see it); [cap] of a map (Go forbids it — caught by
        [PtMap]≠[PtAgg], so the [cap] arm gives [None]); a map as
-       a [println] arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
+       a [println] arg (a map is not a printable arg); and a map CONVERSION of a FREE IDENT (an
+       invalid-operand rejection — the map-conversion QUARANTINE itself is pinned on a VALID nil operand in
+       [valid_unsupported_programs]) *)
   ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])  (* map[[]int]int{..}: slice key not comparable *)
   ; gs_blank (EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) [])              (* map[int]map[[]int]int{}: a non-comparable slice KEY hidden in the VALUE type — invalid Go even EMPTY ([goty_supported]) *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []])  (* println(len(map[int]map[[]int]int{})): the len of an invalid-typed literal is rejected at the ROOT *)
@@ -264,7 +266,7 @@ Definition bad_programs : list Program :=
   ; gs_blank (EMapLit GTU8 GTInt [(EInt 300, EInt 1)])                    (* map[uint8]int{300:1}: key 300 overflows uint8 *)
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 1, EInt 3)])   (* map[int]int{1:2, 1:3}: DUPLICATE constant key 1 — a Go compile error *)
   ; gs_blank (ECall (EId (mkIdent "cap" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]])  (* cap(map[int]int{1:2}): [cap] of a MAP is invalid Go — REJECTED ([PtMap] is not [cap]-able, unlike a slice) *)
-  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): map CONVERSION still quarantined (+ free ident) *)
+  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "x" eq_refl)))      (* map[int]int(x): a FREE-IDENT operand — undefined; the CTMap quarantine's valid-operand witness lives in [valid_unsupported_programs] *)
   ; pl_arg (EMapLit GTInt GTInt [(EInt 1, EInt 2)])                       (* println(map[int]int{1:2}): a supported map VALUE, but not a printable [println] arg *)
     (* free-identifier use — undefined in the no-declaration model *)
   ; gs_blank (EId (mkIdent "x" eq_refl))
@@ -290,23 +292,34 @@ Proof. vm_compute. reflexivity. Qed.
     (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
     runtime-int shortcut would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
-    Current members: [len] of a non-literal string CONST (byte length not folded); VALID pointer-/chan-KEYED
-    map types pinned on EVERY rejecting surface — root literal (the int-only key restriction; string/bool keys
-    are the same conservative restriction), nested map value type, slice-literal element type, and the nil
-    aggregate conversions ([goty_supported]/[is_int_goty] admit only integer keys in core — Go also allows
-    string/bool/ptr/chan/comparable-struct/interface keys). *)
+    Current members: [len] of a non-literal string CONST (byte length not folded); the valid
+    [map[int]int(nil)] CONVERSION (the blanket CTMap quarantine, pinned on a VALID operand); and the
+    CARTESIAN ptr/chan map-key block [ptrchan_key_quarantine] — each out-of-core key type × each rejecting
+    surface ([goty_supported]/[is_int_goty] admit only integer keys in core; string/bool root keys are the
+    same conservative int-only restriction — Go also allows string/bool/ptr/chan/comparable-struct/interface
+    keys). *)
+(** The valid-but-out-of-core ptr/chan MAP-KEY class, pinned STRUCTURALLY: generated as the full CARTESIAN
+    product (out-of-core key type × rejecting surface), so a new key type or surface added here extends
+    every pin at once — "quarantined" stays an executable per-surface claim, never a hand-picked sample.
+    Surfaces: root literal (the int-only key restriction), nested map VALUE type, slice ELEMENT type
+    ([goty_supported]), and the three nil-conversion arms (CTSlice / CTChan / the blanket CTMap
+    quarantine).  Every generated program is VALID Go — [nil] converts to any slice/chan/map type
+    (https://go.dev/ref/spec#Conversions). *)
+Definition oo_core_key_tys : list GoTy := [GTPtr GTInt; GTChan GTInt].
+Definition ptrchan_key_quarantine : list Program :=
+  flat_map (fun k =>
+    [ gs_blank (EMapLit k GTInt [])                                              (* _ = map[K]int{} — root literal *)
+    ; gs_blank (EMapLit GTInt (GTMap k GTInt) [])                                (* _ = map[int]map[K]int{} — nested value type *)
+    ; gs_blank (ESliceLit (GTMap k GTInt) [])                                    (* _ = []map[K]int{} — slice element type *)
+    ; gs_blank (EConv (CTSlice (GTMap k GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = []map[K]int(nil) *)
+    ; gs_blank (EConv (CTChan  (GTMap k GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = (chan map[K]int)(nil) *)
+    ; gs_blank (EConv (CTMap k GTInt) (EId (mkIdent "nil" eq_refl)))             (* _ = map[K]int(nil) — the CTMap arm *)
+    ]) oo_core_key_tys.
 Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
-  ; gs_blank (EMapLit GTInt (GTMap (GTPtr GTInt) GTInt) [])              (* _ = map[int]map[*int]int{}: a POINTER map key is comparable — VALID Go — but outside [goty_key_supported]'s scalar subset — REJECTED (incompleteness, not invalidity) *)
-  ; gs_blank (EMapLit GTInt (GTMap (GTChan GTInt) GTInt) [])             (* _ = map[int]map[chan int]int{}: a CHAN map key is comparable — VALID Go — likewise conservatively REJECTED *)
-  ; gs_blank (EMapLit (GTPtr GTInt) GTInt [])                            (* _ = map[*int]int{}: the same valid class at the ROOT — rejected by the int-only key restriction *)
-  ; gs_blank (EMapLit (GTChan GTInt) GTInt [])                           (* _ = map[chan int]int{}: root chan key — likewise *)
-  ; gs_blank (ESliceLit (GTMap (GTPtr GTInt) GTInt) [])                  (* _ = []map[*int]int{}: the class through the SLICE-literal ELEMENT type ([goty_supported]) *)
-  ; gs_blank (ESliceLit (GTMap (GTChan GTInt) GTInt) [])                 (* _ = []map[chan int]int{}: likewise (chan) *)
-  ; gs_blank (EConv (CTSlice (GTMap (GTPtr GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = []map[*int]int(nil): the class through the CTSlice nil-conversion arm *)
-  ; gs_blank (EConv (CTChan (GTMap (GTChan GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = (chan map[chan int]int)(nil): ... and the CTChan arm *)
-  ].
+  ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "nil" eq_refl)))    (* _ = map[int]int(nil): VALID Go (nil converts to a map type) — the blanket CTMap quarantine pinned on a VALID operand (the [bad_programs] free-ident row is an invalid-operand rejection, NOT this witness) *)
+  ] ++ ptrchan_key_quarantine.
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.
 Proof. vm_compute. reflexivity. Qed.
