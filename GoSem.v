@@ -6537,10 +6537,12 @@ Proof.
     cbv beta iota. cbv. reflexivity.
 Qed.
 
-(** rung 3's WINDOW BRIDGES — the GATE's own repr window ([float_dyadic_repr], the acceptance
-    boundary for every [PtFloatConst] payload and [box_float]/[sf_render]) implies
-    [binary_round_exact]'s premises, both widths: accepted payloads ARE the exactness theorem's
-    class (the digits-vs-magnitude step is [digits2_pos_le_of_lt_pow]). *)
+(** rung 3's LIVE-BOUNDARY BRIDGE.  The float acceptance boundary is [ptype]'s CONSTRUCTION
+    sites (every one repr-GUARDED — the invariant [ptype_float_const_repr] below) and
+    [box_float] ([box_float_gate]); [sf_render] is RAW (it renders any dyadic; its exactness on
+    ACCEPTED payloads comes from the invariant, never from [sf_render] itself).  The endpoint
+    theorems [ptype_float_payload_{f64,f32}] split every accepted payload into ZERO or the
+    [binary_round_exact] premises (digits-vs-magnitude via [digits2_pos_le_of_lt_pow]). *)
 Lemma float_dyadic_repr_f64_premises : forall m e p,
   float_dyadic_repr GTFloat64 m e = true ->
   Z.abs m = Zpos p ->
@@ -6570,6 +6572,119 @@ Proof.
   assert (Hd : (Zpos (digits2_pos p) <= 24)%Z)
     by (apply digits2_pos_le_of_lt_pow; [lia | exact H1]).
   split; [exact Hd|]. split; [unfold emin; lia|]. lia.
+Qed.
+(** the INVARIANT: every [ptype]-accepted [PtFloatConst] payload is IN-WINDOW — structural,
+    because every construction site is repr-guarded (the [ptype_tint_const_repr] pattern). *)
+Lemma ptype_add_str_row_float : forall cl cr t d,
+  (match cl, cr with PtStr, PtStr => Some PtStr | _, _ => num_binop BAdd cl cr end)
+    = Some (PtFloatConst t d) ->
+  num_binop BAdd cl cr = Some (PtFloatConst t d).
+Proof. intros cl cr t d H; destruct cl; try exact H; destruct cr; try exact H; discriminate H. Qed.
+Lemma num_arith_float_repr : forall f df cl cr t d,
+  num_arith f df cl cr = Some (PtFloatConst t d) ->
+  float_dyadic_repr t (dy_m d) (dy_e d) = true.
+Proof.
+  intros f df cl cr t d H.
+  destruct cl; destruct cr; cbn [num_arith] in H; try discriminate H;
+  unfold dy_fold_at in H;
+  repeat first
+    [ discriminate H
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma num_binop_float_repr : forall o cl cr t d,
+  num_binop o cl cr = Some (PtFloatConst t d) ->
+  float_dyadic_repr t (dy_m d) (dy_e d) = true.
+Proof.
+  intros o cl cr t d H.
+  destruct o; cbn [num_binop] in H;
+  repeat first
+    [ discriminate H
+    | exact (num_arith_float_repr _ _ _ _ _ _ H)
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma conv_to_scalar_float_repr : forall ca t' t d,
+  conv_to_scalar ca t' = Some (PtFloatConst t d) ->
+  float_dyadic_repr t (dy_m d) (dy_e d) = true.
+Proof.
+  intros ca t' t d H.
+  destruct t'; destruct ca; cbn [conv_to_scalar] in H; try discriminate H;
+  repeat first
+    [ discriminate H
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma ptype_float_const_repr : forall e t d,
+  ptype e = Some (PtFloatConst t d) -> float_dyadic_repr t (dy_m d) (dy_e d) = true.
+Proof.
+  intros e t d H.
+  destruct e; cbn [ptype] in H; try discriminate H;
+  repeat first
+    [ discriminate H
+    | exact (conv_to_scalar_float_repr _ _ _ _ H)
+    | exact (num_binop_float_repr _ _ _ _ _ H)
+    | exact (num_binop_float_repr _ _ _ _ _ (ptype_add_str_row_float _ _ _ _ H))
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+(** ★ the LIVE endpoints (gated): every ACCEPTED float payload is ZERO or satisfies
+    [binary_round_exact]'s premises — the review-demanded zero/nonzero split over [ptype]
+    itself, no caller-side window obligation left. *)
+Theorem ptype_float_payload_f64 : forall e d,
+  ptype e = Some (PtFloatConst GTFloat64 d) ->
+  dy_m d = Z0
+  \/ (exists p, Z.abs (dy_m d) = Zpos p
+      /\ (Zpos (digits2_pos p) <= 53)%Z
+      /\ (emin 53 1024 <= dy_e d)%Z
+      /\ (Zpos (digits2_pos p) + dy_e d <= 1024)%Z).
+Proof.
+  intros e d Hp.
+  pose proof (ptype_float_const_repr e _ _ Hp) as Hr.
+  destruct (dy_m d) as [|q|q] eqn:Em; [left; reflexivity| |];
+    right; exists q; (split; [reflexivity|]);
+    exact (float_dyadic_repr_f64_premises _ _ q Hr eq_refl).
+Qed.
+Theorem ptype_float_payload_f32 : forall e d,
+  ptype e = Some (PtFloatConst GTFloat32 d) ->
+  dy_m d = Z0
+  \/ (exists p, Z.abs (dy_m d) = Zpos p
+      /\ (Zpos (digits2_pos p) <= 24)%Z
+      /\ (emin 24 128 <= dy_e d)%Z
+      /\ (Zpos (digits2_pos p) + dy_e d <= 128)%Z).
+Proof.
+  intros e d Hp.
+  pose proof (ptype_float_const_repr e _ _ Hp) as Hr.
+  destruct (dy_m d) as [|q|q] eqn:Em; [left; reflexivity| |];
+    right; exists q; (split; [reflexivity|]);
+    exact (float_dyadic_repr_f32_premises _ _ q Hr eq_refl).
+Qed.
+(** [box_float] is the VALUE-path gate: a boxed float implies the window. *)
+Lemma box_float_gate : forall t m e v,
+  box_float t m e = Some v -> float_dyadic_repr t m e = true.
+Proof.
+  intros t m e v H. unfold box_float in H.
+  destruct (float_dyadic_repr t m e); [reflexivity | discriminate H].
 Qed.
 
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
@@ -6813,7 +6928,7 @@ Definition gosem_float_surface :=
    eval_value_floats_checked, floats_checked_children_eqs,
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
-   float_dyadic_repr_f64_premises, float_dyadic_repr_f32_premises,
+   ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,

@@ -42,9 +42,13 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    `digits+e <= emax`, `binary_round s m e` IS the canonical finite (the shifted mantissa at
    the `fexp` target), no rounding/underflow/overflow: both `shr_fexp` passes are ZERO shifts
    at `loc_Exact`; with `shl_align_fst_val` the value is exact.
-   (b) the WINDOW BRIDGES `float_dyadic_repr_{f64,f32}_premises` — the gate's own repr window
-   implies those premises (digits-vs-magnitude via `digits2_pos_lower`/
-   `digits2_pos_le_of_lt_pow`), so ACCEPTED payloads are the theorem's class.
+   (b) the LIVE-BOUNDARY BRIDGE: every `PtFloatConst` construction site in `ptype` is
+   repr-GUARDED (the two formerly-unguarded sites — UNeg reseal, int-interval conversion — now
+   guard too; the guards never fire, defense-in-depth), giving the structural invariant
+   `ptype_float_const_repr` and the gated endpoints `ptype_float_payload_{f64,f32}` (every
+   ACCEPTED payload is ZERO or satisfies the exactness premises — the zero/nonzero split over
+   `ptype` itself) + `box_float_gate` on the value path.  `sf_render` is RAW (renders anything);
+   exactness on accepted payloads comes from the invariant, never from `sf_render`.
    (c) `renorm_binary_round_idem` — renorm idempotence on the in-window class (the output's
    digits+exponent reproduces the `fexp` target; re-alignment is `shl_align_id`), unblocking
    the f32 wrappers (`f32_neg` re-rounds through `f32_of_f64`).

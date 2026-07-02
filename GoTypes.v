@@ -419,8 +419,12 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
       end
   | GTFloat64 | GTFloat32 =>
       match ca with
-      | PtIntConst z | PtTIntConst _ z =>                        (* INT-CONSTANT source -> typed float const (EXACT only) *)
-          if int_in_float_exact_interval t z then Some (PtFloatConst t (dy_make z 0)) else None
+      | PtIntConst z | PtTIntConst _ z =>                        (* INT-CONSTANT source -> typed float const (EXACT only; the normalized interval int is always in-window, so the repr guard is defense-in-depth making EVERY [PtFloatConst] construction site guarded — the [ptype_float_const_repr] invariant is structural, not per-site analysis) *)
+          if int_in_float_exact_interval t z
+          then (let d := dy_make z 0 in
+                if float_dyadic_repr t (dy_m d) (dy_e d)
+                then Some (PtFloatConst t d) else None)
+          else None
       | PtFloatConst _ d =>                                      (* FLOAT-CONSTANT source (cross-width incl.): EXACT at the TARGET width or rejected — [float32(<inexact-at-32 float64 const>)] is valid Go that ROUNDS; Fido REJECTS (quarantined) *)
           if float_dyadic_repr t (dy_m d) (dy_e d) then Some (PtFloatConst t d) else None
       | PtRunInt _ | PtRunFloat _ => Some (PtRunFloat t)         (* RUNTIME source -> runtime float *)
@@ -564,7 +568,9 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                     | PtIntConst z => Some (PtIntConst (Z.opp z))
                     | PtTIntConst t z =>                       (* -int8(-128) = 128 -> overflow -> reject *)
                         let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
-                    | PtFloatConst t d => Some (PtFloatConst t (dy_make (Z.opp (dy_m d)) (dy_e d)))   (* sign flip — exact; resealed via [dy_make] *)
+                    | PtFloatConst t d =>                      (* sign flip — exact; resealed via [dy_make] and REPR-GUARDED like every construction site (the window is symmetric, so the guard never fires — defense-in-depth for [ptype_float_const_repr]) *)
+                        let d' := dy_make (Z.opp (dy_m d)) (dy_e d) in
+                        if float_dyadic_repr t (dy_m d') (dy_e d') then Some (PtFloatConst t d') else None
                     | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
                     | _ => None end
           | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)
