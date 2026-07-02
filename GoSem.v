@@ -1824,7 +1824,7 @@ Qed.
 
 (** ---- The classifier's TYPED-CONST REPR invariant: every [PtTIntConst t z] the classifier
     produces has [z] representable at [t] — every producing row re-checks [int_const_repr], so this
-    is a one-level case walk, not an induction.  Feeds the T3 materializer's totality
+    is a one-level case walk, not an induction.  Feeds the T3 operand width seal's totality
     ([typed_operand_const_total]). *)
 Lemma num_arith_tint_repr : forall f df cl cr t z,
   num_arith f df cl cr = Some (PtTIntConst t z) -> int_const_repr z t = true.

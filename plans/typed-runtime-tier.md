@@ -47,12 +47,11 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   div/mod via the generic `div_checked` evidence convoy; sealed
   `denote_expr_typed_binop_runs_sealed` + panic/absent companions; operand-shape split proved
   `ptype_binop_runint_args` — the MIXED-CONST rows (one runtime + one int-const operand, untyped or
-  typed, valid Go) DENOTE via CONST-MATERIALIZATION-AT-WIDTH (`typed_operand`, WIDTH-SEALED at the
-  boundary: an untyped const converts through ptype's own repr admission, a typed const must
-  already be the width, cross-width = None pinned `typed_operand_cross_width_none`; totality from
-  the classifier's typed-const repr invariant `ptype_tint_const_repr`; pins
-  `typed_mixed_const_runs`, both orders + the const-dividend/runtime-zero-divisor panic); `uint`
-  row pinned
+  typed, valid Go) DENOTE under the mixed-const operand WIDTH SEAL (`typed_operand`: an untyped
+  const CONVERTS through ptype's own repr admission, a typed const must already BE the width,
+  cross-width = None pinned `typed_operand_cross_width_none`; totality from the classifier's
+  typed-const repr invariant `ptype_tint_const_repr`; pins `typed_mixed_const_runs`, both orders +
+  the const-dividend/runtime-zero-divisor panic); `uint` row pinned
   `typed_binop_uint_program_absent`; go-run-verified runs pins incl. wrap 252+252=248 and
   `-4 % 3 = -1`). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:

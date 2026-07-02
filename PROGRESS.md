@@ -93,9 +93,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 ## NEXT
 
 - The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion chains + T3
-  same-width arithmetic (incl. const-materialization-at-width) LANDED + SEALED; next T4
-  comparisons, T5 heterogeneous shifts; then the general dyadic↔`SF*` agreement theorem. Keep the
-  byte/size discipline while growing.
+  same-width arithmetic (incl. the mixed-const operand WIDTH SEAL: untyped converts / typed
+  same-width / cross-width None) LANDED + SEALED; next T4 comparisons, T5 heterogeneous shifts;
+  then the general dyadic↔`SF*` agreement theorem. Keep the byte/size discipline while growing.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
