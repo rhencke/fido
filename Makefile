@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify
 .DEFAULT_GOAL := build
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
@@ -205,6 +205,20 @@ golden: extract
 	diff -u expected_output.txt /tmp/fido_new.txt || true; \
 	cp /tmp/fido_new.txt expected_output.txt; \
 	echo "fido: updated expected_output.txt"
+
+# Proof-error DIAGNOSIS: rebuild the PROVER stage (the same stage `make check` runs) and stream its
+# full log — for reading a failing proof's error / idtac output. Changes nothing locally; pipe/grep
+# the output as needed. THE sanctioned spelling of this loop (no ad-hoc docker invocations).
+prover-log:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
+
+# gc GROUND-TRUTHING: run a scratch Go program under the PINNED golang image to verify Go's ACTUAL
+# semantics before modelling them (witness values, panic payloads — the go-run-verified pins).
+# GO = a directory containing main.go. println writes to stderr → captured. THE sanctioned spelling
+# (no ad-hoc docker run invocations).
+GO ?= scratch
+go-verify:
+	docker run --rm -v "$(abspath $(GO))":/w -w /w golang:1.23-alpine sh -c 'go run . 2>&1'
 
 # Multi-platform build (does not load locally — use push to ship).
 bake:

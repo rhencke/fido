@@ -11,8 +11,8 @@
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
     Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority
     (the frontier list, the typed-unary holes, the runtime-float CLASS theorems, the ABSENT-source
-    conversion pin [runtime_conv_absent_src_pinned], the shift table); this header does not
-    duplicate its member list.
+    conversion pin, the absent shift LEFT-row pins); this header does not duplicate its member
+    list.
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
     (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)
