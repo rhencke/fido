@@ -4,7 +4,7 @@
 conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`, T2 — LANDED), typed
 same-width arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see
 T5). Still supported-but-undenoted, pinned: `typed_unary_holes_absent` (the GoUint/narrow-neg
-holes), `typed_runtime_shift_absent` (the five-case shift SHAPE table), the runtime-FLOAT-source
+holes), the runtime-FLOAT-source
 class (CLASS-sealed absent — `reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`;
 supported-side pin `runtime_float_source_conv_absent` — the float arc), the ABSENT-source
 conversion (`runtime_conv_absent_src_pinned` — the `denote_expr_conv_src_absent` propagation
@@ -68,9 +68,9 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated
   independently (any integer runtime/const form), admissibility derived from `ptype`, never a caller
   promise; the model ops are heterogeneous too (small widths take `GoInt` counts, `i64/u64` raw `Z` —
-  reconcile per width at the dispatch, fail-closed on any unmodelled pairing).  The five-case shift SHAPE table is
-  pinned NOW (`typed_runtime_shift_absent` + `shift_case_shape` — both ops, a non-GTInt count,
-  i64/u64 lefts, structurally checked) so the slice cannot silently land narrow.
+  reconciled per width at the dispatch; counts >= 64 saturate exactly).  The five-case shift SHAPE
+  table (`shift_case_shape`) now DENOTES (`typed_runtime_shift_runs`); only the `GTInt`-left and
+  `GTUint`-left rows remain absent, pinned.
 - **Per-slice update obligations** (the standing rule): each landing flips its pins across the five
   recurring witness sites (`undenoted_frontier`, the out-boundary example, GoSemSafe's absent pair,
   the dead-tail escape, the arg-panic short-circuit trio) + class lemmas sealed to `ptype` (no

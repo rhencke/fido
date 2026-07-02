@@ -705,7 +705,7 @@ Qed.
 
 (** ---- Tier T3 — SAME-WIDTH typed BINARY dispatch ----
     The nine arithmetic/bitwise ops on a non-[GTInt] fixed-width carrier pair (comparisons are the R4
-    [PtBool] exit; shifts are HETEROGENEOUS — T5, absent).  [GTUint] has NO model ops — a hole row
+    [PtBool] exit; shifts are HETEROGENEOUS — the T5 dispatch below).  [GTUint] has NO model ops — a hole row
     ([typed_binop_uint_none]); [GTInt] lives in [reval_int]'s own arm ([typed_binop_gtint_none]). *)
 Definition typed_arith_op (o : BinOp) : bool :=
   match o with
@@ -3891,17 +3891,18 @@ Proof.
   unfold denote_expr. rewrite Hfc. cbn [negb].
   rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
 Qed.
-(** The ABSENT-side propagation, shift edition (left absent is the shared T3 lemma's disjunct;
-    here: left evaluated, the COUNT absent). *)
-Theorem denote_expr_typed_shift_src_absent : forall o a b t ga,
+(** The ABSENT-side propagation, shift edition — BOTH fail-closed paths: the LEFT operand absent,
+    or the left evaluated and the COUNT absent. *)
+Theorem denote_expr_typed_shift_src_absent : forall o a b t,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   shift_op o = true ->
-  typed_operand reval_val t a = Some (RAVal ga) ->
-  shift_count reval_val b = None ->
+  (typed_operand reval_val t a = None
+   \/ (exists ga, typed_operand reval_val t a = Some (RAVal ga)
+                  /\ shift_count reval_val b = None)) ->
   denote_expr (EBn o a b) = None.
 Proof.
-  intros o a b t ga Hpt Ht Ho Ha Hcnt.
+  intros o a b t Hpt Ht Ho Habs.
   assert (Hna : typed_arith_op o = false)
     by (destruct o; try discriminate Ho; reflexivity).
   unfold denote_expr.
@@ -3913,11 +3914,13 @@ Proof.
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. rewrite Ht.
     cbv beta iota delta [negb]. reflexivity. }
-  unfold reval_val in Ha, Hcnt.
   rewrite reval_val_with_eq, Hev, He. cbv beta iota.
   cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
-  rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
-  rewrite Ho. cbv beta iota. rewrite Hcnt. reflexivity.
+  destruct Habs as [Hna2 | [ga [Ha Hcnt]]].
+  - unfold reval_val in Hna2. rewrite Hna2. reflexivity.
+  - unfold reval_val in Ha, Hcnt.
+    rewrite Ha. cbv beta iota. rewrite Hna. cbv beta iota.
+    rewrite Ho. cbv beta iota. rewrite Hcnt. reflexivity.
 Qed.
 
 
@@ -5543,9 +5546,44 @@ Example typed_shift_uint_program_absent :
   /\ denotable_program (println_prog runshift_uintleft_e) = false
   /\ denote_program (println_prog runshift_uintleft_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
+(** DISPATCH AUTHORITY (gated): each live [typed_shift] row IS the width's convoy over the fully
+    qualified model op — one 2-conjunct pin per width. *)
+Example typed_shift_u8_model : forall a z,
+  typed_shift BShl GTU8 (anyt TU8 a) z = shift_checked_small TU8 Fido.builtins.u8_shl a z
+  /\ typed_shift BShr GTU8 (anyt TU8 a) z = shift_checked_small TU8 Fido.builtins.u8_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_i8_model : forall a z,
+  typed_shift BShl GTI8 (anyt TI8 a) z = shift_checked_small TI8 Fido.builtins.i8_shl a z
+  /\ typed_shift BShr GTI8 (anyt TI8 a) z = shift_checked_small TI8 Fido.builtins.i8_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_u16_model : forall a z,
+  typed_shift BShl GTU16 (anyt TU16 a) z = shift_checked_small TU16 Fido.builtins.u16_shl a z
+  /\ typed_shift BShr GTU16 (anyt TU16 a) z = shift_checked_small TU16 Fido.builtins.u16_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_i16_model : forall a z,
+  typed_shift BShl GTI16 (anyt TI16 a) z = shift_checked_small TI16 Fido.builtins.i16_shl a z
+  /\ typed_shift BShr GTI16 (anyt TI16 a) z = shift_checked_small TI16 Fido.builtins.i16_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_u32_model : forall a z,
+  typed_shift BShl GTU32 (anyt TU32 a) z = shift_checked_small TU32 Fido.builtins.u32_shl a z
+  /\ typed_shift BShr GTU32 (anyt TU32 a) z = shift_checked_small TU32 Fido.builtins.u32_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_i32_model : forall a z,
+  typed_shift BShl GTI32 (anyt TI32 a) z = shift_checked_small TI32 Fido.builtins.i32_shl a z
+  /\ typed_shift BShr GTI32 (anyt TI32 a) z = shift_checked_small TI32 Fido.builtins.i32_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_i64_model : forall a z,
+  typed_shift BShl GTInt64 (anyt TI64 a) z = shift_checked_wide TI64 Fido.builtins.i64_shl a z
+  /\ typed_shift BShr GTInt64 (anyt TI64 a) z = shift_checked_wide TI64 Fido.builtins.i64_shr a z.
+Proof. intros; split; reflexivity. Qed.
+Example typed_shift_u64_model : forall a z,
+  typed_shift BShl GTU64 (anyt TU64 a) z = shift_checked_wide TU64 Fido.builtins.u64_shl a z
+  /\ typed_shift BShr GTU64 (anyt TU64 a) z = shift_checked_wide TU64 Fido.builtins.u64_shr a z.
+Proof. intros; split; reflexivity. Qed.
 (** The ABSENT-SOURCE conversion witness — [PtRunInt] classification alone NEVER implies denotation:
-    a conversion over a supported-but-undenoted runtime-int source (a shift) is itself
-    supported-but-undenoted, exactly [denote_expr_conv_src_absent]'s class at program level.  A
+    a conversion over a supported-but-undenoted runtime-int source (a [GTUint]-carrier binop —
+    the op-less hole row) is itself supported-but-undenoted, exactly
+    [denote_expr_conv_src_absent]'s class at program level.  A
     future prose claim of "runtime-int source ⟹ denotes" breaks against this pin. *)
 Definition runconv_absent_src_e : GExpr :=
   ECall (EId (mkIdent "int64" eq_refl)) [runuint_binop_e].
@@ -6139,6 +6177,8 @@ Definition gosem_runtime_int_surface :=
    shift_count_runint_total, shift_count_const_total,
    shift_checked_small_cases, shift_checked_wide_cases,
    typed_runtime_shift_runs, typed_shift_edge_runs, typed_shift_edge_supported,
+   typed_shift_u8_model, typed_shift_i8_model, typed_shift_u16_model, typed_shift_i16_model,
+   typed_shift_u32_model, typed_shift_i32_model, typed_shift_i64_model, typed_shift_u64_model,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
    typed_mixed_const_runs, typed_mixed_const_supported,
