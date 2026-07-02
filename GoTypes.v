@@ -354,6 +354,39 @@ Fixpoint nodup_z (l : list Z) : bool :=
   | x :: r => andb (negb (existsb (Z.eqb x) r)) (nodup_z r)
   end.
 
+(** Structural VALIDITY of a [GoTy] as written Go — the single recursive authority every [ptype] arm that
+    ADMITS a type ([ESliceLit] / [EMapLit] / the [EConv] aggregate conversions) consults, so an INVALID
+    nested type can never become a supported (or, downstream, denoted) expression: Go forbids a
+    non-comparable map KEY (https://go.dev/ref/spec#Map_types — [map[[]int]int] is a compile error), and
+    that key may hide at ANY depth ([map[int]map[[]int]int{}] is invalid even EMPTY — no entry check sees
+    it).  Conservative in-core rule: a map key must be a comparable SCALAR keyword type ([goty_scalar]; Go
+    also admits pointer / chan / comparable-struct / interface keys — REJECTED here, fail-loud
+    incompleteness, never unsoundness).  A bare [GTNamed] is a valid type REFERENCE (its underlying type is
+    not structurally visible), but as a map key it is rejected by the same scalar rule. *)
+Definition goty_scalar (t : GoTy) : bool :=
+  match t with
+  | GTPtr _ | GTSlice _ | GTChan _ | GTMap _ _ | GTNamed _ => false
+  | _ => true
+  end.
+Fixpoint goty_valid (t : GoTy) : bool :=
+  match t with
+  | GTPtr u | GTSlice u | GTChan u => goty_valid u
+  | GTMap k v => goty_scalar k && goty_valid v
+  | _ => true
+  end.
+
+(** The integer-constant KEY-VALUE list of a map literal's entries, parametrized by the classifier so it can
+    be the ONE spelling both inside [ptype]'s [EMapLit] arm (which must pass the still-being-defined [ptype]
+    recursively) and — instantiated as [map_key_vals] below — in GoSem's evaluator and proofs. *)
+Definition map_key_vals_with (pt : GExpr -> option PTy) (kvs : list (GExpr * GExpr)) : list Z :=
+  flat_map (fun kv => match kv with
+                      | (k, _) =>
+                          match pt k with
+                          | Some ck => match int_const_val ck with Some z => z :: nil | None => nil end
+                          | None => nil
+                          end
+                      end) kvs.
+
 (** The bitwise-complement VALUE of a typed integer constant [z] of type [t] — [None] when it CANNOT be folded
     SOUNDLY.  For a FIXED-WIDTH UNSIGNED type the complement is [(2^w - 1) - z] (= flip all [w] bits), exact
     because [w] is fixed (so [^uint8(0) = 255], not the naive [Z.lnot 0 = -1]); for a SIGNED type it is
@@ -446,10 +479,13 @@ Fixpoint ptype (e : GExpr) : option PTy :=
       match c with
       | CTMap _ _ => None                 (* a MAP conversion is QUARANTINED (key-type comparability not structural) *)
       | CTSlice _ | CTChan _ =>
-          (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]); a KNOWN
+          (* an aggregate conversion is admitted ONLY for the predeclared [nil] operand ([[]int(nil)]) and a
+             structurally VALID target type ([goty_valid] — [[]map[[]int]int(nil)] is invalid Go); a KNOWN
              aggregate/scalar operand — or a free ident (now rejected upstream) — is REJECTED
              ([chan int([]int{1})], mismatched conversions) *)
-          match ptype e0 with Some PtNil => Some PtAgg | _ => None end
+          if goty_valid (convty_ty c)
+          then match ptype e0 with Some PtNil => Some PtAgg | _ => None end
+          else None
       end
   | EIndex (ESliceLit t es) idx =>
       (* indexing a slice LITERAL directly by an INTEGER index.  For a SLICE, gc compile-checks a CONSTANT index
@@ -473,18 +509,21 @@ Fixpoint ptype (e : GExpr) : option PTy :=
            end
       else None
   | ESliceLit t es =>
-      if forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
+      if goty_valid t
+         && forallb (fun el => match ptype el with Some ce => assignable_to_ty ce t | None => false end) es
       then Some PtAgg else None
   | EMapLit kt vt kvs =>
-      (* a MAP literal [map[K]V{k1:v1, ..}]: SOUNDLY supported when the key type is an INTEGER scalar, every
-         KEY is an integer CONSTANT assignable to [kt], every VALUE is assignable to [vt], and the constant keys
-         are PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
+      (* a MAP literal [map[K]V{k1:v1, ..}]: SOUNDLY supported when the key type is an INTEGER scalar, the
+         value TYPE is structurally valid ([goty_valid] — an invalid nested map key like
+         [map[int]map[[]int]int{}] is rejected even EMPTY, where no entry check could see it), every KEY is an
+         integer CONSTANT assignable to [kt], every VALUE is assignable to [vt], and the constant keys are
+         PAIRWISE DISTINCT (Go forbids duplicate constant keys).  Restricting keys to integer CONSTANTS is
          what makes distinctness decidable here — their VALUE is carried ([int_const_val]); a non-integer
          comparable key (string/bool) or a runtime/non-constant key is conservatively REJECTED (fail-loud), its
          value not foldable in [PTy].  This LIFTS the old blanket quarantine to a structural check; the GoSafe
-         companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability) and [map[int]int{1:2,1:3}]
-         (distinctness) lock it. *)
-      if andb (andb (is_int_goty kt)
+         companions [map[int]uint8{1:300}] / [map[uint8]int{300:1}] (representability), [map[int]int{1:2,1:3}]
+         (distinctness), and [map[int]map[[]int]int{}] (nested validity) lock it. *)
+      if andb (andb (andb (is_int_goty kt) (goty_valid vt))
                     (forallb (fun kv => match kv with
                                         | (k, v) =>
                                             match ptype k, ptype v with
@@ -496,16 +535,14 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                                             | _, _ => false
                                             end
                                         end) kvs))
-              (nodup_z (flat_map (fun kv => match kv with
-                                            | (k, _) =>
-                                                match ptype k with
-                                                | Some ck => match int_const_val ck with Some z => z :: nil | None => nil end
-                                                | None => nil
-                                                end
-                                            end) kvs))
+              (nodup_z (map_key_vals_with ptype kvs))
       then Some PtMap else None
   | ESel _ _ | EIndex _ _ | ESlice _ _ _ | EAssert _ _ => None
   end.
+
+(** [map_key_vals_with] instantiated at the finished classifier — THE spelling of a map literal's constant
+    key values everywhere outside [ptype]'s own arm (GoSem's evaluator and its inclusion proofs). *)
+Definition map_key_vals : list (GExpr * GExpr) -> list Z := map_key_vals_with ptype.
 
 (** STRUCTURALLY-supported VALUE expression — [ptype] accepts it (well-typed by REFINED category).  So a closed
     type-error is REJECTED — not just the shape errors ([len(1)] / [1 && 2] / [int([]int{1})] / a map literal

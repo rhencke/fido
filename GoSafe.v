@@ -249,9 +249,16 @@ Definition bad_programs : list Program :=
        distinctness / map-is-not-cap-able would wrongly admit it and FLIP [bad_programs_rejected]: a
        non-comparable slice KEY (caught by the integer-key restriction); a non-representable VALUE then KEY (300
        in [uint8] — caught by [assignable_to_ty]); DUPLICATE constant keys (caught by [nodup_z] — Go forbids
-       them); [cap] of a map (Go forbids it — caught by [PtMap]≠[PtAgg], so the [cap] arm gives [None]); a map as
+       them); an INVALID NESTED map-key type hidden in a VALUE/element/conversion type (caught by [goty_valid]
+       — even an EMPTY literal, where no entry check could see it); [cap] of a map (Go forbids it — caught by
+       [PtMap]≠[PtAgg], so the [cap] arm gives [None]); a map as
        a [println] arg (a map is not a printable arg); and the still-quarantined map CONVERSION (of a free ident) *)
   ; gs_blank (EMapLit (GTSlice GTInt) GTInt [(ESliceLit GTInt [EInt 1], EInt 2)])  (* map[[]int]int{..}: slice key not comparable *)
+  ; gs_blank (EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) [])              (* map[int]map[[]int]int{}: a non-comparable slice KEY hidden in the VALUE type — invalid Go even EMPTY ([goty_valid]) *)
+  ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []])  (* println(len(map[int]map[[]int]int{})): the len of an invalid-typed literal is rejected at the ROOT *)
+  ; gs_blank (EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []]))  (* 1/len(map[int]map[[]int]int{}): no divide-by-zero behavior for invalid source *)
+  ; gs_blank (ESliceLit (GTMap (GTSlice GTInt) GTInt) [])                  (* []map[[]int]int{}: the same invalid nested key type through a SLICE literal *)
+  ; gs_blank (EConv (CTSlice (GTMap (GTSlice GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))  (* []map[[]int]int(nil): ... and through the aggregate-conversion arm *)
   ; gs_blank (EMapLit GTInt GTU8 [(EInt 1, EInt 300)])                    (* map[int]uint8{1:300}: value 300 overflows uint8 *)
   ; gs_blank (EMapLit GTU8 GTInt [(EInt 300, EInt 1)])                    (* map[uint8]int{300:1}: key 300 overflows uint8 *)
   ; gs_blank (EMapLit GTInt GTInt [(EInt 1, EInt 2); (EInt 1, EInt 3)])   (* map[int]int{1:2, 1:3}: DUPLICATE constant key 1 — a Go compile error *)
