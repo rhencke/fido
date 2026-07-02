@@ -226,6 +226,44 @@ Definition eval_value_ptype (e : GExpr) : option GoAny :=
   | _                       => None
   end.
 
+(** Evaluate EVERY entry of an integer-keyed MAP literal to its boxed [(key, value)] pair, ALL-or-[None] —
+    the whole-literal discipline of [eval_int_slice_elems]: Go constructs the ENTIRE literal before [len],
+    so a runtime / wrong-typed key or value — even one irrelevant to the queried length — makes the fold
+    [None], never a wrong value.  Each entry is gated by [ptype]'s OWN map-arm checks ([assignable_to_ty]
+    on BOTH sides + an integer-CONSTANT key; proved ⊆ [ptype]: [eval_map_len_supported]); values fold by
+    the CONSTANT default [eval_value_ptype], so a supported RUNTIME value ([len([]int{2})]) declines the
+    whole fold — absent, not wrong ([map_len_supported_but_undenoted]). *)
+Fixpoint eval_map_entries (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : option (list (GoAny * GoAny)) :=
+  match kvs with
+  | [] => Some []
+  | (k, v) :: rest =>
+      match ptype k, ptype v with
+      | Some ck, Some cv =>
+          if assignable_to_ty ck kt && assignable_to_ty cv vt
+          then match int_const_val ck with
+               | Some z =>
+                   match box_int kt z, eval_value_ptype v, eval_map_entries kt vt rest with
+                   | Some bk, Some bv, Some rest' => Some ((bk, bv) :: rest')
+                   | _, _, _ => None
+                   end
+               | None => None
+               end
+          else None
+      | _, _ => None
+      end
+  end.
+
+(** [ptype]'s map-arm KEY-VALUE list, named (the [EMapLit] arm spells this [flat_map] inline; the inclusion
+    proof [eval_map_len_supported] unfolds this name onto that exact term — a drift would break it). *)
+Definition map_key_vals (kvs : list (GExpr * GExpr)) : list Z :=
+  flat_map (fun kv => match kv with
+                      | (k, _) =>
+                          match ptype k with
+                          | Some ck => match int_const_val ck with Some z => z :: nil | None => nil end
+                          | None => nil
+                          end
+                      end) kvs.
+
 (** Evaluate a value expr to the model's [GoAny], else [None].  FAITHFUL: the ptype-driven arm folds a numeric /
     string / bool constant ([ptype] → VALUE+TYPE, [box_int]/[box_float] attach the model value, FAILING CLOSED
     out of range); a separate [EIndex (ESliceLit..)] arm folds a CONSTANT in-bounds int-slice index by
@@ -237,10 +275,11 @@ Definition eval_value_ptype (e : GExpr) : option GoAny :=
     integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
     platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
     bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
-    literal folds to its length ([eval_len_reduces]).  ABSENT ([None], honestly): [len] of a MAP literal or of a
-    literal with runtime elements, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB /
-    runtime slice INDEX, any runtime/out-of-range slice ELEMENT, out-of-range or COMPLEMENTED [uint],
-    fractional/multi-byte-rune — never wrong. *)
+    literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
+    its entry count ([eval_map_len_reduces] — the gate's [nodup_z] makes constant keys distinct, so the count IS
+    Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
+    runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
+    out-of-range or COMPLEMENTED [uint], fractional/multi-byte-rune — never wrong. *)
 Definition eval_value (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
@@ -268,12 +307,26 @@ Definition eval_value (e : GExpr) : option GoAny :=
          — range-checked, fail-closed).  Go evaluates the literal (ALL elements) before [len], so a
          runtime/panicking element declines the fold ([eval_int_slice_elems] — same whole-literal discipline as
          the index arm; [ptype] still classifies the call [PtRunInt GTInt], like the index).  [len] of a STRING
-         literal already folds via [ptype] ([PtIntConst]); [len] of a MAP literal / non-int-element slice stays
-         honestly absent.  Any OTHER call with a slice-literal argument falls through to the ptype-driven
-         default unchanged. *)
+         literal already folds via [ptype] ([PtIntConst]); [len] of a non-int-element slice stays honestly
+         absent ([len] of a fully-evaluable MAP literal folds in its OWN arm below).  Any OTHER call with a
+         slice-literal argument falls through to the ptype-driven default unchanged. *)
       if String.eqb (proj1_sig f) "len" && is_int_goty t
       then match eval_int_slice_elems t es with
            | Some vs => box_int GTInt (Z.of_nat (length vs))
+           | None => None
+           end
+      else eval_value_ptype e
+  | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
+      (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's [int].
+         Go constructs the literal (ALL keys and values) before [len], so a runtime / wrong-typed key or value
+         declines the fold ([eval_map_entries] — the whole-literal discipline); the gate's distinctness check
+         ([nodup_z], [ptype]'s own inline key list, named [map_key_vals]) is REQUIRED here too — without it a
+         duplicate-key literal (invalid Go) would fold [length kvs], which is NOT the map's [len].  [ptype]
+         still classifies the call [PtRunInt GTInt] (a map is not a constant).  Any OTHER call with a
+         map-literal argument falls through to the ptype-driven default unchanged. *)
+      if String.eqb (proj1_sig f) "len" && is_int_goty kt && nodup_z (map_key_vals kvs)
+      then match eval_map_entries kt vt kvs with
+           | Some ents => box_int GTInt (Z.of_nat (length ents))
            | None => None
            end
       else eval_value_ptype e
@@ -294,23 +347,32 @@ Definition divisor_zero (b : GExpr) : bool :=
   | ECall (EId f) (ESliceLit t es :: nil) =>
       String.eqb (proj1_sig f) "len" && is_int_goty t
       && match eval_int_slice_elems t es with Some nil => true | _ => false end
+  | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
+      String.eqb (proj1_sig f) "len" && is_int_goty kt
+      && match kvs with nil => true | _ => false end
   | _ => false
   end.
 
 (** The SEAL: [divisor_zero]'s judgment IS the evaluator's — a zero-judged divisor evaluates to the boxed
-    integer 0 (the [len] of an empty fully-evaluable literal). *)
+    integer 0 (the [len] of an empty fully-evaluable SLICE or MAP literal). *)
 Lemma divisor_zero_eval : forall b, divisor_zero b = true -> eval_value b = box_int GTInt 0.
 Proof.
   intros b H. unfold divisor_zero in H.
   destruct b as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
   destruct fe as [ f | | | | | | | | | | | | | ]; try discriminate H.
   destruct fargs as [|a rest]; try discriminate H.
-  destruct a as [ | | | | | | | | | | t es | | | ]; try discriminate H.
-  destruct rest as [|? ?]; try discriminate H.
-  apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
-  destruct (eval_int_slice_elems t es) as [[|v vs]|] eqn:He; try discriminate H2.
-  cbn [eval_value]. rewrite Hf, Ht. cbv beta iota delta [andb].
-  rewrite He. reflexivity.
+  destruct a as [ | | | | | | | | | | t es | kt vt kvs | | ]; try discriminate H.
+  - (* slice: [len([]t{})] *)
+    destruct rest as [|? ?]; try discriminate H.
+    apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
+    destruct (eval_int_slice_elems t es) as [[|v vs]|] eqn:He; try discriminate H2.
+    cbn [eval_value]. rewrite Hf, Ht. cbv beta iota delta [andb].
+    rewrite He. reflexivity.
+  - (* map: [len(map[kt]vt{})] *)
+    destruct rest as [|? ?]; try discriminate H.
+    apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
+    destruct kvs as [|kv kvs']; [|discriminate H2].
+    cbn [eval_value]. rewrite Hf, Ht. reflexivity.
 Qed.
 
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
@@ -650,7 +712,7 @@ Qed.
     print/println arg denotes iff it EVALUATES + is PRINTABLE ([denotable_arg]).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println(len(map[int]int{1: 2}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
+    RUNTIME arg ([println(len([]int{len([]int{1})}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
     (pinned by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
@@ -757,17 +819,34 @@ Example out_main_denotes_mixed :
   denote_program (mkProgram (mkIdent "main" eq_refl)
     (out_main_body [(true, [EStr "a"]); (false, [ECall (EId (mkIdent "int64" eq_refl)) [EInt 3]])])) <> None.
 Proof. apply out_main_denotes. reflexivity. Qed.
-(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len(map[int]int{1: 2}))] is
-    SUPPORTED (valid Go) yet its arg is a RUNTIME [len] GoSem does not fold (no map evaluator; NOT
-    [denotable_arg]), so the program does NOT denote.  (A slice-literal [len] now folds — this witness is the
-    strictness pin for the [eval_len_supported] inclusion.) *)
+(** ONE spelling for the recurring effectful-fixture expressions (the aliasing discipline — no drift).
+    [divzero_e]/[divzero_map_e] = the determined divide-by-zero through each empty-literal [len];
+    [maplen_e] = a fully-evaluable map-[len] (DENOTES — [eval_value_good]/[rc_maplen]); [runlen_e] (a
+    slice-[len] whose ELEMENT is runtime) and [maplen_runval_e] (a map-[len] whose VALUE is runtime) = the
+    supported-but-undenoted witnesses (runtime values await B3). *)
+Definition divzero_e : GExpr :=
+  EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
+Definition divzero_map_e : GExpr :=
+  EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt []]).
+Definition maplen_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]].
+Definition runlen_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]].
+Definition maplen_runval_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [EMapLit GTInt GTInt [(EInt 1, ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 2]])]].
+
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len([]int{len([]int{1})}))] is
+    SUPPORTED (valid Go) yet its arg is a [len] over a RUNTIME element GoSem does not fold (NOT
+    [denotable_arg]), so the program does NOT denote.  (A fully-evaluable literal's [len] folds — this witness
+    is the strictness pin for the [eval_len_supported] inclusion.) *)
 Definition out_runtime_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-                       [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
 Example out_boundary_runtime_undenoted :
   supported_program out_runtime_prog = true
-  /\ denotable_arg (ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]) = false
+  /\ denotable_arg runlen_e = false
   /\ denote_program out_runtime_prog = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
@@ -958,8 +1037,8 @@ Qed.
 
 (** ★ SUPPORTEDNESS INCLUSION BRIDGE ([len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
     (valid Rocq-Go; [ptype] classifies a slice-[len] RUNTIME, exactly as it does the index — the evaluator
-    folds the determined VALUE without loosening the gate).  A strict INCLUSION: [ptype] also admits [len] of a
-    MAP literal / a literal with runtime elements, which stay unfolded ([out_boundary_runtime_undenoted]). *)
+    folds the determined VALUE without loosening the gate).  A strict INCLUSION: [ptype] also admits [len] of
+    a literal with runtime elements, which stays unfolded ([out_boundary_runtime_undenoted]). *)
 Lemma eval_len_supported : forall t es f vs,
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty t = true ->
@@ -969,6 +1048,70 @@ Proof.
   intros t es f vs Hf Ht Hv.
   pose proof (eval_int_slice_elems_forall_assignable t es vs Hv) as Hall.
   cbn [ptype]. rewrite Hall. cbv beta iota zeta.
+  rewrite Hf. cbv beta iota.
+  reflexivity.
+Qed.
+
+(** The SEALED map evaluator's accept-set ⊆ [ptype]'s entry check: if [eval_map_entries] succeeds, EVERY
+    entry passes exactly [ptype]'s map-arm [forallb] gate (integer-CONSTANT key, both sides assignable).
+    (Induction on [kvs] — the [eval_int_slice_elems_forall_assignable] discipline.) *)
+Lemma eval_map_entries_forall_entry :
+  forall kt vt kvs ents, eval_map_entries kt vt kvs = Some ents ->
+    forallb (fun kv => match kv with
+                       | (k, v) =>
+                           match ptype k, ptype v with
+                           | Some ck, Some cv =>
+                               match int_const_val ck with
+                               | Some _ => andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                               | None => false
+                               end
+                           | _, _ => false
+                           end
+                       end) kvs = true.
+Proof.
+  intros kt vt kvs. induction kvs as [|[k v] rest IH]; intros ents H.
+  - reflexivity.
+  - cbn [forallb]. cbn [eval_map_entries] in H.
+    destruct (ptype k) as [ck|] eqn:Ek; [|discriminate H].
+    destruct (ptype v) as [cv|] eqn:Ev; [|discriminate H].
+    destruct (assignable_to_ty ck kt && assignable_to_ty cv vt) eqn:Ea; [|discriminate H].
+    destruct (int_const_val ck) as [z|] eqn:Ei; [|discriminate H].
+    destruct (box_int kt z) as [bk|] eqn:Eb; [|discriminate H].
+    destruct (eval_value_ptype v) as [bv|] eqn:Ebv; [|discriminate H].
+    destruct (eval_map_entries kt vt rest) as [rest'|] eqn:Er; [|discriminate H].
+    cbn [andb]. exact (IH rest' eq_refl).
+Qed.
+
+(** ★ CLASS THEOREM (map-[len]) — over the fully-evaluable all-constant-entry subfragment: [len] of an
+    integer-keyed map literal whose entries ALL evaluate (and whose constant keys are distinct — the gate's
+    OWN [nodup_z] condition, so the entry count IS Go's [len]) folds to that count, boxed as Go's [int]. *)
+Lemma eval_map_len_reduces : forall kt vt kvs f ents,
+  String.eqb (proj1_sig f) "len" = true ->
+  is_int_goty kt = true ->
+  nodup_z (map_key_vals kvs) = true ->
+  eval_map_entries kt vt kvs = Some ents ->
+  eval_value (ECall (EId f) (EMapLit kt vt kvs :: nil)) = box_int GTInt (Z.of_nat (length ents)).
+Proof.
+  intros kt vt kvs f ents Hf Ht Hnd Hv.
+  cbn [eval_value]. rewrite Hf, Ht, Hnd. cbv beta iota delta [andb].
+  rewrite Hv. reflexivity.
+Qed.
+
+(** ★ SUPPORTEDNESS INCLUSION BRIDGE (map-[len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
+    (valid Rocq-Go; the evaluator folds the determined count without loosening the gate).  A strict INCLUSION:
+    [ptype] also admits a map literal with a RUNTIME value, which stays unfolded — strictness pinned by
+    [map_len_supported_but_undenoted]. *)
+Lemma eval_map_len_supported : forall kt vt kvs f ents,
+  String.eqb (proj1_sig f) "len" = true ->
+  is_int_goty kt = true ->
+  nodup_z (map_key_vals kvs) = true ->
+  eval_map_entries kt vt kvs = Some ents ->
+  ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (PtRunInt GTInt).
+Proof.
+  intros kt vt kvs f ents Hf Ht Hnd Hv.
+  pose proof (eval_map_entries_forall_entry kt vt kvs ents Hv) as Hall.
+  unfold map_key_vals in Hnd.
+  cbn [ptype]. rewrite Ht, Hall, Hnd. cbv beta iota zeta delta [andb].
   rewrite Hf. cbv beta iota.
   reflexivity.
 Qed.
@@ -1017,6 +1160,27 @@ Example slice_index_supported_but_undenoted :
   /\ denote_program (println_prog (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]) (EInt 0))) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
+(** STRICT-SUBSET pin (GATED, map-[len]): a map literal whose VALUE is a same-typed RUNTIME int
+    ([map[int]int{1: len([]int{2})}]) is [ptype]-SUPPORTED (valid Go) yet undenoted at BOTH the expression
+    and program level — so [eval_map_len_supported] is a strict INCLUSION, not equality; runtime values
+    await runtime evaluation (B3). *)
+Example map_len_supported_but_undenoted :
+  ptype maplen_runval_e = Some (PtRunInt GTInt)
+  /\ eval_value maplen_runval_e = None
+  /\ denote_program (println_prog maplen_runval_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
+(** The determined divide-by-zero through the MAP shape: [_ = 1 / len(map[int]int{})] is SUPPORTED (valid Go —
+    a runtime integer division) and denotes+runs to the exact panic, like [rc_div_zero]'s slice shape
+    ([divisor_zero] recognizes BOTH empty-literal [len] forms; sealed by [divisor_zero_eval]). *)
+Definition gosem_maplen_divzero_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign divzero_map_e].
+Example maplen_divzero_runs : forall w,
+  supported_program gosem_maplen_divzero_prog = true
+  /\ match denote_program gosem_maplen_divzero_prog with
+     | Some c => run_cmd 5 c w | None => None end = Some (OPanic rt_div_zero w).
+Proof. intro w; split; vm_compute; reflexivity. Qed.
+
 (** TIGHTNESS — WHERE the general converse's "sufficient, not necessary" comes from.  [stmt_terminates] just
     READS [denote_stmt]'s terminator flag (NOT a second authority).  On a TERMINATOR-FREE body the compositional
     converse is EXACT (an iff): the body denotes iff EVERY statement individually denotes.  The ONLY slack is the
@@ -1046,15 +1210,15 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(len(map…))]
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runlen_e)]
     is a DENOTABLE body ([return] terminates; the runtime-arg [println] is a SUPPORTED dead tail) whose tail
     does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
     terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
-    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]])] = true
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e])] = true
   /\ forallb stmt_denotable [GsReturn;
-       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]]])] = false.
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
@@ -1103,12 +1267,6 @@ Proof. split; vm_compute; reflexivity. Qed.
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
 
-(** ONE spelling for the recurring effectful-fixture expressions (the aliasing discipline — no drift). *)
-Definition divzero_e : GExpr :=
-  EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
-Definition maplen_e : GExpr :=
-  ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]].
-
 (** The determined-DIVIDE-BY-ZERO fixture: `_ = 1 / len([]int{})` is SUPPORTED (a runtime integer division —
     a CONSTANT zero divisor would be a compile error), and now DENOTES to its TRUE behavior via [denote_expr]:
     the run PANICS with Go's exact runtime value [rt_div_zero] — pinned end-to-end as the typed field
@@ -1131,20 +1289,21 @@ Definition gosem_defer_arg_panic_prog : Program :=
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
-    in each is the map-[len] ([maplen_e], supported-printable yet undenoted — [out_boundary_runtime_undenoted]):
-    as a LATER ARG of the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED
-    panicking-arg call.  Each program denotes and runs to [OPanic rt_div_zero] with NO output. *)
+    in each is the runtime-element [len] ([runlen_e], supported-printable yet undenoted —
+    [out_boundary_runtime_undenoted]): as a LATER ARG of the panicking call, as the SUCCESSOR statement, and
+    as the successor of a DEFERRED panicking-arg call.  Each program denotes and runs to [OPanic rt_div_zero]
+    with NO output. *)
 Definition gosem_arg_panic_tail_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; maplen_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runlen_e]); GsReturn].
 Definition gosem_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
 Definition gosem_defer_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
 Definition arg_panic_shortcircuit_progs : list Program :=
   [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
 Example arg_panic_shortcircuit_runs : forall w,
@@ -1230,6 +1389,7 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1), anyt TInt64 (intwrap 20))   (* constant in-bounds slice-index -> the EXACT element value *)
   ; (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 0), anyt TInt64 (intwrap 10))
   ; (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]], anyt TInt64 (intwrap 2))   (* len of a fully-evaluable literal -> its length as Go [int] *)
+  ; (maplen_e, anyt TInt64 (intwrap 1))   (* len of a fully-evaluable integer-keyed MAP literal -> its (distinct-constant-key) entry count *)
   ].
 Example eval_value_good_ok :
   map (fun p => eval_value (fst p)) eval_value_good = map (fun p => Some (snd p)) eval_value_good.
@@ -1252,7 +1412,7 @@ Proof. intro w. vm_compute. reflexivity. Qed.
     in its FIELD TYPES (one per required behavior category), the EXACT end-to-end behaviors the model must
     exhibit — string-literal PRINTLN, int CONVERSION, exact FLOAT, numeric-compare BOOL, string CONCAT,
     string-compare-of-concat BOOL, a constant in-bounds int-slice-literal INDEX, [len] of a fully-evaluable
-    literal, a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic], defer
+    literal (slice AND integer-keyed map), a non-tail RETURN that stops the body with NO output, a denoted PANIC ending in [OPanic], defer
     LIFO ordering at return, a DEFERRED panic firing at return, the determined DIVIDE-BY-ZERO panicking with
     Go's exact runtime value, a panicking ARGUMENT pre-empting its call, and a deferred call's argument
     panicking AT DEFER TIME.  [gosem_category_coverage] inhabits that type, so it can be built ONLY by
@@ -1271,6 +1431,7 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
   rc_sliceidx  : runs_to (EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)) (anyt TInt64 (intwrap 20));  (* constant in-bounds int-slice index folds+runs to the element *)
   rc_len       : runs_to (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 10; EInt 20]]) (anyt TInt64 (intwrap 2));  (* len of a fully-evaluable literal folds+runs to its length *)
+  rc_maplen    : runs_to maplen_e (anyt TInt64 (intwrap 1));  (* len of a fully-evaluable integer-keyed MAP literal folds+runs to its entry count *)
   rc_return_stops : forall w,                                 (* [return] STOPS the body: the successor println NEVER runs, world UNCHANGED *)
     match denote_program gosem_return_stops_prog with Some c => run_cmd 5 c w | None => None end
     = Some (ORet tt w);
@@ -1319,8 +1480,9 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** faithful-or-absent: every supported-but-unfoldable form evaluates to [None], never a wrong value — a bool
     with a runtime [len] operand (even under [&&]), a MULTI-BYTE rune string operand ([string(200)], UTF-8 > 1
     byte — ASCII-rune/string-source/concat operands DO fold), an untyped const past the
-    default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), and
-    a map-literal [len] (no map evaluator). *)
+    default-[int] range, an out-of-range [uint] conversion, the uint underflow (backstop behind the gate), a
+    slice-literal [len] with a RUNTIME element, and a map-literal [len] with a RUNTIME value (runtime values
+    await B3). *)
 Definition eval_absent : list GExpr :=
   [ EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; EBn BLAnd (EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)) (EBn BEq (EInt 2) (EInt 2))
@@ -1328,14 +1490,15 @@ Definition eval_absent : list GExpr :=
   ; EInt 2147483648
   ; ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]
   ; uint_underflow_e
-  ; ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]] ].   (* len of a MAP literal: supported, honestly unfolded (no map evaluator) *)
+  ; runlen_e            (* len over a RUNTIME slice element: supported, honestly unfolded *)
+  ; maplen_runval_e ].  (* len over a RUNTIME map value: supported, honestly unfolded *)
 Example eval_absent_none : forallb (fun e => match eval_value e with None => true | Some _ => false end) eval_absent = true.
 Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
     [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer and the
     determined divide-by-zero included), FALSE (and [denote_program = None]) for the supported-but-undenoted
-    map-[len] program ([out_runtime_prog]). *)
+    runtime-element-[len] program ([out_runtime_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
@@ -1364,6 +1527,7 @@ Definition gosem_trust_surface :=
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    eval_len_reduces, eval_len_supported,
+   eval_map_len_reduces, eval_map_len_supported, map_len_supported_but_undenoted, maplen_divzero_runs,
    denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
