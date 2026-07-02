@@ -6,13 +6,17 @@ PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 .PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify
 .DEFAULT_GOAL := build
 
+# THE ONE Go-toolchain image authority, DIGEST-PINNED (mutable tags drift; these runs justify
+# go-run-verified semantic pins). Threaded through every Makefile use and the Dockerfile (ARG).
+GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
-GORUN := docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine go run .
+GORUN := docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) go run .
 # `go vet` gate (review #4 R10): `go run` already BUILDS the emitted Go (so a type error
 # anywhere fails), but vet catches suspicious-but-COMPILING constructs (bad printf verbs,
 # unreachable code, lost cancels, self-assignment, …) that a plugin bug could emit silently.
 # The no-import `package main` vets offline.  Wired into [check] and [golden] below.
-GOVET := docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine go vet .
+GOVET := docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) go vet .
 
 # One-time setup: activate git hooks from .githooks/.
 install-hooks:
@@ -39,7 +43,7 @@ extract:
 	# all whitespace, asserts the rest is byte-equal) — it catches gofmt altering a non-whitespace byte, but
 	# it is NOT token-stream preservation.
 	for f in *.go; do cp "$$f" "$$f.raw"; done
-	docker run --rm -v "$(PWD)":/w -w /w golang:1.23-alpine gofmt -w *.go
+	docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) gofmt -w *.go
 	for f in *.go; do \
 	  if [ "`tr -d '[:space:]' < "$$f.raw"`" != "`tr -d '[:space:]' < "$$f"`" ]; then \
 	    echo "fido: GOFMT ALTERED A NON-WHITESPACE BYTE in $$f — gofmt is not whitespace-only here; refusing."; \
@@ -131,7 +135,7 @@ emit-demo:
 	  rocq c -Q . Fido emitdemo/emit_demo.v > /dev/null 2>&1; \
 	  ocamlfind ocamlc -I emitdemo emitdemo/emit_demo.mli emitdemo/emit_demo.ml emitdemo/write_emit.ml -o _emit_writer > /dev/null; \
 	  ./_emit_writer; \
-	  docker run --rm -v "$$(pwd)":/w -w /w golang:1.23-alpine \
+	  docker run --rm -v "$$(pwd)":/w -w /w $(GOIMAGE) \
 	    sh -c 'test -z "$$(gofmt -l emitdemo/spine_demo.go)" && go build -o /dev/null emitdemo/spine_demo.go && go vet emitdemo/spine_demo.go' \
 	    || { echo "fido: emit-demo — Go toolchain REJECTED the certified output (gofmt/build/vet)"; $(GOEMIT_CLEAN); $(EMITDEMO_CLEAN); exit 1; }; \
 	  $(GOEMIT_CLEAN); $(EMITDEMO_CLEAN); \
@@ -207,18 +211,22 @@ golden: extract
 	echo "fido: updated expected_output.txt"
 
 # Proof-error DIAGNOSIS: rebuild the PROVER stage (the same stage `make check` runs) and stream its
-# full log — for reading a failing proof's error / idtac output. Changes nothing locally; pipe/grep
-# the output as needed. THE sanctioned spelling of this loop (no ad-hoc docker invocations).
+# full PLAIN log — for reading a failing proof's error / idtac output (the plain progress is encoded
+# here, not left to terminal defaults). Changes nothing locally; pipe/grep the output as needed.
+# THE sanctioned spelling of this loop (no ad-hoc docker invocations).
 prover-log:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
 
-# gc GROUND-TRUTHING: run a scratch Go program under the PINNED golang image to verify Go's ACTUAL
-# semantics before modelling them (witness values, panic payloads — the go-run-verified pins).
-# GO = a directory containing main.go. println writes to stderr → captured. THE sanctioned spelling
-# (no ad-hoc docker run invocations).
-GO ?= scratch
+# gc GROUND-TRUTHING: run a scratch Go program under $(GOIMAGE) (the digest-pinned toolchain) to
+# verify Go's ACTUAL semantics before modelling them (witness values, panic payloads — the
+# go-run-verified pins). FAIL-CLOSED: GO must be set to an EXISTING directory containing main.go —
+# checked BEFORE docker, and mounted READONLY via --mount (which, unlike -v, refuses a missing
+# source instead of creating it). println writes to stderr → captured.
 go-verify:
-	docker run --rm -v "$(abspath $(GO))":/w -w /w golang:1.23-alpine sh -c 'go run . 2>&1'
+	@test -n "$(GO)" || { echo "fido: go-verify needs GO=<dir containing main.go>"; exit 1; }
+	@test -f "$(abspath $(GO))/main.go" || { echo "fido: go-verify — no main.go in '$(GO)' (missing/typo'd dir; nothing created)"; exit 1; }
+	docker run --rm --mount type=bind,src="$(abspath $(GO))",target=/w,readonly \
+	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # Multi-platform build (does not load locally — use push to ship).
 bake:

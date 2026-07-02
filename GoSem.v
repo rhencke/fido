@@ -9,10 +9,8 @@
     tier T1–T5 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
-    Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority
-    (the frontier list, the typed-unary holes, the runtime-float CLASS theorems, the ABSENT-source
-    conversion pin, the absent shift LEFT-row pins); this header does not duplicate its member
-    list.
+    Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority,
+    and its Coq definition is the ONLY member list (this header deliberately enumerates none of it).
     Public zero-axiom surfaces (topic-split, composed, manifest-gated): [gosem_trust_surface]
     (core / float / slice-index / runtime-int / map / frontier) + [gosem_string_authority_surface].
     ============================================================================ *)

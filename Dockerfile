@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: build the Rocq/OCaml toolchain ──────────────────────────────────
+# The Go-toolchain image authority, DIGEST-PINNED — single-sourced with the Makefile's GOIMAGE
+# (same spelling; a global ARG so the builder stage's FROM can consume it).
+ARG GOIMAGE=golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+
 FROM ocaml/opam:debian-12-ocaml-5.3 AS rocq-builder
 
 RUN --mount=type=cache,id=fido-apt-builder,target=/var/cache/apt,sharing=locked \
@@ -146,7 +150,7 @@ FROM scratch AS go-src
 COPY --from=prover /tmp/*.go ./
 
 # ── Stage 5: compile extracted Go into a static binary ───────────────────────
-FROM golang:1.23-alpine AS builder
+FROM ${GOIMAGE} AS builder
 
 WORKDIR /fido
 COPY go.mod ./
