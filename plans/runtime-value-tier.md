@@ -1,4 +1,4 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R7 LANDED (the GTInt-FRAGMENT arc is complete; typed-width runtime integers are the named next arc)
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R7 LANDED (the GTInt-FRAGMENT arc is complete; non-GTInt runtime CARRIER OPERATIONS are the named next arc)
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
 (R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values +
