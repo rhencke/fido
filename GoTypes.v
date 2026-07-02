@@ -19,7 +19,7 @@ Open Scope string_scope.
     proven complete or sound (no [ptype]-vs-Go theorem — that is GoSem's job); it admits a SUBSET and REJECTS
     anything it cannot classify as clearly supported, so it OVER-REJECTS much valid Go.  It is value-aware ONLY
     for the NUMERIC value-carrying categories ([PtIntConst]/[PtTIntConst]/[PtFloatConst]): a numeric constant
-    carries its VALUE (a [Z]) — so overflow / div-or-shift-by-zero are decided from the folded value,
+    carries its VALUE (a [Z]; a float const an exact DYADIC [m * 2^e]) — so overflow / div-or-shift-by-zero are decided from the folded value,
     transitively through all-constant NUMERIC conversions/binops (a numeric-const conversion folds to a typed
     numeric const) — and a typed numeric const ALSO carries its [GoTy] (mixed-width arithmetic + out-of-range
     typed results rejected); a runtime numeric carries only its [GoTy].  ANTI-REGRESSION (all-constant NUMERIC
@@ -38,7 +38,7 @@ Open Scope string_scope.
 Inductive PTy : Type :=
   | PtIntConst   (z : Z)            (* an UNTYPED INTEGER CONSTANT — value known, type not yet fixed (adapts on use) *)
   | PtTIntConst  (t : GoTy) (z : Z) (* a TYPED INTEGER CONSTANT of int-type [t], value [z] (from converting a const to [t]) *)
-  | PtFloatConst (t : GoTy) (z : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), value the INTEGER [z] it came from *)
+  | PtFloatConst (t : GoTy) (m : Z) (e : Z) (* a TYPED FLOAT CONSTANT (t = GTFloat64/GTFloat32), EXACT dyadic value [m * 2^e] (NORMALIZED via [dy_norm]; fractional values carryable — [float64(3)/float64(2)] is [(3, -1)]) *)
   | PtRunInt     (t : GoTy)         (* a RUNTIME (non-constant) integer of type [t] (e.g. [int(x)], [len([]int{..})] — note [len] of a STRING LITERAL folds to [PtIntConst], NOT this; a non-literal string const (["a"+"b"], [string(65)]) is supported as [PtStr] but carries no value, so [len] of IT is rejected) *)
   | PtRunFloat   (t : GoTy)         (* a RUNTIME (non-constant) float of type [t] (e.g. [float64(x)]) *)
   | PtBool
@@ -112,6 +112,59 @@ Definition float_contig_exact_max (t : GoTy) : option Z :=
 Definition int_in_float_exact_interval (t : GoTy) (z : Z) : bool :=
   match float_contig_exact_max t with Some m => andb (Z.leb (Z.opp m) z) (Z.leb z m) | None => false end.
 
+(** ---- DYADIC float-constant values ---- a typed float CONSTANT carries the EXACT value [m * 2^e]
+    ([m e : Z], NORMALIZED: [m = 0 -> e = 0], else [m] odd) — the same shape as the model's
+    [S754_finite s m e] (spec_float IS ±m·2^e), so GoSem's [box_float] renders it without translation.
+    Posture: EXACT-OR-REJECT — [+]/[-]/[*] are always exact on dyadics; [/] is exact iff the (odd,
+    normalized) divisor mantissa divides the dividend's, else [None]; a result not exactly representable
+    at the TYPE's width ([float_dyadic_repr]) is REJECTED.  Go rounds each typed-const op to the type —
+    when the exact result IS representable, IEEE correct rounding returns it unchanged, so the fold
+    agrees with Go wherever it accepts (a rounding case like [float64(1)/float64(3)] is valid Go that
+    Fido REJECTS: quarantined incompleteness, never a wrong value). *)
+Fixpoint pos_odd_split (p : positive) : positive * Z :=
+  match p with
+  | xO p' => let '(q, k) := pos_odd_split p' in (q, Z.succ k)
+  | _ => (p, 0%Z)
+  end.
+Definition dy_norm (m e : Z) : Z * Z :=
+  match m with
+  | Z0 => (0%Z, 0%Z)
+  | Zpos p => let '(q, k) := pos_odd_split p in (Zpos q, Z.add e k)
+  | Zneg p => let '(q, k) := pos_odd_split p in (Zneg q, Z.add e k)
+  end.
+Definition dy_add (a b : Z * Z) : Z * Z :=
+  let '(m1, e1) := a in let '(m2, e2) := b in
+  if Z.leb e1 e2 then dy_norm (Z.add m1 (Z.shiftl m2 (Z.sub e2 e1))) e1
+                 else dy_norm (Z.add (Z.shiftl m1 (Z.sub e1 e2)) m2) e2.
+Definition dy_neg (a : Z * Z) : Z * Z := let '(m, e) := a in (Z.opp m, e).
+Definition dy_sub (a b : Z * Z) : Z * Z := dy_add a (dy_neg b).
+Definition dy_mul (a b : Z * Z) : Z * Z :=
+  let '(m1, e1) := a in let '(m2, e2) := b in dy_norm (Z.mul m1 m2) (Z.add e1 e2).
+(** Exact dyadic division — inputs NORMALIZED (so [m2] is odd when nonzero): the quotient is dyadic iff
+    [m2 | m1]; the zero divisor never reaches here ([is_zero_const] guards [BDiv] upstream). *)
+Definition dy_div (a b : Z * Z) : option (Z * Z) :=
+  let '(m1, e1) := a in let '(m2, e2) := b in
+  if Z.eqb m2 0 then None
+  else if Z.eqb (Z.rem m1 m2) 0 then Some (dy_norm (Z.quot m1 m2) (Z.sub e1 e2))
+  else None.
+(** Align two dyadics to the smaller exponent (EXACT — only left-shifts): the aligned mantissa pair
+    compares/relates exactly as the values do. *)
+Definition dy_align (a b : Z * Z) : Z * Z :=
+  let '(m1, e1) := a in let '(m2, e2) := b in
+  if Z.leb e1 e2 then (m1, Z.shiftl m2 (Z.sub e2 e1)) else (Z.shiftl m1 (Z.sub e1 e2), m2).
+(** EXACT representability of a NORMALIZED dyadic at float type [t] — a CONSERVATIVE window (mantissa
+    within the type's precision, exponent inside the always-exact finite range: binary64 [|m| < 2^53],
+    [-1074 <= e <= 971] so [|v| < 2^1024]; binary32 [|m| < 2^24], [-149 <= e <= 104]).  Under-acceptance
+    is fail-loud-safe; everything accepted boxes to its EXACT canonical form. *)
+Definition float_dyadic_repr (t : GoTy) (m e : Z) : bool :=
+  match t with
+  | GTFloat64 => andb (Z.ltb (Z.abs m) 9007199254740992)
+                      (andb (Z.leb (-1074) e) (Z.leb e 971))
+  | GTFloat32 => andb (Z.ltb (Z.abs m) 16777216)
+                      (andb (Z.leb (-149) e) (Z.leb e 104))
+  | _ => false
+  end.
+
 (** ===================================================================================================
     ===== TYPE-CATEGORY (cont.): category predicates + binop / comparison / conversion combinators =====
     =================================================================================================== *)
@@ -121,7 +174,7 @@ Definition int_in_float_exact_interval (t : GoTy) (z : Z) : bool :=
 Definition is_int_cat   (c : PTy) : bool :=
   match c with PtIntConst _ | PtTIntConst _ _ | PtRunInt _ => true | _ => false end.
 Definition is_float_cat (c : PTy) : bool :=
-  match c with PtFloatConst _ _ | PtRunFloat _ => true | _ => false end.
+  match c with PtFloatConst _ _ _ | PtRunFloat _ => true | _ => false end.
 Definition is_num_cat   (c : PTy) : bool := orb (is_int_cat c) (is_float_cat c).
 Definition is_bool_cat  (c : PTy) : bool := match c with PtBool => true | _ => false end.
 (** Extract the VALUE of an integer constant (untyped OR typed) — [None] for a non-int-const category.  The
@@ -147,8 +200,8 @@ Definition num_comparable (cl cr : PTy) : bool :=
   | PtTIntConst t1 _, PtRunInt t2 | PtRunInt t2, PtTIntConst t1 _ => numty_eqb t1 t2
   | PtRunInt t1, PtRunInt t2 => numty_eqb t1 t2
   (* float family (float constants carry their type) *)
-  | PtFloatConst t1 _, PtFloatConst t2 _ => numty_eqb t1 t2
-  | PtFloatConst t1 _, PtRunFloat t2 | PtRunFloat t2, PtFloatConst t1 _ => numty_eqb t1 t2
+  | PtFloatConst t1 _ _, PtFloatConst t2 _ _ => numty_eqb t1 t2
+  | PtFloatConst t1 _ _, PtRunFloat t2 | PtRunFloat t2, PtFloatConst t1 _ _ => numty_eqb t1 t2
   | PtRunFloat t1, PtRunFloat t2 => numty_eqb t1 t2
   | _, _ => false
   end.
@@ -168,7 +221,20 @@ Definition num_comparable (cl cr : PTy) : bool :=
     - any non-numeric operand (bool/str/agg/nil) -> REJECT.
     Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_cat] FIRST, so no float reaches
     those; [num_arith] still rejects float-const + the [/]-zero check is done by the caller. *)
-Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
+(** The dyadic result of a float-CONSTANT op, repr-gated at the operands' (equal) type — the ONE place a
+    folded float const is (re)admitted, so the payload invariant (normalized + [float_dyadic_repr]) holds
+    by construction.  [dfold = None] = an int-only op (shift/bitwise/[%]) — float consts REJECTED. *)
+Definition dy_fold_at (t : GoTy) (dfold : option ((Z * Z) -> (Z * Z) -> option (Z * Z)))
+                      (a b : Z * Z) : option PTy :=
+  match dfold with
+  | None => None
+  | Some f => match f a b with
+              | Some (m, e) => if float_dyadic_repr t m e then Some (PtFloatConst t m e) else None
+              | None => None
+              end
+  end.
+Definition num_arith (fold : Z -> Z -> Z) (dfold : option ((Z * Z) -> (Z * Z) -> option (Z * Z)))
+                     (cl cr : PTy) : option PTy :=
   match cl, cr with
   (* both UNTYPED int consts: arbitrary-precision fold *)
   | PtIntConst a, PtIntConst b => Some (PtIntConst (fold a b))
@@ -192,7 +258,20 @@ Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
   (* runtime float + untyped int const (repr-as-float): runtime float of that type *)
   | PtRunFloat t, PtIntConst z | PtIntConst z, PtRunFloat t =>
       if int_in_float_exact_interval t z then Some (PtRunFloat t) else None
-  (* any FLOAT CONSTANT operand, or any other mix (bool/str/agg) -> REJECT *)
+  (* ---- FLOAT CONSTANTS (dyadic, exact-or-reject; [dfold] carries the op) ---- *)
+  (* float const + float const: SAME type, dyadic fold, repr-check the result *)
+  | PtFloatConst t1 m1 e1, PtFloatConst t2 m2 e2 =>
+      if numty_eqb t1 t2 then dy_fold_at t1 dfold (m1, e1) (m2, e2) else None
+  (* float const + untyped int const (either side — operand ORDER preserved for [-]/[/]) *)
+  | PtFloatConst t m e, PtIntConst z =>
+      if int_in_float_exact_interval t z then dy_fold_at t dfold (m, e) (dy_norm z 0) else None
+  | PtIntConst z, PtFloatConst t m e =>
+      if int_in_float_exact_interval t z then dy_fold_at t dfold (dy_norm z 0) (m, e) else None
+  (* float const + runtime float: SAME type -> runtime float (the const value legitimately dropped,
+     exactly the int convention above; the const is representable by payload invariant) *)
+  | PtFloatConst t1 _ _, PtRunFloat t2 | PtRunFloat t2, PtFloatConst t1 _ _ =>
+      if numty_eqb t1 t2 then Some (PtRunFloat t2) else None
+  (* any other mix (bool/str/agg, int-const with float-const of no shared type rule) -> REJECT *)
   | _, _ => None
   end.
 
@@ -203,7 +282,8 @@ Definition num_arith (fold : Z -> Z -> Z) (cl cr : PTy) : option PTy :=
     (shift counts) stays INT-only — shifts gate out floats before reaching it. *)
 Definition is_zero_const (c : PTy) : bool :=
   match c with
-  | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z => Z.eqb z 0   (* incl. a typed FLOAT zero [float64(0)] *)
+  | PtIntConst z | PtTIntConst _ z => Z.eqb z 0
+  | PtFloatConst _ m _ => Z.eqb m 0   (* a typed FLOAT zero [float64(0)] — normalized, so zero iff [m = 0] *)
   | _ => false
   end.
 Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z => Z.ltb z 0 | None => false end.
@@ -222,19 +302,19 @@ Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z =
 Definition shfold (o : BinOp) (a b : Z) : Z := match o with BShl => Z.shiftl a b | _ => Z.shiftr a b end.
 Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   match o with
-  | BAdd => num_arith Z.add cl cr
-  | BSub => num_arith Z.sub cl cr
-  | BMul => num_arith Z.mul cl cr
-  | BDiv => if is_zero_const cr then None else num_arith Z.quot cl cr
+  | BAdd => num_arith Z.add (Some (fun a b => Some (dy_add a b))) cl cr
+  | BSub => num_arith Z.sub (Some (fun a b => Some (dy_sub a b))) cl cr
+  | BMul => num_arith Z.mul (Some (fun a b => Some (dy_mul a b))) cl cr
+  | BDiv => if is_zero_const cr then None else num_arith Z.quot (Some dy_div) cl cr
   | BRem =>
       if andb (is_int_cat cl) (is_int_cat cr) then
-        if is_zero_const cr then None else num_arith Z.rem cl cr
+        if is_zero_const cr then None else num_arith Z.rem None cl cr
       else None
-  | BAnd    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.land cl cr else None
-  | BOr     => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lor  cl cr else None
-  | BXor    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lxor cl cr else None
+  | BAnd    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.land None cl cr else None
+  | BOr     => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lor  None cl cr else None
+  | BXor    => if andb (is_int_cat cl) (is_int_cat cr) then num_arith Z.lxor None cl cr else None
   | BAndNot => if andb (is_int_cat cl) (is_int_cat cr)
-               then num_arith (fun a b => Z.land a (Z.lnot b)) cl cr else None
+               then num_arith (fun a b => Z.land a (Z.lnot b)) None cl cr else None
   | BShl | BShr =>
       if andb (is_int_cat cl) (is_int_cat cr) then
         if is_neg_const cr then None
@@ -310,15 +390,24 @@ Definition conv_to_scalar (ca : PTy) (t : GoTy) : option PTy :=
       end
   | GTFloat64 | GTFloat32 =>
       match ca with
-      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed float const (EXACT only) *)
-          if int_in_float_exact_interval t z then Some (PtFloatConst t z) else None
+      | PtIntConst z | PtTIntConst _ z =>                        (* INT-CONSTANT source -> typed float const (EXACT only) *)
+          if int_in_float_exact_interval t z then
+            let '(m, e) := dy_norm z 0 in Some (PtFloatConst t m e)
+          else None
+      | PtFloatConst _ m e =>                                    (* FLOAT-CONSTANT source (cross-width incl.): EXACT at the TARGET width or rejected — [float32(<inexact-at-32 float64 const>)] is valid Go that ROUNDS; Fido REJECTS (quarantined) *)
+          if float_dyadic_repr t m e then Some (PtFloatConst t m e) else None
       | PtRunInt _ | PtRunFloat _ => Some (PtRunFloat t)         (* RUNTIME source -> runtime float *)
       | _ => None
       end
   | GTInt | GTInt64 | GTUint | GTU8 | GTI8 | GTU16 | GTI16 | GTU32 | GTI32 | GTU64 =>
       match ca with
-      | PtIntConst z | PtTIntConst _ z | PtFloatConst _ z =>      (* CONSTANT source -> typed int const, repr-checked *)
+      | PtIntConst z | PtTIntConst _ z =>                        (* INT-CONSTANT source -> typed int const, repr-checked *)
           if int_const_repr z t then Some (PtTIntConst t z) else None
+      | PtFloatConst _ m e =>                                    (* FLOAT-CONSTANT source: must be INTEGER-valued ([e >= 0] — Go REJECTS a truncating constant conversion, [int(1.5)] is "truncated to integer"), then repr-checked *)
+          if Z.leb 0 e then
+            let z := Z.shiftl m e in
+            if int_const_repr z t then Some (PtTIntConst t z) else None
+          else None
       | PtRunInt _ | PtRunFloat _ => Some (PtRunInt t)           (* RUNTIME source -> runtime int *)
       | _ => None
       end
@@ -338,7 +427,7 @@ Definition assignable_to_ty (ce : PTy) (t : GoTy) : bool :=
       else if is_float_goty t then int_in_float_exact_interval t z
       else false
   | PtTIntConst t' _ | PtRunInt t' => if is_int_goty t then numty_eqb t' t else false
-  | PtFloatConst t' _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
+  | PtFloatConst t' _ _ | PtRunFloat t' => if is_float_goty t then numty_eqb t' t else false
   | PtBool => match t with GTBool => true | _ => false end
   | PtStr  => match t with GTString => true | _ => false end
   | PtAgg | PtMap | PtNil => false
@@ -448,7 +537,7 @@ Fixpoint ptype (e : GExpr) : option PTy :=
                     | PtIntConst z => Some (PtIntConst (Z.opp z))
                     | PtTIntConst t z =>                       (* -int8(-128) = 128 -> overflow -> reject *)
                         let r := Z.opp z in if int_const_repr r t then Some (PtTIntConst t r) else None
-                    | PtFloatConst t z => Some (PtFloatConst t (Z.opp z))
+                    | PtFloatConst t m e => Some (PtFloatConst t (Z.opp m) e)   (* negation preserves normalization *)
                     | PtRunInt t => Some (PtRunInt t) | PtRunFloat t => Some (PtRunFloat t)
                     | _ => None end
           | UXor => match c with                              (* bitwise complement: INTEGER only (no float); const FOLDS *)

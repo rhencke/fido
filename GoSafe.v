@@ -57,7 +57,7 @@ Definition stmt_call_ok (f : string) (args : list GExpr) : bool :=
 Definition printable_arg_ok (e : GExpr) : bool :=
   match ptype e with
   | Some (PtIntConst z) => int_const_repr z GTInt   (* default-[int] boundary: a bare untyped const must fit int *)
-  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _)
+  | Some (PtTIntConst _ _) | Some (PtFloatConst _ _ _)
   | Some (PtRunInt _) | Some (PtRunFloat _) | Some PtBool | Some PtStr => true
   | _ => false
   end.
@@ -300,11 +300,16 @@ Proof. vm_compute. reflexivity. Qed.
     unsupported), which a graduating arm must RE-ESTABLISH; the [bad_programs] CTMap rows (root / nested /
     slice-wrapped) are its witnesses; the ptr/chan-key block graduates when
     [goty_key_supported] grows past scalars on a modelled ptr/chan key-equality semantics (keeping the
-    slice/map-key members of [bad_programs] rejected).  The two contracts must not be confused — a
+    slice/map-key members of [bad_programs] rejected); the float ROUNDING members ([float64(1)/float64(3)],
+    the cross-width [float32(<inexact-at-32>)]) graduate only with a correctly-ROUNDING const model — the
+    exact-or-reject dyadic fold refuses them today (keeping the const-ZERO-divisor [bad_programs] member
+    rejected).  The two contracts must not be confused — a
     [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
     Current members: [len] of a non-literal string CONST (byte length not folded); the valid
-    [map[int]int(nil)] CONVERSION (the blanket CTMap quarantine, pinned on a VALID operand); and the
+    [map[int]int(nil)] CONVERSION (the blanket CTMap quarantine, pinned on a VALID operand); the float
+    ROUNDING cases ([float64(1)/float64(3)] and the cross-width [float32] conversion of an inexact-at-32
+    const — the dyadic fold is EXACT-or-reject); and the
     CARTESIAN ptr/chan map-key block [ptrchan_key_quarantine] — each out-of-core key type × each rejecting
     surface ([goty_supported]/[is_int_goty] admit only integer keys in core; string/bool root keys are the
     same conservative int-only restriction — Go also allows string/bool/ptr/chan/comparable-struct/interface
@@ -330,6 +335,8 @@ Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
   ; gs_blank (EConv (CTMap GTInt GTInt) (EId (mkIdent "nil" eq_refl)))    (* _ = map[int]int(nil): VALID Go (nil converts to a map type) — the blanket CTMap quarantine pinned on a VALID operand (the [bad_programs] free-ident row is an invalid-operand rejection, NOT this witness) *)
+  ; gs_blank (EBn BDiv (gs_f64 (EInt 1)) (gs_f64 (EInt 3)))               (* _ = float64(1)/float64(3): VALID Go (rounds to ~0.333); the exact-or-reject dyadic fold REFUSES a non-representable quotient ([dy_div] inexact) — quarantined, never a rounded lie *)
+  ; pl_arg (ECall (EId (mkIdent "float32" eq_refl)) [gs_f64 (EInt 16777217)])  (* println(float32(float64(16777217))): VALID Go (rounds to 16777216 — 2^24+1 is inexact at binary32); the cross-width const conversion is EXACT-only ([float_dyadic_repr]) — quarantined *)
   ] ++ ptrchan_key_quarantine.
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.

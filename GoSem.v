@@ -63,19 +63,23 @@ Definition box_int (t : GoTy) (z : Z) : option GoAny :=
     end
   else None.
 
-(** Box a float-CONSTANT VALUE — an integer [z] that an EXACT float of type [t] ([GTFloat64]/[GTFloat32]) came
-    from — as the MODEL's runtime [GoAny], or [None].  FAILS CLOSED at the boundary with the SAME guard [ptype]
-    used to FORM [PtFloatConst] ([int_in_float_exact_interval]: is [z] in the CONTIGUOUS exactly-representable
-    interval [[-2^53,2^53]] / [[-2^24,2^24]]?), so an out-of-interval [z] yields [None] HERE — no rounded-lie
-    value.  In range the boxed value is the UNIQUE canonical binary64/binary32 form of [z] ([renorm 53 1024] /
-    [f32_lit] over the model's [sf_of_Z]), EXACTLY the float the model carries (inside the interval EVERY
-    integer is exact, so there is no rounding).  Float CONSTANT arithmetic / fractional literals never reach
-    here — [PtFloatConst] carries an integer [z], and [ptype] does not fold them (over-rejected). *)
-Definition box_float (t : GoTy) (z : Z) : option GoAny :=
-  if int_in_float_exact_interval t z then
+(** Box a float-CONSTANT VALUE — the EXACT dyadic [m * 2^e] a [PtFloatConst] of type [t] carries — as the
+    MODEL's runtime [GoAny], or [None].  The dyadic IS the model's shape ([spec_float]'s [S754_finite s p e]
+    = ±p·2^e), so [sf_of_dyadic] is a direct constructor and [renorm 53 1024] / [f32_lit] canonicalize it —
+    EXACT inside [float_dyadic_repr]'s window (the SAME guard [ptype]'s folds use, re-checked HERE so an
+    out-of-window value fails closed — no rounded-lie value).  An INTEGER dyadic [(z, 0)] boxes to exactly
+    the old integer form ([sf_of_dyadic z 0 = sf_of_Z z] definitionally per sign case). *)
+Definition sf_of_dyadic (m e : Z) : spec_float :=
+  match m with
+  | Z0 => S754_zero false
+  | Zpos p => S754_finite false p e
+  | Zneg p => S754_finite true p e
+  end.
+Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
+  if float_dyadic_repr t m e then
     match t with
-    | GTFloat64 => Some (anyt TFloat64 (renorm 53 1024 (sf_of_Z z)))   (* canonical binary64 of [z] *)
-    | GTFloat32 => Some (anyt TFloat32 (f32_lit (sf_of_Z z)))           (* [f32_lit] rounds-in to canonical binary32 (exact here) *)
+    | GTFloat64 => Some (anyt TFloat64 (renorm 53 1024 (sf_of_dyadic m e)))   (* canonical binary64 *)
+    | GTFloat32 => Some (anyt TFloat32 (f32_lit (sf_of_dyadic m e)))           (* canonical binary32 (exact in-window) *)
     | _         => None
     end
   else None.
@@ -94,12 +98,20 @@ Definition cmp_op (op : BinOp) : option (Z -> Z -> bool) :=
   | _   => None
   end.
 
-(** The constant VALUE of a numeric operand (an integer constant, or an exact-integer FLOAT constant — both
-    carry the true value as [Z], so [Z]-comparison IS the Go comparison), via [ptype]; [None] for a RUNTIME or
-    non-numeric operand (so a comparison with a [len(..)] operand is honestly absent, not folded wrong). *)
+(** The constant VALUE of an INTEGER operand (the true value as [Z], so [Z]-comparison IS the Go
+    comparison), via [ptype]; [None] for a FLOAT (its dyadic value compares via [const_dy] below), a
+    RUNTIME, or a non-numeric operand (so a comparison with a [len(..)] operand is honestly absent). *)
 Definition const_z (e : GExpr) : option Z :=
   match ptype e with
-  | Some (PtIntConst z) | Some (PtTIntConst _ z) | Some (PtFloatConst _ z) => Some z
+  | Some (PtIntConst z) | Some (PtTIntConst _ z) => Some z
+  | _ => None
+  end.
+(** The exact DYADIC value of a FLOAT-constant operand — after [dy_align] the mantissa pair compares
+    exactly as the values do, so the SAME [Z] comparators fold float comparisons with no rounding.
+    ([ptype]'s comparison gate already forces both operands to the same float type.) *)
+Definition const_dy (e : GExpr) : option (Z * Z) :=
+  match ptype e with
+  | Some (PtFloatConst _ m ex) => Some (m, ex)
   | _ => None
   end.
 
@@ -170,7 +182,11 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
       | EBn BLOr  a b => match eval_bool a, eval_bool b with Some x, Some y => Some (orb  x y) | _, _ => None end
       | EBn op a b =>
           match cmp_op op, const_z a, const_z b with
-          | Some cmp, Some x, Some y => Some (cmp x y)                      (* numeric comparison *)
+          | Some cmp, Some x, Some y => Some (cmp x y)                      (* integer comparison *)
+          | _, _, _ =>
+          match cmp_op op, const_dy a, const_dy b with
+          | Some cmp, Some da, Some db =>
+              let '(x, y) := dy_align da db in Some (cmp x y)               (* float comparison — exact after alignment *)
           | _, _, _ =>
               match str_cmp_op op, eval_str a, eval_str b with
               | Some scmp, Some s, Some t => Some (scmp s t)               (* string-CONSTANT comparison (any [eval_str]-folded operand, via [str_cmp_op]) *)
@@ -181,6 +197,7 @@ Fixpoint eval_bool (e : GExpr) : option bool :=
                   | _, _, _ => None
                   end
               end
+          end
           end
       | ECall (EId f) (a :: nil) =>                                        (* identity bool CONVERSION [bool(x)] *)
           if String.eqb (proj1_sig f) "bool" then eval_bool a else None
@@ -220,7 +237,7 @@ Definition eval_value_ptype (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
-  | Some (PtFloatConst t z) => box_float t z                                                   (* typed float const (exact int-valued: [float64(3)], [-float32(5)]) *)
+  | Some (PtFloatConst t m e) => box_float t m e                                               (* typed float const — EXACT dyadic, fractional included ([float64(3)/float64(2)]) *)
   | Some PtStr              => match eval_str e with Some s => Some (anyt TString s) | None => None end  (* a string CONSTANT: literal / concatenation / string-or-rune conversion ([PtStr] carries no value; [eval_str] folds it) *)
   | Some PtBool             => match eval_bool e with Some b => Some (anyt TBool b) | None => None end   (* a CONSTANT bool: comparison / logical fold *)
   | _                       => None
@@ -263,7 +280,7 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
     slice arm uses — so the arm accepts NO expression [ptype] rejects (proved: [eval_slice_index_supported]); it
     is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
     integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
-    platform-[uint] complement), exact-integer FLOAT constants, string constants ([eval_str]), and constant
+    platform-[uint] complement), exact-DYADIC FLOAT constants (fractional arithmetic included), string constants ([eval_str]), and constant
     bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
     literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
     its entry count ([eval_map_len_reduces] — under the gate's OWN conditions, [goty_supported] value type +
@@ -1367,7 +1384,8 @@ Definition gosem_defer_panic_prog : Program :=
     the paired value, pinned as one [(expr, value)] list.  A BREADTH sample, NOT a completeness claim: some
     printable supported constants are honestly ABSENT (e.g. the multi-byte rune [string(200)], pinned by
     [runeconv_multibyte_boundary]).  Rows exercise: integer conversions/arith/complement (the model's EXACT
-    value per signedness/width), exact-integer FLOAT constants, constant BOOLs (numeric + string comparisons,
+    value per signedness/width), exact-DYADIC FLOAT constants (conversions + [+]/[-]/[*]/exact-[/], fractional
+    values included), constant BOOLs (numeric + string comparisons,
     [&&]/[||]/[!], [bool(x)]), string CONSTANTs (literal/concat/ASCII-rune/identity conv; high-byte order is
     UNSIGNED), the constant in-bounds slice-index, and the [len] folds (slice length / map entry count).  The
     [box_*]/[ptype] FAIL-CLOSED pins are separate below — those lock the GATE boundary, not a fold. *)
@@ -1381,6 +1399,18 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 4]), anyt TUint (uint_lit 7 eq_refl))
   ; (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3], anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)))
   ; (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5], anyt TFloat32 (f32_lit (sf_of_Z 5)))
+  ; (EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]),
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 (-1))))   (* float64(3)/float64(2) = 1.5 — a FRACTIONAL dyadic fold *)
+  ; (EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]),
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 0)))       (* float const + *)
+  ; (EBn BSub (ECall (EId (mkIdent "float64" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]),
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic (-1) 0)))    (* float const -  (operand ORDER matters) *)
+  ; (EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]),
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 1)))       (* float const * *)
+  ; (EBn BDiv (ECall (EId (mkIdent "float32" eq_refl)) [EInt 5]) (ECall (EId (mkIdent "float32" eq_refl)) [EInt 2]),
+     anyt TFloat32 (f32_lit (sf_of_dyadic 5 (-1))))           (* float32 fractional — width-correct boxing *)
+  ; (EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (EInt 2),
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 (-1))))    (* float const / UNTYPED int const (mixed) *)
   ; (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"], anyt TInt64 (intwrap 3))
   ; (EBn BAdd (EStr "a") (EStr "b"), anyt TString "ab")
   ; (ECall (EId (mkIdent "string" eq_refl)) [EInt 65], anyt TString "A")
@@ -1390,6 +1420,8 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (EBn BLt (EInt 3) (EInt 5), anyt TBool true)
   ; (EBn BEq (EInt 1) (EInt 2), anyt TBool false)
   ; (EBn BEq (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]), anyt TBool true)
+  ; (EBn BLt (EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))
+             (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]), anyt TBool true)   (* 1.5 < 2.0 — the exact dyadic-aligned comparison *)
   ; (EBn BLAnd (EBn BEq (EInt 1) (EInt 1)) (EBn BEq (EInt 2) (EInt 2)), anyt TBool true)
   ; (EBn BLOr (EBn BEq (EInt 1) (EInt 2)) (EBn BLt (EInt 3) (EInt 5)), anyt TBool true)
   ; (EUn UNot (EBn BEq (EInt 1) (EInt 2)), anyt TBool true)
@@ -1449,6 +1481,8 @@ Record GoSemRequiredCategoryCoverage : Prop := {
   rc_println_str : runs_to (EStr "hi") (anyt TString "hi");   (* covers [gosem_demo_prog], which IS [println_prog (EStr "hi")] by definition: observable output, the model's own [w_log] *)
   rc_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3));
   rc_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)));
+  rc_float_frac : runs_to (EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))
+                          (anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 (-1))));   (* a FRACTIONAL float constant folds+runs (1.5) *)
   rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
   rc_concat    : runs_to (EBn BAdd (EStr "a") (EStr "b")) (anyt TString "ab");
   rc_concatcmp : runs_to (EBn BEq (EBn BAdd (EStr "a") (EStr "b")) (EStr "ab")) (anyt TBool true);
@@ -1483,6 +1517,24 @@ Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
 Check gosem_category_coverage : GoSemRequiredCategoryCoverage.   (* the typed obligation, made explicit *)
 
+(** ★ FOLD↔MODEL AGREEMENT (the seal's FIXTURE tier): each folded dyadic, boxed, EQUALS the MODEL's own
+    float arithmetic ([f64_add]/[f64_sub]/[f64_mul]/[f64_div] — the extractable ops the emitted Go runs)
+    applied to the boxed operands.  This is what makes exact-or-reject FAITHFUL: on every accepted fold the
+    constant ptype carries is the very value the runtime op computes (IEEE ops are correctly rounded, so an
+    exactly-representable result is returned exactly).  vm_compute-decided on the fixture ops; the GENERAL
+    class theorem (∀ exactly-representable operands/results) is the stated frontier — until it lands, folds
+    stay pinned HERE per op. *)
+Example dy_fold_model_agreement :
+  renorm 53 1024 (sf_of_dyadic 3 (-1))
+    = f64_div (renorm 53 1024 (sf_of_dyadic 3 0)) (renorm 53 1024 (sf_of_dyadic 2 0))
+  /\ renorm 53 1024 (sf_of_dyadic 3 0)
+    = f64_add (renorm 53 1024 (sf_of_dyadic 1 0)) (renorm 53 1024 (sf_of_dyadic 2 0))
+  /\ renorm 53 1024 (sf_of_dyadic (-1) 0)
+    = f64_sub (renorm 53 1024 (sf_of_dyadic 1 0)) (renorm 53 1024 (sf_of_dyadic 2 0))
+  /\ renorm 53 1024 (sf_of_dyadic 3 1)
+    = f64_mul (renorm 53 1024 (sf_of_dyadic 3 0)) (renorm 53 1024 (sf_of_dyadic 2 0)).
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
 (** FAIL-CLOSED pins (LOAD-BEARING, lock the GATE boundary — NOT folds): out-of-range boxing is [None]
     ([mk_uint]/[box_*] never carry a [*wrap]-mangled value); a mixed-WIDTH ill-typed compare [int64(1)==int32(1)]
     has [ptype = None] so [eval_bool]/[eval_value] fail closed (no fabricated [true]); the uint underflow
@@ -1492,7 +1544,7 @@ Definition mixed_width_cmp : GExpr :=
   EBn BEq (ECall (EId (mkIdent "int64" eq_refl)) [EInt 1]) (ECall (EId (mkIdent "int32" eq_refl)) [EInt 1]).
 Definition uint_underflow_e := EBn BSub (ECall (EId (mkIdent "uint" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "uint" eq_refl)) [EInt 5]).
 Example eval_value_failclosed :
-  box_float GTFloat64 9007199254740993 = None
+  box_float GTFloat64 9007199254740993 0 = None
   /\ box_int GTU8 300 = None
   /\ ptype mixed_width_cmp = None /\ eval_bool mixed_width_cmp = None /\ eval_value mixed_width_cmp = None
   /\ ptype uint_underflow_e = None /\ printable_arg_ok uint_underflow_e = false
@@ -1552,6 +1604,7 @@ Definition gosem_trust_surface :=
    eval_len_reduces, eval_len_supported,
    eval_map_len_reduces, eval_map_len_supported, map_len_supported_but_undenoted, maplen_divzero_runs,
    map_len_invalid_type_rejected,
+   dy_fold_model_agreement,
    denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
