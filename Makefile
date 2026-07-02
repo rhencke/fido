@@ -7,11 +7,13 @@ PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 .DEFAULT_GOAL := build
 
 # THE ONE Go-toolchain image authority, DIGEST-PINNED (mutable tags drift; these runs justify
-# go-run-verified semantic pins). This line is the ONLY Go-image spelling in the repo: every docker
-# run uses $(GOIMAGE), every docker build receives it via --build-arg (the Dockerfile ARG has NO
-# default — a build that bypasses make fails loudly), and the pre-commit hook consumes it via
-# `make -s print-goimage`. [toolchain-gate] (a `check` prerequisite) enforces all of this.
-GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+# go-run-verified semantic pins). `override` makes command-line/environment assignments INERT — a
+# second toolchain is unrepresentable, not merely rejected. This line is the ONLY Go-image spelling
+# in the repo: every docker run uses $(GOIMAGE), every docker build receives it via --build-arg
+# (the Dockerfile ARG has NO default — a build that bypasses make fails loudly), and the pre-commit
+# hook consumes it via `make -s print-goimage`. [toolchain-gate] + [toolchain-selftest] (both
+# `check` prerequisites) enforce all of this.
+override GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
 print-goimage:
 	@echo $(GOIMAGE)
 
@@ -236,33 +238,39 @@ go-verify:
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # The tooling gates, wired into [check]:
-# [toolchain-gate] — the ONE-authority invariant, checked on the EFFECTIVE value (a command-line
-# GOIMAGE override must itself be digest-pinned) AND the repo text (the only Go-image spelling is
-# the single authority line — the gate's own grep patterns use a [:] character class so they cannot
-# match themselves); the Dockerfile ARG must stay default-less.
-# [toolchain-selftest] — proves the gate REJECTS an unpinned override.
-# [go-verify-selftest] — fail-closed fixtures under set -eu (a setup failure fails the target),
-# asserting each exact diagnostic, with docker SHADOWED in PATH so "rejected BEFORE docker" is
-# mechanically proven, and trap-cleaned.
+# [toolchain-gate] — the ONE-authority invariant over the repo text: the only Go-image spelling is
+# the single `override GOIMAGE :=` authority line (the gate's own grep patterns use a [:] character
+# class so they cannot match themselves), the line is digest-pinned and override-protected, and the
+# Dockerfile ARG is default-less. The effective-value case is defense-in-depth for an edited line.
+# [toolchain-selftest] — proves overrides are INERT: with `override`, a command-line GOIMAGE
+# (unpinned OR pinned-but-different) cannot change the effective toolchain.
+# [go-verify-selftest] — one helper runs EVERY negative case (empty GO / missing dir / sibling
+# .go) and asserts, for each: the command fails, the first fido: diagnostic line matches EXACTLY,
+# and the PATH-shadowed docker sentinel was never reached. Setup is checked under set -eu with
+# trap cleanup.
 toolchain-gate:
 	@case "$(GOIMAGE)" in \
 	  *@sha256:*) : ;; \
-	  *) echo "fido: TOOLCHAIN DRIFT — the EFFECTIVE GOIMAGE '$(GOIMAGE)' is not digest-pinned (an override?)"; exit 1 ;; \
+	  *) echo "fido: TOOLCHAIN DRIFT — the EFFECTIVE GOIMAGE '$(GOIMAGE)' is not digest-pinned"; exit 1 ;; \
 	esac
-	@bad=$$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:GOIMAGE := golang[:]" || true); \
+	@bad=$$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true); \
 	if [ -n "$$bad" ]; then \
 	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"; \
 	  echo "$$bad"; exit 1; \
 	fi
-	@test "$$(grep -c '^GOIMAGE :=' Makefile)" = "1" || { echo "fido: exactly ONE GOIMAGE authority line required"; exit 1; }
-	@grep -q '^GOIMAGE := golang[:].*@sha256:' Makefile || { echo "fido: the GOIMAGE authority line must be digest-pinned (@sha256:...)"; exit 1; }
+	@test "$$(grep -c '^override GOIMAGE :=' Makefile)" = "1" || { echo "fido: exactly ONE override-protected GOIMAGE authority line required"; exit 1; }
+	@grep -q '^override GOIMAGE := golang[:].*@sha256:' Makefile || { echo "fido: the GOIMAGE authority line must be digest-pinned (@sha256:...) and override-protected"; exit 1; }
 	@grep -q '^ARG GOIMAGE$$' Dockerfile || { echo "fido: the Dockerfile GOIMAGE ARG must be DEFAULT-LESS (the Makefile is the authority)"; exit 1; }
-	@echo "fido: toolchain-gate OK — one digest-pinned GOIMAGE authority (effective value verified) ✓"
+	@echo "fido: toolchain-gate OK — one override-protected, digest-pinned GOIMAGE authority ✓"
 toolchain-selftest:
-	@if $(MAKE) -s GOIMAGE=unpinned-override toolchain-gate >/dev/null 2>&1; then \
-	  echo "fido: toolchain-gate ACCEPTED an unpinned GOIMAGE override"; exit 1; \
-	fi
-	@echo "fido: toolchain-selftest OK — an unpinned GOIMAGE override is rejected ✓"
+	@auth=$$($(MAKE) -s print-goimage); \
+	got=$$($(MAKE) -s GOIMAGE=unpinned-override print-goimage); \
+	test "$$got" = "$$auth" || { echo "fido: an UNPINNED GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }; \
+	got=$$($(MAKE) -s GOIMAGE=other-image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa print-goimage); \
+	test "$$got" = "$$auth" || { echo "fido: a PINNED-BUT-DIFFERENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }; \
+	GOIMAGE=env-override; export GOIMAGE; got=$$($(MAKE) -s print-goimage); \
+	test "$$got" = "$$auth" || { echo "fido: an ENVIRONMENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }
+	@echo "fido: toolchain-selftest OK — command-line and environment GOIMAGE overrides are INERT ✓"
 go-verify-selftest:
 	@set -eu; \
 	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
@@ -272,19 +280,19 @@ go-verify-selftest:
 	printf 'package main\nfunc main() {}\n' > "$$fx/main.go"; \
 	: > "$$fx/helper.go"; \
 	test -s "$$fx/main.go"; test -f "$$fx/helper.go"; \
-	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO= 2>&1); then \
-	  echo "fido: go-verify ACCEPTED an empty GO"; exit 1; fi; \
-	echo "$$out" | grep -q 'needs GO=' || { echo "fido: unexpected empty-GO diagnostic:"; echo "$$out"; exit 1; }; \
-	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO=/nonexistent-fido-selftest 2>&1); then \
-	  echo "fido: go-verify ACCEPTED a missing dir"; exit 1; fi; \
-	echo "$$out" | grep -q 'no main.go' || { echo "fido: unexpected missing-dir diagnostic:"; echo "$$out"; exit 1; }; \
+	chk() { \
+	  if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO="$$1" 2>&1); then \
+	    echo "fido: go-verify ACCEPTED GO='$$1'"; exit 1; fi; \
+	  line=$$(echo "$$out" | grep '^fido:' | head -1); \
+	  test "$$line" = "$$2" || { echo "fido: unexpected diagnostic for GO='$$1':"; echo "$$out"; exit 1; }; \
+	  if echo "$$out" | grep -q FIDO-DOCKER-INVOKED; then \
+	    echo "fido: go-verify reached docker for GO='$$1' (a fail-before-docker case)"; exit 1; fi; \
+	}; \
+	chk "" "fido: go-verify needs GO=<dir containing ONLY main.go>"; \
+	chk "/nonexistent-fido-selftest" "fido: go-verify — no main.go in '/nonexistent-fido-selftest' (missing/typo'd dir; nothing created)"; \
 	test ! -e /nonexistent-fido-selftest || { echo "fido: go-verify CREATED the missing dir"; exit 1; }; \
-	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO="$$fx" 2>&1); then \
-	  echo "fido: go-verify ACCEPTED a sibling .go file"; exit 1; fi; \
-	echo "$$out" | grep -q 'must be the ONLY .go file' || { echo "fido: unexpected sibling diagnostic:"; echo "$$out"; exit 1; }; \
-	if echo "$$out" | grep -q 'FIDO-DOCKER-INVOKED'; then \
-	  echo "fido: go-verify reached docker on a fail-before-docker case"; exit 1; fi; \
-	echo "fido: go-verify-selftest OK — fail-closed (empty/missing/sibling), rejected BEFORE docker, setup checked ✓"
+	chk "$$fx" "fido: go-verify — main.go must be the ONLY .go file (file-mode run would silently IGNORE siblings):"; \
+	echo "fido: go-verify-selftest OK — every negative case fails with its exact diagnostic, docker never reached ✓"
 
 
 # Multi-platform build (does not load locally — use push to ship).
