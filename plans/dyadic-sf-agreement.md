@@ -52,10 +52,16 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    (c) `renorm_binary_round_idem` — renorm idempotence on the in-window class (the output's
    digits+exponent reproduces the `fexp` target; re-alignment is `shl_align_id`), unblocking
    the f32 wrappers (`f32_neg` re-rounds through `f32_of_f64`).
-4. **`binary_normalize` VALUE-determinism**: `dy_norm (m1,e1) = dy_norm (m2,e2) ->
-   binary_normalize m1 e1 s = binary_normalize m2 e2 s` — via the one-step doubling lemma
-   (`binary_round s m e = binary_round s (2m) (e-1)`: `digits2_pos` shifts by one, `fexp`
-   target unchanged, `shl_align` lands on the same pair) + induction on the exponent gap.
+4. **`binary_normalize` VALUE-determinism — LANDED** (windowed; gated
+   `binary_normalize_norm_determined`): `dy_norm`-equal representations normalize to the SAME
+   canonical float.  NO doubling induction was needed: with rung 3, both sides reduce to
+   closed canonical forms, digits+exponent is invariant under the odd-core split
+   (`pos_odd_split_digits`), so the `fexp` targets coincide and the aligned mantissas are
+   value-equal positives (`binary_round_of_norm`).  ⚠ rung 5 will ADDITIONALLY need
+   right-shift-through-zeros exactness for wide-exponent-gap sums (the RAW aligned sum's
+   digits can exceed `prec` even when its odd core is in-window — e.g. `1·2^0 + 1·2^-100`;
+   `ptype` REJECTS such results at the repr guard, but `SFadd`'s internal path must still be
+   shown to agree wherever the gate accepts).
 5. **ADD/SUB (f64)**: `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas),
    `SFadd`'s aligned sum is the same value ⇒ rungs 3+4 close
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.

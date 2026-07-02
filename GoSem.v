@@ -6687,6 +6687,94 @@ Proof.
   destruct (float_dyadic_repr t m e); [reflexivity | discriminate H].
 Qed.
 
+(** ---- rung 4 — VALUE-DETERMINISM of [binary_normalize] on the windowed class
+    (plans/dyadic-sf-agreement.md).  No doubling induction needed: with [binary_round_exact]
+    both representations reduce to closed canonical forms, and DIGITS+EXPONENT is invariant
+    under the odd-core split ([pos_odd_split_digits]), so the [fexp] targets coincide and the
+    aligned mantissas are value-equal positives. *)
+Lemma pos_odd_split_val : forall p q k,
+  pos_odd_split p = (q, k) -> (0 <= k)%Z /\ Zpos p = (Zpos q * 2 ^ k)%Z.
+Proof.
+  induction p as [p IH|p IH|]; intros q k H; cbn [pos_odd_split] in H.
+  - injection H as <- <-. split; [lia|]. rewrite Z.pow_0_r. lia.
+  - destruct (pos_odd_split p) as [q' k'] eqn:E. injection H as <- <-.
+    destruct (IH _ _ eq_refl) as [Hk Hv].
+    split; [lia|].
+    rewrite Pos2Z.inj_xO, Hv, Z.pow_succ_r by exact Hk. ring.
+  - injection H as <- <-. split; [lia|]. rewrite Z.pow_0_r. lia.
+Qed.
+Lemma pos_odd_split_digits : forall p q k,
+  pos_odd_split p = (q, k) ->
+  Zpos (digits2_pos p) = (Zpos (digits2_pos q) + k)%Z.
+Proof.
+  induction p as [p IH|p IH|]; intros q k H; cbn [pos_odd_split] in H.
+  - injection H as <- <-. lia.
+  - destruct (pos_odd_split p) as [q' k'] eqn:E. injection H as <- <-.
+    pose proof (IH _ _ eq_refl) as Hd.
+    cbn [digits2_pos]. rewrite Pos2Z.inj_succ. lia.
+  - injection H as <- <-. lia.
+Qed.
+(** [binary_round] depends only on the ODD CORE and the total exponent — on the window. *)
+Lemma binary_round_of_norm : forall prec emax s p e q a,
+  pos_odd_split p = (q, a) ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  binary_round prec emax s p e = binary_round prec emax s q (e + a).
+Proof.
+  intros prec emax s p e q a Hsp Hd He Hde Hemax.
+  destruct (pos_odd_split_val p q a Hsp) as [Ha Hv].
+  pose proof (pos_odd_split_digits p q a Hsp) as Hdig.
+  assert (Hdq : (Zpos (digits2_pos q) <= prec)%Z) by lia.
+  assert (Heq : (emin prec emax <= e + a)%Z) by lia.
+  assert (Hdeq : (Zpos (digits2_pos q) + (e + a) <= emax)%Z) by lia.
+  rewrite (binary_round_exact prec emax s p e Hd He Hde Hemax).
+  rewrite (binary_round_exact prec emax s q (e + a) Hdq Heq Hdeq Hemax).
+  replace (Zpos (digits2_pos q) + (e + a))%Z with (Zpos (digits2_pos p) + e)%Z by lia.
+  set (T := fexp prec emax (Zpos (digits2_pos p) + e)) in *.
+  assert (HT : (T <= e)%Z) by (unfold T, fexp, emin in *; lia).
+  assert (HTq : (T <= e + a)%Z) by lia.
+  f_equal.
+  apply Pos2Z.inj.
+  rewrite (shl_align_fst_val p e T HT), (shl_align_fst_val q (e + a) T HTq).
+  rewrite Hv.
+  rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+  f_equal. f_equal. lia.
+Qed.
+(** ★ the rung-4 ENDPOINT (gated): [dy_norm]-equal representations normalize to the SAME
+    canonical float — the value quotient the whole agreement arc states equality through. *)
+Theorem binary_normalize_norm_determined : forall prec emax m1 e1 m2 e2 s,
+  dy_norm m1 e1 = dy_norm m2 e2 ->
+  (Z.abs m1 = Z0 \/ exists p, Z.abs m1 = Zpos p
+     /\ (Zpos (digits2_pos p) <= prec)%Z /\ (emin prec emax <= e1)%Z
+     /\ (Zpos (digits2_pos p) + e1 <= emax)%Z) ->
+  (Z.abs m2 = Z0 \/ exists p, Z.abs m2 = Zpos p
+     /\ (Zpos (digits2_pos p) <= prec)%Z /\ (emin prec emax <= e2)%Z
+     /\ (Zpos (digits2_pos p) + e2 <= emax)%Z) ->
+  (2 <= emax)%Z ->
+  binary_normalize prec emax m1 e1 s = binary_normalize prec emax m2 e2 s.
+Proof.
+  intros prec emax m1 e1 m2 e2 s Hn H1 H2 Hemax.
+  destruct m1 as [|p1|p1]; destruct m2 as [|p2|p2];
+    cbn [dy_norm Z.abs] in *;
+    (* zero-vs-nonzero and sign mismatches are impossible: dy_norm preserves zero-ness and sign *)
+    try (destruct (pos_odd_split p1) as [q1 k1] eqn:E1);
+    try (destruct (pos_odd_split p2) as [q2 k2] eqn:E2);
+    try discriminate Hn;
+    [ reflexivity | | ];
+    (* both positive / both negative *)
+    injection Hn as Hq Hk;
+    (destruct H1 as [H1 | [pp1 [Hp1 W1]]]; [discriminate H1|]);
+    (destruct H2 as [H2 | [pp2 [Hp2 W2]]]; [discriminate H2|]);
+    injection Hp1 as ->; injection Hp2 as ->;
+    destruct W1 as [Wd1 [We1 Wde1]]; destruct W2 as [Wd2 [We2 Wde2]];
+    cbn [binary_normalize];
+    rewrite (binary_round_of_norm prec emax _ _ e1 q1 k1 E1 Wd1 We1 Wde1 Hemax);
+    rewrite (binary_round_of_norm prec emax _ _ e2 q2 k2 E2 Wd2 We2 Wde2 Hemax);
+    rewrite Hq; f_equal; lia.
+Qed.
+
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
@@ -6929,6 +7017,7 @@ Definition gosem_float_surface :=
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
+   binary_normalize_norm_determined,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
