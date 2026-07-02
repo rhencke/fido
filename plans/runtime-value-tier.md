@@ -1,15 +1,15 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R4 LANDED; next: the map-value rule
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R5 LANDED (the runtime arc is COMPLETE for the current fragment)
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
-(R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons LANDED; runtime map
-values need their OWN rule) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
+(R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values ALL
+LANDED) — NOT the whole gap: the remaining classes are WITNESSED (non-exhaustively) in GoSem's
 `undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
 `BehaviorSafe` (nil deref / OOB / race) per Phase 5's ordering.
 
-## Live invariants (R1–R4 as landed)
+## Live invariants (R1–R5 as landed)
 
 - The runtime tier lives in `denote_expr` via `reval_int` (RVal | RPanic | None-absent), UNDER the same
   `floats_checked` boundary `eval_value` enforces; the terminal-flag/short-circuit machinery carries
@@ -58,14 +58,16 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   **R3** (LANDED) width conversions of runtime ints via the model wraps (`wrap_runint`; `int(x)` in-fragment).
   **R4** (LANDED) runtime bool COMPARISONS of int-fragment operands via the model's `int_eqb`/`int_ltb`/`int_leb`
   (`cmp_verdict`: `!=` = negation, `>`/`>=` = argument swap); `&&`/`||` stay absent (bool operands, not the fragment).
+  **R5** (LANDED) map-`len` over RUNTIME map values (`reval_int`'s EMapLit arm: the fold's own side conditions,
+  values through the tier, count via the checked `rval_len`/`rval_len_repr`; panicking value aborts construction).
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R4): `runlen_e`, `runidx_e`, `runconv_e`, `runbool_e`, the
-  OOB constant index, and panicking-element constructions all DENOTE; the pinned `undenoted_frontier`
-  WITNESSES (non-exhaustive) are `maplen_runval_e` (map-value rule) and the multi-byte rune. Each rule
-  that lands FLIPS its member's pins — swap the successor in the same commit and sweep the stale-claim
-  phrases repo-wide (each of R3/R4 flipped the SAME five sites: frontier, out-boundary, the GoSemSafe
-  absent pair, the dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is
+- Witness succession — CURRENT STATE (post-R5): every RUNTIME-classified witness DENOTES; the pinned
+  `undenoted_frontier` WITNESS (non-exhaustive — known absent classes: runtime floats, runtime unary
+  ops, nonzero runtime `%`) is the multi-byte rune `runeconv_mb` alone. Each rule that lands FLIPS its
+  member's pins — swap the successor in the same commit and sweep the stale-claim phrases repo-wide
+  (each of R3/R4/R5 flipped the SAME five sites: frontier, out-boundary, the GoSemSafe absent pair, the
+  dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is
   the EVAL-ONLY sufficient fragment; the runtime tier's own converse — and any THEOREM bounding the
   gap — is open work.
