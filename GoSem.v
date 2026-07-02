@@ -6990,6 +6990,8 @@ Proof.
     lia.
 Qed.
 
+
+
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
@@ -7041,6 +7043,192 @@ Proof.
   injection Hok as -> ->.
   pose proof (dy_norm_idem m0 e0) as Hi. rewrite E in Hi. cbn [fst snd] in Hi.
   exact Hi.
+Qed.
+
+(** ---- rung 5c FINAL — the [SFadd] finite-arm ASSEMBLY.  The uniform endgame: once the raw
+    quantity's [dy_norm] equals the result pair, the wide determinism endpoint closes the
+    normalization equality under the RESULT's gate window. *)
+Lemma repr_window_split_f64 : forall m e,
+  float_dyadic_repr GTFloat64 m e = true ->
+  m = Z0 \/ exists q, Z.abs m = Zpos q
+     /\ (Zpos (digits2_pos q) <= 53)%Z /\ (emin 53 1024 <= e)%Z
+     /\ (Zpos (digits2_pos q) + e <= 1024)%Z.
+Proof.
+  intros m e H. destruct m as [|q|q]; [left; reflexivity| |];
+    right; exists q; (split; [reflexivity|]);
+    exact (float_dyadic_repr_f64_premises _ _ q H eq_refl).
+Qed.
+Lemma normalize_result_agrees_f64 : forall raw ez mr er,
+  dy_norm raw ez = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  binary_normalize 53 1024 raw ez false = binary_normalize 53 1024 mr er false.
+Proof.
+  intros raw ez mr er Hn Hrep.
+  apply (binary_normalize_wide_determined 53 1024 raw ez mr er false mr er).
+  - exact Hn.
+  - pose proof (dy_norm_idem raw ez) as Hi. rewrite Hn in Hi. cbn [fst snd] in Hi.
+    exact Hi.
+  - exact (repr_window_split_f64 mr er Hrep).
+  - lia.
+Qed.
+Lemma cond_Zopp_mul : forall s a b, cond_Zopp s (a * b)%Z = (cond_Zopp s a * b)%Z.
+Proof. intros [|] a b; cbn [cond_Zopp]; ring. Qed.
+(** the zero rows: [SFadd] returns the OTHER operand; the fold side collapses to the other
+    dyadic via [dy_norm_value_unique] *)
+Lemma f64_add_zero_left_f64 : forall e1 m2 e2 mr er p2,
+  Z.abs m2 = Zpos p2 ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_add (Z0, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_add (binary_normalize 53 1024 Z0 e1 false) (binary_normalize 53 1024 m2 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros e1 m2 e2 mr er p2 Ha H2 Hadd Hr.
+  destruct (render_signed_value_f64 m2 e2 p2 Ha H2) as [s2 [mc2 [T2 [Hbn2 _]]]].
+  rewrite Hbn2. cbn [binary_normalize].
+  unfold f64_add, SFadd. cbv beta iota.
+  assert (Hsum : dy_norm m2 e2 = (mr, er)).
+  { cbn [dy_add] in Hadd.
+    destruct (Z.leb e1 e2) eqn:Eb in Hadd.
+    - apply Z.leb_le in Eb.
+      rewrite Z.add_0_l, Z.shiftl_mul_pow2 in Hadd by lia.
+      rewrite <- Hadd.
+      symmetry.
+      apply (dy_norm_value_unique (m2 * 2 ^ (e2 - e1)) e1 m2 e2 Eb eq_refl).
+    - rewrite Z.shiftl_0_l, Z.add_0_l in Hadd. exact Hadd. }
+  rewrite <- Hbn2.
+  exact (normalize_result_agrees_f64 m2 e2 mr er Hsum Hr).
+Qed.
+Lemma f64_add_zero_right_f64 : forall m1 e1 e2 mr er p1,
+  Z.abs m1 = Zpos p1 ->
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  dy_add (m1, e1) (Z0, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_add (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 Z0 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros m1 e1 e2 mr er p1 Ha H1 Hadd Hr.
+  destruct (render_signed_value_f64 m1 e1 p1 Ha H1) as [s1 [mc1 [T1 [Hbn1 _]]]].
+  rewrite Hbn1. cbn [binary_normalize].
+  unfold f64_add, SFadd. cbv beta iota.
+  assert (Hsum : dy_norm m1 e1 = (mr, er)).
+  { cbn [dy_add] in Hadd.
+    destruct (Z.leb e1 e2) eqn:Eb in Hadd.
+    - rewrite Z.shiftl_0_l, Z.add_0_r in Hadd. exact Hadd.
+    - apply Z.leb_gt in Eb.
+      rewrite Z.add_0_r, Z.shiftl_mul_pow2 in Hadd by lia.
+      rewrite <- Hadd.
+      symmetry.
+      apply (dy_norm_value_unique (m1 * 2 ^ (e1 - e2)) e2 m1 e1); [lia | reflexivity]. }
+  rewrite <- Hbn1.
+  exact (normalize_result_agrees_f64 m1 e1 mr er Hsum Hr).
+Qed.
+(** the finite×finite core: SIGNED difference-form value algebra identifies [SFadd]'s raw
+    aligned sum with [dy_add]'s exact fold *)
+Lemma f64_add_finite_agrees : forall m1 e1 m2 e2 mr er p1 p2,
+  Z.abs m1 = Zpos p1 -> Z.abs m2 = Zpos p2 ->
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_add (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 m2 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros m1 e1 m2 e2 mr er p1 p2 Ha1 Ha2 H1 H2 Hadd Hr.
+  destruct (render_signed_value_f64 m1 e1 p1 Ha1 H1)
+    as [s1 [mc1 [T1 [Hbn1 [Hv1 [HmT1 HTe1]]]]]].
+  destruct (render_signed_value_f64 m2 e2 p2 Ha2 H2)
+    as [s2 [mc2 [T2 [Hbn2 [Hv2 [HmT2 HTe2]]]]]].
+  rewrite Hbn1, Hbn2.
+  unfold f64_add, SFadd. cbv beta iota zeta.
+  assert (Hz1 : (Z.min T1 T2 <= T1)%Z) by lia.
+  assert (Hz2 : (Z.min T1 T2 <= T2)%Z) by lia.
+  assert (HA : cond_Zopp s1 (Zpos (fst (shl_align mc1 T1 (Z.min T1 T2))))
+               = (m1 * 2 ^ (e1 - Z.min T1 T2))%Z).
+  { rewrite (shl_align_fst_val mc1 T1 _ Hz1), cond_Zopp_mul, Hv1.
+    rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+    f_equal. f_equal. lia. }
+  assert (HB : cond_Zopp s2 (Zpos (fst (shl_align mc2 T2 (Z.min T1 T2))))
+               = (m2 * 2 ^ (e2 - Z.min T1 T2))%Z).
+  { rewrite (shl_align_fst_val mc2 T2 _ Hz2), cond_Zopp_mul, Hv2.
+    rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+    f_equal. f_equal. lia. }
+  change SpecFloat.cond_Zopp with cond_Zopp.
+  rewrite HA, HB.
+  cbn [dy_add] in Hadd.
+  assert (Hsum : dy_norm (m1 * 2 ^ (e1 - Z.min T1 T2) + m2 * 2 ^ (e2 - Z.min T1 T2))%Z
+                         (Z.min T1 T2) = (mr, er)).
+  { destruct (Z.leb e1 e2) eqn:Eb in Hadd.
+    - apply Z.leb_le in Eb.
+      rewrite Z.shiftl_mul_pow2 in Hadd by lia.
+      rewrite <- Hadd.
+      apply (dy_norm_value_unique _ _ _ e1); [lia|].
+      rewrite Z.mul_add_distr_r.
+      rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+      replace ((e2 - e1) + (e1 - Z.min T1 T2))%Z with (e2 - Z.min T1 T2)%Z by lia.
+      reflexivity.
+    - apply Z.leb_gt in Eb.
+      rewrite Z.shiftl_mul_pow2 in Hadd by lia.
+      rewrite <- Hadd.
+      apply (dy_norm_value_unique _ _ _ e2); [lia|].
+      rewrite Z.mul_add_distr_r.
+      rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
+      replace ((e1 - e2) + (e2 - Z.min T1 T2))%Z with (e1 - Z.min T1 T2)%Z by lia.
+      reflexivity. }
+  exact (normalize_result_agrees_f64 _ _ mr er Hsum Hr).
+Qed.
+(** the ADD/SUB AGREEMENT core over all shapes *)
+Lemma f64_add_normalize_agrees : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_add (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 m2 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hadd Hr.
+  destruct m1 as [|p1|p1].
+  - destruct m2 as [|p2|p2].
+    + (* both zero *)
+      cbn [binary_normalize]. unfold f64_add, SFadd. cbv beta iota.
+      cbn [dy_add] in Hadd.
+      destruct (Z.leb e1 e2) in Hadd;
+        rewrite Z.shiftl_0_l in Hadd; cbn [Z.add dy_norm] in Hadd;
+        injection Hadd as <- <-; reflexivity.
+    + exact (f64_add_zero_left_f64 e1 (Zpos p2) e2 mr er p2 eq_refl H2 Hadd Hr).
+    + exact (f64_add_zero_left_f64 e1 (Zneg p2) e2 mr er p2 eq_refl H2 Hadd Hr).
+  - destruct m2 as [|p2|p2].
+    + exact (f64_add_zero_right_f64 (Zpos p1) e1 e2 mr er p1 eq_refl H1 Hadd Hr).
+    + exact (f64_add_finite_agrees (Zpos p1) e1 (Zpos p2) e2 mr er p1 p2
+               eq_refl eq_refl H1 H2 Hadd Hr).
+    + exact (f64_add_finite_agrees (Zpos p1) e1 (Zneg p2) e2 mr er p1 p2
+               eq_refl eq_refl H1 H2 Hadd Hr).
+  - destruct m2 as [|p2|p2].
+    + exact (f64_add_zero_right_f64 (Zneg p1) e1 e2 mr er p1 eq_refl H1 Hadd Hr).
+    + exact (f64_add_finite_agrees (Zneg p1) e1 (Zpos p2) e2 mr er p1 p2
+               eq_refl eq_refl H1 H2 Hadd Hr).
+    + exact (f64_add_finite_agrees (Zneg p1) e1 (Zneg p2) e2 mr er p1 p2
+               eq_refl eq_refl H1 H2 Hadd Hr).
+Qed.
+(** ★ rung 5 CLOSED at binary64 (gated): on the gate's windows — operands AND result — the
+    LIVE render of [dy_add]'s exact fold IS the model's [f64_add] of the operands' renders:
+    ADD/SUB agreement, every case (zero rows, cancellation, the raw-wide carry class). *)
+Theorem sf_render_add_agrees_f64 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_add (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat64 m1 e1 = Some v1
+    /\ sf_render GTFloat64 m2 e2 = Some v2
+    /\ sf_render GTFloat64 mr er = Some (f64_add v1 v2).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hadd Hr.
+  unfold sf_render. rewrite !renorm_sf_of_dyadic.
+  do 2 eexists.
+  split; [reflexivity|]. split; [reflexivity|].
+  f_equal. symmetry.
+  exact (f64_add_normalize_agrees m1 e1 m2 e2 mr er H1 H2 Hadd Hr).
 Qed.
 (** the shape [ptype]'s unary-minus fold actually produces
     ([PtFloatConst t (dy_make (Z.opp (dy_m d)) (dy_e d))]) — the reseal is INERT: the sealed
@@ -7233,7 +7421,7 @@ Definition gosem_float_surface :=
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
-   dy_norm_value_unique, sf_render_signed_value_f64,
+   dy_norm_value_unique, sf_render_signed_value_f64, sf_render_add_agrees_f64,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,

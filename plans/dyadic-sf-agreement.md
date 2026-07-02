@@ -70,12 +70,16 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    in-window equals `binary_round` of the core at the adjusted exponent, raw digits UNBOUNDED
    (the target-at-or-below-raw-exponent regime reduces to rung 4's `binary_round_of_norm`
    with DERIVED premises; the other regime consumes the appended zeros via 5a).
-   5c PARTIAL: `binary_normalize_wide_determined` (rung 4's endpoint),
-   `dy_norm_value_unique` (via `pos_odd_split_iter`), and the LIVE render endpoint
-   `sf_render_signed_value_f64` (a windowed nonzero dyadic renders to a canonical finite
-   whose SIGNED mantissa carries the value in difference form — `cond_Zopp s mc = m*2^(e-T)`)
-   are LANDED + gated; REMAINING: the `SFadd` finite-arm assembly closing
-   `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
+   ★ ADD at binary64 CLOSED (gated `sf_render_add_agrees_f64`): on the gate's windows —
+   operands AND result — the LIVE render of `dy_add`'s exact fold IS the model's `f64_add` of
+   the operands' renders, every shape (zero rows, cancellation, the raw-wide carry class).
+   The assembly: `sf_render_signed_value_f64` (signed difference-form operand
+   characterization) + `cond_Zopp_mul` value algebra identify `SFadd`'s raw aligned sum with
+   the fold (`f64_add_finite_agrees`), the zero rows collapse via `dy_norm_value_unique`
+   (`f64_add_zero_{left,right}_f64`), and `normalize_result_agrees_f64` (idempotence + wide
+   determinism under the result's window) is the uniform endgame.
+   REMAINING in the rung: the SUB corollary (`dy_sub = dy_add ∘ dy_neg`; `SFsub`'s arm vs the
+   NEG machinery).
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).
 7. **The f32 row + cross-width conversions** (needs rung 3's idempotence for the `f32_round`
