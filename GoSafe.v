@@ -380,8 +380,8 @@ Fail Example forge_uint8_overflow :
     defined — GoSem's slice-1 denotation ([denote_program]) is too PARTIAL to define it against — and a
     placeholder [Definition BehaviorSafe _ := True] would be exactly the decorative/overclaiming gate the
     charter forbids (§8 Rule 4).  (FIRST proof-only PROPERTIES do exist in [GoSemSafe.v] — a NARROW DECIDABLE
-    emission gate [GoSemSafe.panic_free_gate] / [emit_panic_free_gated] (end-to-end sound) accepting only
-    DENOTED + syntactically panic-free programs, modeled runtime panics rejected by NON-denotation — but that
+    emission gate [GoSemSafe.panic_free_gate] / [emit_panic_free_gated] (end-to-end sound) accepting a
+    program only if its DENOTATION is [CPan]-free ([cmd_no_panic]), runtime panics rejected by NON-denotation — but that
     is NOT this full [BehaviorSafe] gate and does NOT gate the main output.)  When GoSem is
     complete enough: [BehaviorSafe (p : Program) : Prop := <no nil-deref / race / … over its GoSem denotation>],
     and GoEmit gains [SafeProgram]/[emit_safe]. *)

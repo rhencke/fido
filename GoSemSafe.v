@@ -14,12 +14,13 @@
 
     Structure (each def's exact contract is at its site; the public surface is bundled in
     [gosem_panic_free_surface], single-sourced in PROGRESS.md "Current gates"):
-    - PROPERTIES: a program that DENOTES + is syntactically panic-free runs (via [run_cmd], for enough fuel —
-      defers included) to [ORet], never [OPanic] ([panic_free_runs_ret]; [_ustep] lifts it to [ustep] through
-      the general bridge [bridge_agrees], keeping [run_cmd] the authority).
-    - PREDICATE: [panic_free_denotable] folds "denotes + syntactically panic-free" into ONE DECIDABLE bool on the
-      RAW [Program]; it ENTAILS the panic-free run ([panic_free_denotable_runs_ret][_ustep]) and REFINES
-      [SupportedProgram] ([panic_free_denotable_supported]).
+    - PROPERTIES: a [CPan]-free command runs (via [run_cmd], for enough fuel — defers included) to [ORet],
+      never [OPanic] ([panic_free_runs_ret]; [_ustep] lifts it to [ustep] through the general bridge
+      [bridge_agrees], keeping [run_cmd] the authority).
+    - PREDICATE: [panic_free_denotable] = the program DENOTES and its denotation is [CPan]-free
+      ([cmd_no_panic] — behavioral, one check for immediate/deferred/future-runtime panics); ONE DECIDABLE
+      bool on the RAW [Program]; it ENTAILS the panic-free run ([panic_free_denotable_runs_ret][_ustep]) and
+      REFINES [SupportedProgram] ([panic_free_denotable_supported]).
     - CERT + EMITTER: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
       [emit_panic_free] emits through the blessed [emit_supported] path, but its PRECONDITION is a proven
       panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].
@@ -32,71 +33,11 @@ From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified uni
 From Stdlib Require Import String List Bool Sumbool ZArith.   (* ZArith registers Z's number notation so [EInt 10] type-directs to [Z] while nat fuel stays nat (as in GoSem) *)
 Import ListNotations.
 
-(** A statement is a panic SITE — an immediate [panic(e)] OR a DEFERRED one ([defer panic(e)] fires the panic
-    at function-scope return: the run still ends in [OPanic], so it is NOT panic-free).  These are exactly the
-    [denote_stmt] arms whose command contains a [CPan]. *)
-Definition stmt_is_panic (s : GoStmt) : bool :=
-  match s with
-  | GsExprStmt (ECall (EId f) _) => String.eqb (proj1_sig f) "panic"
-  | GsDefer    (ECall (EId f) _) => String.eqb (proj1_sig f) "panic"
-  | _ => false
-  end.
-Definition panic_free (b : list GoStmt) : bool := forallb (fun s => negb (stmt_is_panic s)) b.
-
-(** [cmd_no_panic] (no [CPan] anywhere — cannot end in a panic Outcome) is the SINGLE authority in cmd.v (a
-    [Cmd] predicate beside [no_defer]); consumed here for the panic-free safety property. *)
-Lemma cbind_no_panic : forall (c : Cmd unit) (k : unit -> Cmd unit),
-  cmd_no_panic c = true -> (forall u, cmd_no_panic (k u) = true) -> cmd_no_panic (cbind c k) = true.
-Proof.
-  intro c; induction c as [a | b xs c' IH | v | d c' IH] using Cmd_rect';
-    intros k Hc Hk; cbn [cbind cmd_no_panic] in *.
-  - apply Hk.
-  - apply IH; [exact Hc | exact Hk].
-  - discriminate Hc.
-  - apply andb_true_iff in Hc as [Hd Hc']. rewrite Hd. cbn. apply IH; [exact Hc' | exact Hk].
-Qed.
-
-(** A NON-panic-site denoting statement emits a [CPan]-free command — the two panic arms are the only [CPan]
-    sources ([denote_effect_call]'s panic branch, immediate or under [CDfr]). *)
-Lemma denote_stmt_no_panic : forall s c term,
-  denote_stmt s = Some (c, term) -> stmt_is_panic s = false -> cmd_no_panic c = true.
-Proof.
-  intros s c term H Hnp. destruct s as [e | | ev | be | de]; cbn [denote_stmt] in H.
-  - (* GsExprStmt: through [denote_effect_call] *)
-    unfold denote_effect_call in H.
-    destruct (expr_stmt_ok e); [|discriminate H].
-    destruct e as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
-    destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate H.
-    cbn [stmt_is_panic] in Hnp. rewrite Hnp in H.
-    destruct (eval_args fargs); [|discriminate H]. inversion H; subst. reflexivity.
-  - inversion H; subst; reflexivity.
-  - discriminate H.
-  - destruct (svalue be); [|discriminate H]. destruct (eval_value be); [|discriminate H].
-    inversion H; subst; reflexivity.
-  - (* GsDefer: [CDfr d (CRet tt)] — [stmt_is_panic] false means the deferred callee is NOT "panic", so
-       [denote_effect_call] took the println/print branch and [d] is a [CPan]-free [COut] chain. *)
-    destruct (denote_effect_call de) as [[d b]|] eqn:De; [|discriminate H].
-    inversion H; subst c term.
-    unfold denote_effect_call in De.
-    destruct (expr_stmt_ok de); [|discriminate De].
-    destruct de as [ | | | | | | | fe fargs | | | | | | ]; try discriminate De.
-    destruct fe as [ fi | | | | | | | | | | | | | ]; try discriminate De.
-    cbn [stmt_is_panic] in Hnp. rewrite Hnp in De.
-    destruct (eval_args fargs); [|discriminate De]. inversion De; subst. reflexivity.
-Qed.
-
-(** A panic-free DENOTED body denotes to a [CPan]-free command. *)
-Lemma denote_body_no_panic : forall b c, denote_body b = Some c -> panic_free b = true -> cmd_no_panic c = true.
-Proof.
-  induction b as [|s rest IH]; cbn [denote_body panic_free forallb]; intros c H Hpf.
-  - inversion H; subst; reflexivity.
-  - apply andb_true_iff in Hpf as [Hs Hrest]. apply negb_true_iff in Hs.
-    destruct (denote_stmt s) as [[cs term]|] eqn:Es; [|discriminate H]. destruct term.
-    + destruct (forallb stmt_ok rest); [|discriminate H]. inversion H; subst.
-      exact (denote_stmt_no_panic s c true Es Hs).
-    + destruct (denote_body rest) as [k|] eqn:Er; [|discriminate H]. inversion H; subst.
-      apply cbind_no_panic; [exact (denote_stmt_no_panic s cs false Es Hs) | intro u; exact (IH k eq_refl Hrest)].
-Qed.
+(** Panic-freedom is judged on the DENOTATION, by cmd.v's own authority: [cmd_no_panic c] (no [CPan] node
+    anywhere — body or deferred) is a decidable [bool] over the denoted command, so the gate needs NO syntactic
+    panic-site predicate.  An immediate [panic(e)] denotes [CPan], a deferred one [CDfr (CPan ..) _], and any
+    FUTURE runtime-panic denotation (e.g. a determined divide-by-zero) is a [CPan] too — all rejected by this
+    ONE check, with no per-construct syntax rule to keep in sync. *)
 
 (** The PRE-TERMINAL output world of a defer-free command: [go] threads each [COut] through [w_log], stopping
     at the terminal ([CRet] or [CPan]).  A structural spec of [go]'s accumulated world, consumed by the
@@ -131,27 +72,17 @@ Proof.
   intros c w v Hnd Hpv. unfold run_cmd. rewrite (go_panics_world c w v Hnd Hpv). reflexivity.
 Qed.
 
-(** A panic-free denoted body denotes to a [CPan]-free command — the program-level bridge to cmd.v's
-    [cmd_no_panic] authority. *)
-Lemma panic_free_no_panic : forall p c,
-  denote_program p = Some c -> panic_free (prog_body p) = true -> cmd_no_panic c = true.
-Proof.
-  intros p c Hden Hpf. unfold denote_program in Hden.
-  destruct (String.eqb (proj1_sig (prog_pkg p)) "main"); [|discriminate Hden].
-  exact (denote_body_no_panic (prog_body p) c Hden Hpf).
-Qed.
-
-(** The DENOTATIONAL behavioral-safety result: a panic-free supported program that DENOTES runs to [ORet] —
+(** The DENOTATIONAL behavioral-safety result: a program whose denotation is [CPan]-free runs to [ORet] —
     never [OPanic] — for enough fuel (defers included: a deferred [println] runs at return and cannot panic).
     Composes cmd.v's universal [run_cmd_terminates] with [run_cmd_no_panic_ret] (a completing panic-free run
-    returns [ORet]) through [panic_free_no_panic]. *)
-Theorem panic_free_runs_ret : forall p c w,
-  denote_program p = Some c -> panic_free (prog_body p) = true ->
+    returns [ORet]). *)
+Theorem panic_free_runs_ret : forall (c : Cmd unit) w,
+  cmd_no_panic c = true ->
   exists fuel w', run_cmd fuel c w = Some (ORet tt w').
 Proof.
-  intros p c w Hden Hpf.
+  intros c w Hnp.
   destruct (run_cmd_terminates c w) as [fuel [oc Hrun]].
-  destruct (run_cmd_no_panic_ret fuel c w oc Hrun (panic_free_no_panic p c Hden Hpf)) as [w' ->].
+  destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
   exists fuel, w'. exact Hrun.
 Qed.
 
@@ -201,13 +132,13 @@ Qed.
 
 (** ★ The panic-freedom guarantee reaches the OPERATIONAL semantics.  Composing the GENERAL cmd↔unified bridge
     [cmd_unified.bridge_agrees] (for ANY command — defers included — the [ustep] run AGREES with the
-    deterministic [run_cmd]) with [run_cmd_no_panic_ret]: a syntactically panic-free supported program, once
-    denoted, runs under [ustep] — the calculus [unified.v]'s race-freedom / liveness are proved on — to
-    COMPLETION ([uc_live 0 = false]) with NO panic ([uc_panic 0 = None]), its output equal to the [run_cmd]
-    [ORet] run's.  cmd.v's [run_cmd] STAYS the authority: the conclusion CARRIES [run_cmd fuel c w = Some (ORet
-    tt w')] and ties [uc_out] to that [w'] (not a free observer). *)
-Theorem panic_free_runs_ret_ustep : forall p c ucap w,
-  denote_program p = Some c -> panic_free (prog_body p) = true ->
+    deterministic [run_cmd]) with [run_cmd_no_panic_ret]: a [CPan]-free command runs under [ustep] — the
+    calculus [unified.v]'s race-freedom / liveness are proved on — to COMPLETION ([uc_live 0 = false]) with NO
+    panic ([uc_panic 0 = None]), its output equal to the [run_cmd] [ORet] run's.  cmd.v's [run_cmd] STAYS the
+    authority: the conclusion CARRIES [run_cmd fuel c w = Some (ORet tt w')] and ties [uc_out] to that [w']
+    (not a free observer). *)
+Theorem panic_free_runs_ret_ustep : forall (c : Cmd unit) ucap w,
+  cmd_no_panic c = true ->
   exists (uc : UConfig) (w' : World) (fuel : nat),
     run_cmd fuel c w = Some (ORet tt w')                    (* cmd.v's AUTHORITATIVE panic-free [ORet] run — grounds [w'] *)
     /\ usteps ucap (ustart (cmd_to_ucmd c)) uc
@@ -215,23 +146,23 @@ Theorem panic_free_runs_ret_ustep : forall p c ucap w,
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros p c ucap w Hden Hpf.
+  intros c ucap w Hnp.
   destruct (bridge_agrees c ucap w) as [uc [oc [fuel [Hus [Hrun [Hlive [Hpan Hout]]]]]]].
-  destruct (run_cmd_no_panic_ret fuel c w oc Hrun (panic_free_no_panic p c Hden Hpf)) as [w' ->].
+  destruct (run_cmd_no_panic_ret fuel c w oc Hrun Hnp) as [w' ->].
   exists uc, w', fuel. split; [ exact Hrun | split; [ exact Hus | split; [ exact Hlive | split ] ] ].
   - rewrite Hpan. reflexivity.
   - cbn [oc_world] in Hout. exact Hout.
 Qed.
 
-(** The GATE-SHAPE predicate.  [panic_free_runs_ret] takes the denotation [denote_program p = Some c] as a
-    HYPOTHESIS; a real gate must be DECIDABLE on the raw [Program].  So fold its two conditions into one boolean:
-    [panic_free_denotable p] = the decidable image of "denotes" ([denotable_program], from [denote_program_dec])
-    AND syntactic [panic_free] — computable from the program alone, and it ENTAILS the panic-free run to [ORet]
-    (below).  (The
-    module-wide caveat applies: the DECIDABLE gate consuming this predicate is [panic_free_gate] (below), and
-    the narrow emission cert/emitter built on it are [emit_panic_free] / [emit_panic_free_gated].) *)
+(** The GATE-SHAPE predicate.  [panic_free_runs_ret] takes a command as its subject; a real gate must be
+    DECIDABLE on the raw [Program].  [panic_free_denotable p] computes the denotation and checks it [CPan]-free
+    with cmd.v's own [cmd_no_panic] — BEHAVIORAL by construction: any denotation containing a panic (an
+    immediate [panic(e)], a deferred one, or a future runtime-panic case) is rejected by this one check.
+    It ENTAILS the panic-free run to [ORet] (below).  (The module-wide caveat applies: the DECIDABLE gate
+    consuming this predicate is [panic_free_gate] (below), and the narrow emission cert/emitter built on it are
+    [emit_panic_free] / [emit_panic_free_gated].) *)
 Definition panic_free_denotable (p : Program) : bool :=
-  denotable_program p && panic_free (prog_body p).
+  match denote_program p with Some c => cmd_no_panic c | None => false end.
 
 (** The decidable [panic_free_denotable] ENTAILS the panic-free [ORet] run (for enough fuel — defers
     included).  Composes [denote_program_dec] (the denotability conjunct yields the denotation) with
@@ -240,11 +171,10 @@ Theorem panic_free_denotable_runs_ret : forall p w,
   panic_free_denotable p = true ->
   exists c fuel w', denote_program p = Some c /\ run_cmd fuel c w = Some (ORet tt w').
 Proof.
-  intros p w H. apply andb_true_iff in H as [Hden Hpf].
-  destruct (denote_program p) as [c|] eqn:Ec.
-  - destruct (panic_free_runs_ret p c w Ec Hpf) as [fuel [w' Hrun]].
-    exists c, fuel, w'. split; [reflexivity | exact Hrun].
-  - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
+  intros p w H. unfold panic_free_denotable in H.
+  destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
+  destruct (panic_free_runs_ret c w H) as [fuel [w' Hrun]].
+  exists c, fuel, w'. split; [reflexivity | exact Hrun].
 Qed.
 
 (** The same decidable-predicate guarantee at the OPERATIONAL level (via [panic_free_runs_ret_ustep]). *)
@@ -258,13 +188,12 @@ Theorem panic_free_denotable_runs_ret_ustep : forall p ucap w,
     /\ uc_panic uc 0 = None
     /\ w_output w' = w_output w ++ map snd (uc_out uc).
 Proof.
-  intros p ucap w H. apply andb_true_iff in H as [Hden Hpf].
-  destruct (denote_program p) as [c|] eqn:Ec.
-  - destruct (panic_free_runs_ret_ustep p c ucap w Ec Hpf)
-      as [uc [w' [fuel [Hrun [Hus [Hlive [Hpan Hout]]]]]]].
-    exists c, uc, w', fuel.
-    split; [reflexivity | split; [exact Hrun | split; [exact Hus | split; [exact Hlive | split; [exact Hpan | exact Hout]]]]].
-  - exfalso. exact (proj2 (denote_program_dec p) Hden Ec).
+  intros p ucap w H. unfold panic_free_denotable in H.
+  destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
+  destruct (panic_free_runs_ret_ustep c ucap w H)
+    as [uc [w' [fuel [Hrun [Hus [Hlive [Hpan Hout]]]]]]].
+  exists c, uc, w', fuel.
+  split; [reflexivity | split; [exact Hrun | split; [exact Hus | split; [exact Hlive | split; [exact Hpan | exact Hout]]]]].
 Qed.
 
 (** The predicate DECIDES (non-vacuous): TRUE for [panic_free_prog], FALSE for [panicking_prog]. *)
@@ -280,7 +209,9 @@ Proof. split; reflexivity. Qed.
 Lemma panic_free_denotable_supported : forall p,
   panic_free_denotable p = true -> SupportedProgram p.
 Proof.
-  intros p H. apply andb_true_iff in H as [Hden _]. exact (denotable_supported p Hden).
+  intros p H. unfold panic_free_denotable in H.
+  destruct (denote_program p) as [c|] eqn:Ec; [|discriminate H].
+  apply (denotable_supported p). apply (proj1 (denote_program_dec p)). congruence.
 Qed.
 
 (** ---- SEED of the GoSem-BACKED emission certificate (north-star: [BehaviorSafe] -> [SafeProgram] ->

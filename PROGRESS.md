@@ -87,7 +87,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
-  ⚠ accepts only DENOTED + syntactically panic-free programs — modeled runtime panics (OOB const slice index /
+  ⚠ accepts a program only if its DENOTATION is `CPan`-free (`cmd_no_panic`, the cmd.v authority — an
+  immediate or DEFERRED panic alike) — modeled runtime panics (OOB const slice index /
   panicking literal element / runtime blank-assign) are rejected by NON-denotation, `panic_free_gate_slice`
   pins the OOB case, `panic_free_gate_defer` pins the defer boundary (defer-println ACCEPTED+emitted;
   defer-panic supported+DENOTABLE yet rejected) — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.

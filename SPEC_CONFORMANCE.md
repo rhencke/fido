@@ -819,9 +819,9 @@ keep them separate:
   statement, print-injective (`print_stmt_inj`), syntactically SUPPORTED + certificate-emittable (gated to a
   call via `expr_stmt_ok`), and GoSem DENOTES it into R2's faithful model (`denote_stmt GsDefer = CDfr d (CRet
   tt)` via the shared `denote_effect_call`; the deferred call runs at return, LIFO — end-to-end pins
-  `GoSem.rc_defer_lifo` / `rc_defer_panic`).  A deferred panic is a panic SITE (`GoSemSafe.stmt_is_panic`), so
-  the panic-free gate rejects `defer panic(v)` while accepting + emitting `defer println(..)`
-  (`GoSemSafe.panic_free_gate_defer`).
+  `GoSem.rc_defer_lifo` / `rc_defer_panic`).  A deferred panic denotes a `CPan` under the `CDfr`, so the
+  panic-free gate (behavioral: `cmd_no_panic` of the denotation) rejects `defer panic(v)` while accepting +
+  emitting `defer println(..)` (`GoSemSafe.panic_free_gate_defer`).
 - **(B) shallow `IO` (`World -> Outcome`) — NO defer meaning, FAILS LOUD (✓ rule 2):** a sequential shallow
   reading cannot reify a func-scoped defer, so `builtins.defer_call (_ : IO unit) := fun w => OPanic … w`
   PANICS rather than silently dropping the effect (review #6/#12, which replaced the old `ORet tt w` no-op).
