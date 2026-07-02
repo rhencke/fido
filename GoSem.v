@@ -78,18 +78,20 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
 (** ---- The PER-NODE float-fold checker (consumed by the [floats_checked] BOUNDARY below — the boundary,
     at [eval_value]'s top, is what makes the no-bypass claim; [fsf_checked] alone is NOT an authority: its
     int-constant conversion leaves deliberately do NOT recurse, the boundary's full-syntax recursion
-    covers them) ---- [ptype] folds float-const arithmetic exactly (sealed dyadics); the MODEL computes
-    with its own [f64_*]/[f32_*] spec_float ops, and NEGATION with CONSTANT semantics
-    ([sf_const_neg] below — Go constants are exact rationals with NO signed zero, so the checker's
-    authority for the fold is the constant rule, not the runtime [SFopp]).  CLAIM HYGIENE: for the
+    covers them) ---- [ptype] folds float-const arithmetic exactly (sealed dyadics); the checker
+    verifies every node with the CONSTANT-fold operation layer ([sf_const_binop]/[sf_const_neg]
+    below — the width's IEEE table under [sf_pos_zero] zero-sign erasure: Go constants are exact
+    rationals with NO signed zero, so the fold authority is the constant rule; raw [SF*] zero
+    signs belong to RUNTIME paths only).  CLAIM HYGIENE: for the
     ACCEPTED exact-dyadic subset the model value agrees with the printed Go constant expression's
     observable value (Go may CONSTANT-fold these at compile time — no "same runtime op" claim);
     non-exact/rounding cases are REJECTED until the general dyadic↔SF agreement theorem lands.
-    [fsf_checked] verifies ONE float-constant node against the model op on the verified operand carriers
+    [fsf_checked] verifies ONE float-constant node against the const op on the verified operand carriers
     (recursing through float operands and float-to-float conversions; cross-width via
-    [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (Mathematically no
-    disagreement should exist — IEEE ops are correctly rounded, so an exactly representable result is
-    returned exactly; PROVING that once — the general dyadic↔[SF*] class theorem,
+    [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (For NONZERO
+    results no disagreement should exist — IEEE ops are correctly rounded, so an exactly
+    representable result is returned exactly; ZERO results are verified under the constant rule.
+    PROVING acceptance total on the admitted class — the general dyadic↔[SF*] class theorem,
     plans/dyadic-sf-agreement.md — would let this runtime re-verification be dropped.) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
@@ -125,20 +127,47 @@ Definition sf_model_binop (t : GoTy) (op : BinOp) : option (spec_float -> spec_f
       end
   | _ => None
   end.
-(** CONSTANT float negation at width [t] — Go's EXACT-RATIONAL constant semantics, NOT the
-    runtime op: constants have NO signed zero (negating the rational 0 is 0, rendered [+0] — gc
-    FOLDS [-(0.0)] to [+0], go-run-verified [1/x = +Inf], while the RUNTIME op [SFopp] on a [+0]
-    VALUE gives [-0], [1/-z = -Inf]); a NONZERO constant negates by sign flip, where constant and
-    runtime semantics coincide ([SFopp]; the canonicalizing wrapper at f32).  The checker verifies
-    the FOLD, so its authority is constant semantics — zero included ([fsf_checked_neg_zero_total]
-    seals the zero class as ACCEPTED, [sf_render_neg_general_f64] the nonzero agreement). *)
+(** ---- The CONSTANT-fold operation layer — Go's exact-rational constant semantics, split from
+    the runtime IEEE ops for the WHOLE checker (not per-op): constants have NO signed zero, so a
+    CONSTANT operation's ZERO result is [+0] whatever zero sign the runtime op carries
+    ([SFmul +0 (-1) = -0] and [SFdiv +0 (-1) = -0], but the constants [0 * -1] and [0 / -1] ARE
+    the rational 0 — gc folds them to [+0]; same for [SFopp +0 = -0] vs [-(0.0)],
+    go-run-verified [1/x = +Inf]).  [sf_pos_zero] is the ONE erasure authority;
+    [sf_const_binop]/[sf_const_neg] wrap the width's IEEE table with it and are the ONLY
+    verification ops [fsf_checked] uses (the conversion arms need none — their inputs are dyadic
+    RENDERS, whose zeros are already [+0]).  NONZERO results are untouched (erasure inert), so
+    acceptance still means "the value IS the exact fold"; the raw [SF*]/[f32_*] ops keep their
+    IEEE zero signs for RUNTIME paths (none live yet — [PtRunFloat] is class-absent). *)
+Definition sf_pos_zero (v : spec_float) : spec_float :=
+  match v with S754_zero _ => S754_zero false | x => x end.
+Definition sf_const_binop (t : GoTy) (op : BinOp) : option (spec_float -> spec_float -> spec_float) :=
+  match sf_model_binop t op with
+  | Some f => Some (fun x y => sf_pos_zero (f x y))
+  | None => None
+  end.
 Definition sf_const_neg (t : GoTy) : option (spec_float -> spec_float) :=
   match t with
-  | GTFloat64 => Some (fun x => match x with S754_zero _ => S754_zero false | _ => SFopp x end)
-  | GTFloat32 => Some (fun x => match x with S754_zero _ => S754_zero false
-                                | _ => f32val (f32_neg (f32_lit x)) end)
+  | GTFloat64 => Some (fun x => sf_pos_zero (SFopp x))
+  | GTFloat32 => Some (fun x => sf_pos_zero (f32val (f32_neg (f32_lit x))))
   | _ => None
   end.
+(** the zero rows sealed at the LAYER: ANY zero result of a constant op is [+0] — width- and
+    op-generic (multiplication/division by a negative constant included, where the runtime rows
+    leak [xorb] signs) *)
+Lemma sf_const_binop_zero_erased : forall t op f g x y s,
+  sf_model_binop t op = Some g ->
+  sf_const_binop t op = Some f ->
+  g x y = S754_zero s ->
+  f x y = S754_zero false.
+Proof.
+  intros t op f g x y s Hg Hf Hz. unfold sf_const_binop in Hf.
+  rewrite Hg in Hf. injection Hf as <-. cbv beta. rewrite Hz. reflexivity.
+Qed.
+Lemma sf_const_neg_zero_erased : forall t f s,
+  sf_const_neg t = Some f -> f (S754_zero s) = S754_zero false.
+Proof.
+  intros t f s H; destruct t; try discriminate H; injection H as <-; destruct s; reflexivity.
+Qed.
 (** A float-op OPERAND's verified carrier at [t] — a same-typed float const (recursively verified via
     [rec], instantiated with [fsf_checked] itself) or an untyped int const in the exact interval (Go
     converts it to [t]; a leaf).  Parametrized so the Fixpoint below can use it mid-definition; the
@@ -161,7 +190,7 @@ Fixpoint fsf_checked (e : GExpr) : option spec_float :=
           match e with
           | EBn op a b =>
               match fsf_operand_with fsf_checked t a, fsf_operand_with fsf_checked t b,
-                    sf_model_binop t op with
+                    sf_const_binop t op with
               | Some va, Some vb, Some f => if sf_eqb_struct (f va vb) vr then Some vr else None
               | _, _, _ => None
               end
@@ -6389,7 +6418,7 @@ Proof.
 Qed.
 Theorem fsf_checked_binop_agrees : forall op a b t d f va vb vr,
   ptype (EBn op a b) = Some (PtFloatConst t d) ->
-  sf_model_binop t op = Some f ->
+  sf_const_binop t op = Some f ->
   fsf_operand t a = Some va -> fsf_operand t b = Some vb ->
   fsf_checked (EBn op a b) = Some vr ->
   vr = f va vb.
@@ -6477,9 +6506,11 @@ Proof.
          | context [match ?x with _ => _ end] => destruct x
          end) ].
 Qed.
-(** ★ the ZERO CLASS sealed at the CHECKER: negating ANY zero-valued float constant is ACCEPTED
-    and folds to [+0] — Go's constant rule ([sf_const_neg]'s own zero case), for BOTH widths.
-    Zero float negation can never be supported-but-undenoted through this arm. *)
+(** ★ the negation ARM's zero row: negating an ACCEPTED zero-valued float constant is ACCEPTED
+    and folds to [+0] — Go's constant rule ([sf_const_neg] via [sf_pos_zero]), for BOTH widths.
+    (Operand acceptance is a PREMISE — checker-level totality over the whole admitted class is
+    rung 8, after rung 3's finite-render lemma; the binop zero rows are pinned end-to-end by
+    [signed_zero_folds_run].) *)
 Theorem fsf_checked_neg_zero_total : forall a t da v,
   ptype a = Some (PtFloatConst t da) -> dy_m da = Z0 ->
   fsf_checked a = Some v ->
@@ -6658,6 +6689,51 @@ Example negzero_const_runs : forall w,
       | Some c => run_cmd 5 c w | None => None end)
      = Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w)).
 Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
+(** the BINOP zero rows pinned end-to-end, BOTH widths (review round 3): multiplication and
+    division of a zero constant BY A NEGATIVE, and negation of such a product — the runtime rows
+    carry [xorb] zero-sign leaks ([SFmul +0 -1 = -0]), the constant layer erases them
+    ([sf_const_binop]); each folds, DENOTES, and prints the model's [+0] — go-run-verified
+    [1/x = +Inf] for all six (the runtime contrast [1/(r * -1) = -Inf]). *)
+Definition zeromul_const_e : GExpr :=
+  EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0])
+           (EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 1])).
+Definition zerodiv_const_e : GExpr :=
+  EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0])
+           (EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 1])).
+Definition negzeromul_const_e : GExpr := EUn UNeg zeromul_const_e.
+Definition zeromul32_const_e : GExpr :=
+  EBn BMul (ECall (EId (mkIdent "float32" eq_refl)) [EInt 0])
+           (EUn UNeg (ECall (EId (mkIdent "float32" eq_refl)) [EInt 1])).
+Definition zerodiv32_const_e : GExpr :=
+  EBn BDiv (ECall (EId (mkIdent "float32" eq_refl)) [EInt 0])
+           (EUn UNeg (ECall (EId (mkIdent "float32" eq_refl)) [EInt 1])).
+Definition negzeromul32_const_e : GExpr := EUn UNeg zeromul32_const_e.
+Example signed_zero_folds_eval :
+  map eval_value
+    [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
+    ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]
+  = [ Some (anyt TFloat64 (S754_zero false)) ; Some (anyt TFloat64 (S754_zero false))
+    ; Some (anyt TFloat64 (S754_zero false))
+    ; Some (anyt TFloat32 (f32_lit (S754_zero false))) ; Some (anyt TFloat32 (f32_lit (S754_zero false)))
+    ; Some (anyt TFloat32 (f32_lit (S754_zero false))) ]
+  /\ forallb supported_program (map println_prog
+       [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
+       ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]) = true
+  /\ forallb denotable_program (map println_prog
+       [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
+       ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]) = true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+Example signed_zero_folds_run : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ zeromul_const_e ; zerodiv_const_e ; negzeromul_const_e
+      ; zeromul32_const_e ; zerodiv32_const_e ; negzeromul32_const_e ]
+  = [ Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TFloat32 (f32_lit (S754_zero false)) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TFloat32 (f32_lit (S754_zero false)) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TFloat32 (f32_lit (S754_zero false)) :: nil) w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
@@ -6683,7 +6759,9 @@ Definition gosem_float_surface :=
    eval_value_floats_checked, floats_checked_children_eqs,
    Fido.builtins.binary_round_opp, sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    pos_odd_split_odd, dy_norm_opp, dy_norm_idem, dyconst_norm_fix,
-   fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs).
+   fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
+   sf_const_binop_zero_erased, sf_const_neg_zero_erased,
+   signed_zero_folds_eval, signed_zero_folds_run).
 Definition gosem_slice_index_surface :=
   (eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class,
    eval_slice_index_inbounds_class, eval_len_reduces, eval_len_supported,
