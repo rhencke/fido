@@ -527,69 +527,88 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation (slice 1 of the runtime-panic layer).  Supported programs are CLOSED
-    (free identifiers are rejected), so every expression's outcome is DETERMINED; what the pure [eval_value]
-    cannot express is a PANICKING outcome.  [denote_expr] denotes an expression to a COMMAND: [CRet v] when the
-    pure fold gives its value, [CPan rt_div_zero] for an integer [/] or [%] whose determined divisor is ZERO
-    (Go's runtime "integer divide by zero" — a runtime panic, since [ptype] admits only a RUNTIME-classified
-    zero divisor there: a CONSTANT zero divisor is a Go COMPILE error, rejected by [num_binop]).  Everything
-    else is honestly [None].  The arm is SEALED to the classifier ([ptype = PtRunInt] required) and to the
-    evaluator ([divisor_zero]'s zero-judgment provably AGREES with [eval_value] — [divisor_zero_eval]), so it
-    is a subset of the supported fragment with no second folding authority. *)
-Definition divisor_zero (b : GExpr) : bool :=
-  match b with
-  | ECall (EId f) (ESliceLit t es :: nil) =>
-      String.eqb (proj1_sig f) "len" && is_int_goty t
-      && match eval_int_slice_elems t es with Some nil => true | _ => false end
-  | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
-      String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
-      && match kvs with nil => true | _ => false end
-  | _ => false
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1).
+    Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
+    evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
+    carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
+    fold authority) via the checked [unbox_int]; [len] of an int-slice literal is the count of its
+    CONSTRUCTED elements (evaluated left-to-right, the FIRST panicking element aborting construction —
+    the verified go-run order); [+ - *] are the model's [int_add]/[int_sub]/[int_mul]; [/] is the model's
+    [int_div] through the evidence-erased [int_div_raw] (sealed by [int_div_raw_is_int_div]), and a
+    determined ZERO divisor is Go's runtime panic [rt_div_zero] ([%] by zero panics identically; a
+    nonzero [%] has no model op yet — honestly absent).  [RPanic] = a determined runtime panic;
+    [None] = not-yet-denotable (absent, never wrong).  This tier SUBSUMES the retired shape-based
+    [divisor_zero] (its zero-judgment is now [eval_value]'s own fold of the divisor, through the leaf). *)
+Definition unbox_int (v : GoAny) : option GoInt :=
+  match v with
+  | existT _ _ (pair x tag) =>
+      match tag in GoTypeTag A return A -> option GoInt with
+      | TInt64 => fun x0 => Some x0
+      | _ => fun _ => None
+      end x
   end.
-
-(** The SEAL: [divisor_zero]'s judgment IS the evaluator's — a zero-judged divisor evaluates to the boxed
-    integer 0 (the [len] of an empty fully-evaluable SLICE or MAP literal). *)
-Lemma divisor_zero_eval : forall b,
-  floats_checked b = true -> divisor_zero b = true -> eval_value b = box_int GTInt 0.
-Proof.
-  intros b Hfc H. unfold eval_value. rewrite Hfc. unfold divisor_zero in H.
-  destruct b as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
-  destruct fe as [ f | | | | | | | | | | | | | ]; try discriminate H.
-  destruct fargs as [|a rest]; try discriminate H.
-  destruct a as [ | | | | | | | | | | t es | kt vt kvs | | ]; try discriminate H.
-  - (* slice: [len([]t{})] *)
-    destruct rest as [|? ?]; try discriminate H.
-    apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
-    destruct (eval_int_slice_elems t es) as [[|v vs]|] eqn:He; try discriminate H2.
-    cbn [eval_value_core]. rewrite Hf, Ht. cbv beta iota delta [andb].
-    rewrite He. reflexivity.
-  - (* map: [len(map[kt]vt{})] *)
-    destruct rest as [|? ?]; try discriminate H.
-    apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [H3 Hvt].
-    apply andb_true_iff in H3 as [Hf Ht].
-    destruct kvs as [|kv kvs']; [|discriminate H2].
-    cbn [eval_value_core]. rewrite Hf, Ht, Hvt. reflexivity.
-Qed.
+(** The model's division, evidence-erased: [int_div] carries a nonzero proof it never USES computationally,
+    so [int_div_raw] is DEFINITIONALLY equal to it for every evidence — [int_div_raw_is_int_div] (gated)
+    seals the spelling to the model op (no second division authority); [reval_int] guards the zero case
+    itself (→ [rt_div_zero]), so the evidence-carrying call site is never needed here. *)
+Definition int_div_raw (a b : GoInt) : GoInt := intwrap (wrap64 (Z.quot (intraw a) (intraw b))).
+Lemma int_div_raw_is_int_div : forall a b pf, int_div_raw a b = int_div a b pf.
+Proof. reflexivity. Qed.
+Inductive RRes : Type := RVal (v : GoInt) | RPanic (p : GoAny).
+Fixpoint reval_int (e : GExpr) : option RRes :=
+  match eval_value e with
+  | Some v => match unbox_int v with Some x => Some (RVal x) | None => None end
+  | None =>
+      match ptype e with
+      | Some (PtRunInt t) =>
+          if negb (numty_eqb t GTInt) then None else
+          match e with
+          | ECall (EId f) (ESliceLit et es :: nil) =>
+              if String.eqb (proj1_sig f) "len" && is_int_goty et
+              then (fix construct (l : list GExpr) (n : nat) : option RRes :=
+                      match l with
+                      | nil => Some (RVal (intwrap (Z.of_nat n)))
+                      | x :: r =>
+                          match reval_int x with
+                          | Some (RVal _)   => construct r (S n)
+                          | Some (RPanic p) => Some (RPanic p)   (* a panicking element ABORTS construction *)
+                          | None => None
+                          end
+                      end) es O
+              else None
+          | EBn o a b =>
+              match reval_int a, reval_int b with
+              | Some (RPanic p), _ => Some (RPanic p)            (* left-to-right: a panicking LEFT operand fires first *)
+              | Some (RVal _), Some (RPanic p) => Some (RPanic p)
+              | Some (RVal va), Some (RVal vb) =>
+                  match o with
+                  | BAdd => Some (RVal (int_add va vb))
+                  | BSub => Some (RVal (int_sub va vb))
+                  | BMul => Some (RVal (int_mul va vb))
+                  | BDiv =>
+                      if Z.eqb (intraw vb) 0 then Some (RPanic rt_div_zero)
+                      else Some (RVal (int_div_raw va vb))
+                  | BRem => if Z.eqb (intraw vb) 0 then Some (RPanic rt_div_zero) else None
+                  | _ => None
+                  end
+              | _, _ => None
+              end
+          | _ => None
+          end
+      | _ => None
+      end
+  end.
 
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   match eval_value e with
   | Some v => Some (CRet v, false)
   | None =>
-      match e with
-      | EBn o a b =>
-          match o with
-          | BDiv | BRem =>
-              match ptype e with
-              | Some (PtRunInt _) =>                        (* SUPPORTED runtime INTEGER / or % (float /0 is ±Inf, not a panic — excluded by the guard) *)
-                  match eval_value a, divisor_zero b with
-                  | Some _, true => Some (CPan rt_div_zero, true)  (* the dividend evaluates cleanly, the divisor is determined 0 -> Go's runtime panic; TERMINATES *)
-                  | _, _ => None
-                  end
-              | _ => None
-              end
-          | _ => None
-          end
-      | _ => None
+      (* the RUNTIME tier — under the SAME float boundary [eval_value] enforces at its own top *)
+      if negb (floats_checked e) then None else
+      match reval_int e with
+      | Some (RVal v)   => Some (CRet (anyt TInt64 v), false)
+      | Some (RPanic p) => Some (CPan p, true)
+      | None => None
       end
   end.
 
@@ -598,24 +617,27 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
 Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = Some (CRet v, false).
 Proof. intros e v H. unfold denote_expr. rewrite H. reflexivity. Qed.
 
-(** ★ CLASS — the determined divide-by-zero PANICS: a SUPPORTED runtime integer [/] or [%] whose dividend
-    evaluates cleanly and whose divisor is determined 0 denotes to [CPan rt_div_zero] (Go's exact runtime
-    panic value).  Sealed by construction: the arm requires [ptype = Some (PtRunInt t)] (supported) and
-    [divisor_zero] (which agrees with [eval_value] — [divisor_zero_eval]). *)
-Lemma denote_expr_div_zero : forall o a b t va,
+(** ★ CLASS — the determined divide-by-zero PANICS, through the runtime tier: a SUPPORTED runtime
+    [GTInt] [/] or [%] whose operands BOTH evaluate ([reval_int] values) with divisor raw 0 denotes to
+    [CPan rt_div_zero] (Go's exact runtime panic value) — for the WHOLE reval-evaluable fragment (the
+    dividend may itself be a runtime value now, e.g. [len([]int{len([]int{1})}) / len([]int{})]). *)
+Lemma denote_expr_div_zero : forall o a b va vb,
   (o = BDiv \/ o = BRem) ->
-  ptype (EBn o a b) = Some (PtRunInt t) ->
-  eval_value a = Some va ->
-  divisor_zero b = true ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RVal vb) ->
+  Z.eqb (intraw vb) 0 = true ->
   denote_expr (EBn o a b) = Some (CPan rt_div_zero, true).
 Proof.
-  intros o a b t va Ho Hpt Ha Hdz.
-  unfold denote_expr.
+  intros o a b va vb Ho Hfc Hpt Ha Hb Hz.
   assert (Hev : eval_value (EBn o a b) = None).
-  { unfold eval_value. destruct (floats_checked (EBn o a b)); [|reflexivity].
-    cbn [eval_value_core]. unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
-  rewrite Hev.
-  destruct Ho as [-> | ->]; rewrite Hpt, Ha, Hdz; reflexivity.
+  { unfold eval_value. rewrite Hfc. cbn [eval_value_core].
+    unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  rewrite Ha, Hb.
+  destruct Ho as [-> | ->]; rewrite Hz; reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -909,7 +931,7 @@ Qed.
     print/println arg denotes iff it EVALUATES + is PRINTABLE ([denotable_arg]).  [out_call pr]: [println]
     (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class — a print/println of a
-    RUNTIME arg ([println(len([]int{len([]int{1})}))]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
+    RUNTIME arg ([println([]int{10,20}[len([]int{1})])]) is SUPPORTED but NOT [denotable_arg], so it does NOT denote
     (pinned by [out_boundary_runtime_undenoted]); widening [eval_value] widens this fragment.  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
@@ -1019,8 +1041,9 @@ Proof. apply out_main_denotes. reflexivity. Qed.
 (** ONE spelling for the recurring effectful-fixture expressions (the aliasing discipline — no drift).
     [divzero_e]/[divzero_map_e] = the determined divide-by-zero through each empty-literal [len];
     [maplen_e] = a fully-evaluable map-[len] (DENOTES — [eval_value_good]/[rc_maplen]); [runlen_e] (a
-    slice-[len] whose ELEMENT is runtime) and [maplen_runval_e] (a map-[len] whose VALUE is runtime) = the
-    supported-but-undenoted witnesses (runtime values await B3). *)
+    slice-[len] whose ELEMENT is runtime — DENOTES since tier R1, [runtime_tier_runs], though still
+    eval-level absent); [runidx_e] (a RUNTIME slice index — undenoted until tier R2) and
+    [maplen_runval_e] (a map-[len] whose VALUE is runtime) = the supported-but-undenoted witnesses. *)
 Definition divzero_e : GExpr :=
   EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
 Definition divzero_map_e : GExpr :=
@@ -1030,21 +1053,26 @@ Definition maplen_e : GExpr :=
 Definition runlen_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [ESliceLit GTInt [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]].
+Definition runidx_e : GExpr :=
+  EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
 Definition maplen_runval_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt [(EInt 1, ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 2]])]].
 
-(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len([]int{len([]int{1})}))] is
-    SUPPORTED (valid Go) yet its arg is a [len] over a RUNTIME element GoSem does not fold (NOT
-    [denotable_arg]), so the program does NOT denote.  (A fully-evaluable literal's [len] folds — this witness
-    is the strictness pin for the [eval_len_supported] inclusion.) *)
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println([]int{10,20}[len([]int{1})])]
+    is SUPPORTED (valid Go) yet its arg is a RUNTIME slice INDEX GoSem does not yet evaluate (tier R2; NOT
+    [denotable_arg] either — the eval level is constant-only), so the program does NOT denote.  (The
+    runtime-ELEMENT [len] witness that used to sit here now DENOTES through tier R1 — [runtime_tier_runs];
+    it remains the strictness pin for the EVAL-level [eval_len_supported] inclusion, since [eval_value
+    runlen_e = None] still.) *)
 Definition out_runtime_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
 Example out_boundary_runtime_undenoted :
   supported_program out_runtime_prog = true
-  /\ denotable_arg runlen_e = false
-  /\ denote_program out_runtime_prog = None.
+  /\ denotable_arg runidx_e = false
+  /\ denote_program out_runtime_prog = None
+  /\ eval_value runlen_e = None.   (* the eval-level strictness pin survives the tier: constant folds only *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ---- GENERAL statement-compositional CONVERSE: a body whose EVERY statement INDIVIDUALLY denotes is
@@ -1386,8 +1414,9 @@ Example map_len_supported_but_undenoted :
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** The determined divide-by-zero through the MAP shape: [_ = 1 / len(map[int]int{})] is SUPPORTED (valid Go —
-    a runtime integer division) and denotes+runs to the exact panic, like [rc_div_zero]'s slice shape
-    ([divisor_zero] recognizes BOTH empty-literal [len] forms; sealed by [divisor_zero_eval]). *)
+    a runtime integer division) and denotes+runs to the exact panic, like [rc_div_zero]'s slice shape (the
+    runtime tier evaluates BOTH empty-literal [len] divisors to 0 through [eval_value]'s own folds — the
+    constant tier stays the single fold authority). *)
 Definition gosem_maplen_divzero_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsBlankAssign divzero_map_e].
 Example maplen_divzero_runs : forall w,
@@ -1396,13 +1425,35 @@ Example maplen_divzero_runs : forall w,
      | Some c => run_cmd 5 c w | None => None end = Some (OPanic rt_div_zero w).
 Proof. intro w; split; vm_compute; reflexivity. Qed.
 
+(** ★ RUNTIME-TIER pins (R1, grouped): the closed world DETERMINES runtime integer values, and the tier
+    computes them with the MODEL'S OWN ops — [println(runlen_e)] (a len over a RUNTIME element) prints 1;
+    a runtime [/] of runtime [len]s prints its quotient (the model's [int_div]); and a PANICKING element
+    ABORTS literal construction ([println(len([]int{20, 1/len([]int{})}))] panics with [rt_div_zero]
+    BEFORE any output — the verified go-run order).  All three SUPPORTED (the gate is unchanged). *)
+Definition runtime_div_vals_e : GExpr :=
+  EBn BDiv (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2; EInt 3; EInt 4; EInt 5; EInt 6]])
+           (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]]).
+Definition panicking_elem_len_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 20; divzero_e]].
+Example runtime_tier_runs : forall w,
+  map (fun p => match denote_program p with Some c => run_cmd 5 c w | None => None end)
+      [println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e]
+  = [Some (ORet tt (w_log true (anyt TInt64 (intwrap 1) :: nil) w));
+     Some (ORet tt (w_log true (anyt TInt64 (intwrap 3) :: nil) w));
+     Some (OPanic rt_div_zero w)].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_tier_supported :
+  forallb supported_program
+    [println_prog runlen_e; println_prog runtime_div_vals_e; println_prog panicking_elem_len_e] = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
     [GoSafe.valid_unsupported_programs]):
     [map[int]map[[]int]int]
     hides a non-comparable slice KEY inside the VALUE type, so even the EMPTY literal is invalid Go — the
     gate REJECTS it at the ROOT ([ptype = None] ⇒ unsupported, never emitted) and NO layer assigns it
-    behavior ([eval_value] / [divisor_zero] / [denote_program] all decline) through [len],
+    behavior ([eval_value] / [reval_int] / [denote_program] all decline) through [len],
     [println(len(..))], and the divide-by-zero shape.  GoSafe's [bad_programs_rejected] carries the same
     witnesses at the gate level. *)
 Definition maplen_invalid_vt_e : GExpr :=
@@ -1411,7 +1462,7 @@ Example map_len_invalid_type_rejected :
   ptype (EMapLit GTInt (GTMap (GTSlice GTInt) GTInt) []) = None
   /\ ptype maplen_invalid_vt_e = None
   /\ eval_value maplen_invalid_vt_e = None
-  /\ divisor_zero maplen_invalid_vt_e = false
+  /\ reval_int maplen_invalid_vt_e = None
   /\ supported_program (println_prog maplen_invalid_vt_e) = false
   /\ denote_program (println_prog maplen_invalid_vt_e) = None
   /\ supported_program (mkProgram (mkIdent "main" eq_refl)
@@ -1449,15 +1500,15 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runlen_e)]
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runidx_e)]
     is a DENOTABLE body ([return] terminates; the runtime-arg [println] is a SUPPORTED dead tail) whose tail
     does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
     terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
-    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e])] = true
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e])] = true
   /\ forallb stmt_denotable [GsReturn;
-       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e])] = false.
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
@@ -1528,21 +1579,21 @@ Definition gosem_defer_arg_panic_prog : Program :=
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
-    in each is the runtime-element [len] ([runlen_e], supported-printable yet undenoted —
+    in each is the runtime slice INDEX ([runidx_e], supported-printable yet undenoted —
     [out_boundary_runtime_undenoted]): as a LATER ARG of the panicking call, as the SUCCESSOR statement, and
     as the successor of a DEFERRED panicking-arg call.  Each program denotes and runs to [OPanic rt_div_zero]
     with NO output. *)
 Definition gosem_arg_panic_tail_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runlen_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runidx_e]); GsReturn].
 Definition gosem_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
 Definition gosem_defer_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runlen_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runidx_e]); GsReturn].
 Definition arg_panic_shortcircuit_progs : list Program :=
   [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
 Example arg_panic_shortcircuit_runs : forall w,
@@ -1857,7 +1908,7 @@ Definition eval_absent : list GExpr :=
   ; EInt 2147483648
   ; ECall (EId (mkIdent "uint" eq_refl)) [EInt 4294967296]
   ; uint_underflow_e
-  ; runlen_e            (* len over a RUNTIME slice element: supported, honestly unfolded *)
+  ; runlen_e            (* len over a RUNTIME slice element: EVAL-level absent (constant folds only) — DENOTES through the runtime tier ([runtime_tier_runs]) *)
   ; maplen_runval_e ].  (* len over a RUNTIME map value: supported, honestly unfolded *)
 Example eval_absent_none : forallb (fun e => match eval_value e with None => true | Some _ => false end) eval_absent = true.
 Proof. vm_compute. reflexivity. Qed.
@@ -1869,7 +1920,8 @@ Proof. vm_compute. reflexivity. Qed.
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
-     gosem_runtime_blank_prog; gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
+     gosem_runtime_blank_prog; gosem_arg_panic_prog; gosem_defer_arg_panic_prog;
+     println_prog runlen_e] = true
   /\ forallb (fun p => negb (denotable_program p)) [out_runtime_prog] = true
   /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
        [out_runtime_prog] = true.
@@ -1899,7 +1951,8 @@ Definition gosem_trust_surface :=
    fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
-   denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
+   denote_expr_pure, denote_expr_div_zero, int_div_raw_is_int_div, runtime_tier_runs, runtime_tier_supported,
+   arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.

@@ -118,8 +118,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- GROW `eval_value`/`denote_expr` (`len` over RUNTIME elements/values + `int(x)` of runtime `x` need a
-  runtime-value layer, B3; prove the GENERAL dyadic↔`SF*` agreement theorem to DROP the per-instance guard) — each case shrinks the
+- RUNTIME tier R2/R3 (`plans/runtime-value-tier.md`): runtime slice INDEX (the first OOB panic in denotation)
+  then width conversions; the GENERAL dyadic↔`SF*` theorem to DROP the per-instance guard — each case shrinks the
   supported-but-undenoted gap (`denotable_*` ⊊ `supported_*`; `stmt_denotable_ok` is the proved direction),
   whose SOLE remaining source is the eval-partial value forms.
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
