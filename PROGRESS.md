@@ -14,7 +14,7 @@ only a narrow off-main `emit_panic_free` seed.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepted iff the program denotes to `c` with `cmd_no_panic c` — denotable panics, immediate or deferred, rejected there; undenoted runtime-panic forms rejected by non-denotation) — no full BehaviorSafe gate.
+Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepted iff the program denotes to `c` with `cmd_no_panic c` — any denotable panic rejected there; undenoted runtime-panic forms rejected by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
@@ -84,17 +84,17 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a
   `CPan`-free command runs to `ORet` for enough fuel — defers included; `_ustep` lifts the guarantee to
   `ustep` via the general `bridge_agrees`).
-  `panic_free_denotable p` = the program denotes to `c` AND `cmd_no_panic c` (cmd.v's authority — a deferred
-  panic's denotation contains `CDfr (CPan ..)`, so it is rejected by the same check); ONE DECIDABLE predicate;
+  `panic_free_denotable p` = the program denotes to `c` AND `cmd_no_panic c` (cmd.v's authority — ANY `CPan`
+  in the denotation, however the panic arises, is rejected by the one check); ONE DECIDABLE predicate;
   `panic_free_denotable_runs_ret`[`_ustep`] prove it entails the panic-free run, `_supported` that it
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
   ⚠ Undenoted runtime-panic forms (OOB const slice index / panicking literal element) are rejected by
-  NON-denotation — `panic_free_gate_slice` pins the OOB case; `panic_free_gate_defer`/`_div` pin the
-  denotable-panic mechanism (defer-println ACCEPTED+emitted; defer-panic and the determined divide-by-zero
-  supported+DENOTABLE yet rejected by `cmd_no_panic`) — does NOT gate main output, NOT full `BehaviorSafe`.
-  Zero axioms.
+  NON-denotation — `panic_free_gate_slice` pins that mechanism; `panic_free_gate_defer`/`_div`/`_arg_panic`
+  pin the denotable-panic one (defer-println ACCEPTED+emitted; defer-panic, the determined divide-by-zero, and
+  arg-panics supported+DENOTABLE yet rejected by `cmd_no_panic`) — does NOT gate main output, NOT full
+  `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` empty; the three gates (below) assert their
   surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs runtime output vs `expected_output.txt`.
@@ -104,7 +104,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **GoSem slice 1 only / behavioral cert is narrow + off the main path.** The blessed SYNTACTIC certificate
   is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
   (precondition = a proven panic-free RUN). Accepted iff the program denotes to `c` with `cmd_no_panic c` —
-  denotable panics (immediate or deferred) are rejected there; undenoted runtime-panic forms (e.g. the OOB
+  any denotable panic is rejected there; undenoted runtime-panic forms (e.g. the OOB
   const slice index) are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
   race, and runtime OOB beyond the declined constant fragment, are unmodeled — and it does NOT gate main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;

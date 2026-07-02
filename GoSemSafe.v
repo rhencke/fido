@@ -5,9 +5,9 @@
     - NOT [BehaviorSafe]; covers only the currently denoted GoSem fragment (no modeled nil/pointer/channel
       hazards); does NOT gate the MAIN output (that stays the trusted plugin).
     - The gate accepts a program iff it denotes to [c] with [cmd_no_panic c = true].
-    - Rejection has TWO mechanisms: a DENOTABLE panic (immediate / deferred / the determined divide-by-zero)
-      is caught by [cmd_no_panic] on the denotation; an UNDENOTED runtime-panic form (OOB constant slice
-      index, panicking literal element) by NON-denotation (faithful-or-absent, not a proof it is unsafe).
+    - Rejection has TWO mechanisms: ANY denotation containing a [CPan] — however the panic arises — is caught
+      by [cmd_no_panic]; an UNDENOTED runtime-panic form is rejected by NON-denotation (faithful-or-absent,
+      not a proof it is unsafe).  Concrete instances of both are pinned by the [panic_free_gate_*] examples.
     - Names are "panic-free …", never [BehaviorSafe] / [SafeProgram] / bare "safe".
 
     Public surface: [gosem_panic_free_surface] (single-sourced in PROGRESS.md "Current gates"); each
@@ -200,9 +200,8 @@ Qed.
 
 (** ---- SEED of the GoSem-BACKED emission certificate (future path: [BehaviorSafe] -> [SafeProgram] ->
     [emit_safe]).  On the DENOTED fragment "panic-free" IS the behavioral-safety condition: the fragment has no
-    modeled nil/pointer/channel hazards; a denoted panic (immediate / deferred / the determined divide-by-zero)
-    is caught by [cmd_no_panic], and the still-undenoted runtime-panic forms (OOB constant slice index,
-    panicking literal element) by non-denotation — a full [BehaviorSafe]
+    modeled nil/pointer/channel hazards; any denoted panic is caught by [cmd_no_panic], and the still-undenoted
+    runtime-panic forms by non-denotation — a full [BehaviorSafe]
     (nil deref / send-on-closed / race) lands with those constructs.  So this is NAMED for what it PROVES, NOT
     [SafeProgram] / [BehaviorSafe]: a program that is EMITTABLE ([SupportedProgram], via
     [panic_free_denotable_supported]) AND carries the decidable panic-free RUN guarantee.  It is the FIRST
@@ -366,6 +365,18 @@ Proof.
   split; [ vm_compute; reflexivity | vm_compute; reflexivity ].
 Qed.
 
+(** ARG-panic programs reach the gate: both are SUPPORTED and DENOTABLE (their denotations carry the
+    ARGUMENT's [CPan] — immediate and deferred), and the gate rejects both by [cmd_no_panic] on the
+    denotation. *)
+Example panic_free_gate_arg_panic :
+  forallb supported_program [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
+  /\ forallb denotable_program [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
+  /\ forallb (fun p => match panic_free_gate p with None => true | Some _ => false end)
+       [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true
+  /\ forallb (fun p => match emit_panic_free_gated p with None => true | Some _ => false end)
+       [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
     [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
     Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
@@ -375,5 +386,5 @@ Definition gosem_panic_free_surface :=
    panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
    panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed,
    panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some, emit_panic_free_gated_sound,
-   panic_free_gate_slice, panic_free_gate_defer, panic_free_gate_div).
+   panic_free_gate_slice, panic_free_gate_defer, panic_free_gate_div, panic_free_gate_arg_panic).
 Print Assumptions gosem_panic_free_surface.

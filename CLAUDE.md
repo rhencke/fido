@@ -8,7 +8,7 @@ the source term (gap #10), so the golden tests are the only end-to-end check. Th
 wired into the LIVE plugin for only a SMALL expression class (single-sourced in `PROGRESS.md`), and even there
 the TRUSTED plugin CONSTRUCTS the `GExpr` and only the VERIFIED `gprint` PRINTS it — the construction is NOT
 verified. The behavioral-safety emission cert is only a NARROW seed (`emit_panic_free`: accepted iff the program
-denotes to `c` with `cmd_no_panic c` — denotable panics, immediate or deferred, rejected there; undenoted
+denotes to `c` with `cmd_no_panic c` — any denotable panic rejected there; undenoted
 runtime-panic forms rejected by non-denotation; OFF the main path), not a full gate on the emitted output. Do not headline this as "formally verified Go."
 **Current state, goal, and roadmap: `PROGRESS.md`.**
 

@@ -313,9 +313,9 @@ Proof.
   rewrite He. reflexivity.
 Qed.
 
-Definition denote_expr (e : GExpr) : option (Cmd GoAny) :=
+Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   match eval_value e with
-  | Some v => Some (CRet v)
+  | Some v => Some (CRet v, false)
   | None =>
       match e with
       | EBn o a b =>
@@ -324,7 +324,7 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny) :=
               match ptype e with
               | Some (PtRunInt _) =>                        (* SUPPORTED runtime INTEGER / or % (float /0 is ±Inf, not a panic — excluded by the guard) *)
                   match eval_value a, divisor_zero b with
-                  | Some _, true => Some (CPan rt_div_zero)  (* the dividend evaluates cleanly, the divisor is determined 0 -> Go's runtime panic *)
+                  | Some _, true => Some (CPan rt_div_zero, true)  (* the dividend evaluates cleanly, the divisor is determined 0 -> Go's runtime panic; TERMINATES *)
                   | _, _ => None
                   end
               | _ => None
@@ -335,8 +335,9 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny) :=
       end
   end.
 
-(** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value. *)
-Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = Some (CRet v).
+(** The pure inclusion: an expression the fold gives a value to denotes to exactly [CRet] of that value
+    (fall-through — a pure expression cannot terminate control flow). *)
+Lemma denote_expr_pure : forall e v, eval_value e = Some v -> denote_expr e = Some (CRet v, false).
 Proof. intros e v H. unfold denote_expr. rewrite H. reflexivity. Qed.
 
 (** ★ CLASS — the determined divide-by-zero PANICS: a SUPPORTED runtime integer [/] or [%] whose dividend
@@ -348,7 +349,7 @@ Lemma denote_expr_div_zero : forall o a b t va,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   eval_value a = Some va ->
   divisor_zero b = true ->
-  denote_expr (EBn o a b) = Some (CPan rt_div_zero).
+  denote_expr (EBn o a b) = Some (CPan rt_div_zero, true).
 Proof.
   intros o a b t va Ho Hpt Ha Hdz.
   unfold denote_expr.
@@ -375,27 +376,41 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
     function-scope return via [CDfr]) — one authority, so the deferred call can never denote differently from
     the immediate one. *)
 (** Effectful ARGUMENT sequencing: evaluate each argument left-to-right through [denote_expr], collecting the
-    values — the FIRST panicking argument short-circuits (its [CPan] rides out through [cbind]), exactly Go's
-    call-argument evaluation order.  All-pure arguments reduce DEFINITIONALLY to [CRet [v1..vn]] (the [cbind]s
-    of [CRet] collapse), so pure programs denote to the same commands as before. *)
-Fixpoint denote_args (args : list GExpr) : option (Cmd (list GoAny)) :=
+    values, WITH an explicit terminal flag.  A PANICKING argument STRUCTURALLY short-circuits: its [CPan] is
+    the whole argument command, the flag is [true], and the REMAINING arguments — which Go NEVER evaluates —
+    are NOT required to denote (they are already syntactically/type-gated by the caller's [expr_stmt_ok], the
+    same gate/denotability split as a terminator's dead tail in [denote_body]).  All-pure arguments reduce
+    DEFINITIONALLY to [(CRet [v1..vn], false)]. *)
+Fixpoint denote_args (args : list GExpr) : option (Cmd (list GoAny) * bool) :=
   match args with
-  | [] => Some (CRet [])
+  | [] => Some (CRet [], false)
   | a :: rest =>
-      match denote_expr a, denote_args rest with
-      | Some ca, Some crest => Some (cbind ca (fun v => cbind crest (fun vs => CRet (v :: vs))))
-      | _, _ => None
+      match denote_expr a with
+      | Some (ca, true)  => Some (cbind ca (fun _ => CRet []), true)   (* [a] PANICS: rest is unreachable — gated, not denoted *)
+      | Some (ca, false) =>
+          match denote_args rest with
+          | Some (crest, term) => Some (cbind ca (fun v => cbind crest (fun vs => CRet (v :: vs))), term)
+          | None => None
+          end
+      | None => None
       end
   end.
 
-(** The ONE call-shape authority, parameterized by [wrap] — how the call ITSELF is scheduled once its
-    arguments have evaluated: the IMMEDIATE form ([wrap] = identity, [denote_effect_call]) runs it now; the
-    DEFERRED form ([wrap c = CDfr c (CRet tt)], the [GsDefer] arm) registers it to run at function-scope
-    return.  CRITICALLY, the ARGUMENTS are sequenced OUTSIDE [wrap] in both forms — Go evaluates a deferred
-    call's arguments AT DEFER TIME (a panicking argument panics at the [defer] statement, not at return), and
-    injecting [wrap] into the one branch structure makes it impossible for the two forms' argument semantics
-    to drift.  Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for both consumers). *)
-Definition denote_call_with (wrap : Cmd unit -> Cmd unit) (e : GExpr) : option (Cmd unit * bool) :=
+(** How a gated call is SCHEDULED — a SEALED two-constructor mode (not an arbitrary [Cmd unit -> Cmd unit],
+    which could erase a panic): [CallNow] runs the call immediately; [CallDeferred] registers it via [CDfr]
+    to run at function-scope return.  [sched] builds the only two valid shapes. *)
+Inductive CallMode : Type := CallNow | CallDeferred.
+Definition sched (m : CallMode) (c : Cmd unit) : Cmd unit :=
+  match m with CallNow => c | CallDeferred => CDfr c (CRet tt) end.
+
+(** The ONE call-shape authority.  The ARGUMENTS are sequenced OUTSIDE [sched] in both modes — Go evaluates a
+    deferred call's arguments AT DEFER TIME (a panicking argument panics at the [defer] statement, not at
+    return) — so the two modes' argument semantics cannot drift.  The TERMINATES flag is COMPUTED from the
+    argument evaluation and the scheduling: an immediate [panic] terminates always (its own panic, or an
+    argument's even earlier); an immediate print terminates iff its arguments panic; a DEFERRED call
+    terminates iff its arguments panic (the deferred call itself falls through, running at return).
+    Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for both consumers). *)
+Definition denote_call (m : CallMode) (e : GExpr) : option (Cmd unit * bool) :=
   if expr_stmt_ok e then
     match e with
     | ECall (EId f) args =>
@@ -403,24 +418,25 @@ Definition denote_call_with (wrap : Cmd unit -> Cmd unit) (e : GExpr) : option (
         if String.eqb fn "panic"
         then match args with
              | a :: nil => match denote_expr a with
-                           | Some ca => Some (cbind ca (fun v => wrap (CPan v)), true)   (* TERMINATES (a panicking ARG panics even earlier) *)
+                           | Some (ca, aterm) =>
+                               Some (cbind ca (fun v => sched m (CPan v)),
+                                     match m with CallNow => true | CallDeferred => aterm end)
                            | None => None
                            end
              | _ => None
              end
-        else match denote_args args with                      (* println / print: fall through *)
-             | Some cargs => Some (cbind cargs (fun vs => wrap (COut (String.eqb fn "println") vs (CRet tt))), false)
+        else match denote_args args with                      (* println / print *)
+             | Some (cargs, aterm) =>
+                 Some (cbind cargs (fun vs => sched m (COut (String.eqb fn "println") vs (CRet tt))), aterm)
              | None => None
              end
     | _ => None
     end
   else None.
 
-Definition denote_effect_call : GExpr -> option (Cmd unit * bool) := denote_call_with (fun c => c).
-
-(** The pure inclusion for argument lists: purely-evaluable args denote to exactly [CRet] of their values
-    (each element via [denote_expr_pure]; the [cbind]s of [CRet] collapse definitionally). *)
-Lemma denote_args_pure : forall args vs, eval_args args = Some vs -> denote_args args = Some (CRet vs).
+(** The pure inclusion for argument lists: purely-evaluable args denote to exactly [CRet] of their values,
+    fall-through (each element via [denote_expr_pure]; the [cbind]s of [CRet] collapse definitionally). *)
+Lemma denote_args_pure : forall args vs, eval_args args = Some vs -> denote_args args = Some (CRet vs, false).
 Proof.
   induction args as [|a rest IH]; cbn [eval_args denote_args]; intros vs H.
   - injection H as <-. reflexivity.
@@ -433,10 +449,10 @@ Qed.
 (** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
     unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
     it is ESSENTIAL, not derivable (a [return] and a CONSTANT blank-assign both give [CRet tt] but differ
-    stop/fall-through).  The effect arms go through [denote_effect_call] (gated on [expr_stmt_ok] — [denote] ⊆
-    the gate, [gosem_sound] — however partial [eval_value] is).  [println]/[print] -> fall-through [COut];
-    [panic] -> terminating [CPan]; [return] -> terminating [CRet]; a blank-assign of a constant -> fall-through
-    [CRet]; [defer <call>] -> fall-through [CDfr] (the call runs at function-scope return). *)
+    stop/fall-through).  The effect arms go through [denote_call] (gated on [expr_stmt_ok] — [denote] ⊆ the
+    gate, [gosem_sound]), and the flag is COMPUTED from the effects: [println]/[print] fall through UNLESS an
+    argument panics; [panic] terminates; [return] terminates; a blank-assign terminates iff its expression
+    panics; [defer <call>] falls through unless its (defer-time) arguments panic. *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
   match s with
   | GsReturn        => Some (CRet tt, true)    (* TERMINATES the body *)
@@ -444,27 +460,25 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
       (* [_ = e] discards [e]'s VALUE but NOT its runtime EFFECTS — denoted through the EFFECTFUL
          [denote_expr]: a pure constant gives the fall-through [CRet tt] ([cbind] of its [CRet v] — the same
          command as before), and a determined runtime panic ([1 / len([]int{})]) gives its TRUE [CPan] (Go
-         evaluates [e] and panics).  Runtime forms [denote_expr] does not cover stay honestly [None].
+         evaluates [e] and panics) — with [denote_expr]'s OWN terminal flag (a panicking blank-assign
+         TERMINATES the body).  Runtime forms [denote_expr] does not cover stay honestly [None].
          [svalue e] is still required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
       if svalue e then
         match denote_expr e with
-        | Some ce => Some (cbind ce (fun _ => CRet tt), false)
+        | Some (ce, eterm) => Some (cbind ce (fun _ => CRet tt), eterm)
         | None => None
         end
       else None
   | GsReturnVal _   => None                                        (* a value return is invalid in void [main] *)
-  | GsExprStmt e    => denote_effect_call e
+  | GsExprStmt e    => denote_call CallNow e
   | GsDefer e =>
       (* [defer <call>] — FAITHFUL via [cmd.v]'s [CDfr], with Go's ARGUMENT TIMING modeled exactly: the
-         arguments are evaluated NOW (a panicking argument panics AT the [defer] statement — the [cbind]-outer
-         args in [denote_call_with]), and only the CALL-ON-VALUES is deferred to function-scope RETURN
-         ([wrap c = CDfr c (CRet tt)]; [run_defers], LIFO).  Control FALLS THROUGH (flag [false]: a
-         [defer panic(v)] does not stop the body; ITS panic fires at return — [rc_defer_panic]);
-         [denote_call_with]'s own flag is discarded, deferral makes the statement a fall-through regardless. *)
-      match denote_call_with (fun c => CDfr c (CRet tt)) e with
-      | Some (c, _) => Some (c, false)
-      | None => None
-      end
+         arguments are evaluated NOW (a panicking argument panics AT the [defer] statement), and only the
+         CALL-ON-VALUES is deferred to function-scope RETURN ([CallDeferred]; [run_defers], LIFO).  The flag
+         is [denote_call]'s own accurate one: pure args FALL THROUGH (a [defer panic(v)] does not stop the
+         body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
+         statement itself ([rc_defer_arg_panic]). *)
+      denote_call CallDeferred e
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -497,18 +511,17 @@ Definition denote_program (p : Program) : option (Cmd unit) :=
     GoSem gives a behavior ONLY to a program GoSafe accepts.  Because each [denote_stmt] arm that returns
     [Some] is itself gated ([GsReturn] is always [stmt_ok]; [GsBlankAssign] on [svalue]; [GsExprStmt] under
     [expr_stmt_ok]), this is structural. *)
-Lemma denote_call_with_ok : forall w e, denote_call_with w e <> None -> expr_stmt_ok e = true.
-Proof. intros w e H. unfold denote_call_with in H. destruct (expr_stmt_ok e); [reflexivity | congruence]. Qed.
+Lemma denote_call_ok : forall m e, denote_call m e <> None -> expr_stmt_ok e = true.
+Proof. intros m e H. unfold denote_call in H. destruct (expr_stmt_ok e); [reflexivity | congruence]. Qed.
 
 Lemma denote_stmt_sound : forall s, denote_stmt s <> None -> stmt_ok s = true.
 Proof.
   intros s H. destruct s as [e| |e0|e|e]; simpl in *.
-  - exact (denote_call_with_ok _ e H).                       (* GsExprStmt: gated on [expr_stmt_ok] *)
+  - exact (denote_call_ok CallNow e H).                      (* GsExprStmt: gated on [expr_stmt_ok] *)
   - reflexivity.                                             (* GsReturn *)
   - congruence.                                              (* GsReturnVal: None *)
   - destruct (svalue e); [reflexivity | congruence].         (* GsBlankAssign: gated on [svalue] = stmt_ok *)
-  - apply (denote_call_with_ok (fun c => CDfr c (CRet tt))). (* GsDefer: the SAME [expr_stmt_ok] gate, through [denote_call_with] *)
-    destruct (denote_call_with _ e) as [[d b]|]; congruence.
+  - exact (denote_call_ok CallDeferred e H).                 (* GsDefer: the SAME [expr_stmt_ok] gate *)
 Qed.
 
 Lemma denote_body_sound : forall b, denote_body b <> None -> forallb stmt_ok b = true.
@@ -661,7 +674,7 @@ Lemma denote_out_denotable : forall f args,
   (proj1_sig f = "println"%string \/ proj1_sig f = "print"%string) -> forallb denotable_arg args = true ->
   exists c, denote_stmt (GsExprStmt (ECall (EId f) args)) = Some (c, false).
 Proof.
-  intros f args Hf Hargs. cbn [denote_stmt]. unfold denote_effect_call, denote_call_with.
+  intros f args Hf Hargs. cbn [denote_stmt]. unfold denote_call.
   rewrite (expr_stmt_ok_out_denotable f args Hf Hargs).
   destruct Hf as [Hf|Hf]; rewrite Hf; cbn;
     (destruct (eval_args args) as [vs|] eqn:Ea;
@@ -1090,14 +1103,18 @@ Proof. split; vm_compute; reflexivity. Qed.
 Definition gosem_panic_demo_prog : Program :=
   mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [EStr "x"])].
 
+(** ONE spelling for the recurring effectful-fixture expressions (the aliasing discipline — no drift). *)
+Definition divzero_e : GExpr :=
+  EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
+Definition maplen_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl)) [EMapLit GTInt GTInt [(EInt 1, EInt 2)]].
+
 (** The determined-DIVIDE-BY-ZERO fixture: `_ = 1 / len([]int{})` is SUPPORTED (a runtime integer division —
     a CONSTANT zero divisor would be a compile error), and now DENOTES to its TRUE behavior via [denote_expr]:
     the run PANICS with Go's exact runtime value [rt_div_zero] — pinned end-to-end as the typed field
     [rc_div_zero]. *)
 Definition gosem_runtime_blank_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsBlankAssign (EBn BDiv (EInt 1)
-                              (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]))].
+  mkProgram (mkIdent "main" eq_refl) [GsBlankAssign divzero_e].
 
 (** ARGUMENT-panic fixtures: a panicking ARGUMENT panics BEFORE its call runs.  [println(1/len([]int{}))]
     prints NOTHING (the call is never reached — [rc_arg_panic]); and a DEFERRED call's arguments evaluate AT
@@ -1106,13 +1123,38 @@ Definition gosem_runtime_blank_prog : Program :=
     at return, AFTER the body's output). *)
 Definition gosem_arg_panic_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl))
-       [EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]); GsReturn].
 Definition gosem_defer_arg_panic_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsDefer (ECall (EId (mkIdent "println" eq_refl))
-       [EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []])]);
+    [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
      GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
+
+(** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
+    are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
+    in each is the map-[len] ([maplen_e], supported-printable yet undenoted — [out_boundary_runtime_undenoted]):
+    as a LATER ARG of the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED
+    panicking-arg call.  Each program denotes and runs to [OPanic rt_div_zero] with NO output. *)
+Definition gosem_arg_panic_tail_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; maplen_e]); GsReturn].
+Definition gosem_arg_panic_succ_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_e]); GsReturn].
+Definition gosem_defer_arg_panic_succ_prog : Program :=
+  mkProgram (mkIdent "main" eq_refl)
+    [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_e]); GsReturn].
+Definition arg_panic_shortcircuit_progs : list Program :=
+  [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
+Example arg_panic_shortcircuit_runs : forall w,
+  map (fun p => match denote_program p with Some c => run_cmd 5 c w | None => None end)
+      arg_panic_shortcircuit_progs
+  = map (fun _ => Some (OPanic rt_div_zero w)) arg_panic_shortcircuit_progs.
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example arg_panic_shortcircuit_supported :
+  forallb supported_program arg_panic_shortcircuit_progs = true.
+Proof. vm_compute. reflexivity. Qed.
 
 (** Defer fixture: `func main(){ defer println("bye"); return }` — DENOTES to a [CDfr] (the deferred
     [println] runs at function-scope return); pinned denotable in [gosem_denotability_decisions] and accepted
@@ -1322,7 +1364,7 @@ Definition gosem_trust_surface :=
    eval_value_good_ok, eval_value_good_runs, eval_value_failclosed, eval_absent_none,
    eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class, eval_slice_index_inbounds_class,
    eval_len_reduces, eval_len_supported,
-   denote_expr_pure, divisor_zero_eval, denote_expr_div_zero,
+   denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
 Print Assumptions gosem_trust_surface.
