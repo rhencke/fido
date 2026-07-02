@@ -122,3 +122,27 @@ operands evaluate), write the smallest concrete program and run the real toolcha
 the verified-against artifact is the toolchain, not memory. Corollary: an evaluator helper's
 accept-set must be sealed to the SUPPORTEDNESS gate's own checks and the inclusion proved —
 a looser private boundary certifies invalid programs (`eval_slice_index_supported`).
+
+## The runtime-tier arc (R1–R7): five compact lessons (2026-07-02)
+
+The plan files (`plans/float-dyadic.md`, `plans/runtime-value-tier.md`) are deleted — git is the
+archive. What must survive them:
+
+1. **The spec's per-construct order/typing shape comes FIRST.** Go leaves MAP-LITERAL assignment
+   order unspecified — a "first panicking value in source order" semantics was plausible-but-wrong;
+   the exact model denotes a panic only when it is ORDER-INDEPENDENT (one panicking value, the rest
+   valued). Go SHIFTS are heterogeneous (left operand fixes the width; the count is an independent
+   integer) — never design a one-carrier dispatcher for them. Check the spec before encoding.
+2. **One evaluation authority, rec-parametrized UP FRONT.** When an arm needs "evaluate a
+   subexpression at full power", the full-power evaluator must be a `rec`-parametrized Definition the
+   Fixpoint instantiates with itself (`reval_val_with`); wiring the narrow engine directly created a
+   second drifting value world (map values missed R3/R4 forms) and cost a refactor.
+3. **Dispatch tables and boxing functions need their OWN seals, same commit:** fully QUALIFIED
+   (`Fido.builtins.*` — shadow-immune) and TOTAL (a `forall o, dispatch o = <case table>` theorem by
+   destruct). Class theorems parameterized over the dispatched op let a drifted mapping stay green.
+4. **An arc is complete only against what the GATE ADMITS** (node kind × width), not the witness
+   list — `^uint8(len ..)` was supported-but-absent while docs said "integer arc complete." Absence
+   claims are pinned (frontier members + case-table examples with a SHAPE extractor), never prose.
+5. **Witness succession is one commit:** a landing flips its pins across every site that used the
+   retired witness, plus a repo-wide stale-claim sweep; deleting a file requires a grep for its name
+   AND any shorthand it defined.
