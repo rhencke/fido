@@ -60,25 +60,21 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    value-equal positives (`binary_round_of_norm`).  ⚠ the determinism theorem's window
    premises are on the NORMALIZER INPUTS — see rung 5 for why `SFadd`'s raw aligned sum can
    fail them even on ACCEPTED results.
-5. **ADD/SUB (f64) — OPEN; the raw-normalization bridge is the named obligation.**
-   `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas), and `SFadd`
-   normalizes the RAW aligned sum.  ⚠ `ptype` guards only the NORMALIZED dyadic fold result —
-   NEVER `SFadd`'s raw aligned mantissa — and rungs 3+4 apply only once the normalizer INPUT
-   is in-window.  The raw mantissa can exceed `prec` digits even for gate-ACCEPTED results:
-   the CARRY shape `(2^53-1) + (2^53-1)` has raw aligned sum `2^54-2` (54 digits) while its
-   normalized result `(2^53-1, 1)` passes `float_dyadic_repr` — mechanically pinned,
-   `add_carry_raw_wide_accepted` (which also computes the checker ACCEPTING the expression,
-   so the live path already exercises the raw-wide case).  Closing rung 5 therefore needs a
-   NAMED lemma: `binary_round` on a raw mantissa that normalizes exactly through DISCARDED
-   ZERO BITS agrees with `binary_round` of the odd core at the adjusted exponent (5b, the wide
-   bridge).  5a LANDED: the zeros walk — `iter_pos_shr1_zeros`.  5b LANDED (gated):
-   `binary_round_of_norm_wide` — [binary_round] on a RAW mantissa whose ODD CORE is in-window
-   equals [binary_round] of the core at the adjusted exponent, raw digits UNBOUNDED: if the
-   fexp target sits at/below the raw exponent the raw side is secretly in-window (rung 4's
-   `binary_round_of_norm`); otherwise the raw mantissa IS the core-canonical mantissa with
-   `T-e` appended zeros and the 5a walk consumes them.  REMAINING (5c): the wide determinism
-   corollary (window premises on the SHARED normal form only), `dy_norm` value-uniqueness, and
-   the `SFadd` finite-arm assembly; THEN determinism closes
+5. **ADD/SUB (f64) — 5a + 5b LANDED; remaining = 5c.**
+   `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas); `SFadd`
+   normalizes the RAW aligned sum, whose mantissa can exceed `prec` digits even for
+   gate-ACCEPTED results — the CARRY shape `(2^53-1)+(2^53-1)`: raw sum `2^54-2` (54 digits),
+   normalized `(2^53-1, 1)` accepted; mechanically pinned `add_carry_raw_wide_accepted`
+   (which also computes the checker accepting end-to-end).  `ptype` guards only the NORMALIZED
+   fold result, never the raw mantissa — and that gap is exactly what the LANDED bridge
+   covers: 5a `iter_pos_shr1_zeros` (the zeros walk keeps round/sticky FALSE) and 5b
+   `binary_round_of_norm_wide` (gated) — `binary_round` on a RAW mantissa whose ODD CORE is
+   in-window equals `binary_round` of the core at the adjusted exponent, raw digits UNBOUNDED
+   (the target-at-or-below-raw-exponent regime reduces to rung 4's `binary_round_of_norm`
+   with DERIVED premises; the other regime consumes the appended zeros via 5a).
+   REMAINING (5c): the wide determinism corollary (window premises on the SHARED normal form
+   only — supersedes the rung-4 endpoint, whose surface entry is swept then), `dy_norm`
+   value-uniqueness, and the `SFadd` finite-arm assembly closing
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).

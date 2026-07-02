@@ -6820,8 +6820,9 @@ Qed.
     [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
     result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
     already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
-    does NOT reject this class, and closing ADD/SUB needs the raw-normalization bridge
-    (right-shift-through-zeros exactness), not just rungs 3+4. *)
+    does NOT reject this class — it is EXACTLY the landed wide bridge's domain
+    ([binary_round_of_norm_wide] above): rung 5c's assembly must route through that bridge,
+    never through rungs 3+4 alone. *)
 Definition add_carry_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991])
            (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991]).
