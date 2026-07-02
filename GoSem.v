@@ -25,9 +25,9 @@
       over RUNTIME map values (every value through the SHARED evaluator; panics denote only
       order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
       class theorems).  The [reval_int] CARRIER is [GTInt]: typed-width conversion EXITS from GTInt
-      operands DENOTE ([denote_expr_conv_runs]); OPERATIONS on non-GTInt runtime carriers
-      ([^int64(len ..)] — [typed_runtime_not_absent]), [!] of a runtime bool comparison, and runtime
-      FLOATS are not yet denoted.
+      operands DENOTE ([denote_expr_conv_runs]); OPERATIONS on non-GTInt runtime carriers are not yet
+      denoted — the pinned boundary is [typed_runtime_{not,convchain,shift}_absent] — nor are [!] of a
+      runtime bool comparison and runtime FLOATS.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -2441,18 +2441,38 @@ Example typed_runtime_convchain_absent :
   /\ denotable_program (println_prog runconv_chain_e) = false
   /\ denote_program (println_prog runconv_chain_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
-(** The SHIFT boundary, pinned: Go's shift is HETEROGENEOUS ([ptype]'s [BShl|BShr] arm — the LEFT
-    operand fixes the result width, the COUNT is an independent integer), so a typed-left /
-    GTInt-count shift ([uint8(len xs) << len ys]) is supported yet ABSENT — the future shift slice
-    must handle the mixed-count shape, never a same-width-only dispatcher. *)
+(** The SHIFT boundary, pinned as a CASE TABLE: Go's shift is HETEROGENEOUS ([ptype]'s [BShl|BShr]
+    arm — the LEFT operand fixes the result width, the COUNT is an independent integer of any width).
+    The table exercises BOTH ops, a NON-GTInt count, and [i64]/[u64] LEFT operands (the raw-[Z]
+    model-shift family), pinning each case's [ptype] RESULT WIDTH and its supported-but-absent status —
+    a future [typed_shift] handling only one op / only [GTInt] counts / only small-width lefts breaks
+    this gate.  When slice T5 lands, this same table flips to denoting cases in the same commit. *)
 Definition runshift_mixed_e : GExpr :=
   EBn BShl (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
            (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition runshift_shr_e : GExpr :=
+  EBn BShr (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
+           (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition runshift_i64count_e : GExpr :=
+  EBn BShl (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
+           (ECall (EId (mkIdent "int64" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]).
+Definition runshift_i64left_e : GExpr :=
+  EBn BShl (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e])
+           (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition runshift_u64left_e : GExpr :=
+  EBn BShr (ECall (EId (mkIdent "uint64" eq_refl)) [runlen3_e])
+           (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition typed_shift_cases : list GExpr :=
+  [ runshift_mixed_e ; runshift_shr_e ; runshift_i64count_e ; runshift_i64left_e ; runshift_u64left_e ].
 Example typed_runtime_shift_absent :
-  supported_program (println_prog runshift_mixed_e) = true
-  /\ denotable_program (println_prog runshift_mixed_e) = false
-  /\ denote_program (println_prog runshift_mixed_e) = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
+  map ptype typed_shift_cases
+    = [ Some (PtRunInt GTU8) ; Some (PtRunInt GTU8) ; Some (PtRunInt GTU8)
+      ; Some (PtRunInt GTInt64) ; Some (PtRunInt GTU64) ]
+  /\ forallb (fun e => supported_program (println_prog e)
+                    && negb (denotable_program (println_prog e))
+                    && match denote_program (println_prog e) with None => true | Some _ => false end)
+       typed_shift_cases = true.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
@@ -2944,7 +2964,8 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
     runtime form) and the TYPED-width complement [runnot_u8_e] (the representative of the class pinned
-    three-wide by [typed_runtime_not_absent]).  (The OOB
+    three-wide by [typed_runtime_not_absent]; the conversion-CHAIN and SHIFT case tables live OUTSIDE
+    this list — [typed_runtime_{convchain,shift}_absent]).  (The OOB
     constant index and the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime
     width CONVERSION at tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 —
     [runtime_bool_runs]; the runtime map VALUE at tier R5 — [runtime_maplen_runs].)  Each member is

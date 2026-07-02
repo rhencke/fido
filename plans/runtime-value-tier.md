@@ -78,8 +78,9 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 - Witness succession — CURRENT STATE (post-R7): every GTInt-FRAGMENT witness DENOTES; the pinned
   `undenoted_frontier` WITNESSES (non-exhaustive — known absent classes: runtime floats, `!` of a
   runtime bool comparison, typed-width runtime integer arithmetic) are the multi-byte rune
-  `runeconv_mb` and the typed-width complement `runnot_u8_e` (the class pinned three-wide:
-  `typed_runtime_not_absent` — `^int64/^uint8/^uint` of a runtime len, supported ∧ undenoted).
+  `runeconv_mb` and the typed-width complement `runnot_u8_e`; the FULL pinned typed-runtime absence
+  boundary is `typed_runtime_{not,convchain,shift}_absent` (GoSem — the ^ class three-wide, the
+  conversion chain, and the heterogeneous-shift case table).
   NEXT ARC: the TYPED-runtime tier — see plans/typed-runtime-tier.md (design + op inventory anchored
   there; OPERATIONS on non-GTInt runtime carriers will denote; conversion EXITS from GTINT operands
   already do; the pinned absences are `typed_runtime_{not,convchain,shift}_absent`). Any rule that lands FLIPS
