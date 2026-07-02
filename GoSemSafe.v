@@ -388,8 +388,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     (unlike the denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  The
     absent side is NOT "non-panic shapes only": [panic_absent_prog] is a syntactic PANIC form
     ([panic(string(200))] — supported, [panic] accepts any svalue) whose ARG does not denote, so IT TOO
-    rejects by non-denotation, not by a judgment on any panic.  (The R5 map-value witness that sat here
-    DENOTES since tier R5 — succession per the witness rule.)  When multi-byte rune encoding is
+    rejects by non-denotation, not by a judgment on any panic.  When multi-byte rune encoding is
     modelled and [runeconv_mb] folds, BOTH pins BREAK — swap in the next frontier member in the same
     commit. *)
 Definition panic_absent_prog : Program :=

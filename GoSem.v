@@ -519,20 +519,13 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R7 — this section is the live authority; the surfaces bundle its theorems).
-    Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
-    evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
-    carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
-    fold authority) via the checked [unbox_int]; [len] of an int-slice literal is the count of its
-    CONSTRUCTED elements (evaluated left-to-right, the FIRST panicking element aborting construction —
-    the verified go-run order; the length goes through [box_int]'s fail-closed [GTInt] builder —
-    [rval_len]); [+ - *] are the model's [int_add]/[int_sub]/[int_mul]; [/] is the model's
-    evidence-carrying [int_div], its nonzero proof produced by the guarding test itself, and a
-    determined ZERO divisor is Go's runtime panic [rt_div_zero] ([%] computes via the model's
-    evidence-carrying [int_mod], zero divisor panicking identically — R6, with runtime unary MINUS via
-    [int_neg] and — R7 — unary [^] via [int_not]).  [RPanic] = a determined runtime panic;
-    [None] = not-yet-denotable (absent, never wrong).  This tier SUBSUMES the retired shape-based
-    [divisor_zero] (its zero-judgment is now [eval_value]'s own fold of the divisor, through the leaf). *)
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R7; this section is the live
+    authority — the surfaces bundle its theorems).  Supported programs are CLOSED, so runtime integer
+    values are DETERMINED.  [reval_int] evaluates the [GTInt] fragment with the MODEL'S OWN ops on the
+    model's own carrier; constants enter through [eval_value] (the single fold authority) via the
+    checked [unbox_int]; [/]/[%] are the evidence-carrying [int_div]/[int_mod] (nonzero proof from the
+    guarding test; a determined zero divisor panics [rt_div_zero]).  [RPanic] = a determined runtime
+    panic; [None] = absent (never wrong).  Per-arm semantics are documented at each arm. *)
 Definition unbox_int (v : GoAny) : option GoInt :=
   match v with
   | existT _ _ (pair x tag) =>
@@ -1823,10 +1816,8 @@ Definition maplen_runval_e : GExpr :=
     MULTI-BYTE rune, [runeconv_mb]) is SUPPORTED (valid Go) yet its arg is an EVAL-PARTIAL constant
     GoSem does not fold (multi-byte rune encoding unmodelled; NOT [folded_arg]; not a runtime-tier form
     either), so the program does NOT denote ([runeconv_mb_prog] — the same program
-    [runeconv_multibyte_boundary] pins).  (The map-value witness that used to sit here DENOTES through
-    tier R5 — [runtime_maplen_runs]; the R4 comparison through [runtime_bool_runs]; the R3 conversion
-    through [runtime_conv_runs]; the R2 index through [runtime_index_runs]; [eval_value runlen_e = None]
-    remains the strictness pin for the EVAL-level [eval_len_supported] inclusion.) *)
+    [runeconv_multibyte_boundary] pins; [eval_value runlen_e = None] remains the strictness pin for
+    the EVAL-level [eval_len_supported] inclusion). *)
 Example out_boundary_runtime_undenoted :
   supported_program runeconv_mb_prog = true
   /\ folded_arg runeconv_mb = false
@@ -2526,8 +2517,7 @@ Qed.
 (** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(string(200))]
     is a DENOTABLE body ([return] terminates; the multi-byte-rune-arg [println] is a SUPPORTED dead tail)
     whose tail does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body
-    HAS a terminator — exactly why the iff above does not apply to it.  (The R5 map-value witness that sat
-    here now DENOTES — succession.) *)
+    HAS a terminator — exactly why the iff above does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runeconv_mb])] = true
@@ -2604,7 +2594,7 @@ Definition gosem_defer_arg_panic_prog : Program :=
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
     in each is the multi-byte rune ([runeconv_mb], supported-printable yet undenoted —
-    [out_boundary_runtime_undenoted]; the R5 map-value witness that sat here now denotes): as a LATER ARG of
+    [out_boundary_runtime_undenoted]): as a LATER ARG of
     the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED panicking-arg call.
     Each program denotes and runs to [OPanic rt_div_zero] with NO output. *)
 Definition gosem_arg_panic_tail_prog : Program :=
@@ -2961,11 +2951,9 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
     runtime form) and the TYPED-width complement [runnot_u8_e] (the representative of the class pinned
     three-wide by [typed_runtime_not_absent]; the conversion-CHAIN and SHIFT case tables live OUTSIDE
-    this list — [typed_runtime_{convchain,shift}_absent]).  (The OOB
-    constant index and the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime
-    width CONVERSION at tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 —
-    [runtime_bool_runs]; the runtime map VALUE at tier R5 — [runtime_maplen_runs].)  Each member is
-    pinned supported AND undenoted AND eval-level absent. *)
+    this list — [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND
+    undenoted AND eval-level absent; retired members' denotations are pinned by the runtime_*_runs
+    groups. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_u8_e ].
