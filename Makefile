@@ -3,12 +3,17 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify print-goimage toolchain-gate go-verify-selftest
 .DEFAULT_GOAL := build
 
 # THE ONE Go-toolchain image authority, DIGEST-PINNED (mutable tags drift; these runs justify
-# go-run-verified semantic pins). Threaded through every Makefile use and the Dockerfile (ARG).
+# go-run-verified semantic pins). This line is the ONLY Go-image spelling in the repo: every docker
+# run uses $(GOIMAGE), every docker build receives it via --build-arg (the Dockerfile ARG has NO
+# default — a build that bypasses make fails loudly), and the pre-commit hook consumes it via
+# `make -s print-goimage`. [toolchain-gate] (a `check` prerequisite) enforces all of this.
 GOIMAGE := golang:1.23-alpine@sha256:383395b794dffa5b53012a212365d40c8e37109a626ca30d6151c8348d380b5f
+print-goimage:
+	@echo $(GOIMAGE)
 
 # Run the extracted program (Go's println writes to stderr → capture 2>&1).
 GORUN := docker run --rm -v "$(PWD)":/w -w /w $(GOIMAGE) go run .
@@ -30,13 +35,13 @@ builder:
 
 # Fast local build (native platform only, loads into local docker daemon).
 build:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --load -t $(IMAGE):$(TAG) .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) --load -t $(IMAGE):$(TAG) .
 
 # Extract generated Go sources from the prover stage into the repo.
 # Wipes all *.go files first so renamed/deleted theories don't leave strays.
 extract:
 	rm -f *.go *.go.raw
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) \
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) \
 	  --output type=local,dest=. --target go-src .
 	# Canonicalise with gofmt (the plugin emits valid but non-canonical whitespace).
 	# gofmt is a TRUSTED normaliser OUTSIDE the printer-proof claim; the guard below is a COARSE net (strips
@@ -153,7 +158,7 @@ run: build
 # Golden-file regression check: extract, run, diff vs expected_output.txt (cheap end-to-end check that a
 # Rocq/plugin change altered no observable behaviour). DEPENDS ON [extract] (never stale Go) and [emit-demo]
 # (the certified-emission path is exercised on every verify, not just ad-hoc). go vet gates it.
-check: extract emit-demo
+check: toolchain-gate go-verify-selftest extract emit-demo
 	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
 	if ! $(GOVET); then \
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
@@ -215,7 +220,7 @@ golden: extract
 # here, not left to terminal defaults). Changes nothing locally; pipe/grep the output as needed.
 # THE sanctioned spelling of this loop (no ad-hoc docker invocations).
 prover-log:
-	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --progress=plain --target prover .
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --build-arg GOIMAGE=$(GOIMAGE) --progress=plain --target prover .
 
 # gc GROUND-TRUTHING: run a scratch Go program under $(GOIMAGE) (the digest-pinned toolchain) to
 # verify Go's ACTUAL semantics before modelling them (witness values, panic payloads — the
@@ -223,15 +228,42 @@ prover-log:
 # checked BEFORE docker, and mounted READONLY via --mount (which, unlike -v, refuses a missing
 # source instead of creating it). println writes to stderr → captured.
 go-verify:
-	@test -n "$(GO)" || { echo "fido: go-verify needs GO=<dir containing main.go>"; exit 1; }
+	@test -n "$(GO)" || { echo "fido: go-verify needs GO=<dir containing ONLY main.go>"; exit 1; }
 	@test -f "$(abspath $(GO))/main.go" || { echo "fido: go-verify — no main.go in '$(GO)' (missing/typo'd dir; nothing created)"; exit 1; }
+	@extra=$$(find "$(abspath $(GO))" -maxdepth 1 -name '*.go' ! -name main.go); \
+	test -z "$$extra" || { echo "fido: go-verify — main.go must be the ONLY .go file (file-mode run would silently IGNORE siblings):"; echo "$$extra"; exit 1; }
 	docker run --rm --mount type=bind,src="$(abspath $(GO))",target=/w,readonly \
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
+# The tooling gates, wired into [check]:
+# [toolchain-gate] — the ONE-authority invariant: no Go-image spelling anywhere but the GOIMAGE
+# line above (Dockerfile default-less ARG included), exactly one authority line, digest-pinned.
+# [go-verify-selftest] — the fail-closed fixtures for go-verify (missing GO / missing dir /
+# sibling .go rejection), all failing BEFORE docker.
+toolchain-gate:
+	@bad=$$(git grep -nI "golang:" -- ':!Makefile' 2>/dev/null || true); \
+	if [ -n "$$bad" ]; then \
+	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the Makefile GOIMAGE authority:"; \
+	  echo "$$bad"; exit 1; \
+	fi
+	@test "$$(grep -c '^GOIMAGE :=' Makefile)" = "1" || { echo "fido: exactly ONE GOIMAGE authority line required"; exit 1; }
+	@grep -q '^GOIMAGE := golang:.*@sha256:' Makefile || { echo "fido: GOIMAGE must be digest-pinned (@sha256:...)"; exit 1; }
+	@grep -q '^ARG GOIMAGE$$' Dockerfile || { echo "fido: the Dockerfile GOIMAGE ARG must be DEFAULT-LESS (the Makefile is the authority)"; exit 1; }
+	@echo "fido: toolchain-gate OK — one digest-pinned GOIMAGE authority ✓"
+go-verify-selftest:
+	@! $(MAKE) -s go-verify GO= >/dev/null 2>&1 || { echo "fido: go-verify accepted an empty GO"; exit 1; }
+	@! $(MAKE) -s go-verify GO=/nonexistent-fido-selftest >/dev/null 2>&1 || { echo "fido: go-verify accepted a missing dir"; exit 1; }
+	@test ! -e /nonexistent-fido-selftest || { echo "fido: go-verify CREATED the missing dir"; exit 1; }
+	@d=$$(mktemp -d); printf 'package main\nfunc main() {}\n' > $$d/main.go; touch $$d/helper.go; \
+	if $(MAKE) -s go-verify GO=$$d >/dev/null 2>&1; then rm -rf $$d; echo "fido: go-verify accepted a SIBLING .go file"; exit 1; fi; \
+	rm -rf $$d
+	@echo "fido: go-verify-selftest OK — fail-closed on empty/missing/multi-file inputs ✓"
+
+
 # Multi-platform build (does not load locally — use push to ship).
 bake:
-	docker buildx bake --builder $(BUILDER)
+	docker buildx bake --builder $(BUILDER) --set '*.args.GOIMAGE=$(GOIMAGE)'
 
 # Multi-platform build + push to registry.
 push:
-	docker buildx bake --builder $(BUILDER) --push
+	docker buildx bake --builder $(BUILDER) --set '*.args.GOIMAGE=$(GOIMAGE)' --push

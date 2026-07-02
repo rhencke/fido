@@ -52,7 +52,7 @@ if ls ./*.go >/dev/null 2>&1; then
   if command -v gofmt >/dev/null 2>&1; then
     unformatted=$(gofmt -l ./*.go)
   else
-    unformatted=$(docker run --rm -v "$(pwd)":/w -w /w golang:1.23-alpine gofmt -l ./*.go 2>/dev/null)
+    unformatted=$(docker run --rm -v "$(pwd)":/w -w /w "$(make -s print-goimage)" gofmt -l ./*.go 2>/dev/null)
   fi
   if [ -n "$unformatted" ]; then
     echo "fido: ERROR — generated Go is not gofmt-clean (did 'make extract' run gofmt -w?):"
