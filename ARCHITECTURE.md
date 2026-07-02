@@ -13,7 +13,9 @@ Raw structured Go ASTs may represent unsafe programs.
 Only CERTIFIED ASTs may be emitted through the official path.
 Early on the certificate is "supported subset" (syntactic). It becomes "behaviorally safe" only when
 GoSem-backed SAFETY theorems back the certificate — a FIRST NARROW one now does (`GoSemSafe.emit_panic_free`:
-precondition = a proven panic-free run; modeled runtime panics are rejected by non-denotation; OFF the main path), but the general behaviorally-safe
+precondition = a proven panic-free run: accepted iff the program denotes to [c] with [cmd_no_panic c] —
+denotable panics, immediate or deferred, are rejected THERE; undenoted runtime-panic forms are rejected by
+non-denotation; OFF the main path), but the general behaviorally-safe
 certificate for the emitted/main output does NOT yet exist — and the NAME of the certificate must never claim
 more than is proved.
 ```
@@ -123,7 +125,8 @@ The correctness of an *emitted* program rests on, and only on:
 `GoPrint` proves the bytes; items 3 and 5 are why this is "Go with proofs," not "Go without trust." FUTURE
 (not today's TCB): once emission of the OBSERVED output goes through a GoSem-backed certificate, item 5's
 plugin is replaced by an **adequacy assumption** ("real Go realizes `GoSem`") — gap #10's heir. The FIRST
-GoSem-backed emission cert (`GoSemSafe.emit_panic_free`, denoted-panic-free-only) now exists but does NOT emit the
+GoSem-backed emission cert (`GoSemSafe.emit_panic_free`: accepted iff `denote_program p = Some c` and
+`cmd_no_panic c = true`) now exists but does NOT emit the
 main/observed output, so that assumption is **not** yet part of the current trust base.
 
 ---
@@ -171,9 +174,9 @@ Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no seco
          widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
          ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission cert + DECIDABLE gate
            (`PanicFreeEmittable`/`emit_panic_free`, `panic_free_gate`/`emit_panic_free_gated` — end-to-end
-           sound: emit ⟹ proven panic-free run + blessed bytes; accepts only a program denoting to a
-           CPan-free command (cmd_no_panic), modeled runtime panics rejected by non-denotation; off the main
-           path). NEXT = eval
+           sound: emit ⟹ proven panic-free run + blessed bytes; accepted iff the program denotes to c with
+           cmd_no_panic c — denotable panics rejected there, undenoted runtime-panic forms by non-denotation;
+           off the main path). NEXT = eval
            non-literals, then full `BehaviorSafe` (nil deref/OOB/race).
 ```
 

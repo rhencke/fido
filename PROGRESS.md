@@ -14,7 +14,7 @@ spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is 
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepts a program only if it denotes to a `CPan`-free command; modeled runtime panics are rejected by non-denotation) — no full BehaviorSafe gate.
+Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepted iff the program denotes to `c` with `cmd_no_panic c` — denotable panics, immediate or deferred, rejected there; undenoted runtime-panic forms rejected by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
@@ -88,11 +88,10 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
   (SOUND+COMPLETE); `emit_panic_free_gated` = end-to-end decide-then-emit (ancestor of a total `emit_safe`).
-  ⚠ accepts a program only if its DENOTATION is `CPan`-free (`cmd_no_panic`, the cmd.v authority — an
-  immediate or DEFERRED panic alike) — modeled runtime panics (OOB const slice index /
-  panicking literal element / runtime blank-assign) are rejected by NON-denotation, `panic_free_gate_slice`
-  pins the OOB case, `panic_free_gate_defer` pins the defer boundary (defer-println ACCEPTED+emitted;
-  defer-panic supported+DENOTABLE yet rejected) — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
+  ⚠ Undenoted runtime-panic forms (OOB const slice index / panicking literal element / runtime blank-assign)
+  are rejected by NON-denotation — `panic_free_gate_slice` pins the OOB case, `panic_free_gate_defer` the
+  defer boundary (defer-println ACCEPTED+emitted; defer-panic supported+DENOTABLE yet rejected by
+  `cmd_no_panic`) — does NOT gate main output, NOT full `BehaviorSafe`. Zero axioms.
 - **Whole model axiom-free**: `Print Assumptions main_effect` = "Closed under the global context"; the three
   gates (below) assert their surfaces zero-axiom and fail the build on drift (`EXPECTED_ASSUMPTIONS.txt` empty).
 - **Golden end-to-end**: `make check` diffs observable output against `expected_output.txt`.
@@ -101,8 +100,9 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 - **GoSem slice 1 only / behavioral cert is narrow + off the main path.** The blessed SYNTACTIC certificate
   is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
-  (precondition = a proven panic-free RUN). It accepts a program only if it DENOTES to a `CPan`-free command
-  (`cmd_no_panic`); modeled runtime panics are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
+  (precondition = a proven panic-free RUN). Accepted iff the program denotes to `c` with `cmd_no_panic c` —
+  denotable panics (immediate or deferred) are rejected there; undenoted runtime-panic forms (e.g. the OOB
+  const slice index) are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
   race, and runtime OOB beyond the declined constant fragment, are unmodeled — and it does NOT gate main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
