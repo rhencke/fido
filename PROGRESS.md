@@ -1,6 +1,6 @@
 # Fido — status
 
-Short live ledger — the size discipline is BYTES, not lines (keep this file under ~10 KB; long lines
+Short live ledger — the size discipline is BYTES, not lines (keep this file under ~8 KB; long lines
 are not a loophole; details live in the `.v` files, theorem names, and plans). Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LESSONS.md`; Go-spec:
 `SPEC_CONFORMANCE.md`. History is in git — **current** state only.
 
@@ -40,46 +40,19 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   even in empty literals; quarantines ledger-pinned).
 - **GoEmit** — certificate-only (`EmittableProgram`); `make emit-demo` builds a certified program with
   the real Go toolchain.
-- **GoSem slice 1** (`GoSem.v` owns the detail; surfaces are the authority):
-  - partial AST → `Cmd` denotation for print/println, panic, return, blank-assign, defer (LIFO,
-    defer-time args), and call args — faithful-or-absent.
-  - exact-or-absent value evaluator: constants (string / int / bool / exact-DYADIC floats behind the
-    `floats_checked` boundary) + const slice-index/`len`/map-`len` folds, all fail-closed.
-  - the runtime GTInt tier R1–R8 (len, `+ - * / %`, `& | ^ &^` + heterogeneous shifts via the
-    engine's own model ops (`int_bitop`/`int_shift_op` dispatch pinned; negative count panics
-    `rt_shift_neg`, ≥64 saturates; const counts read off the GATE — total, untyped ones bounded
-    to the conservative platform-`uint` window;
-    `gtint_bitwise_runs`/`gtint_shift_runs`/`shift_bigconst_runs`), unary `- ^`, slice index with exact
-    `rt_index_oob`, width-conversion exits, comparisons, map-`len` over runtime values with
-    order-independent panics) — all via the MODEL'S OWN ops through ONE shared evaluator
-    (`reval_val_with`; `denote_expr` is a thin wrapper over the same pipeline).
-  - denotation ⊆ `SupportedProgram` (`gosem_sound`); compositional converses
-    (`out_main_denotes`, `denotable_stmts_main_denotes`, tightness `denotable_body_terminator_free_iff`).
-  - typed-runtime tier T1–T5: typed UNARY's live cells denote (`^` all fixed widths, `-` i64/u64;
-    SEALED `denote_expr_typed_unop_runs_sealed` on the proven well-taggedness invariant
-    `reval_val_typed`; holes absent for every payload, `typed_unop_holes_none` +
-    `typed_unary_holes_absent`); conversions are decided PER SOURCE OUTCOME for exit AND `int`
-    targets (`runint_raw` value-then-wrap): an EVALUATED runtime-int source denotes wrapped (SEALED
-    `denote_expr_conv{,_int}_runs_sealed`), a panicking one panics (`..conv{,_int}_panic`), an
-    ABSENT one stays absent (`denote_expr_conv_src_absent`; `PtRunInt` alone never implies
-    denotation — pinned `runtime_conv_absent_src_pinned`); the float side CLASS-absent
-    (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`); SAME-WIDTH typed
-    arithmetic/bitwise denotes on evaluated operands (nine ops × 8 fixed widths, `typed_binop` —
-    value / div-zero panic / operand panic / absent each proved, SEALED
-    `denote_expr_typed_binop_runs_sealed` over the WHOLE shape split `ptype_binop_runint_args` —
-    an UNTYPED const operand converts to the binop's width, a TYPED one must already be at it:
-    `typed_operand`, width-SEALED at the boundary, cross-width pinned None; `uint` row pinned
-    absent); SAME-WIDTH typed COMPARISONS denote (six ops × 8 widths, `typed_cmp` + `cmp_width`
-    dispatch — the `GTInt` width stays the R4 engine; SEALED `denote_expr_typed_cmp_runs_sealed`
-    over the shape split `ptype_cmp_bool_args`, operands via the same width seal; `uint` +
-    cross-width pinned); HETEROGENEOUS SHIFTS denote (T5 — the left at its width, the count ANY
-    int width/const read via the sealed count layer (const counts off the GATE —
-    `shift_count_const_total`), counts ≥ 64 SATURATE exactly, a NEGATIVE
-    runtime count panics `rt_shift_neg`; SEALED `denote_expr_typed_shift_runs_sealed` over
-    `ptype_shift_runint_args`; the five-case shape table FLIPPED to denoting,
-    `typed_runtime_shift_runs`; `uint`-left pinned absent, the `GTInt` left runs via R8).
-  - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
-    (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
+- **GoSem slice 1** (detail lives in `GoSem.v`; the SURFACES are the authority — this ledger
+  deliberately lists no theorem inventory):
+  - partial AST → `Cmd` denotation for print/println / panic / return / blank-assign / defer /
+    call args, over the exact-or-absent constant fold — faithful-or-absent, all fail-closed.
+  - the runtime GTInt tier R1–R8 and the typed-runtime tier T1–T5 LANDED + SEALED: the model's
+    own ops through ONE shared evaluator, dispatch authorities pinned, outcome trichotomies
+    proved, boundary/hole rows pinned absent (frontier surface).
+  - float constants exact-or-reject behind `floats_checked`; fold verification is the
+    CONSTANT-op layer (`sf_const_binop`/`sf_const_neg` — no signed zero); the dyadic↔SF
+    agreement arc is live (`plans/dyadic-sf-agreement.md`).
+  - denotation ⊆ `SupportedProgram` (`gosem_sound`) + compositional converses.
+  - public surfaces (topic-split, manifest-gated): `gosem_trust_surface`
+    (core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
 - **Model layer** (proof-only): `builtins.v`, `cmd.v`, `unified.v` (race-freedom/liveness proved on
   `ustep`), `concurrency.v`.
@@ -104,12 +77,11 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The TYPED-runtime tier is COMPLETE (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion
-  chains + T3 same-width arithmetic (incl. the mixed-const operand WIDTH SEAL) + T4 comparisons +
-  T5 heterogeneous shifts, all LANDED + SEALED; the GTInt engine's R8 bitwise/shift rows landed
-  too. Next: the dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md` — rung 1 NEG-f64 +
-  the signed-zero CONSTANT layer (`sf_const_binop`/`sf_const_neg` erasure; zero folds denote
-  `+0`, both widths) LANDED; next: `binary_round` exactness in-window).
+- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`): rung 1 landed (NEG-f64 +
+  the signed-zero constant layer); next rung: `binary_round` exactness in-window. (The
+  typed-runtime tier T1–T5 + R8 is COMPLETE — lesson ledger in `LESSONS.md`.)
+- CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
+  physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

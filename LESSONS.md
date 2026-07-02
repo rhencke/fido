@@ -146,3 +146,16 @@ archive. What must survive them:
 5. **Witness succession is one commit:** a landing flips its pins across every site that used the
    retired witness, plus a repo-wide stale-claim sweep; deleting a file requires a grep for its name
    AND any shorthand it defined.
+
+## The typed-runtime tier (T1–T5 + R8, 2026-07-01…02) — landing a tier one review round at a time
+
+The full plan lived in `plans/typed-runtime-tier.md` (deleted at completion; git has it). The
+transferable rules it produced: (1) outcome TRICHOTOMY per slice — value / panic / absent each
+PROVED before a case is called "decided"; (2) shape splits derived from `ptype`'s own
+classification, never asserted; (3) an exported helper carries its own invariant (the mixed-const
+WIDTH SEAL lives inside `typed_operand`, not in caller proofs); (4) gc is ground-truthed via
+`make go-verify` BEFORE modelling (wrap values, panic payloads, count semantics); (5) flipping an
+absent pin sweeps its dependent witnesses and docs in the SAME commit; (6) heterogeneous ops
+(shifts) need their own dispatch — a same-width table cannot host them; (7) read constants off
+the GATE's own values — re-reading gate-admitted data through a differently-bounded
+representation (a value-range window used as a count-range window) is a side-condition leak.

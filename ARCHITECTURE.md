@@ -151,6 +151,28 @@ not "verified Go." GoSem is a slice-1 bridge, NOT behavioral safety. Detailed fe
 
 ---
 
+## 3a. GoSem physical split — PLANNED (proposed 2026-07-02; not yet performed)
+
+`GoSem.v` (~390 KB) is past single-file human reviewability; the topic surfaces solved the
+assumption-gate problem, not the file-level one. The split mirrors the surfaces, one file per
+proof cluster, `GoSem.v` becoming the composition/re-export point:
+
+- `GoSemCore.v` — box/render (`box_int`/`box_float`/`sf_*`), the const-op layer, `eval_value` +
+  the `floats_checked` boundary, `fsf_checked` (→ `gosem_core_surface` + `gosem_float_surface`).
+- `GoSemRuntimeInt.v` — `reval_int`/`rexit_with`/`reval_val_with`, the typed tiers T1–T5 + R8
+  dispatch/convoys and their seals (→ `gosem_runtime_int_surface`).
+- `GoSemAgg.v` — slice-literal/map construction walks + index/len (→ slice-index + map surfaces).
+- `GoSemWitness.v` — program-level pins, demos, the frontier, the composed surfaces
+  (→ `gosem_frontier_surface`, `gosem_trust_surface`).
+
+Constraints: perform it when the float arc's rungs 3–5 land (they add the most mass to the
+core/float cluster); no file may reach into another's internals beyond what it imports — if a
+split forces a helper public, the helper moves instead; `denote_expr`/`denote_program` and the
+statement layer stay wherever keeps `gosem_sound`'s proof in ONE file. No semantic change — a
+pure move, golden byte-identical.
+
+---
+
 ## 4. Relooper — demoted
 
 `relooper.v` is proven and should not be deleted casually, but it is **not** part of the first

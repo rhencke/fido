@@ -237,92 +237,15 @@ go-verify:
 	docker run --rm --mount type=bind,src="$(abspath $(GO))",target=/w,readonly \
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
-# The tooling gates, wired into [check]:
-# [toolchain-gate] — delegates to plugin/toolchain-gate.sh; that script's header IS the single
-# statement of what is enforced (this comment deliberately does not duplicate the list).
-# [toolchain-selftest] — proves CLI/env overrides are INERT (the `override` directive) and that
-# synthesized Makefile-side mutations (global/target/pattern/private, CONTINUED lines, sinclude,
-# recipe-prefixed and brace eval, computed LHS) all fail the gate.
-# [go-verify-selftest] — one helper runs EVERY negative case (empty GO / missing dir / sibling
-# .go) and asserts, for each: the command fails, the first fido: diagnostic line matches EXACTLY,
-# and the PATH-shadowed docker sentinel was never reached. Setup is checked under set -eu with
-# trap cleanup.
+# The tooling gates, wired into [check] — each DELEGATES to its plugin/ script, whose header IS
+# the single statement of what it enforces/tests (no duplicated lists here).
 MKFILE := $(firstword $(MAKEFILE_LIST))
 toolchain-gate:
 	@sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' Dockerfile
 toolchain-selftest:
-	@auth=$$($(MAKE) -s print-goimage); \
-	got=$$($(MAKE) -s GOIMAGE=unpinned-override print-goimage); \
-	test "$$got" = "$$auth" || { echo "fido: an UNPINNED GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }; \
-	got=$$($(MAKE) -s GOIMAGE=other-image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa print-goimage); \
-	test "$$got" = "$$auth" || { echo "fido: a PINNED-BUT-DIFFERENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }; \
-	GOIMAGE=env-override; export GOIMAGE; got=$$($(MAKE) -s print-goimage); \
-	test "$$got" = "$$auth" || { echo "fido: an ENVIRONMENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }
-	@set -eu; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
-	for evil in \
-	  'override GOIMAGE = evil-image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
-	  'override GOIMAGE += -tainted' \
-	  'print-goimage: GOIMAGE := evil' \
-	  'extract: private GOIMAGE := evil' \
-	  '%.go: GOIMAGE += -tainted' \
-	  'extract: GOIMAGE \\@@NL@@ := evil' \
-	  '%.go: GOIMAGE \\@@NL@@ += -tainted' \
-	  'sinclude evil.mk' \
-	  '-include evil.mk' \
-	  'evil-target:@@NL@@	@$$@@LP@@eval extract: GOIMAGE := evil)' \
-	  'evil-target:@@NL@@	@$$@@LB@@eval extract: GOIMAGE := evil}' \
-	  'INDIR = GOIMAGE@@NL@@$$@@LP@@INDIR) := evil' \
-	  '@@RP@@ := >@@NL@@@@TAB@@extract: GOIMAGE := evil'; do \
-	  rp=$$(printf '.%s' 'RECIPEPREFIX'); \
-	  cp $(MKFILE) "$$tmp"; printf '%s\n' "$$evil" | sed -e 's/@@NL@@/\n/g' -e 's/@@LP@@/(/g' -e 's/@@LB@@/{/g' -e 's/@@TAB@@/\t/g' -e "s/@@RP@@/$$rp/g" >> "$$tmp"; \
-	  if $(MAKE) -f "$$tmp" -s toolchain-gate >/dev/null 2>&1; then \
-	    echo "fido: toolchain-gate ACCEPTED a Makefile-side GOIMAGE mutation: $$evil"; exit 1; fi; \
-	done
-	@set -eu; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
-	for dfevil in \
-	  'ARG GOIMAGE=evil-default' \
-	  'arg GOIMAGE=evil-default' \
-	  'from @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
-	  '  FROM @@GOIMG@@@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue' \
-	  ; do \
-	  cp Dockerfile "$$tmp"; printf '%s\n' "$$dfevil" | sed -e 's/@@NL@@/\n/g' -e 's/@@GOIMG@@/golang/g' >> "$$tmp"; \
-	  if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
-	    echo "fido: toolchain-gate ACCEPTED a Dockerfile mutation: $$dfevil"; exit 1; fi; \
-	done; \
-	{ head -1 Dockerfile; printf '  # escape=`\n'; tail -n +2 Dockerfile; \
-	  printf 'FROM `\n  gola%s@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa AS rogue\n' ng; } > "$$tmp"; \
-	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
-	  echo "fido: toolchain-gate ACCEPTED an ACTIVE leading-whitespace escape directive + backtick-split rogue FROM"; exit 1; fi; \
-	re=$$(sed -n "s/^GO_IMAGE_RE='\(.*\)'$$/\1/p" plugin/toolchain-gate.sh); \
-	test -n "$$re" || { echo "fido: could not extract GO_IMAGE_RE from the gate script"; exit 1; }; \
-	printf 'x gola%s@sha256:aa\n' ng | grep -qE "$$re" || { echo "fido: the Go-image detector misses DIGEST-ONLY spellings"; exit 1; }; \
-	printf 'x gola%s:1.99-alpine\n' ng | grep -qE "$$re" || { echo "fido: the Go-image detector misses TAG spellings"; exit 1; }; \
-	sed 's/^FROM $${GOIMAGE} AS builder$$/FROM alpine AS builder/' Dockerfile > "$$tmp"; \
-	if sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)' "$$tmp" >/dev/null 2>&1; then \
-	  echo "fido: toolchain-gate ACCEPTED a builder FROM that bypasses \$${GOIMAGE}"; exit 1; fi
-	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; every tested Makefile-side mutation class + Dockerfile drift REJECTED ✓"
+	@sh plugin/toolchain-selftest.sh '$(MAKE)' $(MKFILE) '$(GOIMAGE)'
 go-verify-selftest:
-	@set -eu; \
-	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
-	printf '#!/bin/sh\necho FIDO-DOCKER-INVOKED >&2; exit 97\n' > "$$sd/docker"; \
-	chmod +x "$$sd/docker"; \
-	fx="$$sd/fx"; mkdir "$$fx"; \
-	printf 'package main\nfunc main() {}\n' > "$$fx/main.go"; \
-	: > "$$fx/helper.go"; \
-	test -s "$$fx/main.go"; test -f "$$fx/helper.go"; \
-	chk() { \
-	  if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO="$$1" 2>&1); then \
-	    echo "fido: go-verify ACCEPTED GO='$$1'"; exit 1; fi; \
-	  line=$$(echo "$$out" | grep '^fido:' | head -1); \
-	  test "$$line" = "$$2" || { echo "fido: unexpected diagnostic for GO='$$1':"; echo "$$out"; exit 1; }; \
-	  if echo "$$out" | grep -q FIDO-DOCKER-INVOKED; then \
-	    echo "fido: go-verify reached docker for GO='$$1' (a fail-before-docker case)"; exit 1; fi; \
-	}; \
-	chk "" "fido: go-verify needs GO=<dir containing ONLY main.go>"; \
-	chk "/nonexistent-fido-selftest" "fido: go-verify — no main.go in '/nonexistent-fido-selftest' (missing/typo'd dir; nothing created)"; \
-	test ! -e /nonexistent-fido-selftest || { echo "fido: go-verify CREATED the missing dir"; exit 1; }; \
-	chk "$$fx" "fido: go-verify — main.go must be the ONLY .go file (file-mode run would silently IGNORE siblings):"; \
-	echo "fido: go-verify-selftest OK — every negative case fails with its exact diagnostic, docker never reached ✓"
+	@sh plugin/go-verify-selftest.sh '$(MAKE)'
 
 
 # Multi-platform build (does not load locally — use push to ship).
