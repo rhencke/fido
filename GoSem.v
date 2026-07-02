@@ -22,10 +22,10 @@
       CONVERSIONS of runtime ints ([int(x)] in-fragment; every other integer width via the model's own
       wraps — [wrap_runint], Go's runtime truncation), (R4) runtime bool COMPARISONS of int-fragment
       operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
-      over RUNTIME map values (every value through the SHARED evaluator; a SINGLE panicking value
-      panics — order-INDEPENDENT, since Go leaves map-literal evaluation order unspecified TWO
-      panicking values are ambiguous and stay absent).  Runtime FLOATS (and e.g. runtime unary ops /
-      nonzero runtime [%]) are not yet denoted.
+      over RUNTIME map values (every value through the SHARED evaluator; panics denote only
+      order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
+      class theorems).  Runtime FLOATS (and e.g. runtime unary ops / nonzero runtime [%]) are not yet
+      denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -699,11 +699,10 @@ Definition reval_val_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny
     each VALUE through the FULL shared evaluator (so a value ANY tier denotes — R3 width conversions and
     R4 comparisons included — constructs; ONE authority with [denote_expr], no drift).  ⚠ Go leaves the
     EVALUATION ORDER of a map literal's assignments UNSPECIFIED (spec, "Order of evaluation"), so a
-    panic is denoted ONLY when it is mechanically ORDER-INDEPENDENT: [Some RCOk] = every value denotes
-    to a value; [Some (RCPanic p)] = EXACTLY ONE value panics and every other value evaluates (values
-    in this fragment are effect-free, so EVERY order reaches that same panic — exact under any
-    schedule); [None] = an absent value, OR two-plus panicking values (AMBIGUOUS — which panic fires
-    depends on the unspecified order; faithful-or-absent, never a source-order guess).  Keys are
+    panic is denoted ONLY when it is mechanically ORDER-INDEPENDENT (values in this fragment are
+    effect-free, so a SINGLE panicking value panics under every schedule; two-plus are ambiguous and
+    absent) — the AUTHORITY is the quantified class seal just below ([rconstr_vals_ok_iff] /
+    [rconstr_vals_panic_sound] / [rconstr_vals_two_panics_absent]), not this prose.  Keys are
     constants under the [PtRunInt] guard and cannot panic.  The value is bound by the PAIR pattern so
     the enclosing [Fixpoint]'s guard accepts the recursion. *)
 Inductive RConstr : Type := RCOk | RCPanic (p : GoAny).
@@ -719,6 +718,87 @@ Definition rconstr_vals_with (rval : GExpr -> option RAny) : list (GExpr * GExpr
         | None, _ => None
         end
     end.
+
+(** ★ THE WALKER'S CLASS SEAL — quantified characterization of [rconstr_vals_with] (manifest-gated),
+    the AUTHORITY for the order-independence claim (the fixtures below are witnesses, not the guard):
+    [RCOk] iff EVERY value evaluates to a value ([rconstr_vals_ok_iff]); [RCPanic p] only with an
+    exactly-one decomposition — SOME position panics [p] and every OTHER value evaluates
+    ([rconstr_vals_panic_sound]); and ANY list containing TWO panicking values — arbitrary prefix /
+    middle / suffix — is [None] ([rconstr_vals_two_panics_absent]): a source-order semantics cannot
+    be reintroduced while these hold. *)
+Definition rval_is_val (rval : GExpr -> option RAny) (kv : GExpr * GExpr) : bool :=
+  match rval (snd kv) with Some (RAVal _) => true | _ => false end.
+Lemma rconstr_vals_with_cons : forall rval k v r,
+  rconstr_vals_with rval ((k, v) :: r)
+  = match rval v, rconstr_vals_with rval r with
+    | Some (RAVal _),  rest        => rest
+    | Some (RAPanic p), Some RCOk  => Some (RCPanic p)
+    | Some (RAPanic _), _          => None
+    | None, _ => None
+    end.
+Proof. reflexivity. Qed.
+Lemma rconstr_vals_ok_iff : forall rval l,
+  rconstr_vals_with rval l = Some RCOk <-> forallb (rval_is_val rval) l = true.
+Proof.
+  intros rval l; induction l as [| [k v] r IH].
+  - cbn. split; reflexivity.
+  - rewrite rconstr_vals_with_cons. cbn [forallb].
+    unfold rval_is_val at 1. cbn [snd].
+    destruct (rval v) as [[g|q]|].
+    + cbv beta iota. rewrite andb_true_l. exact IH.
+    + destruct (rconstr_vals_with rval r) as [[|q']|];
+        cbv beta iota; rewrite andb_false_l;
+        split; intro H; discriminate H.
+    + cbv beta iota. rewrite andb_false_l. split; intro H; discriminate H.
+Qed.
+Lemma rconstr_vals_panic_sound : forall rval l p,
+  rconstr_vals_with rval l = Some (RCPanic p) ->
+  exists l1 kv l2, l = l1 ++ kv :: l2
+    /\ rval (snd kv) = Some (RAPanic p)
+    /\ forallb (rval_is_val rval) (l1 ++ l2) = true.
+Proof.
+  intros rval l; induction l as [| [k v] r IH]; intros p H.
+  - cbn in H. discriminate H.
+  - rewrite rconstr_vals_with_cons in H.
+    destruct (rval v) as [[g|q]|] eqn:Ev; cbv beta iota in H.
+    + destruct (IH p H) as [l1 [kv [l2 [-> [Hp Hok]]]]].
+      exists ((k, v) :: l1), kv, l2. split; [reflexivity|]. split; [exact Hp|].
+      cbn [app forallb]. unfold rval_is_val at 1. cbn [snd]. rewrite Ev.
+      rewrite andb_true_l. exact Hok.
+    + destruct (rconstr_vals_with rval r) as [[|q']|] eqn:Er; try discriminate H.
+      injection H as <-.
+      exists nil, (k, v), r. split; [reflexivity|]. split; [cbn [snd]; exact Ev|].
+      cbn [app]. exact (proj1 (rconstr_vals_ok_iff rval r) Er).
+    + discriminate H.
+Qed.
+Theorem rconstr_vals_two_panics_absent : forall rval l1 kv1 l2 kv2 l3 p1 p2,
+  rval (snd kv1) = Some (RAPanic p1) ->
+  rval (snd kv2) = Some (RAPanic p2) ->
+  rconstr_vals_with rval (l1 ++ kv1 :: l2 ++ kv2 :: l3) = None.
+Proof.
+  intros rval l1 kv1 l2 kv2 l3 p1 p2 H1 H2.
+  assert (Hnok : forall lm, rconstr_vals_with rval (lm ++ kv2 :: l3) <> Some RCOk).
+  { intros lm Hok. apply (proj1 (rconstr_vals_ok_iff _ _)) in Hok.
+    rewrite forallb_app in Hok. apply andb_true_iff in Hok as [_ Hok].
+    cbn [forallb] in Hok. unfold rval_is_val in Hok.
+    rewrite H2 in Hok. rewrite andb_false_l in Hok. discriminate Hok. }
+  induction l1 as [| [k v] r IH].
+  - cbn [app]. destruct kv1 as [k1 v1]. cbn [snd] in H1.
+    rewrite rconstr_vals_with_cons. rewrite H1. cbv beta iota.
+    destruct (rconstr_vals_with rval (l2 ++ kv2 :: l3)) as [[|q]|] eqn:Er;
+      cbv beta iota; [exfalso; exact (Hnok l2 Er) | reflexivity | reflexivity].
+  - cbn [app]. rewrite rconstr_vals_with_cons.
+    destruct (rval v) as [[g|q]|]; cbv beta iota.
+    + exact IH.
+    + destruct (rconstr_vals_with rval (r ++ kv1 :: l2 ++ kv2 :: l3)) as [[|q']|] eqn:Er;
+        cbv beta iota; [| reflexivity | reflexivity].
+      exfalso. apply (proj1 (rconstr_vals_ok_iff _ _)) in Er.
+      rewrite forallb_app in Er. apply andb_true_iff in Er as [_ Er].
+      cbn [forallb] in Er. unfold rval_is_val in Er.
+      destruct kv1 as [k1 v1]. cbn [snd] in H1, Er.
+      rewrite H1 in Er. rewrite andb_false_l in Er. discriminate Er.
+    + reflexivity.
+Qed.
 
 Fixpoint reval_int (e : GExpr) : option RRes :=
   match eval_value e with
@@ -747,9 +827,9 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
                  mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
                  ([rconstr_vals_with (reval_val_with reval_int)] — R3-converted and R4-compared values
                  construct exactly as they denote standalone): all values → the entry count via the
-                 checked [rval_len]; a SINGLE panicking value → that panic (order-INDEPENDENT — see the
-                 walker's comment; Go leaves map-literal evaluation order unspecified, so TWO panicking
-                 values are ambiguous and stay ABSENT); an absent value keeps the whole form absent. *)
+                 checked [rval_len]; a SINGLE panicking value → that panic; TWO panicking values / an
+                 absent value → absent (Go leaves map-literal order unspecified — sealed by the
+                 walker's class theorems, [rconstr_vals_two_panics_absent] et al.). *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
                  && nodup_z (map_key_vals kvs)
               then match rconstr_vals_with (reval_val_with reval_int) kvs with
@@ -1117,9 +1197,8 @@ Qed.
     reval_int] pipeline [denote_expr] consumes — R3/R4-form values included) denotes to the
     DISTINCT-KEY COUNT (boxed through the checked
     [rval_len] — [int_const_repr] on the count is the fail-closed representability boundary, discharged
-    by [rval_len_repr]); a SINGLE panicking VALUE panics — [rconstr_vals] certifies the panic only when
-    it is ORDER-INDEPENDENT (Go leaves map-literal evaluation order unspecified; two panicking values
-    are ambiguous and absent). *)
+    by [rval_len_repr]); a SINGLE panicking VALUE panics — order-independence sealed by the walker's
+    class theorems ([rconstr_vals_panic_sound]/[rconstr_vals_two_panics_absent]). *)
 Lemma denote_expr_maplen_runs : forall f kt vt kvs,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
   ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (PtRunInt GTInt) ->
@@ -2075,10 +2154,9 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     TWO-entry literal mixing a runtime and a constant value prints 2 (the fold declines it — one
     runtime value — so the COUNT comes from the tier); a SINGLE panicking value panics
     ([len(map[int]int{1: 1/len([]int{})})] → [rt_div_zero], before any output — order-independent);
-    the shared-evaluator reach cases below; and the ORDER-AMBIGUITY regression: TWO distinct panicking
-    values ([1/len([]int{})] and an OOB index) make the whole form ABSENT — Go does not specify which
-    panic fires, so Fido refuses to pick (supported, NOT denotable; a source-order semantics can never
-    silently return). *)
+    the shared-evaluator reach cases below; and the ORDER-AMBIGUITY witness: TWO distinct panicking
+    values ([1/len([]int{})] and an OOB index) make the whole form ABSENT (supported, NOT denotable) —
+    a WITNESS of the quantified seal [rconstr_vals_two_panics_absent], the class authority. *)
 Definition maplen_run2_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt
@@ -2692,6 +2770,7 @@ Definition gosem_trust_surface :=
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
    denote_expr_maplen_runs, denote_expr_maplen_panic, rval_len_repr,
    runtime_maplen_runs, runtime_maplen_supported, runtime_maplen_ambiguous_absent,
+   rconstr_vals_ok_iff, rconstr_vals_panic_sound, rconstr_vals_two_panics_absent,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    runtime_conv_runs, runtime_conv_supported,
    runtime_bool_runs, runtime_bool_supported,
