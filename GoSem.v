@@ -1034,26 +1034,32 @@ Proof.
   destruct (typed_arith_op o); [destruct t; try discriminate H; reflexivity | reflexivity].
 Qed.
 
-(** T3 operand MATERIALIZATION — Go's mixed-operand rule, exactly: a RUNTIME operand evaluates at
-    full power ([rv]); an INT-CONSTANT operand (untyped or typed — [num_arith]'s mixed rows)
-    materializes AT THE BINOP'S WIDTH through [box_int]'s repr-gated boxing ([ptype]'s own admission
-    checks: the untyped row re-checks [int_const_repr]; a typed const's payload is repr-sound,
-    [ptype_tint_const_repr]).  A non-integer class is absent fail-closed; a constant never panics
-    ([typed_operand_panic_runtime]). *)
+(** T3 operand MATERIALIZATION — Go's mixed-operand rule, WIDTH-SEALED at this boundary (not by
+    caller discipline): a RUNTIME operand must be classified AT the width and evaluates at full
+    power ([rv]); an UNTYPED int constant CONVERTS to the width through [box_int]'s repr-gated
+    boxing; a TYPED constant must already BE the width ([numty_eqb] — Go forbids a typed [uint8]
+    constant as an [int64] operand; cross-width is [None], pinned
+    [typed_operand_cross_width_none]).  Anything else is absent fail-closed; a constant never
+    panics ([typed_operand_panic_runtime]). *)
 Definition typed_operand (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
   match ptype e with
-  | Some (PtRunInt _) => rv e
-  | Some c =>
-      match int_const_val c with
-      | Some z =>
-          match box_int t z with
-          | Some g => Some (RAVal g)
-          | None => None
-          end
+  | Some (PtRunInt s) => if numty_eqb s t then rv e else None
+  | Some (PtIntConst z) =>
+      match box_int t z with
+      | Some g => Some (RAVal g)
       | None => None
       end
-  | None => None
+  | Some (PtTIntConst s z) =>
+      if numty_eqb s t
+      then match box_int t z with
+           | Some g => Some (RAVal g)
+           | None => None
+           end
+      else None
+  | _ => None
   end.
+Lemma numty_eqb_refl_int : forall t, is_int_goty t = true -> numty_eqb t t = true.
+Proof. intros t H; destruct t; try discriminate H; reflexivity. Qed.
 Lemma box_int_repr_total : forall t z,
   is_int_goty t = true -> numty_eqb t GTUint = false -> int_const_repr z t = true ->
   exists g, box_int t z = Some g.
@@ -1116,10 +1122,11 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          can slip through), and the verdict is the model's own comparison op.  A panicking operand
          panics LEFT-to-right (Go's order), before any comparison.
          tier T3 — the [PtRunInt t] case is SAME-WIDTH typed arithmetic/bitwise: each operand goes
-         through [typed_operand] (a runtime operand at FULL power via [rv]; an INT-CONSTANT operand
-         — untyped or typed, [num_arith]'s mixed rows — MATERIALIZES at the binop's width, Go's
-         conversion rule), then [typed_binop] applies the width's model op (a value, or the
-         division-by-zero panic — [div_checked]).  A hole row ([GTUint], shifts) is absent. *)
+         through [typed_operand] (WIDTH-SEALED: a runtime operand classified AT the width runs at
+         FULL power via [rv]; an UNTYPED int constant CONVERTS to the width; a TYPED constant must
+         already BE the width — Go's rules), then [typed_binop] applies the width's model op (a
+         value, or the division-by-zero panic — [div_checked]).  A hole row ([GTUint], shifts) is
+         absent. *)
       match ptype e with
       | Some PtBool =>
           match cmp_verdict o with
@@ -1725,7 +1732,8 @@ Qed.
 (** ---- The T3 BINOP shape seal: what operand shapes can sit under a [PtRunInt]-classified
     arithmetic binop — both-runtime, or ONE runtime + ONE int-constant ([num_arith]'s mixed rows,
     carrying ptype's own repr/width admission facts).  The sealed T3 theorem covers the WHOLE split:
-    a constant operand MATERIALIZES at the binop's width ([typed_operand]). *)
+    an UNTYPED constant operand CONVERTS to the binop's width, a TYPED one is already AT it
+    ([typed_operand], width-sealed at the boundary). *)
 Lemma numty_eqb_eq : forall t1 t2, numty_eqb t1 t2 = true -> t1 = t2.
 Proof. intros t1 t2 H; destruct t1; destruct t2; try discriminate H; reflexivity. Qed.
 Lemma dy_fold_at_float : forall t df a b pt,
@@ -2382,23 +2390,26 @@ Qed.
     const row is TOTAL on [ptype]'s own admitted shapes and tags at the WIDTH, and a panic can only
     come from the runtime row. *)
 Lemma typed_operand_runint : forall rv t s e,
-  ptype e = Some (PtRunInt s) -> typed_operand rv t e = rv e.
-Proof. intros rv t s e Hpt. unfold typed_operand. rewrite Hpt. reflexivity. Qed.
+  ptype e = Some (PtRunInt s) -> numty_eqb s t = true -> typed_operand rv t e = rv e.
+Proof.
+  intros rv t s e Hpt Hn. unfold typed_operand. rewrite Hpt, Hn. reflexivity.
+Qed.
 Lemma typed_operand_typed : forall t e g,
+  is_int_goty t = true ->
   (ptype e = Some (PtRunInt t)
-   \/ (exists c z, ptype e = Some c /\ int_const_val c = Some z)) ->
+   \/ (exists z, ptype e = Some (PtIntConst z) \/ ptype e = Some (PtTIntConst t z))) ->
   typed_operand reval_val t e = Some (RAVal g) ->
   tag_matches t g = true.
 Proof.
-  intros t e g [Hpt | [c [z [Hpt Hz]]]] H; unfold typed_operand in H; rewrite Hpt in H;
-    cbv beta iota in H.
-  - exact (reval_val_typed e t g Hpt H).
-  - destruct c; cbn [int_const_val] in Hz, H; try discriminate Hz;
-    ( cbv beta iota in H;
-      match type of H with
-      | context [box_int ?tt ?zz] => destruct (box_int tt zz) eqn:B
-      end;
-      [ injection H as <-; exact (box_int_tag _ _ _ B) | discriminate H ] ).
+  intros t e g Hi Hc H; unfold typed_operand in H.
+  destruct Hc as [Hpt | [z [Hpt | Hpt]]]; rewrite Hpt in H; cbv beta iota in H.
+  - rewrite (numty_eqb_refl_int t Hi) in H. cbv beta iota in H.
+    exact (reval_val_typed e t g Hpt H).
+  - destruct (box_int t z) eqn:B; [|discriminate H].
+    injection H as <-; exact (box_int_tag _ _ _ B).
+  - rewrite (numty_eqb_refl_int t Hi) in H. cbv beta iota in H.
+    destruct (box_int t z) eqn:B; [|discriminate H].
+    injection H as <-; exact (box_int_tag _ _ _ B).
 Qed.
 Lemma typed_operand_const_total : forall t e z,
   is_int_goty t = true -> numty_eqb t GTUint = false ->
@@ -2407,23 +2418,29 @@ Lemma typed_operand_const_total : forall t e z,
   exists g, typed_operand reval_val t e = Some (RAVal g).
 Proof.
   intros t e z Hi Hu Hc. unfold typed_operand.
-  destruct Hc as [[Hpt Hr] | Hpt]; rewrite Hpt; cbv beta iota; cbn [int_const_val].
+  destruct Hc as [[Hpt Hr] | Hpt]; rewrite Hpt; cbv beta iota.
   - destruct (box_int_repr_total t z Hi Hu Hr) as [g B]. rewrite B. eexists; reflexivity.
-  - pose proof (ptype_tint_const_repr e t z Hpt) as Hr.
+  - rewrite (numty_eqb_refl_int t Hi). cbv beta iota.
+    pose proof (ptype_tint_const_repr e t z Hpt) as Hr.
     destruct (box_int_repr_total t z Hi Hu Hr) as [g B]. rewrite B. eexists; reflexivity.
 Qed.
 Lemma typed_operand_panic_runtime : forall rv t e p,
   typed_operand rv t e = Some (RAPanic p) ->
-  exists s, ptype e = Some (PtRunInt s) /\ rv e = Some (RAPanic p).
+  exists s, ptype e = Some (PtRunInt s) /\ numty_eqb s t = true
+            /\ rv e = Some (RAPanic p).
 Proof.
   intros rv t e p H. unfold typed_operand in H.
   destruct (ptype e) as [c|]; [|discriminate H].
-  destruct c; cbn [int_const_val] in H; cbv beta iota in H;
+  destruct c; cbv beta iota in H;
   try discriminate H;
+  repeat match type of H with
+         | (if ?bb then _ else _) = _ =>
+             let E := fresh "E" in destruct bb eqn:E; cbv beta iota in H; [|discriminate H]
+         end;
   try (match type of H with
        | context [box_int ?tt ?zz] => destruct (box_int tt zz); discriminate H
        end);
-  eexists; split; [reflexivity | exact H].
+  eexists; split; [reflexivity | split; [assumption | exact H]].
 Qed.
 
 (** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
@@ -2677,9 +2694,9 @@ Proof.
 Qed.
 
 (** ★ THE SEALED T3 THEOREM — SAME-WIDTH typed arithmetic/bitwise over the FULL operand-shape
-    split ([ptype_binop_runint_args]: both-runtime, or one runtime + one int-CONSTANT — the
-    constant MATERIALIZES at the binop's width, [typed_operand], total on ptype's own shapes by
-    [typed_operand_const_total]): both operand tags are forced ([typed_operand_typed]), the dispatch
+    split ([ptype_binop_runint_args]: both-runtime, or one runtime + one int-CONSTANT — an untyped
+    constant CONVERTS to the binop's width, a typed one is already AT it; [typed_operand],
+    width-sealed, total on ptype's own shapes by [typed_operand_const_total]): both operand tags are forced ([typed_operand_typed]), the dispatch
     is total on live rows ([typed_binop_live_total]), and the result is decided per OUTCOME — the
     model op's VALUE (tagged at the width) or the division-by-zero PANIC; operand panics propagate
     left-to-right (only the runtime row can panic, [typed_operand_panic_runtime]) and ABSENT
@@ -2703,19 +2720,19 @@ Proof.
   pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
   pose proof (ptype_binop_runint_args o a b t Ho Hpt) as Hshape.
   assert (Hta : tag_matches t ga = true).
-  { apply (typed_operand_typed t a ga); [|exact Ha].
+  { apply (typed_operand_typed t a ga Hi); [|exact Ha].
     destruct Hshape as [[Hpa _] | [[[z [[Hpa _] | Hpa]] _] | [_ Hpa]]];
       [ left; exact Hpa
-      | right; exists (PtIntConst z), z; split; [exact Hpa | reflexivity]
-      | right; exists (PtTIntConst t z), z; split; [exact Hpa | reflexivity]
+      | right; exists z; left; exact Hpa
+      | right; exists z; right; exact Hpa
       | left; exact Hpa ]. }
   assert (Htb : tag_matches t gb = true).
-  { apply (typed_operand_typed t b gb); [|exact Hb].
+  { apply (typed_operand_typed t b gb Hi); [|exact Hb].
     destruct Hshape as [[_ Hpb] | [[_ Hpb] | [[z [[Hpb _] | Hpb]] _]]];
       [ left; exact Hpb
       | left; exact Hpb
-      | right; exists (PtIntConst z), z; split; [exact Hpb | reflexivity]
-      | right; exists (PtTIntConst t z), z; split; [exact Hpb | reflexivity] ]. }
+      | right; exists z; left; exact Hpb
+      | right; exists z; right; exact Hpb ]. }
   destruct (typed_binop_live_total o t ga gb Ho Hta Htb Ht Hu Hi) as [r Hr].
   exists r.
   assert (He : reval_int (EBn o a b) = None).
@@ -4098,8 +4115,8 @@ Example runtime_typed_binop_supported :
   forallb supported_program (map println_prog typed_binop_cases) = true.
 Proof. vm_compute. reflexivity. Qed.
 (** The MIXED-CONST operand shapes ([ptype_binop_runint_args]'s const rows — one runtime + one
-    int-constant operand, untyped OR typed, either order) DENOTE: the constant MATERIALIZES at the
-    binop's width ([typed_operand]).  go-run-verified against gc: 4, 4, 4, 254 (the typed-const-left
+    int-constant operand, untyped OR typed, either order) DENOTE: an untyped constant CONVERTS to
+    the binop's width, a typed one is already AT it ([typed_operand], width-sealed).  go-run-verified against gc: 4, 4, 4, 254 (the typed-const-left
     WRAP witness [uint8(1) - uint8(len a)] = 1−3), and the const-dividend / runtime-ZERO-divisor
     panic [1 % uint8(len([]int{}))]. *)
 Definition runmixed_const_e : GExpr := EBn BAdd runb_u8 (EInt 1).
@@ -4122,6 +4139,15 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Example typed_mixed_const_supported :
   forallb supported_program (map println_prog typed_mixed_cases) = true.
 Proof. vm_compute. reflexivity. Qed.
+(** The WIDTH seal at the operand boundary ITSELF (not caller discipline): a typed [uint8] constant
+    never cross-materializes at [int64], and the outer mixed-width binop is [ptype]-REJECTED. *)
+Example typed_operand_cross_width_none :
+  typed_operand reval_val GTInt64 runb_u8one = None.
+Proof. vm_compute. reflexivity. Qed.
+Example typed_binop_cross_width_rejected :
+  ptype (EBn BAdd runb_u8one runb_i64) = None
+  /\ supported_program (println_prog (EBn BAdd runb_u8one runb_i64)) = false.
+Proof. split; vm_compute; reflexivity. Qed.
 (** The [GTUint] hole ROW at program level (the platform-uint carrier has NO model ops). *)
 Definition runuint_binop_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
@@ -4851,6 +4877,7 @@ Definition gosem_runtime_int_surface :=
    typed_binop_nonint_none, ptype_binop_runint_args,
    typed_operand_runint, typed_operand_typed, typed_operand_const_total,
    typed_operand_panic_runtime, box_int_repr_total, ptype_tint_const_repr,
+   typed_operand_cross_width_none, typed_binop_cross_width_rejected,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
    typed_mixed_const_runs, typed_mixed_const_supported,

@@ -63,8 +63,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     arithmetic/bitwise denotes on evaluated operands (nine ops × 8 fixed widths, `typed_binop` —
     value / div-zero panic / operand panic / absent each proved, SEALED
     `denote_expr_typed_binop_runs_sealed` over the WHOLE shape split `ptype_binop_runint_args` —
-    a const operand, untyped or typed, MATERIALIZES at the binop's width, `typed_operand`; `uint`
-    row pinned absent). Shifts stay pinned: `typed_runtime_shift_absent`.
+    an UNTYPED const operand converts to the binop's width, a TYPED one must already be at it:
+    `typed_operand`, width-SEALED at the boundary, cross-width pinned None; `uint` row pinned
+    absent). Shifts stay pinned: `typed_runtime_shift_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
