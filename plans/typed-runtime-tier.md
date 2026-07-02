@@ -37,9 +37,11 @@ denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sou
   reconcile per width at the dispatch, fail-closed on any unmodelled pairing).  The five-case shift SHAPE table is
   pinned NOW (`typed_runtime_shift_absent` + `shift_case_shape` — both ops, a non-GTInt count,
   i64/u64 lefts, structurally checked) so the slice cannot silently land narrow.
-- **Witness succession per slice** (the standing rule): each landing flips its pins + the five-site
-  sweep + class lemmas sealed to `ptype` (no caller-side totality premises) + non-identity pins
-  (wrap/sign witnesses) in ONE commit.
+- **Witness succession per slice** (the standing rule): each landing flips its pins across the five
+  recurring witness sites (`undenoted_frontier`, the out-boundary example, GoSemSafe's absent pair,
+  the dead-tail escape, the arg-panic short-circuit trio) + class lemmas sealed to `ptype` (no
+  caller-side totality premises) + non-identity pins (wrap/sign witnesses) in ONE commit, with a
+  repo-wide stale-claim sweep.
 
 ## Op inventory (grepped from builtins.v, 2026-07-02 — the CODE is the authority; this table is a
 survey snapshot, re-grep before wiring each slice)

@@ -519,7 +519,7 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (plans/runtime-value-tier.md, R1–R7).
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R7 — this section is the live authority; the surfaces bundle its theorems).
     Supported programs are CLOSED, so every RUNTIME-classified integer value is DETERMINED.  [reval_int]
     evaluates the [GTInt] runtime fragment by computing with the MODEL'S OWN ops on the model's own
     carrier ([GoInt]) — constants enter through [eval_value] itself (the constant tier stays the single
