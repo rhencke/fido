@@ -22,8 +22,10 @@
       CONVERSIONS of runtime ints ([int(x)] in-fragment; every other integer width via the model's own
       wraps — [wrap_runint], Go's runtime truncation), (R4) runtime bool COMPARISONS of int-fragment
       operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
-      over RUNTIME map values (construction order, panicking value aborts).  Runtime FLOATS (and e.g.
-      runtime unary ops / nonzero runtime [%]) are not yet denoted.
+      over RUNTIME map values (every value through the SHARED evaluator; a SINGLE panicking value
+      panics — order-INDEPENDENT, since Go leaves map-literal evaluation order unspecified TWO
+      panicking values are ambiguous and stay absent).  Runtime FLOATS (and e.g. runtime unary ops /
+      nonzero runtime [%]) are not yet denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -693,23 +695,28 @@ Definition reval_val_with (rec : GExpr -> option RRes) (e : GExpr) : option RAny
       | None => rexit_with rec e
       end
   end.
-(** Map-literal CONSTRUCTION for the runtime tier (R5) — walk the (key, value) PAIRS, evaluating each
-    VALUE through the FULL shared evaluator (so a value ANY tier denotes — R3 width conversions and R4
-    comparisons included — constructs; ONE authority with [denote_expr], no drift).  [Some RCOk] =
-    every value denotes; [Some (RCPanic p)] = the FIRST panicking value aborts construction (source
-    order; keys are constants under the [PtRunInt] guard and cannot panic); [None] = an absent value
-    keeps the whole form absent.  The value is bound by the PAIR pattern so the enclosing [Fixpoint]'s
-    guard accepts the recursion. *)
+(** Map-literal CONSTRUCTION for the runtime tier (R5) — walk ALL the (key, value) PAIRS, evaluating
+    each VALUE through the FULL shared evaluator (so a value ANY tier denotes — R3 width conversions and
+    R4 comparisons included — constructs; ONE authority with [denote_expr], no drift).  ⚠ Go leaves the
+    EVALUATION ORDER of a map literal's assignments UNSPECIFIED (spec, "Order of evaluation"), so a
+    panic is denoted ONLY when it is mechanically ORDER-INDEPENDENT: [Some RCOk] = every value denotes
+    to a value; [Some (RCPanic p)] = EXACTLY ONE value panics and every other value evaluates (values
+    in this fragment are effect-free, so EVERY order reaches that same panic — exact under any
+    schedule); [None] = an absent value, OR two-plus panicking values (AMBIGUOUS — which panic fires
+    depends on the unspecified order; faithful-or-absent, never a source-order guess).  Keys are
+    constants under the [PtRunInt] guard and cannot panic.  The value is bound by the PAIR pattern so
+    the enclosing [Fixpoint]'s guard accepts the recursion. *)
 Inductive RConstr : Type := RCOk | RCPanic (p : GoAny).
 Definition rconstr_vals_with (rval : GExpr -> option RAny) : list (GExpr * GExpr) -> option RConstr :=
   fix go (l : list (GExpr * GExpr)) : option RConstr :=
     match l with
     | nil => Some RCOk
     | (_, v) :: r =>
-        match rval v with
-        | Some (RAVal _)   => go r
-        | Some (RAPanic p) => Some (RCPanic p)
-        | None => None
+        match rval v, go r with
+        | Some (RAVal _),  rest        => rest
+        | Some (RAPanic p), Some RCOk  => Some (RCPanic p)   (* the ONLY panic — order-independent *)
+        | Some (RAPanic _), _          => None               (* a second panic (or an absent rest): ambiguous, absent *)
+        | None, _ => None
         end
     end.
 
@@ -731,17 +738,18 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
               else None
           | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
               (* tier R5 — [len] of a map literal whose VALUES are runtime: Go CONSTRUCTS the literal
-                 (every entry evaluated, source order) before [len]; the count is the number of
+                 (every entry evaluated, in an UNSPECIFIED order) before [len]; the count is the number of
                  DISTINCT keys.  The arm carries the FOLD arm's own side conditions — [is_int_goty kt],
                  [goty_supported vt] (an invalid nested value type must never receive behavior), and
                  [nodup_z] over [ptype]'s own constant-key list (the count IS Go's [len], never a
                  duplicate-key miscount; the outer [PtRunInt] guard already forces all-constant keys —
                  [ptype]'s map arm rejects runtime keys — so this is the fold's defense-in-depth
-                 mirrored) — then evaluates each VALUE through the tier: all values → the entry count
-                 via the checked [rval_len]; the FIRST panicking value aborts construction with ITS
-                 panic (constant keys cannot panic); an absent value keeps the whole form absent.
-                 Values walk the FULL shared evaluator ([rconstr_vals_with (reval_val_with reval_int)])
-                 — R3-converted and R4-compared values construct exactly as they denote standalone. *)
+                 mirrored) — then evaluates EVERY VALUE through the FULL shared evaluator
+                 ([rconstr_vals_with (reval_val_with reval_int)] — R3-converted and R4-compared values
+                 construct exactly as they denote standalone): all values → the entry count via the
+                 checked [rval_len]; a SINGLE panicking value → that panic (order-INDEPENDENT — see the
+                 walker's comment; Go leaves map-literal evaluation order unspecified, so TWO panicking
+                 values are ambiguous and stay ABSENT); an absent value keeps the whole form absent. *)
               if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
                  && nodup_z (map_key_vals kvs)
               then match rconstr_vals_with (reval_val_with reval_int) kvs with
@@ -1109,7 +1117,9 @@ Qed.
     reval_int] pipeline [denote_expr] consumes — R3/R4-form values included) denotes to the
     DISTINCT-KEY COUNT (boxed through the checked
     [rval_len] — [int_const_repr] on the count is the fail-closed representability boundary, discharged
-    by [rval_len_repr]); a panicking VALUE aborts construction with ITS panic. *)
+    by [rval_len_repr]); a SINGLE panicking VALUE panics — [rconstr_vals] certifies the panic only when
+    it is ORDER-INDEPENDENT (Go leaves map-literal evaluation order unspecified; two panicking values
+    are ambiguous and absent). *)
 Lemma denote_expr_maplen_runs : forall f kt vt kvs,
   floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
   ptype (ECall (EId f) (EMapLit kt vt kvs :: nil)) = Some (PtRunInt GTInt) ->
@@ -2063,9 +2073,12 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** ★ RUNTIME MAP-VALUE pins (tier R5, grouped): [len(map[int]int{1: len([]int{2})})] prints 1; a
     TWO-entry literal mixing a runtime and a constant value prints 2 (the fold declines it — one
-    runtime value — so the COUNT comes from the tier); a PANICKING value aborts construction
-    ([len(map[int]int{1: 1/len([]int{})})] → [rt_div_zero], before any output); and the shared-evaluator
-    reach cases below.  All supported (gate unchanged). *)
+    runtime value — so the COUNT comes from the tier); a SINGLE panicking value panics
+    ([len(map[int]int{1: 1/len([]int{})})] → [rt_div_zero], before any output — order-independent);
+    the shared-evaluator reach cases below; and the ORDER-AMBIGUITY regression: TWO distinct panicking
+    values ([1/len([]int{})] and an OOB index) make the whole form ABSENT — Go does not specify which
+    panic fires, so Fido refuses to pick (supported, NOT denotable; a source-order semantics can never
+    silently return). *)
 Definition maplen_run2_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt
@@ -2086,6 +2099,11 @@ Definition maplen_bool_e : GExpr :=
 Definition maplen_convpanic_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt64 [(EInt 1, ECall (EId (mkIdent "int64" eq_refl)) [divzero_e])]].
+Definition maplen_ambig_e : GExpr :=
+  ECall (EId (mkIdent "len" eq_refl))
+        [EMapLit GTInt GTInt
+          [(EInt 1, divzero_e);
+           (EInt 2, EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5))]].
 Example runtime_maplen_runs : forall w,
   map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
       [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
@@ -2100,8 +2118,12 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Example runtime_maplen_supported :
   forallb supported_program
     (map println_prog [ maplen_runval_e ; maplen_run2_e ; maplen_i64_e ; maplen_bool_e
-                      ; maplen_panic_e ; maplen_convpanic_e ]) = true.
+                      ; maplen_panic_e ; maplen_convpanic_e ; maplen_ambig_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
+Example runtime_maplen_ambiguous_absent :
+  denotable_program (println_prog maplen_ambig_e) = false
+  /\ denote_program (println_prog maplen_ambig_e) = None.
+Proof. split; vm_compute; reflexivity. Qed.
 
 (** The determined divide-by-zero through the MAP shape: [_ = 1 / len(map[int]int{})] is SUPPORTED (valid Go —
     a runtime integer division) and denotes+runs to the exact panic, like [rc_div_zero]'s slice shape (the
@@ -2669,7 +2691,7 @@ Definition gosem_trust_surface :=
    cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
    cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
    denote_expr_maplen_runs, denote_expr_maplen_panic, rval_len_repr,
-   runtime_maplen_runs, runtime_maplen_supported,
+   runtime_maplen_runs, runtime_maplen_supported, runtime_maplen_ambiguous_absent,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    runtime_conv_runs, runtime_conv_supported,
    runtime_bool_runs, runtime_bool_supported,

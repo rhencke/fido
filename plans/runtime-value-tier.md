@@ -61,7 +61,10 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   **R5** (LANDED) map-`len` over RUNTIME map values (`reval_int`'s EMapLit arm: the fold's own side conditions,
   values through THE SHARED evaluator `reval_val_with` — `denote_expr` is now a thin wrapper over the same
   pipeline (fold → GTInt fragment → `rexit_with` R3/R4 exits), so converted/compared values construct exactly
-  as they denote standalone; count via the checked `rval_len`/`rval_len_repr`; panicking value aborts).
+  as they denote standalone; count via the checked `rval_len`/`rval_len_repr`). ⚠ Go leaves map-literal
+  evaluation order UNSPECIFIED: a panic denotes ONLY when order-INDEPENDENT (exactly one panicking value,
+  the rest valued — effect-free fragment); TWO panicking values are AMBIGUOUS and stay absent
+  (`runtime_maplen_ambiguous_absent` pins the refusal).
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
