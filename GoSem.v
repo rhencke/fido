@@ -2952,8 +2952,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     runtime form) and the TYPED-width complement [runnot_u8_e] (the representative of the class pinned
     three-wide by [typed_runtime_not_absent]; the conversion-CHAIN and SHIFT case tables live OUTSIDE
     this list — [typed_runtime_{convchain,shift}_absent]).  Each member is pinned supported AND
-    undenoted AND eval-level absent; retired members' denotations are pinned by the runtime_*_runs
-    groups. *)
+    undenoted AND eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_u8_e ].
