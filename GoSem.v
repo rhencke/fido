@@ -1181,7 +1181,8 @@ Example maplen_divzero_runs : forall w,
 Proof. intro w; split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
-    authority — its valid-but-out-of-core class is quarantined in [GoSafe.valid_unsupported_programs]):
+    authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
+    [GoSafe.valid_unsupported_programs]):
     [map[int]map[[]int]int]
     hides a non-comparable slice KEY inside the VALUE type, so even the EMPTY literal is invalid Go — the
     gate REJECTS it at the ROOT ([ptype = None] ⇒ unsupported, never emitted) and NO layer assigns it

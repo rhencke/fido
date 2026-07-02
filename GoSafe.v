@@ -290,14 +290,22 @@ Proof. vm_compute. reflexivity. Qed.
     (which keeps `int8(len(string(65))+200)` / `int8(len("a"+"b")+200)` rejected — a [PtStr -> PtRunInt]
     runtime-int shortcut would reopen those).  The two contracts must not be confused — a [bad_programs] regression means an UNSOUND
     emission reopened; admitting one of THESE (with its companion preserved) is the subset legitimately GROWING.
-    Current members: [len] of a non-literal string CONST (byte length not folded); a VALID
-    pointer- or chan-KEYED map type nested in a map literal's value type ([goty_supported] conservatively
-    admits only comparable SCALAR keyword keys — Go also allows ptr/chan/comparable-struct/interface keys). *)
+    Current members: [len] of a non-literal string CONST (byte length not folded); VALID pointer-/chan-KEYED
+    map types pinned on EVERY rejecting surface — root literal (the int-only key restriction; string/bool keys
+    are the same conservative restriction), nested map value type, slice-literal element type, and the nil
+    aggregate conversions ([goty_supported]/[is_int_goty] admit only integer keys in core — Go also allows
+    string/bool/ptr/chan/comparable-struct/interface keys). *)
 Definition valid_unsupported_programs : list Program :=
   [ pl_arg (ECall (EId (mkIdent "len" eq_refl)) [gs_str (EInt 65)])       (* println(len(string(65))): string(65)="A" (a rune-const conversion — compiles; go vet warns), len folds to 1.  A NON-LITERAL [PtStr] (not [EStr]), so [len] hits the [_, _ => None] fallback — REJECTED (fail-loud).  Pinned just below: [string_rune_const_is_supported_PtStr] + [len_of_nonliteral_PtStr_rejected] *)
   ; pl_arg (ECall (EId (mkIdent "len" eq_refl)) [EBn BAdd (EStr "a") (EStr "b")])  (* println(len("a"+"b")): "a"+"b"="ab", len folds to 2.  The concat is a NON-literal [PtStr], so [len] hits the same non-literal fallback — REJECTED *)
   ; gs_blank (EMapLit GTInt (GTMap (GTPtr GTInt) GTInt) [])              (* _ = map[int]map[*int]int{}: a POINTER map key is comparable — VALID Go — but outside [goty_key_supported]'s scalar subset — REJECTED (incompleteness, not invalidity) *)
   ; gs_blank (EMapLit GTInt (GTMap (GTChan GTInt) GTInt) [])             (* _ = map[int]map[chan int]int{}: a CHAN map key is comparable — VALID Go — likewise conservatively REJECTED *)
+  ; gs_blank (EMapLit (GTPtr GTInt) GTInt [])                            (* _ = map[*int]int{}: the same valid class at the ROOT — rejected by the int-only key restriction *)
+  ; gs_blank (EMapLit (GTChan GTInt) GTInt [])                           (* _ = map[chan int]int{}: root chan key — likewise *)
+  ; gs_blank (ESliceLit (GTMap (GTPtr GTInt) GTInt) [])                  (* _ = []map[*int]int{}: the class through the SLICE-literal ELEMENT type ([goty_supported]) *)
+  ; gs_blank (ESliceLit (GTMap (GTChan GTInt) GTInt) [])                 (* _ = []map[chan int]int{}: likewise (chan) *)
+  ; gs_blank (EConv (CTSlice (GTMap (GTPtr GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = []map[*int]int(nil): the class through the CTSlice nil-conversion arm *)
+  ; gs_blank (EConv (CTChan (GTMap (GTChan GTInt) GTInt)) (EId (mkIdent "nil" eq_refl)))   (* _ = (chan map[chan int]int)(nil): ... and the CTChan arm *)
   ].
 Example valid_unsupported_rejected :
   forallb (fun p => negb (supported_program p)) valid_unsupported_programs = true.

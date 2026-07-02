@@ -361,9 +361,13 @@ Fixpoint nodup_z (l : list Z) : bool :=
     - INVALID Go — a NON-COMPARABLE map KEY (https://go.dev/ref/spec#Map_types: [map[[]int]int] is a
       compile error), which may hide at ANY depth ([map[int]map[[]int]int{}] is invalid even EMPTY, where
       no entry check sees it).  Rejecting these is the SOUNDNESS side ([GoSafe.bad_programs]).
-    - VALID Go, outside the core — pointer / chan map keys (comparable in Go) and named-type keys
-      (underlying type not structurally visible, so comparability is undecidable here) — conservatively
-      rejected: fail-loud INCOMPLETENESS, quarantined in [GoSafe.valid_unsupported_programs].
+    - VALID Go, outside the core — pointer / chan map keys (comparable in Go) — conservatively rejected:
+      fail-loud INCOMPLETENESS, quarantined in [GoSafe.valid_unsupported_programs] with a fixture on EVERY
+      rejecting surface (root literal via the int-only key restriction, nested map value type, slice
+      element type, nil aggregate conversion).
+    [GTNamed] map keys are also rejected, but they are NOT a quarantinable valid class HERE: the closed
+    world has no type declarations, so no closed program can validly name one — a named key type never
+    reaches this gate from valid closed source.
     SOUND direction: every type this gate ACCEPTS is valid Go — an accepted map key is a comparable
     SCALAR keyword type ([goty_key_supported], the supported subset of Go's comparable key types). *)
 Definition goty_key_supported (t : GoTy) : bool :=

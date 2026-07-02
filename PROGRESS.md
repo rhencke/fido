@@ -46,8 +46,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - **GoSafe `SupportedProgram`** — a DECIDABLE supported-subset gate (not a package-name proxy): rejects
   bare-value statements, non-callable calls, value-returns from void `main`, free/undefined identifiers, and
   closed type-errors (`ptype`, a conservative constant-aware classifier). Admits slice literals + integer-key
-  map literals structurally (`nodup_z` distinct constant keys; the recursive supported-type gate `goty_supported`
-  rejects invalid nested map keys even in EMPTY literals + quarantines valid ptr/chan keys). `classify` lives in GoAst, so GoSafe does not import the printer.
+  map literals structurally (`nodup_z` distinct constant keys; `goty_supported` rejects invalid nested map keys
+  even in EMPTY literals; valid ptr/chan keys ledger-pinned per rejecting surface). `classify` is in GoAst, so GoSafe does not import the printer.
 - **GoEmit** emits ONLY via a certificate (`EmittableProgram = Program + SupportedProgram`;
   `emit_supported = print_program`; `emit_supported_program_inj`). `make emit-demo` builds one certified
   program with the real Go toolchain (gofmt-clean + go build + go vet); a dependency of `make check`.
