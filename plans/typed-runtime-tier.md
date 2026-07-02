@@ -53,8 +53,12 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   typed-const repr invariant `ptype_tint_const_repr`; pins `typed_mixed_const_runs`, both orders +
   the const-dividend/runtime-zero-divisor panic); `uint` row pinned
   `typed_binop_uint_program_absent`; go-run-verified runs pins incl. wrap 252+252=248 and
-  `-4 % 3 = -1`). T4 typed comparisons
-  (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:
+  `-4 % 3 = -1`). T4 typed comparisons — LANDED (`typed_cmp`, six ops × 8 widths pinned to the
+  model's own `*_eqb/neqb/ltb/leb/gtb/geb`; `cmp_width` picks the operand width — runtime operand
+  pins it, two int consts default to the `GTInt` engine; sealed
+  `denote_expr_typed_cmp_runs_sealed` over `ptype_cmp_bool_args` (via `num_comparable`'s rows),
+  operands through the same width seal; panic/absent companions; `uint` + cross-width pinned;
+  go-run-verified runs pins incl. both mixed-const kinds). T5 SHIFTS — ⚠ NOT same-width binops:
   Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;
   the COUNT is an INDEPENDENT integer of any width, nonnegative — a signed negative count PANICS).
   A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated

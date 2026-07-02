@@ -6,7 +6,7 @@
 
     SLICE 1 (partial): denotes println/print/panic/return/blank-assign/defer + effectful call args,
     over the exact-or-absent [eval_value] fold, the runtime GTInt tier R1–R7, and the typed-runtime
-    tier T1–T3 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
+    tier T1–T4 (ONE shared evaluator, [reval_val_with]; [denote_expr] is a thin wrapper).
     FAITHFUL-OR-ABSENT: the right behavior or [None] ("not modeled yet", never "invalid" and never
     wrong).  [gosem_sound]: denotation ⊆ [SupportedProgram]; NOT the converse, NOT [BehaviorSafe].
     Absence boundaries are PINNED, not prose — [gosem_frontier_surface] is the ONE gated authority
@@ -1067,6 +1067,240 @@ Proof.
   intros t z Hi Hu Hr. unfold box_int. rewrite Hr.
   destruct t; try discriminate Hi; try discriminate Hu; eexists; reflexivity.
 Qed.
+(** ---- Tier T4 — SAME-WIDTH typed COMPARISON dispatch ----
+    The six comparison ops on a non-[GTInt] fixed-width carrier pair, each row the width's own MODEL
+    op ([*_eqb/neqb/ltb/leb/gtb/geb] — the derived ops are model Definitions, pinned per width).
+    Comparisons never panic; [GTUint] is a hole row; [GTInt] lives in the R4 engine path. *)
+Definition cmp_binop (o : BinOp) : bool :=
+  match o with BEq | BNe | BLt | BLe | BGt | BGe => true | _ => false end.
+Definition typed_cmp (o : BinOp) (t : GoTy) (ga gb : GoAny) : option bool :=
+  if cmp_binop o then
+    match t with
+    | GTU8 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TU8 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TU8 => fun vb =>
+                    match o with
+                    | BEq => Some (u8_eqb va vb)
+                    | BNe => Some (u8_neqb va vb)
+                    | BLt => Some (u8_ltb va vb)
+                    | BLe => Some (u8_leb va vb)
+                    | BGt => Some (u8_gtb va vb)
+                    | BGe => Some (u8_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI8 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TI8 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TI8 => fun vb =>
+                    match o with
+                    | BEq => Some (i8_eqb va vb)
+                    | BNe => Some (i8_neqb va vb)
+                    | BLt => Some (i8_ltb va vb)
+                    | BLe => Some (i8_leb va vb)
+                    | BGt => Some (i8_gtb va vb)
+                    | BGe => Some (i8_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU16 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TU16 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TU16 => fun vb =>
+                    match o with
+                    | BEq => Some (u16_eqb va vb)
+                    | BNe => Some (u16_neqb va vb)
+                    | BLt => Some (u16_ltb va vb)
+                    | BLe => Some (u16_leb va vb)
+                    | BGt => Some (u16_gtb va vb)
+                    | BGe => Some (u16_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI16 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TI16 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TI16 => fun vb =>
+                    match o with
+                    | BEq => Some (i16_eqb va vb)
+                    | BNe => Some (i16_neqb va vb)
+                    | BLt => Some (i16_ltb va vb)
+                    | BLe => Some (i16_leb va vb)
+                    | BGt => Some (i16_gtb va vb)
+                    | BGe => Some (i16_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU32 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TU32 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TU32 => fun vb =>
+                    match o with
+                    | BEq => Some (u32_eqb va vb)
+                    | BNe => Some (u32_neqb va vb)
+                    | BLt => Some (u32_ltb va vb)
+                    | BLe => Some (u32_leb va vb)
+                    | BGt => Some (u32_gtb va vb)
+                    | BGe => Some (u32_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTI32 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TI32 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TI32 => fun vb =>
+                    match o with
+                    | BEq => Some (i32_eqb va vb)
+                    | BNe => Some (i32_neqb va vb)
+                    | BLt => Some (i32_ltb va vb)
+                    | BLe => Some (i32_leb va vb)
+                    | BGt => Some (i32_gtb va vb)
+                    | BGe => Some (i32_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTInt64 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TI64 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TI64 => fun vb =>
+                    match o with
+                    | BEq => Some (i64_eqb va vb)
+                    | BNe => Some (i64_neqb va vb)
+                    | BLt => Some (i64_ltb va vb)
+                    | BLe => Some (i64_leb va vb)
+                    | BGt => Some (i64_gtb va vb)
+                    | BGe => Some (i64_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | GTU64 =>
+        match ga, gb with
+        | existT _ _ (pair xa taga), existT _ _ (pair xb tagb) =>
+            match taga in GoTypeTag A return A -> option bool with
+            | TU64 => fun va =>
+                match tagb in GoTypeTag B return B -> option bool with
+                | TU64 => fun vb =>
+                    match o with
+                    | BEq => Some (u64_eqb va vb)
+                    | BNe => Some (u64_neqb va vb)
+                    | BLt => Some (u64_ltb va vb)
+                    | BLe => Some (u64_leb va vb)
+                    | BGt => Some (u64_gtb va vb)
+                    | BGe => Some (u64_geb va vb)
+                    | _ => None
+                    end
+                | _ => fun _ => None
+                end xb
+            | _ => fun _ => None
+            end xa
+        end
+    | _ => None
+    end
+  else None.
+(** The COMPARISON WIDTH — the runtime operand pins it; two int CONSTANTS fall back to the [GTInt]
+    engine (Go's untyped default — where today's fold/engine already decide them); anything else
+    (floats, bools, strings) is [None] here. *)
+Definition cmp_width (ca cb : option PTy) : option GoTy :=
+  match ca, cb with
+  | Some (PtRunInt s), _ => Some s
+  | _, Some (PtRunInt s) => Some s
+  | Some ca', Some cb' =>
+      match int_const_val ca', int_const_val cb' with
+      | Some _, Some _ => Some GTInt
+      | _, _ => None
+      end
+  | _, _ => None
+  end.
+(** MATRIX SOUNDNESS/TOTALITY/HOLES — the [typed_binop] seal set, comparison edition. *)
+Lemma typed_cmp_tag_exact : forall o t ga gb v,
+  typed_cmp o t ga gb = Some v ->
+  tag_matches t ga = true /\ tag_matches t gb = true.
+Proof.
+  intros o t [A [xa taga]] [B [xb tagb]] v H.
+  unfold typed_cmp in H.
+  destruct o; cbv beta iota delta [cmp_binop] in H; try discriminate H;
+  destruct t; cbv beta iota in H; try discriminate H;
+  destruct taga; cbv beta iota in H; try discriminate H;
+  destruct tagb; cbv beta iota in H; try discriminate H;
+  split; reflexivity.
+Qed.
+Lemma typed_cmp_live_total : forall o t ga gb,
+  cmp_binop o = true ->
+  tag_matches t ga = true -> tag_matches t gb = true ->
+  numty_eqb t GTInt = false -> numty_eqb t GTUint = false -> is_int_goty t = true ->
+  exists v, typed_cmp o t ga gb = Some v.
+Proof.
+  intros o t [A [xa taga]] [B [xb tagb]] Ho Ha Hb Hgi Hgu Hi.
+  destruct o; try discriminate Ho;
+  destruct t; try discriminate Hi; try discriminate Hgi; try discriminate Hgu;
+  destruct taga; try discriminate Ha;
+  destruct tagb; try discriminate Hb;
+  eexists; reflexivity.
+Qed.
+Lemma typed_cmp_noncmp_none : forall o t ga gb,
+  cmp_binop o = false -> typed_cmp o t ga gb = None.
+Proof. intros o t ga gb H. unfold typed_cmp. rewrite H. reflexivity. Qed.
+Lemma typed_cmp_gtint_none : forall o ga gb, typed_cmp o GTInt ga gb = None.
+Proof. intros o ga gb. unfold typed_cmp. destruct (cmp_binop o); reflexivity. Qed.
+Lemma typed_cmp_uint_none : forall o ga gb, typed_cmp o GTUint ga gb = None.
+Proof. intros o ga gb. unfold typed_cmp. destruct (cmp_binop o); reflexivity. Qed.
+Lemma typed_cmp_nonint_none : forall o t ga gb,
+  is_int_goty t = false -> typed_cmp o t ga gb = None.
+Proof.
+  intros o t ga gb H. unfold typed_cmp.
+  destruct (cmp_binop o); [destruct t; try discriminate H; reflexivity | reflexivity].
+Qed.
+
 
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
@@ -1116,11 +1350,12 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
       | _ => None
       end
   | EBn o a b =>
-      (* tier R4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a comparison
-         (or [&&]/[||] — dispatched away by [cmp_verdict]); both operands must evaluate in the [GTInt]
-         runtime fragment (a string / bool / mixed-width operand is absent there, so no wrong compare
-         can slip through), and the verdict is the model's own comparison op.  A panicking operand
-         panics LEFT-to-right (Go's order), before any comparison.
+      (* tiers R4+T4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a
+         comparison (or [&&]/[||] — dispatched away by [cmp_verdict]/[cmp_binop]); [cmp_width] picks the
+         operand width (the runtime operand pins it; two int constants default to [GTInt] — Go's
+         untyped rule).  At [GTInt] the R4 engine path runs unchanged; at a FIXED width the T4 typed
+         path runs (operands through the width-sealed [typed_operand], the verdict the width's own
+         model op).  A panicking operand panics LEFT-to-right (Go's order), before any comparison.
          tier T3 — the [PtRunInt t] case is SAME-WIDTH typed arithmetic/bitwise: each operand goes
          through [typed_operand] (WIDTH-SEALED: a runtime operand classified AT the width runs at
          FULL power via [rv]; an UNTYPED int constant CONVERTS to the width; a TYPED constant must
@@ -1129,19 +1364,43 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          absent. *)
       match ptype e with
       | Some PtBool =>
-          match cmp_verdict o with
+          match cmp_width (ptype a) (ptype b) with
+          | Some t =>
+              if numty_eqb t GTInt then
+                (* the R4 [GTInt] engine path — unchanged *)
+                match cmp_verdict o with
+                | None => None
+                | Some cmp =>
+                    match rec a with
+                    | Some (RVal va) =>
+                        match rec b with
+                        | Some (RVal vb) => Some (RAVal (anyt TBool (cmp va vb)))
+                        | Some (RPanic p) => Some (RAPanic p)
+                        | None => None
+                        end
+                    | Some (RPanic p) => Some (RAPanic p)
+                    | None => None
+                    end
+                end
+              else
+                (* tier T4 — SAME-WIDTH typed comparison: operands through the width-sealed
+                   [typed_operand], the verdict from the width's own model op ([typed_cmp]).
+                   Panics propagate left-to-right; holes ([GTUint]) are absent. *)
+                match typed_operand rv t a with
+                | Some (RAVal ga) =>
+                    match typed_operand rv t b with
+                    | Some (RAVal gb) =>
+                        match typed_cmp o t ga gb with
+                        | Some v => Some (RAVal (anyt TBool v))
+                        | None => None
+                        end
+                    | Some (RAPanic p) => Some (RAPanic p)
+                    | None => None
+                    end
+                | Some (RAPanic p) => Some (RAPanic p)
+                | None => None
+                end
           | None => None
-          | Some cmp =>
-              match rec a with
-              | Some (RVal va) =>
-                  match rec b with
-                  | Some (RVal vb) => Some (RAVal (anyt TBool (cmp va vb)))
-                  | Some (RPanic p) => Some (RAPanic p)
-                  | None => None
-                  end
-              | Some (RPanic p) => Some (RAPanic p)
-              | None => None
-              end
           end
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
@@ -1822,6 +2081,84 @@ Proof.
     | right; right; split; [exists z; right; reflexivity | reflexivity] ] ).
 Qed.
 
+(** ---- The T4 COMPARISON shape seal, mirroring the binop one: [num_comparable]'s int rows admit
+    both-runtime or one-runtime-one-int-constant at the SAME width ([cmp_width] — the runtime
+    operand pins it); the bool/string [eq_comparable] rows and the float rows are excluded by
+    [cmp_width] itself. *)
+Lemma eq_comparable_num : forall cl cr t,
+  eq_comparable cl cr = true ->
+  cmp_width (Some cl) (Some cr) = Some t ->
+  num_comparable cl cr = true.
+Proof.
+  intros cl cr t Hc Hw. destruct cl; destruct cr; try exact Hc;
+  cbn [cmp_width int_const_val] in Hw; discriminate Hw.
+Qed.
+Lemma ord_comparable_num : forall cl cr t,
+  ord_comparable cl cr = true ->
+  cmp_width (Some cl) (Some cr) = Some t ->
+  num_comparable cl cr = true.
+Proof.
+  intros cl cr t Hc Hw. destruct cl; destruct cr; try exact Hc;
+  cbn [cmp_width int_const_val] in Hw; discriminate Hw.
+Qed.
+Lemma num_comparable_width_args : forall cl cr t,
+  num_comparable cl cr = true ->
+  cmp_width (Some cl) (Some cr) = Some t ->
+  numty_eqb t GTInt = false ->
+  (cl = PtRunInt t /\ cr = PtRunInt t)
+  \/ ((exists z, (cl = PtIntConst z /\ int_const_repr z t = true) \/ cl = PtTIntConst t z)
+      /\ cr = PtRunInt t)
+  \/ ((exists z, (cr = PtIntConst z /\ int_const_repr z t = true) \/ cr = PtTIntConst t z)
+      /\ cl = PtRunInt t).
+Proof.
+  intros cl cr t Hc Hw Ht.
+  destruct cl; destruct cr; cbn [num_comparable] in Hc; try discriminate Hc;
+  cbn [cmp_width int_const_val] in Hw; try discriminate Hw;
+  injection Hw as He; subst;
+  try (apply numty_eqb_eq in Hc; subst);
+  first
+    [ discriminate Ht
+    | (left; split; reflexivity)
+    | (right; left; split; [eexists; left; split; [reflexivity | assumption] | reflexivity])
+    | (right; left; split; [eexists; right; reflexivity | reflexivity])
+    | (right; right; split; [eexists; left; split; [reflexivity | assumption] | reflexivity])
+    | (right; right; split; [eexists; right; reflexivity | reflexivity]) ].
+Qed.
+Lemma ptype_cmp_bool_args : forall o a b t,
+  cmp_binop o = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false ->
+  (ptype a = Some (PtRunInt t) /\ ptype b = Some (PtRunInt t))
+  \/ ((exists z, (ptype a = Some (PtIntConst z) /\ int_const_repr z t = true)
+                 \/ ptype a = Some (PtTIntConst t z))
+      /\ ptype b = Some (PtRunInt t))
+  \/ ((exists z, (ptype b = Some (PtIntConst z) /\ int_const_repr z t = true)
+                 \/ ptype b = Some (PtTIntConst t z))
+      /\ ptype a = Some (PtRunInt t)).
+Proof.
+  intros o a b t Ho Hpt Hw Ht. cbn [ptype] in Hpt.
+  destruct (ptype a) as [cl|] eqn:Ea; [|discriminate Hpt].
+  destruct (ptype b) as [cr|] eqn:Eb; [|discriminate Hpt].
+  cbv beta iota in Hpt.
+  destruct o; try discriminate Ho;
+  ( match type of Hpt with
+    | (if ?c then _ else _) = _ =>
+        let Ec := fresh "Ec" in destruct c eqn:Ec; [|discriminate Hpt]
+    end;
+    let Hn := fresh "Hn" in
+    assert (Hn : num_comparable cl cr = true)
+      by (first [ exact (eq_comparable_num _ _ _ Ec Hw)
+                | exact (ord_comparable_num _ _ _ Ec Hw) ]);
+    destruct (num_comparable_width_args _ _ _ Hn Hw Ht)
+      as [[-> ->] | [[[z [[-> R] | ->]] ->] | [[z [[-> R] | ->]] ->]]];
+    [ left; split; reflexivity
+    | right; left; split; [exists z; left; split; [reflexivity | exact R] | reflexivity]
+    | right; left; split; [exists z; right; reflexivity | reflexivity]
+    | right; right; split; [exists z; left; split; [reflexivity | exact R] | reflexivity]
+    | right; right; split; [exists z; right; reflexivity | reflexivity] ] ).
+Qed.
+
 (** ---- The classifier's TYPED-CONST REPR invariant: every [PtTIntConst t z] the classifier
     produces has [z] representable at [t] — every producing row re-checks [int_const_repr], so this
     is a one-level case walk, not an induction.  Feeds the T3 operand width seal's totality
@@ -1955,57 +2292,66 @@ Qed.
 Lemma denote_expr_cmp_runs : forall o a b va vb cmp,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some GTInt ->
   eval_value (EBn o a b) = None ->
   cmp_verdict o = Some cmp ->
   reval_int a = Some (RVal va) ->
   reval_int b = Some (RVal vb) ->
   denote_expr (EBn o a b) = Some (CRet (anyt TBool (cmp va vb)), false).
 Proof.
-  intros o a b va vb cmp Hfc Hpt Hev Hc Ha Hb.
+  intros o a b va vb cmp Hfc Hpt Hw Hev Hc Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
-  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
+  cbn [numty_eqb]. cbv beta iota.
+  rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
 Lemma denote_expr_cmp_left_panic : forall o a b p cmp,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some GTInt ->
   eval_value (EBn o a b) = None ->
   cmp_verdict o = Some cmp ->
   reval_int a = Some (RPanic p) ->
   denote_expr (EBn o a b) = Some (CPan p, true).
 Proof.
-  intros o a b p cmp Hfc Hpt Hev Hc Ha.
+  intros o a b p cmp Hfc Hpt Hw Hev Hc Ha.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
-  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
+  cbn [numty_eqb]. cbv beta iota.
+  rewrite Hc. cbv beta iota.
   rewrite Ha. reflexivity.
 Qed.
 Lemma denote_expr_cmp_right_panic : forall o a b va p cmp,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some GTInt ->
   eval_value (EBn o a b) = None ->
   cmp_verdict o = Some cmp ->
   reval_int a = Some (RVal va) ->
   reval_int b = Some (RPanic p) ->
   denote_expr (EBn o a b) = Some (CPan p, true).
 Proof.
-  intros o a b va p cmp Hfc Hpt Hev Hc Ha Hb.
+  intros o a b va p cmp Hfc Hpt Hw Hev Hc Ha Hb.
   assert (He : reval_int (EBn o a b) = None).
   { cbn [reval_int]. rewrite Hev. cbv beta iota.
     rewrite Hpt. cbv beta iota. reflexivity. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   cbv beta iota delta [reval_val_with]. rewrite Hev, He. cbv beta iota.
   unfold rexit_with. cbv beta iota.
-  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
+  cbn [numty_eqb]. cbv beta iota.
+  rewrite Hc. cbv beta iota.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
 
@@ -2816,6 +3162,152 @@ Proof.
     cbv beta iota delta [negb]. reflexivity. }
   rewrite reval_val_with_eq, Hev, He. cbv beta iota.
   cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
+  destruct Habs as [Hna | [ga [Ha Hnb]]].
+  - unfold reval_val in Hna. rewrite Hna. reflexivity.
+  - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Hnb. reflexivity.
+Qed.
+
+(** A [cmp_width] result other than [GTInt] is an INT width (it comes from a [PtRunInt] operand —
+    [ptype_int_ok]; the both-const fallback is [GTInt]). *)
+Lemma cmp_width_int : forall a b t,
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false ->
+  is_int_goty t = true.
+Proof.
+  intros a b t Hw Ht. unfold cmp_width in Hw.
+  destruct (ptype a) as [ca|] eqn:Ea.
+  - destruct ca; cbv beta iota in Hw;
+    try (injection Hw as <-;
+         pose proof (ptype_int_ok _ _ Ea) as Hi; cbn in Hi; exact Hi);
+    (destruct (ptype b) as [cb|] eqn:Eb; cbv beta iota in Hw; [|discriminate Hw]);
+    destruct cb; cbv beta iota in Hw;
+    try (injection Hw as <-;
+         pose proof (ptype_int_ok _ _ Eb) as Hi; cbn in Hi; exact Hi);
+    repeat match type of Hw with
+           | (match ?x with Some _ => _ | None => _ end) = _ =>
+               destruct x; cbv beta iota in Hw; [|discriminate Hw]
+           end;
+    try discriminate Hw;
+    injection Hw as <-; discriminate Ht.
+  - destruct (ptype b) as [cb|] eqn:Eb; cbv beta iota in Hw; [|discriminate Hw];
+    destruct cb; cbv beta iota in Hw; try discriminate Hw;
+    injection Hw as <-;
+    pose proof (ptype_int_ok _ _ Eb) as Hi; cbn in Hi; exact Hi.
+Qed.
+
+(** ★ THE SEALED T4 THEOREM — SAME-WIDTH typed COMPARISONS over the FULL operand-shape split
+    ([ptype_cmp_bool_args] — both-runtime, or one runtime + one int-constant under the operand
+    WIDTH SEAL): both tags forced ([typed_operand_typed]), the dispatch total on live rows
+    ([typed_cmp_live_total]), the verdict the width's own model op, boxed [TBool].  Comparisons
+    never panic themselves; operand panics propagate left-to-right and ABSENT operands stay absent
+    (companions below).  [GTUint] is the hole row ([typed_cmp_uint_none], pinned
+    [typed_cmp_uint_program_absent]); the [GTInt] width is the R4 engine path. *)
+Theorem denote_expr_typed_cmp_runs_sealed : forall o a b t ga gb,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false -> numty_eqb t GTUint = false ->
+  cmp_binop o = true ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  typed_operand reval_val t b = Some (RAVal gb) ->
+  exists v, typed_cmp o t ga gb = Some v
+    /\ denote_expr (EBn o a b) = Some (CRet (anyt TBool v), false).
+Proof.
+  intros o a b t ga gb Hfc Hpt Hw Ht Hu Ho Hev Ha Hb.
+  pose proof (cmp_width_int a b t Hw Ht) as Hi.
+  pose proof (ptype_cmp_bool_args o a b t Ho Hpt Hw Ht) as Hshape.
+  assert (Hta : tag_matches t ga = true).
+  { apply (typed_operand_typed t a ga Hi); [|exact Ha].
+    destruct Hshape as [[Hpa _] | [[[z [[Hpa _] | Hpa]] _] | [_ Hpa]]];
+      [ left; exact Hpa | right; exists z; left; exact Hpa
+      | right; exists z; right; exact Hpa | left; exact Hpa ]. }
+  assert (Htb : tag_matches t gb = true).
+  { apply (typed_operand_typed t b gb Hi); [|exact Hb].
+    destruct Hshape as [[_ Hpb] | [[_ Hpb] | [[z [[Hpb _] | Hpb]] _]]];
+      [ left; exact Hpb | left; exact Hpb
+      | right; exists z; left; exact Hpb | right; exists z; right; exact Hpb ]. }
+  destruct (typed_cmp_live_total o t ga gb Ho Hta Htb Ht Hu Hi) as [v Hv].
+  exists v.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold reval_val in Ha, Hb.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
+                = Some (RAVal (anyt TBool v))).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hb. cbv beta iota. rewrite Hv. reflexivity. }
+  split; [exact Hv|].
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
+Qed.
+Lemma denote_expr_typed_cmp_left_panic : forall o a b t p,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b t p Hfc Hpt Hw Ht Hev Ha.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold reval_val in Ha.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
+                = Some (RAPanic p)).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
+Qed.
+Lemma denote_expr_typed_cmp_right_panic : forall o a b t ga p,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  typed_operand reval_val t b = Some (RAPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b t ga p Hfc Hpt Hw Ht Hev Ha Hb.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold reval_val in Ha, Hb.
+  assert (Hrx : rexit_with reval_int (reval_val_with reval_int) (EBn o a b)
+                = Some (RAPanic p)).
+  { unfold rexit_with. cbv beta iota.
+    rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota. rewrite Ht. cbv beta iota.
+    rewrite Ha. cbv beta iota. rewrite Hb. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He, Hrx. reflexivity.
+Qed.
+(** The ABSENT-operand propagation, comparison edition ([eval_value = None] is a premise here: a
+    PtBool node's fold goes through [eval_bool], which the runs pins exercise separately). *)
+Theorem denote_expr_typed_cmp_src_absent : forall o a b t,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  cmp_width (ptype a) (ptype b) = Some t ->
+  numty_eqb t GTInt = false ->
+  eval_value (EBn o a b) = None ->
+  (typed_operand reval_val t a = None
+   \/ (exists ga, typed_operand reval_val t a = Some (RAVal ga)
+                  /\ typed_operand reval_val t b = None)) ->
+  denote_expr (EBn o a b) = None.
+Proof.
+  intros o a b t Hfc Hpt Hw Ht Hev Habs.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He. cbv beta iota.
+  cbn [rexit_with]. rewrite Hpt. cbv beta iota. rewrite Hw. cbv beta iota.
+  rewrite Ht. cbv beta iota.
   destruct Habs as [Hna | [ga [Ha Hnb]]].
   - unfold reval_val in Hna. rewrite Hna. reflexivity.
   - unfold reval_val in Ha, Hnb. rewrite Ha. cbv beta iota. rewrite Hnb. reflexivity.
@@ -4148,6 +4640,114 @@ Example typed_binop_cross_width_rejected :
   ptype (EBn BAdd runb_u8one runb_i64) = None
   /\ supported_program (println_prog (EBn BAdd runb_u8one runb_i64)) = false.
 Proof. split; vm_compute; reflexivity. Qed.
+(** T4 — SAME-WIDTH typed COMPARISONS denote (all six ops at [u8], mixed-const both kinds, the
+    signed [i64] pair) — go-run-verified against gc: true, false, true, false, true, false, true,
+    false, true, true. *)
+Definition typed_cmp_cases : list GExpr :=
+  [ EBn BEq runb_u8 runb_u8 ; EBn BLt runb_u8n runb_u8 ; EBn BGt runb_u8n runb_u8
+  ; EBn BNe runb_u8 runb_u8 ; EBn BLe runb_u8 runb_u8 ; EBn BGe runb_u8 runb_u8n
+  ; EBn BEq runb_u8 (EInt 3)                                        (* mixed UNTYPED *)
+  ; EBn BLt (EInt 3) runb_u8                                        (* mixed untyped LEFT *)
+  ; EBn BEq runb_u8 (ECall (EId (mkIdent "uint8" eq_refl)) [EInt 3]) (* mixed TYPED *)
+  ; EBn BLt runb_i64n runb_i64 ].                                   (* signed i64 *)
+Example runtime_typed_cmp_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      typed_cmp_cases
+  = [ Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool false :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true  :: nil) w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_typed_cmp_supported :
+  forallb supported_program (map println_prog typed_cmp_cases) = true.
+Proof. vm_compute. reflexivity. Qed.
+(** The [GTUint] comparison hole at program level + the cross-width comparison [ptype]-REJECTED. *)
+Definition runuint_cmp_e : GExpr :=
+  EBn BEq (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
+          (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
+Example typed_cmp_uint_program_absent :
+  ptype runuint_cmp_e = Some PtBool
+  /\ supported_program (println_prog runuint_cmp_e) = true
+  /\ denotable_program (println_prog runuint_cmp_e) = false
+  /\ denote_program (println_prog runuint_cmp_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+Example typed_cmp_cross_width_rejected :
+  ptype (EBn BEq runb_u8one runb_i64) = None
+  /\ supported_program (println_prog (EBn BEq runb_u8one runb_i64)) = false.
+Proof. split; vm_compute; reflexivity. Qed.
+(** DISPATCH AUTHORITY (gated): each live [typed_cmp] row IS the fully qualified model op — one
+    6-conjunct pin per width (the derived [neqb]/[gtb]/[geb] are model Definitions, pinned as such). *)
+Example typed_cmp_u8_model : forall a b,
+  typed_cmp BEq GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_eqb a b)
+  /\ typed_cmp BNe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_neqb a b)
+  /\ typed_cmp BLt GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_ltb a b)
+  /\ typed_cmp BLe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_leb a b)
+  /\ typed_cmp BGt GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_gtb a b)
+  /\ typed_cmp BGe GTU8 (anyt TU8 a) (anyt TU8 b) = Some (Fido.builtins.u8_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_i8_model : forall a b,
+  typed_cmp BEq GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_eqb a b)
+  /\ typed_cmp BNe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_neqb a b)
+  /\ typed_cmp BLt GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_ltb a b)
+  /\ typed_cmp BLe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_leb a b)
+  /\ typed_cmp BGt GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_gtb a b)
+  /\ typed_cmp BGe GTI8 (anyt TI8 a) (anyt TI8 b) = Some (Fido.builtins.i8_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_u16_model : forall a b,
+  typed_cmp BEq GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_eqb a b)
+  /\ typed_cmp BNe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_neqb a b)
+  /\ typed_cmp BLt GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_ltb a b)
+  /\ typed_cmp BLe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_leb a b)
+  /\ typed_cmp BGt GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_gtb a b)
+  /\ typed_cmp BGe GTU16 (anyt TU16 a) (anyt TU16 b) = Some (Fido.builtins.u16_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_i16_model : forall a b,
+  typed_cmp BEq GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_eqb a b)
+  /\ typed_cmp BNe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_neqb a b)
+  /\ typed_cmp BLt GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_ltb a b)
+  /\ typed_cmp BLe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_leb a b)
+  /\ typed_cmp BGt GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_gtb a b)
+  /\ typed_cmp BGe GTI16 (anyt TI16 a) (anyt TI16 b) = Some (Fido.builtins.i16_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_u32_model : forall a b,
+  typed_cmp BEq GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_eqb a b)
+  /\ typed_cmp BNe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_neqb a b)
+  /\ typed_cmp BLt GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_ltb a b)
+  /\ typed_cmp BLe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_leb a b)
+  /\ typed_cmp BGt GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_gtb a b)
+  /\ typed_cmp BGe GTU32 (anyt TU32 a) (anyt TU32 b) = Some (Fido.builtins.u32_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_i32_model : forall a b,
+  typed_cmp BEq GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_eqb a b)
+  /\ typed_cmp BNe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_neqb a b)
+  /\ typed_cmp BLt GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_ltb a b)
+  /\ typed_cmp BLe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_leb a b)
+  /\ typed_cmp BGt GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_gtb a b)
+  /\ typed_cmp BGe GTI32 (anyt TI32 a) (anyt TI32 b) = Some (Fido.builtins.i32_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_i64_model : forall a b,
+  typed_cmp BEq GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_eqb a b)
+  /\ typed_cmp BNe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_neqb a b)
+  /\ typed_cmp BLt GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_ltb a b)
+  /\ typed_cmp BLe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_leb a b)
+  /\ typed_cmp BGt GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_gtb a b)
+  /\ typed_cmp BGe GTInt64 (anyt TI64 a) (anyt TI64 b) = Some (Fido.builtins.i64_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+Example typed_cmp_u64_model : forall a b,
+  typed_cmp BEq GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_eqb a b)
+  /\ typed_cmp BNe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_neqb a b)
+  /\ typed_cmp BLt GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_ltb a b)
+  /\ typed_cmp BLe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_leb a b)
+  /\ typed_cmp BGt GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_gtb a b)
+  /\ typed_cmp BGe GTU64 (anyt TU64 a) (anyt TU64 b) = Some (Fido.builtins.u64_geb a b).
+Proof. intros; repeat split; reflexivity. Qed.
+
 (** The [GTUint] hole ROW at program level (the platform-uint carrier has NO model ops). *)
 Definition runuint_binop_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
@@ -4798,7 +5398,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** REPRESENTATIVE named witnesses of the supported-but-undenoted gap, pinned as a group.
     ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND known
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
-    forms, TYPED-width comparisons — T4) — this list is representative, never a coverage
+    forms) — this list is representative, never a coverage
     claim.  Members: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
     runtime form), the typed-unary hole representative [runnot_uint_e] (the class pinned eight-wide
     by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]), and the
@@ -4878,6 +5478,15 @@ Definition gosem_runtime_int_surface :=
    typed_operand_runint, typed_operand_typed, typed_operand_const_total,
    typed_operand_panic_runtime, box_int_repr_total, ptype_tint_const_repr,
    typed_operand_cross_width_none, typed_binop_cross_width_rejected,
+   denote_expr_typed_cmp_runs_sealed, denote_expr_typed_cmp_left_panic,
+   denote_expr_typed_cmp_right_panic, denote_expr_typed_cmp_src_absent,
+   typed_cmp_tag_exact, typed_cmp_live_total, typed_cmp_noncmp_none,
+   typed_cmp_gtint_none, typed_cmp_uint_none, typed_cmp_nonint_none,
+   ptype_cmp_bool_args, num_comparable_width_args, cmp_width_int,
+   runtime_typed_cmp_runs, runtime_typed_cmp_supported,
+   typed_cmp_uint_program_absent, typed_cmp_cross_width_rejected,
+   typed_cmp_u8_model, typed_cmp_i8_model, typed_cmp_u16_model, typed_cmp_i16_model,
+   typed_cmp_u32_model, typed_cmp_i32_model, typed_cmp_i64_model, typed_cmp_u64_model,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
    typed_mixed_const_runs, typed_mixed_const_supported,
