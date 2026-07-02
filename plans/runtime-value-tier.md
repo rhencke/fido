@@ -1,4 +1,4 @@
-# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R7 LANDED (the runtime INTEGER arc is COMPLETE)
+# The RUNTIME-value tier (B3 / Phase 5 "eval non-literals") — R1–R7 LANDED (the GTInt-FRAGMENT arc is complete; typed-width runtime integers are the named next arc)
 
 **Scope.** This arc covers the RUNTIME-classified subset of the supported-but-undenoted frontier
 (R1 len/arith + R2 slice indexing + R3 width conversions + R4 bool comparisons + R5 map values +
@@ -69,13 +69,19 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   **R6** (LANDED) nonzero runtime `%` via the evidence-carrying `int_mod` (the `int_div` convoy) and runtime
   unary `-` via `int_neg`.
   **R7** (LANDED) runtime unary `^` via the NEW modelled `int_not` (= `Z.lnot` = `-x-1`, go-run-verified
-  incl. the min→max wrap); `!` of a runtime bool comparison stays absent (no runtime bool negation rule).
+  incl. the min→max wrap) — GTInt only; the TYPED-width `^` class is pinned supported-but-undenoted
+  (`typed_runtime_not_absent`). `!` of a runtime bool comparison stays absent (no runtime bool negation rule).
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R6): every RUNTIME-classified witness DENOTES; the pinned
-  `undenoted_frontier` WITNESS (non-exhaustive — known absent classes: runtime floats, `!` of a
-  runtime bool comparison) is the multi-byte rune `runeconv_mb` alone. Any rule that lands FLIPS
+- Witness succession — CURRENT STATE (post-R7): every GTInt-FRAGMENT witness DENOTES; the pinned
+  `undenoted_frontier` WITNESSES (non-exhaustive — known absent classes: runtime floats, `!` of a
+  runtime bool comparison, typed-width runtime integer arithmetic) are the multi-byte rune
+  `runeconv_mb` and the typed-width complement `runnot_u8_e` (the class pinned three-wide:
+  `typed_runtime_not_absent` — `^int64/^uint8/^uint` of a runtime len, supported ∧ undenoted).
+  NEXT ARC: the TYPED-runtime tier — per-width carriers/ops in the shared evaluator so typed-width
+  runtime expressions (`^int64(x)`, typed arithmetic) denote; the model ops (`i64_not`, the wraps)
+  already exist. Any rule that lands FLIPS
   its member's pins — swap the successor in the same commit and sweep the stale-claim phrases
   repo-wide (the five recurring sites: frontier, out-boundary, the GoSemSafe absent pair, the
   dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is

@@ -24,8 +24,9 @@
       operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
       over RUNTIME map values (every value through the SHARED evaluator; panics denote only
       order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
-      class theorems).  Runtime FLOATS (and e.g. [!] of a runtime bool comparison) are not yet
-      denoted.
+      class theorems).  The tier computes in the [GTInt] fragment: TYPED-width runtime integer
+      expressions ([^int64(len ..)] — [typed_runtime_not_absent]), [!] of a runtime bool comparison,
+      and runtime FLOATS are not yet denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
@@ -1635,7 +1636,7 @@ Qed.
     fragment — deliberately NARROWER than the live denotation boundary ([denote_expr], which since tiers
     R1–R7 also denotes RUNTIME-determined args: [runlen_e], the runtime index, the runtime width
     CONVERSION [runconv_e], the runtime bool COMPARISON [runbool_e], the runtime-map-value [len]
-    [maplen_runval_e], and the R6 unary-minus / nonzero-[%] forms ([runneg_e]/[runrem_e]) — NOT
+    [maplen_runval_e], and the R6/R7 unary/[%] forms ([runneg_e]/[runrem_e]/[runnot_e]) — NOT
     folded, yet denoted): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
@@ -2410,6 +2411,22 @@ Example runtime_not_supported :
   forallb supported_program (map println_prog [ runnot_e ; runnot_panic_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
 
+(** ⚠ THE TYPED-WIDTH BOUNDARY, pinned honest: [^] (and the tier generally) computes only in the
+    [GTInt] fragment — a complement of a TYPED-width runtime integer ([^int64(len ..)] /
+    [^uint8(len ..)] / [^uint(len ..)]) is SUPPORTED valid Go yet UNDENOTED (the typed-runtime-tier
+    generalization — per-width carriers and ops in [reval] — is the named next arc; the model ops
+    [i64_not]/[u64_not]/the width wraps exist, the tier's carrier does not).  These join
+    [undenoted_frontier], so the gap is mechanically pinned, never prose. *)
+Definition runnot_i64_e : GExpr := EUn UXor (ECall (EId (mkIdent "int64" eq_refl)) [runlen3_e]).
+Definition runnot_u8_e  : GExpr := EUn UXor (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e]).
+Definition runnot_uint_e : GExpr := EUn UXor (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e]).
+Example typed_runtime_not_absent :
+  forallb (fun e => supported_program (println_prog e)
+                    && negb (denotable_program (println_prog e))
+                    && match denote_program (println_prog e) with None => true | Some _ => false end)
+          [ runnot_i64_e ; runnot_u8_e ; runnot_uint_e ] = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
     [GoSafe.valid_unsupported_programs]):
@@ -2897,14 +2914,16 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
 (** REPRESENTATIVE named witnesses of the supported-but-undenoted gap, pinned as a group.
     ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND known
     undenoted classes can have NO member here (e.g. [!] of a runtime bool comparison, runtime float
-    forms) — this list is representative, never a coverage claim.  Member: the
+    forms, TYPED-width runtime integer arithmetic) — this list is representative, never a coverage
+    claim.  The TYPED-width [^] class is separately pinned three-wide ([typed_runtime_not_absent]).  Member: the
     MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form).  (The OOB
     constant index and the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime
     width CONVERSION at tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 —
     [runtime_bool_runs]; the runtime map VALUE at tier R5 — [runtime_maplen_runs].)  Each member is
     pinned supported AND undenoted AND eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
-  [ runeconv_mb ].
+  [ runeconv_mb
+  ; runnot_u8_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
@@ -2940,6 +2959,7 @@ Definition gosem_trust_surface :=
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
+   typed_runtime_not_absent,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
