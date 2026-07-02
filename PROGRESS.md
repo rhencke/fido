@@ -62,8 +62,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`); SAME-WIDTH typed
     arithmetic/bitwise denotes on evaluated operands (nine ops × 8 fixed widths, `typed_binop` —
     value / div-zero panic / operand panic / absent each proved, SEALED
-    `denote_expr_typed_binop_runs_sealed`, shape split proved `ptype_binop_runint_args`;
-    MIXED-CONST + `uint` rows pinned absent). Shifts stay pinned: `typed_runtime_shift_absent`.
+    `denote_expr_typed_binop_runs_sealed` over the WHOLE shape split `ptype_binop_runint_args` —
+    a const operand, untyped or typed, MATERIALIZES at the binop's width, `typed_operand`; `uint`
+    row pinned absent). Shifts stay pinned: `typed_runtime_shift_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
@@ -91,9 +92,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 ## NEXT
 
 - The TYPED-runtime tier (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion chains + T3
-  same-width arithmetic LANDED + SEALED; next T4 comparisons, T5 heterogeneous shifts,
-  const-materialization-at-width (the mixed-const shape); then the general dyadic↔`SF*` agreement
-  theorem. Keep the byte/size discipline while growing.
+  same-width arithmetic (incl. const-materialization-at-width) LANDED + SEALED; next T4
+  comparisons, T5 heterogeneous shifts; then the general dyadic↔`SF*` agreement theorem. Keep the
+  byte/size discipline while growing.
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

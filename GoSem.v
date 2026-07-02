@@ -1034,6 +1034,34 @@ Proof.
   destruct (typed_arith_op o); [destruct t; try discriminate H; reflexivity | reflexivity].
 Qed.
 
+(** T3 operand MATERIALIZATION — Go's mixed-operand rule, exactly: a RUNTIME operand evaluates at
+    full power ([rv]); an INT-CONSTANT operand (untyped or typed — [num_arith]'s mixed rows)
+    materializes AT THE BINOP'S WIDTH through [box_int]'s repr-gated boxing ([ptype]'s own admission
+    checks: the untyped row re-checks [int_const_repr]; a typed const's payload is repr-sound,
+    [ptype_tint_const_repr]).  A non-integer class is absent fail-closed; a constant never panics
+    ([typed_operand_panic_runtime]). *)
+Definition typed_operand (rv : GExpr -> option RAny) (t : GoTy) (e : GExpr) : option RAny :=
+  match ptype e with
+  | Some (PtRunInt _) => rv e
+  | Some c =>
+      match int_const_val c with
+      | Some z =>
+          match box_int t z with
+          | Some g => Some (RAVal g)
+          | None => None
+          end
+      | None => None
+      end
+  | None => None
+  end.
+Lemma box_int_repr_total : forall t z,
+  is_int_goty t = true -> numty_eqb t GTUint = false -> int_const_repr z t = true ->
+  exists g, box_int t z = Some g.
+Proof.
+  intros t z Hi Hu Hr. unfold box_int. rewrite Hr.
+  destruct t; try discriminate Hi; try discriminate Hu; eexists; reflexivity.
+Qed.
+
 Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (e : GExpr) : option RAny :=
   match e with
   | ECall (EId f) (a :: nil) =>
@@ -1087,10 +1115,11 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
          runtime fragment (a string / bool / mixed-width operand is absent there, so no wrong compare
          can slip through), and the verdict is the model's own comparison op.  A panicking operand
          panics LEFT-to-right (Go's order), before any comparison.
-         tier T3 — the [PtRunInt t] case is SAME-WIDTH typed arithmetic/bitwise: both operands
-         evaluate at FULL power ([rv]), then [typed_binop] applies the width's model op (a value, or
-         the division-by-zero panic — [div_checked]).  A mismatched-tag pair (the MIXED-CONST operand
-         shape — [typed_mixed_const_operand_absent]) or a hole row ([GTUint], shifts) is absent. *)
+         tier T3 — the [PtRunInt t] case is SAME-WIDTH typed arithmetic/bitwise: each operand goes
+         through [typed_operand] (a runtime operand at FULL power via [rv]; an INT-CONSTANT operand
+         — untyped or typed, [num_arith]'s mixed rows — MATERIALIZES at the binop's width, Go's
+         conversion rule), then [typed_binop] applies the width's model op (a value, or the
+         division-by-zero panic — [div_checked]).  A hole row ([GTUint], shifts) is absent. *)
       match ptype e with
       | Some PtBool =>
           match cmp_verdict o with
@@ -1109,9 +1138,9 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
           end
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
-          match rv a with
+          match typed_operand rv t a with
           | Some (RAVal ga) =>
-              match rv b with
+              match typed_operand rv t b with
               | Some (RAVal gb) => typed_binop o t ga gb
               | Some (RAPanic p) => Some (RAPanic p)
               | None => None
@@ -1694,9 +1723,9 @@ Proof.
 Qed.
 
 (** ---- The T3 BINOP shape seal: what operand shapes can sit under a [PtRunInt]-classified
-    arithmetic binop — both-runtime, or ONE runtime + ONE int-constant ([num_arith]'s mixed rows).
-    The sealed T3 theorem covers the BOTH-RUNTIME shape; the mixed-const complement is pinned absent
-    ([typed_mixed_const_operand_absent]) until const-materialization-at-width lands. *)
+    arithmetic binop — both-runtime, or ONE runtime + ONE int-constant ([num_arith]'s mixed rows,
+    carrying ptype's own repr/width admission facts).  The sealed T3 theorem covers the WHOLE split:
+    a constant operand MATERIALIZES at the binop's width ([typed_operand]). *)
 Lemma numty_eqb_eq : forall t1 t2, numty_eqb t1 t2 = true -> t1 = t2.
 Proof. intros t1 t2 H; destruct t1; destruct t2; try discriminate H; reflexivity. Qed.
 Lemma dy_fold_at_float : forall t df a b pt,
@@ -1711,26 +1740,31 @@ Qed.
 Lemma num_arith_runint_args : forall f df cl cr t,
   num_arith f df cl cr = Some (PtRunInt t) ->
   (cl = PtRunInt t /\ cr = PtRunInt t)
-  \/ ((exists z, int_const_val cl = Some z) /\ cr = PtRunInt t)
-  \/ ((exists z, int_const_val cr = Some z) /\ cl = PtRunInt t).
+  \/ ((exists z, (cl = PtIntConst z /\ int_const_repr z t = true) \/ cl = PtTIntConst t z)
+      /\ cr = PtRunInt t)
+  \/ ((exists z, (cr = PtIntConst z /\ int_const_repr z t = true) \/ cr = PtTIntConst t z)
+      /\ cl = PtRunInt t).
 Proof.
   intros f df cl cr t H.
   destruct cl; destruct cr; cbn [num_arith] in H; try discriminate H;
   repeat match type of H with
          | (if numty_eqb ?x ?y then _ else _) = _ =>
              let E := fresh "E" in destruct (numty_eqb x y) eqn:E;
-             [cbv beta iota in H | discriminate H]
+             [apply numty_eqb_eq in E; subst; cbv beta iota in H | discriminate H]
          | (if ?b then _ else _) = _ =>
-             destruct b; [cbv beta iota in H | discriminate H]
+             let R := fresh "R" in destruct b eqn:R;
+             [cbv beta iota in H | discriminate H]
          end;
   try discriminate H;
   try (let Ed := fresh "Ed" in
        destruct (dy_fold_at_float _ _ _ _ _ H) as [? Ed]; discriminate Ed);
   injection H as He; subst;
   first
-    [ (left; split; [reflexivity | f_equal; symmetry; apply numty_eqb_eq; assumption])
-    | (right; left; split; [eexists; reflexivity | reflexivity])
-    | (right; right; split; [eexists; reflexivity | reflexivity]) ].
+    [ (left; split; reflexivity)
+    | (right; left; split; [eexists; left; split; [reflexivity | assumption] | reflexivity])
+    | (right; left; split; [eexists; right; reflexivity | reflexivity])
+    | (right; right; split; [eexists; left; split; [reflexivity | assumption] | reflexivity])
+    | (right; right; split; [eexists; right; reflexivity | reflexivity]) ].
 Qed.
 (** [BAdd]'s string-concatenation row never yields a numeric class — strip it to [num_binop]. *)
 Lemma ptype_add_str_row : forall cl cr t,
@@ -1742,8 +1776,10 @@ Lemma num_binop_arith_runint : forall o cl cr t,
   typed_arith_op o = true ->
   num_binop o cl cr = Some (PtRunInt t) ->
   (cl = PtRunInt t /\ cr = PtRunInt t)
-  \/ ((exists z, int_const_val cl = Some z) /\ cr = PtRunInt t)
-  \/ ((exists z, int_const_val cr = Some z) /\ cl = PtRunInt t).
+  \/ ((exists z, (cl = PtIntConst z /\ int_const_repr z t = true) \/ cl = PtTIntConst t z)
+      /\ cr = PtRunInt t)
+  \/ ((exists z, (cr = PtIntConst z /\ int_const_repr z t = true) \/ cr = PtTIntConst t z)
+      /\ cl = PtRunInt t).
 Proof.
   intros o cl cr t Ho H.
   destruct o; try discriminate Ho; cbn [num_binop] in H;
@@ -1756,9 +1792,11 @@ Lemma ptype_binop_runint_args : forall o a b t,
   typed_arith_op o = true ->
   ptype (EBn o a b) = Some (PtRunInt t) ->
   (ptype a = Some (PtRunInt t) /\ ptype b = Some (PtRunInt t))
-  \/ ((exists ca z, ptype a = Some ca /\ int_const_val ca = Some z)
+  \/ ((exists z, (ptype a = Some (PtIntConst z) /\ int_const_repr z t = true)
+                 \/ ptype a = Some (PtTIntConst t z))
       /\ ptype b = Some (PtRunInt t))
-  \/ ((exists cb z, ptype b = Some cb /\ int_const_val cb = Some z)
+  \/ ((exists z, (ptype b = Some (PtIntConst z) /\ int_const_repr z t = true)
+                 \/ ptype b = Some (PtTIntConst t z))
       /\ ptype a = Some (PtRunInt t)).
 Proof.
   intros o a b t Ho H. cbn [ptype] in H.
@@ -1768,10 +1806,88 @@ Proof.
   destruct o; try discriminate Ho;
   ( first [ apply ptype_add_str_row in H | idtac ];
     destruct (num_binop_arith_runint _ _ _ _ Ho H)
-      as [[-> ->] | [[[z Hz] ->] | [[z Hz] ->]]];
+      as [[-> ->] | [[[z [[-> R] | ->]] ->] | [[z [[-> R] | ->]] ->]]];
     [ left; split; reflexivity
-    | right; left; split; [exists cl, z; split; [reflexivity | exact Hz] | reflexivity]
-    | right; right; split; [exists cr, z; split; [reflexivity | exact Hz] | reflexivity] ] ).
+    | right; left; split; [exists z; left; split; [reflexivity | exact R] | reflexivity]
+    | right; left; split; [exists z; right; reflexivity | reflexivity]
+    | right; right; split; [exists z; left; split; [reflexivity | exact R] | reflexivity]
+    | right; right; split; [exists z; right; reflexivity | reflexivity] ] ).
+Qed.
+
+(** ---- The classifier's TYPED-CONST REPR invariant: every [PtTIntConst t z] the classifier
+    produces has [z] representable at [t] — every producing row re-checks [int_const_repr], so this
+    is a one-level case walk, not an induction.  Feeds the T3 materializer's totality
+    ([typed_operand_const_total]). *)
+Lemma num_arith_tint_repr : forall f df cl cr t z,
+  num_arith f df cl cr = Some (PtTIntConst t z) -> int_const_repr z t = true.
+Proof.
+  intros f df cl cr t z H.
+  destruct cl; destruct cr; cbn [num_arith] in H; try discriminate H;
+  repeat first
+    [ discriminate H
+    | (injection H as H1 H2; subst; assumption)
+    | (let Ed := fresh "Ed" in
+       destruct (dy_fold_at_float _ _ _ _ _ H) as [? Ed]; discriminate Ed)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma ptype_add_str_row_tint : forall cl cr t z,
+  (match cl, cr with PtStr, PtStr => Some PtStr | _, _ => num_binop BAdd cl cr end)
+    = Some (PtTIntConst t z) ->
+  num_binop BAdd cl cr = Some (PtTIntConst t z).
+Proof. intros cl cr t z H; destruct cl; try exact H; destruct cr; try exact H; discriminate H. Qed.
+Lemma num_binop_tint_repr : forall o cl cr t z,
+  num_binop o cl cr = Some (PtTIntConst t z) -> int_const_repr z t = true.
+Proof.
+  intros o cl cr t z H.
+  destruct o; cbn [num_binop] in H;
+  repeat first
+    [ discriminate H
+    | exact (num_arith_tint_repr _ _ _ _ _ _ H)
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma conv_to_scalar_tint_repr : forall ca t' t z,
+  conv_to_scalar ca t' = Some (PtTIntConst t z) -> int_const_repr z t = true.
+Proof.
+  intros ca t' t z H.
+  destruct t'; destruct ca; cbn [conv_to_scalar] in H; try discriminate H;
+  repeat first
+    [ discriminate H
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
+Qed.
+Lemma ptype_tint_const_repr : forall e t z,
+  ptype e = Some (PtTIntConst t z) -> int_const_repr z t = true.
+Proof.
+  intros e t z H.
+  destruct e; cbn [ptype] in H; try discriminate H;
+  repeat first
+    [ discriminate H
+    | exact (conv_to_scalar_tint_repr _ _ _ _ H)
+    | exact (num_binop_tint_repr _ _ _ _ _ H)
+    | exact (num_binop_tint_repr _ _ _ _ _ (ptype_add_str_row_tint _ _ _ _ H))
+    | (injection H as H1 H2; subst; assumption)
+    | (cbv beta iota zeta in H;
+       match type of H with
+       | (if ?b then _ else _) = _ =>
+           let R := fresh "R" in destruct b eqn:R; [ idtac | try discriminate H ]
+       | context [match ?x with _ => _ end] => destruct x
+       end) ].
 Qed.
 Lemma denote_expr_conv_runs : forall f a t g z,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
@@ -2223,8 +2339,10 @@ Proof.
        its own dispatch seal *)
     rewrite Hpt in Hg. cbv beta iota in Hg.
     destruct (numty_eqb t GTInt); cbv beta iota in Hg; [discriminate Hg|].
-    destruct (reval_val_with reval_int l) as [[ga|p]|]; cbv beta iota in Hg; try discriminate Hg.
-    destruct (reval_val_with reval_int r) as [[gb|p]|]; cbv beta iota in Hg; try discriminate Hg.
+    destruct (typed_operand (reval_val_with reval_int) t l) as [[ga|p]|];
+      cbv beta iota in Hg; try discriminate Hg.
+    destruct (typed_operand (reval_val_with reval_int) t r) as [[gb|p]|];
+      cbv beta iota in Hg; try discriminate Hg.
     exact (proj2 (proj2 (typed_binop_tag_exact _ _ _ _ _ Hg))).
   - (* ECall: the R3+T2 exit *)
     destruct fn; try discriminate Hg.
@@ -2260,6 +2378,54 @@ Proof.
     destruct args as [|a0 [|? ?]]; try reflexivity.
     rewrite Hpt. reflexivity.
 Qed.
+(** ---- The OPERAND layer sealed ([typed_operand]): the runtime row IS the full evaluator, the
+    const row is TOTAL on [ptype]'s own admitted shapes and tags at the WIDTH, and a panic can only
+    come from the runtime row. *)
+Lemma typed_operand_runint : forall rv t s e,
+  ptype e = Some (PtRunInt s) -> typed_operand rv t e = rv e.
+Proof. intros rv t s e Hpt. unfold typed_operand. rewrite Hpt. reflexivity. Qed.
+Lemma typed_operand_typed : forall t e g,
+  (ptype e = Some (PtRunInt t)
+   \/ (exists c z, ptype e = Some c /\ int_const_val c = Some z)) ->
+  typed_operand reval_val t e = Some (RAVal g) ->
+  tag_matches t g = true.
+Proof.
+  intros t e g [Hpt | [c [z [Hpt Hz]]]] H; unfold typed_operand in H; rewrite Hpt in H;
+    cbv beta iota in H.
+  - exact (reval_val_typed e t g Hpt H).
+  - destruct c; cbn [int_const_val] in Hz, H; try discriminate Hz;
+    ( cbv beta iota in H;
+      match type of H with
+      | context [box_int ?tt ?zz] => destruct (box_int tt zz) eqn:B
+      end;
+      [ injection H as <-; exact (box_int_tag _ _ _ B) | discriminate H ] ).
+Qed.
+Lemma typed_operand_const_total : forall t e z,
+  is_int_goty t = true -> numty_eqb t GTUint = false ->
+  ((ptype e = Some (PtIntConst z) /\ int_const_repr z t = true)
+   \/ ptype e = Some (PtTIntConst t z)) ->
+  exists g, typed_operand reval_val t e = Some (RAVal g).
+Proof.
+  intros t e z Hi Hu Hc. unfold typed_operand.
+  destruct Hc as [[Hpt Hr] | Hpt]; rewrite Hpt; cbv beta iota; cbn [int_const_val].
+  - destruct (box_int_repr_total t z Hi Hu Hr) as [g B]. rewrite B. eexists; reflexivity.
+  - pose proof (ptype_tint_const_repr e t z Hpt) as Hr.
+    destruct (box_int_repr_total t z Hi Hu Hr) as [g B]. rewrite B. eexists; reflexivity.
+Qed.
+Lemma typed_operand_panic_runtime : forall rv t e p,
+  typed_operand rv t e = Some (RAPanic p) ->
+  exists s, ptype e = Some (PtRunInt s) /\ rv e = Some (RAPanic p).
+Proof.
+  intros rv t e p H. unfold typed_operand in H.
+  destruct (ptype e) as [c|]; [|discriminate H].
+  destruct c; cbn [int_const_val] in H; cbv beta iota in H;
+  try discriminate H;
+  try (match type of H with
+       | context [box_int ?tt ?zz] => destruct (box_int tt zz); discriminate H
+       end);
+  eexists; split; [reflexivity | exact H].
+Qed.
+
 (** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
     width (the [UNeg]/[UXor] rows preserve [PtRunInt t]; every const row yields a const category). *)
 Lemma ptype_unary_runint : forall o a t,
@@ -2510,33 +2676,46 @@ Proof.
   rewrite reval_val_with_eq, Hev, He. reflexivity.
 Qed.
 
-(** ★ THE SEALED T3 THEOREM — SAME-WIDTH typed arithmetic/bitwise on EVALUATED runtime-int operands
-    (both tags forced by the invariant; the dispatch total on live rows,
-    [typed_binop_live_total]): the result is decided per OUTCOME — the model op's VALUE (tagged at
-    the width, [typed_binop_tag_exact]) or the division-by-zero PANIC ([typed_binop_panic_div]);
-    operand panics propagate left-to-right and ABSENT operands stay absent (the companion lemmas
-    below) — never decided by classification alone.  SCOPE: the BOTH-RUNTIME operand shape
-    ([ptype_binop_runint_args] proves the shape split exhaustive); the MIXED-CONST complement is
-    pinned absent ([typed_mixed_const_operand_absent]); [GTUint] is the hole row
-    ([typed_binop_uint_none], pinned [typed_binop_uint_program_absent]); shifts are T5
-    ([typed_runtime_shift_absent]). *)
+(** ★ THE SEALED T3 THEOREM — SAME-WIDTH typed arithmetic/bitwise over the FULL operand-shape
+    split ([ptype_binop_runint_args]: both-runtime, or one runtime + one int-CONSTANT — the
+    constant MATERIALIZES at the binop's width, [typed_operand], total on ptype's own shapes by
+    [typed_operand_const_total]): both operand tags are forced ([typed_operand_typed]), the dispatch
+    is total on live rows ([typed_binop_live_total]), and the result is decided per OUTCOME — the
+    model op's VALUE (tagged at the width) or the division-by-zero PANIC; operand panics propagate
+    left-to-right (only the runtime row can panic, [typed_operand_panic_runtime]) and ABSENT
+    operands stay absent (the companion lemmas below) — never decided by classification alone.
+    [GTUint] is the hole row ([typed_binop_uint_none], pinned [typed_binop_uint_program_absent]);
+    shifts are T5 ([typed_runtime_shift_absent]). *)
 Theorem denote_expr_typed_binop_runs_sealed : forall o a b t ga gb,
   floats_checked (EBn o a b) = true ->
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false -> numty_eqb t GTUint = false ->
   typed_arith_op o = true ->
   eval_value (EBn o a b) = None ->
-  ptype a = Some (PtRunInt t) -> ptype b = Some (PtRunInt t) ->
-  reval_val a = Some (RAVal ga) -> reval_val b = Some (RAVal gb) ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  typed_operand reval_val t b = Some (RAVal gb) ->
   exists r, typed_binop o t ga gb = Some r
     /\ denote_expr (EBn o a b)
        = Some (match r with RAVal g => (CRet g, false) | RAPanic p => (CPan p, true) end)
     /\ (forall g, r = RAVal g -> tag_matches t g = true).
 Proof.
-  intros o a b t ga gb Hfc Hpt Ht Hu Ho Hev Hpa Hpb Ha Hb.
+  intros o a b t ga gb Hfc Hpt Ht Hu Ho Hev Ha Hb.
   pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
-  pose proof (reval_val_typed a t ga Hpa Ha) as Hta.
-  pose proof (reval_val_typed b t gb Hpb Hb) as Htb.
+  pose proof (ptype_binop_runint_args o a b t Ho Hpt) as Hshape.
+  assert (Hta : tag_matches t ga = true).
+  { apply (typed_operand_typed t a ga); [|exact Ha].
+    destruct Hshape as [[Hpa _] | [[[z [[Hpa _] | Hpa]] _] | [_ Hpa]]];
+      [ left; exact Hpa
+      | right; exists (PtIntConst z), z; split; [exact Hpa | reflexivity]
+      | right; exists (PtTIntConst t z), z; split; [exact Hpa | reflexivity]
+      | left; exact Hpa ]. }
+  assert (Htb : tag_matches t gb = true).
+  { apply (typed_operand_typed t b gb); [|exact Hb].
+    destruct Hshape as [[_ Hpb] | [[_ Hpb] | [[z [[Hpb _] | Hpb]] _]]];
+      [ left; exact Hpb
+      | left; exact Hpb
+      | right; exists (PtIntConst z), z; split; [exact Hpb | reflexivity]
+      | right; exists (PtTIntConst t z), z; split; [exact Hpb | reflexivity] ]. }
   destruct (typed_binop_live_total o t ga gb Ho Hta Htb Ht Hu Hi) as [r Hr].
   exists r.
   assert (He : reval_int (EBn o a b) = None).
@@ -2559,7 +2738,7 @@ Lemma denote_expr_typed_binop_left_panic : forall o a b t p,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   eval_value (EBn o a b) = None ->
-  reval_val a = Some (RAPanic p) ->
+  typed_operand reval_val t a = Some (RAPanic p) ->
   denote_expr (EBn o a b) = Some (CPan p, true).
 Proof.
   intros o a b t p Hfc Hpt Ht Hev Ha.
@@ -2580,8 +2759,8 @@ Lemma denote_expr_typed_binop_right_panic : forall o a b t ga p,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
   eval_value (EBn o a b) = None ->
-  reval_val a = Some (RAVal ga) ->
-  reval_val b = Some (RAPanic p) ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  typed_operand reval_val t b = Some (RAPanic p) ->
   denote_expr (EBn o a b) = Some (CPan p, true).
 Proof.
   intros o a b t ga p Hfc Hpt Ht Hev Ha Hb.
@@ -2603,7 +2782,9 @@ Qed.
 Theorem denote_expr_typed_binop_src_absent : forall o a b t,
   ptype (EBn o a b) = Some (PtRunInt t) ->
   numty_eqb t GTInt = false ->
-  (reval_val a = None \/ (exists ga, reval_val a = Some (RAVal ga) /\ reval_val b = None)) ->
+  (typed_operand reval_val t a = None
+   \/ (exists ga, typed_operand reval_val t a = Some (RAVal ga)
+                  /\ typed_operand reval_val t b = None)) ->
   denote_expr (EBn o a b) = None.
 Proof.
   intros o a b t Hpt Ht Habs.
@@ -3916,17 +4097,31 @@ Proof. intro w. vm_compute. reflexivity. Qed.
 Example runtime_typed_binop_supported :
   forallb supported_program (map println_prog typed_binop_cases) = true.
 Proof. vm_compute. reflexivity. Qed.
-(** The MIXED-CONST operand shape ([ptype_binop_runint_args]'s complement rows — one runtime + one
-    int-constant operand, VALID Go): pinned supported-but-ABSENT — the constant boxes at the DEFAULT
-    width today, and the tag-exact dispatch refuses the mismatch rather than mis-typing it.  Flips
-    with const-materialization-at-width, a future slice. *)
+(** The MIXED-CONST operand shapes ([ptype_binop_runint_args]'s const rows — one runtime + one
+    int-constant operand, untyped OR typed, either order) DENOTE: the constant MATERIALIZES at the
+    binop's width ([typed_operand]).  go-run-verified against gc: 4, 4, 4, 254 (the typed-const-left
+    WRAP witness [uint8(1) - uint8(len a)] = 1−3), and the const-dividend / runtime-ZERO-divisor
+    panic [1 % uint8(len([]int{}))]. *)
 Definition runmixed_const_e : GExpr := EBn BAdd runb_u8 (EInt 1).
-Example typed_mixed_const_operand_absent :
-  ptype runmixed_const_e = Some (PtRunInt GTU8)
-  /\ supported_program (println_prog runmixed_const_e) = true
-  /\ denotable_program (println_prog runmixed_const_e) = false
-  /\ denote_program (println_prog runmixed_const_e) = None.
-Proof. repeat split; vm_compute; reflexivity. Qed.
+Definition runb_u8one : GExpr := ECall (EId (mkIdent "uint8" eq_refl)) [EInt 1].
+Definition typed_mixed_cases : list GExpr :=
+  [ runmixed_const_e                 (* untyped const RIGHT *)
+  ; EBn BAdd (EInt 1) runb_u8        (* untyped const LEFT *)
+  ; EBn BAdd runb_u8 runb_u8one      (* typed const RIGHT *)
+  ; EBn BSub runb_u8one runb_u8      (* typed const LEFT — the wrap witness *)
+  ; EBn BRem (EInt 1) runb_u8x0 ].   (* const dividend, runtime ZERO divisor — panics *)
+Example typed_mixed_const_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      typed_mixed_cases
+  = [ Some (ORet tt (w_log true (anyt TU8 (u8wrap 4) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 4) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 4) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap (-2)) :: nil) w))
+    ; Some (OPanic rt_div_zero w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example typed_mixed_const_supported :
+  forallb supported_program (map println_prog typed_mixed_cases) = true.
+Proof. vm_compute. reflexivity. Qed.
 (** The [GTUint] hole ROW at program level (the platform-uint carrier has NO model ops). *)
 Definition runuint_binop_e : GExpr :=
   EBn BAdd (ECall (EId (mkIdent "uint" eq_refl)) [runlen3_e])
@@ -4584,14 +4779,12 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     RUNTIME-FLOAT-source conversion [runconv_float_src_e] (CLASS-sealed —
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
     [runtime_float_source_conv_absent]; the SHIFT case table lives OUTSIDE this list —
-    [typed_runtime_shift_absent]), and the MIXED-CONST binop operand [runmixed_const_e] (its own pin
-    [typed_mixed_const_operand_absent]).  Each member is pinned supported AND undenoted AND
+    [typed_runtime_shift_absent]).  Each member is pinned supported AND undenoted AND
     eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_uint_e
-  ; runconv_float_src_e
-  ; runmixed_const_e ].
+  ; runconv_float_src_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
@@ -4656,8 +4849,11 @@ Definition gosem_runtime_int_surface :=
    typed_binop_tag_exact, typed_binop_live_total, typed_binop_panic_div,
    typed_binop_nonarith_none, typed_binop_gtint_none, typed_binop_uint_none,
    typed_binop_nonint_none, ptype_binop_runint_args,
+   typed_operand_runint, typed_operand_typed, typed_operand_const_total,
+   typed_operand_panic_runtime, box_int_repr_total, ptype_tint_const_repr,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
+   typed_mixed_const_runs, typed_mixed_const_supported,
    typed_binop_u8_model, typed_binop_i8_model, typed_binop_u16_model, typed_binop_i16_model,
    typed_binop_u32_model, typed_binop_i32_model, typed_binop_i64_model, typed_binop_u64_model).
 Definition gosem_map_surface :=
@@ -4670,7 +4866,7 @@ Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
    typed_unary_holes_absent, reval_val_runfloat_none, denote_expr_conv_float_src_absent,
    runtime_float_source_conv_absent, typed_runtime_shift_absent, runtime_conv_absent_src_pinned,
-   typed_mixed_const_operand_absent, typed_binop_uint_program_absent).
+   typed_binop_uint_program_absent).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,

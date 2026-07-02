@@ -46,9 +46,11 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   go-run-verified). T3 same-width arithmetic/bitwise — LANDED (`typed_binop`, nine ops × 8 widths;
   div/mod via the generic `div_checked` evidence convoy; sealed
   `denote_expr_typed_binop_runs_sealed` + panic/absent companions; operand-shape split proved
-  `ptype_binop_runint_args` — the MIXED-CONST rows (one runtime + one int-const operand, valid Go)
-  pinned absent `typed_mixed_const_operand_absent` until CONST-MATERIALIZATION-AT-WIDTH (a named
-  future slice: box the const at the binop's width via ptype's own repr check); `uint` row pinned
+  `ptype_binop_runint_args` — the MIXED-CONST rows (one runtime + one int-const operand, untyped or
+  typed, valid Go) DENOTE via CONST-MATERIALIZATION-AT-WIDTH (`typed_operand` boxes the const at the
+  binop's width through ptype's own repr admission; totality from the classifier's typed-const repr
+  invariant `ptype_tint_const_repr`; pins `typed_mixed_const_runs`, both orders + the
+  const-dividend/runtime-zero-divisor panic); `uint` row pinned
   `typed_binop_uint_program_absent`; go-run-verified runs pins incl. wrap 252+252=248 and
   `-4 % 3 = -1`). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:
