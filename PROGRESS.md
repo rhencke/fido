@@ -83,9 +83,9 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   `box_float_gate`) and `renorm_binary_round_idem`; the WIDE bridge
   `binary_round_of_norm_wide` (raw-digits-unbounded odd-core determinism, gated; the carry
   class pinned `add_carry_raw_wide_accepted`); the determinism endpoint
-  `binary_normalize_wide_determined` + `dy_norm_value_unique`; ★ ADD at binary64 CLOSED
-  (`sf_render_add_agrees_f64` — the live render of `dy_add`'s fold IS `f64_add` of the
-  renders, all shapes). Next: the SUB corollary, then MUL/exact-DIV (rung 6). (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
+  `binary_normalize_wide_determined` + `dy_norm_value_unique`; ★ rung 5 CLOSED — ADD + SUB
+  at binary64 (`sf_render_{add,sub}_agrees_f64`: the live render of the fold IS the model op
+  of the renders, all shapes). Next: MUL/exact-DIV (rung 6). (The typed-runtime tier T1–T5 + R8 is COMPLETE — `LESSONS.md`.)
 - CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
   physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.
 - Extend the cmd↔unified bridge to chan/heap/spawn.

@@ -58,7 +58,7 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    (via `binary_round_of_norm_wide`).  NO doubling induction: both sides reduce to closed
    canonical forms, digits+exponent is invariant under the odd-core split
    (`pos_odd_split_digits`), so the `fexp` targets coincide (`binary_round_of_norm`).
-5. **ADD/SUB (f64) — 5a + 5b LANDED; remaining = 5c.**
+5. **ADD/SUB (f64) — CLOSED at binary64.**
    `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas); `SFadd`
    normalizes the RAW aligned sum, whose mantissa can exceed `prec` digits even for
    gate-ACCEPTED results — the CARRY shape `(2^53-1)+(2^53-1)`: raw sum `2^54-2` (54 digits),
@@ -78,8 +78,10 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    the fold (`f64_add_finite_agrees`), the zero rows collapse via `dy_norm_value_unique`
    (`f64_add_zero_{left,right}_f64`), and `normalize_result_agrees_f64` (idempotence + wide
    determinism under the result's window) is the uniform endgame.
-   REMAINING in the rung: the SUB corollary (`dy_sub = dy_add ∘ dy_neg`; `SFsub`'s arm vs the
-   NEG machinery).
+   SUB CLOSED too (gated `sf_render_sub_agrees_f64`): `SFsub_as_add_opp` (row-by-row, the
+   finite arm by `Z.sub`-is-`add∘opp` conversion) + `bn_opp_f64` (rung 1 at the normalizer)
+   transport the ADD closure through `dy_sub = dy_add ∘ dy_neg`; a zero subtrahend's `-0` is
+   absorbed by `SFadd`'s sign-blind zero rows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).
 7. **The f32 row + cross-width conversions** (needs rung 3's idempotence for the `f32_round`

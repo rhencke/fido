@@ -7177,7 +7177,7 @@ Proof.
       reflexivity. }
   exact (normalize_result_agrees_f64 _ _ mr er Hsum Hr).
 Qed.
-(** the ADD/SUB AGREEMENT core over all shapes *)
+(** the ADD agreement core over all shapes (SUB transports through it — [sf_render_sub_agrees_f64]) *)
 Lemma f64_add_normalize_agrees : forall m1 e1 m2 e2 mr er,
   float_dyadic_repr GTFloat64 m1 e1 = true ->
   float_dyadic_repr GTFloat64 m2 e2 = true ->
@@ -7210,9 +7210,9 @@ Proof.
     + exact (f64_add_finite_agrees (Zneg p1) e1 (Zneg p2) e2 mr er p1 p2
                eq_refl eq_refl H1 H2 Hadd Hr).
 Qed.
-(** ★ rung 5 CLOSED at binary64 (gated): on the gate's windows — operands AND result — the
-    LIVE render of [dy_add]'s exact fold IS the model's [f64_add] of the operands' renders:
-    ADD/SUB agreement, every case (zero rows, cancellation, the raw-wide carry class). *)
+(** ★ ADD at binary64 (gated): on the gate's windows — operands AND result — the LIVE render
+    of [dy_add]'s exact fold IS the model's [f64_add] of the operands' renders, every case
+    (zero rows, cancellation, the raw-wide carry class); SUB follows below. *)
 Theorem sf_render_add_agrees_f64 : forall m1 e1 m2 e2 mr er,
   float_dyadic_repr GTFloat64 m1 e1 = true ->
   float_dyadic_repr GTFloat64 m2 e2 = true ->
@@ -7229,6 +7229,94 @@ Proof.
   split; [reflexivity|]. split; [reflexivity|].
   f_equal. symmetry.
   exact (f64_add_normalize_agrees m1 e1 m2 e2 mr er H1 H2 Hadd Hr).
+Qed.
+(** the window is symmetric in the mantissa sign *)
+Lemma float_dyadic_repr_opp : forall t m e,
+  float_dyadic_repr t m e = true -> float_dyadic_repr t (- m)%Z e = true.
+Proof.
+  intros t m e H. unfold float_dyadic_repr in *.
+  destruct t; try discriminate H; rewrite Z.abs_opp; exact H.
+Qed.
+Lemma bn_opp_f64 : forall m e, m <> Z0 ->
+  binary_normalize 53 1024 (- m)%Z e false
+  = SFopp (binary_normalize 53 1024 m e false).
+Proof.
+  intros m e Hm.
+  pose proof (sf_render_neg_general_f64 m e Hm) as H.
+  unfold sf_render in H. rewrite !renorm_sf_of_dyadic in H.
+  cbn [option_map] in H. injection H as H. exact H.
+Qed.
+(** ★ SUB at binary64 (gated) — rung 5 CLOSED (ADD + SUB): [dy_sub] is [dy_add] of the
+    negation and [SFsub] is [SFadd] of the sign-flip ([SFsub_as_add_opp]), so the ADD closure
+    transports; the [-0] second operand of a zero subtrahend is absorbed by [SFadd]'s
+    sign-blind zero rows. *)
+Theorem sf_render_sub_agrees_f64 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_sub (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat64 m1 e1 = Some v1
+    /\ sf_render GTFloat64 m2 e2 = Some v2
+    /\ sf_render GTFloat64 mr er = Some (f64_sub v1 v2).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hsub Hr.
+  unfold dy_sub in Hsub. cbn [dy_neg] in Hsub.
+  unfold sf_render. rewrite !renorm_sf_of_dyadic.
+  do 2 eexists. split; [reflexivity|]. split; [reflexivity|].
+  f_equal.
+  unfold f64_sub. rewrite SFsub_as_add_opp.
+  destruct m2 as [|p2|p2].
+  - (* zero subtrahend: SFopp (+0) = -0, absorbed by the sign-blind rows *)
+    cbn [Z.opp] in Hsub.
+    change (binary_normalize 53 1024 0 e2 false) with (S754_zero false).
+    cbn [SFopp].
+    destruct m1 as [|p1|p1].
+    + change (binary_normalize 53 1024 0 e1 false) with (S754_zero false).
+      cbn [dy_add] in Hsub.
+      destruct (Z.leb e1 e2) in Hsub;
+        rewrite Z.shiftl_0_l in Hsub; cbn [Z.add dy_norm] in Hsub;
+        injection Hsub as <- <-; reflexivity.
+    + destruct (render_signed_value_f64 (Zpos p1) e1 p1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. cbn [SFadd].
+      assert (Hsum : dy_norm (Zpos p1) e1 = (mr, er)).
+      { cbn [dy_add] in Hsub.
+        destruct (Z.leb e1 e2) eqn:Eb in Hsub.
+        - rewrite Z.shiftl_0_l, Z.add_0_r in Hsub. exact Hsub.
+        - apply Z.leb_gt in Eb.
+          rewrite Z.add_0_r, Z.shiftl_mul_pow2 in Hsub by lia.
+          rewrite <- Hsub.
+          symmetry.
+          apply (dy_norm_value_unique (Zpos p1 * 2 ^ (e1 - e2)) e2 (Zpos p1) e1);
+            [lia | reflexivity]. }
+      rewrite <- Hbn1.
+      symmetry.
+      exact (normalize_result_agrees_f64 (Zpos p1) e1 mr er Hsum Hr).
+    + destruct (render_signed_value_f64 (Zneg p1) e1 p1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. cbn [SFadd].
+      assert (Hsum : dy_norm (Zneg p1) e1 = (mr, er)).
+      { cbn [dy_add] in Hsub.
+        destruct (Z.leb e1 e2) eqn:Eb in Hsub.
+        - rewrite Z.shiftl_0_l, Z.add_0_r in Hsub. exact Hsub.
+        - apply Z.leb_gt in Eb.
+          rewrite Z.add_0_r, Z.shiftl_mul_pow2 in Hsub by lia.
+          rewrite <- Hsub.
+          symmetry.
+          apply (dy_norm_value_unique (Zneg p1 * 2 ^ (e1 - e2)) e2 (Zneg p1) e1);
+            [lia | reflexivity]. }
+      rewrite <- Hbn1.
+      symmetry.
+      exact (normalize_result_agrees_f64 (Zneg p1) e1 mr er Hsum Hr).
+  - rewrite <- (bn_opp_f64 (Zpos p2) e2 ltac:(discriminate)).
+    symmetry.
+    exact (f64_add_normalize_agrees m1 e1 (- Zpos p2)%Z e2 mr er H1
+             (float_dyadic_repr_opp _ _ _ H2) Hsub Hr).
+  - rewrite <- (bn_opp_f64 (Zneg p2) e2 ltac:(discriminate)).
+    symmetry.
+    exact (f64_add_normalize_agrees m1 e1 (- Zneg p2)%Z e2 mr er H1
+             (float_dyadic_repr_opp _ _ _ H2) Hsub Hr).
 Qed.
 (** the shape [ptype]'s unary-minus fold actually produces
     ([PtFloatConst t (dy_make (Z.opp (dy_m d)) (dy_e d))]) — the reseal is INERT: the sealed
@@ -7422,6 +7510,7 @@ Definition gosem_float_surface :=
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
    binary_normalize_wide_determined, add_carry_raw_wide_accepted, binary_round_of_norm_wide,
    dy_norm_value_unique, sf_render_signed_value_f64, sf_render_add_agrees_f64,
+   sf_render_sub_agrees_f64,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,

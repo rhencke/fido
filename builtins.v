@@ -341,6 +341,18 @@ Lemma iter_pos_shr1_zeros : forall k m,
 Proof.
   intros k m. rewrite iter_pos_nat, pos_iter_nat. apply nat_iter_shr1_zeros.
 Qed.
+(** SUBTRACTION is ADDITION of the sign-flipped operand — [SFsub]'s own match agrees with
+    [SFadd . SFopp] row by row ([Z.sub] IS [Z.add] of the opposite, definitionally, so even
+    the finite arm closes by conversion after the sign split). *)
+Lemma SFsub_as_add_opp : forall prec emax x y,
+  SFsub prec emax x y = SFadd prec emax x (SFopp y).
+Proof.
+  intros prec emax x y.
+  destruct x as [sx|sx| |sx mx ex]; destruct y as [sy|sy| |sy my ey];
+    cbn [SFopp SFsub SFadd]; try reflexivity;
+    try (destruct sx; destruct sy; reflexivity);
+    try (destruct sy; reflexivity).
+Qed.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 
