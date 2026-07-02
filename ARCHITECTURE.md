@@ -171,8 +171,9 @@ Phase 5  Grow safety via GoSem: BRIDGE unified.v/concurrency.v/cmd.v in (no seco
          widen toward BehaviorSafe → SafeProgram → emit_safe, wire the certified path to main.
          ↳ SLICE 1 + completeness converse landed; FIRST behavioral emission cert + DECIDABLE gate
            (`PanicFreeEmittable`/`emit_panic_free`, `panic_free_gate`/`emit_panic_free_gated` — end-to-end
-           sound: emit ⟹ proven panic-free run + blessed bytes; accepts denoted+panic-free only, modeled
-           runtime panics rejected by non-denotation; off the main path). NEXT = eval
+           sound: emit ⟹ proven panic-free run + blessed bytes; accepts only a program denoting to a
+           CPan-free command (cmd_no_panic), modeled runtime panics rejected by non-denotation; off the main
+           path). NEXT = eval
            non-literals, then full `BehaviorSafe` (nil deref/OOB/race).
 ```
 

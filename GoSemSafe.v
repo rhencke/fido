@@ -165,8 +165,8 @@ Definition panic_free_denotable (p : Program) : bool :=
   match denote_program p with Some c => cmd_no_panic c | None => false end.
 
 (** The decidable [panic_free_denotable] ENTAILS the panic-free [ORet] run (for enough fuel — defers
-    included).  Composes [denote_program_dec] (the denotability conjunct yields the denotation) with
-    [panic_free_runs_ret]. *)
+    included): the predicate itself computes [denote_program p = Some c] with [cmd_no_panic c], and
+    [panic_free_runs_ret] finishes. *)
 Theorem panic_free_denotable_runs_ret : forall p w,
   panic_free_denotable p = true ->
   exists c fuel w', denote_program p = Some c /\ run_cmd fuel c w = Some (ORet tt w').
@@ -343,12 +343,12 @@ Proof.
   split; [ vm_compute; discriminate | vm_compute; reflexivity ].
 Qed.
 
-(** DEFER reaches the gate: [gosem_defer_prog] (`defer println("bye"); return`) DENOTES and is panic-free, so
-    the gate ACCEPTS + EMITS it — the first BEHAVIORALLY-certified defer program.  [gosem_defer_panic_prog]
-    (`defer panic("boom"); ...`) is SUPPORTED and DENOTABLE (valid Go that denotes — the rejection below is
-    [panic_free]'s judgment on the deferred panic SITE, NOT non-denotation incompleteness), and the gate
-    REJECTS it: a deferred panic still ends the run in [OPanic] ([GoSem.rc_defer_panic]), so admitting it would
-    break [pfe_runs_ret]. *)
+(** DEFER reaches the gate: [gosem_defer_prog] (`defer println("bye"); return`) denotes to a [CPan]-free
+    command, so the gate ACCEPTS + EMITS it — the first BEHAVIORALLY-certified defer program.
+    [gosem_defer_panic_prog] (`defer panic("boom"); ...`) is SUPPORTED and DENOTABLE (valid Go that denotes —
+    the rejection below is [cmd_no_panic]'s judgment on the DENOTATION, which contains [CDfr (CPan ..) _]; NOT
+    non-denotation incompleteness), and the gate REJECTS it: a deferred panic still ends the run in [OPanic]
+    ([GoSem.rc_defer_panic]), so admitting it would break [pfe_runs_ret]. *)
 Example panic_free_gate_defer :
   supported_program gosem_defer_prog = true
   /\ (exists c, panic_free_gate gosem_defer_prog = Some c)

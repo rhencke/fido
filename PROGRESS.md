@@ -14,7 +14,7 @@ spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is 
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
-Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepts only denoted+panic-free programs; modeled runtime panics are rejected by non-denotation) — no full BehaviorSafe gate.
+Go to its source term (gap #10); `emit_panic_free` is a narrow emission cert OFF the main path (accepts a program only if it denotes to a `CPan`-free command; modeled runtime panics are rejected by non-denotation) — no full BehaviorSafe gate.
 
 ## Architecture (AST-first certified emission — `ARCHITECTURE.md` governs)
 
@@ -79,10 +79,11 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
   (output only APPENDS) + `run_cmd_no_panic_ret` (a panic-free run returns `ORet`). TERMINATION lives in `cmd.v`:
   `run_cmd_terminates` (returns `Some` for enough fuel, via a `defers_sz` measure — a pure `run_cmd` property).
   ⚠ chan/heap/spawn later. Zero axioms.
-- **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a panic-free
-  denoted program runs to `ORet` for enough fuel — defers included; a DEFERRED panic counts as a panic site,
-  so `panic_free` rejects it; `_ustep` lifts the guarantee to `ustep` via the general `bridge_agrees`).
-  `panic_free_denotable` folds "denotes + panic-free" into ONE DECIDABLE predicate;
+- **First behavioral-safety PROPERTIES + emission gate** — `GoSemSafe.v`: `panic_free_runs_ret` (a
+  `CPan`-free command runs to `ORet` for enough fuel — defers included; `_ustep` lifts the guarantee to
+  `ustep` via the general `bridge_agrees`).
+  `panic_free_denotable p` = the program denotes to `c` AND `cmd_no_panic c` (cmd.v's authority — a deferred
+  panic's denotation contains `CDfr (CPan ..)`, so it is rejected by the same check); ONE DECIDABLE predicate;
   `panic_free_denotable_runs_ret`[`_ustep`] prove it entails the panic-free run, `_supported` that it
   implies `SupportedProgram`. `PanicFreeEmittable` REFINES GoEmit's `EmittableProgram` — the FIRST emission cert
   whose precondition is a proven panic-free RUN (`pfe_runs_ret`); `panic_free_gate` decides + certs-or-rejects
@@ -100,8 +101,8 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 - **GoSem slice 1 only / behavioral cert is narrow + off the main path.** The blessed SYNTACTIC certificate
   is `SupportedProgram`; there is now ALSO a behavioral certificate `PanicFreeEmittable`/`emit_panic_free`
-  (precondition = a proven panic-free RUN). It accepts only programs that DENOTE and have no syntactic panic;
-  modeled runtime panics are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
+  (precondition = a proven panic-free RUN). It accepts a program only if it DENOTES to a `CPan`-free command
+  (`cmd_no_panic`); modeled runtime panics are rejected by non-denotation. NOT full `BehaviorSafe` — nil deref / send-on-closed /
   race, and runtime OOB beyond the declined constant fragment, are unmodeled — and it does NOT gate main output.
 - **gap #10:** the MiniML→Go plugin is trusted/unverified — no theorem relates emitted Go to the source term;
   golden tests are the only end-to-end check.
