@@ -1152,9 +1152,10 @@ Qed.
     R1–R3 also denotes RUNTIME-determined args: [runlen_e], the runtime index, and the runtime width
     CONVERSION [runconv_e] — NOT folded, yet denoted, [runtime_conv_runs]): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
-    runtime tier is future work.  The remaining supported-but-UNDENOTED args are the frontier members —
-    [runbool_e] (pinned by [out_boundary_runtime_undenoted]), the multi-byte rune [string(200)]
-    ([runeconv_multibyte_boundary]), and [maplen_runval_e].  [denotable_supported] pins
+    runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
+    (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): [runbool_e]
+    ([out_boundary_runtime_undenoted]), the multi-byte rune [string(200)]
+    ([runeconv_multibyte_boundary]), [maplen_runval_e].  [denotable_supported] pins
     denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
