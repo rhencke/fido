@@ -80,9 +80,8 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
   runtime bool comparison, typed-width runtime integer arithmetic) are the multi-byte rune
   `runeconv_mb` and the typed-width complement `runnot_u8_e` (the class pinned three-wide:
   `typed_runtime_not_absent` — `^int64/^uint8/^uint` of a runtime len, supported ∧ undenoted).
-  NEXT ARC: the TYPED-runtime tier — per-width carriers/ops in the shared evaluator so OPERATIONS on
-  non-GTInt runtime carriers (`^int64(x)`, typed arithmetic) denote; typed-width conversion EXITS
-  already do (`denote_expr_conv_*`), the model ops (`i64_not`, the wraps) already exist. Any rule that lands FLIPS
+  NEXT ARC: the TYPED-runtime tier — see plans/typed-runtime-tier.md (design + op inventory anchored
+  there; OPERATIONS on non-GTInt runtime carriers denote; conversion EXITS already do). Any rule that lands FLIPS
   its member's pins — swap the successor in the same commit and sweep the stale-claim phrases
   repo-wide (the five recurring sites: frontier, out-boundary, the GoSemSafe absent pair, the
   dead-tail escape, the short-circuit trio). NOTE: `folded_arg` (né `denotable_arg`) is
