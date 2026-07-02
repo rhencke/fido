@@ -153,9 +153,8 @@ not "verified Go." GoSem is a slice-1 bridge, NOT behavioral safety. Detailed fe
 
 ## 3a. GoSem physical split — DONE (2026-07-02; revised to 3 files)
 
-`GoSem.v` (~390 KB) is past single-file human reviewability; the topic surfaces solved the
-assumption-gate problem, not the file-level one. The split mirrors the surfaces, one file per
-proof cluster, `GoSem.v` becoming the composition/re-export point:
+`GoSem.v` had reached ~426 KB — past single-file human reviewability (the topic surfaces
+solved the assumption-gate problem, not the file-level one). Split as built (2026-07-02):
 
 - `GoSemCore.v` (67 KB) — the pure FOLD/FLOAT layer: box/render (`box_int`/`box_float`/`sf_*`),
   the const-op layer, the `floats_checked` machinery + `fsf_checked`, and the dyadic↔SF* arc.
@@ -166,9 +165,10 @@ proof cluster, `GoSem.v` becoming the composition/re-export point:
   ONE file, not the sketched RuntimeInt/Agg pair: the tier SEALS are denote-level and the
   slice/map class proofs compute through the same `Local` evaluator core, so any finer cut
   either re-opens the float-boundary bypass or demands per-shape sealed-equation kits (proof
-  rewrites, not moves).  Its size is the irreducible `Local`-sealed proof cluster.
-- `GoSem.v` (112 KB) — the composition point: re-exports Core + Denote and keeps the pins /
-  fixtures / demos / frontier + ALL gated surface definitions (the public authority; no
+  rewrites, not moves).  Its size is the irreducible `Local`-sealed proof cluster.  Grounding/coverage
+  examples stay ADJACENT to the theorems they pin, in the earliest file that can express them.
+- `GoSem.v` (112 KB) — the composition point: re-exports Core + Denote and keeps the program-level
+  fixture groups / demos / frontier + ALL gated surface definitions (the public authority; no
   separate Witness file — a re-export-only shell would add a file for zero reviewability gain).
 
 The evaluator core helpers must never be public — a caller could skip the float boundary —

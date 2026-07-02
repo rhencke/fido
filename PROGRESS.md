@@ -40,7 +40,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   even in empty literals; quarantines ledger-pinned).
 - **GoEmit** — certificate-only (`EmittableProgram`); `make emit-demo` builds a certified program with
   the real Go toolchain.
-- **GoSem slice 1** (detail lives in `GoSem.v`/`GoSemCore.v`; the SURFACES are the authority — this ledger
+- **GoSem slice 1** (detail lives in `GoSemCore.v`/`GoSemDenote.v`/`GoSem.v`; the SURFACES are the authority — this ledger
   deliberately lists no theorem inventory):
   - partial AST → `Cmd` denotation for print/println / panic / return / blank-assign / defer /
     call args, over the exact-or-absent constant fold — faithful-or-absent, all fail-closed.

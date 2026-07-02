@@ -8,8 +8,9 @@
     reductions).  ONE file by necessity, not the sketched RuntimeInt/Agg pair: these proofs
     compute through the [Local] evaluator core and the tier seals are denote-level, so no
     smaller Local-sealed cut exists without proof rewrites.
-    Pins/fixtures/demos + the gated surfaces live downstream in GoSem.v (the composition
-    point, which re-exports GoSemCore + this file).
+    Grounding/coverage examples stay ADJACENT to the theorems they pin; the program-level
+    fixture GROUPS, demos, the frontier + the gated surfaces live downstream in GoSem.v
+    (the composition point, which re-exports GoSemCore + this file).
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Import GoSemCore.
@@ -70,10 +71,10 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
     element rejects it) and indexing.  Its accept-boundary is [ptype]'s OWN — elements gated by
     [assignable_to_ty] and the constant index by [(0<=?k) && int_const_repr k GTInt], the SAME checks [ptype]'s
     slice arm uses — so the arm accepts NO expression [ptype] rejects (proved: [eval_slice_index_supported]); it
-    is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (gated by [eval_value_good_ok]) folds:
+    is a SUBSET, not a second, looser classifier.  Scalar coverage exercised — the [eval_value_good] table (downstream in GoSem.v, gated by [eval_value_good_ok]) folds:
     integer constants (conversions / in-range [uint] via [mk_uint] / arithmetic / complement, EXCLUDING
     platform-[uint] complement), exact-DYADIC FLOAT constants (fractional arithmetic included), string constants ([eval_str]), and constant
-    bools ([eval_bool]); slice-index folds pinned by [slice_index_*] below; [len] of a fully-evaluable int-slice
+    bools ([eval_bool]); slice-index folds pinned by the [slice_index_*] fixtures (downstream in GoSem.v); [len] of a fully-evaluable int-slice
     literal folds to its length ([eval_len_reduces]) and [len] of a fully-evaluable integer-keyed MAP literal to
     its entry count ([eval_map_len_reduces] — under the gate's OWN conditions, [goty_supported] value type +
     [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
@@ -1513,7 +1514,7 @@ Definition rconstr_vals_with (rval : GExpr -> option RAny) : list (GExpr * GExpr
     end.
 
 (** ★ THE WALKER'S CLASS SEAL — quantified characterization of [rconstr_vals_with] (manifest-gated),
-    the AUTHORITY for the order-independence claim (the fixtures below are witnesses, not the guard):
+    the AUTHORITY for the order-independence claim (the fixtures, downstream in GoSem.v, are witnesses, not the guard):
     [RCOk] iff EVERY value evaluates to a value ([rconstr_vals_ok_iff]); [RCPanic p] only with an
     exactly-one decomposition — SOME position panics [p] and every OTHER value evaluates
     ([rconstr_vals_panic_sound]); and ANY list containing TWO panicking values — arbitrary prefix /
@@ -1821,7 +1822,8 @@ Qed.
 
 (** ★ CLASS (tier R2) — the four universal RUNTIME-INDEX denotation theorems, one per outcome of the
     [EIndex (ESliceLit..)] arm, each quantified over the WHOLE reval-evaluable fragment (fixtures like
-    [runtime_index_runs]/[slice_index_panics_denote] are witnesses of these classes, not the claim).
+    [runtime_index_runs]/[slice_index_panics_denote], downstream in GoSem.v, are witnesses of
+    these classes, not the claim).
     Shared side conditions = the tier's exact firing contract: the float boundary passed, [ptype]
     classifies the whole expression [PtRunInt GTInt], and the constant fold is ABSENT ([eval_value =
     None] is a genuine hypothesis here, not derivable from [ptype] — an all-constant IN-BOUNDS index
@@ -4247,7 +4249,7 @@ Qed.
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
     AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap
-    is REPRESENTATIVELY witnessed by [undenoted_frontier] below (see its own comment for what it does and
+    is REPRESENTATIVELY witnessed by [undenoted_frontier] (downstream in GoSem.v; see its own comment for what it does and
     does NOT cover) — a
     [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
@@ -4297,7 +4299,7 @@ Qed.
     folded, yet denoted): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned
-    witnesses live in [undenoted_frontier], whose Coq definition is the ONLY member list (this
+    witnesses live in [undenoted_frontier] (downstream in GoSem.v), whose Coq definition is the ONLY member list (this
     comment deliberately enumerates none of it; NON-EXHAUSTIVE — no theorem bounds the gap).
     [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
@@ -4309,7 +4311,7 @@ Proof. intros e H Hn. unfold folded_arg in H. rewrite Hn in H. discriminate. Qed
 Lemma folded_arg_printable : forall e, folded_arg e = true -> printable_arg_ok e = true.
 Proof. intros e H. unfold folded_arg in H. destruct (eval_value e); [exact H | discriminate]. Qed.
 
-(** String CONCATENATION and CONVERSIONS DENOTE (the [eval_value] folds are in [eval_value_good]; these pin the
+(** String CONCATENATION and CONVERSIONS DENOTE (the [eval_value] folds are in [eval_value_good], downstream in GoSem.v; these pin the
     stronger [folded_arg] — evaluable AND printable): [`"a" + "b"`], the ASCII rune [`string(65)`], the
     identity [`string("a"+"b")`]. *)
 Example folded_arg_str_concat : folded_arg (EBn BAdd (EStr "a") (EStr "b")) = true.
@@ -4419,7 +4421,7 @@ Corollary denotable_supported : forall p, denotable_program p = true -> supporte
 Proof. intros p H. apply gosem_sound, (proj2 (denote_program_dec p)), H. Qed.
 
 (** Grounding fixture: a multi-statement `func main(){ println("a"); println("b"); return }` — its
-    denotability is pinned in [gosem_denotability_decisions] below. *)
+    denotability is pinned in [gosem_denotability_decisions], downstream in GoSem.v. *)
 Definition gosem_strlit_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
             [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "a"]);
@@ -4474,7 +4476,8 @@ Proof. apply out_main_denotes. reflexivity. Qed.
     [runconv_e] (a RUNTIME width conversion — DENOTES since tier R3, [runtime_conv_runs]); [runbool_e]
     (a RUNTIME bool comparison — DENOTES since tier R4, [runtime_bool_runs]) and [maplen_runval_e] (a
     map-[len] whose VALUE is runtime — DENOTES since tier R5, [runtime_maplen_runs]).  These are LOCAL
-    fixture spellings; the pinned witness group for the gap is [undenoted_frontier] below. *)
+    fixture spellings; the [eval_value_good] table, the [runtime_*_runs]/[rc_*] pins, and the
+    pinned witness group for the gap ([undenoted_frontier]) are all downstream in GoSem.v. *)
 Definition divzero_e : GExpr :=
   EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
 Definition divzero_map_e : GExpr :=
@@ -4511,7 +4514,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is representatively witnessed by [undenoted_frontier] (see its comment). *)
+    [supported_program] — the gap is representatively witnessed by [undenoted_frontier] (downstream in GoSem.v; see its comment). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -4791,4 +4794,3 @@ Proof.
   rewrite Hf. cbv beta iota.
   reflexivity.
 Qed.
-

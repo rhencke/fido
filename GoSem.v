@@ -17,7 +17,8 @@
     Physical split (ARCHITECTURE.md §3a): GoSemCore.v = the pure fold/float layer; GoSemDenote.v =
     the whole denotation layer ([eval_value] + its [Local] core, the tiers, [denote_expr]/
     [denote_program], [gosem_sound], every class theorem).  THIS file re-exports both and keeps
-    the pins / fixtures / demos + the gated SURFACES (the public authority).
+    the program-level fixture GROUPS / demos / frontier + the gated SURFACES (the public
+    authority); grounding examples stay adjacent to their theorems upstream.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
 From Fido Require Export GoSemCore.
@@ -25,7 +26,7 @@ From Fido Require Export GoSemDenote.
 From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.
 
-(** ---- SLICE-INDEX fixtures (grouped; the CLASS theorems above are the authorities). ----
+(** ---- SLICE-INDEX fixtures (grouped; the CLASS theorems, upstream in GoSemDenote.v, are the authorities). ----
     DENOTING side: the [eval_value_good] rows [[]int{10,20}[1]]/[[0]]] (exact element values) + [rc_sliceidx]
     (end-to-end run).  DECLINED side, three layers on shared fixtures:
     - [slice_index_unsupported_ok]: invalid Go is REJECTED by [ptype] AND declined by [eval_value] — a
@@ -958,7 +959,7 @@ Qed.
 (** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(string(200))]
     is a DENOTABLE body ([return] terminates; the multi-byte-rune-arg [println] is a SUPPORTED dead tail)
     whose tail does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body
-    HAS a terminator — exactly why the iff above does not apply to it. *)
+    HAS a terminator — exactly why the iff (upstream in GoSemDenote.v) does not apply to it. *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runeconv_mb])] = true
