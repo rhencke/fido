@@ -238,40 +238,21 @@ go-verify:
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # The tooling gates, wired into [check]:
-# [toolchain-gate] — the ONE-authority invariant: every non-recipe line assigning GOIMAGE in ANY
-# form (global, target-/pattern-specific, private/override/export-prefixed, define) is rejected
-# unless it is the single strict authority line (recipe TAB lines are shell and cannot assign make
-# variables; include/eval are banned so the root file is the whole parse); the effective value must
-# EQUAL the authority RHS; the only repo-wide Go-image spelling is that line; the Dockerfile ARG is
-# default-less.
+# [toolchain-gate] — delegates to plugin/toolchain-gate.sh (the Make-AWARE one-authority checker:
+# logical-line normalization before scanning, every eval form banned anywhere incl. recipes, every
+# include spelling banned, computed assignment LHS banned, exactly one strict authority line,
+# effective value == authority RHS, repo-wide spelling + Dockerfile default-less ARG). The script
+# is the single statement of what is enforced.
 # [toolchain-selftest] — proves CLI/env overrides are INERT (the `override` directive) and that
-# synthesized Makefile-side mutations of every class fail the gate.
+# synthesized Makefile-side mutations (global/target/pattern/private, CONTINUED lines, sinclude,
+# recipe-prefixed and brace eval, computed LHS) all fail the gate.
 # [go-verify-selftest] — one helper runs EVERY negative case (empty GO / missing dir / sibling
 # .go) and asserts, for each: the command fails, the first fido: diagnostic line matches EXACTLY,
 # and the PATH-shadowed docker sentinel was never reached. Setup is checked under set -eu with
 # trap cleanup.
 MKFILE := $(firstword $(MAKEFILE_LIST))
 toolchain-gate:
-	@if grep -nE '^[ \t]*(-?include|\$$\(eval)' $(MKFILE); then \
-	  echo "fido: include/eval are BANNED in this Makefile — the GOIMAGE scanner covers only the root file"; exit 1; \
-	fi
-	@assigns=$$(awk '!/^\t/ && !/^[ \t]*#/ && (/GOIMAGE[ \t]*(:=|::=|:::=|\+=|\?=|!=|=)/ || /define[ \t]+GOIMAGE/) { print NR": "$$0 }' $(MKFILE)); \
-	n=$$(printf '%s' "$$assigns" | grep -c . || true); \
-	if [ "$$n" != "1" ]; then \
-	  echo "fido: TOOLCHAIN DRIFT — expected exactly ONE line assigning GOIMAGE (any form: global, target-/pattern-specific, private/override/export, define) in $(MKFILE), found $$n:"; \
-	  echo "$$assigns"; exit 1; \
-	fi; \
-	echo "$$assigns" | grep -qE '^[0-9]+: override GOIMAGE := golang[:][0-9A-Za-z._-]+@sha256:[0-9a-f]{64}$$' \
-	  || { echo "fido: the single GOIMAGE assignment must be the strict authority form (override GOIMAGE := golang(colon)tag@sha256(colon)64-hex):"; echo "$$assigns"; exit 1; }
-	@rhs=$$(sed -n 's/^override GOIMAGE := //p' $(MKFILE)); \
-	test "$(GOIMAGE)" = "$$rhs" || { echo "fido: TOOLCHAIN DRIFT — effective GOIMAGE '$(GOIMAGE)' != the authority value '$$rhs'"; exit 1; }
-	@bad=$$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true); \
-	if [ -n "$$bad" ]; then \
-	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"; \
-	  echo "$$bad"; exit 1; \
-	fi
-	@grep -q '^ARG GOIMAGE$$' Dockerfile || { echo "fido: the Dockerfile GOIMAGE ARG must be DEFAULT-LESS (the Makefile is the authority)"; exit 1; }
-	@echo "fido: toolchain-gate OK — one strict GOIMAGE authority, effective value exactly equal ✓"
+	@sh plugin/toolchain-gate.sh $(MKFILE) '$(GOIMAGE)'
 toolchain-selftest:
 	@auth=$$($(MAKE) -s print-goimage); \
 	got=$$($(MAKE) -s GOIMAGE=unpinned-override print-goimage); \
@@ -286,12 +267,19 @@ toolchain-selftest:
 	  'override GOIMAGE += -tainted' \
 	  'print-goimage: GOIMAGE := evil' \
 	  'extract: private GOIMAGE := evil' \
-	  '%.go: GOIMAGE += -tainted'; do \
-	  cp $(MKFILE) "$$tmp"; echo "$$evil" >> "$$tmp"; \
+	  '%.go: GOIMAGE += -tainted' \
+	  'extract: GOIMAGE \\@@NL@@ := evil' \
+	  '%.go: GOIMAGE \\@@NL@@ += -tainted' \
+	  'sinclude evil.mk' \
+	  '-include evil.mk' \
+	  'evil-target:@@NL@@	@$$@@LP@@eval extract: GOIMAGE := evil)' \
+	  'evil-target:@@NL@@	@$$@@LB@@eval extract: GOIMAGE := evil}' \
+	  'INDIR = GOIMAGE@@NL@@$$@@LP@@INDIR) := evil'; do \
+	  cp $(MKFILE) "$$tmp"; printf '%s\n' "$$evil" | sed -e 's/@@NL@@/\n/g' -e 's/@@LP@@/(/g' -e 's/@@LB@@/{/g' >> "$$tmp"; \
 	  if $(MAKE) -f "$$tmp" -s toolchain-gate >/dev/null 2>&1; then \
 	    echo "fido: toolchain-gate ACCEPTED a Makefile-side GOIMAGE mutation: $$evil"; exit 1; fi; \
 	done
-	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; every Makefile-side assignment class (global/target/pattern/private) REJECTED ✓"
+	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; every tested Makefile-side mutation class REJECTED ✓"
 go-verify-selftest:
 	@set -eu; \
 	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
