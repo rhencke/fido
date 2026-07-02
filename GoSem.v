@@ -1017,19 +1017,30 @@ Proof.
   rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
 
-(** ★ DISPATCH AUTHORITY PINS — every [cmp_verdict] branch is mechanically pinned to its intended
-    MODEL op ([builtins.int_eqb]/[int_ltb]/[int_leb]; [!=] the negation, [>]/[>=] the argument swap),
-    and the non-comparison ops to [None] — so the class theorems above (parameterized over the
-    dispatched [cmp]) cannot stay green if a branch mapping drifts.  Manifest-gated. *)
-Example cmp_verdict_model :
-  cmp_verdict BEq = Some int_eqb
-  /\ cmp_verdict BLt = Some int_ltb
-  /\ cmp_verdict BLe = Some int_leb
-  /\ (forall x y, match cmp_verdict BNe with Some f => f x y | None => false end = negb (int_eqb x y))
-  /\ (forall x y, match cmp_verdict BGt with Some f => f x y | None => false end = int_ltb y x)
-  /\ (forall x y, match cmp_verdict BGe with Some f => f x y | None => false end = int_leb y x)
-  /\ cmp_verdict BAdd = None /\ cmp_verdict BLAnd = None /\ cmp_verdict BLOr = None.
-Proof. repeat split; intros; reflexivity. Qed.
+(** ★ DISPATCH AUTHORITY PINS (gated) — [cmp_verdict]'s WHOLE dispatch table.  Each comparison branch
+    IS, by reflexivity, the FULLY QUALIFIED model constant [Fido.builtins.int_eqb]/[int_ltb]/[int_leb]
+    ([!=] the negation, [>]/[>=] the argument swap) — the [str_cmp_op] authority-pin pattern, immune to
+    name shadowing: a branch rerouted to any local helper breaks a pin and fails the gated build.
+    [cmp_verdict_complete] then seals EVERY [BinOp] constructor by case analysis — the six comparisons
+    to those verdicts and every other constructor to [None] — so no future explicit arithmetic/shift/
+    logical mapping can drift in while the surface stays green. *)
+Example cmp_verdict_eq_model : cmp_verdict BEq = Some Fido.builtins.int_eqb.                          Proof. reflexivity. Qed.
+Example cmp_verdict_ne_model : cmp_verdict BNe = Some (fun x y => negb (Fido.builtins.int_eqb x y)).  Proof. reflexivity. Qed.
+Example cmp_verdict_lt_model : cmp_verdict BLt = Some Fido.builtins.int_ltb.                          Proof. reflexivity. Qed.
+Example cmp_verdict_le_model : cmp_verdict BLe = Some Fido.builtins.int_leb.                          Proof. reflexivity. Qed.
+Example cmp_verdict_gt_model : cmp_verdict BGt = Some (fun x y => Fido.builtins.int_ltb y x).         Proof. reflexivity. Qed.
+Example cmp_verdict_ge_model : cmp_verdict BGe = Some (fun x y => Fido.builtins.int_leb y x).         Proof. reflexivity. Qed.
+Example cmp_verdict_complete : forall o,
+  cmp_verdict o = match o with
+                  | BEq => Some Fido.builtins.int_eqb
+                  | BNe => Some (fun x y => negb (Fido.builtins.int_eqb x y))
+                  | BLt => Some Fido.builtins.int_ltb
+                  | BLe => Some Fido.builtins.int_leb
+                  | BGt => Some (fun x y => Fido.builtins.int_ltb y x)
+                  | BGe => Some (fun x y => Fido.builtins.int_leb y x)
+                  | _ => None
+                  end.
+Proof. intro o; destruct o; reflexivity. Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
   match args with
@@ -1873,13 +1884,14 @@ Example runtime_conv_supported :
     ; println_prog runconv_panic_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
 
-(** ★ RUNTIME-BOOL pins (tier R4, grouped) — ALL SIX comparison operators on ASYMMETRIC runtime
-    operands (2 vs 1 / 1 vs 2, where a drifted mapping — a swap in the wrong direction, a dropped
-    negation, [<] confused with [<=] — flips the expected verdict): [len([]int{1}) == 0] false;
-    [!=] of the same pair true (negation); [len2 < len1] false and [len2 <= len1] false (strict AND
-    non-strict, wrong direction); [len2 > len1] true and [len1 >= len2] false (the argument swaps);
-    and a PANICKING left operand panics before any comparison ([1/len([]int{}) == 1] → [rt_div_zero] —
-    Go's order).  All supported (gate unchanged). *)
+(** ★ RUNTIME-BOOL pins (tier R4, grouped) — ALL SIX comparison operators on ASYMMETRIC operand pairs,
+    each chosen so a drifted mapping (a swap in the wrong direction, a dropped negation, [<] confused
+    with [<=]) flips the expected verdict.  The pairs as written: [==]/[!=] compare the RUNTIME
+    [len([]int{1})] against the CONSTANT [0] (1 vs 0 — false then true, the negation); the four ORDER
+    ops compare the two runtime lens ([len2 < len1] false, [len2 <= len1] false — strict AND non-strict
+    in the wrong direction; [len2 > len1] true, [len1 >= len2] false — the argument swaps).  A
+    PANICKING left operand panics before any comparison ([1/len([]int{}) == 1] → [rt_div_zero] — Go's
+    order).  All supported (gate unchanged). *)
 Definition runlen1_e : GExpr := ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]].
 Definition runlen2_e : GExpr := ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]].
 Definition runbool_ne_e : GExpr := EBn BNe runlen1_e (EInt 0).
@@ -2479,7 +2491,9 @@ Definition gosem_trust_surface :=
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
-   denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic, cmp_verdict_model,
+   denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic,
+   cmp_verdict_eq_model, cmp_verdict_ne_model, cmp_verdict_lt_model, cmp_verdict_le_model,
+   cmp_verdict_gt_model, cmp_verdict_ge_model, cmp_verdict_complete,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    runtime_conv_runs, runtime_conv_supported,
    runtime_bool_runs, runtime_bool_supported,
