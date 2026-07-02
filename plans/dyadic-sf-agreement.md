@@ -19,12 +19,15 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 ## The ladder (each rung an independently green commit)
 
 1. **NEG (f64) — LANDED with this plan**: `binary_round_opp` (the sign argument threads inertly
-   through `binary_round_aux`) + `renorm_opp` ⇒ `sf_render_neg_general_f64`: for `m ≠ 0`,
+   through `binary_round_aux`) ⇒ `sf_render_neg_general_f64`: for `m ≠ 0`,
    `sf_render GTFloat64 (-m) e = option_map SFopp (sf_render GTFloat64 m e)` — NO window premise.
-   Plus the **signed-zero divergence pinned**: Go constants are exact rationals (NO `-0`) — gc
-   folds `-(0.0)` to `+0` (go-run-verified `1/x = +Inf`) while the runtime op `SFopp` gives `-0`
-   (`1/-z = -Inf`); the fold is the faithful side, the checker rejects the node
-   (faithful-or-absent), pinned in `undenoted_frontier` (`negzero_const_e`).
+   Plus **signed zero made EXACT at the checker** (review round 2): Go constants are exact
+   rationals (NO `-0`) — gc folds `-(0.0)` to `+0` (go-run-verified `1/x = +Inf`) while the
+   runtime op `SFopp` gives `-0` (`1/-z = -Inf`); the checker's fold authority is now
+   `sf_const_neg` (CONSTANT semantics — the zero case is its own row, not `SFopp`), so
+   `-(float64(0))` folds and DENOTES `+0`: pinned `negzero_const_runs`, the class sealed
+   `fsf_checked_neg_zero_total`, and `fsf_checked_render` (an accepted node's value IS its
+   render) anchors the acceptance-totality shape rung 8 generalizes.
 2. **`shl_align` spec**: `T <= e -> shl_align m e T = (m * 2^(e-T), T)` (positive shift lemma).
 3. **`binary_round` EXACTNESS in-window**: for odd `|m|` with the `float_dyadic_repr t m e`
    window, `binary_round s m e` returns the canonical finite with `dy_norm`-equal value
@@ -48,10 +51,11 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 
 ## Boundary honesty
 
-- The `-0` divergence (rung 1) is REAL and stays: constant folding (exact rationals) and the
-  runtime IEEE op genuinely differ at zero under negation; `x - x` shapes can hit it for
-  ADD/SUB too (`0 - 0` folds `+0`; runtime `SFadd +0 -0 = +0` round-to-nearest — re-verify per
-  rung).  Each rung states its zero/sign side conditions explicitly, go-run-verified.
+- The `-0` divergence (rung 1) is REAL and handled STRUCTURALLY: the checker verifies FOLDS, so
+  its authority is CONSTANT semantics (`sf_const_neg`), never the runtime op where they differ.
+  ADD/SUB zero rows must be re-verified per rung (`0.0 - 0.0` folds `+0`; IEEE
+  `SFadd/SFsub` at round-to-nearest also give `+0` there — confirm against gc before sealing).
+  Each rung states its zero/sign side conditions explicitly, go-run-verified.
 - Window premises apply to OPERANDS (exactness of their renders); the RESULT needs none for
   determinism-based rungs (both sides round the same value) but `ptype`'s fold guard
   (`float_dyadic_repr`) keeps results exact anyway.

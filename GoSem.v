@@ -79,16 +79,18 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     at [eval_value]'s top, is what makes the no-bypass claim; [fsf_checked] alone is NOT an authority: its
     int-constant conversion leaves deliberately do NOT recurse, the boundary's full-syntax recursion
     covers them) ---- [ptype] folds float-const arithmetic exactly (sealed dyadics); the MODEL computes
-    with its own [f64_*]/[f32_*]/[SFopp] spec_float ops.  CLAIM HYGIENE: for the ACCEPTED exact-dyadic
-    subset the model value agrees with the printed Go constant expression's observable value (Go may
-    CONSTANT-fold these at compile time — no "same runtime op" claim); non-exact/rounding cases are
-    REJECTED until the general dyadic↔SF agreement theorem lands.
+    with its own [f64_*]/[f32_*] spec_float ops, and NEGATION with CONSTANT semantics
+    ([sf_const_neg] below — Go constants are exact rationals with NO signed zero, so the checker's
+    authority for the fold is the constant rule, not the runtime [SFopp]).  CLAIM HYGIENE: for the
+    ACCEPTED exact-dyadic subset the model value agrees with the printed Go constant expression's
+    observable value (Go may CONSTANT-fold these at compile time — no "same runtime op" claim);
+    non-exact/rounding cases are REJECTED until the general dyadic↔SF agreement theorem lands.
     [fsf_checked] verifies ONE float-constant node against the model op on the verified operand carriers
     (recursing through float operands and float-to-float conversions; cross-width via
     [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (Mathematically no
     disagreement should exist — IEEE ops are correctly rounded, so an exactly representable result is
-    returned exactly; PROVING that once — the general dyadic↔[SF*] class theorem — would let this runtime
-    re-verification be dropped, the stated frontier.) *)
+    returned exactly; PROVING that once — the general dyadic↔[SF*] class theorem,
+    plans/dyadic-sf-agreement.md — would let this runtime re-verification be dropped.) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
   | S754_zero s1, S754_zero s2 => Bool.eqb s1 s2
@@ -123,10 +125,18 @@ Definition sf_model_binop (t : GoTy) (op : BinOp) : option (spec_float -> spec_f
       end
   | _ => None
   end.
-Definition sf_model_neg (t : GoTy) : option (spec_float -> spec_float) :=
+(** CONSTANT float negation at width [t] — Go's EXACT-RATIONAL constant semantics, NOT the
+    runtime op: constants have NO signed zero (negating the rational 0 is 0, rendered [+0] — gc
+    FOLDS [-(0.0)] to [+0], go-run-verified [1/x = +Inf], while the RUNTIME op [SFopp] on a [+0]
+    VALUE gives [-0], [1/-z = -Inf]); a NONZERO constant negates by sign flip, where constant and
+    runtime semantics coincide ([SFopp]; the canonicalizing wrapper at f32).  The checker verifies
+    the FOLD, so its authority is constant semantics — zero included ([fsf_checked_neg_zero_total]
+    seals the zero class as ACCEPTED, [sf_render_neg_general_f64] the nonzero agreement). *)
+Definition sf_const_neg (t : GoTy) : option (spec_float -> spec_float) :=
   match t with
-  | GTFloat64 => Some SFopp
-  | GTFloat32 => Some (fun x => f32val (f32_neg (f32_lit x)))
+  | GTFloat64 => Some (fun x => match x with S754_zero _ => S754_zero false | _ => SFopp x end)
+  | GTFloat32 => Some (fun x => match x with S754_zero _ => S754_zero false
+                                | _ => f32val (f32_neg (f32_lit x)) end)
   | _ => None
   end.
 (** A float-op OPERAND's verified carrier at [t] — a same-typed float const (recursively verified via
@@ -156,7 +166,7 @@ Fixpoint fsf_checked (e : GExpr) : option spec_float :=
               | _, _, _ => None
               end
           | EUn _ a =>
-              match fsf_operand_with fsf_checked t a, sf_model_neg t with
+              match fsf_operand_with fsf_checked t a, sf_const_neg t with
               | Some va, Some fneg => if sf_eqb_struct (fneg va) vr then Some vr else None
               | _, _ => None
               end
@@ -4645,11 +4655,10 @@ Qed.
     bitwise/shift forms ([gtint_and_e]/[runshift_intleft_e]) — NOT
     folded, yet denoted): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
-    runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
-    (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): the
-    multi-byte rune [string(200)] ([runeconv_multibyte_boundary], = [out_boundary_runtime_undenoted]'s
-    witness) and the typed-unary hole class ([runnot_uint_e] et al. — eight-wide,
-    [typed_unary_holes_absent]).  [denotable_supported] pins denotable ⊆ supported. *)
+    runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned
+    witnesses live in [undenoted_frontier], whose Coq definition is the ONLY member list (this
+    comment deliberately enumerates none of it; NON-EXHAUSTIVE — no theorem bounds the gap).
+    [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -6394,7 +6403,7 @@ Proof.
 Qed.
 Theorem fsf_checked_neg_agrees : forall uop a t d fneg va vr,
   ptype (EUn uop a) = Some (PtFloatConst t d) ->
-  sf_model_neg t = Some fneg ->
+  sf_const_neg t = Some fneg ->
   fsf_operand t a = Some va ->
   fsf_checked (EUn uop a) = Some vr ->
   vr = fneg va.
@@ -6450,15 +6459,58 @@ Proof.
   apply sf_eqb_struct_eq in Heq. injection H as <-. symmetry. exact Heq.
 Qed.
 
+(** an ACCEPTED node's value IS its own dyadic's render — every [fsf_checked] arm returns the
+    node-render [vr] (the checker never invents a value) *)
+Lemma fsf_checked_render : forall e t d v,
+  ptype e = Some (PtFloatConst t d) ->
+  fsf_checked e = Some v ->
+  sf_render t (dy_m d) (dy_e d) = Some v.
+Proof.
+  intros e t d v Hp H.
+  destruct e; cbn [fsf_checked] in H; rewrite Hp in H; cbv beta iota in H;
+    destruct (sf_render t (dy_m d) (dy_e d)) as [vr|] eqn:Hr; try discriminate H;
+    repeat first
+      [ discriminate H
+      | (injection H as <-; reflexivity)
+      | (match type of H with
+         | (if ?b then _ else _) = _ => destruct b
+         | context [match ?x with _ => _ end] => destruct x
+         end) ].
+Qed.
+(** ★ the ZERO CLASS sealed at the CHECKER: negating ANY zero-valued float constant is ACCEPTED
+    and folds to [+0] — Go's constant rule ([sf_const_neg]'s own zero case), for BOTH widths.
+    Zero float negation can never be supported-but-undenoted through this arm. *)
+Theorem fsf_checked_neg_zero_total : forall a t da v,
+  ptype a = Some (PtFloatConst t da) -> dy_m da = Z0 ->
+  fsf_checked a = Some v ->
+  fsf_checked (EUn UNeg a) = Some (S754_zero false).
+Proof.
+  intros a t da v Hpa Hm Ha.
+  pose proof (fsf_checked_render a t da v Hpa Ha) as Hren.
+  rewrite Hm in Hren.
+  destruct t; cbn [sf_render] in Hren; try discriminate Hren.
+  - (* GTFloat64 *)
+    cbn [sf_of_dyadic renorm] in Hren. injection Hren as <-.
+    cbn [fsf_checked ptype]. rewrite Hpa. cbv beta iota. rewrite Hm.
+    cbn [Z.opp dy_make dy_norm dy_m dy_e fst snd sf_render sf_of_dyadic renorm].
+    unfold fsf_operand_with. rewrite Hpa. cbn [numty_eqb]. rewrite Ha.
+    cbv beta iota. reflexivity.
+  - (* GTFloat32 *)
+    cbn [sf_of_dyadic] in Hren. cbv in Hren. injection Hren as <-.
+    cbn [fsf_checked ptype]. rewrite Hpa. cbv beta iota. rewrite Hm.
+    cbn [Z.opp dy_make dy_norm dy_m dy_e fst snd sf_render sf_of_dyadic].
+    unfold fsf_operand_with. rewrite Hpa. cbn [numty_eqb]. rewrite Ha.
+    cbv beta iota. cbv. reflexivity.
+Qed.
+
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
-    per-node runtime CHECK means), this is checker-free: the dyadic fold's render IS the model op
-    applied to the operand's render, proved once over the class ([binary_round_opp] — the sign
-    threads inertly through canonicalization).  NO window premise; the ONE excluded point is the
-    ZERO dyadic, a REAL semantic divergence: Go constants are exact rationals with NO signed zero
-    (gc folds [-(0.0)] to [+0] — go-run-verified [1/x = +Inf]) while the runtime op [SFopp] gives
-    [-0] ([1/-z = -Inf]); the fold is the FAITHFUL side, and the checker keeps that node ABSENT
-    (pinned below, [negzero_const_e] in [undenoted_frontier]). *)
+    per-node runtime CHECK means), this is checker-free: the dyadic fold's render IS the sign flip
+    of the operand's render, proved once over the class ([binary_round_opp] — the sign threads
+    inertly through canonicalization).  NO window premise; the [m <> 0] boundary is where CONSTANT
+    and RUNTIME semantics split (constants have no signed zero) — the ZERO side is sealed at the
+    CHECKER as [sf_const_neg]'s own case, ACCEPTED and denoting [+0]
+    ([fsf_checked_neg_zero_total] + [negzero_const_runs]), never a caller obligation. *)
 Theorem sf_render_neg_general_f64 : forall m e, m <> Z0 ->
   sf_render GTFloat64 (Z.opp m) e = option_map SFopp (sf_render GTFloat64 m e).
 Proof.
@@ -6577,25 +6629,35 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     by [typed_unary_holes_absent], the cells sealed by [typed_unop_holes_none]), and the
     RUNTIME-FLOAT-source conversion [runconv_float_src_e] (CLASS-sealed —
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
-    [runtime_float_source_conv_absent]), and the SIGNED-ZERO constant negation [negzero_const_e]
-    ([-(float64(0))] — Go constants are exact rationals with NO [-0]: gc FOLDS it to [+0],
-    go-run-verified [1/x = +Inf], while the runtime op [SFopp] gives [-0]; the fold is the
-    faithful side and the checker keeps the node absent — the ONE point excluded from
-    [sf_render_neg_general_f64]).  Each member is pinned supported AND undenoted AND
-    eval-level absent. *)
-Definition negzero_const_e : GExpr :=
-  EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0]).
+    [runtime_float_source_conv_absent]).  Each member is pinned supported AND undenoted AND
+    eval-level absent.  (SIGNED-ZERO constant negation is NOT a member: the checker's authority
+    for folds is Go's CONSTANT rule ([sf_const_neg]), so [-(float64(0))] folds to [+0] and
+    DENOTES — [negzero_const_runs] below, the class sealed by [fsf_checked_neg_zero_total].) *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_uint_e
-  ; runconv_float_src_e
-  ; negzero_const_e ].
+  ; runconv_float_src_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
                     && negb (denotable_program (println_prog e))
                     && match eval_value e with None => true | Some _ => false end)
           undenoted_frontier = true.
 Proof. vm_compute. reflexivity. Qed.
+(** the SIGNED-ZERO policy pinned (gated): [-(float64(0))] is a CONSTANT, and Go's exact-rational
+    constant rule has no [-0] (gc folds it to [+0] — go-run-verified [1/x = +Inf]) — so it FOLDS,
+    DENOTES, and prints the model's [+0].  The runtime op [SFopp] on a [+0] VALUE gives [-0]
+    ([1/-z = -Inf]) — that is a different (runtime) construct; the checker's fold authority is
+    [sf_const_neg]. *)
+Definition negzero_const_e : GExpr :=
+  EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0]).
+Example negzero_const_runs : forall w,
+  eval_value negzero_const_e = Some (anyt TFloat64 (S754_zero false))
+  /\ supported_program (println_prog negzero_const_e) = true
+  /\ denotable_program (println_prog negzero_const_e) = true
+  /\ (match denote_program (println_prog negzero_const_e) with
+      | Some c => run_cmd 5 c w | None => None end)
+     = Some (ORet tt (w_log true (anyt TFloat64 (S754_zero false) :: nil) w)).
+Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
@@ -6620,7 +6682,8 @@ Definition gosem_float_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    Fido.builtins.binary_round_opp, sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
-   pos_odd_split_odd, dy_norm_opp, dy_norm_idem, dyconst_norm_fix).
+   pos_odd_split_odd, dy_norm_opp, dy_norm_idem, dyconst_norm_fix,
+   fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs).
 Definition gosem_slice_index_surface :=
   (eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class,
    eval_slice_index_inbounds_class, eval_len_reduces, eval_len_supported,
