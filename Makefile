@@ -248,20 +248,25 @@ go-verify:
 # .go) and asserts, for each: the command fails, the first fido: diagnostic line matches EXACTLY,
 # and the PATH-shadowed docker sentinel was never reached. Setup is checked under set -eu with
 # trap cleanup.
+MKFILE := $(firstword $(MAKEFILE_LIST))
 toolchain-gate:
-	@case "$(GOIMAGE)" in \
-	  *@sha256:*) : ;; \
-	  *) echo "fido: TOOLCHAIN DRIFT — the EFFECTIVE GOIMAGE '$(GOIMAGE)' is not digest-pinned"; exit 1 ;; \
-	esac
+	@assigns=$$(grep -nE '^ *((override|export)[[:space:]]+)*(GOIMAGE *(:::?=|::=|:=|\+=|\?=|!=|=)|define[[:space:]]+GOIMAGE)' $(MKFILE) || true); \
+	n=$$(printf '%s' "$$assigns" | grep -c . || true); \
+	if [ "$$n" != "1" ]; then \
+	  echo "fido: TOOLCHAIN DRIFT — expected exactly ONE GOIMAGE assignment (any form) in $(MKFILE), found $$n:"; \
+	  echo "$$assigns"; exit 1; \
+	fi; \
+	echo "$$assigns" | grep -qE '^[0-9]+:override GOIMAGE := golang[:][0-9A-Za-z._-]+@sha256:[0-9a-f]{64}$$' \
+	  || { echo "fido: the single GOIMAGE assignment must be the strict authority form (override GOIMAGE := golang(colon)tag@sha256(colon)64-hex):"; echo "$$assigns"; exit 1; }
+	@rhs=$$(sed -n 's/^override GOIMAGE := //p' $(MKFILE)); \
+	test "$(GOIMAGE)" = "$$rhs" || { echo "fido: TOOLCHAIN DRIFT — effective GOIMAGE '$(GOIMAGE)' != the authority value '$$rhs'"; exit 1; }
 	@bad=$$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:override GOIMAGE := golang[:]" || true); \
 	if [ -n "$$bad" ]; then \
 	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"; \
 	  echo "$$bad"; exit 1; \
 	fi
-	@test "$$(grep -c '^override GOIMAGE :=' Makefile)" = "1" || { echo "fido: exactly ONE override-protected GOIMAGE authority line required"; exit 1; }
-	@grep -q '^override GOIMAGE := golang[:].*@sha256:' Makefile || { echo "fido: the GOIMAGE authority line must be digest-pinned (@sha256:...) and override-protected"; exit 1; }
 	@grep -q '^ARG GOIMAGE$$' Dockerfile || { echo "fido: the Dockerfile GOIMAGE ARG must be DEFAULT-LESS (the Makefile is the authority)"; exit 1; }
-	@echo "fido: toolchain-gate OK — one override-protected, digest-pinned GOIMAGE authority ✓"
+	@echo "fido: toolchain-gate OK — one strict GOIMAGE authority, effective value exactly equal ✓"
 toolchain-selftest:
 	@auth=$$($(MAKE) -s print-goimage); \
 	got=$$($(MAKE) -s GOIMAGE=unpinned-override print-goimage); \
@@ -270,7 +275,14 @@ toolchain-selftest:
 	test "$$got" = "$$auth" || { echo "fido: a PINNED-BUT-DIFFERENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }; \
 	GOIMAGE=env-override; export GOIMAGE; got=$$($(MAKE) -s print-goimage); \
 	test "$$got" = "$$auth" || { echo "fido: an ENVIRONMENT GOIMAGE override changed the effective toolchain to '$$got'"; exit 1; }
-	@echo "fido: toolchain-selftest OK — command-line and environment GOIMAGE overrides are INERT ✓"
+	@set -eu; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
+	cp $(MKFILE) "$$tmp"; echo 'override GOIMAGE = evil-image@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' >> "$$tmp"; \
+	if $(MAKE) -f "$$tmp" -s toolchain-gate >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED a second Makefile-side assignment (override GOIMAGE =)"; exit 1; fi; \
+	cp $(MKFILE) "$$tmp"; echo 'override GOIMAGE += -tainted' >> "$$tmp"; \
+	if $(MAKE) -f "$$tmp" -s toolchain-gate >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED a Makefile-side append (override GOIMAGE +=)"; exit 1; fi
+	@echo "fido: toolchain-selftest OK — CLI/env overrides INERT; Makefile-side assignment forms REJECTED ✓"
 go-verify-selftest:
 	@set -eu; \
 	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
