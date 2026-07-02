@@ -57,13 +57,22 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    canonical float.  NO doubling induction was needed: with rung 3, both sides reduce to
    closed canonical forms, digits+exponent is invariant under the odd-core split
    (`pos_odd_split_digits`), so the `fexp` targets coincide and the aligned mantissas are
-   value-equal positives (`binary_round_of_norm`).  ⚠ rung 5 will ADDITIONALLY need
-   right-shift-through-zeros exactness for wide-exponent-gap sums (the RAW aligned sum's
-   digits can exceed `prec` even when its odd core is in-window — e.g. `1·2^0 + 1·2^-100`;
-   `ptype` REJECTS such results at the repr guard, but `SFadd`'s internal path must still be
-   shown to agree wherever the gate accepts).
-5. **ADD/SUB (f64)**: `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas),
-   `SFadd`'s aligned sum is the same value ⇒ rungs 3+4 close
+   value-equal positives (`binary_round_of_norm`).  ⚠ the determinism theorem's window
+   premises are on the NORMALIZER INPUTS — see rung 5 for why `SFadd`'s raw aligned sum can
+   fail them even on ACCEPTED results.
+5. **ADD/SUB (f64) — OPEN; the raw-normalization bridge is the named obligation.**
+   `dy_add` is the exact sum at the min exponent (GoTypes-side value lemmas), and `SFadd`
+   normalizes the RAW aligned sum.  ⚠ `ptype` guards only the NORMALIZED dyadic fold result —
+   NEVER `SFadd`'s raw aligned mantissa — and rungs 3+4 apply only once the normalizer INPUT
+   is in-window.  The raw mantissa can exceed `prec` digits even for gate-ACCEPTED results:
+   the CARRY shape `(2^53-1) + (2^53-1)` has raw aligned sum `2^54-2` (54 digits) while its
+   normalized result `(2^53-1, 1)` passes `float_dyadic_repr` — mechanically pinned,
+   `add_carry_raw_wide_accepted` (which also computes the checker ACCEPTING the expression,
+   so the live path already exercises the raw-wide case).  Closing rung 5 therefore needs a
+   NAMED lemma: `binary_round` on a raw mantissa that normalizes exactly through DISCARDED
+   ZERO BITS (right-shift-through-zeros exactness — `shr_1` over an `xO`-chain keeps the
+   round/sticky bits false) agrees with `binary_round` of the odd core at the adjusted
+   exponent; THEN rung 4's determinism closes
    `sf_render (dy_add da db) = f64_add (render da) (render db)` under operand windows.
 6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
    `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).
@@ -82,6 +91,7 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
   sum of finite operands gets `+0` at round-to-nearest — NOT a claim about arbitrary raw
   `SFadd/SFsub` signed-zero inputs) — the erasure is uniform anyway, no per-op case analysis.  Each rung states its zero/sign side
   conditions explicitly, go-run-verified.
-- Window premises apply to OPERANDS (exactness of their renders); the RESULT needs none for
-  determinism-based rungs (both sides round the same value) but `ptype`'s fold guard
-  (`float_dyadic_repr`) keeps results exact anyway.
+- Window premises apply to the NORMALIZER INPUTS on each side of an equation.  `SFadd`'s raw
+  aligned sum is such an input and can be OUT-of-window even for accepted results (the rung-5
+  carry shape) — the raw-normalization bridge covers exactly that gap.  `ptype`'s fold guard
+  (`float_dyadic_repr`) constrains only the NORMALIZED fold result, nothing upstream of it.

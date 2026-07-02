@@ -6742,6 +6742,29 @@ Proof.
   rewrite <- Z.mul_assoc, <- Z.pow_add_r by lia.
   f_equal. f_equal. lia.
 Qed.
+(** the rung-5 OBLIGATION pinned mechanically (the CARRY shape): an ACCEPTED normalized ADD
+    result whose RAW aligned sum exceeds [prec] digits — [(2^53-1) + (2^53-1)] has raw sum
+    [2^54-2] (54 digits, OUTSIDE [binary_round_exact]'s direct window) while the normalized
+    result [(2^53-1, 1)] passes the gate AND the checker accepts the expression (the live path
+    already exercises the raw-wide case, computed by [SFadd] on the raw mantissa).  So [ptype]
+    does NOT reject this class, and closing ADD/SUB needs the raw-normalization bridge
+    (right-shift-through-zeros exactness), not just rungs 3+4. *)
+Definition add_carry_e : GExpr :=
+  EBn BAdd (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991])
+           (ECall (EId (mkIdent "float64" eq_refl)) [EInt 9007199254740991]).
+Example add_carry_raw_wide_accepted :
+  Zpos (digits2_pos 18014398509481982%positive) = 54%Z
+  /\ dy_norm 18014398509481982 0 = (9007199254740991%Z, 1%Z)
+  /\ float_dyadic_repr GTFloat64 9007199254740991 1 = true
+  /\ match ptype add_carry_e with
+     | Some (PtFloatConst GTFloat64 d) =>
+         andb (Z.eqb (dy_m d) 9007199254740991) (Z.eqb (dy_e d) 1)
+     | _ => false
+     end = true
+  /\ eval_value add_carry_e
+     = Some (anyt TFloat64 (S754_finite false 9007199254740991%positive 1)).
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
 (** ★ the rung-4 ENDPOINT (gated): [dy_norm]-equal representations normalize to the SAME
     canonical float — the value quotient the whole agreement arc states equality through. *)
 Theorem binary_normalize_norm_determined : forall prec emax m1 e1 m2 e2 s,
@@ -7017,7 +7040,7 @@ Definition gosem_float_surface :=
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
    Fido.builtins.renorm_binary_round_idem,
    ptype_float_const_repr, ptype_float_payload_f64, ptype_float_payload_f32, box_float_gate,
-   binary_normalize_norm_determined,
+   binary_normalize_norm_determined, add_carry_raw_wide_accepted,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
