@@ -3,7 +3,7 @@ IMAGE    := fido
 TAG      ?= latest
 PLATFORM ?= linux/$(shell uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 
-.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify print-goimage toolchain-gate go-verify-selftest
+.PHONY: builder build bake push run run-extracted extract go-run install-hooks check golden negtest printer printer-verify emit-verify emit-demo smart-ctor-gate axiom-authority-selftest prover-log go-verify print-goimage toolchain-gate toolchain-selftest go-verify-selftest
 .DEFAULT_GOAL := build
 
 # THE ONE Go-toolchain image authority, DIGEST-PINNED (mutable tags drift; these runs justify
@@ -158,7 +158,7 @@ run: build
 # Golden-file regression check: extract, run, diff vs expected_output.txt (cheap end-to-end check that a
 # Rocq/plugin change altered no observable behaviour). DEPENDS ON [extract] (never stale Go) and [emit-demo]
 # (the certified-emission path is exercised on every verify, not just ad-hoc). go vet gates it.
-check: toolchain-gate go-verify-selftest extract emit-demo
+check: toolchain-gate toolchain-selftest go-verify-selftest extract emit-demo
 	@echo "fido: go vet (suspicious-but-compiling constructs)..."; \
 	if ! $(GOVET); then \
 	  echo "fido: GO VET FAILED — the emitted Go has a vet diagnostic (a real defect even though it compiles); fix the plugin/.v, not the Go."; \
@@ -236,28 +236,55 @@ go-verify:
 	  -w /w -e GOCACHE=/tmp/gocache $(GOIMAGE) sh -c 'go run main.go 2>&1'
 
 # The tooling gates, wired into [check]:
-# [toolchain-gate] — the ONE-authority invariant: no Go-image spelling anywhere but the GOIMAGE
-# line above (Dockerfile default-less ARG included), exactly one authority line, digest-pinned.
-# [go-verify-selftest] — the fail-closed fixtures for go-verify (missing GO / missing dir /
-# sibling .go rejection), all failing BEFORE docker.
+# [toolchain-gate] — the ONE-authority invariant, checked on the EFFECTIVE value (a command-line
+# GOIMAGE override must itself be digest-pinned) AND the repo text (the only Go-image spelling is
+# the single authority line — the gate's own grep patterns use a [:] character class so they cannot
+# match themselves); the Dockerfile ARG must stay default-less.
+# [toolchain-selftest] — proves the gate REJECTS an unpinned override.
+# [go-verify-selftest] — fail-closed fixtures under set -eu (a setup failure fails the target),
+# asserting each exact diagnostic, with docker SHADOWED in PATH so "rejected BEFORE docker" is
+# mechanically proven, and trap-cleaned.
 toolchain-gate:
-	@bad=$$(git grep -nI "golang:" -- ':!Makefile' 2>/dev/null || true); \
+	@case "$(GOIMAGE)" in \
+	  *@sha256:*) : ;; \
+	  *) echo "fido: TOOLCHAIN DRIFT — the EFFECTIVE GOIMAGE '$(GOIMAGE)' is not digest-pinned (an override?)"; exit 1 ;; \
+	esac
+	@bad=$$(git grep -nI "golang[:]" -- . 2>/dev/null | grep -v "^Makefile:[0-9]*:GOIMAGE := golang[:]" || true); \
 	if [ -n "$$bad" ]; then \
-	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the Makefile GOIMAGE authority:"; \
+	  echo "fido: TOOLCHAIN DRIFT — a Go-image spelling outside the single GOIMAGE authority line:"; \
 	  echo "$$bad"; exit 1; \
 	fi
 	@test "$$(grep -c '^GOIMAGE :=' Makefile)" = "1" || { echo "fido: exactly ONE GOIMAGE authority line required"; exit 1; }
-	@grep -q '^GOIMAGE := golang:.*@sha256:' Makefile || { echo "fido: GOIMAGE must be digest-pinned (@sha256:...)"; exit 1; }
+	@grep -q '^GOIMAGE := golang[:].*@sha256:' Makefile || { echo "fido: the GOIMAGE authority line must be digest-pinned (@sha256:...)"; exit 1; }
 	@grep -q '^ARG GOIMAGE$$' Dockerfile || { echo "fido: the Dockerfile GOIMAGE ARG must be DEFAULT-LESS (the Makefile is the authority)"; exit 1; }
-	@echo "fido: toolchain-gate OK — one digest-pinned GOIMAGE authority ✓"
+	@echo "fido: toolchain-gate OK — one digest-pinned GOIMAGE authority (effective value verified) ✓"
+toolchain-selftest:
+	@if $(MAKE) -s GOIMAGE=unpinned-override toolchain-gate >/dev/null 2>&1; then \
+	  echo "fido: toolchain-gate ACCEPTED an unpinned GOIMAGE override"; exit 1; \
+	fi
+	@echo "fido: toolchain-selftest OK — an unpinned GOIMAGE override is rejected ✓"
 go-verify-selftest:
-	@! $(MAKE) -s go-verify GO= >/dev/null 2>&1 || { echo "fido: go-verify accepted an empty GO"; exit 1; }
-	@! $(MAKE) -s go-verify GO=/nonexistent-fido-selftest >/dev/null 2>&1 || { echo "fido: go-verify accepted a missing dir"; exit 1; }
-	@test ! -e /nonexistent-fido-selftest || { echo "fido: go-verify CREATED the missing dir"; exit 1; }
-	@d=$$(mktemp -d); printf 'package main\nfunc main() {}\n' > $$d/main.go; touch $$d/helper.go; \
-	if $(MAKE) -s go-verify GO=$$d >/dev/null 2>&1; then rm -rf $$d; echo "fido: go-verify accepted a SIBLING .go file"; exit 1; fi; \
-	rm -rf $$d
-	@echo "fido: go-verify-selftest OK — fail-closed on empty/missing/multi-file inputs ✓"
+	@set -eu; \
+	sd=$$(mktemp -d); trap 'rm -rf "$$sd"' EXIT; \
+	printf '#!/bin/sh\necho FIDO-DOCKER-INVOKED >&2; exit 97\n' > "$$sd/docker"; \
+	chmod +x "$$sd/docker"; \
+	fx="$$sd/fx"; mkdir "$$fx"; \
+	printf 'package main\nfunc main() {}\n' > "$$fx/main.go"; \
+	: > "$$fx/helper.go"; \
+	test -s "$$fx/main.go"; test -f "$$fx/helper.go"; \
+	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO= 2>&1); then \
+	  echo "fido: go-verify ACCEPTED an empty GO"; exit 1; fi; \
+	echo "$$out" | grep -q 'needs GO=' || { echo "fido: unexpected empty-GO diagnostic:"; echo "$$out"; exit 1; }; \
+	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO=/nonexistent-fido-selftest 2>&1); then \
+	  echo "fido: go-verify ACCEPTED a missing dir"; exit 1; fi; \
+	echo "$$out" | grep -q 'no main.go' || { echo "fido: unexpected missing-dir diagnostic:"; echo "$$out"; exit 1; }; \
+	test ! -e /nonexistent-fido-selftest || { echo "fido: go-verify CREATED the missing dir"; exit 1; }; \
+	if out=$$(PATH="$$sd:$$PATH" $(MAKE) -s go-verify GO="$$fx" 2>&1); then \
+	  echo "fido: go-verify ACCEPTED a sibling .go file"; exit 1; fi; \
+	echo "$$out" | grep -q 'must be the ONLY .go file' || { echo "fido: unexpected sibling diagnostic:"; echo "$$out"; exit 1; }; \
+	if echo "$$out" | grep -q 'FIDO-DOCKER-INVOKED'; then \
+	  echo "fido: go-verify reached docker on a fail-before-docker case"; exit 1; fi; \
+	echo "fido: go-verify-selftest OK — fail-closed (empty/missing/sibling), rejected BEFORE docker, setup checked ✓"
 
 
 # Multi-platform build (does not load locally — use push to ship).
