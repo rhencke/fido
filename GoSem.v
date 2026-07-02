@@ -847,7 +847,7 @@ Qed.
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
     AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap is the
-    unmodeled VALUE forms (runtime [len]/[int(x)]), which [eval_value] growth closes — a
+    not-yet-denoted runtime forms (index/conversions/map values — tiers R2/R3 of the runtime tier) — a
     [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
