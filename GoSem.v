@@ -960,10 +960,10 @@ Qed.
 
 (** ---- End-to-end demo fixture with REAL OBSERVABLE OUTPUT: `func main(){ println("hi"); return }` runs
     through cmd.v's authoritative [run_cmd] to the very [w_log true ["hi"]] the model's own [println]
-    produces — pinned as the typed field [rc_println_str] of [GoSemRequiredCategoryCoverage] below. *)
-Definition gosem_demo_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl)
-            [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EStr "hi"]); GsReturn].
+    produces — pinned as the typed field [rc_println_str] of [GoSemRequiredCategoryCoverage] below.
+    DEFINITIONALLY [println_prog (EStr "hi")] — ONE spelling, so the [runs_to]-based field and this named
+    fixture can never drift apart. *)
+Definition gosem_demo_prog : Program := println_prog (EStr "hi").
 
 (** REGRESSION fixture: [return] STOPS the body — `func main(){ return; println("after") }` is SUPPORTED yet
     prints NOTHING (the world is UNCHANGED).  Pinned as the typed field [rc_return_stops] of
@@ -1091,7 +1091,7 @@ Definition runs_to (e : GExpr) (v : GoAny) : Prop :=
   forall w, match denote_program (println_prog e) with
             | Some c => run_cmd 5 c w | None => None end = Some (ORet tt (w_log true (v :: nil) w)).
 Record GoSemRequiredCategoryCoverage : Prop := {
-  rc_println_str : runs_to (EStr "hi") (anyt TString "hi");   (* = [gosem_demo_prog]: observable output, the model's own [w_log] *)
+  rc_println_str : runs_to (EStr "hi") (anyt TString "hi");   (* covers [gosem_demo_prog], which IS [println_prog (EStr "hi")] by definition: observable output, the model's own [w_log] *)
   rc_conv      : runs_to (ECall (EId (mkIdent "int64"   eq_refl)) [EInt 3]) (anyt TI64 (i64wrap 3));
   rc_float     : runs_to (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (anyt TFloat64 (renorm 53 1024 (sf_of_Z 3)));
   rc_bool      : runs_to (EBn BEq (EInt 1) (EInt 1)) (anyt TBool true);
