@@ -24,9 +24,10 @@
       operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]), and (R5) map-[len]
       over RUNTIME map values (every value through the SHARED evaluator; panics denote only
       order-INDEPENDENTLY — Go leaves map-literal order unspecified; sealed by the [rconstr_vals_*]
-      class theorems).  The tier computes in the [GTInt] fragment: TYPED-width runtime integer
-      expressions ([^int64(len ..)] — [typed_runtime_not_absent]), [!] of a runtime bool comparison,
-      and runtime FLOATS are not yet denoted.
+      class theorems).  The [reval_int] CARRIER is [GTInt]: typed-width conversion EXITS from GTInt
+      operands DENOTE ([denote_expr_conv_runs]); OPERATIONS on non-GTInt runtime carriers
+      ([^int64(len ..)] — [typed_runtime_not_absent]), [!] of a runtime bool comparison, and runtime
+      FLOATS are not yet denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
     - [gosem_sound]: denotation ⊆ [SupportedProgram] (structural — [denote] consults the gate; a partial
