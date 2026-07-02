@@ -148,6 +148,93 @@ Proof.
   destruct (shr_m mrs'') as [|p'|p']; [reflexivity| |reflexivity].
   destruct (Z.leb e'' (Z.sub emax prec)); reflexivity.
 Qed.
+(** ---- Rungs 2–3 of the dyadic↔SF agreement arc (plans/dyadic-sf-agreement.md): [binary_round]
+    is EXACT on the in-window class — an in-window mantissa/exponent comes back as the CANONICAL
+    finite of the SAME value, NO rounding.  All positive/Z arithmetic on SpecFloat's own
+    definitions: an exact left shift adds digits one-for-one ([digits2_pos_iter_xO]), so
+    digits+exponent is SHIFT-INVARIANT, the [fexp] target reproduces itself, and both [shr_fexp]
+    passes are ZERO shifts at [loc_Exact] ([round_nearest_even] is the identity there). *)
+Lemma digits2_pos_iter_xO : forall d m,
+  digits2_pos (Pos.iter xO m d) = Pos.add d (digits2_pos m).
+Proof.
+  induction d using Pos.peano_ind; intro m.
+  - cbn [Pos.iter digits2_pos]. now rewrite Pos.add_1_l.
+  - rewrite Pos.iter_succ. cbn [digits2_pos]. rewrite IHd, Pos.add_succ_l. reflexivity.
+Qed.
+Lemma iter_xO_val : forall d m,
+  Zpos (Pos.iter xO m d) = (Zpos m * 2 ^ Zpos d)%Z.
+Proof.
+  induction d using Pos.peano_ind; intro m.
+  - cbn [Pos.iter]. rewrite Z.pow_1_r. lia.
+  - rewrite Pos.iter_succ, Pos2Z.inj_succ, Z.pow_succ_r by lia.
+    change (Zpos (xO (Pos.iter xO m d))) with (2 * Zpos (Pos.iter xO m d))%Z.
+    rewrite IHd. lia.
+Qed.
+Lemma shl_align_snd : forall m e T, (T <= e)%Z -> snd (shl_align m e T) = T.
+Proof.
+  intros m e T H. unfold shl_align.
+  destruct (Z.sub T e) as [|p|d] eqn:E; cbn [snd].
+  - assert (T - e = 0)%Z by exact E. lia.
+  - exfalso. assert (T - e = Z.pos p)%Z by exact E. lia.
+  - reflexivity.
+Qed.
+Lemma shl_align_digits : forall m e T,
+  (T <= e)%Z ->
+  (Zpos (digits2_pos (fst (shl_align m e T))) + snd (shl_align m e T)
+   = Zpos (digits2_pos m) + e)%Z.
+Proof.
+  intros m e T H. unfold shl_align.
+  destruct (Z.sub T e) as [|p|d] eqn:E; cbn [fst snd].
+  - reflexivity.
+  - exfalso. assert (T - e = Z.pos p)%Z by exact E. lia.
+  - rewrite digits2_pos_iter_xO, Pos2Z.inj_add.
+    assert (T - e = Z.neg d)%Z by exact E. lia.
+Qed.
+(** the aligned mantissa carries EXACTLY the original value ([m * 2^e = mz * 2^T]) *)
+Lemma shl_align_fst_val : forall m e T,
+  (T <= e)%Z ->
+  Zpos (fst (shl_align m e T)) = (Zpos m * 2 ^ (e - T))%Z.
+Proof.
+  intros m e T H. unfold shl_align.
+  destruct (Z.sub T e) as [|p|d] eqn:E; cbn [fst].
+  - assert (T - e = 0)%Z by exact E.
+    replace (e - T)%Z with 0%Z by lia. rewrite Z.pow_0_r. lia.
+  - exfalso. assert (T - e = Z.pos p)%Z by exact E. lia.
+  - rewrite iter_xO_val. assert (T - e = Z.neg d)%Z by exact E.
+    replace (e - T)%Z with (Z.pos d) by lia. reflexivity.
+Qed.
+(** ★ THE EXACTNESS THEOREM: on the in-window class (mantissa within [prec] digits, exponent at
+    or above [emin], digits+exponent at most [emax]), [binary_round] returns the CANONICAL finite
+    — the shifted mantissa at the [fexp] target — with NO rounding, NO underflow-to-zero, NO
+    overflow.  Combined with [shl_align_fst_val] the value is preserved exactly. *)
+Lemma binary_round_exact : forall prec emax s m e,
+  (Zpos (digits2_pos m) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos m) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  binary_round prec emax s m e
+  = S754_finite s
+      (fst (shl_align m e (fexp prec emax (Zpos (digits2_pos m) + e))))
+      (fexp prec emax (Zpos (digits2_pos m) + e)).
+Proof.
+  intros prec emax s m e Hd He Hde Hemax.
+  assert (HT : (fexp prec emax (Zpos (digits2_pos m) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  assert (Hcap : Z.leb (fexp prec emax (Zpos (digits2_pos m) + e)) (emax - prec) = true)
+    by (apply Z.leb_le; unfold fexp, emin in *; lia).
+  unfold binary_round.
+  pose proof (shl_align_snd m e _ HT) as Hsnd.
+  pose proof (shl_align_digits m e _ HT) as Hdig.
+  destruct (shl_align m e (fexp prec emax (Zpos (digits2_pos m) + e))) as [mz ez] eqn:Ea.
+  cbn [fst snd] in Hsnd, Hdig. subst ez.
+  unfold binary_round_aux, shr_fexp.
+  cbn [Zdigits2].
+  rewrite Hdig, Z.sub_diag.
+  cbn [shr shr_record_of_loc shr_m shr_r shr_s loc_of_shr_record round_nearest_even Zdigits2].
+  rewrite Hdig, Z.sub_diag.
+  cbn [shr shr_record_of_loc shr_m].
+  rewrite Hcap. reflexivity.
+Qed.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 

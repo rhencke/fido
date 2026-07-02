@@ -6776,7 +6776,8 @@ Definition gosem_float_surface :=
   (fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
-   Fido.builtins.binary_round_opp, sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
+   Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
+   sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
    signed_zero_folds_eval, signed_zero_folds_run, reciprocal_sign_decisive).

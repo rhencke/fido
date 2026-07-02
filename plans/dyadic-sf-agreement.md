@@ -33,12 +33,16 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    go run during development (`1/x = +Inf` ×6, runtime contrast `-Inf`).  The neg ARM's
    zero row is `fsf_checked_neg_zero_total` (operand-acceptance premised — FULL class totality is
    rung 8, after rung 3's finite-render lemma; `fsf_checked_render` anchors it).
-2. **`shl_align` spec**: `T <= e -> shl_align m e T = (m * 2^(e-T), T)` (positive shift lemma).
-3. **`binary_round` EXACTNESS in-window**: for odd `|m|` with the `float_dyadic_repr t m e`
-   window, `binary_round s m e` returns the canonical finite with `dy_norm`-equal value
-   (`shr_fexp` at `loc_Exact` on an aligned in-window mantissa is a no-op; `round_nearest_even`
-   at `loc_Exact` is identity).  Corollary: `renorm` idempotence on canonical forms (unblocks
-   the f32 row — `f32_neg` re-rounds through `f32_of_f64`).
+2. **`shl_align` spec — LANDED** (builtins): `digits2_pos_iter_xO`/`iter_xO_val` (exact left
+   shifts add digits one-for-one and multiply by `2^d`), `shl_align_snd`/`shl_align_digits`
+   (digits+exponent is SHIFT-INVARIANT)/`shl_align_fst_val` (value preserved).
+3. **`binary_round` EXACTNESS in-window — LANDED** (builtins, gated via `gosem_float_surface`):
+   `binary_round_exact` — for `digits2_pos m <= prec`, `emin <= e`, `digits+e <= emax`,
+   `binary_round s m e` IS the canonical finite (the shifted mantissa at the `fexp` target), no
+   rounding/underflow/overflow: both `shr_fexp` passes are ZERO shifts at `loc_Exact`.  With
+   `shl_align_fst_val` the value is exact.  STILL TO DO in this rung: the `float_dyadic_repr`
+   window ⟹ these premises (digits-vs-magnitude bridge), and `renorm` idempotence on canonical
+   forms (unblocks the f32 row — `f32_neg` re-rounds through `f32_of_f64`).
 4. **`binary_normalize` VALUE-determinism**: `dy_norm (m1,e1) = dy_norm (m2,e2) ->
    binary_normalize m1 e1 s = binary_normalize m2 e2 s` — via the one-step doubling lemma
    (`binary_round s m e = binary_round s (2m) (e-1)`: `digits2_pos` shifts by one, `fexp`
