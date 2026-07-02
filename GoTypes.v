@@ -237,8 +237,8 @@ Definition num_comparable (cl cr : PTy) : bool :=
     - float CONST ∘ float CONST (same type) and float CONST ∘ untyped int const: the EXACT dyadic fold
       ([dy_fold_at] — [+ - *] always exact, [/] exact-or-reject, result repr-checked at the type);
     - any non-numeric operand (bool/str/agg/nil) -> REJECT.
-    Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_cat] FIRST, so no float reaches
-    those; [num_arith] still rejects float-const + the [/]-zero check is done by the caller. *)
+    Callers gate the INT-ONLY ops ([% & | ^ &^] and the shifts) with [is_int_cat] FIRST (their [dfold] is
+    [None], so a float const cannot fold through them); the [/]-zero check is done by the caller. *)
 (** The dyadic result of a float-CONSTANT op, repr-gated at the operands' (equal) type — the ONE place a
     folded float const is (re)admitted, so the payload invariant (normalized + [float_dyadic_repr]) holds
     by construction.  [dfold = None] = an int-only op (shift/bitwise/[%]) — float consts REJECTED. *)

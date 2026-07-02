@@ -84,19 +84,17 @@ Definition box_float (t : GoTy) (m e : Z) : option GoAny :=
     end
   else None.
 
-(** ---- THE single float-constant denotation authority ---- [ptype] folds float-const arithmetic
-    exactly (sealed dyadics); the MODEL computes with its own [f64_*]/[f32_*]/[SFopp] spec_float ops (the
-    very ops the emitted Go runs).  [fsf_checked] recursively RE-VERIFIES every fold inside a
-    float-constant expression — each binop/negation at ANY depth (under conversions, inside either
-    operand) must equal, STRUCTURALLY, the model op applied to the verified operand carriers; a leaf (an
-    int-constant conversion source) renders directly; cross-width conversions verify against the model's
-    [f32_of_f64]/[f64_of_f32].  [eval_value_ptype]'s [PtFloatConst] arm boxes ONLY through this check, and
-    every denoting/evaluability consumer ([eval_value], [map_entries_evaluable]) boxes only through
-    [eval_value_ptype] — so the accepted float surface IS the verified-agreement surface with NO bypass
-    (the gated [fsf_checked_*_agrees] theorems below); a disagreeing instance would be ABSENT ([None]),
-    never wrong.  (Mathematically no disagreement should exist — IEEE ops are correctly rounded, so an
-    exactly representable result is returned exactly; PROVING that once — the general dyadic↔[SF*] class
-    theorem — would let this runtime re-verification be dropped, the stated frontier.) *)
+(** ---- The PER-NODE float-fold checker (consumed by the [floats_checked] BOUNDARY below — the boundary,
+    at [eval_value]'s top, is what makes the no-bypass claim; [fsf_checked] alone is NOT an authority: its
+    int-constant conversion leaves deliberately do NOT recurse, the boundary's full-syntax recursion
+    covers them) ---- [ptype] folds float-const arithmetic exactly (sealed dyadics); the MODEL computes
+    with its own [f64_*]/[f32_*]/[SFopp] spec_float ops (the very ops the emitted Go runs).
+    [fsf_checked] verifies ONE float-constant node against the model op on the verified operand carriers
+    (recursing through float operands and float-to-float conversions; cross-width via
+    [f32_of_f64]/[f64_of_f32]); a disagreeing node is ABSENT ([None]), never wrong.  (Mathematically no
+    disagreement should exist — IEEE ops are correctly rounded, so an exactly representable result is
+    returned exactly; PROVING that once — the general dyadic↔[SF*] class theorem — would let this runtime
+    re-verification be dropped, the stated frontier.) *)
 Definition sf_eqb_struct (x y : spec_float) : bool :=
   match x, y with
   | S754_zero s1, S754_zero s2 => Bool.eqb s1 s2
@@ -202,11 +200,13 @@ Definition fsf_operand : GoTy -> GExpr -> option spec_float := fsf_operand_with 
     literal element is still reached and re-verified).  [eval_value] checks this ONCE at its top — the
     single value-denotation entry every consumer flows through — so no denoted value anywhere depends on
     an unverified float fold ([eval_value_floats_checked] below is the structural seal). *)
+Definition fc_node (e : GExpr) : bool :=
+  match ptype e with
+  | Some (PtFloatConst _ _) => match fsf_checked e with Some _ => true | None => false end
+  | _ => true
+  end.
 Fixpoint floats_checked (e : GExpr) : bool :=
-  (match ptype e with
-   | Some (PtFloatConst _ _) => match fsf_checked e with Some _ => true | None => false end
-   | _ => true
-   end)
+  fc_node e
   && match e with
      | EId _ | EInt _ | EStr _ | EHex _ => true
      | EUn _ a => floats_checked a
@@ -220,6 +220,24 @@ Fixpoint floats_checked (e : GExpr) : bool :=
      | ESliceLit _ es => forallb floats_checked es
      | EMapLit _ _ kvs => forallb (fun kv => floats_checked (fst kv) && floats_checked (snd kv)) kvs
      end.
+
+(** STRUCTURAL RECURSION GATES for the float boundary — one definitional equation per child-carrying
+    constructor (every laundering position: binop/comparison operands, the unary operand, call args incl.
+    scalar/string conversion sources, slice elements, map KEYS and VALUES, index children, [EConv]
+    sources).  Deleting any recursive child branch of [floats_checked] FALSIFIES its equation — Coq
+    breaks, not just a review.  Gated in [gosem_trust_surface]. *)
+Lemma floats_checked_children_eqs :
+  (forall o a b, floats_checked (EBn o a b) = fc_node (EBn o a b) && (floats_checked a && floats_checked b))
+  /\ (forall o a, floats_checked (EUn o a) = fc_node (EUn o a) && floats_checked a)
+  /\ (forall f args, floats_checked (ECall f args)
+        = fc_node (ECall f args) && (floats_checked f && forallb floats_checked args))
+  /\ (forall t es, floats_checked (ESliceLit t es) = fc_node (ESliceLit t es) && forallb floats_checked es)
+  /\ (forall kt vt kvs, floats_checked (EMapLit kt vt kvs)
+        = fc_node (EMapLit kt vt kvs)
+          && forallb (fun kv => floats_checked (fst kv) && floats_checked (snd kv)) kvs)
+  /\ (forall a i, floats_checked (EIndex a i) = fc_node (EIndex a i) && (floats_checked a && floats_checked i))
+  /\ (forall c a, floats_checked (EConv c a) = fc_node (EConv c a) && floats_checked a).
+Proof. repeat split; intros; reflexivity. Qed.
 
 (** The COMPARISON [BinOp]s fold a constant integer pair to a [bool] ([>]/[>=] reuse [<]/[<=] with swapped
     operands).  Arithmetic / [BLAnd] / [BLOr] are NOT comparisons -> [None] HERE; the logical [&&]/[||] are
@@ -368,9 +386,12 @@ Fixpoint eval_int_slice_elems (t : GoTy) (es : list GExpr) : option (list GoAny)
       end
   end.
 
-(** The ptype-driven DEFAULT fold: a numeric / string / bool CONSTANT evaluates to the model value its [ptype]
-    category carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
-Definition eval_value_ptype (e : GExpr) : option GoAny :=
+(** INTERNAL (core-only) ptype-driven scalar fold — NOT a float boundary and NOT directly consumable as a
+    trusted denotation path: its [PtFloatConst] arm runs only the PER-NODE [fsf_checked]; the child-position
+    coverage lives in [eval_value]'s [floats_checked] boundary (and [map_entries_evaluable] carries the
+    boundary itself).  A numeric / string / bool CONSTANT evaluates to the model value its [ptype] category
+    carries ([box_int]/[box_float] attach it, FAILING CLOSED out of range); everything else is [None]. *)
+Definition eval_value_ptype_core (e : GExpr) : option GoAny :=
   match ptype e with
   | Some (PtIntConst z)     => box_int GTInt z                                                 (* untyped const -> default [int], range-checked *)
   | Some (PtTIntConst t z)  => box_int t z                                                     (* typed int const (conversion / typed arith) *)
@@ -389,7 +410,7 @@ Definition eval_value_ptype (e : GExpr) : option GoAny :=
     wrong-typed key or value — even one irrelevant to the queried length — declines the check, never a wrong
     verdict.  Each entry is gated by [ptype]'s OWN map-arm checks ([assignable_to_ty] on BOTH sides + an
     integer-CONSTANT key; proved ⊆ [ptype]: [eval_map_len_supported]) and must fully EVALUATE (key boxable
-    to [kt]; value folded by the CONSTANT default [eval_value_ptype] — a supported RUNTIME value like
+    to [kt]; value folded by the CONSTANT default [eval_value_ptype_core] — a supported RUNTIME value like
     [len([]int{2})] declines: absent, not wrong, [map_len_supported_but_undenoted]).  Deliberately a [bool],
     NOT a list of boxed pairs: [len] needs only "construction completes, panic-free" + the count, and a pair
     list boxed by the DEFAULT fold would carry default-typed values (a [map[int]uint8] value boxed as [int])
@@ -406,7 +427,8 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
              | Some z => match box_int kt z with Some _ => true | None => false end
              | None => false
              end
-          && match eval_value_ptype v with Some _ => true | None => false end
+          && match eval_value_ptype_core v with Some _ => true | None => false end
+          && floats_checked k && floats_checked v   (* BOUNDARY-CARRYING: a laundered fold in a key or value is re-verified even if this helper is consumed outside [eval_value] *)
           && map_entries_evaluable kt vt rest
       | _, _ => false
       end
@@ -463,7 +485,7 @@ Definition eval_value_core (e : GExpr) : option GoAny :=
            | Some vs => box_int GTInt (Z.of_nat (length vs))
            | None => None
            end
-      else eval_value_ptype e
+      else eval_value_ptype_core e
   | ECall (EId f) (EMapLit kt vt kvs :: nil) =>
       (* [len] of a FULLY-EVALUABLE integer-keyed MAP literal folds to its entry count, boxed as Go's [int].
          Go constructs the literal (ALL keys and values) before [len], so a runtime / wrong-typed key or value
@@ -477,8 +499,8 @@ Definition eval_value_core (e : GExpr) : option GoAny :=
       if String.eqb (proj1_sig f) "len" && is_int_goty kt && goty_supported vt
          && nodup_z (map_key_vals kvs) && map_entries_evaluable kt vt kvs
       then box_int GTInt (Z.of_nat (length kvs))
-      else eval_value_ptype e
-  | _ => eval_value_ptype e
+      else eval_value_ptype_core e
+  | _ => eval_value_ptype_core e
   end.
 
 (** [eval_value] = the float boundary, ONCE, then the evaluator core.  Every value consumer
@@ -582,7 +604,7 @@ Proof.
   unfold denote_expr.
   assert (Hev : eval_value (EBn o a b) = None).
   { unfold eval_value. destruct (floats_checked (EBn o a b)); [|reflexivity].
-    cbn [eval_value_core]. unfold eval_value_ptype. rewrite Hpt. reflexivity. }
+    cbn [eval_value_core]. unfold eval_value_ptype_core. rewrite Hpt. reflexivity. }
   rewrite Hev.
   destruct Ho as [-> | ->]; rewrite Hpt, Ha, Hdz; reflexivity.
 Qed.
@@ -1254,7 +1276,9 @@ Proof.
     destruct (assignable_to_ty cv vt) eqn:Ea2; [|discriminate H].
     destruct (int_const_val ck) as [z|] eqn:Ei; [|discriminate H].
     destruct (box_int kt z) as [bk|] eqn:Eb; [|discriminate H].
-    destruct (eval_value_ptype v) as [bv|] eqn:Ebv; [|discriminate H].
+    destruct (eval_value_ptype_core v) as [bv|] eqn:Ebv; [|discriminate H].
+    destruct (floats_checked k) eqn:Efk; [|discriminate H].
+    destruct (floats_checked v) eqn:Efv; [|discriminate H].
     destruct (map_entries_evaluable kt vt rest) eqn:Er; [|discriminate H].
     exact (IH eq_refl).
 Qed.
@@ -1583,6 +1607,24 @@ Definition eval_value_good : list (GExpr * GoAny) :=
   ; (ECall (EId (mkIdent "len" eq_refl))
            [EMapLit GTInt GTFloat64 [(EInt 1, EBn BDiv (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))]],
      anyt TInt64 (intwrap 1))                                 (* a map VALUE containing a float fold — the evaluability check routes through the same guarded authority *)
+  ; (ECall (EId (mkIdent "int" eq_refl))
+           [EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])],
+     anyt TInt64 (intwrap 6))                                 (* int(<float fold>) — a fold LAUNDERED into an integer constant still crosses the [floats_checked] boundary *)
+  ; (ECall (EId (mkIdent "float64" eq_refl))
+           [ECall (EId (mkIdent "int" eq_refl))
+                  [EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])]],
+     anyt TFloat64 (renorm 53 1024 (sf_of_dyadic 3 1)))       (* float64(int(<fold>)) — the re-floated laundering shape; the inner fold is boundary-verified *)
+  ; (EBn BEq (EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2]))
+             (ECall (EId (mkIdent "float64" eq_refl)) [EInt 6]),
+     anyt TBool true)                                         (* a COMPARISON whose operand is a fold — boundary-verified before the exact dyadic compare *)
+  ; (EIndex (ESliceLit GTInt [ECall (EId (mkIdent "int" eq_refl))
+                                    [EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])]])
+            (EInt 0),
+     anyt TInt64 (intwrap 6))                                 (* a SLICE ELEMENT holding a laundered fold *)
+  ; (ECall (EId (mkIdent "len" eq_refl))
+           [EMapLit GTInt GTInt [(ECall (EId (mkIdent "int" eq_refl))
+                                        [EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 3]) (ECall (EId (mkIdent "float64" eq_refl)) [EInt 2])], EInt 1)]],
+     anyt TInt64 (intwrap 1))                                 (* a MAP KEY holding a laundered fold *)
   ; (ECall (EId (mkIdent "len" eq_refl)) [EStr "abc"], anyt TInt64 (intwrap 3))
   ; (EBn BAdd (EStr "a") (EStr "b"), anyt TString "ab")
   ; (ECall (EId (mkIdent "string" eq_refl)) [EInt 65], anyt TString "A")
@@ -1689,12 +1731,12 @@ Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
 Check gosem_category_coverage : GoSemRequiredCategoryCoverage.   (* the typed obligation, made explicit *)
 
-(** ★ THE LIVE FOLD↔MODEL AGREEMENT THEOREMS — over [fsf_checked], the ONE path every float-constant
-    denotation takes ([eval_value_ptype] boxes a [PtFloatConst] only when it accepts; [eval_value] and
-    [map_entries_evaluable] box only through [eval_value_ptype]): whenever it ACCEPTS a binop / negation /
-    conversion node, the value IS the model op applied to the verified operand carriers — at any depth,
-    both widths.  Non-vacuous: the [eval_value_good] float rows (incl. the NESTED-under-conversion and
-    map-VALUE rows) are accepted instances. *)
+(** ★ THE LIVE FOLD↔MODEL AGREEMENT THEOREMS — over [fsf_checked], the per-node checker the
+    [floats_checked] BOUNDARY applies to every float-constant subexpression: whenever a binop / negation /
+    conversion node is ACCEPTED, its value IS the model op applied to the verified operand carriers —
+    both widths.  The boundary theorems ([eval_value_floats_checked] + [floats_checked_children_eqs])
+    carry the no-bypass claim; these carry the per-node agreement.  Non-vacuous: the [eval_value_good]
+    float rows (incl. the laundered/nested/map shapes) are accepted instances. *)
 Lemma sf_eqb_struct_eq : forall x y, sf_eqb_struct x y = true -> x = y.
 Proof.
   intros x y H; destruct x; destruct y; cbn in H; try discriminate H.
@@ -1847,6 +1889,7 @@ Definition gosem_trust_surface :=
    map_len_invalid_type_rejected,
    fsf_checked_binop_agrees, fsf_checked_neg_agrees,
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
+   eval_value_floats_checked, floats_checked_children_eqs,
    denote_expr_pure, divisor_zero_eval, denote_expr_div_zero, arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,
    gosem_category_coverage).
