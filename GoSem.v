@@ -553,7 +553,8 @@ Definition eval_value (e : GExpr) : option GoAny :=
   if floats_checked e then eval_value_core e else None.
 
 (** The structural SEAL: a denoted value implies the whole expression passed the float boundary — every
-    [PtFloatConst] subexpression, at any depth, was re-verified against the model op. *)
+    [PtFloatConst] subexpression, at any depth, was re-verified against the CONSTANT-fold layer
+    ([sf_const_binop]/[sf_const_neg]). *)
 Theorem eval_value_floats_checked : forall e v, eval_value e = Some v -> floats_checked e = true.
 Proof.
   intros e v H. unfold eval_value in H.
@@ -6401,9 +6402,11 @@ Definition gosem_category_coverage : GoSemRequiredCategoryCoverage.
 Proof. constructor; intro w; vm_compute; reflexivity. Qed.
 Check gosem_category_coverage : GoSemRequiredCategoryCoverage.   (* the typed obligation, made explicit *)
 
-(** ★ THE LIVE FOLD↔MODEL AGREEMENT THEOREMS — over [fsf_checked], the per-node checker the
+(** ★ THE LIVE FOLD↔CONST-LAYER AGREEMENT THEOREMS — over [fsf_checked], the per-node checker the
     [floats_checked] BOUNDARY applies to every float-constant subexpression: whenever a binop / negation /
-    conversion node is ACCEPTED, its value IS the model op applied to the verified operand carriers —
+    conversion node is ACCEPTED, its value IS the CONSTANT-layer op ([sf_const_binop] /
+    [sf_const_neg] — the IEEE table under zero-sign erasure; raw [sf_model_binop] is only the
+    underlying table) applied to the verified operand carriers —
     both widths.  The boundary theorems ([eval_value_floats_checked] + [floats_checked_children_eqs])
     carry the no-bypass claim; these carry the per-node agreement.  Non-vacuous: the [eval_value_good]
     float rows (incl. the laundered/nested/map shapes) are accepted instances. *)
@@ -6536,7 +6539,7 @@ Qed.
 
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
-    per-node runtime CHECK means), this is checker-free: the dyadic fold's render IS the sign flip
+    per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
     of the operand's render, proved once over the class ([binary_round_opp] — the sign threads
     inertly through canonicalization).  NO window premise; the [m <> 0] boundary is where CONSTANT
     and RUNTIME semantics split (constants have no signed zero) — the ZERO side is sealed at the
@@ -6661,9 +6664,10 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     RUNTIME-FLOAT-source conversion [runconv_float_src_e] (CLASS-sealed —
     [reval_val_runfloat_none] / [denote_expr_conv_float_src_absent]; supported-side pin
     [runtime_float_source_conv_absent]).  Each member is pinned supported AND undenoted AND
-    eval-level absent.  (SIGNED-ZERO constant negation is NOT a member: the checker's authority
-    for folds is Go's CONSTANT rule ([sf_const_neg]), so [-(float64(0))] folds to [+0] and
-    DENOTES — [negzero_const_runs] below, the class sealed by [fsf_checked_neg_zero_total].) *)
+    eval-level absent.  (SIGNED-ZERO constant folds are NOT members: the checker's authority is
+    the CONSTANT-fold layer ([sf_const_binop]/[sf_const_neg] — zero-sign erasure), so
+    [-(float64(0))] and the zero-binop shapes fold to [+0] and DENOTE — [negzero_const_runs] +
+    [signed_zero_folds_run] below.) *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; runnot_uint_e
@@ -6675,10 +6679,12 @@ Example undenoted_frontier_pinned :
           undenoted_frontier = true.
 Proof. vm_compute. reflexivity. Qed.
 (** the SIGNED-ZERO policy pinned (gated): [-(float64(0))] is a CONSTANT, and Go's exact-rational
-    constant rule has no [-0] (gc folds it to [+0] — go-run-verified [1/x = +Inf]) — so it FOLDS,
-    DENOTES, and prints the model's [+0].  The runtime op [SFopp] on a [+0] VALUE gives [-0]
-    ([1/-z = -Inf]) — that is a different (runtime) construct; the checker's fold authority is
-    [sf_const_neg]. *)
+    constant rule has no [-0] — so it FOLDS, DENOTES, and prints the model's [+0], the value
+    pinned BY CONSTRUCTOR here and made observably decisive by the model-level reciprocal probe
+    ([reciprocal_sign_decisive] below).  The runtime op [SFopp] on a [+0] VALUE gives [-0] — a
+    different (runtime) construct; the checker's fold authority is the CONSTANT layer
+    ([sf_const_neg] is its negation row).  Ground-truthed against gc via go run during
+    development ([1/x = +Inf] for the fold, [1/-z = -Inf] for the runtime op). *)
 Definition negzero_const_e : GExpr :=
   EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0]).
 Example negzero_const_runs : forall w,
@@ -6692,8 +6698,10 @@ Proof. intro w. repeat split; vm_compute; reflexivity. Qed.
 (** the BINOP zero rows pinned end-to-end, BOTH widths (review round 3): multiplication and
     division of a zero constant BY A NEGATIVE, and negation of such a product — the runtime rows
     carry [xorb] zero-sign leaks ([SFmul +0 -1 = -0]), the constant layer erases them
-    ([sf_const_binop]); each folds, DENOTES, and prints the model's [+0] — go-run-verified
-    [1/x = +Inf] for all six (the runtime contrast [1/(r * -1) = -Inf]). *)
+    ([sf_const_binop]).  Each folds, DENOTES, and prints the model's [+0]: the value pinned BY
+    CONSTRUCTOR ([signed_zero_folds_eval]) and made observably decisive by the reciprocal probe
+    ([reciprocal_sign_decisive]).  Ground-truthed against gc via go run during development
+    ([1/x = +Inf] for all six constant folds, the runtime contrast [1/(r * -1) = -Inf]). *)
 Definition zeromul_const_e : GExpr :=
   EBn BMul (ECall (EId (mkIdent "float64" eq_refl)) [EInt 0])
            (EUn UNeg (ECall (EId (mkIdent "float64" eq_refl)) [EInt 1])).
@@ -6734,6 +6742,17 @@ Example signed_zero_folds_run : forall w,
     ; Some (ORet tt (w_log true (anyt TFloat32 (f32_lit (S754_zero false)) :: nil) w))
     ; Some (ORet tt (w_log true (anyt TFloat32 (f32_lit (S754_zero false)) :: nil) w)) ].
 Proof. intro w. vm_compute. reflexivity. Qed.
+(** the RECIPROCAL-SIGN probe, model-level and DECISIVE — the same observation gc distinguishes
+    this class by: the model's [1 / (+0)] is [+Inf] and [1 / (-0)] is [-Inf] at BOTH widths
+    ([f64_div]/[f32_div]'s finite/zero rows are sign-exact), so [signed_zero_folds_eval]'s
+    by-constructor [+0] pins are OBSERVABLY decisive — a [-0] leaking through the layer would
+    flip this gate, not just a constructor field. *)
+Example reciprocal_sign_decisive :
+  f64_div (renorm 53 1024 (sf_of_dyadic 1 0)) (S754_zero false) = S754_infinity false
+  /\ f64_div (renorm 53 1024 (sf_of_dyadic 1 0)) (S754_zero true) = S754_infinity true
+  /\ f32val (f32_div (f32_lit (sf_of_dyadic 1 0)) (f32_lit (S754_zero false))) = S754_infinity false
+  /\ f32val (f32_div (f32_lit (sf_of_dyadic 1 0)) (f32_lit (S754_zero true))) = S754_infinity true.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** All the demo programs above are SUPPORTED (each is emittable Go); grouped so the gate is pinned once. *)
 Example demo_progs_supported :
@@ -6761,7 +6780,7 @@ Definition gosem_float_surface :=
    pos_odd_split_odd, dy_norm_opp, dy_norm_idem, dyconst_norm_fix,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,
-   signed_zero_folds_eval, signed_zero_folds_run).
+   signed_zero_folds_eval, signed_zero_folds_run, reciprocal_sign_decisive).
 Definition gosem_slice_index_surface :=
   (eval_slice_index_supported, eval_slice_index_reduces, eval_slice_index_oob_class,
    eval_slice_index_inbounds_class, eval_len_reduces, eval_len_supported,

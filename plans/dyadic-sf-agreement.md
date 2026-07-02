@@ -26,9 +26,11 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    layer `sf_const_binop`/`sf_const_neg` — `sf_pos_zero` zero-sign erasure over the width's IEEE
    table (`SFmul +0 -1 = -0`, `SFdiv +0 -1 = -0`, `SFopp +0 = -0` are RUNTIME zero signs) — so
    `-(float64(0))`, `float64(0) * -float64(1)`, `float64(0) / -float64(1)`,
-   `-(float64(0) * -float64(1))` and the f32 analogs all fold and DENOTE `+0` (go-run-verified
-   `1/x = +Inf` ×6, runtime contrast `-Inf`; pinned `negzero_const_runs` +
-   `signed_zero_folds_{eval,run}`; layer laws `sf_const_{binop,neg}_zero_erased`).  The neg ARM's
+   `-(float64(0) * -float64(1))` and the f32 analogs all fold and DENOTE `+0` — pinned BY
+   CONSTRUCTOR (`negzero_const_runs` + `signed_zero_folds_{eval,run}`) with the model-level
+   reciprocal probe decisive (`reciprocal_sign_decisive`: model `1/+0 = +Inf`, `1/-0 = -Inf`,
+   both widths); layer laws `sf_const_{binop,neg}_zero_erased`; ground-truthed against gc via
+   go run during development (`1/x = +Inf` ×6, runtime contrast `-Inf`).  The neg ARM's
    zero row is `fsf_checked_neg_zero_total` (operand-acceptance premised — FULL class totality is
    rung 8, after rung 3's finite-render lemma; `fsf_checked_render` anchors it).
 2. **`shl_align` spec**: `T <= e -> shl_align m e T = (m * 2^(e-T), T)` (positive shift lemma).
@@ -57,8 +59,9 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 - The `-0` divergence (rung 1) is REAL and handled STRUCTURALLY: the checker verifies FOLDS, so
   every verification op routes through the constant layer (`sf_const_binop`/`sf_const_neg` —
   `sf_pos_zero`); raw `SF*` zero signs belong to runtime paths only.  ADD/SUB zero rows agree
-  even unerased (`SFadd/SFsub` at round-to-nearest give `+0` on exact-zero results) — the
-  erasure is uniform anyway, no per-op case analysis.  Each rung states its zero/sign side
+  even unerased FOR CONSTANT-RENDERED OPERANDS (dyadic renders carry no `-0`, and an exact-zero
+  sum of finite operands gets `+0` at round-to-nearest — NOT a claim about arbitrary raw
+  `SFadd/SFsub` signed-zero inputs) — the erasure is uniform anyway, no per-op case analysis.  Each rung states its zero/sign side
   conditions explicitly, go-run-verified.
 - Window premises apply to OPERANDS (exactness of their renders); the RESULT needs none for
   determinism-based rungs (both sides round the same value) but `ptype`'s fold guard
