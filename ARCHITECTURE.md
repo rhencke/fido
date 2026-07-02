@@ -151,14 +151,17 @@ not "verified Go." GoSem is a slice-1 bridge, NOT behavioral safety. Detailed fe
 
 ---
 
-## 3a. GoSem physical split — PLANNED (proposed 2026-07-02; not yet performed)
+## 3a. GoSem physical split — IN PROGRESS (file 1 of 4 peeled 2026-07-02)
 
 `GoSem.v` (~390 KB) is past single-file human reviewability; the topic surfaces solved the
 assumption-gate problem, not the file-level one. The split mirrors the surfaces, one file per
 proof cluster, `GoSem.v` becoming the composition/re-export point:
 
-- `GoSemCore.v` — box/render (`box_int`/`box_float`/`sf_*`), the const-op layer, `eval_value` +
-  the `floats_checked` boundary, `fsf_checked` (→ `gosem_core_surface` + `gosem_float_surface`).
+- `GoSemCore.v` — **PEELED**: box/render (`box_int`/`box_float`/`sf_*`), the const-op layer,
+  `eval_value` + the `floats_checked` boundary, `fsf_checked`, and the pure dyadic↔SF* arc
+  (rungs 1–5).  The float RUN pins + all surface definitions stay downstream (the float surface
+  composes run-level pins, so it lives with them); `eval_value_{ptype_,}core` became non-`Local`
+  (GoSem's tier proofs compute through the core — the helper cannot move, `eval_value` needs it).
 - `GoSemRuntimeInt.v` — `reval_int`/`rexit_with`/`reval_val_with`, the typed tiers T1–T5 + R8
   dispatch/convoys and their seals (→ `gosem_runtime_int_surface`).
 - `GoSemAgg.v` — slice-literal/map construction walks + index/len (→ slice-index + map surfaces).
