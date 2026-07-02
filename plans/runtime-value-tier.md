@@ -39,3 +39,29 @@ runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANIC
 
 ## Not this arc
 Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF* theorem; EFloat literals.
+
+## Post-survey design (2026-07-02 — anchors the implementation window)
+
+- The MODEL already decides everything: `rt_index_oob = "runtime error: index out of range"` (FIXED
+  message, no digits — `slice_idx_get`'s existing posture; GoSem INHERITS it, no new conformance
+  decision) and the wrap ops (`int_add = intwrap (intraw a + intraw b)` etc.) are the arithmetic
+  authority. The runtime tier COMPUTES WITH THE MODEL'S OWN OPS on the carriers — single authority, no
+  fold↔model agreement gap by construction (the float-arc lesson applied up front).
+- Shape: `Inductive RRes := RVal (v : GoInt) | RPanic (p : GoAny).` and a recursive
+  `reval_int : GExpr -> option RRes` sealed to the `GTInt`-classified runtime fragment (the boxed carrier
+  for `GTInt` is `GoInt` via `intwrap`, tag `TInt64`). `None` = not-yet-denotable (absent);
+  `RPanic` = the determined runtime panic. No world-threading needed — expression effects in this
+  fragment are panics only.
+- Slices: **R1** `len` of int-slice literals with runtime-evaluable elements (elements recursively
+  `reval_int`'d; first panicking element aborts construction — matches the verified go-run behavior) +
+  runtime `+ - *` via model ops, `/`/`%` with a ZERO runtime divisor → `RPanic rt_div_zero` (subsumes and
+  RETIRES the shape-based `divisor_zero`, whose seal becomes a corollary). **R2** runtime slice INDEX:
+  in-bounds → the element, OOB → `RPanic rt_index_oob` — the first runtime OOB panic in denotation.
+  **R3** width conversions of runtime ints via the model wraps.
+- `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
+  the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
+  at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
+- Witness succession after R1: `runlen_e` DENOTES → successor undenoted witness = the runtime-INDEX shape
+  `[]int{10,20}[len([]int{1})]` (already spelled in `slice_index_supported_but_undenoted`) until R2; after
+  R2 the successor is a runtime width-conversion (`int64(len([]int{1}))`) until R3; after R3 enumerate
+  what remains (runtime floats, runtime string len) or state the fragment-total converse WITH a theorem.
