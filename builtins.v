@@ -354,6 +354,12 @@ Proof.
   pose proof (Z.mod_pos_bound (z + 9223372036854775808) 18446744073709551616 ltac:(lia)) as [Hlo Hhi].
   apply andb_true_intro. split; [apply Z.leb_le | apply Z.ltb_lt]; lia.
 Qed.
+(* [wrap64] is the IDENTITY on the int64 range — the agreement backbone for every wrapped-vs-structural
+   boundary lemma ([len_agrees_structural] below): a wrapped quantity IS the true one while it stays
+   representable. *)
+Lemma wrap64_small : forall z,
+  (-9223372036854775808 <= z < 9223372036854775808)%Z -> wrap64 z = z.
+Proof. intros z Hz. unfold wrap64. rewrite Z.mod_small; lia. Qed.
 Definition i64wrap (z : Z) : GoI64 := MkI64 (wrap64 z) (squash (in_i64_wrap64 z)).
 
 (* Go's platform-width SIGNED [int] — a GENUINELY DISTINCT [Z]-carried record (review #6 #13), the
@@ -3799,6 +3805,23 @@ Qed.
 (* [GoInt] is now [int]; [len] counts elements (lowered to Go [len] — body suppressed). *)
 Fixpoint len {A} (xs : GoSlice A) : GoInt :=
   match xs with nil => intwrap 0 | _ :: r => intwrap (1 + intraw (len r)) end.
+(** THE LEN AGREEMENT SEAL: on every REPRESENTABLE slice (length within int64 — every slice a real Go
+    program can hold; Go caps slice length at max int) the Go-visible wrapped [len] IS the structural
+    [List.length].  This is the invariant behind every remaining [intraw (len ..)] bounds guard in the
+    family ([slice_at_ok]/[arr_get_ok]/[arr_set]): on representable states those guards decide against
+    the TRUE length.  It cannot hold unconditionally — [GoSlice A = list A] can represent a > 2^63-element
+    list, where [len] wraps — which is exactly why [slice_get] (the only OOB-PANICKING op of the family)
+    consults the structural length DIRECTLY: its guard and payload share one authority on ALL states. *)
+Lemma len_agrees_structural : forall {A} (xs : GoSlice A),
+  (Z.of_nat (List.length xs) < 9223372036854775808)%Z ->
+  intraw (len xs) = Z.of_nat (List.length xs).
+Proof.
+  induction xs as [| x r IH]; intro Hrep.
+  - vm_compute. reflexivity.
+  - cbn [List.length] in Hrep. rewrite Nat2Z.inj_succ in Hrep.
+    cbn [len List.length intraw intwrap].
+    rewrite IH by lia. rewrite Nat2Z.inj_succ, wrap64_small by lia. lia.
+Qed.
 (* review #7: a functional (value-)[GoSlice] [cap] is INTENTIONALLY NOT MODELLED (the old proof-only
    [cap = len] is DELETED).  Go's [cap] after [append] is IMPLEMENTATION-DEFINED (append may over-allocate),
    so NO value-slice model can predict it faithfully; a [cap = len] Definition was a shape one could
@@ -3912,9 +3935,26 @@ Fixpoint go_list_nth {A : Type} (xs : list A) (i : nat) (d : A) : A :=
                   else go_list_nth rest (Nat.pred i) d
   end.
 Definition slice_get {A : Type} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) : IO A :=
-  fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (intraw (len xs)))%bool
+  fun w => if (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length xs)))%bool
            then ORet (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) w
-           else OPanic (rt_index_oob (intraw i) (List.length xs)) w.   (* out of bounds / negative: Go panics with the EXACT payload — the STRUCTURAL list length (a [nat]), never a round-trip through the wrapped [len] *)
+           else OPanic (rt_index_oob (intraw i) (List.length xs)) w.
+(* ONE length authority: the guard AND the panic payload both consult the STRUCTURAL [List.length]
+   (Go's runtime check compares against the true length), never a round-trip through the wrapped
+   [len] — so a panic payload tells the truth on ALL model states, sealed two-sided just below.
+   On representable slices this is provably the same guard ([len_agrees_structural]). *)
+Lemma slice_get_in_bounds : forall {A} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) w,
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length xs)))%bool = true ->
+  slice_get tag xs i w = ORet (go_list_nth xs (Z.to_nat (intraw i)) (zero_val tag)) w.
+Proof. intros A tag xs i w H. unfold slice_get. rewrite H. reflexivity. Qed.
+Lemma slice_get_oob_payload : forall {A} (tag : GoTypeTag A) (xs : GoSlice A) (i : GoInt) w,
+  (Z.leb 0 (intraw i) && Z.ltb (intraw i) (Z.of_nat (List.length xs)))%bool = false ->
+  slice_get tag xs i w = OPanic (rt_index_oob (intraw i) (List.length xs)) w.
+Proof. intros A tag xs i w H. unfold slice_get. rewrite H. reflexivity. Qed.
+(** The [slice_get] bounds surface, manifest-gated (PROGRESS "Current gates"): the two-sided
+    guard/payload pin + the wrapped-[len] agreement seal, certified zero-axiom as a bundle. *)
+Definition slice_get_bounds_surface :=
+  (@slice_get_in_bounds, @slice_get_oob_payload, @len_agrees_structural).
+Print Assumptions slice_get_bounds_surface.
 
 (** Safe checked index (the safe-by-construction default for slice access).
     [slice_at_ok tag xs i (fun v ok => body)] bounds-checks [i]: if it is in

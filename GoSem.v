@@ -29,7 +29,7 @@
       [gosem_string_authority_surface].  No axioms.
     ============================================================================ *)
 From Fido Require Import GoAst GoTypes GoSafe cmd preamble.   (* [preamble] re-exports [builtins]: [GoAny]/[anyt]/[intwrap]/[World]/[w_log]/[Outcome]/[ORet] *)
-From Stdlib Require Import String List Bool ZArith.
+From Stdlib Require Import String List Bool ZArith Lia.
 Import ListNotations.
 
 (** Box an integer-constant VALUE [z] of int type [t] as the MODEL's runtime [GoAny] — or [None].  FAILS CLOSED
@@ -698,6 +698,85 @@ Proof.
     { intros z pf Hzt. destruct z; [reflexivity | discriminate Hzt]. }
     rewrite (K _ eq_refl Hz). reflexivity.
   - rewrite Hz. reflexivity.
+Qed.
+
+(** ★ CLASS (tier R2) — the four universal RUNTIME-INDEX denotation theorems, one per outcome of the
+    [EIndex (ESliceLit..)] arm, each quantified over the WHOLE reval-evaluable fragment (fixtures like
+    [runtime_index_runs]/[slice_index_panics_denote] are witnesses of these classes, not the claim).
+    Shared side conditions = the tier's exact firing contract: the float boundary passed, [ptype]
+    classifies the whole expression [PtRunInt GTInt], and the constant fold is ABSENT ([eval_value =
+    None] is a genuine hypothesis here, not derivable from [ptype] — an all-constant IN-BOUNDS index
+    folds while still classified [PtRunInt]). *)
+(** In-bounds: construction succeeds, the index is a value within [[0, length)] — the denotation IS the
+    indexed element (and the theorem carries TOTALITY: a true bounds check guarantees the element exists). *)
+Lemma denote_expr_index_in_bounds : forall et es idx vs vi,
+  floats_checked (EIndex (ESliceLit et es) idx) = true ->
+  ptype (EIndex (ESliceLit et es) idx) = Some (PtRunInt GTInt) ->
+  eval_value (EIndex (ESliceLit et es) idx) = None ->
+  reval_elems es = Some (REVals vs) ->
+  reval_int idx = Some (RVal vi) ->
+  andb (Z.leb 0 (intraw vi)) (Z.ltb (intraw vi) (Z.of_nat (length vs))) = true ->
+  exists v, nth_error vs (Z.to_nat (intraw vi)) = Some v /\
+    denote_expr (EIndex (ESliceLit et es) idx) = Some (CRet (anyt TInt64 v), false).
+Proof.
+  intros et es idx vs vi Hfc Hpt Hev Hes Hidx Hb.
+  assert (Hlt : (Z.to_nat (intraw vi) < length vs)%nat).
+  { apply andb_prop in Hb; destruct Hb as [Hle Hltz].
+    apply Z.leb_le in Hle. apply Z.ltb_lt in Hltz.
+    rewrite <- (Nat2Z.id (length vs)). apply Z2Nat.inj_lt; lia. }
+  pose proof (proj2 (nth_error_Some vs (Z.to_nat (intraw vi))) Hlt) as Hne.
+  destruct (nth_error vs (Z.to_nat (intraw vi))) as [v|] eqn:Hnth;
+    [| exfalso; apply Hne; reflexivity].
+  exists v. split; [reflexivity|].
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  unfold reval_elems in Hes. rewrite Hes, Hidx, Hb, Hnth. reflexivity.
+Qed.
+(** Out-of-bounds (negative or >= length): the denotation PANICS with the model's exact
+    [rt_index_oob i n] — index raw and STRUCTURAL constructed length, the Go payload. *)
+Lemma denote_expr_index_oob : forall et es idx vs vi,
+  floats_checked (EIndex (ESliceLit et es) idx) = true ->
+  ptype (EIndex (ESliceLit et es) idx) = Some (PtRunInt GTInt) ->
+  eval_value (EIndex (ESliceLit et es) idx) = None ->
+  reval_elems es = Some (REVals vs) ->
+  reval_int idx = Some (RVal vi) ->
+  andb (Z.leb 0 (intraw vi)) (Z.ltb (intraw vi) (Z.of_nat (length vs))) = false ->
+  denote_expr (EIndex (ESliceLit et es) idx)
+    = Some (CPan (rt_index_oob (intraw vi) (length vs)), true).
+Proof.
+  intros et es idx vs vi Hfc Hpt Hev Hes Hidx Hb.
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  unfold reval_elems in Hes. rewrite Hes, Hidx, Hb. reflexivity.
+Qed.
+(** A panicking ELEMENT aborts construction (the verified go-run order): ITS panic is the denotation —
+    the index is never consulted. *)
+Lemma denote_expr_index_elem_panic : forall et es idx p,
+  floats_checked (EIndex (ESliceLit et es) idx) = true ->
+  ptype (EIndex (ESliceLit et es) idx) = Some (PtRunInt GTInt) ->
+  eval_value (EIndex (ESliceLit et es) idx) = None ->
+  reval_elems es = Some (REPanic p) ->
+  denote_expr (EIndex (ESliceLit et es) idx) = Some (CPan p, true).
+Proof.
+  intros et es idx p Hfc Hpt Hev Hes.
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  unfold reval_elems in Hes. rewrite Hes. reflexivity.
+Qed.
+(** A panicking INDEX (after successful construction) panics with ITS payload — Go's evaluation order
+    (literal first, then index). *)
+Lemma denote_expr_index_idx_panic : forall et es idx vs p,
+  floats_checked (EIndex (ESliceLit et es) idx) = true ->
+  ptype (EIndex (ESliceLit et es) idx) = Some (PtRunInt GTInt) ->
+  eval_value (EIndex (ESliceLit et es) idx) = None ->
+  reval_elems es = Some (REVals vs) ->
+  reval_int idx = Some (RPanic p) ->
+  denote_expr (EIndex (ESliceLit et es) idx) = Some (CPan p, true).
+Proof.
+  intros et es idx vs p Hfc Hpt Hev Hes Hidx.
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  cbn [reval_int]. rewrite Hev, Hpt. cbn [numty_eqb negb].
+  unfold reval_elems in Hes. rewrite Hes, Hidx. reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -2071,6 +2150,8 @@ Definition gosem_trust_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    denote_expr_pure, denote_expr_div_zero, runtime_tier_runs, runtime_tier_supported,
+   denote_expr_index_in_bounds, denote_expr_index_oob,
+   denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    undenoted_frontier_pinned,
    arg_panic_shortcircuit_runs,

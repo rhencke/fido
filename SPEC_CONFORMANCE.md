@@ -1161,4 +1161,8 @@ a non-negative out-of-range index yields `runtime error: index out of range [i] 
 NEGATIVE index yields `runtime error: index out of range [i]` with NO length part.  Digits via the
 model's own `Z_dec_string` (proof-side only — the digit chain is suppressed at extraction; emitted Go
 panics natively).  Consumers: `slice_get`/`slice_idx_get`/`slice_idx_set` and GoSem's runtime-index
-denotation (tier R2) — one payload authority, no collapsed class-wide value.
+denotation (tier R2) — one payload authority, no collapsed class-wide value.  Every payload length is
+STRUCTURAL (`List.length` / `sh_len` / the constructed-element count), never a round-trip through the
+wrapped `len`; `slice_get`'s guard shares that same authority, sealed two-sided by the manifest-gated
+`slice_get_bounds_surface` (with `len_agrees_structural` proving the wrapped `len` agrees on every
+representable slice).
