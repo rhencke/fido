@@ -5,9 +5,11 @@
     - NOT [BehaviorSafe]; covers only the currently denoted GoSem fragment (no modeled nil/pointer/channel
       hazards); does NOT gate the MAIN output (that stays the trusted plugin).
     - The gate accepts a program iff it denotes to [c] with [cmd_no_panic c = true].
-    - Rejection has TWO mechanisms: ANY denotation containing a [CPan] — however the panic arises — is caught
-      by [cmd_no_panic]; an UNDENOTED runtime-panic form is rejected by NON-denotation (faithful-or-absent,
-      not a proof it is unsafe).  Concrete instances of both are pinned by the [panic_free_gate_*] examples.
+    - Rejection has TWO mechanisms: ANY denotation containing a [CPan] — however the panic arises, incl. the
+      runtime panics GoSem denotes at their EXACT payloads since tier R2 (OOB, div-zero, panicking args) — is
+      caught by [cmd_no_panic]; an ABSENT (undenoted) program is rejected by NON-denotation (faithful-or-absent,
+      not a proof it is unsafe).  Concrete instances of both are pinned by the [panic_free_gate_*] examples
+      ([_slice]/[_div]/[_defer]/[_arg_panic] the first mechanism, [_absent] the second).
     - Names are "panic-free …", never [BehaviorSafe] / [SafeProgram] / bare "safe".
 
     Public surface: [gosem_panic_free_surface] (single-sourced in PROGRESS.md "Current gates"); each
@@ -303,9 +305,10 @@ Proof. split; [apply panic_free_gate_complete; reflexivity | reflexivity]. Qed.
 
 (** Representative emission-gate reach test for a NON-[panic()] runtime panic.  [slice_oob_prog] is VALID Go
     and [SupportedProgram] (an OOB-positive constant slice index is a run-time panic, not a compile error);
-    GoSem DECLINES it, so [panic_free_gate] rejects it — by NON-denotation (faithful-or-absent), NOT a positive
-    proof that OOB programs are unsafe.  The in-bounds twin is accepted and emitted.  The class-level
-    denotation boundary lives in GoSem ([eval_slice_index_{reduces,inbounds_class,oob_class,supported}]). *)
+    since tier R2 GoSem DENOTES it — to a command carrying the exact [rt_index_oob 5 2] [CPan]
+    ([GoSem.slice_index_panics_denote] pins the payload; [denote_expr_index_oob] is the class) — and the gate
+    REJECTS it by [cmd_no_panic] ON the denotation.  The [denotable_program = true] conjunct below CHECKS that
+    mechanism (it cannot drift back to non-denotation by comment).  The in-bounds twin is accepted and emitted. *)
 Definition slice_safe_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 1)]); GsReturn].
@@ -316,13 +319,15 @@ Example panic_free_gate_slice :
   supported_program slice_safe_prog = true                 (* BOTH are valid Go (B1: OOB-positive const index = run-time panic) ... *)
   /\ supported_program slice_oob_prog = true
   /\ (exists c, panic_free_gate slice_safe_prog = Some c)   (* ... the in-bounds one the BEHAVIORAL gate ACCEPTS ... *)
-  /\ panic_free_gate slice_oob_prog = None                  (* ... the OOB one (VALID Go!) it REJECTS behaviorally — since tier R2 it DENOTES to a [CPan] carrying the exact [rt_index_oob i n] payload, caught by [cmd_no_panic] *)
+  /\ denotable_program slice_oob_prog = true                (* ... the OOB one DENOTES (tier R2 — its exact [rt_index_oob] [CPan]) ... *)
+  /\ panic_free_gate slice_oob_prog = None                  (* ... so its rejection is [cmd_no_panic]'s judgment ON the denotation, NOT non-denotation *)
   /\ emit_panic_free_gated slice_safe_prog <> None
   /\ emit_panic_free_gated slice_oob_prog = None.
 Proof.
   split; [ vm_compute; reflexivity | ].
   split; [ vm_compute; reflexivity | ].
   split; [ apply panic_free_gate_complete; vm_compute; reflexivity | ].
+  split; [ vm_compute; reflexivity | ].
   split; [ vm_compute; reflexivity | ].
   split; [ vm_compute; discriminate | vm_compute; reflexivity ].
 Qed.
@@ -377,6 +382,19 @@ Example panic_free_gate_arg_panic :
        [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
+(** The ABSENT (non-denotation) rejection mechanism, pinned: [GoSem.runconv_e] (a runtime width
+    conversion — the tier-R3 frontier witness) is SUPPORTED valid Go that GoSem does NOT yet denote, so
+    the gate rejects it by NON-denotation — faithful-or-absent, NO behavior judgment (unlike the
+    denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  When tier R3
+    lands and [runconv_e] denotes, this pin BREAKS — swap in the next frontier member in the same
+    commit (the witness-succession rule). *)
+Example panic_free_gate_absent :
+  supported_program (println_prog runconv_e) = true
+  /\ denotable_program (println_prog runconv_e) = false
+  /\ panic_free_gate (println_prog runconv_e) = None
+  /\ emit_panic_free_gated (println_prog runconv_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
+
 (** PUBLIC SURFACE — the module's panic-free safety results bundled into ONE constant, so a SINGLE
     [Print Assumptions] covers all their transitive cones (the Docker manifest gate FAILS on any axiom; rule 3).
     Adding a panic_free_* theorem to the certified surface = adding it HERE (else it is an internal helper,
@@ -386,5 +404,6 @@ Definition gosem_panic_free_surface :=
    panic_free_denotable_runs_ret, panic_free_denotable_runs_ret_ustep,
    panic_free_denotable_supported, pfe_runs_ret, emit_panic_free_via_blessed,
    panic_free_gate_sound, panic_free_gate_complete, emit_panic_free_gated_some, emit_panic_free_gated_sound,
-   panic_free_gate_slice, panic_free_gate_defer, panic_free_gate_div, panic_free_gate_arg_panic).
+   panic_free_gate_slice, panic_free_gate_defer, panic_free_gate_div, panic_free_gate_arg_panic,
+   panic_free_gate_absent).
 Print Assumptions gosem_panic_free_surface.

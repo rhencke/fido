@@ -2240,8 +2240,8 @@ Definition map_struct_demo : IO unit :=
     [chan_of_chan_demo]'s [chan chan int64], where the element is a DIFFERENT type — here the element type
     contains the channel's own type.)  Recursion through the tag-free phantom [GoChan] + the NULLARY
     nominal tag [TChanBox] (finite; the channel-of-itself tag is the finite [TChan TChanBox]).  A goroutine
-    sends the self-box; main receives it and reads the id — built from safe channel APIs (no [close], so
-    send-on-closed is unexpressible) and MACHINE-CHECKED race-free in shape: a self-sending-channel relay
+    sends the self-box; main receives it and reads the id — built from safe channel APIs (the program
+    contains no [close], so send-on-closed cannot occur in it) and MACHINE-CHECKED race-free in shape: a self-sending-channel relay
     is [MemFree], so this fits the memory-free/ownership discipline ([memfree_prog_race_free] /
     [cursed_spawn_reachable_race_free], concurrency.v) — race-free for every interleaving, yet
     self-sending.  (As with [cursed_demo], only the typed↔operational bridge to this exact program is the
@@ -2252,18 +2252,20 @@ Definition chanbox_demo : IO unit :=
   ( v <-' recv TChanBox c ;;                             (* v : ChanBox = {42, c} (its [Ch] field is c again)  *)
     println [any (cb_id v)] ).                           (* prints: 42  (parens: [>>'] is level 50, the [<-'] tail level 80) *)
 
-(** THE NORTH-STAR "CURSED" DEMO (v2) — assorted Go horror in ONE struct, safe by construction with its
-    concurrency shape MACHINE-CHECKED race-free ([cursed_spawn_reachable_race_free]; see the HONEST SCOPE
+(** THE NORTH-STAR "CURSED" DEMO (v2) — assorted Go horror in ONE struct, every failure mode FAIL-LOUD,
+    its concurrency shape MACHINE-CHECKED race-free ([cursed_spawn_reachable_race_free]; see the HONEST SCOPE
     note at the end — only the typed↔calculus bridge is the limit-#2 frontier).  A struct
     [Cursed] holds a SLICE of channels that SEND THEMSELVES ([]chan ChanBox) AND a pointer into a
     RECURSIVE linked list (a *ListNode).  TWO goroutines each pull their channel OUT of the slice-in-the-
     struct and make it transmit a [ChanBox] whose [Ch] field IS that very channel — channels-in-a-slice-
     in-a-struct sending THEMSELVES, concurrently — while main receives BOTH and TRAVERSES the 3-node
     recursive list head→tail.  It looks unsafe to a Go expert (a slice of self-sending channels nested in
-    a struct, concurrent goroutines, a recursive heap type), yet it is built EXCLUSIVELY from
-    safe-by-construction APIs: out-of-bounds is UNEXPRESSIBLE ([slice_get] demands an in-range proof),
-    every deref is the fail-loud [ptr_get], every channel op a safe form, and the program contains no
-    [close] — so OOB / nil-deref / send-on-closed cannot silently occur.  Its concurrency SHAPE is
+    a struct, concurrent goroutines, a recursive heap type), yet every failure mode is FAIL-LOUD, never
+    silent: [slice_get] is the raw ESCAPE-HATCH index — it PANICS on OOB with Go's exact [rt_index_oob]
+    payload (this demo's constant indexes 0/1 into the 2-slice are in bounds; the comma-ok [slice_at_ok]
+    is the safe-by-construction alternative), every deref is the fail-loud [ptr_get], every channel op a
+    safe form, and the program contains no [close] — so OOB / nil-deref / send-on-closed cannot SILENTLY
+    occur.  Its concurrency SHAPE is
     MACHINE-CHECKED race-free: [cursed_spawn_reachable_race_free] (concurrency.v) proves that EXACT shape
     — a main goroutine that owns the heap and dynamically spawns memory-free ([MemFree]) self-sending-
     channel relays, then recvs and reads/writes its list — race-free for EVERY reachable interleaving, via
