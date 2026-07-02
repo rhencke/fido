@@ -1582,6 +1582,10 @@ Definition int_add (a b : GoInt) : GoInt := intwrap (intraw a + intraw b).
 Definition int_sub (a b : GoInt) : GoInt := intwrap (intraw a - intraw b).
 Definition int_mul (a b : GoInt) : GoInt := intwrap (intraw a * intraw b).
 Definition int_neg (a : GoInt) : GoInt := intwrap (wrap64 (Z.opp (intraw a))).
+(* Go's unary [^x] on [int] — the two's-complement BITWISE COMPLEMENT, = [-x-1] = [Z.lnot] exactly
+   (verified `go run`: ^3 = -4, ^-1 = 0, ^minint = maxint); a bijection on the int64 window, so the
+   wrap is the identity here — [intwrap] kept for the carrier's range invariant. *)
+Definition int_not (a : GoInt) : GoInt := intwrap (Z.lnot (intraw a)).
 Definition int_eqb (a b : GoInt) : bool := Z.eqb (intraw a) (intraw b).
 Definition int_ltb (a b : GoInt) : bool := Z.ltb (intraw a) (intraw b).
 Definition int_leb (a b : GoInt) : bool := Z.leb (intraw a) (intraw b).
