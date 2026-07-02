@@ -235,6 +235,73 @@ Proof.
   cbn [shr shr_record_of_loc shr_m].
   rewrite Hcap. reflexivity.
 Qed.
+Lemma shl_align_id : forall m e, shl_align m e e = (m, e).
+Proof. intros. unfold shl_align. rewrite Z.sub_diag. reflexivity. Qed.
+(** digits vs magnitude — the bridge from a magnitude window ([|m| < 2^k], the gate's spelling)
+    to [binary_round_exact]'s digit premise: every positive needs at least [2^(digits-1)]. *)
+Lemma digits2_pos_lower : forall p, (2 ^ Zpos (digits2_pos p) <= 2 * Zpos p)%Z.
+Proof.
+  (* every arithmetic step keeps [Z.pow] OUT of lia's goals (pow terms stay under explicit
+     monotonicity lemmas — zify's pow handling is not assumed) *)
+  induction p; cbn [digits2_pos].
+  - rewrite Pos2Z.inj_succ, Z.pow_succ_r by apply Pos2Z.is_nonneg.
+    apply Z.le_trans with (m := (2 * (2 * Zpos p))%Z).
+    + apply (Zmult_le_compat_l _ _ 2); [exact IHp | lia].
+    + rewrite Pos2Z.inj_xI. lia.
+  - rewrite Pos2Z.inj_succ, Z.pow_succ_r by apply Pos2Z.is_nonneg.
+    apply Z.le_trans with (m := (2 * (2 * Zpos p))%Z).
+    + apply (Zmult_le_compat_l _ _ 2); [exact IHp | lia].
+    + rewrite Pos2Z.inj_xO. lia.
+  - cbn. lia.
+Qed.
+Lemma digits2_pos_le_of_lt_pow : forall p k,
+  (0 <= k)%Z -> (Zpos p < 2 ^ k)%Z -> (Zpos (digits2_pos p) <= k)%Z.
+Proof.
+  intros p k Hk Hlt.
+  pose proof (digits2_pos_lower p) as Hlo.
+  destruct (Z.leb_spec (Zpos (digits2_pos p)) k) as [|Hgt]; [assumption|].
+  exfalso.
+  assert (Hmono : (2 ^ (k + 1) <= 2 ^ Zpos (digits2_pos p))%Z)
+    by (apply Z.pow_le_mono_r; lia).
+  rewrite Z.pow_add_r in Hmono by lia.
+  rewrite Z.pow_1_r in Hmono.
+  assert (Hp2 : (2 * Zpos p < 2 * 2 ^ k)%Z)
+    by (apply Zmult_lt_compat_l; [lia | exact Hlt]).
+  apply (Z.lt_irrefl (2 ^ k * 2)%Z).
+  eapply Z.le_lt_trans; [exact Hmono|].
+  eapply Z.le_lt_trans; [exact Hlo|].
+  replace (2 ^ k * 2)%Z with (2 * 2 ^ k)%Z by apply Z.mul_comm.
+  exact Hp2.
+Qed.
+(** [renorm] IDEMPOTENCE on the in-window class: [binary_round]'s output is already canonical —
+    re-normalizing it is the identity (its digits+exponent equals the input's, so the [fexp]
+    target reproduces itself and the re-alignment is [shl_align_id]).  Closes rung 3's
+    idempotence obligation (the f32 wrappers re-round through [f32_of_f64]). *)
+Lemma renorm_binary_round_idem : forall prec emax s m e,
+  (Zpos (digits2_pos m) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos m) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  renorm prec emax (binary_round prec emax s m e) = binary_round prec emax s m e.
+Proof.
+  intros prec emax s m e Hd He Hde Hemax.
+  assert (HT : (fexp prec emax (Zpos (digits2_pos m) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  rewrite (binary_round_exact prec emax s m e Hd He Hde Hemax).
+  pose proof (shl_align_snd m e _ HT) as Hsnd.
+  pose proof (shl_align_digits m e _ HT) as Hdig.
+  destruct (shl_align m e (fexp prec emax (Zpos (digits2_pos m) + e))) as [mz ez] eqn:Ea.
+  cbn [fst snd] in Hsnd, Hdig |- *. subst ez.
+  unfold renorm.
+  assert (Hd2 : (Zpos (digits2_pos mz) <= prec)%Z) by (unfold fexp, emin in *; lia).
+  assert (He2 : (emin prec emax <= fexp prec emax (Zpos (digits2_pos m) + e))%Z)
+    by (unfold fexp, emin in *; lia).
+  assert (Hde2 : (Zpos (digits2_pos mz) + fexp prec emax (Zpos (digits2_pos m) + e) <= emax)%Z)
+    by lia.
+  destruct s; cbn [cond_Zopp Z.opp binary_normalize];
+    rewrite (binary_round_exact prec emax _ mz _ Hd2 He2 Hde2 Hemax);
+    rewrite Hdig, shl_align_id; reflexivity.
+Qed.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 

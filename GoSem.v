@@ -6537,6 +6537,41 @@ Proof.
     cbv beta iota. cbv. reflexivity.
 Qed.
 
+(** rung 3's WINDOW BRIDGES — the GATE's own repr window ([float_dyadic_repr], the acceptance
+    boundary for every [PtFloatConst] payload and [box_float]/[sf_render]) implies
+    [binary_round_exact]'s premises, both widths: accepted payloads ARE the exactness theorem's
+    class (the digits-vs-magnitude step is [digits2_pos_le_of_lt_pow]). *)
+Lemma float_dyadic_repr_f64_premises : forall m e p,
+  float_dyadic_repr GTFloat64 m e = true ->
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= 53)%Z /\ (emin 53 1024 <= e)%Z
+  /\ (Zpos (digits2_pos p) + e <= 1024)%Z.
+Proof.
+  intros m e p H Habs. unfold float_dyadic_repr in H.
+  apply andb_true_iff in H; destruct H as [H1 H2].
+  apply andb_true_iff in H2; destruct H2 as [H2 H3].
+  apply Z.ltb_lt in H1; apply Z.leb_le in H2; apply Z.leb_le in H3.
+  rewrite Habs in H1. change 9007199254740992%Z with (2 ^ 53)%Z in H1.
+  assert (Hd : (Zpos (digits2_pos p) <= 53)%Z)
+    by (apply digits2_pos_le_of_lt_pow; [lia | exact H1]).
+  split; [exact Hd|]. split; [unfold emin; lia|]. lia.
+Qed.
+Lemma float_dyadic_repr_f32_premises : forall m e p,
+  float_dyadic_repr GTFloat32 m e = true ->
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= 24)%Z /\ (emin 24 128 <= e)%Z
+  /\ (Zpos (digits2_pos p) + e <= 128)%Z.
+Proof.
+  intros m e p H Habs. unfold float_dyadic_repr in H.
+  apply andb_true_iff in H; destruct H as [H1 H2].
+  apply andb_true_iff in H2; destruct H2 as [H2 H3].
+  apply Z.ltb_lt in H1; apply Z.leb_le in H2; apply Z.leb_le in H3.
+  rewrite Habs in H1. change 16777216%Z with (2 ^ 24)%Z in H1.
+  assert (Hd : (Zpos (digits2_pos p) <= 24)%Z)
+    by (apply digits2_pos_le_of_lt_pow; [lia | exact H1]).
+  split; [exact Hd|]. split; [unfold emin; lia|]. lia.
+Qed.
+
 (** ---- THE GENERAL dyadic↔SF AGREEMENT ARC (plans/dyadic-sf-agreement.md) — rung 1: NEGATION at
     binary64.  Unlike the [fsf_checked_*_agrees] theorems above (which state what acceptance of the
     per-node CONST-LAYER check means), this is checker-free: the dyadic fold's render IS the sign flip
@@ -6777,6 +6812,8 @@ Definition gosem_float_surface :=
    fsf_checked_conv_same_agrees, fsf_checked_conv_narrow_agrees, fsf_checked_conv_widen_agrees,
    eval_value_floats_checked, floats_checked_children_eqs,
    Fido.builtins.binary_round_opp, Fido.builtins.binary_round_exact,
+   Fido.builtins.renorm_binary_round_idem,
+   float_dyadic_repr_f64_premises, float_dyadic_repr_f32_premises,
    sf_render_neg_general_f64, sf_render_fold_neg_general_f64,
    fsf_checked_render, fsf_checked_neg_zero_total, negzero_const_runs,
    sf_const_binop_zero_erased, sf_const_neg_zero_erased,

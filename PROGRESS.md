@@ -77,9 +77,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 ## NEXT
 
-- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`): rungs 1–3 landed (NEG-f64 +
-  the signed-zero constant layer; `shl_align` spec; `binary_round_exact` in-window); next: the
-  repr-window bridge + `renorm` idempotence, then value-determinism (rung 4). (The
+- The dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md`): rungs 1–3 landed — NEG-f64 +
+  the signed-zero constant layer; the `shl_align` spec; `binary_round_exact` WITH its window
+  bridges (`float_dyadic_repr_{f64,f32}_premises` — accepted payloads are the theorem's class)
+  and `renorm_binary_round_idem`. Next: value-determinism (rung 4), then ADD/SUB. (The
   typed-runtime tier T1–T5 + R8 is COMPLETE — lesson ledger in `LESSONS.md`.)
 - CONSOLIDATION directive (2026-07-02, boss): no new features next; shrink bytes — GoSem.v
   physical split per the plan in `ARCHITECTURE.md`, surfaces stay endpoint-only.

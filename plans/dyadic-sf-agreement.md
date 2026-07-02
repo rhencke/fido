@@ -36,13 +36,18 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
 2. **`shl_align` spec — LANDED** (builtins): `digits2_pos_iter_xO`/`iter_xO_val` (exact left
    shifts add digits one-for-one and multiply by `2^d`), `shl_align_snd`/`shl_align_digits`
    (digits+exponent is SHIFT-INVARIANT)/`shl_align_fst_val` (value preserved).
-3. **`binary_round` EXACTNESS in-window — LANDED** (builtins, gated via `gosem_float_surface`):
-   `binary_round_exact` — for `digits2_pos m <= prec`, `emin <= e`, `digits+e <= emax`,
-   `binary_round s m e` IS the canonical finite (the shifted mantissa at the `fexp` target), no
-   rounding/underflow/overflow: both `shr_fexp` passes are ZERO shifts at `loc_Exact`.  With
-   `shl_align_fst_val` the value is exact.  STILL TO DO in this rung: the `float_dyadic_repr`
-   window ⟹ these premises (digits-vs-magnitude bridge), and `renorm` idempotence on canonical
-   forms (unblocks the f32 row — `f32_neg` re-rounds through `f32_of_f64`).
+3. **`binary_round` EXACTNESS in-window — LANDED** (builtins + GoSem, gated via
+   `gosem_float_surface`), all three obligations:
+   (a) the core `binary_round_exact` — for `digits2_pos m <= prec`, `emin <= e`,
+   `digits+e <= emax`, `binary_round s m e` IS the canonical finite (the shifted mantissa at
+   the `fexp` target), no rounding/underflow/overflow: both `shr_fexp` passes are ZERO shifts
+   at `loc_Exact`; with `shl_align_fst_val` the value is exact.
+   (b) the WINDOW BRIDGES `float_dyadic_repr_{f64,f32}_premises` — the gate's own repr window
+   implies those premises (digits-vs-magnitude via `digits2_pos_lower`/
+   `digits2_pos_le_of_lt_pow`), so ACCEPTED payloads are the theorem's class.
+   (c) `renorm_binary_round_idem` — renorm idempotence on the in-window class (the output's
+   digits+exponent reproduces the `fexp` target; re-alignment is `shl_align_id`), unblocking
+   the f32 wrappers (`f32_neg` re-rounds through `f32_of_f64`).
 4. **`binary_normalize` VALUE-determinism**: `dy_norm (m1,e1) = dy_norm (m2,e2) ->
    binary_normalize m1 e1 s = binary_normalize m2 e2 s` — via the one-step doubling lemma
    (`binary_round s m e = binary_round s (2m) (e-1)`: `digits2_pos` shifts by one, `fexp`
