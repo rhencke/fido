@@ -1,33 +1,17 @@
-(** GoSemSafe.v — the first behavioral-safety PROPERTIES over GoSem's denotation (proof-only — NOT extracted;
-    but the [emit_panic_free] cert below BUILDS Go source via the blessed printer, so this file is not "no Go").
+(** GoSemSafe.v — first behavioral properties over GoSem's partial denotation (proof-only; the cert below
+    BUILDS Go source via the blessed printer but nothing here is extracted).
 
-    ⚠ MODULE-WIDE CAVEAT (stated ONCE; the defs below do NOT repeat it): NONE of these PROPERTIES is the
-    [BehaviorSafe] gate.  The emission cert + decidable gate below ([emit_panic_free] / [panic_free_gate] /
-    [emit_panic_free_gated]) ARE behavioral, but NARROW — they cover the currently DENOTED GoSem fragment,
-    which has no modeled nil/pointer/channel hazards.  Accepted iff the program denotes to [c] with
-    [cmd_no_panic c].  Rejection has TWO mechanisms: a DENOTABLE panic — an immediate [panic()], a deferred
-    one, or the determined divide-by-zero — is rejected by [cmd_no_panic] on its denotation; an UNDENOTED
-    runtime-panic form (the OOB constant slice index, a panicking literal element) is rejected by
-    NON-denotation (faithful-or-absent, not a proof it is unsafe).  Among ACCEPTED programs no [OPanic] occurs.
-    They do NOT gate the MAIN output (that stays the trusted plugin) and are NOT full [BehaviorSafe].  Names are
-    "panic-free …", NEVER [BehaviorSafe] / [SafeProgram] / bare "safe".
+    Scope:
+    - NOT [BehaviorSafe]; covers only the currently denoted GoSem fragment (no modeled nil/pointer/channel
+      hazards); does NOT gate the MAIN output (that stays the trusted plugin).
+    - The gate accepts a program iff it denotes to [c] with [cmd_no_panic c = true].
+    - Rejection has TWO mechanisms: a DENOTABLE panic (immediate / deferred / the determined divide-by-zero)
+      is caught by [cmd_no_panic] on the denotation; an UNDENOTED runtime-panic form (OOB constant slice
+      index, panicking literal element) by NON-denotation (faithful-or-absent, not a proof it is unsafe).
+    - Names are "panic-free …", never [BehaviorSafe] / [SafeProgram] / bare "safe".
 
-    Structure (each def's exact contract is at its site; the public surface is bundled in
-    [gosem_panic_free_surface], single-sourced in PROGRESS.md "Current gates"):
-    - PROPERTIES: a [CPan]-free command runs (via [run_cmd], for enough fuel — defers included) to [ORet],
-      never [OPanic] ([panic_free_runs_ret]; [_ustep] lifts it to [ustep] through the general bridge
-      [bridge_agrees], keeping [run_cmd] the authority).
-    - PREDICATE: [panic_free_denotable] = the program DENOTES and its denotation is [CPan]-free
-      ([cmd_no_panic] — behavioral, one check for immediate/deferred/future-runtime panics); ONE DECIDABLE
-      bool on the RAW [Program]; it ENTAILS the panic-free run ([panic_free_denotable_runs_ret][_ustep]) and
-      REFINES [SupportedProgram] ([panic_free_denotable_supported]).
-    - CERT + EMITTER: [PanicFreeEmittable] (program + [panic_free_denotable]) REFINES [GoEmit.EmittableProgram];
-      [emit_panic_free] emits through the blessed [emit_supported] path, but its PRECONDITION is a proven
-      panic-free run ([pfe_runs_ret]), not merely syntactic [SupportedProgram].
-    - DECIDABLE GATE: [panic_free_gate] : [Program -> option PanicFreeEmittable] decides the predicate and
-      builds-cert-or-rejects (SOUND + COMPLETE); [emit_panic_free_gated] is the end-to-end decide-then-emit
-      ([emit_panic_free_gated_sound]: emit ⟹ the run guarantee + blessed bytes) — the ancestor of [emit_safe].
-    Plus the cmd.v-level DEFER-FREE exact-output panic lemma ([run_cmd_panics_world]). *)
+    Public surface: [gosem_panic_free_surface] (single-sourced in PROGRESS.md "Current gates"); each
+    theorem's exact contract is at its site. *)
 
 From Fido Require Import preamble cmd GoAst GoTypes GoSafe GoSem cmd_unified unified GoEmit.
 From Stdlib Require Import String List Bool Sumbool ZArith.   (* ZArith registers Z's number notation so [EInt 10] type-directs to [Z] while nat fuel stays nat (as in GoSem) *)
@@ -214,7 +198,7 @@ Proof.
   apply (denotable_supported p). apply (proj1 (denote_program_dec p)). congruence.
 Qed.
 
-(** ---- SEED of the GoSem-BACKED emission certificate (north-star: [BehaviorSafe] -> [SafeProgram] ->
+(** ---- SEED of the GoSem-BACKED emission certificate (future path: [BehaviorSafe] -> [SafeProgram] ->
     [emit_safe]).  On the DENOTED fragment "panic-free" IS the behavioral-safety condition: the fragment has no
     modeled nil/pointer/channel hazards; a denoted panic (immediate / deferred / the determined divide-by-zero)
     is caught by [cmd_no_panic], and the still-undenoted runtime-panic forms (OOB constant slice index,

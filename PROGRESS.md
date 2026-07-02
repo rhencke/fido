@@ -6,11 +6,11 @@ Short live ledger. Design: `ARCHITECTURE.md`; rules: `CLAUDE.md`; mistakes: `LES
 ## The goal
 
 Be **safer than Go's compiler can prove** — lift type/memory/concurrency safety to compile time — while still
-lowering into ordinary Go (channels, goroutines, maps, slices). The behavioral-safety TARGET: PROVE, before
-emitting, that nil deref / use-after-close / out-of-bounds / send-on-closed / failed assertion / data race /
-silent overflow cannot happen. Long-term: concurrent programs with session-typed protocol compliance, race
-freedom, and deadlock freedom over the Go memory model's happens-before. Built incrementally. ⚠️ TODAY the
-spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is only a narrow off-main `emit_panic_free` seed.
+lowering into ordinary Go (channels, goroutines, maps, slices). TARGET: PROVE, before emitting, that nil deref
+/ use-after-close / out-of-bounds / send-on-closed / failed assertion / data race / silent overflow cannot
+happen; long-term, session-typed protocol compliance + race/deadlock freedom over Go's happens-before. Built
+incrementally. ⚠️ TODAY the spine gates SUPPORTED SYNTACTIC emission on the main path; behavioral safety is
+only a narrow off-main `emit_panic_free` seed.
 
 **Honest claim:** *verified model components with a TRUSTED extraction backend* — NOT "formally verified Go."
 Theorems are proved in Rocq; `*.go` is extracted from `*.v` by the trusted plugin. No theorem relates emitted
@@ -117,11 +117,10 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 ## NEXT
 
-- GROW `eval_value` (`len` of maps / genuinely-runtime operands like `int(x)` need runtime values; fractional
-  floats need `PtFloatConst` to carry a real float, not just an integer `z`) — the general converse
-  (`denotable_stmts_main_denotes`) is already statement-compositional, so each eval case shrinks the
-  supported-but-undenoted gap (`denotable_*` ⊊ `supported_*` — `stmt_denotable ⟹ stmt_ok` is already proved,
-  `stmt_denotable_ok`), whose SOLE remaining source is the eval-partial value forms.
+- GROW `eval_value`/`denote_expr` (`len` of maps needs a map evaluator; fractional floats need `PtFloatConst`
+  to carry a real float) — the converse machinery is statement-compositional, so each case shrinks the
+  supported-but-undenoted gap (`denotable_*` ⊊ `supported_*`; `stmt_denotable_ok` is the proved direction),
+  whose SOLE remaining source is the eval-partial value forms.
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.
@@ -131,8 +130,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 
 Rocq kernel · the string→`.go` extraction step · the Go toolchain · trusted foreign imports · the whole
 trusted plugin `plugin/go.ml` (gap #10) · and (once GoSem backs emission) the `GoSem`≈real-Go adequacy
-assumption, heir to gap #10. The MODEL's logical trust base is empty (zero axioms); the plugin is the
-separate, still-trusted TCB.
+assumption, heir to gap #10. The MODEL's logical trust base is empty (zero axioms); the plugin is separate.
 
 ## Current gates
 
