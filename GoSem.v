@@ -15,12 +15,13 @@
       constants, a CONSTANT in-bounds index into an ALL-CONSTANT int-slice literal [[]int{..}[k]], [len] of
       such a literal, and [len] of an ALL-CONSTANT integer-keyed ([goty_supported]-typed) map literal — the WHOLE literal is
       evaluated, so a runtime/panicking element or value rejects the fold; the folds are in the
-      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1–R3) denotes DETERMINED runtime
+      [eval_value_good] table below); and the RUNTIME tier [reval_int] (R1–R4) denotes DETERMINED runtime
       integers with the MODEL'S OWN ops — runtime [len] (a panicking element aborts construction),
       [+ - * /] with the determined zero divisor panicking [rt_div_zero], the runtime slice INDEX
-      (in-bounds → the element; OOB → the EXACT parameterized [rt_index_oob i n] payload), and (R3) width
+      (in-bounds → the element; OOB → the EXACT parameterized [rt_index_oob i n] payload), (R3) width
       CONVERSIONS of runtime ints ([int(x)] in-fragment; every other integer width via the model's own
-      wraps — [wrap_runint], Go's runtime truncation).  Runtime BOOL comparisons, map VALUES, and
+      wraps — [wrap_runint], Go's runtime truncation), and (R4) runtime bool COMPARISONS of int-fragment
+      operands (the model's own [int_eqb]/[int_ltb]/[int_leb] via [cmp_verdict]).  Runtime map VALUES and
       runtime FLOATS are not yet denoted.
     - FAITHFUL-OR-ABSENT: a supported program gets its RIGHT behavior or (not yet) NONE ([denote_program = None]) —
       NEVER a wrong one.  [None] means "not modeled yet", NOT "invalid".
@@ -684,6 +685,21 @@ Definition wrap_runint (t : GoTy) (z : Z) : option GoAny :=
   | _       => None
   end.
 
+(** Tier R4 comparison dispatch — the verdict function per comparison [BinOp], built ONLY from the
+    model's own [int_eqb]/[int_ltb]/[int_leb] ([!=] is the negation of [==]; [>]/[>=] are the argument
+    swap — Go's exact [int] comparison semantics).  [None] = not a comparison ([&&]/[||] operate on
+    BOOLS, never the int fragment; arithmetic never yields the bool exit). *)
+Definition cmp_verdict (o : BinOp) : option (GoInt -> GoInt -> bool) :=
+  match o with
+  | BEq => Some int_eqb
+  | BNe => Some (fun x y => negb (int_eqb x y))
+  | BLt => Some int_ltb
+  | BLe => Some int_leb
+  | BGt => Some (fun x y => int_ltb y x)
+  | BGe => Some (fun x y => int_leb y x)
+  | _ => None
+  end.
+
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
   match eval_value e with
   | Some v => Some (CRet v, false)
@@ -713,6 +729,31 @@ Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
                       end
                   | Some (RPanic p) => Some (CPan p, true)
                   | None => None
+                  end
+              | _ => None
+              end
+          | EBn o a b =>
+              (* tier R4 — the runtime bool COMPARISON exit: [ptype e = PtBool] on a binop is a
+                 comparison (or [&&]/[||] — dispatched away by [cmp_verdict]); both operands must
+                 evaluate in the [GTInt] runtime fragment ([reval_int] — a string / bool / mixed-width
+                 operand is absent there, so no wrong compare can slip through), and the verdict is the
+                 model's own comparison op.  A panicking operand panics LEFT-to-right (Go's order),
+                 before any comparison. *)
+              match ptype e with
+              | Some PtBool =>
+                  match cmp_verdict o with
+                  | None => None
+                  | Some cmp =>
+                      match reval_int a with
+                      | Some (RVal va) =>
+                          match reval_int b with
+                          | Some (RVal vb) => Some (CRet (anyt TBool (cmp va vb)), false)
+                          | Some (RPanic p) => Some (CPan p, true)
+                          | None => None
+                          end
+                      | Some (RPanic p) => Some (CPan p, true)
+                      | None => None
+                      end
                   end
               | _ => None
               end
@@ -915,6 +956,65 @@ Proof.
   rewrite He. cbv beta iota.
   rewrite Hpt. cbv beta iota. rewrite Ht. cbv beta iota.
   rewrite Ha. reflexivity.
+Qed.
+
+(** ★ CLASS (tier R4) — the runtime bool COMPARISON denotation theorems, quantified over the whole
+    reval-evaluable fragment: a binop [ptype] classifies [PtBool] whose op is a COMPARISON
+    ([cmp_verdict o = Some cmp] — the class-scoping dispatch; [&&]/[||] are [None] there) and whose
+    operands both evaluate in the [GTInt] runtime fragment denotes to the model's own verdict, boxed
+    [TBool].  A panicking operand panics LEFT-to-right (Go's order), before any comparison. *)
+Lemma denote_expr_cmp_runs : forall o a b va vb cmp,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  eval_value (EBn o a b) = None ->
+  cmp_verdict o = Some cmp ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RVal vb) ->
+  denote_expr (EBn o a b) = Some (CRet (anyt TBool (cmp va vb)), false).
+Proof.
+  intros o a b va vb cmp Hfc Hpt Hev Hc Ha Hb.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  rewrite He. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
+Qed.
+Lemma denote_expr_cmp_left_panic : forall o a b p cmp,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  eval_value (EBn o a b) = None ->
+  cmp_verdict o = Some cmp ->
+  reval_int a = Some (RPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b p cmp Hfc Hpt Hev Hc Ha.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  rewrite He. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Ha. reflexivity.
+Qed.
+Lemma denote_expr_cmp_right_panic : forall o a b va p cmp,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some PtBool ->
+  eval_value (EBn o a b) = None ->
+  cmp_verdict o = Some cmp ->
+  reval_int a = Some (RVal va) ->
+  reval_int b = Some (RPanic p) ->
+  denote_expr (EBn o a b) = Some (CPan p, true).
+Proof.
+  intros o a b va p cmp Hfc Hpt Hev Hc Ha Hb.
+  assert (He : reval_int (EBn o a b) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota.
+    rewrite Hpt. cbv beta iota. reflexivity. }
+  unfold denote_expr. rewrite Hev, Hfc. cbn [negb].
+  rewrite He. cbv beta iota.
+  rewrite Hpt. cbv beta iota. rewrite Hc. cbv beta iota.
+  rewrite Ha. cbv beta iota. rewrite Hb. reflexivity.
 Qed.
 
 Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
@@ -1153,10 +1253,9 @@ Qed.
     CONVERSION [runconv_e] — NOT folded, yet denoted, [runtime_conv_runs]): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
-    (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap): [runbool_e]
-    ([out_boundary_runtime_undenoted]), the multi-byte rune [string(200)]
-    ([runeconv_multibyte_boundary]), [maplen_runval_e].  [denotable_supported] pins
-    denotable ⊆ supported. *)
+    (the NON-EXHAUSTIVE [undenoted_frontier]; see its comment — no theorem bounds the gap):
+    [maplen_runval_e] ([out_boundary_runtime_undenoted]) and the multi-byte rune [string(200)]
+    ([runeconv_multibyte_boundary]).  [denotable_supported] pins denotable ⊆ supported. *)
 Definition folded_arg (e : GExpr) : bool :=
   match eval_value e with Some _ => printable_arg_ok e | None => false end.
 
@@ -1216,8 +1315,8 @@ Qed.
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class in EITHER direction:
     the runtime tier denotes MORE than the folded fragment ([println(int64(len([]int{1})))] = [runconv_e] is
     NOT [folded_arg] yet DENOTES since tier R3 — [runtime_conv_runs]; the tier's own converse is future
-    work), and some supported args do not denote AT ALL yet ([println(runbool_e)], a runtime bool
-    comparison — pinned by [out_boundary_runtime_undenoted]).  [println_main_denotes]
+    work), and some supported args do not denote AT ALL yet ([println(maplen_runval_e)], a map-[len] over
+    a runtime VALUE — pinned by [out_boundary_runtime_undenoted]).  [println_main_denotes]
     below is the all-[println] COROLLARY. *)
 Definition out_call (pr : bool) (args : list GExpr) : GExpr :=
   if pr then ECall (EId (mkIdent "println" eq_refl)) args
@@ -1329,9 +1428,9 @@ Proof. apply out_main_denotes. reflexivity. Qed.
     slice-[len] whose ELEMENT is runtime — DENOTES since tier R1, [runtime_tier_runs], though still
     eval-level absent); [runidx_e] (a RUNTIME slice index — DENOTES since tier R2, [runtime_index_runs]);
     [runconv_e] (a RUNTIME width conversion — DENOTES since tier R3, [runtime_conv_runs]); [runbool_e]
-    (a RUNTIME bool comparison — no runtime bool rule yet) and [maplen_runval_e] (a map-[len] whose
-    VALUE is runtime).  These are LOCAL fixture spellings; the pinned witness group for the gap is
-    [undenoted_frontier] below. *)
+    (a RUNTIME bool comparison — DENOTES since tier R4, [runtime_bool_runs]) and [maplen_runval_e] (a
+    map-[len] whose VALUE is runtime — undenoted, needs the map-value rule).  These are LOCAL fixture
+    spellings; the pinned witness group for the gap is [undenoted_frontier] below. *)
 Definition divzero_e : GExpr :=
   EBn BDiv (EInt 1) (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt []]).
 Definition divzero_map_e : GExpr :=
@@ -1351,19 +1450,20 @@ Definition maplen_runval_e : GExpr :=
   ECall (EId (mkIdent "len" eq_refl))
         [EMapLit GTInt GTInt [(EInt 1, ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 2]])]].
 
-(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len([]int{1}) == 0)]
-    is SUPPORTED (valid Go) yet its arg is a RUNTIME bool COMPARISON GoSem does not yet evaluate (no
-    runtime bool rule; NOT [folded_arg] either — the eval level is constant-only), so the program does
-    NOT denote.  (The width-CONVERSION witness that used to sit here DENOTES through tier R3 —
-    [runtime_conv_runs]; the R2 index witness through [runtime_index_runs]; [eval_value runlen_e = None]
-    remains the strictness pin for the EVAL-level [eval_len_supported] inclusion.) *)
-Definition out_runbool_prog : Program :=
+(** BOUNDARY — the fragment is NOT the whole supported output class: [println(len(map[int]int{1: len([]int{2})}))]
+    is SUPPORTED (valid Go) yet its arg is a map-[len] over a RUNTIME map VALUE GoSem does not yet
+    evaluate (needs the map-value rule; NOT [folded_arg] either — the eval level is constant-only), so
+    the program does NOT denote.  (The bool-COMPARISON witness that used to sit here DENOTES through
+    tier R4 — [runtime_bool_runs]; the R3 conversion through [runtime_conv_runs]; the R2 index through
+    [runtime_index_runs]; [eval_value runlen_e = None] remains the strictness pin for the EVAL-level
+    [eval_len_supported] inclusion.) *)
+Definition out_runval_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runbool_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_runval_e]); GsReturn].
 Example out_boundary_runtime_undenoted :
-  supported_program out_runbool_prog = true
-  /\ folded_arg runbool_e = false
-  /\ denote_program out_runbool_prog = None
+  supported_program out_runval_prog = true
+  /\ folded_arg maplen_runval_e = false
+  /\ denote_program out_runval_prog = None
   /\ eval_value runlen_e = None.   (* the eval-level strictness pin survives the tier: constant folds only *)
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
@@ -1758,6 +1858,30 @@ Example runtime_conv_supported :
     ; println_prog runconv_panic_e ] = true.
 Proof. vm_compute. reflexivity. Qed.
 
+(** ★ RUNTIME-BOOL pins (tier R4, grouped): [len([]int{1}) == 0] prints false; [!=] of the same pair
+    prints true (the negation dispatch); [len([]int{1,2}) > len([]int{1})] prints true (the
+    argument-SWAP dispatch at a non-trivial verdict); and a PANICKING left operand panics before any
+    comparison ([1/len([]int{}) == 1] → [rt_div_zero] — Go's order).  All supported (gate unchanged). *)
+Definition runbool_ne_e : GExpr :=
+  EBn BNe (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0).
+Definition runbool_gt_e : GExpr :=
+  EBn BGt (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1; EInt 2]])
+          (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Definition runbool_panic_e : GExpr := EBn BEq divzero_e (EInt 1).
+Example runtime_bool_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ runbool_e ; runbool_ne_e ; runbool_gt_e ; runbool_panic_e ]
+  = [ Some (ORet tt (w_log true (anyt TBool false :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TBool true :: nil) w))
+    ; Some (OPanic rt_div_zero w) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example runtime_bool_supported :
+  forallb supported_program
+    [ println_prog runbool_e ; println_prog runbool_ne_e
+    ; println_prog runbool_gt_e ; println_prog runbool_panic_e ] = true.
+Proof. vm_compute. reflexivity. Qed.
+
 (** STRICT-SUBSET pin (GATED, map-[len]): a map literal whose VALUE is a same-typed RUNTIME int
     ([map[int]int{1: len([]int{2})}]) is [ptype]-SUPPORTED (valid Go) yet undenoted at BOTH the expression
     and program level — so [eval_map_len_supported] is a strict INCLUSION, not equality; runtime values
@@ -1855,16 +1979,16 @@ Proof.
     [exact (denotable_body_terminator_free_necessary b Htf) | exact (denotable_body_of_stmts b)].
 Qed.
 
-(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(runbool_e)]
-    is a DENOTABLE body ([return] terminates; the runtime-bool-arg [println] is a SUPPORTED dead tail) whose
-    tail does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body HAS a
-    terminator — exactly why the iff above does not apply to it.  (The R3 conversion witness that sat here
+(** The escape is REAL (the converse is genuinely sufficient-not-necessary): [return; println(maplen_runval_e)]
+    is a DENOTABLE body ([return] terminates; the runtime-map-value-arg [println] is a SUPPORTED dead tail)
+    whose tail does NOT denote, so [denotable_body = true] while [forallb stmt_denotable = false].  This body
+    HAS a terminator — exactly why the iff above does not apply to it.  (The R4 bool witness that sat here
     now DENOTES — succession.) *)
 Example denotable_body_escapes_stmt_denotable :
   denotable_body [GsReturn;
-    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runbool_e])] = true
+    GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_runval_e])] = true
   /\ forallb stmt_denotable [GsReturn;
-       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runbool_e])] = false.
+       GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_runval_e])] = false.
 Proof. split; vm_compute; reflexivity. Qed.
 
 (** ---- EXECUTABLE TOTALITY is UNIVERSAL, not GoSem's: cmd.v's gated [run_cmd_terminates] proves EVERY
@@ -1935,21 +2059,21 @@ Definition gosem_defer_arg_panic_prog : Program :=
 
 (** STRUCTURAL short-circuit regressions: after a KNOWN-panic argument, later ARGUMENTS and later STATEMENTS
     are unreachable — they must be SUPPORTED (the gate) but are NOT required to DENOTE.  The undenoted piece
-    in each is the runtime bool COMPARISON ([runbool_e], supported-printable yet undenoted —
-    [out_boundary_runtime_undenoted]; the R3 conversion that sat here now denotes): as a LATER ARG of the
-    panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED panicking-arg call.  Each
-    program denotes and runs to [OPanic rt_div_zero] with NO output. *)
+    in each is the runtime-map-value [len] ([maplen_runval_e], supported-printable yet undenoted —
+    [out_boundary_runtime_undenoted]; the R4 bool comparison that sat here now denotes): as a LATER ARG of
+    the panicking call, as the SUCCESSOR statement, and as the successor of a DEFERRED panicking-arg call.
+    Each program denotes and runs to [OPanic rt_div_zero] with NO output. *)
 Definition gosem_arg_panic_tail_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
-    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; runbool_e]); GsReturn].
+    [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e; maplen_runval_e]); GsReturn].
 Definition gosem_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runbool_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_runval_e]); GsReturn].
 Definition gosem_defer_arg_panic_succ_prog : Program :=
   mkProgram (mkIdent "main" eq_refl)
     [GsDefer (ECall (EId (mkIdent "println" eq_refl)) [divzero_e]);
-     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [runbool_e]); GsReturn].
+     GsExprStmt (ECall (EId (mkIdent "println" eq_refl)) [maplen_runval_e]); GsReturn].
 Definition arg_panic_shortcircuit_progs : list Program :=
   [gosem_arg_panic_tail_prog; gosem_arg_panic_succ_prog; gosem_defer_arg_panic_succ_prog].
 Example arg_panic_shortcircuit_runs : forall w,
@@ -2271,30 +2395,29 @@ Proof. vm_compute. reflexivity. Qed.
 
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
     [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer, the
-    determined divide-by-zero, and the R3 width conversion included), FALSE (and [denote_program = None])
-    for the supported-but-undenoted runtime-BOOL-comparison program ([out_runbool_prog]). *)
+    determined divide-by-zero, the R3 width conversion, and the R4 bool comparison included), FALSE (and
+    [denote_program = None]) for the supported-but-undenoted runtime-MAP-VALUE program ([out_runval_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
      gosem_runtime_blank_prog; gosem_arg_panic_prog; gosem_defer_arg_panic_prog;
-     println_prog runlen_e; println_prog runconv_e] = true
-  /\ forallb (fun p => negb (denotable_program p)) [out_runbool_prog] = true
+     println_prog runlen_e; println_prog runconv_e; println_prog runbool_e] = true
+  /\ forallb (fun p => negb (denotable_program p)) [out_runval_prog] = true
   /\ forallb (fun p => match denote_program p with None => true | Some _ => false end)
-       [out_runbool_prog] = true.
+       [out_runval_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** REPRESENTATIVE named witnesses of the supported-but-undenoted gap, pinned as a group.
     ⚠ NON-EXHAUSTIVE, in BOTH senses: no theorem bounds the gap's extent (open work), AND several
     known undenoted classes have NO member here yet (e.g. runtime unary [-]/[^], nonzero runtime [%],
     runtime float forms) — this list is representative, never a coverage claim.  Members: the
-    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form), a RUNTIME
-    bool COMPARISON ([runbool_e] — no runtime bool rule yet), and the runtime map VALUE
-    ([maplen_runval_e] — needs its own map-value rule).  (The OOB constant index and the runtime index
-    LEFT this list at tier R2 — [runtime_index_runs]; the runtime width CONVERSION at tier R3 —
-    [runtime_conv_runs].)  Each member is pinned supported AND undenoted AND eval-level absent. *)
+    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a runtime form) and the
+    runtime map VALUE ([maplen_runval_e] — needs its own map-value rule).  (The OOB constant index and
+    the runtime index LEFT this list at tier R2 — [runtime_index_runs]; the runtime width CONVERSION at
+    tier R3 — [runtime_conv_runs]; the runtime bool COMPARISON at tier R4 — [runtime_bool_runs].)  Each
+    member is pinned supported AND undenoted AND eval-level absent. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
-  ; runbool_e
   ; maplen_runval_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
@@ -2331,8 +2454,10 @@ Definition gosem_trust_surface :=
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
+   denote_expr_cmp_runs, denote_expr_cmp_left_panic, denote_expr_cmp_right_panic,
    runtime_index_runs, runtime_index_supported, slice_index_panics_denote,
    runtime_conv_runs, runtime_conv_supported,
+   runtime_bool_runs, runtime_bool_supported,
    undenoted_frontier_pinned,
    arg_panic_shortcircuit_runs,
    slice_index_supported_but_undenoted,

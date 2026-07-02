@@ -382,22 +382,23 @@ Example panic_free_gate_arg_panic :
        [gosem_arg_panic_prog; gosem_defer_arg_panic_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** The ABSENT (non-denotation) rejection mechanism, pinned: [GoSem.runbool_e] (a runtime bool
-    COMPARISON — no runtime bool rule yet) is SUPPORTED valid Go that GoSem does NOT yet denote, so
-    the gate rejects it by NON-denotation — faithful-or-absent, NO behavior judgment (unlike the
-    denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  The absent side
-    is NOT "non-panic shapes only": [panic_absent_prog] is a syntactic PANIC form ([panic(runbool_e)] —
-    supported, [panic] accepts any svalue) whose ARG does not yet denote, so IT TOO rejects by
-    non-denotation, not by a judgment on any panic.  (The R3 width-conversion witness that sat here
-    DENOTES since tier R3 — succession per the witness rule.)  When a runtime bool rule lands and
-    [runbool_e] denotes, BOTH pins BREAK — swap in the next frontier member in the same commit. *)
+(** The ABSENT (non-denotation) rejection mechanism, pinned: [GoSem.maplen_runval_e] (a map-[len]
+    over a runtime map VALUE — needs the map-value rule) is SUPPORTED valid Go that GoSem does NOT yet
+    denote, so the gate rejects it by NON-denotation — faithful-or-absent, NO behavior judgment (unlike
+    the denoted-panic rejections above, where [cmd_no_panic] judges the actual denotation).  The absent
+    side is NOT "non-panic shapes only": [panic_absent_prog] is a syntactic PANIC form
+    ([panic(maplen_runval_e)] — supported, [panic] accepts any svalue) whose ARG does not yet denote, so
+    IT TOO rejects by non-denotation, not by a judgment on any panic.  (The R4 bool-comparison witness
+    that sat here DENOTES since tier R4 — succession per the witness rule.)  When the map-value rule
+    lands and [maplen_runval_e] denotes, BOTH pins BREAK — swap in the next frontier member in the same
+    commit. *)
 Definition panic_absent_prog : Program :=
-  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [runbool_e])].
+  mkProgram (mkIdent "main" eq_refl) [GsExprStmt (ECall (EId (mkIdent "panic" eq_refl)) [maplen_runval_e])].
 Example panic_free_gate_absent :
-  supported_program (println_prog runbool_e) = true
-  /\ denotable_program (println_prog runbool_e) = false
-  /\ panic_free_gate (println_prog runbool_e) = None
-  /\ emit_panic_free_gated (println_prog runbool_e) = None
+  supported_program (println_prog maplen_runval_e) = true
+  /\ denotable_program (println_prog maplen_runval_e) = false
+  /\ panic_free_gate (println_prog maplen_runval_e) = None
+  /\ emit_panic_free_gated (println_prog maplen_runval_e) = None
   /\ supported_program panic_absent_prog = true
   /\ denotable_program panic_absent_prog = false
   /\ panic_free_gate panic_absent_prog = None
