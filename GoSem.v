@@ -195,6 +195,32 @@ Fixpoint fsf_checked (e : GExpr) : option spec_float :=
   end.
 Definition fsf_operand : GoTy -> GExpr -> option spec_float := fsf_operand_with fsf_checked.
 
+(** THE FLOAT BOUNDARY — [floats_checked e]: EVERY subexpression of [e] whose [ptype] is a float
+    CONSTANT passes [fsf_checked] (plain syntax recursion into ALL children — slice elements, map keys
+    and values, conversion sources, either operand — so a float fold LAUNDERED through an integer
+    conversion like [int(float64(3)*float64(2))], a comparison operand, a string-conversion source, or a
+    literal element is still reached and re-verified).  [eval_value] checks this ONCE at its top — the
+    single value-denotation entry every consumer flows through — so no denoted value anywhere depends on
+    an unverified float fold ([eval_value_floats_checked] below is the structural seal). *)
+Fixpoint floats_checked (e : GExpr) : bool :=
+  (match ptype e with
+   | Some (PtFloatConst _ _) => match fsf_checked e with Some _ => true | None => false end
+   | _ => true
+   end)
+  && match e with
+     | EId _ | EInt _ | EStr _ | EHex _ => true
+     | EUn _ a => floats_checked a
+     | EBn _ a b => floats_checked a && floats_checked b
+     | ESel a _ => floats_checked a
+     | EIndex a i => floats_checked a && floats_checked i
+     | ESlice a lo hi => floats_checked a && floats_checked lo && floats_checked hi
+     | ECall f args => floats_checked f && forallb floats_checked args
+     | EAssert a _ => floats_checked a
+     | EConv _ a => floats_checked a
+     | ESliceLit _ es => forallb floats_checked es
+     | EMapLit _ _ kvs => forallb (fun kv => floats_checked (fst kv) && floats_checked (snd kv)) kvs
+     end.
+
 (** The COMPARISON [BinOp]s fold a constant integer pair to a [bool] ([>]/[>=] reuse [<]/[<=] with swapped
     operands).  Arithmetic / [BLAnd] / [BLOr] are NOT comparisons -> [None] HERE; the logical [&&]/[||] are
     handled separately by [eval_bool] (which recurses on their bool operands). *)
@@ -402,7 +428,7 @@ Fixpoint map_entries_evaluable (kt vt : GoTy) (kvs : list (GExpr * GExpr)) : boo
     [nodup_z]-distinct constant keys, so the count IS Go's [len]).  ABSENT ([None], honestly): [len] of a literal with runtime ELEMENTS or of a map literal with a
     runtime VALUE, runtime operands ([int(x)] of a runtime [x], runtime comparisons), OOB / runtime slice INDEX,
     out-of-range or COMPLEMENTED [uint], a rounding (non-exact) float op, multi-byte-rune — never wrong. *)
-Definition eval_value (e : GExpr) : option GoAny :=
+Definition eval_value_core (e : GExpr) : option GoAny :=
   match e with
   | EIndex (ESliceLit t es) idx =>
       (* CONSTANT in-bounds index into an INT-slice literal -> the k-th element.  The WHOLE literal is evaluated
@@ -455,6 +481,21 @@ Definition eval_value (e : GExpr) : option GoAny :=
   | _ => eval_value_ptype e
   end.
 
+(** [eval_value] = the float boundary, ONCE, then the evaluator core.  Every value consumer
+    ([denote_expr]/[eval_args]/[denotable_arg]/the statement layer) enters here, so the boundary covers
+    slice elements, map entries, comparison operands, and conversion sources uniformly — no per-consumer
+    validators. *)
+Definition eval_value (e : GExpr) : option GoAny :=
+  if floats_checked e then eval_value_core e else None.
+
+(** The structural SEAL: a denoted value implies the whole expression passed the float boundary — every
+    [PtFloatConst] subexpression, at any depth, was re-verified against the model op. *)
+Theorem eval_value_floats_checked : forall e v, eval_value e = Some v -> floats_checked e = true.
+Proof.
+  intros e v H. unfold eval_value in H.
+  destruct (floats_checked e); [reflexivity | discriminate H].
+Qed.
+
 (** ---- EFFECTFUL expression denotation (slice 1 of the runtime-panic layer).  Supported programs are CLOSED
     (free identifiers are rejected), so every expression's outcome is DETERMINED; what the pure [eval_value]
     cannot express is a PANICKING outcome.  [denote_expr] denotes an expression to a COMMAND: [CRet v] when the
@@ -477,9 +518,10 @@ Definition divisor_zero (b : GExpr) : bool :=
 
 (** The SEAL: [divisor_zero]'s judgment IS the evaluator's — a zero-judged divisor evaluates to the boxed
     integer 0 (the [len] of an empty fully-evaluable SLICE or MAP literal). *)
-Lemma divisor_zero_eval : forall b, divisor_zero b = true -> eval_value b = box_int GTInt 0.
+Lemma divisor_zero_eval : forall b,
+  floats_checked b = true -> divisor_zero b = true -> eval_value b = box_int GTInt 0.
 Proof.
-  intros b H. unfold divisor_zero in H.
+  intros b Hfc H. unfold eval_value. rewrite Hfc. unfold divisor_zero in H.
   destruct b as [ | | | | | | | fe fargs | | | | | | ]; try discriminate H.
   destruct fe as [ f | | | | | | | | | | | | | ]; try discriminate H.
   destruct fargs as [|a rest]; try discriminate H.
@@ -488,14 +530,14 @@ Proof.
     destruct rest as [|? ?]; try discriminate H.
     apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [Hf Ht].
     destruct (eval_int_slice_elems t es) as [[|v vs]|] eqn:He; try discriminate H2.
-    cbn [eval_value]. rewrite Hf, Ht. cbv beta iota delta [andb].
+    cbn [eval_value_core]. rewrite Hf, Ht. cbv beta iota delta [andb].
     rewrite He. reflexivity.
   - (* map: [len(map[kt]vt{})] *)
     destruct rest as [|? ?]; try discriminate H.
     apply andb_true_iff in H as [H1 H2]. apply andb_true_iff in H1 as [H3 Hvt].
     apply andb_true_iff in H3 as [Hf Ht].
     destruct kvs as [|kv kvs']; [|discriminate H2].
-    cbn [eval_value]. rewrite Hf, Ht, Hvt. reflexivity.
+    cbn [eval_value_core]. rewrite Hf, Ht, Hvt. reflexivity.
 Qed.
 
 Definition denote_expr (e : GExpr) : option (Cmd GoAny * bool) :=
@@ -539,7 +581,8 @@ Proof.
   intros o a b t va Ho Hpt Ha Hdz.
   unfold denote_expr.
   assert (Hev : eval_value (EBn o a b) = None).
-  { cbn [eval_value]. unfold eval_value_ptype. rewrite Hpt. reflexivity. }
+  { unfold eval_value. destruct (floats_checked (EBn o a b)); [|reflexivity].
+    cbn [eval_value_core]. unfold eval_value_ptype. rewrite Hpt. reflexivity. }
   rewrite Hev.
   destruct Ho as [-> | ->]; rewrite Hpt, Ha, Hdz; reflexivity.
 Qed.
@@ -1083,6 +1126,7 @@ Qed.
     [nth_error] cases — in-bounds ⇒ the k-th boxed element VALUE, OOB ⇒ [None] — for the whole subfragment. *)
 Lemma eval_slice_index_reduces :
   forall t es idx ci k vs,
+    floats_checked (EIndex (ESliceLit t es) idx) = true ->
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
@@ -1091,11 +1135,12 @@ Lemma eval_slice_index_reduces :
     eval_int_slice_elems t es = Some vs ->
     eval_value (EIndex (ESliceLit t es) idx) = nth_error vs (Z.to_nat k).
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv.
+  intros t es idx ci k vs Hfc Ht Hp Hi Hk Hr Hv.
+  unfold eval_value. rewrite Hfc.
   (* Expose the [EIndex (ESliceLit..)] arm ([cbn [eval_value]] keeps [is_int_goty t]/[int_const_repr] FOLDED —
      whitelist delta), then rewrite each scrutinee and IOTA-reduce (never full [cbn], which would unfold
      [int_const_repr] and defeat [rewrite Hr]) the match it heads before the next rewrite. *)
-  cbn [eval_value].
+  cbn [eval_value_core].
   rewrite Ht. cbv beta iota.
   rewrite Hp. cbv beta iota.
   rewrite Hi. cbv beta iota.
@@ -1107,6 +1152,7 @@ Qed.
     whole fully-evaluable all-constant subfragment (never a wrong value — faithful-or-absent). *)
 Lemma eval_slice_index_oob_class :
   forall t es idx ci k vs,
+    floats_checked (EIndex (ESliceLit t es) idx) = true ->
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
@@ -1116,8 +1162,8 @@ Lemma eval_slice_index_oob_class :
     (length vs <= Z.to_nat k)%nat ->
     eval_value (EIndex (ESliceLit t es) idx) = None.
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv Hoob.
-  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hr Hv).
+  intros t es idx ci k vs Hfc Ht Hp Hi Hk Hr Hv Hoob.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Hfc Ht Hp Hi Hk Hr Hv).
   apply (proj2 (nth_error_None vs (Z.to_nat k))). exact Hoob.
 Qed.
 
@@ -1125,6 +1171,7 @@ Qed.
     VALUE (a real [Some], never [None]), for the whole fully-evaluable all-constant subfragment. *)
 Lemma eval_slice_index_inbounds_class :
   forall t es idx ci k vs,
+    floats_checked (EIndex (ESliceLit t es) idx) = true ->
     is_int_goty t = true ->
     ptype idx = Some ci ->
     int_const_val ci = Some k ->
@@ -1134,8 +1181,8 @@ Lemma eval_slice_index_inbounds_class :
     (Z.to_nat k < length vs)%nat ->
     exists v, eval_value (EIndex (ESliceLit t es) idx) = Some v /\ nth_error vs (Z.to_nat k) = Some v.
 Proof.
-  intros t es idx ci k vs Ht Hp Hi Hk Hr Hv Hin.
-  rewrite (eval_slice_index_reduces t es idx ci k vs Ht Hp Hi Hk Hr Hv).
+  intros t es idx ci k vs Hfc Ht Hp Hi Hk Hr Hv Hin.
+  rewrite (eval_slice_index_reduces t es idx ci k vs Hfc Ht Hp Hi Hk Hr Hv).
   pose proof (proj2 (nth_error_Some vs (Z.to_nat k)) Hin) as Hne.
   destruct (nth_error vs (Z.to_nat k)) as [v|] eqn:E.
   - exists v. split; reflexivity.
@@ -1147,13 +1194,15 @@ Qed.
     [len], so a runtime/panicking element declines the fold — the whole-literal discipline shared with the
     index arm. *)
 Lemma eval_len_reduces : forall t es f vs,
+  floats_checked (ECall (EId f) (ESliceLit t es :: nil)) = true ->
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty t = true ->
   eval_int_slice_elems t es = Some vs ->
   eval_value (ECall (EId f) (ESliceLit t es :: nil)) = box_int GTInt (Z.of_nat (length vs)).
 Proof.
-  intros t es f vs Hf Ht Hv.
-  cbn [eval_value].
+  intros t es f vs Hfc Hf Ht Hv.
+  unfold eval_value. rewrite Hfc.
+  cbn [eval_value_core].
   rewrite Hf, Ht. cbv beta iota delta [andb].
   rewrite Hv. reflexivity.
 Qed.
@@ -1216,6 +1265,7 @@ Qed.
     count, boxed as Go's [int].  The side conditions are exactly the GATE's — never [is_int_goty kt]
     alone. *)
 Lemma eval_map_len_reduces : forall kt vt kvs f,
+  floats_checked (ECall (EId f) (EMapLit kt vt kvs :: nil)) = true ->
   String.eqb (proj1_sig f) "len" = true ->
   is_int_goty kt = true ->
   goty_supported vt = true ->
@@ -1223,8 +1273,9 @@ Lemma eval_map_len_reduces : forall kt vt kvs f,
   map_entries_evaluable kt vt kvs = true ->
   eval_value (ECall (EId f) (EMapLit kt vt kvs :: nil)) = box_int GTInt (Z.of_nat (length kvs)).
 Proof.
-  intros kt vt kvs f Hf Ht Hvt Hnd Hev.
-  cbn [eval_value]. rewrite Hf, Ht, Hvt, Hnd, Hev. reflexivity.
+  intros kt vt kvs f Hfc Hf Ht Hvt Hnd Hev.
+  unfold eval_value. rewrite Hfc.
+  cbn [eval_value_core]. rewrite Hf, Ht, Hvt, Hnd, Hev. reflexivity.
 Qed.
 
 (** ★ SUPPORTEDNESS INCLUSION BRIDGE (map-[len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
