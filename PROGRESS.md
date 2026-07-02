@@ -107,7 +107,8 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 - The TYPED-runtime tier is COMPLETE (`plans/typed-runtime-tier.md`): T1 unary + T2 conversion
   chains + T3 same-width arithmetic (incl. the mixed-const operand WIDTH SEAL) + T4 comparisons +
   T5 heterogeneous shifts, all LANDED + SEALED; the GTInt engine's R8 bitwise/shift rows landed
-  too. Next: the general dyadic↔`SF*` agreement theorem. Keep the byte/size discipline while growing.
+  too. Next: the dyadic↔`SF*` agreement arc (`plans/dyadic-sf-agreement.md` — rung 1 NEG-f64 +
+  the signed-zero pin LANDED; next: `binary_round` exactness in-window).
 - Extend the cmd↔unified bridge to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.

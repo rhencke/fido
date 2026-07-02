@@ -129,6 +129,25 @@ Definition renorm (prec emax : Z) (v : spec_float) : spec_float :=
   | S754_finite s m e => binary_normalize prec emax (cond_Zopp s (Zpos m)) e false
   | x => x   (* zero / infinity / nan are format-independent *)
   end.
+(** The SIGN argument threads INERTLY through [binary_round] — it only reaches the result
+    constructors ([shl_align]/[shr_fexp]/rounding are sign-blind), so NEGATION commutes with
+    canonicalization.  Rung 1 of the general dyadic↔SF agreement arc
+    (plans/dyadic-sf-agreement.md); NO window premise — underflow-to-zero, overflow-to-infinity
+    and the nan guard all carry the flipped sign consistently. *)
+Lemma binary_round_opp : forall prec emax s m e,
+  binary_round prec emax (negb s) m e = SFopp (binary_round prec emax s m e).
+Proof.
+  intros prec emax s m e. unfold binary_round.
+  match goal with |- context [shl_align ?a ?b ?c] =>
+    destruct (shl_align a b c) as [mz ez] end.
+  unfold binary_round_aux.
+  match goal with |- context [shr_fexp ?p ?q ?a ?b ?c] =>
+    destruct (shr_fexp p q a b c) as [mrs' e'] end.
+  match goal with |- context [shr_fexp ?p ?q ?a ?b ?c] =>
+    destruct (shr_fexp p q a b c) as [mrs'' e''] end.
+  destruct (shr_m mrs'') as [|p'|p']; [reflexivity| |reflexivity].
+  destruct (Z.leb e'' (Z.sub emax prec)); reflexivity.
+Qed.
 
 (** ---- float32 (binary32), SOUND abstract model ----
 
