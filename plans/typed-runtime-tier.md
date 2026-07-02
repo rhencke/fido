@@ -1,10 +1,11 @@
 # The TYPED-runtime tier — non-GTInt runtime CARRIER OPERATIONS (the named next arc)
 
 **Goal.** Operations on non-GTInt runtime carriers denote: `^int64(len ..)`, typed same-width
-arithmetic/bitwise/shifts (`int64(x) + int64(y)`), typed comparisons, and conversion CHAINS through a
-non-GTInt intermediate (`int64(uint8(len ..))`). All currently supported-but-undenoted, pinned:
+arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see T5), and
+conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`). All currently supported-but-undenoted, pinned:
 `typed_runtime_not_absent` (the `^` class, three-wide), `typed_runtime_convchain_absent` (the chain),
-representative `runnot_u8_e` in `undenoted_frontier`. Conversion EXITS **from GTInt operands** already
+`typed_runtime_shift_absent` (the mixed-count shift), representative `runnot_u8_e` in
+`undenoted_frontier`. Conversion EXITS **from GTInt operands** already
 denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sources are outside it).
 
 ## Design (decided; implement in slices)
@@ -25,10 +26,16 @@ denote (`denote_expr_conv_*` — `reval_int a` is a hypothesis, so non-GTInt sou
   theorem.
 - **Slices.** T1 unary (`^` all fixed widths via `*_not`; `-` via `i64_neg`/`u64_neg` only — see
   holes). T2 conversion chains (the generalized R3 arm — `rv` sources). T3 same-width
-  arithmetic/bitwise/shifts (`*_add/sub/mul/div/mod/and/or/xor/andnot/shl/shr` — div/mod are
-  evidence-carrying with `rt_div_zero` on a zero divisor, the `int_div` convoy per width; shifts carry
-  their own negative-shift panics — probe the model's `*_shl/_shr` signatures before wiring). T4 typed
-  comparisons (`*_eqb/ltb/leb` + the negation/swap derivations, per width).
+  arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
+  `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
+  (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:
+  Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;
+  the COUNT is an INDEPENDENT integer of any width, nonnegative — a signed negative count PANICS).
+  A separate `typed_shift` dispatcher/evaluator: left operand at its width via `rv`, count evaluated
+  independently (any integer runtime/const form), admissibility derived from `ptype`, never a caller
+  promise; the model ops are heterogeneous too (small widths take `GoInt` counts, `i64/u64` raw `Z` —
+  reconcile per width at the dispatch, fail-closed on any unmodelled pairing).  Mixed-count absence is
+  pinned NOW (`typed_runtime_shift_absent`) so the slice cannot silently land same-width-only.
 - **Witness succession per slice** (the standing rule): each landing flips its pins + the five-site
   sweep + class lemmas sealed to `ptype` (no caller-side totality premises) + non-identity pins
   (wrap/sign witnesses) in ONE commit.

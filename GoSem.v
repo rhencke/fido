@@ -2441,6 +2441,18 @@ Example typed_runtime_convchain_absent :
   /\ denotable_program (println_prog runconv_chain_e) = false
   /\ denote_program (println_prog runconv_chain_e) = None.
 Proof. repeat split; vm_compute; reflexivity. Qed.
+(** The SHIFT boundary, pinned: Go's shift is HETEROGENEOUS ([ptype]'s [BShl|BShr] arm — the LEFT
+    operand fixes the result width, the COUNT is an independent integer), so a typed-left /
+    GTInt-count shift ([uint8(len xs) << len ys]) is supported yet ABSENT — the future shift slice
+    must handle the mixed-count shape, never a same-width-only dispatcher. *)
+Definition runshift_mixed_e : GExpr :=
+  EBn BShl (ECall (EId (mkIdent "uint8" eq_refl)) [runlen3_e])
+           (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]).
+Example typed_runtime_shift_absent :
+  supported_program (println_prog runshift_mixed_e) = true
+  /\ denotable_program (println_prog runshift_mixed_e) = false
+  /\ denote_program (println_prog runshift_mixed_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
@@ -2975,7 +2987,7 @@ Definition gosem_trust_surface :=
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   typed_runtime_not_absent, typed_runtime_convchain_absent,
+   typed_runtime_not_absent, typed_runtime_convchain_absent, typed_runtime_shift_absent,
    denote_expr_index_in_bounds, denote_expr_index_oob,
    denote_expr_index_elem_panic, denote_expr_index_idx_panic,
    denote_expr_conv_runs, denote_expr_conv_panic, ptype_call_runint_conv, wrap_runint_total,
