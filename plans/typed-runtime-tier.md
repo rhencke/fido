@@ -4,9 +4,10 @@
 conversion CHAINS through a non-GTInt intermediate (`int64(uint8(len ..))`, T2 — LANDED), typed
 same-width arithmetic/bitwise (`int64(x) + int64(y)`), typed comparisons, HETEROGENEOUS shifts (see
 T5). Still supported-but-undenoted, pinned: `typed_unary_holes_absent` (the GoUint/narrow-neg
-holes), `typed_runtime_shift_absent` (the five-case shift SHAPE table),
-`runtime_float_source_conv_absent` (the runtime-FLOAT-source conversion — the float arc), the
-representatives in `undenoted_frontier`.
+holes), `typed_runtime_shift_absent` (the five-case shift SHAPE table), the runtime-FLOAT-source
+class (CLASS-sealed absent — `reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`;
+supported-side pin `runtime_float_source_conv_absent` — the float arc), the representatives in
+`undenoted_frontier`.
 
 ## Design (decided; implement in slices)
 
@@ -16,7 +17,8 @@ representatives in `undenoted_frontier`.
   `rexit_with` takes the fixpoint (`rv`) as a parameter (landed with T1); T2 (LANDED) generalized
   BOTH conversion arms to full-power sources (`rv a` in the exit arm; `reval_val_with reval_int a`
   in `reval_int`'s own `int(x)` arm), reading the source carrier via `runint_raw` — the point where
-  conversion CHAINS closed, for exit targets AND the `int` target.
+  conversion CHAINS closed, for exit targets AND the `int` target; each target half has its own
+  sealed theorem (`denote_expr_conv_runs_sealed` / `denote_expr_conv_int_runs_sealed`).
   ⚠ This reshapes `denote_expr`'s unfolding: every conv/cmp class-lemma proof that `unfold rexit_with`
   needs the same mechanical rework as the shared-evaluator refactor (assert the sub-result, then the
   wrapper steps).
@@ -31,10 +33,12 @@ representatives in `undenoted_frontier`.
   invariant is PROVEN (`reval_val_typed`, on `ptype_int_ok` — every classifier `PtRunInt`/`PtTIntConst`
   carries an int width) and the public theorem is SEALED (`denote_expr_typed_unop_runs_sealed` — no
   caller-side dispatch premise); all typed-unary holes pinned eight-wide (`typed_unary_holes_absent`).
-  T2 conversion chains — LANDED (`runint_raw` + both arms at full power; sealed
-  `denote_expr_conv_runs_sealed` with the source split proved exhaustive by
-  `ptype_call_runint_conv_arg`; runs pins `typed_runtime_convchain_runs` incl. the truncating
-  `int8(^uint8(len ..))` = −4, go-run-verified; float-source complement pinned absent). T3 same-width
+  T2 conversion chains — LANDED (`runint_raw` + both arms at full power; sealed PER TARGET —
+  `denote_expr_conv_runs_sealed` exit half, `denote_expr_conv_int_runs_sealed` int half (no name
+  premise: `ptype_call_runint_int_name`) — with the source split proved exhaustive by
+  `ptype_call_runint_conv_arg` and the float side CLASS-absent (`reval_val_runfloat_none` /
+  `denote_expr_conv_float_src_absent`); runs pins `typed_runtime_convchain_runs` incl. the
+  truncating `int8(^uint8(len ..))` = −4, go-run-verified). T3 same-width
   arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
   `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:

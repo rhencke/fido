@@ -55,9 +55,10 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
     SEALED `denote_expr_typed_unop_runs_sealed` on the proven well-taggedness invariant
     `reval_val_typed`; holes absent for every payload, `typed_unop_holes_none` +
     `typed_unary_holes_absent`); conversion CHAINS denote for exit AND `int` targets
-    (`runint_raw` value-then-wrap; SEALED `denote_expr_conv_runs_sealed`, source split proved
-    exhaustive). Float-source conversions + shifts stay pinned:
-    `runtime_float_source_conv_absent`, `typed_runtime_shift_absent`.
+    (`runint_raw` value-then-wrap; SEALED per target — `denote_expr_conv_runs_sealed` +
+    `denote_expr_conv_int_runs_sealed`; source split proved exhaustive, the float side
+    CLASS-absent — `reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`). Shifts stay
+    pinned: `typed_runtime_shift_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
