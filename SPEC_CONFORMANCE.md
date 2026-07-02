@@ -554,8 +554,12 @@ EVIDENCE-CARRYING like `div_nz` — the count must be proven **non-negative**
 for signed — `-3>>1=-2` (toward **−∞**, via `PrimInt63.asr`), DISTINCT from `-3/2=-1`
 (toward zero), and `-1>>3=-1` (not 0).  `>>` is logical for `uintN` (`lsr`, the
 non-negative carrier) and arithmetic for `intN` (`asr`, sign-extended).  Plugin emits
-Go `x<<k` / `x>>k`.  **`int` (Sint63) shifts: ✗** (same 63-vs-64-bit carrier issue
-as `int` bitwise — Z model).
+Go `x<<k` / `x>>k`.  **Plugin `int` shifts: ✗** (not plugin-emitted; the MODEL's `int`
+shifts + bitwise exist and DENOTE — GoSem tier R8, `int_shl`/`int_shr`/`int_and`… over
+the Z-carried `GoInt`).  GATE count rule: Go requires an UNTYPED constant count
+representable by `uint`; the classifier enforces the conservative platform-`uint`
+window (`untyped_count_overflow`, 32-bit-safe — a typed const count is bounded by its
+own width instead), and GoSem saturates counts ≥ 64 (exact for ≤64-bit carriers).
 
 ### [Integer operators](https://go.dev/ref/spec#Integer_operators) — ✓ conforms
 `q=x/y`, `r=x%y`: `x=q*y+r`, `|r|<|y|`, **truncated toward zero**; the example

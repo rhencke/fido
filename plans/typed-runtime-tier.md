@@ -60,7 +60,9 @@ class: `PtRunInt` alone never implies denotation), the representatives in `unden
   operands through the same width seal; panic/absent companions; `uint` + cross-width pinned;
   go-run-verified runs pins incl. both mixed-const kinds). T5 SHIFTS — LANDED (`typed_shift` per the design below; counts ≥ 64 SATURATE to 64 — exactly
   Go for ≤64-bit carriers, go-run-verified incl. the huge-count 0; the negative-count panic
-  `rt_shift_neg` gc-exact; the count layer `shift_count` sealed total on runtime AND const counts;
+  `rt_shift_neg` gc-exact; the count layer `shift_count` reads CONST counts directly off the gate
+  (total, NO evaluation premise — the review-R8 leak fix; untyped counts gate-bounded to the
+  conservative platform-`uint` window) and runtime counts off their carriers;
   the five-case shape table FLIPPED to denoting `typed_runtime_shift_runs` in this commit;
   `uint`-left pinned absent, the `GTInt` left later flipped by tier R8). Original design (now implemented): ⚠ NOT same-width binops:
   Go's shift is HETEROGENEOUS (`ptype`'s own `BShl|BShr` arm: the LEFT operand fixes the result width;

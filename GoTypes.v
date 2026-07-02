@@ -307,13 +307,22 @@ Definition is_zero_const (c : PTy) : bool :=
   | _ => false
   end.
 Definition is_neg_const  (c : PTy) : bool := match int_const_val c with Some z => Z.ltb z 0 | None => false end.
+(* Go: an UNTYPED constant SHIFT COUNT must be representable by [uint]; the model uses its
+   conservative platform-[uint] window ([int_const_repr _ GTUint] — the SAME 32-bit-safe authority
+   as every platform-const range, so an admitted count compiles on 32-bit targets too).  A TYPED
+   constant count is an ordinary integer operand — its own width already bounds it (a [uint64]
+   count > 2^32 is valid Go on every platform; go-run-verified 0). *)
+Definition untyped_count_overflow (c : PTy) : bool :=
+  match c with PtIntConst b => negb (int_const_repr b GTUint) | _ => false end.
 
 (** THE NUMERIC BINOP TYPE-CHECKER — single authority for [* / % << >> & &^ + - | ^].  Enforces, structurally:
     - [%], [&], [|], [^], [&^] and the shifts require INTEGER operands (a FLOAT operand — const or runtime —
       is rejected by the [is_int_cat] gate, closing [float64(1) % float64(2)] / [float64(1) << 2]);
     - [/] and [%] reject a CONSTANT-ZERO divisor (incl. a TYPED const zero [int(0)] and one folded from a
       constant subexpression, [1/(int(1)-int(1))]);
-    - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and let the count type be
+    - the shifts reject a NEGATIVE constant shift count ([1 << int(-1)], [1 << (-1)]) and an UNTYPED constant
+      count past the conservative platform-[uint] window ([untyped_count_overflow] — Go's
+      "representable by uint" count rule, 32-bit-safe), and let the count type be
       independent of the left type; the result takes the LEFT operand's TYPE, and its CONSTNESS ONLY when the
       shift COUNT is ALSO constant (a const-left/const-count shift FOLDS, repr-checked in the type; a RUNTIME
       count -> runtime of the left's type);
@@ -338,6 +347,7 @@ Definition num_binop (o : BinOp) (cl cr : PTy) : option PTy :=
   | BShl | BShr =>
       if andb (is_int_cat cl) (is_int_cat cr) then
         if is_neg_const cr then None
+        else if untyped_count_overflow cr then None
         else match cl with
              | PtIntConst a =>
                  match int_const_val cr with

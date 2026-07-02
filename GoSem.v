@@ -521,7 +521,7 @@ Proof.
   destruct (floats_checked e); [reflexivity | discriminate H].
 Qed.
 
-(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R7; this section is the live
+(** ---- EFFECTFUL expression denotation + the RUNTIME-value tier (R1–R8; this section is the live
     authority — the surfaces bundle its theorems).  Supported programs are CLOSED, so runtime integer
     values are DETERMINED.  [reval_int] evaluates the [GTInt] fragment with the MODEL'S OWN ops on the
     model's own carrier; constants enter through [eval_value] (the single fold authority) via the
@@ -1305,7 +1305,9 @@ Qed.
     payload, go-run-verified); a count >= 64 SATURATES to 64 before the model op — for a carrier of
     <= 64 bits, shifting by >= 64 IS shifting by 64 ([<<]: >= w trailing zero bits, 0 mod 2^w;
     [>>]: exhausted to 0 / the sign fill; go-run-verified [uint8(3) << ^uint64(3)] = 0) — so NO
-    count value is unmodelled.  Small widths take the model's [GoInt] count, [i64]/[u64] the raw
+    GATE-ADMITTED count is unmodelled: a CONSTANT count is read off [ptype]'s own value
+    ([shift_count]'s direct read, TOTAL — [shift_count_const_total]), a RUNTIME count off its
+    carrier.  Small widths take the model's [GoInt] count, [i64]/[u64] the raw
     [Z] count, each behind its own nonneg-evidence convoy. *)
 Definition shift_op (o : BinOp) : bool := match o with BShl | BShr => true | _ => false end.
 Definition shift_amount (z : Z) : GoInt := intwrap (Z.min z 64).
@@ -1529,10 +1531,21 @@ Definition typed_shift (o : BinOp) (t : GoTy) (ga : GoAny) (z : Z) : option RAny
   else None.
 (** The COUNT layer — full evaluation, then the raw reading off ANY int carrier. *)
 Definition shift_count (rv : GExpr -> option RAny) (e : GExpr) : option (Z + GoAny) :=
-  match rv e with
-  | Some (RAVal g) => match runint_raw g with Some z => Some (inl z) | None => None end
-  | Some (RAPanic p) => Some (inr p)
-  | None => None
+  (* A CONSTANT count is read off [ptype]'s OWN value directly — TOTAL on the gate's admitted
+     class ([shift_count_const_total] needs no evaluation premise).  The boxed path would be a
+     side-condition leak: [box_int]'s conservative default-[int] window is a VALUE range, not a
+     COUNT range, and would drop a VALID untyped count like [2^31]; the gate's shift row is the
+     one count authority ([is_neg_const] + [untyped_count_overflow]).  Only a RUNTIME count
+     evaluates ([rv], at its own width — panics propagate). *)
+  match ptype e with
+  | Some (PtIntConst z)    => Some (inl z)
+  | Some (PtTIntConst _ z) => Some (inl z)
+  | _ =>
+      match rv e with
+      | Some (RAVal g) => match runint_raw g with Some z => Some (inl z) | None => None end
+      | Some (RAPanic p) => Some (inr p)
+      | None => None
+      end
   end.
 (** The typed-shift seal set. *)
 Lemma typed_shift_tag_exact : forall o t ga z g,
@@ -1783,8 +1796,10 @@ Definition rexit_with (rec : GExpr -> option RRes) (rv : GExpr -> option RAny) (
                 | None => None
                 end
               else if shift_op o then
-                (* tier T5 — the COUNT evaluates at FULL power at ITS OWN width and is read as a
-                   raw [Z] ([shift_count]); the width-sealed left operand feeds [typed_shift]. *)
+                (* tier T5 — the COUNT is read by the sealed count layer ([shift_count]): a
+                   CONSTANT count directly off the gate's own value (total on the admitted class),
+                   a RUNTIME count at FULL power at ITS OWN width; the width-sealed left operand
+                   feeds [typed_shift]. *)
                 match shift_count rv b with
                 | Some (inl z) => typed_shift o t ga z
                 | Some (inr p) => Some (RAPanic p)
@@ -2011,10 +2026,11 @@ Fixpoint reval_int (e : GExpr) : option RRes :=
               if shift_op o then
                 (* tier R8 — the GTInt SHIFT: the LEFT operand is the engine's own fragment
                    (evaluated FIRST — a panicking left fires before the count, Go's order); the
-                   COUNT evaluates at FULL power at ITS OWN width through T5's sealed count layer
-                   ([shift_count] over the shared evaluator — a [uint8]-counted GTInt shift works),
-                   then the checked convoy applies the dispatched model op ([int_shift_checked]:
-                   a NEGATIVE count panics [rt_shift_neg], counts >= 64 saturate). *)
+                   COUNT is read by T5's sealed count layer ([shift_count] over the shared
+                   evaluator — a CONSTANT count directly off the gate's value, a RUNTIME count at
+                   its own width, so a [uint8]-counted GTInt shift works), then the checked convoy
+                   applies the dispatched model op ([int_shift_checked]: a NEGATIVE count panics
+                   [rt_shift_neg], counts >= 64 saturate). *)
                 match reval_int a with
                 | Some (RVal va) =>
                     match shift_count (reval_val_with reval_int) b with
@@ -2621,7 +2637,7 @@ Proof.
         destruct bb eqn:E; cbv beta iota in Hpt; [|discriminate Hpt]
     end;
     apply andb_true_iff in E; destruct E as [Eil Eir];
-    match type of Hpt with
+    repeat match type of Hpt with
     | (if ?bb then _ else _) = _ =>
         destruct bb; cbv beta iota in Hpt; [discriminate Hpt|]
     end;
@@ -3357,31 +3373,47 @@ Proof.
   pose proof (reval_val_typed b s gb Hpt Hb) as Htag.
   pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
   destruct (runint_raw_total s gb Hi Htag) as [z Hz].
-  exists z. unfold shift_count. rewrite Hb, Hz. reflexivity.
+  exists z. unfold shift_count. rewrite Hpt, Hb, Hz. reflexivity.
 Qed.
-Lemma shift_count_const_total : forall b gb c z0,
-  ptype b = Some c -> int_const_val c = Some z0 ->
-  reval_val b = Some (RAVal gb) ->
-  exists z, shift_count reval_val b = Some (inl z).
+(** ★ CONST-count TOTALITY from the GATE ALONE — no evaluation premise, for ANY evaluator, and
+    the count is EXACTLY [ptype]'s own value: the direct read makes it impossible for the count
+    layer to leak a gate-admitted constant (the review-R8 side-condition-leak class killed
+    structurally, not per-witness). *)
+Lemma shift_count_const_total : forall rv b c z,
+  ptype b = Some c -> int_const_val c = Some z ->
+  shift_count rv b = Some (inl z).
 Proof.
-  intros b gb c z0 Hpt Hic Hb.
-  assert (Hev : eval_value b = Some gb).
-  { unfold reval_val in Hb. rewrite reval_val_with_eq in Hb.
-    destruct (eval_value b) as [v|] eqn:E; cbv beta iota in Hb.
-    - injection Hb as <-. reflexivity.
-    - destruct (reval_int b) as [[x|p]|] eqn:Er; cbv beta iota in Hb.
-      + pose proof (reval_int_runint b _ E Er) as Hr. rewrite Hpt in Hr.
-        injection Hr as ->. cbn in Hic. discriminate Hic.
-      + discriminate Hb.
-      + rewrite (rexit_nonexit_class_none b c Hpt) in Hb; [discriminate Hb|].
-        destruct c; cbn in Hic; try discriminate Hic; reflexivity. }
-  pose proof (eval_value_const_int_tag b gb Hev) as Htag. rewrite Hpt in Htag.
-  destruct c; cbn [int_const_val] in Hic; try discriminate Hic.
-  - destruct (runint_raw_total GTInt gb eq_refl Htag) as [zc Hz].
-    exists zc. unfold shift_count. rewrite Hb, Hz. reflexivity.
-  - pose proof (ptype_int_ok _ _ Hpt) as Hi. cbn in Hi.
-    destruct (runint_raw_total _ gb Hi Htag) as [zc Hz].
-    exists zc. unfold shift_count. rewrite Hb, Hz. reflexivity.
+  intros rv b c z Hpt Hic. unfold shift_count. rewrite Hpt.
+  destruct c; cbn [int_const_val] in Hic; try discriminate Hic;
+    injection Hic as ->; reflexivity.
+Qed.
+(** the count's NONNEGATIVITY comes from the GATE too ([is_neg_const] guards every shift
+    classification) — no caller-side [(0 <=? z) = true] premise needed for const counts *)
+Lemma num_binop_shift_count_nonneg : forall o cl cr t z,
+  shift_op o = true ->
+  num_binop o cl cr = Some (PtRunInt t) ->
+  int_const_val cr = Some z ->
+  (0 <=? z)%Z = true.
+Proof.
+  intros o cl cr t z Ho Hnb Hic.
+  destruct o; try discriminate Ho;
+  ( cbn [num_binop] in Hnb;
+    destruct (andb (is_int_cat cl) (is_int_cat cr)); cbv beta iota in Hnb; [|discriminate Hnb];
+    destruct (is_neg_const cr) eqn:En; cbv beta iota in Hnb; [discriminate Hnb|];
+    unfold is_neg_const in En; rewrite Hic in En;
+    apply Z.leb_le; apply Z.ltb_ge in En; exact En ).
+Qed.
+Lemma ptype_shift_count_const_nonneg : forall o a b t c z,
+  shift_op o = true ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  ptype b = Some c -> int_const_val c = Some z ->
+  (0 <=? z)%Z = true.
+Proof.
+  intros o a b t c z Ho Hpt Hb Hic. cbn [ptype] in Hpt.
+  destruct (ptype a) as [cl|] eqn:Ea; [|discriminate Hpt].
+  rewrite Hb in Hpt. cbv beta iota in Hpt.
+  destruct o; try discriminate Ho;
+    exact (num_binop_shift_count_nonneg _ _ _ _ _ Ho Hpt Hic).
 Qed.
 
 (** The unary [ptype] boundary: a [PtRunInt]-classified unary node's OPERAND is classified at the SAME
@@ -3915,9 +3947,10 @@ Qed.
 
 (** ★ THE SEALED T5 THEOREM — HETEROGENEOUS typed SHIFTS over [ptype]'s own shape split
     ([ptype_shift_runint_args]: the LEFT is runtime-at-[t] or a typed constant AT [t] — the operand
-    width seal covers both; the COUNT is any-width runtime or an int constant, its value read off
-    the carrier by the sealed count layer, total on both shapes — [shift_count_runint_total] /
-    [shift_count_const_total]).  The result is decided per OUTCOME: the width's model op's VALUE, or
+    width seal covers both; the COUNT is any-width runtime or an int constant, read by the sealed
+    count layer — a CONSTANT count directly off the gate's own value, TOTAL with NO evaluation
+    premise ([shift_count_const_total]), a RUNTIME count off its evaluated carrier
+    ([shift_count_runint_total])).  The result is decided per OUTCOME: the width's model op's VALUE, or
     the NEGATIVE-COUNT panic ([typed_shift_panic_neg] — gc's exact payload); operand/count panics
     propagate left-to-right; ABSENT sides stay absent.  [GTUint] left is the hole row
     ([typed_shift_uint_none], pinned [typed_shift_uint_program_absent]); an untyped-const LEFT
@@ -3962,6 +3995,25 @@ Proof.
     rewrite reval_val_with_eq, Hev, He, Hrx.
     destruct r as [g|p]; reflexivity.
   - intros g ->. exact (proj2 (typed_shift_tag_exact _ _ _ _ _ Hr)).
+Qed.
+(** the T5 CONST-count corollary — the count premise DERIVED from the gate ([shift_count_const_total]),
+    so a fixed-width shift with any gate-admitted constant count needs no count-side condition *)
+Lemma denote_expr_typed_shift_const_count_runs : forall o a b t ga c z,
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt t) ->
+  numty_eqb t GTInt = false -> numty_eqb t GTUint = false ->
+  shift_op o = true ->
+  eval_value (EBn o a b) = None ->
+  typed_operand reval_val t a = Some (RAVal ga) ->
+  ptype b = Some c -> int_const_val c = Some z ->
+  exists r, typed_shift o t ga z = Some r
+    /\ denote_expr (EBn o a b)
+       = Some (match r with RAVal g => (CRet g, false) | RAPanic p => (CPan p, true) end)
+    /\ (forall g, r = RAVal g -> tag_matches t g = true).
+Proof.
+  intros o a b t ga c z Hfc Hpt Ht Hu Ho Hev Ha Hb Hic.
+  apply (denote_expr_typed_shift_runs_sealed o a b t ga z Hfc Hpt Ht Hu Ho Hev Ha).
+  exact (shift_count_const_total _ _ _ _ Hb Hic).
 Qed.
 (** The COUNT-side panic propagation (the left already evaluated; Go's order). *)
 Lemma denote_expr_typed_shift_count_panic : forall o a b t ga p,
@@ -4221,6 +4273,27 @@ Proof.
     cbv beta iota. rewrite Hop. cbv beta iota. exact Ev. }
   unfold denote_expr. rewrite Hfc. cbn [negb].
   cbv beta iota delta [reval_val_with]. rewrite Hev, Hr. reflexivity.
+Qed.
+(** ★ the CONST-count class sealed to the GATE: NO count-evaluation premise at all — totality
+    ([shift_count_const_total]) and nonnegativity ([ptype_shift_count_const_nonneg]) both come
+    from [ptype]'s own shift classification, so the only outcome premise left is the LEFT
+    operand's.  (An untyped count past the conservative platform-[uint] window never reaches
+    here — [untyped_count_overflow] rejects it AT the gate, pinned [shift_bigconst_gate].) *)
+Lemma denote_expr_int_shift_const_count_runs : forall o f a b va c z,
+  int_shift_op o = Some f ->
+  floats_checked (EBn o a b) = true ->
+  ptype (EBn o a b) = Some (PtRunInt GTInt) ->
+  reval_int a = Some (RVal va) ->
+  ptype b = Some c -> int_const_val c = Some z ->
+  exists pf,
+    denote_expr (EBn o a b) = Some (CRet (anyt TInt64 (f va (Z.min z 64) pf)), false).
+Proof.
+  intros o f a b va c z Hop Hfc Hpt Ha Hb Hic.
+  assert (Hs : shift_op o = true)
+    by (destruct o; try discriminate Hop; reflexivity).
+  apply (denote_expr_int_shift_runs o f a b va z Hop Hfc Hpt Ha).
+  - exact (shift_count_const_total _ _ _ _ Hb Hic).
+  - exact (ptype_shift_count_const_nonneg o a b GTInt c z Hs Hpt Hb Hic).
 Qed.
 Lemma denote_expr_int_shift_neg_panic : forall o a b va z,
   shift_op o = true ->
@@ -4566,9 +4639,10 @@ Qed.
 (** ---- COMPLETENESS FRAGMENT — [supported ⟹ denotes] for the PRINT/PRINTLN-of-FOLDED-ARGS fragment
     (AUTHORITY: [out_main_denotes]).  [folded_arg] is the EVAL-ONLY (constant-folded) printable-argument
     fragment — deliberately NARROWER than the live denotation boundary ([denote_expr], which since tiers
-    R1–R7 also denotes RUNTIME-determined args: [runlen_e], the runtime index, the runtime width
+    R1–R8 also denotes RUNTIME-determined args: [runlen_e], the runtime index, the runtime width
     CONVERSION [runconv_e], the runtime bool COMPARISON [runbool_e], the runtime-map-value [len]
-    [maplen_runval_e], and the R6/R7 unary/[%] forms ([runneg_e]/[runrem_e]/[runnot_e]) — NOT
+    [maplen_runval_e], the R6/R7 unary/[%] forms ([runneg_e]/[runrem_e]/[runnot_e]), and the R8
+    bitwise/shift forms ([gtint_and_e]/[runshift_intleft_e]) — NOT
     folded, yet denoted): a [folded_arg] certainly
     denotes, so the SUFFICIENT converse below holds outright on this fragment; the converse for the
     runtime tier is future work.  Supported-but-UNDENOTED args remain — REPRESENTATIVE pinned witnesses
@@ -5853,6 +5927,37 @@ Example gtint_shift_supported :
     [ runshift_intleft_e ; gtint_shift_wrap_e ; gtint_shift_typedcnt_e
     ; gtint_shift_huge_e ; gtint_shift_signfill_e ; gtint_shift_negcnt_e ]) = true.
 Proof. vm_compute. reflexivity. Qed.
+(** The BIG-CONST count regressions (the review-R8 leak class): an untyped [2^31] count is
+    outside [box_int]'s conservative default-[int] VALUE window yet a VALID Go count — read
+    DIRECTLY off the gate it DENOTES saturated (go-run-verified: 0 at [int] and [uint8] left,
+    0 for [>>]), and a TYPED [uint64] count past [2^32] stays live (valid Go on EVERY platform;
+    go-run-verified 0).  One step past the conservative platform-[uint] window ([2^32], untyped)
+    is MECHANICALLY unsupported ([untyped_count_overflow] — a 32-bit target could not compile
+    it), never supported-but-undenoted. *)
+Definition gtint_shift_bigconst_e : GExpr := EBn BShl runlen3_e (EInt 2147483648).
+Definition gtint_shr_bigconst_e   : GExpr := EBn BShr runlen3_e (EInt 2147483648).
+Definition u8_shift_bigconst_e    : GExpr := EBn BShl runb_u8   (EInt 2147483648).
+Definition gtint_shift_typedbig_e : GExpr :=
+  EBn BShl runlen3_e (ECall (EId (mkIdent "uint64" eq_refl)) [EInt 5000000000]).
+Example shift_bigconst_runs : forall w,
+  map (fun e => match denote_program (println_prog e) with Some c => run_cmd 5 c w | None => None end)
+      [ gtint_shift_bigconst_e ; gtint_shr_bigconst_e ; u8_shift_bigconst_e ; gtint_shift_typedbig_e ]
+  = [ Some (ORet tt (w_log true (anyt TInt64 (intwrap 55340232221128654848) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 0) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TU8 (u8wrap 55340232221128654848) :: nil) w))
+    ; Some (ORet tt (w_log true (anyt TInt64 (intwrap 55340232221128654848) :: nil) w)) ].
+Proof. intro w. vm_compute. reflexivity. Qed.
+Example shift_bigconst_supported :
+  forallb supported_program (map println_prog
+    [ gtint_shift_bigconst_e ; gtint_shr_bigconst_e ; u8_shift_bigconst_e
+    ; gtint_shift_typedbig_e ]) = true.
+Proof. vm_compute. reflexivity. Qed.
+Example shift_bigconst_gate :
+  ptype (EBn BShl runlen3_e (EInt 4294967296)) = None
+  /\ ptype (EBn BShl runb_u8 (EInt 4294967296)) = None
+  /\ supported_program (println_prog (EBn BShl runlen3_e (EInt 4294967296))) = false
+  /\ supported_program (println_prog (EBn BShl runb_u8 (EInt 4294967296))) = false.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 Example gtint_bitwise_supported :
   forallb supported_program (map println_prog
     [ gtint_and_e ; gtint_or_e ; gtint_xor_e ; gtint_andnot_e ]) = true.
@@ -6504,6 +6609,9 @@ Definition gosem_runtime_int_surface :=
    denote_expr_int_shift_runs, denote_expr_int_shift_neg_panic,
    denote_expr_int_shift_left_panic, denote_expr_int_shift_count_panic,
    int_shift_checked_cases,
+   num_binop_shift_count_nonneg, ptype_shift_count_const_nonneg,
+   denote_expr_int_shift_const_count_runs, denote_expr_typed_shift_const_count_runs,
+   shift_bigconst_runs, shift_bigconst_supported, shift_bigconst_gate,
    gtint_bitwise_runs, gtint_bitwise_supported, gtint_shift_runs, gtint_shift_supported,
    div_checked_cases, div_checked_zero, div_checked_nonzero,
    runtime_typed_binop_runs, runtime_typed_binop_supported,
