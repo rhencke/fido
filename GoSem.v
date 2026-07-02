@@ -6873,6 +6873,52 @@ Proof.
     rewrite (binary_round_of_norm_wide prec emax _ _ e2 q2 k2 E2 Wd2 We2 Wde2 Hemax);
     rewrite Hq, Hk; reflexivity.
 Qed.
+(** the ASSEMBLY's per-operand characterization: a windowed NONZERO dyadic renders to a
+    canonical finite whose SIGNED mantissa carries the value in DIFFERENCE form
+    ([cond_Zopp s mc = m * 2^(e-T)], all exponents nonneg differences — [Z.pow] is zero on
+    negatives, so absolute "m*2^e" values are never stated). *)
+Lemma cond_Zopp_mul : forall s a b, cond_Zopp s (a * b)%Z = (cond_Zopp s a * b)%Z.
+Proof. intros [|] a b; cbn [cond_Zopp]; ring. Qed.
+Lemma render_signed_value_f64 : forall m e p,
+  Z.abs m = Zpos p ->
+  float_dyadic_repr GTFloat64 m e = true ->
+  exists s mc T,
+    binary_normalize 53 1024 m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (emin 53 1024 <= T)%Z /\ (T <= e)%Z.
+Proof.
+  intros m e p Habs Hrep.
+  destruct (float_dyadic_repr_f64_premises m e p Hrep Habs) as [Hd [He Hde]].
+  assert (HT : (fexp 53 1024 (Zpos (digits2_pos p) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  assert (HTe : (emin 53 1024 <= fexp 53 1024 (Zpos (digits2_pos p) + e))%Z)
+    by (unfold fexp, emin in *; lia).
+  pose proof (shl_align_snd p e _ HT) as Hsnd.
+  pose proof (shl_align_fst_val p e _ HT) as Hval.
+  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
+    injection Habs as ->.
+  - (* positive *)
+    exists false, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
+           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact 53 1024 false p e Hd He Hde ltac:(lia)).
+    + cbn [cond_Zopp]. exact Hval.
+    + exact HTe.
+    + exact HT.
+  - (* negative *)
+    exists true, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
+           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact 53 1024 true p e Hd He Hde ltac:(lia)).
+    + cbn [cond_Zopp].
+      change (Zneg p) with (- Zpos p)%Z.
+      rewrite Hval. ring.
+    + exact HTe.
+    + exact HT.
+Qed.
+
 (** ---- rung 5c's VALUE-UNIQUENESS kit: [dy_norm] is determined by the VALUE — aligned
     value-equal pairs normalize identically (the assembly needs this to identify [SFadd]'s raw
     sum over CANONICAL operand mantissas with [dy_add]'s sum over the DYADIC pairs). *)
