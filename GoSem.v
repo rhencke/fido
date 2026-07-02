@@ -846,9 +846,9 @@ Qed.
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
-    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap's
-    KNOWN classes are pinned as the [undenoted_frontier] WITNESSES below (NON-exhaustive — eval-partial
-    constants included, not only runtime forms; no theorem bounds the gap) — a
+    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap
+    is REPRESENTATIVELY witnessed by [undenoted_frontier] below (see its own comment for what it does and
+    does NOT cover) — a
     [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
@@ -1102,7 +1102,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap's known classes are the [undenoted_frontier] WITNESSES (non-exhaustive, pinned below). *)
+    [supported_program] — the gap is representatively witnessed by [undenoted_frontier] (see its comment). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
