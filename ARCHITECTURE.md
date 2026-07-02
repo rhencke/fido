@@ -151,30 +151,33 @@ not "verified Go." GoSem is a slice-1 bridge, NOT behavioral safety. Detailed fe
 
 ---
 
-## 3a. GoSem physical split — IN PROGRESS (file 1 of 4 peeled 2026-07-02)
+## 3a. GoSem physical split — DONE (2026-07-02; revised to 3 files)
 
 `GoSem.v` (~390 KB) is past single-file human reviewability; the topic surfaces solved the
 assumption-gate problem, not the file-level one. The split mirrors the surfaces, one file per
 proof cluster, `GoSem.v` becoming the composition/re-export point:
 
-- `GoSemCore.v` — **PEELED**: box/render (`box_int`/`box_float`/`sf_*`), the const-op layer,
-  the `floats_checked` machinery + `fsf_checked`, and the pure dyadic↔SF* arc (rungs 1–5).
-  The EVALUATOR (`eval_value` + its `Local` core helpers) is NOT in Core: it stays with the
-  proofs that compute through it (GoSem.v today; it moves WITH the tier proofs when they peel).
-  The core helpers must never be public — a caller could skip the float boundary — and their
-  uncallability is negtest-sealed (`neg_float_boundary_bypass_*`).  The float RUN pins + all
-  surface definitions stay downstream (the float surface composes run-level pins).
-- `GoSemRuntimeInt.v` — `reval_int`/`rexit_with`/`reval_val_with`, the typed tiers T1–T5 + R8
-  dispatch/convoys and their seals (→ `gosem_runtime_int_surface`).
-- `GoSemAgg.v` — slice-literal/map construction walks + index/len (→ slice-index + map surfaces).
-- `GoSemWitness.v` — program-level pins, demos, the frontier, the composed surfaces
-  (→ `gosem_frontier_surface`, `gosem_trust_surface`).
+- `GoSemCore.v` (67 KB) — the pure FOLD/FLOAT layer: box/render (`box_int`/`box_float`/`sf_*`),
+  the const-op layer, the `floats_checked` machinery + `fsf_checked`, and the dyadic↔SF* arc.
+  NO evaluator here.
+- `GoSemDenote.v` (250 KB) — the whole DENOTATION layer: the evaluator (`eval_value` + its
+  `Local` core), the runtime/typed tiers and their seals, `denote_expr`/`denote_program` + the
+  statement layer, `gosem_sound` + the converses, and the slice-index/map class theorems.
+  ONE file, not the sketched RuntimeInt/Agg pair: the tier SEALS are denote-level and the
+  slice/map class proofs compute through the same `Local` evaluator core, so any finer cut
+  either re-opens the float-boundary bypass or demands per-shape sealed-equation kits (proof
+  rewrites, not moves).  Its size is the irreducible `Local`-sealed proof cluster.
+- `GoSem.v` (112 KB) — the composition point: re-exports Core + Denote and keeps the pins /
+  fixtures / demos / frontier + ALL gated surface definitions (the public authority; no
+  separate Witness file — a re-export-only shell would add a file for zero reviewability gain).
 
-Constraints: perform it when the float arc's rungs 3–5 land (they add the most mass to the
-core/float cluster); no file may reach into another's internals beyond what it imports — if a
-split forces a helper public, the helper moves instead; `denote_expr`/`denote_program` and the
-statement layer stay wherever keeps `gosem_sound`'s proof in ONE file. No semantic change — a
-pure move, golden byte-identical.
+The evaluator core helpers must never be public — a caller could skip the float boundary —
+and their uncallability is negtest-sealed (`neg_float_boundary_bypass_*`).
+
+Standing constraints: no file may reach into another's internals beyond what it imports — a
+helper a split would force public MOVES (with all its users) instead; `denote_expr`/
+`denote_program` and the statement layer stay wherever keeps `gosem_sound`'s proof in ONE
+file.  Pure moves only, golden byte-identical.
 
 ---
 
