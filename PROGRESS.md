@@ -121,7 +121,7 @@ PRINTS it — serialization proofs only, NOT MiniML→`GExpr` construction. The 
 - RUNTIME tier R2/R3 (`plans/runtime-value-tier.md`): runtime slice INDEX (the first OOB panic in denotation)
   then width conversions; the GENERAL dyadic↔`SF*` theorem to DROP the per-instance guard — each case shrinks the
   supported-but-undenoted gap (`denotable_*` ⊊ `supported_*`; `stmt_denotable_ok` is the proved direction),
-  whose remaining sources are the pinned `undenoted_frontier` classes (eval-partial constants + runtime forms).
+  whose KNOWN classes are pinned as `undenoted_frontier` WITNESSES (non-exhaustive; no theorem bounds the gap).
 - Extend the cmd↔unified bridge past the output/panic/return/defer fragment to chan/heap/spawn.
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` (= EmittableProgram + BehaviorSafe) →
   `emit_safe`; wire the certified path to the main output.

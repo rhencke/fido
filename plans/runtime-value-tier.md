@@ -2,8 +2,9 @@
 
 **Why (pre-R1 framing; R1 closed the len/arith half).** This arc covers the RUNTIME-classified subset of
 the supported-but-undenoted frontier (runtime slice indexing — R2; width conversions — R3; runtime map
-values need their OWN rule) — NOT the whole gap: eval-partial constants (the multi-byte rune) and the OOB
-CONSTANT index are separate frontier classes, pinned in GoSem's `undenoted_frontier`. In the CLOSED world the runtime forms are
+values need their OWN rule) — NOT the whole gap: eval-partial constants (the multi-byte rune), the OOB
+CONSTANT index, runtime conversions/comparisons are separate classes, WITNESSED (non-exhaustively) in
+GoSem's `undenoted_frontier`. In the CLOSED world the runtime forms are
 fully DETERMINED (no inputs, no heap reads in the supported fragment) — `len([]int{len([]int{1})})` is
 always 1 — so a deterministic runtime evaluator can denote them faithfully. This also brings the first
 runtime OOB panic into denotation (`[]int{10,20}[<runtime 5>]` → the run PANICS), the gateway to full
@@ -63,9 +64,9 @@ Heap/chan/spawn denotation (needs AST statements first); the general dyadic↔SF
 - `denote_expr` consumes `reval_int` (RVal → `CRet (anyt TInt64 v), false`; RPanic → `CPan p, true`);
   the computed-flag/short-circuit machinery carries panics unchanged. The `floats_checked` boundary stays
   at `eval_value`; `reval_int`'s constant leaf goes THROUGH `eval_value` (boundary preserved).
-- Witness succession — CURRENT STATE (post-R1): `runlen_e` DENOTES; the undenoted witnesses are
-  `runidx_e` (runtime index — R2), `maplen_runval_e` (runtime map VALUE — needs a map-value runtime rule,
-  not just R2/R3), and width conversions of runtime ints (R3). After R2 swap `runidx_e`'s roles to the
-  conversion shape; after R3 enumerate what remains (runtime floats, runtime string len, map values) or
-  state the fragment-total converse WITH a theorem. NOTE: `folded_arg` (né `denotable_arg`) is the
-  EVAL-ONLY sufficient fragment; the runtime tier's own converse is open work.
+- Witness succession — CURRENT STATE (post-R1): `runlen_e` DENOTES; the pinned `undenoted_frontier`
+  WITNESSES (non-exhaustive) are `runidx_e` (R2), a runtime width CONVERSION (R3), a runtime bool
+  COMPARISON (no rule yet), `maplen_runval_e` (map-value rule), the OOB constant index, and the
+  multi-byte rune. Each tier that lands FLIPS its member's pin — swap the successor in the same commit.
+  NOTE: `folded_arg` (né `denotable_arg`) is the EVAL-ONLY sufficient fragment; the runtime tier's own
+  converse — and any THEOREM bounding the gap — is open work.

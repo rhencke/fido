@@ -846,9 +846,9 @@ Qed.
 (** ---- DENOTABILITY IS DECIDABLE, characterized STRUCTURALLY (converse-direction companion of [gosem_sound]).
     [denotable_body] mirrors [denote_body]: a body denotes iff its head denotes AND — at a TERMINATOR — the
     unreachable rest is merely SUPPORTED, else the rest is itself denotable; [denote_body_dec] proves they
-    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap is
-    EXACTLY the [undenoted_frontier] witness classes (pinned below — eval-partial constants like the
-    multi-byte rune INCLUDED, not only runtime forms) — a
+    AGREE.  A CHARACTERIZATION result, NOT [supported ⟹ denotes]: the [denotable_*] ⊊ [supported_*] gap's
+    KNOWN classes are pinned as the [undenoted_frontier] WITNESSES below (NON-exhaustive — eval-partial
+    constants included, not only runtime forms; no theorem bounds the gap) — a
     [GsDefer] now denotes exactly when its deferred call does. *)
 Fixpoint denotable_body (b : list GoStmt) : bool :=
   match b with
@@ -1101,7 +1101,7 @@ Proof. repeat split; vm_compute; reflexivity. Qed.
     denotable, so its `main` DENOTES — generalizing [out_main_denotes] to ALL denoting statement forms
     interleaved, including a terminator followed by (supported) DEAD code.  SUFFICIENT, not necessary: a
     terminator's unreachable rest need only be SUPPORTED.  STILL CONDITIONAL on [stmt_denotable], NOT full
-    [supported_program] — the gap is the [undenoted_frontier] witness classes (pinned below). *)
+    [supported_program] — the gap's known classes are the [undenoted_frontier] WITNESSES (non-exhaustive, pinned below). *)
 Definition stmt_denotable (s : GoStmt) : bool :=
   match denote_stmt s with Some _ => true | None => false end.
 
@@ -1290,8 +1290,9 @@ Qed.
 
 (** ★ SUPPORTEDNESS INCLUSION BRIDGE ([len]) — the fold's hypotheses IMPLY [ptype = Some (PtRunInt GTInt)]
     (valid Rocq-Go; [ptype] classifies a slice-[len] RUNTIME, exactly as it does the index — the evaluator
-    folds the determined VALUE without loosening the gate).  A strict INCLUSION: [ptype] also admits [len] of
-    a literal with runtime elements, which stays unfolded ([out_boundary_runtime_undenoted]). *)
+    folds the determined VALUE without loosening the gate).  A strict INCLUSION at the EVAL level: [ptype]
+    also admits [len] of a literal with runtime elements, which the CONSTANT fold leaves unfolded (the
+    [eval_value runlen_e = None] conjunct of [out_boundary_runtime_undenoted]; the runtime TIER denotes it). *)
 Lemma is_int_goty_supported : forall t, is_int_goty t = true -> goty_supported t = true.
 Proof. destruct t; intro H; first [reflexivity | discriminate H]. Qed.
 
@@ -1938,7 +1939,7 @@ Proof. vm_compute. reflexivity. Qed.
 (** DENOTABILITY-DECISION witnesses (grouped): [denotable_program] (the decidable predicate of
     [denote_program_dec]) agrees with whether each demo denotes — TRUE for the denoting demos (defer and the
     determined divide-by-zero included), FALSE (and [denote_program = None]) for the supported-but-undenoted
-    runtime-element-[len] program ([out_runtime_prog]). *)
+    runtime-slice-INDEX program ([out_runtime_prog]). *)
 Example gosem_denotability_decisions :
   forallb denotable_program
     [gosem_demo_prog; gosem_return_stops_prog; gosem_strlit_prog; gosem_defer_prog;
@@ -1949,16 +1950,20 @@ Example gosem_denotability_decisions :
        [out_runtime_prog] = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
 
-(** ★ THE supported-but-undenoted FRONTIER — the ONE named witness set every gap comment cites (a prose
-    claim about the [denotable_*] ⊊ [supported_*] gap must point HERE, never re-enumerate): the
-    MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, NOT a runtime form), the valid-Go
-    OOB CONSTANT slice index (a runtime panic Go compiles — the INDEX arm declines it), the RUNTIME slice
-    index ([runidx_e] — tier R2), and the runtime map VALUE ([maplen_runval_e] — needs its own map-value
-    rule, not R2/R3).  Each is supported AND undenoted, pinned as one group. *)
+(** NAMED WITNESSES of the supported-but-undenoted gap — one per KNOWN class, pinned as a group.
+    ⚠ NON-EXHAUSTIVE: a WITNESS list, NOT a proved characterization (no theorem bounds the gap's exact
+    extent — proving one is open work); gap prose cites these witnesses and must not claim completeness.
+    Classes witnessed: the MULTI-BYTE-RUNE constant ([runeconv_mb] — an EVAL-PARTIAL constant, not a
+    runtime form), the valid-Go OOB CONSTANT slice index (the INDEX arm declines it), the RUNTIME slice
+    index ([runidx_e] — tier R2), a RUNTIME width CONVERSION ([int64(len(..))] — tier R3), a RUNTIME
+    bool COMPARISON ([len(..) == 0] — no runtime bool rule yet), and the runtime map VALUE
+    ([maplen_runval_e] — needs its own map-value rule).  Each is supported AND undenoted. *)
 Definition undenoted_frontier : list GExpr :=
   [ runeconv_mb
   ; EIndex (ESliceLit GTInt [EInt 10; EInt 20]) (EInt 5)
   ; runidx_e
+  ; ECall (EId (mkIdent "int64" eq_refl)) [ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]]
+  ; EBn BEq (ECall (EId (mkIdent "len" eq_refl)) [ESliceLit GTInt [EInt 1]]) (EInt 0)
   ; maplen_runval_e ].
 Example undenoted_frontier_pinned :
   forallb (fun e => supported_program (println_prog e)
