@@ -17,8 +17,10 @@ supported-side pin `runtime_float_source_conv_absent` — the float arc), the re
   `rexit_with` takes the fixpoint (`rv`) as a parameter (landed with T1); T2 (LANDED) generalized
   BOTH conversion arms to full-power sources (`rv a` in the exit arm; `reval_val_with reval_int a`
   in `reval_int`'s own `int(x)` arm), reading the source carrier via `runint_raw` — the point where
-  conversion CHAINS closed, for exit targets AND the `int` target; each target half has its own
-  sealed theorem (`denote_expr_conv_runs_sealed` / `denote_expr_conv_int_runs_sealed`).
+  conversion CHAINS closed for EVALUATED sources, exit targets AND the `int` target; each target
+  half has its own sealed theorem (`denote_expr_conv_runs_sealed` /
+  `denote_expr_conv_int_runs_sealed`), and an ABSENT source propagates absent
+  (`denote_expr_conv_src_absent` — `PtRunInt` alone never implies denotation).
   ⚠ This reshapes `denote_expr`'s unfolding: every conv/cmp class-lemma proof that `unfold rexit_with`
   needs the same mechanical rework as the shared-evaluator refactor (assert the sub-result, then the
   wrapper steps).
@@ -33,12 +35,14 @@ supported-side pin `runtime_float_source_conv_absent` — the float arc), the re
   invariant is PROVEN (`reval_val_typed`, on `ptype_int_ok` — every classifier `PtRunInt`/`PtTIntConst`
   carries an int width) and the public theorem is SEALED (`denote_expr_typed_unop_runs_sealed` — no
   caller-side dispatch premise); all typed-unary holes pinned eight-wide (`typed_unary_holes_absent`).
-  T2 conversion chains — LANDED (`runint_raw` + both arms at full power; sealed PER TARGET —
-  `denote_expr_conv_runs_sealed` exit half, `denote_expr_conv_int_runs_sealed` int half (no name
-  premise: `ptype_call_runint_int_name`) — with the source split proved exhaustive by
-  `ptype_call_runint_conv_arg` and the float side CLASS-absent (`reval_val_runfloat_none` /
-  `denote_expr_conv_float_src_absent`); runs pins `typed_runtime_convchain_runs` incl. the
-  truncating `int8(^uint8(len ..))` = −4, go-run-verified). T3 same-width
+  T2 conversion chains — LANDED (`runint_raw` + both arms at full power; the class is decided PER
+  SOURCE OUTCOME on both target halves: value ⟹ wrapped (`denote_expr_conv{,_int}_runs_sealed`,
+  no name premise — `ptype_call_runint_int_name`), panic ⟹ panic (`..conv{,_int}_panic`),
+  absent ⟹ absent (`denote_expr_conv_src_absent`; pinned `runtime_conv_absent_src_pinned`);
+  operand shapes split exhaustively by `ptype_call_runint_conv_arg`, the float side CLASS-absent
+  (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`); runs pins
+  `typed_runtime_convchain_runs` incl. the truncating `int8(^uint8(len ..))` = −4,
+  go-run-verified). T3 same-width
   arithmetic/bitwise (`*_add/sub/mul/div/mod/and/or/xor/andnot` — div/mod evidence-carrying with
   `rt_div_zero` on a zero divisor, the `int_div` convoy per width). T4 typed comparisons
   (`*_eqb/ltb/leb` + the negation/swap derivations, per width). T5 SHIFTS — ⚠ NOT same-width binops:

@@ -1989,8 +1989,13 @@ Qed.
 (** ★ THE RUNTIME-FLOAT SOURCE CLASS THEOREM — the [PtRunFloat] half of
     [ptype_call_runint_conv_arg]'s split, QUANTIFIED over every integer target ([GTInt] included) and
     every float-classified source: the conversion is ABSENT, because no runtime-float expression
-    evaluates at all ([reval_val_runfloat_none]).  With the two sealed runs theorems this DECIDES the
-    conversion class: runtime-int source ⟹ denotes (wrapped); runtime-float source ⟹ absent. *)
+    evaluates at all ([reval_val_runfloat_none]).
+    ⚠ Scope of the runtime-INT side, stated exactly: it is decided AS A FUNCTION OF THE SOURCE'S OWN
+    EVALUATION OUTCOME — value ⟹ wrapped value (the sealed runs pair), panic ⟹ that panic
+    ([denote_expr_conv_panic] / [denote_expr_conv_int_panic]), ABSENT ⟹ absent
+    ([denote_expr_conv_src_absent] below): a conversion never decides MORE than its source, and
+    [PtRunInt] classification alone NEVER implies denotation (an absent-source witness is pinned,
+    [runtime_conv_absent_src_pinned]). *)
 Theorem denote_expr_conv_float_src_absent : forall f a t s,
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
   ptype a = Some (PtRunFloat s) ->
@@ -2019,6 +2024,65 @@ Proof.
   cbn [rexit_with]. rewrite Hpt. cbv beta iota.
   destruct (numty_eqb t GTInt); cbv beta iota; [reflexivity|].
   rewrite Hrv. reflexivity.
+Qed.
+
+(** ★ THE ABSENT-SOURCE PROPAGATION THEOREM — the third outcome of the runtime-int side: an operand
+    that is itself ABSENT (supported-but-undenoted — a shift, a typed hole) makes the conversion
+    absent too, for BOTH target halves ([GTInt] included).  Faithful-or-absent composes: the
+    conversion adds no behavior its source does not have. *)
+Theorem denote_expr_conv_src_absent : forall f a t s,
+  ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
+  ptype a = Some (PtRunInt s) ->
+  reval_val a = None ->
+  denote_expr (ECall (EId f) (a :: nil)) = None.
+Proof.
+  intros f a t s Hpt Hpa Hrv. unfold reval_val in Hrv.
+  unfold denote_expr.
+  destruct (floats_checked (ECall (EId f) (a :: nil))) eqn:Hfc; cbn [negb]; [|reflexivity].
+  assert (Hev : eval_value (ECall (EId f) (a :: nil)) = None).
+  { unfold eval_value. rewrite Hfc.
+    destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
+      try (cbn [eval_value_core]; unfold eval_value_ptype_core; rewrite Hpt; reflexivity).
+    - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
+    - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
+  assert (Hri : reval_int (ECall (EId f) (a :: nil)) = None).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+    destruct (numty_eqb t GTInt); cbn [negb]; cbv beta iota; [|reflexivity].
+    destruct a as [i|z|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
+      cbv beta iota;
+      try (destruct (String.eqb (proj1_sig f) "int"); cbv beta iota;
+           [rewrite Hrv; reflexivity | reflexivity]).
+    - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
+    - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
+  rewrite reval_val_with_eq, Hev, Hri. cbv beta iota.
+  cbn [rexit_with]. rewrite Hpt. cbv beta iota.
+  destruct (numty_eqb t GTInt); cbv beta iota; [reflexivity|].
+  rewrite Hrv. reflexivity.
+Qed.
+
+(** The [int]-target PANIC propagation, completing the outcome trichotomy for that half
+    ([denote_expr_conv_panic] is the exit-target one). *)
+Theorem denote_expr_conv_int_panic : forall f a s p,
+  floats_checked (ECall (EId f) (a :: nil)) = true ->
+  ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt GTInt) ->
+  eval_value (ECall (EId f) (a :: nil)) = None ->
+  ptype a = Some (PtRunInt s) ->
+  reval_val a = Some (RAPanic p) ->
+  denote_expr (ECall (EId f) (a :: nil)) = Some (CPan p, true).
+Proof.
+  intros f a s p Hfc Hpt Hev Hpa Ha.
+  pose proof (ptype_call_runint_int_name f a s Hpt Hpa) as Hfeq.
+  unfold reval_val in Ha.
+  assert (He : reval_int (ECall (EId f) (a :: nil)) = Some (RPanic p)).
+  { cbn [reval_int]. rewrite Hev. cbv beta iota. rewrite Hpt. cbv beta iota.
+    cbn [numty_eqb negb]. cbv beta iota.
+    destruct a as [i|z0|o a0|o l r|e0 fld|e1 e2|e1 e2 e3|fn args|e0 ty|c e0|et es|kt vt kvs|str|hx];
+      cbv beta iota;
+      try (rewrite Hfeq; cbv beta iota; rewrite Ha; reflexivity).
+    - pose proof (ptype_slicelit_shape _ _ _ Hpa) as E; discriminate E.
+    - pose proof (ptype_maplit_shape _ _ _ _ Hpa) as E; discriminate E. }
+  unfold denote_expr. rewrite Hfc. cbn [negb].
+  rewrite reval_val_with_eq, Hev, He. reflexivity.
 Qed.
 
 
@@ -3320,6 +3384,19 @@ Example typed_runtime_shift_absent :
                     && match denote_program (println_prog e) with None => true | Some _ => false end)
        typed_shift_cases = true.
 Proof. repeat split; vm_compute; reflexivity. Qed.
+(** The ABSENT-SOURCE conversion witness — [PtRunInt] classification alone NEVER implies denotation:
+    a conversion over a supported-but-undenoted runtime-int source (a shift) is itself
+    supported-but-undenoted, exactly [denote_expr_conv_src_absent]'s class at program level.  A
+    future prose claim of "runtime-int source ⟹ denotes" breaks against this pin. *)
+Definition runconv_absent_src_e : GExpr :=
+  ECall (EId (mkIdent "int64" eq_refl)) [runshift_mixed_e].
+Example runtime_conv_absent_src_pinned :
+  ptype runconv_absent_src_e = Some (PtRunInt GTInt64)
+  /\ ptype runshift_mixed_e = Some (PtRunInt GTU8)
+  /\ supported_program (println_prog runconv_absent_src_e) = true
+  /\ denotable_program (println_prog runconv_absent_src_e) = false
+  /\ denote_program (println_prog runconv_absent_src_e) = None.
+Proof. repeat split; vm_compute; reflexivity. Qed.
 
 (** FAIL-CLOSED pins for an INVALID NESTED map type (the INVALID-Go class of the [goty_supported]
     authority — its valid-but-out-of-core class, ptr/chan map keys, is pinned surface-by-surface in
@@ -3861,7 +3938,8 @@ Definition gosem_runtime_int_surface :=
    denote_expr_div_runs, denote_expr_rem_runs, denote_expr_neg_runs, denote_expr_neg_panic,
    denote_expr_not_runs, denote_expr_not_panic,
    runtime_negrem_runs, runtime_negrem_supported, runtime_not_runs, runtime_not_supported,
-   denote_expr_conv_panic, denote_expr_conv_runs_sealed, denote_expr_conv_int_runs_sealed,
+   denote_expr_conv_panic, denote_expr_conv_int_panic,
+   denote_expr_conv_runs_sealed, denote_expr_conv_int_runs_sealed, denote_expr_conv_src_absent,
    ptype_call_runint_conv, ptype_call_runint_conv_arg, ptype_call_runint_int_name,
    wrap_runint_total, runint_raw_total,
    typed_runtime_convchain_runs, typed_runtime_convchain_supported,
@@ -3887,7 +3965,7 @@ Definition gosem_map_surface :=
 Definition gosem_frontier_surface :=
   (undenoted_frontier_pinned,
    typed_unary_holes_absent, reval_val_runfloat_none, denote_expr_conv_float_src_absent,
-   runtime_float_source_conv_absent, typed_runtime_shift_absent).
+   runtime_float_source_conv_absent, typed_runtime_shift_absent, runtime_conv_absent_src_pinned).
 (** The ONE composed public gate — same members as ever, now auditable per topic. *)
 Definition gosem_trust_surface :=
   (gosem_core_surface, gosem_float_surface, gosem_slice_index_surface,

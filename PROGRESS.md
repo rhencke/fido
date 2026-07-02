@@ -54,11 +54,13 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
   - typed-runtime tier T1–T2: typed UNARY's live cells denote (`^` all fixed widths, `-` i64/u64;
     SEALED `denote_expr_typed_unop_runs_sealed` on the proven well-taggedness invariant
     `reval_val_typed`; holes absent for every payload, `typed_unop_holes_none` +
-    `typed_unary_holes_absent`); conversion CHAINS denote for exit AND `int` targets
-    (`runint_raw` value-then-wrap; SEALED per target — `denote_expr_conv_runs_sealed` +
-    `denote_expr_conv_int_runs_sealed`; source split proved exhaustive, the float side
-    CLASS-absent — `reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`). Shifts stay
-    pinned: `typed_runtime_shift_absent`.
+    `typed_unary_holes_absent`); conversions are decided PER SOURCE OUTCOME for exit AND `int`
+    targets (`runint_raw` value-then-wrap): an EVALUATED runtime-int source denotes wrapped (SEALED
+    `denote_expr_conv{,_int}_runs_sealed`), a panicking one panics (`..conv{,_int}_panic`), an
+    ABSENT one stays absent (`denote_expr_conv_src_absent`; `PtRunInt` alone never implies
+    denotation — pinned `runtime_conv_absent_src_pinned`); the float side CLASS-absent
+    (`reval_val_runfloat_none` / `denote_expr_conv_float_src_absent`). Shifts stay pinned:
+    `typed_runtime_shift_absent`.
   - public surfaces (topic-split, composed, manifest-gated): `gosem_trust_surface`
     (= core/float/slice-index/runtime-int/map/frontier) + `gosem_string_authority_surface`.
   - NO BehaviorSafe; main output still legacy. Zero axioms.
