@@ -24,7 +24,7 @@
     The EXACT gated public-surface set is the [Print Assumptions] block at the end of this file (the single in-file
     authority); this header does not re-enumerate it.
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
-    their [run_cmd] seal ([go_chars]), and the unified-side run/unwind lemmas are LOCAL (file-private) proof
+    their [go] grounding ([go_chars]), and the unified-side run/unwind lemmas are LOCAL (file-private) proof
     plumbing — no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free
     observer instead of [run_cmd].  (No concurrency ops in this fragment, so [uc_bufs]/[uc_trace] are
     untouched; [uc_heap] carries the heap commands' effects, bridged on the defer-free fragment.)
@@ -235,7 +235,8 @@ Proof.
 Qed.
 
 (** ---- LOCAL proof plumbing (file-private — not exported, not gated; no PUBLIC theorem concludes with these) ----
-    The output EVENTS / final panic [c] emits on the defer-free fragment, and their SEAL to cmd.v's authority. *)
+    Syntactic names for [go]'s output events / final panic / defer list on the [no_heap] fragment,
+    grounded in cmd.v's [go] by [go_chars] below (never a parallel authority). *)
 Local Fixpoint cmd_out_events (c : Cmd unit) : list (bool * list GoAny) :=
   match c with
   | CRet _      => []

@@ -243,10 +243,9 @@ Definition run_cmd (fuel : nat) {A} (c : Cmd A) (w : World) : option (Outcome A)
   end.
 
 (** [no_defer c] — [c] registers no [CDfr]: a straight-line output/panic/return command.  A pure [Cmd]
-    predicate, so it lives here (cmd.v); consumed by GoSemSafe (the defer-free exact-output panic lemma
-    [go_panics_world]/[run_cmd_panics_world]) and cmd_unified.v (its no_defer fragment bridges 1-for-1 onto
-    [unified.v]'s [ustep] via the defer bridge [bridge_agrees], which covers every [no_heap] [c],
-    defers and panics included). *)
+    predicate, so it lives here (cmd.v); consumed by GoSemSafe's defer-free exact-output panic lemmas
+    ([go_panics_world]/[run_cmd_panics_world]).  The ustep bridge is SEPARATE: [cmd_unified.bridge_agrees]
+    covers every [no_heap] [c], defers and panics included. *)
 Fixpoint no_defer (c : Cmd unit) : bool :=
   match c with
   | CRet _ => true | COut _ _ c' => no_defer c' | CPan _ => true | CDfr _ _ => false
@@ -279,11 +278,6 @@ Fixpoint no_heap (c : Cmd unit) : bool :=
   | CPan _ => true | CDfr d c' => no_heap d && no_heap c'
   | CWrite _ _ _ => false | CRead _ _ => false
   end.
-Lemma no_defer_no_heap : forall c, no_defer c = true -> no_heap c = true.
-Proof.
-  intro c; induction c as [a | b xs c' IH | v | d c' IH | l v c' IH | l f IH] using Cmd_rect';
-    cbn [no_defer no_heap]; intro H; try exact H; try exact (IH H); discriminate H.
-Qed.
 Lemma cmd_no_panic_no_heap : forall c, cmd_no_panic c = true -> no_heap c = true.
 Proof.
   (* [Cmd_rect'] gives no hypothesis for the DEFERRED body, so recurse structurally
