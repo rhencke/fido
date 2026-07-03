@@ -2870,3 +2870,599 @@ Proof.
         cbn [sf_render numty_eqb]. cbv beta iota.
         rewrite sf_eqb_struct_refl. reflexivity.
 Qed.
+
+(** ---- rung-8 binop-step kit (INTERNAL): the fold ops emit [dy_norm]-images, so the
+    [dy_make] reseal at the fold site is projection-identity on their output pair. *)
+Lemma dy_norm_out_fix : forall m e mr er,
+  dy_norm m e = (mr, er) -> dy_norm mr er = (mr, er).
+Proof.
+  intros m e mr er H.
+  pose proof (dy_norm_idem m e) as Hi. rewrite H in Hi. cbn [fst snd] in Hi. exact Hi.
+Qed.
+Lemma dy_add_out_fix : forall pa pb mr er,
+  dy_add pa pb = (mr, er) -> dy_norm mr er = (mr, er).
+Proof.
+  intros [m1 e1] [m2 e2] mr er H. cbn [dy_add] in H.
+  destruct (Z.leb e1 e2) eqn:E; try rewrite E in H; cbv beta iota in H;
+    exact (dy_norm_out_fix _ _ _ _ H).
+Qed.
+Lemma dy_sub_out_fix : forall pa pb mr er,
+  dy_sub pa pb = (mr, er) -> dy_norm mr er = (mr, er).
+Proof.
+  intros pa pb mr er H. unfold dy_sub in H. exact (dy_add_out_fix _ _ _ _ H).
+Qed.
+Lemma dy_mul_out_fix : forall pa pb mr er,
+  dy_mul pa pb = (mr, er) -> dy_norm mr er = (mr, er).
+Proof.
+  intros [m1 e1] [m2 e2] mr er H. cbn [dy_mul] in H.
+  exact (dy_norm_out_fix _ _ _ _ H).
+Qed.
+Lemma dy_div_out_fix : forall pa pb mr er,
+  dy_div pa pb = Some (mr, er) -> dy_norm mr er = (mr, er).
+Proof.
+  intros [m1 e1] [m2 e2] mr er H. cbn [dy_div] in H.
+  destruct (Z.eqb m2 0) eqn:E1; try rewrite E1 in H; cbv beta iota in H;
+    [discriminate H|].
+  destruct (Z.eqb (Z.rem m1 m2) 0) eqn:E2; try rewrite E2 in H; cbv beta iota in H;
+    [|discriminate H].
+  injection H as H. exact (dy_norm_out_fix _ _ _ _ H).
+Qed.
+(** [sf_pos_zero] is INERT on a windowed render (zero included: a sealed zero renders to
+    [+0] already) — the erasure identity that lets the RAW-conclusion endpoints (ADD/SUB at
+    binary64) meet [sf_const_binop]'s composite. *)
+Lemma sf_pos_zero_render_fix : forall t m e v,
+  float_dyadic_repr t m e = true ->
+  sf_render t m e = Some v ->
+  sf_pos_zero v = v.
+Proof.
+  intros t m e v Hr Hv.
+  destruct t; try discriminate Hr.
+  - cbn [sf_render] in Hv. rewrite renorm_sf_of_dyadic in Hv. injection Hv as <-.
+    destruct (repr_window_split_f64 m e Hr) as [-> | [q [Habs [Hd [He Hde]]]]].
+    + reflexivity.
+    + exact (sf_pos_zero_render_gen 53 1024 m e q Habs Hd He Hde ltac:(lia)).
+  - rewrite sf_render_f32_eq in Hv. injection Hv as <-.
+    destruct (repr_window_split_f32 m e Hr) as [-> | [q [Habs [Hd [He Hde]]]]].
+    + reflexivity.
+    + exact (sf_pos_zero_render_gen 24 128 m e q Habs Hd He Hde ltac:(lia)).
+Qed.
+(** the CLOSING kit for the binop step's surviving rows: with both operand carriers, the
+    const-layer table entry, and the result render in hand, the checker's [EBn] arm
+    computes to acceptance. *)
+Lemma fsf_checked_bn_close : forall op a b t mr er v1 v2 f vr,
+  ptype (EBn op a b) = Some (PtFloatConst t (dy_make mr er)) ->
+  dy_norm mr er = (mr, er) ->
+  fsf_operand t a = Some v1 ->
+  fsf_operand t b = Some v2 ->
+  sf_const_binop t op = Some f ->
+  sf_render t mr er = Some vr ->
+  f v1 v2 = vr ->
+  fsf_checked (EBn op a b) = sf_render t (dy_m (dy_make mr er)) (dy_e (dy_make mr er)).
+Proof.
+  intros op a b t mr er v1 v2 f vr Hp Hfix Ho1 Ho2 Hf Hres Hv.
+  cbn [fsf_checked]. rewrite Hp. cbv beta iota.
+  unfold dy_make. cbn [dy_m dy_e]. rewrite Hfix. cbn [fst snd].
+  unfold fsf_operand in Ho1, Ho2.
+  rewrite Hres, Ho1, Ho2, Hf. cbv beta iota.
+  rewrite Hv, sf_eqb_struct_refl. reflexivity.
+Qed.
+
+(** INTERNAL induction STEP (binop) for the rung-8 class theorem — same contract as the
+    unary/conversion steps: the operand-completeness premises are the IHs, discharged only
+    by the master theorem.  The four dyadic-fold operators route through the rung-5/6/7 op
+    endpoints (both widths, all three admitted operand rows); every other operator/operand
+    row is ground out — no other row constructs a float constant. *)
+Lemma fsf_checked_complete_bn_step : forall o a b t d,
+  ptype (EBn o a b) = Some (PtFloatConst t d) ->
+  (forall t' d', ptype a = Some (PtFloatConst t' d') ->
+     fsf_checked a = sf_render t' (dy_m d') (dy_e d')) ->
+  (forall t' d', ptype b = Some (PtFloatConst t' d') ->
+     fsf_checked b = sf_render t' (dy_m d') (dy_e d')) ->
+  fsf_checked (EBn o a b) = sf_render t (dy_m d) (dy_e d).
+Proof.
+  intros o a b t d H IHa IHb.
+  pose proof H as Hkeep.
+  cbn [ptype] in H.
+  destruct (ptype a) as [ca|] eqn:Hpa; [|discriminate H].
+  destruct (ptype b) as [cb|] eqn:Hpb; [|discriminate H].
+  destruct o;
+    try (destruct ca; destruct cb;
+         cbn [num_binop num_arith dy_fold_at] in H;
+         repeat first
+           [ discriminate H
+           | (cbv beta iota zeta in H;
+              match type of H with
+              | (if ?bg then _ else _) = _ =>
+                  let R := fresh "R" in
+                  destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+                  [ idtac | try discriminate H ]
+              | context [match ?x with _ => _ end] =>
+                  let R := fresh "R" in
+                  destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+              end) ];
+         fail).
+  - (* BMul *)
+    destruct ca as [z1|tz1 z1|t1 d1|rt1|rf1| | | | |];
+      destruct cb as [z2|tz2 z2|t2 d2|rt2|rf2| | | | |];
+      cbn [num_binop num_arith dy_fold_at] in H;
+      try (repeat first
+             [ discriminate H
+             | (cbv beta iota zeta in H;
+                match type of H with
+                | (if ?bg then _ else _) = _ =>
+                    let R := fresh "R" in
+                    destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+                    [ idtac | try discriminate H ]
+                | context [match ?x with _ => _ end] =>
+                    let R := fresh "R" in
+                    destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+                end) ];
+           fail).
+    + (* PtIntConst z1 * PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (int_in_float_exact_interval t2 z1) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z1 0) as [m1 e1] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_mul (m1, e1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t2 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_mul_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t2 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t2 z1 Hint) as Hrep1.
+      rewrite Hnz in Hrep1. cbn [fst snd] in Hrep1.
+      pose proof (fsf_operand_complete_int a t2 z1 Hpa Hint) as Ho1.
+      rewrite Hnz in Ho1. cbn [fst snd] in Ho1.
+      pose proof (fsf_operand_complete_float b t2 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+      destruct t2; try discriminate Hrep2.
+      * injection H as <- <-.
+        destruct (sf_render_mul_agrees_f64 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * injection H as <- <-.
+        destruct (sf_render_mul_agrees_f32 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 * PtIntConst z2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      destruct (int_in_float_exact_interval t1 z2) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z2 0) as [m2 e2] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_mul (dy_m d1, dy_e d1) (m2, e2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_mul_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t1 z2 Hint) as Hrep2.
+      rewrite Hnz in Hrep2. cbn [fst snd] in Hrep2.
+      pose proof (fsf_operand_complete_int b t1 z2 Hpb Hint) as Ho2.
+      rewrite Hnz in Ho2. cbn [fst snd] in Ho2.
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * injection H as <- <-.
+        destruct (sf_render_mul_agrees_f64 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * injection H as <- <-.
+        destruct (sf_render_mul_agrees_f32 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 * PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (numty_eqb t1 t2) eqn:Hteq;
+        try rewrite Hteq in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_mul (dy_m d1, dy_e d1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_mul_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat64 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_mul_agrees_f64 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat32 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_mul_agrees_f32 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BMul a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+  - (* BDiv *)
+    destruct ca as [z1|tz1 z1|t1 d1|rt1|rf1| | | | |];
+      destruct cb as [z2|tz2 z2|t2 d2|rt2|rf2| | | | |];
+      cbn [num_binop num_arith dy_fold_at] in H;
+      try (repeat first
+             [ discriminate H
+             | (cbv beta iota zeta in H;
+                match type of H with
+                | (if ?bg then _ else _) = _ =>
+                    let R := fresh "R" in
+                    destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+                    [ idtac | try discriminate H ]
+                | context [match ?x with _ => _ end] =>
+                    let R := fresh "R" in
+                    destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+                end) ];
+           fail).
+    + (* PtIntConst z1 / PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (is_zero_const (PtFloatConst t2 d2)) eqn:Hz0;
+        try rewrite Hz0 in H; cbv beta iota zeta in H; [discriminate H|].
+      destruct (int_in_float_exact_interval t2 z1) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z1 0) as [m1 e1] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_div (m1, e1) (dy_m d2, dy_e d2)) as [[mr er]|] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (float_dyadic_repr t2 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_div_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t2 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t2 z1 Hint) as Hrep1.
+      rewrite Hnz in Hrep1. cbn [fst snd] in Hrep1.
+      pose proof (fsf_operand_complete_int a t2 z1 Hpa Hint) as Ho1.
+      rewrite Hnz in Ho1. cbn [fst snd] in Ho1.
+      pose proof (fsf_operand_complete_float b t2 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+      destruct t2; try discriminate Hrep2.
+      * injection H as <- <-.
+        destruct (sf_render_div_agrees_f64 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * injection H as <- <-.
+        destruct (sf_render_div_agrees_f32 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 / PtIntConst z2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      destruct (is_zero_const (PtIntConst z2)) eqn:Hz0;
+        try rewrite Hz0 in H; cbv beta iota zeta in H; [discriminate H|].
+      destruct (int_in_float_exact_interval t1 z2) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z2 0) as [m2 e2] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_div (dy_m d1, dy_e d1) (m2, e2)) as [[mr er]|] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_div_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t1 z2 Hint) as Hrep2.
+      rewrite Hnz in Hrep2. cbn [fst snd] in Hrep2.
+      pose proof (fsf_operand_complete_int b t1 z2 Hpb Hint) as Ho2.
+      rewrite Hnz in Ho2. cbn [fst snd] in Ho2.
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * injection H as <- <-.
+        destruct (sf_render_div_agrees_f64 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * injection H as <- <-.
+        destruct (sf_render_div_agrees_f32 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 / PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (is_zero_const (PtFloatConst t2 d2)) eqn:Hz0;
+        try rewrite Hz0 in H; cbv beta iota zeta in H; [discriminate H|].
+      destruct (numty_eqb t1 t2) eqn:Hteq;
+        try rewrite Hteq in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_div (dy_m d1, dy_e d1) (dy_m d2, dy_e d2)) as [[mr er]|] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_div_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat64 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_div_agrees_f64 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat32 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_div_agrees_f32 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BDiv a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+  - (* BAdd *)
+    destruct ca as [z1|tz1 z1|t1 d1|rt1|rf1| | | | |];
+      destruct cb as [z2|tz2 z2|t2 d2|rt2|rf2| | | | |];
+      cbn [num_binop num_arith dy_fold_at] in H;
+      try (repeat first
+             [ discriminate H
+             | (cbv beta iota zeta in H;
+                match type of H with
+                | (if ?bg then _ else _) = _ =>
+                    let R := fresh "R" in
+                    destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+                    [ idtac | try discriminate H ]
+                | context [match ?x with _ => _ end] =>
+                    let R := fresh "R" in
+                    destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+                end) ];
+           fail).
+    + (* PtIntConst z1 + PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (int_in_float_exact_interval t2 z1) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z1 0) as [m1 e1] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_add (m1, e1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t2 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_add_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t2 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t2 z1 Hint) as Hrep1.
+      rewrite Hnz in Hrep1. cbn [fst snd] in Hrep1.
+      pose proof (fsf_operand_complete_int a t2 z1 Hpa Hint) as Ho1.
+      rewrite Hnz in Ho1. cbn [fst snd] in Ho1.
+      pose proof (fsf_operand_complete_float b t2 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+      destruct t2; try discriminate Hrep2.
+      * injection H as <- <-.
+        destruct (sf_render_add_agrees_f64 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * injection H as <- <-.
+        destruct (sf_render_add_agrees_f32 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 + PtIntConst z2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      destruct (int_in_float_exact_interval t1 z2) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z2 0) as [m2 e2] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_add (dy_m d1, dy_e d1) (m2, e2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_add_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t1 z2 Hint) as Hrep2.
+      rewrite Hnz in Hrep2. cbn [fst snd] in Hrep2.
+      pose proof (fsf_operand_complete_int b t1 z2 Hpb Hint) as Ho2.
+      rewrite Hnz in Ho2. cbn [fst snd] in Ho2.
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * injection H as <- <-.
+        destruct (sf_render_add_agrees_f64 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * injection H as <- <-.
+        destruct (sf_render_add_agrees_f32 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 + PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (numty_eqb t1 t2) eqn:Hteq;
+        try rewrite Hteq in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_add (dy_m d1, dy_e d1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_add_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat64 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_add_agrees_f64 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat32 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_add_agrees_f32 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BAdd a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+  - (* BSub *)
+    destruct ca as [z1|tz1 z1|t1 d1|rt1|rf1| | | | |];
+      destruct cb as [z2|tz2 z2|t2 d2|rt2|rf2| | | | |];
+      cbn [num_binop num_arith dy_fold_at] in H;
+      try (repeat first
+             [ discriminate H
+             | (cbv beta iota zeta in H;
+                match type of H with
+                | (if ?bg then _ else _) = _ =>
+                    let R := fresh "R" in
+                    destruct bg eqn:R; try rewrite R in H; cbv beta iota in H;
+                    [ idtac | try discriminate H ]
+                | context [match ?x with _ => _ end] =>
+                    let R := fresh "R" in
+                    destruct x eqn:R; try rewrite R in H; cbv beta iota in H
+                end) ];
+           fail).
+    + (* PtIntConst z1 - PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (int_in_float_exact_interval t2 z1) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z1 0) as [m1 e1] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_sub (m1, e1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t2 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_sub_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t2 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t2 z1 Hint) as Hrep1.
+      rewrite Hnz in Hrep1. cbn [fst snd] in Hrep1.
+      pose proof (fsf_operand_complete_int a t2 z1 Hpa Hint) as Ho1.
+      rewrite Hnz in Ho1. cbn [fst snd] in Ho1.
+      pose proof (fsf_operand_complete_float b t2 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+      destruct t2; try discriminate Hrep2.
+      * injection H as <- <-.
+        destruct (sf_render_sub_agrees_f64 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * injection H as <- <-.
+        destruct (sf_render_sub_agrees_f32 m1 e1 (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 - PtIntConst z2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      destruct (int_in_float_exact_interval t1 z2) eqn:Hint;
+        try rewrite Hint in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_norm z2 0) as [m2 e2] eqn:Hnz;
+        try rewrite Hnz in H; cbv beta iota zeta in H.
+      destruct (dy_sub (dy_m d1, dy_e d1) (m2, e2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_sub_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (int_interval_norm_repr t1 z2 Hint) as Hrep2.
+      rewrite Hnz in Hrep2. cbn [fst snd] in Hrep2.
+      pose proof (fsf_operand_complete_int b t1 z2 Hpb Hint) as Ho2.
+      rewrite Hnz in Ho2. cbn [fst snd] in Ho2.
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * injection H as <- <-.
+        destruct (sf_render_sub_agrees_f64 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * injection H as <- <-.
+        destruct (sf_render_sub_agrees_f32 (dy_m d1) (dy_e d1) m2 e2 mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+    + (* PtFloatConst t1 d1 - PtFloatConst t2 d2 *)
+      pose proof (ptype_float_const_repr a t1 d1 Hpa) as Hrep1.
+      pose proof (ptype_float_const_repr b t2 d2 Hpb) as Hrep2.
+      destruct (numty_eqb t1 t2) eqn:Hteq;
+        try rewrite Hteq in H; cbv beta iota zeta in H; [|discriminate H].
+      destruct (dy_sub (dy_m d1, dy_e d1) (dy_m d2, dy_e d2)) as [mr er] eqn:Hop;
+        try rewrite Hop in H; cbv beta iota zeta in H.
+      destruct (float_dyadic_repr t1 (dy_m (dy_make mr er)) (dy_e (dy_make mr er))) eqn:Hrr;
+        try rewrite Hrr in H; cbv beta iota zeta in H; [|discriminate H].
+      assert (Hfix : dy_norm mr er = (mr, er)) by (exact (dy_sub_out_fix _ _ _ _ Hop)).
+      assert (Hrr' : float_dyadic_repr t1 mr er = true)
+        by (unfold dy_make in Hrr; cbn [dy_m dy_e] in Hrr;
+            rewrite Hfix in Hrr; cbn [fst snd] in Hrr; exact Hrr).
+      pose proof (fsf_operand_complete_float a t1 d1 Hpa (IHa _ _ eq_refl)) as Ho1.
+      destruct t1; try discriminate Hrep1.
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat64 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_sub_agrees_f64 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat64 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres
+          | cbv beta; exact (sf_pos_zero_render_fix GTFloat64 mr er _ Hrr' Hres)].
+      * destruct t2; cbn [numty_eqb] in Hteq; try discriminate Hteq.
+        pose proof (fsf_operand_complete_float b GTFloat32 d2 Hpb (IHb _ _ eq_refl)) as Ho2.
+        injection H as <- <-.
+        destruct (sf_render_sub_agrees_f32 (dy_m d1) (dy_e d1) (dy_m d2) (dy_e d2) mr er
+                    Hrep1 Hrep2 Hop Hrr') as [v1 [v2 [Hr1 [Hr2 Hres]]]].
+        rewrite Hr1 in Ho1. rewrite Hr2 in Ho2.
+        eapply (fsf_checked_bn_close BSub a b GTFloat32 mr er v1 v2);
+          [exact Hkeep | exact Hfix | exact Ho1 | exact Ho2
+          | reflexivity | exact Hres | reflexivity].
+Qed.
