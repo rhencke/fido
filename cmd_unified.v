@@ -104,7 +104,9 @@ Qed.
 
 (** [vz] — the calculus' closed-recv parameter and the start configs' initial-heap default at
     this instance.  It is an ARBITRARY [GoAny], NOT a Go zero value, and every public statement
-    below UNIVERSALLY QUANTIFIES it (section generalization), each with its OWN license:
+    below that MENTIONS the unified [GoAny] configuration ([usteps]/[ustart]/[ustart_w])
+    UNIVERSALLY QUANTIFIES it (section generalization; the pure [run_cmd]-side theorems in
+    this section never involve it), each with its OWN license:
     [bridge_agrees] (and the other [no_heap] statements) never reach a [vz]-consulting rule
     ([cmd_to_ucmd_novz]); [bridge_heap_body_agrees] starts from the [ustart_w] heap that MIRRORS
     the World's allocated cells and its [go]-completion premise keeps the run inside them, so the
@@ -264,15 +266,6 @@ Local Fixpoint cmd_defers (c : Cmd unit) : list (Cmd unit) :=
   | CWrite _ _ c' => cmd_defers c'       (* dead: see [cmd_out_events] *)
   | CRead _ _   => []                    (* dead: see [cmd_out_events] *)
   end.
-Local Lemma cmd_defers_no_defer : forall c, no_defer c = true -> cmd_defers c = [].
-Proof.
-  intros c.
-  induction c as [a | bo xs c' IH | v | d c' IHc' | l v c' IH | l f IH] using Cmd_rect';
-    intros Hnd; cbn in *;
-    [ reflexivity | exact (IH Hnd) | reflexivity | discriminate Hnd
-    | discriminate Hnd | discriminate Hnd ].
-Qed.
-
 Local Lemma cmd_defers_no_heap : forall c, no_heap c = true -> no_heap_all (cmd_defers c) = true.
 Proof.
   intros c.
@@ -289,8 +282,8 @@ Proof. reflexivity. Qed.
 (** GROUNDING in cmd.v's authoritative [go]: the three projections ARE [go]'s own components — for any [no_heap] [c]
     (defers included), [go c w] returns exactly [(<outcome from cmd_panic c>, cmd_defers c)] with the body's
     world advanced by [cmd_out_events c].  So [cmd_panic]/[cmd_out_events]/[cmd_defers] are not a parallel
-    authority that could drift from [go]; they are derived NAMES for [go]'s behaviour.  [run_cmd_seals_events]
-    (the no_defer seal) and Phase A ([cmd_to_ucmd_body_runs]) build on this. *)
+    authority that could drift from [go]; they are derived NAMES for [go]'s behaviour.  Phase A
+    ([cmd_to_ucmd_body_runs]) and the unwind build on this. *)
 Local Lemma go_chars : forall c w, no_heap c = true -> exists w',
   go c w = Some ((match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end), cmd_defers c)
   /\ w_output w' = w_output w ++ cmd_out_events c.
@@ -309,20 +302,6 @@ Proof.
   - discriminate Hnh.
 Qed.
 
-(** SEAL: on the defer-free fragment the projections ARE cmd.v's own [run_cmd]/[w_output]/[Outcome] — derived
-    from [go_chars] ([run_cmd 1 c w] = [go]'s body outcome, since [no_defer ⇒ cmd_defers c = []] so [run_defers]
-    runs nothing).  The public theorem's [run_cmd] conclusion is thus grounded, not a free observer. *)
-Local Lemma run_cmd_seals_events : forall c w,
-  no_defer c = true ->
-  exists w',
-    run_cmd 1 c w = Some (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end)
-    /\ w_output w' = w_output w ++ cmd_out_events c.
-Proof.
-  intros c w Hnd. destruct (go_chars c w (no_defer_no_heap c Hnd)) as [w' [Hgo Hout]].
-  exists w'. split; [ | exact Hout ].
-  unfold run_cmd. rewrite Hgo, (cmd_defers_no_defer c Hnd). destruct (cmd_panic c); reflexivity.
-Qed.
-
 (** Phase A of the defer bridge (general — NO [no_defer]): [ustep] runs [cmd_to_ucmd c]'s BODY to its outcome,
     accumulating its deferred actions onto goroutine 0's [uc_defers] stack in [go]'s order — leaving [prog 0] at
     [URet] / [UPan v] (per [cmd_panic c]) and [df' 0] = [map cmd_to_ucmd (cmd_defers c) ++ df 0].  The goroutine
@@ -330,8 +309,7 @@ Qed.
     arbitrary nesting, any panics — in [bridge_agrees] via [unwind_prefix_panic]).  This
     is the [ustep] analogue of cmd.v's [go] — and faithfully so: [go_chars] proves the [cmd_panic c] /
     [cmd_out_events c] / [cmd_defers c] this conclusion uses ARE exactly [go c w]'s outcome / body output / defer
-    list, so the simulation is grounded in cmd.v's authority, not a parallel projection.  [cmd_to_ucmd_runs] below
-    specialises it to the [no_defer] fragment (then a single [ret_done]/[pan_done] finishes goroutine 0). *)
+    list, so the simulation is grounded in cmd.v's authority, not a parallel projection. *)
 Local Lemma cmd_to_ucmd_body_runs : forall c ucap p b h lv tr o df pa,
   no_heap c = true ->
   lv 0 = true -> p 0 = cmd_to_ucmd c ->
@@ -366,66 +344,8 @@ Proof.
   - discriminate Hnh.
 Qed.
 
-(** the unified-side run on the [no_defer] fragment — now a SPECIALISATION of [cmd_to_ucmd_body_runs]: the body
-    leaves [df' 0 = []] (since [cmd_defers c = []] when [no_defer]), so a single [ret_done] / [pan_done] finishes
-    goroutine 0.  [df'] is now an EXISTENTIAL threaded from the body run (the projections [uc_live]/[uc_out]/
-    [uc_panic] never read it). *)
-Local Lemma cmd_to_ucmd_runs : forall c,
-  no_defer c = true ->
-  forall (ucap : nat -> option nat) p b h lv tr o df pa,
-    lv 0 = true -> p 0 = cmd_to_ucmd c -> df 0 = [] -> pa 0 = None ->
-    exists (p' : nat -> UCmdG) (lv' : nat -> bool) (pa' : nat -> option GoAny) (df' : nat -> list UCmdG),
-      usteps vz ucap (mkUCfg p b h lv tr o df pa)
-                  (mkUCfg p' b h lv' tr (o ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa')
-      /\ lv' 0 = false
-      /\ pa' 0 = cmd_panic c.
-Proof.
-  intros c Hnd ucap p b h lv tr o df pa Hlv Hp Hdf Hpa.
-  destruct (cmd_to_ucmd_body_runs c ucap p b h lv tr o df pa (no_defer_no_heap c Hnd) Hlv Hp) as [p' [df' [Hus [Hprog Hdf']]]].
-  assert (Hdf0 : df' 0 = []).
-  { rewrite Hdf', (cmd_defers_no_defer c Hnd); simpl; exact Hdf. }
-  destruct (cmd_panic c) as [g | ]; cbn in Hprog.
-  - exists p', (upd lv 0 false), (upd pa 0 (Some g)), df'.
-    split; [ | split; [ apply upd_same | apply upd_same ] ].
-    eapply usteps_trans; [ exact Hus | ].
-    eapply usteps_step; [ eapply ustep_pan_done; [ exact Hlv | exact Hprog | exact Hdf0 ] | apply usteps_refl ].
-  - exists p', (upd lv 0 false), pa, df'.
-    split; [ | split; [ apply upd_same | exact Hpa ] ].
-    eapply usteps_trans; [ exact Hus | ].
-    eapply usteps_step; [ eapply ustep_ret_done; [ exact Hlv | exact Hprog | exact Hdf0 ] | apply usteps_refl ].
-Qed.
-
 Local Lemma map_snd_pair0 : forall (l : list (bool * list GoAny)), map snd (map (fun e => (0, e)) l) = l.
 Proof. induction l as [|a l IH]; simpl; [reflexivity | rewrite IH; reflexivity]. Qed.
-
-(** ---- PUBLIC bridge theorem — agreement with cmd.v's authoritative [run_cmd] (NO projection in the conclusion) ----
-    For a defer-free [c], the single-goroutine [usteps] run drives goroutine 0 to completion, and its observable
-    [uc_out] / [uc_panic] EQUAL [run_cmd 1 c w]'s appended [w_output] / Outcome panic.  [run_cmd] (via the seal),
-    not a free observer, is the authority. *)
-Theorem cmd_to_ucmd_run_agrees : forall c ucap w,
-  no_defer c = true ->
-  exists (uc : UConfig) (oc : Outcome unit),
-    usteps vz ucap (ustart (cmd_to_ucmd c)) uc
-    /\ run_cmd 1 c w = Some oc
-    /\ uc_live uc 0 = false
-    /\ w_output (oc_world oc) = w_output w ++ map snd (uc_out uc)
-    /\ uc_panic uc 0 = ocpanic oc.
-Proof.
-  intros c ucap w Hnd.
-  destruct (cmd_to_ucmd_runs c Hnd ucap
-              (fun t => if Nat.eqb t 0 then cmd_to_ucmd c else URet)
-              (fun _ => nil) (fun _ => vz) (fun t => Nat.eqb t 0) nil nil (fun _ => nil) (fun _ => None)
-              eq_refl eq_refl eq_refl eq_refl) as [p' [lv' [pa' [df' [Hus [Hdone Hpan]]]]]].
-  destruct (run_cmd_seals_events c w Hnd) as [w' [Hrun Hout]].
-  exists (mkUCfg p' (fun _ => nil) (fun _ => vz) lv' nil
-                 (nil ++ map (fun e => (0, e)) (cmd_out_events c)) df' pa'),
-         (match cmd_panic c with None => ORet tt w' | Some v => OPanic v w' end).
-  unfold ustart.
-  split; [exact Hus | ]. split; [exact Hrun | ]. split; [exact Hdone | ]. split.
-  - cbn [uc_out]. rewrite app_nil_l, map_snd_pair0.
-    destruct (cmd_panic c); cbn [oc_world]; exact Hout.
-  - cbn [uc_panic]. rewrite Hpan. unfold ocpanic. destruct (cmd_panic c); reflexivity.
-Qed.
 
 (** LOCAL regressions (file-private): print and println stay DISTINGUISHABLE through the translation. *)
 Local Example bridge_print_println_distinct : forall (a : GoAny),
@@ -993,7 +913,6 @@ End BridgeVal.
 Print Assumptions cmd_to_ucmd_fragment.
 Print Assumptions cmd_to_ucmd_novz.
 Print Assumptions bridge_heap_body_agrees.
-Print Assumptions cmd_to_ucmd_run_agrees.
 Print Assumptions bridge_agrees.
 Print Assumptions run_cmd_out_monotone.
 Print Assumptions run_cmd_no_panic_ret.

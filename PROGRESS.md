@@ -101,7 +101,7 @@ assumption. The MODEL's logical trust base is empty (zero axioms); the plugin is
 Zero-axiom is gated by `Print Assumptions` in THREE flows (single-sourced here): **manifest**
 (`manifest-axioms.sh` vs empty `EXPECTED_ASSUMPTIONS.txt`) covers `main_effect` /
 `gosem_trust_surface` / `gosem_string_authority_surface` / `cmd.run_cmd_terminates` / the bridge
-surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_body_agrees` / `cmd_to_ucmd_run_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
+surfaces (`cmd_to_ucmd_fragment` / `cmd_to_ucmd_novz` / `bridge_heap_body_agrees` / `bridge_agrees` / `run_cmd_out_monotone` /
 `run_cmd_no_panic_ret`) / `gosem_panic_free_surface` / `builtins.slice_get_bounds_surface`;
 **printer** + **emit** (compiled STANDALONE, grep `^Axioms:`) cover the spine. A `Print Assumptions`
 under none of the three is not gated.
