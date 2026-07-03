@@ -4,7 +4,7 @@ GOAL: extend the bridge's common fragment past output/panic/return/defer — `Cm
 heap/channel/spawn effects, `run_cmd` stays THE sequential authority, and the public agreement
 theorems grow to cover the new constructors.  Proof-only (no golden/plugin risk).
 
-LANDED (detail lives in the theorem statements + git history, not re-enumerated here):
+DONE (detail lives in the theorem statements + git history, not re-enumerated here):
 slice 1 — the value-parametric calculus (`Section UnifiedVal`, `V`/`vzero`; `rstep` embedding at
 `V := nat` unchanged); slice 2 — heap read/write (`CWrite`/`CRead` typed against `w_refs`,
 unallocated access = ABSENCE, `no_heap` fragment carries `run_cmd_terminates`) and the ONE
@@ -58,7 +58,7 @@ is FORBIDDEN, and the slice must land closed-recv proofs for at least TWO distin
    schedule-nondeterministic while `run_cmd` is sequential.  Candidate shapes: (a) ∃-schedule
    agreement (honest but weak); (b) the real payoff: DRF ⇒ all schedules agree on observables,
    composing `concurrency.v`'s race-freedom; (c) a restricted no-shared-effect child fragment.
-   Decide with slices 1–3 landed.
+   Decide with slices 1–3 DONE.
 
 ## Standing rules for this arc (from the defer arc's bounce history)
 

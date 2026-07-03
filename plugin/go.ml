@@ -4447,15 +4447,19 @@ let is_sptr_record_tglob = function
   | Tglob (r, arg :: _) when is_sptr_type r -> is_record_tglob arg  (* receiver record = first type arg *)
   | _ -> false
 
-(* Pure (non-IO) function body that RETURNS via a tail-position match.  Go has no
+(* Pure (non-IO) function body that RETURNS via tail-position lowering.  Go has no
    conditional expression, so a [match]/[if] in value position can't be inlined as
-   one; in TAIL position (the whole function body, possibly nested) it lowers to an
-   [if]/[else] where each arm RETURNS its value.  Only a 2-arm BOOL match
-   (i.e. [if]/[else]) is modeled; the arms recurse
-   so nested ifs chain, and a leaf arm emits [return <expr>].  A non-bool / non-tail
-   value-position match still fails loud via [pp_expr]'s catch-all (the [return]
-   fallback below routes it there).  This is what lets a pure function whose body is
-   an [if] (e.g. [i64_abs]) extract instead of aborting. *)
+   one; in TAIL position (the whole function body, possibly nested) each modeled
+   shape lowers to statements whose every path RETURNS.  The live cases, in match
+   order: pair DESTRUCTURE ([let '(x,y) := f … in body] → [x, y := f(…)], N-ary via
+   [flatten_destructure], body recurses); ENUM match → [switch] whose arms recurse
+   (the LAST constructor as [default:] — Go does not treat a default-less switch as
+   exhaustive, and the match is total); 2-arm BOOL match → [if]/[else]; NAT
+   zero/succ match → [if n == 0] / [k := n - 1] (pure structural recursion); a pair
+   VALUE body → [return a, b(, …)] with narrow casts.  Anything else routes to the
+   [return <expr>] fallback, where a non-lowerable form still fails loud via
+   [pp_expr]'s catch-all.  This is what lets a pure function whose body is an [if]
+   (e.g. [i64_abs]) extract instead of aborting. *)
 let rec pp_pure_tail state tab env e =
   let return_fallback () =
     (* A sub-64 narrow return wraps the int-carrier value in its declared Go type. *)

@@ -164,7 +164,7 @@ substrate for the closed-world wishlist (value-level ownership).
   `copy`, `make([]T,len,cap)`, slice-`clear`
 - **arrays** — value-vs-reference semantics distinct from slices
 - **pointers** — `new`, `*T`, `&x`, dereference → and therefore **pointer
-  receivers** on methods (ladder 9b/9c)
+  receivers** on methods (section C below)
 - **value-level ownership** (no aliasing / use-after-close on heap values) — the
   wishlist item that rests on this
 
@@ -336,7 +336,7 @@ B3, which was backwards):**
   `[N]T` COPIES on assign/pass (mutable elements within one array, but `b := a; b[0]=9`
   leaves `a[0]` unchanged).  Not the cell-heap handle model (that is reference/aliasing);
   a fresh backing per array value, or a functional-update value model.  `copy`/
-  `make([]T,len,cap)`/slice-`clear` already landed in **B3c** (the old "B5" — removed).
+  `make([]T,len,cap)`/slice-`clear` are DONE in **B3c** (the old "B5" — removed).
 
   **DESIGN (2026-06-18) — the size-in-type problem and the way around it.**  Go `[N]T`
   carries `N` in the TYPE, but Coq extraction ERASES value-level type indices (a
@@ -380,7 +380,7 @@ B3, which was backwards):**
 
 ## The rest (smaller, mostly independent)
 
-### C — Structs / methods / interfaces completion (ladder 9)
+### C — Structs / methods / interfaces completion
 
 Core works (embedded fields + promotion DONE — `peel_embedded`).  Remaining: struct tags · field-wise
 `==` (struct comparability) · **pointer receivers** (needs B) · method

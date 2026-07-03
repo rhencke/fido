@@ -7,7 +7,7 @@ this arc does NOT define the `BehaviorSafe` gate (naming is a correctness claim)
 
 ## Current state
 
-Rungs 1–4 and 5a/5b are LANDED (detail in the code and git history; the theorems are the
+Rungs 1–4 and 5a/5b are DONE (detail in the code and git history; the theorems are the
 authority):
 
 - Syntax + printing: `GsShortDecl`, `print_stmt_inj`/`print_program_inj` extended.
@@ -25,7 +25,7 @@ authority):
   the closed coincidence `denote_expr_env_nil` (funext-free, via `reval_engines_ext`); env pins
   `env_eid_pins`/`env_float_pins`/`env_float_conv_class` in `gosem_core_surface`.
 
-STATEMENT-level denotation of `x := e` has NOT landed: `denote_stmt (GsShortDecl _ _) = None`,
+STATEMENT-level denotation of `x := e` is ABSENT: `denote_stmt (GsShortDecl _ _) = None`,
 so decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`,
 `shortdecl_deadtail_supported_undenoted`).
 
@@ -51,7 +51,7 @@ so decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`,
 - Locals widen NAME reach, not operation reach: a resolved variable feeds the EXISTING runtime
   value paths only; anything they don't cover stays absent (no new value semantics).
 - The seam pins (`shortdecl_supported_undenoted`, `shortdecl_deadtail_supported_undenoted`)
-  FLIP when 5c lands — swap them in the same commit.
+  FLIP at 5c — swap them in the same commit.
 - The LOCAL-FRONTIER suite is a MECHANICAL MAP (`forallb`) over the EXISTING
   `undenoted_frontier` ledger (never a second list); add a value-less `PtBool` member TO the
   ledger at this rung.  Every fixture quantifies over the LIST, never over "the gap".
