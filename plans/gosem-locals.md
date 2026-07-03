@@ -129,7 +129,8 @@ in `GoSemDenote`.
 3. **GoTypes**: the state-threading `type_expr : Γ -> GExpr -> option (PTy * Γ)` (resolve + mark
    in one traversal) + the closed-`ptype` projection equation (existing theorems survive through
    it) + the `bind_category` authority (beside the categories it consumes — the `int_const_repr`
-   defaulting premise, runtime categories binding as themselves, `PtNil ↦ None`).
+   defaulting premise, runtime categories binding as themselves, and the WRITTEN `None` arms:
+   `PtNil`, `PtAgg`, `PtMap`).
 4. **GoSafe**: scope-threaded supportedness — `supported_program`'s `forallb` becomes ONE fold over
    `Γ : Ident ⇀ (PTy × bool)` (bind via `bind_category`, declare-gate via `decl_ident_ok` from the
    `special_ident` table, uses marked BY `type_expr` itself, final no-unused rejection in the same
@@ -142,7 +143,11 @@ in `GoSemDenote`.
    variables); `_ := 1`; `x := nil; _ = x` (untyped nil).
    Valid-unsupported: a ~40-bit-const decl (fits 64-bit gc, outside the conservative range);
    `len := 1` / `int := 1` / `nil := 1` (each with a `_ = <name>` use; rejected via
-   `decl_ident_ok`; ledger per `make go-verify` ground truth).
+   `decl_ident_ok`; ledger per `make go-verify` ground truth); the AGGREGATE/MAP locals
+   `x := []int{1}; _ = len(x)` and `m := map[int]int{1: 2}; _ = len(m)` — valid Go (`make
+   go-verify` confirms), rejected by `bind_category`'s `PtAgg`/`PtMap` arms (the uses isolate
+   that rejection from unused/undeclared noise), with `SPEC_CONFORMANCE.md` rows; their INVALID
+   companions (e.g. an invalid-map-key literal on a decl RHS) stay in `bad_programs`.
    Each rejection fixture ISOLATES its rule — append the `_ = x` use everywhere the unused rule is
    not the one under test, so exactly ONE rule rejects.
 5. **GoSemDenote**: the evaluator takes `ρ`; `denote_stmt`/`denote_body` thread `Γ ≈ ρ`;
@@ -150,16 +155,18 @@ in `GoSemDenote`.
    locals widen NAME reach, not operation reach — a resolved variable feeds the EXISTING runtime
    value paths only; any op those paths don't cover stays absent (fail-closed, no new value
    semantics in this rung).  The LOCAL-FRONTIER suite is a MECHANICAL MAP over the EXISTING
-   `undenoted_frontier` ledger (`GoSem.v` — the repo's ONE authority for supported-but-undenoted,
-   already pinned by a `forallb`): for EVERY member `m` in value position, pin
-   `x := m; _ = x` as supported ∧ NOT denotable ∧ gate-`None` (the `panic_free_gate_absent`
-   mechanism) — a `forallb` over the ledger itself, so NO second hand-curated list exists and a
-   frontier change updates the decl suite or fails the build.  COVERAGE OBLIGATION at this rung:
-   for every scalar category `bind_category` admits, `undenoted_frontier` must contain a
-   value-less member of that category if one is expressible — it has `PtStr` (`runeconv_mb`) and
-   the runtime-int/float holes today; ADD a value-less `PtBool` member (e.g. a comparison over an
-   eval-partial operand) TO THE LEDGER in this rung, extending the one authority, never a side
-   list.  DISTINCT from non-denotation: the PANICKING-RHS fixture `x := 1 / len([]int{}); _ = x`
+   `undenoted_frontier` member list (`GoSem.v` — the REPRESENTATIVE witness list of the
+   supported-but-undenoted gap; its own header says NON-EXHAUSTIVE and no coverage theorem bounds
+   the gap — that warning STAYS): for EVERY member `m` in value position, pin `x := m; _ = x` as
+   supported ∧ NOT denotable ∧ gate-`None` (the `panic_free_gate_absent` mechanism) — a `forallb`
+   over the list itself, so the DECL SUITE cannot drift from the LIST (one member list for
+   fixture generation; NOT a claim that the list covers the gap).  CLAIM BOUNDARY: every fixture
+   quantifies over the LIST, never over "the gap"; the suite's completeness is exactly the
+   list's, which remains representative.  WITNESS-WIDENING at this rung: for every scalar
+   category `bind_category` admits, the list SHOULD contain a value-less member if one is
+   expressible — it has `PtStr` (`runeconv_mb`) and the runtime-int/float holes today; ADD a
+   value-less `PtBool` witness (e.g. a comparison over an eval-partial operand) TO THE LIST in
+   this rung — extending the representative witnesses, never a side list.  DISTINCT from non-denotation: the PANICKING-RHS fixture `x := 1 / len([]int{}); _ = x`
    — supported ∧ DENOTES to `CPan rt_div_zero` ∧ rejected by `cmd_no_panic` on the denotation
    (`ρ` not extended; the three-outcome arm above is what these fixtures pin).  When an arc lands
    that makes a member denote, its pin BREAKS — swap in the next frontier member in the same
