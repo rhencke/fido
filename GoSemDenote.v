@@ -4107,7 +4107,7 @@ Fixpoint eval_args (args : list GExpr) : option (list GoAny) :=
 
 (** The SINGLE effect-call authority — denote a supported CALL expression ([println]/[print]/[panic]) to its
     command PAIRED WITH the TERMINATES flag.  Gated on [expr_stmt_ok] (exactly [stmt_ok]'s gate for BOTH
-    [GsExprStmt] and [GsDefer]), so every consumer keeps [denote] ⊆ the gate ([gosem_sound]).  Consumed by the
+    [GsExprStmt] and [GsDefer]), so every consumer keeps [denote] ⊆ [supported_program] ([gosem_sound]).  Consumed by the
     expression-statement arm (the call runs NOW) and the [GsDefer] arm (the SAME call, deferred to run at
     function-scope return via [CDfr]) — one authority, so the deferred call can never denote differently from
     the immediate one. *)
@@ -4198,7 +4198,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          command as before), and a determined runtime panic ([1 / len([]int{})]) gives its TRUE [CPan] (Go
          evaluates [e] and panics) — with [denote_expr]'s OWN terminal flag (a panicking blank-assign
          TERMINATES the body).  Runtime forms [denote_expr] does not cover stay honestly [None].
-         [svalue e] is still required so [denote] ⊆ the gate ([stmt_ok]'s blank arm IS [svalue]). *)
+         [svalue e] is still required so [denote] ⊆ the closed fragment ([stmt_ok]'s blank arm IS [svalue]). *)
       if svalue e then
         match denote_expr e with
         | Some (ce, eterm) => Some (cbind ce (fun _ => CRet tt), eterm)
@@ -4215,7 +4215,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
          statement itself ([rc_defer_arg_panic]). *)
       denote_call CallDeferred e
-  | GsShortDecl _ _ => None  (* [x := e] — ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); the scope gate ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
+  | GsShortDecl _ _ => None  (* [x := e] — ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); [supported_program] ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4228,9 +4228,9 @@ Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
           if term then
             (* [s] TERMINATES (return / panic, per [denote_stmt]'s flag): emit its command [c] (which stops —
                [CRet]/[CPan]); the REST is UNREACHABLE, so its DENOTABILITY is irrelevant — require only that it
-               be in the CLOSED supported fragment ([forallb stmt_ok rest]; on decl-free bodies that IS the
-               scope gate, [GoSafe.body_okS_nil_declfree]).  Keeps [denote_body] ⊆ the gate while NOT making
-               a terminator depend on a successor slice 1 cannot yet evaluate. *)
+               be in the CLOSED supported fragment ([forallb stmt_ok rest]; on decl-free bodies the scoped
+               fold agrees exactly, [GoSafe.body_okS_nil_declfree]).  Keeps [denote_body] ⊆ [supported_program]
+               ([gosem_sound]) while NOT making a terminator depend on a successor slice 1 cannot yet evaluate. *)
             (if forallb stmt_ok rest then Some c else None)
           else
             match denote_body rest with
@@ -4427,7 +4427,7 @@ Qed.
 (** THE CONVERSE AUTHORITY — [supported ⟹ denotes] on the PRINT/PRINTLN-of-FOLDED-ARGS fragment.  A
     [folded_arg] (EVALUATES + PRINTABLE) certainly denotes — sufficient, NOT the full denotation boundary
     (the runtime tier denotes more).  [out_call pr]: [println]
-    (pr=true) / [print] (pr=false) — the gate admits both ([stmt_call_ok]), and [print] denotes identically with
+    (pr=true) / [print] (pr=false) — both callees are admitted ([stmt_call_ok]), and [print] denotes identically with
     the [COut] flag FALSE.  ⚠ This is a FRAGMENT, NOT the whole supported output class in EITHER direction:
     the runtime tier denotes MORE than the folded fragment ([println(int64(len([]int{1})))] = [runconv_e] is
     NOT [folded_arg] yet DENOTES since tier R3 — [runtime_conv_runs]; the tier's own converse is future

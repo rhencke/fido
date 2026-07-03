@@ -795,7 +795,7 @@ Definition supported_program (p : Program) : bool :=
      end.
 Definition SupportedProgram (p : Program) : Prop := supported_program p = true.
 
-(** ===== The DECL-FREE bridge: the scope fold at [scope_empty] IS the closed gate =====
+(** ===== The DECL-FREE bridge: the scoped fold at [scope_empty] IS the closed fragment =====
     [type_expr_nil_ptype] one level up: on a body with no short declaration the fold can neither bind
     nor mark, so it agrees EXACTLY with [forallb stmt_ok] — drift between the two statement spellings
     fails the build here.  ([gosem_sound] rides this: slice-1 denotable bodies are decl-free since
