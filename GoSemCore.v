@@ -1961,11 +1961,10 @@ Proof.
         rewrite Hbnr. reflexivity.
 Qed.
 
-(** ---- rung 7 — the f32 row: the deep bridges and the render/normalize assembly are
-    precision-generic; below are the binary32 helper instances and the FOUR live binary32 op
-    endpoints, ADD + SUB + MUL + exact DIV ([sf_render_{add,sub,mul,div}_agrees_f32]); the
-    cross-width conversions remain OPEN until their endpoint theorems land and are
-    surfaced. *)
+(** ---- rung 7 — the f32 row, CLOSED: the deep bridges and the render/normalize assembly
+    are precision-generic; below are the binary32 helper instances, the FOUR binary32 op
+    endpoints ([sf_render_{add,sub,mul,div}_agrees_f32]), and (further below) the two
+    CROSS-WIDTH endpoints ([sf_render_{narrow,widen}_agrees_f32]). *)
 Lemma repr_window_split_f32 : forall m e,
   float_dyadic_repr GTFloat32 m e = true ->
   m = Z0 \/ exists q, Z.abs m = Zpos q
@@ -2415,4 +2414,107 @@ Proof.
         destruct (render_signed_value_f32 (Zneg pr) er pr eq_refl Hr)
           as [sr [mcr [Tr [Hbnr _]]]].
         rewrite Hbnr. reflexivity.
+Qed.
+
+(** ---- rung 7's LAST piece — the CROSS-WIDTH conversions.  Re-normalizing a canonical
+    render at another precision IS the other precision's render of the SAME dyadic, on the
+    intersected window: the canonical mantissa carries the value at a lower-or-equal
+    exponent, so wide determinism at the TARGET precision closes it.  [f32_of_f64] and
+    [f64_of_f32] are exactly such re-normalizations (narrowing rounds, but on the 32-window
+    it is EXACT; widening is always exact there). *)
+Lemma dy_norm_window_transfer : forall prec emax m e p mr er,
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  dy_norm m e = (mr, er) ->
+  mr = Z0 \/ exists q, Z.abs mr = Zpos q
+     /\ (Zpos (digits2_pos q) <= prec)%Z /\ (emin prec emax <= er)%Z
+     /\ (Zpos (digits2_pos q) + er <= emax)%Z.
+Proof.
+  intros prec emax m e p mr er Habs Hd He Hde Hn.
+  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
+    injection Habs as ->;
+    cbn [dy_norm] in Hn;
+    destruct (pos_odd_split p) as [q k] eqn:E;
+    destruct (pos_odd_split_val p q k E) as [Hk _];
+    pose proof (pos_odd_split_digits p q k E) as Hdig;
+    injection Hn as <- <-;
+    right; exists q; (split; [reflexivity|]); lia.
+Qed.
+Lemma renorm_render_cross : forall prec emax prec' emax' m e p,
+  Z.abs m = Zpos p ->
+  (Zpos (digits2_pos p) <= prec)%Z ->
+  (emin prec emax <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax)%Z ->
+  (2 <= emax)%Z ->
+  (Zpos (digits2_pos p) <= prec')%Z ->
+  (emin prec' emax' <= e)%Z ->
+  (Zpos (digits2_pos p) + e <= emax')%Z ->
+  (2 <= emax')%Z ->
+  renorm prec' emax' (binary_normalize prec emax m e false)
+  = binary_normalize prec' emax' m e false.
+Proof.
+  intros prec emax prec' emax' m e p Habs Hd He Hde Hemax Hd' He' Hde' Hemax'.
+  destruct (render_canonical_gen prec emax m e p Habs Hd He Hde Hemax)
+    as [s [mc [T [Hbn [Hv [Hdig [Hfx HTe]]]]]]].
+  rewrite Hbn. cbn [renorm].
+  destruct (dy_norm m e) as [mr er] eqn:Hn.
+  assert (Hz : m <> Z0) by lia.
+  pose proof (dy_norm_window_transfer prec' emax' m e p mr er Habs Hd' He' Hde' Hn) as Hwin.
+  transitivity (binary_normalize prec' emax' mr er false).
+  - apply (normalize_result_agrees_gen prec' emax'); [| exact Hwin | exact Hemax'].
+    rewrite <- Hn.
+    apply dy_norm_value_unique; [lia | exact Hv].
+  - symmetry.
+    apply (normalize_result_agrees_gen prec' emax'); [exact Hn | exact Hwin | exact Hemax'].
+Qed.
+(** ★ NARROWING at the gate (gated): on the BINARY32 window, the f32 render of a dyadic IS
+    [f32_of_f64] of its f64 render — the checker's own cross-width narrowing op. *)
+Theorem sf_render_narrow_agrees_f32 : forall m e,
+  float_dyadic_repr GTFloat32 m e = true ->
+  exists v64,
+    sf_render GTFloat64 m e = Some v64
+    /\ sf_render GTFloat32 m e = Some (f32val (f32_of_f64 v64)).
+Proof.
+  intros m e H.
+  unfold sf_render at 1. rewrite renorm_sf_of_dyadic.
+  eexists. split; [reflexivity|].
+  rewrite sf_render_f32_eq. f_equal.
+  cbn [f32_of_f64 f32val].
+  destruct m as [|p|p].
+  - reflexivity.
+  - destruct (float_dyadic_repr_f32_premises (Zpos p) e p H eq_refl) as [Hd [He Hde]].
+    symmetry.
+    apply (renorm_render_cross 53 1024 24 128 (Zpos p) e p eq_refl);
+      [unfold emin in *; lia .. | exact Hd | exact He | exact Hde | lia].
+  - destruct (float_dyadic_repr_f32_premises (Zneg p) e p H eq_refl) as [Hd [He Hde]].
+    symmetry.
+    apply (renorm_render_cross 53 1024 24 128 (Zneg p) e p eq_refl);
+      [unfold emin in *; lia .. | exact Hd | exact He | exact Hde | lia].
+Qed.
+(** ★ WIDENING at the gate (gated): on the BINARY32 window, the f64 render of a dyadic IS
+    [f64_of_f32] of its (wrapped) f32 render — widening a binary32 value is EXACT. *)
+Theorem sf_render_widen_agrees_f32 : forall m e,
+  float_dyadic_repr GTFloat32 m e = true ->
+  exists v32,
+    sf_render GTFloat32 m e = Some v32
+    /\ sf_render GTFloat64 m e = Some (f64_of_f32 (f32_lit v32)).
+Proof.
+  intros m e H.
+  rewrite sf_render_f32_eq.
+  eexists. split; [reflexivity|].
+  unfold sf_render. rewrite renorm_sf_of_dyadic. f_equal.
+  unfold f64_of_f32. cbn [f32_lit f32_of_f64 f32val].
+  rewrite (f32_round_render_id m e H).
+  destruct m as [|p|p].
+  - reflexivity.
+  - destruct (float_dyadic_repr_f32_premises (Zpos p) e p H eq_refl) as [Hd [He Hde]].
+    symmetry.
+    apply (renorm_render_cross 24 128 53 1024 (Zpos p) e p eq_refl Hd He Hde ltac:(lia));
+      unfold emin in *; lia.
+  - destruct (float_dyadic_repr_f32_premises (Zneg p) e p H eq_refl) as [Hd [He Hde]].
+    symmetry.
+    apply (renorm_render_cross 24 128 53 1024 (Zneg p) e p eq_refl Hd He Hde ltac:(lia));
+      unfold emin in *; lia.
 Qed.
