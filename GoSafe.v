@@ -573,7 +573,8 @@ Qed.
 Print Assumptions type_expr_nil_ptype.
 
 (** ===== MARK-INSENSITIVITY (locals rung 5b): categories do not see used flags =====
-    The evaluator (rung 5c) queries categories at a FIXED statement-entry scope while the checker
+    The env evaluator instance (landed rung 5b, GoSemDenote's [denote_expr_env]) queries categories
+    at a FIXED statement-entry scope while the checker
     THREADS marks through the same expression — this suite proves the two views agree: marking a
     name changes NO category, and the threaded scope of a marked run is the marked threaded scope
     ([type_expr_mark_agrees]); the consumer-facing corollary is [tcat_mark_insensitive]. *)
@@ -806,7 +807,8 @@ Proof.
   - (* EHex *) cbn; auto.
 Qed.
 
-(** The scope-aware CATEGORY PROJECTION — rung 5c's evaluator authority. *)
+(** The scope-aware CATEGORY PROJECTION — the env evaluator's category authority (instantiated at
+    rung 5b: GoSemDenote's [denote_expr_env]). *)
 Definition tcat (G : ScopeS) (e : GExpr) : option PTy := option_map fst (type_expr G e).
 
 Corollary tcat_mark_insensitive : forall G s e, tcat (scope_markS G s) e = tcat G e.

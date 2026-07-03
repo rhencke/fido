@@ -191,9 +191,11 @@ for the evaluator's ident resolution in `GoSemDenote` (rung 5).
    dead-tail check becomes the SUFFIX FOLD (`body_okS Gs rest` + `scope_all_used` on its result
    — marks accumulate in `Gs`, so the suffix fold ends at `supported_program`'s own final scope,
    keeping denote ⊆ `supported_program` exactly); `denote_program` runs from
-   `(scope_empty, nil)`.  Sub-ladder, each an independently green commit: **5a** the `_with`
-   re-parameterization (behavior-identical, golden-identical); **5b** the `EId` shape arms +
-   `tc`/mark-insensitivity (closed instance still identical); **5c** the env statement layer +
+   `(scope_empty, nil)`.  Sub-ladder, each an independently green commit: **5a — LANDED** the
+   `_with`/`_tc` re-parameterization (behavior-identical; the family is SEALED `Local`, negtest-
+   pinned per face); **5b — LANDED** the `EId` shape arms + `tcat`/mark-insensitivity + the env
+   instance `denote_expr_env` with the closed coincidence `denote_expr_env_nil` and the env pins
+   (`env_eid_pins`/`env_float_pins`, surfaced); **5c** the env statement layer +
    `Γ ≈ ρ` + the re-proofs + the SEAM-PIN FLIPS (`shortdecl_supported_undenoted` and
    `shortdecl_deadtail_supported_undenoted` swap in the SAME commit they flip) + the
    panicking-RHS and runtime-binding fixtures; **5d** the frontier suite below.  The LOCAL-FRONTIER suite is a MECHANICAL MAP over the EXISTING

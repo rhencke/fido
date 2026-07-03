@@ -786,8 +786,9 @@ aggregate/map locals (`x := []int{1}`, `m := map[int]int{1:2}` — the evaluator
 aggregate values, so `bind_category` rejects the binding); shadowing a checker-recognized
 name (`len := 1` / `int := 1` / `nil := 1` — `decl_ident_ok` rejects uniformly); the
 conservative 32-bit default-`int` bound on the RHS (`x := 2^40` — sound on every target).
-Denotation is ABSENT until the env-threaded evaluator (rung 5): decl programs are
-supported-but-undenoted (`shortdecl_supported_undenoted`).
+The EXPRESSION-level env evaluator landed (rung 5b, `denote_expr_env` — a bound local evaluates,
+tag-checked); STATEMENT denotation of `x := e` stays ABSENT until the env statement layer
+(rung 5c): decl programs are supported-but-undenoted (`shortdecl_supported_undenoted`).
 
 ### [If](https://go.dev/ref/spec#If_statements) / [For](https://go.dev/ref/spec#For_statements) / [Switch](https://go.dev/ref/spec#Switch_statements) / [Goto](https://go.dev/ref/spec#Goto_statements) / [Return](https://go.dev/ref/spec#Return_statements) — ✓ via the goto-CFG relooper; ⚠ native `switch`
 Spec: structured control flow (`if`/`else`, `for` with optional range, `switch`,

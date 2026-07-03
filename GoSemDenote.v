@@ -1395,8 +1395,10 @@ Local Definition rexit_tc (tc : GExpr -> option PTy) (leaf : string -> option Go
          keyword target, on which [wrap_runint] is total, [wrap_runint_total]).  T2: the ARG
          evaluates at FULL power ([rv]), so a chain through a non-[GTInt] intermediate
          ([int64(uint8(len ..))]) converts exactly like Go — read the carrier's value ([runint_raw]),
-         wrap into the target.  A non-integer-tagged source (a runtime FLOAT — CLASS-absent,
-         [reval_val_runfloat_none]) is absent fail-closed.  A panicking arg panics (Go's order). *)
+         wrap into the target.  A non-integer-tagged source is absent fail-closed at [runint_raw]
+         (in the CLOSED instance a runtime-float source cannot even evaluate,
+         [reval_val_runfloat_none]; an ENV float LOCAL evaluates via the EId arm yet its
+         conversion stays absent HERE — pinned, [env_float_pins]).  A panicking arg panics (Go's order). *)
       match tc e with
       | Some (PtRunInt t) =>
           if numty_eqb t GTInt then None else
@@ -1701,8 +1703,9 @@ Local Definition reval_int_tc (tc : GExpr -> option PTy) (leaf : string -> optio
                  model's own [intwrap] on the source carrier's raw value.  T2: the ARG evaluates at
                  FULL power ([reval_val_tc] over THIS engine — the map arm's precedent), so a chain
                  through a non-[GTInt] intermediate ([int(uint8(len ..))]) converts exactly like Go.
-                 A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed
-                 ([runint_raw]; CLASS-absent, [reval_val_runfloat_none]).  Non-[GTInt] targets EXIT
+                 A non-integer-tagged source ([int(<runtime float>)]) is absent fail-closed at
+                 [runint_raw] (CLOSED instance: even classifier-absent, [reval_val_runfloat_none];
+                 ENV float locals: [env_float_pins]).  Non-[GTInt] targets EXIT
                  the fragment in [rexit_with]. *)
               if String.eqb (proj1_sig f) "int"
               then match reval_val_tc tc leaf ri a with
@@ -2018,6 +2021,24 @@ Example env_eid_pins :
            (EId (mkIdent "x" eq_refl)) = None
       /\ denote_expr_env G (("x"%string, anyt TInt64 (intwrap 5)) :: nil)
            (EId (mkIdent "y" eq_refl)) = None
+  | None => False
+  end.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+
+(** ENV FLOAT pins: a bound FLOAT local EVALUATES directly (the [rexit_tc] EId arm — the closed
+    runtime-float absence theorems are about the CLOSED instance only), while its integer-target
+    CONVERSIONS stay ABSENT through the real tag boundary ([runint_raw] rejects a float-tagged
+    carrier) — exact-or-absent, per category. *)
+Example env_float_pins :
+  match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64) with
+  | Some G =>
+      denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+        (EId (mkIdent "f" eq_refl))
+        = Some (CRet (anyt TFloat64 (S754_zero false)), false)
+      /\ denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+           (ECall (EId (mkIdent "int" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
+      /\ denote_expr_env G (("f"%string, anyt TFloat64 (S754_zero false)) :: nil)
+           (ECall (EId (mkIdent "int64" eq_refl)) (EId (mkIdent "f" eq_refl) :: nil)) = None
   | None => False
   end.
 Proof. vm_compute. repeat split; reflexivity. Qed.
@@ -3213,8 +3234,10 @@ Proof.
     destruct (wrap_runint t z) as [g'|] eqn:Hw; cbv beta iota in Hg; [|discriminate Hg].
     injection Hg as <-. exact (wrap_runint_tag _ _ _ Hw).
 Qed.
-(** THE RUNTIME-FLOAT ABSENCE CLASS THEOREM (evaluator level): NO [PtRunFloat]-classified expression
-    evaluates — not the fold ([eval_value_runfloat_none]), not the [GTInt] engine (its [PtRunInt]
+(** THE RUNTIME-FLOAT ABSENCE CLASS THEOREM (CLOSED evaluator level — [ptype]/[reval_val]; the ENV
+    instance DOES evaluate a float LOCAL through the EId arm, [env_float_pins]): NO
+    [PtRunFloat]-classified expression evaluates in the CLOSED instance — not the fold
+    ([eval_value_runfloat_none]), not the [GTInt] engine (its [PtRunInt]
     guard), not an exit (each arm's [ptype]/[PtBool] guard).  QUANTIFIED over the class, so no
     consumer — a conversion source, a map value, a typed-unary operand — can receive a runtime-float
     value before the float arc models one. *)
@@ -3445,9 +3468,10 @@ Qed.
     ([ptype_call_runint_conv_arg] — a [PtRunInt]-classified one-arg call's operand is [PtRunInt] or
     [PtRunFloat]); on the [PtRunInt] side the well-taggedness invariant ([reval_val_typed]) forces the
     payload's tag, on which the raw reading is total ([runint_raw_total]) and the target wrap is total
-    ([wrap_runint_total]).  The [PtRunFloat] complement is CLASS-absent
+    ([wrap_runint_total]).  The [PtRunFloat] complement is CLASS-absent in the CLOSED instance
     ([denote_expr_conv_float_src_absent] below, on [reval_val_runfloat_none]; supported-side witness
-    [runtime_float_source_conv_absent]) — the float arc, not this one. *)
+    [runtime_float_source_conv_absent]; the ENV conversion-absence face is [env_float_pins]) — the
+    float arc, not this one. *)
 Theorem denote_expr_conv_runs_sealed : forall f a t s g,
   floats_checked (ECall (EId f) (a :: nil)) = true ->
   ptype (ECall (EId f) (a :: nil)) = Some (PtRunInt t) ->
@@ -3501,7 +3525,7 @@ Proof.
   rewrite reval_val_with_eq, Hev, He. reflexivity.
 Qed.
 
-(** ★ THE RUNTIME-FLOAT SOURCE CLASS THEOREM — the [PtRunFloat] half of
+(** ★ THE RUNTIME-FLOAT SOURCE CLASS THEOREM (CLOSED instance) — the [PtRunFloat] half of
     [ptype_call_runint_conv_arg]'s split, QUANTIFIED over every integer target ([GTInt] included) and
     every float-classified source: the conversion is ABSENT, because no runtime-float expression
     evaluates at all ([reval_val_runfloat_none]).
@@ -4469,7 +4493,7 @@ Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
          body; ITS panic fires at return — [rc_defer_panic]); PANICKING args TERMINATE at the [defer]
          statement itself ([rc_defer_arg_panic]). *)
       denote_call CallDeferred e
-  | GsShortDecl _ _ => None  (* [x := e] — ABSENT until the env-threaded evaluator lands (rung 5, plans/gosem-locals.md); [supported_program] ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
+  | GsShortDecl _ _ => None  (* [x := e] — the EXPRESSION-level env instance landed (rung 5b, [denote_expr_env]); THIS statement arm stays ABSENT until the env statement layer (rung 5c, plans/gosem-locals.md).  [supported_program] ADMITS used locals since rung 4, so decl programs sit in the supported-but-undenoted gap ([shortdecl_supported_undenoted]) *)
   end.
 
 Fixpoint denote_body (b : list GoStmt) : option (Cmd unit) :=
@@ -4542,9 +4566,10 @@ Proof.
   exact (supported_program_of_stmt_ok p Epkg (denote_body_sound _ H)).
 Qed.
 
-(** The rung-4/5 SEAM, pinned: [supported_program] ADMITS a used local while the slice-1
-    evaluator still has no environment — SUPPORTED yet NOT denotable (absent via the [GsShortDecl]
-    arm).  FLIPS at rung 5 when the evaluator takes ρ (swap per the frontier-pin discipline). *)
+(** The rung-4/5c SEAM, pinned: [supported_program] ADMITS a used local while the STATEMENT layer
+    does not yet thread the env instance (expression-level env landed at rung 5b) — SUPPORTED yet
+    NOT denotable (absent via the [GsShortDecl] arm).  FLIPS at rung 5c when the statement layer
+    takes (G, ρ) (swap per the frontier-pin discipline). *)
 Example shortdecl_supported_undenoted :
   supported_program (mkProgram (mkIdent "main" eq_refl)
     [GsShortDecl (mkIdent "x" eq_refl) (EInt 1);
