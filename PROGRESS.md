@@ -85,9 +85,12 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md`; landed: value-parametric calculus, heap semantics + translation, and the GENERAL conditional heap bridge `bridge_heap_agrees` (defers + heap, final-heap agreement — the one bridge); remaining: `CAlloc` (2d), then channels — gated on a structural typed zero).
-- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
-  to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
+- Resume the cmd↔unified bridge (`plans/bridge-effects.md`, PAUSED at the heap milestone):
+  `CAlloc` (design v2 in the plan), then channels (gated on a structural typed zero), then spawn.
+- Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe` — OPEN: locals
+  (`plans/gosem-locals.md`: `x := e`, ONE env through checker+evaluator, gate reach to runtime
+  panics through variables); wire the certified path to the main output; widen the live GoPrint
+  bridge — gate-honestly.
 
 ## Known trust base (TCB)
 
