@@ -80,7 +80,7 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    `go_out_monotone` — true with heap ops).  Part ii (the heap AGREEMENT: initial
    `heap_agrees` premise, generalized start heap, completion premise, final-heap
    agreement) is the next sub-slice.
-   ⚠ 2a–2c phases of the original ladder note, kept for the record: every `match` over
+   The phase notes below record the worked design each part followed: every `match` over
    `Cmd` must be revisited in the same commit, and Phase A's statement itself generalizes
    (the config heap is no longer fixed across a body run once writes exist) — the
    invariant IS the landing.  Coq's exhaustiveness check bites ONLY because the repo's
@@ -117,17 +117,17 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
      the unconditional ∃-form is re-derived for the `no_heap` fragment via (iii).  The
      heap-bridging agreement itself: `ustart` generalizes over an initial heap that
      `heap_agrees` the start `World`; conclusion adds final-heap agreement.
-   - 2b. `cmd_to_ucmd` heap arms (`CWrite → UWrite`, `CRead → URead` — cell ≅ any, the
-     pair-swap isos `any_of_cell`/`cell_of_any`); `UFrag` GROWS write/read cases (its
-     role is unchanged: the image still contains no rule consulting `vz` — no
-     `URecv`/`USelect` — and no channel/spawn forms; re-word its banner to the BRIDGED
-     fragment, not "output/panic/defer").
-   - 2c. the agreement: `heap_agrees h rh := forall l cell, rh l = Some cell ->
-     h l = any_of_cell cell` (allocated locations only — `vz` elsewhere is fine since a
-     completing run never touches them); `ustart` generalizes over the initial heap (or
+   - 2b — LANDED as described in part i above.  ONE authority each: `UFrag` = the
+     translated-IMAGE seal (no channel/spawn form ever); `UNoVz` + `no_heap`
+     (`cmd_to_ucmd_novz`, gated) = the no-`vz` seal licensing the quantified parameter.
+   - 2c — the REMAINING work (part ii): the heap agreement.  `heap_agrees h rh :=
+     forall l cell, rh l = Some cell -> h l = any_of_cell cell` (allocated locations
+     only — the initial-heap default elsewhere is unobservable since a completing run
+     never touches unallocated memory); `ustart` generalizes over the initial heap (or
      the theorem states a general start config with a `heap_agrees` premise against the
      start `World`); the conclusion adds FINAL-heap agreement (writes landed identically).
-     Phase A / the unwind / the assembly thread the invariant.
+     Phase A / the unwind / the assembly thread the invariant; the ustep side takes
+     `ustep_write`/`ustep_read` steps mirroring `heap_write`/`w_refs` reads.
    Allocation (`CAlloc` off `w_next`) still has NO ustep counterpart rule — its own
    sub-slice (2d) adding the unified.v rule + trace event, AFTER 2a–2c.
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`

@@ -36,8 +36,9 @@ Import ListNotations.
 (** THE unified command language — every admitted effect, one syntax.  VALUES are a PARAMETER
     [V] — ONE calculus, two instantiations: the [rstep] embedding takes [V := nat] (values
     identity, so the trace/race machinery applies verbatim) and the cmd.v bridge takes
-    [V := GoAny], LIMITED to the output/panic/defer fragment (those payloads are exact;
-    heap/channel VALUE faithfulness is future work gated on typed state agreement —
+    [V := GoAny] — the TRANSLATION covers output/panic/defer + the heap pair, while the
+    AGREEMENT ([cmd_unified.bridge_agrees]) is quarantined to the [no_heap] fragment
+    (heap/channel VALUE faithfulness is future work gated on typed state agreement —
     plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
     payload at EVERY instantiation since output is observed, not raced.  [vzero] is ONLY a
     calculus parameter — what a closed, drained recv binds ([0] at [nat]); at [V := GoAny] it
