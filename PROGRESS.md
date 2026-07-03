@@ -82,7 +82,7 @@ field selectors, runtime numeric conversions, fixed-width bridging binops — th
 
 - CONSOLIDATION (boss, 2026-07-02): shrink bytes, no new features; surfaces stay
   endpoint-only. The §3a GoSem split is DONE (Core/Denote/composition — revised 3-file form).
-- Extend the cmd↔unified bridge to chan/heap/spawn.
+- Extend the cmd↔unified bridge to chan/heap/spawn (`plans/bridge-effects.md` — value fork decided: unified values generalize `nat`→`GoAny`).
 - Grow behavioral safety toward `BehaviorSafe` → `SafeProgram` → `emit_safe`; wire the certified path
   to the main output. Widen the live GoPrint bridge + `GoStmt` forms — gate-honestly.
 
