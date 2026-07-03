@@ -1327,3 +1327,200 @@ Proof.
   rewrite dy_norm_opp, (dyconst_norm_fix d). cbn [dy_neg fst snd].
   exact (sf_render_neg_general_f64 _ _ Hm).
 Qed.
+
+(** ---- rung 6 — MUL at binary64.  [SFmul]'s finite arm is [binary_round_aux] on the RAW
+    product of the CANONICAL mantissas at the SUM exponent; for canonical operand renders
+    the [fexp] target never sits below that exponent ([digits2_pos_mul_lower] + the window
+    bounds), so the arm IS [binary_round] ([binary_round_aux_of_round]) and the wide-bridge
+    endgame ([normalize_result_agrees_f64]) applies.  ⚠ the ENDPOINT is stated over the
+    CONSTANT-op layer ([sf_pos_zero] of [f64_mul]): IEEE gives [(+0) * (negative) = -0], a
+    RUNTIME zero sign Go's exact-rational constant fold never produces — the raw-op form of
+    the ADD/SUB endpoints is FALSE on MUL's zero rows. *)
+Lemma cond_Zopp_xorb_mul : forall s1 s2 a b,
+  cond_Zopp (xorb s1 s2) (a * b)%Z = (cond_Zopp s1 a * cond_Zopp s2 b)%Z.
+Proof. intros [|] [|] a b; cbn [xorb cond_Zopp]; ring. Qed.
+Lemma dy_norm_nonzero : forall m e mr er,
+  m <> Z0 -> dy_norm m e = (mr, er) -> mr <> Z0.
+Proof.
+  intros m e mr er Hm Hn.
+  destruct m as [|p|p]; [congruence| |];
+    cbn [dy_norm] in Hn; destruct (pos_odd_split p) as [q k];
+    injection Hn as <- _; discriminate.
+Qed.
+Lemma binary_normalize_of_round : forall prec emax s q e,
+  binary_round prec emax s q e
+  = binary_normalize prec emax (cond_Zopp s (Zpos q)) e false.
+Proof. intros prec emax [|] q e; reflexivity. Qed.
+(** the render, CANONICALLY: [render_signed_value_f64]'s witness plus the two
+    digit/exponent facts the MUL target premise needs — digits+exponent is shift-invariant
+    ([shl_align_digits]) and the exponent IS the [fexp] target. *)
+Lemma render_canonical_f64 : forall m e p,
+  Z.abs m = Zpos p ->
+  float_dyadic_repr GTFloat64 m e = true ->
+  exists s mc T,
+    binary_normalize 53 1024 m e false = S754_finite s mc T
+    /\ cond_Zopp s (Zpos mc) = (m * 2 ^ (e - T))%Z
+    /\ (Zpos (digits2_pos mc) + T = Zpos (digits2_pos p) + e)%Z
+    /\ T = fexp 53 1024 (Zpos (digits2_pos p) + e)
+    /\ (T <= e)%Z.
+Proof.
+  intros m e p Habs Hrep.
+  destruct (float_dyadic_repr_f64_premises m e p Hrep Habs) as [Hd [He Hde]].
+  assert (HT : (fexp 53 1024 (Zpos (digits2_pos p) + e) <= e)%Z)
+    by (unfold fexp, emin in *; lia).
+  pose proof (shl_align_fst_val p e _ HT) as Hval.
+  pose proof (shl_align_digits p e _ HT) as Hdig.
+  pose proof (shl_align_snd p e _ HT) as Hsnd.
+  destruct m as [|p'|p']; cbn [Z.abs] in Habs; try discriminate Habs;
+    injection Habs as ->.
+  - exists false, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
+           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split; [|split]]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact 53 1024 false p e Hd He Hde ltac:(lia)).
+    + cbn [cond_Zopp]. exact Hval.
+    + lia.
+    + reflexivity.
+    + exact HT.
+  - exists true, (fst (shl_align p e (fexp 53 1024 (Zpos (digits2_pos p) + e)))),
+           (fexp 53 1024 (Zpos (digits2_pos p) + e)).
+    split; [|split; [|split; [|split]]].
+    + cbn [binary_normalize].
+      exact (binary_round_exact 53 1024 true p e Hd He Hde ltac:(lia)).
+    + cbn [cond_Zopp].
+      change (Zneg p) with (- Zpos p)%Z.
+      rewrite Hval. ring.
+    + lia.
+    + reflexivity.
+    + exact HT.
+Qed.
+(** the finite×finite MUL core: both renders characterized canonically, the raw-product arm
+    rewritten to [binary_round], the product value algebra aligned to the fold via
+    [dy_norm_value_unique], the wide-determinism endgame closing it. *)
+Lemma f64_mul_normalize_agrees : forall m1 e1 m2 e2 mr er p1 p2,
+  Z.abs m1 = Zpos p1 -> Z.abs m2 = Zpos p2 ->
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_mul (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  f64_mul (binary_normalize 53 1024 m1 e1 false) (binary_normalize 53 1024 m2 e2 false)
+  = binary_normalize 53 1024 mr er false.
+Proof.
+  intros m1 e1 m2 e2 mr er p1 p2 Ha1 Ha2 H1 H2 Hmul Hr.
+  destruct (float_dyadic_repr_f64_premises m1 e1 p1 H1 Ha1) as [Hd1 [He1 Hde1]].
+  destruct (float_dyadic_repr_f64_premises m2 e2 p2 H2 Ha2) as [Hd2 [He2 Hde2]].
+  destruct (render_canonical_f64 m1 e1 p1 Ha1 H1)
+    as [s1 [mc1 [T1 [Hbn1 [Hv1 [Hdig1 [Hfx1 HT1e]]]]]]].
+  destruct (render_canonical_f64 m2 e2 p2 Ha2 H2)
+    as [s2 [mc2 [T2 [Hbn2 [Hv2 [Hdig2 [Hfx2 HT2e]]]]]]].
+  pose proof (digits2_pos_mul_lower mc1 mc2) as Hml.
+  rewrite Hbn1, Hbn2.
+  unfold f64_mul, SFmul. cbv beta iota.
+  rewrite binary_round_aux_of_round by (unfold fexp, emin in *; lia).
+  rewrite binary_normalize_of_round.
+  apply normalize_result_agrees_f64; [| exact Hr].
+  cbn [dy_mul] in Hmul. rewrite <- Hmul.
+  apply dy_norm_value_unique; [lia|].
+  rewrite Pos2Z.inj_mul, cond_Zopp_xorb_mul, Hv1, Hv2.
+  replace ((e1 + e2) - (T1 + T2))%Z with ((e1 - T1) + (e2 - T2))%Z by lia.
+  rewrite Z.pow_add_r by lia.
+  ring.
+Qed.
+(** ★ MUL at binary64 (gated, CONST-layer): on the gate's windows — operands AND result —
+    the LIVE render of [dy_mul]'s exact fold IS the CONSTANT-op layer's product
+    ([sf_pos_zero] of [f64_mul]) of the operands' renders, every shape.  The erasure is
+    exactly the checker's own op ([sf_const_binop]'s [BMul] row): a zero factor times a
+    NEGATIVE operand is IEEE [-0] at the raw op, a runtime-only zero sign. *)
+Theorem sf_render_mul_agrees_f64 : forall m1 e1 m2 e2 mr er,
+  float_dyadic_repr GTFloat64 m1 e1 = true ->
+  float_dyadic_repr GTFloat64 m2 e2 = true ->
+  dy_mul (m1, e1) (m2, e2) = (mr, er) ->
+  float_dyadic_repr GTFloat64 mr er = true ->
+  exists v1 v2,
+    sf_render GTFloat64 m1 e1 = Some v1
+    /\ sf_render GTFloat64 m2 e2 = Some v2
+    /\ sf_render GTFloat64 mr er = Some (sf_pos_zero (f64_mul v1 v2)).
+Proof.
+  intros m1 e1 m2 e2 mr er H1 H2 Hmul Hr.
+  unfold sf_render. rewrite !renorm_sf_of_dyadic.
+  do 2 eexists. split; [reflexivity|]. split; [reflexivity|].
+  f_equal.
+  destruct m1 as [|q1|q1].
+  - (* 0 * x : the fold is (0,0); the raw product is a signed zero, erased *)
+    cbn [dy_mul Z.mul dy_norm] in Hmul. injection Hmul as <- <-.
+    change (binary_normalize 53 1024 0 e1 false) with (S754_zero false).
+    change (binary_normalize 53 1024 0 0 false) with (S754_zero false).
+    destruct m2 as [|q2|q2].
+    + change (binary_normalize 53 1024 0 e2 false) with (S754_zero false). reflexivity.
+    + destruct (render_signed_value_f64 (Zpos q2) e2 q2 eq_refl H2)
+        as [s2 [mc2 [T2 [Hbn2 _]]]].
+      rewrite Hbn2. reflexivity.
+    + destruct (render_signed_value_f64 (Zneg q2) e2 q2 eq_refl H2)
+        as [s2 [mc2 [T2 [Hbn2 _]]]].
+      rewrite Hbn2. reflexivity.
+  - destruct m2 as [|q2|q2].
+    + (* pos * 0 *)
+      cbn [dy_mul Z.mul dy_norm] in Hmul. injection Hmul as <- <-.
+      change (binary_normalize 53 1024 0 e2 false) with (S754_zero false).
+      change (binary_normalize 53 1024 0 0 false) with (S754_zero false).
+      destruct (render_signed_value_f64 (Zpos q1) e1 q1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. destruct s1; reflexivity.
+    + cbn [dy_mul Z.mul] in Hmul.
+      pose proof (f64_mul_normalize_agrees (Zpos q1) e1 (Zpos q2) e2 mr er q1 q2
+                    eq_refl eq_refl H1 H2 Hmul Hr) as Hcore.
+      rewrite Hcore.
+      destruct mr as [|pr|pr].
+      * exfalso. eapply dy_norm_nonzero in Hmul; [exact (Hmul eq_refl) | discriminate].
+      * destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+    + cbn [dy_mul Z.mul] in Hmul.
+      pose proof (f64_mul_normalize_agrees (Zpos q1) e1 (Zneg q2) e2 mr er q1 q2
+                    eq_refl eq_refl H1 H2 Hmul Hr) as Hcore.
+      rewrite Hcore.
+      destruct mr as [|pr|pr].
+      * exfalso. eapply dy_norm_nonzero in Hmul; [exact (Hmul eq_refl) | discriminate].
+      * destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+  - destruct m2 as [|q2|q2].
+    + (* neg * 0 *)
+      cbn [dy_mul Z.mul dy_norm] in Hmul. injection Hmul as <- <-.
+      change (binary_normalize 53 1024 0 e2 false) with (S754_zero false).
+      change (binary_normalize 53 1024 0 0 false) with (S754_zero false).
+      destruct (render_signed_value_f64 (Zneg q1) e1 q1 eq_refl H1)
+        as [s1 [mc1 [T1 [Hbn1 _]]]].
+      rewrite Hbn1. destruct s1; reflexivity.
+    + cbn [dy_mul Z.mul] in Hmul.
+      pose proof (f64_mul_normalize_agrees (Zneg q1) e1 (Zpos q2) e2 mr er q1 q2
+                    eq_refl eq_refl H1 H2 Hmul Hr) as Hcore.
+      rewrite Hcore.
+      destruct mr as [|pr|pr].
+      * exfalso. eapply dy_norm_nonzero in Hmul; [exact (Hmul eq_refl) | discriminate].
+      * destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+    + cbn [dy_mul Z.mul] in Hmul.
+      pose proof (f64_mul_normalize_agrees (Zneg q1) e1 (Zneg q2) e2 mr er q1 q2
+                    eq_refl eq_refl H1 H2 Hmul Hr) as Hcore.
+      rewrite Hcore.
+      destruct mr as [|pr|pr].
+      * exfalso. eapply dy_norm_nonzero in Hmul; [exact (Hmul eq_refl) | discriminate].
+      * destruct (render_signed_value_f64 (Zpos pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+      * destruct (render_signed_value_f64 (Zneg pr) er pr eq_refl Hr)
+          as [sr [mcr [Tr [Hbnr _]]]].
+        rewrite Hbnr. reflexivity.
+Qed.
+

@@ -82,8 +82,17 @@ value quotient is `dy_norm` (the odd-mantissa normal form), never ℝ.
    finite arm by `Z.sub`-is-`add∘opp` conversion) + `bn_opp_f64` (rung 1 at the normalizer)
    transport the ADD closure through `dy_sub = dy_add ∘ dy_neg`; a zero subtrahend's `-0` is
    absorbed by `SFadd`'s sign-blind zero rows.
-6. **MUL, then exact DIV** (f64): same shape (`SFmul` = `binary_round` of the exact product;
-   `SFdiv` exact-quotient case via `dy_div`'s divisibility guard).
+6. **MUL (f64) — CLOSED; exact DIV remains.**
+   MUL CLOSED (gated `sf_render_mul_agrees_f64`, ⚠ a CONST-LAYER endpoint — `sf_pos_zero` of
+   `f64_mul`, exactly `sf_const_binop`'s `BMul` row): IEEE `(+0)*(negative) = -0` is a
+   runtime-only zero sign, so the ADD/SUB raw-op statement is FALSE on MUL's zero rows.
+   `SFmul`'s finite arm is `binary_round_aux` on the RAW product of the canonical mantissas;
+   `binary_round_aux_of_round` + `digits2_pos_mul_lower` (the fexp target never sits below
+   the sum exponent for canonical renders — normal case ≥105 digits, emin cases by the
+   window bounds) rewrite it to `binary_round`, `render_canonical_f64` (the render's
+   digits+exponent IS the fexp fixpoint, via `shl_align_digits`) + `cond_Zopp_xorb_mul`
+   align the product value to the fold, and `normalize_result_agrees_f64` closes.
+   REMAINING: exact DIV (`SFdiv`'s exact-quotient case via `dy_div`'s divisibility guard).
 7. **The f32 row + cross-width conversions** (needs rung 3's idempotence for the `f32_round`
    wrappers; `f32_of_f64`/`f64_of_f32` agreement).
 8. **The checker-completeness CLASS theorem**: on the admitted class `fsf_checked` ACCEPTS
