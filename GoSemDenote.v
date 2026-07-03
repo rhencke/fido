@@ -2030,7 +2030,8 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     about the CLOSED instance only), and a TAG-FORGED environment (float32 or int under a
     float64-bound name; float64 or int under a float32-bound name) is ABSENT
     ([eid_exit_tag_ok]).  The INTEGER-TARGET CONVERSION class is pinned separately and in FULL by
-    [env_float_conv_class]/[int_conv_kw_complete] below. *)
+    [env_float_conv_class] below (quantified over [special_ident]'s image, strings pinned by
+    [special_ident_name]). *)
 Example env_float_pins :
   match scope_declare scope_empty (mkIdent "f" eq_refl) (PtRunFloat GTFloat64),
         scope_declare scope_empty (mkIdent "g" eq_refl) (PtRunFloat GTFloat32) with
