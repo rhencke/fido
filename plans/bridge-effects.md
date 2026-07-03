@@ -81,10 +81,20 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    layer is undefinable under a binder, so semantic grounding in `go` replaces it where
    heap ops must be covered; every `Cmd` match stays WILDCARD-FREE (a wildcard arm is
    fail-open in proof form).
-   REMAINING (post-slice decisions): restating `bridge_agrees` over the `ustart_w`
-   start (which would let the general heap theorem subsume it and retire the syntactic
-   projection lane) — a surface change, taken deliberately; then 2d `CAlloc` (needs a
-   NEW unified.v rule + trace event).
+   REMAINING — the SUBSUMPTION LANDING (decision TAKEN 2026-07-03, hypothesis-strength
+   rule): `bridge_agrees` is now literally `run_cmd_terminates ∘ bridge_heap_agrees`, so
+   it is DELETED, not restated — along with the syntactic panic lane that existed only to
+   prove it (`bridge_agrees_complete`, `unwind_prefix_panic`, the `nested_defers_panic`
+   family + `run_defers_panic_eq` + `run_cmd_panic_char`, and `ustart` — every consumer
+   moves to `ustart_w`).  GoSemSafe's two ustep theorems recompose as
+   `run_cmd_terminates` (via `cmd_no_panic_no_heap`) + `bridge_heap_agrees`.  KEEP: the
+   projections + `go_chars` + `run_defers_no_panic`/`cmd_no_panic_defers`/
+   `cmd_no_panic_cmd_panic` ONLY IF `run_cmd_no_panic_ret`'s proof still needs them
+   (checked at the landing; a semantic `go_no_panic` tree induction can retire them too);
+   `pop_defer_step`/`body_runs_sem`/`unwind_heap`/seed-linearity/`map_snd_pair0`/
+   `oc*_set_world` stay (the semantic lane).  Sweep: gate lines + PROGRESS gates/bullets +
+   cmd.v/unified.v/GoSemSafe/SPEC_CONFORMANCE/plan mentions; boundary-word grep LAST.
+   Then 2d `CAlloc` (needs a NEW unified.v rule + trace event).
 3. **CHANNELS** (single-goroutine deterministic fragment): `CSend`/`CRecv`/`CClose`
    against `w_chans` — BLOCKED on the ⛔ precondition above (structural typed closed-recv
    zero; two-element-type proofs).  The ustep side BLOCKS (a full-buffer send / empty-buffer recv has
