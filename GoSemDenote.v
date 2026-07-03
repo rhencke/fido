@@ -4185,8 +4185,10 @@ Qed.
 (** Translate ONE statement to its command PAIRED WITH a TERMINATES flag (successors unreachable), or [None] if
     unmodeled.  The flag makes [denote_stmt] the SINGLE control-flow authority ([denote_body] never re-decides);
     it is ESSENTIAL, not derivable (a [return] and a CONSTANT blank-assign both give [CRet tt] but differ
-    stop/fall-through).  The effect arms go through [denote_call] (gated on [expr_stmt_ok] — [denote] ⊆ the
-    gate, [gosem_sound]), and the flag is COMPUTED from the effects: [println]/[print] fall through UNLESS an
+    stop/fall-through).  The effect arms go through [denote_call], gated on [expr_stmt_ok] — the base of the
+    inclusion ladder [denote_call_ok] → [denote_stmt_sound] ([stmt_ok]) → [denote_body_sound]
+    ([forallb stmt_ok]) → [gosem_sound] ([supported_program]) — and the flag is COMPUTED from the effects:
+    [println]/[print] fall through UNLESS an
     argument panics; [panic] terminates; [return] terminates; a blank-assign terminates iff its expression
     panics; [defer <call>] falls through unless its (defer-time) arguments panic. *)
 Definition denote_stmt (s : GoStmt) : option (Cmd unit * bool) :=
