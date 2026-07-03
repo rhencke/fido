@@ -3,8 +3,8 @@
     file 1): box/render ([box_int]/[box_float]/[sf_render]), the CONSTANT-fold op layer
     ([sf_const_binop]/[sf_const_neg]), the [floats_checked] boundary machinery +
     [fsf_checked], and the dyadic↔SF* agreement arc (plans/dyadic-sf-agreement.md;
-    rungs 1–5 + rung-6 MUL landed: NEG, the window bridges, wide determinism, ADD + SUB
-    raw at binary64, MUL at the CONSTANT-op layer; exact DIV remains).
+    rungs 1–6 landed: NEG, the window bridges, wide determinism, ADD + SUB raw at
+    binary64, MUL + exact DIV at the CONSTANT-op layer; rung 7 (f32) in progress).
     NO EVALUATOR HERE: [eval_value] and its [Local] core live in GoSemDenote.v with the proofs
     that compute through them — the core must stay UNCALLABLE from importers (it would skip
     the [floats_checked] boundary; sealed by the [neg_float_boundary_bypass_*] negtests).
@@ -1259,15 +1259,22 @@ Proof.
   intros t m e H. unfold float_dyadic_repr in *.
   destruct t; try discriminate H; rewrite Z.abs_opp; exact H.
 Qed.
+Lemma binary_normalize_opp : forall prec emax m e,
+  m <> Z0 ->
+  binary_normalize prec emax (- m)%Z e false
+  = SFopp (binary_normalize prec emax m e false).
+Proof.
+  intros prec emax m e Hm.
+  destruct m as [|p|p]; [congruence| |].
+  - change (- Zpos p)%Z with (Zneg p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax false p e).
+  - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
+    exact (binary_round_opp prec emax true p e).
+Qed.
 Lemma bn_opp_f64 : forall m e, m <> Z0 ->
   binary_normalize 53 1024 (- m)%Z e false
   = SFopp (binary_normalize 53 1024 m e false).
-Proof.
-  intros m e Hm.
-  pose proof (sf_render_neg_general_f64 m e Hm) as H.
-  unfold sf_render in H. rewrite !renorm_sf_of_dyadic in H.
-  cbn [option_map] in H. injection H as H. exact H.
-Qed.
+Proof. intros m e Hm. exact (binary_normalize_opp 53 1024 m e Hm). Qed.
 (** ★ SUB at binary64 (gated) — rung 5 CLOSED (ADD + SUB): [dy_sub] is [dy_add] of the
     negation and [SFsub] is [SFadd] of the sign-flip ([SFsub_as_add_opp]), so the ADD closure
     transports; the [-0] second operand of a zero subtrahend is absorbed by [SFadd]'s
@@ -1899,16 +1906,4 @@ Proof.
   intros raw ez mr er Hn Hrep.
   exact (normalize_result_agrees_gen 24 128 raw ez mr er Hn
            (repr_window_split_f32 mr er Hrep) ltac:(lia)).
-Qed.
-Lemma binary_normalize_opp : forall prec emax m e,
-  m <> Z0 ->
-  binary_normalize prec emax (- m)%Z e false
-  = SFopp (binary_normalize prec emax m e false).
-Proof.
-  intros prec emax m e Hm.
-  destruct m as [|p|p]; [congruence| |].
-  - change (- Zpos p)%Z with (Zneg p). cbn [binary_normalize].
-    exact (binary_round_opp prec emax false p e).
-  - change (- Zneg p)%Z with (Zpos p). cbn [binary_normalize].
-    exact (binary_round_opp prec emax true p e).
 Qed.
