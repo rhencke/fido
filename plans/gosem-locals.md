@@ -37,12 +37,21 @@ compile-time rejections.  The correct shape:
     "use of untyped nil" compile error).
   The match is over EVERY `PTy` constructor explicitly — a category is rejected by a written
   `None` arm, never by omission (wildcard-free, same discipline as every `Cmd` match).
-- evaluator env `ρ : Ident ⇀ GoAny` — the world is closed, so the exact value IS known and carried;
-  `EId x` resolves to `ρ x`; ops on the resolved value take the ALREADY-LANDED runtime tiers
+- evaluator env `ρ : Ident ⇀ GoAny` — a binding enters `ρ` ONLY from a DENOTED RHS: the short-decl
+  denotation arm evaluates `e` through the LIVE evaluator FIRST, and if `e` is in a
+  supported-but-undenoted class (runtime floats never evaluate — `GoSemDenote.v:2935`; the pinned
+  runtime holes / conversion-over-absent classes in `GoSem.v`'s frontier), the option-threading
+  leaves the WHOLE program ABSENT — faithful-or-absent, mechanically, no new machinery.  So
+  CHECKER ADMISSION ≠ DENOTABILITY: `bind_category` is a SUPPORTEDNESS authority (conservative,
+  syntactic — it admits every category the checker can type, keeping the two layers independent so
+  evaluator growth never forces checker edits); which admitted bindings actually VALUE is decided
+  by the evaluator, exactly as for every other supported-but-undenoted expression today.  `EId x`
+  resolves to `ρ x`; ops on the resolved value take the ALREADY-LANDED runtime tiers
   (GTInt R1–R8 / typed-runtime T1–T5).
 - the agreement invariant `Γ ≈ ρ` (each binding's value tag matches its checker CATEGORY component;
-  the used flag is supportedness-only, invisible to `ρ`) is the
-  lemma spine along which `gosem_sound` re-proves.
+  the used flag is supportedness-only, invisible to `ρ`) is the lemma spine along which
+  `gosem_sound` re-proves — quantified over DENOTED runs (where `ρ` exists at all), never claiming
+  a value for a checker-admitted binding the evaluator left absent.
 
 The live expression checker is STATE-THREADING — `type_expr : Γ -> GExpr -> option (PTy * Γ)` —
 resolving identifiers AND marking their used flags in the SAME traversal (a read-only
@@ -75,8 +84,10 @@ in `GoSemDenote`.
    SpecialName`** (beside `classify`/`go_keyword`, which it subsumes — `classify` becomes the
    `SnType` projection).  GoTypes' recognizers, GoSafe's `stmt_call_ok`, and the declaration gate
    `decl_ident_ok s := match special_ident s with None => true | Some _ => false end` all consume
-   the table by WILDCARD-FREE exhaustive match — so adding a recognized name forces every consumer
-   mechanically (the structural gate; no parallel list can drift).  Where Go PERMITS the shadowing
+   the ONE table.  The SEMANTIC consumers (recognizers that choose behavior PER NAME) match
+   wildcard-free exhaustively, so a new `SpecialName` constructor forces each of them mechanically;
+   the declaration gate alone uses `Some _ => false` DELIBERATELY — it rejects every recognized
+   name uniformly, a total rejection with no per-name decision that could drift by omission.  Where Go PERMITS the shadowing
    (e.g. `len := 1`, `int := 1` are legal Go) this is a conservative NARROWING, named as such;
    each fixture's LEDGER placement (bad_programs vs valid_unsupported_programs — their contracts
    differ) is ground-truthed against the real toolchain via `make go-verify` at landing, never
@@ -128,7 +139,13 @@ in `GoSemDenote`.
    `denote_stmt_sound`/`gosem_sound`/`denote_program_dec` re-proved over the invariant.  SCOPE:
    locals widen NAME reach, not operation reach — a resolved variable feeds the EXISTING runtime
    value paths only; any op those paths don't cover stays absent (fail-closed, no new value
-   semantics in this rung).
+   semantics in this rung).  LOCAL-FRONTIER fixtures pin the checker-admitted-but-undenoted decl
+   classes at their true status — supported ∧ NOT denotable ∧ gate-rejected by NON-denotation
+   (the `panic_free_gate_absent` mechanism):
+   `x := float64(len([]int{1})); _ = x` (runtime-float source — no `PtRunFloat` expression
+   evaluates today), a decl over a pinned runtime-int op hole (e.g. the `GTUint` class), and a
+   conversion-over-absent-source decl.  When an arc lands that makes one denote, its pin BREAKS —
+   swap in the next frontier member in the same commit (the standing frontier-pin discipline).
 6. **Gate reach (GoSemSafe + ledgers)**: flagship demos — a local-using panic-free program
    ACCEPTED + EMITTED (and go-built, proving rule 4 keeps emission valid); `x := 0; _ = 1 / x`
    SUPPORTED + DENOTABLE + REJECTED by `cmd_no_panic` on its `rt_div_zero` `CPan` (extending
