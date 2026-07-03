@@ -50,7 +50,7 @@ FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = 
     if (c == "\"") { instr = 1; i++; continue }
     if (c == "#") {                         # attribute opener: '#' [spaces] '['
       j = i + 1
-      while (j <= n && substr(line, j, 1) ~ /[ \t]/) j++
+      while (j <= n && substr(line, j, 1) ~ /[ \t\r]/) j++
       if (j <= n && substr(line, j, 1) == "[") { inattr = 1; adepth = 1; attrtxt = ""; i = j + 1; continue }
       loc = 0; i++; continue
     }
@@ -64,7 +64,7 @@ FNR == 1 { cdepth = 0; instr = 0; inattr = 0; inastr = 0; adepth = 0; attrtxt = 
       else                      { loc = 0 }
       i = j; continue
     }
-    if (c != " " && c != "\t") loc = 0      # any other punctuation flushes the decoration chain
+    if (c != " " && c != "\t" && c != "\r") loc = 0   # any other punctuation flushes the chain (\r is line whitespace — CRLF/CR files)
     i++
   }
 }

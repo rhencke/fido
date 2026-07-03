@@ -111,7 +111,8 @@ echo "fido: selector-bridge gate OK — the ESel arm keeps its not-embedded + ML
 # (emitdemo/ and negtests/ are compiled too); only _build/.git excluded.
 lx_detect() { find "$1" -name '*.v' -not -path '*/_build/*' -not -path '*/.git/*' -print0 2>/dev/null \
               | xargs -0 -r awk -f plugin/local-example-lint.awk 2>/dev/null || true; }
-# self-test corpus: every spelling the gate claims to reject (12 positives, root + subdir) and a
+# self-test corpus: every spelling the gate claims to reject (15 positives, root + subdir,
+# CRLF line endings included) and a
 # negatives file (public Example / Local Lemma / comment / string / #[global] / word-local inside
 # an attribute STRING / doubled-quote string) that must stay clean.
 lx_t=$(mktemp -d); mkdir -p "$lx_t/sub"
@@ -134,6 +135,7 @@ Example st_f : True.
 #[deprecated(note="]"), local] Example st_k : True.
 #[deprecated(note="]")] #[local] Example st_l : True.
 LXEOF
+printf 'Local\r\nExample st_m : True.\r\n#[local]\r\nExample st_n : True.\r\n#[local]\r\n#[deprecated(note="x")]\r\nExample st_o : True.\r\n' > "$lx_t/sub/pos3.v"
 cat > "$lx_t/neg.v" <<'LXEOF'
 Example st_ok : True.
 Local Lemma st_ok2 : True.
@@ -145,7 +147,7 @@ Definition st_u := "a""b". Example st_ok5 : True.
 LXEOF
 hits=$(lx_detect "$lx_t" | grep -c .) || true
 neg=$(awk -f plugin/local-example-lint.awk "$lx_t/neg.v" | grep -c .) || true
-[ "$hits" = "12" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 12 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
+[ "$hits" = "15" ] && [ "$neg" = "0" ] || { echo "fido: LOCAL-EXAMPLE GATE self-test broke (expected 15 positives / 0 negatives, got $hits/$neg)"; rm -rf "$lx_t"; exit 1; }
 rm -rf "$lx_t"
 localex=$(lx_detect .)
 if [ -n "$localex" ]; then
