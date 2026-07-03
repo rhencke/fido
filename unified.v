@@ -36,10 +36,15 @@ Import ListNotations.
 (** THE unified command language — every admitted effect, one syntax.  VALUES are a PARAMETER
     [V] — ONE calculus, two instantiations: the [rstep] embedding takes [V := nat] (values
     identity, so the trace/race machinery applies verbatim) and the cmd.v bridge takes
-    [V := GoAny] (exact typed payloads).  Locations/channels stay [nat]; [UOut] carries the
-    rich [GoAny] payload at EVERY instantiation since output is observed, not raced; [vzero]
-    is what a recv on a closed, drained channel binds (the calculus-level zero — [0] at [nat];
-    the TYPED per-element zero is the run_cmd/World side's concern). *)
+    [V := GoAny], LIMITED to the output/panic/defer fragment (those payloads are exact;
+    heap/channel VALUE faithfulness is future work gated on typed state agreement —
+    plans/bridge-effects.md).  Locations/channels stay [nat]; [UOut] carries the rich [GoAny]
+    payload at EVERY instantiation since output is observed, not raced.  [vzero] is ONLY a
+    calculus parameter — what a closed, drained recv binds ([0] at [nat]); at [V := GoAny] it
+    does NOT represent Go's closed-recv semantics (Go's zero is PER ELEMENT TYPE, and no
+    single [GoAny] is it): channel receives stay mechanically outside the bridge fragment
+    ([cmd_unified.cmd_to_ucmd_fragment]) until [URecv]/[USelect] carry typed element-zero
+    structure. *)
 Section UnifiedVal.
 Context {V : Type}.
 Variable vzero : V.
