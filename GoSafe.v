@@ -19,7 +19,7 @@ From Fido Require Import GoTypes. (* the SHARED constant-aware type-category che
                                      (imports only GoAst) so GoSafe AND GoSem (slice 1 consults [svalue] /
                                      [expr_stmt_ok] via importing GoSafe) consult the SAME authority (single
                                      source of truth, no duplicate predicate).  GoSafe reuses [ptype]/[svalue]. *)
-From Stdlib Require Import String List Bool ZArith.
+From Stdlib Require Import String List Bool ZArith Eqdep_dec.
 Import ListNotations.
 Open Scope string_scope.
 
@@ -571,6 +571,257 @@ Proof.
   - rewrite H. reflexivity.
 Qed.
 Print Assumptions type_expr_nil_ptype.
+
+(** ===== MARK-INSENSITIVITY (locals rung 5b): categories do not see used flags =====
+    The evaluator (rung 5c) queries categories at a FIXED statement-entry scope while the checker
+    THREADS marks through the same expression — this suite proves the two views agree: marking a
+    name changes NO category, and the threaded scope of a marked run is the marked threaded scope
+    ([type_expr_mark_agrees]); the consumer-facing corollary is [tcat_mark_insensitive]. *)
+
+(** [scope_get] through a mark: the entry's category is untouched; only the looked-up name's flag
+    absorbs the mark. *)
+Lemma scope_get_mark : forall l s x,
+  scope_get (scope_mark l s) x
+  = match scope_get l x with
+    | Some (bc, u) => Some (bc, orb u (String.eqb x s))
+    | None => None
+    end.
+Proof.
+  induction l as [|[n [c u]] l' IHl]; intros s x; cbn; [reflexivity|].
+  destruct (String.eqb n s) eqn:Ens; cbn.
+  - destruct (String.eqb n x) eqn:Enx.
+    + apply String.eqb_eq in Ens, Enx. subst.
+      rewrite String.eqb_refl, orb_true_r. reflexivity.
+    + assert (Exs : String.eqb x s = false).
+      { apply String.eqb_neq. apply String.eqb_eq in Ens. subst.
+        intro Hxs. subst. rewrite String.eqb_refl in Enx. discriminate Enx. }
+      destruct (scope_get l' x) as [[bc u0]|]; [rewrite Exs, orb_false_r|]; reflexivity.
+  - destruct (String.eqb n x) eqn:Enx; cbn.
+    + assert (Exs : String.eqb x s = false).
+      { apply String.eqb_neq. apply String.eqb_eq in Enx. subst.
+        intro Hxs. subst. rewrite String.eqb_refl in Ens. discriminate Ens. }
+      rewrite Exs, orb_false_r. reflexivity.
+    + apply IHl.
+Qed.
+
+(** Marks COMMUTE (flags only; entry order and names untouched). *)
+Lemma scope_mark_comm : forall l s x,
+  scope_mark (scope_mark l s) x = scope_mark (scope_mark l x) s.
+Proof.
+  induction l as [|[n [c u]] l' IHl]; intros s x; cbn; [reflexivity|].
+  destruct (String.eqb n s) eqn:Es, (String.eqb n x) eqn:Ex; cbn;
+    rewrite ?Es, ?Ex; cbn; try reflexivity.
+  rewrite IHl. reflexivity.
+Qed.
+
+(** [ScopeS] equality from LIST equality — the wf witness is a bool-equation, so it is unique
+    ([UIP_dec] on [bool], a theorem, not an axiom). *)
+Lemma scopeS_eq : forall G1 G2 : ScopeS, sc_list G1 = sc_list G2 -> G1 = G2.
+Proof.
+  intros [l1 ok1] [l2 ok2]; cbn. intros ->.
+  f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
+
+Lemma scope_markS_comm : forall G s x,
+  scope_markS (scope_markS G s) x = scope_markS (scope_markS G x) s.
+Proof. intros G s x. apply scopeS_eq. cbn. apply scope_mark_comm. Qed.
+
+(** the marked run of every dispatch case: SAME dispatch [d], threaded scopes mark-related. *)
+Lemma opt_pair_mark_agree : forall (A : Type) (d : option A) (G1 : ScopeS) (s : string),
+  match (match d with Some c => Some (c, scope_markS G1 s) | None => None end),
+        (match d with Some c => Some (c, G1) | None => None end) with
+  | Some (c1, Ga), Some (c2, Gb) => c1 = c2 /\ Ga = scope_markS Gb s
+  | None, None => True
+  | _, _ => False
+  end.
+Proof. intros A [c|] G1 s; cbn; auto. Qed.
+
+Lemma type_expr_mark_agrees : forall e G s,
+  match type_expr (scope_markS G s) e, type_expr G e with
+  | Some (c1, Ga), Some (c2, Gb) => c1 = c2 /\ Ga = scope_markS Gb s
+  | None, None => True
+  | _, _ => False
+  end.
+Proof.
+  fix IH 1. intro e.
+  destruct e as [i|z|o e0|o l r|e0 f|e0 idx|e0 lo hi|e0 args|e0 T|c e0|t es|kt vt kvs|str|zc];
+    intros G s.
+  - (* EId *)
+    cbn [type_expr sc_list scope_markS].
+    rewrite scope_get_mark.
+    destruct (scope_get (sc_list G) (proj1_sig i)) as [[bc u]|].
+    + split; [reflexivity|]. apply scope_markS_comm.
+    + destruct (special_ident (proj1_sig i)) as [[?| | | | | |]|]; cbn; auto.
+  - (* EInt *) cbn; auto.
+  - (* EUn *)
+    pose proof (IH e0 G s) as H0. cbn [type_expr].
+    destruct (type_expr (scope_markS G s) e0) as [[c1 Ga]|];
+      destruct (type_expr G e0) as [[c0 G1]|]; try exact H0; try contradiction.
+    destruct H0 as [-> ->]. apply opt_pair_mark_agree.
+  - (* EBn *)
+    pose proof (IH l G s) as Hl. cbn [type_expr].
+    destruct (type_expr (scope_markS G s) l) as [[cl1 Ga]|];
+      destruct (type_expr G l) as [[cl G1]|]; try exact Hl; try contradiction.
+    destruct Hl as [-> ->].
+    pose proof (IH r G1 s) as Hr.
+    destruct (type_expr (scope_markS G1 s) r) as [[cr1 Gb]|];
+      destruct (type_expr G1 r) as [[cr G2]|]; try exact Hr; try contradiction.
+    destruct Hr as [-> ->]. apply opt_pair_mark_agree.
+  - (* ESel *) cbn; exact I.
+  - (* EIndex *)
+    destruct e0 as [ | | | | | | | | | |t es| | | ]; try (cbn; exact I).
+    cbn [type_expr].
+    destruct (is_int_goty t) eqn:Hit; [|cbn; exact I].
+    set (F := (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end)).
+    assert (Hels : forall es' G0,
+      match F (scope_markS G0 s) es', F G0 es' with
+      | Some Ga, Some Gb => Ga = scope_markS Gb s
+      | None, None => True
+      | _, _ => False
+      end).
+    { subst F. induction es' as [|el es'' IHes]; intro G0; cbn.
+      - reflexivity.
+      - pose proof (IH el G0 s) as Hel.
+        destruct (type_expr (scope_markS G0 s) el) as [[ce1 Ga]|];
+          destruct (type_expr G0 el) as [[ce G1]|]; try exact Hel; try contradiction.
+        destruct Hel as [-> ->].
+        destruct (assignable_to_ty ce t); [apply IHes|exact I]. }
+    specialize (Hels es G).
+    destruct (F (scope_markS G s) es) as [Ga|];
+      destruct (F G es) as [Ges|]; try exact Hels; try contradiction.
+    subst Ga.
+    pose proof (IH idx Ges s) as Hi.
+    destruct (type_expr (scope_markS Ges s) idx) as [[ci1 Gb]|];
+      destruct (type_expr Ges idx) as [[ci Gi]|]; try exact Hi; try contradiction.
+    destruct Hi as [-> ->]. apply opt_pair_mark_agree.
+  - (* ESlice *) cbn; exact I.
+  - (* ECall *)
+    destruct e0 as [i| | | | | | | | | | | | | ]; try (destruct args as [|a0 [|b0 args']]; cbn; exact I).
+    destruct args as [|a [|b0 args']]; try (cbn; exact I).
+    cbn [type_expr sc_list scope_markS].
+    rewrite scope_get_mark.
+    destruct (scope_get (sc_list G) (proj1_sig i)) as [[bc u]|]; [cbn; exact I|].
+    pose proof (IH a G s) as Ha.
+    destruct (type_expr (scope_markS G s) a) as [[ca1 Ga]|];
+      destruct (type_expr G a) as [[ca G1]|]; try exact Ha; try contradiction.
+    destruct Ha as [-> ->]. apply opt_pair_mark_agree.
+  - (* EAssert *) cbn; exact I.
+  - (* EConv *)
+    destruct c as [ty|ty|mkt mvt]; cbn [type_expr convty_ty].
+    + destruct (goty_supported (GTSlice ty)); [|cbn; exact I].
+      pose proof (IH e0 G s) as H0.
+      destruct (type_expr (scope_markS G s) e0) as [[c1 Ga]|];
+        destruct (type_expr G e0) as [[c0 G1]|]; try exact H0; try contradiction.
+      destruct H0 as [-> ->]. apply opt_pair_mark_agree.
+    + destruct (goty_supported (GTChan ty)); [|cbn; exact I].
+      pose proof (IH e0 G s) as H0.
+      destruct (type_expr (scope_markS G s) e0) as [[c1 Ga]|];
+        destruct (type_expr G e0) as [[c0 G1]|]; try exact H0; try contradiction.
+      destruct H0 as [-> ->]. apply opt_pair_mark_agree.
+    + cbn; exact I.
+  - (* ESliceLit *)
+    cbn [type_expr].
+    destruct (goty_supported t) eqn:Hgs; [|cbn; exact I].
+    set (F := (fix go_els (G0 : ScopeS) (l : list GExpr) {struct l} : option ScopeS :=
+                    match l with
+                    | nil => Some G0
+                    | el :: l' =>
+                        match type_expr G0 el with
+                        | Some (ce, G1) => if assignable_to_ty ce t then go_els G1 l' else None
+                        | None => None
+                        end
+                    end)).
+    assert (Hels : forall es' G0,
+      match F (scope_markS G0 s) es', F G0 es' with
+      | Some Ga, Some Gb => Ga = scope_markS Gb s
+      | None, None => True
+      | _, _ => False
+      end).
+    { subst F. induction es' as [|el es'' IHes]; intro G0; cbn.
+      - reflexivity.
+      - pose proof (IH el G0 s) as Hel.
+        destruct (type_expr (scope_markS G0 s) el) as [[ce1 Ga]|];
+          destruct (type_expr G0 el) as [[ce G1]|]; try exact Hel; try contradiction.
+        destruct Hel as [-> ->].
+        destruct (assignable_to_ty ce t); [apply IHes|exact I]. }
+    specialize (Hels es G).
+    destruct (F (scope_markS G s) es) as [Ga|];
+      destruct (F G es) as [Ges|]; try exact Hels; try contradiction.
+    subst Ga. cbn; auto.
+  - (* EMapLit *)
+    cbn [type_expr].
+    destruct (andb (is_int_goty kt) (goty_supported vt)) eqn:Hik; [|cbn; exact I].
+    set (F := (fix go_kvs (G0 : ScopeS) (acc : list Z) (l : list (GExpr * GExpr)) {struct l}
+                    : option (list Z * ScopeS) :=
+                    match l with
+                    | nil => Some (rev acc, G0)
+                    | (k, v) :: l' =>
+                        match type_expr G0 k with
+                        | Some (ck, G1) =>
+                            match type_expr G1 v with
+                            | Some (cv, G2) =>
+                                match int_const_val ck with
+                                | Some z =>
+                                    if andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)
+                                    then go_kvs G2 (z :: acc) l' else None
+                                | None => None
+                                end
+                            | None => None
+                            end
+                        | None => None
+                        end
+                    end)).
+    assert (Hkvs : forall l G0 acc,
+      match F (scope_markS G0 s) acc l, F G0 acc l with
+      | Some (zs1, Ga), Some (zs2, Gb) => zs1 = zs2 /\ Ga = scope_markS Gb s
+      | None, None => True
+      | _, _ => False
+      end).
+    { subst F. induction l as [|[k v] l' IHl]; intros G0 acc; cbn.
+      - auto.
+      - pose proof (IH k G0 s) as Hk.
+        destruct (type_expr (scope_markS G0 s) k) as [[ck1 Ga]|];
+          destruct (type_expr G0 k) as [[ck G1]|]; try exact Hk; try contradiction.
+        destruct Hk as [-> ->].
+        pose proof (IH v G1 s) as Hv.
+        destruct (type_expr (scope_markS G1 s) v) as [[cv1 Gb]|];
+          destruct (type_expr G1 v) as [[cv G2]|]; try exact Hv; try contradiction.
+        destruct Hv as [-> ->].
+        destruct (int_const_val ck) as [z|]; [|exact I].
+        destruct (andb (assignable_to_ty ck kt) (assignable_to_ty cv vt)); [apply IHl|exact I]. }
+    specialize (Hkvs kvs G nil).
+    destruct (F (scope_markS G s) nil kvs) as [[zs1 Ga]|];
+      destruct (F G nil kvs) as [[zs Gk]|]; try exact Hkvs; try contradiction.
+    destruct Hkvs as [-> ->].
+    destruct (nodup_z zs); cbn; auto.
+  - (* EStr *) cbn; auto.
+  - (* EHex *) cbn; auto.
+Qed.
+
+(** The scope-aware CATEGORY PROJECTION — rung 5c's evaluator authority. *)
+Definition tcat (G : ScopeS) (e : GExpr) : option PTy := option_map fst (type_expr G e).
+
+Corollary tcat_mark_insensitive : forall G s e, tcat (scope_markS G s) e = tcat G e.
+Proof.
+  intros G s e. unfold tcat. pose proof (type_expr_mark_agrees e G s) as H.
+  destruct (type_expr (scope_markS G s) e) as [[c1 Ga]|];
+    destruct (type_expr G e) as [[c2 Gb]|]; try contradiction.
+  - destruct H as [-> _]. reflexivity.
+  - reflexivity.
+Qed.
+
+(** The rung-3 bridge in [tcat] vocabulary: at the empty scope the projection IS closed [ptype]. *)
+Corollary tcat_nil_ptype : forall e, tcat scope_empty e = ptype e.
+Proof. exact type_expr_nil_ptype. Qed.
+Print Assumptions tcat_mark_insensitive.
 
 (** The SEAL pins — every forged shape is UNREPRESENTABLE (its witness cannot be built):
     constant/aggregate/nil local categories; recognized-name, blank, duplicate, and
