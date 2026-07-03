@@ -26,8 +26,9 @@
     There is NO public projection-observer theorem: the [cmd_out_events]/[cmd_panic]/[cmd_defers] projections,
     their [go] grounding ([go_chars]), and the unified-side run/unwind lemmas are LOCAL (file-private) proof
     plumbing — no exported theorem concludes with them, so a consumer cannot prove bridge facts against a free
-    observer instead of [run_cmd].  (No concurrency ops in this fragment, so [uc_bufs]/[uc_trace] are
-    untouched; [uc_heap] carries the heap commands' effects, bridged on the defer-free fragment.)
+    observer instead of [run_cmd].  (No concurrency ops in this fragment, so [uc_bufs] is untouched;
+    [uc_heap] carries the heap commands' effects and heap steps append [KWrite]/[KRead] to [uc_trace] —
+    the trace is existential in the heap bridge's statement.)
     Proof-only: emits no Go, adds no axiom. *)
 
 From Fido Require Import preamble concurrency cmd unified.
@@ -994,12 +995,12 @@ Qed.
     SINGLE public defer bridge.  Composes cmd.v's [run_cmd_terminates] (some [fuel] completes) with
     [bridge_agrees_complete] (which threads the panic through [unwind_prefix_panic], grounded on
     [run_cmd_panic_char]).
-    ⚠ THE [no_heap] QUARANTINE of THIS theorem: heap commands are covered by the DEFER-FREE
-    heap bridge [bridge_heap_agrees] below, not by this one — and no heap agreement can be
-    UNCONDITIONAL: cmd.v gives an unallocated access NO behavior ([run_cmd] is [None] at every
-    fuel — [cread_unallocated_absent] below) while the calculus' total [uc_heap] default-binds, so
-    the two sides genuinely diverge outside allocated memory.  The DEFERRED-heap unwind and the
-    general conditional heap bridge remain — plans/bridge-effects.md. *)
+    ⚠ THE [no_heap] QUARANTINE of THIS theorem: heap commands are covered by the GENERAL
+    completing-command heap bridge [bridge_heap_agrees] below (heap + defers + final-heap
+    agreement), not by this one — and no heap agreement can be UNCONDITIONAL: cmd.v gives an
+    unallocated access NO behavior ([run_cmd] is [None] at every fuel —
+    [cread_unallocated_absent] below) while the calculus' total [uc_heap] default-binds, so
+    the two sides genuinely diverge outside allocated memory. *)
 Theorem bridge_agrees : forall (c : Cmd unit) ucap w,
   no_heap c = true ->
   exists (uc : UConfig) (oc : Outcome unit) (fuel : nat),

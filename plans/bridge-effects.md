@@ -55,7 +55,7 @@ COMPLETE): `bridge_agrees` — its ladder discipline and landing checklist apply
    `nat` (relation sites gain the literal `0`), `cmd_unified.v`/`GoSemSafe.v` instantiate
    `GoAny` with the vzero parameter UNIVERSALLY QUANTIFIED (`vz`; licenses per theorem —
    see the fork note above); the slice-9 embedding compiled UNCHANGED at `V := nat`.
-2. **HEAP** — COMPLETE (parts i + ii; the general conditional heap bridge is landed).
+2. **HEAP (read/write)** — COMPLETE (parts i + ii; the general conditional heap bridge is landed).  ALLOCATION is separate and NON-CORE today: no `CAlloc` constructor exists — a `Cmd` cannot express allocation at all (unrepresentable, not merely unproven) — and adding it is 2d below.
    CURRENT STATE (one authority; the theorem names carry the detail):
    - `Cmd` has the typed heap pair (`CWrite` tag-preserving via `tag_eq`; `CRead` binds
      the boxed cell — the syntax's first BINDER constructor); an UNALLOCATED access is
